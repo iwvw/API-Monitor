@@ -28,14 +28,33 @@ function requireAuth(req, res, next) {
 
 app.use(express.static('public'));
 
+// 为确保浏览器请求 favicon 时能正确返回图标（兼容 /favicon.ico 请求）
+app.get('/favicon.ico', (req, res) => {
+  const faviconPath = path.join(__dirname, 'public', 'logo.png');
+  if (fs.existsSync(faviconPath)) {
+    return res.sendFile(faviconPath);
+  }
+  return res.sendStatus(204);
+});
+
+// 配置目录（可通过环境变量覆盖），优先使用挂载的配置目录
+// 推荐在 Docker 中挂载为 `/app/config`，或在本地使用 `./data` 挂载到该路径
+const CONFIG_DIR = process.env.CONFIG_DIR || path.join(__dirname, 'config');
 // 数据文件路径
-const ACCOUNTS_FILE = path.join(__dirname, 'accounts.json');
-const PASSWORD_FILE = path.join(__dirname, 'password.json');
+const ACCOUNTS_FILE = path.join(CONFIG_DIR, 'accounts.json');
+const PASSWORD_FILE = path.join(CONFIG_DIR, 'password.json');
 
 // 读取服务器存储的账号
 function loadServerAccounts() {
   try {
     if (fs.existsSync(ACCOUNTS_FILE)) {
+      // 检查是否是文件而非目录
+      const stats = fs.statSync(ACCOUNTS_FILE);
+      if (!stats.isFile()) {
+        console.error('❌ accounts.json 是目录而非文件，正在删除...');
+        fs.rmSync(ACCOUNTS_FILE, { recursive: true });
+        return [];
+      }
       const data = fs.readFileSync(ACCOUNTS_FILE, 'utf8');
       return JSON.parse(data);
     }
@@ -48,6 +67,20 @@ function loadServerAccounts() {
 // 保存账号到服务器
 function saveServerAccounts(accounts) {
   try {
+    // 确保配置目录存在
+    if (!fs.existsSync(CONFIG_DIR)) {
+      fs.mkdirSync(CONFIG_DIR, { recursive: true });
+    }
+
+    // 如果目标路径是目录则删除以恢复为文件
+    if (fs.existsSync(ACCOUNTS_FILE)) {
+      const stats = fs.statSync(ACCOUNTS_FILE);
+      if (!stats.isFile()) {
+        console.warn('⚠️ 发现 accounts.json 是目录，正在删除...');
+        fs.rmSync(ACCOUNTS_FILE, { recursive: true });
+      }
+    }
+
     fs.writeFileSync(ACCOUNTS_FILE, JSON.stringify(accounts, null, 2), 'utf8');
     return true;
   } catch (e) {
@@ -56,10 +89,23 @@ function saveServerAccounts(accounts) {
   }
 }
 
-// 读取管理员密码
+// 读取管理员密码（优先环境变量，其次文件）
 function loadAdminPassword() {
+  // 优先从环境变量读取
+  if (process.env.ADMIN_PASSWORD) {
+    return process.env.ADMIN_PASSWORD;
+  }
+  
+  // 其次从文件读取
   try {
     if (fs.existsSync(PASSWORD_FILE)) {
+      // 检查是否是文件而非目录
+      const stats = fs.statSync(PASSWORD_FILE);
+      if (!stats.isFile()) {
+        console.error('❌ password.json 是目录而非文件，正在删除...');
+        fs.rmSync(PASSWORD_FILE, { recursive: true });
+        return null;
+      }
       const data = fs.readFileSync(PASSWORD_FILE, 'utf8');
       return JSON.parse(data).password;
     }
@@ -69,9 +115,41 @@ function loadAdminPassword() {
   return null;
 }
 
+// 检查密码是否已在文件中设置（用于 /api/set-password 判断）
+function isPasswordSavedToFile() {
+  try {
+    if (fs.existsSync(PASSWORD_FILE)) {
+      const stats = fs.statSync(PASSWORD_FILE);
+      if (!stats.isFile()) {
+        return false;
+      }
+      const data = fs.readFileSync(PASSWORD_FILE, 'utf8');
+      const parsed = JSON.parse(data);
+      return !!parsed.password;
+    }
+  } catch (e) {
+    return false;
+  }
+  return false;
+}
+
 // 保存管理员密码
 function saveAdminPassword(password) {
   try {
+    // 确保配置目录存在
+    if (!fs.existsSync(CONFIG_DIR)) {
+      fs.mkdirSync(CONFIG_DIR, { recursive: true });
+    }
+
+    // 如果目标路径是目录则删除以恢复为文件
+    if (fs.existsSync(PASSWORD_FILE)) {
+      const stats = fs.statSync(PASSWORD_FILE);
+      if (!stats.isFile()) {
+        console.warn('⚠️ 发现 password.json 是目录，正在删除...');
+        fs.rmSync(PASSWORD_FILE, { recursive: true });
+      }
+    }
+
     fs.writeFileSync(PASSWORD_FILE, JSON.stringify({ password }, null, 2), 'utf8');
     return true;
   } catch (e) {
@@ -461,11 +539,17 @@ app.get('/api/check-password', (req, res) => {
 });
 
 // 设置管理员密码（首次）
+// 如果使用了 ADMIN_PASSWORD 环境变量，则跳过此步骤
 app.post('/api/set-password', (req, res) => {
   const { password } = req.body;
-  const savedPassword = loadAdminPassword();
   
-  if (savedPassword) {
+  // 如果已设置了环境变量密码，拒绝再次设置
+  if (process.env.ADMIN_PASSWORD) {
+    return res.status(400).json({ error: '密码已通过环境变量设置，无法修改' });
+  }
+  
+  // 检查文件中是否已设置密码
+  if (isPasswordSavedToFile()) {
     return res.status(400).json({ error: '密码已设置，无法重复设置' });
   }
   
@@ -672,8 +756,17 @@ app.post('/api/project/rename', requireAuth, async (req, res) => {
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`✨ Zeabur Monitor 运行在 http://localhost:${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`✨ Zeabur Monitor 运行在 http://0.0.0.0:${PORT}`);
+  
+  // 检查密码配置
+  if (process.env.ADMIN_PASSWORD) {
+    console.log(`🔐 已通过环境变量 ADMIN_PASSWORD 设置管理员密码`);
+  } else if (isPasswordSavedToFile()) {
+    console.log(`🔐 管理员密码已保存到文件`);
+  } else {
+    console.log(`⚠️ 未设置管理员密码，首次访问时请设置`);
+  }
   
   const envAccounts = getEnvAccounts();
   const serverAccounts = loadServerAccounts();

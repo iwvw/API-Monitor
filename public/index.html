@@ -1,815 +1,1242 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-CN">
+
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Zeabur 多账号监控面板</title>
-  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="icon" type="image/png" href="/logo.png">
+  <link rel="shortcut icon" href="/logo.png">
+  <link rel="icon" href="/logo.png" sizes="32x32">
+  <meta name="msapplication-TileImage" content="/logo.png">
   <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.prod.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
+    ::-webkit-scrollbar {
+      display: none !important;
+    }
+
     :root {
-      --card-opacity: 0.3;
+      --primary-color: #6366f1;
+      --primary-dark: #4f46e5;
+      --primary-light: #818cf8;
+      --secondary-color: #f97316;
+      --success-color: #10b981;
+      --warning-color: #f59e0b;
+      --danger-color: #ef4444;
+      --info-color: #3b82f6;
+
+      /* Light theme */
+      --bg-primary: #ffffff;
+      --bg-secondary: #f9fafb;
+      --bg-tertiary: #f3f4f6;
+      --text-primary: #111827;
+      --text-secondary: #4b5563;
+      --text-tertiary: #6b7280;
+      --border-color: #e5e7eb;
+      --card-bg: #ffffff;
+      --card-shadow: 5px 5px 8px -5px rgba(0, 0, 0, 0.1), 0 7px 7px -7px rgba(0, 0, 0, 0.04);
+      --card-hover-shadow: 5px 5px 6px 0px rgb(0 0 0 / 0%), 4px 4px 5px 0px rgb(0 0 0 / 9%);
+      --modal-overlay: rgba(0, 0, 0, 0.5);
+      --input-bg: #ffffff;
+      --input-border: #d1d5db;
+      --input-focus-border: #6366f1;
+      --button-primary-bg: #6366f1;
+      --button-primary-hover: #4f46e5;
+      --button-secondary-bg: #f3f4f6;
+      --button-secondary-hover: #e5e7eb;
+      --status-running: #10b981;
+      --status-stopped: #ef4444;
+      --status-suspended: #f59e0b;
+      --status-deploying: #8b5cf6;
+      --status-paused: #6b7280;
     }
-    @keyframes gradient {
-      0% { background-position: 0% 50%; }
-      50% { background-position: 100% 50%; }
-      100% { background-position: 0% 50%; }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg-primary: #111827;
+        --bg-secondary: #1f2937;
+        --bg-tertiary: #374151;
+        --text-primary: #f9fafb;
+        --text-secondary: #d1d5db;
+        --text-tertiary: #9ca3af;
+        --border-color: #374151;
+        --card-bg: #1f2937;
+        --card-shadow: 2px 2px 2px 0px rgba(0, 0, 0, 0.3), 2px 2px 2px 0px rgba(0, 0, 0, 0.2);
+        --card-hover-shadow: 5px 5px 6px 0px rgba(0, 0, 0, 0.3), 4px 4px 5px 0px rgba(0, 0, 0, 0.2);
+        --modal-overlay: rgba(0, 0, 0, 0.7);
+        --input-bg: #374151;
+        --input-border: #4b5563;
+        --input-focus-border: #6366f1;
+        --button-primary-bg: #6366f1;
+        --button-primary-hover: #4f46e5;
+        --button-secondary-bg: #374151;
+        --button-secondary-hover: #4b5563;
+        --status-running: #10b981;
+        --status-stopped: #ef4444;
+        --status-suspended: #f59e0b;
+        --status-deploying: #8b5cf6;
+        --status-paused: #6b7280;
+      }
     }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      background: url('bg.png') center/cover fixed;
-      position: relative;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      background-color: var(--bg-primary);
+      color: var(--text-primary);
+      line-height: 1.6;
+      transition: background-color 0.3s, color 0.3s;
       min-height: 100vh;
-      padding: 20px;
     }
-    body::before {
-      content: '';
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background: rgba(255, 255, 255, 0.05);
-      z-index: 0;
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 12px;
     }
-    .container { 
-      max-width: 1400px; 
-      margin: 0 auto; 
-      position: relative;
-      z-index: 1;
-    }
-    h1 {
-      color: white;
-      margin-bottom: 30px;
-      font-size: 28px;
-      font-weight: 700;
-      text-shadow: 0 2px 4px rgba(0,0,0,0.2);
-    }
-    .refresh-btn {
-      background: linear-gradient(135deg, #f696c6 0%, #fbb6d8 100%);
-      color: white;
-      border: 2px solid rgba(255,255,255,0.3);
-      padding: 10px 20px;
-      border-radius: 25px;
-      cursor: pointer;
-      font-size: 14px;
-      font-weight: 600;
-      transition: all 0.3s;
-      box-shadow: 0 4px 15px rgba(246,150,198,0.3);
-    }
-    .refresh-btn:hover { 
-      transform: translateY(-2px);
-      box-shadow: 0 6px 20px rgba(0,0,0,0.3);
-    }
-    .refresh-btn:disabled {
-      opacity: 0.6;
-      cursor: not-allowed;
-      transform: none;
-    }
-    @keyframes fadeInUp {
-      from {
-        opacity: 0;
-        transform: translateY(20px);
-      }
-      to {
-        opacity: 1;
-        transform: translateY(0);
-      }
-    }
-    .account-card {
-      background: rgba(255,255,255,var(--card-opacity));
-      backdrop-filter: blur(var(--blur-amount)) saturate(var(--saturate-amount));
-      -webkit-backdrop-filter: blur(var(--blur-amount)) saturate(var(--saturate-amount));
-      border-radius: 20px;
-      padding: 24px;
-      margin-bottom: 20px;
-      box-shadow: 0 8px 32px rgba(0, 0, 0, var(--shadow-opacity));
-      border: 1px solid rgba(255,255,255,var(--border-opacity));
-      transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.2s ease, z-index 0s 0.2s;
-      animation: fadeInUp 0.6s ease-out;
-      will-change: transform;
-      transform: translate3d(0, 0, 0);
-      position: relative;
-      z-index: 1;
-    }
-    .account-card:hover {
-      transform: translate3d(0, -8px, 0) scale(1.02);
-      border-color: rgba(255,255,255,0.3);
-      z-index: 10;
-      transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.2s ease, z-index 0s 0s;
-    }
-    .account-header {
+
+    .header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 15px;
-      padding: 10px;
-      margin: -10px -10px 15px -10px;
-      border-radius: 12px;
-      transition: background 0.2s;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+      gap: 10px;
     }
-    .account-header:hover {
-      background: rgba(255,255,255,0.1);
-    }
-    .account-name {
+
+    .title {
       font-size: 20px;
-      font-weight: bold;
-      color: #333;
-    }
-    .balance {
-      font-size: 24px;
-      font-weight: bold;
-      color: #4CAF50;
-    }
-    .balance.low { color: #ff9800; }
-    .balance.critical { color: #f44336; }
-    .projects-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-      gap: 16px;
-      margin-top: 15px;
-    }
-    @keyframes shimmer {
-      0% { background-position: -1000px 0; }
-      100% { background-position: 1000px 0; }
-    }
-    .project-card {
-      background: rgba(255,255,255,var(--card-opacity));
-      backdrop-filter: blur(var(--blur-amount-small)) saturate(var(--saturate-amount));
-      -webkit-backdrop-filter: blur(var(--blur-amount-small)) saturate(var(--saturate-amount));
-      border-radius: 16px;
-      padding: 20px;
-      border: 1px solid rgba(255,255,255,var(--border-opacity-light));
-      position: relative;
-      transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-      display: flex;
-      flex-direction: column;
-      min-height: 280px;
-      height: 100%;
-      overflow: hidden;
-      box-shadow: 0 4px 16px rgba(0, 0, 0, var(--shadow-opacity));
-    }
-    .project-card::before {
-      content: '';
-      position: absolute;
-      top: 0;
-      left: -2px;
-      right: -2px;
-      bottom: 0;
-      background: linear-gradient(135deg, #f696c6, #fbb6d8, #fdd7e8);
-      border-radius: 16px;
-      z-index: -1;
-      opacity: 0;
-      transition: opacity 0.4s;
-    }
-    .project-card:hover {
-      transform: translateY(-8px) scale(1.03);
-    }
-    .project-card:hover::before {
-      opacity: 1;
-    }
-    .project-name {
-      font-weight: bold;
-      color: #333;
-      margin-bottom: 5px;
-    }
-    .project-name button:hover {
-      background: rgba(246, 150, 198, 0.4) !important;
-      transform: scale(1.1);
-    }
-    .project-info {
-      font-size: 12px;
-      color: #666;
-      margin-bottom: 10px;
-    }
-    .service-item {
-      background: rgba(255,255,255,var(--service-opacity));
-      backdrop-filter: blur(var(--blur-amount-tiny)) saturate(var(--saturate-amount));
-      -webkit-backdrop-filter: blur(var(--blur-amount-tiny)) saturate(var(--saturate-amount));
-      padding: 14px 16px;
-      margin: 8px 0;
-      border-radius: 12px;
-      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-      border: 1px solid rgba(255, 255, 255, var(--border-opacity-strong));
-      min-height: 70px;
+      font-weight: 700;
+      color: var(--text-primary);
       display: flex;
       align-items: center;
-      gap: 20px;
-      position: relative;
-      overflow: hidden;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, var(--shadow-opacity-light));
+      gap: 8px;
     }
-    .service-item::before {
-      content: '';
-      position: absolute;
-      top: 0;
-      left: -100%;
-      width: 100%;
+
+    .controls {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .btn {
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-weight: 500;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.15s;
+      border: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      white-space: nowrap;
+    }
+
+    .btn-primary {
+      background-color: var(--button-primary-bg);
+      color: white;
+    }
+
+    .btn-primary:hover {
+      box-shadow: var(--card-shadow);
+    }
+
+    .btn-primary:active {
+      transform: scale(0.995);
+    }
+
+    .btn-secondary {
+      background-color: var(--button-secondary-bg);
+      color: var(--text-primary);
+    }
+
+    .btn-secondary:hover {
+      background-color: var(--button-secondary-hover);
+    }
+
+    .btn-danger {
+      background-color: var(--danger-color);
+      color: white;
+    }
+
+    .btn-danger:hover {
+      background-color: #dc2626;
+    }
+
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .info-card {
+      display: none;
+      background-color: var(--card-bg);
+      border-radius: 10px;
+      padding: 8px;
+      margin-bottom: 10px;
+      border: 1px solid var(--border-color);
+    }
+
+    .info-card-title {
+      font-weight: 600;
+      margin-bottom: 8px;
+      color: var(--primary-color);
+    }
+
+    .info-card-content {
+      color: var(--text-secondary);
+      font-size: 14px;
+    }
+
+    .stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .stat-card {
+      padding: 8px 20px;
+      gap: 0px;
+      background-color: var(--card-bg);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      box-shadow: var(--card-shadow);
+      border: 1px solid var(--border-color);
+      transition: transform 0.3s, box-shadow 0.3s;
+      justify-content: space-between;
+      align-content: center;
+    }
+
+    .stat-card:hover {
+      transform: translateY(-1px);
+      box-shadow: var(--card-hover-shadow);
+    }
+
+    .stat-label {
+      font-size: 14px;
+      color: var(--text-secondary);
+    }
+
+    .stat-value {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--primary-color);
+    }
+
+    .account-card {
+      background-color: var(--card-bg);
+      border-radius: 10px;
+      padding: 12px;
+      margin-bottom: 12px;
+      box-shadow: var(--card-shadow);
+      border: 1px solid var(--border-color);
+      transition: transform 0.3s, box-shadow 0.3s;
+    }
+
+    /* .account-card:hover {
+      transform: translateY(-2px);
+      box-shadow: var(--card-hover-shadow);
+    } */
+
+    .account-header {
+      padding-left: 18px !important;
+      background-color: var(--card-bg);
+      border-radius: 10px;
+      padding: 10px;
+      border: 1px solid var(--border-color);
+      transition: transform 0.3s, box-shadow 0.3s;
       height: 100%;
-      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4), transparent);
-      transition: left 0.5s;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      cursor: pointer;
     }
-    .service-item:hover {
-      background: rgba(255,255,255,0.45);
-      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
-      transform: translateX(8px) scale(1.02);
-      border-color: rgba(255, 255, 255, 0.6);
+
+    .account-header:hover {
+      box-shadow: var(--card-shadow);
     }
-    .service-item:hover::before {
-      left: 100%;
+
+    .account-header:active {
+      transform: scale(0.995);
     }
+
+    .account-info {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .account-name {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .account-email {
+      font-size: 14px;
+      color: var(--text-secondary);
+    }
+
+    .account-balance {
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .balance {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--success-color);
+    }
+
+    .balance.low {
+      color: var(--warning-color);
+    }
+
+    .balance.critical {
+      color: var(--danger-color);
+    }
+
+    .ai-balance {
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      color: white;
+      padding: 6px 12px;
+      border-radius: 20px;
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .projects-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .project-card {
+      box-shadow: var(--card-shadow);
+      background-color: var(--card-bg);
+      border-radius: 10px;
+      padding: 12px;
+      border: 1px solid var(--border-color);
+      transition: transform 0.3s, box-shadow 0.3s;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .project-card:hover {
+      transform: translateY(-1px);
+      box-shadow: var(--card-hover-shadow);
+    }
+
+    .project-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      margin-bottom: 12px;
+    }
+
+    .project-name {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-primary);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .project-info {
+      font-size: 12px;
+      color: var(--text-tertiary);
+      margin-bottom: 8px;
+    }
+
+    .project-cost {
+      font-size: 16px;
+      font-weight: 700;
+      color: var(--info-color);
+    }
+
+    .project-stats {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 12px;
+      font-size: 13px;
+      color: var(--text-secondary);
+    }
+
     .services-container {
       flex: 1;
       display: flex;
       flex-direction: column;
+      gap: 8px;
     }
+
+    .service-item {
+      background-color: var(--bg-secondary);
+      border-radius: 6px;
+      padding: 8px;
+      border: 1px solid var(--border-color);
+      transition: all 0.15s;
+    }
+
+    .service-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+
+    .service-name {
+      font-weight: 600;
+      font-size: 14px;
+      color: var(--text-primary);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .service-status {
+      padding: 4px 8px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .status-running {
+      background-color: rgba(16, 185, 129, 0.2);
+      color: var(--status-running);
+    }
+
+    .status-stopped {
+      background-color: rgba(239, 68, 68, 0.2);
+      color: var(--status-stopped);
+    }
+
+    .status-suspended {
+      background-color: rgba(245, 158, 11, 0.2);
+      color: var(--status-suspended);
+    }
+
+    .status-deploying {
+      background-color: rgba(139, 92, 246, 0.2);
+      color: var(--status-deploying);
+    }
+
+    .status-paused {
+      background-color: rgba(107, 114, 128, 0.2);
+      color: var(--status-paused);
+    }
+
+    .service-info {
+      font-size: 12px;
+      color: var(--text-tertiary);
+      margin-bottom: 8px;
+    }
+
+    .service-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .service-btn {
+      padding: 4px 8px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+      border: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    .btn-pause {
+      background-color: rgba(245, 158, 11, 0.2);
+      color: var(--warning-color);
+    }
+
+    .btn-pause:hover {
+      background-color: rgba(245, 158, 11, 0.3);
+    }
+
+    .btn-restart {
+      background-color: rgba(59, 130, 246, 0.2);
+      color: var(--info-color);
+    }
+
+    .btn-restart:hover {
+      background-color: rgba(59, 130, 246, 0.3);
+    }
+
+    .btn-logs {
+      background-color: rgba(139, 92, 246, 0.2);
+      color: var(--status-deploying);
+    }
+
+    .btn-logs:hover {
+      background-color: rgba(139, 92, 246, 0.3);
+    }
+
+    .domains-container {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      margin-top: 12px;
+      padding-top: 12px;
+      border-top: 1px solid var(--border-color);
+    }
+
+    .domain-link {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      background-color: var(--bg-secondary);
+      border-radius: 8px;
+      color: var(--primary-color);
+      text-decoration: none;
+      font-size: 13px;
+      font-weight: 500;
+      transition: all 0.2s;
+      border: 1px solid var(--border-color);
+    }
+
+    .domain-link:hover {
+      background-color: var(--bg-tertiary);
+    }
+
+    .domain-badge {
+      background-color: var(--primary-color);
+      color: white;
+      padding: 2px 6px;
+      border-radius: 10px;
+      font-size: 10px;
+      font-weight: 600;
+    }
+
     .modal-overlay {
       position: fixed;
       top: 0;
       left: 0;
       right: 0;
       bottom: 0;
-      background: rgba(0,0,0,0.5);
-      backdrop-filter: blur(4px);
+      background-color: var(--modal-overlay);
       display: flex;
       align-items: center;
       justify-content: center;
       z-index: 1000;
+      padding: 20px;
     }
-    .modal-content {
-      background: white;
-      border-radius: 16px;
-      padding: 30px;
+
+    .modal {
+      background-color: var(--card-bg);
+      border-radius: 12px;
+      padding: 24px;
       max-width: 500px;
-      width: 90%;
-      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+      width: 100%;
+      max-height: 90vh;
+      overflow-y: auto;
+      box-shadow: var(--card-hover-shadow);
     }
+
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+
     .modal-title {
-      font-size: 24px;
-      font-weight: 700;
-      color: #333;
-      margin-bottom: 20px;
+      font-size: 20px;
+      font-weight: 600;
+      color: var(--text-primary);
     }
-    .input-group {
-      margin-bottom: 20px;
+
+    .modal-close {
+      background: none;
+      border: none;
+      font-size: 20px;
+      cursor: pointer;
+      color: var(--text-secondary);
+      padding: 4px;
+      border-radius: 4px;
+      transition: all 0.2s;
     }
-    .input-label {
+
+    .modal-close:hover {
+      background-color: var(--bg-secondary);
+      color: var(--text-primary);
+    }
+
+    .form-group {
+      margin-bottom: 16px;
+    }
+
+    .form-label {
       display: block;
       font-size: 14px;
-      font-weight: 600;
-      color: #666;
-      margin-bottom: 8px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      margin-bottom: 6px;
     }
-    .input-field {
+
+    .form-input {
       width: 100%;
-      padding: 12px 16px;
-      border: 2px solid #e5e7eb;
+      padding: 10px 12px;
+      border: 1px solid var(--input-border);
       border-radius: 8px;
       font-size: 14px;
-      transition: all 0.3s;
+      background-color: var(--input-bg);
+      color: var(--text-primary);
+      transition: border-color 0.2s;
     }
-    .input-field:focus {
+
+    .form-input:focus {
       outline: none;
-      border-color: #f696c6;
-      box-shadow: 0 0 0 3px rgba(246,150,198,0.1);
+      border-color: var(--input-focus-border);
     }
-    .btn-primary {
-      background: linear-gradient(135deg, #f696c6 0%, #fbb6d8 100%);
-      color: white;
-      border: none;
-      padding: 12px 24px;
+
+    .form-textarea {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid var(--input-border);
       border-radius: 8px;
       font-size: 14px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: all 0.3s;
-      width: 100%;
+      background-color: var(--input-bg);
+      color: var(--text-primary);
+      transition: border-color 0.2s;
+      resize: vertical;
+      min-height: 120px;
+      font-family: monospace;
     }
-    .btn-primary:hover {
-      transform: translateY(-2px);
-      box-shadow: 0 6px 20px rgba(246,150,198,0.4);
-    }
-    .btn-secondary {
-      background: #f3f4f6;
-      color: #666;
-      border: none;
-      padding: 12px 24px;
-      border-radius: 8px;
-      font-size: 14px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: all 0.3s;
-      width: 100%;
-      margin-top: 10px;
-    }
-    .btn-secondary:hover {
-      background: #e5e7eb;
-    }
-    .add-account-btn {
-      background: rgba(255,255,255,0.2);
-      color: white;
-      border: 2px solid rgba(255,255,255,0.3);
-      padding: 10px 20px;
-      border-radius: 25px;
-      cursor: pointer;
-      font-size: 14px;
-      font-weight: 600;
-      transition: all 0.3s;
-      box-shadow: 0 4px 15px rgba(0,0,0,0.1);
-    }
-    .add-account-btn:hover {
-      background: rgba(255,255,255,0.3);
-      transform: translateY(-2px);
-    }
-    input[type="range"] {
-      -webkit-appearance: none;
-      appearance: none;
-      background: rgba(255,255,255,0.3);
-      border-radius: 10px;
-      height: 6px;
+
+    .form-textarea:focus {
       outline: none;
+      border-color: var(--input-focus-border);
     }
-    input[type="range"]::-webkit-slider-thumb {
-      -webkit-appearance: none;
-      appearance: none;
-      width: 18px;
-      height: 18px;
-      border-radius: 50%;
-      background: white;
-      cursor: pointer;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+
+    .form-help {
+      font-size: 12px;
+      color: var(--text-tertiary);
+      margin-top: 4px;
     }
-    input[type="range"]::-moz-range-thumb {
-      width: 18px;
-      height: 18px;
-      border-radius: 50%;
-      background: white;
-      cursor: pointer;
-      border: none;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+
+    .form-error {
+      color: var(--danger-color);
+      font-size: 13px;
+      margin-top: 4px;
     }
-    @keyframes pulse {
-      0%, 100% { opacity: 1; }
-      50% { opacity: 0.7; }
+
+    .form-success {
+      color: var(--success-color);
+      font-size: 13px;
+      margin-top: 4px;
     }
-    .status {
-      padding: 6px 14px;
-      border-radius: 20px;
-      font-size: 11px;
-      font-weight: 700;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-      position: relative;
-      overflow: hidden;
+
+    .account-list {
+      margin-bottom: 20px;
     }
-    .status::before {
-      content: '';
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      width: 100%;
-      height: 100%;
-      background: rgba(255,255,255,0.3);
-      transform: translate(-50%, -50%) scale(0);
-      border-radius: 50%;
-      transition: transform 0.6s;
+
+    .account-item {
+      background-color: var(--bg-secondary);
+      border-radius: 8px;
+      padding: 16px;
+      margin-bottom: 12px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
     }
-    .status:hover::before {
-      transform: translate(-50%, -50%) scale(2);
+
+    .account-item-info {
+      flex: 1;
     }
-    .status.running { 
-      background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%);
-      color: white;
-      animation: pulse 2s ease-in-out infinite;
+
+    .account-item-name {
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 4px;
     }
-    .status.stopped { 
-      background: linear-gradient(135deg, #eb3349 0%, #f45c43 100%);
-      color: white;
+
+    .account-item-email {
+      font-size: 12px;
+      color: var(--text-tertiary);
     }
-    .status.suspended { 
-      background: linear-gradient(135deg, #eb3349 0%, #f45c43 100%);
-      color: white;
+
+    .divider {
+      height: 1px;
+      background-color: var(--border-color);
+      margin: 20px 0;
     }
-    .status.deploying { 
-      background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-      color: white;
+
+    .last-update {
+      font-size: 14px;
+      color: var(--text-tertiary);
+      margin-left: auto;
     }
-    .status.paused { 
-      background: linear-gradient(135deg, #4b6cb7 0%, #182848 100%);
-      color: white;
-    }
-    .error {
-      background: #ffebee;
-      color: #c62828;
-      padding: 15px;
-      border-radius: 6px;
-      margin-bottom: 15px;
-    }
+
     .loading {
       text-align: center;
       padding: 40px;
-      color: white;
-      font-size: 16px;
+      color: var(--text-secondary);
     }
-    .stats {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-      gap: 10px;
-      margin-top: 10px;
+
+    .error {
+      background-color: rgba(239, 68, 68, 0.1);
+      color: var(--danger-color);
+      padding: 16px;
+      border-radius: 8px;
+      margin-bottom: 20px;
     }
-    .stat-box {
-      padding: 10px;
-      border-radius: 4px;
+
+    .empty-state {
       text-align: center;
+      padding: 40px;
+      color: var(--text-tertiary);
     }
-    .stat-label {
+
+    .opacity-label {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-secondary);
+    }
+
+    .opacity-slider {
+      width: 100px;
+      height: 4px;
+      -webkit-appearance: none;
+      appearance: none;
+      background: var(--border-color);
+      border-radius: 2px;
+      outline: none;
+    }
+
+    .opacity-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: var(--primary-color);
+      cursor: pointer;
+    }
+
+    .opacity-value {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      min-width: 35px;
+    }
+
+    .logs-modal {
+      max-width: 900px;
+      width: 90%;
+      height: 80vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .logs-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .logs-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--primary-color);
+    }
+
+    .logs-info {
+      padding: 10px 20px;
+      background-color: var(--bg-secondary);
+      color: var(--text-secondary);
       font-size: 12px;
-      color: #666;
-      margin-bottom: 5px;
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
     }
-    .stat-value {
-      font-size: 18px;
-      font-weight: bold;
-      color: #333;
+
+    .logs-content {
+      flex: 1;
+      overflow-y: auto;
+      padding: 16px;
+    }
+
+    .logs-text {
+      background-color: var(--bg-tertiary);
+      padding: 12px;
+      border-radius: 8px;
+      font-family: monospace;
+      font-size: 12px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-all;
+      color: var(--text-primary);
+      min-height: 100%;
+    }
+
+    .logs-footer {
+      padding: 12px 20px;
+      border-top: 1px solid var(--border-color);
+      text-align: right;
+    }
+
+    .edit-input {
+      flex: 1;
+      padding: 4px 8px;
+      border: 1px solid var(--input-focus-border);
+      border-radius: 6px;
+      font-size: 14px;
+      font-weight: 600;
+      outline: none;
+      background-color: var(--input-bg);
+      color: var(--text-primary);
+    }
+
+    .edit-btn {
+      padding: 4px 8px;
+      background-color: rgba(99, 102, 241, 0.2);
+      border: 1px solid rgba(99, 102, 241, 0.4);
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .edit-btn:hover {
+      background-color: rgba(99, 102, 241, 0.3);
+    }
+
+    .cancel-btn {
+      padding: 4px 8px;
+      background-color: rgba(239, 68, 68, 0.2);
+      border: 1px solid rgba(239, 68, 68, 0.4);
+      border-radius: 6px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .cancel-btn:hover {
+      background-color: rgba(239, 68, 68, 0.3);
+    }
+
+    /* Responsive adjustments */
+    @media (max-width: 768px) {
+      .container {
+        padding: 16px;
+      }
+
+      .header {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+
+      .controls {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        margin-bottom: 10px;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+      }
+
+      .stats-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .projects-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .account-header {
+        background-color: var(--card-bg);
+        border-radius: 10px;
+        padding: 10px;
+        border: 1px solid var(--border-color);
+        transition: transform 0.3s, box-shadow 0.3s;
+        height: 100%;
+        display: flex;
+        justify-content: space-between;
+      }
+
+      .account-balance {
+        align-items: flex-start;
+      }
+
+      .modal {
+        padding: 20px;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .stats-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .controls {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        margin-bottom: 10px;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+      }
+
+      .btn {
+        justify-content: center;
+      }
     }
   </style>
 </head>
+
 <body>
   <div id="app">
     <!-- 首次设置密码界面 -->
-    <div v-if="showSetPasswordModal" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 10000;">
-      <div style="background: white; padding: 40px; border-radius: 16px; box-shadow: 0 8px 32px rgba(0,0,0,0.2); max-width: 400px; width: 90%;">
-        <h2 style="text-align: center; color: #f696c6; margin-bottom: 10px;">🎉 欢迎使用</h2>
-        <p style="text-align: center; color: #666; font-size: 14px; margin-bottom: 30px;">请设置管理员密码</p>
-        <div style="margin-bottom: 20px;">
-          <input 
-            v-model="setPassword" 
-            type="password" 
-            placeholder="请输入密码（至少6位）"
-            @keyup.enter="setAdminPassword"
-            style="width: 100%; padding: 12px; border: 2px solid #f696c6; border-radius: 8px; font-size: 14px; outline: none;"
-          />
+    <div v-if="showSetPasswordModal" class="modal-overlay">
+      <div class="modal">
+        <div class="modal-header">
+          <div class="modal-title">🎉 欢迎使用</div>
         </div>
-        <div style="margin-bottom: 20px;">
-          <input 
-            v-model="setPasswordConfirm" 
-            type="password" 
-            placeholder="请再次输入密码"
-            @keyup.enter="setAdminPassword"
-            style="width: 100%; padding: 12px; border: 2px solid #f696c6; border-radius: 8px; font-size: 14px; outline: none;"
-          />
+        <p style="text-align: center; color: var(--text-secondary); margin-bottom: 24px;">请设置管理员密码</p>
+        <div class="form-group">
+          <input v-model="setPassword" type="password" class="form-input" placeholder="请输入密码（至少6位）"
+            @keyup.enter="setAdminPassword" />
         </div>
-        <div v-if="setPasswordError" style="color: #c00; font-size: 13px; margin-bottom: 15px; text-align: center;">
+        <div class="form-group">
+          <input v-model="setPasswordConfirm" type="password" class="form-input" placeholder="请再次输入密码"
+            @keyup.enter="setAdminPassword" />
+        </div>
+        <div v-if="setPasswordError" class="form-error">
           {{ setPasswordError }}
         </div>
-        <button 
-          @click="setAdminPassword"
-          style="width: 100%; padding: 12px; background: #f696c6; color: white; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer;"
-        >
+        <button @click="setAdminPassword" class="btn btn-primary" style="width: 100%;">
           设置密码
         </button>
       </div>
     </div>
-    
+
     <!-- 登录界面 -->
-    <div v-if="showLoginModal" style="position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 10000;">
-      <div style="background: white; padding: 40px; border-radius: 16px; box-shadow: 0 8px 32px rgba(0,0,0,0.2); max-width: 400px; width: 90%;">
-        <h2 style="text-align: center; color: #f696c6; margin-bottom: 30px;">🔐 管理员登录</h2>
-        <div style="margin-bottom: 20px;">
-          <input 
-            v-model="loginPassword" 
-            type="password" 
-            placeholder="请输入管理员密码"
-            @keyup.enter="verifyPassword"
-            style="width: 100%; padding: 12px; border: 2px solid #f696c6; border-radius: 8px; font-size: 14px; outline: none;"
-          />
+    <div v-if="showLoginModal" class="modal-overlay">
+      <div class="modal">
+        <div class="modal-header">
+          <div class="modal-title">🔐 管理员登录</div>
         </div>
-        <div v-if="loginError" style="color: #c00; font-size: 13px; margin-bottom: 15px; text-align: center;">
+        <div class="form-group">
+          <input v-model="loginPassword" type="password" class="form-input" placeholder="请输入管理员密码"
+            @keyup.enter="verifyPassword" />
+        </div>
+        <div v-if="loginError" class="form-error">
           {{ loginError }}
         </div>
-        <button 
-          @click="verifyPassword"
-          style="width: 100%; padding: 12px; background: #f696c6; color: white; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer;"
-        >
+        <button @click="verifyPassword" class="btn btn-primary" style="width: 100%;">
           登录
         </button>
       </div>
     </div>
-    
+
     <div v-if="isAuthenticated" class="container">
-      <h1>🚀 Zeabur 多账号监控面板</h1>
-      <div style="background: rgba(255,255,255,0.9); backdrop-filter: blur(10px); padding: 15px 18px; border-radius: 12px; margin-bottom: 15px; font-size: 13px; border: 1px solid rgba(255,255,255,0.3); box-shadow: 0 4px 12px rgba(0,0,0,0.1);">
-        <div style="font-weight: 700; margin-bottom: 8px; color: #f696c6;">💡 使用说明</div>
-        <div style="line-height: 1.8; color: #555;">
-          • 数据每30秒自动刷新
+      <div class="header">
+        <h1 class="title">🚀 Zeabur 多账号监控面板</h1>
+        <div class="last-update">上次更新: {{ lastUpdate }}</div>
+      </div>
+
+      <div class="info-card">
+        <div class="info-card-title">💡 使用说明</div>
+        <div class="info-card-content">
+          数据每30秒自动刷新
         </div>
       </div>
-      
-      <div style="display: flex; gap: 10px; margin-bottom: 20px; align-items: center; flex-wrap: wrap;">
-        <button class="refresh-btn" @click="fetchData" :disabled="loading">
-          {{ loading ? '加载中...' : '🔄 刷新数据' }}
+
+      <div class="controls">
+        <button class="btn btn-primary" @click="fetchData" :disabled="loading">
+          <i class="fas fa-sync-alt"></i>
+          {{ loading ? '加载中...' : '刷新数据' }}
         </button>
-        <button class="add-account-btn" @click="showManageModal = true">
-          ⚙️ 管理账号
+        <button class="btn btn-secondary" @click="showManageModal = true">
+          <i class="fas fa-cog"></i>
+          管理账号
         </button>
-        <button class="add-account-btn" @click="clearCache" style="background: rgba(255,100,100,0.3);">
-          🗑️ 清除缓存
+        <button class="btn btn-danger" @click="clearCache">
+          <i class="fas fa-trash"></i>
+          清除缓存
         </button>
-        
-        <!-- 透明度控制 -->
-        <div style="display: flex; align-items: center; gap: 10px; background: rgba(255,255,255,0.2); backdrop-filter: blur(10px); padding: 8px 16px; border-radius: 25px; border: 1px solid rgba(255,255,255,0.3);">
-          <span style="color: white; font-size: 13px; font-weight: 600;">透明度</span>
-          <input 
-            type="range" 
-            v-model="opacity" 
-            min="0" 
-            max="100" 
-            style="width: 100px; cursor: pointer;"
-          />
-          <span style="color: white; font-size: 13px; font-weight: 600; min-width: 35px;">{{ opacity }}%</span>
-        </div>
-        
-        <span style="color: white; font-size: 14px; margin-left: auto; text-shadow: 0 2px 4px rgba(0,0,0,0.2);">
-          上次更新: {{ lastUpdate }}
-        </span>
+
       </div>
-      
+
       <!-- 日志模态框 -->
-      <div v-if="showLogsModal" class="modal-overlay" @click.self="showLogsModal = false" style="z-index: 2000;">
-        <div style="background: #1e1e1e; border-radius: 16px; width: 90%; max-width: 900px; height: 80vh; display: flex; flex-direction: column; box-shadow: 0 20px 60px rgba(0,0,0,0.5);">
-          <div style="padding: 16px 20px; border-bottom: 1px solid #333; display: flex; justify-content: space-between; align-items: center; flex-shrink: 0;">
-            <h2 style="color: #f696c6; font-size: 16px; margin: 0;">📋 {{ logsModalTitle }}</h2>
-            <button @click="showLogsModal = false" style="background: #444; color: #fff; border: none; width: 28px; height: 28px; border-radius: 6px; cursor: pointer; font-size: 16px; line-height: 1;">×</button>
+      <div v-if="showLogsModal" class="modal-overlay" @click.self="showLogsModal = false">
+        <div class="modal logs-modal">
+          <div class="logs-header">
+            <div class="logs-title">📋 {{ logsModalTitle }}</div>
+            <button class="modal-close" @click="showLogsModal = false">×</button>
           </div>
-          <div style="padding: 10px 20px; background: #264f78; color: #d4d4d4; font-size: 12px; display: flex; gap: 16px; flex-wrap: wrap; flex-shrink: 0;">
+          <div class="logs-info">
             <span>项目: {{ logsModalInfo.project }}</span>
             <span>账号: {{ logsModalInfo.account }}</span>
             <span>日志: {{ logsModalInfo.count }} 条</span>
             <span>时间: {{ logsModalInfo.time }}</span>
           </div>
-          <div style="flex: 1; overflow-y: auto; padding: 12px 16px; min-height: 0;">
-            <div v-if="logsLoading" style="text-align: center; padding: 40px; color: #888;">⏳ 正在加载日志...</div>
-            <pre v-else style="background: #252526; padding: 12px; border-radius: 8px; font-family: Consolas, Monaco, monospace; font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-all; color: #d4d4d4; margin: 0; min-height: 100%;">{{ logsContent || '暂无日志' }}</pre>
+          <div class="logs-content">
+            <div v-if="logsLoading" style="text-align: center; padding: 40px;">⏳ 正在加载日志...</div>
+            <pre v-else class="logs-text">{{ logsContent || '暂无日志' }}</pre>
           </div>
-          <div style="padding: 12px 20px; border-top: 1px solid #333; text-align: right; flex-shrink: 0;">
-            <button @click="showLogsModal = false" style="padding: 8px 20px; background: #f696c6; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 13px;">关闭</button>
+          <div class="logs-footer">
+            <button class="btn btn-primary" @click="showLogsModal = false">关闭</button>
           </div>
         </div>
       </div>
 
       <!-- 账号管理模态框 -->
       <div v-if="showManageModal" class="modal-overlay" @mousedown.self="showManageModal = false">
-        <div class="modal-content" style="max-width: 700px;">
-          <div class="modal-title">⚙️ 账号管理</div>
-          
+        <div class="modal" style="max-width: 700px;">
+          <div class="modal-header">
+            <div class="modal-title">⚙️ 账号管理</div>
+            <button class="modal-close" @click="closeManageModal">×</button>
+          </div>
+
           <!-- 账号列表 -->
-          <div style="margin-bottom: 20px;">
+          <div class="account-list">
             <!-- 显示本地管理的账号 -->
-            <div v-for="(account, index) in managedAccounts" :key="'local-' + index" 
-                 style="background: #f9fafb; padding: 15px; border-radius: 8px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center;">
-              <div style="flex: 1;">
-                <div style="font-weight: 600; color: #333; margin-bottom: 4px;">{{ account.name }}</div>
-                <div style="font-size: 12px; color: #999;">{{ maskEmail(account.email) || '未知邮箱' }}</div>
+            <div v-for="(account, index) in managedAccounts" :key="'local-' + index" class="account-item">
+              <div class="account-item-info">
+                <div class="account-item-name">{{ account.name }}</div>
+                <div class="account-item-email">{{ maskEmail(account.email) || '未知邮箱' }}</div>
               </div>
-              <button @click="removeAccount(index)" 
-                      style="background: #fee; color: #c00; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 600;">
-                🗑️ 删除
+              <button @click="removeAccount(index)" class="btn btn-danger">
+                <i class="fas fa-trash"></i>
+                删除
               </button>
             </div>
-            
+
             <!-- 显示服务器配置的账号（只读） -->
             <div v-if="managedAccounts.length === 0 && accounts.length > 0">
-              <div style="font-size: 12px; color: #666; margin-bottom: 10px; padding: 10px; background: #f0f9ff; border-radius: 6px;">
+              <div
+                style="font-size: 12px; color: var(--text-secondary); margin-bottom: 10px; padding: 10px; background-color: var(--bg-secondary); border-radius: 6px;">
                 💡 以下账号来自服务器配置（.env 文件），无法在此删除
               </div>
-              <div v-for="account in accounts" :key="'server-' + account.name" 
-                   style="background: #f9fafb; padding: 15px; border-radius: 8px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center;">
-                <div style="flex: 1;">
-                  <div style="font-weight: 600; color: #333; margin-bottom: 4px;">{{ account.name }}</div>
-                  <div style="font-size: 12px; color: #999;">{{ account.data?.email || account.data?.username || '服务器配置' }}</div>
+              <div v-for="account in accounts" :key="'server-' + account.name" class="account-item">
+                <div class="account-item-info">
+                  <div class="account-item-name">{{ account.name }}</div>
+                  <div class="account-item-email">{{ account.data?.email || account.data?.username || '服务器配置' }}</div>
                 </div>
-                <span style="font-size: 12px; color: #999; padding: 6px 12px; background: #e5e7eb; border-radius: 6px;">
+                <span
+                  style="font-size: 12px; color: var(--text-tertiary); padding: 6px 12px; background-color: var(--bg-tertiary); border-radius: 6px;">
                   🔒 服务器配置
                 </span>
               </div>
             </div>
-            
-            <div v-if="managedAccounts.length === 0 && accounts.length === 0" style="text-align: center; color: #999; padding: 30px;">
+
+            <div v-if="managedAccounts.length === 0 && accounts.length === 0" class="empty-state">
               暂无账号，点击下方按钮添加
             </div>
           </div>
-          
+
+          <div class="divider"></div>
+
           <!-- 添加新账号表单 -->
-          <div style="border-top: 2px solid #e5e7eb; padding-top: 20px;">
-            <div style="font-weight: 600; margin-bottom: 15px; color: #f696c6;">➕ 添加新账号</div>
-            
-            <div class="input-group">
-              <label class="input-label">账号名称</label>
-              <input 
-                v-model="newAccount.name" 
-                type="text" 
-                class="input-field" 
-                placeholder="例如：我的账号"
-              />
+          <div>
+            <div class="modal-title" style="margin-bottom: 16px;">➕ 添加新账号</div>
+
+            <div class="form-group">
+              <label class="form-label">账号名称</label>
+              <input v-model="newAccount.name" type="text" class="form-input" placeholder="例如：我的账号" />
             </div>
-            
-            <div class="input-group">
-              <label class="input-label">API Token</label>
-              <input 
-                v-model="newAccount.token" 
-                type="password" 
-                class="input-field" 
-                placeholder="sk-xxxxxxxxxxxxxxxx"
-              />
+
+            <div class="form-group">
+              <label class="form-label">API Token</label>
+              <input v-model="newAccount.token" type="password" class="form-input" placeholder="sk-xxxxxxxxxxxxxxxx" />
+              <div class="form-help">
+                在 Zeabur 控制台的设置中创建 API Token
+              </div>
             </div>
-            
-            <div v-if="addAccountError" style="background: #fee; color: #c00; padding: 10px; border-radius: 6px; margin-bottom: 15px; font-size: 13px;">
+
+            <div v-if="addAccountError" class="form-error">
               {{ addAccountError }}
             </div>
-            
-            <div v-if="addAccountSuccess" style="background: #efe; color: #060; padding: 10px; border-radius: 6px; margin-bottom: 15px; font-size: 13px;">
+
+            <div v-if="addAccountSuccess" class="form-success">
               {{ addAccountSuccess }}
             </div>
-            
-            <button class="btn-primary" @click="addAccountToList" :disabled="addingAccount">
+
+            <button class="btn btn-primary" @click="addAccountToList" :disabled="addingAccount" style="width: 100%;">
               {{ addingAccount ? '验证中...' : '➕ 添加到列表' }}
             </button>
           </div>
-          
+
           <!-- 批量添加 -->
-          <div style="margin-top: 30px; padding-top: 30px; border-top: 2px dashed #e5e7eb;">
-            <div style="font-weight: 600; color: #333; margin-bottom: 15px; font-size: 16px;">📦 批量添加账号</div>
-            <div style="margin-bottom: 10px; font-size: 13px; color: #666;">
-              每行一个账号，支持格式：<code style="background: #f3f4f6; padding: 2px 6px; border-radius: 4px;">名称:Token</code> 或 <code style="background: #f3f4f6; padding: 2px 6px; border-radius: 4px;">名称：Token</code> 或 <code style="background: #f3f4f6; padding: 2px 6px; border-radius: 4px;">名称(Token)</code> 或 <code style="background: #f3f4f6; padding: 2px 6px; border-radius: 4px;">名称（Token）</code>
+          <div class="divider"></div>
+          <div>
+            <div class="modal-title" style="margin-bottom: 16px;">📦 批量添加账号</div>
+            <div class="form-help">
+              每行一个账号，支持格式：<code>名称:Token</code> 或 <code>名称：Token</code> 或 <code>名称(Token)</code> 或
+              <code>名称（Token）</code>
             </div>
             <div style="position: relative; min-height: 120px;">
-              <div style="width: 100%; min-height: 120px; padding: 12px; border: 2px solid transparent; border-radius: 8px; font-size: 13px; font-family: monospace; white-space: pre-wrap; word-break: break-all; pointer-events: none; color: #333; line-height: 1.5;">{{ maskedBatchAccounts }}</div>
-              <textarea
-                v-model="batchAccounts"
-                @input="updateBatchDisplay"
-                placeholder="每行一个账号，格式：账号名称:API_Token"
-                style="width: 100%; min-height: 120px; padding: 12px; border: 2px solid #e5e7eb; border-radius: 8px; font-size: 13px; font-family: monospace; resize: vertical; outline: none; position: absolute; top: 0; left: 0; color: transparent; caret-color: black; background: transparent; line-height: 1.5;"
-              ></textarea>
+              <div
+                style="width: 100%; min-height: 120px; padding: 12px; border: 1px solid var(--border-color); border-radius: 8px; font-size: 13px; font-family: monospace; white-space: pre-wrap; word-break: break-all; pointer-events: none; color: var(--text-primary); line-height: 1.5; background-color: var(--input-bg);">
+                {{ maskedBatchAccounts }}</div>
+              <textarea v-model="batchAccounts" @input="updateBatchDisplay" placeholder="每行一个账号，格式：账号名称:API_Token"
+                class="form-textarea"
+                style="position: absolute; top: 0; left: 0; color: transparent; caret-color: var(--text-primary); background: transparent; line-height: 1.5;"></textarea>
             </div>
-            <div v-if="batchAddError" style="color: #c00; font-size: 13px; margin-top: 10px;">
+            <div v-if="batchAddError" class="form-error">
               {{ batchAddError }}
             </div>
-            <div v-if="batchAddSuccess" style="color: #0a0; font-size: 13px; margin-top: 10px;">
+            <div v-if="batchAddSuccess" class="form-success">
               {{ batchAddSuccess }}
             </div>
-            <button 
-              class="btn-primary" 
-              @click="batchAddAccounts" 
-              :disabled="addingAccount"
-              style="margin-top: 15px;"
-            >
+            <button class="btn btn-primary" @click="batchAddAccounts" :disabled="addingAccount"
+              style="width: 100%; margin-top: 12px;">
               {{ addingAccount ? '添加中...' : '📦 批量添加' }}
             </button>
           </div>
-          
-          <button class="btn-secondary" @click="closeManageModal">
-            关闭
-          </button>
         </div>
       </div>
-      
+
       <!-- 旧的添加账号模态框（保留兼容） -->
       <div v-if="showAddModal" class="modal-overlay" @mousedown.self="showAddModal = false">
-        <div class="modal-content">
-          <div class="modal-title">➕ 添加 Zeabur 账号</div>
-          
-          <div class="input-group">
-            <label class="input-label">账号名称</label>
-            <input 
-              v-model="newAccount.name" 
-              type="text" 
-              class="input-field" 
-              placeholder="例如：我的账号"
-            />
+        <div class="modal">
+          <div class="modal-header">
+            <div class="modal-title">➕ 添加 Zeabur 账号</div>
+            <button class="modal-close" @click="closeAddModal">×</button>
           </div>
-          
-          <div class="input-group">
-            <label class="input-label">API Token</label>
-            <input 
-              v-model="newAccount.token" 
-              type="password" 
-              class="input-field" 
-              placeholder="sk-xxxxxxxxxxxxxxxx"
-            />
-            <div style="font-size: 12px; color: #999; margin-top: 6px;">
+
+          <div class="form-group">
+            <label class="form-label">账号名称</label>
+            <input v-model="newAccount.name" type="text" class="form-input" placeholder="例如：我的账号" />
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">API Token</label>
+            <input v-model="newAccount.token" type="password" class="form-input" placeholder="sk-xxxxxxxxxxxxxxxx" />
+            <div class="form-help">
               在 Zeabur 控制台的设置中创建 API Token
             </div>
           </div>
-          
-          <div v-if="addAccountError" style="background: #fee; color: #c00; padding: 10px; border-radius: 6px; margin-bottom: 15px; font-size: 13px;">
+
+          <div v-if="addAccountError" class="form-error">
             {{ addAccountError }}
           </div>
-          
-          <div v-if="addAccountSuccess" style="background: #efe; color: #060; padding: 10px; border-radius: 6px; margin-bottom: 15px; font-size: 13px;">
+
+          <div v-if="addAccountSuccess" class="form-success">
             {{ addAccountSuccess }}
           </div>
-          
-          <button class="btn-primary" @click="addAccount" :disabled="addingAccount">
+
+          <button class="btn btn-primary" @click="addAccount" :disabled="addingAccount" style="width: 100%;">
             {{ addingAccount ? '验证中...' : '添加账号' }}
           </button>
-          
-          <button class="btn-secondary" @click="closeAddModal">
+
+          <button class="btn btn-secondary" @click="closeAddModal" style="width: 100%; margin-top: 8px;">
             取消
           </button>
         </div>
       </div>
-      
-      <div v-if="accounts.length > 0" class="account-card" style="background: rgba(246, 150, 198, 0.3); backdrop-filter: blur(20px) saturate(180%); color: white; border: 1px solid rgba(255,255,255,0.3);">
-        <h3 style="margin-bottom: 15px; font-size: 20px; font-weight: 700;">✨ 总览</h3>
-        <div class="stats">
-          <div class="stat-box" style="background: transparent; border: 1px solid rgba(255,255,255,0.2);">
-            <div class="stat-label" style="color: rgba(255,255,255,0.9);">账号数</div>
-            <div class="stat-value" style="color: #4ade80;">{{ accounts.length }}</div>
-          </div>
-          <div class="stat-box" style="background: transparent; border: 1px solid rgba(255,255,255,0.2);">
-            <div class="stat-label" style="color: rgba(255,255,255,0.9);">项目总数</div>
-            <div class="stat-value" style="color: #4ade80;">{{ totalProjects }}</div>
-          </div>
-          <div class="stat-box" style="background: transparent; border: 1px solid rgba(255,255,255,0.2);">
-            <div class="stat-label" style="color: rgba(255,255,255,0.9);">服务总数</div>
-            <div class="stat-value" style="color: #4ade80;">{{ totalServices }}</div>
-          </div>
-          <div class="stat-box" style="background: transparent; border: 1px solid rgba(255,255,255,0.2);">
-            <div class="stat-label" style="color: rgba(255,255,255,0.9);">运行中</div>
-            <div class="stat-value" style="color: #4ade80;">{{ runningServices }}</div>
-          </div>
-          <div class="stat-box" style="background: transparent; border: 1px solid rgba(255,255,255,0.2);">
-            <div class="stat-label" style="color: rgba(255,255,255,0.9);">总费用</div>
-            <div class="stat-value" style="color: #ef4444;">${{ totalCost.toFixed(2) }}</div>
-          </div>
+
+      <div v-if="accounts.length > 0" class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-label">账号数</div>
+          <div class="stat-value">{{ accounts.length }}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">项目总数</div>
+          <div class="stat-value">{{ totalProjects }}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">服务总数</div>
+          <div class="stat-value">{{ totalServices }}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">运行中</div>
+          <div class="stat-value">{{ runningServices }}</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">总费用</div>
+          <div class="stat-value">${{ totalCost.toFixed(2) }}</div>
         </div>
       </div>
-      
+
       <div v-if="loading && accounts.length === 0" class="loading">
         ⚡ 正在加载数据...
       </div>
-      
+
       <div v-for="account in accounts" :key="account.name" class="account-card">
-        <div class="account-header" @click="toggleAccount(account.name)" style="cursor: pointer;">
-          <div style="flex: 1;">
-            <div style="display: flex; align-items: center; gap: 10px;">
-              <span style="font-size: 20px; transition: transform 0.3s;" :style="{ transform: isAccountExpanded(account.name) ? 'rotate(90deg)' : 'rotate(0deg)' }">
-                ▶
-              </span>
-              <div>
-                <div class="account-name">{{ account.name }}</div>
-                <div v-if="account.data" style="color: #666; font-size: 14px;">
-                  {{ maskEmail(account.data.email) || account.data.username }}
-                </div>
+        <div class="account-header" @click="toggleAccount(account.name)">
+          <div class="account-info">
+            <span style="font-size: 20px; transition: transform 0.3s; display: inline-flex; align-items: center;"
+              :style="{ 
+          /* 保持 span 作为一个容器，不旋转或旋转到特定角度 */
+          transform: isAccountExpanded(account.name) ? 'rotate(0deg)' : 'rotate(0deg)' 
+      }">
+
+              <i class="fas fa-chevron-right toggle-icon" :style="{ 
+           transition: 'transform 0.3s', 
+           // 逻辑调整：
+           // 展开 (true) -> 0deg (向下)
+           // 收起 (false) -> 90deg (向右)
+           transform: isAccountExpanded(account.name) ? 'rotate(90deg)' : 'rotate(0deg)' 
+       }">
+              </i>
+            </span>
+            <div>
+              <div class="account-name">{{ account.name }}</div>
+              <div v-if="account.data" class="account-email">
+                {{ maskEmail(account.data.email) || account.data.username }}
               </div>
             </div>
           </div>
-          <div style="display: flex; flex-direction: column; align-items: flex-end; gap: 8px;">
+          <div class="account-balance">
             <div v-if="account.data" class="balance" :class="getBalanceClass(account.data.credit)">
               ${{ (account.data.credit / 100).toFixed(2) }}
             </div>
-            <div v-if="account.aihub && account.aihub.balance"
-                 style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 8px 16px; border-radius: 12px; font-size: 14px; font-weight: 600; box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);">
+            <div v-if="account.aihub && account.aihub.balance" class="ai-balance">
               🤖 AI Hub: ${{ (account.aihub.balance / 100000).toFixed(2) }}
             </div>
           </div>
         </div>
-        
+
         <div v-if="account.error" class="error">
           ❌ 错误: {{ account.error }}
         </div>
-        
+
         <div v-if="account.projects && isAccountExpanded(account.name)" class="projects-grid">
-          <div v-for="project in account.projects" :key="project._id" class="project-card">
-            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px;">
+          <div v-for="project in account.projects" :key="project._id" :id="'proj-' + project._id" class="project-card">
+            <div class="project-header">
               <div style="flex: 1;">
-                <div class="project-name" style="display: flex; align-items: center; gap: 8px;">
+                <div class="project-name">
                   <span v-if="!project.isEditing">📦 {{ project.name }}</span>
-                  <input 
-                    v-else
-                    v-model="project.editingName"
-                    @keyup.enter="saveProjectName(account, project)"
-                    @keyup.esc="cancelEditProjectName(project)"
-                    @blur="saveProjectName(account, project)"
-                    style="flex: 1; padding: 4px 8px; border: 2px solid #f696c6; border-radius: 6px; font-size: 14px; font-weight: bold; outline: none;"
-                    ref="projectNameInput"
-                  />
-                  <button 
-                    v-if="!project.isEditing"
-                    @click="startEditProjectName(project)"
-                    style="padding: 4px 8px; background: rgba(246, 150, 198, 0.2); border: 1px solid rgba(246, 150, 198, 0.4); border-radius: 6px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center;"
-                    title="重命名项目"
-                  >
+                  <input v-else v-model="project.editingName" @keyup.enter="saveProjectName(account, project)"
+                    @keyup.esc="cancelEditProjectName(project)" @blur="saveProjectName(account, project)"
+                    class="edit-input" ref="projectNameInput" />
+                  <button v-if="!project.isEditing" @click="startEditProjectName(project)" class="edit-btn"
+                    title="重命名项目">
                     ✏️
                   </button>
-                  <button 
-                    v-else
-                    @click="cancelEditProjectName(project)"
-                    style="padding: 4px 8px; background: rgba(255, 100, 100, 0.2); border: 1px solid rgba(255, 100, 100, 0.4); border-radius: 6px; cursor: pointer; transition: all 0.2s;"
-                    title="取消"
-                  >
+                  <button v-else @click="cancelEditProjectName(project)" class="cancel-btn" title="取消">
                     ✖️
                   </button>
                 </div>
@@ -818,90 +1245,75 @@
                 </div>
               </div>
               <div style="text-align: right;">
-                <div style="font-size: 12px; color: #666; margin-bottom: 2px;">本月用量</div>
-                <div style="font-size: 20px; font-weight: bold; color: #2196F3;">
+                <div style="font-size: 12px; color: var(--text-tertiary); margin-bottom: 2px;">本月用量</div>
+                <div class="project-cost">
                   ${{ formatCost(project.cost) }}
-                  <span v-if="!project.hasCostData" 
-                        style="font-size: 12px; color: #ff9800;" 
-                        title="未配置费用数据">
+                  <span v-if="!project.hasCostData" style="font-size: 12px; color: var(--warning-color);"
+                    title="未配置费用数据">
                     ⚠️
                   </span>
                 </div>
               </div>
             </div>
-            <div style="display: flex; gap: 15px; margin-bottom: 12px; font-size: 13px; color: #666;">
+            <div class="project-stats">
               <span>🔧 {{ project.services.length }} 个服务</span>
               <span>✅ {{ project.services.filter(s => s.status === 'RUNNING').length }} 运行中</span>
               <span>⏸️ {{ project.services.filter(s => s.status === 'SUSPENDED').length }} 已暂停</span>
             </div>
             <div class="services-container">
-            <div v-for="service in project.services" :key="service._id" class="service-item" style="flex-direction: column; align-items: stretch; padding: 12px;">
-              <!-- 服务名称和资源信息 -->
-              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
-                <div style="flex: 1; min-width: 0;">
-                  <div style="font-weight: 600; font-size: 14px; color: #333; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 4px;" :title="service.name">
+              <div v-for="service in project.services" :key="service._id" class="service-item">
+                <div class="service-header">
+                  <div class="service-name" :title="service.name">
                     {{ service.name }}
                   </div>
-                  <div v-if="service.resourceLimit" style="font-size: 11px; color: #666; display: flex; gap: 12px;">
-                    <span style="display: flex; align-items: center; gap: 4px;">
-                      <span style="font-size: 14px;">💻</span>
-                      <span>{{ service.resourceLimit.cpu }}m</span>
-                    </span>
-                    <span style="display: flex; align-items: center; gap: 4px;">
-                      <span style="font-size: 14px;">🧠</span>
-                      <span>{{ service.resourceLimit.memory }}MB</span>
-                    </span>
+                  <div :class="['service-status', service.status.toLowerCase()]">
+                    {{ service.status === 'RUNNING' ? '运行中' : service.status === 'SUSPENDED' ? '已暂停' : service.status }}
                   </div>
                 </div>
+                <div v-if="service.resourceLimit" class="service-info">
+                  <span style="display: inline-flex; align-items: center; gap: 4px; margin-right: 12px;">
+                    <i class="fas fa-microchip"></i>
+                    {{ service.resourceLimit.cpu }}m
+                  </span>
+                  <span style="display: inline-flex; align-items: center; gap: 4px;">
+                    <i class="fas fa-memory"></i>
+                    {{ service.resourceLimit.memory }}MB
+                  </span>
+                </div>
+                <div class="service-actions">
+                  <button v-if="service.status === 'RUNNING'" @click="pauseService(account, project, service)"
+                    class="service-btn btn-pause">
+                    <i class="fas fa-pause"></i>
+                    暂停
+                  </button>
+                  <button @click="restartService(account, project, service)" class="service-btn btn-restart">
+                    <i class="fas fa-redo"></i>
+                    {{ service.status === 'SUSPENDED' ? '启动' : '重启' }}
+                  </button>
+                  <button @click="showServiceLogs(account, project, service)" class="service-btn btn-logs">
+                    <i class="fas fa-file-alt"></i>
+                    日志
+                  </button>
+                </div>
               </div>
-              
-              <!-- 状态和操作按钮 -->
-              <div style="display: flex; gap: 6px; flex-wrap: wrap;">
-                <span :class="['status', service.status.toLowerCase()]" style="flex-shrink: 0;">
-                  {{ service.status === 'RUNNING' ? '✅ 运行中' : service.status === 'SUSPENDED' ? '⏸️ 已暂停' : service.status }}
-                </span>
-                <button v-if="service.status === 'RUNNING'" 
-                        @click="pauseService(account, project, service)" 
-                        style="padding: 6px 12px; background: linear-gradient(135deg, #ff9500 0%, #ff9f0a 100%); color: white; border: none; border-radius: 12px; cursor: pointer; font-size: 11px; font-weight: 600; transition: transform 0.15s ease-out;">
-                  ⏸️ 暂停
-                </button>
-                <button @click="restartService(account, project, service)" 
-                        style="padding: 6px 12px; background: linear-gradient(135deg, #007aff 0%, #5ac8fa 100%); color: white; border: none; border-radius: 12px; cursor: pointer; font-size: 11px; font-weight: 600; transition: transform 0.15s ease-out;">
-                  {{ service.status === 'SUSPENDED' ? '▶️ 启动' : '🔄 重启' }}
-                </button>
-                <button @click="showServiceLogs(account, project, service)" 
-                        style="padding: 6px 12px; background: linear-gradient(135deg, #af52de 0%, #bf5af2 100%); color: white; border: none; border-radius: 12px; cursor: pointer; font-size: 11px; font-weight: 600; transition: transform 0.15s ease-out;">
-                  📋 日志
-                </button>
+              <div v-if="project.services.length === 0" class="empty-state">
+                暂无服务
               </div>
             </div>
-            <div v-if="project.services.length === 0" style="color: #999; font-size: 14px; text-align: center; padding: 20px;">
-              暂无服务
-            </div>
-            </div>
-            
+
             <!-- 项目域名 -->
-            <div v-if="getProjectDomains(project).length > 0" style="margin-top: 12px; padding-top: 12px; border-top: 1px solid rgba(255,255,255,0.3); display: flex; justify-content: center;">
-              <div style="display: flex; flex-direction: column; gap: 6px; max-width: 280px; width: 100%;">
-                <a v-for="domainInfo in getProjectDomains(project)" 
-                   :key="domainInfo.domain" 
-                   :href="'https://' + domainInfo.domain" 
-                   target="_blank"
-                   style="display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; text-decoration: none; border-radius: 16px; font-size: 13px; font-weight: 600; transition: all 0.3s; box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);"
-                   @mouseover="$event.target.style.transform = 'translateY(-2px)'; $event.target.style.boxShadow = '0 4px 12px rgba(102, 126, 234, 0.5)'"
-                   @mouseout="$event.target.style.transform = 'translateY(0)'; $event.target.style.boxShadow = '0 2px 8px rgba(102, 126, 234, 0.3)'">
-                  <div style="display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0;">
-                    <span style="font-size: 16px; flex-shrink: 0;">🌐</span>
-                    <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{{ domainInfo.domain }}</span>
-                  </div>
-                  <span v-if="domainInfo.isGenerated" style="background: rgba(255,255,255,0.25); padding: 3px 10px; border-radius: 10px; font-size: 11px; flex-shrink: 0; margin-left: 6px;">自动</span>
-                </a>
-              </div>
+            <div v-if="getProjectDomains(project).length > 0" class="domains-container">
+              <a v-for="domainInfo in getProjectDomains(project)" :key="domainInfo.domain"
+                :href="'https://' + domainInfo.domain" target="_blank" class="domain-link">
+                <i class="fas fa-globe"></i>
+                <span>{{ domainInfo.domain }}</span>
+                <span v-if="domainInfo.isGenerated" class="domain-badge">自动</span>
+              </a>
             </div>
           </div>
         </div>
       </div>
-      
+
       <div v-if="!loading && accounts.length === 0" class="error">
         未配置账号或无法获取数据。请检查 .env 配置文件。
       </div>
@@ -910,7 +1322,7 @@
 
   <script>
     const { createApp } = Vue;
-    
+
     createApp({
       data() {
         return {
@@ -931,6 +1343,10 @@
           addAccountSuccess: '',
           opacity: 39,
           expandedAccounts: {},
+          refreshInterval: null,
+          refreshing: false,
+          lastFetchAt: 0,
+          minFetchInterval: 2000,
           // 密码验证
           isAuthenticated: false,
           showLoginModal: false,
@@ -957,22 +1373,22 @@
         // 检查服务器是否已设置密码
         const hasPasswordResponse = await fetch('/api/check-password');
         const { hasPassword } = await hasPasswordResponse.json();
-        
+
         if (!hasPassword) {
           // 首次使用，显示设置密码界面
           this.showSetPasswordModal = true;
           return;
         }
-        
+
         // 检查本地是否有保存的密码和时间戳
         const savedPassword = localStorage.getItem('admin_password');
         const savedTime = localStorage.getItem('password_time');
-        
+
         if (savedPassword && savedTime) {
           const now = Date.now();
           const elapsed = now - parseInt(savedTime);
           const fourDays = 4 * 24 * 60 * 60 * 1000; // 4天的毫秒数
-          
+
           if (elapsed < fourDays) {
             // 4天内，自动登录
             this.loginPassword = savedPassword;
@@ -980,11 +1396,11 @@
             return;
           }
         }
-        
+
         // 需要输入密码
         this.showLoginModal = true;
       },
-      watch: {
+        watch: {
         opacity(newVal) {
           localStorage.setItem('card_opacity', newVal);
           this.updateOpacity();
@@ -1046,41 +1462,41 @@
         // 设置密码（首次）
         async setAdminPassword() {
           this.setPasswordError = '';
-          
+
           if (!this.setPassword || this.setPassword.length < 6) {
             this.setPasswordError = '密码长度至少6位';
             return;
           }
-          
+
           if (this.setPassword !== this.setPasswordConfirm) {
             this.setPasswordError = '两次输入的密码不一致';
             return;
           }
-          
+
           try {
             const response = await fetch('/api/set-password', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ password: this.setPassword })
             });
-            
+
             const result = await response.json();
             if (result.success) {
               // 设置成功，自动登录
               this.loginPassword = this.setPassword;
               localStorage.setItem('admin_password', this.setPassword);
               localStorage.setItem('password_time', Date.now().toString());
-              
+
               this.showSetPasswordModal = false;
               this.isAuthenticated = true;
-              
+
               await this.loadManagedAccounts();
               this.loadProjectCosts();
               this.fetchData();
-              
-              // 启动自动刷新
-              this.refreshInterval = setInterval(() => this.fetchData(), 30000);
-              
+
+              // 启动自动刷新（使用统一方法，避免重复创建 interval）
+              this.startAutoRefresh();
+
               // 加载透明度设置
               const savedOpacity = localStorage.getItem('card_opacity');
               if (savedOpacity) {
@@ -1103,23 +1519,23 @@
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ password: this.loginPassword })
             });
-            
+
             const result = await response.json();
             if (result.success) {
               this.isAuthenticated = true;
               this.showLoginModal = false;
-              
+
               // 保存密码和时间戳
               localStorage.setItem('admin_password', this.loginPassword);
               localStorage.setItem('password_time', Date.now().toString());
-              
+
               await this.loadManagedAccounts();
               this.loadProjectCosts();
               this.fetchData();
-              
-              // 启动自动刷新
-              this.refreshInterval = setInterval(() => this.fetchData(), 30000);
-              
+
+              // 启动自动刷新（使用统一方法，避免重复创建 interval）
+              this.startAutoRefresh();
+
               // 加载透明度设置
               const savedOpacity = localStorage.getItem('card_opacity');
               if (savedOpacity) {
@@ -1186,7 +1602,33 @@
           }
         },
 
+        startAutoRefresh() {
+          try {
+            if (this.refreshInterval) {
+              clearInterval(this.refreshInterval);
+            }
+            // 30s
+            this.refreshInterval = setInterval(() => this.fetchData(), 30000);
+          } catch (e) {
+            console.error('startAutoRefresh error', e);
+          }
+        },
+
+        stopAutoRefresh() {
+          if (this.refreshInterval) {
+            clearInterval(this.refreshInterval);
+            this.refreshInterval = null;
+          }
+        },
+
         async fetchData() {
+          // 节流：如果距离上次请求太短，跳过
+          const now = Date.now();
+          if (now - this.lastFetchAt < this.minFetchInterval) return;
+          if (this.refreshing) return; // 防止并发请求
+
+          this.lastFetchAt = now;
+          this.refreshing = true;
           this.loading = true;
           try {
             // 如果有账号，使用账号
@@ -1196,7 +1638,7 @@
                 ...acc,
                 balance: null // 不发送手动余额
               }));
-              
+
               const [accountsRes, projectsRes] = await Promise.all([
                 fetch('/api/temp-accounts', {
                   method: 'POST',
@@ -1206,19 +1648,19 @@
                 fetch('/api/temp-projects', {
                   method: 'POST',
                   headers: this.getAuthHeaders(),
-                  body: JSON.stringify({ 
+                  body: JSON.stringify({
                     accounts: accountsWithoutManualBalance,
                     projectCosts: {} // 不发送手动费用，让服务器尝试从 API 获取
                   })
                 }).then(r => r.json())
               ]);
-              
+
               console.log('API 返回的账号数据:', accountsRes);
               console.log('API 返回的项目数据:', projectsRes);
-              
+
               this.accounts = accountsRes.map((account, index) => {
                 const projectData = projectsRes[index];
-                console.log(`账号 ${account.name} 余额: ${account.data?.credit} (${account.data?.credit/100} USD)`);
+                console.log(`账号 ${account.name} 余额: ${account.data?.credit} (${account.data?.credit / 100} USD)`);
                 return {
                   ...account,
                   projects: projectData.projects || []
@@ -1230,7 +1672,7 @@
                 fetch('/api/accounts').then(r => r.json()),
                 fetch('/api/projects').then(r => r.json())
               ]);
-              
+
               this.accounts = accountsRes.map((account, index) => {
                 const projectData = projectsRes[index];
                 return {
@@ -1244,6 +1686,7 @@
             alert('获取数据失败: ' + error.message);
           } finally {
             this.loading = false;
+            this.refreshing = false;
             this.lastUpdate = new Date().toLocaleTimeString('zh-CN');
           }
         },
@@ -1256,23 +1699,23 @@
         async batchAddAccounts() {
           this.batchAddError = '';
           this.batchAddSuccess = '';
-          
+
           if (!this.batchAccounts.trim()) {
             this.batchAddError = '请输入账号信息';
             return;
           }
-          
+
           const lines = this.batchAccounts.trim().split('\n');
           const accounts = [];
-          
+
           // 解析每一行
           for (let i = 0; i < lines.length; i++) {
             const line = lines[i].trim();
             if (!line) continue;
-            
+
             let name = '';
             let token = '';
-            
+
             // 尝试匹配括号格式：名称(token) 或 名称（token）
             const bracketMatch = line.match(/^(.+?)[（(](.+?)[）)]$/);
             if (bracketMatch) {
@@ -1292,24 +1735,24 @@
               this.batchAddError = `第 ${i + 1} 行格式错误，支持的格式：名称:Token 或 名称：Token 或 名称(Token) 或 名称（Token）`;
               return;
             }
-            
+
             if (!name || !token) {
               this.batchAddError = `第 ${i + 1} 行：账号名称或 Token 不能为空`;
               return;
             }
-            
+
             accounts.push({ name, token });
           }
-          
+
           if (accounts.length === 0) {
             this.batchAddError = '没有有效的账号信息';
             return;
           }
-          
+
           this.addingAccount = true;
           let successCount = 0;
           let failedAccounts = [];
-          
+
           // 逐个验证并添加
           for (const account of accounts) {
             try {
@@ -1321,9 +1764,9 @@
                   apiToken: account.token
                 })
               });
-              
+
               const data = await response.json();
-              
+
               if (response.ok) {
                 // 检查是否已存在
                 const exists = this.managedAccounts.some(acc => acc.name === account.name);
@@ -1345,14 +1788,14 @@
               failedAccounts.push(`${account.name}（网络错误）`);
             }
           }
-          
+
           this.addingAccount = false;
-          
+
           if (successCount > 0) {
             await this.saveManagedAccounts();
             this.fetchData();
           }
-          
+
           // 显示结果
           if (successCount > 0 && failedAccounts.length === 0) {
             this.batchAddSuccess = `✅ 成功添加 ${successCount} 个账号`;
@@ -1364,7 +1807,7 @@
           } else {
             this.batchAddError = `❌ 全部失败: ${failedAccounts.join(', ')}`;
           }
-          
+
           // 3秒后清除提示
           setTimeout(() => {
             this.batchAddSuccess = '';
@@ -1378,11 +1821,11 @@
             this.addAccountError = '请填写账号名称和 API Token';
             return;
           }
-          
+
           this.addingAccount = true;
           this.addAccountError = '';
           this.addAccountSuccess = '';
-          
+
           try {
             const response = await fetch('/api/validate-account', {
               method: 'POST',
@@ -1392,9 +1835,9 @@
                 apiToken: this.newAccount.token
               })
             });
-            
+
             const data = await response.json();
-            
+
             if (response.ok) {
               // 添加到本地列表
               this.managedAccounts.push({
@@ -1404,13 +1847,13 @@
                 email: data.userData.email,
                 username: data.userData.username
               });
-              
+
               this.saveManagedAccounts();
               this.addAccountSuccess = `✅ 账号添加成功！用户: ${data.userData.username}`;
-              
+
               // 清空表单
               this.newAccount = { name: '', token: '', balance: '' };
-              
+
               // 刷新数据
               setTimeout(() => {
                 this.fetchData();
@@ -1428,9 +1871,9 @@
         async removeAccount(index) {
           const accountName = this.managedAccounts[index].name;
           const password = prompt(`删除账号"${accountName}"需要验证管理员密码：`);
-          
+
           if (!password) return;
-          
+
           // 验证密码
           try {
             const response = await fetch('/api/verify-password', {
@@ -1438,7 +1881,7 @@
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ password })
             });
-            
+
             const result = await response.json();
             if (result.success) {
               this.managedAccounts.splice(index, 1);
@@ -1468,7 +1911,7 @@
           const opacity = this.opacity / 100;
           const root = document.documentElement;
           if (!root) return; // 防止 DOM 未加载
-          
+
           // 设置所有相关的CSS变量
           root.style.setProperty('--card-opacity', opacity);
           root.style.setProperty('--service-opacity', Math.min(opacity + 0.05, 1));
@@ -1489,7 +1932,7 @@
             this.projectCosts = {};
             localStorage.removeItem('zeabur_accounts');
             localStorage.removeItem('zeabur_project_costs');
-            
+
             alert('缓存已清除！正在重新获取数据...');
             this.fetchData();
           }
@@ -1503,7 +1946,7 @@
         // 暂停服务
         async pauseService(account, project, service) {
           if (!confirm(`确定要暂停服务"${service.name}"吗？`)) return;
-          
+
           try {
             // 获取环境 ID
             const environmentId = project.environments && project.environments[0] ? project.environments[0]._id : null;
@@ -1511,24 +1954,24 @@
               alert('❌ 无法获取环境 ID，请刷新页面后重试');
               return;
             }
-            
+
             // 获取账号 token
             const accountData = this.managedAccounts.find(acc => acc.name === account.name);
             if (!accountData || !accountData.token) {
               alert('❌ 无法获取账号 token，请重新添加账号');
               return;
             }
-            
+
             const response = await fetch('/api/service/pause', {
               method: 'POST',
               headers: this.getAuthHeaders(),
-              body: JSON.stringify({ 
-                token: accountData.token, 
+              body: JSON.stringify({
+                token: accountData.token,
                 serviceId: service._id,
                 environmentId: environmentId
               })
             });
-            
+
             const result = await response.json();
             if (result.success) {
               alert('✅ 服务已暂停');
@@ -1544,7 +1987,7 @@
         async restartService(account, project, service) {
           const action = service.status === 'SUSPENDED' ? '启动' : '重启';
           if (!confirm(`确定要${action}服务"${service.name}"吗？`)) return;
-          
+
           try {
             // 获取环境 ID
             const environmentId = project.environments && project.environments[0] ? project.environments[0]._id : null;
@@ -1552,24 +1995,24 @@
               alert('❌ 无法获取环境 ID，请刷新页面后重试');
               return;
             }
-            
+
             // 获取账号 token
             const accountData = this.managedAccounts.find(acc => acc.name === account.name);
             if (!accountData || !accountData.token) {
               alert('❌ 无法获取账号 token，请重新添加账号');
               return;
             }
-            
+
             const response = await fetch('/api/service/restart', {
               method: 'POST',
               headers: this.getAuthHeaders(),
-              body: JSON.stringify({ 
-                token: accountData.token, 
+              body: JSON.stringify({
+                token: accountData.token,
                 serviceId: service._id,
                 environmentId: environmentId
               })
             });
-            
+
             const result = await response.json();
             if (result.success) {
               alert(`✅ 服务已${action}`);
@@ -1588,20 +2031,20 @@
           this.logsContent = '';
           this.logsLoading = true;
           this.showLogsModal = true;
-          
+
           try {
             const environmentId = project.environments && project.environments[0] ? project.environments[0]._id : null;
             if (!environmentId) { this.logsContent = '❌ 无法获取环境 ID'; this.logsLoading = false; return; }
-            
+
             const accountData = this.managedAccounts.find(acc => acc.name === account.name);
             if (!accountData || !accountData.token) { this.logsContent = '❌ 无法获取账号 token'; this.logsLoading = false; return; }
-            
+
             const response = await fetch('/api/service/logs', {
               method: 'POST',
               headers: this.getAuthHeaders(),
               body: JSON.stringify({ token: accountData.token, serviceId: service._id, environmentId: environmentId, projectId: project._id, limit: 200 })
             });
-            
+
             const result = await response.json();
             if (result.success && result.logs) {
               this.logsContent = result.logs.map(log => '[' + new Date(log.timestamp).toLocaleString('zh-CN') + '] ' + log.message).join('\n');
@@ -1639,11 +2082,11 @@
               const maskedToken = bracketMatch[2].replace(/./g, '●');
               return name + bracket + maskedToken + closeBracket;
             }
-            
+
             // 冒号格式
             let separatorIndex = -1;
             let separator = '';
-            
+
             if (line.includes(':')) {
               separatorIndex = line.indexOf(':');
               separator = ':';
@@ -1651,9 +2094,9 @@
               separatorIndex = line.indexOf('：');
               separator = '：';
             }
-            
+
             if (separatorIndex === -1) return line;
-            
+
             const name = line.substring(0, separatorIndex);
             const token = line.substring(separatorIndex + 1);
             return name + separator + token.replace(/./g, '●');
@@ -1683,9 +2126,14 @@
           project.isEditing = true;
           project.editingName = project.name;
           setTimeout(() => {
-            const inputs = document.querySelectorAll('input[type="text"]');
-            const lastInput = inputs[inputs.length - 1];
-            if (lastInput) lastInput.focus();
+            try {
+              // 只在当前项目范围内查找输入，避免全局 querySelectorAll
+              const el = document.getElementById('proj-' + project._id);
+              if (el) {
+                const input = el.querySelector('.edit-input');
+                if (input) input.focus();
+              }
+            } catch (e) { console.error(e); }
           }, 50);
         },
         // 取消编辑项目名称
@@ -1699,34 +2147,34 @@
           if (!project.isEditing) {
             return;
           }
-          
+
           if (!project.editingName || project.editingName.trim() === '') {
             alert('❌ 项目名称不能为空');
             return;
           }
-          
+
           if (project.editingName === project.name) {
             this.cancelEditProjectName(project);
             return;
           }
-          
+
           try {
             const accountData = this.managedAccounts.find(acc => acc.name === account.name);
             if (!accountData || !accountData.token) {
               alert('❌ 无法获取账号 token，请重新添加账号');
               return;
             }
-            
+
             const response = await fetch('/api/project/rename', {
               method: 'POST',
               headers: this.getAuthHeaders(),
-              body: JSON.stringify({ 
-                token: accountData.token, 
+              body: JSON.stringify({
+                token: accountData.token,
                 projectId: project._id,
                 newName: project.editingName.trim()
               })
             });
-            
+
             const result = await response.json();
             if (result.success) {
               project.name = project.editingName.trim();
@@ -1742,17 +2190,7 @@
       }
     }).mount('#app');
   </script>
-  
-
-  <!-- 项目来源 -->
-  <div style="text-align: center; padding: 30px 20px;">
-    <div style="display: inline-block; background: rgba(255,255,255,0.95); backdrop-filter: blur(10px); padding: 12px 24px; border-radius: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); border: 1px solid rgba(246,150,198,0.3); font-size: 13px;">
-      <span style="color: #666;">⭐ 项目地址：</span>
-      <a href="https://github.com/jiujiu532/zeabur-monitor" target="_blank" style="color: #f696c6; text-decoration: none; font-weight: 600; margin-left: 5px;">
-        github.com/jiujiu532/zeabur-monitor
-      </a>
-    </div>
-  </div>
 
 </body>
+
 </html>
