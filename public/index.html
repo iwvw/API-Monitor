@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Zeabur 多账号监控面板</title>
+  <title>Zeabur Monitor</title>
   <link rel="icon" type="image/png" href="/logo.png">
   <link rel="shortcut icon" href="/logo.png">
   <link rel="icon" href="/logo.png" sizes="32x32">
@@ -961,7 +961,7 @@
 
     <div v-if="isAuthenticated" class="container">
       <div class="header">
-        <h1 class="title">🚀 Zeabur 多账号监控面板</h1>
+        <h1 class="title">🚀 Zeabur Monitor</h1>
         <div class="last-update">上次更新: {{ lastUpdate }}</div>
       </div>
 
@@ -1371,7 +1371,7 @@
       },
       async mounted() {
         // 检查服务器是否已设置密码
-        const hasPasswordResponse = await fetch('/api/check-password');
+        const hasPasswordResponse = await fetch('/api/check-password', { credentials: 'include' });
         const { hasPassword } = await hasPasswordResponse.json();
 
         if (!hasPassword) {
@@ -1380,21 +1380,31 @@
           return;
         }
 
-        // 检查本地是否有保存的密码和时间戳
-        const savedPassword = localStorage.getItem('admin_password');
-        const savedTime = localStorage.getItem('password_time');
+        // 检查是否已有有效会话
+        try {
+          const sessionRes = await fetch('/api/session', { credentials: 'include' });
+          const sessionJson = await sessionRes.json();
+          if (sessionJson.authenticated) {
+            this.isAuthenticated = true;
+            this.showLoginModal = false;
 
-        if (savedPassword && savedTime) {
-          const now = Date.now();
-          const elapsed = now - parseInt(savedTime);
-          const fourDays = 4 * 24 * 60 * 60 * 1000; // 4天的毫秒数
+            await this.loadManagedAccounts();
+            this.loadProjectCosts();
+            this.fetchData();
 
-          if (elapsed < fourDays) {
-            // 4天内，自动登录
-            this.loginPassword = savedPassword;
-            await this.verifyPassword();
+            // 启动自动刷新
+            this.startAutoRefresh();
+
+            // 加载透明度设置
+            const savedOpacity = localStorage.getItem('card_opacity');
+            if (savedOpacity) {
+              this.opacity = parseInt(savedOpacity);
+              this.updateOpacity();
+            }
             return;
           }
+        } catch (e) {
+          console.warn('session check failed', e);
         }
 
         // 需要输入密码
@@ -1477,31 +1487,37 @@
             const response = await fetch('/api/set-password', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
               body: JSON.stringify({ password: this.setPassword })
             });
 
             const result = await response.json();
             if (result.success) {
-              // 设置成功，自动登录
-              this.loginPassword = this.setPassword;
-              localStorage.setItem('admin_password', this.setPassword);
-              localStorage.setItem('password_time', Date.now().toString());
+              // 设置成功，立即登录以创建 session（密码不再保存在 localStorage）
+              const loginRes = await fetch('/api/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({ password: this.setPassword })
+              });
 
-              this.showSetPasswordModal = false;
-              this.isAuthenticated = true;
+              if (loginRes.ok) {
+                this.showSetPasswordModal = false;
+                this.isAuthenticated = true;
 
-              await this.loadManagedAccounts();
-              this.loadProjectCosts();
-              this.fetchData();
+                await this.loadManagedAccounts();
+                this.loadProjectCosts();
+                this.fetchData();
 
-              // 启动自动刷新（使用统一方法，避免重复创建 interval）
-              this.startAutoRefresh();
+                this.startAutoRefresh();
 
-              // 加载透明度设置
-              const savedOpacity = localStorage.getItem('card_opacity');
-              if (savedOpacity) {
-                this.opacity = parseInt(savedOpacity);
-                this.updateOpacity();
+                const savedOpacity = localStorage.getItem('card_opacity');
+                if (savedOpacity) {
+                  this.opacity = parseInt(savedOpacity);
+                  this.updateOpacity();
+                }
+              } else {
+                this.setPasswordError = '设置成功，但登录失败';
               }
             } else {
               this.setPasswordError = result.error || '设置失败';
@@ -1514,36 +1530,33 @@
         async verifyPassword() {
           this.loginError = '';
           try {
-            const response = await fetch('/api/verify-password', {
+            // 使用登录接口创建 session（server 会设置 HttpOnly cookie）
+            const response = await fetch('/api/login', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
               body: JSON.stringify({ password: this.loginPassword })
             });
 
-            const result = await response.json();
-            if (result.success) {
+            if (response.ok) {
               this.isAuthenticated = true;
               this.showLoginModal = false;
-
-              // 保存密码和时间戳
-              localStorage.setItem('admin_password', this.loginPassword);
-              localStorage.setItem('password_time', Date.now().toString());
 
               await this.loadManagedAccounts();
               this.loadProjectCosts();
               this.fetchData();
 
-              // 启动自动刷新（使用统一方法，避免重复创建 interval）
+              // 启动自动刷新
               this.startAutoRefresh();
 
-              // 加载透明度设置
               const savedOpacity = localStorage.getItem('card_opacity');
               if (savedOpacity) {
                 this.opacity = parseInt(savedOpacity);
                 this.updateOpacity();
               }
             } else {
-              this.loginError = '密码错误，请重试';
+              const result = await response.json().catch(() => ({}));
+              this.loginError = result.error || '密码错误，请重试';
             }
           } catch (error) {
             this.loginError = '验证失败: ' + error.message;
@@ -1560,15 +1573,15 @@
         // 获取请求头（包含密码）
         getAuthHeaders() {
           return {
-            'Content-Type': 'application/json',
-            'x-admin-password': this.loginPassword
+            'Content-Type': 'application/json'
           };
         },
         async loadManagedAccounts() {
           try {
             // 从服务器加载账号
             const response = await fetch('/api/server-accounts', {
-              headers: this.getAuthHeaders()
+              headers: this.getAuthHeaders(),
+              credentials: 'include'
             });
             const accounts = await response.json();
             if (accounts && accounts.length > 0) {
@@ -1585,6 +1598,7 @@
             const response = await fetch('/api/server-accounts', {
               method: 'POST',
               headers: this.getAuthHeaders(),
+              credentials: 'include',
               body: JSON.stringify({ accounts: this.managedAccounts })
             });
             const result = await response.json();
@@ -1643,11 +1657,13 @@
                 fetch('/api/temp-accounts', {
                   method: 'POST',
                   headers: this.getAuthHeaders(),
+                  credentials: 'include',
                   body: JSON.stringify({ accounts: accountsWithoutManualBalance })
                 }).then(r => r.json()),
                 fetch('/api/temp-projects', {
                   method: 'POST',
                   headers: this.getAuthHeaders(),
+                  credentials: 'include',
                   body: JSON.stringify({
                     accounts: accountsWithoutManualBalance,
                     projectCosts: {} // 不发送手动费用，让服务器尝试从 API 获取
@@ -1669,8 +1685,8 @@
             } else {
               // 否则使用服务器配置的账号
               const [accountsRes, projectsRes] = await Promise.all([
-                fetch('/api/accounts').then(r => r.json()),
-                fetch('/api/projects').then(r => r.json())
+                fetch('/api/accounts', { credentials: 'include' }).then(r => r.json()),
+                fetch('/api/projects', { credentials: 'include' }).then(r => r.json())
               ]);
 
               this.accounts = accountsRes.map((account, index) => {
@@ -1759,6 +1775,7 @@
               const response = await fetch('/api/validate-account', {
                 method: 'POST',
                 headers: this.getAuthHeaders(),
+                credentials: 'include',
                 body: JSON.stringify({
                   accountName: account.name,
                   apiToken: account.token
@@ -1830,6 +1847,7 @@
             const response = await fetch('/api/validate-account', {
               method: 'POST',
               headers: this.getAuthHeaders(),
+              credentials: 'include',
               body: JSON.stringify({
                 accountName: this.newAccount.name,
                 apiToken: this.newAccount.token
@@ -1879,6 +1897,7 @@
             const response = await fetch('/api/verify-password', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
               body: JSON.stringify({ password })
             });
 
@@ -1965,6 +1984,7 @@
             const response = await fetch('/api/service/pause', {
               method: 'POST',
               headers: this.getAuthHeaders(),
+              credentials: 'include',
               body: JSON.stringify({
                 token: accountData.token,
                 serviceId: service._id,
@@ -2006,6 +2026,7 @@
             const response = await fetch('/api/service/restart', {
               method: 'POST',
               headers: this.getAuthHeaders(),
+              credentials: 'include',
               body: JSON.stringify({
                 token: accountData.token,
                 serviceId: service._id,
@@ -2042,6 +2063,7 @@
             const response = await fetch('/api/service/logs', {
               method: 'POST',
               headers: this.getAuthHeaders(),
+              credentials: 'include',
               body: JSON.stringify({ token: accountData.token, serviceId: service._id, environmentId: environmentId, projectId: project._id, limit: 200 })
             });
 
@@ -2168,6 +2190,7 @@
             const response = await fetch('/api/project/rename', {
               method: 'POST',
               headers: this.getAuthHeaders(),
+              credentials: 'include',
               body: JSON.stringify({
                 token: accountData.token,
                 projectId: project._id,

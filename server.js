@@ -11,19 +11,91 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
-// 密码验证中间件
+// -----------------------------
+// 会话机制（内存存储）
+// - session 存储在服务器内存，服务器重启后清空
+// - session 有效期：2 天
+// - 会话通过 HttpOnly cookie `sid` 识别
+// - 兼容旧的 x-admin-password header（用于脚本），但优先使用 session
+// -----------------------------
+
+const crypto = require('crypto');
+
+// sessionId -> { expires: timestamp }
+const sessions = Object.create(null);
+const SESSION_TTL_MS = 2 * 24 * 60 * 60 * 1000; // 2 天
+
+function cleanupSessions() {
+  const now = Date.now();
+  for (const sid of Object.keys(sessions)) {
+    if (sessions[sid].expires <= now) {
+      delete sessions[sid];
+    }
+  }
+}
+
+// 定期清理过期会话（每小时）
+setInterval(cleanupSessions, 60 * 60 * 1000);
+
+function parseCookies(req) {
+  const header = req.headers && req.headers.cookie;
+  const result = Object.create(null);
+  if (!header) return result;
+  header.split(';').forEach(pair => {
+    const idx = pair.indexOf('=');
+    if (idx < 0) return;
+    const key = pair.slice(0, idx).trim();
+    const val = pair.slice(idx + 1).trim();
+    result[key] = decodeURIComponent(val);
+  });
+  return result;
+}
+
+function createSession() {
+  const sid = crypto.randomBytes(24).toString('hex');
+  const now = Date.now();
+  sessions[sid] = { created: now, expires: now + SESSION_TTL_MS };
+  return sid;
+}
+
+function getSession(req) {
+  const cookies = parseCookies(req);
+  const sid = cookies.sid;
+  if (!sid) return null;
+  const session = sessions[sid];
+  if (!session) return null;
+  if (session.expires <= Date.now()) {
+    delete sessions[sid];
+    return null;
+  }
+  // 延长会话到固定 TTL（可选，保持静态过期不延长也可）
+  // sessions[sid].expires = Date.now() + SESSION_TTL_MS;
+  return { sid, ...session };
+}
+
+function destroySession(req) {
+  const cookies = parseCookies(req);
+  const sid = cookies.sid;
+  if (sid && sessions[sid]) delete sessions[sid];
+}
+
+// 密码/会话验证中间件
 function requireAuth(req, res, next) {
+  const session = getSession(req);
+  if (session) return next();
+
+  // 回退到旧的 header 验证（保持兼容）
   const password = req.headers['x-admin-password'];
   const savedPassword = loadAdminPassword();
-  
+
   if (!savedPassword) {
     // 如果没有设置密码，允许访问（首次设置）
-    next();
-  } else if (password === savedPassword) {
-    next();
-  } else {
-    res.status(401).json({ error: '密码错误' });
+    return next();
   }
+
+  if (password === savedPassword) return next();
+
+  return res.status(401).json({ error: '未认证或密码错误' });
 }
 
 app.use(express.static('public'));
@@ -536,6 +608,43 @@ function getEnvAccounts() {
 app.get('/api/check-password', (req, res) => {
   const savedPassword = loadAdminPassword();
   res.json({ hasPassword: !!savedPassword });
+});
+
+// 登录：创建 session（使用密码）
+app.post('/api/login', express.json(), (req, res) => {
+  const { password } = req.body;
+  const savedPassword = loadAdminPassword();
+
+  // 如果没有设置密码，不能登录（应先设置）
+  if (!savedPassword) return res.status(400).json({ success: false, error: '请先设置管理员密码' });
+
+  if (password !== savedPassword) return res.status(401).json({ success: false, error: '密码错误' });
+
+  const sid = createSession();
+  const cookieOptions = {
+    httpOnly: true,
+    sameSite: 'lax',
+    maxAge: SESSION_TTL_MS,
+    path: '/'
+  };
+  if (process.env.NODE_ENV === 'production') cookieOptions.secure = true;
+
+  res.cookie('sid', sid, cookieOptions);
+  res.json({ success: true });
+});
+
+// 登出：销毁 session
+app.post('/api/logout', (req, res) => {
+  destroySession(req);
+  // 清空 cookie
+  res.cookie('sid', '', { httpOnly: true, maxAge: 0, path: '/' });
+  res.json({ success: true });
+});
+
+// 会话检查
+app.get('/api/session', (req, res) => {
+  const session = getSession(req);
+  res.json({ authenticated: !!session });
 });
 
 // 设置管理员密码（首次）
