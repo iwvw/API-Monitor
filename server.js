@@ -8,7 +8,8 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-app.use(cors());
+// 启用 CORS 并允许携带凭据（cookie）
+app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
 
 // -----------------------------
@@ -68,8 +69,10 @@ function getSession(req) {
     delete sessions[sid];
     return null;
   }
-  // 延长会话到固定 TTL（可选，保持静态过期不延长也可）
-  // sessions[sid].expires = Date.now() + SESSION_TTL_MS;
+  // 延长会话过期时间（实现 sliding session），每次请求都会把过期时间推后 SESSION_TTL_MS
+  sessions[sid].expires = Date.now() + SESSION_TTL_MS;
+  // 简单日志，便于调试（可在生产环境移除）
+  console.log(`🔐 session validated sid=${sid} expires=${new Date(sessions[sid].expires).toISOString()}`);
   return { sid, ...session };
 }
 
