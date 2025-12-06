@@ -49,7 +49,7 @@
 
 ```bash
 # 1. 克隆项目
-git clone https://github.com/jiujiu532/zeabur-monitor.git
+git clone https://github.com/iwvw/zeabur-monitor.git
 cd zeabur-monitor
 
 # 2. 安装依赖
@@ -59,7 +59,7 @@ npm install
 npm start
 
 # 4. 访问应用
-# 打开浏览器访问：http://localhost:3000
+打开浏览器访问：http://localhost:3000
 ```
 
 ### Zeabur 部署（推荐）
