@@ -8,8 +8,28 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// 配置目录（可通过环境变量覆盖），优先使用挂载的配置目录
+// 推荐在 Docker 中挂载为 `/app/config`，或在本地使用 `./data` 挂载到该路径
+const CONFIG_DIR = process.env.CONFIG_DIR || path.join(__dirname, 'config');
+const SESSIONS_FILE = path.join(CONFIG_DIR, 'sessions.json');
+const ACCOUNTS_FILE = path.join(CONFIG_DIR, 'accounts.json');
+const PASSWORD_FILE = path.join(CONFIG_DIR, 'password.json');
+
 // 启用 CORS 并允许携带凭据（cookie）
-app.use(cors({ origin: true, credentials: true }));
+// 配置 CORS 以支持带凭据的跨域请求
+app.use(cors({
+  origin: function(origin, callback) {
+    // 开发环境：允许所有本地源
+    if (!origin || origin.includes('localhost') || origin.includes('127.0.0.1') || origin.includes('0.0.0.0')) {
+      return callback(null, true);
+    }
+    // 生产环境：可在此限制
+    callback(null, true);
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-admin-password']
+}));
 app.use(express.json());
 
 // -----------------------------
@@ -22,21 +42,34 @@ app.use(express.json());
 
 const crypto = require('crypto');
 
-// sessionId -> { expires: timestamp }
+// Session 持久化存储
+// - sessionId -> { password, createdAt, lastAccessedAt }
+// - 会话永不过期（需要手动 logout 才删除）
+// - 重启服务器后会话仍然有效
 const sessions = Object.create(null);
-const SESSION_TTL_MS = 2 * 24 * 60 * 60 * 1000; // 2 天
 
-function cleanupSessions() {
-  const now = Date.now();
-  for (const sid of Object.keys(sessions)) {
-    if (sessions[sid].expires <= now) {
-      delete sessions[sid];
+// 从文件加载 session
+function loadSessions() {
+  try {
+    if (fs.existsSync(SESSIONS_FILE)) {
+      const data = fs.readFileSync(SESSIONS_FILE, 'utf-8');
+      const loaded = JSON.parse(data);
+      Object.assign(sessions, loaded);
+      console.log('✅ 已加载持久化 session，数量:', Object.keys(sessions).length);
     }
+  } catch (err) {
+    console.error('❌ 加载 session 失败:', err.message);
   }
 }
 
-// 定期清理过期会话（每小时）
-setInterval(cleanupSessions, 60 * 60 * 1000);
+// 保存 session 到文件（自动调用）
+function saveSessions() {
+  try {
+    fs.writeFileSync(SESSIONS_FILE, JSON.stringify(sessions, null, 2));
+  } catch (err) {
+    console.error('❌ 保存 session 失败:', err.message);
+  }
+}
 
 function parseCookies(req) {
   const header = req.headers && req.headers.cookie;
@@ -52,40 +85,59 @@ function parseCookies(req) {
   return result;
 }
 
-function createSession() {
+// 创建新 session（永久保存，不会过期）
+function createSession(password) {
   const sid = crypto.randomBytes(24).toString('hex');
-  const now = Date.now();
-  sessions[sid] = { created: now, expires: now + SESSION_TTL_MS };
+  sessions[sid] = {
+    password: password,
+    createdAt: new Date().toISOString(),
+    lastAccessedAt: new Date().toISOString()
+  };
+  saveSessions();
+  console.log('✨ 创建新 session:', sid.substring(0, 8) + '...');
   return sid;
 }
 
+// 获取 session（永不过期）
 function getSession(req) {
   const cookies = parseCookies(req);
   const sid = cookies.sid;
-  if (!sid) return null;
-  const session = sessions[sid];
-  if (!session) return null;
-  if (session.expires <= Date.now()) {
-    delete sessions[sid];
+  if (!sid) {
+    console.log('⚠️ 无 session cookie');
     return null;
   }
-  // 延长会话过期时间（实现 sliding session），每次请求都会把过期时间推后 SESSION_TTL_MS
-  sessions[sid].expires = Date.now() + SESSION_TTL_MS;
-  // 简单日志，便于调试（可在生产环境移除）
-  console.log(`🔐 session validated sid=${sid} expires=${new Date(sessions[sid].expires).toISOString()}`);
+  const session = sessions[sid];
+  if (!session) {
+    console.log(`⚠️ session 不存在 sid=${sid.substring(0, 8)}...`);
+    return null;
+  }
+  // 更新访问时间
+  session.lastAccessedAt = new Date().toISOString();
+  saveSessions();
+  console.log(`✓ session 有效 sid=${sid.substring(0, 8)}... (永久保存)`);
   return { sid, ...session };
 }
 
+// 销毁 session（logout 时调用）
 function destroySession(req) {
   const cookies = parseCookies(req);
   const sid = cookies.sid;
-  if (sid && sessions[sid]) delete sessions[sid];
+  if (sid && sessions[sid]) {
+    delete sessions[sid];
+    saveSessions();
+    console.log('🔒 销毁 session:', sid.substring(0, 8) + '...');
+    return true;
+  }
+  return false;
 }
 
 // 密码/会话验证中间件
 function requireAuth(req, res, next) {
   const session = getSession(req);
-  if (session) return next();
+  if (session) {
+    console.log(`✅ session 认证通过`);
+    return next();
+  }
 
   // 回退到旧的 header 验证（保持兼容）
   const password = req.headers['x-admin-password'];
@@ -93,12 +145,18 @@ function requireAuth(req, res, next) {
 
   if (!savedPassword) {
     // 如果没有设置密码，允许访问（首次设置）
+    console.log(`ℹ️ 无密码设置，允许访问`);
     return next();
   }
 
-  if (password === savedPassword) return next();
+  if (password === savedPassword) {
+    console.log(`✅ header 密码认证通过`);
+    return next();
+  }
 
-  return res.status(401).json({ error: '未认证或密码错误' });
+  console.log(`❌ 认证失败：无有效 session 或 header 密码`);
+  // 确保返回有效的 JSON（不会导致 502）
+  return res.status(401).json({ success: false, error: '未认证或密码错误，session 已过期请重新登录' });
 }
 
 app.use(express.static('public'));
@@ -114,10 +172,6 @@ app.get('/favicon.ico', (req, res) => {
 
 // 配置目录（可通过环境变量覆盖），优先使用挂载的配置目录
 // 推荐在 Docker 中挂载为 `/app/config`，或在本地使用 `./data` 挂载到该路径
-const CONFIG_DIR = process.env.CONFIG_DIR || path.join(__dirname, 'config');
-// 数据文件路径
-const ACCOUNTS_FILE = path.join(CONFIG_DIR, 'accounts.json');
-const PASSWORD_FILE = path.join(CONFIG_DIR, 'password.json');
 
 // 读取服务器存储的账号
 function loadServerAccounts() {
@@ -448,119 +502,129 @@ async function fetchUsageData(token, userID, projects = []) {
 
 // 临时账号API - 获取账号信息
 app.post('/api/temp-accounts', requireAuth, express.json(), async (req, res) => {
-  const { accounts } = req.body;
-  
-  console.log('📥 收到账号请求:', accounts?.length, '个账号');
-  
-  if (!accounts || !Array.isArray(accounts)) {
-    return res.status(400).json({ error: '无效的账号列表' });
-  }
-  
-  const results = await Promise.all(accounts.map(async (account) => {
-    try {
-      console.log(`🔍 正在获取账号 [${account.name}] 的数据...`);
-      const { user, projects, aihub } = await fetchAccountData(account.token);
-      console.log(`   API 返回的 credit: ${user.credit}`);
-      
-      // 获取用量数据
-      let usageData = { totalUsage: 0, freeQuotaRemaining: 5, freeQuotaLimit: 5 };
-      if (user._id) {
-        try {
-          usageData = await fetchUsageData(account.token, user._id, projects);
-          console.log(`💰 [${account.name}] 用量: $${usageData.totalUsage.toFixed(2)}, 剩余: $${usageData.freeQuotaRemaining.toFixed(2)}`);
-        } catch (e) {
-          console.log(`⚠️ [${account.name}] 获取用量失败:`, e.message);
-        }
-      }
-      
-      // 计算剩余额度并转换为 credit（以分为单位）
-      const creditInCents = Math.round(usageData.freeQuotaRemaining * 100);
-      
-      return {
-        name: account.name,
-        success: true,
-        data: {
-          ...user,
-          credit: creditInCents, // 使用计算的剩余额度
-          totalUsage: usageData.totalUsage,
-          freeQuotaLimit: usageData.freeQuotaLimit
-        },
-        aihub: aihub
-      };
-    } catch (error) {
-      console.error(`❌ [${account.name}] 错误:`, error.message);
-      return {
-        name: account.name,
-        success: false,
-        error: error.message
-      };
+  try {
+    const { accounts } = req.body;
+    
+    console.log('📥 收到账号请求:', accounts?.length, '个账号');
+    
+    if (!accounts || !Array.isArray(accounts)) {
+      return res.status(400).json({ error: '无效的账号列表' });
     }
-  }));
-  
-  console.log('📤 返回结果:', results.length, '个账号');
-  res.json(results);
+    
+    const results = await Promise.all(accounts.map(async (account) => {
+      try {
+        console.log(`🔍 正在获取账号 [${account.name}] 的数据...`);
+        const { user, projects, aihub } = await fetchAccountData(account.token);
+        console.log(`   API 返回的 credit: ${user.credit}`);
+        
+        // 获取用量数据
+        let usageData = { totalUsage: 0, freeQuotaRemaining: 5, freeQuotaLimit: 5 };
+        if (user._id) {
+          try {
+            usageData = await fetchUsageData(account.token, user._id, projects);
+            console.log(`💰 [${account.name}] 用量: $${usageData.totalUsage.toFixed(2)}, 剩余: $${usageData.freeQuotaRemaining.toFixed(2)}`);
+          } catch (e) {
+            console.log(`⚠️ [${account.name}] 获取用量失败:`, e.message);
+          }
+        }
+        
+        // 计算剩余额度并转换为 credit（以分为单位）
+        const creditInCents = Math.round(usageData.freeQuotaRemaining * 100);
+        
+        return {
+          name: account.name,
+          success: true,
+          data: {
+            ...user,
+            credit: creditInCents, // 使用计算的剩余额度
+            totalUsage: usageData.totalUsage,
+            freeQuotaLimit: usageData.freeQuotaLimit
+          },
+          aihub: aihub
+        };
+      } catch (error) {
+        console.error(`❌ [${account.name}] 错误:`, error.message);
+        return {
+          name: account.name,
+          success: false,
+          error: error.message
+        };
+      }
+    }));
+    
+    console.log('📤 返回结果:', results.length, '个账号');
+    res.json(results);
+  } catch (error) {
+    console.error('❌ /api/temp-accounts 未捕获异常:', error);
+    res.status(500).json({ error: '/api/temp-accounts 服务器错误: ' + error.message });
+  }
 });
 
 // 临时账号API - 获取项目信息
 app.post('/api/temp-projects', requireAuth, express.json(), async (req, res) => {
-  const { accounts } = req.body;
-  
-  console.log('📥 收到项目请求:', accounts?.length, '个账号');
-  
-  if (!accounts || !Array.isArray(accounts)) {
-    return res.status(400).json({ error: '无效的账号列表' });
-  }
-  
-  const results = await Promise.all(accounts.map(async (account) => {
-    try {
-      console.log(`🔍 正在获取账号 [${account.name}] 的项目...`);
-      const { user, projects } = await fetchAccountData(account.token);
-      
-      // 获取用量数据
-      let projectCosts = {};
-      if (user._id) {
-        try {
-          const usageData = await fetchUsageData(account.token, user._id, projects);
-          projectCosts = usageData.projectCosts;
-        } catch (e) {
-          console.log(`⚠️ [${account.name}] 获取用量失败:`, e.message);
+  try {
+    const { accounts } = req.body;
+    
+    console.log('📥 收到项目请求:', accounts?.length, '个账号');
+    
+    if (!accounts || !Array.isArray(accounts)) {
+      return res.status(400).json({ error: '无效的账号列表' });
+    }
+    
+    const results = await Promise.all(accounts.map(async (account) => {
+      try {
+        console.log(`🔍 正在获取账号 [${account.name}] 的项目...`);
+        const { user, projects } = await fetchAccountData(account.token);
+        
+        // 获取用量数据
+        let projectCosts = {};
+        if (user._id) {
+          try {
+            const usageData = await fetchUsageData(account.token, user._id, projects);
+            projectCosts = usageData.projectCosts;
+          } catch (e) {
+            console.log(`⚠️ [${account.name}] 获取用量失败:`, e.message);
+          }
         }
-      }
-      
-      console.log(`📦 [${account.name}] 找到 ${projects.length} 个项目`);
-      
-      const projectsWithCost = projects.map(project => {
-        const cost = projectCosts[project._id] || 0;
-        console.log(`  - ${project.name}: $${cost.toFixed(2)}`);
+        
+        console.log(`📦 [${account.name}] 找到 ${projects.length} 个项目`);
+        
+        const projectsWithCost = projects.map(project => {
+          const cost = projectCosts[project._id] || 0;
+          console.log(`  - ${project.name}: $${cost.toFixed(2)}`);
+          
+          return {
+            _id: project._id,
+            name: project.name,
+            region: project.region?.name || 'Unknown',
+            environments: project.environments || [],
+            services: project.services || [],
+            cost: cost,
+            hasCostData: cost > 0
+          };
+        });
         
         return {
-          _id: project._id,
-          name: project.name,
-          region: project.region?.name || 'Unknown',
-          environments: project.environments || [],
-          services: project.services || [],
-          cost: cost,
-          hasCostData: cost > 0
+          name: account.name,
+          success: true,
+          projects: projectsWithCost
         };
-      });
-      
-      return {
-        name: account.name,
-        success: true,
-        projects: projectsWithCost
-      };
-    } catch (error) {
-      console.error(`❌ [${account.name}] 错误:`, error.message);
-      return {
-        name: account.name,
-        success: false,
-        error: error.message
-      };
-    }
-  }));
-  
-  console.log('📤 返回项目结果');
-  res.json(results);
+      } catch (error) {
+        console.error(`❌ [${account.name}] 错误:`, error.message);
+        return {
+          name: account.name,
+          success: false,
+          error: error.message
+        };
+      }
+    }));
+    
+    console.log('📤 返回项目结果');
+    res.json(results);
+  } catch (error) {
+    console.error('❌ /api/temp-projects 未捕获异常:', error);
+    res.status(500).json({ error: '/api/temp-projects 服务器错误: ' + error.message });
+  }
 });
 
 // 验证账号
@@ -623,15 +687,19 @@ app.post('/api/login', express.json(), (req, res) => {
 
   if (password !== savedPassword) return res.status(401).json({ success: false, error: '密码错误' });
 
-  const sid = createSession();
+  const sid = createSession(password);
   const cookieOptions = {
     httpOnly: true,
     sameSite: 'lax',
-    maxAge: SESSION_TTL_MS,
     path: '/'
   };
-  if (process.env.NODE_ENV === 'production') cookieOptions.secure = true;
+  // 仅在 production 且 HTTPS 时设置 secure
+  if (process.env.NODE_ENV === 'production' && process.env.SECURE_COOKIE !== 'false') {
+    cookieOptions.secure = true;
+  }
 
+  console.log(`✅ 创建会话 sid=${sid.substring(0, 8)}... (永久保存)`);
+  console.log(`   cookie options:`, cookieOptions);
   res.cookie('sid', sid, cookieOptions);
   res.json({ success: true });
 });
@@ -648,6 +716,11 @@ app.post('/api/logout', (req, res) => {
 app.get('/api/session', (req, res) => {
   const session = getSession(req);
   res.json({ authenticated: !!session });
+});
+
+// 健康检查（不需要认证）
+app.get('/health', (req, res) => {
+  res.json({ ok: true, timestamp: new Date().toISOString() });
 });
 
 // 设置管理员密码（首次）
@@ -867,6 +940,9 @@ app.post('/api/project/rename', requireAuth, async (req, res) => {
     res.status(500).json({ error: '重命名项目失败: ' + error.message });
   }
 });
+
+// 加载持久化 session
+loadSessions();
 
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`✨ Zeabur Monitor 运行在 http://0.0.0.0:${PORT}`);
