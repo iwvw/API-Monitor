@@ -1530,6 +1530,7 @@
         async verifyPassword() {
           this.loginError = '';
           try {
+            console.log('🔐 尝试登录...');
             // 使用登录接口创建 session（server 会设置 HttpOnly cookie）
             const response = await fetch('/api/login', {
               method: 'POST',
@@ -1538,7 +1539,11 @@
               body: JSON.stringify({ password: this.loginPassword })
             });
 
+            console.log('📨 登录响应状态:', response.status, response.statusText);
+            console.log('📨 响应头 Set-Cookie:', response.headers.get('set-cookie'));
+
             if (response.ok) {
+              console.log('✅ 登录成功，正在加载数据...');
               this.isAuthenticated = true;
               this.showLoginModal = false;
 
@@ -1557,9 +1562,11 @@
             } else {
               const result = await response.json().catch(() => ({}));
               this.loginError = result.error || '密码错误，请重试';
+              console.log('❌ 登录失败:', this.loginError);
             }
           } catch (error) {
             this.loginError = '验证失败: ' + error.message;
+            console.log('❌ 登录异常:', error);
           }
         },
         // 邮箱打码
@@ -1659,7 +1666,13 @@
                   headers: this.getAuthHeaders(),
                   credentials: 'include',
                   body: JSON.stringify({ accounts: accountsWithoutManualBalance })
-                }).then(r => r.json()),
+                }).then(async r => {
+                  if (!r.ok) {
+                    const text = await r.text();
+                    throw new Error(`/api/temp-accounts 返回 ${r.status}: ${text.substring(0, 100)}`);
+                  }
+                  return r.json();
+                }),
                 fetch('/api/temp-projects', {
                   method: 'POST',
                   headers: this.getAuthHeaders(),
@@ -1668,7 +1681,13 @@
                     accounts: accountsWithoutManualBalance,
                     projectCosts: {} // 不发送手动费用，让服务器尝试从 API 获取
                   })
-                }).then(r => r.json())
+                }).then(async r => {
+                  if (!r.ok) {
+                    const text = await r.text();
+                    throw new Error(`/api/temp-projects 返回 ${r.status}: ${text.substring(0, 100)}`);
+                  }
+                  return r.json();
+                })
               ]);
 
               console.log('API 返回的账号数据:', accountsRes);
@@ -1685,8 +1704,20 @@
             } else {
               // 否则使用服务器配置的账号
               const [accountsRes, projectsRes] = await Promise.all([
-                fetch('/api/accounts', { credentials: 'include' }).then(r => r.json()),
-                fetch('/api/projects', { credentials: 'include' }).then(r => r.json())
+                fetch('/api/accounts', { credentials: 'include' }).then(async r => {
+                  if (!r.ok) {
+                    const text = await r.text();
+                    throw new Error(`/api/accounts 返回 ${r.status}: ${text.substring(0, 100)}`);
+                  }
+                  return r.json();
+                }),
+                fetch('/api/projects', { credentials: 'include' }).then(async r => {
+                  if (!r.ok) {
+                    const text = await r.text();
+                    throw new Error(`/api/projects 返回 ${r.status}: ${text.substring(0, 100)}`);
+                  }
+                  return r.json();
+                })
               ]);
 
               this.accounts = accountsRes.map((account, index) => {
@@ -1888,30 +1919,16 @@
         },
         async removeAccount(index) {
           const accountName = this.managedAccounts[index].name;
-          const password = prompt(`删除账号"${accountName}"需要验证管理员密码：`);
+          if (!confirm(`确定要删除账号"${accountName}"吗？`)) return;
 
-          if (!password) return;
-
-          // 验证密码
           try {
-            const response = await fetch('/api/verify-password', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              credentials: 'include',
-              body: JSON.stringify({ password })
-            });
-
-            const result = await response.json();
-            if (result.success) {
-              this.managedAccounts.splice(index, 1);
-              await this.saveManagedAccounts();
-              this.fetchData();
-              alert('账号已删除');
-            } else {
-              alert('密码错误，删除失败');
-            }
+            this.managedAccounts.splice(index, 1);
+            await this.saveManagedAccounts();
+            console.log('✓ 账号已从本地删除并保存到服务器');
+            await this.fetchData();
+            alert('✓ 账号已删除');
           } catch (error) {
-            alert('验证失败: ' + error.message);
+            alert('✗ 删除失败: ' + error.message);
           }
         },
         closeAddModal() {
