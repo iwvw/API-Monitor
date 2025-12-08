@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Zeabur Monitor</title>
+  <title>Zeabur Moniter</title>
   <link rel="icon" type="image/png" href="/logo.png">
   <link rel="shortcut icon" href="/logo.png">
   <link rel="icon" href="/logo.png" sizes="32x32">
@@ -44,7 +44,7 @@
       --button-primary-bg: #6366f1;
       --button-primary-hover: #4f46e5;
       --button-secondary-bg: #f3f4f6;
-      --button-secondary-hover: #e5e7eb;
+      --button-secondary-hover: #00878d;
       --status-running: #10b981;
       --status-stopped: #ef4444;
       --status-suspended: #f59e0b;
@@ -71,7 +71,7 @@
         --button-primary-bg: #6366f1;
         --button-primary-hover: #4f46e5;
         --button-secondary-bg: #374151;
-        --button-secondary-hover: #4b5563;
+        --button-secondary-hover: #004346;
         --status-running: #10b981;
         --status-stopped: #ef4444;
         --status-suspended: #f59e0b;
@@ -128,7 +128,34 @@
       justify-content: flex-end;
     }
 
+    .refresh-info {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .refresh-progress {
+      position: relative;
+      width: 80px;
+      height: 6px;
+      background-color: var(--bg-tertiary);
+      border-radius: 3px;
+      overflow: hidden;
+      border: 1px solid var(--border-color);
+      box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.1);
+    }
+
+    .refresh-progress-bar {
+      height: 100%;
+      background: linear-gradient(90deg, var(--primary-color), var(--primary-light));
+      border-radius: 3px;
+      transition: width 1s linear;
+    }
+
+
+
     .btn {
+      width: 90px;
       padding: 8px 12px;
       border-radius: 6px;
       font-weight: 500;
@@ -138,6 +165,7 @@
       border: none;
       display: inline-flex;
       align-items: center;
+      justify-content: center;
       gap: 6px;
       white-space: nowrap;
     }
@@ -148,16 +176,12 @@
     }
 
     .btn-primary:hover {
-      box-shadow: var(--card-shadow);
-    }
-
-    .btn-primary:active {
-      transform: scale(0.995);
+      background-color: var(--button-primary-hover);
     }
 
     .btn-secondary {
-      background-color: var(--button-secondary-bg);
-      color: var(--text-primary);
+      background-color: #00adafbf;
+      color: white;
     }
 
     .btn-secondary:hover {
@@ -171,6 +195,24 @@
 
     .btn-danger:hover {
       background-color: #dc2626;
+    }
+
+    .btn-success {
+      background: linear-gradient(135deg, #27ae60, #2ecc71);
+      color: white;
+    }
+
+    .btn-success:hover {
+      background: linear-gradient(135deg, #229954, #27ae60);
+    }
+
+    .btn-warning {
+      background: linear-gradient(135deg, #f39c12, #e67e22);
+      color: white;
+    }
+
+    .btn-warning:hover {
+      background: linear-gradient(135deg, #e67e22, #d35400);
     }
 
     .btn:disabled {
@@ -273,6 +315,10 @@
       transform: scale(0.995);
     }
 
+    .account-balance:active {
+      transform: none;
+    }
+
     .account-info {
       display: flex;
       align-items: center;
@@ -325,6 +371,17 @@
       grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
       gap: 10px;
       margin-top: 12px;
+      transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+      overflow: visible;
+      transform-origin: top;
+    }
+
+    .projects-grid.collapsed {
+      max-height: 0;
+      opacity: 0;
+      margin-top: 0;
+      transform: scaleY(0.95);
+      overflow: hidden;
     }
 
     .project-card {
@@ -348,7 +405,7 @@
       display: flex;
       justify-content: space-between;
       align-items: flex-start;
-      margin-bottom: 12px;
+      margin-bottom: 8px;
     }
 
     .project-name {
@@ -363,7 +420,6 @@
     .project-info {
       font-size: 12px;
       color: var(--text-tertiary);
-      margin-bottom: 8px;
     }
 
     .project-cost {
@@ -388,11 +444,40 @@
     }
 
     .service-item {
-      background-color: var(--bg-secondary);
       border-radius: 6px;
       padding: 8px;
       border: 1px solid var(--border-color);
       transition: all 0.15s;
+    }
+
+    .service-item.running {
+      background-color: rgba(16, 185, 129, 0.1);
+      border-color: rgba(16, 185, 129, 0.2);
+    }
+
+    .service-item.stopped {
+      background-color: rgba(239, 68, 68, 0.1);
+      border-color: rgba(239, 68, 68, 0.2);
+    }
+
+    .service-item.suspended {
+      background-color: rgba(245, 158, 11, 0.1);
+      border-color: rgba(245, 158, 11, 0.2);
+    }
+
+    .service-item.deploying {
+      background-color: rgba(139, 92, 246, 0.1);
+      border-color: rgba(139, 92, 246, 0.2);
+    }
+
+    .service-item.paused {
+      background-color: rgba(107, 114, 128, 0.1);
+      border-color: rgba(107, 114, 128, 0.2);
+    }
+
+    .service-item.pending {
+      background-color: rgba(59, 130, 246, 0.1);
+      border-color: rgba(59, 130, 246, 0.2);
     }
 
     .service-header {
@@ -548,6 +633,18 @@
       padding: 20px;
     }
 
+    .modal-overlay.logs-fullscreen-overlay {
+      align-items: stretch;
+      justify-content: stretch;
+      padding: 0;
+      z-index: 1000;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+    }
+
     .modal {
       background-color: var(--card-bg);
       border-radius: 12px;
@@ -654,38 +751,48 @@
     }
 
     .account-list {
-      margin-bottom: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+      margin-bottom: 16px;
     }
 
     .account-item {
-      background-color: var(--bg-secondary);
-      border-radius: 8px;
-      padding: 16px;
-      margin-bottom: 12px;
+      padding-left: 18px !important;
+      background-color: var(--card-bg);
+      border-radius: 10px;
+      padding: 10px;
+      border: 1px solid var(--border-color);
+      transition: transform 0.3s, box-shadow 0.3s;
+      height: 100%;
       display: flex;
       justify-content: space-between;
       align-items: center;
+      cursor: pointer;
+    }
+
+    .account-item:hover {
+      transform: translateY(-1px);
+      box-shadow: var(--card-hover-shadow);
     }
 
     .account-item-info {
       flex: 1;
+      display: flex;
+      align-items: center;
+      gap: 12px;
     }
 
     .account-item-name {
       font-weight: 600;
       color: var(--text-primary);
-      margin-bottom: 4px;
-    }
-
-    .account-item-email {
-      font-size: 12px;
-      color: var(--text-tertiary);
+      font-size: 14px;
     }
 
     .divider {
       height: 1px;
       background-color: var(--border-color);
-      margin: 20px 0;
+      margin: 16px 0;
     }
 
     .last-update {
@@ -748,18 +855,62 @@
     }
 
     .logs-modal {
-      max-width: 900px;
-      width: 90%;
+      max-width: 1200px;
+      width: 95%;
       height: 80vh;
       display: flex;
       flex-direction: column;
+      position: relative;
+      background-color: var(--card-bg);
+      border-radius: 12px;
+      padding: 0;
+      margin: 0;
+    }
+
+    .logs-modal-fullscreen {
+      max-width: none !important;
+      width: 100vw !important;
+      height: 100vh !important;
+      border-radius: 0 !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      top: 0 !important;
+      left: 0 !important;
+      right: 0 !important;
+      bottom: 0 !important;
+      position: fixed !important;
+      z-index: 1001;
+      display: flex !important;
+      flex-direction: column !important;
+      max-height: none !important;
+      overflow-y: visible !important;
+      box-shadow: none !important;
+    }
+
+    .logs-modal-fullscreen .logs-header {
+      flex-shrink: 0;
+    }
+
+    .logs-modal-fullscreen .logs-info {
+      flex-shrink: 0;
+    }
+
+    .logs-modal-fullscreen .logs-content {
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: hidden;
+      min-height: 0;
+    }
+
+    .logs-modal-fullscreen .logs-footer {
+      flex-shrink: 0;
     }
 
     .logs-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 16px 20px;
+      padding: 8px 10px;
       border-bottom: 1px solid var(--border-color);
     }
 
@@ -767,6 +918,11 @@
       font-size: 16px;
       font-weight: 600;
       color: var(--primary-color);
+    }
+
+    .logs-controls {
+      display: flex;
+      align-items: center;
     }
 
     .logs-info {
@@ -781,21 +937,128 @@
 
     .logs-content {
       flex: 1;
-      overflow-y: auto;
+      overflow: hidden;
       padding: 16px;
+      width: 100%;
+      box-sizing: border-box;
+      position: relative;
+    }
+
+    .logs-text-container {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
     }
 
     .logs-text {
       background-color: var(--bg-tertiary);
       padding: 12px;
-      border-radius: 8px;
+      border-radius: 8px 8px 0 0;
       font-family: monospace;
       font-size: 12px;
       line-height: 1.5;
-      white-space: pre-wrap;
-      word-break: break-all;
+      white-space: pre;
+      overflow-wrap: normal;
+      word-break: normal;
       color: var(--text-primary);
       min-height: 100%;
+      width: max-content;
+      max-width: 100%;
+      box-sizing: border-box;
+      overflow-y: auto;
+      overflow-x: auto;
+      height: calc(100% - 12px);
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+    }
+
+    .logs-text::-webkit-scrollbar {
+      display: none;
+    }
+
+    .logs-horizontal-scrollbar {
+      height: 12px;
+      background-color: var(--border-color);
+      border-radius: 0 0 6px 6px;
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      cursor: pointer;
+      z-index: 10;
+    }
+
+    .logs-scrollbar-thumb {
+      height: 100%;
+      background-color: var(--primary-color);
+      border-radius: 6px;
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 0%;
+      transition: width 0.1s ease;
+      cursor: grab;
+    }
+
+    .logs-scrollbar-thumb:active {
+      cursor: grabbing;
+    }
+
+    .balance-card {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 12px;
+      background-color: var(--card-bg);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      transition: all 0.2s ease;
+      user-select: none;
+    }
+
+    .balance-card:hover {
+      border-color: var(--primary-color);
+    }
+
+    .credit-balance-card {
+      background: linear-gradient(135deg, rgba(16, 185, 129, 0.1), rgba(34, 197, 94, 0.1));
+      border-color: rgba(16, 185, 129, 0.3);
+    }
+
+    .credit-balance-card:hover {
+      border-color: var(--success-color);
+      background: linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(34, 197, 94, 0.15));
+    }
+
+    .ai-balance-card {
+      background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(139, 92, 246, 0.1));
+      border-color: rgba(99, 102, 241, 0.3);
+    }
+
+    .ai-balance-card:hover {
+      border-color: var(--primary-color);
+      background: linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(139, 92, 246, 0.15));
+    }
+
+    .balance-icon {
+      font-size: 16px;
+      line-height: 1;
+    }
+
+    .balance-amount {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-primary);
+      line-height: 1;
+    }
+
+    .balance-amount.critical {
+      color: var(--danger-color);
+    }
+
+    .balance-amount.low {
+      color: var(--warning-color);
     }
 
     .logs-footer {
@@ -805,7 +1068,7 @@
     }
 
     .edit-input {
-      flex: 1;
+      width: 120px;
       padding: 4px 8px;
       border: 1px solid var(--input-focus-border);
       border-radius: 6px;
@@ -895,7 +1158,7 @@
 
     @media (max-width: 480px) {
       .stats-grid {
-        grid-template-columns: repeat(2, 1fr);
+        grid-template-columns: 1fr;
       }
 
       .controls {
@@ -961,8 +1224,13 @@
 
     <div v-if="isAuthenticated" class="container">
       <div class="header">
-        <h1 class="title">🚀 Zeabur Monitor</h1>
-        <div class="last-update">上次更新: {{ lastUpdate }}</div>
+        <h1 class="title">🚀 Zeabur Moniter</h1>
+        <div class="refresh-info">
+          <div class="refresh-progress">
+            <div class="refresh-progress-bar" :style="{ width: refreshProgress + '%' }"></div>
+          </div>
+          <div class="last-update">将在 {{ refreshCountdown }} 秒后刷新</div>
+        </div>
       </div>
 
       <div class="info-card">
@@ -975,7 +1243,12 @@
       <div class="controls">
         <button class="btn btn-primary" @click="fetchData" :disabled="loading">
           <i class="fas fa-sync-alt"></i>
-          {{ loading ? '加载中...' : '刷新数据' }}
+          {{ loading ? '数据更新' : '刷新数据' }}
+        </button>
+        <button class="btn btn-secondary" @click="toggleDataRefresh"
+          :class="dataRefreshPaused ? 'btn-success' : 'btn-warning'">
+          <i class="fas" :class="dataRefreshPaused ? 'fa-play' : 'fa-pause'"></i>
+          {{ dataRefreshPaused ? '继续更新' : '暂停更新' }}
         </button>
         <button class="btn btn-secondary" @click="showManageModal = true">
           <i class="fas fa-cog"></i>
@@ -989,11 +1262,32 @@
       </div>
 
       <!-- 日志模态框 -->
-      <div v-if="showLogsModal" class="modal-overlay" @click.self="showLogsModal = false">
-        <div class="modal logs-modal">
+      <div v-if="showLogsModal" class="modal-overlay" :class="{ 'logs-fullscreen-overlay': logsFullscreen }"
+        @keydown.esc="showLogsModal = false" tabindex="-1">
+        <div class="modal logs-modal" :class="{ 'logs-modal-fullscreen': logsFullscreen }">
           <div class="logs-header">
             <div class="logs-title">📋 {{ logsModalTitle }}</div>
-            <button class="modal-close" @click="showLogsModal = false">×</button>
+            <div class="logs-controls">
+              <button class="btn btn-secondary" @click="toggleRealTimeRefresh"
+                style="margin-right: 8px; padding: 6px 10px; font-size: 12px;">
+                <i class="fas" :class="logsRealTime ? 'fa-stop' : 'fa-play'"></i>
+                {{ logsRealTime ? '停止实时' : '实时刷新' }}
+              </button>
+              <button class="btn btn-secondary" @click="toggleAutoScroll"
+                style="margin-right: 8px; padding: 6px 10px; font-size: 12px;">
+                <i class="fas" :class="logsAutoScroll ? 'fa-pause' : 'fa-play'"></i>
+                {{ logsAutoScroll ? '停止滚动' : '自动滚动' }}
+              </button>
+              <button class="btn btn-secondary" @click="toggleFullscreen"
+                style="margin-right: 8px; padding: 6px 10px; font-size: 12px;">
+                <i class="fas" :class="logsFullscreen ? 'fa-compress' : 'fa-expand'"></i>
+                {{ logsFullscreen ? '退出全屏' : '全屏' }}
+              </button>
+              <button class="btn btn-danger" @click="showLogsModal = false" style="padding: 6px 10px; font-size: 12px;">
+                <i class="fas fa-times"></i>
+                关闭
+              </button>
+            </div>
           </div>
           <div class="logs-info">
             <span>项目: {{ logsModalInfo.project }}</span>
@@ -1001,12 +1295,14 @@
             <span>日志: {{ logsModalInfo.count }} 条</span>
             <span>时间: {{ logsModalInfo.time }}</span>
           </div>
-          <div class="logs-content">
+          <div class="logs-content" ref="logsContent" @wheel.stop @touchmove.stop>
             <div v-if="logsLoading" style="text-align: center; padding: 40px;">⏳ 正在加载日志...</div>
-            <pre v-else class="logs-text">{{ logsContent || '暂无日志' }}</pre>
-          </div>
-          <div class="logs-footer">
-            <button class="btn btn-primary" @click="showLogsModal = false">关闭</button>
+            <div v-else class="logs-text-container" ref="logsTextContainer">
+              <pre class="logs-text" ref="logsText">{{ logsContent || '暂无日志' }}</pre>
+              <div class="logs-horizontal-scrollbar" ref="logsScrollbar">
+                <div class="logs-scrollbar-thumb" ref="logsScrollbarThumb"></div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -1019,15 +1315,23 @@
             <button class="modal-close" @click="closeManageModal">×</button>
           </div>
 
+          <div class="modal-actions" style="padding: 0 0px 10px;">
+            <button class="btn btn-secondary" @click="exportAllAccounts" style="margin-right: 10px;">
+              <i class="fas fa-download"></i> 导出
+            </button>
+            <button class="btn btn-secondary" @click="importAllAccounts" style="margin-right: 10px;">
+              <i class="fas fa-upload"></i> 导入
+            </button>
+          </div>
+
           <!-- 账号列表 -->
           <div class="account-list">
             <!-- 显示本地管理的账号 -->
             <div v-for="(account, index) in managedAccounts" :key="'local-' + index" class="account-item">
               <div class="account-item-info">
                 <div class="account-item-name">{{ account.name }}</div>
-                <div class="account-item-email">{{ maskEmail(account.email) || '未知邮箱' }}</div>
               </div>
-              <button @click="removeAccount(index)" class="btn btn-danger">
+              <button @click="removeAccount(index)" class="btn btn-danger" style="padding: 6px 10px; font-size: 12px;">
                 <i class="fas fa-trash"></i>
                 删除
               </button>
@@ -1036,13 +1340,12 @@
             <!-- 显示服务器配置的账号（只读） -->
             <div v-if="managedAccounts.length === 0 && accounts.length > 0">
               <div
-                style="font-size: 12px; color: var(--text-secondary); margin-bottom: 10px; padding: 10px; background-color: var(--bg-secondary); border-radius: 6px;">
+                style="font-size: 12px; color: var(--text-secondary); margin-bottom: 8px; padding: 8px 10px; background-color: var(--bg-tertiary); border-radius: 4px; border: 1px solid var(--border-color);">
                 💡 以下账号来自服务器配置（.env 文件），无法在此删除
               </div>
               <div v-for="account in accounts" :key="'server-' + account.name" class="account-item">
                 <div class="account-item-info">
                   <div class="account-item-name">{{ account.name }}</div>
-                  <div class="account-item-email">{{ account.data?.email || account.data?.username || '服务器配置' }}</div>
                 </div>
                 <span
                   style="font-size: 12px; color: var(--text-tertiary); padding: 6px 12px; background-color: var(--bg-tertiary); border-radius: 6px;">
@@ -1060,14 +1363,14 @@
 
           <!-- 添加新账号表单 -->
           <div>
-            <div class="modal-title" style="margin-bottom: 16px;">➕ 添加新账号</div>
+            <div class="modal-title" style="margin-bottom: 12px; font-size: 15px;">➕ 添加新账号</div>
 
-            <div class="form-group">
+            <div class="form-group" style="margin-bottom: 12px;">
               <label class="form-label">账号名称</label>
               <input v-model="newAccount.name" type="text" class="form-input" placeholder="例如：我的账号" />
             </div>
 
-            <div class="form-group">
+            <div class="form-group" style="margin-bottom: 12px;">
               <label class="form-label">API Token</label>
               <input v-model="newAccount.token" type="password" class="form-input" placeholder="sk-xxxxxxxxxxxxxxxx" />
               <div class="form-help">
@@ -1091,7 +1394,7 @@
           <!-- 批量添加 -->
           <div class="divider"></div>
           <div>
-            <div class="modal-title" style="margin-bottom: 16px;">📦 批量添加账号</div>
+            <div class="modal-title" style="margin-bottom: 12px; font-size: 15px;">📦 批量添加账号</div>
             <div class="form-help">
               每行一个账号，支持格式：<code>名称:Token</code> 或 <code>名称：Token</code> 或 <code>名称(Token)</code> 或
               <code>名称（Token）</code>
@@ -1194,7 +1497,7 @@
       }">
 
               <i class="fas fa-chevron-right toggle-icon" :style="{ 
-           transition: 'transform 0.3s', 
+           transition: 'transform 0.4s cubic-bezier(0.4, 0, 0.2, 1)', 
            // 逻辑调整：
            // 展开 (true) -> 0deg (向下)
            // 收起 (false) -> 90deg (向右)
@@ -1210,11 +1513,19 @@
             </div>
           </div>
           <div class="account-balance">
-            <div v-if="account.data" class="balance" :class="getBalanceClass(account.data.credit)">
-              ${{ (account.data.credit / 100).toFixed(2) }}
-            </div>
-            <div v-if="account.aihub && account.aihub.balance" class="ai-balance">
-              🤖 AI Hub: ${{ (account.aihub.balance / 100000).toFixed(2) }}
+            <div style="display: flex; flex-direction: column; gap: 2px;">
+              <div class="balance-card credit-balance-card">
+                <div class="balance-icon">💰</div>
+                <div class="balance-amount" :class="getBalanceClass(account.data.credit)">
+                  ${{ (account.data.credit / 100).toFixed(2) }}
+                </div>
+              </div>
+              <div class="balance-card ai-balance-card">
+                <div class="balance-icon">🤖</div>
+                <div class="balance-amount">
+                  {{ account.aihub && account.aihub.balance ? '$' + (account.aihub.balance / 100000).toFixed(2) : '无' }}
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -1223,7 +1534,7 @@
           ❌ 错误: {{ account.error }}
         </div>
 
-        <div v-if="account.projects && isAccountExpanded(account.name)" class="projects-grid">
+        <div v-if="account.projects" class="projects-grid" :class="{ 'collapsed': !isAccountExpanded(account.name) }">
           <div v-for="project in account.projects" :key="project._id" :id="'proj-' + project._id" class="project-card">
             <div class="project-header">
               <div style="flex: 1;">
@@ -1246,12 +1557,10 @@
               </div>
               <div style="text-align: right;">
                 <div style="font-size: 12px; color: var(--text-tertiary); margin-bottom: 2px;">本月用量</div>
-                <div class="project-cost">
+                <div class="project-cost"
+                  :style="{ color: project.cost === 0 ? 'var(--info-color)' : 'var(--info-color)' }"
+                  :title="project.cost === 0 ? '暂无费用记录' : ''">
                   ${{ formatCost(project.cost) }}
-                  <span v-if="!project.hasCostData" style="font-size: 12px; color: var(--warning-color);"
-                    title="未配置费用数据">
-                    ⚠️
-                  </span>
                 </div>
               </div>
             </div>
@@ -1261,7 +1570,8 @@
               <span>⏸️ {{ project.services.filter(s => s.status === 'SUSPENDED').length }} 已暂停</span>
             </div>
             <div class="services-container">
-              <div v-for="service in project.services" :key="service._id" class="service-item">
+              <div v-for="service in project.services" :key="service._id"
+                :class="['service-item', service.status.toLowerCase()]">
                 <div class="service-header">
                   <div class="service-name" :title="service.name">
                     {{ service.name }}
@@ -1356,7 +1666,6 @@
           setPassword: '',
           setPasswordConfirm: '',
           setPasswordError: '',
-          sessionId: null,  // 保存 sessionId
           // 批量添加
           batchAccounts: '',
           maskedBatchAccounts: '',
@@ -1367,12 +1676,26 @@
           logsModalTitle: '',
           logsModalInfo: {},
           logsContent: '',
-          logsLoading: false
+          logsLoading: false,
+          logsAutoScroll: true,
+          logsFullscreen: false,
+          logsScrollTimer: null,
+          logsRealTime: true,
+          logsRealTimeTimer: null,
+          logsCurrentAccount: null,
+          logsCurrentProject: null,
+          logsCurrentService: null,
+          // 刷新倒计时
+          refreshCountdown: 30,
+          refreshProgress: 100,
+          countdownInterval: null,
+          refreshInterval: null,
+          dataRefreshPaused: false
         };
       },
       async mounted() {
         // 检查服务器是否已设置密码
-        const hasPasswordResponse = await fetch('/api/check-password', { credentials: 'include' });
+        const hasPasswordResponse = await fetch('/api/check-password');
         const { hasPassword } = await hasPasswordResponse.json();
 
         if (!hasPassword) {
@@ -1381,46 +1704,82 @@
           return;
         }
 
-        // 检查是否已有有效会话
-        try {
-          const sessionRes = await fetch('/api/session', { credentials: 'include' });
-          const sessionJson = await sessionRes.json();
-          if (sessionJson.authenticated) {
-            this.isAuthenticated = true;
-            this.showLoginModal = false;
+        // 检查本地是否有保存的密码和时间戳
+        const savedPassword = localStorage.getItem('admin_password');
+        const savedTime = localStorage.getItem('password_time');
 
-            await this.loadManagedAccounts();
-            this.loadProjectCosts();
-            this.fetchData();
+        if (savedPassword && savedTime) {
+          const now = Date.now();
+          const elapsed = now - parseInt(savedTime);
+          const fourDays = 4 * 24 * 60 * 60 * 1000; // 4天的毫秒数
 
-            // 启动自动刷新
-            this.startAutoRefresh();
-
-            // 加载透明度设置
-            const savedOpacity = localStorage.getItem('card_opacity');
-            if (savedOpacity) {
-              this.opacity = parseInt(savedOpacity);
-              this.updateOpacity();
-            }
+          if (elapsed < fourDays) {
+            // 4天内，自动登录
+            this.loginPassword = savedPassword;
+            await this.verifyPassword();
             return;
           }
-        } catch (e) {
-          console.warn('session check failed', e);
         }
 
         // 需要输入密码
         this.showLoginModal = true;
       },
-        watch: {
+      watch: {
         opacity(newVal) {
           localStorage.setItem('card_opacity', newVal);
           this.updateOpacity();
+        },
+        showLogsModal(newVal) {
+          if (newVal) {
+            this.$nextTick(() => {
+              this.setupAutoScroll();
+              this.setupHorizontalScrollbar();
+              if (this.logsRealTime) {
+                this.startRealTimeRefresh();
+              }
+              // 设置焦点到模态框，确保ESC键可以工作
+              const modalOverlay = document.querySelector('.modal-overlay.logs-fullscreen-overlay, .modal-overlay');
+              if (modalOverlay) {
+                modalOverlay.focus();
+              }
+              // 禁用主界面滚动
+              document.body.style.overflow = 'hidden';
+            });
+          } else {
+            if (this.logsScrollTimer) {
+              clearInterval(this.logsScrollTimer);
+              this.logsScrollTimer = null;
+            }
+            this.stopRealTimeRefresh();
+            this.logsRealTime = false;
+            // 恢复主界面滚动
+            document.body.style.overflow = '';
+          }
+        },
+        logsAutoScroll(newVal) {
+          this.setupAutoScroll();
+        },
+        logsRealTime(newVal) {
+          if (newVal) {
+            this.startRealTimeRefresh();
+          } else {
+            this.stopRealTimeRefresh();
+          }
         }
       },
       beforeUnmount() {
         // 清理定时器，防止内存泄漏
         if (this.refreshInterval) {
           clearInterval(this.refreshInterval);
+        }
+        if (this.countdownInterval) {
+          clearInterval(this.countdownInterval);
+        }
+        if (this.logsScrollTimer) {
+          clearInterval(this.logsScrollTimer);
+        }
+        if (this.logsRealTimeTimer) {
+          clearInterval(this.logsRealTimeTimer);
         }
       },
       computed: {
@@ -1488,39 +1847,31 @@
             const response = await fetch('/api/set-password', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              credentials: 'include',
               body: JSON.stringify({ password: this.setPassword })
             });
 
             const result = await response.json();
             if (result.success) {
-              // 设置成功，立即登录以创建 session（密码不再保存在 localStorage）
-              const loginRes = await fetch('/api/login', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({ password: this.setPassword })
-              });
+              // 设置成功，自动登录
+              this.loginPassword = this.setPassword;
+              localStorage.setItem('admin_password', this.setPassword);
+              localStorage.setItem('password_time', Date.now().toString());
 
-              if (loginRes.ok) {
-                const loginData = await loginRes.json();
-                this.sessionId = loginData.sessionId;  // 保存 sessionId
-                this.showSetPasswordModal = false;
-                this.isAuthenticated = true;
+              this.showSetPasswordModal = false;
+              this.isAuthenticated = true;
 
-                await this.loadManagedAccounts();
-                this.loadProjectCosts();
-                this.fetchData();
+              await this.loadManagedAccounts();
+              this.loadProjectCosts();
+              this.fetchData();
 
-                this.startAutoRefresh();
+              // 启动自动刷新（使用统一方法，避免重复创建 interval）
+              this.startAutoRefresh();
 
-                const savedOpacity = localStorage.getItem('card_opacity');
-                if (savedOpacity) {
-                  this.opacity = parseInt(savedOpacity);
-                  this.updateOpacity();
-                }
-              } else {
-                this.setPasswordError = '设置成功，但登录失败';
+              // 加载透明度设置
+              const savedOpacity = localStorage.getItem('card_opacity');
+              if (savedOpacity) {
+                this.opacity = parseInt(savedOpacity);
+                this.updateOpacity();
               }
             } else {
               this.setPasswordError = result.error || '设置失败';
@@ -1533,44 +1884,39 @@
         async verifyPassword() {
           this.loginError = '';
           try {
-            console.log('🔐 尝试登录...');
-            // 使用登录接口创建 session（server 会设置 HttpOnly cookie）
-            const response = await fetch('/api/login', {
+            const response = await fetch('/api/verify-password', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              credentials: 'include',
               body: JSON.stringify({ password: this.loginPassword })
             });
 
-            console.log('📨 登录响应状态:', response.status, response.statusText);
-
-            if (response.ok) {
-              const loginData = await response.json();
-              this.sessionId = loginData.sessionId;  // 保存 sessionId
-              console.log('✅ 登录成功，sessionId:', this.sessionId?.substring(0, 8) + '...');
+            const result = await response.json();
+            if (result.success) {
               this.isAuthenticated = true;
               this.showLoginModal = false;
+
+              // 保存密码和时间戳
+              localStorage.setItem('admin_password', this.loginPassword);
+              localStorage.setItem('password_time', Date.now().toString());
 
               await this.loadManagedAccounts();
               this.loadProjectCosts();
               this.fetchData();
 
-              // 启动自动刷新
+              // 启动自动刷新（使用统一方法，避免重复创建 interval）
               this.startAutoRefresh();
 
+              // 加载透明度设置
               const savedOpacity = localStorage.getItem('card_opacity');
               if (savedOpacity) {
                 this.opacity = parseInt(savedOpacity);
                 this.updateOpacity();
               }
             } else {
-              const result = await response.json().catch(() => ({}));
-              this.loginError = result.error || '密码错误，请重试';
-              console.log('❌ 登录失败:', this.loginError);
+              this.loginError = '密码错误，请重试';
             }
           } catch (error) {
             this.loginError = '验证失败: ' + error.message;
-            console.log('❌ 登录异常:', error);
           }
         },
         // 邮箱打码
@@ -1581,20 +1927,18 @@
           const masked = local.substring(0, 2) + 'x'.repeat(local.length - 4) + local.substring(local.length - 2);
           return masked + '@' + domain;
         },
-        // 获取请求头（包含 sessionId）
+        // 获取请求头（包含密码）
         getAuthHeaders() {
-          const headers = { 'Content-Type': 'application/json' };
-          if (this.sessionId) {
-            headers['Authorization'] = `Bearer ${this.sessionId}`;
-          }
-          return headers;
+          return {
+            'Content-Type': 'application/json',
+            'x-admin-password': this.loginPassword
+          };
         },
         async loadManagedAccounts() {
           try {
             // 从服务器加载账号
             const response = await fetch('/api/server-accounts', {
-              headers: this.getAuthHeaders(),
-              credentials: 'include'
+              headers: this.getAuthHeaders()
             });
             const accounts = await response.json();
             if (accounts && accounts.length > 0) {
@@ -1611,7 +1955,6 @@
             const response = await fetch('/api/server-accounts', {
               method: 'POST',
               headers: this.getAuthHeaders(),
-              credentials: 'include',
               body: JSON.stringify({ accounts: this.managedAccounts })
             });
             const result = await response.json();
@@ -1634,8 +1977,33 @@
             if (this.refreshInterval) {
               clearInterval(this.refreshInterval);
             }
-            // 30s
-            this.refreshInterval = setInterval(() => this.fetchData(), 30000);
+            if (this.countdownInterval) {
+              clearInterval(this.countdownInterval);
+            }
+
+            // 重置倒计时
+            this.refreshCountdown = 30;
+            this.refreshProgress = 100;
+
+            // 30s自动刷新
+            this.refreshInterval = setInterval(() => {
+              console.log('自动刷新触发');
+              this.fetchData();
+            }, 30000);
+
+            // 1s倒计时更新，到0时立即重置
+            this.countdownInterval = setInterval(() => {
+              this.refreshCountdown--;
+
+              if (this.refreshCountdown <= 0) {
+                // 到0时立即重置，无动画
+                this.refreshCountdown = 30;
+                this.refreshProgress = 100;
+              } else {
+                // 正常递减
+                this.refreshProgress = (this.refreshCountdown / 30) * 100;
+              }
+            }, 1000);
           } catch (e) {
             console.error('startAutoRefresh error', e);
           }
@@ -1645,6 +2013,10 @@
           if (this.refreshInterval) {
             clearInterval(this.refreshInterval);
             this.refreshInterval = null;
+          }
+          if (this.countdownInterval) {
+            clearInterval(this.countdownInterval);
+            this.countdownInterval = null;
           }
         },
 
@@ -1657,88 +2029,70 @@
           this.lastFetchAt = now;
           this.refreshing = true;
           this.loading = true;
+
+          console.log('fetchData 被调用');
+
+          // 手动刷新时重置倒计时
+          this.refreshCountdown = 30;
+          this.refreshProgress = 100;
+
           try {
-            console.log('📊 开始获取数据，管理账号数:', this.managedAccounts.length);
-            
             // 如果有账号，使用账号
             if (this.managedAccounts.length > 0) {
-              console.log('📝 使用管理账号列表');
               // 清除账号中的手动余额，让服务器使用 API 真实数据
               const accountsWithoutManualBalance = this.managedAccounts.map(acc => ({
                 ...acc,
                 balance: null // 不发送手动余额
               }));
-              
-              console.log('📤 发送给服务器的账号:', accountsWithoutManualBalance);
 
               const [accountsRes, projectsRes] = await Promise.all([
                 fetch('/api/temp-accounts', {
                   method: 'POST',
                   headers: this.getAuthHeaders(),
-                  credentials: 'include',
                   body: JSON.stringify({ accounts: accountsWithoutManualBalance })
-                }).then(async r => {
-                  console.log('📥 /api/temp-accounts 响应状态:', r.status);
-                  if (!r.ok) {
-                    const text = await r.text();
-                    console.error('❌ 响应体:', text);
-                    throw new Error(`/api/temp-accounts 返回 ${r.status}: ${text.substring(0, 100)}`);
-                  }
-                  return r.json();
-                }),
+                }).then(r => r.json()),
                 fetch('/api/temp-projects', {
                   method: 'POST',
                   headers: this.getAuthHeaders(),
-                  credentials: 'include',
                   body: JSON.stringify({
                     accounts: accountsWithoutManualBalance,
                     projectCosts: {} // 不发送手动费用，让服务器尝试从 API 获取
                   })
-                }).then(async r => {
-                  if (!r.ok) {
-                    const text = await r.text();
-                    throw new Error(`/api/temp-projects 返回 ${r.status}: ${text.substring(0, 100)}`);
-                  }
-                  return r.json();
-                })
+                }).then(r => r.json())
               ]);
 
               console.log('API 返回的账号数据:', accountsRes);
               console.log('API 返回的项目数据:', projectsRes);
 
-              this.accounts = accountsRes.map((account, index) => {
-                const projectData = projectsRes[index];
-                console.log(`账号 ${account.name} 余额: ${account.data?.credit} (${account.data?.credit / 100} USD)`);
-                return {
-                  ...account,
-                  projects: projectData.projects || []
-                };
+              // 使用Vue.set或直接重新赋值确保响应式更新
+              this.accounts = [];
+              this.$nextTick(() => {
+                this.accounts = accountsRes.map((account, index) => {
+                  const projectData = projectsRes[index];
+                  console.log(`账号 ${account.name} 余额: ${account.data?.credit} (${account.data?.credit / 100} USD)`);
+                  return {
+                    ...account,
+                    projects: projectData.projects || []
+                  };
+                });
               });
             } else {
               // 否则使用服务器配置的账号
               const [accountsRes, projectsRes] = await Promise.all([
-                fetch('/api/accounts', { credentials: 'include' }).then(async r => {
-                  if (!r.ok) {
-                    const text = await r.text();
-                    throw new Error(`/api/accounts 返回 ${r.status}: ${text.substring(0, 100)}`);
-                  }
-                  return r.json();
-                }),
-                fetch('/api/projects', { credentials: 'include' }).then(async r => {
-                  if (!r.ok) {
-                    const text = await r.text();
-                    throw new Error(`/api/projects 返回 ${r.status}: ${text.substring(0, 100)}`);
-                  }
-                  return r.json();
-                })
+                fetch('/api/accounts').then(r => r.json()),
+                fetch('/api/projects').then(r => r.json())
               ]);
 
-              this.accounts = accountsRes.map((account, index) => {
-                const projectData = projectsRes[index];
-                return {
-                  ...account,
-                  projects: projectData.projects || []
-                };
+              // 使用Vue.set或直接重新赋值确保响应式更新
+              this.accounts = [];
+              this.$nextTick(() => {
+                this.accounts = accountsRes.map((account, index) => {
+                  const projectData = projectsRes[index];
+                  return {
+                    ...account,
+                    projects: projectData.projects || []
+                  };
+                });
               });
             }
           } catch (error) {
@@ -1747,7 +2101,9 @@
           } finally {
             this.loading = false;
             this.refreshing = false;
-            this.lastUpdate = new Date().toLocaleTimeString('zh-CN');
+            // 强制重新渲染组件
+            this.$forceUpdate();
+            console.log('数据更新完成，强制重新渲染');
           }
         },
         getBalanceClass(credit) {
@@ -1819,7 +2175,6 @@
               const response = await fetch('/api/validate-account', {
                 method: 'POST',
                 headers: this.getAuthHeaders(),
-                credentials: 'include',
                 body: JSON.stringify({
                   accountName: account.name,
                   apiToken: account.token
@@ -1891,7 +2246,6 @@
             const response = await fetch('/api/validate-account', {
               method: 'POST',
               headers: this.getAuthHeaders(),
-              credentials: 'include',
               body: JSON.stringify({
                 accountName: this.newAccount.name,
                 apiToken: this.newAccount.token
@@ -1932,19 +2286,29 @@
         },
         async removeAccount(index) {
           const accountName = this.managedAccounts[index].name;
-          if (!confirm(`确定要删除账号"${accountName}"吗？`)) return;
+          const password = prompt(`删除账号"${accountName}"需要验证管理员密码：`);
 
+          if (!password) return;
+
+          // 验证密码
           try {
-            this.managedAccounts.splice(index, 1);
-            await this.saveManagedAccounts();
-            console.log('✓ 账号已从本地删除并保存到服务器');
-            alert('✓ 账号已删除');
-            // 延迟后再刷新数据，确保服务器已保存
-            setTimeout(() => {
+            const response = await fetch('/api/verify-password', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ password })
+            });
+
+            const result = await response.json();
+            if (result.success) {
+              this.managedAccounts.splice(index, 1);
+              await this.saveManagedAccounts();
               this.fetchData();
-            }, 500);
+              alert('账号已删除');
+            } else {
+              alert('密码错误，删除失败');
+            }
           } catch (error) {
-            alert('✗ 删除失败: ' + error.message);
+            alert('验证失败: ' + error.message);
           }
         },
         closeAddModal() {
@@ -1990,10 +2354,19 @@
           }
         },
         toggleAccount(accountName) {
-          this.expandedAccounts[accountName] = !this.expandedAccounts[accountName];
+          // 第一次点击时，确保状态被正确初始化
+          if (!(accountName in this.expandedAccounts)) {
+            this.expandedAccounts[accountName] = false;
+          } else {
+            this.expandedAccounts[accountName] = !this.expandedAccounts[accountName];
+          }
         },
         isAccountExpanded(accountName) {
-          return this.expandedAccounts[accountName] !== false;
+          // 如果没有设置过，默认为展开状态
+          if (!(accountName in this.expandedAccounts)) {
+            return true;
+          }
+          return this.expandedAccounts[accountName];
         },
         // 暂停服务
         async pauseService(account, project, service) {
@@ -2017,7 +2390,6 @@
             const response = await fetch('/api/service/pause', {
               method: 'POST',
               headers: this.getAuthHeaders(),
-              credentials: 'include',
               body: JSON.stringify({
                 token: accountData.token,
                 serviceId: service._id,
@@ -2059,7 +2431,6 @@
             const response = await fetch('/api/service/restart', {
               method: 'POST',
               headers: this.getAuthHeaders(),
-              credentials: 'include',
               body: JSON.stringify({
                 token: accountData.token,
                 serviceId: service._id,
@@ -2084,6 +2455,12 @@
           this.logsModalInfo = { project: project.name, account: account.name, count: 0, time: new Date().toLocaleString('zh-CN') };
           this.logsContent = '';
           this.logsLoading = true;
+          this.logsAutoScroll = true;
+          this.logsFullscreen = false;
+          this.logsRealTime = true;
+          this.logsCurrentAccount = account;
+          this.logsCurrentProject = project;
+          this.logsCurrentService = service;
           this.showLogsModal = true;
 
           try {
@@ -2096,7 +2473,6 @@
             const response = await fetch('/api/service/logs', {
               method: 'POST',
               headers: this.getAuthHeaders(),
-              credentials: 'include',
               body: JSON.stringify({ token: accountData.token, serviceId: service._id, environmentId: environmentId, projectId: project._id, limit: 200 })
             });
 
@@ -2104,6 +2480,12 @@
             if (result.success && result.logs) {
               this.logsContent = result.logs.map(log => '[' + new Date(log.timestamp).toLocaleString('zh-CN') + '] ' + log.message).join('\n');
               this.logsModalInfo.count = result.count;
+
+              // 等待DOM更新后滚动到底部并设置滚动条
+              this.$nextTick(() => {
+                this.scrollToBottom();
+                this.setupHorizontalScrollbar();
+              });
             } else {
               this.logsContent = '❌ 获取日志失败: ' + (result.error || '未知错误');
             }
@@ -2111,6 +2493,331 @@
             this.logsContent = '❌ 获取日志失败: ' + error.message;
           } finally {
             this.logsLoading = false;
+          }
+        },
+        toggleAutoScroll() {
+          this.logsAutoScroll = !this.logsAutoScroll;
+          if (this.logsAutoScroll) {
+            this.scrollToBottom();
+          }
+        },
+        toggleFullscreen() {
+          this.logsFullscreen = !this.logsFullscreen;
+          this.$nextTick(() => {
+            if (this.logsAutoScroll) {
+              this.scrollToBottom();
+            }
+          });
+        },
+        scrollToBottom() {
+          if (this.$refs.logsText) {
+            this.$refs.logsText.scrollTop = this.$refs.logsText.scrollHeight;
+          }
+        },
+        setupAutoScroll() {
+          if (this.logsScrollTimer) {
+            clearInterval(this.logsScrollTimer);
+          }
+
+          if (this.logsAutoScroll && this.showLogsModal) {
+            this.logsScrollTimer = setInterval(() => {
+              this.scrollToBottom();
+              this.updateHorizontalScrollbar();
+            }, 1000);
+          }
+        },
+        updateHorizontalScrollbar() {
+          this.$nextTick(() => {
+            const logsText = this.$refs.logsText;
+            const scrollbar = this.$refs.logsScrollbar;
+            const thumb = this.$refs.logsScrollbarThumb;
+
+            if (!logsText || !scrollbar || !thumb) return;
+
+            const contentWidth = logsText.scrollWidth;
+            const viewportWidth = logsText.clientWidth;
+
+            if (contentWidth <= viewportWidth) {
+              scrollbar.style.display = 'none';
+              return;
+            }
+
+            scrollbar.style.display = 'block';
+
+            const maxScroll = contentWidth - viewportWidth;
+            const currentScroll = logsText.scrollLeft;
+            const scrollRatio = maxScroll > 0 ? currentScroll / maxScroll : 0;
+
+            const thumbWidth = Math.max((viewportWidth / contentWidth) * 100, 5);
+            const maxThumbLeft = 100 - thumbWidth;
+            const thumbLeft = scrollRatio * maxThumbLeft;
+
+            thumb.style.width = thumbWidth + '%';
+            thumb.style.left = thumbLeft + '%';
+          });
+        },
+        setupHorizontalScrollbar() {
+          this.$nextTick(() => {
+            const logsTextContainer = this.$refs.logsTextContainer;
+            const logsText = this.$refs.logsText;
+            const scrollbar = this.$refs.logsScrollbar;
+            const thumb = this.$refs.logsScrollbarThumb;
+
+            if (!logsText || !scrollbar || !thumb || !logsTextContainer) return;
+
+            let isDragging = false;
+            let dragStartX = 0;
+            let dragStartThumbLeft = 0;
+
+            // 更新滚动条状态
+            const updateScrollbar = () => {
+              const contentWidth = logsText.scrollWidth;
+              const viewportWidth = logsText.clientWidth;
+
+              if (contentWidth <= viewportWidth) {
+                scrollbar.style.display = 'none';
+                return;
+              }
+
+              scrollbar.style.display = 'block';
+
+              const maxScroll = contentWidth - viewportWidth;
+              const currentScroll = logsText.scrollLeft;
+              const scrollRatio = maxScroll > 0 ? currentScroll / maxScroll : 0;
+
+              const thumbWidth = Math.max((viewportWidth / contentWidth) * 100, 5);
+              const maxThumbLeft = 100 - thumbWidth;
+              const thumbLeft = scrollRatio * maxThumbLeft;
+
+              thumb.style.width = thumbWidth + '%';
+              thumb.style.left = thumbLeft + '%';
+            };
+
+            // 滚动条位置转换为内容滚动位置
+            const thumbPositionToScroll = (thumbLeftPercent) => {
+              const contentWidth = logsText.scrollWidth;
+              const viewportWidth = logsText.clientWidth;
+              const maxScroll = contentWidth - viewportWidth;
+              const thumbWidth = parseFloat(thumb.style.width) || 0;
+              const maxThumbLeft = 100 - thumbWidth;
+
+              if (maxThumbLeft <= 0) return 0;
+
+              const scrollRatio = thumbLeftPercent / maxThumbLeft;
+              return scrollRatio * maxScroll;
+            };
+
+            // 监听内容滚动
+            logsText.addEventListener('scroll', updateScrollbar);
+
+            // 滑块拖拽开始
+            thumb.addEventListener('mousedown', (e) => {
+              isDragging = true;
+              dragStartX = e.clientX;
+              dragStartThumbLeft = parseFloat(thumb.style.left) || 0;
+              thumb.style.cursor = 'grabbing';
+              e.preventDefault();
+              e.stopPropagation();
+            });
+
+            // 拖拽中
+            document.addEventListener('mousemove', (e) => {
+              if (!isDragging) return;
+
+              const scrollbarRect = scrollbar.getBoundingClientRect();
+              const scrollbarWidth = scrollbarRect.width;
+              const thumbWidth = thumb.clientWidth;
+              const maxThumbLeftPx = scrollbarWidth - thumbWidth;
+
+              if (maxThumbLeftPx <= 0) return;
+
+              // 计算鼠标移动距离对应的滑块移动距离
+              const deltaX = e.clientX - dragStartX;
+              const deltaThumbPercent = (deltaX / scrollbarWidth) * 100;
+              const newThumbLeft = Math.max(0, Math.min(dragStartThumbLeft + deltaThumbPercent, 100 - (thumbWidth / scrollbarWidth * 100)));
+
+              // 设置滑块位置并滚动内容
+              thumb.style.left = newThumbLeft + '%';
+              const targetScroll = thumbPositionToScroll(newThumbLeft);
+              logsText.scrollLeft = targetScroll;
+            });
+
+            // 拖拽结束
+            document.addEventListener('mouseup', () => {
+              if (isDragging) {
+                isDragging = false;
+                thumb.style.cursor = 'grab';
+              }
+            });
+
+            // 点击滚动条区域跳转
+            scrollbar.addEventListener('click', (e) => {
+              if (e.target === thumb) return;
+
+              const scrollbarRect = scrollbar.getBoundingClientRect();
+              const clickX = e.clientX - scrollbarRect.left;
+              const scrollbarWidth = scrollbarRect.width;
+              const thumbWidth = thumb.clientWidth;
+
+              // 计算目标滑块位置（让滑块中心对齐到点击位置）
+              const targetThumbLeftPx = Math.max(0, Math.min(clickX - thumbWidth / 2, scrollbarWidth - thumbWidth));
+              const targetThumbLeftPercent = (targetThumbLeftPx / scrollbarWidth) * 100;
+
+              // 设置滑块位置并滚动内容
+              thumb.style.left = targetThumbLeftPercent + '%';
+              const targetScroll = thumbPositionToScroll(targetThumbLeftPercent);
+              logsText.scrollLeft = targetScroll;
+            });
+
+            // 初始化滚动条
+            // 监听窗口大小变化
+            const resizeObserver = new ResizeObserver(() => {
+              updateScrollbar();
+            });
+            resizeObserver.observe(logsText);
+
+            // 初始化
+            updateScrollbar();
+          });
+        },
+        toggleRealTimeRefresh() {
+          this.logsRealTime = !this.logsRealTime;
+          if (this.logsRealTime) {
+            this.startRealTimeRefresh();
+          } else {
+            this.stopRealTimeRefresh();
+          }
+        },
+        toggleDataRefresh() {
+          this.dataRefreshPaused = !this.dataRefreshPaused;
+          if (this.dataRefreshPaused) {
+            // 暂停自动刷新
+            if (this.countdownInterval) {
+              clearInterval(this.countdownInterval);
+              this.countdownInterval = null;
+            }
+            if (this.refreshInterval) {
+              clearInterval(this.refreshInterval);
+              this.refreshInterval = null;
+            }
+          } else {
+            // 恢复自动刷新
+            this.startCountdown();
+            this.refreshInterval = setInterval(() => {
+              this.fetchData();
+            }, 30000);
+          }
+        },
+        // 实时刷新日志
+        startRealTimeRefresh() {
+          if (this.logsRealTimeTimer) {
+            clearInterval(this.logsRealTimeTimer);
+          }
+
+          if (this.logsRealTime && this.showLogsModal && this.logsCurrentAccount && this.logsCurrentProject && this.logsCurrentService) {
+            this.logsRealTimeTimer = setInterval(async () => {
+              await this.refreshLogs();
+            }, 5000); // 每5秒刷新一次
+          }
+        },
+
+        // 停止实时刷新
+        stopRealTimeRefresh() {
+          if (this.logsRealTimeTimer) {
+            clearInterval(this.logsRealTimeTimer);
+            this.logsRealTimeTimer = null;
+          }
+        },
+
+        // 刷新日志
+        async refreshLogs() {
+          if (!this.logsCurrentAccount || !this.logsCurrentProject || !this.logsCurrentService) return;
+
+          try {
+            const environmentId = this.logsCurrentProject.environments && this.logsCurrentProject.environments[0] ? this.logsCurrentProject.environments[0]._id : null;
+            if (!environmentId) return;
+
+            const accountData = this.managedAccounts.find(acc => acc.name === this.logsCurrentAccount.name);
+            if (!accountData || !accountData.token) return;
+
+            const response = await fetch('/api/service/logs', {
+              method: 'POST',
+              headers: this.getAuthHeaders(),
+              body: JSON.stringify({
+                token: accountData.token,
+                serviceId: this.logsCurrentService._id,
+                environmentId: environmentId,
+                projectId: this.logsCurrentProject._id,
+                limit: 200
+              })
+            });
+
+            const result = await response.json();
+            if (result.success && result.logs) {
+              const newLogs = result.logs.map(log => '[' + new Date(log.timestamp).toLocaleString('zh-CN') + '] ' + log.message).join('\n');
+
+              // 如果是自动滚动状态，保持在底部
+              const wasAtBottom = this.$refs.logsText && (this.$refs.logsText.scrollHeight - this.$refs.logsText.scrollTop <= this.$refs.logsText.clientHeight + 10);
+
+              this.logsContent = newLogs;
+              this.logsModalInfo.count = result.count;
+              this.logsModalInfo.time = new Date().toLocaleString('zh-CN');
+
+              this.$nextTick(() => {
+                if (wasAtBottom && this.logsAutoScroll) {
+                  this.scrollToBottom();
+                }
+                this.updateHorizontalScrollbar();
+              });
+            }
+          } catch (error) {
+            console.error('刷新日志失败:', error);
+          }
+        },
+        // 刷新日志
+        async refreshLogs() {
+          if (!this.logsCurrentAccount || !this.logsCurrentProject || !this.logsCurrentService) return;
+
+          try {
+            const environmentId = this.logsCurrentProject.environments && this.logsCurrentProject.environments[0] ? this.logsCurrentProject.environments[0]._id : null;
+            if (!environmentId) return;
+
+            const accountData = this.managedAccounts.find(acc => acc.name === this.logsCurrentAccount.name);
+            if (!accountData || !accountData.token) return;
+
+            const response = await fetch('/api/service/logs', {
+              method: 'POST',
+              headers: this.getAuthHeaders(),
+              body: JSON.stringify({
+                token: accountData.token,
+                serviceId: this.logsCurrentService._id,
+                environmentId: environmentId,
+                projectId: this.logsCurrentProject._id,
+                limit: 200
+              })
+            });
+
+            const result = await response.json();
+            if (result.success && result.logs) {
+              const newLogs = result.logs.map(log => '[' + new Date(log.timestamp).toLocaleString('zh-CN') + '] ' + log.message).join('\n');
+
+              // 只在有新日志时更新
+              if (newLogs !== this.logsContent) {
+                this.logsContent = newLogs;
+                this.logsModalInfo.count = result.count;
+                this.logsModalInfo.time = new Date().toLocaleString('zh-CN');
+
+                // 如果启用自动滚动，滚动到底部
+                if (this.logsAutoScroll) {
+                  this.$nextTick(() => {
+                    this.scrollToBottom();
+                    this.updateHorizontalScrollbar();
+                  });
+                }
+              }
+            }
+          } catch (error) {
+            console.error('刷新日志失败:', error);
           }
         },
         // 格式化费用显示（小于 $0.01 显示为 $0.01）
@@ -2223,7 +2930,6 @@
             const response = await fetch('/api/project/rename', {
               method: 'POST',
               headers: this.getAuthHeaders(),
-              credentials: 'include',
               body: JSON.stringify({
                 token: accountData.token,
                 projectId: project._id,
@@ -2242,10 +2948,94 @@
           } catch (error) {
             alert('❌ 操作失败: ' + error.message);
           }
+        },
+        // 导出所有账号为JSON文件
+        exportAllAccounts() {
+          if (!this.managedAccounts || this.managedAccounts.length === 0) {
+            alert('❌ 没有账号数据可导出');
+            return;
+          }
+
+          // 创建导出数据的副本，避免包含不必要的Vue响应式属性
+          const exportData = this.managedAccounts.map(account => ({
+            name: account.name,
+            token: account.token,
+            status: account.status,
+            projects: account.projects || [],
+            cost: account.cost || 0,
+            lastUpdated: account.lastUpdated || null
+          }));
+
+          const dataStr = JSON.stringify(exportData, null, 2);
+          const dataBlob = new Blob([dataStr], { type: 'application/json' });
+
+          // 创建下载链接
+          const url = URL.createObjectURL(dataBlob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = `zeabur-accounts-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.json`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          URL.revokeObjectURL(url);
+
+          alert(`✅ 已导出 ${exportData.length} 个账号`);
+        },
+        // 从JSON文件导入所有账号
+        importAllAccounts() {
+          const input = document.createElement('input');
+          input.type = 'file';
+          input.accept = '.json';
+          input.onchange = (event) => {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+              try {
+                const importedData = JSON.parse(e.target.result);
+                if (!Array.isArray(importedData)) {
+                  alert('❌ 无效的JSON格式：数据应为数组');
+                  return;
+                }
+
+                // 验证导入的数据格式
+                const isValid = importedData.every(account =>
+                  account.hasOwnProperty('name') && account.hasOwnProperty('token')
+                );
+
+                if (!isValid) {
+                  alert('❌ JSON文件格式不正确：每个账号应包含name和token字段');
+                  return;
+                }
+
+                // 更新managedAccounts数据
+                this.managedAccounts = importedData.map(account => ({
+                  name: account.name,
+                  token: account.token,
+                  status: account.status || 'unknown',
+                  projects: account.projects || [],
+                  cost: account.cost || 0,
+                  lastUpdated: account.lastUpdated || null
+                }));
+
+                // 保存到服务器
+                this.saveManagedAccounts();
+
+                alert(`✅ 已导入 ${importedData.length} 个账号`);
+              } catch (error) {
+                alert('❌ 导入失败: ' + error.message);
+              }
+            };
+            reader.readAsText(file);
+          };
+          input.click();
         }
       }
     }).mount('#app');
   </script>
+
+</body>
 
 </body>
 
