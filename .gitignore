@@ -9,7 +9,7 @@ accounts.json
 
 # 管理员密码文件
 password.json
-
+sessions.json
 # 日志
 *.log
 npm-debug.log*
@@ -28,3 +28,4 @@ Thumbs.db
 # 临时文件
 *.tmp
 .cache/
+config/
