@@ -59,16 +59,16 @@ jobs:
         with:
           images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
           tags: |
-            # 默认 latest 标签
-            type=raw,value=latest,enable={{is_default_branch}}
-            # Git commit SHA
-            type=sha,prefix=
+            # 默认 latest 标签（推送到 main 分支或版本标签时都生成）
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') }}
+            # Git commit SHA（仅在推送到 main 分支时生成）
+            type=sha,prefix=,enable=${{ github.ref == 'refs/heads/main' }}
             # 版本标签（如 v1.0.0 -> 1.0.0）
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
             # 手动触发时使用输入的标签
-            type=raw,value=${{ github.event.inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
+            type=raw,value=${{ github.event.inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag != '' }}
 
       # 构建并推送镜像
       - name: Build and push Docker image
