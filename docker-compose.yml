@@ -1,34 +1,48 @@
+# ===================================
+# API Monitor Docker Compose
+# ===================================
+# 使用方法：docker-compose up -d
+# 停止服务：docker-compose down
+# 查看日志：docker-compose logs -f
+
 version: '3.8'
 
 services:
-  zeabur-monitor:
-    image: ghcr.io/salist01/zeabur-monitor:latest
-    container_name: zeabur-monitor
+  api-monitor:
+    image: ghcr.io/salist01/api-monitor:latest
+    container_name: api-monitor
     ports:
       - "3000:3000"
     environment:
+      # 运行环境
       NODE_ENV: production
       PORT: "3000"
-      # 设置管理员密码（可选，如果未设置则在首次访问时提示设置）
-      ADMIN_PASSWORD: "change_me_to_your_secure_password"
-      # 预配置账号列表（可选格式，多个账号用逗号分隔）
-      # 注意：不推荐在此放入敏感的 API Token，建议在容器运行后通过 UI 添加账号
-      # 或通过 Docker secrets/ConfigMap 注入（用于生产环境）
-      # ACCOUNTS: "account1:sk-xxxxxxxxxxxxxxxx,account2:sk-yyyyyyyyyyyyyyy"
+      
+      # 管理员密码（可选）
+      # 如果未设置，首次访问时会提示设置密码
+      # ADMIN_PASSWORD: "your_secure_password"
+    
     volumes:
-      # 建议将宿主机 ./data 挂载到容器的 /app/config，用于持久化配置文件
-      # 这样容器内的配置文件路径为 /app/config/accounts.json 与 /app/config/password.json
+      # 持久化配置目录
+      # 包含：Zeabur 账号、CF 账号、模板等配置
       - ./data:/app/config
+    
     restart: unless-stopped
-    # 健康检查（可选）
+    
+    # 健康检查
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000"]
+      test: ["CMD", "curl", "-f", "http://localhost:3000/"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 10s
 
-# 如果你更希望使用 Docker 命名卷，请取消注释下面内容并替换上方 volumes 配置
-#volumes:
-#  zeabur-monitor-data:
-#    driver: local
+# ===================================
+# 使用 Docker 命名卷（可选）
+# ===================================
+# 如需使用命名卷替代本地目录挂载，取消下方注释
+# 并将 volumes 中的 ./data:/app/config 改为 api-monitor-data:/app/config
+
+# volumes:
+#   api-monitor-data:
+#     driver: local

@@ -1,53 +1,98 @@
-name: Build and publish Docker image
+# ===================================
+# API Monitor Docker Image CI/CD
+# ===================================
+# 触发条件：
+# - 推送到 main 分支
+# - 创建版本标签（如 v1.0.0）
+# - 手动触发（workflow_dispatch）
+
+name: Build and Publish Docker Image
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '镜像标签（可选）'
+        required: false
+        default: 'latest'
 
 permissions:
   contents: read
   packages: write
 
 env:
-  IMAGE_NAME: zeabur-monitor
-  # 默认使用 GitHub Container Registry（ghcr.io）。如需使用 Docker Hub，将此值改为 'docker.io'
+  IMAGE_NAME: api-monitor
   REGISTRY: ghcr.io
 
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    
     steps:
+      # 检出代码
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # 设置 QEMU（用于多架构构建）
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v2
+        uses: docker/setup-qemu-action@v3
 
+      # 设置 Docker Buildx
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v2
+        uses: docker/setup-buildx-action@v3
 
-      - name: Login to Docker Hub
-        if: env.REGISTRY == 'docker.io'
-        uses: docker/login-action@v2
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
+      # 登录 GitHub Container Registry
       - name: Login to GitHub Container Registry
-        if: env.REGISTRY == 'ghcr.io'
-        uses: docker/login-action@v2
+        uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push image
-        uses: docker/build-push-action@v4
+      # 提取元数据（标签、标签等）
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
+          tags: |
+            # 默认 latest 标签
+            type=raw,value=latest,enable={{is_default_branch}}
+            # Git commit SHA
+            type=sha,prefix=
+            # 版本标签（如 v1.0.0 -> 1.0.0）
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            # 手动触发时使用输入的标签
+            type=raw,value=${{ github.event.inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
+
+      # 构建并推送镜像
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
         with:
           context: .
           push: true
           platforms: linux/amd64,linux/arm64
-          tags: |
-            ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:latest
-            ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # 输出镜像信息
+      - name: Image digest
+        run: |
+          echo "## 🐳 Docker 镜像构建成功" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**镜像标签：**" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**拉取命令：**" >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:latest" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY

@@ -173,6 +173,15 @@ function requireAuth(req, res, next) {
 
 app.use(express.static('public'));
 
+// Cloudflare DNS 管理模块
+try {
+  const cfDnsRouter = require('./modules/cloudflare-dns/router');
+  app.use('/api/cf-dns', requireAuth, cfDnsRouter);
+  console.log('✅ Cloudflare DNS 模块已加载');
+} catch (e) {
+  console.log('⚠️ Cloudflare DNS 模块未加载:', e.message);
+}
+
 // 为确保浏览器请求 favicon 时能正确返回图标（兼容 /favicon.ico 请求）
 app.get('/favicon.ico', (req, res) => {
   const faviconPath = path.join(__dirname, 'public', 'logo.png');

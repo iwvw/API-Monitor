@@ -4,7 +4,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Zeabur Moniter</title>
+  <title>API Monitor</title>
   <link rel="icon" type="image/png" href="/logo.png">
   <link rel="shortcut icon" href="/logo.png">
   <link rel="icon" href="/logo.png" sizes="32x32">
@@ -25,6 +25,8 @@
       --warning-color: #f59e0b;
       --danger-color: #ef4444;
       --info-color: #3b82f6;
+      --cf-color: #f38020;
+      --cf-dark: #e5730d;
 
       /* Light theme */
       --bg-primary: #ffffff;
@@ -741,7 +743,8 @@
     .form-error {
       color: var(--danger-color);
       font-size: 13px;
-      margin-top: 4px;
+      margin-bottom: 7px;
+      margin-top: -9px;
     }
 
     .form-success {
@@ -1108,6 +1111,423 @@
       background-color: rgba(239, 68, 68, 0.3);
     }
 
+    .account-name-edit {
+      display: flex;
+      align-items: center;
+    }
+
+    /* 主标签页样式 */
+    .main-tabs {
+      display: flex;
+      gap: 0;
+      margin-bottom: 16px;
+      border-bottom: 2px solid var(--border-color);
+    }
+
+    .main-tab {
+      padding: 12px 24px;
+      border: none;
+      background: none;
+      cursor: pointer;
+      font-size: 15px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      border-bottom: 3px solid transparent;
+      margin-bottom: -2px;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .main-tab:hover {
+      color: var(--primary-color);
+      background-color: var(--bg-secondary);
+    }
+
+    .main-tab.active {
+      color: var(--primary-color);
+      border-bottom-color: var(--primary-color);
+    }
+
+    .main-tab.dns-tab:hover {
+      color: var(--cf-color);
+    }
+
+    .main-tab.dns-tab.active {
+      color: var(--cf-color);
+      border-bottom-color: var(--cf-color);
+    }
+
+    /* DNS 管理相关样式 */
+    .dns-tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+      border-bottom: 1px solid var(--border-color);
+      padding-bottom: 12px;
+    }
+
+    .dns-tab-btn {
+      padding: 8px 16px;
+      border: none;
+      background: none;
+      cursor: pointer;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      border-radius: 6px;
+      transition: all 0.2s;
+    }
+
+    .dns-tab-btn.active {
+      background: var(--cf-color);
+      color: white;
+    }
+
+    .dns-tab-btn:hover:not(.active) {
+      background: var(--bg-secondary);
+    }
+
+    .panel {
+      line-height: 1;
+      background: var(--card-bg);
+      border-radius: 10px;
+      padding: 16px;
+      box-shadow: var(--card-shadow);
+      border: 1px solid var(--border-color);
+      margin-bottom: 16px;
+    }
+
+    .panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+    }
+
+    .panel-title {
+      font-size: 16px;
+      font-weight: 600;
+    }
+
+    .table-container {
+      overflow-x: auto;
+    }
+
+    .data-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      table-layout: fixed;
+    }
+
+    .data-table th,
+    .data-table td {
+      padding: 10px 12px;
+      text-align: left;
+      border-bottom: 1px solid var(--border-color);
+      color: var(--text-primary);
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .data-table th {
+      background: var(--bg-secondary);
+      font-weight: 600;
+      color: var(--text-secondary);
+      position: sticky;
+      top: 0;
+      white-space: nowrap;
+    }
+
+    .data-table tr:hover {
+      background: var(--bg-secondary);
+    }
+
+    .data-table .actions {
+      display: flex;
+      gap: 6px;
+    }
+
+    .data-table td:nth-child(1) {
+      width: 60px;
+    }
+
+    .data-table td:nth-child(2) {
+      width: 150px;
+    }
+
+    .data-table td:nth-child(3) {
+      width: auto;
+      min-width: 150px;
+    }
+
+    .data-table td:nth-child(4) {
+      width: 70px;
+    }
+
+    .data-table td:nth-child(5) {
+      width: 70px;
+    }
+
+    .data-table td:nth-child(6) {
+      width: 100px;
+    }
+
+    .record-type {
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-weight: 600;
+      background: var(--bg-tertiary);
+      color: var(--text-primary);
+      display: inline-block;
+      white-space: nowrap;
+    }
+
+    .record-type.A {
+      background: rgba(16, 185, 129, 0.2);
+      color: #10b981;
+    }
+
+    .record-type.AAAA {
+      background: rgba(59, 130, 246, 0.2);
+      color: #3b82f6;
+    }
+
+    .record-type.CNAME {
+      background: rgba(139, 92, 246, 0.2);
+      color: #a78bfa;
+    }
+
+    .record-type.TXT {
+      background: rgba(245, 158, 11, 0.2);
+      color: #fbbf24;
+    }
+
+    .record-type.MX {
+      background: rgba(239, 68, 68, 0.2);
+      color: #f87171;
+    }
+
+    .record-type.NS {
+      background: rgba(99, 102, 241, 0.2);
+      color: #818cf8;
+    }
+
+    .record-type.SRV {
+      background: rgba(236, 72, 153, 0.2);
+      color: #f472b6;
+    }
+
+    .record-type.CAA {
+      background: rgba(20, 184, 166, 0.2);
+      color: #2dd4bf;
+    }
+
+    .proxied-badge {
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 10px;
+      font-weight: 600;
+      display: inline-block;
+      white-space: nowrap;
+    }
+
+    .proxied-on {
+      background: rgba(243, 128, 32, 0.2);
+      color: #fb923c;
+    }
+
+    .proxied-off {
+      background: var(--bg-tertiary);
+      color: var(--text-tertiary);
+    }
+
+    .zones-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .zone-card {
+      background: var(--card-bg);
+      border-radius: 8px;
+      padding: 5px 16px;
+      border: 1px solid var(--border-color);
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .zone-card:hover {
+      border-color: var(--cf-color);
+      box-shadow: var(--card-shadow);
+    }
+
+    .zone-card.active {
+      border-color: var(--cf-color);
+      background: rgba(243, 128, 32, 0.05);
+    }
+
+    .zone-name {
+      font-weight: 600;
+      font-size: 14px;
+    }
+
+    .zone-status {
+      font-size: 12px;
+      color: var(--text-tertiary);
+    }
+
+    .zone-status.active {
+      color: var(--success-color);
+    }
+
+    .dns-account-select {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+
+    .dns-account-select select {
+      padding: 8px 12px;
+      border-radius: 6px;
+      border: 1px solid var(--input-border);
+      background: var(--input-bg);
+      color: var(--text-primary);
+      font-size: 14px;
+      min-width: 200px;
+    }
+
+    .quick-switch {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      padding: 12px;
+      background: var(--bg-secondary);
+      border-radius: 8px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+
+    .quick-switch input {
+      flex: 1;
+      min-width: 120px;
+      padding: 8px 12px;
+      border: 1px solid var(--input-border);
+      border-radius: 6px;
+      background: var(--input-bg);
+      color: var(--text-primary);
+      font-size: 14px;
+    }
+
+    .content-truncate {
+      max-width: 300px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .editable-cell {
+      cursor: pointer;
+      padding: 2px 4px;
+      border-radius: 4px;
+      transition: background-color 0.2s;
+      color: var(--text-primary);
+    }
+
+    .editable-cell:hover {
+      background-color: var(--bg-tertiary);
+    }
+
+    .inline-edit-container {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      max-width: 100%;
+    }
+
+    .inline-edit-input {
+      padding: 4px 8px;
+      border: 1px solid var(--cf-color);
+      border-radius: 4px;
+      font-size: 13px;
+      background-color: var(--input-bg);
+      color: var(--text-primary);
+      outline: none;
+      width: 230px;
+      min-width: 150px;
+      max-width: 230px;
+    }
+
+    .inline-edit-input:focus {
+      border-color: var(--cf-color);
+      box-shadow: 0 0 0 2px rgba(243, 128, 32, 0.2);
+    }
+
+    .inline-edit-cancel {
+      padding: 2px 6px;
+      background-color: rgba(239, 68, 68, 0.2);
+      border: 1px solid rgba(239, 68, 68, 0.4);
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+      transition: all 0.2s;
+      color: var(--danger-color);
+      flex-shrink: 0;
+    }
+
+    .inline-edit-cancel:hover {
+      background-color: rgba(239, 68, 68, 0.3);
+    }
+
+    .btn-cf {
+      background-color: var(--cf-color);
+      color: white;
+    }
+
+    .btn-cf:hover {
+      background-color: var(--cf-dark);
+    }
+
+    .toast {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      padding: 12px 20px;
+      border-radius: 8px;
+      color: white;
+      font-size: 14px;
+      z-index: 2000;
+      animation: slideIn 0.3s;
+    }
+
+    .toast.success {
+      background: var(--success-color);
+    }
+
+    .toast.error {
+      background: var(--danger-color);
+    }
+
+    @keyframes slideIn {
+      from {
+        transform: translateX(100%);
+        opacity: 0;
+      }
+
+      to {
+        transform: translateX(0);
+        opacity: 1;
+      }
+    }
+
     /* Responsive adjustments */
     @media (max-width: 768px) {
       .container {
@@ -1223,154 +1643,230 @@
     </div>
 
     <div v-if="isAuthenticated" class="container">
-      <div class="header">
-        <h1 class="title">🚀 Zeabur Moniter</h1>
-        <div class="refresh-info">
-          <div class="refresh-progress">
-            <div class="refresh-progress-bar" :style="{ width: refreshProgress + '%' }"></div>
-          </div>
-          <div class="last-update">将在 {{ refreshCountdown }} 秒后刷新</div>
-        </div>
+      <!-- 主标签页导航 -->
+      <div class="main-tabs">
+        <button class="main-tab" :class="{ active: mainActiveTab === 'zeabur' }" @click="mainActiveTab = 'zeabur'">
+          <i class="fas fa-rocket"></i> Zeabur 监控
+        </button>
+        <button class="main-tab dns-tab" :class="{ active: mainActiveTab === 'dns' }" @click="switchToDns">
+          <i class="fas fa-cloud"></i> CF DNS 管理
+        </button>
       </div>
 
-      <div class="info-card">
-        <div class="info-card-title">💡 使用说明</div>
-        <div class="info-card-content">
-          数据每30秒自动刷新
-        </div>
-      </div>
-
-      <div class="controls">
-        <button class="btn btn-primary" @click="fetchData" :disabled="loading">
-          <i class="fas fa-sync-alt"></i>
-          {{ loading ? '数据更新' : '刷新数据' }}
-        </button>
-        <button class="btn btn-secondary" @click="toggleDataRefresh"
-          :class="dataRefreshPaused ? 'btn-success' : 'btn-warning'">
-          <i class="fas" :class="dataRefreshPaused ? 'fa-play' : 'fa-pause'"></i>
-          {{ dataRefreshPaused ? '继续更新' : '暂停更新' }}
-        </button>
-        <button class="btn btn-secondary" @click="showManageModal = true">
-          <i class="fas fa-cog"></i>
-          管理账号
-        </button>
-        <button class="btn btn-danger" @click="clearCache">
-          <i class="fas fa-trash"></i>
-          清除缓存
-        </button>
-
-      </div>
-
-      <!-- 日志模态框 -->
-      <div v-if="showLogsModal" class="modal-overlay" :class="{ 'logs-fullscreen-overlay': logsFullscreen }"
-        @keydown.esc="showLogsModal = false" tabindex="-1">
-        <div class="modal logs-modal" :class="{ 'logs-modal-fullscreen': logsFullscreen }">
-          <div class="logs-header">
-            <div class="logs-title">📋 {{ logsModalTitle }}</div>
-            <div class="logs-controls">
-              <button class="btn btn-secondary" @click="toggleRealTimeRefresh"
-                style="margin-right: 8px; padding: 6px 10px; font-size: 12px;">
-                <i class="fas" :class="logsRealTime ? 'fa-stop' : 'fa-play'"></i>
-                {{ logsRealTime ? '停止实时' : '实时刷新' }}
-              </button>
-              <button class="btn btn-secondary" @click="toggleAutoScroll"
-                style="margin-right: 8px; padding: 6px 10px; font-size: 12px;">
-                <i class="fas" :class="logsAutoScroll ? 'fa-pause' : 'fa-play'"></i>
-                {{ logsAutoScroll ? '停止滚动' : '自动滚动' }}
-              </button>
-              <button class="btn btn-secondary" @click="toggleFullscreen"
-                style="margin-right: 8px; padding: 6px 10px; font-size: 12px;">
-                <i class="fas" :class="logsFullscreen ? 'fa-compress' : 'fa-expand'"></i>
-                {{ logsFullscreen ? '退出全屏' : '全屏' }}
-              </button>
-              <button class="btn btn-danger" @click="showLogsModal = false" style="padding: 6px 10px; font-size: 12px;">
-                <i class="fas fa-times"></i>
-                关闭
-              </button>
-            </div>
-          </div>
-          <div class="logs-info">
-            <span>项目: {{ logsModalInfo.project }}</span>
-            <span>账号: {{ logsModalInfo.account }}</span>
-            <span>日志: {{ logsModalInfo.count }} 条</span>
-            <span>时间: {{ logsModalInfo.time }}</span>
-          </div>
-          <div class="logs-content" ref="logsContent" @wheel.stop @touchmove.stop>
-            <div v-if="logsLoading" style="text-align: center; padding: 40px;">⏳ 正在加载日志...</div>
-            <div v-else class="logs-text-container" ref="logsTextContainer">
-              <pre class="logs-text" ref="logsText">{{ logsContent || '暂无日志' }}</pre>
-              <div class="logs-horizontal-scrollbar" ref="logsScrollbar">
-                <div class="logs-scrollbar-thumb" ref="logsScrollbarThumb"></div>
-              </div>
-            </div>
+      <!-- ==================== Zeabur 监控部分 ==================== -->
+      <div v-if="mainActiveTab === 'zeabur'">
+        <div class="info-card">
+          <div class="info-card-title">💡 使用说明</div>
+          <div class="info-card-content">
+            数据每30秒自动刷新
           </div>
         </div>
-      </div>
 
-      <!-- 账号管理模态框 -->
-      <div v-if="showManageModal" class="modal-overlay" @mousedown.self="showManageModal = false">
-        <div class="modal" style="max-width: 700px;">
-          <div class="modal-header">
-            <div class="modal-title">⚙️ 账号管理</div>
-            <button class="modal-close" @click="closeManageModal">×</button>
-          </div>
-
-          <div class="modal-actions" style="padding: 0 0px 10px;">
-            <button class="btn btn-secondary" @click="exportAllAccounts" style="margin-right: 10px;">
-              <i class="fas fa-download"></i> 导出
+        <div class="controls" style="justify-content: space-between;">
+          <div style="display: flex; gap: 10px; align-items: center;">
+            <button class="btn btn-primary" @click="fetchData" :disabled="loading">
+              <i class="fas fa-sync-alt"></i>
+              {{ loading ? '数据更新' : '刷新数据' }}
             </button>
-            <button class="btn btn-secondary" @click="importAllAccounts" style="margin-right: 10px;">
-              <i class="fas fa-upload"></i> 导入
+            <button class="btn btn-secondary" @click="toggleDataRefresh"
+              :class="dataRefreshPaused ? 'btn-success' : 'btn-warning'">
+              <i class="fas" :class="dataRefreshPaused ? 'fa-play' : 'fa-pause'"></i>
+              {{ dataRefreshPaused ? '继续更新' : '暂停更新' }}
+            </button>
+            <button class="btn btn-secondary" @click="showManageModal = true">
+              <i class="fas fa-cog"></i>
+              管理账号
+            </button>
+            <button class="btn btn-danger" @click="clearCache">
+              <i class="fas fa-trash"></i>
+              清除缓存
             </button>
           </div>
+          <div class="refresh-info">
+            <div class="last-update">将在 {{ refreshCountdown }} 秒后刷新</div>
+            <div class="refresh-progress">
+              <div class="refresh-progress-bar" :style="{ width: refreshProgress + '%' }"></div>
+            </div>
+          </div>
+        </div>
 
-          <!-- 账号列表 -->
-          <div class="account-list">
-            <!-- 显示本地管理的账号 -->
-            <div v-for="(account, index) in managedAccounts" :key="'local-' + index" class="account-item">
-              <div class="account-item-info">
-                <div class="account-item-name">{{ account.name }}</div>
+        <!-- 日志模态框 -->
+        <div v-if="showLogsModal" class="modal-overlay" :class="{ 'logs-fullscreen-overlay': logsFullscreen }"
+          @keydown.esc="showLogsModal = false" tabindex="-1">
+          <div class="modal logs-modal" :class="{ 'logs-modal-fullscreen': logsFullscreen }">
+            <div class="logs-header">
+              <div class="logs-title">📋 {{ logsModalTitle }}</div>
+              <div class="logs-controls">
+                <button class="btn btn-secondary" @click="toggleRealTimeRefresh"
+                  style="margin-right: 8px; padding: 6px 10px; font-size: 12px;">
+                  <i class="fas" :class="logsRealTime ? 'fa-stop' : 'fa-play'"></i>
+                  {{ logsRealTime ? '停止实时' : '实时刷新' }}
+                </button>
+                <button class="btn btn-secondary" @click="toggleAutoScroll"
+                  style="margin-right: 8px; padding: 6px 10px; font-size: 12px;">
+                  <i class="fas" :class="logsAutoScroll ? 'fa-pause' : 'fa-play'"></i>
+                  {{ logsAutoScroll ? '停止滚动' : '自动滚动' }}
+                </button>
+                <button class="btn btn-secondary" @click="toggleFullscreen"
+                  style="margin-right: 8px; padding: 6px 10px; font-size: 12px;">
+                  <i class="fas" :class="logsFullscreen ? 'fa-compress' : 'fa-expand'"></i>
+                  {{ logsFullscreen ? '退出全屏' : '全屏' }}
+                </button>
+                <button class="btn btn-danger" @click="showLogsModal = false"
+                  style="padding: 6px 10px; font-size: 12px;">
+                  <i class="fas fa-times"></i>
+                  关闭
+                </button>
               </div>
-              <button @click="removeAccount(index)" class="btn btn-danger" style="padding: 6px 10px; font-size: 12px;">
-                <i class="fas fa-trash"></i>
-                删除
+            </div>
+            <div class="logs-info">
+              <span>项目: {{ logsModalInfo.project }}</span>
+              <span>账号: {{ logsModalInfo.account }}</span>
+              <span>日志: {{ logsModalInfo.count }} 条</span>
+              <span>时间: {{ logsModalInfo.time }}</span>
+            </div>
+            <div class="logs-content" ref="logsContent" @wheel.stop @touchmove.stop>
+              <div v-if="logsLoading" style="text-align: center; padding: 40px;">⏳ 正在加载日志...</div>
+              <div v-else class="logs-text-container" ref="logsTextContainer">
+                <pre class="logs-text" ref="logsText">{{ logsContent || '暂无日志' }}</pre>
+                <div class="logs-horizontal-scrollbar" ref="logsScrollbar">
+                  <div class="logs-scrollbar-thumb" ref="logsScrollbarThumb"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 账号管理模态框 -->
+        <div v-if="showManageModal" class="modal-overlay" @mousedown.self="showManageModal = false">
+          <div class="modal" style="max-width: 700px;">
+            <div class="modal-header">
+              <div class="modal-title">⚙️ 账号管理</div>
+              <button class="modal-close" @click="closeManageModal">×</button>
+            </div>
+
+            <div class="modal-actions" style="padding: 0 0px 10px;">
+              <button class="btn btn-secondary" @click="exportAllAccounts" style="margin-right: 10px;">
+                <i class="fas fa-download"></i> 导出
+              </button>
+              <button class="btn btn-secondary" @click="importAllAccounts" style="margin-right: 10px;">
+                <i class="fas fa-upload"></i> 导入
               </button>
             </div>
 
-            <!-- 显示服务器配置的账号（只读） -->
-            <div v-if="managedAccounts.length === 0 && accounts.length > 0">
-              <div
-                style="font-size: 12px; color: var(--text-secondary); margin-bottom: 8px; padding: 8px 10px; background-color: var(--bg-tertiary); border-radius: 4px; border: 1px solid var(--border-color);">
-                💡 以下账号来自服务器配置（.env 文件），无法在此删除
-              </div>
-              <div v-for="account in accounts" :key="'server-' + account.name" class="account-item">
+            <!-- 账号列表 -->
+            <div class="account-list">
+              <!-- 显示本地管理的账号 -->
+              <div v-for="(account, index) in managedAccounts" :key="'local-' + index" class="account-item">
                 <div class="account-item-info">
                   <div class="account-item-name">{{ account.name }}</div>
                 </div>
-                <span
-                  style="font-size: 12px; color: var(--text-tertiary); padding: 6px 12px; background-color: var(--bg-tertiary); border-radius: 6px;">
-                  🔒 服务器配置
-                </span>
+                <button @click="removeAccount(index)" class="btn btn-danger"
+                  style="padding: 6px 10px; font-size: 12px;">
+                  <i class="fas fa-trash"></i>
+                  删除
+                </button>
+              </div>
+
+              <!-- 显示服务器配置的账号（只读） -->
+              <div v-if="managedAccounts.length === 0 && accounts.length > 0">
+                <div
+                  style="font-size: 12px; color: var(--text-secondary); margin-bottom: 8px; padding: 8px 10px; background-color: var(--bg-tertiary); border-radius: 4px; border: 1px solid var(--border-color);">
+                  💡 以下账号来自服务器配置（.env 文件），无法在此删除
+                </div>
+                <div v-for="account in accounts" :key="'server-' + account.name" class="account-item">
+                  <div class="account-item-info">
+                    <div class="account-item-name">{{ account.name }}</div>
+                  </div>
+                  <span
+                    style="font-size: 12px; color: var(--text-tertiary); padding: 6px 12px; background-color: var(--bg-tertiary); border-radius: 6px;">
+                    🔒 服务器配置
+                  </span>
+                </div>
+              </div>
+
+              <div v-if="managedAccounts.length === 0 && accounts.length === 0" class="empty-state">
+                暂无账号，点击下方按钮添加
               </div>
             </div>
 
-            <div v-if="managedAccounts.length === 0 && accounts.length === 0" class="empty-state">
-              暂无账号，点击下方按钮添加
+            <div class="divider"></div>
+
+            <!-- 添加新账号表单 -->
+            <div>
+              <div class="modal-title" style="margin-bottom: 12px; font-size: 15px;">➕ 添加新账号</div>
+
+              <div class="form-group" style="margin-bottom: 12px;">
+                <label class="form-label">账号名称</label>
+                <input v-model="newAccount.name" type="text" class="form-input" placeholder="例如：我的账号" />
+              </div>
+
+              <div class="form-group" style="margin-bottom: 12px;">
+                <label class="form-label">API Token</label>
+                <input v-model="newAccount.token" type="password" class="form-input"
+                  placeholder="sk-xxxxxxxxxxxxxxxx" />
+                <div class="form-help">
+                  在 Zeabur 控制台的设置中创建 API Token
+                </div>
+              </div>
+
+              <div v-if="addAccountError" class="form-error">
+                {{ addAccountError }}
+              </div>
+
+              <div v-if="addAccountSuccess" class="form-success">
+                {{ addAccountSuccess }}
+              </div>
+
+              <button class="btn btn-primary" @click="addAccountToList" :disabled="addingAccount" style="width: 100%;">
+                {{ addingAccount ? '验证中...' : '➕ 添加到列表' }}
+              </button>
+            </div>
+
+            <!-- 批量添加 -->
+            <div class="divider"></div>
+            <div>
+              <div class="modal-title" style="margin-bottom: 12px; font-size: 15px;">📦 批量添加账号</div>
+              <div class="form-help">
+                每行一个账号，支持格式：<code>名称:Token</code> 或 <code>名称：Token</code> 或 <code>名称(Token)</code> 或
+                <code>名称（Token）</code>
+              </div>
+              <div style="position: relative; min-height: 120px;">
+                <div
+                  style="width: 100%; min-height: 120px; padding: 12px; border: 1px solid var(--border-color); border-radius: 8px; font-size: 13px; font-family: monospace; white-space: pre-wrap; word-break: break-all; pointer-events: none; color: var(--text-primary); line-height: 1.5; background-color: var(--input-bg);">
+                  {{ maskedBatchAccounts }}</div>
+                <textarea v-model="batchAccounts" @input="updateBatchDisplay" placeholder="每行一个账号，格式：账号名称:API_Token"
+                  class="form-textarea"
+                  style="position: absolute; top: 0; left: 0; color: transparent; caret-color: var(--text-primary); background: transparent; line-height: 1.5;"></textarea>
+              </div>
+              <div v-if="batchAddError" class="form-error">
+                {{ batchAddError }}
+              </div>
+              <div v-if="batchAddSuccess" class="form-success">
+                {{ batchAddSuccess }}
+              </div>
+              <button class="btn btn-primary" @click="batchAddAccounts" :disabled="addingAccount"
+                style="width: 100%; margin-top: 12px;">
+                {{ addingAccount ? '添加中...' : '📦 批量添加' }}
+              </button>
             </div>
           </div>
+        </div>
 
-          <div class="divider"></div>
+        <!-- 旧的添加账号模态框（保留兼容） -->
+        <div v-if="showAddModal" class="modal-overlay" @mousedown.self="showAddModal = false">
+          <div class="modal">
+            <div class="modal-header">
+              <div class="modal-title">➕ 添加 Zeabur 账号</div>
+              <button class="modal-close" @click="closeAddModal">×</button>
+            </div>
 
-          <!-- 添加新账号表单 -->
-          <div>
-            <div class="modal-title" style="margin-bottom: 12px; font-size: 15px;">➕ 添加新账号</div>
-
-            <div class="form-group" style="margin-bottom: 12px;">
+            <div class="form-group">
               <label class="form-label">账号名称</label>
               <input v-model="newAccount.name" type="text" class="form-input" placeholder="例如：我的账号" />
             </div>
 
-            <div class="form-group" style="margin-bottom: 12px;">
+            <div class="form-group">
               <label class="form-label">API Token</label>
               <input v-model="newAccount.token" type="password" class="form-input" placeholder="sk-xxxxxxxxxxxxxxxx" />
               <div class="form-help">
@@ -1386,247 +1882,626 @@
               {{ addAccountSuccess }}
             </div>
 
-            <button class="btn btn-primary" @click="addAccountToList" :disabled="addingAccount" style="width: 100%;">
-              {{ addingAccount ? '验证中...' : '➕ 添加到列表' }}
+            <button class="btn btn-primary" @click="addAccount" :disabled="addingAccount" style="width: 100%;">
+              {{ addingAccount ? '验证中...' : '添加账号' }}
             </button>
-          </div>
 
-          <!-- 批量添加 -->
-          <div class="divider"></div>
-          <div>
-            <div class="modal-title" style="margin-bottom: 12px; font-size: 15px;">📦 批量添加账号</div>
-            <div class="form-help">
-              每行一个账号，支持格式：<code>名称:Token</code> 或 <code>名称：Token</code> 或 <code>名称(Token)</code> 或
-              <code>名称（Token）</code>
-            </div>
-            <div style="position: relative; min-height: 120px;">
-              <div
-                style="width: 100%; min-height: 120px; padding: 12px; border: 1px solid var(--border-color); border-radius: 8px; font-size: 13px; font-family: monospace; white-space: pre-wrap; word-break: break-all; pointer-events: none; color: var(--text-primary); line-height: 1.5; background-color: var(--input-bg);">
-                {{ maskedBatchAccounts }}</div>
-              <textarea v-model="batchAccounts" @input="updateBatchDisplay" placeholder="每行一个账号，格式：账号名称:API_Token"
-                class="form-textarea"
-                style="position: absolute; top: 0; left: 0; color: transparent; caret-color: var(--text-primary); background: transparent; line-height: 1.5;"></textarea>
-            </div>
-            <div v-if="batchAddError" class="form-error">
-              {{ batchAddError }}
-            </div>
-            <div v-if="batchAddSuccess" class="form-success">
-              {{ batchAddSuccess }}
-            </div>
-            <button class="btn btn-primary" @click="batchAddAccounts" :disabled="addingAccount"
-              style="width: 100%; margin-top: 12px;">
-              {{ addingAccount ? '添加中...' : '📦 批量添加' }}
+            <button class="btn btn-secondary" @click="closeAddModal" style="width: 100%; margin-top: 8px;">
+              取消
             </button>
           </div>
         </div>
-      </div>
 
-      <!-- 旧的添加账号模态框（保留兼容） -->
-      <div v-if="showAddModal" class="modal-overlay" @mousedown.self="showAddModal = false">
-        <div class="modal">
-          <div class="modal-header">
-            <div class="modal-title">➕ 添加 Zeabur 账号</div>
-            <button class="modal-close" @click="closeAddModal">×</button>
+        <div v-if="accounts.length > 0" class="stats-grid">
+          <div class="stat-card">
+            <div class="stat-label">账号数</div>
+            <div class="stat-value">{{ accounts.length }}</div>
           </div>
-
-          <div class="form-group">
-            <label class="form-label">账号名称</label>
-            <input v-model="newAccount.name" type="text" class="form-input" placeholder="例如：我的账号" />
+          <div class="stat-card">
+            <div class="stat-label">项目总数</div>
+            <div class="stat-value">{{ totalProjects }}</div>
           </div>
-
-          <div class="form-group">
-            <label class="form-label">API Token</label>
-            <input v-model="newAccount.token" type="password" class="form-input" placeholder="sk-xxxxxxxxxxxxxxxx" />
-            <div class="form-help">
-              在 Zeabur 控制台的设置中创建 API Token
-            </div>
+          <div class="stat-card">
+            <div class="stat-label">服务总数</div>
+            <div class="stat-value">{{ totalServices }}</div>
           </div>
-
-          <div v-if="addAccountError" class="form-error">
-            {{ addAccountError }}
+          <div class="stat-card">
+            <div class="stat-label">运行中</div>
+            <div class="stat-value">{{ runningServices }}</div>
           </div>
-
-          <div v-if="addAccountSuccess" class="form-success">
-            {{ addAccountSuccess }}
+          <div class="stat-card">
+            <div class="stat-label">总费用</div>
+            <div class="stat-value">${{ totalCost.toFixed(2) }}</div>
           </div>
+        </div>
 
-          <button class="btn btn-primary" @click="addAccount" :disabled="addingAccount" style="width: 100%;">
-            {{ addingAccount ? '验证中...' : '添加账号' }}
-          </button>
+        <div v-if="loading && accounts.length === 0" class="loading">
+          ⚡ 正在加载数据...
+        </div>
 
-          <button class="btn btn-secondary" @click="closeAddModal" style="width: 100%; margin-top: 8px;">
-            取消
-          </button>
-        </div>
-      </div>
-
-      <div v-if="accounts.length > 0" class="stats-grid">
-        <div class="stat-card">
-          <div class="stat-label">账号数</div>
-          <div class="stat-value">{{ accounts.length }}</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">项目总数</div>
-          <div class="stat-value">{{ totalProjects }}</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">服务总数</div>
-          <div class="stat-value">{{ totalServices }}</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">运行中</div>
-          <div class="stat-value">{{ runningServices }}</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-label">总费用</div>
-          <div class="stat-value">${{ totalCost.toFixed(2) }}</div>
-        </div>
-      </div>
-
-      <div v-if="loading && accounts.length === 0" class="loading">
-        ⚡ 正在加载数据...
-      </div>
-
-      <div v-for="account in accounts" :key="account.name" class="account-card">
-        <div class="account-header" @click="toggleAccount(account.name)">
-          <div class="account-info">
-            <span style="font-size: 20px; transition: transform 0.3s; display: inline-flex; align-items: center;"
-              :style="{ 
+        <div v-for="account in accounts" :key="account.name" class="account-card">
+          <div class="account-header" @click="toggleAccount(account.name)">
+            <div class="account-info">
+              <span style="font-size: 20px; transition: transform 0.3s; display: inline-flex; align-items: center;"
+                :style="{ 
           /* 保持 span 作为一个容器，不旋转或旋转到特定角度 */
           transform: isAccountExpanded(account.name) ? 'rotate(0deg)' : 'rotate(0deg)' 
       }">
 
-              <i class="fas fa-chevron-right toggle-icon" :style="{ 
+                <i class="fas fa-chevron-right toggle-icon" :style="{ 
            transition: 'transform 0.4s cubic-bezier(0.4, 0, 0.2, 1)', 
            // 逻辑调整：
            // 展开 (true) -> 0deg (向下)
            // 收起 (false) -> 90deg (向右)
            transform: isAccountExpanded(account.name) ? 'rotate(90deg)' : 'rotate(0deg)' 
        }">
-              </i>
-            </span>
-            <div>
-              <div class="account-name">{{ account.name }}</div>
-              <div v-if="account.data" class="account-email">
-                {{ maskEmail(account.data.email) || account.data.username }}
-              </div>
-            </div>
-          </div>
-          <div class="account-balance">
-            <div style="display: flex; flex-direction: column; gap: 2px;">
-              <div class="balance-card credit-balance-card">
-                <div class="balance-icon">💰</div>
-                <div class="balance-amount" :class="getBalanceClass(account.data.credit)">
-                  ${{ (account.data.credit / 100).toFixed(2) }}
+                </i>
+              </span>
+              <div>
+                <div class="account-name" v-if="!account.isEditingName" @dblclick.stop="startEditAccountName(account)">
+                  {{ account.name }}
                 </div>
-              </div>
-              <div class="balance-card ai-balance-card">
-                <div class="balance-icon">🤖</div>
-                <div class="balance-amount">
-                  {{ account.aihub && account.aihub.balance ? '$' + (account.aihub.balance / 100000).toFixed(2) : '无' }}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div v-if="account.error" class="error">
-          ❌ 错误: {{ account.error }}
-        </div>
-
-        <div v-if="account.projects" class="projects-grid" :class="{ 'collapsed': !isAccountExpanded(account.name) }">
-          <div v-for="project in account.projects" :key="project._id" :id="'proj-' + project._id" class="project-card">
-            <div class="project-header">
-              <div style="flex: 1;">
-                <div class="project-name">
-                  <span v-if="!project.isEditing">📦 {{ project.name }}</span>
-                  <input v-else v-model="project.editingName" @keyup.enter="saveProjectName(account, project)"
-                    @keyup.esc="cancelEditProjectName(project)" @blur="saveProjectName(account, project)"
-                    class="edit-input" ref="projectNameInput" />
-                  <button v-if="!project.isEditing" @click="startEditProjectName(project)" class="edit-btn"
-                    title="重命名项目">
-                    ✏️
-                  </button>
-                  <button v-else @click="cancelEditProjectName(project)" class="cancel-btn" title="取消">
+                <div v-else class="account-name-edit" @click.stop>
+                  <input v-model="account.editingName" @keyup.enter="saveAccountName(account)"
+                    @keyup.esc="cancelEditAccountName(account)" @blur="saveAccountName(account)" class="edit-input"
+                    ref="accountNameInput" style="width: 150px;" />
+                  <button @click.stop="cancelEditAccountName(account)" class="cancel-btn" title="取消"
+                    style="margin-left: 4px;">
                     ✖️
                   </button>
                 </div>
-                <div class="project-info">
-                  📍 {{ project.region }}
-                </div>
-              </div>
-              <div style="text-align: right;">
-                <div style="font-size: 12px; color: var(--text-tertiary); margin-bottom: 2px;">本月用量</div>
-                <div class="project-cost"
-                  :style="{ color: project.cost === 0 ? 'var(--info-color)' : 'var(--info-color)' }"
-                  :title="project.cost === 0 ? '暂无费用记录' : ''">
-                  ${{ formatCost(project.cost) }}
+                <div v-if="account.data" class="account-email">
+                  {{ maskEmail(account.data.email) || account.data.username }}
                 </div>
               </div>
             </div>
-            <div class="project-stats">
-              <span>🔧 {{ project.services.length }} 个服务</span>
-              <span>✅ {{ project.services.filter(s => s.status === 'RUNNING').length }} 运行中</span>
-              <span>⏸️ {{ project.services.filter(s => s.status === 'SUSPENDED').length }} 已暂停</span>
-            </div>
-            <div class="services-container">
-              <div v-for="service in project.services" :key="service._id"
-                :class="['service-item', service.status.toLowerCase()]">
-                <div class="service-header">
-                  <div class="service-name" :title="service.name">
-                    {{ service.name }}
-                  </div>
-                  <div :class="['service-status', service.status.toLowerCase()]">
-                    {{ service.status === 'RUNNING' ? '运行中' : service.status === 'SUSPENDED' ? '已暂停' : service.status }}
+            <div class="account-balance">
+              <div style="display: flex; flex-direction: row; gap: 6px;">
+                <div class="balance-card credit-balance-card">
+                  <div class="balance-icon">💰</div>
+                  <div class="balance-amount" :class="getBalanceClass(account.data.credit)">
+                    ${{ (account.data.credit / 100).toFixed(2) }}
                   </div>
                 </div>
-                <div v-if="service.resourceLimit" class="service-info">
-                  <span style="display: inline-flex; align-items: center; gap: 4px; margin-right: 12px;">
-                    <i class="fas fa-microchip"></i>
-                    {{ service.resourceLimit.cpu }}m
-                  </span>
-                  <span style="display: inline-flex; align-items: center; gap: 4px;">
-                    <i class="fas fa-memory"></i>
-                    {{ service.resourceLimit.memory }}MB
-                  </span>
+                <div class="balance-card ai-balance-card">
+                  <div class="balance-icon">🤖</div>
+                  <div class="balance-amount">
+                    {{ account.aihub && account.aihub.balance ? '$' + (account.aihub.balance / 100000).toFixed(2) : '无'
+                    }}
+                  </div>
                 </div>
-                <div class="service-actions">
-                  <button v-if="service.status === 'RUNNING'" @click="pauseService(account, project, service)"
-                    class="service-btn btn-pause">
-                    <i class="fas fa-pause"></i>
-                    暂停
-                  </button>
-                  <button @click="restartService(account, project, service)" class="service-btn btn-restart">
-                    <i class="fas fa-redo"></i>
-                    {{ service.status === 'SUSPENDED' ? '启动' : '重启' }}
-                  </button>
-                  <button @click="showServiceLogs(account, project, service)" class="service-btn btn-logs">
-                    <i class="fas fa-file-alt"></i>
-                    日志
-                  </button>
-                </div>
-              </div>
-              <div v-if="project.services.length === 0" class="empty-state">
-                暂无服务
               </div>
             </div>
+          </div>
 
-            <!-- 项目域名 -->
-            <div v-if="getProjectDomains(project).length > 0" class="domains-container">
-              <a v-for="domainInfo in getProjectDomains(project)" :key="domainInfo.domain"
-                :href="'https://' + domainInfo.domain" target="_blank" class="domain-link">
-                <i class="fas fa-globe"></i>
-                <span>{{ domainInfo.domain }}</span>
-                <span v-if="domainInfo.isGenerated" class="domain-badge">自动</span>
-              </a>
+          <div v-if="account.error" class="error">
+            ❌ 错误: {{ account.error }}
+          </div>
+
+          <div v-if="account.projects" class="projects-grid" :class="{ 'collapsed': !isAccountExpanded(account.name) }">
+            <div v-for="project in account.projects" :key="project._id" :id="'proj-' + project._id"
+              class="project-card">
+              <div class="project-header">
+                <div style="flex: 1;">
+                  <div class="project-name">
+                    <span v-if="!project.isEditing">📦 {{ project.name }}</span>
+                    <input v-else v-model="project.editingName" @keyup.enter="saveProjectName(account, project)"
+                      @keyup.esc="cancelEditProjectName(project)" @blur="saveProjectName(account, project)"
+                      class="edit-input" ref="projectNameInput" />
+                    <button v-if="!project.isEditing" @click="startEditProjectName(project)" class="edit-btn"
+                      title="重命名项目">
+                      ✏️
+                    </button>
+                    <button v-else @click="cancelEditProjectName(project)" class="cancel-btn" title="取消">
+                      ✖️
+                    </button>
+                  </div>
+                  <div class="project-info">
+                    📍 {{ project.region }}
+                  </div>
+                </div>
+                <div style="text-align: right;">
+                  <div style="font-size: 12px; color: var(--text-tertiary); margin-bottom: 2px;">本月用量</div>
+                  <div class="project-cost"
+                    :style="{ color: project.cost === 0 ? 'var(--info-color)' : 'var(--info-color)' }"
+                    :title="project.cost === 0 ? '暂无费用记录' : ''">
+                    ${{ formatCost(project.cost) }}
+                  </div>
+                </div>
+              </div>
+              <div class="project-stats">
+                <span>🔧 {{ project.services.length }} 个服务</span>
+                <span>✅ {{ project.services.filter(s => s.status === 'RUNNING').length }} 运行中</span>
+                <span>⏸️ {{ project.services.filter(s => s.status === 'SUSPENDED').length }} 已暂停</span>
+              </div>
+              <div class="services-container">
+                <div v-for="service in project.services" :key="service._id"
+                  :class="['service-item', service.status.toLowerCase()]">
+                  <div class="service-header">
+                    <div class="service-name" :title="service.name">
+                      {{ service.name }}
+                    </div>
+                    <div :class="['service-status', service.status.toLowerCase()]">
+                      {{ service.status === 'RUNNING' ? '运行中' : service.status === 'SUSPENDED' ? '已暂停' : service.status
+                      }}
+                    </div>
+                  </div>
+                  <div v-if="service.resourceLimit" class="service-info">
+                    <span style="display: inline-flex; align-items: center; gap: 4px; margin-right: 12px;">
+                      <i class="fas fa-microchip"></i>
+                      {{ service.resourceLimit.cpu }}m
+                    </span>
+                    <span style="display: inline-flex; align-items: center; gap: 4px;">
+                      <i class="fas fa-memory"></i>
+                      {{ service.resourceLimit.memory }}MB
+                    </span>
+                  </div>
+                  <div class="service-actions">
+                    <button v-if="service.status === 'RUNNING'" @click="pauseService(account, project, service)"
+                      class="service-btn btn-pause">
+                      <i class="fas fa-pause"></i>
+                      暂停
+                    </button>
+                    <button @click="restartService(account, project, service)" class="service-btn btn-restart">
+                      <i class="fas fa-redo"></i>
+                      {{ service.status === 'SUSPENDED' ? '启动' : '重启' }}
+                    </button>
+                    <button @click="showServiceLogs(account, project, service)" class="service-btn btn-logs">
+                      <i class="fas fa-file-alt"></i>
+                      日志
+                    </button>
+                  </div>
+                </div>
+                <div v-if="project.services.length === 0" class="empty-state">
+                  暂无服务
+                </div>
+              </div>
+
+              <!-- 项目域名 -->
+              <div v-if="getProjectDomains(project).length > 0" class="domains-container">
+                <a v-for="domainInfo in getProjectDomains(project)" :key="domainInfo.domain"
+                  :href="'https://' + domainInfo.domain" target="_blank" class="domain-link">
+                  <i class="fas fa-globe"></i>
+                  <span>{{ domainInfo.domain }}</span>
+                  <span v-if="domainInfo.isGenerated" class="domain-badge">自动</span>
+                </a>
+              </div>
             </div>
           </div>
         </div>
-      </div>
 
-      <div v-if="!loading && accounts.length === 0" class="error">
-        未配置账号或无法获取数据。请检查 .env 配置文件。
+        <div v-if="!loading && accounts.length === 0" class="error">
+          未配置账号或无法获取数据。请检查 .env 配置文件。
+        </div>
       </div>
+      <!-- ==================== Zeabur 监控部分结束 ==================== -->
+
+      <!-- ==================== DNS 管理部分 ==================== -->
+      <div v-if="mainActiveTab === 'dns'">
+        <!-- Toast -->
+        <div v-if="dnsToast.show" class="toast" :class="dnsToast.type">{{ dnsToast.message }}</div>
+
+        <!-- DNS 子标签页 -->
+        <div class="dns-tabs">
+          <button class="dns-tab-btn" :class="{ active: dnsCurrentTab === 'dns' }" @click="dnsCurrentTab = 'dns'">
+            <i class="fas fa-globe"></i> DNS 记录
+          </button>
+          <button class="dns-tab-btn" :class="{ active: dnsCurrentTab === 'accounts' }"
+            @click="dnsCurrentTab = 'accounts'">
+            <i class="fas fa-users"></i> 账号管理
+          </button>
+          <button class="dns-tab-btn" :class="{ active: dnsCurrentTab === 'templates' }"
+            @click="dnsCurrentTab = 'templates'">
+            <i class="fas fa-copy"></i> 模板
+          </button>
+        </div>
+
+        <!-- DNS 记录标签页 -->
+        <div v-if="dnsCurrentTab === 'dns'">
+          <!-- 账号选择 -->
+          <div class="dns-account-select">
+            <label style="font-weight: 500;">选择账号：</label>
+            <select v-model="dnsSelectedAccountId" @change="loadDnsZones">
+              <option value="">-- 请选择账号 --</option>
+              <option v-for="acc in dnsAccounts" :key="acc.id" :value="acc.id">{{ acc.name }}</option>
+            </select>
+            <button v-if="dnsSelectedAccountId" class="btn btn-secondary" style="padding: 6px 10px;"
+              @click="loadDnsZones" :disabled="dnsLoadingZones">
+              <i class="fas fa-sync-alt" :class="{ 'fa-spin': dnsLoadingZones }"></i>
+            </button>
+          </div>
+
+          <div v-if="dnsLoadingZones" class="loading">
+            <div class="spinner"></div>
+            <div style="margin-top: 12px;">加载域名列表...</div>
+          </div>
+
+          <!-- 域名网格 -->
+          <div v-if="dnsSelectedAccountId && dnsZones.length > 0 && !dnsLoadingZones" class="zones-grid">
+            <div v-for="zone in dnsZones" :key="zone.id" class="zone-card"
+              :class="{ active: dnsSelectedZoneId === zone.id }" @click="selectDnsZone(zone)">
+              <div>
+                <div class="zone-name">{{ zone.name }}</div>
+                <div class="zone-status" :class="zone.status">{{ zone.status }}</div>
+              </div>
+              <i class="fas fa-chevron-right" style="color: var(--text-tertiary);"></i>
+            </div>
+          </div>
+
+          <div v-if="dnsSelectedAccountId && dnsZones.length === 0 && !dnsLoadingZones" class="empty-state">
+            <i class="fas fa-globe" style="font-size: 48px; margin-bottom: 16px;"></i>
+            <div>该账号下没有域名</div>
+          </div>
+
+          <!-- 快速切换 -->
+          <div v-if="dnsSelectedZoneId" class="quick-switch">
+            <i class="fas fa-bolt" style="color: var(--cf-color);"></i>
+            <span style="font-weight: 500; white-space: nowrap;">快速切换：</span>
+            <select v-model="dnsQuickSwitchType"
+              style="color: #f38020; padding: 6px 10px; border-radius: 4px; border: 1px solid var(--input-border); background: var(--input-bg); min-width: 80px;">
+              <option value="A">A</option>
+              <option value="AAAA">AAAA</option>
+              <option value="CNAME">CNAME</option>
+            </select>
+            <input v-model="dnsQuickSwitchName" placeholder="记录名称 (如 @, www, *)" />
+            <input v-model="dnsQuickSwitchContent" placeholder="新的内容 (IP 或域名)" />
+            <button class="btn btn-cf" style="padding: 6px 12px;" @click="dnsQuickSwitch" :disabled="dnsSwitching">
+              {{ dnsSwitching ? '切换中...' : '切换' }}
+            </button>
+          </div>
+
+          <!-- DNS 记录表格 -->
+          <div v-if="dnsSelectedZoneId" class="panel">
+            <div class="panel-header">
+              <div class="panel-title">DNS 记录 - {{ dnsSelectedZoneName }}</div>
+              <div style="display: flex; gap: 8px;">
+                <button class="btn btn-success" style="padding: 6px 12px;" @click="openAddDnsRecordModal">
+                  <i class="fas fa-plus"></i> 添加记录
+                </button>
+                <button class="btn btn-secondary" style="padding: 6px 10px;" @click="loadDnsRecords"
+                  :disabled="dnsLoadingRecords">
+                  <i class="fas fa-sync-alt" :class="{ 'fa-spin': dnsLoadingRecords }"></i>
+                </button>
+              </div>
+            </div>
+
+            <div v-if="dnsLoadingRecords" class="loading">
+              <div class="spinner"></div>
+              <div style="margin-top: 12px;">加载中...</div>
+            </div>
+
+            <div v-else class="table-container">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th style="width: 80px;">类型</th>
+                    <th style="width: 160px;">名称</th>
+                    <th>内容</th>
+                    <th style="width: 70px;">代理</th>
+                    <th style="width: 70px;">TTL</th>
+                    <th style="width: 120px;">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="record in dnsRecords" :key="record.id">
+                    <td><span class="record-type" :class="record.type">{{ record.type }}</span></td>
+                    <td>
+                      <div v-if="!record.isEditingName" class="editable-cell"
+                        :title="formatDnsRecordName(record.name) + ' (双击编辑)'" @dblclick="startEditDnsName(record)">
+                        {{ formatDnsRecordName(record.name) }}
+                      </div>
+                      <div v-else class="inline-edit-container" @click.stop>
+                        <input v-model="record.editingName" class="inline-edit-input" @keyup.enter="saveDnsName(record)"
+                          @keyup.esc="cancelEditDnsName(record)" @blur="saveDnsName(record)" ref="dnsNameInput" />
+                        <button @click.stop="cancelEditDnsName(record)" class="inline-edit-cancel" title="取消">
+                          ✖️
+                        </button>
+                      </div>
+                    </td>
+                    <td>
+                      <div v-if="!record.isEditingContent" class="content-truncate editable-cell"
+                        :title="record.content + ' (双击编辑)'" @dblclick="startEditDnsContent(record)">
+                        {{ record.content }}
+                      </div>
+                      <div v-else class="inline-edit-container" @click.stop>
+                        <input v-model="record.editingContent" class="inline-edit-input"
+                          @keyup.enter="saveDnsContent(record)" @keyup.esc="cancelEditDnsContent(record)"
+                          @blur="saveDnsContent(record)" ref="dnsContentInput" />
+                        <button @click.stop="cancelEditDnsContent(record)" class="inline-edit-cancel" title="取消">
+                          ✖️
+                        </button>
+                      </div>
+                    </td>
+                    <td>
+                      <span class="proxied-badge" :class="record.proxied ? 'proxied-on' : 'proxied-off'">
+                        {{ record.proxied ? '开启' : '关闭' }}
+                      </span>
+                    </td>
+                    <td>{{ record.ttl === 1 ? 'Auto' : record.ttl }}</td>
+                    <td class="actions">
+                      <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 12px;"
+                        @click="editDnsRecord(record)" title="编辑">
+                        <i class="fas fa-edit"></i>
+                      </button>
+                      <button class="btn btn-danger" style="padding: 4px 8px; font-size: 12px;"
+                        @click="deleteDnsRecord(record)" title="删除">
+                        <i class="fas fa-trash"></i>
+                      </button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+              <div v-if="dnsRecords.length === 0" class="empty-state">暂无 DNS 记录</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- CF 账号管理标签页 -->
+        <div v-if="dnsCurrentTab === 'accounts'">
+          <div class="panel">
+            <div class="panel-header">
+              <div class="panel-title">Cloudflare 账号</div>
+              <button class="btn btn-success" style="padding: 6px 12px;" @click="openAddDnsAccountModal">
+                <i class="fas fa-plus"></i> 添加账号
+              </button>
+            </div>
+
+            <div class="table-container">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>名称</th>
+                    <th>邮箱</th>
+                    <th>添加时间</th>
+                    <th>最后使用</th>
+                    <th style="width: 150px;">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="acc in dnsAccounts" :key="acc.id">
+                    <td>{{ acc.name }}</td>
+                    <td>{{ acc.email || '-' }}</td>
+                    <td>{{ formatDnsDate(acc.createdAt) }}</td>
+                    <td>{{ acc.lastUsed ? formatDnsDate(acc.lastUsed) : '-' }}</td>
+                    <td class="actions">
+                      <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 12px;"
+                        @click="verifyDnsAccount(acc)" title="验证Token">
+                        <i class="fas fa-check"></i>
+                      </button>
+                      <button class="btn btn-danger" style="padding: 4px 8px; font-size: 12px;"
+                        @click="deleteDnsAccount(acc)" title="删除">
+                        <i class="fas fa-trash"></i>
+                      </button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+              <div v-if="dnsAccounts.length === 0" class="empty-state">
+                <i class="fas fa-key" style="font-size: 48px; margin-bottom: 16px;"></i>
+                <div>暂无账号，请添加 Cloudflare API Token</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 模板标签页 -->
+        <div v-if="dnsCurrentTab === 'templates'">
+          <div class="panel">
+            <div class="panel-header">
+              <div class="panel-title">DNS 模板</div>
+              <button class="btn btn-success" style="padding: 6px 12px;" @click="openAddDnsTemplateModal">
+                <i class="fas fa-plus"></i> 添加模板
+              </button>
+            </div>
+
+            <div class="table-container">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>名称</th>
+                    <th style="width: 60px;">类型</th>
+                    <th>内容</th>
+                    <th style="width: 70px;">代理</th>
+                    <th>描述</th>
+                    <th style="width: 120px;">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="tpl in dnsTemplates" :key="tpl.id">
+                    <td>{{ tpl.name }}</td>
+                    <td><span class="record-type" :class="tpl.type">{{ tpl.type }}</span></td>
+                    <td>
+                      <div class="content-truncate" :title="tpl.content">{{ tpl.content }}</div>
+                    </td>
+                    <td>
+                      <span class="proxied-badge" :class="tpl.proxied ? 'proxied-on' : 'proxied-off'">
+                        {{ tpl.proxied ? '开启' : '关闭' }}
+                      </span>
+                    </td>
+                    <td>{{ tpl.description || '-' }}</td>
+                    <td class="actions">
+                      <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 12px;"
+                        @click="editDnsTemplate(tpl)" title="编辑">
+                        <i class="fas fa-edit"></i>
+                      </button>
+                      <button class="btn btn-danger" style="padding: 4px 8px; font-size: 12px;"
+                        @click="deleteDnsTemplate(tpl)" title="删除">
+                        <i class="fas fa-trash"></i>
+                      </button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+              <div v-if="dnsTemplates.length === 0" class="empty-state">
+                <i class="fas fa-copy" style="font-size: 48px; margin-bottom: 16px;"></i>
+                <div>暂无模板，添加常用 DNS 配置模板以快速应用</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 添加 CF 账号模态框 -->
+        <div v-if="showAddDnsAccountModal" class="modal-overlay" @click.self="showAddDnsAccountModal = false">
+          <div class="modal">
+            <div class="modal-header">
+              <div class="modal-title">添加 Cloudflare 账号</div>
+              <button class="modal-close" @click="showAddDnsAccountModal = false">&times;</button>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">账号名称 *</label>
+              <input v-model="dnsAccountForm.name" class="form-input" placeholder="例如: 主账号" />
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">API Token *</label>
+              <input v-model="dnsAccountForm.apiToken" type="password" class="form-input"
+                placeholder="Cloudflare API Token" />
+              <div class="form-help">在 Cloudflare 控制台 → My Profile → API Tokens 创建</div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">邮箱（可选）</label>
+              <input v-model="dnsAccountForm.email" class="form-input" placeholder="用于标识账号" />
+            </div>
+
+            <div v-if="dnsAccountFormError" class="form-error">{{ dnsAccountFormError }}</div>
+            <div v-if="dnsAccountFormSuccess" class="form-success">{{ dnsAccountFormSuccess }}</div>
+
+            <div style="display: flex; gap: 12px; margin-top: 20px;">
+              <button class="btn btn-primary" @click="addDnsAccount" :disabled="dnsSavingAccount" style="flex: 1;">
+                {{ dnsSavingAccount ? '验证中...' : '添加账号' }}
+              </button>
+              <button class="btn btn-secondary" @click="showAddDnsAccountModal = false" style="flex: 1;">取消</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 添加/编辑 DNS 记录模态框 -->
+        <div v-if="showDnsRecordModal" class="modal-overlay" @click.self="showDnsRecordModal = false">
+          <div class="modal">
+            <div class="modal-header">
+              <div class="modal-title">{{ dnsEditingRecord ? '编辑 DNS 记录' : '添加 DNS 记录' }}</div>
+              <button class="modal-close" @click="showDnsRecordModal = false">&times;</button>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+              <div class="form-group">
+                <label class="form-label">类型 *</label>
+                <select v-model="dnsRecordForm.type" class="form-input" :disabled="!!dnsEditingRecord">
+                  <option v-for="t in dnsRecordTypes" :key="t" :value="t">{{ t }}</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">名称 *</label>
+                <input v-model="dnsRecordForm.name" class="form-input" placeholder="@ 或 www" />
+                <div class="form-help">@ 表示根域名</div>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">内容 *</label>
+              <input v-model="dnsRecordForm.content" class="form-input" placeholder="IP 地址或目标域名" />
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+              <div class="form-group">
+                <label class="form-label">TTL</label>
+                <select v-model="dnsRecordForm.ttl" class="form-input">
+                  <option :value="1">Auto</option>
+                  <option :value="60">1 分钟</option>
+                  <option :value="300">5 分钟</option>
+                  <option :value="600">10 分钟</option>
+                  <option :value="3600">1 小时</option>
+                  <option :value="86400">1 天</option>
+                </select>
+              </div>
+              <div class="form-group" v-if="dnsRecordForm.type === 'MX'">
+                <label class="form-label">优先级</label>
+                <input v-model.number="dnsRecordForm.priority" type="number" class="form-input" placeholder="10" />
+              </div>
+            </div>
+
+            <div class="form-group" v-if="canDnsBeProxied(dnsRecordForm.type)">
+              <label style="display: flex; align-items: center; gap: 8px; font-size: 14px; cursor: pointer;">
+                <input type="checkbox" v-model="dnsRecordForm.proxied" style="width: 16px; height: 16px;" />
+                启用 Cloudflare 代理 (橙云)
+              </label>
+              <div class="form-help">启用后流量将通过 Cloudflare CDN</div>
+            </div>
+
+            <div v-if="dnsRecordFormError" class="form-error">{{ dnsRecordFormError }}</div>
+
+            <div style="display: flex; gap: 12px; margin-top: 20px;">
+              <button class="btn btn-primary" @click="saveDnsRecord" :disabled="dnsSavingRecord" style="flex: 1;">
+                {{ dnsSavingRecord ? '保存中...' : '保存' }}
+              </button>
+              <button class="btn btn-secondary" @click="showDnsRecordModal = false" style="flex: 1;">取消</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 添加/编辑模板模态框 -->
+        <div v-if="showDnsTemplateModal" class="modal-overlay" @click.self="showDnsTemplateModal = false">
+          <div class="modal">
+            <div class="modal-header">
+              <div class="modal-title">{{ dnsEditingTemplate ? '编辑模板' : '添加模板' }}</div>
+              <button class="modal-close" @click="showDnsTemplateModal = false">&times;</button>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">模板名称 *</label>
+              <input v-model="dnsTemplateForm.name" class="form-input" placeholder="例如: CDN 记录" />
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+              <div class="form-group">
+                <label class="form-label">记录类型 *</label>
+                <select v-model="dnsTemplateForm.type" class="form-input">
+                  <option v-for="t in dnsRecordTypes" :key="t" :value="t">{{ t }}</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label">TTL</label>
+                <select v-model="dnsTemplateForm.ttl" class="form-input">
+                  <option :value="1">Auto</option>
+                  <option :value="300">5 分钟</option>
+                  <option :value="3600">1 小时</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">内容 *</label>
+              <input v-model="dnsTemplateForm.content" class="form-input" placeholder="IP 地址或目标域名" />
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">描述（可选）</label>
+              <input v-model="dnsTemplateForm.description" class="form-input" placeholder="模板用途说明" />
+            </div>
+
+            <div class="form-group" v-if="canDnsBeProxied(dnsTemplateForm.type)">
+              <label style="display: flex; align-items: center; gap: 8px; font-size: 14px; cursor: pointer;">
+                <input type="checkbox" v-model="dnsTemplateForm.proxied" style="width: 16px; height: 16px;" />
+                启用 Cloudflare 代理
+              </label>
+            </div>
+
+            <div v-if="dnsTemplateFormError" class="form-error">{{ dnsTemplateFormError }}</div>
+
+            <div style="display: flex; gap: 12px; margin-top: 20px;">
+              <button class="btn btn-primary" @click="saveDnsTemplate" :disabled="dnsSavingTemplate" style="flex: 1;">
+                {{ dnsSavingTemplate ? '保存中...' : '保存' }}
+              </button>
+              <button class="btn btn-secondary" @click="showDnsTemplateModal = false" style="flex: 1;">取消</button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+      <!-- ==================== DNS 管理部分结束 ==================== -->
+
     </div>
   </div>
 
@@ -1690,7 +2565,47 @@
           refreshProgress: 100,
           countdownInterval: null,
           refreshInterval: null,
-          dataRefreshPaused: false
+          dataRefreshPaused: false,
+          // ==================== DNS 管理相关数据 ====================
+          mainActiveTab: 'zeabur',
+          // DNS Toast
+          dnsToast: { show: false, message: '', type: 'success' },
+          // DNS 当前标签页
+          dnsCurrentTab: 'dns',
+          // CF 账号相关
+          dnsAccounts: [],
+          dnsSelectedAccountId: '',
+          showAddDnsAccountModal: false,
+          dnsAccountForm: { name: '', apiToken: '', email: '' },
+          dnsAccountFormError: '',
+          dnsAccountFormSuccess: '',
+          dnsSavingAccount: false,
+          // 域名相关
+          dnsZones: [],
+          dnsSelectedZoneId: '',
+          dnsSelectedZoneName: '',
+          dnsLoadingZones: false,
+          // DNS 记录相关
+          dnsRecords: [],
+          dnsLoadingRecords: false,
+          showDnsRecordModal: false,
+          dnsEditingRecord: null,
+          dnsRecordForm: { type: 'A', name: '', content: '', ttl: 1, proxied: false, priority: 10 },
+          dnsRecordFormError: '',
+          dnsSavingRecord: false,
+          dnsRecordTypes: ['A', 'AAAA', 'CNAME', 'TXT', 'MX', 'NS', 'SRV', 'CAA'],
+          // 快速切换
+          dnsQuickSwitchType: 'A',
+          dnsQuickSwitchName: '',
+          dnsQuickSwitchContent: '',
+          dnsSwitching: false,
+          // 模板相关
+          dnsTemplates: [],
+          showDnsTemplateModal: false,
+          dnsEditingTemplate: null,
+          dnsTemplateForm: { name: '', type: 'A', content: '', ttl: 1, proxied: false, description: '' },
+          dnsTemplateFormError: '',
+          dnsSavingTemplate: false
         };
       },
       async mounted() {
@@ -2953,6 +3868,63 @@
             alert('❌ 操作失败: ' + error.message);
           }
         },
+        // 开始编辑账号名称
+        startEditAccountName(account) {
+          account.isEditingName = true;
+          account.editingName = account.name;
+          setTimeout(() => {
+            try {
+              const inputs = document.querySelectorAll('.account-name-edit .edit-input');
+              if (inputs.length > 0) {
+                inputs[inputs.length - 1].focus();
+              }
+            } catch (e) { console.error(e); }
+          }, 50);
+        },
+        // 取消编辑账号名称
+        cancelEditAccountName(account) {
+          account.isEditingName = false;
+          account.editingName = '';
+        },
+        // 保存账号名称
+        async saveAccountName(account) {
+          // 如果不在编辑状态，直接返回
+          if (!account.isEditingName) {
+            return;
+          }
+
+          if (!account.editingName || account.editingName.trim() === '') {
+            alert('❌ 账号名称不能为空');
+            return;
+          }
+
+          if (account.editingName === account.name) {
+            this.cancelEditAccountName(account);
+            return;
+          }
+
+          const newName = account.editingName.trim();
+          const oldName = account.name;
+
+          try {
+            // 更新 managedAccounts 中的账号名称
+            const managedAccount = this.managedAccounts.find(acc => acc.name === oldName);
+            if (managedAccount) {
+              managedAccount.name = newName;
+              account.name = newName;
+
+              // 保存到服务器
+              await this.saveManagedAccounts();
+
+              this.cancelEditAccountName(account);
+              console.log(`✅ 账号名称已从 "${oldName}" 更新为 "${newName}"`);
+            } else {
+              alert('❌ 无法找到对应的账号配置');
+            }
+          } catch (error) {
+            alert('❌ 保存失败: ' + error.message);
+          }
+        },
         // 导出所有账号为JSON文件
         exportAllAccounts() {
           if (!this.managedAccounts || this.managedAccounts.length === 0) {
@@ -3034,6 +4006,604 @@
             reader.readAsText(file);
           };
           input.click();
+        },
+
+        // ==================== DNS 管理相关方法 ====================
+
+        // 切换到 DNS 标签页
+        switchToDns() {
+          this.mainActiveTab = 'dns';
+          if (this.dnsAccounts.length === 0) {
+            this.loadDnsAccounts();
+          }
+          this.loadDnsTemplates();
+        },
+
+        // 显示 Toast
+        showDnsToast(message, type = 'success') {
+          this.dnsToast = { show: true, message, type };
+          setTimeout(() => {
+            this.dnsToast.show = false;
+          }, 3000);
+        },
+
+        // 加载 CF 账号列表
+        async loadDnsAccounts() {
+          try {
+            const response = await fetch('/api/cf-dns/accounts', {
+              headers: this.getAuthHeaders()
+            });
+            const data = await response.json();
+            // API 直接返回账号数组
+            if (Array.isArray(data)) {
+              this.dnsAccounts = data;
+            } else if (data.error) {
+              console.error('加载 CF 账号失败:', data.error);
+            }
+          } catch (error) {
+            console.error('加载 CF 账号失败:', error);
+          }
+        },
+
+        // 加载模板列表
+        async loadDnsTemplates() {
+          try {
+            const response = await fetch('/api/cf-dns/templates', {
+              headers: this.getAuthHeaders()
+            });
+            const data = await response.json();
+            // API 直接返回模板数组
+            if (Array.isArray(data)) {
+              this.dnsTemplates = data;
+            } else if (data.error) {
+              console.error('加载模板失败:', data.error);
+            }
+          } catch (error) {
+            console.error('加载模板失败:', error);
+          }
+        },
+
+        // 打开添加 CF 账号模态框
+        openAddDnsAccountModal() {
+          this.dnsAccountForm = { name: '', apiToken: '', email: '' };
+          this.dnsAccountFormError = '';
+          this.dnsAccountFormSuccess = '';
+          this.showAddDnsAccountModal = true;
+        },
+
+        // 添加 CF 账号
+        async addDnsAccount() {
+          if (!this.dnsAccountForm.name || !this.dnsAccountForm.apiToken) {
+            this.dnsAccountFormError = '请填写账号名称和 API Token';
+            return;
+          }
+
+          this.dnsSavingAccount = true;
+          this.dnsAccountFormError = '';
+          this.dnsAccountFormSuccess = '';
+
+          try {
+            const response = await fetch('/api/cf-dns/accounts', {
+              method: 'POST',
+              headers: this.getAuthHeaders(),
+              body: JSON.stringify(this.dnsAccountForm)
+            });
+
+            const data = await response.json();
+            // API 返回 { success: true, account: {...} } 或 { error: '...' }
+            if (response.ok && (data.success || data.account)) {
+              this.dnsAccountFormSuccess = '账号添加成功！';
+              await this.loadDnsAccounts();
+              setTimeout(() => {
+                this.showAddDnsAccountModal = false;
+              }, 1000);
+            } else {
+              this.dnsAccountFormError = data.error || '添加失败';
+            }
+          } catch (error) {
+            this.dnsAccountFormError = '网络错误: ' + error.message;
+          } finally {
+            this.dnsSavingAccount = false;
+          }
+        },
+
+        // 验证 CF 账号
+        async verifyDnsAccount(account) {
+          try {
+            const response = await fetch(`/api/cf-dns/accounts/${account.id}/verify`, {
+              method: 'POST',
+              headers: this.getAuthHeaders()
+            });
+
+            const data = await response.json();
+            // API 返回 { valid: true/false, ... }
+            if (data.valid) {
+              this.showDnsToast('Token 验证成功！', 'success');
+            } else {
+              this.showDnsToast('Token 验证失败: ' + (data.error || '无效的 Token'), 'error');
+            }
+          } catch (error) {
+            this.showDnsToast('验证失败: ' + error.message, 'error');
+          }
+        },
+
+        // 删除 CF 账号
+        async deleteDnsAccount(account) {
+          if (!confirm(`确定要删除账号 "${account.name}" 吗？`)) return;
+
+          try {
+            const response = await fetch(`/api/cf-dns/accounts/${account.id}`, {
+              method: 'DELETE',
+              headers: this.getAuthHeaders()
+            });
+
+            const data = await response.json();
+            // API 返回 { success: true } 或 { error: '...' }
+            if (response.ok && data.success) {
+              this.showDnsToast('账号已删除', 'success');
+              await this.loadDnsAccounts();
+              if (this.dnsSelectedAccountId === account.id) {
+                this.dnsSelectedAccountId = '';
+                this.dnsZones = [];
+                this.dnsRecords = [];
+              }
+            } else {
+              this.showDnsToast('删除失败: ' + (data.error || '未知错误'), 'error');
+            }
+          } catch (error) {
+            this.showDnsToast('删除失败: ' + error.message, 'error');
+          }
+        },
+
+        // 加载域名列表
+        async loadDnsZones() {
+          if (!this.dnsSelectedAccountId) {
+            this.dnsZones = [];
+            return;
+          }
+
+          this.dnsLoadingZones = true;
+          this.dnsZones = [];
+          this.dnsRecords = [];
+          this.dnsSelectedZoneId = '';
+          this.dnsSelectedZoneName = '';
+
+          try {
+            const response = await fetch(`/api/cf-dns/accounts/${this.dnsSelectedAccountId}/zones`, {
+              headers: this.getAuthHeaders()
+            });
+
+            const data = await response.json();
+            // API 返回 { zones: [...], pagination: {...} } 或 { error: '...' }
+            if (data.zones) {
+              this.dnsZones = data.zones;
+            } else if (data.error) {
+              this.showDnsToast('加载域名失败: ' + data.error, 'error');
+            }
+          } catch (error) {
+            this.showDnsToast('加载域名失败: ' + error.message, 'error');
+          } finally {
+            this.dnsLoadingZones = false;
+          }
+        },
+
+        // 选择域名
+        selectDnsZone(zone) {
+          this.dnsSelectedZoneId = zone.id;
+          this.dnsSelectedZoneName = zone.name;
+          this.loadDnsRecords();
+        },
+
+        // 加载 DNS 记录
+        async loadDnsRecords() {
+          if (!this.dnsSelectedAccountId || !this.dnsSelectedZoneId) return;
+
+          this.dnsLoadingRecords = true;
+          this.dnsRecords = [];
+
+          try {
+            const response = await fetch(
+              `/api/cf-dns/accounts/${this.dnsSelectedAccountId}/zones/${this.dnsSelectedZoneId}/records`,
+              { headers: this.getAuthHeaders() }
+            );
+
+            const data = await response.json();
+            // API 返回 { records: [...], pagination: {...} } 或 { error: '...' }
+            if (data.records) {
+              this.dnsRecords = data.records;
+            } else if (data.error) {
+              this.showDnsToast('加载记录失败: ' + data.error, 'error');
+            }
+          } catch (error) {
+            this.showDnsToast('加载记录失败: ' + error.message, 'error');
+          } finally {
+            this.dnsLoadingRecords = false;
+          }
+        },
+
+        // 打开添加 DNS 记录模态框
+        openAddDnsRecordModal() {
+          this.dnsEditingRecord = null;
+          this.dnsRecordForm = { type: 'A', name: '', content: '', ttl: 1, proxied: false, priority: 10 };
+          this.dnsRecordFormError = '';
+          this.showDnsRecordModal = true;
+        },
+
+        // 编辑 DNS 记录
+        editDnsRecord(record) {
+          this.dnsEditingRecord = record;
+          this.dnsRecordForm = {
+            type: record.type,
+            name: this.formatDnsRecordName(record.name),
+            content: record.content,
+            ttl: record.ttl,
+            proxied: record.proxied || false,
+            priority: record.priority || 10
+          };
+          this.dnsRecordFormError = '';
+          this.showDnsRecordModal = true;
+        },
+
+        // 保存 DNS 记录
+        async saveDnsRecord() {
+          if (!this.dnsRecordForm.name || !this.dnsRecordForm.content) {
+            this.dnsRecordFormError = '请填写名称和内容';
+            return;
+          }
+
+          this.dnsSavingRecord = true;
+          this.dnsRecordFormError = '';
+
+          try {
+            const url = this.dnsEditingRecord
+              ? `/api/cf-dns/accounts/${this.dnsSelectedAccountId}/zones/${this.dnsSelectedZoneId}/records/${this.dnsEditingRecord.id}`
+              : `/api/cf-dns/accounts/${this.dnsSelectedAccountId}/zones/${this.dnsSelectedZoneId}/records`;
+
+            const response = await fetch(url, {
+              method: this.dnsEditingRecord ? 'PUT' : 'POST',
+              headers: this.getAuthHeaders(),
+              body: JSON.stringify(this.dnsRecordForm)
+            });
+
+            const data = await response.json();
+            // API 返回 { success: true, record: {...} } 或 { error: '...' }
+            if (response.ok && (data.success || data.record)) {
+              this.showDnsToast(this.dnsEditingRecord ? '记录已更新' : '记录已添加', 'success');
+              this.showDnsRecordModal = false;
+              await this.loadDnsRecords();
+            } else {
+              this.dnsRecordFormError = data.error || '保存失败';
+            }
+          } catch (error) {
+            this.dnsRecordFormError = '保存失败: ' + error.message;
+          } finally {
+            this.dnsSavingRecord = false;
+          }
+        },
+
+        // 删除 DNS 记录
+        async deleteDnsRecord(record) {
+          if (!confirm(`确定要删除记录 "${record.name}" 吗？`)) return;
+
+          try {
+            const response = await fetch(
+              `/api/cf-dns/accounts/${this.dnsSelectedAccountId}/zones/${this.dnsSelectedZoneId}/records/${record.id}`,
+              {
+                method: 'DELETE',
+                headers: this.getAuthHeaders()
+              }
+            );
+
+            const data = await response.json();
+            // API 返回 { success: true } 或 { error: '...' }
+            if (response.ok && data.success) {
+              this.showDnsToast('记录已删除', 'success');
+              await this.loadDnsRecords();
+            } else {
+              this.showDnsToast('删除失败: ' + (data.error || '未知错误'), 'error');
+            }
+          } catch (error) {
+            this.showDnsToast('删除失败: ' + error.message, 'error');
+          }
+        },
+
+        // 快速切换 DNS 记录
+        async dnsQuickSwitch() {
+          if (!this.dnsQuickSwitchName || !this.dnsQuickSwitchContent) {
+            this.showDnsToast('请填写记录名称和新内容', 'error');
+            return;
+          }
+
+          this.dnsSwitching = true;
+
+          try {
+            // 使用正确的 API 端点 /switch
+            const response = await fetch(
+              `/api/cf-dns/accounts/${this.dnsSelectedAccountId}/zones/${this.dnsSelectedZoneId}/switch`,
+              {
+                method: 'POST',
+                headers: this.getAuthHeaders(),
+                body: JSON.stringify({
+                  type: this.dnsQuickSwitchType,
+                  name: this.dnsQuickSwitchName,
+                  newContent: this.dnsQuickSwitchContent
+                })
+              }
+            );
+
+            const data = await response.json();
+            // API 返回 { success: true, updated: n, records: [...] } 或 { error: '...' }
+            if (response.ok && data.success) {
+              this.showDnsToast(`切换成功！更新了 ${data.updated || 0} 条记录`, 'success');
+              this.dnsQuickSwitchName = '';
+              this.dnsQuickSwitchContent = '';
+              await this.loadDnsRecords();
+            } else {
+              this.showDnsToast('切换失败: ' + (data.error || '未知错误'), 'error');
+            }
+          } catch (error) {
+            this.showDnsToast('切换失败: ' + error.message, 'error');
+          } finally {
+            this.dnsSwitching = false;
+          }
+        },
+
+        // 打开添加模板模态框
+        openAddDnsTemplateModal() {
+          this.dnsEditingTemplate = null;
+          this.dnsTemplateForm = { name: '', type: 'A', content: '', ttl: 1, proxied: false, description: '' };
+          this.dnsTemplateFormError = '';
+          this.showDnsTemplateModal = true;
+        },
+
+        // 编辑模板
+        editDnsTemplate(template) {
+          this.dnsEditingTemplate = template;
+          this.dnsTemplateForm = { ...template };
+          this.dnsTemplateFormError = '';
+          this.showDnsTemplateModal = true;
+        },
+
+        // 保存模板
+        async saveDnsTemplate() {
+          if (!this.dnsTemplateForm.name || !this.dnsTemplateForm.content) {
+            this.dnsTemplateFormError = '请填写模板名称和内容';
+            return;
+          }
+
+          this.dnsSavingTemplate = true;
+          this.dnsTemplateFormError = '';
+
+          try {
+            const url = this.dnsEditingTemplate
+              ? `/api/cf-dns/templates/${this.dnsEditingTemplate.id}`
+              : '/api/cf-dns/templates';
+
+            const response = await fetch(url, {
+              method: this.dnsEditingTemplate ? 'PUT' : 'POST',
+              headers: this.getAuthHeaders(),
+              body: JSON.stringify(this.dnsTemplateForm)
+            });
+
+            const data = await response.json();
+            // API 返回 { success: true, template: {...} } 或 { error: '...' }
+            if (response.ok && (data.success || data.template)) {
+              this.showDnsToast(this.dnsEditingTemplate ? '模板已更新' : '模板已添加', 'success');
+              this.showDnsTemplateModal = false;
+              await this.loadDnsTemplates();
+            } else {
+              this.dnsTemplateFormError = data.error || '保存失败';
+            }
+          } catch (error) {
+            this.dnsTemplateFormError = '保存失败: ' + error.message;
+          } finally {
+            this.dnsSavingTemplate = false;
+          }
+        },
+
+        // 删除模板
+        async deleteDnsTemplate(template) {
+          if (!confirm(`确定要删除模板 "${template.name}" 吗？`)) return;
+
+          try {
+            const response = await fetch(`/api/cf-dns/templates/${template.id}`, {
+              method: 'DELETE',
+              headers: this.getAuthHeaders()
+            });
+
+            const data = await response.json();
+            // API 返回 { success: true } 或 { error: '...' }
+            if (response.ok && data.success) {
+              this.showDnsToast('模板已删除', 'success');
+              await this.loadDnsTemplates();
+            } else {
+              this.showDnsToast('删除失败: ' + (data.error || '未知错误'), 'error');
+            }
+          } catch (error) {
+            this.showDnsToast('删除失败: ' + error.message, 'error');
+          }
+        },
+
+        // 格式化 DNS 记录名称
+        formatDnsRecordName(name) {
+          if (!name || !this.dnsSelectedZoneName) return name;
+          const suffix = '.' + this.dnsSelectedZoneName;
+          if (name === this.dnsSelectedZoneName) return '@';
+          if (name.endsWith(suffix)) {
+            return name.slice(0, -suffix.length);
+          }
+          return name;
+        },
+
+        // 格式化日期
+        formatDnsDate(dateStr) {
+          if (!dateStr) return '-';
+          const date = new Date(dateStr);
+          return date.toLocaleDateString('zh-CN');
+        },
+
+        // 判断记录类型是否可以开启代理
+        canDnsBeProxied(type) {
+          return ['A', 'AAAA', 'CNAME'].includes(type);
+        },
+
+        // 开始双击编辑 DNS 记录名称
+        startEditDnsName(record) {
+          // 取消其他正在编辑的记录
+          this.dnsRecords.forEach(r => {
+            if (r.isEditingName) {
+              r.isEditingName = false;
+            }
+            if (r.isEditingContent) {
+              r.isEditingContent = false;
+            }
+          });
+
+          record.isEditingName = true;
+          record.editingName = this.formatDnsRecordName(record.name);
+
+          // 等待 DOM 更新后聚焦输入框
+          this.$nextTick(() => {
+            const inputs = document.querySelectorAll('.inline-edit-input');
+            if (inputs.length > 0) {
+              inputs[inputs.length - 1].focus();
+              inputs[inputs.length - 1].select();
+            }
+          });
+        },
+
+        // 取消编辑 DNS 记录名称
+        cancelEditDnsName(record) {
+          record.isEditingName = false;
+          record.editingName = '';
+        },
+
+        // 保存双击编辑的 DNS 记录名称
+        async saveDnsName(record) {
+          // 如果不在编辑状态，直接返回
+          if (!record.isEditingName) {
+            return;
+          }
+
+          const originalName = this.formatDnsRecordName(record.name);
+
+          // 如果名称没有变化，取消编辑
+          if (record.editingName === originalName) {
+            this.cancelEditDnsName(record);
+            return;
+          }
+
+          // 验证名称不为空
+          if (!record.editingName || record.editingName.trim() === '') {
+            this.showDnsToast('名称不能为空', 'error');
+            return;
+          }
+
+          try {
+            const response = await fetch(
+              `/api/cf-dns/accounts/${this.dnsSelectedAccountId}/zones/${this.dnsSelectedZoneId}/records/${record.id}`,
+              {
+                method: 'PUT',
+                headers: this.getAuthHeaders(),
+                body: JSON.stringify({
+                  type: record.type,
+                  name: record.editingName.trim(),
+                  content: record.content,
+                  ttl: record.ttl,
+                  proxied: record.proxied || false
+                })
+              }
+            );
+
+            const data = await response.json();
+            if (response.ok && (data.success || data.record)) {
+              // 重新加载记录以获取更新后的完整名称
+              this.cancelEditDnsName(record);
+              this.showDnsToast('记录名称已更新', 'success');
+              await this.loadDnsRecords();
+            } else {
+              this.showDnsToast('保存失败: ' + (data.error || '未知错误'), 'error');
+            }
+          } catch (error) {
+            this.showDnsToast('保存失败: ' + error.message, 'error');
+          }
+        },
+
+        // 开始双击编辑 DNS 记录内容
+        startEditDnsContent(record) {
+          // 取消其他正在编辑的记录
+          this.dnsRecords.forEach(r => {
+            if (r.isEditingContent) {
+              r.isEditingContent = false;
+            }
+          });
+
+          record.isEditingContent = true;
+          record.editingContent = record.content;
+
+          // 等待 DOM 更新后聚焦输入框
+          this.$nextTick(() => {
+            const inputs = document.querySelectorAll('.inline-edit-input');
+            if (inputs.length > 0) {
+              inputs[inputs.length - 1].focus();
+              inputs[inputs.length - 1].select();
+            }
+          });
+        },
+
+        // 取消编辑 DNS 记录内容
+        cancelEditDnsContent(record) {
+          record.isEditingContent = false;
+          record.editingContent = '';
+        },
+
+        // 保存双击编辑的 DNS 记录内容
+        async saveDnsContent(record) {
+          // 如果不在编辑状态，直接返回
+          if (!record.isEditingContent) {
+            return;
+          }
+
+          // 如果内容没有变化，取消编辑
+          if (record.editingContent === record.content) {
+            this.cancelEditDnsContent(record);
+            return;
+          }
+
+          // 验证内容不为空
+          if (!record.editingContent || record.editingContent.trim() === '') {
+            this.showDnsToast('内容不能为空', 'error');
+            return;
+          }
+
+          try {
+            const response = await fetch(
+              `/api/cf-dns/accounts/${this.dnsSelectedAccountId}/zones/${this.dnsSelectedZoneId}/records/${record.id}`,
+              {
+                method: 'PUT',
+                headers: this.getAuthHeaders(),
+                body: JSON.stringify({
+                  type: record.type,
+                  name: this.formatDnsRecordName(record.name),
+                  content: record.editingContent.trim(),
+                  ttl: record.ttl,
+                  proxied: record.proxied || false
+                })
+              }
+            );
+
+            const data = await response.json();
+            if (response.ok && (data.success || data.record)) {
+              // 更新本地记录
+              record.content = record.editingContent.trim();
+              this.cancelEditDnsContent(record);
+              this.showDnsToast('记录已更新', 'success');
+            } else {
+              this.showDnsToast('保存失败: ' + (data.error || '未知错误'), 'error');
+            }
+          } catch (error) {
+            this.showDnsToast('保存失败: ' + error.message, 'error');
+          }
         }
       }
     }).mount('#app');

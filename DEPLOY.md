@@ -1,8 +1,8 @@
-# 🚀 Zeabur 部署指南
+# 🚀 部署指南
 
-本指南将详细介绍如何将 Zeabur 监控面板部署到 Zeabur 平台。
+本指南将详细介绍如何将 API Monitor 部署到 Zeabur 平台。
 
-##  目录
+## 目录
 
 - [前置准备](#前置准备)
 - [部署步骤](#部署步骤)
@@ -16,11 +16,11 @@
 
 - ✅ 一个 GitHub 账号
 - ✅ 一个 Zeabur 账号（[注册地址](https://zeabur.com)）
-- ✅ 至少一个 Zeabur API Token
+- ✅ 至少一个需要管理的服务账号（Zeabur / Cloudflare 等）
 
 ### 2. Fork 项目
 
-1. 访问项目仓库：https://github.com/your-username/zeabur-monitor
+1. 访问项目仓库：https://github.com/your-username/api-monitor
 2. 点击右上角 **Fork** 按钮
 3. 将项目 Fork 到你的 GitHub 账号下
 
@@ -41,7 +41,7 @@
 1. 在项目页面点击 **Add Service**
 2. 选择 **GitHub**
 3. 如果是第一次使用，需要授权 Zeabur 访问你的 GitHub
-4. 在仓库列表中找到并选择 `zeabur-monitor`
+4. 在仓库列表中找到并选择 `api-monitor`
 5. 点击 **Deploy**
 
 ### 步骤 3：等待部署
@@ -69,7 +69,7 @@
 
 ### 环境变量（可选）
 
-如果你想预配置账号，可以在 Zeabur 中设置环境变量：
+如果你想预配置，可以在 Zeabur 中设置环境变量：
 
 1. 在服务页面点击 **Variables**
 2. 添加以下环境变量：
@@ -77,9 +77,7 @@
 | 变量名 | 说明 | 示例 |
 |--------|------|------|
 | `PORT` | 端口号（可选） | `3000` |
-| `ACCOUNTS` | 预配置账号（可选） | `账号1:token1,账号2:token2` |
-
-**注意**：通过环境变量配置的账号无法在 UI 中删除，只能通过修改环境变量。
+| `ADMIN_PASSWORD` | 管理员密码（可选） | `your_password` |
 
 ### zbpack.json 配置
 
@@ -112,8 +110,7 @@
 ### Q3: 数据会丢失吗？
 
 **A**: 
-- 账号数据存储在 `accounts.json` 文件中
-- 密码存储在 `password.json` 文件中
+- 账号数据存储在配置文件中
 - Zeabur 的文件系统是临时的，重启后会丢失
 - **建议**：定期备份账号信息，或使用持久化存储
 
@@ -143,22 +140,15 @@
 1. 在项目中点击 **Add Service**
 2. 选择 **Prebuilt** → **Volumes**
 3. 创建一个卷（Volume）
-4. 在服务设置中挂载卷到 `/app/data`
-5. 修改代码，将数据文件保存到 `/app/data` 目录
+4. 在服务设置中挂载卷到 `/app/config`
+5. 数据将会持久化保存
 
 ### Q7: 费用如何计算？
 
 **A**:
 - Zeabur 提供每月 $5 的免费额度
 - 本项目资源消耗很小，通常在免费额度内
-- 可以在监控面板中实时查看费用
-
-### Q8: 如何设置自动备份？
-
-**A**:
-1. 使用 Zeabur 的备份功能（如果可用）
-2. 或者定期导出账号数据
-3. 或者使用外部数据库存储（需要修改代码）
+- 可以在应用中实时查看 Zeabur 账号费用
 
 ## 高级配置
 
@@ -213,7 +203,7 @@ Zeabur 自动为所有域名提供免费的 HTTPS 证书，无需额外配置。
 
 - [ ] 已 Fork 项目到自己的 GitHub
 - [ ] 已创建 Zeabur 账号
-- [ ] 已准备好 API Token
+- [ ] 已准备好需要管理的服务账号
 - [ ] 已选择合适的部署区域
 - [ ] 已了解免费额度限制
 
@@ -225,24 +215,6 @@ Zeabur 自动为所有域名提供免费的 HTTPS 证书，无需额外配置。
 - [ ] 可以添加账号
 - [ ] 数据显示正常
 - [ ] 所有功能正常工作
-
-## 性能优化建议
-
-1. **启用缓存**：
-   - 缓存 API 响应
-   - 减少对 Zeabur API 的请求频率
-
-2. **压缩资源**：
-   - 压缩 HTML/CSS/JS
-   - 使用 CDN 加速静态资源
-
-3. **优化数据库查询**：
-   - 如果使用数据库，添加索引
-   - 使用连接池
-
-4. **监控性能**：
-   - 定期检查响应时间
-   - 优化慢查询
 
 ## 安全建议
 
@@ -297,8 +269,7 @@ Zeabur 自动为所有域名提供免费的 HTTPS 证书，无需额外配置。
 
 - [Zeabur 官网](https://zeabur.com)
 - [Zeabur 文档](https://zeabur.com/docs)
-- [Zeabur API 文档](https://zeabur.com/docs/zh-CN/developer/public-api)
-- [项目 GitHub](https://github.com/your-username/zeabur-monitor)
+- [项目 GitHub](https://github.com/your-username/api-monitor)
 
 ---
 
