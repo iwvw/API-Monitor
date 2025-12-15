@@ -1011,8 +1011,8 @@
     .balance-card {
       display: flex;
       align-items: center;
-      gap: 8px;
-      padding: 6px 12px;
+      gap: 6px;
+      padding: 3px 9px;
       background-color: var(--card-bg);
       border: 1px solid var(--border-color);
       border-radius: 8px;
@@ -1229,7 +1229,6 @@
       border-bottom: 1px solid var(--border-color);
       color: var(--text-primary);
       overflow: hidden;
-      text-overflow: ellipsis;
     }
 
     .data-table th {
@@ -1406,7 +1405,7 @@
     }
 
     .quick-switch {
-      display: flex;
+      display: none;
       gap: 8px;
       align-items: center;
       padding: 12px;
@@ -1417,6 +1416,7 @@
     }
 
     .quick-switch input {
+      display: none;
       flex: 1;
       min-width: 120px;
       padding: 8px 12px;
@@ -1956,7 +1956,7 @@
               </div>
             </div>
             <div class="account-balance">
-              <div style="display: flex; flex-direction: row; gap: 6px;">
+              <div style="display: flex; flex-direction: column; gap: 3px;">
                 <div class="balance-card credit-balance-card">
                   <div class="balance-icon">💰</div>
                   <div class="balance-amount" :class="getBalanceClass(account.data.credit)">
@@ -2174,12 +2174,12 @@
               <table class="data-table">
                 <thead>
                   <tr>
-                    <th style="width: 80px;">类型</th>
-                    <th style="width: 160px;">名称</th>
-                    <th>内容</th>
-                    <th style="width: 70px;">代理</th>
-                    <th style="width: 70px;">TTL</th>
-                    <th style="width: 120px;">操作</th>
+                    <th style="width: 15%;">类型</th>
+                    <th style="width: 20%;">名称</th>
+                    <th style="width: 30%;">内容</th>
+                    <th style="width: 10%;">代理</th>
+                    <th style="width: 10%;">TTL</th>
+                    <th style="width: 10%;">操作</th>
                   </tr>
                 </thead>
                 <tbody>
