@@ -182,6 +182,15 @@ try {
   console.log('⚠️ Cloudflare DNS 模块未加载:', e.message);
 }
 
+// OpenAI API 管理模块
+try {
+  const openaiRouter = require('./modules/openai-api/router');
+  app.use('/api/openai', requireAuth, openaiRouter);
+  console.log('✅ OpenAI API 模块已加载');
+} catch (e) {
+  console.log('⚠️ OpenAI API 模块未加载:', e.message);
+}
+
 // 为确保浏览器请求 favicon 时能正确返回图标（兼容 /favicon.ico 请求）
 app.get('/favicon.ico', (req, res) => {
   const faviconPath = path.join(__dirname, 'public', 'logo.png');

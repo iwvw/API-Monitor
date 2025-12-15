@@ -1159,6 +1159,29 @@
       border-bottom-color: var(--cf-color);
     }
 
+    .main-tab.openai-tab:hover {
+      color: var(--primary-color);
+    }
+
+    .main-tab.openai-tab.active {
+      color: var(--primary-color);
+      border-bottom-color: var(--primary-color);
+    }
+
+    .spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid var(--border-color);
+      border-top-color: var(--primary-color);
+      border-radius: 50%;
+      animation: spin 1s linear infinite;
+      margin: 0 auto;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
     /* DNS 管理相关样式 */
     .dns-tabs {
       display: flex;
@@ -1272,6 +1295,232 @@
 
     .data-table td:nth-child(6) {
       width: 100px;
+    }
+
+    /* OpenAI 表格专用样式 - 自适应列宽，可左右滑动 */
+    .openai-table-container {
+      overflow-x: auto;
+      max-width: 100%;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .openai-table {
+      width: max-content;
+      min-width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      table-layout: auto;
+    }
+
+    .openai-table th,
+    .openai-table td {
+      padding: 10px 16px;
+      text-align: left;
+      border-bottom: 1px solid var(--border-color);
+      color: var(--text-primary);
+      white-space: nowrap;
+    }
+
+    .openai-table th {
+      background: var(--bg-secondary);
+      font-weight: 600;
+      color: var(--text-secondary);
+      position: sticky;
+      top: 0;
+      z-index: 1;
+    }
+
+    .openai-table tr:hover {
+      background: var(--bg-secondary);
+    }
+
+    .openai-table .actions {
+      display: flex;
+      gap: 6px;
+      flex-wrap: nowrap;
+    }
+
+    .openai-table .cell-name {
+      max-width: 200px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .openai-table .cell-url {
+      max-width: 300px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-family: monospace;
+      font-size: 12px;
+    }
+
+    .openai-table .cell-key {
+      max-width: 200px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-family: monospace;
+      font-size: 12px;
+    }
+
+    .openai-table .cell-models {
+      max-width: 300px;
+    }
+
+    .copy-btn {
+      padding: 4px 8px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border-color);
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 11px;
+      color: var(--text-secondary);
+      transition: all 0.2s;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      white-space: nowrap;
+    }
+
+    .copy-btn:hover {
+      background: var(--primary-color);
+      color: white;
+      border-color: var(--primary-color);
+    }
+
+    .copy-btn.copied {
+      background: var(--success-color);
+      color: white;
+      border-color: var(--success-color);
+    }
+
+    .model-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      max-width: 300px;
+    }
+
+    .model-tag {
+      padding: 2px 6px;
+      background: var(--bg-tertiary);
+      border-radius: 4px;
+      font-size: 11px;
+      color: var(--text-secondary);
+      white-space: nowrap;
+    }
+
+    .model-tag.more {
+      background: var(--primary-color);
+      color: white;
+      cursor: pointer;
+    }
+
+    .status-valid {
+      color: var(--success-color);
+    }
+
+    .status-invalid {
+      color: var(--danger-color);
+    }
+
+    .status-unknown {
+      color: var(--text-tertiary);
+    }
+
+    /* OpenAI 模型容器 - 展开/收起动画 */
+    .openai-models-container {
+      margin-top: 12px;
+      transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+      overflow: visible;
+      transform-origin: top;
+    }
+
+    .openai-models-container.collapsed {
+      max-height: 0;
+      opacity: 0;
+      margin-top: 0;
+      transform: scaleY(0.95);
+      overflow: hidden;
+    }
+
+    /* OpenAI 模型网格布局 */
+    .models-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+      gap: 6px;
+      padding: 12px;
+      background: var(--bg-secondary);
+      border-radius: 8px;
+      border: 1px solid var(--border-color);
+    }
+
+    /* OpenAI 模型标签样式 */
+    .model-tag-item {
+      padding: 6px 10px;
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      cursor: pointer;
+      font-family: monospace;
+      font-size: 12px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      transition: all 0.2s;
+      text-align: center;
+    }
+
+    .model-tag-item:hover {
+      background: var(--primary-color);
+      color: white;
+      border-color: var(--primary-color);
+      transform: translateY(-1px);
+    }
+
+    .model-tag-item:active {
+      transform: translateY(0);
+    }
+
+    /* OpenAI 操作按钮美化 */
+    .openai-action-btn {
+      padding: 6px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+      border: none;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+    }
+
+    .openai-action-btn.refresh {
+      background: rgba(59, 130, 246, 0.15);
+      color: var(--info-color);
+    }
+
+    .openai-action-btn.refresh:hover {
+      background: rgba(59, 130, 246, 0.25);
+    }
+
+    .openai-action-btn.edit {
+      background: rgba(99, 102, 241, 0.15);
+      color: var(--primary-color);
+    }
+
+    .openai-action-btn.edit:hover {
+      background: rgba(99, 102, 241, 0.25);
+    }
+
+    .openai-action-btn.delete {
+      background: rgba(239, 68, 68, 0.15);
+      color: var(--danger-color);
+    }
+
+    .openai-action-btn.delete:hover {
+      background: rgba(239, 68, 68, 0.25);
     }
 
     .record-type {
@@ -1650,6 +1899,9 @@
         </button>
         <button class="main-tab dns-tab" :class="{ active: mainActiveTab === 'dns' }" @click="switchToDns">
           <i class="fas fa-cloud"></i> CF DNS 管理
+        </button>
+        <button class="main-tab openai-tab" :class="{ active: mainActiveTab === 'openai' }" @click="switchToOpenai">
+          <i class="fas fa-robot"></i> OpenAI API
         </button>
       </div>
 
@@ -2502,6 +2754,226 @@
       </div>
       <!-- ==================== DNS 管理部分结束 ==================== -->
 
+      <!-- ==================== OpenAI API 管理部分 ==================== -->
+      <div v-if="mainActiveTab === 'openai'">
+        <!-- Toast -->
+        <div v-if="openaiToast.show" class="toast" :class="openaiToast.type">{{ openaiToast.message }}</div>
+
+        <!-- OpenAI 子标签页 -->
+        <div class="dns-tabs">
+          <button class="dns-tab-btn" :class="{ active: openaiCurrentTab === 'endpoints' }" @click="openaiCurrentTab = 'endpoints'" style="background: var(--primary-color) !important;" v-if="openaiCurrentTab === 'endpoints'">
+            <i class="fas fa-server"></i> API 端点
+          </button>
+          <button class="dns-tab-btn" :class="{ active: openaiCurrentTab === 'endpoints' }" @click="openaiCurrentTab = 'endpoints'" v-else>
+            <i class="fas fa-server"></i> API 端点
+          </button>
+          <button class="dns-tab-btn" :class="{ active: openaiCurrentTab === 'import' }" @click="openaiCurrentTab = 'import'" style="background: var(--primary-color) !important;" v-if="openaiCurrentTab === 'import'">
+            <i class="fas fa-file-import"></i> 导入导出
+          </button>
+          <button class="dns-tab-btn" :class="{ active: openaiCurrentTab === 'import' }" @click="openaiCurrentTab = 'import'" v-else>
+            <i class="fas fa-file-import"></i> 导入导出
+          </button>
+        </div>
+
+        <!-- API 端点标签页 -->
+        <div v-if="openaiCurrentTab === 'endpoints'">
+          <!-- <div class="panel"> -->
+            <div class="panel-header">
+              <div class="panel-title">OpenAI 兼容 API 端点</div>
+              <div style="display: flex; gap: 8px;">
+                <button class="btn btn-success" style="padding: 6px 12px;" @click="openAddOpenaiEndpointModal">
+                  <i class="fas fa-plus"></i> 添加端点
+                </button>
+                <button class="btn btn-secondary" style="padding: 6px 10px;" @click="refreshAllOpenaiEndpoints" :disabled="openaiRefreshing">
+                  <i class="fas fa-sync-alt" :class="{ 'fa-spin': openaiRefreshing }"></i> 刷新全部
+                </button>
+              </div>
+            </div>
+
+            <div v-if="openaiLoading" class="loading">
+              <div class="spinner"></div>
+              <div style="margin-top: 12px;">加载中...</div>
+            </div>
+
+            <!-- 端点卡片列表 -->
+            <div v-else>
+              <div v-for="endpoint in openaiEndpoints" :key="endpoint.id" class="account-card" style="margin-bottom: 12px;">
+                <!-- 端点头部 - 可点击展开模型列表 -->
+                <div class="account-header" @click="toggleOpenaiModels(endpoint.id)" style="cursor: pointer;">
+                  <div class="account-info" style="flex: 1;">
+                    <span style="font-size: 20px; transition: transform 0.3s; display: inline-flex; align-items: center;">
+                      <i class="fas fa-chevron-right toggle-icon" :style="{
+                        transition: 'transform 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
+                        transform: isOpenaiEndpointExpanded(endpoint.id) ? 'rotate(90deg)' : 'rotate(0deg)'
+                      }"></i>
+                    </span>
+                    <div style="flex: 1;">
+                      <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                        <strong style="font-size: 15px;">{{ endpoint.name || '未命名' }}</strong>
+                        <span class="proxied-badge" :class="endpoint.status === 'valid' ? 'proxied-on' : (endpoint.status === 'invalid' ? 'proxied-off' : '')">
+                          {{ endpoint.status === 'valid' ? '有效' : (endpoint.status === 'invalid' ? '无效' : '未验证') }}
+                        </span>
+                        <span v-if="endpoint.models && endpoint.models.length > 0" style="font-size: 12px; color: var(--text-tertiary);">
+                          {{ endpoint.models.length }} 个模型
+                        </span>
+                      </div>
+                      <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                        <span style="display: flex; align-items: center; gap: 4px;">
+                          <i class="fas fa-link" style="font-size: 10px;"></i>
+                          <span style="font-family: monospace;">{{ endpoint.baseUrl }}</span>
+                          <button class="copy-btn" @click.stop="copyToClipboard(endpoint.baseUrl)" title="复制地址" style="padding: 2px 4px;">
+                            <i class="fas fa-copy"></i>
+                          </button>
+                        </span>
+                        <span style="display: flex; align-items: center; gap: 4px;">
+                          <i class="fas fa-key" style="font-size: 10px;"></i>
+                          <span style="font-family: monospace;">{{ endpoint.showKey ? endpoint.apiKey : maskApiKey(endpoint.apiKey) }}</span>
+                          <button class="copy-btn" @click.stop="endpoint.showKey = !endpoint.showKey" :title="endpoint.showKey ? '隐藏' : '显示'" style="padding: 2px 4px;">
+                            <i class="fas" :class="endpoint.showKey ? 'fa-eye-slash' : 'fa-eye'"></i>
+                          </button>
+                          <button class="copy-btn" @click.stop="copyToClipboard(endpoint.apiKey)" title="复制 Key" style="padding: 2px 4px;">
+                            <i class="fas fa-copy"></i>
+                          </button>
+                        </span>
+                      </div>
+                      <div v-if="endpoint.notes" style="font-size: 11px; color: var(--text-tertiary); margin-top: 4px;">
+                        {{ endpoint.notes }}
+                      </div>
+                    </div>
+                  </div>
+                  <div style="display: flex; gap: 6px;" @click.stop>
+                    <button class="openai-action-btn refresh" @click="verifyOpenaiEndpoint(endpoint)" title="刷新模型列表">
+                      <i class="fas fa-sync-alt"></i>
+                    </button>
+                    <button class="openai-action-btn edit" @click="editOpenaiEndpoint(endpoint)" title="编辑">
+                      <i class="fas fa-edit"></i>
+                    </button>
+                    <button class="openai-action-btn delete" @click="deleteOpenaiEndpoint(endpoint)" title="删除">
+                      <i class="fas fa-trash"></i>
+                    </button>
+                  </div>
+                </div>
+
+                <!-- 模型列表 - 可展开/收起 -->
+                <div class="openai-models-container" :class="{ 'collapsed': !isOpenaiEndpointExpanded(endpoint.id) }">
+                  <div v-if="endpoint.models && endpoint.models.length > 0" class="models-grid">
+                    <div v-for="model in endpoint.models" :key="getModelName(model)"
+                         class="model-tag-item"
+                         @click="copyToClipboard(getModelName(model))"
+                         :title="'点击复制: ' + getModelName(model)">
+                      {{ getModelName(model) }}
+                    </div>
+                  </div>
+                  <div v-else style="padding: 20px; text-align: center; color: var(--text-tertiary);">
+                    <i class="fas fa-cube" style="font-size: 20px; margin-bottom: 8px; display: block;"></i>
+                    暂无模型数据，点击刷新按钮获取
+                  </div>
+                </div>
+              </div>
+
+              <div v-if="openaiEndpoints.length === 0" class="empty-state" style="padding: 40px;">
+                <i class="fas fa-robot" style="font-size: 48px; margin-bottom: 16px;"></i>
+                <div>暂无 API 端点，点击上方按钮添加</div>
+              </div>
+            </div>
+          <!-- </div> -->
+        </div>
+
+        <!-- 导入导出标签页 -->
+        <div v-if="openaiCurrentTab === 'import'">
+          <div class="panel">
+            <div class="panel-header">
+              <div class="panel-title">导入导出</div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+              <!-- 导出部分 -->
+              <div style="padding: 16px; border: 1px solid var(--border-color); border-radius: 8px;">
+                <h3 style="margin-bottom: 12px; font-size: 16px;"><i class="fas fa-download"></i> 导出端点</h3>
+                <p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 16px;">
+                  导出所有 API 端点配置为 JSON 文件，包含 API 地址和 Key（明文）。
+                </p>
+                <button class="btn btn-primary" @click="exportOpenaiEndpoints" style="width: 100%;">
+                  <i class="fas fa-download"></i> 导出全部端点
+                </button>
+              </div>
+
+              <!-- 导入部分 -->
+              <div style="padding: 16px; border: 1px solid var(--border-color); border-radius: 8px;">
+                <h3 style="margin-bottom: 12px; font-size: 16px;"><i class="fas fa-upload"></i> 导入端点</h3>
+                <p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 16px;">
+                  从 JSON 文件导入 API 端点配置。
+                </p>
+                <div style="display: flex; gap: 8px;">
+                  <button class="btn btn-primary" @click="importOpenaiEndpointsFromFile" style="flex: 1;">
+                    <i class="fas fa-upload"></i> 选择文件导入
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- 批量添加 -->
+            <div style="margin-top: 20px; padding: 16px; border: 1px solid var(--border-color); border-radius: 8px;">
+              <h3 style="margin-bottom: 12px; font-size: 16px;"><i class="fas fa-list"></i> 批量添加</h3>
+              <p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 12px;">
+                每行一个端点，格式：<code>名称:API地址:API_Key</code> 或 JSON 格式
+              </p>
+              <textarea v-model="openaiBatchText" class="form-textarea" placeholder='每行一个，格式: 名称:https://api.example.com:sk-xxx
+或 JSON 格式:
+[{"name": "示例", "baseUrl": "https://api.example.com", "apiKey": "sk-xxx"}]'
+                style="min-height: 150px; font-family: monospace; font-size: 12px;"></textarea>
+              <div v-if="openaiBatchError" class="form-error" style="margin-top: 8px;">{{ openaiBatchError }}</div>
+              <div v-if="openaiBatchSuccess" class="form-success" style="margin-top: 8px;">{{ openaiBatchSuccess }}</div>
+              <button class="btn btn-primary" @click="batchAddOpenaiEndpoints" :disabled="openaiAdding" style="width: 100%; margin-top: 12px;">
+                {{ openaiAdding ? '添加中...' : '批量添加' }}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 添加/编辑端点模态框 -->
+        <div v-if="showOpenaiEndpointModal" class="modal-overlay" @click.self="showOpenaiEndpointModal = false">
+          <div class="modal">
+            <div class="modal-header">
+              <div class="modal-title">{{ openaiEditingEndpoint ? '编辑 API 端点' : '添加 API 端点' }}</div>
+              <button class="modal-close" @click="showOpenaiEndpointModal = false">&times;</button>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">名称</label>
+              <input v-model="openaiEndpointForm.name" class="form-input" placeholder="例如: OpenAI 官方" />
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">API 地址 *</label>
+              <input v-model="openaiEndpointForm.baseUrl" class="form-input" placeholder="https://api.openai.com" />
+              <div class="form-help">OpenAI 兼容的 API 基础地址（不需要 /v1）</div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">API Key *</label>
+              <input v-model="openaiEndpointForm.apiKey" type="text" class="form-input" placeholder="sk-xxxxxxxx" style="font-family: monospace;" />
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">备注</label>
+              <textarea v-model="openaiEndpointForm.notes" class="form-textarea" placeholder="可选备注信息" style="min-height: 60px;"></textarea>
+            </div>
+
+            <div v-if="openaiEndpointFormError" class="form-error">{{ openaiEndpointFormError }}</div>
+
+            <div style="display: flex; gap: 12px; margin-top: 20px;">
+              <button class="btn btn-primary" @click="saveOpenaiEndpoint" :disabled="openaiSaving" style="flex: 1;">
+                {{ openaiSaving ? '保存中...' : '保存' }}
+              </button>
+              <button class="btn btn-secondary" @click="showOpenaiEndpointModal = false" style="flex: 1;">取消</button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+      <!-- ==================== OpenAI API 管理部分结束 ==================== -->
+
     </div>
   </div>
 
@@ -2605,7 +3077,26 @@
           dnsEditingTemplate: null,
           dnsTemplateForm: { name: '', type: 'A', content: '', ttl: 1, proxied: false, description: '' },
           dnsTemplateFormError: '',
-          dnsSavingTemplate: false
+          dnsSavingTemplate: false,
+          // ==================== OpenAI API 管理相关数据 ====================
+          openaiEndpoints: [],
+          openaiLoading: false,
+          openaiRefreshing: false,
+          openaiCurrentTab: 'endpoints',
+          openaiToast: { show: false, message: '', type: 'success' },
+          // 添加/编辑端点
+          showOpenaiEndpointModal: false,
+          openaiEditingEndpoint: null,
+          openaiEndpointForm: { name: '', baseUrl: '', apiKey: '', notes: '' },
+          openaiEndpointFormError: '',
+          openaiSaving: false,
+          // 端点展开状态（模型列表可展开/收起）
+          openaiExpandedEndpoints: {},
+          // 批量添加
+          openaiBatchText: '',
+          openaiBatchError: '',
+          openaiBatchSuccess: '',
+          openaiAdding: false
         };
       },
       async mounted() {
@@ -4603,6 +5094,333 @@
             }
           } catch (error) {
             this.showDnsToast('保存失败: ' + error.message, 'error');
+          }
+        },
+
+        // ==================== OpenAI API 管理相关方法 ====================
+
+        // 切换到 OpenAI 标签页
+        switchToOpenai() {
+          this.mainActiveTab = 'openai';
+          if (this.openaiEndpoints.length === 0) {
+            this.loadOpenaiEndpoints();
+          }
+        },
+
+        // 显示 OpenAI Toast
+        showOpenaiToast(message, type = 'success') {
+          this.openaiToast = { show: true, message, type };
+          setTimeout(() => {
+            this.openaiToast.show = false;
+          }, 3000);
+        },
+
+        // 加载 OpenAI 端点列表
+        async loadOpenaiEndpoints() {
+          this.openaiLoading = true;
+          try {
+            const response = await fetch('/api/openai/endpoints', {
+              headers: this.getAuthHeaders()
+            });
+            const data = await response.json();
+            if (Array.isArray(data)) {
+              // 为每个端点添加 showKey 属性
+              this.openaiEndpoints = data.map(ep => ({ ...ep, showKey: false }));
+            } else if (data.error) {
+              console.error('加载 OpenAI 端点失败:', data.error);
+            }
+          } catch (error) {
+            console.error('加载 OpenAI 端点失败:', error);
+          } finally {
+            this.openaiLoading = false;
+          }
+        },
+
+        // 打开添加端点模态框
+        openAddOpenaiEndpointModal() {
+          this.openaiEditingEndpoint = null;
+          this.openaiEndpointForm = { name: '', baseUrl: '', apiKey: '', notes: '' };
+          this.openaiEndpointFormError = '';
+          this.showOpenaiEndpointModal = true;
+        },
+
+        // 编辑端点
+        editOpenaiEndpoint(endpoint) {
+          this.openaiEditingEndpoint = endpoint;
+          this.openaiEndpointForm = {
+            name: endpoint.name || '',
+            baseUrl: endpoint.baseUrl || '',
+            apiKey: endpoint.apiKey || '',
+            notes: endpoint.notes || ''
+          };
+          this.openaiEndpointFormError = '';
+          this.showOpenaiEndpointModal = true;
+        },
+
+        // 保存端点
+        async saveOpenaiEndpoint() {
+          if (!this.openaiEndpointForm.baseUrl || !this.openaiEndpointForm.apiKey) {
+            this.openaiEndpointFormError = '请填写 API 地址和 API Key';
+            return;
+          }
+
+          this.openaiSaving = true;
+          this.openaiEndpointFormError = '';
+
+          try {
+            const url = this.openaiEditingEndpoint
+              ? `/api/openai/endpoints/${this.openaiEditingEndpoint.id}`
+              : '/api/openai/endpoints';
+
+            const response = await fetch(url, {
+              method: this.openaiEditingEndpoint ? 'PUT' : 'POST',
+              headers: this.getAuthHeaders(),
+              body: JSON.stringify(this.openaiEndpointForm)
+            });
+
+            const data = await response.json();
+            if (response.ok && (data.success || data.endpoint || data.id)) {
+              // 根据验证结果显示不同的提示
+              if (this.openaiEditingEndpoint) {
+                this.showOpenaiToast('端点已更新', 'success');
+              } else if (data.verification && data.verification.valid) {
+                const modelsCount = data.endpoint?.models?.length || 0;
+                this.showOpenaiToast(`端点已添加，验证成功！找到 ${modelsCount} 个模型`, 'success');
+              } else if (data.verification && !data.verification.valid) {
+                this.showOpenaiToast('端点已添加，但 API 验证失败', 'error');
+              } else {
+                this.showOpenaiToast('端点已添加', 'success');
+              }
+              this.showOpenaiEndpointModal = false;
+              await this.loadOpenaiEndpoints();
+            } else {
+              this.openaiEndpointFormError = data.error || '保存失败';
+            }
+          } catch (error) {
+            this.openaiEndpointFormError = '保存失败: ' + error.message;
+          } finally {
+            this.openaiSaving = false;
+          }
+        },
+
+        // 删除端点
+        async deleteOpenaiEndpoint(endpoint) {
+          if (!confirm(`确定要删除端点 "${endpoint.name || endpoint.baseUrl}" 吗？`)) return;
+
+          try {
+            const response = await fetch(`/api/openai/endpoints/${endpoint.id}`, {
+              method: 'DELETE',
+              headers: this.getAuthHeaders()
+            });
+
+            const data = await response.json();
+            if (response.ok && data.success) {
+              this.showOpenaiToast('端点已删除', 'success');
+              await this.loadOpenaiEndpoints();
+            } else {
+              this.showOpenaiToast('删除失败: ' + (data.error || '未知错误'), 'error');
+            }
+          } catch (error) {
+            this.showOpenaiToast('删除失败: ' + error.message, 'error');
+          }
+        },
+
+        // 验证端点
+        async verifyOpenaiEndpoint(endpoint) {
+          try {
+            this.showOpenaiToast('正在验证...', 'success');
+            const response = await fetch(`/api/openai/endpoints/${endpoint.id}/verify`, {
+              method: 'POST',
+              headers: this.getAuthHeaders()
+            });
+
+            const data = await response.json();
+            if (data.valid) {
+              this.showOpenaiToast(`验证成功！找到 ${data.modelsCount || 0} 个模型`, 'success');
+              await this.loadOpenaiEndpoints();
+            } else {
+              this.showOpenaiToast('验证失败: ' + (data.error || 'API Key 无效'), 'error');
+            }
+          } catch (error) {
+            this.showOpenaiToast('验证失败: ' + error.message, 'error');
+          }
+        },
+
+        // 刷新所有端点
+        async refreshAllOpenaiEndpoints() {
+          this.openaiRefreshing = true;
+          try {
+            const response = await fetch('/api/openai/endpoints/refresh', {
+              method: 'POST',
+              headers: this.getAuthHeaders()
+            });
+
+            const data = await response.json();
+            if (data.success) {
+              this.showOpenaiToast(`刷新完成！成功: ${data.results?.filter(r => r.success).length || 0}`, 'success');
+              await this.loadOpenaiEndpoints();
+            } else {
+              this.showOpenaiToast('刷新失败: ' + (data.error || '未知错误'), 'error');
+            }
+          } catch (error) {
+            this.showOpenaiToast('刷新失败: ' + error.message, 'error');
+          } finally {
+            this.openaiRefreshing = false;
+          }
+        },
+
+        // 切换端点的模型列表展开/收起状态
+        toggleOpenaiModels(endpointId) {
+          this.openaiExpandedEndpoints[endpointId] = !this.openaiExpandedEndpoints[endpointId];
+        },
+
+        // 检查端点是否展开
+        isOpenaiEndpointExpanded(endpointId) {
+          return !!this.openaiExpandedEndpoints[endpointId];
+        },
+        // 获取模型名称（兼容字符串和对象格式）
+        getModelName(model) {
+          if (typeof model === 'string') {
+            return model;
+          }
+          if (model && typeof model === 'object') {
+            return model.id || model.name || 'unknown';
+          }
+          return 'unknown';
+        },
+
+        // 复制到剪贴板
+        async copyToClipboard(text) {
+          try {
+            await navigator.clipboard.writeText(text);
+            this.showOpenaiToast('已复制到剪贴板', 'success');
+          } catch (error) {
+            // 降级方案
+            const textarea = document.createElement('textarea');
+            textarea.value = text;
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textarea);
+            this.showOpenaiToast('已复制到剪贴板', 'success');
+          }
+        },
+
+        // 遮蔽 API Key
+        maskApiKey(apiKey) {
+          if (!apiKey) return '';
+          if (apiKey.length <= 8) return '****';
+          return apiKey.substring(0, 4) + '****' + apiKey.substring(apiKey.length - 4);
+        },
+
+        // 导出端点
+        async exportOpenaiEndpoints() {
+          try {
+            const response = await fetch('/api/openai/export', {
+              headers: this.getAuthHeaders()
+            });
+
+            const data = await response.json();
+            if (data.endpoints) {
+              const dataStr = JSON.stringify(data.endpoints, null, 2);
+              const dataBlob = new Blob([dataStr], { type: 'application/json' });
+              const url = URL.createObjectURL(dataBlob);
+              const link = document.createElement('a');
+              link.href = url;
+              link.download = `openai-endpoints-${new Date().toISOString().slice(0, 10)}.json`;
+              document.body.appendChild(link);
+              link.click();
+              document.body.removeChild(link);
+              URL.revokeObjectURL(url);
+              this.showOpenaiToast(`已导出 ${data.endpoints.length} 个端点`, 'success');
+            } else {
+              this.showOpenaiToast('导出失败: ' + (data.error || '未知错误'), 'error');
+            }
+          } catch (error) {
+            this.showOpenaiToast('导出失败: ' + error.message, 'error');
+          }
+        },
+
+        // 从文件导入端点
+        importOpenaiEndpointsFromFile() {
+          const input = document.createElement('input');
+          input.type = 'file';
+          input.accept = '.json';
+          input.onchange = async (event) => {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = async (e) => {
+              try {
+                const importedData = JSON.parse(e.target.result);
+                let endpoints = [];
+
+                if (Array.isArray(importedData)) {
+                  endpoints = importedData;
+                } else if (importedData.endpoints && Array.isArray(importedData.endpoints)) {
+                  endpoints = importedData.endpoints;
+                } else {
+                  this.showOpenaiToast('无效的 JSON 格式', 'error');
+                  return;
+                }
+
+                const response = await fetch('/api/openai/import', {
+                  method: 'POST',
+                  headers: this.getAuthHeaders(),
+                  body: JSON.stringify({ endpoints })
+                });
+
+                const data = await response.json();
+                if (data.success) {
+                  this.showOpenaiToast(`成功导入 ${data.imported || 0} 个端点`, 'success');
+                  await this.loadOpenaiEndpoints();
+                } else {
+                  this.showOpenaiToast('导入失败: ' + (data.error || '未知错误'), 'error');
+                }
+              } catch (error) {
+                this.showOpenaiToast('导入失败: ' + error.message, 'error');
+              }
+            };
+            reader.readAsText(file);
+          };
+          input.click();
+        },
+
+        // 批量添加端点
+        async batchAddOpenaiEndpoints() {
+          this.openaiBatchError = '';
+          this.openaiBatchSuccess = '';
+
+          if (!this.openaiBatchText.trim()) {
+            this.openaiBatchError = '请输入端点信息';
+            return;
+          }
+
+          this.openaiAdding = true;
+
+          try {
+            const response = await fetch('/api/openai/import', {
+              method: 'POST',
+              headers: this.getAuthHeaders(),
+              body: JSON.stringify({ text: this.openaiBatchText })
+            });
+
+            const data = await response.json();
+            if (data.success) {
+              this.openaiBatchSuccess = `成功添加 ${data.imported || 0} 个端点`;
+              this.openaiBatchText = '';
+              await this.loadOpenaiEndpoints();
+              setTimeout(() => {
+                this.openaiBatchSuccess = '';
+              }, 3000);
+            } else {
+              this.openaiBatchError = data.error || '添加失败';
+            }
+          } catch (error) {
+            this.openaiBatchError = '添加失败: ' + error.message;
+          } finally {
+            this.openaiAdding = false;
           }
         }
       }
