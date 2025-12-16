@@ -41,6 +41,7 @@ createApp({
 
       // 密码验证
       isAuthenticated: false,
+      isCheckingAuth: true, // 添加认证检查状态
       showLoginModal: false,
       showSetPasswordModal: false,
       loginPassword: '',
@@ -54,6 +55,7 @@ createApp({
       maskedBatchAccounts: '',
       batchAddError: '',
       batchAddSuccess: '',
+      showAddZeaburAccountModal: false,
 
       // 日志模态框
       showLogsModal: false,
@@ -151,6 +153,9 @@ createApp({
       confirmPassword: '',
       passwordError: '',
       passwordSuccess: '',
+      customCss: '',
+      customCssError: '',
+      customCssSuccess: '',
 
       // 全局Toast
       globalToast: { show: false, message: '', type: 'success' },
@@ -226,35 +231,44 @@ createApp({
     // 加载模块可见性和顺序设置
     this.loadModuleSettings();
 
-    // 检查服务器是否已设置密码
-    const hasPasswordResponse = await fetch('/api/check-password');
-    const { hasPassword } = await hasPasswordResponse.json();
+    try {
+      // 检查服务器是否已设置密码
+      const hasPasswordResponse = await fetch('/api/check-password');
+      const { hasPassword } = await hasPasswordResponse.json();
 
-    if (!hasPassword) {
-      // 首次使用，显示设置密码界面
-      this.showSetPasswordModal = true;
-      return;
-    }
-
-    // 检查本地是否有保存的密码和时间戳
-    const savedPassword = localStorage.getItem('admin_password');
-    const savedTime = localStorage.getItem('password_time');
-
-    if (savedPassword && savedTime) {
-      const now = Date.now();
-      const elapsed = now - parseInt(savedTime);
-      const fourDays = 4 * 24 * 60 * 60 * 1000;
-
-      if (elapsed < fourDays) {
-        // 4天内，自动登录
-        this.loginPassword = savedPassword;
-        await this.verifyPassword();
+      if (!hasPassword) {
+        // 首次使用，显示设置密码界面
+        this.showSetPasswordModal = true;
+        this.isCheckingAuth = false;
         return;
       }
-    }
 
-    // 需要输入密码
-    this.showLoginModal = true;
+      // 检查本地是否有保存的密码和时间戳
+      const savedPassword = localStorage.getItem('admin_password');
+      const savedTime = localStorage.getItem('password_time');
+
+      if (savedPassword && savedTime) {
+        const now = Date.now();
+        const elapsed = now - parseInt(savedTime);
+        const fourDays = 4 * 24 * 60 * 60 * 1000;
+
+        if (elapsed < fourDays) {
+          // 4天内，自动登录
+          this.loginPassword = savedPassword;
+          await this.verifyPassword();
+          this.isCheckingAuth = false;
+          return;
+        }
+      }
+
+      // 需要输入密码
+      this.showLoginModal = true;
+      this.isCheckingAuth = false;
+    } catch (error) {
+      console.error('认证检查失败:', error);
+      this.showLoginModal = true;
+      this.isCheckingAuth = false;
+    }
   },
 
   watch: {

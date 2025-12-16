@@ -1,15 +1,15 @@
 /* DNS Management Styles */
 
-.dns-tabs {
+.sec-tabs {
   display: flex;
   gap: 8px;
-  margin-bottom: 16px;
+  margin-bottom: 10px;
   border-bottom: 1px solid var(--border-color);
   padding-bottom: 12px;
 }
 
 .tab-btn {
-  width: 12%;
+  width: 100px;
   padding: 8px 8px;
   border: none;
   background: none;

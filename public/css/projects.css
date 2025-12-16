@@ -1,10 +1,11 @@
 /* Projects & Services Styles */
 
 .projects-grid {
+  padding-top: 2px;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   gap: 10px;
-  margin-top: 12px;
+  margin-top: 10px;
   transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
   overflow: visible;
   transform-origin: top;
@@ -24,22 +25,111 @@
   border-radius: 10px;
   padding: 12px;
   border: 1px solid var(--border-color);
-  transition: transform 0.3s, box-shadow 0.3s;
+  transition: transform 0.3s, box-shadow 0.3s, z-index 0s;
   height: 100%;
   display: flex;
   flex-direction: column;
+  position: relative;
+  z-index: 1;
 }
 
 .project-card:hover {
-  transform: translateY(-1px);
+  transform: translateY(-2px);
   box-shadow: var(--card-hover-shadow);
+  z-index: 10;
 }
 
 .project-header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
+}
+
+.project-name-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  padding: 6px 10px;
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  transition: all 0.2s ease;
+  min-height: 44px;
+  box-sizing: border-box;
+}
+
+.project-name-wrapper:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--primary-color);
+}
+
+.project-name-icon {
+  font-size: 16px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.project-name-text {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  flex: 1;
+  line-height: 20px;
+  min-height: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+}
+
+.project-name-input {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  background: transparent;
+  border: none;
+  outline: none;
+  padding: 0;
+  line-height: 20px;
+  min-height: 20px;
+  height: 20px;
+  box-sizing: border-box;
+}
+
+.project-edit-btn,
+.project-cancel-btn {
+  padding: 4px 6px;
+  border: none;
+  background: rgba(99, 102, 241, 0.1);
+  color: var(--primary-color);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  box-sizing: border-box;
+}
+
+.project-edit-btn:hover {
+  background: rgba(99, 102, 241, 0.2);
+  transform: scale(1.05);
+}
+
+.project-cancel-btn {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--danger-color);
+}
+
+.project-cancel-btn:hover {
+  background: rgba(239, 68, 68, 0.2);
+  transform: scale(1.05);
 }
 
 .project-name {
@@ -70,6 +160,74 @@
   color: var(--text-secondary);
 }
 
+/* Mini Cards */
+.project-mini-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(60px, 1fr));
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.mini-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  gap: 5px;
+  padding: 6px 10px;
+  background-color: var(--bg-secondary);
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  transition: all 0.2s ease;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.mini-card:hover {
+  background-color: var(--bg-tertiary);
+  border-color: var(--primary-color);
+}
+
+.mini-card-icon {
+  font-size: 13px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.mini-card-value {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+/* Mini Card Variants */
+.region-card {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(139, 92, 246, 0.1));
+  border-color: rgba(99, 102, 241, 0.25);
+}
+
+.region-card:hover {
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(139, 92, 246, 0.15));
+  border-color: var(--primary-color);
+}
+
+.cost-card {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.1), rgba(34, 197, 94, 0.1));
+  border-color: rgba(16, 185, 129, 0.25);
+}
+
+.cost-card:hover {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(34, 197, 94, 0.15));
+  border-color: var(--success-color);
+}
+
+.cost-card .mini-card-value {
+  color: var(--success-color);
+}
+
 /* Services */
 .services-container {
   flex: 1;
@@ -80,7 +238,7 @@
 
 .service-item {
   border-radius: 6px;
-  padding: 8px;
+  padding: 2px 8px 8px;
   border: 1px solid var(--border-color);
   transition: all 0.15s;
 }
@@ -255,8 +413,9 @@
   font-weight: 600;
 }
 
+/* 响应式设计 */
 @media (max-width: 768px) {
-  .projects-grid {
-    grid-template-columns: 1fr;
+  .project-mini-cards {
+    grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
   }
 }

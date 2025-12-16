@@ -12,6 +12,17 @@
 }
 
 :root {
+  /* 字体大小 */
+  --font-size-xs: 11px;
+  --font-size-sm: 12px;
+  --font-size-base: 13px;
+  --font-size-md: 14px;
+  --font-size-lg: 15px;
+  --font-size-xl: 16px;
+  --font-size-2xl: 18px;
+  --font-size-3xl: 20px;
+
+  /* 颜色 */
   --primary-color: #6366f1;
   --primary-dark: #4f46e5;
   --primary-light: #818cf8;
@@ -86,6 +97,10 @@ body {
   min-height: 100vh;
 }
 
+button, input, select, textarea {
+  font-family: inherit;
+}
+
 body.modal-open {
   overflow: hidden;
 }
@@ -102,8 +117,14 @@ body.modal-open {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 12px;
-  flex-wrap: wrap;
-  gap: 10px;
+  position: relative;
+}
+
+.header > div:last-child {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
 }
 
 .title {
@@ -117,12 +138,11 @@ body.modal-open {
 
 /* Controls */
 .controls {
-  display: flex;
-  gap: 10px;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 16px;
   align-items: center;
   margin-bottom: 10px;
-  flex-wrap: wrap;
-  justify-content: flex-end;
 }
 
 .refresh-info {
@@ -151,11 +171,11 @@ body.modal-open {
 
 /* Buttons */
 .btn {
-  width: 90px;
   padding: 8px 12px;
   border-radius: 6px;
   font-weight: 500;
   font-size: 13px;
+  font-family: inherit;
   cursor: pointer;
   transition: all 0.15s;
   border: none;
@@ -301,11 +321,14 @@ body.modal-open {
   padding: 10px;
   border: 1px solid var(--border-color);
   transition: transform 0.3s, box-shadow 0.3s;
-  height: 100%;
+  min-height: 60px;
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-start;
   align-items: center;
   cursor: pointer;
+  position: relative;
+  overflow-x: auto;
+  overflow-y: visible;
 }
 
 .account-header:hover {
@@ -316,6 +339,41 @@ body.modal-open {
   transform: scale(0.995);
 }
 
+/* account-header 横向滚动条样式 */
+.account-header::-webkit-scrollbar {
+  height: 4px;
+}
+
+.account-header::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.account-header::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 2px;
+}
+
+.account-header::-webkit-scrollbar-thumb:hover {
+  background: var(--text-tertiary);
+}
+
+.account-info::-webkit-scrollbar {
+  height: 4px;
+}
+
+.account-info::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.account-info::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 2px;
+}
+
+.account-info::-webkit-scrollbar-thumb:hover {
+  background: var(--text-tertiary);
+}
+
 .account-balance:active {
   transform: none;
 }
@@ -324,6 +382,10 @@ body.modal-open {
   display: flex;
   align-items: center;
   gap: 12px;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  padding-right: 10px;
 }
 
 .account-name {
@@ -333,7 +395,7 @@ body.modal-open {
 }
 
 .account-email {
-  font-size: 14px;
+  font-size: 12px;
   color: var(--text-secondary);
 }
 
@@ -447,6 +509,25 @@ body.modal-open {
   }
 }
 
+/* 认证加载状态 */
+.auth-loading {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--bg-primary);
+  z-index: 9999;
+}
+
+.auth-loading-content {
+  text-align: center;
+  animation: fadeIn 0.3s ease-out;
+}
+
 .error {
   background-color: rgba(239, 68, 68, 0.1);
   color: var(--danger-color);
@@ -476,23 +557,35 @@ body.modal-open {
 }
 
 /* Responsive */
-@media (max-width: 768px) {
+@media (max-width: 530px) {
   .container {
     padding: 16px;
   }
 
   .header {
-    flex-direction: column;
-    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .header > div:last-child {
+    position: static;
+    transform: none;
   }
 
   .controls {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  .controls > div:first-child {
     display: flex;
-    gap: 10px;
-    align-items: center;
-    margin-bottom: 10px;
     flex-wrap: wrap;
-    justify-content: flex-end;
+    gap: 8px;
+    justify-content: center;
+  }
+
+  .refresh-info {
+    justify-content: center;
   }
 
   .stats-grid {
@@ -500,14 +593,12 @@ body.modal-open {
   }
 
   .account-header {
-    background-color: var(--card-bg);
-    border-radius: 10px;
-    padding: 10px;
-    border: 1px solid var(--border-color);
-    transition: transform 0.3s, box-shadow 0.3s;
-    height: 100%;
-    display: flex;
-    justify-content: space-between;
+    padding-right: 100px;
+  }
+
+  .account-header > div:last-child {
+    right: 8px;
+    top: 8px;
   }
 
   .account-balance {
@@ -528,21 +619,28 @@ body.modal-open {
   }
 }
 
-@media (max-width: 480px) {
+@media (max-width: 80px) {
   .stats-grid {
     grid-template-columns: 1fr;
   }
 
   .controls {
-    display: flex;
+    grid-template-columns: 1fr;
     gap: 10px;
-    align-items: center;
-    margin-bottom: 10px;
-    flex-wrap: wrap;
-    justify-content: flex-end;
+  }
+
+  .controls > div:first-child {
+    flex-direction: column;
+    gap: 8px;
   }
 
   .btn {
+    width: 100%;
     justify-content: center;
+  }
+
+  .refresh-info {
+    flex-direction: column;
+    gap: 8px;
   }
 }

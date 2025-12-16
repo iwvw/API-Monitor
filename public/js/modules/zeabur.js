@@ -14,10 +14,58 @@ export const zeaburMethods = {
             if (accounts && accounts.length > 0) {
               this.managedAccounts = accounts;
               console.log(`📋 从服务器加载 ${accounts.length} 个账号`);
+
+              // 刷新账号余额信息
+              await this.refreshManagedAccountsBalance();
             }
           } catch (error) {
             console.log('⚠️ 从服务器加载账号失败:', error.message);
           }
+        },
+
+  async refreshManagedAccountsBalance() {
+          // 为每个账号刷新余额信息
+          for (let i = 0; i < this.managedAccounts.length; i++) {
+            const account = this.managedAccounts[i];
+            try {
+              const response = await fetch('/api/validate-account', {
+                method: 'POST',
+                headers: this.getAuthHeaders(),
+                body: JSON.stringify({
+                  accountName: account.name,
+                  apiToken: account.token
+                })
+              });
+
+              if (response.ok) {
+                const data = await response.json();
+                // 更新账号信息
+                this.managedAccounts[i] = {
+                  ...account,
+                  email: data.userData.email || data.userData.username || account.email,
+                  username: data.userData.username || account.username,
+                  balance: data.userData.credit ? data.userData.credit / 100 : 0,
+                  status: 'active'
+                };
+              } else {
+                // 如果验证失败，标记为无效
+                this.managedAccounts[i] = {
+                  ...account,
+                  status: 'invalid'
+                };
+              }
+            } catch (error) {
+              console.error(`刷新账号 ${account.name} 余额失败:`, error);
+              // 保持原有状态
+              this.managedAccounts[i] = {
+                ...account,
+                status: account.status || 'unknown'
+              };
+            }
+          }
+
+          // 保存更新后的账号信息
+          await this.saveManagedAccounts();
         },
 
   async saveManagedAccounts() {
@@ -186,6 +234,73 @@ export const zeaburMethods = {
           return '';
         },
 
+  async addAccountToList() {
+          this.addAccountError = '';
+          this.addAccountSuccess = '';
+
+          if (!this.newAccount.name || !this.newAccount.token) {
+            this.addAccountError = '请填写账号名称和 API Token';
+            return;
+          }
+
+          this.addingAccount = true;
+
+          try {
+            // 验证账号
+            const response = await fetch('/api/validate-account', {
+              method: 'POST',
+              headers: this.getAuthHeaders(),
+              body: JSON.stringify({
+                accountName: this.newAccount.name,
+                apiToken: this.newAccount.token
+              })
+            });
+
+            const data = await response.json();
+
+            if (response.ok) {
+              // 检查是否已存在
+              const exists = this.managedAccounts.some(acc => acc.name === this.newAccount.name);
+              if (exists) {
+                this.addAccountError = '该账号名称已存在';
+                this.addingAccount = false;
+                return;
+              }
+
+              // 添加到列表，包含余额信息
+              this.managedAccounts.push({
+                name: this.newAccount.name,
+                token: this.newAccount.token,
+                email: data.userData.email || data.userData.username,
+                username: data.userData.username,
+                balance: data.userData.credit ? data.userData.credit / 100 : 0,
+                status: 'active'
+              });
+
+              // 保存到服务器
+              await this.saveManagedAccounts();
+
+              // 刷新数据
+              this.fetchData();
+
+              // 清空表单
+              this.newAccount = { name: '', token: '', balance: '' };
+              this.addAccountSuccess = '✅ 账号添加成功';
+
+              // 3秒后清除提示
+              setTimeout(() => {
+                this.addAccountSuccess = '';
+              }, 3000);
+            } else {
+              this.addAccountError = data.error || '验证失败，请检查 Token 是否正确';
+            }
+          } catch (error) {
+            this.addAccountError = '添加失败: ' + error.message;
+          } finally {
+            this.addingAccount = false;
+          }
+        },
+
   async batchAddAccounts() {
           this.batchAddError = '';
           this.batchAddSuccess = '';
@@ -264,8 +379,10 @@ export const zeaburMethods = {
                   this.managedAccounts.push({
                     name: account.name,
                     token: account.token,
-                    email: data.userData.email,
-                    username: data.userData.username
+                    email: data.userData.email || data.userData.username,
+                    username: data.userData.username,
+                    balance: data.userData.credit ? data.userData.credit / 100 : 0,
+                    status: 'active'
                   });
                   successCount++;
                 } else {
@@ -305,6 +422,17 @@ export const zeaburMethods = {
               this.batchAddError = '';
             }
           }, 3000);
+        },
+
+  formatRegion(region) {
+          // 地区名称映射
+          const regionMap = {
+            'Silicon Valley, United States': '硅谷',
+            'Jakarta, Indonesia': '印尼'
+          };
+
+          // 如果有映射，返回中文名称，否则返回原名称
+          return regionMap[region] || region;
         },
 
   updateBatchDisplay() {
@@ -922,5 +1050,81 @@ export const zeaburMethods = {
         this.scrollToBottom();
       }
     });
+  },
+
+  // 导出所有账号
+  async exportAllAccounts() {
+    try {
+      if (this.managedAccounts.length === 0) {
+        this.showGlobalToast('没有可导出的账号', 'warning');
+        return;
+      }
+
+      const exportData = {
+        version: '1.0',
+        exportTime: new Date().toISOString(),
+        accounts: this.managedAccounts
+      };
+
+      const dataStr = JSON.stringify(exportData, null, 2);
+      const dataBlob = new Blob([dataStr], { type: 'application/json' });
+      const url = URL.createObjectURL(dataBlob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `zeabur-accounts-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      this.showGlobalToast('账号导出成功', 'success');
+    } catch (error) {
+      this.showGlobalToast('导出失败: ' + error.message, 'error');
+    }
+  },
+
+  // 导入所有账号
+  async importAllAccounts() {
+    const confirmed = await this.showConfirm({
+      title: '确认导入',
+      message: '导入账号将覆盖当前所有账号配置，是否继续？',
+      icon: 'fa-exclamation-triangle',
+      confirmText: '确定导入',
+      confirmClass: 'btn-warning'
+    });
+
+    if (!confirmed) return;
+
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.onchange = async (event) => {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        try {
+          const importedData = JSON.parse(e.target.result);
+
+          // 验证数据格式
+          if (!importedData.version || !importedData.accounts) {
+            this.showGlobalToast('无效的备份文件格式', 'error');
+            return;
+          }
+
+          // 导入账号
+          this.managedAccounts = importedData.accounts;
+          await this.saveManagedAccounts();
+
+          this.showGlobalToast(`成功导入 ${importedData.accounts.length} 个账号`, 'success');
+          await this.fetchData();
+        } catch (error) {
+          this.showGlobalToast('导入失败: ' + error.message, 'error');
+        }
+      };
+      reader.readAsText(file);
+    };
+    input.click();
   }
 };

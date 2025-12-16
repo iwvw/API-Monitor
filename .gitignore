@@ -11,6 +11,9 @@ accounts.json
 password.json
 sessions.json
 
+# 用户数据
+data/
+
 # 日志
 *.log
 npm-debug.log*

@@ -222,14 +222,14 @@
 
 /* Custom Toast */
 .custom-toast {
-  position: fixed;
-  bottom: 20px;
-  right: 20px;
+  position: fixed !important;
+  bottom: 20px !important;
+  right: 20px !important;
   padding: 14px 20px;
   border-radius: 10px;
   color: white;
   font-size: 14px;
-  z-index: 2000;
+  z-index: 9999 !important;
   animation: slideIn 0.3s ease-out;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   display: flex;
