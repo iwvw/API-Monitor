@@ -6,6 +6,9 @@ const express = require('express');
 const router = express.Router();
 const storage = require('./storage');
 const zeaburApi = require('./zeabur-api');
+const { createLogger } = require('../../src/utils/logger');
+
+const logger = createLogger('Zeabur');
 
 /**
  * 临时账号API - 获取账号信息
@@ -14,25 +17,23 @@ router.post('/temp-accounts', async (req, res) => {
   try {
     const { accounts } = req.body;
 
-    console.log('📥 收到账号请求:', accounts?.length, '个账号');
-
     if (!accounts || !Array.isArray(accounts)) {
       return res.status(400).json({ error: '无效的账号列表' });
     }
 
+    logger.info(`获取账号信息 (${accounts.length}个)`);
+
     const results = await Promise.all(accounts.map(async (account) => {
       try {
-        console.log(`🔍 正在获取账号 [${account.name}] 的数据...`);
         const { user, projects, aihub, serviceCosts } = await zeaburApi.fetchAccountData(account.token);
-        console.log(`   API 返回的 credit: ${user.credit}, serviceCosts: $${serviceCosts}`);
 
         let usageData = { totalUsage: 0, freeQuotaRemaining: 5, freeQuotaLimit: 5 };
         if (user._id) {
           try {
             usageData = await zeaburApi.fetchUsageData(account.token, user._id, projects);
-            console.log(`💰 [${account.name}] 用量: $${usageData.totalUsage.toFixed(2)}, 剩余: $${usageData.freeQuotaRemaining.toFixed(2)}`);
+            logger.groupItem(`${account.name}: 用量 $${usageData.totalUsage.toFixed(2)}, 剩余 $${usageData.freeQuotaRemaining.toFixed(2)}`);
           } catch (e) {
-            console.log(`⚠️ [${account.name}] 获取用量失败:`, e.message);
+            logger.warn(`${account.name}: 获取用量失败 - ${e.message}`);
           }
         }
 
@@ -51,7 +52,7 @@ router.post('/temp-accounts', async (req, res) => {
           aihub: aihub
         };
       } catch (error) {
-        console.error(`❌ [${account.name}] 错误:`, error.message);
+        logger.error(`${account.name}: ${error.message}`);
         return {
           name: account.name,
           success: false,
@@ -60,11 +61,11 @@ router.post('/temp-accounts', async (req, res) => {
       }
     }));
 
-    console.log('📤 返回结果:', results.length, '个账号');
+    logger.success(`返回 ${results.length} 个账号信息`);
     res.json(results);
   } catch (error) {
-    console.error('❌ /api/temp-accounts 未捕获异常:', error);
-    res.status(500).json({ error: '/api/temp-accounts 服务器错误: ' + error.message });
+    logger.error('获取账号信息失败', error.message);
+    res.status(500).json({ error: '服务器错误: ' + error.message });
   }
 });
 
@@ -75,7 +76,7 @@ router.post('/temp-projects', async (req, res) => {
   try {
     const { accounts } = req.body;
 
-    console.log('📥 收到项目请求:', accounts?.length, '个账号');
+    logger.info(`获取项目信息 (${accounts.length}个账号)`);
 
     if (!accounts || !Array.isArray(accounts)) {
       return res.status(400).json({ error: '无效的账号列表' });
@@ -83,7 +84,7 @@ router.post('/temp-projects', async (req, res) => {
 
     const results = await Promise.all(accounts.map(async (account) => {
       try {
-        console.log(`🔍 正在获取账号 [${account.name}] 的项目...`);
+        
         const { user, projects } = await zeaburApi.fetchAccountData(account.token);
 
         let projectCosts = {};
@@ -92,11 +93,11 @@ router.post('/temp-projects', async (req, res) => {
             const usageData = await zeaburApi.fetchUsageData(account.token, user._id, projects);
             projectCosts = usageData.projectCosts;
           } catch (e) {
-            console.log(`⚠️ [${account.name}] 获取用量失败:`, e.message);
+            logger.warn(`${account.name}: 获取用量失败 - ${e.message}`);
           }
         }
 
-        console.log(`📦 [${account.name}] 找到 ${projects.length} 个项目`);
+        logger.groupItem(`${account.name}: ${projects.length} 个项目`);
 
         const projectsWithCost = projects.map(project => {
           const pid = project && (project._id || project.id || (project._id && project._id.$oid)) || '';
@@ -106,7 +107,7 @@ router.post('/temp-projects', async (req, res) => {
           else rawCost = 0;
 
           const cost = Number(rawCost) || 0;
-          console.log(`  - ${project?.name || pid}: $${cost.toFixed(2)}`);
+          
 
           return {
             _id: project._id || project.id || pid,
@@ -125,7 +126,7 @@ router.post('/temp-projects', async (req, res) => {
           projects: projectsWithCost
         };
       } catch (error) {
-        console.error(`❌ [${account.name}] 错误:`, error.message);
+        logger.error(`${account.name}: ${error.message}`);
         return {
           name: account.name,
           success: false,
@@ -134,10 +135,10 @@ router.post('/temp-projects', async (req, res) => {
       }
     }));
 
-    console.log('📤 返回项目结果');
+    logger.success(`返回 ${results.length} 个账号的项目信息`);
     res.json(results);
   } catch (error) {
-    console.error('❌ /api/temp-projects 未捕获异常:', error);
+    logger.error('获取项目信息失败', error.message);
     res.status(500).json({ error: '/api/temp-projects 服务器错误: ' + error.message });
   }
 });
@@ -179,7 +180,7 @@ router.get('/server-accounts', async (req, res) => {
   const envAccounts = storage.getEnvAccounts();
 
   const allAccounts = [...envAccounts, ...serverAccounts];
-  console.log(`📋 返回 ${allAccounts.length} 个账号 (环境变量: ${envAccounts.length}, 服务器: ${serverAccounts.length})`);
+  logger.info(`加载 ${allAccounts.length} 个账号 (环境: ${envAccounts.length}, 服务器: ${serverAccounts.length})`);
   res.json(allAccounts);
 });
 
@@ -194,7 +195,7 @@ router.post('/server-accounts', async (req, res) => {
   }
 
   if (storage.saveServerAccounts(accounts)) {
-    console.log(`✅ 保存 ${accounts.length} 个账号到服务器`);
+    logger.success(`保存 ${accounts.length} 个账号`);
     res.json({ success: true, message: '账号已保存到服务器' });
   } else {
     res.status(500).json({ error: '保存失败' });
@@ -211,7 +212,7 @@ router.delete('/server-accounts/:index', async (req, res) => {
   if (index >= 0 && index < accounts.length) {
     const removed = accounts.splice(index, 1);
     if (storage.saveServerAccounts(accounts)) {
-      console.log(`🗑️ 删除账号: ${removed[0].name}`);
+      logger.info(`删除账号: ${removed[0].name}`);
       res.json({ success: true, message: '账号已删除' });
     } else {
       res.status(500).json({ error: '删除失败' });
@@ -237,7 +238,7 @@ router.get('/accounts', async (req, res) => {
         try {
           usageData = await zeaburApi.fetchUsageData(account.token, user._id, projects);
         } catch (e) {
-          console.log(`⚠️ [${account.name}] 获取用量失败:`, e.message);
+          logger.warn(`${account.name}: 获取用量失败 - ${e.message}`);
         }
       }
 
@@ -257,7 +258,7 @@ router.get('/accounts', async (req, res) => {
         aihub: aihub
       });
     } catch (error) {
-      console.error(`❌ [${account.name}] 错误:`, error.message);
+      logger.error(`${account.name}: ${error.message}`);
       data.push({
         name: account.name,
         success: false,
@@ -285,7 +286,7 @@ router.get('/projects', async (req, res) => {
             const usageData = await zeaburApi.fetchUsageData(account.token, user._id, projects);
             projectCosts = usageData.projectCosts;
           } catch (e) {
-            console.log(`⚠️ [${account.name}] 获取用量失败:`, e.message);
+            logger.warn(`${account.name}: 获取用量失败 - ${e.message}`);
           }
         }
 
@@ -311,14 +312,14 @@ router.get('/projects', async (req, res) => {
 
         return { name: account.name, success: true, projects: projectsWithCost };
       } catch (error) {
-        console.error(`❌ [${account.name}] 错误:`, error.message);
+        logger.error(`${account.name}: ${error.message}`);
         return { name: account.name, success: false, error: error.message };
       }
     }));
 
     res.json(results);
   } catch (error) {
-    console.error('❌ /api/projects 未捕获异常:', error);
+    logger.error('获取项目失败', error.message);
     res.status(500).json({ error: '/api/projects 服务器错误: ' + error.message });
   }
 });
@@ -404,6 +405,8 @@ router.post('/service/logs', async (req, res) => {
 
       const logs = sortedLogs.slice(-limit);
 
+      console.log(`📋 获取服务日志: serviceId=${serviceId.slice(0, 8)}..., 返回 ${logs.length}/${result.data.runtimeLogs.length} 条`);
+
       res.json({
         success: true,
         logs,
@@ -411,9 +414,11 @@ router.post('/service/logs', async (req, res) => {
         totalCount: result.data.runtimeLogs.length
       });
     } else {
+      console.log(`❌ 获取日志失败: serviceId=${serviceId.slice(0, 8)}...`);
       res.status(400).json({ error: '获取日志失败', details: result });
     }
   } catch (error) {
+    console.error(`❌ 获取日志异常: ${error.message}`);
     res.status(500).json({ error: '获取日志失败: ' + error.message });
   }
 });
@@ -424,28 +429,23 @@ router.post('/service/logs', async (req, res) => {
 router.post('/project/rename', async (req, res) => {
   const { token, projectId, newName } = req.body;
 
-  console.log(`📝 收到重命名请求: projectId=${projectId}, newName=${newName}`);
-
   if (!token || !projectId || !newName) {
     return res.status(400).json({ error: '缺少必要参数' });
   }
 
   try {
     const mutation = `mutation { renameProject(_id: "${projectId}", name: "${newName}") }`;
-    console.log(`🔍 发送 GraphQL mutation:`, mutation);
-
     const result = await zeaburApi.queryZeabur(token, mutation);
-    console.log(`📥 API 响应:`, JSON.stringify(result, null, 2));
 
     if (result.data?.renameProject) {
-      console.log(`✅ 项目已重命名: ${newName}`);
+      console.log(`✅ 项目已重命名: ${projectId.slice(0, 8)}... -> "${newName}"`);
       res.json({ success: true, message: '项目已重命名' });
     } else {
-      console.log(`❌ 重命名失败:`, result);
+      console.log(`❌ 重命名失败: ${projectId.slice(0, 8)}... -> "${newName}"`);
       res.status(400).json({ error: '重命名失败', details: result });
     }
   } catch (error) {
-    console.log(`❌ 异常:`, error);
+    console.error(`❌ 重命名异常: ${error.message}`);
     res.status(500).json({ error: '重命名项目失败: ' + error.message });
   }
 });

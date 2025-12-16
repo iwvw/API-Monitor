@@ -26,33 +26,38 @@ router.get('/endpoints', (req, res) => {
  */
 router.post('/endpoints', async (req, res) => {
   try {
-    const { name, baseUrl, apiKey, notes } = req.body;
-    
+    const { name, baseUrl, apiKey, notes, skipVerify } = req.body;
+
     if (!name || !baseUrl || !apiKey) {
       return res.status(400).json({ error: '名称、API 地址和 API Key 必填' });
     }
 
-    // 验证 API Key
-    const verification = await openaiApi.verifyApiKey(baseUrl, apiKey);
-    
     const endpoint = storage.addEndpoint({ name, baseUrl, apiKey, notes });
-    
-    // 如果验证成功，获取模型列表
-    if (verification.valid) {
-      const modelsResult = await openaiApi.listModels(baseUrl, apiKey);
-      storage.updateEndpoint(endpoint.id, {
-        status: 'valid',
-        models: modelsResult.models || [],
-        lastChecked: new Date().toISOString()
-      });
-      endpoint.status = 'valid';
-      endpoint.models = modelsResult.models || [];
+
+    // 验证 API Key（除非明确跳过验证，用于数据导入）
+    if (!skipVerify) {
+      const verification = await openaiApi.verifyApiKey(baseUrl, apiKey);
+
+      // 如果验证成功，获取模型列表
+      if (verification.valid) {
+        const modelsResult = await openaiApi.listModels(baseUrl, apiKey);
+        storage.updateEndpoint(endpoint.id, {
+          status: 'valid',
+          models: modelsResult.models || [],
+          lastChecked: new Date().toISOString()
+        });
+        endpoint.status = 'valid';
+        endpoint.models = modelsResult.models || [];
+      } else {
+        storage.updateEndpoint(endpoint.id, {
+          status: 'invalid',
+          lastChecked: new Date().toISOString()
+        });
+        endpoint.status = 'invalid';
+      }
     } else {
-      storage.updateEndpoint(endpoint.id, {
-        status: 'invalid',
-        lastChecked: new Date().toISOString()
-      });
-      endpoint.status = 'invalid';
+      // 跳过验证时，保持原有状态
+      endpoint.status = 'unknown';
     }
 
     res.json({
@@ -441,29 +446,28 @@ router.get('/export', (req, res) => {
 });
 
 /**
- * 导入端点
+ * 导入端点（直接覆盖数据库）
  */
 router.post('/import', (req, res) => {
   try {
     const { endpoints, overwrite } = req.body;
-    
+
     if (!endpoints || !Array.isArray(endpoints)) {
       return res.status(400).json({ error: '需要提供 endpoints 数组' });
     }
 
-    // 验证数据格式
-    for (const ep of endpoints) {
-      if (!ep.baseUrl || !ep.apiKey) {
-        return res.status(400).json({ error: '每个端点必须包含 baseUrl 和 apiKey' });
-      }
+    if (overwrite) {
+      // 直接覆盖所有端点
+      storage.saveEndpoints(endpoints);
+      res.json({ success: true, count: endpoints.length });
+    } else {
+      // 使用原有的导入逻辑（去重）
+      const result = storage.importEndpoints(endpoints, false);
+      res.json({
+        success: true,
+        ...result
+      });
     }
-
-    const result = storage.importEndpoints(endpoints, overwrite === true);
-    
-    res.json({
-      success: true,
-      ...result
-    });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

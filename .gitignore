@@ -13,6 +13,7 @@ sessions.json
 
 # 用户数据
 data/
+*.db
 
 # 日志
 *.log
@@ -41,3 +42,4 @@ todo.md
 dist/
 build/
 out/
+docs/

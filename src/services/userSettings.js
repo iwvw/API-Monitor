@@ -1,34 +1,31 @@
 /**
- * 用户设置管理服务
+ * 用户设置管理服务（使用 SQLite 数据库）
  * 负责保存和加载用户的个性化设置（自定义CSS、模块配置等）
  */
 
-const fs = require('fs');
-const path = require('path');
+const { UserSettings } = require('../db/models');
+const dbService = require('../db/database');
 
-const SETTINGS_FILE = path.join(__dirname, '../../data/user-settings.json');
-
-/**
- * 确保数据目录存在
- */
-function ensureDataDir() {
-  const dataDir = path.dirname(SETTINGS_FILE);
-  if (!fs.existsSync(dataDir)) {
-    fs.mkdirSync(dataDir, { recursive: true });
-  }
-}
+// 初始化数据库
+dbService.initialize();
 
 /**
  * 加载用户设置
  */
 function loadUserSettings() {
   try {
-    ensureDataDir();
-    if (fs.existsSync(SETTINGS_FILE)) {
-      const data = fs.readFileSync(SETTINGS_FILE, 'utf8');
-      return JSON.parse(data);
-    }
-    return getDefaultSettings();
+    const settings = UserSettings.getSettings();
+
+    // 转换字段名以保持向后兼容
+    return {
+      customCss: settings.custom_css || '',
+      moduleVisibility: settings.module_visibility || {
+        zeabur: true,
+        dns: true,
+        openai: true
+      },
+      moduleOrder: settings.module_order || ['zeabur', 'dns', 'openai']
+    };
   } catch (error) {
     console.error('加载用户设置失败:', error);
     return getDefaultSettings();
@@ -40,8 +37,14 @@ function loadUserSettings() {
  */
 function saveUserSettings(settings) {
   try {
-    ensureDataDir();
-    fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2), 'utf8');
+    // 转换字段名
+    const dbSettings = {
+      custom_css: settings.customCss || settings.custom_css || '',
+      module_visibility: settings.moduleVisibility || settings.module_visibility,
+      module_order: settings.moduleOrder || settings.module_order
+    };
+
+    UserSettings.updateSettings(dbSettings);
     return { success: true };
   } catch (error) {
     console.error('保存用户设置失败:', error);

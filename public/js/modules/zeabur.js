@@ -1060,18 +1060,29 @@ export const zeaburMethods = {
         return;
       }
 
+      const now = new Date();
       const exportData = {
         version: '1.0',
-        exportTime: new Date().toISOString(),
+        exportTime: now.toISOString(),
+        exportTimeLocal: now.toLocaleString('zh-CN', { hour12: false }),
         accounts: this.managedAccounts
       };
+
+      // 生成本地时间格式的文件名：YYYY-MM-DD_HH-MM-SS
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const day = String(now.getDate()).padStart(2, '0');
+      const hours = String(now.getHours()).padStart(2, '0');
+      const minutes = String(now.getMinutes()).padStart(2, '0');
+      const seconds = String(now.getSeconds()).padStart(2, '0');
+      const timestamp = `${year}-${month}-${day}_${hours}-${minutes}-${seconds}`;
 
       const dataStr = JSON.stringify(exportData, null, 2);
       const dataBlob = new Blob([dataStr], { type: 'application/json' });
       const url = URL.createObjectURL(dataBlob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `zeabur-accounts-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.json`;
+      link.download = `zeabur-accounts-${timestamp}.json`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);

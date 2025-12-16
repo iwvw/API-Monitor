@@ -1,46 +1,40 @@
 /**
- * 会话管理服务
+ * 会话管理服务（使用 SQLite 数据库）
  */
 
 const crypto = require('crypto');
-const fs = require('fs');
-const path = require('path');
 const { parseCookies } = require('../utils/cookie');
-const { CONFIG_DIR } = require('./config');
+const { Session } = require('../db/models');
+const dbService = require('../db/database');
 
-const SESSIONS_FILE = path.join(CONFIG_DIR, 'sessions.json');
-
-// Session 持久化存储
-const sessions = Object.create(null);
+// 初始化数据库
+dbService.initialize();
 
 /**
- * 从文件加载 session
+ * 从数据库加载 session（兼容旧接口）
  */
 function loadSessions() {
   try {
-    if (fs.existsSync(SESSIONS_FILE)) {
-      const data = fs.readFileSync(SESSIONS_FILE, 'utf-8');
-      const loaded = JSON.parse(data);
-      Object.assign(sessions, loaded);
-      console.log('✅ 已加载持久化 session，数量:', Object.keys(sessions).length);
-    }
+    const sessions = Session.getActiveSessions();
+    console.log('✅ 已从数据库加载 session，数量:', sessions.length);
   } catch (err) {
     console.error('❌ 加载 session 失败:', err.message);
   }
 }
 
 /**
- * 保存 session 到文件
+ * 保存 session 到数据库（兼容旧接口，实际上数据库自动保存）
  */
 function saveSessions() {
+  // 数据库自动保存，此函数保留用于兼容性
+  // 可以在这里执行清理过期 session 的操作
   try {
-    // 确保配置目录存在
-    if (!fs.existsSync(CONFIG_DIR)) {
-      fs.mkdirSync(CONFIG_DIR, { recursive: true });
+    const cleaned = Session.cleanExpiredSessions();
+    if (cleaned > 0) {
+      console.log(`🧹 清理了 ${cleaned} 个过期 session`);
     }
-    fs.writeFileSync(SESSIONS_FILE, JSON.stringify(sessions, null, 2));
   } catch (err) {
-    console.error('❌ 保存 session 失败:', err.message);
+    console.error('❌ 清理过期 session 失败:', err.message);
   }
 }
 
@@ -49,12 +43,16 @@ function saveSessions() {
  */
 function createSession(password) {
   const sid = crypto.randomBytes(24).toString('hex');
-  sessions[sid] = {
+
+  const expiresAt = new Date();
+  expiresAt.setHours(expiresAt.getHours() + 24); // 24小时后过期
+
+  Session.createSession({
+    session_id: sid,
     password: password,
-    createdAt: new Date().toISOString(),
-    lastAccessedAt: new Date().toISOString()
-  };
-  saveSessions();
+    expires_at: expiresAt.toISOString()
+  });
+
   console.log('✨ 创建新 session:', sid.substring(0, 8) + '...');
   return sid;
 }
@@ -65,33 +63,51 @@ function createSession(password) {
 function getSession(req) {
   const cookies = parseCookies(req);
   const sid = cookies.sid;
+
   if (!sid) {
     console.log('⚠️ 无 session cookie');
     return null;
   }
-  const session = sessions[sid];
-  if (!session) {
-    console.log(`⚠️ session 不存在 sid=${sid.substring(0, 8)}...`);
+
+  const validation = Session.validateSession(sid);
+
+  if (!validation.valid) {
+    console.log(`⚠️ session 无效 sid=${sid.substring(0, 8)}... 原因: ${validation.reason}`);
     return null;
   }
-  // 更新访问时间
-  session.lastAccessedAt = new Date().toISOString();
-  saveSessions();
-  console.log(`✓ session 有效 sid=${sid.substring(0, 8)}... (永久保存)`);
-  return { sid, ...session };
+
+  console.log(`✓ session 有效 sid=${sid.substring(0, 8)}... (数据库存储)`);
+
+  const session = validation.session;
+  return {
+    sid: session.session_id,
+    password: session.password,
+    createdAt: session.created_at,
+    lastAccessedAt: session.last_accessed_at
+  };
 }
 
 /**
  * 通过 sessionId 获取 session
  */
 function getSessionById(sessionId) {
-  if (!sessionId || !sessions[sessionId]) {
+  if (!sessionId) {
     return null;
   }
-  const session = sessions[sessionId];
-  session.lastAccessedAt = new Date().toISOString();
-  saveSessions();
-  return { sid: sessionId, ...session };
+
+  const validation = Session.validateSession(sessionId);
+
+  if (!validation.valid) {
+    return null;
+  }
+
+  const session = validation.session;
+  return {
+    sid: session.session_id,
+    password: session.password,
+    createdAt: session.created_at,
+    lastAccessedAt: session.last_accessed_at
+  };
 }
 
 /**
@@ -100,12 +116,16 @@ function getSessionById(sessionId) {
 function destroySession(req) {
   const cookies = parseCookies(req);
   const sid = cookies.sid;
-  if (sid && sessions[sid]) {
-    delete sessions[sid];
-    saveSessions();
-    console.log('🔒 销毁 session:', sid.substring(0, 8) + '...');
-    return true;
+
+  if (sid) {
+    const session = Session.getSession(sid);
+    if (session) {
+      Session.invalidateSession(sid);
+      console.log('🔒 销毁 session:', sid.substring(0, 8) + '...');
+      return true;
+    }
   }
+
   return false;
 }
 
