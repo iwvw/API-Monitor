@@ -4,20 +4,23 @@
 # 多阶段构建，优化镜像大小和安全性
 
 # 阶段 1: 依赖安装
-FROM node:18-alpine AS deps
+FROM node:20-alpine AS deps
+
+# 安装构建依赖（better-sqlite3 需要）
+RUN apk add --no-cache python3 make g++
 
 # 设置工作目录
 WORKDIR /app
 
 # 复制依赖文件
-COPY package.json ./
+COPY package.json package-lock.json ./
 
-# 安装生产依赖
-RUN npm install --only=production && \
+# 安装生产依赖（使用 npm ci 确保依赖一致性）
+RUN npm ci --only=production && \
     npm cache clean --force
 
 # 阶段 2: 运行时镜像
-FROM node:18-alpine AS runner
+FROM node:20-alpine AS runner
 
 # 添加元数据标签
 LABEL org.opencontainers.image.title="API Monitor"
