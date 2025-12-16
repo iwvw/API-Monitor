@@ -177,15 +177,26 @@ export const openaiMethods = {
           this.openaiAdding = true;
 
           try {
-            const response = await fetch('/api/openai/import', {
+            // 尝试解析为 JSON
+            let endpoints = null;
+            try {
+              const parsed = JSON.parse(this.openaiBatchText);
+              if (Array.isArray(parsed)) {
+                endpoints = parsed;
+              }
+            } catch (e) {
+              // 不是 JSON，使用文本格式
+            }
+
+            const response = await fetch('/api/openai/batch-add', {
               method: 'POST',
               headers: this.getAuthHeaders(),
-              body: JSON.stringify({ text: this.openaiBatchText })
+              body: JSON.stringify(endpoints ? { endpoints } : { text: this.openaiBatchText })
             });
 
             const data = await response.json();
             if (data.success) {
-              this.openaiBatchSuccess = `成功添加 ${data.imported || 0} 个端点`;
+              this.openaiBatchSuccess = `成功添加 ${data.added || 0} 个端点`;
               this.openaiBatchText = '';
               await this.loadOpenaiEndpoints();
               setTimeout(() => {
@@ -239,5 +250,94 @@ export const openaiMethods = {
             document.body.removeChild(textarea);
             this.showOpenaiToast('已复制到剪贴板', 'success');
           }
+        },
+
+  // 导出所有端点
+  async exportOpenaiEndpoints() {
+    try {
+      if (this.openaiEndpoints.length === 0) {
+        this.showOpenaiToast('没有可导出的端点', 'warning');
+        return;
+      }
+
+      const exportData = {
+        version: '1.0',
+        exportTime: new Date().toISOString(),
+        endpoints: this.openaiEndpoints.map(ep => ({
+          name: ep.name,
+          baseUrl: ep.baseUrl,
+          apiKey: ep.apiKey,
+          notes: ep.notes
+        }))
+      };
+
+      const dataStr = JSON.stringify(exportData, null, 2);
+      const dataBlob = new Blob([dataStr], { type: 'application/json' });
+      const url = URL.createObjectURL(dataBlob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `openai-endpoints-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      this.showOpenaiToast('端点导出成功', 'success');
+    } catch (error) {
+      this.showOpenaiToast('导出失败: ' + error.message, 'error');
+    }
+  },
+
+  // 从文件导入端点
+  async importOpenaiEndpointsFromFile() {
+    const confirmed = await this.showConfirm({
+      title: '确认导入',
+      message: '导入端点将添加到现有端点列表中，是否继续？',
+      icon: 'fa-exclamation-triangle',
+      confirmText: '确定导入',
+      confirmClass: 'btn-primary'
+    });
+
+    if (!confirmed) return;
+
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.onchange = async (event) => {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        try {
+          const importedData = JSON.parse(e.target.result);
+
+          // 验证数据格式
+          if (!importedData.version || !importedData.endpoints) {
+            this.showOpenaiToast('无效的备份文件格式', 'error');
+            return;
+          }
+
+          // 导入端点
+          const response = await fetch('/api/openai/import', {
+            method: 'POST',
+            headers: this.getAuthHeaders(),
+            body: JSON.stringify({ endpoints: importedData.endpoints })
+          });
+
+          const data = await response.json();
+          if (data.success) {
+            this.showOpenaiToast(`成功导入 ${data.imported || 0} 个端点`, 'success');
+            await this.loadOpenaiEndpoints();
+          } else {
+            this.showOpenaiToast('导入失败: ' + (data.error || '未知错误'), 'error');
+          }
+        } catch (error) {
+          this.showOpenaiToast('导入失败: ' + error.message, 'error');
         }
+      };
+      reader.readAsText(file);
+    };
+    input.click();
+  }
 };

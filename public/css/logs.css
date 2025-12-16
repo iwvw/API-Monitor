@@ -233,7 +233,7 @@
 
 /* OpenAI Action Buttons */
 .openai-action-btn {
-  padding: 6px 10px;
+  padding: 6px 8px;
   border-radius: 6px;
   font-size: 12px;
   font-weight: 500;
@@ -244,6 +244,9 @@
   align-items: center;
   justify-content: center;
   gap: 4px;
+  min-width: 32px;
+  height: 32px;
+  flex-shrink: 0;
 }
 
 .openai-action-btn.refresh {
@@ -283,4 +286,14 @@
 
 .status-unknown {
   color: var(--text-tertiary);
+}
+
+/* 响应式设计 */
+@media (max-width: 480px) {
+  .openai-action-btn {
+    padding: 4px 6px;
+    min-width: 28px;
+    height: 28px;
+    font-size: 11px;
+  }
 }

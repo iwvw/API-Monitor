@@ -8,6 +8,7 @@ const { requireAuth } = require('../middleware/auth');
 // 导入各个路由模块
 const authRouter = require('./auth');
 const healthRouter = require('./health');
+const settingsRouter = require('./settings');
 
 /**
  * 注册所有路由
@@ -18,6 +19,9 @@ function registerRoutes(app) {
 
   // 认证相关路由
   app.use('/api', authRouter);
+
+  // 用户设置路由（需要认证）
+  app.use('/api', requireAuth, settingsRouter);
 
   // Zeabur API 管理模块
   try {

@@ -4,45 +4,183 @@
  */
 
 export const settingsMethods = {
-  // 加载模块设置
-  loadModuleSettings() {
+  // 从后端加载所有设置
+  async loadUserSettings() {
+    try {
+      const response = await fetch('/api/settings', {
+        headers: this.getAuthHeaders()
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success && result.data) {
+          const settings = result.data;
+
+          // 应用自定义CSS
+          if (settings.customCss) {
+            this.customCss = settings.customCss;
+            this.applyCustomCss();
+          }
+
+          // 应用模块设置
+          if (settings.moduleVisibility) {
+            this.moduleVisibility = settings.moduleVisibility;
+          }
+          if (settings.moduleOrder) {
+            this.moduleOrder = settings.moduleOrder;
+          }
+
+          return true;
+        }
+      }
+
+      // 如果后端没有设置，尝试从localStorage加载（向后兼容）
+      this.loadCustomCssFromLocal();
+      this.loadModuleSettingsFromLocal();
+      return false;
+    } catch (error) {
+      console.error('加载用户设置失败:', error);
+      // 降级到localStorage
+      this.loadCustomCssFromLocal();
+      this.loadModuleSettingsFromLocal();
+      return false;
+    }
+  },
+
+  // 从localStorage加载自定义CSS（向后兼容）
+  loadCustomCssFromLocal() {
+    const savedCss = localStorage.getItem('custom_css');
+    if (savedCss) {
+      this.customCss = savedCss;
+      this.applyCustomCss();
+    }
+  },
+
+  // 从localStorage加载模块设置（向后兼容）
+  loadModuleSettingsFromLocal() {
     const savedVisibility = localStorage.getItem('module_visibility');
     const savedOrder = localStorage.getItem('module_order');
 
-    // 定义所有可用模块
     const availableModules = ['zeabur', 'dns', 'openai'];
 
     if (savedVisibility) {
       const saved = JSON.parse(savedVisibility);
-      // 合并已保存的设置和新模块
       availableModules.forEach(module => {
         if (!(module in saved)) {
-          // 新模块默认显示
           saved[module] = true;
         }
       });
       this.moduleVisibility = saved;
-    } else {
-      // 首次加载，所有模块默认显示
-      availableModules.forEach(module => {
-        this.moduleVisibility[module] = true;
-      });
     }
 
     if (savedOrder) {
       const saved = JSON.parse(savedOrder);
-      // 添加新模块到顺序列表末尾
       availableModules.forEach(module => {
         if (!saved.includes(module)) {
           saved.push(module);
         }
       });
-      // 移除不存在的模块
       this.moduleOrder = saved.filter(m => availableModules.includes(m));
-    } else {
-      // 首次加载，使用默认顺序
-      this.moduleOrder = [...availableModules];
     }
+  },
+
+  // 保存所有设置到后端
+  async saveUserSettingsToServer() {
+    try {
+      const settings = {
+        customCss: this.customCss,
+        moduleVisibility: this.moduleVisibility,
+        moduleOrder: this.moduleOrder
+      };
+
+      const response = await fetch('/api/settings', {
+        method: 'POST',
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify(settings)
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        return result.success;
+      }
+      return false;
+    } catch (error) {
+      console.error('保存用户设置失败:', error);
+      return false;
+    }
+  },
+
+  // 应用自定义 CSS
+  applyCustomCss() {
+    const styleElement = document.getElementById('custom-css');
+    if (styleElement) {
+      styleElement.textContent = this.customCss;
+    }
+  },
+
+  // 保存自定义 CSS
+  async saveCustomCss() {
+    try {
+      // 先保存到localStorage（向后兼容）
+      localStorage.setItem('custom_css', this.customCss);
+      this.applyCustomCss();
+
+      // 保存到后端
+      const success = await this.saveUserSettingsToServer();
+
+      if (success) {
+        this.customCssSuccess = '自定义 CSS 已保存到服务器';
+      } else {
+        this.customCssSuccess = '自定义 CSS 已保存到本地';
+      }
+      this.customCssError = '';
+
+      setTimeout(() => {
+        this.customCssSuccess = '';
+      }, 3000);
+    } catch (error) {
+      this.customCssError = '保存失败: ' + error.message;
+      this.customCssSuccess = '';
+    }
+  },
+
+  // 重置自定义 CSS
+  async resetCustomCss() {
+    this.customCss = '';
+    localStorage.removeItem('custom_css');
+    this.applyCustomCss();
+
+    // 保存到后端
+    await this.saveUserSettingsToServer();
+
+    this.customCssSuccess = '自定义 CSS 已重置';
+    this.customCssError = '';
+    setTimeout(() => {
+      this.customCssSuccess = '';
+    }, 3000);
+  },
+
+  // 加载模块设置（已废弃，使用 loadUserSettings 代替）
+  async loadModuleSettings() {
+    // 从后端加载所有设置
+    await this.loadUserSettings();
+
+    // 定义所有可用模块
+    const availableModules = ['zeabur', 'dns', 'openai'];
+
+    // 确保所有模块都有配置
+    availableModules.forEach(module => {
+      if (!(module in this.moduleVisibility)) {
+        this.moduleVisibility[module] = true;
+      }
+    });
+
+    // 确保模块顺序包含所有模块
+    availableModules.forEach(module => {
+      if (!this.moduleOrder.includes(module)) {
+        this.moduleOrder.push(module);
+      }
+    });
 
     // 确保至少有一个模块可见，并切换到第一个可见模块
     const hasVisibleModule = Object.values(this.moduleVisibility).some(v => v);
@@ -57,13 +195,17 @@ export const settingsMethods = {
     }
 
     // 保存更新后的设置
-    this.saveModuleSettings();
+    await this.saveModuleSettings();
   },
 
   // 保存模块设置
-  saveModuleSettings() {
+  async saveModuleSettings() {
+    // 保存到localStorage（向后兼容）
     localStorage.setItem('module_visibility', JSON.stringify(this.moduleVisibility));
     localStorage.setItem('module_order', JSON.stringify(this.moduleOrder));
+
+    // 保存到后端
+    await this.saveUserSettingsToServer();
   },
 
   // 切换模块可见性
@@ -165,9 +307,9 @@ export const settingsMethods = {
   },
 
   // 保存设置
-  saveSettings() {
-    this.saveModuleSettings();
-    this.showGlobalToast('设置已保存', 'success');
+  async saveSettings() {
+    await this.saveModuleSettings();
+    this.showGlobalToast('设置已保存到服务器', 'success');
     this.showSettingsModal = false;
   },
 
