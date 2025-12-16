@@ -16,6 +16,10 @@
       display: none !important;
     }
 
+    * {
+      -webkit-tap-highlight-color: transparent
+    }
+
     :root {
       --primary-color: #6366f1;
       --primary-dark: #4f46e5;
@@ -1292,7 +1296,7 @@
     }
 
     .data-table td:nth-child(5) {
-      width: 70px;
+      width: 100%;
     }
 
     .data-table td:nth-child(6) {
@@ -1597,7 +1601,7 @@
 
     .zones-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      grid-template-columns: repeat(auto-fill, minmax(324px, 1fr));
       gap: 12px;
       margin-bottom: 16px;
     }
@@ -1825,6 +1829,20 @@
       .modal {
         padding: 20px;
       }
+
+      /* 小屏幕上 main-tab 只显示图标 */
+      .main-tab {
+        padding: 12px 16px;
+        min-width: auto;
+      }
+
+      .main-tab i {
+        margin-right: 0;
+      }
+
+      .main-tab span {
+        display: none;
+      }
     }
 
     @media (max-width: 480px) {
@@ -1843,6 +1861,85 @@
 
       .btn {
         justify-content: center;
+      }
+
+      /* DNS 表格在小屏幕上优化 - 横向滚动完整显示 */
+      .table-container {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+      }
+
+      .data-table {
+        min-width: 100%;
+        width: max-content;
+        font-size: 12px;
+      }
+
+      .data-table th,
+      .data-table td {
+        padding: 8px 10px;
+        white-space: nowrap;
+        min-width: fit-content;
+      }
+
+      /* 取消固定列宽，使用自适应 */
+      .data-table td:nth-child(1),
+      .data-table td:nth-child(2),
+      .data-table td:nth-child(3),
+      .data-table td:nth-child(4),
+      .data-table td:nth-child(5),
+      .data-table td:nth-child(6) {
+        width: auto;
+        min-width: auto;
+      }
+
+      /* DNS 标签页按钮优化 */
+      .dns-tab-btn {
+        padding: 6px 10px;
+        font-size: 12px;
+      }
+
+      /* 域名卡片优化 */
+      .zone-card {
+        padding: 8px 12px;
+      }
+
+      .zone-name {
+        font-size: 13px;
+      }
+
+      /* DNS 记录内容完整显示 */
+      .content-truncate {
+        max-width: none;
+        white-space: nowrap;
+      }
+
+      .editable-cell {
+        white-space: nowrap;
+      }
+
+      /* OpenAI 表格优化 - 横向滚动 */
+      .openai-table-container {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+      }
+
+      .openai-table {
+        min-width: 100%;
+        font-size: 12px;
+      }
+
+      .openai-table th,
+      .openai-table td {
+        padding: 8px 10px;
+        white-space: nowrap;
+      }
+
+      .openai-table .cell-url,
+      .openai-table .cell-key,
+      .openai-table .cell-name {
+        max-width: none;
+        white-space: nowrap;
       }
     }
   </style>
@@ -1897,13 +1994,13 @@
       <!-- 主标签页导航 -->
       <div class="main-tabs">
         <button class="main-tab" :class="{ active: mainActiveTab === 'zeabur' }" @click="mainActiveTab = 'zeabur'">
-          <i class="fas fa-rocket"></i> Zeabur 监控
+          <i class="fas fa-rocket"></i><span> Zeabur</span>
         </button>
         <button class="main-tab dns-tab" :class="{ active: mainActiveTab === 'dns' }" @click="switchToDns">
-          <i class="fas fa-cloud"></i> CF DNS 管理
+          <i class="fas fa-cloud"></i><span> CF DNS</span>
         </button>
         <button class="main-tab openai-tab" :class="{ active: mainActiveTab === 'openai' }" @click="switchToOpenai">
-          <i class="fas fa-robot"></i> OpenAI API
+          <i class="fas fa-robot"></i><span> OpenAI API</span>
         </button>
       </div>
 
@@ -2344,25 +2441,37 @@
             @click="dnsCurrentTab = 'accounts'">
             <i class="fas fa-users"></i> 账号管理
           </button>
-          <button class="dns-tab-btn" :class="{ active: dnsCurrentTab === 'templates' }"
+          <!-- <button class="dns-tab-btn" :class="{ active: dnsCurrentTab === 'templates' }"
             @click="dnsCurrentTab = 'templates'">
             <i class="fas fa-copy"></i> 模板
-          </button>
+          </button> -->
         </div>
 
         <!-- DNS 记录标签页 -->
         <div v-if="dnsCurrentTab === 'dns'">
-          <!-- 账号选择 -->
-          <div class="dns-account-select">
-            <label style="font-weight: 500;">选择账号：</label>
-            <select v-model="dnsSelectedAccountId" @change="loadDnsZones">
-              <option value="">-- 请选择账号 --</option>
-              <option v-for="acc in dnsAccounts" :key="acc.id" :value="acc.id">{{ acc.name }}</option>
-            </select>
-            <button v-if="dnsSelectedAccountId" class="btn btn-secondary" style="padding: 6px 10px;"
-              @click="loadDnsZones" :disabled="dnsLoadingZones">
-              <i class="fas fa-sync-alt" :class="{ 'fa-spin': dnsLoadingZones }"></i>
-            </button>
+          <!-- 账号选择 - 卡片式 -->
+          <div style="margin-bottom: 16px;">
+            <label style="font-weight: 500; margin-bottom: 12px; display: block;">选择账号：</label>
+            <div class="zones-grid">
+              <div v-for="acc in dnsAccounts" :key="acc.id" class="zone-card"
+                :class="{ active: dnsSelectedAccountId === acc.id }" @click="selectDnsAccount(acc)">
+                <div style="flex: 1;">
+                  <div class="zone-name">
+                    <i class="fas fa-user-circle" style="margin-right: 6px; color: var(--cf-color);"></i>
+                    {{ acc.name }}
+                  </div>
+                  <div class="zone-status" style="font-size: 11px;">{{ acc.email || '账号' }}</div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <i v-if="dnsSelectedAccountId === acc.id" class="fas fa-check-circle" style="color: var(--cf-color);"></i>
+                  <button v-if="dnsSelectedAccountId === acc.id" class="btn btn-secondary"
+                    style="padding: 4px 8px; font-size: 12px;"
+                    @click.stop="loadDnsZones" :disabled="dnsLoadingZones">
+                    <i class="fas fa-sync-alt" :class="{ 'fa-spin': dnsLoadingZones }"></i>
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
 
           <div v-if="dnsLoadingZones" class="loading">
@@ -2407,10 +2516,14 @@
           <!-- DNS 记录表格 -->
           <div v-if="dnsSelectedZoneId" class="panel">
             <div class="panel-header">
-              <div class="panel-title">DNS 记录 - {{ dnsSelectedZoneName }}</div>
+              <div class="panel-title">DNS记录</div>
               <div style="display: flex; gap: 8px;">
                 <button class="btn btn-success" style="padding: 6px 12px;" @click="openAddDnsRecordModal">
-                  <i class="fas fa-plus"></i> 添加记录
+                  <i class="fas fa-plus"></i> 添加
+                </button>
+                <button v-if="dnsSelectedRecords.length > 0" class="btn btn-danger" style="padding: 6px 12px;"
+                  @click="batchDeleteDnsRecords">
+                  <i class="fas fa-trash-alt"></i> 删除 ({{ dnsSelectedRecords.length }})
                 </button>
                 <button class="btn btn-secondary" style="padding: 6px 10px;" @click="loadDnsRecords"
                   :disabled="dnsLoadingRecords">
@@ -2428,16 +2541,25 @@
               <table class="data-table">
                 <thead>
                   <tr>
-                    <th style="width: 15%;">类型</th>
-                    <th style="width: 20%;">名称</th>
-                    <th style="width: 30%;">内容</th>
-                    <th style="width: 10%;">代理</th>
-                    <th style="width: 10%;">TTL</th>
+                    <th style="width: 5%;">
+                      <input type="checkbox" @change="toggleSelectAllDnsRecords"
+                        :checked="dnsSelectedRecords.length === dnsRecords.length && dnsRecords.length > 0"
+                        style="width: 16px; height: 16px; cursor: pointer;">
+                    </th>
+                    <th style="width: 12%;">类型</th>
+                    <th style="width: 18%;">名称</th>
+                    <th style="width: 28%;">内容</th>
+                    <th style="width: 8%;">代理</th>
+                    <th style="width: 8%;">TTL</th>
                     <th style="width: 10%;">操作</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr v-for="record in dnsRecords" :key="record.id">
+                    <td>
+                      <input type="checkbox" :value="record.id" v-model="dnsSelectedRecords"
+                        style="width: 16px; height: 16px; cursor: pointer;">
+                    </td>
                     <td><span class="record-type" :class="record.type">{{ record.type }}</span></td>
                     <td>
                       <div v-if="!record.isEditingName" class="editable-cell"
@@ -2521,6 +2643,10 @@
                       <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 12px;"
                         @click="verifyDnsAccount(acc)" title="验证Token">
                         <i class="fas fa-check"></i>
+                      </button>
+                      <button class="btn btn-primary" style="padding: 4px 8px; font-size: 12px;"
+                        @click="editDnsAccount(acc)" title="编辑">
+                        <i class="fas fa-edit"></i>
                       </button>
                       <button class="btn btn-danger" style="padding: 4px 8px; font-size: 12px;"
                         @click="deleteDnsAccount(acc)" title="删除">
@@ -2627,6 +2753,43 @@
                 {{ dnsSavingAccount ? '验证中...' : '添加账号' }}
               </button>
               <button class="btn btn-secondary" @click="showAddDnsAccountModal = false" style="flex: 1;">取消</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 编辑 CF 账号模态框 -->
+        <div v-if="showEditDnsAccountModal" class="modal-overlay" @click.self="showEditDnsAccountModal = false">
+          <div class="modal">
+            <div class="modal-header">
+              <div class="modal-title">编辑 Cloudflare 账号</div>
+              <button class="modal-close" @click="showEditDnsAccountModal = false">&times;</button>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">账号名称 *</label>
+              <input v-model="dnsEditAccountForm.name" class="form-input" placeholder="例如: 主账号" />
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">API Token *</label>
+              <input v-model="dnsEditAccountForm.apiToken" type="password" class="form-input"
+                placeholder="Cloudflare API Token" />
+              <div class="form-help">留空表示不修改 Token</div>
+            </div>
+
+            <div class="form-group">
+              <label class="form-label">邮箱（可选）</label>
+              <input v-model="dnsEditAccountForm.email" class="form-input" placeholder="用于标识账号" />
+            </div>
+
+            <div v-if="dnsEditAccountFormError" class="form-error">{{ dnsEditAccountFormError }}</div>
+            <div v-if="dnsEditAccountFormSuccess" class="form-success">{{ dnsEditAccountFormSuccess }}</div>
+
+            <div style="display: flex; gap: 12px; margin-top: 20px;">
+              <button class="btn btn-primary" @click="updateDnsAccount" :disabled="dnsSavingAccount" style="flex: 1;">
+                {{ dnsSavingAccount ? '保存中...' : '保存修改' }}
+              </button>
+              <button class="btn btn-secondary" @click="showEditDnsAccountModal = false" style="flex: 1;">取消</button>
             </div>
           </div>
         </div>
@@ -3077,6 +3240,12 @@
           dnsAccountFormError: '',
           dnsAccountFormSuccess: '',
           dnsSavingAccount: false,
+          // 编辑 CF 账号
+          showEditDnsAccountModal: false,
+          dnsEditingAccount: null,
+          dnsEditAccountForm: { name: '', apiToken: '', email: '' },
+          dnsEditAccountFormError: '',
+          dnsEditAccountFormSuccess: '',
           // 域名相关
           dnsZones: [],
           dnsSelectedZoneId: '',
@@ -3091,6 +3260,8 @@
           dnsRecordFormError: '',
           dnsSavingRecord: false,
           dnsRecordTypes: ['A', 'AAAA', 'CNAME', 'TXT', 'MX', 'NS', 'SRV', 'CAA'],
+          // DNS 记录批量选择
+          dnsSelectedRecords: [],
           // 快速切换
           dnsQuickSwitchType: 'A',
           dnsQuickSwitchName: '',
@@ -4670,6 +4841,62 @@
             this.showDnsToast('删除失败: ' + error.message, 'error');
           }
         },
+        // 编辑 CF 账号
+        editDnsAccount(account) {
+          this.dnsEditingAccount = account;
+          this.dnsEditAccountForm = {
+            name: account.name,
+            apiToken: '', // 不显示原 Token
+            email: account.email || ''
+          };
+          this.dnsEditAccountFormError = '';
+          this.dnsEditAccountFormSuccess = '';
+          this.showEditDnsAccountModal = true;
+        },
+        // 更新 CF 账号
+        async updateDnsAccount() {
+          if (!this.dnsEditAccountForm.name) {
+            this.dnsEditAccountFormError = '请填写账号名称';
+            return;
+          }
+
+          this.dnsSavingAccount = true;
+          this.dnsEditAccountFormError = '';
+          this.dnsEditAccountFormSuccess = '';
+
+          try {
+            const updateData = {
+              name: this.dnsEditAccountForm.name,
+              email: this.dnsEditAccountForm.email
+            };
+
+            // 如果填写了新的 Token，则包含在更新数据中
+            if (this.dnsEditAccountForm.apiToken) {
+              updateData.apiToken = this.dnsEditAccountForm.apiToken;
+            }
+
+            const response = await fetch(`/api/cf-dns/accounts/${this.dnsEditingAccount.id}`, {
+              method: 'PUT',
+              headers: this.getAuthHeaders(),
+              body: JSON.stringify(updateData)
+            });
+
+            const data = await response.json();
+            if (response.ok && data.success) {
+              this.dnsEditAccountFormSuccess = '账号更新成功！';
+              setTimeout(() => {
+                this.showEditDnsAccountModal = false;
+                this.loadDnsAccounts();
+              }, 1000);
+            } else {
+              this.dnsEditAccountFormError = data.error || '更新失败';
+            }
+          } catch (error) {
+            this.dnsEditAccountFormError = '更新失败: ' + error.message;
+          } finally {
+            this.dnsSavingAccount = false;
+          }
+        },
 
         // 加载域名列表
         async loadDnsZones() {
@@ -4708,6 +4935,11 @@
           this.dnsSelectedZoneId = zone.id;
           this.dnsSelectedZoneName = zone.name;
           this.loadDnsRecords();
+        },
+        // 选择DNS账号
+        selectDnsAccount(acc) {
+          this.dnsSelectedAccountId = acc.id;
+          this.loadDnsZones();
         },
 
         // 加载 DNS 记录
@@ -4820,6 +5052,61 @@
             }
           } catch (error) {
             this.showDnsToast('删除失败: ' + error.message, 'error');
+          }
+        },
+        // 切换全选 DNS 记录
+        toggleSelectAllDnsRecords(event) {
+          if (event.target.checked) {
+            this.dnsSelectedRecords = this.dnsRecords.map(r => r.id);
+          } else {
+            this.dnsSelectedRecords = [];
+          }
+        },
+        // 批量删除 DNS 记录
+        async batchDeleteDnsRecords() {
+          if (this.dnsSelectedRecords.length === 0) return;
+          
+          if (!confirm(`确定要删除选中的 ${this.dnsSelectedRecords.length} 条 DNS 记录吗？此操作不可恢复！`)) return;
+
+          const selectedCount = this.dnsSelectedRecords.length;
+          let successCount = 0;
+          let failedCount = 0;
+
+          // 显示删除进度
+          this.showDnsToast(`正在删除 ${selectedCount} 条记录...`, 'success');
+
+          for (const recordId of this.dnsSelectedRecords) {
+            try {
+              const response = await fetch(
+                `/api/cf-dns/accounts/${this.dnsSelectedAccountId}/zones/${this.dnsSelectedZoneId}/records/${recordId}`,
+                {
+                  method: 'DELETE',
+                  headers: this.getAuthHeaders()
+                }
+              );
+
+              const data = await response.json();
+              if (response.ok && data.success) {
+                successCount++;
+              } else {
+                failedCount++;
+              }
+            } catch (error) {
+              failedCount++;
+            }
+          }
+
+          // 清空选择
+          this.dnsSelectedRecords = [];
+
+          // 刷新记录列表
+          await this.loadDnsRecords();
+
+          // 显示结果
+          if (failedCount === 0) {
+            this.showDnsToast(`✅ 成功删除 ${successCount} 条记录`, 'success');
+          } else {
+            this.showDnsToast(`⚠️ 删除完成：成功 ${successCount} 条，失败 ${failedCount} 条`, 'error');
           }
         },
 

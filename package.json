@@ -1,7 +1,7 @@
 {
-  "name": "zeabur-monitor",
+  "name": "api-monitor",
   "version": "1.0.0",
-  "description": "Multi-account Zeabur monitoring dashboard",
+  "description": "Multi-api monitoring dashboard",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

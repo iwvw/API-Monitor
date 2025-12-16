@@ -1,30 +1,43 @@
 # 🚀 部署指南
 
-本指南将详细介绍如何将 API Monitor 部署到 Zeabur 平台。
+本指南详细介绍如何将 API Monitor 部署到各种平台。
 
-## 目录
+## 📋 目录
 
 - [前置准备](#前置准备)
-- [部署步骤](#部署步骤)
+- [Zeabur 部署（推荐）](#zeabur-部署推荐)
+- [Docker 部署](#docker-部署)
+- [其他平台部署](#其他平台部署)
 - [配置说明](#配置说明)
 - [常见问题](#常见问题)
 - [高级配置](#高级配置)
+- [故障排查](#故障排查)
 
 ## 前置准备
 
-### 1. 准备工作
+### 必需条件
 
-- ✅ 一个 GitHub 账号
-- ✅ 一个 Zeabur 账号（[注册地址](https://zeabur.com)）
-- ✅ 至少一个需要管理的服务账号（Zeabur / Cloudflare 等）
+- ✅ Node.js 18+ （本地开发）
+- ✅ Git（代码管理）
+- ✅ 至少一个需要管理的服务账号（Zeabur / Cloudflare / OpenAI 等）
 
-### 2. Fork 项目
+### 可选条件
 
-1. 访问项目仓库：https://github.com/your-username/api-monitor
+- GitHub 账号（用于 Zeabur 等平台部署）
+- Docker（用于容器化部署）
+- 云平台账号（Zeabur / Vercel / Railway 等）
+
+### Fork 项目（可选）
+
+如果需要自定义或贡献代码：
+
+1. 访问项目仓库：https://github.com/iwvw/api-monitor
 2. 点击右上角 **Fork** 按钮
 3. 将项目 Fork 到你的 GitHub 账号下
 
-## 部署步骤
+---
+
+## Zeabur 部署（推荐）
 
 ### 步骤 1：创建 Zeabur 项目
 
@@ -62,22 +75,216 @@
 ### 步骤 5：访问应用
 
 1. 点击生成的域名
-2. 首次访问会提示设置管理员密码
+2. 首次访问会提示设置管理员密码（至少 6 位）
 3. 设置密码后即可开始使用
+
+### 优势
+
+- ✅ **零配置部署** - 自动识别 Node.js 项目
+- ✅ **自动 HTTPS** - 免费 SSL 证书
+- ✅ **自动重启** - 代码更新后自动部署
+- ✅ **免费额度** - 每月 $5 免费额度
+- ✅ **全球 CDN** - 多地域节点
+
+---
+
+## Docker 部署
+
+### 使用 Docker Compose（推荐）
+
+1. **创建 `docker-compose.yml`**
+
+```yaml
+version: '3.8'
+
+services:
+  api-monitor:
+    image: ghcr.io/iwvw/api-monitor:latest
+    container_name: api-monitor
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - ADMIN_PASSWORD=your_secure_password_here
+    volumes:
+      - ./data:/app/config
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+```
+
+2. **启动服务**
+
+```bash
+docker-compose up -d
+```
+
+3. **查看日志**
+
+```bash
+docker-compose logs -f
+```
+
+4. **停止服务**
+
+```bash
+docker-compose down
+```
+
+### 使用 Docker 命令
+
+```bash
+# 拉取镜像
+docker pull ghcr.io/iwvw/api-monitor:latest
+
+# 运行容器
+docker run -d \
+  --name api-monitor \
+  -p 3000:3000 \
+  -e NODE_ENV=production \
+  -e ADMIN_PASSWORD="your_secure_password" \
+  -v $(pwd)/data:/app/config \
+  --restart unless-stopped \
+  ghcr.io/iwvw/api-monitor:latest
+
+# 查看日志
+docker logs -f api-monitor
+
+# 停止容器
+docker stop api-monitor
+
+# 删除容器
+docker rm api-monitor
+```
+
+### 构建自己的镜像
+
+```bash
+# 克隆项目
+git clone https://github.com/iwvw/api-monitor.git
+cd api-monitor
+
+# 构建镜像
+docker build -t api-monitor:latest .
+
+# 运行
+docker run -d -p 3000:3000 api-monitor:latest
+```
+
+---
+
+## 其他平台部署
+
+### Vercel 部署
+
+1. 导入项目到 Vercel
+2. 设置环境变量：
+   - `NODE_ENV=production`
+   - `ADMIN_PASSWORD=your_password`
+3. 部署
+
+> ⚠️ 注意：Vercel 是无服务器环境，会话数据会在函数冷启动时丢失
+
+### Railway 部署
+
+1. 连接 GitHub 仓库
+2. 选择项目
+3. 设置环境变量
+4. 部署
+
+### Render 部署
+
+1. 创建新的 Web Service
+2. 连接 GitHub 仓库
+3. 设置构建命令：`npm install`
+4. 设置启动命令：`npm start`
+5. 添加环境变量
+6. 部署
+
+### 传统服务器部署
+
+```bash
+# 1. 安装 Node.js 18+
+curl -fsSL https://deb.nodesource.com/setup_18.x | sudo -E bash -
+sudo apt-get install -y nodejs
+
+# 2. 克隆项目
+git clone https://github.com/iwvw/api-monitor.git
+cd api-monitor
+
+# 3. 安装依赖
+npm install
+
+# 4. 设置环境变量
+export NODE_ENV=production
+export ADMIN_PASSWORD=your_password
+
+# 5. 使用 PM2 管理进程
+npm install -g pm2
+pm2 start server.js --name api-monitor
+pm2 save
+pm2 startup
+
+# 6. 配置 Nginx 反向代理（可选）
+sudo nano /etc/nginx/sites-available/api-monitor
+```
+
+Nginx 配置示例：
+
+```nginx
+server {
+    listen 80;
+    server_name your-domain.com;
+
+    location / {
+        proxy_pass http://localhost:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_cache_bypass $http_upgrade;
+    }
+}
+```
+
+---
 
 ## 配置说明
 
-### 环境变量（可选）
+### 环境变量
 
-如果你想预配置，可以在 Zeabur 中设置环境变量：
+| 变量名 | 说明 | 默认值 | 必需 |
+|--------|------|--------|------|
+| `PORT` | 服务端口 | `3000` | 否 |
+| `NODE_ENV` | 运行环境 | `development` | 否 |
+| `ADMIN_PASSWORD` | 管理员密码 | - | 否* |
+| `CONFIG_DIR` | 配置文件目录 | `./config` | 否 |
+
+> *首次访问时可通过 Web 界面设置密码
+
+**在 Zeabur 中设置环境变量：**
 
 1. 在服务页面点击 **Variables**
-2. 添加以下环境变量：
+2. 添加需要的环境变量
+3. 保存后服务会自动重启
 
-| 变量名 | 说明 | 示例 |
+### 配置文件
+
+运行时会在 `config/` 目录下生成以下文件：
+
+| 文件名 | 说明 | 格式 |
 |--------|------|------|
-| `PORT` | 端口号（可选） | `3000` |
-| `ADMIN_PASSWORD` | 管理员密码（可选） | `your_password` |
+| `password.json` | 管理员密码 | JSON |
+| `sessions.json` | 会话数据 | JSON |
+| `zb-accounts.json` | Zeabur 账号 | JSON |
+| `cf-accounts.json` | Cloudflare 账号 | JSON |
+| `openai-endpoints.json` | OpenAI 端点 | JSON |
+
+> ⚠️ 这些文件包含敏感信息，请勿提交到 Git
 
 ### zbpack.json 配置
 
@@ -109,46 +316,106 @@
 
 ### Q3: 数据会丢失吗？
 
-**A**: 
-- 账号数据存储在配置文件中
-- Zeabur 的文件系统是临时的，重启后会丢失
-- **建议**：定期备份账号信息，或使用持久化存储
+**A**:
+- 账号数据存储在 `config/` 目录的配置文件中
+- **Zeabur/Docker**：默认文件系统是临时的，重启后会丢失
+- **解决方案**：
+  - 使用持久化存储（Volume）
+  - 定期备份配置文件
+  - 使用数据库存储（高级）
 
 ### Q4: 如何更新代码？
 
-**A**: 
-1. 在 GitHub 上更新你的代码
-2. 推送到仓库
-3. Zeabur 会自动检测并重新部署
-4. 或者在 Zeabur 控制台手动触发重新部署
+**A**:
+
+**Zeabur 部署：**
+1. 在 GitHub 上更新代码并推送
+2. Zeabur 会自动检测并重新部署
+3. 或在 Zeabur 控制台手动触发重新部署
+
+**Docker 部署：**
+```bash
+# 拉取最新镜像
+docker pull ghcr.io/iwvw/api-monitor:latest
+
+# 重启容器
+docker-compose down
+docker-compose up -d
+```
+
+**传统服务器：**
+```bash
+cd api-monitor
+git pull
+npm install
+pm2 restart api-monitor
+```
 
 ### Q5: 如何绑定自定义域名？
 
 **A**:
+
+**Zeabur：**
 1. 在服务页面点击 **Domains**
 2. 点击 **Add Domain**
-3. 输入你的域名（如 `monitor.example.com`）
-4. 在你的 DNS 服务商添加 CNAME 记录：
+3. 输入域名（如 `monitor.example.com`）
+4. 在 DNS 服务商添加 CNAME 记录：
    ```
    monitor.example.com  →  your-service.zeabur.app
    ```
-5. 等待 DNS 生效（通常 5-10 分钟）
+5. 等待 DNS 生效（5-10 分钟）
+
+**传统服务器：**
+配置 Nginx 反向代理（见上文）
 
 ### Q6: 如何添加持久化存储？
 
 **A**:
+
+**Zeabur：**
 1. 在项目中点击 **Add Service**
 2. 选择 **Prebuilt** → **Volumes**
-3. 创建一个卷（Volume）
-4. 在服务设置中挂载卷到 `/app/config`
-5. 数据将会持久化保存
+3. 创建卷并挂载到 `/app/config`
+
+**Docker：**
+```yaml
+volumes:
+  - ./data:/app/config  # 挂载本地目录
+```
 
 ### Q7: 费用如何计算？
 
 **A**:
-- Zeabur 提供每月 $5 的免费额度
-- 本项目资源消耗很小，通常在免费额度内
-- 可以在应用中实时查看 Zeabur 账号费用
+- **Zeabur**：每月 $5 免费额度，本项目通常在免费额度内
+- **Docker**：服务器成本（自行承担）
+- **Vercel/Railway**：有免费套餐
+- 可在应用中实时查看 Zeabur 账号费用
+
+### Q8: 会话过期怎么办？
+
+**A**:
+- 会话有效期为 2 天
+- 过期后需要重新登录
+- 服务器重启后会话会清空
+- 详见 [SESSION_AUTH.md](./SESSION_AUTH.md)
+
+### Q9: 如何备份配置？
+
+**A**:
+```bash
+# 备份配置文件
+cp -r config/ config_backup_$(date +%Y%m%d)/
+
+# 或使用 tar 打包
+tar -czf config_backup_$(date +%Y%m%d).tar.gz config/
+```
+
+### Q10: 支持多用户吗？
+
+**A**:
+- 当前版本只支持单个管理员账号
+- 多用户功能在规划中
+- 可通过多实例部署实现隔离
 
 ## 高级配置
 
@@ -269,7 +536,7 @@ Zeabur 自动为所有域名提供免费的 HTTPS 证书，无需额外配置。
 
 - [Zeabur 官网](https://zeabur.com)
 - [Zeabur 文档](https://zeabur.com/docs)
-- [项目 GitHub](https://github.com/your-username/api-monitor)
+- [项目 GitHub](https://github.com/iwvw/api-monitor)
 
 ---
 
