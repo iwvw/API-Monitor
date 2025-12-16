@@ -1,13 +1,26 @@
 /**
  * OpenAI API 集成模块
- * 
+ *
  * 支持 OpenAI 兼容的 API 端点
  * 用于验证 API Key 和获取模型列表
+ * 支持模型健康检查（流式 API 检测）
  */
 
 const https = require('https');
 const http = require('http');
 const { URL } = require('url');
+
+// 健康检查状态常量
+const HealthStatus = {
+  OPERATIONAL: 'operational',  // 延迟 ≤ 6s
+  DEGRADED: 'degraded',        // 延迟 > 6s
+  FAILED: 'failed',            // 请求失败或超时
+  UNKNOWN: 'unknown'           // 未检测
+};
+
+// 默认配置
+const DEFAULT_HEALTH_CHECK_TIMEOUT = 15000;  // 15 秒超时
+const DEGRADED_THRESHOLD = 6000;             // 6 秒阈值
 
 /**
  * 发送 HTTP 请求
@@ -231,6 +244,247 @@ async function testChatCompletion(baseUrl, apiKey, model = 'gpt-3.5-turbo') {
   }
 }
 
+// ==================== 模型健康检查 ====================
+
+/**
+ * 基于流式 API 的快速健康检查
+ * 接收到首个 chunk 即判定成功，无需等待完整响应
+ *
+ * @param {string} baseUrl - API 基础 URL
+ * @param {string} apiKey - API Key
+ * @param {string} model - 模型名称
+ * @param {number} timeout - 超时时间（毫秒），默认 15000
+ * @returns {Promise<Object>} 健康检查结果
+ */
+async function healthCheckModel(baseUrl, apiKey, model, timeout = DEFAULT_HEALTH_CHECK_TIMEOUT) {
+  const startTime = Date.now();
+  
+  return new Promise((resolve) => {
+    try {
+      // 构建 URL
+      let fullUrl = baseUrl.replace(/\/+$/, '');
+      if (!fullUrl.startsWith('http://') && !fullUrl.startsWith('https://')) {
+        fullUrl = 'https://' + fullUrl;
+      }
+      
+      const hasVersionPath = /\/v\d+\/?/.test(fullUrl);
+      if (!hasVersionPath) {
+        fullUrl += '/v1';
+      }
+      
+      const url = new URL('/chat/completions', fullUrl.endsWith('/') ? fullUrl : fullUrl + '/');
+      
+      console.log(`[Health Check] Testing model: ${model} at ${url.href}`);
+      
+      const isHttps = url.protocol === 'https:';
+      const httpModule = isHttps ? https : http;
+      
+      const requestBody = JSON.stringify({
+        model: model,
+        messages: [{ role: 'user', content: 'hi' }],
+        max_tokens: 1,
+        stream: true  // 使用流式 API
+      });
+      
+      const options = {
+        hostname: url.hostname,
+        port: url.port || (isHttps ? 443 : 80),
+        path: url.pathname + url.search,
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+          'Accept': 'text/event-stream',
+          'User-Agent': 'API-Monitor/1.0',
+          'Content-Length': Buffer.byteLength(requestBody)
+        },
+        timeout: timeout
+      };
+
+      const req = httpModule.request(options, (res) => {
+        let firstChunkReceived = false;
+        
+        res.on('data', (chunk) => {
+          if (!firstChunkReceived) {
+            firstChunkReceived = true;
+            const latency = Date.now() - startTime;
+            
+            // 收到首个 chunk 即判定成功
+            req.destroy();  // 立即关闭连接，不等待完整响应
+            
+            // 判断状态
+            let status;
+            if (res.statusCode >= 200 && res.statusCode < 300) {
+              status = latency <= DEGRADED_THRESHOLD ? HealthStatus.OPERATIONAL : HealthStatus.DEGRADED;
+            } else {
+              status = HealthStatus.FAILED;
+            }
+            
+            console.log(`[Health Check] ${model}: ${status} (${latency}ms)`);
+            
+            resolve({
+              model,
+              status,
+              latency,
+              statusCode: res.statusCode,
+              checkedAt: new Date().toISOString()
+            });
+          }
+        });
+        
+        res.on('end', () => {
+          if (!firstChunkReceived) {
+            const latency = Date.now() - startTime;
+            
+            // 没有收到任何数据
+            if (res.statusCode >= 200 && res.statusCode < 300) {
+              // 状态码正常但无数据，可能是非流式响应
+              const status = latency <= DEGRADED_THRESHOLD ? HealthStatus.OPERATIONAL : HealthStatus.DEGRADED;
+              resolve({
+                model,
+                status,
+                latency,
+                statusCode: res.statusCode,
+                checkedAt: new Date().toISOString()
+              });
+            } else {
+              resolve({
+                model,
+                status: HealthStatus.FAILED,
+                latency,
+                statusCode: res.statusCode,
+                error: `HTTP ${res.statusCode}`,
+                checkedAt: new Date().toISOString()
+              });
+            }
+          }
+        });
+        
+        res.on('error', (e) => {
+          if (!firstChunkReceived) {
+            resolve({
+              model,
+              status: HealthStatus.FAILED,
+              latency: Date.now() - startTime,
+              error: e.message,
+              checkedAt: new Date().toISOString()
+            });
+          }
+        });
+      });
+
+      req.on('error', (e) => {
+        resolve({
+          model,
+          status: HealthStatus.FAILED,
+          latency: Date.now() - startTime,
+          error: e.message,
+          checkedAt: new Date().toISOString()
+        });
+      });
+      
+      req.on('timeout', () => {
+        req.destroy();
+        resolve({
+          model,
+          status: HealthStatus.FAILED,
+          latency: timeout,
+          error: 'Request timeout',
+          checkedAt: new Date().toISOString()
+        });
+      });
+
+      req.write(requestBody);
+      req.end();
+    } catch (e) {
+      resolve({
+        model,
+        status: HealthStatus.FAILED,
+        latency: Date.now() - startTime,
+        error: e.message,
+        checkedAt: new Date().toISOString()
+      });
+    }
+  });
+}
+
+/**
+ * 批量健康检查多个模型
+ * 并发执行，提高效率
+ *
+ * @param {string} baseUrl - API 基础 URL
+ * @param {string} apiKey - API Key
+ * @param {string[]} models - 模型名称数组
+ * @param {number} timeout - 超时时间（毫秒）
+ * @param {number} concurrency - 最大并发数，默认 5
+ * @returns {Promise<Object[]>} 健康检查结果数组
+ */
+async function batchHealthCheck(baseUrl, apiKey, models, timeout = DEFAULT_HEALTH_CHECK_TIMEOUT, concurrency = 5) {
+  const results = [];
+  const queue = [...models];
+  
+  // 创建并发执行任务
+  const workers = [];
+  for (let i = 0; i < Math.min(concurrency, models.length); i++) {
+    workers.push((async () => {
+      while (queue.length > 0) {
+        const model = queue.shift();
+        if (model) {
+          const result = await healthCheckModel(baseUrl, apiKey, model, timeout);
+          results.push(result);
+        }
+      }
+    })());
+  }
+  
+  await Promise.all(workers);
+  
+  // 按原始顺序排序
+  const orderedResults = models.map(m => results.find(r => r.model === m)).filter(Boolean);
+  
+  return orderedResults;
+}
+
+/**
+ * 获取端点所有模型的健康状态汇总
+ */
+async function getEndpointHealthSummary(baseUrl, apiKey, models, timeout = DEFAULT_HEALTH_CHECK_TIMEOUT) {
+  if (!models || models.length === 0) {
+    return {
+      totalModels: 0,
+      operational: 0,
+      degraded: 0,
+      failed: 0,
+      results: [],
+      checkedAt: new Date().toISOString()
+    };
+  }
+  
+  const results = await batchHealthCheck(baseUrl, apiKey, models, timeout);
+  
+  const summary = {
+    totalModels: models.length,
+    operational: results.filter(r => r.status === HealthStatus.OPERATIONAL).length,
+    degraded: results.filter(r => r.status === HealthStatus.DEGRADED).length,
+    failed: results.filter(r => r.status === HealthStatus.FAILED).length,
+    results,
+    checkedAt: new Date().toISOString()
+  };
+  
+  // 计算整体状态
+  if (summary.failed === summary.totalModels) {
+    summary.overallStatus = HealthStatus.FAILED;
+  } else if (summary.operational === summary.totalModels) {
+    summary.overallStatus = HealthStatus.OPERATIONAL;
+  } else if (summary.failed > 0 || summary.degraded > 0) {
+    summary.overallStatus = HealthStatus.DEGRADED;
+  } else {
+    summary.overallStatus = HealthStatus.UNKNOWN;
+  }
+  
+  return summary;
+}
+
 /**
  * 获取端点状态信息
  */
@@ -273,5 +527,11 @@ module.exports = {
   verifyApiKey,
   listModels,
   testChatCompletion,
-  getEndpointStatus
+  getEndpointStatus,
+  healthCheckModel,
+  batchHealthCheck,
+  getEndpointHealthSummary,
+  HealthStatus,
+  DEFAULT_HEALTH_CHECK_TIMEOUT,
+  DEGRADED_THRESHOLD
 };

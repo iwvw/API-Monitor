@@ -32,7 +32,7 @@
       --bg-primary: #ffffff;
       --bg-secondary: #f9fafb;
       --bg-tertiary: #f3f4f6;
-      --text-primary: #111827;
+      --text-primary: #4e4e4e;
       --text-secondary: #4b5563;
       --text-tertiary: #6b7280;
       --border-color: #e5e7eb;
@@ -282,7 +282,7 @@
 
     .account-card {
       background-color: var(--card-bg);
-      border-radius: 10px;
+      border-radius: 14px;
       padding: 12px;
       margin-bottom: 12px;
       box-shadow: var(--card-shadow);
@@ -1179,7 +1179,9 @@
     }
 
     @keyframes spin {
-      to { transform: rotate(360deg); }
+      to {
+        transform: rotate(360deg);
+      }
     }
 
     /* DNS 管理相关样式 */
@@ -1584,8 +1586,8 @@
     }
 
     .proxied-on {
-      background: rgba(243, 128, 32, 0.2);
-      color: #fb923c;
+      background: linear-gradient(135deg, #27ae60, #2ecc71);
+      color: white;
     }
 
     .proxied-off {
@@ -2761,16 +2763,22 @@
 
         <!-- OpenAI 子标签页 -->
         <div class="dns-tabs">
-          <button class="dns-tab-btn" :class="{ active: openaiCurrentTab === 'endpoints' }" @click="openaiCurrentTab = 'endpoints'" style="background: var(--primary-color) !important;" v-if="openaiCurrentTab === 'endpoints'">
+          <button class="dns-tab-btn" :class="{ active: openaiCurrentTab === 'endpoints' }"
+            @click="openaiCurrentTab = 'endpoints'" style="background: var(--primary-color) !important;"
+            v-if="openaiCurrentTab === 'endpoints'">
             <i class="fas fa-server"></i> API 端点
           </button>
-          <button class="dns-tab-btn" :class="{ active: openaiCurrentTab === 'endpoints' }" @click="openaiCurrentTab = 'endpoints'" v-else>
+          <button class="dns-tab-btn" :class="{ active: openaiCurrentTab === 'endpoints' }"
+            @click="openaiCurrentTab = 'endpoints'" v-else>
             <i class="fas fa-server"></i> API 端点
           </button>
-          <button class="dns-tab-btn" :class="{ active: openaiCurrentTab === 'import' }" @click="openaiCurrentTab = 'import'" style="background: var(--primary-color) !important;" v-if="openaiCurrentTab === 'import'">
+          <button class="dns-tab-btn" :class="{ active: openaiCurrentTab === 'import' }"
+            @click="openaiCurrentTab = 'import'" style="background: var(--primary-color) !important;"
+            v-if="openaiCurrentTab === 'import'">
             <i class="fas fa-file-import"></i> 导入导出
           </button>
-          <button class="dns-tab-btn" :class="{ active: openaiCurrentTab === 'import' }" @click="openaiCurrentTab = 'import'" v-else>
+          <button class="dns-tab-btn" :class="{ active: openaiCurrentTab === 'import' }"
+            @click="openaiCurrentTab = 'import'" v-else>
             <i class="fas fa-file-import"></i> 导入导出
           </button>
         </div>
@@ -2778,104 +2786,117 @@
         <!-- API 端点标签页 -->
         <div v-if="openaiCurrentTab === 'endpoints'">
           <!-- <div class="panel"> -->
-            <div class="panel-header">
-              <div class="panel-title">OpenAI 兼容 API 端点</div>
-              <div style="display: flex; gap: 8px;">
-                <button class="btn btn-success" style="padding: 6px 12px;" @click="openAddOpenaiEndpointModal">
-                  <i class="fas fa-plus"></i> 添加端点
-                </button>
-                <button class="btn btn-secondary" style="padding: 6px 10px;" @click="refreshAllOpenaiEndpoints" :disabled="openaiRefreshing">
-                  <i class="fas fa-sync-alt" :class="{ 'fa-spin': openaiRefreshing }"></i> 刷新全部
-                </button>
-              </div>
+          <div class="panel-header">
+            <div class="panel-title">OpenAI 兼容 API 端点</div>
+            <div style="display: flex; gap: 8px;">
+              <button class="btn btn-success" style="padding: 6px 12px;" @click="openAddOpenaiEndpointModal">
+                <i class="fas fa-plus"></i> 添加端点
+              </button>
+              <button class="btn btn-secondary" style="padding: 6px 10px;" @click="refreshAllOpenaiEndpoints"
+                :disabled="openaiRefreshing">
+                <i class="fas fa-sync-alt" :class="{ 'fa-spin': openaiRefreshing }"></i> 刷新全部
+              </button>
             </div>
+          </div>
 
-            <div v-if="openaiLoading" class="loading">
-              <div class="spinner"></div>
-              <div style="margin-top: 12px;">加载中...</div>
-            </div>
+          <div v-if="openaiLoading" class="loading">
+            <div class="spinner"></div>
+            <div style="margin-top: 12px;">加载中...</div>
+          </div>
 
-            <!-- 端点卡片列表 -->
-            <div v-else>
-              <div v-for="endpoint in openaiEndpoints" :key="endpoint.id" class="account-card" style="margin-bottom: 12px;">
-                <!-- 端点头部 - 可点击展开模型列表 -->
-                <div class="account-header" @click="toggleOpenaiModels(endpoint.id)" style="cursor: pointer;">
-                  <div class="account-info" style="flex: 1;">
-                    <span style="font-size: 20px; transition: transform 0.3s; display: inline-flex; align-items: center;">
-                      <i class="fas fa-chevron-right toggle-icon" :style="{
+          <!-- 端点卡片列表 -->
+          <div v-else>
+            <div v-for="endpoint in openaiEndpoints" :key="endpoint.id" class="account-card"
+              style="margin-bottom: 12px;">
+              <!-- 端点头部 - 可点击展开模型列表 -->
+              <div class="account-header" @click="toggleOpenaiModels(endpoint.id)" style="cursor: pointer;">
+                <div class="account-info" style="flex: 1;">
+                  <span style="font-size: 20px; transition: transform 0.3s; display: inline-flex; align-items: center;">
+                    <i class="fas fa-chevron-right toggle-icon" :style="{
                         transition: 'transform 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
                         transform: isOpenaiEndpointExpanded(endpoint.id) ? 'rotate(90deg)' : 'rotate(0deg)'
                       }"></i>
-                    </span>
-                    <div style="flex: 1;">
-                      <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                        <strong style="font-size: 15px;">{{ endpoint.name || '未命名' }}</strong>
-                        <span class="proxied-badge" :class="endpoint.status === 'valid' ? 'proxied-on' : (endpoint.status === 'invalid' ? 'proxied-off' : '')">
-                          {{ endpoint.status === 'valid' ? '有效' : (endpoint.status === 'invalid' ? '无效' : '未验证') }}
-                        </span>
-                        <span v-if="endpoint.models && endpoint.models.length > 0" style="font-size: 12px; color: var(--text-tertiary);">
-                          {{ endpoint.models.length }} 个模型
-                        </span>
-                      </div>
-                      <div style="font-size: 12px; color: var(--text-secondary); margin-top: 4px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
-                        <span style="display: flex; align-items: center; gap: 4px;">
-                          <i class="fas fa-link" style="font-size: 10px;"></i>
-                          <span style="font-family: monospace;">{{ endpoint.baseUrl }}</span>
-                          <button class="copy-btn" @click.stop="copyToClipboard(endpoint.baseUrl)" title="复制地址" style="padding: 2px 4px;">
-                            <i class="fas fa-copy"></i>
-                          </button>
-                        </span>
-                        <span style="display: flex; align-items: center; gap: 4px;">
-                          <i class="fas fa-key" style="font-size: 10px;"></i>
-                          <span style="font-family: monospace;">{{ endpoint.showKey ? endpoint.apiKey : maskApiKey(endpoint.apiKey) }}</span>
-                          <button class="copy-btn" @click.stop="endpoint.showKey = !endpoint.showKey" :title="endpoint.showKey ? '隐藏' : '显示'" style="padding: 2px 4px;">
-                            <i class="fas" :class="endpoint.showKey ? 'fa-eye-slash' : 'fa-eye'"></i>
-                          </button>
-                          <button class="copy-btn" @click.stop="copyToClipboard(endpoint.apiKey)" title="复制 Key" style="padding: 2px 4px;">
-                            <i class="fas fa-copy"></i>
-                          </button>
-                        </span>
-                      </div>
-                      <div v-if="endpoint.notes" style="font-size: 11px; color: var(--text-tertiary); margin-top: 4px;">
-                        {{ endpoint.notes }}
-                      </div>
+                  </span>
+                  <div style="flex: 1;">
+                    <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                      <strong style="font-size: 15px;">{{ endpoint.name || '未命名' }}</strong>
+                      <span class="proxied-badge"
+                        :class="endpoint.status === 'valid' ? 'proxied-on' : (endpoint.status === 'invalid' ? 'proxied-off' : '')">
+                        {{ endpoint.status === 'valid' ? '有效' : (endpoint.status === 'invalid' ? '无效' : '未验证') }}
+                      </span>
+                      <span v-if="endpoint.models && endpoint.models.length > 0"
+                        style="font-size: 12px; color: var(--text-tertiary);">
+                        {{ endpoint.models.length }} 个模型
+                      </span>
                     </div>
-                  </div>
-                  <div style="display: flex; gap: 6px;" @click.stop>
-                    <button class="openai-action-btn refresh" @click="verifyOpenaiEndpoint(endpoint)" title="刷新模型列表">
-                      <i class="fas fa-sync-alt"></i>
-                    </button>
-                    <button class="openai-action-btn edit" @click="editOpenaiEndpoint(endpoint)" title="编辑">
-                      <i class="fas fa-edit"></i>
-                    </button>
-                    <button class="openai-action-btn delete" @click="deleteOpenaiEndpoint(endpoint)" title="删除">
-                      <i class="fas fa-trash"></i>
-                    </button>
+                    <div
+                      style="font-size: 12px; color: var(--text-secondary); margin-top: 4px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+                      <span style="display: flex; align-items: center; gap: 4px;">
+                        <i class="fas fa-link" style="font-size: 10px;"></i>
+                        <span style="font-family: monospace;">{{ endpoint.baseUrl }}</span>
+                        <button class="copy-btn" @click.stop="copyToClipboard(endpoint.baseUrl)" title="复制地址"
+                          style="padding: 2px 4px;">
+                          <i class="fas fa-copy"></i>
+                        </button>
+                        <!-- 新增：进行“在新标签页打开”的按钮 -->
+                        <a :href="endpoint.baseUrl" target="_blank" rel="noopener noreferrer" title="在新标签页打开"
+                          class="copy-btn" style="padding: 2px 4px;">
+                          <i class="fas fa-external-link-alt"></i>
+                        </a>
+                      </span>
+
+                      <span style="display: flex; align-items: center; gap: 4px;">
+                        <i class="fas fa-key" style="font-size: 10px;"></i>
+                        <span style="font-family: monospace;">{{ endpoint.showKey ? endpoint.apiKey :
+                          maskApiKey(endpoint.apiKey) }}</span>
+                        <button class="copy-btn" @click.stop="endpoint.showKey = !endpoint.showKey"
+                          :title="endpoint.showKey ? '隐藏' : '显示'" style="padding: 2px 4px;">
+                          <i class="fas" :class="endpoint.showKey ? 'fa-eye-slash' : 'fa-eye'"></i>
+                        </button>
+                        <button class="copy-btn" @click.stop="copyToClipboard(endpoint.apiKey)" title="复制 Key"
+                          style="padding: 2px 4px;">
+                          <i class="fas fa-copy"></i>
+                        </button>
+                      </span>
+                    </div>
+                    <div v-if="endpoint.notes" style="font-size: 11px; color: var(--text-tertiary); margin-top: 4px;">
+                      {{ endpoint.notes }}
+                    </div>
                   </div>
                 </div>
-
-                <!-- 模型列表 - 可展开/收起 -->
-                <div class="openai-models-container" :class="{ 'collapsed': !isOpenaiEndpointExpanded(endpoint.id) }">
-                  <div v-if="endpoint.models && endpoint.models.length > 0" class="models-grid">
-                    <div v-for="model in endpoint.models" :key="getModelName(model)"
-                         class="model-tag-item"
-                         @click="copyToClipboard(getModelName(model))"
-                         :title="'点击复制: ' + getModelName(model)">
-                      {{ getModelName(model) }}
-                    </div>
-                  </div>
-                  <div v-else style="padding: 20px; text-align: center; color: var(--text-tertiary);">
-                    <i class="fas fa-cube" style="font-size: 20px; margin-bottom: 8px; display: block;"></i>
-                    暂无模型数据，点击刷新按钮获取
-                  </div>
+                <div style="display: flex; gap: 6px;" @click.stop>
+                  <button class="openai-action-btn refresh" @click="verifyOpenaiEndpoint(endpoint)" title="刷新模型列表">
+                    <i class="fas fa-sync-alt"></i>
+                  </button>
+                  <button class="openai-action-btn edit" @click="editOpenaiEndpoint(endpoint)" title="编辑">
+                    <i class="fas fa-edit"></i>
+                  </button>
+                  <button class="openai-action-btn delete" @click="deleteOpenaiEndpoint(endpoint)" title="删除">
+                    <i class="fas fa-trash"></i>
+                  </button>
                 </div>
               </div>
 
-              <div v-if="openaiEndpoints.length === 0" class="empty-state" style="padding: 40px;">
-                <i class="fas fa-robot" style="font-size: 48px; margin-bottom: 16px;"></i>
-                <div>暂无 API 端点，点击上方按钮添加</div>
+              <!-- 模型列表 - 可展开/收起 -->
+              <div class="openai-models-container" :class="{ 'collapsed': !isOpenaiEndpointExpanded(endpoint.id) }">
+                <div v-if="endpoint.models && endpoint.models.length > 0" class="models-grid">
+                  <div v-for="model in endpoint.models" :key="getModelName(model)" class="model-tag-item"
+                    @click="copyToClipboard(getModelName(model))" :title="'点击复制: ' + getModelName(model)">
+                    {{ getModelName(model) }}
+                  </div>
+                </div>
+                <div v-else style="padding: 20px; text-align: center; color: var(--text-tertiary);">
+                  <i class="fas fa-cube" style="font-size: 20px; margin-bottom: 8px; display: block;"></i>
+                  暂无模型数据，点击刷新按钮获取
+                </div>
               </div>
             </div>
+
+            <div v-if="openaiEndpoints.length === 0" class="empty-state" style="padding: 40px;">
+              <i class="fas fa-robot" style="font-size: 48px; margin-bottom: 16px;"></i>
+              <div>暂无 API 端点，点击上方按钮添加</div>
+            </div>
+          </div>
           <!-- </div> -->
         </div>
 
@@ -2891,7 +2912,7 @@
               <div style="padding: 16px; border: 1px solid var(--border-color); border-radius: 8px;">
                 <h3 style="margin-bottom: 12px; font-size: 16px;"><i class="fas fa-download"></i> 导出端点</h3>
                 <p style="color: var(--text-secondary); font-size: 13px; margin-bottom: 16px;">
-                  导出所有 API 端点配置为 JSON 文件，包含 API 地址和 Key（明文）。
+                  导出所有 API 端点配置为 JSON 文件（明文）。
                 </p>
                 <button class="btn btn-primary" @click="exportOpenaiEndpoints" style="width: 100%;">
                   <i class="fas fa-download"></i> 导出全部端点
@@ -2923,8 +2944,10 @@
 [{"name": "示例", "baseUrl": "https://api.example.com", "apiKey": "sk-xxx"}]'
                 style="min-height: 150px; font-family: monospace; font-size: 12px;"></textarea>
               <div v-if="openaiBatchError" class="form-error" style="margin-top: 8px;">{{ openaiBatchError }}</div>
-              <div v-if="openaiBatchSuccess" class="form-success" style="margin-top: 8px;">{{ openaiBatchSuccess }}</div>
-              <button class="btn btn-primary" @click="batchAddOpenaiEndpoints" :disabled="openaiAdding" style="width: 100%; margin-top: 12px;">
+              <div v-if="openaiBatchSuccess" class="form-success" style="margin-top: 8px;">{{ openaiBatchSuccess }}
+              </div>
+              <button class="btn btn-primary" @click="batchAddOpenaiEndpoints" :disabled="openaiAdding"
+                style="width: 100%; margin-top: 12px;">
                 {{ openaiAdding ? '添加中...' : '批量添加' }}
               </button>
             </div>
@@ -2952,12 +2975,14 @@
 
             <div class="form-group">
               <label class="form-label">API Key *</label>
-              <input v-model="openaiEndpointForm.apiKey" type="text" class="form-input" placeholder="sk-xxxxxxxx" style="font-family: monospace;" />
+              <input v-model="openaiEndpointForm.apiKey" type="text" class="form-input" placeholder="sk-xxxxxxxx"
+                style="font-family: monospace;" />
             </div>
 
             <div class="form-group">
               <label class="form-label">备注</label>
-              <textarea v-model="openaiEndpointForm.notes" class="form-textarea" placeholder="可选备注信息" style="min-height: 60px;"></textarea>
+              <textarea v-model="openaiEndpointForm.notes" class="form-textarea" placeholder="可选备注信息"
+                style="min-height: 60px;"></textarea>
             </div>
 
             <div v-if="openaiEndpointFormError" class="form-error">{{ openaiEndpointFormError }}</div>
@@ -3333,8 +3358,8 @@
         maskEmail(email) {
           if (!email || !email.includes('@')) return email;
           const [local, domain] = email.split('@');
-          if (local.length <= 4) return email;
-          const masked = local.substring(0, 2) + 'x'.repeat(local.length - 4) + local.substring(local.length - 2);
+          if (local.length <= 14) return email;
+          const masked = local.substring(0, 2) + '*'.repeat(local.length - 4) + local.substring(local.length - 2);
           return masked + '@' + domain;
         },
         // 获取请求头（包含密码）
@@ -5373,7 +5398,7 @@
 
                 const data = await response.json();
                 if (data.success) {
-                  this.showOpenaiToast(`成功导入 ${data.imported || 0} 个端点`, 'success');
+                  this.showOpenaiToast(`成功导入`, 'success');
                   await this.loadOpenaiEndpoints();
                 } else {
                   this.showOpenaiToast('导入失败: ' + (data.error || '未知错误'), 'error');

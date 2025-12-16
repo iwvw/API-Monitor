@@ -11,6 +11,7 @@ const path = require('path');
 // 配置目录
 const CONFIG_DIR = process.env.CONFIG_DIR || path.join(__dirname, '../../config');
 const ENDPOINTS_FILE = path.join(CONFIG_DIR, 'openai-endpoints.json');
+const HEALTH_FILE = path.join(CONFIG_DIR, 'openai-health.json');
 
 // 确保配置目录存在
 function ensureConfigDir() {
@@ -84,7 +85,7 @@ function updateEndpoint(id, updates) {
   if (index === -1) return null;
   
   // 只更新允许的字段
-  const allowed = ['name', 'baseUrl', 'apiKey', 'notes', 'status', 'models', 'lastUsed', 'lastChecked'];
+  const allowed = ['name', 'baseUrl', 'apiKey', 'notes', 'status', 'models', 'lastUsed', 'lastChecked', 'healthStatus', 'lastHealthCheck'];
   allowed.forEach(key => {
     if (updates[key] !== undefined) {
       endpoints[index][key] = updates[key];
@@ -176,6 +177,96 @@ function exportEndpoints() {
   return getEndpoints();
 }
 
+// ==================== 健康状态管理 ====================
+
+/**
+ * 获取所有健康状态数据
+ */
+function getHealthData() {
+  try {
+    ensureConfigDir();
+    if (fs.existsSync(HEALTH_FILE)) {
+      const data = fs.readFileSync(HEALTH_FILE, 'utf8');
+      return JSON.parse(data);
+    }
+  } catch (e) {
+    console.error('❌ 读取健康状态失败:', e.message);
+  }
+  return {};
+}
+
+/**
+ * 保存健康状态数据
+ */
+function saveHealthData(healthData) {
+  try {
+    ensureConfigDir();
+    fs.writeFileSync(HEALTH_FILE, JSON.stringify(healthData, null, 2), 'utf8');
+    return true;
+  } catch (e) {
+    console.error('❌ 保存健康状态失败:', e.message);
+    return false;
+  }
+}
+
+/**
+ * 更新单个模型的健康状态
+ * @param {string} endpointId - 端点 ID
+ * @param {string} model - 模型名称
+ * @param {Object} healthResult - 健康检查结果
+ */
+function updateModelHealth(endpointId, model, healthResult) {
+  const healthData = getHealthData();
+  
+  if (!healthData[endpointId]) {
+    healthData[endpointId] = {};
+  }
+  
+  healthData[endpointId][model] = {
+    status: healthResult.status,
+    latency: healthResult.latency,
+    error: healthResult.error || null,
+    checkedAt: healthResult.checkedAt
+  };
+  
+  saveHealthData(healthData);
+  return healthData[endpointId][model];
+}
+
+/**
+ * 获取端点的所有模型健康状态
+ */
+function getEndpointHealth(endpointId) {
+  const healthData = getHealthData();
+  return healthData[endpointId] || {};
+}
+
+/**
+ * 获取单个模型的健康状态
+ */
+function getModelHealth(endpointId, model) {
+  const healthData = getHealthData();
+  return healthData[endpointId]?.[model] || null;
+}
+
+/**
+ * 清除端点的健康状态数据
+ */
+function clearEndpointHealth(endpointId) {
+  const healthData = getHealthData();
+  if (healthData[endpointId]) {
+    delete healthData[endpointId];
+    saveHealthData(healthData);
+  }
+}
+
+/**
+ * 清除所有健康状态数据
+ */
+function clearAllHealthData() {
+  saveHealthData({});
+}
+
 module.exports = {
   getEndpoints,
   addEndpoint,
@@ -184,5 +275,11 @@ module.exports = {
   getEndpointById,
   touchEndpoint,
   importEndpoints,
-  exportEndpoints
+  exportEndpoints,
+  // 健康状态相关
+  updateModelHealth,
+  getEndpointHealth,
+  getModelHealth,
+  clearEndpointHealth,
+  clearAllHealthData
 };

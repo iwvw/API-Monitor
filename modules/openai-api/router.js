@@ -238,12 +238,185 @@ router.post('/endpoints/:id/test', async (req, res) => {
 
     storage.touchEndpoint(id);
     const result = await openaiApi.testChatCompletion(
-      endpoint.baseUrl, 
-      endpoint.apiKey, 
+      endpoint.baseUrl,
+      endpoint.apiKey,
       model || 'gpt-3.5-turbo'
     );
 
     res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ==================== 健康检查 ====================
+
+/**
+ * 单个模型健康检查
+ * 使用流式 API，接收首个 chunk 即判定成功
+ */
+router.post('/endpoints/:id/health-check', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { model, timeout } = req.body;
+    
+    if (!model) {
+      return res.status(400).json({ error: '模型名称必填' });
+    }
+    
+    const endpoint = storage.getEndpointById(id);
+    if (!endpoint) {
+      return res.status(404).json({ error: '端点不存在' });
+    }
+
+    storage.touchEndpoint(id);
+    const result = await openaiApi.healthCheckModel(
+      endpoint.baseUrl,
+      endpoint.apiKey,
+      model,
+      timeout || openaiApi.DEFAULT_HEALTH_CHECK_TIMEOUT
+    );
+
+    // 更新存储中的模型健康状态
+    storage.updateModelHealth(id, model, result);
+
+    res.json(result);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * 批量健康检查端点的所有模型
+ */
+router.post('/endpoints/:id/health-check-all', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { timeout, concurrency } = req.body;
+    
+    const endpoint = storage.getEndpointById(id);
+    if (!endpoint) {
+      return res.status(404).json({ error: '端点不存在' });
+    }
+
+    const models = endpoint.models || [];
+    if (models.length === 0) {
+      return res.json({
+        success: true,
+        totalModels: 0,
+        message: '该端点没有模型可供检测'
+      });
+    }
+
+    storage.touchEndpoint(id);
+    const summary = await openaiApi.getEndpointHealthSummary(
+      endpoint.baseUrl,
+      endpoint.apiKey,
+      models,
+      timeout || openaiApi.DEFAULT_HEALTH_CHECK_TIMEOUT
+    );
+
+    // 更新所有模型的健康状态
+    for (const result of summary.results) {
+      storage.updateModelHealth(id, result.model, result);
+    }
+
+    // 更新端点的整体健康状态
+    storage.updateEndpoint(id, {
+      healthStatus: summary.overallStatus,
+      lastHealthCheck: summary.checkedAt
+    });
+
+    res.json({
+      success: true,
+      ...summary
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * 获取端点的健康状态（包括所有模型）
+ */
+router.get('/endpoints/:id/health', (req, res) => {
+  try {
+    const { id } = req.params;
+    const endpoint = storage.getEndpointById(id);
+    if (!endpoint) {
+      return res.status(404).json({ error: '端点不存在' });
+    }
+
+    const healthData = storage.getEndpointHealth(id);
+    
+    res.json({
+      endpointId: id,
+      healthStatus: endpoint.healthStatus || 'unknown',
+      lastHealthCheck: endpoint.lastHealthCheck || null,
+      models: healthData
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * 批量健康检查所有端点的所有模型
+ */
+router.post('/health-check-all', async (req, res) => {
+  try {
+    const { timeout, concurrency } = req.body;
+    const endpoints = storage.getEndpoints();
+    const results = [];
+
+    for (const endpoint of endpoints) {
+      const models = endpoint.models || [];
+      if (models.length === 0) {
+        results.push({
+          endpointId: endpoint.id,
+          name: endpoint.name,
+          totalModels: 0,
+          skipped: true
+        });
+        continue;
+      }
+
+      try {
+        const summary = await openaiApi.getEndpointHealthSummary(
+          endpoint.baseUrl,
+          endpoint.apiKey,
+          models,
+          timeout || openaiApi.DEFAULT_HEALTH_CHECK_TIMEOUT
+        );
+
+        // 更新存储
+        for (const result of summary.results) {
+          storage.updateModelHealth(endpoint.id, result.model, result);
+        }
+        storage.updateEndpoint(endpoint.id, {
+          healthStatus: summary.overallStatus,
+          lastHealthCheck: summary.checkedAt
+        });
+
+        results.push({
+          endpointId: endpoint.id,
+          name: endpoint.name,
+          ...summary
+        });
+      } catch (e) {
+        results.push({
+          endpointId: endpoint.id,
+          name: endpoint.name,
+          error: e.message
+        });
+      }
+    }
+
+    res.json({
+      success: true,
+      checkedAt: new Date().toISOString(),
+      endpoints: results
+    });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -259,7 +432,7 @@ router.get('/export', (req, res) => {
     const endpoints = storage.exportEndpoints();
     res.json({
       success: true,
-      data: endpoints,
+      endpoints: endpoints,
       exportedAt: new Date().toISOString()
     });
   } catch (e) {
