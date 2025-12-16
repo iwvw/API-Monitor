@@ -8,8 +8,9 @@
   padding-bottom: 12px;
 }
 
-.dns-tab-btn {
-  padding: 8px 16px;
+.tab-btn {
+  width: 12%;
+  padding: 8px 8px;
   border: none;
   background: none;
   cursor: pointer;
@@ -20,12 +21,12 @@
   transition: all 0.2s;
 }
 
-.dns-tab-btn.active {
+.tab-btn.active {
   background: var(--cf-color);
   color: white;
 }
 
-.dns-tab-btn:hover:not(.active) {
+.tab-btn:hover:not(.active) {
   background: var(--bg-secondary);
 }
 
@@ -267,7 +268,7 @@
     min-width: auto;
   }
 
-  .dns-tab-btn {
+  .tab-btn {
     padding: 6px 10px;
     font-size: 12px;
   }

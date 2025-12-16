@@ -15,12 +15,12 @@
   font-size: 15px;
   font-weight: 600;
   color: var(--text-secondary);
-  border-bottom: 3px solid transparent;
   margin-bottom: -2px;
-  transition: all 0.2s;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   display: flex;
   align-items: center;
   gap: 8px;
+  position: relative;
 }
 
 .main-tab:hover {
@@ -30,7 +30,6 @@
 
 .main-tab.active {
   color: var(--primary-color);
-  border-bottom-color: var(--primary-color);
 }
 
 .main-tab.dns-tab:hover {
@@ -39,7 +38,6 @@
 
 .main-tab.dns-tab.active {
   color: var(--cf-color);
-  border-bottom-color: var(--cf-color);
 }
 
 .main-tab.openai-tab:hover {
@@ -48,7 +46,6 @@
 
 .main-tab.openai-tab.active {
   color: var(--primary-color);
-  border-bottom-color: var(--primary-color);
 }
 
 @media (max-width: 768px) {

@@ -32,6 +32,7 @@ Thumbs.db
 config/
 .example
 ./backup
+todo.md
 
 # 构建输出
 dist/

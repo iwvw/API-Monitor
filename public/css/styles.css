@@ -218,8 +218,9 @@ body.modal-open {
 }
 
 .btn.icon-only {
+  width: 30px;
   padding: 8px;
-  min-width: 36px;
+  min-width: 30px;
   justify-content: center;
 }
 

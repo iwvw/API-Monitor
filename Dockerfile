@@ -6,8 +6,8 @@ FROM node:18-alpine
 
 # 添加元数据标签
 LABEL org.opencontainers.image.title="API Monitor"
-LABEL org.opencontainers.image.description="统一的 API 管理面板 - 支持 Zeabur、Cloudflare DNS 等服务"
-LABEL org.opencontainers.image.source="https://github.com/salist01/api-monitor"
+LABEL org.opencontainers.image.description="统一的 API 管理面板"
+LABEL org.opencontainers.image.source="https://github.com/iwvw/api-monitor"
 LABEL org.opencontainers.image.licenses="MIT"
 
 # 安装 curl 用于健康检查
