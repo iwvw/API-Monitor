@@ -1,0 +1,68 @@
+# ===================================
+# API Monitor Docker Compose
+# ===================================
+# 用于本地开发和部署的 Docker Compose 配置
+
+version: '3.8'
+
+services:
+  api-monitor:
+    image: ghcr.io/iwvw/api-monitor:latest
+    container_name: api-monitor
+    restart: unless-stopped
+
+    # 端口映射
+    ports:
+      - "3000:3000"
+
+    # 环境变量
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      # 可选：设置管理员密码（建议使用 .env 文件）
+      # - ADMIN_PASSWORD=your_password_here
+      # 可选：配置 Zeabur 账号（建议使用 .env 文件或 Web UI 添加）
+      # - ZEABUR_ACCOUNTS=[{"name":"账号1","token":"token1"},{"name":"账号2","token":"token2"}]
+
+    # 环境变量文件（推荐方式）
+    env_file:
+      - .env
+
+    # 数据持久化
+    volumes:
+      # 配置文件持久化
+      - ./config:/app/config
+      # 数据库持久化
+      - ./data:/app/data
+
+    # 健康检查
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 5s
+
+    # 资源限制（可选）
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+
+    # 网络配置
+    networks:
+      - api-monitor-network
+
+# 网络定义
+networks:
+  api-monitor-network:
+    driver: bridge
+
+# 卷定义（可选，使用命名卷）
+# volumes:
+#   config:
+#   data:
