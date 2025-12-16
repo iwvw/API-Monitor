@@ -1,0 +1,207 @@
+/* Table & Panel Styles */
+
+.panel {
+  line-height: 1;
+  background: var(--card-bg);
+  border-radius: 10px;
+  padding: 16px;
+  box-shadow: var(--card-shadow);
+  border: 1px solid var(--border-color);
+  margin-bottom: 16px;
+}
+
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.panel-title {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.table-container {
+  overflow-x: auto;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  table-layout: fixed;
+}
+
+.data-table th,
+.data-table td {
+  padding: 10px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-primary);
+  overflow: hidden;
+}
+
+.data-table th {
+  background: var(--bg-secondary);
+  font-weight: 600;
+  color: var(--text-secondary);
+  position: sticky;
+  top: 0;
+  white-space: nowrap;
+}
+
+.data-table tr:hover {
+  background: var(--bg-secondary);
+}
+
+.data-table .actions {
+  display: flex;
+  gap: 6px;
+}
+
+.data-table td:nth-child(1) {
+  width: 60px;
+}
+
+.data-table td:nth-child(2) {
+  width: 150px;
+}
+
+.data-table td:nth-child(3) {
+  width: auto;
+  min-width: 150px;
+}
+
+.data-table td:nth-child(4) {
+  width: 70px;
+}
+
+.data-table td:nth-child(5) {
+  width: 100%;
+}
+
+.data-table td:nth-child(6) {
+  width: 100px;
+}
+
+/* OpenAI Table */
+.openai-table-container {
+  overflow-x: auto;
+  max-width: 100%;
+  -webkit-overflow-scrolling: touch;
+}
+
+.openai-table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  table-layout: auto;
+}
+
+.openai-table th,
+.openai-table td {
+  padding: 10px 16px;
+  text-align: left;
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.openai-table th {
+  background: var(--bg-secondary);
+  font-weight: 600;
+  color: var(--text-secondary);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.openai-table tr:hover {
+  background: var(--bg-secondary);
+}
+
+.openai-table .actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: nowrap;
+}
+
+.openai-table .cell-name {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.openai-table .cell-url {
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: monospace;
+  font-size: 12px;
+}
+
+.openai-table .cell-key {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: monospace;
+  font-size: 12px;
+}
+
+.openai-table .cell-models {
+  max-width: 300px;
+}
+
+.copy-btn {
+  padding: 4px 8px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--text-secondary);
+  transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.copy-btn:hover {
+  background: var(--primary-color);
+  color: white;
+  border-color: var(--primary-color);
+}
+
+.copy-btn.copied {
+  background: var(--success-color);
+  color: white;
+  border-color: var(--success-color);
+}
+
+@media (max-width: 480px) {
+  .openai-table-container {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .openai-table {
+    min-width: 100%;
+    font-size: 12px;
+  }
+
+  .openai-table th,
+  .openai-table td {
+    padding: 8px 10px;
+    white-space: nowrap;
+  }
+
+  .openai-table .cell-url,
+  .openai-table .cell-key,
+  .openai-table .cell-name {
+    max-width: none;
+    white-space: nowrap;
+  }
+}

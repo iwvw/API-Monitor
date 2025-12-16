@@ -7,9 +7,10 @@ node_modules/
 # 服务器存储的账号数据（包含 API Token）
 accounts.json
 
-# 管理员密码文件
+# 敏感文件
 password.json
 sessions.json
+
 # 日志
 *.log
 npm-debug.log*
@@ -29,3 +30,10 @@ Thumbs.db
 *.tmp
 .cache/
 config/
+.example
+./backup
+
+# 构建输出
+dist/
+build/
+out/
