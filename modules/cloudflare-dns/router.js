@@ -35,16 +35,18 @@ router.get('/accounts', (req, res) => {
  */
 router.post('/accounts', async (req, res) => {
   try {
-    const { name, apiToken, email } = req.body;
-    
+    const { name, apiToken, email, skipVerify } = req.body;
+
     if (!name || !apiToken) {
       return res.status(400).json({ error: '名称和 API Token 必填' });
     }
 
-    // 验证 Token
-    const verification = await cfApi.verifyToken(apiToken);
-    if (!verification.valid) {
-      return res.status(400).json({ error: `Token 无效: ${verification.error}` });
+    // 验证 Token（除非明确跳过验证，用于数据导入）
+    if (!skipVerify) {
+      const verification = await cfApi.verifyToken(apiToken);
+      if (!verification.valid) {
+        return res.status(400).json({ error: `Token 无效: ${verification.error}` });
+      }
     }
 
     const account = storage.addAccount({ name, apiToken, email });
@@ -503,6 +505,72 @@ router.post('/templates/:templateId/apply', async (req, res) => {
  */
 router.get('/record-types', (req, res) => {
   res.json(cfApi.getSupportedRecordTypes());
+});
+
+/**
+ * 导出账号（包含完整数据，用于备份）
+ */
+router.get('/export/accounts', (req, res) => {
+  try {
+    const accounts = storage.getAccounts();
+    res.json(accounts);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * 批量导入账号（直接覆盖数据库）
+ */
+router.post('/import/accounts', (req, res) => {
+  try {
+    const { accounts, overwrite } = req.body;
+
+    if (!accounts || !Array.isArray(accounts)) {
+      return res.status(400).json({ error: '需要提供 accounts 数组' });
+    }
+
+    if (overwrite) {
+      // 直接覆盖所有账号
+      storage.saveAccounts(accounts);
+    } else {
+      // 追加账号
+      accounts.forEach(account => {
+        storage.addAccount(account);
+      });
+    }
+
+    res.json({ success: true, count: accounts.length });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * 批量导入模板（直接覆盖数据库）
+ */
+router.post('/import/templates', (req, res) => {
+  try {
+    const { templates, overwrite } = req.body;
+
+    if (!templates || !Array.isArray(templates)) {
+      return res.status(400).json({ error: '需要提供 templates 数组' });
+    }
+
+    if (overwrite) {
+      // 直接覆盖所有模板
+      storage.saveTemplates(templates);
+    } else {
+      // 追加模板
+      templates.forEach(template => {
+        storage.addTemplate(template);
+      });
+    }
+
+    res.json({ success: true, count: templates.length });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 module.exports = router;

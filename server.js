@@ -3,6 +3,10 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 
+// 导入日志工具
+const { createLogger } = require('./src/utils/logger');
+const logger = createLogger('Server');
+
 // 导入中间件
 const corsMiddleware = require('./src/middleware/cors');
 
@@ -43,15 +47,15 @@ loadSessions();
 
 // 启动服务器
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`✨ Zeabur Monitor 运行在 http://0.0.0.0:${PORT}`);
+  logger.success(`服务器启动成功 - http://0.0.0.0:${PORT}`);
 
   // 检查密码配置
   if (process.env.ADMIN_PASSWORD) {
-    console.log(`🔐 已通过环境变量 ADMIN_PASSWORD 设置管理员密码`);
+    logger.info('管理员密码: 环境变量');
   } else if (isPasswordSavedToFile()) {
-    console.log(`🔐 管理员密码已保存到文件`);
+    logger.info('管理员密码: 文件存储');
   } else {
-    console.log(`⚠️ 未设置管理员密码，首次访问时请设置`);
+    logger.warn('未设置管理员密码，首次访问时需设置');
   }
 
   const envAccounts = getEnvAccounts();
@@ -59,16 +63,14 @@ app.listen(PORT, '0.0.0.0', () => {
   const totalAccounts = envAccounts.length + serverAccounts.length;
 
   if (totalAccounts > 0) {
-    console.log(`📋 已加载 ${totalAccounts} 个账号`);
+    logger.group(`已加载 ${totalAccounts} 个Zeabur账号`);
     if (envAccounts.length > 0) {
-      console.log(`   环境变量: ${envAccounts.length} 个`);
-      envAccounts.forEach(acc => console.log(`     - ${acc.name}`));
+      envAccounts.forEach(acc => logger.groupItem(`${acc.name} (环境变量)`));
     }
     if (serverAccounts.length > 0) {
-      console.log(`   服务器存储: ${serverAccounts.length} 个`);
-      serverAccounts.forEach(acc => console.log(`     - ${acc.name}`));
+      serverAccounts.forEach(acc => logger.groupItem(`${acc.name} (数据库)`));
     }
   } else {
-    console.log(`📊 准备就绪，等待添加账号...`);
+    logger.info('准备就绪，等待添加账号');
   }
 });

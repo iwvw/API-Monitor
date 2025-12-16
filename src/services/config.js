@@ -1,70 +1,90 @@
 /**
- * 配置管理服务
+ * 配置管理服务（使用 SQLite 数据库）
  */
 
-const fs = require('fs');
 const path = require('path');
+const { SystemConfig, ZeaburAccount } = require('../db/models');
+const dbService = require('../db/database');
 
-// 配置目录（可通过环境变量覆盖）
+// 初始化数据库
+dbService.initialize();
+
+// 配置目录（保留用于兼容性）
 const CONFIG_DIR = process.env.CONFIG_DIR || path.join(__dirname, '../../config');
 const ACCOUNTS_FILE = path.join(CONFIG_DIR, 'accounts.json');
 const PASSWORD_FILE = path.join(CONFIG_DIR, 'password.json');
 
 /**
- * 确保配置目录存在
+ * 确保配置目录存在（保留用于兼容性）
  */
 function ensureConfigDir() {
-  if (!fs.existsSync(CONFIG_DIR)) {
-    fs.mkdirSync(CONFIG_DIR, { recursive: true });
-  }
+  // 数据库模式下不再需要，但保留函数以保持兼容性
 }
 
 /**
- * 读取服务器存储的账号
+ * 读取服务器存储的账号（从数据库）
  */
 function loadServerAccounts() {
   try {
-    if (fs.existsSync(ACCOUNTS_FILE)) {
-      const stats = fs.statSync(ACCOUNTS_FILE);
-      if (!stats.isFile()) {
-        console.error('❌ accounts.json 是目录而非文件，正在删除...');
-        fs.rmSync(ACCOUNTS_FILE, { recursive: true });
-        return [];
-      }
-      const data = fs.readFileSync(ACCOUNTS_FILE, 'utf8');
-      return JSON.parse(data);
-    }
+    const accounts = ZeaburAccount.findAll();
+    // 转换字段名以保持向后兼容
+    return accounts.map(acc => ({
+      id: acc.id,
+      name: acc.name,
+      token: acc.token,
+      status: acc.status,
+      email: acc.email,
+      username: acc.username,
+      balance: acc.balance,
+      cost: acc.cost,
+      createdAt: acc.created_at,
+      updatedAt: acc.updated_at
+    }));
   } catch (e) {
-    console.error('❌ 读取账号文件失败:', e.message);
+    console.error('❌ 读取账号失败:', e.message);
+    return [];
   }
-  return [];
 }
 
 /**
- * 保存账号到服务器
+ * 保存账号到数据库
  */
 function saveServerAccounts(accounts) {
   try {
-    ensureConfigDir();
+    // 注意：这个函数会完全替换所有账号
+    // 在实际使用中，建议使用更细粒度的操作（添加、更新、删除单个账号）
+    const db = dbService.getDatabase();
 
-    if (fs.existsSync(ACCOUNTS_FILE)) {
-      const stats = fs.statSync(ACCOUNTS_FILE);
-      if (!stats.isFile()) {
-        console.warn('⚠️ 发现 accounts.json 是目录，正在删除...');
-        fs.rmSync(ACCOUNTS_FILE, { recursive: true });
-      }
-    }
+    const transaction = db.transaction(() => {
+      // 清空现有账号
+      ZeaburAccount.truncate();
 
-    fs.writeFileSync(ACCOUNTS_FILE, JSON.stringify(accounts, null, 2), 'utf8');
+      // 插入新账号
+      accounts.forEach(account => {
+        ZeaburAccount.createAccount({
+          id: account.id,
+          name: account.name,
+          token: account.token,
+          status: account.status || 'active',
+          email: account.email,
+          username: account.username,
+          balance: account.balance || 0,
+          cost: account.cost || 0,
+          created_at: account.createdAt || new Date().toISOString()
+        });
+      });
+    });
+
+    transaction();
     return true;
   } catch (e) {
-    console.error('❌ 保存账号文件失败:', e.message);
+    console.error('❌ 保存账号失败:', e.message);
     return false;
   }
 }
 
 /**
- * 读取管理员密码（优先环境变量，其次文件）
+ * 读取管理员密码（优先环境变量，其次数据库）
  */
 function loadAdminPassword() {
   if (process.env.ADMIN_PASSWORD) {
@@ -72,61 +92,35 @@ function loadAdminPassword() {
   }
 
   try {
-    if (fs.existsSync(PASSWORD_FILE)) {
-      const stats = fs.statSync(PASSWORD_FILE);
-      if (!stats.isFile()) {
-        console.error('❌ password.json 是目录而非文件，正在删除...');
-        fs.rmSync(PASSWORD_FILE, { recursive: true });
-        return null;
-      }
-      const data = fs.readFileSync(PASSWORD_FILE, 'utf8');
-      return JSON.parse(data).password;
-    }
+    const password = SystemConfig.getConfigValue('admin_password');
+    return password;
   } catch (e) {
-    console.error('❌ 读取密码文件失败:', e.message);
+    console.error('❌ 读取密码失败:', e.message);
+    return null;
   }
-  return null;
 }
 
 /**
- * 检查密码是否已在文件中设置
+ * 检查密码是否已在数据库中设置
  */
 function isPasswordSavedToFile() {
   try {
-    if (fs.existsSync(PASSWORD_FILE)) {
-      const stats = fs.statSync(PASSWORD_FILE);
-      if (!stats.isFile()) {
-        return false;
-      }
-      const data = fs.readFileSync(PASSWORD_FILE, 'utf8');
-      const parsed = JSON.parse(data);
-      return !!parsed.password;
-    }
+    const password = SystemConfig.getConfigValue('admin_password');
+    return !!password;
   } catch (e) {
     return false;
   }
-  return false;
 }
 
 /**
- * 保存管理员密码
+ * 保存管理员密码到数据库
  */
 function saveAdminPassword(password) {
   try {
-    ensureConfigDir();
-
-    if (fs.existsSync(PASSWORD_FILE)) {
-      const stats = fs.statSync(PASSWORD_FILE);
-      if (!stats.isFile()) {
-        console.warn('⚠️ 发现 password.json 是目录，正在删除...');
-        fs.rmSync(PASSWORD_FILE, { recursive: true });
-      }
-    }
-
-    fs.writeFileSync(PASSWORD_FILE, JSON.stringify({ password }, null, 2), 'utf8');
+    SystemConfig.setConfig('admin_password', password, '管理员密码');
     return true;
   } catch (e) {
-    console.error('❌ 保存密码文件失败:', e.message);
+    console.error('❌ 保存密码失败:', e.message);
     return false;
   }
 }
@@ -159,5 +153,6 @@ module.exports = {
   loadAdminPassword,
   isPasswordSavedToFile,
   saveAdminPassword,
-  getEnvAccounts
+  getEnvAccounts,
+  ensureConfigDir
 };
