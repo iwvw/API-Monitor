@@ -1,0 +1,291 @@
+/* DNS Management Styles */
+
+.dns-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 16px;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 12px;
+}
+
+.dns-tab-btn {
+  padding: 8px 16px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  border-radius: 6px;
+  transition: all 0.2s;
+}
+
+.dns-tab-btn.active {
+  background: var(--cf-color);
+  color: white;
+}
+
+.dns-tab-btn:hover:not(.active) {
+  background: var(--bg-secondary);
+}
+
+.btn-cf {
+  background-color: var(--cf-color);
+  color: white;
+}
+
+.btn-cf:hover {
+  background-color: var(--cf-dark);
+}
+
+/* Zones */
+.zones-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(324px, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.zone-card {
+  background: var(--card-bg);
+  border-radius: 8px;
+  padding: 5px 16px;
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.zone-card:hover {
+  border-color: var(--cf-color);
+  box-shadow: var(--card-shadow);
+}
+
+.zone-card.active {
+  border-color: var(--cf-color);
+  background: rgba(243, 128, 32, 0.05);
+}
+
+.zone-name {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+.zone-status {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.zone-status.active {
+  color: var(--success-color);
+}
+
+/* DNS Records */
+.record-type {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  display: inline-block;
+  white-space: nowrap;
+}
+
+.record-type.A {
+  background: rgba(16, 185, 129, 0.2);
+  color: #10b981;
+}
+
+.record-type.AAAA {
+  background: rgba(59, 130, 246, 0.2);
+  color: #3b82f6;
+}
+
+.record-type.CNAME {
+  background: rgba(139, 92, 246, 0.2);
+  color: #a78bfa;
+}
+
+.record-type.TXT {
+  background: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+}
+
+.record-type.MX {
+  background: rgba(239, 68, 68, 0.2);
+  color: #f87171;
+}
+
+.record-type.NS {
+  background: rgba(99, 102, 241, 0.2);
+  color: #818cf8;
+}
+
+.record-type.SRV {
+  background: rgba(236, 72, 153, 0.2);
+  color: #f472b6;
+}
+
+.record-type.CAA {
+  background: rgba(20, 184, 166, 0.2);
+  color: #2dd4bf;
+}
+
+.proxied-badge {
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  display: inline-block;
+  white-space: nowrap;
+}
+
+.proxied-on {
+  background: linear-gradient(135deg, #27ae60, #2ecc71);
+  color: white;
+}
+
+.proxied-off {
+  background: var(--bg-tertiary);
+  color: var(--text-tertiary);
+}
+
+/* Quick Switch */
+.quick-switch {
+  display: none;
+  gap: 8px;
+  align-items: center;
+  padding: 12px;
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.quick-switch input {
+  display: none;
+  flex: 1;
+  min-width: 120px;
+  padding: 8px 12px;
+  border: 1px solid var(--input-border);
+  border-radius: 6px;
+  background: var(--input-bg);
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+/* Editable Cells */
+.content-truncate {
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.editable-cell {
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+  color: var(--text-primary);
+}
+
+.editable-cell:hover {
+  background-color: var(--bg-tertiary);
+}
+
+.inline-edit-container {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+}
+
+.inline-edit-input {
+  padding: 4px 8px;
+  border: 1px solid var(--cf-color);
+  border-radius: 4px;
+  font-size: 13px;
+  background-color: var(--input-bg);
+  color: var(--text-primary);
+  outline: none;
+  width: 230px;
+  min-width: 150px;
+  max-width: 230px;
+}
+
+.inline-edit-input:focus {
+  border-color: var(--cf-color);
+  box-shadow: 0 0 0 2px rgba(243, 128, 32, 0.2);
+}
+
+.inline-edit-cancel {
+  padding: 2px 6px;
+  background-color: rgba(239, 68, 68, 0.2);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.2s;
+  color: var(--danger-color);
+  flex-shrink: 0;
+}
+
+.inline-edit-cancel:hover {
+  background-color: rgba(239, 68, 68, 0.3);
+}
+
+@media (max-width: 480px) {
+  .table-container {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .data-table {
+    min-width: 100%;
+    width: max-content;
+    font-size: 12px;
+  }
+
+  .data-table th,
+  .data-table td {
+    padding: 8px 10px;
+    white-space: nowrap;
+    min-width: fit-content;
+  }
+
+  .data-table td:nth-child(1),
+  .data-table td:nth-child(2),
+  .data-table td:nth-child(3),
+  .data-table td:nth-child(4),
+  .data-table td:nth-child(5),
+  .data-table td:nth-child(6) {
+    width: auto;
+    min-width: auto;
+  }
+
+  .dns-tab-btn {
+    padding: 6px 10px;
+    font-size: 12px;
+  }
+
+  .zone-card {
+    padding: 8px 12px;
+  }
+
+  .zone-name {
+    font-size: 13px;
+  }
+
+  .content-truncate {
+    max-width: none;
+    white-space: nowrap;
+  }
+
+  .editable-cell {
+    white-space: nowrap;
+  }
+}

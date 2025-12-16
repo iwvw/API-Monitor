@@ -11,1938 +11,16 @@
   <meta name="msapplication-TileImage" content="/logo.png">
   <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.prod.js"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-  <style>
-    ::-webkit-scrollbar {
-      display: none !important;
-    }
 
-    * {
-      -webkit-tap-highlight-color: transparent
-    }
-
-    :root {
-      --primary-color: #6366f1;
-      --primary-dark: #4f46e5;
-      --primary-light: #818cf8;
-      --secondary-color: #f97316;
-      --success-color: #10b981;
-      --warning-color: #f59e0b;
-      --danger-color: #ef4444;
-      --info-color: #3b82f6;
-      --cf-color: #f38020;
-      --cf-dark: #e5730d;
-
-      /* Light theme */
-      --bg-primary: #ffffff;
-      --bg-secondary: #f9fafb;
-      --bg-tertiary: #f3f4f6;
-      --text-primary: #4e4e4e;
-      --text-secondary: #4b5563;
-      --text-tertiary: #6b7280;
-      --border-color: #e5e7eb;
-      --card-bg: #ffffff;
-      --card-shadow: 5px 5px 8px -5px rgba(0, 0, 0, 0.1), 0 7px 7px -7px rgba(0, 0, 0, 0.04);
-      --card-hover-shadow: 5px 5px 6px 0px rgb(0 0 0 / 0%), 4px 4px 5px 0px rgb(0 0 0 / 9%);
-      --modal-overlay: rgba(0, 0, 0, 0.5);
-      --input-bg: #ffffff;
-      --input-border: #d1d5db;
-      --input-focus-border: #6366f1;
-      --button-primary-bg: #6366f1;
-      --button-primary-hover: #4f46e5;
-      --button-secondary-bg: #f3f4f6;
-      --button-secondary-hover: #00878d;
-      --status-running: #10b981;
-      --status-stopped: #ef4444;
-      --status-suspended: #f59e0b;
-      --status-deploying: #8b5cf6;
-      --status-paused: #6b7280;
-    }
-
-    @media (prefers-color-scheme: dark) {
-      :root {
-        --bg-primary: #111827;
-        --bg-secondary: #1f2937;
-        --bg-tertiary: #374151;
-        --text-primary: #f9fafb;
-        --text-secondary: #d1d5db;
-        --text-tertiary: #9ca3af;
-        --border-color: #374151;
-        --card-bg: #1f2937;
-        --card-shadow: 2px 2px 2px 0px rgba(0, 0, 0, 0.3), 2px 2px 2px 0px rgba(0, 0, 0, 0.2);
-        --card-hover-shadow: 5px 5px 6px 0px rgba(0, 0, 0, 0.3), 4px 4px 5px 0px rgba(0, 0, 0, 0.2);
-        --modal-overlay: rgba(0, 0, 0, 0.7);
-        --input-bg: #374151;
-        --input-border: #4b5563;
-        --input-focus-border: #6366f1;
-        --button-primary-bg: #6366f1;
-        --button-primary-hover: #4f46e5;
-        --button-secondary-bg: #374151;
-        --button-secondary-hover: #004346;
-        --status-running: #10b981;
-        --status-stopped: #ef4444;
-        --status-suspended: #f59e0b;
-        --status-deploying: #8b5cf6;
-        --status-paused: #6b7280;
-      }
-    }
-
-    * {
-      margin: 0;
-      padding: 0;
-      box-sizing: border-box;
-    }
-
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
-      background-color: var(--bg-primary);
-      color: var(--text-primary);
-      line-height: 1.6;
-      transition: background-color 0.3s, color 0.3s;
-      min-height: 100vh;
-    }
-
-    .container {
-      max-width: 1200px;
-      margin: 0 auto;
-      padding: 12px;
-    }
-
-    .header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 12px;
-      flex-wrap: wrap;
-      gap: 10px;
-    }
-
-    .title {
-      font-size: 20px;
-      font-weight: 700;
-      color: var(--text-primary);
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .controls {
-      display: flex;
-      gap: 10px;
-      align-items: center;
-      margin-bottom: 10px;
-      flex-wrap: wrap;
-      justify-content: flex-end;
-    }
-
-    .refresh-info {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-    }
-
-    .refresh-progress {
-      position: relative;
-      width: 80px;
-      height: 6px;
-      background-color: var(--bg-tertiary);
-      border-radius: 3px;
-      overflow: hidden;
-      border: 1px solid var(--border-color);
-      box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.1);
-    }
-
-    .refresh-progress-bar {
-      height: 100%;
-      background: linear-gradient(90deg, var(--primary-color), var(--primary-light));
-      border-radius: 3px;
-      transition: width 1s linear;
-    }
-
-
-
-    .btn {
-      width: 90px;
-      padding: 8px 12px;
-      border-radius: 6px;
-      font-weight: 500;
-      font-size: 13px;
-      cursor: pointer;
-      transition: all 0.15s;
-      border: none;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 6px;
-      white-space: nowrap;
-    }
-
-    .btn-primary {
-      background-color: var(--button-primary-bg);
-      color: white;
-    }
-
-    .btn-primary:hover {
-      background-color: var(--button-primary-hover);
-    }
-
-    .btn-secondary {
-      background-color: #00adafbf;
-      color: white;
-    }
-
-    .btn-secondary:hover {
-      background-color: var(--button-secondary-hover);
-    }
-
-    .btn-danger {
-      background-color: var(--danger-color);
-      color: white;
-    }
-
-    .btn-danger:hover {
-      background-color: #dc2626;
-    }
-
-    .btn-success {
-      background: linear-gradient(135deg, #27ae60, #2ecc71);
-      color: white;
-    }
-
-    .btn-success:hover {
-      background: linear-gradient(135deg, #229954, #27ae60);
-    }
-
-    .btn-warning {
-      background: linear-gradient(135deg, #f39c12, #e67e22);
-      color: white;
-    }
-
-    .btn-warning:hover {
-      background: linear-gradient(135deg, #e67e22, #d35400);
-    }
-
-    .btn:disabled {
-      opacity: 0.5;
-      cursor: not-allowed;
-      transform: none;
-    }
-
-    .info-card {
-      display: none;
-      background-color: var(--card-bg);
-      border-radius: 10px;
-      padding: 8px;
-      margin-bottom: 10px;
-      border: 1px solid var(--border-color);
-    }
-
-    .info-card-title {
-      font-weight: 600;
-      margin-bottom: 8px;
-      color: var(--primary-color);
-    }
-
-    .info-card-content {
-      color: var(--text-secondary);
-      font-size: 14px;
-    }
-
-    .stats-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-      gap: 10px;
-      margin-bottom: 10px;
-    }
-
-    .stat-card {
-      padding: 8px 20px;
-      gap: 0px;
-      background-color: var(--card-bg);
-      border-radius: 10px;
-      display: flex;
-      align-items: center;
-      box-shadow: var(--card-shadow);
-      border: 1px solid var(--border-color);
-      transition: transform 0.3s, box-shadow 0.3s;
-      justify-content: space-between;
-      align-content: center;
-    }
-
-    .stat-card:hover {
-      transform: translateY(-1px);
-      box-shadow: var(--card-hover-shadow);
-    }
-
-    .stat-label {
-      font-size: 14px;
-      color: var(--text-secondary);
-    }
-
-    .stat-value {
-      font-size: 20px;
-      font-weight: 700;
-      color: var(--primary-color);
-    }
-
-    .account-card {
-      background-color: var(--card-bg);
-      border-radius: 14px;
-      padding: 12px;
-      margin-bottom: 12px;
-      box-shadow: var(--card-shadow);
-      border: 1px solid var(--border-color);
-      transition: transform 0.3s, box-shadow 0.3s;
-    }
-
-    /* .account-card:hover {
-      transform: translateY(-2px);
-      box-shadow: var(--card-hover-shadow);
-    } */
-
-    .account-header {
-      padding-left: 18px !important;
-      background-color: var(--card-bg);
-      border-radius: 10px;
-      padding: 10px;
-      border: 1px solid var(--border-color);
-      transition: transform 0.3s, box-shadow 0.3s;
-      height: 100%;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      cursor: pointer;
-    }
-
-    .account-header:hover {
-      box-shadow: var(--card-shadow);
-    }
-
-    .account-header:active {
-      transform: scale(0.995);
-    }
-
-    .account-balance:active {
-      transform: none;
-    }
-
-    .account-info {
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-
-    .account-name {
-      font-size: 16px;
-      font-weight: 600;
-      color: var(--text-primary);
-    }
-
-    .account-email {
-      font-size: 14px;
-      color: var(--text-secondary);
-    }
-
-    .account-balance {
-      display: flex;
-      flex-direction: row;
-      align-items: center;
-      gap: 10px;
-    }
-
-    .balance {
-      font-size: 16px;
-      font-weight: 700;
-      color: var(--success-color);
-    }
-
-    .balance.low {
-      color: var(--warning-color);
-    }
-
-    .balance.critical {
-      color: var(--danger-color);
-    }
-
-    .ai-balance {
-      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-      color: white;
-      padding: 6px 12px;
-      border-radius: 20px;
-      font-size: 14px;
-      font-weight: 600;
-    }
-
-    .projects-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-      gap: 10px;
-      margin-top: 12px;
-      transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-      overflow: visible;
-      transform-origin: top;
-    }
-
-    .projects-grid.collapsed {
-      max-height: 0;
-      opacity: 0;
-      margin-top: 0;
-      transform: scaleY(0.95);
-      overflow: hidden;
-    }
-
-    .project-card {
-      box-shadow: var(--card-shadow);
-      background-color: var(--card-bg);
-      border-radius: 10px;
-      padding: 12px;
-      border: 1px solid var(--border-color);
-      transition: transform 0.3s, box-shadow 0.3s;
-      height: 100%;
-      display: flex;
-      flex-direction: column;
-    }
-
-    .project-card:hover {
-      transform: translateY(-1px);
-      box-shadow: var(--card-hover-shadow);
-    }
-
-    .project-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      margin-bottom: 8px;
-    }
-
-    .project-name {
-      font-size: 14px;
-      font-weight: 600;
-      color: var(--text-primary);
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-
-    .project-info {
-      font-size: 12px;
-      color: var(--text-tertiary);
-    }
-
-    .project-cost {
-      font-size: 16px;
-      font-weight: 700;
-      color: var(--info-color);
-    }
-
-    .project-stats {
-      display: flex;
-      gap: 12px;
-      margin-bottom: 12px;
-      font-size: 13px;
-      color: var(--text-secondary);
-    }
-
-    .services-container {
-      flex: 1;
-      display: flex;
-      flex-direction: column;
-      gap: 8px;
-    }
-
-    .service-item {
-      border-radius: 6px;
-      padding: 8px;
-      border: 1px solid var(--border-color);
-      transition: all 0.15s;
-    }
-
-    .service-item.running {
-      background-color: rgba(16, 185, 129, 0.1);
-      border-color: rgba(16, 185, 129, 0.2);
-    }
-
-    .service-item.stopped {
-      background-color: rgba(239, 68, 68, 0.1);
-      border-color: rgba(239, 68, 68, 0.2);
-    }
-
-    .service-item.suspended {
-      background-color: rgba(245, 158, 11, 0.1);
-      border-color: rgba(245, 158, 11, 0.2);
-    }
-
-    .service-item.deploying {
-      background-color: rgba(139, 92, 246, 0.1);
-      border-color: rgba(139, 92, 246, 0.2);
-    }
-
-    .service-item.paused {
-      background-color: rgba(107, 114, 128, 0.1);
-      border-color: rgba(107, 114, 128, 0.2);
-    }
-
-    .service-item.pending {
-      background-color: rgba(59, 130, 246, 0.1);
-      border-color: rgba(59, 130, 246, 0.2);
-    }
-
-    .service-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 8px;
-    }
-
-    .service-name {
-      font-weight: 600;
-      font-size: 14px;
-      color: var(--text-primary);
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    .service-status {
-      padding: 4px 8px;
-      border-radius: 20px;
-      font-size: 11px;
-      font-weight: 600;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-
-    .status-running {
-      background-color: rgba(16, 185, 129, 0.2);
-      color: var(--status-running);
-    }
-
-    .status-stopped {
-      background-color: rgba(239, 68, 68, 0.2);
-      color: var(--status-stopped);
-    }
-
-    .status-suspended {
-      background-color: rgba(245, 158, 11, 0.2);
-      color: var(--status-suspended);
-    }
-
-    .status-deploying {
-      background-color: rgba(139, 92, 246, 0.2);
-      color: var(--status-deploying);
-    }
-
-    .status-paused {
-      background-color: rgba(107, 114, 128, 0.2);
-      color: var(--status-paused);
-    }
-
-    .service-info {
-      font-size: 12px;
-      color: var(--text-tertiary);
-      margin-bottom: 8px;
-    }
-
-    .service-actions {
-      display: flex;
-      gap: 8px;
-      flex-wrap: wrap;
-    }
-
-    .service-btn {
-      padding: 4px 8px;
-      border-radius: 6px;
-      font-size: 12px;
-      font-weight: 500;
-      cursor: pointer;
-      transition: all 0.2s;
-      border: none;
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-    }
-
-    .btn-pause {
-      background-color: rgba(245, 158, 11, 0.2);
-      color: var(--warning-color);
-    }
-
-    .btn-pause:hover {
-      background-color: rgba(245, 158, 11, 0.3);
-    }
-
-    .btn-restart {
-      background-color: rgba(59, 130, 246, 0.2);
-      color: var(--info-color);
-    }
-
-    .btn-restart:hover {
-      background-color: rgba(59, 130, 246, 0.3);
-    }
-
-    .btn-logs {
-      background-color: rgba(139, 92, 246, 0.2);
-      color: var(--status-deploying);
-    }
-
-    .btn-logs:hover {
-      background-color: rgba(139, 92, 246, 0.3);
-    }
-
-    .domains-container {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-      margin-top: 12px;
-      padding-top: 12px;
-      border-top: 1px solid var(--border-color);
-    }
-
-    .domain-link {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 8px 12px;
-      background-color: var(--bg-secondary);
-      border-radius: 8px;
-      color: var(--primary-color);
-      text-decoration: none;
-      font-size: 13px;
-      font-weight: 500;
-      transition: all 0.2s;
-      border: 1px solid var(--border-color);
-    }
-
-    .domain-link:hover {
-      background-color: var(--bg-tertiary);
-    }
-
-    .domain-badge {
-      background-color: var(--primary-color);
-      color: white;
-      padding: 2px 6px;
-      border-radius: 10px;
-      font-size: 10px;
-      font-weight: 600;
-    }
-
-    .modal-overlay {
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background-color: var(--modal-overlay);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 1000;
-      padding: 20px;
-    }
-
-    .modal-overlay.logs-fullscreen-overlay {
-      align-items: stretch;
-      justify-content: stretch;
-      padding: 0;
-      z-index: 1000;
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-    }
-
-    .modal {
-      background-color: var(--card-bg);
-      border-radius: 12px;
-      padding: 24px;
-      max-width: 500px;
-      width: 100%;
-      max-height: 90vh;
-      overflow-y: auto;
-      box-shadow: var(--card-hover-shadow);
-    }
-
-    .modal-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 20px;
-    }
-
-    .modal-title {
-      font-size: 20px;
-      font-weight: 600;
-      color: var(--text-primary);
-    }
-
-    .modal-close {
-      background: none;
-      border: none;
-      font-size: 20px;
-      cursor: pointer;
-      color: var(--text-secondary);
-      padding: 4px;
-      border-radius: 4px;
-      transition: all 0.2s;
-    }
-
-    .modal-close:hover {
-      background-color: var(--bg-secondary);
-      color: var(--text-primary);
-    }
-
-    .form-group {
-      margin-bottom: 16px;
-    }
-
-    .form-label {
-      display: block;
-      font-size: 14px;
-      font-weight: 500;
-      color: var(--text-secondary);
-      margin-bottom: 6px;
-    }
-
-    .form-input {
-      width: 100%;
-      padding: 10px 12px;
-      border: 1px solid var(--input-border);
-      border-radius: 8px;
-      font-size: 14px;
-      background-color: var(--input-bg);
-      color: var(--text-primary);
-      transition: border-color 0.2s;
-    }
-
-    .form-input:focus {
-      outline: none;
-      border-color: var(--input-focus-border);
-    }
-
-    .form-textarea {
-      width: 100%;
-      padding: 10px 12px;
-      border: 1px solid var(--input-border);
-      border-radius: 8px;
-      font-size: 14px;
-      background-color: var(--input-bg);
-      color: var(--text-primary);
-      transition: border-color 0.2s;
-      resize: vertical;
-      min-height: 120px;
-      font-family: monospace;
-    }
-
-    .form-textarea:focus {
-      outline: none;
-      border-color: var(--input-focus-border);
-    }
-
-    .form-help {
-      font-size: 12px;
-      color: var(--text-tertiary);
-      margin-top: 4px;
-    }
-
-    .form-error {
-      color: var(--danger-color);
-      font-size: 13px;
-      margin-bottom: 7px;
-      margin-top: -9px;
-    }
-
-    .form-success {
-      color: var(--success-color);
-      font-size: 13px;
-      margin-top: 4px;
-    }
-
-    .account-list {
-      display: flex;
-      flex-direction: column;
-      gap: 3px;
-      margin-bottom: 16px;
-    }
-
-    .account-item {
-      padding-left: 18px !important;
-      background-color: var(--card-bg);
-      border-radius: 10px;
-      padding: 10px;
-      border: 1px solid var(--border-color);
-      transition: transform 0.3s, box-shadow 0.3s;
-      height: 100%;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      cursor: pointer;
-    }
-
-    .account-item:hover {
-      transform: translateY(-1px);
-      box-shadow: var(--card-hover-shadow);
-    }
-
-    .account-item-info {
-      flex: 1;
-      display: flex;
-      align-items: center;
-      gap: 12px;
-    }
-
-    .account-item-name {
-      font-weight: 600;
-      color: var(--text-primary);
-      font-size: 14px;
-    }
-
-    .divider {
-      height: 1px;
-      background-color: var(--border-color);
-      margin: 16px 0;
-    }
-
-    .last-update {
-      font-size: 14px;
-      color: var(--text-tertiary);
-      margin-left: auto;
-    }
-
-    .loading {
-      text-align: center;
-      padding: 40px;
-      color: var(--text-secondary);
-    }
-
-    .error {
-      background-color: rgba(239, 68, 68, 0.1);
-      color: var(--danger-color);
-      padding: 16px;
-      border-radius: 8px;
-      margin-bottom: 20px;
-    }
-
-    .empty-state {
-      text-align: center;
-      padding: 40px;
-      color: var(--text-tertiary);
-    }
-
-    .opacity-label {
-      font-size: 13px;
-      font-weight: 500;
-      color: var(--text-secondary);
-    }
-
-    .opacity-slider {
-      width: 100px;
-      height: 4px;
-      -webkit-appearance: none;
-      appearance: none;
-      background: var(--border-color);
-      border-radius: 2px;
-      outline: none;
-    }
-
-    .opacity-slider::-webkit-slider-thumb {
-      -webkit-appearance: none;
-      appearance: none;
-      width: 16px;
-      height: 16px;
-      border-radius: 50%;
-      background: var(--primary-color);
-      cursor: pointer;
-    }
-
-    .opacity-value {
-      font-size: 13px;
-      font-weight: 500;
-      color: var(--text-secondary);
-      min-width: 35px;
-    }
-
-    .logs-modal {
-      max-width: 1200px;
-      width: 95%;
-      height: 80vh;
-      display: flex;
-      flex-direction: column;
-      position: relative;
-      background-color: var(--card-bg);
-      border-radius: 12px;
-      padding: 0;
-      margin: 0;
-    }
-
-    .logs-modal-fullscreen {
-      max-width: none !important;
-      width: 100vw !important;
-      height: 100vh !important;
-      border-radius: 0 !important;
-      margin: 0 !important;
-      padding: 0 !important;
-      top: 0 !important;
-      left: 0 !important;
-      right: 0 !important;
-      bottom: 0 !important;
-      position: fixed !important;
-      z-index: 1001;
-      display: flex !important;
-      flex-direction: column !important;
-      max-height: none !important;
-      overflow-y: visible !important;
-      box-shadow: none !important;
-    }
-
-    .logs-modal-fullscreen .logs-header {
-      flex-shrink: 0;
-    }
-
-    .logs-modal-fullscreen .logs-info {
-      flex-shrink: 0;
-    }
-
-    .logs-modal-fullscreen .logs-content {
-      flex: 1;
-      overflow-y: auto;
-      overflow-x: hidden;
-      min-height: 0;
-    }
-
-    .logs-modal-fullscreen .logs-footer {
-      flex-shrink: 0;
-    }
-
-    .logs-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 8px 10px;
-      border-bottom: 1px solid var(--border-color);
-    }
-
-    .logs-title {
-      font-size: 16px;
-      font-weight: 600;
-      color: var(--primary-color);
-    }
-
-    .logs-controls {
-      display: flex;
-      align-items: center;
-    }
-
-    .logs-info {
-      padding: 10px 20px;
-      background-color: var(--bg-secondary);
-      color: var(--text-secondary);
-      font-size: 12px;
-      display: flex;
-      gap: 16px;
-      flex-wrap: wrap;
-    }
-
-    .logs-content {
-      flex: 1;
-      overflow: hidden;
-      padding: 16px;
-      width: 100%;
-      box-sizing: border-box;
-      position: relative;
-    }
-
-    .logs-text-container {
-      position: relative;
-      width: 100%;
-      height: 100%;
-      overflow: hidden;
-    }
-
-    .logs-text {
-      background-color: var(--bg-tertiary);
-      padding: 12px;
-      border-radius: 8px 8px 0 0;
-      font-family: monospace;
-      font-size: 12px;
-      line-height: 1.5;
-      white-space: pre;
-      overflow-wrap: normal;
-      word-break: normal;
-      color: var(--text-primary);
-      min-height: 100%;
-      width: max-content;
-      max-width: 100%;
-      box-sizing: border-box;
-      overflow-y: auto;
-      overflow-x: auto;
-      height: calc(100% - 12px);
-      scrollbar-width: none;
-      -ms-overflow-style: none;
-    }
-
-    .logs-text::-webkit-scrollbar {
-      display: none;
-    }
-
-    .logs-horizontal-scrollbar {
-      height: 12px;
-      background-color: var(--border-color);
-      border-radius: 0 0 6px 6px;
-      position: absolute;
-      bottom: 0;
-      left: 0;
-      right: 0;
-      cursor: pointer;
-      z-index: 10;
-    }
-
-    .logs-scrollbar-thumb {
-      height: 100%;
-      background-color: var(--primary-color);
-      border-radius: 6px;
-      position: absolute;
-      top: 0;
-      left: 0;
-      width: 0%;
-      transition: width 0.1s ease;
-      cursor: grab;
-    }
-
-    .logs-scrollbar-thumb:active {
-      cursor: grabbing;
-    }
-
-    .balance-card {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-      padding: 3px 9px;
-      background-color: var(--card-bg);
-      border: 1px solid var(--border-color);
-      border-radius: 8px;
-      transition: all 0.2s ease;
-      user-select: none;
-    }
-
-    .balance-card:hover {
-      border-color: var(--primary-color);
-    }
-
-    .credit-balance-card {
-      background: linear-gradient(135deg, rgba(16, 185, 129, 0.1), rgba(34, 197, 94, 0.1));
-      border-color: rgba(16, 185, 129, 0.3);
-    }
-
-    .credit-balance-card:hover {
-      border-color: var(--success-color);
-      background: linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(34, 197, 94, 0.15));
-    }
-
-    .ai-balance-card {
-      background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(139, 92, 246, 0.1));
-      border-color: rgba(99, 102, 241, 0.3);
-    }
-
-    .ai-balance-card:hover {
-      border-color: var(--primary-color);
-      background: linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(139, 92, 246, 0.15));
-    }
-
-    .balance-icon {
-      font-size: 16px;
-      line-height: 1;
-    }
-
-    .balance-amount {
-      font-size: 14px;
-      font-weight: 600;
-      color: var(--text-primary);
-      line-height: 1;
-    }
-
-    .balance-amount.critical {
-      color: var(--danger-color);
-    }
-
-    .balance-amount.low {
-      color: var(--warning-color);
-    }
-
-    .logs-footer {
-      padding: 12px 20px;
-      border-top: 1px solid var(--border-color);
-      text-align: right;
-    }
-
-    .edit-input {
-      width: 120px;
-      padding: 4px 8px;
-      border: 1px solid var(--input-focus-border);
-      border-radius: 6px;
-      font-size: 14px;
-      font-weight: 600;
-      outline: none;
-      background-color: var(--input-bg);
-      color: var(--text-primary);
-    }
-
-    .edit-btn {
-      padding: 4px 8px;
-      background-color: rgba(99, 102, 241, 0.2);
-      border: 1px solid rgba(99, 102, 241, 0.4);
-      border-radius: 6px;
-      cursor: pointer;
-      transition: all 0.2s;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-
-    .edit-btn:hover {
-      background-color: rgba(99, 102, 241, 0.3);
-    }
-
-    .cancel-btn {
-      padding: 4px 8px;
-      background-color: rgba(239, 68, 68, 0.2);
-      border: 1px solid rgba(239, 68, 68, 0.4);
-      border-radius: 6px;
-      cursor: pointer;
-      transition: all 0.2s;
-    }
-
-    .cancel-btn:hover {
-      background-color: rgba(239, 68, 68, 0.3);
-    }
-
-    .account-name-edit {
-      display: flex;
-      align-items: center;
-    }
-
-    /* 主标签页样式 */
-    .main-tabs {
-      display: flex;
-      gap: 0;
-      margin-bottom: 16px;
-      border-bottom: 2px solid var(--border-color);
-    }
-
-    .main-tab {
-      padding: 12px 24px;
-      border: none;
-      background: none;
-      cursor: pointer;
-      font-size: 15px;
-      font-weight: 600;
-      color: var(--text-secondary);
-      border-bottom: 3px solid transparent;
-      margin-bottom: -2px;
-      transition: all 0.2s;
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-
-    .main-tab:hover {
-      color: var(--primary-color);
-      background-color: var(--bg-secondary);
-    }
-
-    .main-tab.active {
-      color: var(--primary-color);
-      border-bottom-color: var(--primary-color);
-    }
-
-    .main-tab.dns-tab:hover {
-      color: var(--cf-color);
-    }
-
-    .main-tab.dns-tab.active {
-      color: var(--cf-color);
-      border-bottom-color: var(--cf-color);
-    }
-
-    .main-tab.openai-tab:hover {
-      color: var(--primary-color);
-    }
-
-    .main-tab.openai-tab.active {
-      color: var(--primary-color);
-      border-bottom-color: var(--primary-color);
-    }
-
-    .spinner {
-      width: 40px;
-      height: 40px;
-      border: 3px solid var(--border-color);
-      border-top-color: var(--primary-color);
-      border-radius: 50%;
-      animation: spin 1s linear infinite;
-      margin: 0 auto;
-    }
-
-    @keyframes spin {
-      to {
-        transform: rotate(360deg);
-      }
-    }
-
-    /* DNS 管理相关样式 */
-    .dns-tabs {
-      display: flex;
-      gap: 8px;
-      margin-bottom: 16px;
-      border-bottom: 1px solid var(--border-color);
-      padding-bottom: 12px;
-    }
-
-    .dns-tab-btn {
-      padding: 8px 16px;
-      border: none;
-      background: none;
-      cursor: pointer;
-      font-size: 14px;
-      font-weight: 600;
-      color: var(--text-secondary);
-      border-radius: 6px;
-      transition: all 0.2s;
-    }
-
-    .dns-tab-btn.active {
-      background: var(--cf-color);
-      color: white;
-    }
-
-    .dns-tab-btn:hover:not(.active) {
-      background: var(--bg-secondary);
-    }
-
-    .panel {
-      line-height: 1;
-      background: var(--card-bg);
-      border-radius: 10px;
-      padding: 16px;
-      box-shadow: var(--card-shadow);
-      border: 1px solid var(--border-color);
-      margin-bottom: 16px;
-    }
-
-    .panel-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 12px;
-    }
-
-    .panel-title {
-      font-size: 16px;
-      font-weight: 600;
-    }
-
-    .table-container {
-      overflow-x: auto;
-    }
-
-    .data-table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 13px;
-      table-layout: fixed;
-    }
-
-    .data-table th,
-    .data-table td {
-      padding: 10px 12px;
-      text-align: left;
-      border-bottom: 1px solid var(--border-color);
-      color: var(--text-primary);
-      overflow: hidden;
-    }
-
-    .data-table th {
-      background: var(--bg-secondary);
-      font-weight: 600;
-      color: var(--text-secondary);
-      position: sticky;
-      top: 0;
-      white-space: nowrap;
-    }
-
-    .data-table tr:hover {
-      background: var(--bg-secondary);
-    }
-
-    .data-table .actions {
-      display: flex;
-      gap: 6px;
-    }
-
-    .data-table td:nth-child(1) {
-      width: 60px;
-    }
-
-    .data-table td:nth-child(2) {
-      width: 150px;
-    }
-
-    .data-table td:nth-child(3) {
-      width: auto;
-      min-width: 150px;
-    }
-
-    .data-table td:nth-child(4) {
-      width: 70px;
-    }
-
-    .data-table td:nth-child(5) {
-      width: 100%;
-    }
-
-    .data-table td:nth-child(6) {
-      width: 100px;
-    }
-
-    /* OpenAI 表格专用样式 - 自适应列宽，可左右滑动 */
-    .openai-table-container {
-      overflow-x: auto;
-      max-width: 100%;
-      -webkit-overflow-scrolling: touch;
-    }
-
-    .openai-table {
-      width: max-content;
-      min-width: 100%;
-      border-collapse: collapse;
-      font-size: 13px;
-      table-layout: auto;
-    }
-
-    .openai-table th,
-    .openai-table td {
-      padding: 10px 16px;
-      text-align: left;
-      border-bottom: 1px solid var(--border-color);
-      color: var(--text-primary);
-      white-space: nowrap;
-    }
-
-    .openai-table th {
-      background: var(--bg-secondary);
-      font-weight: 600;
-      color: var(--text-secondary);
-      position: sticky;
-      top: 0;
-      z-index: 1;
-    }
-
-    .openai-table tr:hover {
-      background: var(--bg-secondary);
-    }
-
-    .openai-table .actions {
-      display: flex;
-      gap: 6px;
-      flex-wrap: nowrap;
-    }
-
-    .openai-table .cell-name {
-      max-width: 200px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .openai-table .cell-url {
-      max-width: 300px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      font-family: monospace;
-      font-size: 12px;
-    }
-
-    .openai-table .cell-key {
-      max-width: 200px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      font-family: monospace;
-      font-size: 12px;
-    }
-
-    .openai-table .cell-models {
-      max-width: 300px;
-    }
-
-    .copy-btn {
-      padding: 4px 8px;
-      background: var(--bg-tertiary);
-      border: 1px solid var(--border-color);
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 11px;
-      color: var(--text-secondary);
-      transition: all 0.2s;
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      white-space: nowrap;
-    }
-
-    .copy-btn:hover {
-      background: var(--primary-color);
-      color: white;
-      border-color: var(--primary-color);
-    }
-
-    .copy-btn.copied {
-      background: var(--success-color);
-      color: white;
-      border-color: var(--success-color);
-    }
-
-    .model-tags {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 4px;
-      max-width: 300px;
-    }
-
-    .model-tag {
-      padding: 2px 6px;
-      background: var(--bg-tertiary);
-      border-radius: 4px;
-      font-size: 11px;
-      color: var(--text-secondary);
-      white-space: nowrap;
-    }
-
-    .model-tag.more {
-      background: var(--primary-color);
-      color: white;
-      cursor: pointer;
-    }
-
-    .status-valid {
-      color: var(--success-color);
-    }
-
-    .status-invalid {
-      color: var(--danger-color);
-    }
-
-    .status-unknown {
-      color: var(--text-tertiary);
-    }
-
-    /* OpenAI 模型容器 - 展开/收起动画 */
-    .openai-models-container {
-      margin-top: 12px;
-      transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-      overflow: visible;
-      transform-origin: top;
-    }
-
-    .openai-models-container.collapsed {
-      max-height: 0;
-      opacity: 0;
-      margin-top: 0;
-      transform: scaleY(0.95);
-      overflow: hidden;
-    }
-
-    /* OpenAI 模型网格布局 */
-    .models-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
-      gap: 6px;
-      padding: 12px;
-      background: var(--bg-secondary);
-      border-radius: 8px;
-      border: 1px solid var(--border-color);
-    }
-
-    /* OpenAI 模型标签样式 */
-    .model-tag-item {
-      padding: 6px 10px;
-      background: var(--bg-tertiary);
-      border: 1px solid var(--border-color);
-      border-radius: 6px;
-      cursor: pointer;
-      font-family: monospace;
-      font-size: 12px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-      transition: all 0.2s;
-      text-align: center;
-    }
-
-    .model-tag-item:hover {
-      background: var(--primary-color);
-      color: white;
-      border-color: var(--primary-color);
-      transform: translateY(-1px);
-    }
-
-    .model-tag-item:active {
-      transform: translateY(0);
-    }
-
-    /* OpenAI 操作按钮美化 */
-    .openai-action-btn {
-      padding: 6px 10px;
-      border-radius: 6px;
-      font-size: 12px;
-      font-weight: 500;
-      cursor: pointer;
-      transition: all 0.2s;
-      border: none;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      gap: 4px;
-    }
-
-    .openai-action-btn.refresh {
-      background: rgba(59, 130, 246, 0.15);
-      color: var(--info-color);
-    }
-
-    .openai-action-btn.refresh:hover {
-      background: rgba(59, 130, 246, 0.25);
-    }
-
-    .openai-action-btn.edit {
-      background: rgba(99, 102, 241, 0.15);
-      color: var(--primary-color);
-    }
-
-    .openai-action-btn.edit:hover {
-      background: rgba(99, 102, 241, 0.25);
-    }
-
-    .openai-action-btn.delete {
-      background: rgba(239, 68, 68, 0.15);
-      color: var(--danger-color);
-    }
-
-    .openai-action-btn.delete:hover {
-      background: rgba(239, 68, 68, 0.25);
-    }
-
-    .record-type {
-      padding: 2px 8px;
-      border-radius: 4px;
-      font-size: 11px;
-      font-weight: 600;
-      background: var(--bg-tertiary);
-      color: var(--text-primary);
-      display: inline-block;
-      white-space: nowrap;
-    }
-
-    .record-type.A {
-      background: rgba(16, 185, 129, 0.2);
-      color: #10b981;
-    }
-
-    .record-type.AAAA {
-      background: rgba(59, 130, 246, 0.2);
-      color: #3b82f6;
-    }
-
-    .record-type.CNAME {
-      background: rgba(139, 92, 246, 0.2);
-      color: #a78bfa;
-    }
-
-    .record-type.TXT {
-      background: rgba(245, 158, 11, 0.2);
-      color: #fbbf24;
-    }
-
-    .record-type.MX {
-      background: rgba(239, 68, 68, 0.2);
-      color: #f87171;
-    }
-
-    .record-type.NS {
-      background: rgba(99, 102, 241, 0.2);
-      color: #818cf8;
-    }
-
-    .record-type.SRV {
-      background: rgba(236, 72, 153, 0.2);
-      color: #f472b6;
-    }
-
-    .record-type.CAA {
-      background: rgba(20, 184, 166, 0.2);
-      color: #2dd4bf;
-    }
-
-    .proxied-badge {
-      padding: 2px 6px;
-      border-radius: 4px;
-      font-size: 10px;
-      font-weight: 600;
-      display: inline-block;
-      white-space: nowrap;
-    }
-
-    .proxied-on {
-      background: linear-gradient(135deg, #27ae60, #2ecc71);
-      color: white;
-    }
-
-    .proxied-off {
-      background: var(--bg-tertiary);
-      color: var(--text-tertiary);
-    }
-
-    .zones-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(324px, 1fr));
-      gap: 12px;
-      margin-bottom: 16px;
-    }
-
-    .zone-card {
-      background: var(--card-bg);
-      border-radius: 8px;
-      padding: 5px 16px;
-      border: 1px solid var(--border-color);
-      cursor: pointer;
-      transition: all 0.2s;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-
-    .zone-card:hover {
-      border-color: var(--cf-color);
-      box-shadow: var(--card-shadow);
-    }
-
-    .zone-card.active {
-      border-color: var(--cf-color);
-      background: rgba(243, 128, 32, 0.05);
-    }
-
-    .zone-name {
-      font-weight: 600;
-      font-size: 14px;
-    }
-
-    .zone-status {
-      font-size: 12px;
-      color: var(--text-tertiary);
-    }
-
-    .zone-status.active {
-      color: var(--success-color);
-    }
-
-    .dns-account-select {
-      display: flex;
-      gap: 8px;
-      align-items: center;
-      margin-bottom: 16px;
-    }
-
-    .dns-account-select select {
-      padding: 8px 12px;
-      border-radius: 6px;
-      border: 1px solid var(--input-border);
-      background: var(--input-bg);
-      color: var(--text-primary);
-      font-size: 14px;
-      min-width: 200px;
-    }
-
-    .quick-switch {
-      display: none;
-      gap: 8px;
-      align-items: center;
-      padding: 12px;
-      background: var(--bg-secondary);
-      border-radius: 8px;
-      margin-bottom: 16px;
-      flex-wrap: wrap;
-    }
-
-    .quick-switch input {
-      display: none;
-      flex: 1;
-      min-width: 120px;
-      padding: 8px 12px;
-      border: 1px solid var(--input-border);
-      border-radius: 6px;
-      background: var(--input-bg);
-      color: var(--text-primary);
-      font-size: 14px;
-    }
-
-    .content-truncate {
-      max-width: 300px;
-      overflow: hidden;
-      text-overflow: ellipsis;
-      white-space: nowrap;
-    }
-
-    .editable-cell {
-      cursor: pointer;
-      padding: 2px 4px;
-      border-radius: 4px;
-      transition: background-color 0.2s;
-      color: var(--text-primary);
-    }
-
-    .editable-cell:hover {
-      background-color: var(--bg-tertiary);
-    }
-
-    .inline-edit-container {
-      display: inline-flex;
-      align-items: center;
-      gap: 4px;
-      max-width: 100%;
-    }
-
-    .inline-edit-input {
-      padding: 4px 8px;
-      border: 1px solid var(--cf-color);
-      border-radius: 4px;
-      font-size: 13px;
-      background-color: var(--input-bg);
-      color: var(--text-primary);
-      outline: none;
-      width: 230px;
-      min-width: 150px;
-      max-width: 230px;
-    }
-
-    .inline-edit-input:focus {
-      border-color: var(--cf-color);
-      box-shadow: 0 0 0 2px rgba(243, 128, 32, 0.2);
-    }
-
-    .inline-edit-cancel {
-      padding: 2px 6px;
-      background-color: rgba(239, 68, 68, 0.2);
-      border: 1px solid rgba(239, 68, 68, 0.4);
-      border-radius: 4px;
-      cursor: pointer;
-      font-size: 12px;
-      transition: all 0.2s;
-      color: var(--danger-color);
-      flex-shrink: 0;
-    }
-
-    .inline-edit-cancel:hover {
-      background-color: rgba(239, 68, 68, 0.3);
-    }
-
-    .btn-cf {
-      background-color: var(--cf-color);
-      color: white;
-    }
-
-    .btn-cf:hover {
-      background-color: var(--cf-dark);
-    }
-
-    .toast {
-      position: fixed;
-      bottom: 20px;
-      right: 20px;
-      padding: 12px 20px;
-      border-radius: 8px;
-      color: white;
-      font-size: 14px;
-      z-index: 2000;
-      animation: slideIn 0.3s;
-    }
-
-    .toast.success {
-      background: var(--success-color);
-    }
-
-    .toast.error {
-      background: var(--danger-color);
-    }
-
-    @keyframes slideIn {
-      from {
-        transform: translateX(100%);
-        opacity: 0;
-      }
-
-      to {
-        transform: translateX(0);
-        opacity: 1;
-      }
-    }
-
-    /* Responsive adjustments */
-    @media (max-width: 768px) {
-      .container {
-        padding: 16px;
-      }
-
-      .header {
-        flex-direction: column;
-        align-items: flex-start;
-      }
-
-      .controls {
-        display: flex;
-        gap: 10px;
-        align-items: center;
-        margin-bottom: 10px;
-        flex-wrap: wrap;
-        justify-content: flex-end;
-      }
-
-      .stats-grid {
-        grid-template-columns: repeat(2, 1fr);
-      }
-
-      .projects-grid {
-        grid-template-columns: 1fr;
-      }
-
-      .account-header {
-        background-color: var(--card-bg);
-        border-radius: 10px;
-        padding: 10px;
-        border: 1px solid var(--border-color);
-        transition: transform 0.3s, box-shadow 0.3s;
-        height: 100%;
-        display: flex;
-        justify-content: space-between;
-      }
-
-      .account-balance {
-        align-items: flex-start;
-      }
-
-      .modal {
-        padding: 20px;
-      }
-
-      /* 小屏幕上 main-tab 只显示图标 */
-      .main-tab {
-        padding: 12px 16px;
-        min-width: auto;
-      }
-
-      .main-tab i {
-        margin-right: 0;
-      }
-
-      .main-tab span {
-        display: none;
-      }
-    }
-
-    @media (max-width: 480px) {
-      .stats-grid {
-        grid-template-columns: 1fr;
-      }
-
-      .controls {
-        display: flex;
-        gap: 10px;
-        align-items: center;
-        margin-bottom: 10px;
-        flex-wrap: wrap;
-        justify-content: flex-end;
-      }
-
-      .btn {
-        justify-content: center;
-      }
-
-      /* DNS 表格在小屏幕上优化 - 横向滚动完整显示 */
-      .table-container {
-        overflow-x: auto;
-        -webkit-overflow-scrolling: touch;
-      }
-
-      .data-table {
-        min-width: 100%;
-        width: max-content;
-        font-size: 12px;
-      }
-
-      .data-table th,
-      .data-table td {
-        padding: 8px 10px;
-        white-space: nowrap;
-        min-width: fit-content;
-      }
-
-      /* 取消固定列宽，使用自适应 */
-      .data-table td:nth-child(1),
-      .data-table td:nth-child(2),
-      .data-table td:nth-child(3),
-      .data-table td:nth-child(4),
-      .data-table td:nth-child(5),
-      .data-table td:nth-child(6) {
-        width: auto;
-        min-width: auto;
-      }
-
-      /* DNS 标签页按钮优化 */
-      .dns-tab-btn {
-        padding: 6px 10px;
-        font-size: 12px;
-      }
-
-      /* 域名卡片优化 */
-      .zone-card {
-        padding: 8px 12px;
-      }
-
-      .zone-name {
-        font-size: 13px;
-      }
-
-      /* DNS 记录内容完整显示 */
-      .content-truncate {
-        max-width: none;
-        white-space: nowrap;
-      }
-
-      .editable-cell {
-        white-space: nowrap;
-      }
-
-      /* OpenAI 表格优化 - 横向滚动 */
-      .openai-table-container {
-        overflow-x: auto;
-        -webkit-overflow-scrolling: touch;
-      }
-
-      .openai-table {
-        min-width: 100%;
-        font-size: 12px;
-      }
-
-      .openai-table th,
-      .openai-table td {
-        padding: 8px 10px;
-        white-space: nowrap;
-      }
-
-      .openai-table .cell-url,
-      .openai-table .cell-key,
-      .openai-table .cell-name {
-        max-width: none;
-        white-space: nowrap;
-      }
-    }
-  </style>
+  <!-- Custom Styles - Modularized CSS -->
+  <link rel="stylesheet" href="/css/styles.css">
+  <link rel="stylesheet" href="/css/projects.css">
+  <link rel="stylesheet" href="/css/modals.css">
+  <link rel="stylesheet" href="/css/dns.css">
+  <link rel="stylesheet" href="/css/tables.css">
+  <link rel="stylesheet" href="/css/tabs.css">
+  <link rel="stylesheet" href="/css/settings.css">
+  <link rel="stylesheet" href="/css/logs.css">
 </head>
 
 <body>
@@ -1991,55 +69,89 @@
     </div>
 
     <div v-if="isAuthenticated" class="container">
+      <!-- 页面头部 - 模块控制和设置 -->
+      <div class="header">
+        <div class="title">
+          <i class="fas fa-chart-line"></i>
+          API Monitor
+        </div>
+        <div style="display: flex; gap: 10px; align-items: center;">
+          <!-- 设置按钮 -->
+          <button class="btn btn-secondary icon-only" @click="showSettingsModal = true" title="系统设置">
+            <i class="fas fa-cog"></i>
+          </button>
+        </div>
+      </div>
+
       <!-- 主标签页导航 -->
       <div class="main-tabs">
-        <button class="main-tab" :class="{ active: mainActiveTab === 'zeabur' }" @click="mainActiveTab = 'zeabur'">
+        <button v-if="moduleVisibility.zeabur" class="main-tab" :class="{ active: mainActiveTab === 'zeabur' }" @click="mainActiveTab = 'zeabur'">
           <i class="fas fa-rocket"></i><span> Zeabur</span>
         </button>
-        <button class="main-tab dns-tab" :class="{ active: mainActiveTab === 'dns' }" @click="switchToDns">
+        <button v-if="moduleVisibility.dns" class="main-tab dns-tab" :class="{ active: mainActiveTab === 'dns' }" @click="switchToDns">
           <i class="fas fa-cloud"></i><span> CF DNS</span>
         </button>
-        <button class="main-tab openai-tab" :class="{ active: mainActiveTab === 'openai' }" @click="switchToOpenai">
+        <button v-if="moduleVisibility.openai" class="main-tab openai-tab" :class="{ active: mainActiveTab === 'openai' }" @click="switchToOpenai">
           <i class="fas fa-robot"></i><span> OpenAI API</span>
         </button>
       </div>
 
       <!-- ==================== Zeabur 监控部分 ==================== -->
       <div v-if="mainActiveTab === 'zeabur'">
-        <div class="info-card">
-          <div class="info-card-title">💡 使用说明</div>
-          <div class="info-card-content">
-            数据每30秒自动刷新
-          </div>
+        <!-- Zeabur 子标签页 -->
+        <div class="dns-tabs">
+          <button class="dns-tab-btn" :class="{ active: zeaburCurrentTab === 'monitor' }"
+            @click="zeaburCurrentTab = 'monitor'" style="background: var(--primary-color) !important;"
+            v-if="zeaburCurrentTab === 'monitor'">
+            <i class="fas fa-chart-line"></i> 服务监控
+          </button>
+          <button class="dns-tab-btn" :class="{ active: zeaburCurrentTab === 'monitor' }"
+            @click="zeaburCurrentTab = 'monitor'" v-else>
+            <i class="fas fa-chart-line"></i> 服务监控
+          </button>
+          <button class="dns-tab-btn" :class="{ active: zeaburCurrentTab === 'accounts' }"
+            @click="zeaburCurrentTab = 'accounts'" style="background: var(--primary-color) !important;"
+            v-if="zeaburCurrentTab === 'accounts'">
+            <i class="fas fa-users"></i> 账号管理
+          </button>
+          <button class="dns-tab-btn" :class="{ active: zeaburCurrentTab === 'accounts' }"
+            @click="zeaburCurrentTab = 'accounts'" v-else>
+            <i class="fas fa-users"></i> 账号管理
+          </button>
         </div>
 
-        <div class="controls" style="justify-content: space-between;">
-          <div style="display: flex; gap: 10px; align-items: center;">
-            <button class="btn btn-primary" @click="fetchData" :disabled="loading">
-              <i class="fas fa-sync-alt"></i>
-              {{ loading ? '数据更新' : '刷新数据' }}
-            </button>
-            <button class="btn btn-secondary" @click="toggleDataRefresh"
-              :class="dataRefreshPaused ? 'btn-success' : 'btn-warning'">
-              <i class="fas" :class="dataRefreshPaused ? 'fa-play' : 'fa-pause'"></i>
-              {{ dataRefreshPaused ? '继续更新' : '暂停更新' }}
-            </button>
-            <button class="btn btn-secondary" @click="showManageModal = true">
-              <i class="fas fa-cog"></i>
-              管理账号
-            </button>
-            <button class="btn btn-danger" @click="clearCache">
-              <i class="fas fa-trash"></i>
-              清除缓存
-            </button>
-          </div>
-          <div class="refresh-info">
-            <div class="last-update">将在 {{ refreshCountdown }} 秒后刷新</div>
-            <div class="refresh-progress">
-              <div class="refresh-progress-bar" :style="{ width: refreshProgress + '%' }"></div>
+        <!-- 服务监控标签页 -->
+        <div v-if="zeaburCurrentTab === 'monitor'">
+          <div class="info-card">
+            <div class="info-card-title">💡 使用说明</div>
+            <div class="info-card-content">
+              数据每30秒自动刷新
             </div>
           </div>
-        </div>
+
+          <div class="controls" style="justify-content: space-between;">
+            <div style="display: flex; gap: 10px; align-items: center;">
+              <button class="btn btn-primary" @click="fetchData" :disabled="loading">
+                <i class="fas fa-sync-alt"></i>
+                {{ loading ? '数据更新' : '刷新数据' }}
+              </button>
+              <button class="btn btn-secondary" @click="toggleDataRefresh"
+                :class="dataRefreshPaused ? 'btn-success' : 'btn-warning'">
+                <i class="fas" :class="dataRefreshPaused ? 'fa-play' : 'fa-pause'"></i>
+                {{ dataRefreshPaused ? '继续更新' : '暂停更新' }}
+              </button>
+              <button class="btn btn-danger" @click="clearCache">
+                <i class="fas fa-trash"></i>
+                清除缓存
+              </button>
+            </div>
+            <div class="refresh-info">
+              <div class="last-update">将在 {{ refreshCountdown }} 秒后刷新</div>
+              <div class="refresh-progress">
+                <div class="refresh-progress-bar" :style="{ width: refreshProgress + '%' }"></div>
+              </div>
+            </div>
+          </div>
 
         <!-- 日志模态框 -->
         <div v-if="showLogsModal" class="modal-overlay" :class="{ 'logs-fullscreen-overlay': logsFullscreen }"
@@ -2088,160 +200,6 @@
           </div>
         </div>
 
-        <!-- 账号管理模态框 -->
-        <div v-if="showManageModal" class="modal-overlay" @mousedown.self="showManageModal = false">
-          <div class="modal" style="max-width: 700px;">
-            <div class="modal-header">
-              <div class="modal-title">⚙️ 账号管理</div>
-              <button class="modal-close" @click="closeManageModal">×</button>
-            </div>
-
-            <div class="modal-actions" style="padding: 0 0px 10px;">
-              <button class="btn btn-secondary" @click="exportAllAccounts" style="margin-right: 10px;">
-                <i class="fas fa-download"></i> 导出
-              </button>
-              <button class="btn btn-secondary" @click="importAllAccounts" style="margin-right: 10px;">
-                <i class="fas fa-upload"></i> 导入
-              </button>
-            </div>
-
-            <!-- 账号列表 -->
-            <div class="account-list">
-              <!-- 显示本地管理的账号 -->
-              <div v-for="(account, index) in managedAccounts" :key="'local-' + index" class="account-item">
-                <div class="account-item-info">
-                  <div class="account-item-name">{{ account.name }}</div>
-                </div>
-                <button @click="removeAccount(index)" class="btn btn-danger"
-                  style="padding: 6px 10px; font-size: 12px;">
-                  <i class="fas fa-trash"></i>
-                  删除
-                </button>
-              </div>
-
-              <!-- 显示服务器配置的账号（只读） -->
-              <div v-if="managedAccounts.length === 0 && accounts.length > 0">
-                <div
-                  style="font-size: 12px; color: var(--text-secondary); margin-bottom: 8px; padding: 8px 10px; background-color: var(--bg-tertiary); border-radius: 4px; border: 1px solid var(--border-color);">
-                  💡 以下账号来自服务器配置（.env 文件），无法在此删除
-                </div>
-                <div v-for="account in accounts" :key="'server-' + account.name" class="account-item">
-                  <div class="account-item-info">
-                    <div class="account-item-name">{{ account.name }}</div>
-                  </div>
-                  <span
-                    style="font-size: 12px; color: var(--text-tertiary); padding: 6px 12px; background-color: var(--bg-tertiary); border-radius: 6px;">
-                    🔒 服务器配置
-                  </span>
-                </div>
-              </div>
-
-              <div v-if="managedAccounts.length === 0 && accounts.length === 0" class="empty-state">
-                暂无账号，点击下方按钮添加
-              </div>
-            </div>
-
-            <div class="divider"></div>
-
-            <!-- 添加新账号表单 -->
-            <div>
-              <div class="modal-title" style="margin-bottom: 12px; font-size: 15px;">➕ 添加新账号</div>
-
-              <div class="form-group" style="margin-bottom: 12px;">
-                <label class="form-label">账号名称</label>
-                <input v-model="newAccount.name" type="text" class="form-input" placeholder="例如：我的账号" />
-              </div>
-
-              <div class="form-group" style="margin-bottom: 12px;">
-                <label class="form-label">API Token</label>
-                <input v-model="newAccount.token" type="password" class="form-input"
-                  placeholder="sk-xxxxxxxxxxxxxxxx" />
-                <div class="form-help">
-                  在 Zeabur 控制台的设置中创建 API Token
-                </div>
-              </div>
-
-              <div v-if="addAccountError" class="form-error">
-                {{ addAccountError }}
-              </div>
-
-              <div v-if="addAccountSuccess" class="form-success">
-                {{ addAccountSuccess }}
-              </div>
-
-              <button class="btn btn-primary" @click="addAccountToList" :disabled="addingAccount" style="width: 100%;">
-                {{ addingAccount ? '验证中...' : '➕ 添加到列表' }}
-              </button>
-            </div>
-
-            <!-- 批量添加 -->
-            <div class="divider"></div>
-            <div>
-              <div class="modal-title" style="margin-bottom: 12px; font-size: 15px;">📦 批量添加账号</div>
-              <div class="form-help">
-                每行一个账号，支持格式：<code>名称:Token</code> 或 <code>名称：Token</code> 或 <code>名称(Token)</code> 或
-                <code>名称（Token）</code>
-              </div>
-              <div style="position: relative; min-height: 120px;">
-                <div
-                  style="width: 100%; min-height: 120px; padding: 12px; border: 1px solid var(--border-color); border-radius: 8px; font-size: 13px; font-family: monospace; white-space: pre-wrap; word-break: break-all; pointer-events: none; color: var(--text-primary); line-height: 1.5; background-color: var(--input-bg);">
-                  {{ maskedBatchAccounts }}</div>
-                <textarea v-model="batchAccounts" @input="updateBatchDisplay" placeholder="每行一个账号，格式：账号名称:API_Token"
-                  class="form-textarea"
-                  style="position: absolute; top: 0; left: 0; color: transparent; caret-color: var(--text-primary); background: transparent; line-height: 1.5;"></textarea>
-              </div>
-              <div v-if="batchAddError" class="form-error">
-                {{ batchAddError }}
-              </div>
-              <div v-if="batchAddSuccess" class="form-success">
-                {{ batchAddSuccess }}
-              </div>
-              <button class="btn btn-primary" @click="batchAddAccounts" :disabled="addingAccount"
-                style="width: 100%; margin-top: 12px;">
-                {{ addingAccount ? '添加中...' : '📦 批量添加' }}
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <!-- 旧的添加账号模态框（保留兼容） -->
-        <div v-if="showAddModal" class="modal-overlay" @mousedown.self="showAddModal = false">
-          <div class="modal">
-            <div class="modal-header">
-              <div class="modal-title">➕ 添加 Zeabur 账号</div>
-              <button class="modal-close" @click="closeAddModal">×</button>
-            </div>
-
-            <div class="form-group">
-              <label class="form-label">账号名称</label>
-              <input v-model="newAccount.name" type="text" class="form-input" placeholder="例如：我的账号" />
-            </div>
-
-            <div class="form-group">
-              <label class="form-label">API Token</label>
-              <input v-model="newAccount.token" type="password" class="form-input" placeholder="sk-xxxxxxxxxxxxxxxx" />
-              <div class="form-help">
-                在 Zeabur 控制台的设置中创建 API Token
-              </div>
-            </div>
-
-            <div v-if="addAccountError" class="form-error">
-              {{ addAccountError }}
-            </div>
-
-            <div v-if="addAccountSuccess" class="form-success">
-              {{ addAccountSuccess }}
-            </div>
-
-            <button class="btn btn-primary" @click="addAccount" :disabled="addingAccount" style="width: 100%;">
-              {{ addingAccount ? '验证中...' : '添加账号' }}
-            </button>
-
-            <button class="btn btn-secondary" @click="closeAddModal" style="width: 100%; margin-top: 8px;">
-              取消
-            </button>
-          </div>
-        </div>
 
         <div v-if="accounts.length > 0" class="stats-grid">
           <div class="stat-card">
@@ -2421,9 +379,158 @@
           </div>
         </div>
 
-        <div v-if="!loading && accounts.length === 0" class="error">
-          未配置账号或无法获取数据。请检查 .env 配置文件。
+          <div v-if="!loading && accounts.length === 0" class="error">
+            未配置账号或无法获取数据。请检查 .env 配置文件。
+          </div>
         </div>
+        <!-- 服务监控标签页结束 -->
+
+        <!-- 账号管理标签页 -->
+        <div v-if="zeaburCurrentTab === 'accounts'">
+          <div class="panel">
+            <div class="panel-header">
+              <div class="panel-title">Zeabur 账号</div>
+              <div style="display: flex; gap: 8px;">
+                <button class="btn btn-secondary" @click="exportAllAccounts" style="padding: 6px 12px;">
+                  <i class="fas fa-download"></i> 导出
+                </button>
+                <button class="btn btn-secondary" @click="importAllAccounts" style="padding: 6px 12px;">
+                  <i class="fas fa-upload"></i> 导入
+                </button>
+              </div>
+            </div>
+
+            <div class="table-container">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>名称</th>
+                    <th>邮箱</th>
+                    <th>余额</th>
+                    <th>状态</th>
+                    <th style="width: 150px;">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="(account, index) in managedAccounts" :key="'local-' + index">
+                    <td>{{ account.name }}</td>
+                    <td>{{ account.email || '-' }}</td>
+                    <td>
+                      <span v-if="account.balance !== null && account.balance !== undefined">
+                        ${{ account.balance.toFixed(2) }}
+                      </span>
+                      <span v-else>-</span>
+                    </td>
+                    <td>
+                      <span class="proxied-badge" :class="account.status === 'active' ? 'proxied-on' : 'proxied-off'">
+                        {{ account.status === 'active' ? '正常' : '未知' }}
+                      </span>
+                    </td>
+                    <td class="actions">
+                      <button class="btn btn-danger" style="padding: 4px 8px; font-size: 12px;"
+                        @click="removeAccount(index)" title="删除">
+                        <i class="fas fa-trash"></i>
+                      </button>
+                    </td>
+                  </tr>
+                  <!-- 显示服务器配置的账号（只读） -->
+                  <tr v-if="managedAccounts.length === 0 && accounts.length > 0" v-for="account in accounts" :key="'server-' + account.name">
+                    <td>{{ account.name }}</td>
+                    <td>{{ account.data?.email || '-' }}</td>
+                    <td>
+                      <span v-if="account.data?.credit">
+                        ${{ (account.data.credit / 100).toFixed(2) }}
+                      </span>
+                      <span v-else>-</span>
+                    </td>
+                    <td>
+                      <span class="proxied-badge proxied-off">
+                        服务器配置
+                      </span>
+                    </td>
+                    <td class="actions">
+                      <span style="font-size: 12px; color: var(--text-tertiary);">
+                        🔒 只读
+                      </span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+              <div v-if="managedAccounts.length === 0 && accounts.length === 0" class="empty-state">
+                <i class="fas fa-user-plus" style="font-size: 48px; margin-bottom: 16px;"></i>
+                <div>暂无账号，请添加 Zeabur 账号</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 添加新账号表单 -->
+          <div class="panel" style="margin-top: 16px;">
+            <div class="panel-header">
+              <div class="panel-title">➕ 添加新账号</div>
+            </div>
+
+            <div style="padding: 16px;">
+              <div class="form-group" style="margin-bottom: 12px;">
+                <label class="form-label">账号名称</label>
+                <input v-model="newAccount.name" type="text" class="form-input" placeholder="例如：我的账号" />
+              </div>
+
+              <div class="form-group" style="margin-bottom: 12px;">
+                <label class="form-label">API Token</label>
+                <input v-model="newAccount.token" type="password" class="form-input"
+                  placeholder="sk-xxxxxxxxxxxxxxxx" />
+                <div class="form-help">
+                  在 Zeabur 控制台的设置中创建 API Token
+                </div>
+              </div>
+
+              <div v-if="addAccountError" class="form-error">
+                {{ addAccountError }}
+              </div>
+
+              <div v-if="addAccountSuccess" class="form-success">
+                {{ addAccountSuccess }}
+              </div>
+
+              <button class="btn btn-primary" @click="addAccountToList" :disabled="addingAccount" style="width: 100%;">
+                {{ addingAccount ? '验证中...' : '➕ 添加到列表' }}
+              </button>
+            </div>
+          </div>
+
+          <!-- 批量添加 -->
+          <div class="panel" style="margin-top: 16px;">
+            <div class="panel-header">
+              <div class="panel-title">📦 批量添加账号</div>
+            </div>
+            <div style="padding: 16px;">
+              <div class="form-help" style="margin-bottom: 12px;">
+                每行一个账号，支持格式：<code>名称:Token</code> 或 <code>名称：Token</code> 或 <code>名称(Token)</code> 或
+                <code>名称（Token）</code>
+              </div>
+              <div style="position: relative; min-height: 120px;">
+                <div
+                  style="width: 100%; min-height: 120px; padding: 12px; border: 1px solid var(--border-color); border-radius: 8px; font-size: 13px; font-family: monospace; white-space: pre-wrap; word-break: break-all; pointer-events: none; color: var(--text-primary); line-height: 1.5; background-color: var(--input-bg);">
+                  {{ maskedBatchAccounts }}</div>
+                <textarea v-model="batchAccounts" @input="updateBatchDisplay" placeholder="每行一个账号，格式：账号名称:API_Token"
+                  class="form-textarea"
+                  style="position: absolute; top: 0; left: 0; color: transparent; caret-color: var(--text-primary); background: transparent; line-height: 1.5;"></textarea>
+              </div>
+              <div v-if="batchAddError" class="form-error">
+                {{ batchAddError }}
+              </div>
+              <div v-if="batchAddSuccess" class="form-success">
+                {{ batchAddSuccess }}
+              </div>
+              <button class="btn btn-primary" @click="batchAddAccounts" :disabled="addingAccount"
+                style="width: 100%; margin-top: 12px;">
+                {{ addingAccount ? '添加中...' : '📦 批量添加' }}
+              </button>
+            </div>
+          </div>
+        </div>
+        <!-- 账号管理标签页结束 -->
+
       </div>
       <!-- ==================== Zeabur 监控部分结束 ==================== -->
 
@@ -3163,6 +1270,120 @@
       <!-- ==================== OpenAI API 管理部分结束 ==================== -->
 
     </div>
+
+    <!-- 设置侧边栏 -->
+    <div v-if="showSettingsModal">
+      <div class="settings-sidebar-overlay" @click="showSettingsModal = false"></div>
+      <div class="settings-sidebar">
+        <!-- 侧边栏头部 -->
+        <div class="settings-sidebar-header">
+          <div class="settings-sidebar-title">
+            <i class="fas fa-cog"></i>
+            <span>系统设置</span>
+          </div>
+          <button class="settings-sidebar-close" @click="showSettingsModal = false">&times;</button>
+        </div>
+
+        <!-- 侧边栏内容 -->
+        <div class="settings-sidebar-content">
+          <!-- 模块管理 -->
+          <div class="settings-section">
+            <div class="settings-section-title">模块管理</div>
+            <div>
+              <div
+                v-for="(module, index) in moduleOrder"
+                :key="module"
+                class="draggable-module-item"
+                draggable="true"
+                @dragstart="handleDragStart($event, index)"
+                @dragend="handleDragEnd"
+                @dragover.prevent="handleDragOver($event, index)"
+                @drop="handleDrop($event, index)">
+                <i class="fas fa-grip-vertical drag-handle"></i>
+                <i class="draggable-module-icon fas" :class="getModuleIcon(module)"></i>
+                <span class="draggable-module-name">{{ getModuleName(module) }}</span>
+                <!-- 显示/隐藏切换按钮 -->
+                <button
+                  class="btn btn-sm"
+                  :class="moduleVisibility[module] ? 'btn-success' : 'btn-secondary'"
+                  @click.stop="toggleModuleVisibility(module)"
+                  style="padding: 4px 8px; font-size: 12px;">
+                  <i class="fas" :class="moduleVisibility[module] ? 'fa-eye' : 'fa-eye-slash'"></i>
+                </button>
+              </div>
+            </div>
+            <div class="form-help" style="margin-top: 8px;">拖拽调整顺序，点击眼睛图标切换显示/隐藏</div>
+          </div>
+
+          <!-- 修改密码 -->
+          <div class="settings-section">
+            <div class="settings-section-title">修改登录密码</div>
+            <div class="form-group">
+              <input v-model="newPassword" type="password" class="form-input" placeholder="输入新密码（至少6位）" />
+            </div>
+            <div class="form-group">
+              <input v-model="confirmPassword" type="password" class="form-input" placeholder="确认新密码" />
+            </div>
+            <div v-if="passwordError" class="form-error">{{ passwordError }}</div>
+            <div v-if="passwordSuccess" class="form-success">{{ passwordSuccess }}</div>
+            <button class="btn btn-primary" @click="changePassword" style="width: 100%;">
+              <i class="fas fa-key"></i> 修改密码
+            </button>
+          </div>
+
+          <!-- 数据导入导出 -->
+          <div class="settings-section">
+            <div class="settings-section-title">数据备份与恢复</div>
+            <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+              <button class="btn btn-success" @click="exportAllData" style="flex: 1;">
+                <i class="fas fa-download"></i> 导出数据
+              </button>
+              <button class="btn btn-warning" @click="importAllData" style="flex: 1;">
+                <i class="fas fa-upload"></i> 导入数据
+              </button>
+            </div>
+            <div class="form-help">导出包含所有模块的配置和数据</div>
+          </div>
+
+          <!-- 保存按钮 -->
+          <div style="position: sticky; bottom: 0; background: var(--card-bg); padding-top: 16px; border-top: 1px solid var(--border-color); margin-top: 20px;">
+            <button class="btn btn-primary" @click="saveSettings" style="width: 100%;">
+              <i class="fas fa-save"></i> 保存设置
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toast 提示容器 -->
+    <div v-if="globalToast.show" class="custom-toast" :class="globalToast.type">
+      <i class="fas" :class="{
+        'fa-check-circle': globalToast.type === 'success',
+        'fa-exclamation-circle': globalToast.type === 'error',
+        'fa-exclamation-triangle': globalToast.type === 'warning',
+        'fa-info-circle': globalToast.type === 'info'
+      }"></i>
+      <span>{{ globalToast.message }}</span>
+    </div>
+
+    <!-- 自定义确认对话框 -->
+    <div v-if="customDialog.show" class="custom-dialog-overlay">
+      <div class="custom-dialog">
+        <div class="custom-dialog-title">
+          <i class="fas" :class="customDialog.icon || 'fa-question-circle'"></i>
+          {{ customDialog.title || '确认' }}
+        </div>
+        <div class="custom-dialog-message">{{ customDialog.message }}</div>
+        <div class="custom-dialog-buttons">
+          <button v-if="customDialog.cancelText" class="btn btn-secondary" @click="customDialog.onCancel ? customDialog.onCancel() : (customDialog.show = false)">
+            {{ customDialog.cancelText }}
+          </button>
+          <button class="btn" :class="customDialog.confirmClass || 'btn-primary'" @click="customDialog.onConfirm">
+            {{ customDialog.confirmText || '确定' }}
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <script>
@@ -3174,8 +1395,6 @@
           accounts: [],
           loading: false,
           lastUpdate: '--:--:--',
-          showAddModal: false,
-          showManageModal: false,
           managedAccounts: [],
           projectCosts: {},
           newAccount: {
@@ -3228,6 +1447,8 @@
           dataRefreshPaused: false,
           // ==================== DNS 管理相关数据 ====================
           mainActiveTab: 'zeabur',
+          // Zeabur 子标签页
+          zeaburCurrentTab: 'monitor',
           // DNS Toast
           dnsToast: { show: false, message: '', type: 'success' },
           // DNS 当前标签页
@@ -3292,10 +1513,44 @@
           openaiBatchText: '',
           openaiBatchError: '',
           openaiBatchSuccess: '',
-          openaiAdding: false
+          openaiAdding: false,
+          // ==================== 新增功能相关数据 ====================
+          // 模块可见性控制
+          moduleVisibility: {
+            zeabur: true,
+            dns: true,
+            openai: true
+          },
+          // 模块显示顺序
+          moduleOrder: ['zeabur', 'dns', 'openai'],
+          // 拖拽相关
+          draggedIndex: null,
+          // 设置模态框
+          showSettingsModal: false,
+          newPassword: '',
+          confirmPassword: '',
+          passwordError: '',
+          passwordSuccess: '',
+          // 全局Toast
+          globalToast: { show: false, message: '', type: 'success' },
+          // 自定义对话框
+          customDialog: {
+            show: false,
+            title: '',
+            message: '',
+            icon: '',
+            confirmText: '',
+            cancelText: '',
+            confirmClass: '',
+            onConfirm: null,
+            onCancel: null
+          }
         };
       },
       async mounted() {
+        // 加载模块可见性和顺序设置
+        this.loadModuleSettings();
+
         // 检查服务器是否已设置密码
         const hasPasswordResponse = await fetch('/api/check-password');
         const { hasPassword } = await hasPasswordResponse.json();
@@ -3330,6 +1585,14 @@
         opacity(newVal) {
           localStorage.setItem('card_opacity', newVal);
           this.updateOpacity();
+        },
+        showSettingsModal(newVal) {
+          // 控制body滚动
+          if (newVal) {
+            document.body.classList.add('modal-open');
+          } else {
+            document.body.classList.remove('modal-open');
+          }
         },
         showLogsModal(newVal) {
           if (newVal) {
@@ -3703,7 +1966,7 @@
             }
           } catch (error) {
             console.error('获取数据失败:', error);
-            alert('获取数据失败: ' + error.message);
+            this.showGlobalToast('获取数据失败: ' + error.message, 'error');
           } finally {
             this.loading = false;
             this.refreshing = false;
@@ -3917,18 +2180,6 @@
             alert('验证失败: ' + error.message);
           }
         },
-        closeAddModal() {
-          this.showAddModal = false;
-          this.newAccount = { name: '', token: '', balance: '' };
-          this.addAccountError = '';
-          this.addAccountSuccess = '';
-        },
-        closeManageModal() {
-          this.showManageModal = false;
-          this.newAccount = { name: '', token: '', balance: '' };
-          this.addAccountError = '';
-          this.addAccountSuccess = '';
-        },
         updateOpacity() {
           const opacity = this.opacity / 100;
           const root = document.documentElement;
@@ -3947,15 +2198,23 @@
           root.style.setProperty('--border-opacity-light', 0.4 * opacity);
           root.style.setProperty('--border-opacity-strong', 0.5 * opacity);
         },
-        clearCache() {
-          if (confirm('确定要清除所有缓存数据吗？这将删除所有本地保存的账号、余额和费用数据。')) {
+        async clearCache() {
+          const confirmed = await this.showConfirm({
+            title: '清除缓存',
+            message: '确定要清除所有缓存数据吗？这将删除所有本地保存的账号、余额和费用数据。',
+            icon: 'fa-exclamation-triangle',
+            confirmText: '确定清除',
+            confirmClass: 'btn-danger'
+          });
+
+          if (confirmed) {
             // 清除所有本地数据
             this.managedAccounts = [];
             this.projectCosts = {};
             localStorage.removeItem('zeabur_accounts');
             localStorage.removeItem('zeabur_project_costs');
 
-            alert('缓存已清除！正在重新获取数据...');
+            this.showGlobalToast('缓存已清除！正在重新获取数据...', 'success');
             this.fetchData();
           }
         },
@@ -3976,20 +2235,28 @@
         },
         // 暂停服务
         async pauseService(account, project, service) {
-          if (!confirm(`确定要暂停服务"${service.name}"吗？`)) return;
+          const confirmed = await this.showConfirm({
+            title: '暂停服务',
+            message: `确定要暂停服务"${service.name}"吗？`,
+            icon: 'fa-pause-circle',
+            confirmText: '确定暂停',
+            confirmClass: 'btn-warning'
+          });
+
+          if (!confirmed) return;
 
           try {
             // 获取环境 ID
             const environmentId = project.environments && project.environments[0] ? project.environments[0]._id : null;
             if (!environmentId) {
-              alert('❌ 无法获取环境 ID，请刷新页面后重试');
+              this.showGlobalToast('无法获取环境 ID，请刷新页面后重试', 'error');
               return;
             }
 
             // 获取账号 token
             const accountData = this.managedAccounts.find(acc => acc.name === account.name);
             if (!accountData || !accountData.token) {
-              alert('❌ 无法获取账号 token，请重新添加账号');
+              this.showGlobalToast('无法获取账号 token，请重新添加账号', 'error');
               return;
             }
 
@@ -4005,32 +2272,40 @@
 
             const result = await response.json();
             if (result.success) {
-              alert('✅ 服务已暂停');
+              this.showGlobalToast('服务已暂停', 'success');
               this.fetchData();
             } else {
-              alert('❌ 暂停失败: ' + (result.error || JSON.stringify(result)));
+              this.showGlobalToast('暂停失败: ' + (result.error || JSON.stringify(result)), 'error');
             }
           } catch (error) {
-            alert('❌ 操作失败: ' + error.message);
+            this.showGlobalToast('操作失败: ' + error.message, 'error');
           }
         },
         // 重启服务
         async restartService(account, project, service) {
           const action = service.status === 'SUSPENDED' ? '启动' : '重启';
-          if (!confirm(`确定要${action}服务"${service.name}"吗？`)) return;
+          const confirmed = await this.showConfirm({
+            title: `${action}服务`,
+            message: `确定要${action}服务"${service.name}"吗？`,
+            icon: 'fa-redo',
+            confirmText: `确定${action}`,
+            confirmClass: 'btn-primary'
+          });
+
+          if (!confirmed) return;
 
           try {
             // 获取环境 ID
             const environmentId = project.environments && project.environments[0] ? project.environments[0]._id : null;
             if (!environmentId) {
-              alert('❌ 无法获取环境 ID，请刷新页面后重试');
+              this.showGlobalToast('无法获取环境 ID，请刷新页面后重试', 'error');
               return;
             }
 
             // 获取账号 token
             const accountData = this.managedAccounts.find(acc => acc.name === account.name);
             if (!accountData || !accountData.token) {
-              alert('❌ 无法获取账号 token，请重新添加账号');
+              this.showGlobalToast('无法获取账号 token，请重新添加账号', 'error');
               return;
             }
 
@@ -4046,13 +2321,13 @@
 
             const result = await response.json();
             if (result.success) {
-              alert(`✅ 服务已${action}`);
+              this.showGlobalToast(`服务已${action}`, 'success');
               this.fetchData();
             } else {
-              alert(`❌ ${action}失败: ` + (result.error || JSON.stringify(result)));
+              this.showGlobalToast(`${action}失败: ` + (result.error || JSON.stringify(result)), 'error');
             }
           } catch (error) {
-            alert('❌ 操作失败: ' + error.message);
+            this.showGlobalToast('操作失败: ' + error.message, 'error');
           }
         },
         // 查看服务日志
@@ -5734,6 +4009,412 @@
           } finally {
             this.openaiAdding = false;
           }
+        },
+
+        // ==================== 新增功能方法 ====================
+
+        // 显示全局Toast
+        showGlobalToast(message, type = 'success') {
+          this.globalToast = { show: true, message, type };
+          setTimeout(() => {
+            this.globalToast.show = false;
+          }, 3000);
+        },
+
+        // 显示自定义Alert对话框
+        showAlert(message, title = '提示', icon = 'fa-info-circle') {
+          return new Promise((resolve) => {
+            this.customDialog = {
+              show: true,
+              title: title,
+              message: message,
+              icon: icon,
+              confirmText: '确定',
+              cancelText: '',
+              confirmClass: 'btn-primary',
+              onConfirm: () => {
+                this.customDialog.show = false;
+                resolve(true);
+              },
+              onCancel: null
+            };
+          });
+        },
+
+        // 显示自定义确认对话框
+        showConfirm(options) {
+          return new Promise((resolve) => {
+            this.customDialog = {
+              show: true,
+              title: options.title || '确认',
+              message: options.message || '',
+              icon: options.icon || 'fa-question-circle',
+              confirmText: options.confirmText || '确定',
+              cancelText: options.cancelText || '取消',
+              confirmClass: options.confirmClass || 'btn-primary',
+              onConfirm: () => {
+                this.customDialog.show = false;
+                resolve(true);
+              },
+              onCancel: () => {
+                this.customDialog.show = false;
+                resolve(false);
+              }
+            };
+          });
+        },
+
+        // 加载模块设置
+        loadModuleSettings() {
+          const savedVisibility = localStorage.getItem('module_visibility');
+          const savedOrder = localStorage.getItem('module_order');
+
+          // 定义所有可用模块（从页面中自动检测）
+          const availableModules = ['zeabur', 'dns', 'openai'];
+
+          if (savedVisibility) {
+            const saved = JSON.parse(savedVisibility);
+            // 合并已保存的设置和新模块
+            availableModules.forEach(module => {
+              if (!(module in saved)) {
+                // 新模块默认显示
+                saved[module] = true;
+              }
+            });
+            this.moduleVisibility = saved;
+          } else {
+            // 首次加载，所有模块默认显示
+            availableModules.forEach(module => {
+              this.moduleVisibility[module] = true;
+            });
+          }
+
+          if (savedOrder) {
+            const saved = JSON.parse(savedOrder);
+            // 添加新模块到顺序列表末尾
+            availableModules.forEach(module => {
+              if (!saved.includes(module)) {
+                saved.push(module);
+              }
+            });
+            // 移除不存在的模块
+            this.moduleOrder = saved.filter(m => availableModules.includes(m));
+          } else {
+            // 首次加载，使用默认顺序
+            this.moduleOrder = [...availableModules];
+          }
+
+          // 确保至少有一个模块可见，并切换到第一个可见模块
+          const hasVisibleModule = Object.values(this.moduleVisibility).some(v => v);
+          if (!hasVisibleModule) {
+            this.moduleVisibility[this.moduleOrder[0]] = true;
+          }
+
+          // 切换到第一个可见的模块
+          const firstVisibleModule = this.moduleOrder.find(m => this.moduleVisibility[m]);
+          if (firstVisibleModule) {
+            this.mainActiveTab = firstVisibleModule;
+          }
+
+          // 保存更新后的设置
+          this.saveModuleSettings();
+        },
+
+        // 保存模块设置
+        saveModuleSettings() {
+          localStorage.setItem('module_visibility', JSON.stringify(this.moduleVisibility));
+          localStorage.setItem('module_order', JSON.stringify(this.moduleOrder));
+        },
+
+        // 切换模块可见性
+        toggleModuleVisibility(module) {
+          this.moduleVisibility[module] = !this.moduleVisibility[module];
+
+          // 确保至少有一个模块可见
+          const hasVisibleModule = Object.values(this.moduleVisibility).some(v => v);
+          if (!hasVisibleModule) {
+            this.moduleVisibility[module] = true;
+            this.showGlobalToast('至少需要显示一个模块', 'warning');
+            return;
+          }
+
+          // 如果隐藏的是当前模块，切换到第一个可见模块
+          if (!this.moduleVisibility[module] && this.mainActiveTab === module) {
+            const firstVisibleModule = this.moduleOrder.find(m => this.moduleVisibility[m]);
+            if (firstVisibleModule) {
+              this.mainActiveTab = firstVisibleModule;
+            }
+          }
+
+          this.saveModuleSettings();
+          this.showGlobalToast(`${this.getModuleName(module)} 模块已${this.moduleVisibility[module] ? '显示' : '隐藏'}`, 'success');
+        },
+
+        // 获取模块名称
+        getModuleName(module) {
+          const names = {
+            zeabur: 'Zeabur 监控',
+            dns: 'CF DNS 管理',
+            openai: 'OpenAI API'
+          };
+          return names[module] || module;
+        },
+
+        // 获取模块图标
+        getModuleIcon(module) {
+          const icons = {
+            zeabur: 'fa-rocket',
+            dns: 'fa-cloud',
+            openai: 'fa-robot'
+          };
+          return icons[module] || 'fa-cube';
+        },
+
+        // 拖拽开始
+        handleDragStart(event, index) {
+          this.draggedIndex = index;
+          event.target.classList.add('dragging');
+          // 防止选中文本
+          event.dataTransfer.effectAllowed = 'move';
+          event.dataTransfer.setData('text/html', event.target.innerHTML);
+        },
+
+        // 拖拽结束
+        handleDragEnd(event) {
+          event.target.classList.remove('dragging');
+          // 移除所有拖拽over样式
+          document.querySelectorAll('.draggable-module-item').forEach(item => {
+            item.classList.remove('drag-over');
+          });
+        },
+
+        // 拖拽经过
+        handleDragOver(event, index) {
+          if (this.draggedIndex === null || this.draggedIndex === index) return;
+
+          // 移除所有拖拽over样式
+          document.querySelectorAll('.draggable-module-item').forEach(item => {
+            item.classList.remove('drag-over');
+          });
+
+          // 添加当前项的拖拽over样式
+          event.currentTarget.classList.add('drag-over');
+        },
+
+        // 拖拽放下
+        handleDrop(event, dropIndex) {
+          event.preventDefault();
+
+          if (this.draggedIndex === null || this.draggedIndex === dropIndex) return;
+
+          // 重新排列数组
+          const draggedItem = this.moduleOrder[this.draggedIndex];
+          const newOrder = [...this.moduleOrder];
+
+          // 移除拖拽的项
+          newOrder.splice(this.draggedIndex, 1);
+
+          // 插入到新位置
+          newOrder.splice(dropIndex, 0, draggedItem);
+
+          this.moduleOrder = newOrder;
+          this.draggedIndex = null;
+
+          // 移除拖拽over样式
+          event.currentTarget.classList.remove('drag-over');
+        },
+
+        // 保存设置
+        saveSettings() {
+          this.saveModuleSettings();
+          this.showGlobalToast('设置已保存', 'success');
+          this.showSettingsModal = false;
+        },
+
+        // 修改密码
+        async changePassword() {
+          this.passwordError = '';
+          this.passwordSuccess = '';
+
+          if (!this.newPassword || this.newPassword.length < 6) {
+            this.passwordError = '密码长度至少6位';
+            return;
+          }
+
+          if (this.newPassword !== this.confirmPassword) {
+            this.passwordError = '两次输入的密码不一致';
+            return;
+          }
+
+          try {
+            const response = await fetch('/api/change-password', {
+              method: 'POST',
+              headers: this.getAuthHeaders(),
+              body: JSON.stringify({
+                oldPassword: this.loginPassword,
+                newPassword: this.newPassword
+              })
+            });
+
+            const result = await response.json();
+            if (result.success) {
+              this.passwordSuccess = '密码修改成功！';
+              this.loginPassword = this.newPassword;
+              localStorage.setItem('admin_password', this.newPassword);
+              localStorage.setItem('password_time', Date.now().toString());
+
+              this.newPassword = '';
+              this.confirmPassword = '';
+
+              setTimeout(() => {
+                this.passwordSuccess = '';
+              }, 3000);
+            } else {
+              this.passwordError = result.error || '修改失败';
+            }
+          } catch (error) {
+            this.passwordError = '修改失败: ' + error.message;
+          }
+        },
+
+        // 导出全部数据
+        async exportAllData() {
+          try {
+            const exportData = {
+              version: '1.0',
+              exportTime: new Date().toISOString(),
+              zeabur: {
+                accounts: this.managedAccounts,
+                projectCosts: this.projectCosts
+              },
+              dns: {
+                accounts: this.dnsAccounts,
+                templates: this.dnsTemplates
+              },
+              openai: {
+                endpoints: this.openaiEndpoints
+              },
+              settings: {
+                moduleVisibility: this.moduleVisibility,
+                moduleOrder: this.moduleOrder
+              }
+            };
+
+            const dataStr = JSON.stringify(exportData, null, 2);
+            const dataBlob = new Blob([dataStr], { type: 'application/json' });
+            const url = URL.createObjectURL(dataBlob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `api-monitor-backup-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.json`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            URL.revokeObjectURL(url);
+
+            this.showGlobalToast('数据导出成功', 'success');
+          } catch (error) {
+            this.showGlobalToast('导出失败: ' + error.message, 'error');
+          }
+        },
+
+        // 导入全部数据
+        async importAllData() {
+          const confirmed = await this.showConfirm({
+            title: '确认导入',
+            message: '导入数据将覆盖当前所有配置，是否继续？',
+            icon: 'fa-exclamation-triangle',
+            confirmText: '确定导入',
+            confirmClass: 'btn-warning'
+          });
+
+          if (!confirmed) return;
+
+          const input = document.createElement('input');
+          input.type = 'file';
+          input.accept = '.json';
+          input.onchange = async (event) => {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = async (e) => {
+              try {
+                const importedData = JSON.parse(e.target.result);
+
+                // 验证数据格式
+                if (!importedData.version) {
+                  this.showGlobalToast('无效的备份文件格式', 'error');
+                  return;
+                }
+
+                // 导入 Zeabur 数据
+                if (importedData.zeabur) {
+                  if (importedData.zeabur.accounts) {
+                    this.managedAccounts = importedData.zeabur.accounts;
+                    await this.saveManagedAccounts();
+                  }
+                  if (importedData.zeabur.projectCosts) {
+                    this.projectCosts = importedData.zeabur.projectCosts;
+                    localStorage.setItem('zeabur_project_costs', JSON.stringify(this.projectCosts));
+                  }
+                }
+
+                // 导入 DNS 数据
+                if (importedData.dns) {
+                  if (importedData.dns.accounts) {
+                    // 通过API导入DNS账号
+                    for (const account of importedData.dns.accounts) {
+                      await fetch('/api/cf-dns/accounts', {
+                        method: 'POST',
+                        headers: this.getAuthHeaders(),
+                        body: JSON.stringify(account)
+                      });
+                    }
+                    await this.loadDnsAccounts();
+                  }
+                  if (importedData.dns.templates) {
+                    // 通过API导入DNS模板
+                    for (const template of importedData.dns.templates) {
+                      await fetch('/api/cf-dns/templates', {
+                        method: 'POST',
+                        headers: this.getAuthHeaders(),
+                        body: JSON.stringify(template)
+                      });
+                    }
+                    await this.loadDnsTemplates();
+                  }
+                }
+
+                // 导入 OpenAI 数据
+                if (importedData.openai && importedData.openai.endpoints) {
+                  await fetch('/api/openai/import', {
+                    method: 'POST',
+                    headers: this.getAuthHeaders(),
+                    body: JSON.stringify({ endpoints: importedData.openai.endpoints })
+                  });
+                  await this.loadOpenaiEndpoints();
+                }
+
+                // 导入设置
+                if (importedData.settings) {
+                  if (importedData.settings.moduleVisibility) {
+                    this.moduleVisibility = importedData.settings.moduleVisibility;
+                  }
+                  if (importedData.settings.moduleOrder) {
+                    this.moduleOrder = importedData.settings.moduleOrder;
+                  }
+                  this.saveModuleSettings();
+                }
+
+                this.showGlobalToast('数据导入成功', 'success');
+                await this.fetchData();
+              } catch (error) {
+                this.showGlobalToast('导入失败: ' + error.message, 'error');
+              }
+            };
+            reader.readAsText(file);
+          };
+          input.click();
         }
       }
     }).mount('#app');

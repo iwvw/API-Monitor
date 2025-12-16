@@ -108,4 +108,34 @@ router.post('/verify-password', (req, res) => {
   }
 });
 
+/**
+ * 修改密码
+ */
+router.post('/change-password', (req, res) => {
+  const { oldPassword, newPassword } = req.body;
+  const savedPassword = loadAdminPassword();
+
+  if (!savedPassword) {
+    return res.status(400).json({ success: false, error: '请先设置密码' });
+  }
+
+  // 验证旧密码
+  if (oldPassword !== savedPassword) {
+    return res.status(401).json({ success: false, error: '原密码错误' });
+  }
+
+  // 验证新密码
+  if (!newPassword || newPassword.length < 6) {
+    return res.status(400).json({ success: false, error: '新密码长度至少6位' });
+  }
+
+  // 保存新密码
+  if (saveAdminPassword(newPassword)) {
+    console.log('✅ 管理员密码已修改');
+    res.json({ success: true });
+  } else {
+    res.status(500).json({ success: false, error: '保存密码失败' });
+  }
+});
+
 module.exports = router;
