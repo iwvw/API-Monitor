@@ -10,10 +10,10 @@ FROM node:18-alpine AS deps
 WORKDIR /app
 
 # 复制依赖文件
-COPY package.json package-lock.json* ./
+COPY package.json ./
 
 # 安装生产依赖
-RUN npm ci --only=production && \
+RUN npm install --only=production && \
     npm cache clean --force
 
 # 阶段 2: 运行时镜像
