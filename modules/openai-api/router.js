@@ -459,13 +459,15 @@ router.post('/import', (req, res) => {
     if (overwrite) {
       // 直接覆盖所有端点
       storage.saveEndpoints(endpoints);
-      res.json({ success: true, count: endpoints.length });
+      res.json({ success: true, imported: endpoints.length });
     } else {
       // 使用原有的导入逻辑（去重）
       const result = storage.importEndpoints(endpoints, false);
       res.json({
         success: true,
-        ...result
+        imported: result.importedCount,
+        skipped: result.skippedCount,
+        total: result.total
       });
     }
   } catch (e) {

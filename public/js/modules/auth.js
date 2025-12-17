@@ -19,15 +19,30 @@ export const authMethods = {
     }
 
     try {
-      const response = await fetch('/api/set-password', {
+      // 1. 设置密码
+      const setResponse = await fetch('/api/set-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ password: this.setPassword })
       });
 
-      const result = await response.json();
-      if (result.success) {
-        // 设置成功，自动登录
+      const setResult = await setResponse.json();
+      if (!setResult.success) {
+        this.setPasswordError = setResult.error || '设置失败';
+        return;
+      }
+
+      // 2. 设置成功后，调用登录接口创建 session
+      const loginResponse = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: this.setPassword }),
+        credentials: 'include' // 确保 cookie 被发送和接收
+      });
+
+      const loginResult = await loginResponse.json();
+      if (loginResult.success) {
+        // 登录成功
         this.loginPassword = this.setPassword;
         localStorage.setItem('admin_password', this.setPassword);
         localStorage.setItem('password_time', Date.now().toString());
@@ -37,7 +52,22 @@ export const authMethods = {
 
         await this.loadManagedAccounts();
         this.loadProjectCosts();
-        this.fetchData();
+
+        // 根据当前标签页加载对应的数据
+        this.$nextTick(() => {
+          switch (this.mainActiveTab) {
+            case 'zeabur':
+              this.fetchData();
+              break;
+            case 'dns':
+              this.loadDnsAccounts();
+              this.loadDnsTemplates();
+              break;
+            case 'openai':
+              this.loadOpenaiEndpoints();
+              break;
+          }
+        });
 
         // 启动自动刷新
         this.startAutoRefresh();
@@ -49,21 +79,22 @@ export const authMethods = {
           this.updateOpacity();
         }
       } else {
-        this.setPasswordError = result.error || '设置失败';
+        this.setPasswordError = loginResult.error || '登录失败';
       }
     } catch (error) {
       this.setPasswordError = '设置失败: ' + error.message;
     }
   },
 
-  // 验证密码
+  // 验证密码（登录）
   async verifyPassword() {
     this.loginError = '';
     try {
-      const response = await fetch('/api/verify-password', {
+      const response = await fetch('/api/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password: this.loginPassword })
+        body: JSON.stringify({ password: this.loginPassword }),
+        credentials: 'include' // 确保 cookie 被发送和接收
       });
 
       const result = await response.json();
@@ -77,7 +108,22 @@ export const authMethods = {
 
         await this.loadManagedAccounts();
         this.loadProjectCosts();
-        this.fetchData();
+
+        // 根据当前标签页加载对应的数据
+        this.$nextTick(() => {
+          switch (this.mainActiveTab) {
+            case 'zeabur':
+              this.fetchData();
+              break;
+            case 'dns':
+              this.loadDnsAccounts();
+              this.loadDnsTemplates();
+              break;
+            case 'openai':
+              this.loadOpenaiEndpoints();
+              break;
+          }
+        });
 
         // 启动自动刷新
         this.startAutoRefresh();
@@ -89,7 +135,7 @@ export const authMethods = {
           this.updateOpacity();
         }
       } else {
-        this.loginError = '密码错误，请重试';
+        this.loginError = result.error || '密码错误，请重试';
       }
     } catch (error) {
       this.loginError = '验证失败: ' + error.message;

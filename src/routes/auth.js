@@ -38,10 +38,11 @@ router.post('/login', (req, res) => {
   const cookieOptions = {
     httpOnly: true,
     sameSite: 'lax',
-    path: '/'
+    path: '/',
+    maxAge: 24 * 60 * 60 * 1000 // 24小时（毫秒）
   };
 
-  console.log(`✅ 创建会话 sid=${sid.substring(0, 8)}... (永久保存)`);
+  console.log(`✅ 创建会话 sid=${sid.substring(0, 8)}... (24小时有效期)`);
   res.cookie('sid', sid, cookieOptions);
   res.json({ success: true, sessionId: sid });
 });

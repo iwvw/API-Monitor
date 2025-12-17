@@ -103,17 +103,18 @@ class DatabaseService {
      * 备份数据库
      * @param {string} backupPath - 备份文件路径
      */
-    backup(backupPath) {
+    async backup(backupPath) {
         try {
+            // 使用文件复制方式备份，更可靠
+            // 先确保数据库已同步到磁盘
             const db = this.getDatabase();
-            const backup = db.backup(backupPath);
+            db.pragma('wal_checkpoint(TRUNCATE)');
 
-            return new Promise((resolve, reject) => {
-                backup.step(-1);
-                backup.finish();
-                logger.success('数据库备份完成: ' + backupPath);
-                resolve(backupPath);
-            });
+            // 复制数据库文件
+            await fs.promises.copyFile(this.dbPath, backupPath);
+
+            logger.success('数据库备份完成: ' + backupPath);
+            return backupPath;
         } catch (error) {
             logger.error('数据库备份失败', error.message);
             throw error;

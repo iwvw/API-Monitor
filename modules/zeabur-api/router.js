@@ -154,13 +154,28 @@ router.post('/validate-account', async (req, res) => {
   }
 
   try {
-    const { user } = await zeaburApi.fetchAccountData(apiToken);
+    const { user, projects } = await zeaburApi.fetchAccountData(apiToken);
 
     if (user._id) {
+      // 获取用量数据以计算余额
+      let usageData = { totalUsage: 0, freeQuotaRemaining: 5, freeQuotaLimit: 5 };
+      try {
+        usageData = await zeaburApi.fetchUsageData(apiToken, user._id, projects);
+      } catch (e) {
+        logger.warn(`${accountName}: 获取用量失败 - ${e.message}`);
+      }
+
+      const creditInCents = Math.round(usageData.freeQuotaRemaining * 100);
+
       res.json({
         success: true,
         message: '账号验证成功！',
-        userData: user,
+        userData: {
+          ...user,
+          credit: creditInCents,
+          totalUsage: usageData.totalUsage,
+          freeQuotaLimit: usageData.freeQuotaLimit
+        },
         accountName,
         apiToken
       });
@@ -434,19 +449,248 @@ router.post('/project/rename', async (req, res) => {
   }
 
   try {
-    const mutation = `mutation { renameProject(_id: "${projectId}", name: "${newName}") }`;
+    const mutation = `mutation {
+      renameProject(_id: "${projectId}", name: "${newName}")
+    }`;
     const result = await zeaburApi.queryZeabur(token, mutation);
 
-    if (result.data?.renameProject) {
-      console.log(`✅ 项目已重命名: ${projectId.slice(0, 8)}... -> "${newName}"`);
+    if (result.data?.renameProject !== undefined) {
+      logger.success(`项目已重命名: ${projectId.slice(0, 8)}... -> "${newName}"`);
       res.json({ success: true, message: '项目已重命名' });
+    } else if (result.errors) {
+      logger.error(`重命名项目失败: ${projectId.slice(0, 8)}... -> "${newName}"`, result);
+      const errorMsg = result.errors[0]?.message || '重命名失败';
+      res.status(400).json({ error: errorMsg, details: result });
     } else {
-      console.log(`❌ 重命名失败: ${projectId.slice(0, 8)}... -> "${newName}"`);
+      logger.error(`重命名项目失败: ${projectId.slice(0, 8)}... -> "${newName}"`);
       res.status(400).json({ error: '重命名失败', details: result });
     }
   } catch (error) {
-    console.error(`❌ 重命名异常: ${error.message}`);
+    logger.error(`重命名项目异常: ${error.message}`);
     res.status(500).json({ error: '重命名项目失败: ' + error.message });
+  }
+});
+
+/**
+ * 删除项目
+ */
+router.post('/project/delete', async (req, res) => {
+  const { token, projectId } = req.body;
+
+  if (!token || !projectId) {
+    return res.status(400).json({ error: '缺少必要参数' });
+  }
+
+  try {
+    const mutation = `mutation { deleteProject(_id: "${projectId}") }`;
+    logger.info(`执行删除项目 mutation: ${mutation}`);
+    const result = await zeaburApi.queryZeabur(token, mutation);
+    logger.info(`删除项目响应:`, JSON.stringify(result, null, 2));
+
+    if (result.data?.deleteProject === true) {
+      logger.success(`项目已删除: ${projectId.slice(0, 8)}...`);
+      res.json({ success: true, message: '项目已删除' });
+    } else if (result.errors) {
+      logger.error(`删除项目失败: ${projectId.slice(0, 8)}...`, result);
+      const errorMsg = result.errors[0]?.message || '删除失败';
+      res.status(400).json({ error: errorMsg, details: result });
+    } else {
+      logger.error(`删除项目失败: ${projectId.slice(0, 8)}...`, result);
+      res.status(400).json({ error: '删除失败', details: result });
+    }
+  } catch (error) {
+    logger.error(`删除项目异常: ${error.message}`);
+    res.status(500).json({ error: '删除项目失败: ' + error.message });
+  }
+});
+
+/**
+ * 删除服务
+ */
+router.post('/service/delete', async (req, res) => {
+  const { token, serviceId } = req.body;
+
+  if (!token || !serviceId) {
+    return res.status(400).json({ error: '缺少必要参数' });
+  }
+
+  try {
+    const mutation = `mutation { deleteService(_id: "${serviceId}") }`;
+    logger.info(`执行删除服务 mutation: ${mutation}`);
+    const result = await zeaburApi.queryZeabur(token, mutation);
+    logger.info(`删除服务响应:`, JSON.stringify(result, null, 2));
+
+    if (result.data?.deleteService === true) {
+      logger.success(`服务已删除: ${serviceId.slice(0, 8)}...`);
+      res.json({ success: true, message: '服务已删除' });
+    } else if (result.errors) {
+      logger.error(`删除服务失败: ${serviceId.slice(0, 8)}...`, result);
+      const errorMsg = result.errors[0]?.message || '删除失败';
+      res.status(400).json({ error: errorMsg, details: result });
+    } else {
+      logger.error(`删除服务失败: ${serviceId.slice(0, 8)}...`, result);
+      res.status(400).json({ error: '删除失败', details: result });
+    }
+  } catch (error) {
+    logger.error(`删除服务异常: ${error.message}`);
+    res.status(500).json({ error: '删除服务失败: ' + error.message });
+  }
+});
+
+/**
+ * 重命名服务
+ */
+router.post('/service/rename', async (req, res) => {
+  const { token, serviceId, newName } = req.body;
+
+  if (!token || !serviceId || !newName) {
+    return res.status(400).json({ error: '缺少必要参数' });
+  }
+
+  try {
+    const mutation = `mutation {
+      renameService(_id: "${serviceId}", name: "${newName}")
+    }`;
+    const result = await zeaburApi.queryZeabur(token, mutation);
+
+    if (result.data?.renameService !== undefined) {
+      logger.success(`服务已重命名: ${serviceId.slice(0, 8)}... -> "${newName}"`);
+      res.json({ success: true, message: '服务已重命名' });
+    } else if (result.errors) {
+      logger.error(`重命名服务失败: ${serviceId.slice(0, 8)}... -> "${newName}"`, result);
+      const errorMsg = result.errors[0]?.message || '重命名失败';
+      res.status(400).json({ error: errorMsg, details: result });
+    } else {
+      logger.error(`重命名服务失败: ${serviceId.slice(0, 8)}... -> "${newName}"`);
+      res.status(400).json({ error: '重命名失败', details: result });
+    }
+  } catch (error) {
+    logger.error(`重命名服务异常: ${error.message}`);
+    res.status(500).json({ error: '重命名服务失败: ' + error.message });
+  }
+});
+
+/**
+ * 生成免费 Zeabur 域名
+ */
+router.post('/domain/generate', async (req, res) => {
+  const { token, serviceId } = req.body;
+
+  if (!token || !serviceId) {
+    return res.status(400).json({ error: '缺少必要参数' });
+  }
+
+  try {
+    const mutation = `mutation {
+      generateDomain(serviceID: "${serviceId}") {
+        domain
+        status
+      }
+    }`;
+
+    logger.info(`生成域名: serviceId=${serviceId.slice(0, 8)}...`);
+    const result = await zeaburApi.queryZeabur(token, mutation);
+
+    if (result.data?.generateDomain) {
+      logger.success(`域名已生成: ${result.data.generateDomain.domain}`);
+      res.json({
+        success: true,
+        message: '域名已生成',
+        domain: result.data.generateDomain
+      });
+    } else if (result.errors) {
+      logger.error(`生成域名失败: ${serviceId.slice(0, 8)}...`, result);
+      const errorMsg = result.errors[0]?.message || '生成失败';
+      res.status(400).json({ error: errorMsg, details: result });
+    } else {
+      logger.error(`生成域名失败: ${serviceId.slice(0, 8)}...`);
+      res.status(400).json({ error: '生成失败', details: result });
+    }
+  } catch (error) {
+    logger.error(`生成域名异常: ${error.message}`);
+    res.status(500).json({ error: '生成域名失败: ' + error.message });
+  }
+});
+
+/**
+ * 添加自定义域名
+ */
+router.post('/domain/add', async (req, res) => {
+  const { token, serviceId, domain } = req.body;
+
+  if (!token || !serviceId || !domain) {
+    return res.status(400).json({ error: '缺少必要参数' });
+  }
+
+  try {
+    const mutation = `mutation {
+      addCustomDomain(serviceID: "${serviceId}", domain: "${domain}") {
+        domain
+        status
+        dnsRecord {
+          type
+          name
+          value
+        }
+      }
+    }`;
+
+    logger.info(`添加自定义域名: ${domain} -> serviceId=${serviceId.slice(0, 8)}...`);
+    const result = await zeaburApi.queryZeabur(token, mutation);
+
+    if (result.data?.addCustomDomain) {
+      logger.success(`自定义域名已添加: ${domain}`);
+      res.json({
+        success: true,
+        message: '自定义域名已添加',
+        domainInfo: result.data.addCustomDomain
+      });
+    } else if (result.errors) {
+      logger.error(`添加自定义域名失败: ${domain}`, result);
+      const errorMsg = result.errors[0]?.message || '添加失败';
+      res.status(400).json({ error: errorMsg, details: result });
+    } else {
+      logger.error(`添加自定义域名失败: ${domain}`);
+      res.status(400).json({ error: '添加失败', details: result });
+    }
+  } catch (error) {
+    logger.error(`添加自定义域名异常: ${error.message}`);
+    res.status(500).json({ error: '添加自定义域名失败: ' + error.message });
+  }
+});
+
+/**
+ * 删除域名
+ */
+router.post('/domain/delete', async (req, res) => {
+  const { token, serviceId, domain } = req.body;
+
+  if (!token || !serviceId || !domain) {
+    return res.status(400).json({ error: '缺少必要参数' });
+  }
+
+  try {
+    const mutation = `mutation {
+      removeDomain(serviceID: "${serviceId}", domain: "${domain}")
+    }`;
+
+    logger.info(`删除域名: ${domain} (serviceId=${serviceId.slice(0, 8)}...)`);
+    const result = await zeaburApi.queryZeabur(token, mutation);
+
+    if (result.data?.removeDomain !== undefined) {
+      logger.success(`域名已删除: ${domain}`);
+      res.json({ success: true, message: '域名已删除' });
+    } else if (result.errors) {
+      logger.error(`删除域名失败: ${domain}`, result);
+      const errorMsg = result.errors[0]?.message || '删除失败';
+      res.status(400).json({ error: errorMsg, details: result });
+    } else {
+      logger.error(`删除域名失败: ${domain}`);
+      res.status(400).json({ error: '删除失败', details: result });
+    }
+  } catch (error) {
+    logger.error(`删除域名异常: ${error.message}`);
+    res.status(500).json({ error: '删除域名失败: ' + error.message });
   }
 });
 

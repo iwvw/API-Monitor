@@ -1,9 +1,9 @@
 /* Projects & Services Styles */
 
 .projects-grid {
-  padding-top: 2px;
+  padding: 4px;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
   gap: 10px;
   margin-top: 10px;
   transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
@@ -42,11 +42,13 @@
 .project-header {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
+  align-items: center;
+  gap: 8px;
   margin-bottom: 10px;
 }
 
 .project-name-wrapper {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -56,9 +58,14 @@
   border-radius: 8px;
   border: 1px solid var(--border-color);
   transition: background 0.2s ease, border-color 0.2s ease;
-  min-height: 44px;
-  height: 44px;
+  height: 27px;
   box-sizing: border-box;
+}
+
+.project-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
 }
 
 .project-name-wrapper:hover {
@@ -99,22 +106,26 @@
 }
 
 .project-edit-btn,
+.project-delete-btn,
 .project-cancel-btn {
   padding: 4px 6px;
   border: none;
-  background: rgba(99, 102, 241, 0.1);
-  color: var(--primary-color);
-  border-radius: 4px;
+  border-radius: 6px;
   cursor: pointer;
   transition: all 0.2s ease;
   font-size: 11px;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 28px;
-  height: 28px;
+  width: 27px;
+  height: 27px;
   flex-shrink: 0;
   box-sizing: border-box;
+}
+
+.project-edit-btn {
+  background: rgba(99, 102, 241, 0.1);
+  color: var(--primary-color);
 }
 
 .project-edit-btn:hover {
@@ -122,13 +133,23 @@
   transform: scale(1.05);
 }
 
-.project-cancel-btn {
+.project-delete-btn {
   background: rgba(239, 68, 68, 0.1);
   color: var(--danger-color);
 }
 
-.project-cancel-btn:hover {
+.project-delete-btn:hover {
   background: rgba(239, 68, 68, 0.2);
+  transform: scale(1.05);
+}
+
+.project-cancel-btn {
+  background: rgba(107, 114, 128, 0.1);
+  color: var(--text-secondary);
+}
+
+.project-cancel-btn:hover {
+  background: rgba(107, 114, 128, 0.2);
   transform: scale(1.05);
 }
 
@@ -280,6 +301,14 @@
   margin-bottom: 8px;
 }
 
+.service-name-container {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+
 .service-name {
   font-weight: 600;
   font-size: 14px;
@@ -287,6 +316,52 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  flex: 1;
+}
+
+.service-name-input {
+  flex: 1;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-primary);
+  background: var(--input-bg);
+  border: 1px solid var(--input-focus-border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  outline: none;
+}
+
+.service-edit-btn,
+.service-cancel-btn {
+  padding: 2px 4px;
+  border: none;
+  background: rgba(99, 102, 241, 0.1);
+  color: var(--primary-color);
+  border-radius: 3px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.service-edit-btn:hover {
+  background: rgba(99, 102, 241, 0.2);
+  transform: scale(1.05);
+}
+
+.service-cancel-btn {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--danger-color);
+}
+
+.service-cancel-btn:hover {
+  background: rgba(239, 68, 68, 0.2);
+  transform: scale(1.05);
 }
 
 .service-status {
@@ -336,7 +411,7 @@
 }
 
 .service-btn {
-  padding: 4px 8px;
+  padding: 3px 7px;
   border-radius: 6px;
   font-size: 12px;
   font-weight: 500;
@@ -372,6 +447,33 @@
 }
 
 .btn-logs:hover {
+  background-color: rgba(139, 92, 246, 0.3);
+}
+
+.btn-delete {
+  background-color: rgba(239, 68, 68, 0.2);
+  color: var(--danger-color);
+}
+
+.btn-delete:hover {
+  background-color: rgba(239, 68, 68, 0.3);
+}
+
+.btn-domain {
+  background-color: rgba(16, 185, 129, 0.2);
+  color: var(--success-color);
+}
+
+.btn-domain:hover {
+  background-color: rgba(16, 185, 129, 0.3);
+}
+
+.btn-custom-domain {
+  background-color: rgba(139, 92, 246, 0.2);
+  color: var(--status-deploying);
+}
+
+.btn-custom-domain:hover {
   background-color: rgba(139, 92, 246, 0.3);
 }
 
@@ -413,9 +515,74 @@
   font-weight: 600;
 }
 
+/* 创建按钮 */
+.create-project-btn {
+  padding: 8px 12px;
+  border: none;
+  background: linear-gradient(135deg, var(--primary-color), rgba(139, 92, 246, 0.9));
+  color: white;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-size: 14px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
+  margin-left: 12px;
+}
+
+.create-project-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.9), rgba(139, 92, 246, 1));
+}
+
+.create-project-btn:active {
+  transform: translateY(0);
+  box-shadow: 0 2px 6px rgba(99, 102, 241, 0.3);
+}
+
+.create-service-btn {
+  width: 100%;
+  padding: 10px 16px;
+  border: 2px dashed var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--primary-color);
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-size: 13px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.create-service-btn:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--primary-color);
+  border-style: solid;
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.2);
+}
+
+.create-service-btn:active {
+  transform: translateY(0);
+}
+
 /* 响应式设计 */
 @media (max-width: 768px) {
   .project-mini-cards {
     grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+  }
+
+  .create-project-btn {
+    padding: 6px 10px;
+    font-size: 12px;
   }
 }

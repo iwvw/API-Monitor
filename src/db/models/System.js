@@ -113,7 +113,7 @@ class Session extends BaseModel {
      * 获取会话
      */
     getSession(sessionId) {
-        return this.findById(sessionId);
+        return this.findOneWhere({ session_id: sessionId });
     }
 
     /**
@@ -135,7 +135,7 @@ class Session extends BaseModel {
 
         if (now > expiresAt) {
             // 会话已过期，标记为不活跃
-            this.update(sessionId, { is_active: 0 });
+            this.updateWhere({ session_id: sessionId }, { is_active: 0 });
             return { valid: false, reason: 'session_expired' };
         }
 
@@ -149,7 +149,7 @@ class Session extends BaseModel {
      * 更新最后访问时间
      */
     updateLastAccessed(sessionId) {
-        return this.update(sessionId, {
+        return this.updateWhere({ session_id: sessionId }, {
             last_accessed_at: new Date().toISOString()
         });
     }
@@ -158,7 +158,7 @@ class Session extends BaseModel {
      * 使会话失效
      */
     invalidateSession(sessionId) {
-        return this.update(sessionId, { is_active: 0 });
+        return this.updateWhere({ session_id: sessionId }, { is_active: 0 });
     }
 
     /**

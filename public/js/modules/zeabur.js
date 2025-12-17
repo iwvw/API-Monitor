@@ -15,8 +15,10 @@ export const zeaburMethods = {
               this.managedAccounts = accounts;
               console.log(`📋 从服务器加载 ${accounts.length} 个账号`);
 
-              // 刷新账号余额信息
-              await this.refreshManagedAccountsBalance();
+              // 在后台异步刷新账号余额信息，不阻塞页面显示
+              this.refreshManagedAccountsBalance().catch(err => {
+                console.error('后台刷新账号余额失败:', err);
+              });
             }
           } catch (error) {
             console.log('⚠️ 从服务器加载账号失败:', error.message);
@@ -24,9 +26,8 @@ export const zeaburMethods = {
         },
 
   async refreshManagedAccountsBalance() {
-          // 为每个账号刷新余额信息
-          for (let i = 0; i < this.managedAccounts.length; i++) {
-            const account = this.managedAccounts[i];
+          // 并行刷新所有账号的余额信息
+          const promises = this.managedAccounts.map(async (account, i) => {
             try {
               const response = await fetch('/api/validate-account', {
                 method: 'POST',
@@ -62,7 +63,10 @@ export const zeaburMethods = {
                 status: account.status || 'unknown'
               };
             }
-          }
+          });
+
+          // 等待所有请求完成
+          await Promise.all(promises);
 
           // 保存更新后的账号信息
           await this.saveManagedAccounts();
@@ -518,7 +522,7 @@ export const zeaburMethods = {
           }
 
           if (!project.editingName || project.editingName.trim() === '') {
-            alert('❌ 项目名称不能为空');
+            await this.showAlert('项目名称不能为空', '错误', 'fa-exclamation-circle');
             return;
           }
 
@@ -530,7 +534,7 @@ export const zeaburMethods = {
           try {
             const accountData = this.managedAccounts.find(acc => acc.name === account.name);
             if (!accountData || !accountData.token) {
-              alert('❌ 无法获取账号 token，请重新添加账号');
+              await this.showAlert('无法获取账号 token，请重新添加账号', '错误', 'fa-exclamation-circle');
               return;
             }
 
@@ -548,12 +552,154 @@ export const zeaburMethods = {
             if (result.success) {
               project.name = project.editingName.trim();
               this.cancelEditProjectName(project);
-              alert('✅ 项目名称已更新');
+              await this.showAlert('项目名称已更新', '成功', 'fa-check-circle');
             } else {
-              alert('❌ 更新失败: ' + (result.error || '未知错误'));
+              await this.showAlert('更新失败: ' + (result.error || '未知错误'), '错误', 'fa-exclamation-circle');
             }
           } catch (error) {
-            alert('❌ 操作失败: ' + error.message);
+            await this.showAlert('操作失败: ' + error.message, '错误', 'fa-exclamation-circle');
+          }
+        },
+
+  async deleteProject(account, project) {
+          const confirmed = await this.showConfirm({
+            title: '确认删除项目',
+            message: `确定要删除项目 "${project.name}" 吗？此操作不可恢复！`,
+            icon: 'fa-exclamation-triangle',
+            confirmText: '删除',
+            confirmClass: 'btn-danger'
+          });
+
+          if (!confirmed) return;
+
+          try {
+            const accountData = this.managedAccounts.find(acc => acc.name === account.name);
+            if (!accountData || !accountData.token) {
+              await this.showAlert('无法获取账号 token，请重新添加账号', '错误', 'fa-exclamation-circle');
+              return;
+            }
+
+            const response = await fetch('/api/project/delete', {
+              method: 'POST',
+              headers: this.getAuthHeaders(),
+              body: JSON.stringify({
+                token: accountData.token,
+                projectId: project._id
+              })
+            });
+
+            const result = await response.json();
+            if (result.success) {
+              this.showGlobalToast('项目已删除', 'success');
+              await this.fetchData();
+            } else {
+              await this.showAlert('删除失败: ' + (result.error || '未知错误'), '错误', 'fa-exclamation-circle');
+            }
+          } catch (error) {
+            await this.showAlert('操作失败: ' + error.message, '错误', 'fa-exclamation-circle');
+          }
+        },
+
+  async deleteService(account, project, service) {
+          const confirmed = await this.showConfirm({
+            title: '确认删除服务',
+            message: `确定要删除服务 "${service.name}" 吗？此操作不可恢复！`,
+            icon: 'fa-exclamation-triangle',
+            confirmText: '删除',
+            confirmClass: 'btn-danger'
+          });
+
+          if (!confirmed) return;
+
+          try {
+            const accountData = this.managedAccounts.find(acc => acc.name === account.name);
+            if (!accountData || !accountData.token) {
+              await this.showAlert('无法获取账号 token，请重新添加账号', '错误', 'fa-exclamation-circle');
+              return;
+            }
+
+            const response = await fetch('/api/service/delete', {
+              method: 'POST',
+              headers: this.getAuthHeaders(),
+              body: JSON.stringify({
+                token: accountData.token,
+                serviceId: service._id
+              })
+            });
+
+            const result = await response.json();
+            if (result.success) {
+              this.showGlobalToast('服务已删除', 'success');
+              await this.fetchData();
+            } else {
+              console.error('删除服务失败:', result);
+              await this.showAlert('删除失败: ' + (result.error || '未知错误'), '错误', 'fa-exclamation-circle');
+            }
+          } catch (error) {
+            console.error('删除服务异常:', error);
+            await this.showAlert('操作失败: ' + error.message, '错误', 'fa-exclamation-circle');
+          }
+        },
+
+  startEditServiceName(service) {
+          service.isEditing = true;
+          service.editingName = service.name;
+          this.$nextTick(() => {
+            const input = document.querySelector(`#service-${service._id} .service-name-input`);
+            if (input) {
+              input.focus();
+              input.select();
+            }
+          });
+        },
+
+  cancelEditServiceName(service) {
+          service.isEditing = false;
+          service.editingName = service.name;
+        },
+
+  async saveServiceName(account, project, service) {
+          if (!service.isEditing) {
+            return;
+          }
+
+          if (!service.editingName || service.editingName.trim() === '') {
+            await this.showAlert('服务名称不能为空', '错误', 'fa-exclamation-circle');
+            return;
+          }
+
+          if (service.editingName === service.name) {
+            this.cancelEditServiceName(service);
+            return;
+          }
+
+          try {
+            const accountData = this.managedAccounts.find(acc => acc.name === account.name);
+            if (!accountData || !accountData.token) {
+              await this.showAlert('无法获取账号 token，请重新添加账号', '错误', 'fa-exclamation-circle');
+              return;
+            }
+
+            const response = await fetch('/api/service/rename', {
+              method: 'POST',
+              headers: this.getAuthHeaders(),
+              body: JSON.stringify({
+                token: accountData.token,
+                serviceId: service._id,
+                newName: service.editingName.trim()
+              })
+            });
+
+            const result = await response.json();
+            if (result.success) {
+              service.name = service.editingName.trim();
+              this.cancelEditServiceName(service);
+              await this.showAlert('服务名称已更新', '成功', 'fa-check-circle');
+            } else {
+              await this.showAlert('更新失败: ' + (result.error || '未知错误'), '错误', 'fa-exclamation-circle');
+            }
+          } catch (error) {
+            await this.showAlert('操作失败: ' + error.message, '错误', 'fa-exclamation-circle');
           }
         },
 
@@ -1137,5 +1283,165 @@ export const zeaburMethods = {
       reader.readAsText(file);
     };
     input.click();
+  },
+
+  // 删除账号
+  async removeAccount(index) {
+    const account = this.managedAccounts[index];
+    if (!account) return;
+
+    const confirmed = await this.showConfirm({
+      title: '确认删除',
+      message: `确定要删除账号 "${account.name}" 吗？此操作不可恢复。`,
+      icon: 'fa-exclamation-triangle',
+      confirmText: '确定删除',
+      confirmClass: 'btn-danger'
+    });
+
+    if (!confirmed) return;
+
+    try {
+      // 从列表中删除
+      this.managedAccounts.splice(index, 1);
+
+      // 保存到服务器
+      await this.saveManagedAccounts();
+
+      this.showGlobalToast(`账号 "${account.name}" 已删除`, 'success');
+
+      // 刷新数据
+      await this.fetchData();
+    } catch (error) {
+      this.showGlobalToast('删除失败: ' + error.message, 'error');
+    }
+  },
+
+  // 生成免费域名
+  async generateDomain(account, project, service) {
+    const confirmed = await this.showConfirm({
+      title: '生成免费域名',
+      message: `确定要为服务 "${service.name}" 生成免费的 Zeabur 域名吗？`,
+      icon: 'fa-globe',
+      confirmText: '生成',
+      confirmClass: 'btn-primary'
+    });
+
+    if (!confirmed) return;
+
+    try {
+      const accountData = this.managedAccounts.find(acc => acc.name === account.name);
+      if (!accountData || !accountData.token) {
+        await this.showAlert('无法获取账号 token，请重新添加账号', '错误', 'fa-exclamation-circle');
+        return;
+      }
+
+      const response = await fetch('/api/domain/generate', {
+        method: 'POST',
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify({
+          token: accountData.token,
+          serviceId: service._id
+        })
+      });
+
+      const result = await response.json();
+      if (result.success) {
+        this.showGlobalToast(`域名已生成: ${result.domain.domain}`, 'success');
+        await this.fetchData();
+      } else {
+        console.error('生成域名失败:', result);
+        await this.showAlert('生成失败: ' + (result.error || '未知错误'), '错误', 'fa-exclamation-circle');
+      }
+    } catch (error) {
+      console.error('生成域名异常:', error);
+      await this.showAlert('操作失败: ' + error.message, '错误', 'fa-exclamation-circle');
+    }
+  },
+
+  // 添加自定义域名
+  async addCustomDomain(account, project, service) {
+    const domain = await this.showPrompt({
+      title: '添加自定义域名',
+      message: '请输入您的域名：',
+      placeholder: '例如：www.example.com',
+      icon: 'fa-globe'
+    });
+
+    if (!domain || !domain.trim()) return;
+
+    try {
+      const accountData = this.managedAccounts.find(acc => acc.name === account.name);
+      if (!accountData || !accountData.token) {
+        await this.showAlert('无法获取账号 token，请重新添加账号', '错误', 'fa-exclamation-circle');
+        return;
+      }
+
+      const response = await fetch('/api/domain/add', {
+        method: 'POST',
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify({
+          token: accountData.token,
+          serviceId: service._id,
+          domain: domain.trim()
+        })
+      });
+
+      const result = await response.json();
+      if (result.success) {
+        const dnsInfo = result.domainInfo.dnsRecord;
+        const message = `域名已添加！\n\n请在您的 DNS 提供商处添加以下记录：\n\n类型: ${dnsInfo.type}\n主机: ${dnsInfo.name}\n值: ${dnsInfo.value}\n\n状态: ${result.domainInfo.status}`;
+        await this.showAlert(message, '配置 DNS', 'fa-info-circle');
+        await this.fetchData();
+      } else {
+        console.error('添加域名失败:', result);
+        await this.showAlert('添加失败: ' + (result.error || '未知错误'), '错误', 'fa-exclamation-circle');
+      }
+    } catch (error) {
+      console.error('添加域名异常:', error);
+      await this.showAlert('操作失败: ' + error.message, '错误', 'fa-exclamation-circle');
+    }
+  },
+
+  // 删除域名
+  async deleteDomain(account, project, service, domain) {
+    const confirmed = await this.showConfirm({
+      title: '确认删除域名',
+      message: `确定要删除域名 "${domain}" 吗？`,
+      icon: 'fa-exclamation-triangle',
+      confirmText: '删除',
+      confirmClass: 'btn-danger'
+    });
+
+    if (!confirmed) return;
+
+    try {
+      const accountData = this.managedAccounts.find(acc => acc.name === account.name);
+      if (!accountData || !accountData.token) {
+        await this.showAlert('无法获取账号 token，请重新添加账号', '错误', 'fa-exclamation-circle');
+        return;
+      }
+
+      const response = await fetch('/api/domain/delete', {
+        method: 'POST',
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify({
+          token: accountData.token,
+          serviceId: service._id,
+          domain: domain
+        })
+      });
+
+      const result = await response.json();
+      if (result.success) {
+        this.showGlobalToast('域名已删除', 'success');
+        await this.fetchData();
+      } else {
+        console.error('删除域名失败:', result);
+        await this.showAlert('删除失败: ' + (result.error || '未知错误'), '错误', 'fa-exclamation-circle');
+      }
+    } catch (error) {
+      console.error('删除域名异常:', error);
+      await this.showAlert('操作失败: ' + error.message, '错误', 'fa-exclamation-circle');
+    }
   }
 };

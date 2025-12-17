@@ -284,7 +284,7 @@ export const settingsMethods = {
   },
 
   // 拖拽放下
-  handleDrop(event, dropIndex) {
+  async handleDrop(event, dropIndex) {
     event.preventDefault();
 
     if (this.draggedIndex === null || this.draggedIndex === dropIndex) return;
@@ -304,6 +304,9 @@ export const settingsMethods = {
 
     // 移除拖拽over样式
     event.currentTarget.classList.remove('drag-over');
+
+    // 自动保存设置
+    await this.saveModuleSettings();
   },
 
   // 保存设置
@@ -313,48 +316,103 @@ export const settingsMethods = {
     this.showSettingsModal = false;
   },
 
-  // 导出全部数据
+  // 导出全部数据（数据库文件）
   async exportAllData() {
     try {
-      const exportData = {
-        version: '1.0',
-        exportTime: new Date().toISOString(),
-        zeabur: {
-          accounts: this.managedAccounts,
-          projectCosts: this.projectCosts
-        },
-        dns: {
-          accounts: this.dnsAccounts,
-          templates: this.dnsTemplates
-        },
-        openai: {
-          endpoints: this.openaiEndpoints
-        },
-        settings: {
-          moduleVisibility: this.moduleVisibility,
-          moduleOrder: this.moduleOrder
-        }
-      };
+      this.showGlobalToast('正在导出数据库...', 'info');
 
-      const dataStr = JSON.stringify(exportData, null, 2);
-      const dataBlob = new Blob([dataStr], { type: 'application/json' });
-      const url = URL.createObjectURL(dataBlob);
+      // 使用 fetch 下载，支持认证头
+      const response = await fetch('/api/settings/export-database', {
+        method: 'GET',
+        headers: this.getAuthHeaders()
+      });
+
+      if (!response.ok) {
+        throw new Error('导出失败: ' + response.statusText);
+      }
+
+      // 获取文件 blob
+      const blob = await response.blob();
+
+      // 创建下载链接
+      const url = URL.createObjectURL(blob);
       const link = document.createElement('a');
       link.href = url;
-      link.download = `api-monitor-backup-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.json`;
+      link.download = `api-monitor-backup-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.db`;
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
       URL.revokeObjectURL(url);
 
-      this.showGlobalToast('数据导出成功', 'success');
+      this.showGlobalToast('数据库导出成功！文件包含所有数据', 'success');
     } catch (error) {
       this.showGlobalToast('导出失败: ' + error.message, 'error');
     }
   },
 
-  // 导入全部数据
+  // 导入全部数据（数据库文件）
   async importAllData() {
+    const confirmed = await this.showConfirm({
+      title: '确认导入数据库',
+      message: '导入数据库将完全覆盖当前所有数据，原数据库会自动备份。是否继续？',
+      icon: 'fa-exclamation-triangle',
+      confirmText: '确定导入',
+      confirmClass: 'btn-warning'
+    });
+
+    if (!confirmed) return;
+
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.db';
+    input.onchange = async (event) => {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      // 验证文件类型
+      if (!file.name.endsWith('.db')) {
+        this.showGlobalToast('请选择 .db 数据库文件', 'error');
+        return;
+      }
+
+      try {
+        this.showGlobalToast('正在导入数据库，请稍候...', 'info');
+
+        // 创建 FormData
+        const formData = new FormData();
+        formData.append('database', file);
+
+        // 上传数据库文件
+        const response = await fetch('/api/settings/import-database', {
+          method: 'POST',
+          headers: {
+            'X-Session-ID': localStorage.getItem('session_id')
+          },
+          body: formData
+        });
+
+        const result = await response.json();
+
+        if (result.success) {
+          this.showGlobalToast('数据库导入成功！页面将在3秒后刷新', 'success');
+
+          // 3秒后刷新页面以加载新数据
+          setTimeout(() => {
+            window.location.reload();
+          }, 3000);
+        } else {
+          this.showGlobalToast('导入失败: ' + result.error, 'error');
+        }
+      } catch (error) {
+        this.showGlobalToast('导入失败: ' + error.message, 'error');
+      }
+    };
+
+    input.click();
+  },
+
+  // 旧版JSON导入（保留用于兼容）
+  async importAllDataLegacy() {
     const confirmed = await this.showConfirm({
       title: '确认导入',
       message: '导入数据将覆盖当前所有配置，是否继续？',

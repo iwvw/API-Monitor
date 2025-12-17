@@ -77,11 +77,13 @@
   background: var(--bg-secondary);
 }
 
-.data-table .actions {
-  display: flex;
-  gap: 6px;
-  flex-wrap: nowrap;
-  white-space: nowrap;
+.data-table td.actions {
+  padding: 8px 10px;
+  vertical-align: middle;
+}
+
+.data-table td.actions > *:not(:last-child) {
+  margin-right: 6px;
 }
 
 /* OpenAI Table */
@@ -121,10 +123,13 @@
   background: var(--bg-secondary);
 }
 
-.openai-table .actions {
-  display: flex;
-  gap: 6px;
-  flex-wrap: nowrap;
+.openai-table td.actions {
+  padding: 10px 16px;
+  vertical-align: middle;
+}
+
+.openai-table td.actions > *:not(:last-child) {
+  margin-right: 6px;
 }
 
 .openai-table .cell-name {

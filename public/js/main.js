@@ -389,6 +389,32 @@ createApp({
       });
     },
 
+    showPrompt(options) {
+      return new Promise((resolve) => {
+        this.customDialog = {
+          show: true,
+          title: options.title || '输入',
+          message: options.message || '',
+          icon: options.icon || 'fa-edit',
+          confirmText: options.confirmText || '确定',
+          cancelText: options.cancelText || '取消',
+          confirmClass: options.confirmClass || 'btn-primary',
+          isPrompt: true,
+          promptValue: '',
+          placeholder: options.placeholder || '',
+          onConfirm: () => {
+            const value = this.customDialog.promptValue;
+            this.customDialog.show = false;
+            resolve(value);
+          },
+          onCancel: () => {
+            this.customDialog.show = false;
+            resolve(null);
+          }
+        };
+      });
+    },
+
     maskEmail(email) {
       if (!email || !email.includes('@')) return email;
       const [local, domain] = email.split('@');

@@ -103,7 +103,15 @@ export const openaiMethods = {
         },
 
   async deleteOpenaiEndpoint(endpoint) {
-          if (!confirm(`确定要删除端点 "${endpoint.name || endpoint.baseUrl}" 吗？`)) return;
+          const confirmed = await this.showConfirm({
+            title: '确认删除',
+            message: `确定要删除端点 "${endpoint.name || endpoint.baseUrl}" 吗？`,
+            icon: 'fa-trash',
+            confirmText: '删除',
+            confirmClass: 'btn-danger'
+          });
+
+          if (!confirmed) return;
 
           try {
             const response = await fetch(`/api/openai/endpoints/${endpoint.id}`, {
@@ -327,7 +335,11 @@ export const openaiMethods = {
 
           const data = await response.json();
           if (data.success) {
-            this.showOpenaiToast(`成功导入 ${data.imported || 0} 个端点`, 'success');
+            let message = `成功导入 ${data.imported || 0} 个端点`;
+            if (data.skipped > 0) {
+              message += `，跳过 ${data.skipped} 个重复端点`;
+            }
+            this.showOpenaiToast(message, 'success');
             await this.loadOpenaiEndpoints();
           } else {
             this.showOpenaiToast('导入失败: ' + (data.error || '未知错误'), 'error');

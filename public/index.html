@@ -33,7 +33,7 @@
     <div v-if="isCheckingAuth" class="auth-loading">
       <div class="auth-loading-content">
         <div class="spinner"></div>
-        <div style="margin-top: 16px; color: var(--text-secondary);">正在验证身份...</div>
+        <div style="margin-top: 16px; color: var(--text-secondary);">正在加载...</div>
       </div>
     </div>
 
@@ -97,18 +97,19 @@
 
       <!-- 主标签页导航 -->
       <div class="main-tabs">
-        <button v-if="moduleVisibility.zeabur" class="main-tab" :class="{ active: mainActiveTab === 'zeabur' }"
-          @click="handleTabSwitch('zeabur')">
-          <i class="fas fa-rocket"></i><span> Zeabur</span>
-        </button>
-        <button v-if="moduleVisibility.dns" class="main-tab dns-tab" :class="{ active: mainActiveTab === 'dns' }"
-          @click="handleTabSwitch('dns')">
-          <i class="fas fa-cloud"></i><span> CF DNS</span>
-        </button>
-        <button v-if="moduleVisibility.openai" class="main-tab openai-tab"
-          :class="{ active: mainActiveTab === 'openai' }" @click="handleTabSwitch('openai')">
-          <i class="fas fa-robot"></i><span> OpenAI API</span>
-        </button>
+        <template v-for="module in moduleOrder" :key="module">
+          <button v-if="moduleVisibility[module]"
+            class="main-tab"
+            :class="[
+              { active: mainActiveTab === module },
+              module === 'dns' ? 'dns-tab' : '',
+              module === 'openai' ? 'openai-tab' : ''
+            ]"
+            @click="handleTabSwitch(module)">
+            <i class="fas" :class="getModuleIcon(module)"></i>
+            <span> {{ getModuleName(module) }}</span>
+          </button>
+        </template>
       </div>
 
       <!-- ==================== Zeabur 监控部分 ==================== -->
@@ -267,11 +268,17 @@
                     <input v-else v-model="project.editingName" @keyup.enter="saveProjectName(account, project)"
                       @keyup.esc="cancelEditProjectName(project)" @blur="saveProjectName(account, project)"
                       class="project-name-input" ref="projectNameInput" />
+                  </div>
+                  <div class="project-actions">
+                    <button v-if="!project.isEditing" @click="deleteProject(account, project)" class="project-delete-btn"
+                      title="删除项目">
+                      <i class="fas fa-trash"></i>
+                    </button>
                     <button v-if="!project.isEditing" @click="startEditProjectName(project)" class="project-edit-btn"
                       title="重命名项目">
                       <i class="fas fa-pen"></i>
                     </button>
-                    <button v-else @click="cancelEditProjectName(project)" class="project-cancel-btn" title="取消">
+                    <button v-if="project.isEditing" @click="cancelEditProjectName(project)" class="project-cancel-btn" title="取消">
                       <i class="fas fa-times"></i>
                     </button>
                   </div>
@@ -287,11 +294,23 @@
                   </div>
                 </div>
                 <div class="services-container">
-                  <div v-for="service in project.services" :key="service._id"
+                  <div v-for="service in project.services" :key="service._id" :id="'service-' + service._id"
                     :class="['service-item', service.status.toLowerCase()]">
                     <div class="service-header">
-                      <div class="service-name" :title="service.name">
-                        {{ service.name }}
+                      <div class="service-name-container">
+                        <span v-if="!service.isEditing" class="service-name" :title="service.name">
+                          {{ service.name }}
+                        </span>
+                        <input v-else v-model="service.editingName" @keyup.enter="saveServiceName(account, project, service)"
+                          @keyup.esc="cancelEditServiceName(service)" @blur="saveServiceName(account, project, service)"
+                          class="service-name-input" />
+                        <button v-if="!service.isEditing" @click="startEditServiceName(service)" class="service-edit-btn"
+                          title="重命名服务">
+                          <i class="fas fa-pen"></i>
+                        </button>
+                        <button v-else @click="cancelEditServiceName(service)" class="service-cancel-btn" title="取消">
+                          <i class="fas fa-times"></i>
+                        </button>
                       </div>
                       <div :class="['service-status', service.status.toLowerCase()]">
                         {{ service.status === 'RUNNING' ? '运行中' : service.status === 'SUSPENDED' ? '已暂停' :
@@ -322,6 +341,10 @@
                       <button @click="showServiceLogs(account, project, service)" class="service-btn btn-logs">
                         <i class="fas fa-file-alt"></i>
                         日志
+                      </button>
+                      <button @click="deleteService(account, project, service)" class="service-btn btn-delete">
+                        <i class="fas fa-trash"></i>
+                        删除
                       </button>
                     </div>
                   </div>
@@ -1292,10 +1315,10 @@
             <div class="settings-section-title">数据备份与恢复</div>
             <div style="display: flex; gap: 8px; margin-bottom: 8px;">
               <button class="btn btn-success" @click="exportAllData" style="flex: 1;">
-                <i class="fas fa-download"></i> 导出数据
+                <i class="fas fa-upload"></i> 导出数据
               </button>
               <button class="btn btn-warning" @click="importAllData" style="flex: 1;">
-                <i class="fas fa-upload"></i> 导入数据
+                <i class="fas fa-download"></i> 导入数据
               </button>
             </div>
             <div class="form-help">导出包含所有模块的配置和数据</div>
@@ -1324,7 +1347,7 @@
 
           <!-- 保存按钮 -->
           <div
-            style="position: sticky; bottom: 0; background: var(--card-bg); padding-top: 16px; border-top: 1px solid var(--border-color); margin-top: 20px;">
+            style="bottom: 0; background: var(--card-bg); padding-top: 16px; border-top: 1px solid var(--border-color); margin-top: 20px;">
             <button class="btn btn-primary" @click="saveSettings" style="width: 100%;">
               <i class="fas fa-save"></i> 保存设置
             </button>
@@ -1420,6 +1443,11 @@
           {{ customDialog.title || '确认' }}
         </div>
         <div class="custom-dialog-message">{{ customDialog.message }}</div>
+        <input v-if="customDialog.isPrompt" v-model="customDialog.promptValue"
+          :placeholder="customDialog.placeholder"
+          @keyup.enter="customDialog.onConfirm"
+          class="custom-dialog-input"
+          ref="promptInput" />
         <div class="custom-dialog-buttons">
           <button v-if="customDialog.cancelText" class="btn btn-secondary"
             @click="customDialog.onCancel ? customDialog.onCancel() : (customDialog.show = false)">

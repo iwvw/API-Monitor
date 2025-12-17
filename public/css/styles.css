@@ -312,6 +312,7 @@ body.modal-open {
   box-shadow: var(--card-shadow);
   border: 1px solid var(--border-color);
   transition: transform 0.3s, box-shadow 0.3s;
+  overflow: visible;
 }
 
 .account-header {

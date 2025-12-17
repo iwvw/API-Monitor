@@ -19,7 +19,27 @@ function requireAuth(req, res, next) {
     return next();
   }
 
-  // 2. 尝试从 Authorization header 中获取 sessionId
+  // 2. 尝试从 URL 参数中获取 session_id（用于文件下载）
+  const urlSessionId = req.query.session_id;
+  if (urlSessionId) {
+    const urlSession = getSessionById(urlSessionId);
+    if (urlSession) {
+      // 静默通过，不输出日志
+      return next();
+    }
+  }
+
+  // 3. 尝试从 X-Session-ID header 中获取 sessionId（用于文件上传）
+  const customSessionId = req.headers['x-session-id'];
+  if (customSessionId) {
+    const customSession = getSessionById(customSessionId);
+    if (customSession) {
+      // 静默通过，不输出日志
+      return next();
+    }
+  }
+
+  // 4. 尝试从 Authorization header 中获取 sessionId
   const authHeader = req.headers['authorization'];
   if (authHeader && authHeader.startsWith('Bearer ')) {
     const sessionId = authHeader.substring(7);
@@ -30,7 +50,7 @@ function requireAuth(req, res, next) {
     }
   }
 
-  // 3. 回退到旧的 header 验证（保持兼容）
+  // 5. 回退到旧的 header 验证（保持兼容）
   const password = req.headers['x-admin-password'];
   const savedPassword = loadAdminPassword();
 

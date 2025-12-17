@@ -61,7 +61,15 @@ export const dnsMethods = {
         },
 
   async deleteDnsAccount(account) {
-          if (!confirm(`确定要删除账号 "${account.name}" 吗？`)) return;
+          const confirmed = await this.showConfirm({
+            title: '确认删除',
+            message: `确定要删除账号 "${account.name}" 吗？`,
+            icon: 'fa-trash',
+            confirmText: '删除',
+            confirmClass: 'btn-danger'
+          });
+
+          if (!confirmed) return;
 
           try {
             const response = await fetch(`/api/cf-dns/accounts/${account.id}`, {
@@ -208,7 +216,15 @@ export const dnsMethods = {
         },
 
   async deleteDnsRecord(record) {
-          if (!confirm(`确定要删除记录 "${record.name}" 吗？`)) return;
+          const confirmed = await this.showConfirm({
+            title: '确认删除',
+            message: `确定要删除记录 "${record.name}" 吗？`,
+            icon: 'fa-trash',
+            confirmText: '删除',
+            confirmClass: 'btn-danger'
+          });
+
+          if (!confirmed) return;
 
           try {
             const response = await fetch(
@@ -252,8 +268,16 @@ export const dnsMethods = {
 
   async batchDeleteDnsRecords() {
           if (this.dnsSelectedRecords.length === 0) return;
-          
-          if (!confirm(`确定要删除选中的 ${this.dnsSelectedRecords.length} 条 DNS 记录吗？此操作不可恢复！`)) return;
+
+          const confirmed = await this.showConfirm({
+            title: '批量删除确认',
+            message: `确定要删除选中的 ${this.dnsSelectedRecords.length} 条 DNS 记录吗？此操作不可恢复！`,
+            icon: 'fa-exclamation-triangle',
+            confirmText: '删除',
+            confirmClass: 'btn-danger'
+          });
+
+          if (!confirmed) return;
 
           const selectedCount = this.dnsSelectedRecords.length;
           let successCount = 0;
@@ -405,7 +429,15 @@ export const dnsMethods = {
         },
 
   async deleteDnsTemplate(template) {
-          if (!confirm(`确定要删除模板 "${template.name}" 吗？`)) return;
+          const confirmed = await this.showConfirm({
+            title: '确认删除',
+            message: `确定要删除模板 "${template.name}" 吗？`,
+            icon: 'fa-trash',
+            confirmText: '删除',
+            confirmClass: 'btn-danger'
+          });
+
+          if (!confirmed) return;
 
           try {
             const response = await fetch(`/api/cf-dns/templates/${template.id}`, {
