@@ -1,0 +1,926 @@
+/**
+ * 服务器管理模块样式
+ */
+
+/* ==================== 服务器列表容器 ==================== */
+.server-list-container {
+    padding: 20px;
+}
+
+.server-list-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.server-list-header h2 {
+    margin: 0;
+    font-size: 24px;
+    color: var(--text-primary);
+}
+
+.server-list-actions {
+    display: flex;
+    gap: 10px;
+}
+
+/* ==================== 服务器卡片 ==================== */
+.server-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    margin-bottom: 15px;
+    overflow: hidden;
+    transition: all 0.3s ease;
+}
+
+.server-card:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.server-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 15px 20px;
+    cursor: pointer;
+    user-select: none;
+}
+
+.server-card-header:hover {
+    background: var(--hover-bg);
+}
+
+.server-card-info {
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    flex: 1;
+}
+
+.server-status-indicator {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.server-status-indicator.online {
+    background: #10b981;
+    box-shadow: 0 0 8px rgba(16, 185, 129, 0.5);
+}
+
+.server-status-indicator.offline {
+    background: #ef4444;
+    box-shadow: 0 0 8px rgba(239, 68, 68, 0.5);
+}
+
+.server-status-indicator.unknown {
+    background: #6b7280;
+}
+
+.server-basic-info {
+    flex: 1;
+}
+
+.server-name {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+}
+
+.server-host {
+    font-size: 14px;
+    color: var(--text-secondary);
+    font-family: 'Courier New', monospace;
+}
+
+.server-quick-info {
+    display: flex;
+    gap: 20px;
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.server-card-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.server-expand-icon {
+    transition: transform 0.3s ease;
+}
+
+.server-card.expanded .server-expand-icon {
+    transform: rotate(180deg);
+}
+
+/* ==================== 服务器详情 ==================== */
+.server-card-body {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.3s ease;
+}
+
+.server-card.expanded .server-card-body {
+    max-height: 1000px;
+}
+
+.server-details {
+    padding: 20px;
+    border-top: 1px solid var(--border-color);
+}
+
+.server-details-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 20px;
+    margin-bottom: 20px;
+}
+
+.server-detail-section {
+    background: var(--section-bg);
+    padding: 15px;
+    border-radius: 6px;
+}
+
+.server-detail-section h4 {
+    margin: 0 0 12px 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.server-detail-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 0;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.server-detail-item:last-child {
+    border-bottom: none;
+}
+
+.server-detail-label {
+    font-size: 13px;
+    color: var(--text-secondary);
+}
+
+.server-detail-value {
+    font-size: 13px;
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+/* 进度条 */
+.progress-bar {
+    width: 100%;
+    height: 8px;
+    background: var(--border-color);
+    border-radius: 4px;
+    overflow: hidden;
+    margin-top: 8px;
+}
+
+.progress-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+    transition: width 0.3s ease;
+}
+
+.progress-bar-fill.warning {
+    background: linear-gradient(90deg, #f59e0b, #ef4444);
+}
+
+.progress-bar-fill.danger {
+    background: linear-gradient(90deg, #ef4444, #dc2626);
+}
+
+/* Docker 容器列表 */
+.docker-container-list {
+    margin-top: 10px;
+}
+
+.docker-container-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    margin-bottom: 8px;
+    font-size: 12px;
+}
+
+.docker-container-name {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.docker-container-status {
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: 500;
+}
+
+.docker-container-status.running {
+    background: #10b98120;
+    color: #10b981;
+}
+
+.docker-container-status.exited {
+    background: #ef444420;
+    color: #ef4444;
+}
+
+/* 网络接口列表 */
+.network-interface-list {
+    margin-top: 10px;
+}
+
+.network-interface-item {
+    padding: 6px 0;
+    border-bottom: 1px solid var(--border-color);
+    font-size: 13px;
+}
+
+.network-interface-item:last-child {
+    border-bottom: none;
+}
+
+.network-interface-name {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.network-interface-address {
+    color: var(--text-secondary);
+    font-family: 'Courier New', monospace;
+    margin-left: 10px;
+}
+
+/* ==================== 服务器操作按钮 ==================== */
+.server-actions-bar {
+    display: flex;
+    gap: 10px;
+    padding: 15px 20px;
+    background: var(--section-bg);
+    border-top: 1px solid var(--border-color);
+}
+
+/* ==================== 空状态 ==================== */
+.server-empty-state {
+    text-align: center;
+    padding: 60px 20px;
+}
+
+.server-empty-state-icon {
+    font-size: 64px;
+    color: var(--text-secondary);
+    margin-bottom: 20px;
+}
+
+.server-empty-state h3 {
+    font-size: 20px;
+    color: var(--text-primary);
+    margin-bottom: 10px;
+}
+
+.server-empty-state p {
+    font-size: 14px;
+    color: var(--text-secondary);
+    margin-bottom: 20px;
+}
+
+/* ==================== 加载状态 ==================== */
+.server-loading {
+    text-align: center;
+    padding: 40px 20px;
+}
+
+.server-loading-spinner {
+    width: 40px;
+    height: 40px;
+    border: 4px solid var(--border-color);
+    border-top-color: var(--primary-color);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin: 0 auto 15px;
+}
+
+@keyframes spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* ==================== 标签 ==================== */
+.server-tags {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-top: 8px;
+}
+
+.server-tag {
+    padding: 2px 8px;
+    background: var(--primary-color-light);
+    color: var(--primary-color);
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: 500;
+}
+
+/* ==================== 导入预览列表 ==================== */
+.import-preview-list {
+    max-height: 300px;
+    overflow-y: auto;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 10px;
+    background: var(--section-bg);
+}
+
+.import-preview-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    margin-bottom: 8px;
+    font-size: 13px;
+}
+
+.import-preview-item:last-child {
+    margin-bottom: 0;
+}
+
+.import-preview-item i {
+    color: var(--primary-color);
+}
+
+.import-preview-item span {
+    color: var(--text-primary);
+}
+
+/* ==================== Docker 模态框样式 ==================== */
+.docker-modal-content {
+    padding: 10px 0;
+}
+
+.docker-info-header {
+    display: flex;
+    gap: 20px;
+    margin-bottom: 20px;
+    padding: 15px;
+    background: var(--section-bg);
+    border-radius: 6px;
+}
+
+.docker-info-item {
+    flex: 1;
+    text-align: center;
+}
+
+.docker-info-label {
+    display: block;
+    font-size: 12px;
+    color: var(--text-secondary);
+    margin-bottom: 5px;
+}
+
+.docker-info-value {
+    display: block;
+    font-size: 20px;
+    font-weight: 600;
+    color: var(--primary-color);
+}
+
+.docker-container-table {
+    overflow-x: auto;
+}
+
+.docker-container-name-badge {
+    display: inline-block;
+    padding: 4px 10px;
+    background: var(--primary-color-light);
+    color: var(--primary-color);
+    border-radius: 4px;
+    font-size: 13px;
+    font-weight: 500;
+    font-family: 'Courier New', monospace;
+}
+
+.docker-image-name {
+    font-size: 13px;
+    color: var(--text-secondary);
+    font-family: 'Courier New', monospace;
+}
+
+.docker-status-badge {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.docker-status-badge.status-running {
+    background: #10b98120;
+    color: #10b981;
+}
+
+.docker-status-badge.status-exited {
+    background: #ef444420;
+    color: #ef4444;
+}
+
+.docker-ports {
+    font-size: 12px;
+    color: var(--text-secondary);
+    font-family: 'Courier New', monospace;
+}
+
+/* ==================== 后台管理页面样式 ==================== */
+.server-management-container {
+    padding: 20px;
+}
+
+.management-section {
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    margin-bottom: 20px;
+    overflow: hidden;
+}
+
+.management-section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 15px 20px;
+    background: var(--section-bg);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.management-section-header h3 {
+    margin: 0;
+    font-size: 18px;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.management-section-actions {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+}
+
+.management-section-body {
+    padding: 20px;
+}
+
+.form-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 20px;
+}
+
+.form-success {
+    margin-top: 15px;
+    padding: 12px;
+    background: #10b98120;
+    color: #10b981;
+    border-radius: 6px;
+    font-size: 14px;
+}
+
+.loading-state,
+.empty-state {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--text-secondary);
+}
+
+.loading-state .spinner {
+    width: 40px;
+    height: 40px;
+    border: 4px solid var(--border-color);
+    border-top-color: var(--primary-color);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin: 0 auto 15px;
+}
+
+.monitor-logs-table {
+    overflow-x: auto;
+}
+
+.status-badge {
+    display: inline-block;
+    padding: 4px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.status-badge.status-online {
+    background: #10b98120;
+    color: #10b981;
+}
+
+.status-badge.status-offline {
+    background: #ef444420;
+    color: #ef4444;
+}
+
+.error-message {
+    font-size: 12px;
+    color: var(--text-secondary);
+    max-width: 300px;
+    display: inline-block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.pagination {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 15px;
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border-color);
+}
+
+.pagination-info {
+    font-size: 14px;
+    color: var(--text-secondary);
+}
+
+/* ==================== 文件管理器样式 ==================== */
+.file-manager-modal {
+    max-width: 1000px;
+}
+
+.file-manager-toolbar {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 20px;
+    background: var(--section-bg);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.file-manager-breadcrumb {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex: 1;
+}
+
+.breadcrumb-path {
+    font-size: 14px;
+    color: var(--text-primary);
+    margin-left: 10px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.breadcrumb-segment {
+    cursor: pointer;
+    color: var(--primary-color);
+}
+
+.breadcrumb-segment:hover {
+    text-decoration: underline;
+}
+
+.file-manager-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.file-manager-content {
+    height: 500px;
+    overflow-y: auto;
+}
+
+.file-manager-loading,
+.file-manager-error {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--text-secondary);
+}
+
+.file-manager-error i {
+    font-size: 48px;
+    color: var(--error-color);
+    margin-bottom: 16px;
+}
+
+.file-list {
+    min-width: 100%;
+}
+
+.file-list-header {
+    display: flex;
+    padding: 12px 20px;
+    background: var(--section-bg);
+    border-bottom: 1px solid var(--border-color);
+    font-weight: 600;
+    font-size: 12px;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    position: sticky;
+    top: 0;
+    z-index: 1;
+}
+
+.file-list-item {
+    display: flex;
+    padding: 10px 20px;
+    border-bottom: 1px solid var(--border-color);
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.file-list-item:hover {
+    background: var(--hover-bg);
+}
+
+.file-list-item.is-directory {
+    font-weight: 500;
+}
+
+.file-list-empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 300px;
+    color: var(--text-secondary);
+}
+
+.file-list-empty i {
+    font-size: 48px;
+    margin-bottom: 16px;
+    opacity: 0.5;
+}
+
+.file-col {
+    display: flex;
+    align-items: center;
+    font-size: 13px;
+}
+
+.file-col.file-name {
+    flex: 2;
+    gap: 10px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.file-col.file-name i {
+    width: 20px;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+.file-col.file-name i.fa-folder {
+    color: #f0ad4e;
+}
+
+.file-col.file-name i.fa-file {
+    color: var(--text-secondary);
+}
+
+.file-col.file-name i.fa-file-code {
+    color: #5bc0de;
+}
+
+.file-col.file-name i.fa-file-image {
+    color: #5cb85c;
+}
+
+.file-col.file-name i.fa-file-archive {
+    color: #d9534f;
+}
+
+.file-col.file-size {
+    width: 100px;
+    justify-content: flex-end;
+    color: var(--text-secondary);
+}
+
+.file-col.file-modified {
+    width: 150px;
+    color: var(--text-secondary);
+}
+
+.file-col.file-permissions {
+    width: 100px;
+    font-family: monospace;
+    color: var(--text-secondary);
+}
+
+.file-col.file-actions {
+    width: 120px;
+    justify-content: flex-end;
+    gap: 4px;
+}
+
+.btn-xs {
+    padding: 2px 6px !important;
+    font-size: 11px !important;
+}
+
+/* ==================== SSH 终端样式增强 ==================== */
+.ssh-terminal-modal {
+    max-width: 1100px;
+}
+
+.ssh-terminal-modal .modal-body {
+    border-radius: 0;
+}
+
+.ssh-terminal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0 10px 0 0 !important;
+    background: #2d2d2d !important;
+    border-bottom: 1px solid #444 !important;
+}
+
+.ssh-tabs {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    flex: 1;
+    overflow-x: auto;
+    padding: 8px 0 0 8px;
+}
+
+.ssh-tab {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: #3d3d3d;
+    border-radius: 6px 6px 0 0;
+    cursor: pointer;
+    transition: background 0.2s;
+    min-width: 120px;
+    max-width: 200px;
+}
+
+.ssh-tab:hover {
+    background: #4d4d4d;
+}
+
+.ssh-tab.active {
+    background: #1e1e1e;
+}
+
+.ssh-tab-name {
+    flex: 1;
+    font-size: 13px;
+    color: #ccc;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.ssh-tab.active .ssh-tab-name {
+    color: #fff;
+}
+
+.ssh-tab-close {
+    background: none;
+    border: none;
+    color: #888;
+    cursor: pointer;
+    padding: 2px;
+    font-size: 10px;
+    border-radius: 3px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.ssh-tab-close:hover {
+    background: rgba(255, 255, 255, 0.1);
+    color: #fff;
+}
+
+.ssh-tab-add {
+    background: none;
+    border: 1px dashed #555;
+    color: #888;
+    cursor: pointer;
+    padding: 8px 12px;
+    border-radius: 6px 6px 0 0;
+    font-size: 12px;
+}
+
+.ssh-tab-add:hover {
+    background: #3d3d3d;
+    color: #ccc;
+}
+
+.ssh-terminal-pane {
+    width: 100%;
+    height: 600px;
+    padding: 10px;
+}
+
+/* 服务器选择列表 */
+.server-select-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.server-select-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 15px;
+    background: var(--section-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.server-select-item:hover {
+    background: var(--hover-bg);
+    border-color: var(--primary-color);
+}
+
+.server-select-info {
+    flex: 1;
+}
+
+.server-select-name {
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 2px;
+}
+
+.server-select-host {
+    font-size: 12px;
+    color: var(--text-secondary);
+    font-family: monospace;
+}
+
+/* ==================== 响应式设计 ==================== */
+@media (max-width: 768px) {
+    .server-list-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 15px;
+    }
+
+    .server-list-actions {
+        width: 100%;
+        flex-wrap: wrap;
+    }
+
+    .server-card-info {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+    }
+
+    .server-quick-info {
+        flex-direction: column;
+        gap: 5px;
+    }
+
+    .server-details-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .server-actions-bar {
+        flex-wrap: wrap;
+    }
+}

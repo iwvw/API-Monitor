@@ -41,11 +41,11 @@
 }
 
 .main-tab.openai-tab:hover {
-  color: var(--primary-color);
+  color: var(--openai-color);
 }
 
 .main-tab.openai-tab.active {
-  color: var(--primary-color);
+  color: var(--openai-color);
 }
 
 @media (max-width: 768px) {

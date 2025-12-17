@@ -33,10 +33,11 @@ router.post('/endpoints', async (req, res) => {
     }
 
     const endpoint = storage.addEndpoint({ name, baseUrl, apiKey, notes });
+    let verification = null;
 
     // 验证 API Key（除非明确跳过验证，用于数据导入）
     if (!skipVerify) {
-      const verification = await openaiApi.verifyApiKey(baseUrl, apiKey);
+      verification = await openaiApi.verifyApiKey(baseUrl, apiKey);
 
       // 如果验证成功，获取模型列表
       if (verification.valid) {

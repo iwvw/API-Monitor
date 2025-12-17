@@ -49,6 +49,15 @@ function registerRoutes(app) {
   } catch (e) {
     console.log('⚠️ OpenAI API 模块未加载:', e.message);
   }
+
+  // 服务器管理模块
+  try {
+    const serverRouter = require('../../modules/server-management/router');
+    app.use('/api/server', requireAuth, serverRouter);
+    console.log('✅ 服务器管理模块已加载');
+  } catch (e) {
+    console.log('⚠️ 服务器管理模块未加载:', e.message);
+  }
 }
 
 module.exports = {

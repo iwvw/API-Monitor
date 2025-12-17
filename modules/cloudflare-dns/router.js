@@ -31,6 +31,27 @@ router.get('/accounts', (req, res) => {
 });
 
 /**
+ * 导出所有账号（包含 API Token，用于备份）
+ */
+router.get('/accounts/export', (req, res) => {
+  try {
+    const accounts = storage.getAccounts();
+    // 返回完整信息用于导出
+    const exportAccounts = accounts.map(a => ({
+      name: a.name,
+      email: a.email,
+      apiToken: a.apiToken
+    }));
+    res.json({
+      success: true,
+      accounts: exportAccounts
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
  * 添加账号
  */
 router.post('/accounts', async (req, res) => {
@@ -120,6 +141,26 @@ router.post('/accounts/:id/verify', async (req, res) => {
 
     const verification = await cfApi.verifyToken(account.apiToken);
     res.json(verification);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * 获取账号的 API Token（用于显示）
+ */
+router.get('/accounts/:id/token', (req, res) => {
+  try {
+    const { id } = req.params;
+    const account = storage.getAccountById(id);
+    if (!account) {
+      return res.status(404).json({ error: '账号不存在' });
+    }
+
+    res.json({
+      success: true,
+      apiToken: account.apiToken
+    });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

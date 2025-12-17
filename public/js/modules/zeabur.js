@@ -891,20 +891,10 @@ export const zeaburMethods = {
           this.dataRefreshPaused = !this.dataRefreshPaused;
           if (this.dataRefreshPaused) {
             // 暂停自动刷新
-            if (this.countdownInterval) {
-              clearInterval(this.countdownInterval);
-              this.countdownInterval = null;
-            }
-            if (this.refreshInterval) {
-              clearInterval(this.refreshInterval);
-              this.refreshInterval = null;
-            }
+            this.stopAutoRefresh();
           } else {
             // 恢复自动刷新
-            this.startCountdown();
-            this.refreshInterval = setInterval(() => {
-              this.fetchData();
-            }, 30000);
+            this.startAutoRefresh();
           }
         },
 

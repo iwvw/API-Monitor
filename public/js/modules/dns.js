@@ -27,7 +27,16 @@ export const dnsMethods = {
             const data = await response.json();
             // API 直接返回账号数组
             if (Array.isArray(data)) {
-              this.dnsAccounts = data;
+              // 为每个账号添加 showToken 属性
+              this.dnsAccounts = data.map(acc => ({
+                ...acc,
+                showToken: false,
+                apiToken: null
+              }));
+              // 如果没有选中账号且有账号列表，自动选择第一个
+              if (!this.dnsSelectedAccountId && this.dnsAccounts.length > 0) {
+                this.selectDnsAccount(this.dnsAccounts[0]);
+              }
             } else if (data.error) {
               console.error('加载 CF 账号失败:', data.error);
             }
@@ -35,6 +44,30 @@ export const dnsMethods = {
             console.error('加载 CF 账号失败:', error);
           }
         },
+
+  async toggleDnsTokenVisibility(account) {
+    try {
+      if (account.showToken) {
+        // 隐藏 token
+        account.showToken = false;
+        account.apiToken = null;
+      } else {
+        // 显示 token - 从服务器获取
+        const response = await fetch(`/api/cf-dns/accounts/${account.id}/token`, {
+          headers: this.getAuthHeaders()
+        });
+        const data = await response.json();
+        if (data.success && data.apiToken) {
+          account.apiToken = data.apiToken;
+          account.showToken = true;
+        } else {
+          this.showDnsToast('获取 Token 失败', 'error');
+        }
+      }
+    } catch (error) {
+      this.showDnsToast('操作失败: ' + error.message, 'error');
+    }
+  },
 
   selectDnsAccount(acc) {
           this.dnsSelectedAccountId = acc.id;
@@ -717,5 +750,279 @@ export const dnsMethods = {
           } catch (error) {
             this.showDnsToast('保存失败: ' + error.message, 'error');
           }
+        },
+
+  // 导出 DNS 记录
+  async exportDnsRecords() {
+    try {
+      if (!this.dnsSelectedZoneId) {
+        this.showDnsToast('请先选择一个域名', 'error');
+        return;
+      }
+
+      if (this.dnsRecords.length === 0) {
+        this.showDnsToast('没有可导出的 DNS 记录', 'warning');
+        return;
+      }
+
+      const exportData = {
+        version: '1.0',
+        exportTime: new Date().toISOString(),
+        zoneName: this.dnsSelectedZoneName,
+        zoneId: this.dnsSelectedZoneId,
+        records: this.dnsRecords.map(record => ({
+          type: record.type,
+          name: this.formatDnsRecordName(record.name),
+          content: record.content,
+          ttl: record.ttl,
+          proxied: record.proxied || false,
+          priority: record.priority
+        }))
+      };
+
+      const dataStr = JSON.stringify(exportData, null, 2);
+      const dataBlob = new Blob([dataStr], { type: 'application/json' });
+      const url = URL.createObjectURL(dataBlob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `dns-${this.dnsSelectedZoneName}-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      this.showDnsToast('DNS 记录导出成功', 'success');
+    } catch (error) {
+      this.showDnsToast('导出失败: ' + error.message, 'error');
+    }
+  },
+
+  // 导入 DNS 记录
+  async importDnsRecords() {
+    if (!this.dnsSelectedZoneId) {
+      this.showDnsToast('请先选择一个域名', 'error');
+      return;
+    }
+
+    const confirmed = await this.showConfirm({
+      title: '确认导入',
+      message: '导入 DNS 记录将添加到当前域名中，是否继续？',
+      icon: 'fa-exclamation-triangle',
+      confirmText: '确定导入',
+      confirmClass: 'btn-primary'
+    });
+
+    if (!confirmed) return;
+
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.onchange = async (event) => {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        try {
+          const importedData = JSON.parse(e.target.result);
+
+          // 验证数据格式
+          if (!importedData.version || !importedData.records) {
+            this.showDnsToast('无效的备份文件格式', 'error');
+            return;
+          }
+
+          // 询问是否确认导入
+          const confirm2 = await this.showConfirm({
+            title: '确认导入',
+            message: `将导入 ${importedData.records.length} 条 DNS 记录到域名 ${this.dnsSelectedZoneName}，确定继续吗？`,
+            icon: 'fa-info-circle',
+            confirmText: '开始导入',
+            confirmClass: 'btn-primary'
+          });
+
+          if (!confirm2) return;
+
+          // 导入记录
+          let successCount = 0;
+          let failedCount = 0;
+
+          this.showDnsToast(`正在导入 ${importedData.records.length} 条记录...`, 'success');
+
+          for (const record of importedData.records) {
+            try {
+              const response = await fetch(
+                `/api/cf-dns/accounts/${this.dnsSelectedAccountId}/zones/${this.dnsSelectedZoneId}/records`,
+                {
+                  method: 'POST',
+                  headers: this.getAuthHeaders(),
+                  body: JSON.stringify(record)
+                }
+              );
+
+              const data = await response.json();
+              if (response.ok && (data.success || data.record)) {
+                successCount++;
+              } else {
+                failedCount++;
+              }
+            } catch (error) {
+              failedCount++;
+            }
+          }
+
+          // 刷新记录列表
+          await this.loadDnsRecords();
+
+          // 显示结果
+          if (failedCount === 0) {
+            this.showDnsToast(`✅ 成功导入 ${successCount} 条记录`, 'success');
+          } else {
+            this.showDnsToast(`⚠️ 导入完成：成功 ${successCount} 条，失败 ${failedCount} 条`, 'error');
+          }
+        } catch (error) {
+          this.showDnsToast('导入失败: ' + error.message, 'error');
         }
+      };
+      reader.readAsText(file);
+    };
+    input.click();
+  },
+
+  // 导出 DNS 账号
+  async exportDnsAccounts() {
+    try {
+      if (this.dnsAccounts.length === 0) {
+        this.showDnsToast('没有可导出的账号', 'warning');
+        return;
+      }
+
+      // 从服务器获取包含 API Token 的完整账号数据
+      const response = await fetch('/api/cf-dns/accounts/export', {
+        headers: this.getAuthHeaders()
+      });
+
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        this.showDnsToast('导出失败: ' + (data.error || '未知错误'), 'error');
+        return;
+      }
+
+      const exportData = {
+        version: '1.0',
+        exportTime: new Date().toISOString(),
+        accounts: data.accounts
+      };
+
+      const dataStr = JSON.stringify(exportData, null, 2);
+      const dataBlob = new Blob([dataStr], { type: 'application/json' });
+      const url = URL.createObjectURL(dataBlob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `dns-accounts-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      this.showDnsToast('DNS 账号导出成功', 'success');
+    } catch (error) {
+      this.showDnsToast('导出失败: ' + error.message, 'error');
+    }
+  },
+
+  // 导入 DNS 账号
+  async importDnsAccounts() {
+    const confirmed = await this.showConfirm({
+      title: '确认导入',
+      message: '导入 DNS 账号将添加到现有账号列表中，是否继续？',
+      icon: 'fa-exclamation-triangle',
+      confirmText: '确定导入',
+      confirmClass: 'btn-primary'
+    });
+
+    if (!confirmed) return;
+
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.onchange = async (event) => {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        try {
+          const importedData = JSON.parse(e.target.result);
+
+          // 验证数据格式
+          if (!importedData.version || !importedData.accounts) {
+            this.showDnsToast('无效的备份文件格式', 'error');
+            return;
+          }
+
+          // 询问是否确认导入
+          const confirm2 = await this.showConfirm({
+            title: '确认导入',
+            message: `将导入 ${importedData.accounts.length} 个 DNS 账号，确定继续吗？`,
+            icon: 'fa-info-circle',
+            confirmText: '开始导入',
+            confirmClass: 'btn-primary'
+          });
+
+          if (!confirm2) return;
+
+          // 导入账号
+          let successCount = 0;
+          let failedCount = 0;
+          let skippedCount = 0;
+
+          this.showDnsToast(`正在导入 ${importedData.accounts.length} 个账号...`, 'success');
+
+          for (const account of importedData.accounts) {
+            try {
+              // 检查账号是否已存在
+              const exists = this.dnsAccounts.some(acc => acc.name === account.name);
+              if (exists) {
+                skippedCount++;
+                continue;
+              }
+
+              const response = await fetch('/api/cf-dns/accounts', {
+                method: 'POST',
+                headers: this.getAuthHeaders(),
+                body: JSON.stringify(account)
+              });
+
+              const data = await response.json();
+              if (response.ok && (data.success || data.account)) {
+                successCount++;
+              } else {
+                failedCount++;
+              }
+            } catch (error) {
+              failedCount++;
+            }
+          }
+
+          // 刷新账号列表
+          await this.loadDnsAccounts();
+
+          // 显示结果
+          let message = `✅ 成功导入 ${successCount} 个账号`;
+          if (skippedCount > 0) {
+            message += `，跳过 ${skippedCount} 个重复账号`;
+          }
+          if (failedCount > 0) {
+            message = `⚠️ 导入完成：成功 ${successCount} 个，跳过 ${skippedCount} 个，失败 ${failedCount} 个`;
+          }
+          this.showDnsToast(message, failedCount > 0 ? 'error' : 'success');
+        } catch (error) {
+          this.showDnsToast('导入失败: ' + error.message, 'error');
+        }
+      };
+      reader.readAsText(file);
+    };
+    input.click();
+  }
 };

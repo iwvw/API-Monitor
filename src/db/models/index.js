@@ -11,6 +11,7 @@ const {
 } = require('./Cloudflare');
 const { OpenAIEndpoint, OpenAIHealthHistory } = require('./OpenAI');
 const { SystemConfig, Session, UserSettings, OperationLog } = require('./System');
+const { ServerAccount, ServerMonitorLog, ServerMonitorConfig } = require('./Server');
 
 module.exports = {
     // Zeabur 模块
@@ -31,5 +32,10 @@ module.exports = {
     SystemConfig,
     Session,
     UserSettings,
-    OperationLog
+    OperationLog,
+
+    // 服务器管理模块
+    ServerAccount,
+    ServerMonitorLog,
+    ServerMonitorConfig
 };
