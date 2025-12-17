@@ -22,7 +22,7 @@ function ensureConfigDir() {
 }
 
 /**
- * 读取服务器存储的账号（从数据库）
+ * 读取主机存储的账号（从数据库）
  */
 function loadServerAccounts() {
   try {

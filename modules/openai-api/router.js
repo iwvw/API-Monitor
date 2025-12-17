@@ -89,17 +89,17 @@ router.put('/endpoints/:id', async (req, res) => {
       const testUrl = baseUrl || endpoint.baseUrl;
       const testKey = apiKey || endpoint.apiKey;
       const verification = await openaiApi.verifyApiKey(testUrl, testKey);
-      
+
       if (verification.valid) {
         const modelsResult = await openaiApi.listModels(testUrl, testKey);
-        storage.updateEndpoint(id, { 
+        storage.updateEndpoint(id, {
           name, baseUrl, apiKey, notes,
           status: 'valid',
           models: modelsResult.models || [],
           lastChecked: new Date().toISOString()
         });
       } else {
-        storage.updateEndpoint(id, { 
+        storage.updateEndpoint(id, {
           name, baseUrl, apiKey, notes,
           status: 'invalid',
           lastChecked: new Date().toISOString()
@@ -144,7 +144,7 @@ router.post('/endpoints/:id/verify', async (req, res) => {
 
     storage.touchEndpoint(id);
     const status = await openaiApi.getEndpointStatus(endpoint.baseUrl, endpoint.apiKey);
-    
+
     // 更新端点状态
     storage.updateEndpoint(id, {
       status: status.status,
@@ -175,7 +175,7 @@ router.get('/endpoints/:id/models', async (req, res) => {
 
     storage.touchEndpoint(id);
     const result = await openaiApi.listModels(endpoint.baseUrl, endpoint.apiKey);
-    
+
     // 更新缓存的模型列表
     if (result.success) {
       storage.updateEndpoint(id, {
@@ -236,7 +236,7 @@ router.post('/endpoints/:id/test', async (req, res) => {
   try {
     const { id } = req.params;
     const { model } = req.body;
-    
+
     const endpoint = storage.getEndpointById(id);
     if (!endpoint) {
       return res.status(404).json({ error: '端点不存在' });
@@ -265,11 +265,11 @@ router.post('/endpoints/:id/health-check', async (req, res) => {
   try {
     const { id } = req.params;
     const { model, timeout } = req.body;
-    
+
     if (!model) {
       return res.status(400).json({ error: '模型名称必填' });
     }
-    
+
     const endpoint = storage.getEndpointById(id);
     if (!endpoint) {
       return res.status(404).json({ error: '端点不存在' });
@@ -299,7 +299,7 @@ router.post('/endpoints/:id/health-check-all', async (req, res) => {
   try {
     const { id } = req.params;
     const { timeout, concurrency } = req.body;
-    
+
     const endpoint = storage.getEndpointById(id);
     if (!endpoint) {
       return res.status(404).json({ error: '端点不存在' });
@@ -354,7 +354,7 @@ router.get('/endpoints/:id/health', (req, res) => {
     }
 
     const healthData = storage.getEndpointHealth(id);
-    
+
     res.json({
       endpointId: id,
       healthStatus: endpoint.healthStatus || 'unknown',
@@ -503,7 +503,7 @@ router.post('/batch-add', async (req, res) => {
             baseUrl = parts[1].trim();
             apiKey = parts.slice(2).join(':').trim();
           }
-          
+
           if (name && baseUrl && apiKey) {
             endpointsToAdd.push({ name, baseUrl, apiKey });
           }

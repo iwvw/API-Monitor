@@ -16,8 +16,8 @@
     "express-fileupload": "^1.5.0",
     "node-cron": "^4.2.1",
     "ssh2": "^1.17.0",
-    "ssh2-sftp-client": "^12.0.1",
-    "uuid": "^13.0.0"
+    "uuid": "^13.0.0",
+    "ws": "^8.18.3"
   },
   "devDependencies": {
     "nodemon": "^3.0.1"

@@ -1,72 +1,72 @@
 /**
- * 服务器管理模块存储层
+ * 主机管理模块存储层
  * 封装数据库操作
  */
 
-const { ServerAccount, ServerMonitorLog, ServerMonitorConfig } = require('../../src/db/models');
+const { ServerAccount, ServerMonitorLog, ServerMonitorConfig, ServerCredential } = require('../../src/db/models');
 
 /**
- * 服务器账号存储操作
+ * 主机账号存储操作
  */
 const serverStorage = {
     /**
-     * 获取所有服务器
+     * 获取所有主机
      */
     getAll() {
         return ServerAccount.getAll();
     },
 
     /**
-     * 根据 ID 获取服务器
+     * 根据 ID 获取主机
      */
     getById(id) {
         return ServerAccount.getById(id);
     },
 
     /**
-     * 创建服务器
+     * 创建主机
      */
     create(data) {
         return ServerAccount.create(data);
     },
 
     /**
-     * 更新服务器
+     * 更新主机
      */
     update(id, data) {
         return ServerAccount.update(id, data);
     },
 
     /**
-     * 删除服务器
+     * 删除主机
      */
     delete(id) {
         return ServerAccount.delete(id);
     },
 
     /**
-     * 批量删除服务器
+     * 批量删除主机
      */
     deleteMany(ids) {
         return ServerAccount.deleteMany(ids);
     },
 
     /**
-     * 更新服务器状态
+     * 更新主机状态
      */
     updateStatus(id, statusData) {
         return ServerAccount.updateStatus(id, statusData);
     },
 
     /**
-     * 获取在线服务器数量
+     * 获取在线主机数量
      */
     getOnlineCount() {
         return ServerAccount.getOnlineCount();
     },
 
     /**
-     * 获取离线服务器数量
+     * 获取离线主机数量
      */
     getOfflineCount() {
         return ServerAccount.getOfflineCount();
@@ -85,7 +85,7 @@ const monitorLogStorage = {
     },
 
     /**
-     * 获取服务器的监控日志
+     * 获取主机的监控日志
      */
     getByServerId(serverId, options) {
         return ServerMonitorLog.getByServerId(serverId, options);
@@ -132,8 +132,24 @@ const monitorConfigStorage = {
     }
 };
 
+/**
+ * 主机凭据存储操作
+ */
+const credentialStorage = {
+    getAll() {
+        return ServerCredential.getAll();
+    },
+    create(data) {
+        return ServerCredential.create(data);
+    },
+    delete(id) {
+        return ServerCredential.delete(id);
+    }
+};
+
 module.exports = {
     serverStorage,
     monitorLogStorage,
-    monitorConfigStorage
+    monitorConfigStorage,
+    credentialStorage
 };

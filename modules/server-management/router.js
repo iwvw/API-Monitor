@@ -6,7 +6,6 @@ const express = require('express');
 const router = express.Router();
 const { serverStorage, monitorLogStorage, monitorConfigStorage } = require('./storage');
 const sshService = require('./ssh-service');
-const sftpService = require('./sftp-service');
 const monitorService = require('./monitor-service');
 const systemInfoService = require('./system-info-service');
 
@@ -392,6 +391,40 @@ router.post('/action', async (req, res) => {
 // ==================== SSH 终端接口 ====================
 
 /**
+ * 执行 Docker 容器操作
+ */
+router.post('/docker/action', async (req, res) => {
+    try {
+        const { serverId, containerId, action } = req.body;
+
+        if (!serverId || !containerId || !action) {
+            return res.status(400).json({
+                success: false,
+                error: '缺少必填字段'
+            });
+        }
+
+        const server = serverStorage.getById(serverId);
+
+        if (!server) {
+            return res.status(404).json({
+                success: false,
+                error: '服务器不存在'
+            });
+        }
+
+        const result = await systemInfoService.executeDockerAction(serverId, server, containerId, action);
+
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+/**
  * 执行 SSH 命令
  */
 router.post('/ssh/exec', async (req, res) => {
@@ -463,212 +496,6 @@ router.get('/ssh/status', (req, res) => {
             success: true,
             data: status
         });
-    } catch (error) {
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
-    }
-});
-
-// ==================== SFTP 文件管理接口 ====================
-
-/**
- * 列出目录内容
- */
-router.post('/sftp/list', async (req, res) => {
-    try {
-        const { serverId, path } = req.body;
-
-        if (!serverId) {
-            return res.status(400).json({
-                success: false,
-                error: '缺少服务器 ID'
-            });
-        }
-
-        const server = serverStorage.getById(serverId);
-
-        if (!server) {
-            return res.status(404).json({
-                success: false,
-                error: '服务器不存在'
-            });
-        }
-
-        const result = await sftpService.listDirectory(server, path || '/');
-
-        res.json(result);
-    } catch (error) {
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
-    }
-});
-
-/**
- * 上传文件
- */
-router.post('/sftp/upload', async (req, res) => {
-    try {
-        const { serverId, localPath, remotePath } = req.body;
-
-        if (!serverId || !localPath || !remotePath) {
-            return res.status(400).json({
-                success: false,
-                error: '缺少必填字段'
-            });
-        }
-
-        const server = serverStorage.getById(serverId);
-
-        if (!server) {
-            return res.status(404).json({
-                success: false,
-                error: '服务器不存在'
-            });
-        }
-
-        const result = await sftpService.uploadFile(server, localPath, remotePath);
-
-        res.json(result);
-    } catch (error) {
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
-    }
-});
-
-/**
- * 下载文件
- */
-router.post('/sftp/download', async (req, res) => {
-    try {
-        const { serverId, remotePath, localPath } = req.body;
-
-        if (!serverId || !remotePath || !localPath) {
-            return res.status(400).json({
-                success: false,
-                error: '缺少必填字段'
-            });
-        }
-
-        const server = serverStorage.getById(serverId);
-
-        if (!server) {
-            return res.status(404).json({
-                success: false,
-                error: '服务器不存在'
-            });
-        }
-
-        const result = await sftpService.downloadFile(server, remotePath, localPath);
-
-        res.json(result);
-    } catch (error) {
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
-    }
-});
-
-/**
- * 删除文件或目录
- */
-router.post('/sftp/delete', async (req, res) => {
-    try {
-        const { serverId, path, isDirectory } = req.body;
-
-        if (!serverId || !path) {
-            return res.status(400).json({
-                success: false,
-                error: '缺少必填字段'
-            });
-        }
-
-        const server = serverStorage.getById(serverId);
-
-        if (!server) {
-            return res.status(404).json({
-                success: false,
-                error: '服务器不存在'
-            });
-        }
-
-        const result = await sftpService.deleteFile(server, path, isDirectory);
-
-        res.json(result);
-    } catch (error) {
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
-    }
-});
-
-/**
- * 重命名文件或目录
- */
-router.post('/sftp/rename', async (req, res) => {
-    try {
-        const { serverId, oldPath, newPath } = req.body;
-
-        if (!serverId || !oldPath || !newPath) {
-            return res.status(400).json({
-                success: false,
-                error: '缺少必填字段'
-            });
-        }
-
-        const server = serverStorage.getById(serverId);
-
-        if (!server) {
-            return res.status(404).json({
-                success: false,
-                error: '服务器不存在'
-            });
-        }
-
-        const result = await sftpService.renameFile(server, oldPath, newPath);
-
-        res.json(result);
-    } catch (error) {
-        res.status(500).json({
-            success: false,
-            error: error.message
-        });
-    }
-});
-
-/**
- * 创建目录
- */
-router.post('/sftp/mkdir', async (req, res) => {
-    try {
-        const { serverId, path, recursive } = req.body;
-
-        if (!serverId || !path) {
-            return res.status(400).json({
-                success: false,
-                error: '缺少必填字段'
-            });
-        }
-
-        const server = serverStorage.getById(serverId);
-
-        if (!server) {
-            return res.status(404).json({
-                success: false,
-                error: '服务器不存在'
-            });
-        }
-
-        const result = await sftpService.createDirectory(server, path, recursive !== false);
-
-        res.json(result);
     } catch (error) {
         res.status(500).json({
             success: false,
@@ -807,5 +634,48 @@ router.post('/monitor/stop', (req, res) => {
         });
     }
 });
+
+/**
+ * 检查 Docker 镜像更新
+ */
+router.post('/docker/check-update', async (req, res) => {
+    try {
+        const { serverId, imageName } = req.body;
+
+        if (!serverId || !imageName) {
+            return res.status(400).json({
+                success: false,
+                error: '缺少必填字段'
+            });
+        }
+
+        const server = serverStorage.getById(serverId);
+
+        if (!server) {
+            return res.status(404).json({
+                success: false,
+                error: '服务器不存在'
+            });
+        }
+
+        const result = await systemInfoService.checkDockerImageUpdate(serverId, server, imageName);
+
+        res.json({
+            success: true,
+            data: result
+        });
+    } catch (error) {
+        res.status(500).json({
+            success: false,
+            error: error.message
+        });
+    }
+});
+
+// ==================== 主机凭据接口 ====================
+
+// 挂载凭据管理路由
+const credentialsRouter = require('./credentials-router');
+router.use('/credentials', credentialsRouter);
 
 module.exports = router;

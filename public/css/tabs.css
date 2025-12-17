@@ -48,6 +48,14 @@
   color: var(--openai-color);
 }
 
+.main-tab.server-tab:hover {
+  color: var(--server-primary);
+}
+
+.main-tab.server-tab.active {
+  color: var(--server-primary);
+}
+
 @media (max-width: 768px) {
   .main-tab {
     padding: 12px 16px;

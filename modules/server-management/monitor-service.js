@@ -1,6 +1,6 @@
 /**
- * 服务器监控服务
- * 定时探测服务器状态
+ * 主机监控服务
+ * 定时探测主机状态
  */
 
 const cron = require('node-cron');
@@ -67,7 +67,7 @@ class MonitorService {
     }
 
     /**
-     * 探测所有服务器
+     * 探测所有主机
      */
     async probeAllServers() {
         try {
@@ -77,9 +77,9 @@ class MonitorService {
                 return;
             }
 
-            logger.info(`开始探测 ${servers.length} 台服务器`);
+            logger.info(`开始探测 ${servers.length} 台主机`);
 
-            // 并发探测所有服务器
+            // 并发探测所有主机
             const results = await Promise.allSettled(
                 servers.map(server => this.probeServer(server))
             );
@@ -93,13 +93,13 @@ class MonitorService {
             // 清理过期日志
             this.cleanupOldLogs();
         } catch (error) {
-            logger.error('探测服务器失败', error.message);
+            logger.error('探测主机失败', error.message);
         }
     }
 
     /**
-     * 探测单个服务器
-     * @param {Object} server - 服务器配置
+     * 探测单个主机
+     * @param {Object} server - 主机配置
      * @returns {Promise<Object>} 探测结果
      */
     async probeServer(server) {
@@ -111,7 +111,7 @@ class MonitorService {
 
             const responseTime = Date.now() - startTime;
 
-            // 更新服务器状态
+            // 更新主机状态
             ServerAccount.updateStatus(server.id, {
                 status: result.success ? 'online' : 'offline',
                 last_check_time: new Date().toISOString(),
@@ -136,7 +136,7 @@ class MonitorService {
         } catch (error) {
             const responseTime = Date.now() - startTime;
 
-            // 更新服务器状态为离线
+            // 更新主机状态为离线
             ServerAccount.updateStatus(server.id, {
                 status: 'offline',
                 last_check_time: new Date().toISOString(),
@@ -163,18 +163,18 @@ class MonitorService {
     }
 
     /**
-     * 手动触发探测所有服务器
+     * 手动触发探测所有主机
      * @returns {Promise<Object>} 探测结果
      */
     async manualProbeAll() {
-        logger.info('手动触发探测所有服务器');
+        logger.info('手动触发探测所有主机');
 
         const servers = ServerAccount.getAll();
 
         if (servers.length === 0) {
             return {
                 success: true,
-                message: '没有服务器需要探测',
+                message: '没有主机需要探测',
                 results: []
             };
         }

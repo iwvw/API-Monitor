@@ -9,7 +9,7 @@
   <link rel="shortcut icon" href="/logo.png">
   <link rel="icon" href="/logo.png" sizes="32x32">
   <meta name="msapplication-TileImage" content="/logo.png">
-  <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.prod.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/vue@3/dist/vue.global.js"></script>
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
   <!-- xterm.js - SSH Terminal -->
@@ -34,8 +34,13 @@
 <body>
   <!-- 自定义 CSS -->
   <style id="custom-css"></style>
+  <style>
+    [v-cloak] {
+      display: none !important;
+    }
+  </style>
 
-  <div id="app">
+  <div id="app" v-cloak>
     <!-- 认证检查加载状态 -->
     <div v-if="isCheckingAuth" class="auth-loading">
       <div class="auth-loading-content">
@@ -105,14 +110,13 @@
       <!-- 主标签页导航 -->
       <div class="main-tabs">
         <template v-for="module in moduleOrder" :key="module">
-          <button v-if="moduleVisibility[module]"
-            class="main-tab"
-            :class="[
+          <button v-if="moduleVisibility[module]" class="main-tab" :class="[
               { active: mainActiveTab === module },
+              module === 'zeabur' ? 'zeabur-tab' : '',
               module === 'dns' ? 'dns-tab' : '',
-              module === 'openai' ? 'openai-tab' : ''
-            ]"
-            @click="handleTabSwitch(module)">
+              module === 'openai' ? 'openai-tab' : '',
+              module === 'server' ? 'server-tab' : ''
+            ]" @click="handleTabSwitch(module)">
             <i class="fas" :class="getModuleIcon(module)"></i>
             <span> {{ getModuleName(module) }}</span>
           </button>
@@ -120,7 +124,8 @@
       </div>
 
       <!-- ==================== Zeabur 监控部分 ==================== -->
-      <div v-if="mainActiveTab === 'zeabur'" class="tab-content" :class="getTabAnimationClass('zeabur')">
+      <div v-if="mainActiveTab === 'zeabur'" class="tab-content zeabur-tab-content"
+        :class="getTabAnimationClass('zeabur')">
         <!-- Zeabur 子标签页 -->
         <div class="sec-tabs">
           <button class="tab-btn" :class="{ active: zeaburCurrentTab === 'monitor' }"
@@ -244,7 +249,8 @@
                 <div style="display: flex; flex-direction: column; gap: 3px;">
                   <div class="balance-card credit-balance-card">
                     <div class="balance-icon">💰</div>
-                    <div class="balance-amount" :class="account.data?.credit ? getBalanceClass(account.data.credit) : ''">
+                    <div class="balance-amount"
+                      :class="account.data?.credit ? getBalanceClass(account.data.credit) : ''">
                       <span v-if="account.data?.credit">${{ (account.data.credit / 100).toFixed(2) }}</span>
                       <span v-else>-</span>
                     </div>
@@ -278,15 +284,16 @@
                       class="project-name-input" ref="projectNameInput" />
                   </div>
                   <div class="project-actions">
-                    <button v-if="!project.isEditing" @click="deleteProject(account, project)" class="project-delete-btn"
-                      title="删除项目">
+                    <button v-if="!project.isEditing" @click="deleteProject(account, project)"
+                      class="project-delete-btn" title="删除项目">
                       <i class="fas fa-trash"></i>
                     </button>
                     <button v-if="!project.isEditing" @click="startEditProjectName(project)" class="project-edit-btn"
                       title="重命名项目">
                       <i class="fas fa-pen"></i>
                     </button>
-                    <button v-if="project.isEditing" @click="cancelEditProjectName(project)" class="project-cancel-btn" title="取消">
+                    <button v-if="project.isEditing" @click="cancelEditProjectName(project)" class="project-cancel-btn"
+                      title="取消">
                       <i class="fas fa-times"></i>
                     </button>
                   </div>
@@ -309,11 +316,12 @@
                         <span v-if="!service.isEditing" class="service-name" :title="service.name">
                           {{ service.name }}
                         </span>
-                        <input v-else v-model="service.editingName" @keyup.enter="saveServiceName(account, project, service)"
+                        <input v-else v-model="service.editingName"
+                          @keyup.enter="saveServiceName(account, project, service)"
                           @keyup.esc="cancelEditServiceName(service)" @blur="saveServiceName(account, project, service)"
                           class="service-name-input" />
-                        <button v-if="!service.isEditing" @click="startEditServiceName(service)" class="service-edit-btn"
-                          title="重命名服务">
+                        <button v-if="!service.isEditing" @click="startEditServiceName(service)"
+                          class="service-edit-btn" title="重命名服务">
                           <i class="fas fa-pen"></i>
                         </button>
                         <button v-else @click="cancelEditServiceName(service)" class="service-cancel-btn" title="取消">
@@ -431,7 +439,7 @@
                       </button>
                     </td>
                   </tr>
-                  <!-- 显示服务器配置的账号（只读） -->
+                  <!-- 显示主机配置的账号（只读） -->
                   <tr v-if="managedAccounts.length === 0 && accounts.length > 0" v-for="account in accounts"
                     :key="'server-' + account.name">
                     <td>{{ account.name }}</td>
@@ -444,7 +452,7 @@
                     </td>
                     <td>
                       <span class="proxied-badge proxied-off">
-                        服务器配置
+                        主机配置
                       </span>
                     </td>
                     <td class="actions">
@@ -492,7 +500,8 @@
         <!-- 账号管理标签页结束 -->
 
         <!-- 添加 Zeabur 账号模态框 -->
-        <div v-if="showAddZeaburAccountModal" class="modal-overlay" @keydown.esc="showAddZeaburAccountModal = false" @keydown.enter="addAccountToList" tabindex="-1">
+        <div v-if="showAddZeaburAccountModal" class="modal-overlay" @keydown.esc="showAddZeaburAccountModal = false"
+          @keydown.enter="addAccountToList" tabindex="-1">
           <div class="modal">
             <div class="modal-header">
               <div class="modal-title"></div>
@@ -526,7 +535,7 @@
       <!-- ==================== Zeabur 监控部分结束 ==================== -->
 
       <!-- ==================== DNS 管理部分 ==================== -->
-      <div v-if="mainActiveTab === 'dns'" class="tab-content" :class="getTabAnimationClass('dns')">
+      <div v-if="mainActiveTab === 'dns'" class="tab-content dns-tab-content" :class="getTabAnimationClass('dns')">
         <!-- DNS 子标签页 -->
         <div class="sec-tabs">
           <button class="tab-btn" :class="{ active: dnsCurrentTab === 'dns' }" @click="dnsCurrentTab = 'dns'">
@@ -756,8 +765,7 @@
                         </span>
                         <button v-if="acc.hasToken" class="btn btn-secondary"
                           style="padding: 2px 6px; font-size: 11px; min-width: auto;"
-                          @click="toggleDnsTokenVisibility(acc)"
-                          :title="acc.showToken ? '隐藏' : '显示'">
+                          @click="toggleDnsTokenVisibility(acc)" :title="acc.showToken ? '隐藏' : '显示'">
                           <i :class="acc.showToken ? 'fas fa-eye-slash' : 'fas fa-eye'"></i>
                         </button>
                       </div>
@@ -846,7 +854,8 @@
         </div>
 
         <!-- 添加 CF 账号模态框 -->
-        <div v-if="showAddDnsAccountModal" class="modal-overlay" @keydown.esc="showAddDnsAccountModal = false" @keydown.enter="addDnsAccount" tabindex="-1">
+        <div v-if="showAddDnsAccountModal" class="modal-overlay" @keydown.esc="showAddDnsAccountModal = false"
+          @keydown.enter="addDnsAccount" tabindex="-1">
           <div class="modal">
             <div class="modal-header">
               <div class="modal-title">添加 Cloudflare 账号</div>
@@ -883,7 +892,8 @@
         </div>
 
         <!-- 编辑 CF 账号模态框 -->
-        <div v-if="showEditDnsAccountModal" class="modal-overlay" @keydown.esc="showEditDnsAccountModal = false" @keydown.enter="updateDnsAccount" tabindex="-1">
+        <div v-if="showEditDnsAccountModal" class="modal-overlay" @keydown.esc="showEditDnsAccountModal = false"
+          @keydown.enter="updateDnsAccount" tabindex="-1">
           <div class="modal">
             <div class="modal-header">
               <div class="modal-title">编辑 Cloudflare 账号</div>
@@ -920,7 +930,8 @@
         </div>
 
         <!-- 添加/编辑 DNS 记录模态框 -->
-        <div v-if="showDnsRecordModal" class="modal-overlay" @keydown.esc="showDnsRecordModal = false" @keydown.enter="saveDnsRecord" tabindex="-1">
+        <div v-if="showDnsRecordModal" class="modal-overlay" @keydown.esc="showDnsRecordModal = false"
+          @keydown.enter="saveDnsRecord" tabindex="-1">
           <div class="modal">
             <div class="modal-header">
               <div class="modal-title">{{ dnsEditingRecord ? '编辑 DNS 记录' : '添加 DNS 记录' }}</div>
@@ -984,7 +995,8 @@
         </div>
 
         <!-- 添加/编辑模板模态框 -->
-        <div v-if="showDnsTemplateModal" class="modal-overlay" @keydown.esc="showDnsTemplateModal = false" @keydown.enter="saveDnsTemplate" tabindex="-1">
+        <div v-if="showDnsTemplateModal" class="modal-overlay" @keydown.esc="showDnsTemplateModal = false"
+          @keydown.enter="saveDnsTemplate" tabindex="-1">
           <div class="modal">
             <div class="modal-header">
               <div class="modal-title">{{ dnsEditingTemplate ? '编辑模板' : '添加模板' }}</div>
@@ -1044,10 +1056,11 @@
       </div>
       <!-- ==================== DNS 管理部分结束 ==================== -->
 
-      <!-- ==================== OpenAI API 管理部分 ==================== -->
-      <div v-if="mainActiveTab === 'openai'" class="tab-content" :class="getTabAnimationClass('openai')">
-        <!-- OpenAI 子标签页 -->
-        <div class="sec-tabs">
+      <!-- ==================== OpenApi 管理部分 ==================== -->
+      <div v-if="mainActiveTab === 'openai'" class="tab-content openai-tab-content"
+        :class="getTabAnimationClass('openai')">
+        <!-- OpenApi 子标签页 -->
+        <div class="sec-tabs openai-sec-tabs">
           <button class="tab-btn" :class="{ active: openaiCurrentTab === 'endpoints' }"
             @click="openaiCurrentTab = 'endpoints'">
             <i class="fas fa-server"></i> API 端点
@@ -1252,7 +1265,8 @@
         </div>
 
         <!-- 添加/编辑端点模态框 -->
-        <div v-if="showOpenaiEndpointModal" class="modal-overlay" @keydown.esc="showOpenaiEndpointModal = false" @keydown.ctrl.enter="saveOpenaiEndpoint" tabindex="-1">
+        <div v-if="showOpenaiEndpointModal" class="modal-overlay" @keydown.esc="showOpenaiEndpointModal = false"
+          @keydown.ctrl.enter="saveOpenaiEndpoint" tabindex="-1">
           <div class="modal">
             <div class="modal-header">
               <div class="modal-title">{{ openaiEditingEndpoint ? '编辑 API 端点' : '添加 API 端点' }}</div>
@@ -1296,21 +1310,21 @@
       </div>
       <!-- ==================== OpenAI API 管理部分结束 ==================== -->
 
-      <!-- ==================== 服务器管理部分 ==================== -->
-      <div v-if="mainActiveTab === 'server'" class="tab-content" :class="getTabAnimationClass('server')">
-        <!-- 服务器子标签页 -->
-        <div class="sec-tabs">
-          <button class="tab-btn" :class="{ active: serverCurrentTab === 'list' }"
-            @click="serverCurrentTab = 'list'" style="background: var(--primary-color) !important;"
-            v-if="serverCurrentTab === 'list'">
-            <i class="fas fa-server"></i> 服务器列表
+      <!-- ==================== 主机管理部分 ==================== -->
+      <div v-show="mainActiveTab === 'server'" class="tab-content server-tab-content"
+        :class="getTabAnimationClass('server')">
+        <!-- 主机子标签页 -->
+        <div class="sec-tabs server-sec-tabs">
+          <button class="tab-btn" :class="{ active: serverCurrentTab === 'list' }" @click="serverCurrentTab = 'list'"
+            style="background: var(--server-primary) !important;" v-if="serverCurrentTab === 'list'">
+            <i class="fas fa-server"></i> 主机列表
           </button>
-          <button class="tab-btn" :class="{ active: serverCurrentTab === 'list' }"
-            @click="serverCurrentTab = 'list'" v-else>
-            <i class="fas fa-server"></i> 服务器列表
+          <button class="tab-btn" :class="{ active: serverCurrentTab === 'list' }" @click="serverCurrentTab = 'list'"
+            v-else>
+            <i class="fas fa-server"></i> 主机列表
           </button>
           <button class="tab-btn" :class="{ active: serverCurrentTab === 'management' }"
-            @click="serverCurrentTab = 'management'" style="background: var(--primary-color) !important;"
+            @click="serverCurrentTab = 'management'" style="background: var(--server-primary) !important;"
             v-if="serverCurrentTab === 'management'">
             <i class="fas fa-cog"></i> 后台管理
           </button>
@@ -1318,740 +1332,949 @@
             @click="serverCurrentTab = 'management'" v-else>
             <i class="fas fa-cog"></i> 后台管理
           </button>
+          <!-- 动态SSH终端标签页 -->
+          <template v-for="session in sshSessions" :key="session.id">
+            <button class="tab-btn ssh-session-tab" :class="{ active: serverCurrentTab === 'ssh_' + session.id }"
+              @click="switchToSSHTab(session.id)" @dblclick.stop="closeSSHSession(session.id)"
+              @mousedown.middle.prevent.stop="closeSSHSession(session.id)">
+              <i class="fas fa-terminal"></i>
+              <span>{{ session.server.name }}</span>
+              <!-- <span class="ssh-tab-close" @click.stop="closeSSHSession(session.id)" title="关闭">×</span> -->
+            </button>
+          </template>
+          <!-- 新建SSH终端按钮 -->
+          <button class="tab-btn ssh-add-tab" @click="showAddSessionModal" title="新建SSH终端" v-if="serverList.length > 0">
+            <i class="fas fa-plus"></i>
+          </button>
         </div>
 
-        <!-- 服务器列表标签页 -->
-        <div v-if="serverCurrentTab === 'list'" class="sub-tab-content quick-fade-in">
-          <div class="server-list-container">
-            <div class="server-list-header">
-              <h2>服务器列表</h2>
-              <div class="server-list-actions">
-                <button id="add-server-btn" class="btn btn-primary">
-                  <i class="fas fa-plus"></i> 添加服务器
+        <!-- 主机列表标签页 -->
+        <div v-show="serverCurrentTab === 'list'" class="sub-tab-content quick-fade-in">
+          <!-- 主机控制条 -->
+          <div class="controls-bar">
+            <div class="controls-row">
+              <div class="search-box">
+                <i class="fas fa-search"></i>
+                <input v-model="serverSearchText" placeholder="搜索名称、IP 或标签..." class="form-input" />
+              </div>
+
+              <div class="stats-pills">
+                <div class="stat-pill" :class="{ active: serverStatusFilter === 'all' }"
+                  @click="serverStatusFilter = 'all'">
+                  <span class="label">全部</span>
+                  <span class="value">{{ serverList.length }}</span>
+                </div>
+                <div class="stat-pill online" :class="{ active: serverStatusFilter === 'online' }"
+                  @click="serverStatusFilter = serverStatusFilter === 'online' ? 'all' : 'online'">
+                  <span class="label">在线</span>
+                  <span class="value">{{ serverList.filter(s => s.status === 'online').length }}</span>
+                </div>
+                <div class="stat-pill offline" :class="{ active: serverStatusFilter === 'offline' }"
+                  @click="serverStatusFilter = serverStatusFilter === 'offline' ? 'all' : 'offline'">
+                  <span class="label">离线</span>
+                  <span class="value">{{ serverList.filter(s => s.status === 'offline').length }}</span>
+                </div>
+              </div>
+            </div>
+
+            <div class="controls-row">
+              <div style="display: flex; gap: 10px; align-items: center;">
+                <button class="btn btn-primary" @click="loadServerList" :disabled="serverLoading">
+                  <i class="fas fa-sync-alt" :class="{ 'fa-spin': serverLoading }"></i>
+                  刷新状态
                 </button>
-                <button id="refresh-servers-btn" class="btn btn-secondary">
-                  <i class="fas fa-sync-alt"></i> 刷新
+              </div>
+
+              <div class="refresh-info">
+                <div v-if="serverPollingEnabled" style="display: flex; align-items: center; gap: 12px; flex: 1;">
+                  <span style="font-size: 12px; color: var(--text-tertiary);">
+                    <i class="fas fa-clock" style="margin-right: 4px;"></i>
+                    {{ serverRefreshCountdown }} 秒后刷新
+                  </span>
+                  <div class="refresh-progress" style="flex: 1; max-width: 100px;">
+                    <div class="refresh-progress-bar" :style="{ width: serverRefreshProgress + '%' }"></div>
+                  </div>
+                </div>
+                <button class="btn btn-secondary icon-only"
+                  @click="serverPollingEnabled = !serverPollingEnabled; serverPollingEnabled ? startServerPolling() : stopServerPolling()"
+                  :title="serverPollingEnabled ? '暂停自动监测' : '开启自动监测'">
+                  <i class="fas" :class="serverPollingEnabled ? 'fa-pause' : 'fa-play'"></i>
                 </button>
-                <button id="probe-all-servers-btn" class="btn btn-secondary">
-                  <i class="fas fa-heartbeat"></i> 手动探测
-                </button>
-                <button id="import-servers-btn" class="btn btn-secondary">
-                  <i class="fas fa-file-import"></i> 导入
-                </button>
-                <button id="export-servers-btn" class="btn btn-secondary">
-                  <i class="fas fa-file-export"></i> 导出
+                <button class="btn btn-secondary" style="padding: 6px 12px; min-width: 100px;" @click="probeAllServers"
+                  :disabled="probeStatus === 'loading'">
+                  <i v-if="probeStatus === 'success'" class="fas fa-check" style="color: #fff; margin-right: 4px;"></i>
+                  <i v-else-if="probeStatus === 'error'" class="fas fa-times"
+                    style="color: var(--danger-color); margin-right: 4px;"></i>
+                  <i v-else class="fas" :class="{
+                    'fa-heartbeat': probeStatus !== 'loading',
+                    'fa-spinner fa-spin': probeStatus === 'loading'
+                  }"></i>
+                  批量拨测
                 </button>
               </div>
             </div>
-            <div id="server-list-container"></div>
+          </div>
+
+          <div v-if="serverLoading && serverList.length === 0" class="loading">
+            <div class="spinner" style="margin-bottom: 12px;"></div>
+            <p>正在同步主机状态...</p>
+          </div>
+
+          <!-- 主机卡片列表 -->
+          <div v-for="server in filteredServerList" :key="server.id" class="server-card"
+            :class="{ expanded: isServerExpanded(server.id) }">
+            <div class="server-card-header" @click="toggleServer(server.id)">
+              <div class="server-card-info">
+                <div class="server-status-indicator" :class="server.status || 'unknown'"></div>
+                <div style="flex: 1; min-width: 0;">
+                  <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                    <span class="server-name">{{ server.name }}</span>
+                    <span v-if="server.last_check_time"
+                      style="font-size: 11px; color: var(--text-tertiary); display: inline-flex; align-items: center; gap: 4px;"
+                      title="最近更新时间">
+                      <i class="far fa-clock"></i>
+                      {{ formatDateTime(server.last_check_time) }}
+                    </span>
+                    <span v-if="server.response_time"
+                      style="font-size: 11px; color: var(--text-tertiary); display: inline-flex; align-items: center; gap: 4px;"
+                      title="响应时间">
+                      <i class="fas fa-bolt" style="font-size: 10px;"></i>
+                      {{ server.response_time }}ms
+                    </span>
+                  </div>
+                  <div class="server-host">{{ server.username }}@{{ server.host }}:{{ server.port }}</div>
+                </div>
+              </div>
+
+              <div style="display: flex; align-items: center; gap: 12px;" class="header-right">
+                <div class="server-tags" style="margin-top: 0; display: flex; gap: 4px;"
+                  v-if="server.tags && server.tags.length > 0">
+                  <span v-for="tag in server.tags" :key="tag" class="server-tag">{{ tag }}</span>
+                </div>
+
+                <div class="account-balance" style="gap: 6px;">
+                  <button class="btn btn-sm btn-secondary icon-only" @click.stop="refreshServerInfo(server.id)"
+                    title="刷新状态">
+                    <i class="fas" :class="server.loading ? 'fa-spinner fa-spin' : 'fa-sync-alt'"></i>
+                  </button>
+                  <button class="btn btn-sm btn-primary" @click.stop="openSSHTerminal(server)" title="SSH 连接">
+                    <i class="fas fa-terminal"></i>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- 卡片展开详情区域 -->
+            <div class="server-card-body">
+              <div class="divider" style="margin: 0; opacity: 0.5;"></div>
+              <div class="server-details" style="border: none; padding: 8px 3px;">
+
+                <div v-if="server.loading" class="loading" style="padding: 8px 3px;">
+                  <div class="spinner-sm"></div>
+                  <p style="margin-top: 10px; font-size: 12px;">正在获取实时负载参数...</p>
+                </div>
+
+                <div v-else-if="server.error" class="error" style="margin: 0px 3px;">
+                  <i class="fas fa-exclamation-circle"></i> {{ server.error }}
+                </div>
+
+                <div v-else-if="server.info">
+                  <!-- 主要信息网格 -->
+                  <div class="server-details-grid">
+                    <!-- 系统信息 -->
+                    <div class="server-detail-section">
+                      <h4><i class="fas fa-microchip"></i> 硬件载荷</h4>
+                      <div class="server-detail-item">
+                        <span class="server-detail-label">CPU 负载 ({{ server.info.cpu.Cores }} 核心)</span>
+                        <span class="server-detail-value">{{ server.info.cpu.Usage }}</span>
+                      </div>
+                      <div class="progress-bar">
+                        <div class="progress-bar-fill" :style="{ width: server.info.cpu.Usage }"></div>
+                      </div>
+
+                      <div class="server-detail-item" style="margin-top: 12px;">
+                        <span class="server-detail-label">内存使用 ({{ server.info.memory.Used }} / {{
+                          server.info.memory.Total }})</span>
+                        <span class="server-detail-value">{{ server.info.memory.Usage }}</span>
+                      </div>
+                      <div class="progress-bar">
+                        <div class="progress-bar-fill" :class="getMemoryClass(server.info.memory.Usage)"
+                          :style="{ width: server.info.memory.Usage }"></div>
+                      </div>
+                    </div>
+
+                    <!-- 存储资源 -->
+                    <div class="server-detail-section">
+                      <h4><i class="fas fa-database"></i> 存储资源</h4>
+                      <!-- 只显示主分区或第一个分区 -->
+                      <div v-if="server.info.disk && server.info.disk.length > 0">
+                        <div class="server-detail-item">
+                          <span class="server-detail-label">主存储 ({{ server.info.disk[0].device }})</span>
+                          <span class="server-detail-value">{{ server.info.disk[0].used }} / {{
+                            server.info.disk[0].total }}</span>
+                        </div>
+                        <div class="progress-bar">
+                          <div class="progress-bar-fill" :class="getDiskClass(server.info.disk[0].usage)"
+                            :style="{ width: server.info.disk[0].usage }"></div>
+                        </div>
+                        <div class="server-detail-item" style="border:none; padding: 4px 0 0 0;">
+                          <span class="server-detail-value" style="font-size: 11px; opacity: 0.7;">使用率: {{
+                            server.info.disk[0].usage }}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <!-- 节点概览 -->
+                    <div class="server-detail-section">
+                      <h4><i class="fas fa-info-circle"></i> 系统摘要</h4>
+                      <div v-for="(value, key) in server.info.system" :key="key" class="server-detail-item"
+                        style="padding: 4px 0;">
+                        <span class="server-detail-label">{{ translateInfoKey(key) }}</span>
+                        <span class="server-detail-value">{{ value }}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- 容器虚拟化 - 可折叠面板 -->
+                  <div class="server-detail-section docker-section">
+                    <div class="docker-section-header" @click.stop="toggleDockerPanel(server.id)"
+                      style="cursor: pointer;">
+                      <h4>
+                        <i class="fab fa-docker"></i> 容器虚拟化
+                        <i class="fas fa-chevron-right toggle-icon"
+                          :style="{ transform: isDockerPanelExpanded(server.id) ? 'rotate(90deg)' : 'rotate(0deg)' }"></i>
+                      </h4>
+                      <div class="docker-section-status">
+                        <span class="docker-status-badge"
+                          :class="server.info.docker.installed ? 'installed' : 'not-installed'">
+                          {{ server.info.docker.installed ? '已安装' : '未检测到' }}
+                        </span>
+                        <span v-if="server.info.docker.installed && server.info.docker.containers.length > 0"
+                          class="docker-container-count">
+                          <span style="color: var(--success-color);">●</span>
+                          {{ getRunningContainers(server.info.docker.containers) }} 运行
+                          <span v-if="getPausedContainers(server.info.docker.containers) > 0"
+                            style="margin-left: 8px; color: var(--warning-color);">●</span>
+                          <span v-if="getPausedContainers(server.info.docker.containers) > 0">
+                            {{ getPausedContainers(server.info.docker.containers) }} 暂停
+                          </span>
+                        </span>
+                      </div>
+                    </div>
+
+                    <!-- 展开的容器面板 - 使用类似 modal 的样式 -->
+                    <div v-if="isDockerPanelExpanded(server.id) && server.info.docker.installed"
+                      class="docker-panel-content">
+                      <div v-if="server.info.docker.containers.length > 0" class="docker-containers-grid">
+                        <div v-for="container in server.info.docker.containers" :key="container.id"
+                          class="docker-container-mini-card" :class="{ 
+                            'running': container.status.includes('Up') && !container.status.includes('Paused'),
+                            'paused': container.status.includes('Paused')
+                          }">
+                          <div class="container-info">
+                            <span class="container-status-dot"
+                              :class="{ 'online': container.status.includes('Up') && !container.status.includes('Paused'), 'paused': container.status.includes('Paused') }"></span>
+                            <span class="container-name" :title="container.name">{{ container.name }}</span>
+                          </div>
+                          <div class="container-actions">
+                            <button v-if="container.status.includes('Up') && !container.status.includes('Paused')"
+                              class="btn btn-xs btn-warning icon-only"
+                              @click.stop="handleDockerAction(server.id, container.id, 'pause')" title="暂停">
+                              <i class="fas fa-pause"></i>
+                            </button>
+                            <button v-else-if="container.status.includes('Paused')"
+                              class="btn btn-xs btn-success icon-only"
+                              @click.stop="handleDockerAction(server.id, container.id, 'unpause')" title="恢复">
+                              <i class="fas fa-play"></i>
+                            </button>
+                            <button v-else class="btn btn-xs btn-success icon-only"
+                              @click.stop="handleDockerAction(server.id, container.id, 'start')" title="启动">
+                              <i class="fas fa-play"></i>
+                            </button>
+                            <button class="btn btn-xs btn-secondary icon-only"
+                              @click.stop="handleDockerAction(server.id, container.id, 'restart')" title="重启">
+                              <i class="fas fa-redo-alt"></i>
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                      <div v-else class="docker-empty-mini">
+                        <i class="fab fa-docker"></i>
+                        <span>暂无容器</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="!serverLoading && filteredServerList.length === 0" class="empty-state">
+            <div class="server-empty-state-icon">🔍</div>
+            <p>未找到符合条件的主机</p>
           </div>
         </div>
 
         <!-- 后台管理标签页 -->
-        <div v-if="serverCurrentTab === 'management'" class="sub-tab-content quick-fade-in">
-          <div class="server-management-container">
-            <!-- 监控配置 -->
-            <div class="management-section">
-              <div class="management-section-header">
-                <h3><i class="fas fa-cog"></i> 监控配置</h3>
-              </div>
-              <div class="management-section-body">
-                <div class="form-row">
-                  <div class="form-group">
-                    <label class="form-label">探测间隔（秒）</label>
-                    <input v-model.number="monitorConfig.interval" type="number" class="form-input" min="10"
-                      placeholder="60" />
-                    <div class="form-help">服务器健康检查的时间间隔，建议不低于 10 秒</div>
-                  </div>
-                  <div class="form-group">
-                    <label class="form-label">探测超时（秒）</label>
-                    <input v-model.number="monitorConfig.timeout" type="number" class="form-input" min="5"
-                      placeholder="10" />
-                    <div class="form-help">单次探测的超时时间</div>
-                  </div>
-                  <div class="form-group">
-                    <label class="form-label">日志保留天数</label>
-                    <input v-model.number="monitorConfig.logRetentionDays" type="number" class="form-input" min="1"
-                      placeholder="7" />
-                    <div class="form-help">自动清理超过指定天数的日志</div>
-                  </div>
-                </div>
-                <div class="form-actions">
-                  <button class="btn btn-primary" @click="saveMonitorConfig" :disabled="monitorConfigSaving">
-                    <i class="fas fa-save"></i>
-                    {{ monitorConfigSaving ? '保存中...' : '保存配置' }}
-                  </button>
-                  <button class="btn btn-secondary" @click="loadMonitorConfig">
-                    <i class="fas fa-sync-alt"></i> 重置
-                  </button>
-                </div>
-                <div v-if="monitorConfigError" class="form-error">
-                  {{ monitorConfigError }}
-                </div>
-                <div v-if="monitorConfigSuccess" class="form-success">
-                  {{ monitorConfigSuccess }}
-                </div>
+        <div v-show="serverCurrentTab === 'management'" class="sub-tab-content quick-fade-in">
+          <!-- 主机管理面板 -->
+          <div class="panel">
+            <div class="panel-header">
+              <div class="panel-title"></div>
+              <div style="display: flex; gap: 8px;">
+                <button class="btn btn-success" style="padding: 6px 12px;" @click="openAddServerModal">
+                  <i class="fas fa-plus"></i> 添加主机
+                </button>
+                <button class="btn btn-secondary" style="padding: 6px 10px;" @click="loadServerList"
+                  :disabled="serverLoading">
+                  <i class="fas fa-sync-alt" :class="{ 'fa-spin': serverLoading }"></i>
+                </button>
+                <button class="btn btn-secondary" style="padding: 6px 12px; min-width: 100px;" @click="probeAllServers"
+                  :disabled="probeStatus === 'loading'">
+                  <i v-if="probeStatus === 'success'" class="fas fa-check" style="color: #fff; margin-right: 4px;"></i>
+                  <i v-else-if="probeStatus === 'error'" class="fas fa-times"
+                    style="color: var(--danger-color); margin-right: 4px;"></i>
+                  <i v-else class="fas" :class="{
+                    'fa-heartbeat': probeStatus !== 'loading',
+                    'fa-spinner fa-spin': probeStatus === 'loading'
+                  }"></i>
+                  批量拨测
+                </button>
+                <button class="btn btn-secondary" style="padding: 6px 12px;" @click="exportServers">
+                  <i class="fas fa-upload"></i> 导出
+                </button>
+                <button class="btn btn-secondary" style="padding: 6px 12px;" @click="openImportServerModal">
+                  <i class="fas fa-download"></i> 导入
+                </button>
               </div>
             </div>
 
-            <!-- 探测日志 -->
-            <div class="management-section">
-              <div class="management-section-header">
-                <h3><i class="fas fa-history"></i> 探测日志</h3>
-                <div class="management-section-actions">
-                  <select v-model="logFilter.serverId" class="form-select" @change="loadMonitorLogs">
-                    <option value="">全部服务器</option>
-                    <option v-for="server in serverList" :key="server.id" :value="server.id">
-                      {{ server.name }}
-                    </option>
-                  </select>
-                  <select v-model="logFilter.status" class="form-select" @change="loadMonitorLogs">
-                    <option value="">全部状态</option>
-                    <option value="online">在线</option>
-                    <option value="offline">离线</option>
-                  </select>
-                  <button class="btn btn-sm btn-secondary" @click="loadMonitorLogs">
-                    <i class="fas fa-sync-alt"></i> 刷新
-                  </button>
-                </div>
-              </div>
-              <div class="management-section-body">
-                <div v-if="monitorLogsLoading" class="loading-state">
-                  <div class="spinner"></div>
-                  <p>加载中...</p>
-                </div>
-                <div v-else-if="monitorLogs.length === 0" class="empty-state">
-                  <p>暂无探测日志</p>
-                </div>
-                <div v-else class="monitor-logs-table">
-                  <table class="table">
-                    <thead>
-                      <tr>
-                        <th>时间</th>
-                        <th>服务器</th>
-                        <th>状态</th>
-                        <th>响应时间</th>
-                        <th>错误信息</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr v-for="log in monitorLogs" :key="log.id">
-                        <td>{{ formatDateTime(log.check_time) }}</td>
-                        <td>{{ log.server_name }}</td>
-                        <td>
-                          <span class="status-badge" :class="'status-' + log.status">
-                            {{ log.status === 'online' ? '在线' : '离线' }}
-                          </span>
-                        </td>
-                        <td>{{ log.response_time ? log.response_time + 'ms' : '-' }}</td>
-                        <td>
-                          <span class="error-message">{{ log.error_message || '-' }}</span>
-                        </td>
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
-                <div v-if="monitorLogs.length > 0" class="pagination">
-                  <button class="btn btn-sm btn-secondary" @click="loadMonitorLogs(logPage - 1)"
-                    :disabled="logPage <= 1">
-                    上一页
-                  </button>
-                  <span class="pagination-info">第 {{ logPage }} 页</span>
-                  <button class="btn btn-sm btn-secondary" @click="loadMonitorLogs(logPage + 1)"
-                    :disabled="monitorLogs.length < logPageSize">
-                    下一页
-                  </button>
-                </div>
-              </div>
+            <div v-if="serverLoading" class="loading">
+              <div class="spinner"></div>
+              <div style="margin-top: 12px;">加载中...</div>
             </div>
-          </div>
-        </div>
 
-      </div>
-      <!-- ==================== 服务器管理部分结束 ==================== -->
-
-    </div>
-
-    <!-- ==================== 服务器管理模态框 ==================== -->
-    <!-- 添加/编辑服务器模态框 -->
-    <div v-if="showServerModal" class="modal-overlay" @keydown.esc="closeServerModal" @keydown.ctrl.enter="saveServer" tabindex="-1">
-      <div class="modal modal-lg">
-        <div class="modal-header">
-          <div class="modal-title">
-            <i class="fas fa-server"></i>
-            {{ serverModalMode === 'add' ? '添加服务器' : '编辑服务器' }}
-          </div>
-          <button class="modal-close" @click="closeServerModal">&times;</button>
-        </div>
-        <div class="modal-body">
-          <div class="form-group">
-            <label class="form-label">服务器名称 *</label>
-            <input v-model="serverForm.name" type="text" class="form-input" placeholder="例如：生产服务器" />
-          </div>
-          <div class="form-row">
-            <div class="form-group" style="flex: 2;">
-              <label class="form-label">主机地址 *</label>
-              <input v-model="serverForm.host" type="text" class="form-input" placeholder="IP 地址或域名" />
-            </div>
-            <div class="form-group" style="flex: 1;">
-              <label class="form-label">端口 *</label>
-              <input v-model.number="serverForm.port" type="number" class="form-input" placeholder="22" />
-            </div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">用户名 *</label>
-            <input v-model="serverForm.username" type="text" class="form-input" placeholder="root" />
-          </div>
-          <div class="form-group">
-            <label class="form-label">认证方式 *</label>
-            <div class="form-radio-group">
-              <label class="form-radio">
-                <input type="radio" v-model="serverForm.authType" value="password" />
-                <span>密码认证</span>
-              </label>
-              <label class="form-radio">
-                <input type="radio" v-model="serverForm.authType" value="privateKey" />
-                <span>密钥认证</span>
-              </label>
-            </div>
-          </div>
-          <div v-if="serverForm.authType === 'password'" class="form-group">
-            <label class="form-label">密码 *</label>
-            <input v-model="serverForm.password" type="password" class="form-input" placeholder="请输入密码" />
-          </div>
-          <div v-if="serverForm.authType === 'privateKey'" class="form-group">
-            <label class="form-label">私钥 *</label>
-            <textarea v-model="serverForm.privateKey" class="form-textarea" rows="6"
-              placeholder="请粘贴 SSH 私钥内容（PEM 格式）"></textarea>
-            <div class="form-help">支持 RSA、ECDSA、Ed25519 等格式的私钥</div>
-          </div>
-          <div v-if="serverForm.authType === 'privateKey'" class="form-group">
-            <label class="form-label">私钥密码（可选）</label>
-            <input v-model="serverForm.passphrase" type="password" class="form-input"
-              placeholder="如果私钥有密码保护，请输入" />
-          </div>
-          <div class="form-group">
-            <label class="form-label">标签（可选）</label>
-            <input v-model="serverForm.tagsInput" type="text" class="form-input"
-              placeholder="多个标签用逗号分隔，例如：生产,Web服务器" />
-            <div class="form-help">标签用于分类和筛选服务器</div>
-          </div>
-          <div class="form-group">
-            <label class="form-label">备注（可选）</label>
-            <textarea v-model="serverForm.description" class="form-textarea" rows="3"
-              placeholder="服务器用途、配置等备注信息"></textarea>
-          </div>
-          <div v-if="serverModalError" class="form-error">
-            {{ serverModalError }}
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button class="btn btn-secondary" @click="closeServerModal" :disabled="serverModalSaving">
-            取消
-          </button>
-          <button class="btn btn-primary" @click="testServerConnection" :disabled="serverModalSaving">
-            <i class="fas fa-plug"></i> 测试连接
-          </button>
-          <button class="btn btn-primary" @click="saveServer" :disabled="serverModalSaving">
-            <i class="fas fa-save"></i>
-            {{ serverModalSaving ? '保存中...' : '保存' }}
-          </button>
-        </div>
-      </div>
-    </div>
-
-    <!-- 批量导入服务器模态框 -->
-    <div v-if="showImportServerModal" class="modal-overlay" @keydown.esc="closeImportServerModal" @keydown.enter="confirmImportServers" tabindex="-1">
-      <div class="modal modal-lg">
-        <div class="modal-header">
-          <div class="modal-title">
-            <i class="fas fa-file-import"></i>
-            批量导入服务器
-          </div>
-          <button class="modal-close" @click="closeImportServerModal">&times;</button>
-        </div>
-        <div class="modal-body">
-          <div class="form-group">
-            <label class="form-label">选择 JSON 文件</label>
-            <input type="file" ref="importFileInput" accept=".json" class="form-input"
-              @change="handleImportFileChange" />
-            <div class="form-help">请选择之前导出的服务器配置 JSON 文件</div>
-          </div>
-          <div v-if="importPreview" class="form-group">
-            <label class="form-label">预览（将导入 {{ importPreview.length }} 台服务器）</label>
-            <div class="import-preview-list">
-              <div v-for="(server, index) in importPreview" :key="index" class="import-preview-item">
-                <i class="fas fa-server"></i>
-                <span>{{ server.name }} ({{ server.username }}@{{ server.host }}:{{ server.port }})</span>
-              </div>
-            </div>
-          </div>
-          <div v-if="importModalError" class="form-error">
-            {{ importModalError }}
-          </div>
-        </div>
-        <div class="modal-footer">
-          <button class="btn btn-secondary" @click="closeImportServerModal" :disabled="importModalSaving">
-            取消
-          </button>
-          <button class="btn btn-primary" @click="confirmImportServers"
-            :disabled="importModalSaving || !importPreview || importPreview.length === 0">
-            <i class="fas fa-check"></i>
-            {{ importModalSaving ? '导入中...' : '确认导入' }}
-          </button>
-        </div>
-      </div>
-    </div>
-    <!-- Docker 容器详情模态框 -->
-    <div v-if="showDockerModal" class="modal-overlay" @keydown.esc="closeDockerModal" tabindex="-1">
-      <div class="modal modal-lg">
-        <div class="modal-header">
-          <div class="modal-title">
-            <i class="fas fa-docker"></i>
-            Docker 容器 - {{ dockerModalServer?.name }}
-          </div>
-          <button class="modal-close" @click="closeDockerModal">&times;</button>
-        </div>
-        <div class="modal-body">
-          <div v-if="dockerModalData" class="docker-modal-content">
-            <div class="docker-info-header">
-              <div class="docker-info-item">
-                <span class="docker-info-label">Docker 版本</span>
-                <span class="docker-info-value">{{ dockerModalData.version }}</span>
-              </div>
-              <div class="docker-info-item">
-                <span class="docker-info-label">容器总数</span>
-                <span class="docker-info-value">{{ dockerModalData.containers?.length || 0 }}</span>
-              </div>
-              <div class="docker-info-item">
-                <span class="docker-info-label">运行中</span>
-                <span class="docker-info-value">
-                  {{ dockerModalData.containers?.filter(c => c.status.includes('Up')).length || 0 }}
-                </span>
-              </div>
-            </div>
-            <div class="docker-container-table">
-              <table class="table">
+            <div v-else class="table-container">
+              <table class="data-table">
                 <thead>
                   <tr>
-                    <th>容器名称</th>
-                    <th>镜像</th>
                     <th>状态</th>
-                    <th>端口</th>
+                    <th>主机名称</th>
+                    <th>主机地址</th>
+                    <th>响应</th>
+                    <th>最后检查</th>
+                    <th style="width: 180px;">操作</th>
                   </tr>
                 </thead>
                 <tbody>
-                  <tr v-for="(container, index) in dockerModalData.containers" :key="index">
+                  <tr v-for="server in serverList" :key="server.id">
                     <td>
-                      <span class="docker-container-name-badge">{{ container.name }}</span>
-                    </td>
-                    <td>
-                      <span class="docker-image-name">{{ container.image || '-' }}</span>
-                    </td>
-                    <td>
-                      <span class="docker-status-badge"
-                        :class="container.status.includes('Up') ? 'status-running' : 'status-exited'">
-                        {{ container.status }}
+                      <span class="proxied-badge"
+                        :class="server.status === 'online' ? 'proxied-on' : (server.status === 'offline' ? 'proxied-off' : '')">
+                        {{ server.status === 'online' ? '在线' : (server.status === 'offline' ? '离线' : '未知') }}
                       </span>
                     </td>
                     <td>
-                      <span class="docker-ports">{{ container.ports || '-' }}</span>
+                      <strong>{{ server.name }}</strong>
+                    </td>
+                    <td>
+                      <code
+                        style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px; font-size: 11px;">
+                        {{ server.username }}@{{ server.host }}:{{ server.port }}
+                      </code>
+                    </td>
+                    <td><span v-if="server.response_time" style="font-family: monospace;">{{ server.response_time
+                        }}ms</span><span v-else>-</span></td>
+                    <td style="font-size: 11px; opacity: 0.8;">{{ server.last_check_time ?
+                      formatDateTime(server.last_check_time) : '从未检查' }}</td>
+                    <td class="actions">
+                      <button class="btn btn-sm btn-secondary icon-only" @click="openEditServerModal(server.id)"
+                        title="编辑"><i class="fas fa-edit"></i></button>
+                      <button class="btn btn-sm btn-secondary icon-only" @click="rebootServerById(server.id)"
+                        title="重启"><i class="fas fa-redo"></i></button>
+                      <button class="btn btn-sm btn-danger icon-only" @click="deleteServerById(server.id)" title="删除"><i
+                          class="fas fa-trash"></i></button>
                     </td>
                   </tr>
                 </tbody>
               </table>
+              <div v-if="serverList.length === 0" class="empty-state">
+                <i class="fas fa-server" style="font-size: 48px; margin-bottom: 16px;"></i>
+                <div>暂无主机，点击上方按钮添加</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 批量添加主机 -->
+          <div class="panel" style="margin-top: 16px;">
+            <div class="panel-header">
+              <div class="panel-title">批量添加主机</div>
+            </div>
+            <div>
+              <textarea v-model="serverBatchText" class="form-textarea" placeholder="例如：
+Web服务器,192.168.1.100,22,root,password123
+数据库服务器,192.168.1.101,22,root,secure_pass"
+                style="min-height: 150px; font-family: monospace; font-size: 12px; white-space: pre;"></textarea>
+              <div v-if="serverBatchError" class="form-error" style="margin-top: 8px;">{{ serverBatchError }}</div>
+              <div v-if="serverBatchSuccess" class="form-success" style="margin-top: 8px;">{{ serverBatchSuccess }}
+              </div>
+              <button class="btn btn-primary" @click="batchAddServers" :disabled="serverAddingBatch"
+                style="width: 100%; margin-top: 12px;">
+                {{ serverAddingBatch ? '添加中...' : '批量添加' }}
+              </button>
+            </div>
+          </div>
+
+          <!-- 批量添加 -->
+          <div class="panel" style="margin-top: 16px;">
+            <div class="panel-header">
+              <div class="panel-title">快捷配置</div>
+            </div>
+            <div class="secondary-config-row" style="padding: 1px;">
+              <!-- 监控全局配置 -->
+              <div class="config-card">
+                <div class="config-card-title">
+                  <i class="fas fa-clock"></i> 自动拨测策略
+                </div>
+                <div class="form-row">
+                  <div class="form-group flex-1">
+                    <label>探测周期 (S)</label>
+                    <input type="number" v-model="monitorConfig.interval" class="form-input" min="10" />
+                  </div>
+                  <div class="form-group flex-1">
+                    <label>响应超时 (S)</label>
+                    <input type="number" v-model="monitorConfig.timeout" class="form-input" min="1" />
+                  </div>
+                  <div class="form-group flex-1">
+                    <label>日志存量 (天)</label>
+                    <input type="number" v-model="monitorConfig.logRetentionDays" class="form-input" min="1" />
+                  </div>
+                </div>
+                <button @click="saveMonitorConfig" class="btn btn-primary" :disabled="monitorConfigSaving"
+                  style="width: 100%;">
+                  <i class="fas" :class="monitorConfigSaving ? 'fa-spinner fa-spin' : 'fa-save'"></i>
+                  同步配置
+                </button>
+              </div>
+
+              <!-- 主机凭据管理 -->
+              <div class="config-card">
+                <div class="config-card-title">
+                  <i class="fas fa-shield-alt"></i> 预设访问凭据
+                  <button class="btn btn-success btn-sm" style="margin-left: auto; padding: 4px 10px;"
+                    @click="showAddCredentialModal = true">
+                    <!-- <i class="fas fa-plus"></i>  -->
+                    添加
+                  </button>
+                </div>
+                <div v-if="serverCredentials.length > 0" class="credential-list" style="margin-top: 10px;">
+                  <div v-for="cred in serverCredentials" :key="cred.id" class="credential-item">
+                    <div class="cred-info">
+                      <span class="cred-name">
+                        {{ cred.name }}
+                        <span class="cred-user">{{ cred.username }}</span>
+                    </div>
+                    <div class="cred-actions">
+                      <button v-if="!cred.is_default" class="btn btn-sm btn-secondary"
+                        style="padding: 2px 8px; font-size: 15px; margin-right: 6px;"
+                        @click="setDefaultCredential(cred.id)" title="设为默认">
+                        <i class="fas fa-star"></i>
+                      </button>
+                      <i class="fas fa-trash text-danger" @click="deleteCredential(cred.id)"
+                        style="cursor: pointer;"></i>
+                    </div>
+                  </div>
+                </div>
+                <div v-else class="empty-mini" style="margin-top: 10px;">
+                  <i class="fas fa-shield-alt"></i>
+                  <span>暂无预设凭据</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
-        <div class="modal-footer">
-          <button class="btn btn-secondary" @click="closeDockerModal">
-            关闭
-          </button>
-        </div>
-      </div>
-    </div>
-    <!-- ==================== 服务器管理模态框结束 ==================== -->
 
-    <!-- SSH 终端模态框（支持多标签页） -->
-    <div v-if="showSSHTerminalModal" class="modal-overlay" @keydown.esc="closeSSHTerminal" tabindex="-1">
-      <div class="modal modal-xl ssh-terminal-modal">
-        <div class="modal-header ssh-terminal-header">
-          <div class="ssh-tabs">
-            <div v-for="session in sshSessions" :key="session.id"
-                 class="ssh-tab" :class="{ active: session.id === activeSessionId }"
-                 @click="switchSession(session.id)">
-              <span class="ssh-tab-name">{{ session.server.name }}</span>
-              <button class="ssh-tab-close" @click.stop="closeSession(session.id)" title="关闭">
-                <i class="fas fa-times"></i>
+        <!-- SSH 终端子标签页内容 - 使用v-show保持连接 -->
+        <template v-for="session in sshSessions" :key="'content-' + session.id">
+          <div v-show="serverCurrentTab === 'ssh_' + session.id" class="sub-tab-content ssh-tab-content">
+            <!-- 使用 panel 布局 -->
+            <div class="panel">
+              <div class="panel-header">
+                <div class="panel-title"></div>
+                <div style="display: flex; gap: 8px;">
+                  <button class="btn btn-secondary" style="padding: 6px 12px;" @click="reconnectSSHSession(session.id)"
+                    :disabled="session.connected" title="重新连接">
+                    <i class="fas fa-sync-alt"></i>
+                  </button>
+                  <button class="btn btn-danger" style="padding: 6px 12px;" @click="closeSSHSession(session.id)"
+                    title="关闭会话">
+                    <i class="fas fa-times"></i>
+                  </button>
+                </div>
+              </div>
+
+              <!-- 内容容器 -->
+              <div class="ssh-content-wrapper">
+                <!-- 终端视图 -->
+                <div class="ssh-terminal-container">
+                  <div :id="'ssh-terminal-' + session.id" class="ssh-terminal-pane-embedded"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </template>
+
+      </div>
+      <!-- ==================== 主机管理部分结束 ==================== -->
+
+      <!-- ==================== 主机管理模态框 ==================== -->
+      <!-- 添加/编辑主机模态框 -->
+      <div v-if="showServerModal" class="modal-overlay" @keydown.esc="closeServerModal" @keydown.ctrl.enter="saveServer"
+        tabindex="-1">
+        <div class="modal server-modal">
+          <div class="modal-header">
+            <div class="modal-title">
+              <i class="fas fa-server"></i>
+              {{ serverModalMode === 'add' ? '添加主机' : '编辑主机' }}
+            </div>
+            <button class="modal-close" @click="closeServerModal">&times;</button>
+          </div>
+          <div class="modal-body">
+            <!-- 基础信息区 -->
+            <div class="server-form-section">
+              <div class="form-row">
+                <div class="form-group flex-1">
+                  <label>常用凭据</label>
+                  <select class="form-input" @change="applyCredential($event)">
+                    <option value="">-- 选择预设凭据 --</option>
+                    <option v-for="cred in serverCredentials" :key="cred.id" :value="cred.id">
+                      {{ cred.name }} ({{ cred.username }})
+                    </option>
+                  </select>
+                </div>
+              </div>
+
+              <div class="form-row">
+                <div class="form-group flex-1">
+                  <label><i class="fas fa-id-badge"></i> 实例名称</label>
+                  <input type="text" v-model="serverForm.name" class="form-input" placeholder="如: 生产环境-网关" required />
+                </div>
+              </div>
+
+              <div class="form-row">
+                <div class="form-group" style="flex: 7;">
+                  <label><i class="fas fa-network-wired"></i> 主机地址</label>
+                  <input type="text" v-model="serverForm.host" class="form-input" placeholder="IP 或 域名" required />
+                </div>
+                <div class="form-group" style="flex: 3;">
+                  <label><i class="fas fa-door-open"></i> 端口</label>
+                  <input type="number" v-model="serverForm.port" class="form-input" placeholder="22" />
+                </div>
+              </div>
+
+              <div class="form-row">
+                <div class="form-group flex-1">
+                  <label><i class="fas fa-user-shield"></i> 登录用户</label>
+                  <input type="text" v-model="serverForm.username" class="form-input" placeholder="root" required />
+                </div>
+              </div>
+            </div>
+
+            <!-- 认证方式区 -->
+            <div class="server-form-section">
+              <div class="server-auth-toggle">
+                <button type="button" :class="{ active: serverForm.authType === 'password' }"
+                  @click="serverForm.authType = 'password'">
+                  <i class="fas fa-key"></i> 密码认证
+                </button>
+                <button type="button" :class="{ active: serverForm.authType === 'privateKey' }"
+                  @click="serverForm.authType = 'privateKey'">
+                  <i class="fas fa-file-code"></i> 密钥认证
+                </button>
+              </div>
+
+              <div v-if="serverForm.authType === 'password'" class="server-form-field">
+                <label><i class="fas fa-lock"></i> 密码</label>
+                <input v-model="serverForm.password" type="password" placeholder="请输入密码" />
+              </div>
+
+              <div v-if="serverForm.authType === 'privateKey'">
+                <div class="server-form-field">
+                  <label><i class="fas fa-file-alt"></i> 私钥内容</label>
+                  <textarea v-model="serverForm.privateKey" rows="4"
+                    placeholder="粘贴 SSH 私钥（支持 RSA、ECDSA、Ed25519）"></textarea>
+                </div>
+                <div class="server-form-field">
+                  <label><i class="fas fa-unlock-alt"></i> 私钥密码 <span class="optional-tag">可选</span></label>
+                  <input v-model="serverForm.passphrase" type="password" placeholder="私钥有密码保护时填写" />
+                </div>
+              </div>
+            </div>
+
+            <!-- 扩展信息区 -->
+            <!-- <div class="server-form-section collapsed-section">
+              <div class="server-form-row">
+                <div class="server-form-field" style="flex: 1;">
+                  <label><i class="fas fa-tags"></i> 标签 <span class="optional-tag">可选</span></label>
+                  <input v-model="serverForm.tagsInput" type="text" placeholder="生产, Web主机" />
+                  <label><i class="fas fa-sticky-note"></i> 备注 <span class="optional-tag">可选</span></label>
+                  <textarea v-model="serverForm.description" rows="2" placeholder="主机用途说明"></textarea>
+                </div>
+              </div>
+            </div> -->
+
+            <div v-if="serverModalError" class="server-form-error">
+              <i class="fas fa-exclamation-circle"></i> {{ serverModalError }}
+            </div>
+          </div>
+          <div class="server-modal-footer">
+            <button class="btn-server-cancel" @click="closeServerModal" :disabled="serverModalSaving">
+              取消
+            </button>
+            <div class="server-modal-actions">
+              <button class="btn-server-test" @click="testServerConnection" :disabled="serverModalSaving">
+                <i class="fas fa-plug"></i> 测试
+              </button>
+              <button class="btn-server-save" @click="saveServer" :disabled="serverModalSaving">
+                <i class="fas" :class="serverModalSaving ? 'fa-spinner fa-spin' : 'fa-check'"></i>
+                {{ serverModalSaving ? '保存中' : '保存' }}
               </button>
             </div>
-            <button class="ssh-tab-add" @click="showAddSessionModal" title="新建终端">
-              <i class="fas fa-plus"></i>
+          </div>
+        </div>
+      </div>
+
+      <!-- 批量导入主机模态框 -->
+      <div v-if="showImportServerModal" class="modal-overlay" @keydown.esc="closeImportServerModal"
+        @keydown.enter="confirmImportServers" tabindex="-1">
+        <div class="modal server-modal" style="max-width: 500px;">
+          <div class="modal-header">
+            <div class="modal-title">
+              <i class="fas fa-file-import"></i>
+              批量导入主机
+            </div>
+            <button class="modal-close" @click="closeImportServerModal">&times;</button>
+          </div>
+          <div class="modal-body">
+            <div class="server-form-section">
+              <div class="form-group">
+                <label><i class="fas fa-file"></i> 选择 JSON 文件</label>
+                <input type="file" ref="importFileInput" accept=".json" class="form-input"
+                  @change="handleImportFileChange" />
+              </div>
+            </div>
+            <div v-if="importPreview" class="server-form-section" style="margin-top: 8px;">
+              <div class="form-group">
+                <label><i class="fas fa-list"></i> 预览（将导入 {{ importPreview.length }} 台主机）</label>
+                <div class="import-preview-list">
+                  <div v-for="(server, index) in importPreview" :key="index" class="import-preview-item">
+                    <i class="fas fa-server"></i>
+                    <span>{{ server.name }} ({{ server.username }}@{{ server.host }}:{{ server.port }})</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div v-if="importModalError" class="server-form-error">
+              <i class="fas fa-exclamation-circle"></i> {{ importModalError }}
+            </div>
+          </div>
+          <div class="server-modal-footer">
+            <button class="btn-server-cancel" @click="closeImportServerModal" :disabled="importModalSaving">
+              取消
+            </button>
+            <button class="btn-server-save" @click="confirmImportServers"
+              :disabled="importModalSaving || !importPreview || importPreview.length === 0">
+              <i class="fas fa-check"></i>
+              {{ importModalSaving ? '导入中...' : '确认导入' }}
             </button>
           </div>
-          <button class="modal-close" @click="closeSSHTerminal">&times;</button>
-        </div>
-        <div class="modal-body" style="padding: 0; background: #1e1e1e;">
-          <div v-for="session in sshSessions" :key="'term-' + session.id"
-               :id="'ssh-terminal-' + session.id"
-               class="ssh-terminal-pane"
-               :style="{ display: session.id === activeSessionId ? 'block' : 'none' }">
-          </div>
-        </div>
-        <div class="modal-footer" style="background: #2d2d2d; border-top: 1px solid #444;">
-          <div style="flex: 1; color: #888; font-size: 12px;">
-            <i class="fas fa-info-circle"></i>
-            提示: 使用 Ctrl+C 中断命令，上下箭头浏览历史命令
-          </div>
-          <button class="btn btn-secondary" @click="closeSSHTerminal">
-            <i class="fas fa-times"></i> 关闭所有
-          </button>
         </div>
       </div>
-    </div>
 
-    <!-- 新建终端会话选择模态框 -->
-    <div v-if="showAddSessionSelectModal" class="modal-overlay" @keydown.esc="showAddSessionSelectModal = false" tabindex="-1">
-      <div class="modal modal-sm">
-        <div class="modal-header">
-          <div class="modal-title">
-            <i class="fas fa-terminal"></i>
-            选择服务器
-          </div>
-          <button class="modal-close" @click="showAddSessionSelectModal = false">&times;</button>
-        </div>
-        <div class="modal-body" style="max-height: 400px; overflow-y: auto;">
-          <div v-if="serverList.length === 0" class="empty-state">
-            <p>暂无可用服务器</p>
-          </div>
-          <div v-else class="server-select-list">
-            <div v-for="server in serverList" :key="server.id"
-                 class="server-select-item" @click="addSessionForServer(server)">
-              <div class="server-status-indicator" :class="server.status || 'unknown'"></div>
-              <div class="server-select-info">
-                <div class="server-select-name">{{ server.name }}</div>
-                <div class="server-select-host">{{ server.host }}:{{ server.port }}</div>
-              </div>
+      <!-- 新建终端会话选择模态框 -->
+      <div v-if="showAddSessionSelectModal" class="modal-overlay" @keydown.esc="showAddSessionSelectModal = false"
+        tabindex="-1">
+        <div class="modal server-modal" style="max-width: 360px;">
+          <div class="modal-header">
+            <div class="modal-title">
+              <i class="fas fa-terminal"></i>
+              选择主机
             </div>
+            <button class="modal-close" @click="showAddSessionSelectModal = false">&times;</button>
           </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- SFTP 文件管理模态框 -->
-    <div v-if="showFileManagerModal" class="modal-overlay" @keydown.esc="closeFileManager" tabindex="-1">
-      <div class="modal modal-xl file-manager-modal">
-        <div class="modal-header">
-          <div class="modal-title">
-            <i class="fas fa-folder-open"></i>
-            文件管理 - {{ fileManagerServer?.name }}
-          </div>
-          <button class="modal-close" @click="closeFileManager">&times;</button>
-        </div>
-        <div class="modal-body" style="padding: 0;">
-          <!-- 工具栏 -->
-          <div class="file-manager-toolbar">
-            <div class="file-manager-breadcrumb">
-              <button class="btn btn-sm btn-secondary" @click="navigateToParent" :disabled="fileManagerPath === '/'">
-                <i class="fas fa-arrow-up"></i>
-              </button>
-              <button class="btn btn-sm btn-secondary" @click="navigateToHome">
-                <i class="fas fa-home"></i>
-              </button>
-              <div class="breadcrumb-path">
-                <span v-for="(segment, index) in fileManagerBreadcrumbs" :key="index"
-                      class="breadcrumb-segment" @click="navigateToPath(segment.path)">
-                  {{ segment.name }}<span v-if="index < fileManagerBreadcrumbs.length - 1"> / </span>
-                </span>
-              </div>
+          <div class="modal-body" style="max-height: 400px; overflow-y: auto; padding: 8px;">
+            <div v-if="serverList.length === 0" class="empty-state">
+              <p>暂无可用主机</p>
             </div>
-            <div class="file-manager-actions">
-              <button class="btn btn-sm btn-success" @click="showCreateFolderDialog">
-                <i class="fas fa-folder-plus"></i> 新建文件夹
-              </button>
-              <label class="btn btn-sm btn-primary" style="margin: 0;">
-                <i class="fas fa-upload"></i> 上传文件
-                <input type="file" ref="uploadFileInput" @change="handleFileUpload" style="display: none;" multiple />
-              </label>
-              <button class="btn btn-sm btn-secondary" @click="refreshFileList" :disabled="fileManagerLoading">
-                <i class="fas fa-sync-alt" :class="{ 'fa-spin': fileManagerLoading }"></i>
-              </button>
-            </div>
-          </div>
-
-          <!-- 文件列表 -->
-          <div class="file-manager-content">
-            <div v-if="fileManagerLoading" class="file-manager-loading">
-              <div class="spinner"></div>
-              <p>加载中...</p>
-            </div>
-            <div v-else-if="fileManagerError" class="file-manager-error">
-              <i class="fas fa-exclamation-triangle"></i>
-              <p>{{ fileManagerError }}</p>
-              <button class="btn btn-sm btn-primary" @click="refreshFileList">重试</button>
-            </div>
-            <div v-else class="file-list">
-              <div class="file-list-header">
-                <div class="file-col file-name">名称</div>
-                <div class="file-col file-size">大小</div>
-                <div class="file-col file-modified">修改时间</div>
-                <div class="file-col file-permissions">权限</div>
-                <div class="file-col file-actions">操作</div>
-              </div>
-              <div v-if="fileManagerFiles.length === 0" class="file-list-empty">
-                <i class="fas fa-folder-open"></i>
-                <p>空文件夹</p>
-              </div>
-              <div v-for="file in fileManagerFiles" :key="file.name"
-                   class="file-list-item" :class="{ 'is-directory': file.type === 'directory' }"
-                   @dblclick="handleFileDoubleClick(file)">
-                <div class="file-col file-name">
-                  <i class="fas" :class="getFileIcon(file)"></i>
-                  <span>{{ file.name }}</span>
-                </div>
-                <div class="file-col file-size">{{ file.type === 'directory' ? '-' : formatFileSize(file.size) }}</div>
-                <div class="file-col file-modified">{{ formatFileTime(file.modifyTime) }}</div>
-                <div class="file-col file-permissions">{{ formatPermissions(file.rights) }}</div>
-                <div class="file-col file-actions">
-                  <button v-if="file.type !== 'directory'" class="btn btn-xs btn-primary"
-                          @click.stop="downloadFile(file)" title="下载">
-                    <i class="fas fa-download"></i>
-                  </button>
-                  <button class="btn btn-xs btn-secondary" @click.stop="showRenameDialog(file)" title="重命名">
-                    <i class="fas fa-edit"></i>
-                  </button>
-                  <button class="btn btn-xs btn-danger" @click.stop="deleteFileItem(file)" title="删除">
-                    <i class="fas fa-trash"></i>
-                  </button>
+            <div v-else class="server-select-list">
+              <div v-for="server in serverList" :key="server.id" class="server-select-item"
+                @click="addSessionForServer(server)">
+                <div class="server-status-indicator" :class="server.status || 'unknown'"></div>
+                <div class="server-select-info">
+                  <div class="server-select-name">{{ server.name }}</div>
+                  <div class="server-select-host">{{ server.host }}:{{ server.port }}</div>
                 </div>
               </div>
             </div>
           </div>
         </div>
-        <div class="modal-footer">
-          <div style="flex: 1; color: var(--text-secondary); font-size: 12px;">
-            <span v-if="fileManagerFiles.length > 0">
-              {{ fileManagerFiles.filter(f => f.type === 'directory').length }} 个文件夹，
-              {{ fileManagerFiles.filter(f => f.type !== 'directory').length }} 个文件
-            </span>
-          </div>
-          <button class="btn btn-secondary" @click="closeFileManager">
-            <i class="fas fa-times"></i> 关闭
-          </button>
-        </div>
       </div>
-    </div>
 
-    <!-- 设置侧边栏 -->
-    <div v-if="showSettingsModal" @keydown.esc="showSettingsModal = false" tabindex="-1">
-      <div class="settings-sidebar-overlay"></div>
-      <div class="settings-sidebar">
-        <!-- 侧边栏头部 -->
-        <div class="settings-sidebar-header">
-          <div class="settings-sidebar-title">
-            <i class="fas fa-cog"></i>
-            <span>系统设置</span>
+      <!-- 设置侧边栏 -->
+      <div v-if="showSettingsModal" @keydown.esc="showSettingsModal = false" tabindex="-1">
+        <div class="settings-sidebar-overlay"></div>
+        <div class="settings-sidebar">
+          <!-- 侧边栏头部 -->
+          <div class="settings-sidebar-header">
+            <div class="settings-sidebar-title">
+              <i class="fas fa-cog"></i>
+              <span>系统设置</span>
+            </div>
+            <button class="settings-sidebar-close" @click="showSettingsModal = false">&times;</button>
           </div>
-          <button class="settings-sidebar-close" @click="showSettingsModal = false">&times;</button>
-        </div>
 
-        <!-- 侧边栏内容 -->
-        <div class="settings-sidebar-content">
-          <!-- 模块管理 -->
-          <div class="settings-section">
-            <div class="settings-section-title">模块管理</div>
-            <div>
-              <div v-for="(module, index) in moduleOrder" :key="module" class="draggable-module-item" draggable="true"
-                @dragstart="handleDragStart($event, index)" @dragend="handleDragEnd"
-                @dragover.prevent="handleDragOver($event, index)" @drop="handleDrop($event, index)">
-                <i class="fas fa-grip-vertical drag-handle"></i>
-                <i class="draggable-module-icon fas" :class="getModuleIcon(module)"></i>
-                <span class="draggable-module-name">{{ getModuleName(module) }}</span>
-                <!-- 显示/隐藏切换按钮 -->
-                <button class="btn btn-sm" :class="moduleVisibility[module] ? 'btn-success' : 'btn-secondary'"
-                  @click.stop="toggleModuleVisibility(module)" style="padding: 4px 8px; font-size: 12px;">
-                  <i class="fas" :class="moduleVisibility[module] ? 'fa-eye' : 'fa-eye-slash'"></i>
+          <!-- 侧边栏内容 -->
+          <div class="settings-sidebar-content">
+            <!-- 模块管理 -->
+            <div class="settings-section">
+              <div class="settings-section-title">模块管理</div>
+              <div>
+                <div v-for="(module, index) in moduleOrder" :key="module" class="draggable-module-item" draggable="true"
+                  @dragstart="handleDragStart($event, index)" @dragend="handleDragEnd"
+                  @dragover.prevent="handleDragOver($event, index)" @drop="handleDrop($event, index)">
+                  <i class="fas fa-grip-vertical drag-handle"></i>
+                  <i class="draggable-module-icon fas" :class="getModuleIcon(module)"></i>
+                  <span class="draggable-module-name">{{ getModuleName(module) }}</span>
+                  <!-- 显示/隐藏切换按钮 -->
+                  <button class="btn btn-sm" :class="moduleVisibility[module] ? 'btn-success' : 'btn-secondary'"
+                    @click.stop="toggleModuleVisibility(module)" style="padding: 4px 8px; font-size: 12px;">
+                    <i class="fas" :class="moduleVisibility[module] ? 'fa-eye' : 'fa-eye-slash'"></i>
+                  </button>
+                </div>
+              </div>
+              <div class="form-help" style="margin-top: 8px;">拖拽调整顺序，点击眼睛图标切换显示/隐藏</div>
+            </div>
+
+            <!-- 修改密码 -->
+            <div class="settings-section">
+              <div class="settings-section-title">修改登录密码</div>
+              <div class="form-group">
+                <input v-model="newPassword" type="password" class="form-input" placeholder="输入新密码（至少6位）" />
+              </div>
+              <div class="form-group">
+                <input v-model="confirmPassword" type="password" class="form-input" placeholder="确认新密码" />
+              </div>
+              <div v-if="passwordError" class="form-error">{{ passwordError }}</div>
+              <div v-if="passwordSuccess" class="form-success">{{ passwordSuccess }}</div>
+              <button class="btn btn-primary" @click="changePassword" style="width: 100%;">
+                <i class="fas fa-key"></i> 修改密码
+              </button>
+            </div>
+
+            <!-- 数据导入导出 -->
+            <div class="settings-section">
+              <div class="settings-section-title">数据备份与恢复</div>
+              <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+                <button class="btn btn-success" @click="exportAllData" style="flex: 1;">
+                  <i class="fas fa-upload"></i> 导出数据
+                </button>
+                <button class="btn btn-warning" @click="importAllData" style="flex: 1;">
+                  <i class="fas fa-download"></i> 导入数据
+                </button>
+              </div>
+              <div class="form-help">导出包含所有模块的配置和数据</div>
+            </div>
+
+            <!-- 自定义 CSS -->
+            <div class="settings-section">
+              <div class="settings-section-title">自定义 CSS</div>
+              <div class="form-help" style="margin-bottom: 8px;">
+                可以自定义字体、颜色等样式。例如：
+                <code
+                  style="display: block; margin-top: 4px;">body { font-family: 'Microsoft YaHei', sans-serif; }</code>
+              </div>
+              <textarea v-model="customCss" class="form-textarea" placeholder="输入自定义 CSS 代码..."
+                style="min-height: 150px; font-family: 'Consolas', 'Monaco', monospace; font-size: 12px;"></textarea>
+              <div v-if="customCssError" class="form-error" style="margin-top: 8px;">{{ customCssError }}</div>
+              <div v-if="customCssSuccess" class="form-success" style="margin-top: 8px;">{{ customCssSuccess }}
+              </div>
+              <div style="display: flex; gap: 8px; margin-top: 8px;">
+                <button class="btn btn-primary" @click="saveCustomCss" style="flex: 1;">
+                  <i class="fas fa-save"></i> 应用 CSS
+                </button>
+                <button class="btn btn-secondary" @click="resetCustomCss" style="flex: 1;">
+                  <i class="fas fa-undo"></i> 重置
                 </button>
               </div>
             </div>
-            <div class="form-help" style="margin-top: 8px;">拖拽调整顺序，点击眼睛图标切换显示/隐藏</div>
-          </div>
 
-          <!-- 修改密码 -->
-          <div class="settings-section">
-            <div class="settings-section-title">修改登录密码</div>
-            <div class="form-group">
-              <input v-model="newPassword" type="password" class="form-input" placeholder="输入新密码（至少6位）" />
-            </div>
-            <div class="form-group">
-              <input v-model="confirmPassword" type="password" class="form-input" placeholder="确认新密码" />
-            </div>
-            <div v-if="passwordError" class="form-error">{{ passwordError }}</div>
-            <div v-if="passwordSuccess" class="form-success">{{ passwordSuccess }}</div>
-            <button class="btn btn-primary" @click="changePassword" style="width: 100%;">
-              <i class="fas fa-key"></i> 修改密码
-            </button>
-          </div>
-
-          <!-- 数据导入导出 -->
-          <div class="settings-section">
-            <div class="settings-section-title">数据备份与恢复</div>
-            <div style="display: flex; gap: 8px; margin-bottom: 8px;">
-              <button class="btn btn-success" @click="exportAllData" style="flex: 1;">
-                <i class="fas fa-upload"></i> 导出数据
+            <!-- 保存按钮 -->
+            <div
+              style="bottom: 0; background: var(--card-bg); padding-top: 16px; border-top: 1px solid var(--border-color); margin-top: 20px;">
+              <button class="btn btn-primary" @click="saveSettings" style="width: 100%;">
+                <i class="fas fa-save"></i> 保存设置
               </button>
-              <button class="btn btn-warning" @click="importAllData" style="flex: 1;">
-                <i class="fas fa-download"></i> 导入数据
-              </button>
-            </div>
-            <div class="form-help">导出包含所有模块的配置和数据</div>
-          </div>
-
-          <!-- 自定义 CSS -->
-          <div class="settings-section">
-            <div class="settings-section-title">自定义 CSS</div>
-            <div class="form-help" style="margin-bottom: 8px;">
-              可以自定义字体、颜色等样式。例如：
-              <code style="display: block; margin-top: 4px;">body { font-family: 'Microsoft YaHei', sans-serif; }</code>
-            </div>
-            <textarea v-model="customCss" class="form-textarea" placeholder="输入自定义 CSS 代码..."
-              style="min-height: 150px; font-family: 'Consolas', 'Monaco', monospace; font-size: 12px;"></textarea>
-            <div v-if="customCssError" class="form-error" style="margin-top: 8px;">{{ customCssError }}</div>
-            <div v-if="customCssSuccess" class="form-success" style="margin-top: 8px;">{{ customCssSuccess }}</div>
-            <div style="display: flex; gap: 8px; margin-top: 8px;">
-              <button class="btn btn-primary" @click="saveCustomCss" style="flex: 1;">
-                <i class="fas fa-save"></i> 应用 CSS
-              </button>
-              <button class="btn btn-secondary" @click="resetCustomCss" style="flex: 1;">
-                <i class="fas fa-undo"></i> 重置
-              </button>
-            </div>
-          </div>
-
-          <!-- 保存按钮 -->
-          <div
-            style="bottom: 0; background: var(--card-bg); padding-top: 16px; border-top: 1px solid var(--border-color); margin-top: 20px;">
-            <button class="btn btn-primary" @click="saveSettings" style="width: 100%;">
-              <i class="fas fa-save"></i> 保存设置
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- 日志模态框 -->
-    <div v-if="showLogsModal" class="modal-overlay" :class="{ 'logs-fullscreen-overlay': logsFullscreen }"
-      @keydown.esc="showLogsModal = false" tabindex="-1">
-      <div class="modal logs-modal" :class="{ 'logs-modal-fullscreen': logsFullscreen }">
-        <div class="logs-header">
-          <div class="logs-title">📋 {{ logsModalTitle }}</div>
-          <div class="logs-controls">
-            <button class="btn btn-secondary" @click="toggleRealTimeRefresh"
-              style="margin-right: 8px; padding: 6px 10px; font-size: 12px;">
-              <i class="fas" :class="logsRealTime ? 'fa-stop' : 'fa-play'"></i>
-              {{ logsRealTime ? '停止实时' : '实时刷新' }}
-            </button>
-            <button class="btn btn-secondary" @click="toggleAutoScroll"
-              style="margin-right: 8px; padding: 6px 10px; font-size: 12px;">
-              <i class="fas" :class="logsAutoScroll ? 'fa-pause' : 'fa-play'"></i>
-              {{ logsAutoScroll ? '停止滚动' : '自动滚动' }}
-            </button>
-            <button class="btn btn-secondary" @click="toggleFullscreen"
-              style="margin-right: 8px; padding: 6px 10px; font-size: 12px;">
-              <i class="fas" :class="logsFullscreen ? 'fa-compress' : 'fa-expand'"></i>
-              {{ logsFullscreen ? '退出全屏' : '全屏' }}
-            </button>
-            <button class="btn btn-danger" @click="showLogsModal = false" style="padding: 6px 10px; font-size: 12px;">
-              <i class="fas fa-times"></i>
-              关闭
-            </button>
-          </div>
-        </div>
-        <div class="logs-info">
-          <span>项目: {{ logsModalInfo.project }}</span>
-          <span>账号: {{ logsModalInfo.account }}</span>
-          <span>日志: {{ logsModalInfo.count }} 条</span>
-          <span>时间: {{ logsModalInfo.time }}</span>
-        </div>
-        <div class="logs-content" ref="logsContent" @wheel.stop @touchmove.stop>
-          <div v-if="logsLoading" style="text-align: center; padding: 40px;">⏳ 正在加载日志...</div>
-          <div v-else class="logs-text-container" ref="logsTextContainer">
-            <pre class="logs-text" ref="logsText">{{ logsContent || '暂无日志' }}</pre>
-            <div class="logs-horizontal-scrollbar" ref="logsScrollbar">
-              <div class="logs-scrollbar-thumb" ref="logsScrollbarThumb"></div>
             </div>
           </div>
         </div>
       </div>
-    </div>
 
-    <!-- Toast 提示容器 -->
-    <div v-if="globalToast.show" class="custom-toast" :class="globalToast.type">
-      <i class="fas" :class="{
-        'fa-check-circle': globalToast.type === 'success',
-        'fa-exclamation-circle': globalToast.type === 'error',
-        'fa-exclamation-triangle': globalToast.type === 'warning',
-        'fa-info-circle': globalToast.type === 'info'
-      }"></i>
-      <span>{{ globalToast.message }}</span>
-    </div>
-
-    <!-- DNS Toast -->
-    <div v-if="dnsToast.show" class="custom-toast" :class="dnsToast.type">
-      <i class="fas" :class="{
-        'fa-check-circle': dnsToast.type === 'success',
-        'fa-exclamation-circle': dnsToast.type === 'error',
-        'fa-exclamation-triangle': dnsToast.type === 'warning',
-        'fa-info-circle': dnsToast.type === 'info'
-      }"></i>
-      <span>{{ dnsToast.message }}</span>
-    </div>
-
-    <!-- OpenAI Toast -->
-    <div v-if="openaiToast.show" class="custom-toast" :class="openaiToast.type">
-      <i class="fas" :class="{
-        'fa-check-circle': openaiToast.type === 'success',
-        'fa-exclamation-circle': openaiToast.type === 'error',
-        'fa-exclamation-triangle': openaiToast.type === 'warning',
-        'fa-info-circle': openaiToast.type === 'info'
-      }"></i>
-      <span>{{ openaiToast.message }}</span>
-    </div>
-
-    <!-- 自定义确认对话框 -->
-    <div v-if="customDialog.show" class="custom-dialog-overlay"
-      @keydown.esc="customDialog.onCancel ? customDialog.onCancel() : (customDialog.show = false)"
-      @keydown.enter="customDialog.onConfirm"
-      tabindex="-1">
-      <div class="custom-dialog">
-        <div class="custom-dialog-title">
-          <i class="fas" :class="customDialog.icon || 'fa-question-circle'"></i>
-          {{ customDialog.title || '确认' }}
-        </div>
-        <div class="custom-dialog-message">{{ customDialog.message }}</div>
-        <input v-if="customDialog.isPrompt" v-model="customDialog.promptValue"
-          :placeholder="customDialog.placeholder"
-          @keyup.enter="customDialog.onConfirm"
-          class="custom-dialog-input"
-          ref="promptInput" />
-        <div class="custom-dialog-buttons">
-          <button v-if="customDialog.cancelText" class="btn btn-secondary"
-            @click="customDialog.onCancel ? customDialog.onCancel() : (customDialog.show = false)">
-            {{ customDialog.cancelText }}
-          </button>
-          <button class="btn" :class="customDialog.confirmClass || 'btn-primary'" @click="customDialog.onConfirm">
-            {{ customDialog.confirmText || '确定' }}
-          </button>
+      <!-- 日志模态框 -->
+      <div v-if="showLogsModal" class="modal-overlay" :class="{ 'logs-fullscreen-overlay': logsFullscreen }"
+        @keydown.esc="showLogsModal = false" tabindex="-1">
+        <div class="modal logs-modal" :class="{ 'logs-modal-fullscreen': logsFullscreen }">
+          <div class="logs-header">
+            <div class="logs-title">📋 {{ logsModalTitle }}</div>
+            <div class="logs-controls">
+              <button class="btn btn-secondary" @click="toggleRealTimeRefresh"
+                style="margin-right: 8px; padding: 6px 10px; font-size: 12px;">
+                <i class="fas" :class="logsRealTime ? 'fa-stop' : 'fa-play'"></i>
+                {{ logsRealTime ? '停止实时' : '实时刷新' }}
+              </button>
+              <button class="btn btn-secondary" @click="toggleAutoScroll"
+                style="margin-right: 8px; padding: 6px 10px; font-size: 12px;">
+                <i class="fas" :class="logsAutoScroll ? 'fa-pause' : 'fa-play'"></i>
+                {{ logsAutoScroll ? '停止滚动' : '自动滚动' }}
+              </button>
+              <button class="btn btn-secondary" @click="toggleFullscreen"
+                style="margin-right: 8px; padding: 6px 10px; font-size: 12px;">
+                <i class="fas" :class="logsFullscreen ? 'fa-compress' : 'fa-expand'"></i>
+                {{ logsFullscreen ? '退出全屏' : '全屏' }}
+              </button>
+              <button class="btn btn-danger" @click="showLogsModal = false" style="padding: 6px 10px; font-size: 12px;">
+                <i class="fas fa-times"></i>
+                关闭
+              </button>
+            </div>
+          </div>
+          <div class="logs-info">
+            <span>项目: {{ logsModalInfo.project }}</span>
+            <span>账号: {{ logsModalInfo.account }}</span>
+            <span>日志: {{ logsModalInfo.count }} 条</span>
+            <span>时间: {{ logsModalInfo.time }}</span>
+          </div>
+          <div class="logs-content" ref="logsContent" @wheel.stop @touchmove.stop>
+            <div v-if="logsLoading" style="text-align: center; padding: 40px;">⏳ 正在加载日志...</div>
+            <div v-else class="logs-text-container" ref="logsTextContainer">
+              <pre class="logs-text" ref="logsText">{{ logsContent || '暂无日志' }}</pre>
+              <div class="logs-horizontal-scrollbar" ref="logsScrollbar">
+                <div class="logs-scrollbar-thumb" ref="logsScrollbarThumb"></div>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
-    </div>
-  </div>
 
-  <!-- 模块化 JavaScript -->
-  <script type="module" src="/js/main.js"></script>
+      <!-- Toast 系统容器将由 toast.js 自动创建 -->
 
-</body>
+      <!-- 自定义确认对话框 -->
+      <div v-if="customDialog.show" class="custom-dialog-overlay"
+        @keydown.esc="customDialog.onCancel ? customDialog.onCancel() : (customDialog.show = false)"
+        @keydown.enter="customDialog.onConfirm" tabindex="-1">
+        <div class="custom-dialog">
+          <div class="custom-dialog-title">
+            <i class="fas" :class="customDialog.icon || 'fa-question-circle'"></i>
+            {{ customDialog.title || '确认' }}
+          </div>
+          <div class="custom-dialog-message">{{ customDialog.message }}</div>
+          <input v-if="customDialog.isPrompt" v-model="customDialog.promptValue" :placeholder="customDialog.placeholder"
+            @keyup.enter="customDialog.onConfirm" class="custom-dialog-input" ref="promptInput" />
+          <div class="custom-dialog-buttons">
+            <button v-if="customDialog.cancelText" class="btn btn-secondary"
+              @click="customDialog.onCancel ? customDialog.onCancel() : (customDialog.show = false)">
+              {{ customDialog.cancelText }}
+            </button>
+            <button class="btn" :class="customDialog.confirmClass || 'btn-primary'" @click="customDialog.onConfirm">
+              {{ customDialog.confirmText || '确定' }}
+            </button>
+          </div>
+        </div>
+      </div>
 
+      <!-- 凭据管理模态框 -->
+      <div v-if="showAddCredentialModal" class="modal-overlay" @click.self="showAddCredentialModal = false"
+        @keydown.esc="showAddCredentialModal = false" tabindex="-1">
+        <div class="modal server-modal" style="max-width: 380px;">
+          <div class="modal-header">
+            <div class="modal-title">
+              <i class="fas fa-key"></i> 保存新凭据
+            </div>
+            <button class="modal-close" @click="showAddCredentialModal = false">&times;</button>
+          </div>
+          <div class="modal-body">
+            <div class="server-form-section">
+              <div class="form-group">
+                <label><i class="fas fa-tag"></i> 凭据标识</label>
+                <input type="text" v-model="credForm.name" class="form-input" placeholder="例如: 默认密码" />
+              </div>
+              <div class="form-group">
+                <label><i class="fas fa-user"></i> 用户名</label>
+                <input type="text" v-model="credForm.username" class="form-input" placeholder="root" />
+              </div>
+              <div class="form-group">
+                <label><i class="fas fa-lock"></i> 密码</label>
+                <input type="password" v-model="credForm.password" class="form-input" placeholder="登录密码" />
+              </div>
+            </div>
+            <div v-if="credError" class="server-form-error">
+              <i class="fas fa-exclamation-circle"></i> {{ credError }}
+            </div>
+          </div>
+          <div class="server-modal-footer">
+            <button class="btn-server-cancel" @click="showAddCredentialModal = false">取消</button>
+            <button class="btn-server-save" @click="saveCredential">
+              <i class="fas fa-save"></i> 保存
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Docker 详细列表模态框 -->
+      <div v-if="showDockerModal" class="modal-overlay" @click.self="showDockerModal = false">
+        <div class="modal-container glass-panel" style="max-width: 900px; border-radius: 20px;">
+          <div class="modal-header">
+            <div class="modal-title">云容器管理 - {{ dockerModalServer ? dockerModalServer.name : '' }}</div>
+            <button class="close-btn" @click="showDockerModal = false">×</button>
+          </div>
+          <div class="modal-body">
+            <div v-if="dockerModalData && dockerModalData.containers" class="docker-container-list">
+              <div v-for="container in dockerModalData.containers" :key="container.id" class="docker-container-card"
+                :class="{ 'running': container.status.includes('Up') }">
+                <div class="docker-container-info" style="padding: 15px;">
+                  <div
+                    style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px;">
+                    <div>
+                      <div style="font-weight: 700; font-size: 14px;">{{ container.name }}</div>
+                      <div style="font-size: 11px; opacity: 0.6; font-family: monospace;">{{ container.image }}</div>
+                    </div>
+                    <span class="docker-status-badge"
+                      :class="container.status.includes('Up') ? 'status-running' : 'status-exited'">
+                      {{ container.status }}
+                    </span>
+                  </div>
+                  <div style="font-size: 11px; opacity: 0.8;">端口: {{ container.ports }}</div>
+                  <div class="docker-container-actions" style="margin-top: 15px; justify-content: flex-end;">
+                    <button v-if="container.status.includes('Up')" class="btn btn-sm btn-secondary"
+                      @click="handleDockerAction(dockerModalServer.id, container.id, 'stop')" title="停止"><i
+                        class="fas fa-stop"></i></button>
+                    <button v-else class="btn btn-sm btn-success"
+                      @click="handleDockerAction(dockerModalServer.id, container.id, 'start')" title="启动"><i
+                        class="fas fa-play"></i></button>
+                    <button class="btn btn-sm btn-secondary"
+                      @click="handleDockerAction(dockerModalServer.id, container.id, 'restart')" title="重启"><i
+                        class="fas fa-redo"></i></button>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div v-else class="loading">正在获取容器信息...</div>
+          </div>
+        </div>
+      </div> <!-- 闭合 isAuthenticated container -->
+    </div> <!-- 闭合 app -->
+
+    <!-- 模块化 JavaScript -->
+    <script type="module" src="/js/main.js"></script>
 </body>
 
 </html>

@@ -22,9 +22,10 @@ function loadUserSettings() {
       moduleVisibility: settings.module_visibility || {
         zeabur: true,
         dns: true,
-        openai: true
+        openai: true,
+        server: true
       },
-      moduleOrder: settings.module_order || ['zeabur', 'dns', 'openai']
+      moduleOrder: settings.module_order || ['zeabur', 'dns', 'openai', 'server']
     };
   } catch (error) {
     console.error('加载用户设置失败:', error);
@@ -61,9 +62,10 @@ function getDefaultSettings() {
     moduleVisibility: {
       zeabur: true,
       dns: true,
-      openai: true
+      openai: true,
+      server: true
     },
-    moduleOrder: ['zeabur', 'dns', 'openai']
+    moduleOrder: ['zeabur', 'dns', 'openai', 'server']
   };
 }
 

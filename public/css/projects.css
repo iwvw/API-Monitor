@@ -23,7 +23,7 @@
   box-shadow: var(--card-shadow);
   background-color: var(--card-bg);
   border-radius: 10px;
-  padding: 12px;
+  padding: 10px;
   border: 1px solid var(--border-color);
   transition: transform 0.3s, box-shadow 0.3s, z-index 0s;
   height: 100%;
@@ -43,23 +43,24 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 10px;
+  gap: 6px;
+  margin-bottom: 8px;
 }
 
 .project-name-wrapper {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   flex: 1;
-  padding: 6px 10px;
-  background: var(--bg-secondary);
-  border-radius: 8px;
-  border: 1px solid var(--border-color);
-  transition: background 0.2s ease, border-color 0.2s ease;
-  height: 27px;
+  padding: 4px 8px;
+  background: transparent;
+  border-radius: 6px;
+  border: none;
+  transition: background 0.2s ease;
+  height: auto;
   box-sizing: border-box;
+  min-height: 24px;
 }
 
 .project-actions {
@@ -69,24 +70,23 @@
 }
 
 .project-name-wrapper:hover {
-  background: var(--bg-tertiary);
-  border-color: var(--primary-color);
+  background: var(--bg-secondary);
 }
 
 .project-name-icon {
-  font-size: 16px;
+  font-size: 14px;
   line-height: 1;
   flex-shrink: 0;
 }
 
 .project-name-text {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--text-primary);
   flex: 1;
-  line-height: 20px;
-  min-height: 20px;
-  height: 20px;
+  line-height: 18px;
+  min-height: 18px;
+  height: 18px;
   display: flex;
   align-items: center;
 }
@@ -108,17 +108,17 @@
 .project-edit-btn,
 .project-delete-btn,
 .project-cancel-btn {
-  padding: 4px 6px;
+  padding: 3px 5px;
   border: none;
-  border-radius: 6px;
+  border-radius: 5px;
   cursor: pointer;
   transition: all 0.2s ease;
-  font-size: 11px;
+  font-size: 10px;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 27px;
-  height: 27px;
+  width: 24px;
+  height: 24px;
   flex-shrink: 0;
   box-sizing: border-box;
 }
@@ -185,24 +185,23 @@
 .project-mini-cards {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(60px, 1fr));
-  gap: 6px;
-  margin-bottom: 10px;
+  gap: 5px;
+  margin-bottom: 8px;
 }
 
 .mini-card {
   display: flex;
   align-items: center;
-  justify-content: space-around;
-  gap: 5px;
-  padding: 6px 10px;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 5px 8px;
   background-color: var(--bg-secondary);
-  border-radius: 6px;
+  border-radius: 5px;
   border: 1px solid var(--border-color);
   transition: all 0.2s ease;
-  font-size: 12px;
+  font-size: 11px;
   white-space: nowrap;
   overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 .mini-card:hover {
@@ -211,17 +210,21 @@
 }
 
 .mini-card-icon {
-  font-size: 13px;
+  font-size: 11px;
   line-height: 1;
   flex-shrink: 0;
+  color: var(--text-secondary);
+  text-align: left;
 }
 
 .mini-card-value {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   color: var(--text-primary);
   line-height: 1.2;
   white-space: nowrap;
+  text-align: right;
+  margin-left: auto;
 }
 
 /* Mini Card Variants */
@@ -254,12 +257,12 @@
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
 }
 
 .service-item {
-  border-radius: 6px;
-  padding: 2px 8px 8px;
+  border-radius: 5px;
+  padding: 2px 6px 6px;
   border: 1px solid var(--border-color);
   transition: all 0.15s;
 }

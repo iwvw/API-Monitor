@@ -1,21 +1,21 @@
 /**
- * 服务器管理模块数据模型
+ * 主机管理模块数据模型
  */
 
-const dbService = require('../database');
+const dbService = require('../../src/db/database');
 const { v4: uuidv4 } = require('uuid');
-const { encrypt, decrypt } = require('../../utils/encryption');
+const { encrypt, decrypt } = require('../../src/utils/encryption');
 
 // 获取数据库实例
 const getDb = () => dbService.getDatabase();
 
 /**
- * ServerAccount 模型 - 服务器账号管理
+ * ServerAccount 模型 - 主机账号管理
  */
 class ServerAccount {
     /**
-     * 获取所有服务器账号
-     * @returns {Array} 服务器账号列表
+     * 获取所有主机账号
+     * @returns {Array} 主机账号列表
      */
     static getAll() {
         const stmt = getDb().prepare(`
@@ -29,9 +29,9 @@ class ServerAccount {
     }
 
     /**
-     * 根据 ID 获取服务器账号
-     * @param {string} id - 服务器 ID
-     * @returns {Object|null} 服务器账号对象
+     * 根据 ID 获取主机账号
+     * @param {string} id - 主机 ID
+     * @returns {Object|null} 主机账号对象
      */
     static getById(id) {
         const stmt = getDb().prepare('SELECT * FROM server_accounts WHERE id = ?');
@@ -43,9 +43,9 @@ class ServerAccount {
     }
 
     /**
-     * 创建服务器账号
-     * @param {Object} data - 服务器账号数据
-     * @returns {Object} 创建的服务器账号
+     * 创建主机账号
+     * @param {Object} data - 主机账号数据
+     * @returns {Object} 创建的主机账号
      */
     static create(data) {
         const id = data.id || uuidv4();
@@ -83,10 +83,10 @@ class ServerAccount {
     }
 
     /**
-     * 更新服务器账号
-     * @param {string} id - 服务器 ID
+     * 更新主机账号
+     * @param {string} id - 主机 ID
      * @param {Object} data - 更新的数据
-     * @returns {Object|null} 更新后的服务器账号
+     * @returns {Object|null} 更新后的主机账号
      */
     static update(id, data) {
         // 首先从数据库获取原始记录(未解密)
@@ -136,8 +136,8 @@ class ServerAccount {
     }
 
     /**
-     * 更新服务器状态
-     * @param {string} id - 服务器 ID
+     * 更新主机状态
+     * @param {string} id - 主机 ID
      * @param {Object} statusData - 状态数据
      * @returns {boolean} 是否更新成功
      */
@@ -167,8 +167,8 @@ class ServerAccount {
     }
 
     /**
-     * 删除服务器账号
-     * @param {string} id - 服务器 ID
+     * 删除主机账号
+     * @param {string} id - 主机 ID
      * @returns {boolean} 是否删除成功
      */
     static delete(id) {
@@ -178,8 +178,8 @@ class ServerAccount {
     }
 
     /**
-     * 批量删除服务器账号
-     * @param {Array<string>} ids - 服务器 ID 数组
+     * 批量删除主机账号
+     * @param {Array<string>} ids - 主机 ID 数组
      * @returns {number} 删除的数量
      */
     static deleteMany(ids) {
@@ -236,15 +236,15 @@ class ServerAccount {
                 decrypted.tags = JSON.parse(account.tags);
             }
         } catch (error) {
-            console.error('解密服务器账号数据失败:', error);
+            console.error('解密主机账号数据失败:', error);
         }
 
         return decrypted;
     }
 
     /**
-     * 获取在线服务器数量
-     * @returns {number} 在线服务器数量
+     * 获取在线主机数量
+     * @returns {number} 在线主机数量
      */
     static getOnlineCount() {
         const stmt = getDb().prepare('SELECT COUNT(*) as count FROM server_accounts WHERE status = ?');
@@ -253,8 +253,8 @@ class ServerAccount {
     }
 
     /**
-     * 获取离线服务器数量
-     * @returns {number} 离线服务器数量
+     * 获取离线主机数量
+     * @returns {number} 离线主机数量
      */
     static getOfflineCount() {
         const stmt = getDb().prepare('SELECT COUNT(*) as count FROM server_accounts WHERE status = ?');
@@ -264,7 +264,7 @@ class ServerAccount {
 }
 
 /**
- * ServerMonitorLog 模型 - 服务器监控日志
+ * ServerMonitorLog 模型 - 主机监控日志
  */
 class ServerMonitorLog {
     /**
@@ -297,8 +297,8 @@ class ServerMonitorLog {
     }
 
     /**
-     * 获取服务器的监控日志
-     * @param {string} serverId - 服务器 ID
+     * 获取主机的监控日志
+     * @param {string} serverId - 主机 ID
      * @param {Object} options - 查询选项
      * @returns {Array} 监控日志列表
      */
@@ -388,7 +388,7 @@ class ServerMonitorLog {
 }
 
 /**
- * ServerMonitorConfig 模型 - 服务器监控配置
+ * ServerMonitorConfig 模型 - 主机监控配置
  */
 class ServerMonitorConfig {
     /**
@@ -434,8 +434,67 @@ class ServerMonitorConfig {
     }
 }
 
+/**
+ * ServerCredential 模型 - 主机凭据管理
+ */
+class ServerCredential {
+    static getAll() {
+        const stmt = getDb().prepare('SELECT * FROM server_credentials ORDER BY is_default DESC, created_at DESC');
+        const credentials = stmt.all();
+        return credentials.map(c => ({
+            ...c,
+            password: c.password ? decrypt(c.password) : null,
+            is_default: Boolean(c.is_default)
+        }));
+    }
+
+    static getDefault() {
+        const stmt = getDb().prepare('SELECT * FROM server_credentials WHERE is_default = 1 LIMIT 1');
+        const credential = stmt.get();
+        if (!credential) return null;
+        return {
+            ...credential,
+            password: credential.password ? decrypt(credential.password) : null,
+            is_default: true
+        };
+    }
+
+    static create(data) {
+        const { name, username, password } = data;
+        const stmt = getDb().prepare(`
+            INSERT INTO server_credentials (name, username, password)
+            VALUES (?, ?, ?)
+        `);
+        const result = stmt.run(name, username, password ? encrypt(password) : null);
+        return { id: result.lastInsertRowid, ...data };
+    }
+
+    static setDefault(id) {
+        try {
+            const db = getDb();
+            // 先取消所有默认凭据
+            db.prepare('UPDATE server_credentials SET is_default = 0').run();
+            // 设置指定凭据为默认
+            const result = db.prepare('UPDATE server_credentials SET is_default = 1 WHERE id = ?').run(id);
+            
+            console.log(`[ServerCredential] Set default credential ID=${id}, changes=${result.changes}`);
+            
+            return result.changes > 0;
+        } catch (error) {
+            console.error(`[ServerCredential] Failed to set default credential ID=${id}:`, error);
+            throw error;
+        }
+    }
+
+    static delete(id) {
+        const stmt = getDb().prepare('DELETE FROM server_credentials WHERE id = ?');
+        return stmt.run(id).changes > 0;
+    }
+}
+
 module.exports = {
     ServerAccount,
     ServerMonitorLog,
-    ServerMonitorConfig
+    ServerMonitorConfig,
+    ServerCredential
 };

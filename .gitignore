@@ -4,7 +4,7 @@ node_modules/
 # 环境变量（包含敏感信息）
 .env
 
-# 服务器存储的账号数据（包含 API Token）
+# 主机存储的账号数据（包含 API Token）
 accounts.json
 
 # 敏感文件
@@ -44,3 +44,4 @@ build/
 out/
 docs/
 tmp/
+test/

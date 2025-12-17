@@ -235,9 +235,10 @@ class UserSettings extends BaseModel {
             module_visibility: JSON.stringify({
                 zeabur: true,
                 dns: true,
-                openai: true
+                openai: true,
+                server: true
             }),
-            module_order: JSON.stringify(['zeabur', 'dns', 'openai']),
+            module_order: JSON.stringify(['zeabur', 'dns', 'openai', 'server']),
             updated_at: new Date().toISOString()
         };
 

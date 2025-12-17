@@ -3,7 +3,7 @@
 .panel {
   line-height: 1;
   background: var(--card-bg);
-  border-radius: 8px;
+  border-radius: 15px;
   padding: 12px;
   box-shadow: var(--card-shadow);
   border: 1px solid var(--border-color);
@@ -11,7 +11,7 @@
 }
 
 .panel-header {
-  padding: 0px 0px 7px 0px;
+  padding: 0px 0px 7px 4px;
   display: flex;
   align-items: center;
   min-height: 32px;
@@ -82,7 +82,7 @@
   vertical-align: middle;
 }
 
-.data-table td.actions > *:not(:last-child) {
+.data-table td.actions>*:not(:last-child) {
   margin-right: 6px;
 }
 
@@ -128,7 +128,7 @@
   vertical-align: middle;
 }
 
-.openai-table td.actions > *:not(:last-child) {
+.openai-table td.actions>*:not(:last-child) {
   margin-right: 6px;
 }
 

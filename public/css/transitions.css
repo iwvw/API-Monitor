@@ -4,6 +4,7 @@
 .tab-content-wrapper {
   position: relative;
   min-height: 400px;
+  overflow: visible;
 }
 
 /* 标签页内容的基础样式 */
@@ -14,6 +15,7 @@
   will-change: transform, opacity;
   backface-visibility: hidden;
   -webkit-font-smoothing: antialiased;
+  overflow: visible;
 }
 
 /* 淡入淡出动画 */
@@ -22,6 +24,7 @@
     opacity: 0;
     transform: translateY(10px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -33,6 +36,7 @@
     opacity: 1;
     transform: translateY(0);
   }
+
   to {
     opacity: 0;
     transform: translateY(-10px);
@@ -45,6 +49,7 @@
     opacity: 0;
     transform: translateX(30px);
   }
+
   to {
     opacity: 1;
     transform: translateX(0);
@@ -57,6 +62,7 @@
     opacity: 0;
     transform: translateX(-30px);
   }
+
   to {
     opacity: 1;
     transform: translateX(0);
@@ -69,6 +75,7 @@
     opacity: 1;
     transform: translateX(0);
   }
+
   to {
     opacity: 0;
     transform: translateX(-30px);
@@ -81,6 +88,7 @@
     opacity: 1;
     transform: translateX(0);
   }
+
   to {
     opacity: 0;
     transform: translateX(30px);
@@ -112,6 +120,47 @@
   animation-name: slideOutRight;
 }
 
+/* ==================== 模块切换动画主题色 ==================== */
+/* Zeabur 模块 - 紫色主题 */
+.zeabur-tab-content.slide-in-left,
+.zeabur-tab-content.slide-in-right,
+.zeabur-tab-content.slide-out-left,
+.zeabur-tab-content.slide-out-right {
+  --module-color: rgba(99, 102, 241, 0.06);
+}
+
+/* DNS 模块 - Cloudflare 橙色主题 */
+.dns-tab-content.slide-in-left,
+.dns-tab-content.slide-in-right,
+.dns-tab-content.slide-out-left,
+.dns-tab-content.slide-out-right {
+  --module-color: rgba(243, 128, 32, 0.06);
+}
+
+/* OpenApi 模块 - 绿色主题 */
+.openai-tab-content.slide-in-left,
+.openai-tab-content.slide-in-right,
+.openai-tab-content.slide-out-left,
+.openai-tab-content.slide-out-right {
+  --module-color: rgba(16, 163, 127, 0.06);
+}
+
+/* 主机管理模块 - 青绿色主题 */
+.server-tab-content.slide-in-left,
+.server-tab-content.slide-in-right,
+.server-tab-content.slide-out-left,
+.server-tab-content.slide-out-right {
+  --module-color: rgba(0, 212, 170, 0.06);
+}
+
+/* 切换动画使用模块主题色 */
+/* .tab-content.slide-in-left,
+.tab-content.slide-in-right,
+.tab-content.slide-out-left,
+.tab-content.slide-out-right {
+  background: linear-gradient(135deg, var(--module-color, transparent), transparent 70%);
+} */
+
 /* 子标签页切换动画 */
 .sub-tab-content {
   animation-duration: 0.3s;
@@ -119,6 +168,8 @@
   animation-fill-mode: both;
   will-change: transform, opacity;
   backface-visibility: hidden;
+  overflow: visible;
+  padding: 4px;
 }
 
 /* 快速淡入效果（用于子标签页） */
@@ -127,6 +178,7 @@
     opacity: 0;
     transform: scale(0.98);
   }
+
   to {
     opacity: 1;
     transform: scale(1);
@@ -163,16 +215,28 @@
   background-color: var(--cf-color);
 }
 
-.main-tab.openai-tab.active::after {
+/* 为每个标签类型设置::after主题色 */
+.main-tab.dns-tab::after {
+  background-color: var(--cf-color);
+}
+
+.main-tab.openai-tab::after {
   background-color: var(--openai-color);
 }
 
+.main-tab.server-tab::after {
+  background-color: var(--server-primary);
+}
+
+/* Zeabur tab 使用默认主题色 --primary-color */
+
 /* 卡片展开/收起动画优化 */
 .projects-grid,
-.openai-models-container {
+.openai-models-container,
+.server-card-body {
   transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
   transform-origin: top;
-  overflow: hidden;
+  overflow: visible;
   will-change: max-height, opacity, transform;
   backface-visibility: hidden;
 }
@@ -185,6 +249,23 @@
   margin-top: 0;
   padding-top: 0;
   padding-bottom: 0;
+  overflow: hidden;
+}
+
+/* 主机卡片使用相反的逻辑（默认收起，expanded 时展开） */
+.server-card-body {
+  max-height: 0;
+  opacity: 0;
+  transform: scaleY(0.95);
+  margin-top: 0;
+  overflow: hidden;
+}
+
+.server-card.expanded .server-card-body {
+  max-height: 2000px;
+  opacity: 1;
+  transform: scaleY(1);
+  overflow: visible;
 }
 
 /* 切换图标旋转动画优化 */
@@ -202,6 +283,7 @@
   from {
     opacity: 0;
   }
+
   to {
     opacity: 1;
   }
@@ -216,6 +298,7 @@
     opacity: 0;
     transform: translateY(-20px) scale(0.95);
   }
+
   to {
     opacity: 1;
     transform: translateY(0) scale(1);
@@ -232,6 +315,7 @@
     opacity: 0;
     transform: translateY(-20px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -247,6 +331,7 @@
   from {
     transform: translateX(100%);
   }
+
   to {
     transform: translateX(0);
   }
@@ -262,6 +347,7 @@
     opacity: 0;
     transform: translateY(10px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -269,12 +355,29 @@
 }
 
 /* 为列表项添加延迟 */
-.stagger-item:nth-child(1) { animation-delay: 0.05s; }
-.stagger-item:nth-child(2) { animation-delay: 0.1s; }
-.stagger-item:nth-child(3) { animation-delay: 0.15s; }
-.stagger-item:nth-child(4) { animation-delay: 0.2s; }
-.stagger-item:nth-child(5) { animation-delay: 0.25s; }
-.stagger-item:nth-child(n+6) { animation-delay: 0.3s; }
+.stagger-item:nth-child(1) {
+  animation-delay: 0.05s;
+}
+
+.stagger-item:nth-child(2) {
+  animation-delay: 0.1s;
+}
+
+.stagger-item:nth-child(3) {
+  animation-delay: 0.15s;
+}
+
+.stagger-item:nth-child(4) {
+  animation-delay: 0.2s;
+}
+
+.stagger-item:nth-child(5) {
+  animation-delay: 0.25s;
+}
+
+.stagger-item:nth-child(n+6) {
+  animation-delay: 0.3s;
+}
 
 /* 按钮点击反馈动画 */
 .btn {
@@ -295,6 +398,7 @@
 
 /* 减少动画以提升性能（可选） */
 @media (prefers-reduced-motion: reduce) {
+
   *,
   *::before,
   *::after {
@@ -318,6 +422,7 @@
     opacity: 0;
     transform: translateY(20px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);

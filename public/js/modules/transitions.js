@@ -4,12 +4,6 @@
  */
 
 export const transitionsMethods = {
-  // 存储上一个激活的标签页
-  previousMainTab: null,
-
-  // 防抖定时器
-  tabSwitchDebounce: null,
-
   // 获取标签页动画类
   getTabAnimationClass(tabName) {
     if (!this.previousMainTab) {

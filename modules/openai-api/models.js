@@ -1,4 +1,4 @@
-const BaseModel = require('./BaseModel');
+const BaseModel = require('../../src/db/models/BaseModel');
 
 /**
  * OpenAI API 端点模型

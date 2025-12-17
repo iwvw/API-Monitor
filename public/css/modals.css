@@ -29,23 +29,128 @@
 .modal {
   background-color: var(--card-bg);
   border-radius: 12px;
-  padding: 24px;
-  max-width: 500px;
-  width: 100%;
+  padding: 0;
+  max-width: 450px;
+  /* Reduced from 500px to make it more compact */
+  width: 95%;
+  /* Use percentage for better mobile responsiveness */
   max-height: 90vh;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
   box-shadow: var(--card-hover-shadow);
+}
+
+/* 大尺寸模态框 */
+.modal-lg {
+  max-width: 900px;
+}
+
+/* 小尺寸模态框 */
+.modal-sm {
+  max-width: 400px;
+}
+
+/* 权限修改模态框样式 */
+.permissions-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.permissions-row {
+  display: grid;
+  grid-template-columns: 80px repeat(3, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.permissions-row.permissions-header {
+  font-weight: 600;
+  color: var(--text-secondary);
+  font-size: 13px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 4px;
+}
+
+.permissions-label {
+  font-weight: 500;
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.permissions-cell {
+  text-align: center;
+}
+
+.permissions-cell input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  accent-color: var(--primary-color);
+}
+
+/* 属性查看模态框样式 */
+.properties-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.properties-item {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.properties-item .properties-label {
+  font-weight: 500;
+  color: var(--text-secondary);
+  min-width: 80px;
+  font-size: 14px;
+}
+
+.properties-item .properties-value {
+  color: var(--text-primary);
+  font-size: 14px;
+  flex: 1;
+}
+
+/* 模态框内容区域 */
+.modal-body {
+  padding: 12px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+/* 无内部结构的简单模态框(如登录框) */
+.modal:not(:has(.modal-body)):not(:has(.modal-footer)) {
+  padding: 24px;
+}
+
+/* 模态框底部 */
+.modal-footer {
+  padding: 16px 24px;
+  border-top: 1px solid var(--border-color);
+  background: var(--section-bg);
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  border-radius: 0 0 12px 12px;
 }
 
 .modal-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
+  padding: 6px 17px;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--card-bg);
+  border-radius: 12px 12px 0 0;
 }
 
 .modal-title {
-  font-size: 20px;
+  font-size: 15px;
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -56,7 +161,6 @@
   font-size: 20px;
   cursor: pointer;
   color: var(--text-secondary);
-  padding: 4px;
   border-radius: 4px;
   transition: all 0.2s;
 }
@@ -68,7 +172,7 @@
 
 /* Forms */
 .form-group {
-  margin-bottom: 16px;
+  margin-bottom: 6px;
 }
 
 .form-label {
@@ -231,70 +335,6 @@
   font-size: 14px;
 }
 
-/* Custom Toast */
-.custom-toast {
-  position: fixed !important;
-  bottom: 20px !important;
-  right: 20px !important;
-  padding: 14px 20px;
-  border-radius: 10px;
-  color: white;
-  font-size: 14px;
-  z-index: 9999 !important;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 200px;
-  max-width: 400px;
-}
-
-.custom-toast.success {
-  background: linear-gradient(135deg, #10b981, #059669);
-}
-
-.custom-toast.error {
-  background: linear-gradient(135deg, #ef4444, #dc2626);
-}
-
-.custom-toast.warning {
-  background: linear-gradient(135deg, #f59e0b, #d97706);
-}
-
-.custom-toast.info {
-  background: linear-gradient(135deg, #3b82f6, #2563eb);
-}
-
-.custom-toast i {
-  font-size: 18px;
-}
-
-@keyframes slideIn {
-  from {
-    transform: translateX(100%);
-    opacity: 0;
-  }
-  to {
-    transform: translateX(0);
-    opacity: 1;
-  }
-}
-
-/* Vue Transition for Toast */
-.toast-enter-active {
-  animation: slideIn 0.3s ease-out;
-}
-
-.toast-leave-active {
-  animation: slideIn 0.3s ease-out reverse;
-}
-
-.toast-enter-from,
-.toast-leave-to {
-  opacity: 0;
-  transform: translateX(100%);
-}
-
 /* Custom Dialog */
 .custom-dialog-overlay {
   position: fixed;
@@ -365,6 +405,7 @@
   from {
     opacity: 0;
   }
+
   to {
     opacity: 1;
   }
@@ -375,6 +416,7 @@
     transform: scale(0.9);
     opacity: 0;
   }
+
   to {
     transform: scale(1);
     opacity: 1;
@@ -383,6 +425,22 @@
 
 @media (max-width: 768px) {
   .modal {
+    padding: 0;
+  }
+
+  .modal-lg {
+    max-width: 95%;
+  }
+
+  .modal-header {
+    padding: 16px 20px;
+  }
+
+  .modal-body {
     padding: 20px;
+  }
+
+  .modal-footer {
+    padding: 14px 20px;
   }
 }

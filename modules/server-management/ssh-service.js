@@ -17,7 +17,7 @@ class SSHService {
 
     /**
      * 创建 SSH 连接
-     * @param {Object} serverConfig - 服务器配置
+     * @param {Object} serverConfig - 主机配置
      * @returns {Promise<Client>} SSH 客户端
      */
     async connect(serverConfig) {
@@ -60,8 +60,8 @@ class SSHService {
 
     /**
      * 获取或创建连接
-     * @param {string} serverId - 服务器 ID
-     * @param {Object} serverConfig - 服务器配置
+     * @param {string} serverId - 主机 ID
+     * @param {Object} serverConfig - 主机配置
      * @returns {Promise<Client>} SSH 客户端
      */
     async getConnection(serverId, serverConfig) {
@@ -99,8 +99,8 @@ class SSHService {
 
     /**
      * 执行命令
-     * @param {string} serverId - 服务器 ID
-     * @param {Object} serverConfig - 服务器配置
+     * @param {string} serverId - 主机 ID
+     * @param {Object} serverConfig - 主机配置
      * @param {string} command - 要执行的命令
      * @returns {Promise<Object>} 命令执行结果
      */
@@ -153,7 +153,7 @@ class SSHService {
 
     /**
      * 测试连接
-     * @param {Object} serverConfig - 服务器配置
+     * @param {Object} serverConfig - 主机配置
      * @returns {Promise<Object>} 测试结果
      */
     async testConnection(serverConfig) {
@@ -203,7 +203,7 @@ class SSHService {
 
     /**
      * 关闭连接
-     * @param {string} serverId - 服务器 ID
+     * @param {string} serverId - 主机 ID
      */
     closeConnection(serverId) {
         if (this.connections.has(serverId)) {

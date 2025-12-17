@@ -1,7 +1,6 @@
--- 服务器管理模块数据库表结构
--- 使用 SQLite 数据库
+-- 主机管理模块数据库表结构
 
--- 1. 服务器账号表
+-- 13. 主机账号表
 CREATE TABLE IF NOT EXISTS server_accounts (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
@@ -12,17 +11,17 @@ CREATE TABLE IF NOT EXISTS server_accounts (
     password TEXT, -- 加密存储的密码
     private_key TEXT, -- 加密存储的私钥
     passphrase TEXT, -- 加密存储的私钥密码
-    status TEXT DEFAULT 'unknown' CHECK(status IN ('online', 'offline', 'unknown')), -- 服务器状态
+    status TEXT DEFAULT 'unknown' CHECK(status IN ('online', 'offline', 'unknown')), -- 主机状态
     last_check_time DATETIME, -- 最后探测时间
     last_check_status TEXT, -- 最后探测状态
     response_time INTEGER, -- 响应时间（毫秒）
     tags TEXT, -- JSON 格式存储标签数组
-    description TEXT, -- 服务器描述
+    description TEXT, -- 主机描述
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- 2. 服务器监控日志表
+-- 14. 主机监控日志表
 CREATE TABLE IF NOT EXISTS server_monitor_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     server_id TEXT NOT NULL,
@@ -33,7 +32,7 @@ CREATE TABLE IF NOT EXISTS server_monitor_logs (
     FOREIGN KEY (server_id) REFERENCES server_accounts(id) ON DELETE CASCADE
 );
 
--- 3. 服务器监控配置表
+-- 15. 主机监控配置表
 CREATE TABLE IF NOT EXISTS server_monitor_config (
     id INTEGER PRIMARY KEY CHECK (id = 1), -- 单例模式，只允许一条记录
     probe_interval INTEGER DEFAULT 60, -- 探测间隔（秒）
@@ -45,12 +44,23 @@ CREATE TABLE IF NOT EXISTS server_monitor_config (
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- 创建索引以提升查询性能
+-- 16. 主机凭据表
+CREATE TABLE IF NOT EXISTS server_credentials (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL, -- 凭据名称，如 "默认Root", "Web服务器通用"
+    username TEXT NOT NULL,
+    password TEXT, -- 加密存储的密码
+    is_default INTEGER DEFAULT 0, -- 是否为默认凭据（0=否，1=是）
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 索引
 CREATE INDEX IF NOT EXISTS idx_server_accounts_status ON server_accounts(status);
 CREATE INDEX IF NOT EXISTS idx_server_monitor_logs_server ON server_monitor_logs(server_id, checked_at);
 CREATE INDEX IF NOT EXISTS idx_server_monitor_logs_status ON server_monitor_logs(status, checked_at);
 
--- 插入默认监控配置
+-- 插入默认主机监控配置
 INSERT OR IGNORE INTO server_monitor_config (
     id,
     probe_interval,

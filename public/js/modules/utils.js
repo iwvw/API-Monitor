@@ -2,40 +2,27 @@
  * 通用工具函数模块
  */
 
+// 导入新的Toast模块
+import toastManager, { toast, showToast as newShowToast } from './toast.js';
+
 /**
  * 显示 Toast 提示
  * @param {string} message - 提示消息
  * @param {string} type - 提示类型 (success, error, warning, info)
  */
 export function showToast(message, type = 'info') {
-    // 创建 toast 元素
-    const toast = document.createElement('div');
-    toast.className = `custom-toast toast-${type}`;
+    // 优先使用 Vue 的全局 Toast 系统
+    if (window.vueApp && window.vueApp.showGlobalToast) {
+        window.vueApp.showGlobalToast(message, type);
+        return;
+    }
 
-    // 添加图标
-    const icons = {
-        success: '✓',
-        error: '✕',
-        warning: '⚠',
-        info: 'ℹ'
-    };
-
-    toast.innerHTML = `
-        <span class="toast-icon">${icons[type] || icons.info}</span>
-        <span class="toast-message">${message}</span>
-    `;
-
-    // 添加到页面
-    document.body.appendChild(toast);
-
-    // 3秒后自动移除
-    setTimeout(() => {
-        toast.classList.add('toast-fade-out');
-        setTimeout(() => {
-            document.body.removeChild(toast);
-        }, 300);
-    }, 3000);
+    // 使用新的Toast系统
+    return newShowToast(message, type);
 }
+
+// 导出新的toast API供高级使用
+export { toastManager, toast };
 
 /**
  * HTML 转义

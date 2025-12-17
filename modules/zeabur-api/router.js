@@ -65,7 +65,7 @@ router.post('/temp-accounts', async (req, res) => {
     res.json(results);
   } catch (error) {
     logger.error('获取账号信息失败', error.message);
-    res.status(500).json({ error: '服务器错误: ' + error.message });
+    res.status(500).json({ error: '主机错误: ' + error.message });
   }
 });
 
@@ -139,7 +139,7 @@ router.post('/temp-projects', async (req, res) => {
     res.json(results);
   } catch (error) {
     logger.error('获取项目信息失败', error.message);
-    res.status(500).json({ error: '/api/temp-projects 服务器错误: ' + error.message });
+    res.status(500).json({ error: '/api/temp-projects 主机错误: ' + error.message });
   }
 });
 
@@ -188,19 +188,19 @@ router.post('/validate-account', async (req, res) => {
 });
 
 /**
- * 获取所有账号（服务器存储 + 环境变量）
+ * 获取所有账号（主机存储 + 环境变量）
  */
 router.get('/server-accounts', async (req, res) => {
   const serverAccounts = storage.loadServerAccounts();
   const envAccounts = storage.getEnvAccounts();
 
   const allAccounts = [...envAccounts, ...serverAccounts];
-  logger.info(`加载 ${allAccounts.length} 个账号 (环境: ${envAccounts.length}, 服务器: ${serverAccounts.length})`);
+  logger.info(`加载 ${allAccounts.length} 个账号 (环境: ${envAccounts.length}, 主机: ${serverAccounts.length})`);
   res.json(allAccounts);
 });
 
 /**
- * 保存账号到服务器
+ * 保存账号到主机
  */
 router.post('/server-accounts', async (req, res) => {
   const { accounts } = req.body;
@@ -211,14 +211,14 @@ router.post('/server-accounts', async (req, res) => {
 
   if (storage.saveServerAccounts(accounts)) {
     logger.success(`保存 ${accounts.length} 个账号`);
-    res.json({ success: true, message: '账号已保存到服务器' });
+    res.json({ success: true, message: '账号已保存到主机' });
   } else {
     res.status(500).json({ error: '保存失败' });
   }
 });
 
 /**
- * 删除服务器账号
+ * 删除主机账号
  */
 router.delete('/server-accounts/:index', async (req, res) => {
   const index = parseInt(req.params.index);
@@ -238,7 +238,7 @@ router.delete('/server-accounts/:index', async (req, res) => {
 });
 
 /**
- * 服务器配置的账号API（兼容旧版本）
+ * 主机配置的账号API（兼容旧版本）
  */
 router.get('/accounts', async (req, res) => {
   const accounts = storage.loadServerAccounts();
@@ -335,7 +335,7 @@ router.get('/projects', async (req, res) => {
     res.json(results);
   } catch (error) {
     logger.error('获取项目失败', error.message);
-    res.status(500).json({ error: '/api/projects 服务器错误: ' + error.message });
+    res.status(500).json({ error: '/api/projects 主机错误: ' + error.message });
   }
 });
 

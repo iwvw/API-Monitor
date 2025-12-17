@@ -1,4 +1,4 @@
-const BaseModel = require('./BaseModel');
+const BaseModel = require('../../src/db/models/BaseModel');
 
 /**
  * Cloudflare 账号模型

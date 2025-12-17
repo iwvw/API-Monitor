@@ -56,12 +56,12 @@ export const settingsMethods = {
     }
   },
 
-  // 从localStorage加载模块设置（向后兼容）
+  // 从localStorage加载模块设置(向后兼容)
   loadModuleSettingsFromLocal() {
     const savedVisibility = localStorage.getItem('module_visibility');
     const savedOrder = localStorage.getItem('module_order');
 
-    const availableModules = ['zeabur', 'dns', 'openai'];
+    const availableModules = ['zeabur', 'dns', 'openai', 'server'];
 
     if (savedVisibility) {
       const saved = JSON.parse(savedVisibility);
@@ -129,7 +129,7 @@ export const settingsMethods = {
       const success = await this.saveUserSettingsToServer();
 
       if (success) {
-        this.customCssSuccess = '自定义 CSS 已保存到服务器';
+        this.customCssSuccess = '自定义 CSS 已保存到主机';
       } else {
         this.customCssSuccess = '自定义 CSS 已保存到本地';
       }
@@ -166,7 +166,7 @@ export const settingsMethods = {
     await this.loadUserSettings();
 
     // 定义所有可用模块
-    const availableModules = ['zeabur', 'dns', 'openai'];
+    const availableModules = ['zeabur', 'dns', 'openai', 'server'];
 
     // 确保所有模块都有配置
     availableModules.forEach(module => {
@@ -235,9 +235,10 @@ export const settingsMethods = {
   // 获取模块名称
   getModuleName(module) {
     const names = {
-      zeabur: 'Zeabur 监控',
-      dns: 'CF DNS 管理',
-      openai: 'OpenAPI'
+      zeabur: 'Zeabur',
+      dns: 'CF DNS',
+      openai: 'OpenAPI',
+      server: '主机管理'
     };
     return names[module] || module;
   },
@@ -247,7 +248,8 @@ export const settingsMethods = {
     const icons = {
       zeabur: 'fa-rocket',
       dns: 'fa-cloud',
-      openai: 'fa-robot'
+      openai: 'fa-robot',
+      server: 'fa-server'
     };
     return icons[module] || 'fa-cube';
   },
@@ -312,7 +314,7 @@ export const settingsMethods = {
   // 保存设置
   async saveSettings() {
     await this.saveModuleSettings();
-    this.showGlobalToast('设置已保存到服务器', 'success');
+    this.showGlobalToast('设置已保存到主机', 'success');
     this.showSettingsModal = false;
   },
 

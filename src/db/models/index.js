@@ -2,16 +2,16 @@
  * 数据库模型统一导出
  */
 
-const { ZeaburAccount, ZeaburProject } = require('./Zeabur');
+const { ZeaburAccount, ZeaburProject } = require('../../../modules/zeabur-api/models');
 const {
     CloudflareAccount,
     CloudflareDnsTemplate,
     CloudflareZone,
     CloudflareDnsRecord
-} = require('./Cloudflare');
-const { OpenAIEndpoint, OpenAIHealthHistory } = require('./OpenAI');
+} = require('../../../modules/cloudflare-dns/models');
+const { OpenAIEndpoint, OpenAIHealthHistory } = require('../../../modules/openai-api/models');
 const { SystemConfig, Session, UserSettings, OperationLog } = require('./System');
-const { ServerAccount, ServerMonitorLog, ServerMonitorConfig } = require('./Server');
+const { ServerAccount, ServerMonitorLog, ServerMonitorConfig, ServerCredential } = require('../../../modules/server-management/models');
 
 module.exports = {
     // Zeabur 模块
@@ -34,8 +34,9 @@ module.exports = {
     UserSettings,
     OperationLog,
 
-    // 服务器管理模块
+    // 主机管理模块
     ServerAccount,
     ServerMonitorLog,
-    ServerMonitorConfig
+    ServerMonitorConfig,
+    ServerCredential
 };

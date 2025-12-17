@@ -14,6 +14,9 @@ const settingsRouter = require('./settings');
  * 注册所有路由
  */
 function registerRoutes(app) {
+  const fs = require('fs');
+  const path = require('path');
+
   // 健康检查（不需要认证）
   app.use('/health', healthRouter);
 
@@ -23,40 +26,38 @@ function registerRoutes(app) {
   // 用户设置路由（需要认证）
   app.use('/api', requireAuth, settingsRouter);
 
-  // Zeabur API 管理模块
-  try {
-    const zeaburRouter = require('../../modules/zeabur-api/router');
-    app.use('/api', requireAuth, zeaburRouter);
-    console.log('✅ Zeabur API 模块已加载');
-  } catch (e) {
-    console.log('⚠️ Zeabur API 模块未加载:', e.message);
-  }
+  // 动态加载模块路由
+  const modulesDir = path.join(__dirname, '../../modules');
 
-  // Cloudflare DNS 管理模块
-  try {
-    const cfDnsRouter = require('../../modules/cloudflare-dns/router');
-    app.use('/api/cf-dns', requireAuth, cfDnsRouter);
-    console.log('✅ Cloudflare DNS 模块已加载');
-  } catch (e) {
-    console.log('⚠️ Cloudflare DNS 模块未加载:', e.message);
-  }
+  // 模块路由映射配置 (保持向后兼容)
+  const moduleRouteMap = {
+    'zeabur-api': '/api', // 注意：Zeabur 模块内部路由可能以 /zeabur 开头，或者直接挂载在 /api 下
+    'cloudflare-dns': '/api/cf-dns',
+    'openai-api': '/api/openai',
+    'server-management': '/api/server'
+  };
 
-  // OpenAI API 管理模块
-  try {
-    const openaiRouter = require('../../modules/openai-api/router');
-    app.use('/api/openai', requireAuth, openaiRouter);
-    console.log('✅ OpenAI API 模块已加载');
-  } catch (e) {
-    console.log('⚠️ OpenAI API 模块未加载:', e.message);
-  }
+  if (fs.existsSync(modulesDir)) {
+    const modules = fs.readdirSync(modulesDir, { withFileTypes: true })
+      .filter(dirent => dirent.isDirectory())
+      .map(dirent => dirent.name);
 
-  // 服务器管理模块
-  try {
-    const serverRouter = require('../../modules/server-management/router');
-    app.use('/api/server', requireAuth, serverRouter);
-    console.log('✅ 服务器管理模块已加载');
-  } catch (e) {
-    console.log('⚠️ 服务器管理模块未加载:', e.message);
+    modules.forEach(moduleName => {
+      const routerPath = path.join(modulesDir, moduleName, 'router.js');
+
+      if (fs.existsSync(routerPath)) {
+        try {
+          const moduleRouter = require(routerPath);
+          // 使用配置的路径，如果未配置则默认使用 /api/{moduleName}
+          const routePath = moduleRouteMap[moduleName] || `/api/${moduleName}`;
+
+          app.use(routePath, requireAuth, moduleRouter);
+          console.log(`✅ 模块已加载: ${moduleName} -> ${routePath}`);
+        } catch (e) {
+          console.error(`⚠️ 模块加载失败: ${moduleName}`, e.message);
+        }
+      }
+    });
   }
 }
 

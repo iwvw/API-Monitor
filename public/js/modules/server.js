@@ -1,5 +1,5 @@
 /**
- * 服务器管理模块
+ * 主机管理模块
  */
 
 import { showToast } from './utils.js';
@@ -13,37 +13,53 @@ const state = {
 };
 
 /**
- * 初始化服务器管理模块
+ * 初始化主机管理模块
  */
 export function initServerModule() {
-    console.log('初始化服务器管理模块');
+    console.log('初始化主机管理模块');
     loadServers();
     setupEventListeners();
 }
 
 /**
- * 设置事件监听器
+ * 设置事件监听器（支持重复调用）
  */
 function setupEventListeners() {
-    // 添加服务器按钮
-    document.getElementById('add-server-btn')?.addEventListener('click', showAddServerModal);
+    // 使用事件委托或延迟绑定，确保按钮存在
+    const bindButton = (id, handler) => {
+        const btn = document.getElementById(id);
+        if (btn && !btn.dataset.bound) {
+            btn.addEventListener('click', handler);
+            btn.dataset.bound = 'true';
+        }
+    };
+
+    // 添加主机按钮
+    bindButton('add-server-btn', showAddServerModal);
 
     // 刷新按钮
-    document.getElementById('refresh-servers-btn')?.addEventListener('click', () => {
+    bindButton('refresh-servers-btn', () => {
         loadServers();
-        showToast('正在刷新服务器列表...', 'info');
+        showToast('正在刷新主机列表...', 'info');
     });
 
     // 手动探测按钮
-    document.getElementById('probe-all-servers-btn')?.addEventListener('click', probeAllServers);
+    bindButton('probe-all-servers-btn', probeAllServers);
 
     // 导入导出按钮
-    document.getElementById('import-servers-btn')?.addEventListener('click', showImportModal);
-    document.getElementById('export-servers-btn')?.addEventListener('click', exportServers);
+    bindButton('import-servers-btn', showImportModal);
+    bindButton('export-servers-btn', exportServers);
 }
 
 /**
- * 加载服务器列表
+ * 初始化后台管理按钮（供 Vue 调用）
+ */
+export function initManagementButtons() {
+    setupEventListeners();
+}
+
+/**
+ * 加载主机列表
  */
 async function loadServers() {
     state.loading = true;
@@ -55,63 +71,100 @@ async function loadServers() {
 
         if (data.success) {
             state.servers = data.data;
-            renderServerList();
         } else {
-            showToast('加载服务器列表失败: ' + data.error, 'error');
+            showToast('加载主机列表失败: ' + data.error, 'error');
         }
     } catch (error) {
-        console.error('加载服务器列表失败:', error);
-        showToast('加载服务器列表失败', 'error');
+        console.error('加载主机列表失败:', error);
+        showToast('加载主机列表失败', 'error');
     } finally {
         state.loading = false;
+        renderServerList();
     }
 }
 
 /**
- * 渲染服务器列表
+ * 渲染主机列表
  */
 function renderServerList() {
     const container = document.getElementById('server-list-container');
-    if (!container) return;
+    const managementContainer = document.getElementById('management-server-list-container');
 
-    if (state.loading) {
-        container.innerHTML = `
-            <div class="server-loading">
-                <div class="server-loading-spinner"></div>
-                <p>加载中...</p>
-            </div>
-        `;
-        return;
+    // 主机列表标签页 - 显示完整卡片
+    if (container) {
+        if (state.loading) {
+            container.innerHTML = `
+                <div class="server-loading">
+                    <div class="server-loading-spinner"></div>
+                    <p>加载中...</p>
+                </div>
+            `;
+        } else if (state.servers.length === 0) {
+            container.innerHTML = `
+                <div class="server-empty-state">
+                    <div class="server-empty-state-icon">🖥️</div>
+                    <h3>还没有主机</h3>
+                    <p>请切换到"后台管理"标签页添加您的第一台主机</p>
+                </div>
+            `;
+        } else {
+            container.innerHTML = state.servers.map(server => renderServerCard(server)).join('');
+        }
     }
 
-    if (state.servers.length === 0) {
-        container.innerHTML = `
-            <div class="server-empty-state">
-                <div class="server-empty-state-icon">🖥️</div>
-                <h3>还没有服务器</h3>
-                <p>点击"添加服务器"按钮开始添加您的第一台服务器</p>
-                <button class="btn btn-primary" onclick="window.serverModule.showAddServerModal()">
-                    添加服务器
-                </button>
-            </div>
-        `;
-        return;
+    // 后台管理标签页 - 显示简洁表格
+    if (managementContainer) {
+        if (state.loading) {
+            managementContainer.innerHTML = `
+                <div class="server-loading">
+                    <div class="server-loading-spinner"></div>
+                    <p>加载中...</p>
+                </div>
+            `;
+        } else if (state.servers.length === 0) {
+            managementContainer.innerHTML = `
+                <div class="server-empty-state">
+                    <div class="server-empty-state-icon">🖥️</div>
+                    <h3>还没有主机</h3>
+                    <p>点击上方"添加主机"按钮开始添加您的第一台主机</p>
+                </div>
+            `;
+        } else {
+            managementContainer.innerHTML = renderServerTable(state.servers);
+        }
     }
-
-    const html = state.servers.map(server => renderServerCard(server)).join('');
-    container.innerHTML = html;
 
     // 重新绑定事件
     bindServerCardEvents();
 }
 
 /**
- * 渲染服务器卡片
+ * 渲染后台管理的主机表格
  */
-function renderServerCard(server) {
-    const isExpanded = state.expandedServers.has(server.id);
-    const info = state.serverInfo.get(server.id);
+function renderServerTable(servers) {
+    return `
+        <table class="data-table">
+            <thead>
+                <tr>
+                    <th>状态</th>
+                    <th>主机名称</th>
+                    <th>主机地址</th>
+                    <th>响应时间</th>
+                    <th>最后检查</th>
+                    <th style="width: 150px;">操作</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${servers.map(server => renderServerTableRow(server)).join('')}
+            </tbody>
+        </table>
+    `;
+}
 
+/**
+ * 渲染后台管理表格的行
+ */
+function renderServerTableRow(server) {
     const statusClass = server.status || 'unknown';
     const statusText = {
         'online': '在线',
@@ -125,38 +178,102 @@ function renderServerCard(server) {
 
     const responseTime = server.response_time ? `${server.response_time}ms` : '-';
 
+    const statusBadgeClass = statusClass === 'online' ? 'proxied-on' : (statusClass === 'offline' ? 'proxied-off' : '');
+
+    return `
+        <tr>
+            <td>
+                <span class="proxied-badge ${statusBadgeClass}">
+                    ${statusText}
+                </span>
+            </td>
+            <td>
+                <strong>${escapeHtml(server.name)}</strong>
+                ${server.tags && server.tags.length > 0 ?
+            '<br><div style="margin-top: 4px;">' + server.tags.map(tag => `<span class="server-tag">${escapeHtml(tag)}</span>`).join(' ') + '</div>'
+            : ''}
+            </td>
+            <td>
+                <code style="background: var(--section-bg); padding: 2px 6px; border-radius: 3px; font-size: 12px;">
+                    ${escapeHtml(server.username)}@${escapeHtml(server.host)}:${server.port}
+                </code>
+            </td>
+            <td>${responseTime}</td>
+            <td>${lastCheckTime}</td>
+            <td class="actions">
+                <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 12px;"
+                    onclick="window.serverModule.connectSSH('${server.id}')" title="SSH 连接">
+                    <i class="fas fa-terminal"></i>
+                </button>
+                <button class="btn btn-primary" style="padding: 4px 8px; font-size: 12px;"
+                    onclick="window.serverModule.showEditServerModal('${server.id}')" title="编辑">
+                    <i class="fas fa-edit"></i>
+                </button>
+                <button class="btn btn-danger" style="padding: 4px 8px; font-size: 12px;"
+                    onclick="window.serverModule.deleteServer('${server.id}')" title="删除">
+                    <i class="fas fa-trash"></i>
+                </button>
+            </td>
+        </tr>
+    `;
+}
+
+/**
+ * 渲染主机卡片
+ */
+function renderServerCard(server) {
+    const isExpanded = state.expandedServers.has(server.id);
+    const info = state.serverInfo.get(server.id);
+
+    const statusClass = server.status || 'unknown';
+    const statusText = {
+        'online': '在线',
+        'offline': '离线',
+        'unknown': '未知'
+    }[statusClass] || '未知';
+
+    const statusBadgeClass = statusClass === 'online' ? 'proxied-on' : (statusClass === 'offline' ? 'proxied-off' : '');
+
+    const lastCheckTime = server.last_check_time
+        ? new Date(server.last_check_time).toLocaleString('zh-CN')
+        : '从未检查';
+
+    const responseTime = server.response_time ? `${server.response_time}ms` : '-';
+
     return `
         <div class="server-card ${isExpanded ? 'expanded' : ''}" data-server-id="${server.id}">
             <div class="server-card-header" onclick="window.serverModule.toggleServerCard('${server.id}')">
                 <div class="server-card-info">
+                    <span class="server-toggle-icon">
+                        <i class="fas fa-chevron-right"></i>
+                    </span>
                     <div class="server-status-indicator ${statusClass}"></div>
                     <div class="server-basic-info">
-                        <div class="server-name">${escapeHtml(server.name)}</div>
+                        <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 4px;">
+                            <span class="server-name">${escapeHtml(server.name)}</span>
+                            <span class="proxied-badge ${statusBadgeClass}">${statusText}</span>
+                            ${server.tags && server.tags.length > 0 ?
+            server.tags.map(tag => `<span class="server-tag">${escapeHtml(tag)}</span>`).join('')
+            : ''}
+                        </div>
                         <div class="server-host">${escapeHtml(server.username)}@${escapeHtml(server.host)}:${server.port}</div>
-                        ${server.tags && server.tags.length > 0 ? `
-                            <div class="server-tags">
-                                ${server.tags.map(tag => `<span class="server-tag">${escapeHtml(tag)}</span>`).join('')}
-                            </div>
-                        ` : ''}
                     </div>
                 </div>
                 <div class="server-quick-info">
-                    <span>状态: ${statusText}</span>
                     <span>响应: ${responseTime}</span>
-                    <span>最后检查: ${lastCheckTime}</span>
+                    <span>检查: ${lastCheckTime}</span>
                 </div>
                 <div class="server-card-actions" onclick="event.stopPropagation()">
                     <button class="btn btn-sm btn-primary" onclick="window.serverModule.connectSSH('${server.id}')" title="SSH 连接">
-                        🔌 SSH
+                        <i class="fas fa-terminal"></i> SSH
                     </button>
                     <button class="btn btn-sm btn-secondary" onclick="window.serverModule.showEditServerModal('${server.id}')" title="编辑">
-                        ✏️
+                        <i class="fas fa-edit"></i>
                     </button>
                     <button class="btn btn-sm btn-danger" onclick="window.serverModule.deleteServer('${server.id}')" title="删除">
-                        🗑️
+                        <i class="fas fa-trash"></i>
                     </button>
                 </div>
-                <div class="server-expand-icon">▼</div>
             </div>
             <div class="server-card-body">
                 ${isExpanded ? renderServerDetails(server, info) : ''}
@@ -166,15 +283,15 @@ function renderServerCard(server) {
 }
 
 /**
- * 渲染服务器详情
+ * 渲染主机详情
  */
 function renderServerDetails(server, info) {
     if (!info) {
         return `
             <div class="server-details">
-                <div style="text-align: center; padding: 20px;">
+                <div style="text-align: center; padding: 8px 3px;">
                     <div class="server-loading-spinner" style="margin: 0 auto 10px;"></div>
-                    <p>正在加载服务器信息...</p>
+                    <p>正在加载主机信息...</p>
                 </div>
             </div>
         `;
@@ -183,7 +300,7 @@ function renderServerDetails(server, info) {
     if (!info.success) {
         return `
             <div class="server-details">
-                <div style="text-align: center; padding: 20px; color: var(--error-color);">
+                <div style="text-align: center; padding: 8px 3px; color: var(--error-color);">
                     <p>❌ 加载失败: ${escapeHtml(info.error || '未知错误')}</p>
                 </div>
             </div>
@@ -218,12 +335,6 @@ function renderServerDetails(server, info) {
                     ${renderDiskInfo(info.disk)}
                 </div>
 
-                <!-- 网络接口 -->
-                <div class="server-detail-section">
-                    <h4>🌐 网络接口</h4>
-                    ${renderNetworkInfo(info.network)}
-                </div>
-
                 <!-- Docker 信息 -->
                 <div class="server-detail-section">
                     <h4>🐳 Docker 信息</h4>
@@ -241,11 +352,8 @@ function renderServerDetails(server, info) {
                         🐳 查看容器 (${info.docker.containers.length})
                     </button>
                 ` : ''}
-                <button class="btn btn-sm btn-secondary" onclick="window.serverModule.openFileManager('${server.id}')">
-                    📁 文件管理
-                </button>
                 <button class="btn btn-sm btn-warning" onclick="window.serverModule.rebootServer('${server.id}')">
-                    🔄 重启服务器
+                    🔄 重启主机
                 </button>
                 <button class="btn btn-sm btn-danger" onclick="window.serverModule.shutdownServer('${server.id}')">
                     ⏻ 关机
@@ -307,26 +415,6 @@ function renderDiskInfo(disks) {
 }
 
 /**
- * 渲染网络接口信息
- */
-function renderNetworkInfo(interfaces) {
-    if (!interfaces || !Array.isArray(interfaces) || interfaces.length === 0) {
-        return '<p>无网络接口信息</p>';
-    }
-
-    return `
-        <div class="network-interface-list">
-            ${interfaces.map(iface => `
-                <div class="network-interface-item">
-                    <span class="network-interface-name">${escapeHtml(iface.name)}</span>
-                    <span class="network-interface-address">${escapeHtml(iface.address)}</span>
-                </div>
-            `).join('')}
-        </div>
-    `;
-}
-
-/**
  * 渲染 Docker 信息
  */
 function renderDockerInfo(docker) {
@@ -334,32 +422,30 @@ function renderDockerInfo(docker) {
         return '<p>Docker 未安装</p>';
     }
 
+    const totalContainers = docker.containers?.length || 0;
+    const runningContainers = docker.containers?.filter(c => c.status.includes('Up')).length || 0;
+    const stoppedContainers = totalContainers - runningContainers;
+
     return `
         <div class="server-detail-item">
-            <span class="server-detail-label">版本</span>
-            <span class="server-detail-value">${escapeHtml(docker.version)}</span>
+            <span class="server-detail-label">容器总数</span>
+            <span class="server-detail-value">${totalContainers}</span>
         </div>
-        <div class="server-detail-item">
-            <span class="server-detail-label">容器数量</span>
-            <span class="server-detail-value">${docker.containers?.length || 0}</span>
-        </div>
-        ${docker.containers && docker.containers.length > 0 ? `
-            <div class="docker-container-list">
-                ${docker.containers.map(container => `
-                    <div class="docker-container-item">
-                        <span class="docker-container-name">${escapeHtml(container.name)}</span>
-                        <span class="docker-container-status ${container.status.includes('Up') ? 'running' : 'exited'}">
-                            ${escapeHtml(container.status)}
-                        </span>
-                    </div>
-                `).join('')}
+        ${totalContainers > 0 ? `
+            <div class="server-detail-item">
+                <span class="server-detail-label">运行中</span>
+                <span class="server-detail-value" style="color: #10b981;">${runningContainers}</span>
+            </div>
+            <div class="server-detail-item">
+                <span class="server-detail-label">已停止</span>
+                <span class="server-detail-value" style="color: #ef4444;">${stoppedContainers}</span>
             </div>
         ` : ''}
     `;
 }
 
 /**
- * 切换服务器卡片展开/收起
+ * 切换主机卡片展开/收起
  */
 async function toggleServerCard(serverId) {
     if (state.expandedServers.has(serverId)) {
@@ -367,7 +453,7 @@ async function toggleServerCard(serverId) {
     } else {
         state.expandedServers.add(serverId);
 
-        // 如果还没有加载服务器信息，则加载
+        // 如果还没有加载主机信息，则加载
         if (!state.serverInfo.has(serverId)) {
             loadServerInfo(serverId);
         }
@@ -377,7 +463,7 @@ async function toggleServerCard(serverId) {
 }
 
 /**
- * 加载服务器详细信息
+ * 加载主机详细信息
  */
 async function loadServerInfo(serverId) {
     try {
@@ -391,7 +477,7 @@ async function loadServerInfo(serverId) {
         state.serverInfo.set(serverId, data);
         renderServerList();
     } catch (error) {
-        console.error('加载服务器信息失败:', error);
+        console.error('加载主机信息失败:', error);
         state.serverInfo.set(serverId, {
             success: false,
             error: error.message
@@ -401,16 +487,16 @@ async function loadServerInfo(serverId) {
 }
 
 /**
- * 刷新服务器信息
+ * 刷新主机信息
  */
 async function refreshServerInfo(serverId) {
     state.serverInfo.delete(serverId);
     await loadServerInfo(serverId);
-    showToast('正在刷新服务器信息...', 'info');
+    showToast('正在刷新主机信息...', 'info');
 }
 
 /**
- * 显示添加服务器对话框
+ * 显示添加主机对话框
  */
 function showAddServerModal() {
     // 触发 Vue 实例的方法
@@ -420,7 +506,7 @@ function showAddServerModal() {
 }
 
 /**
- * 显示编辑服务器对话框
+ * 显示编辑主机对话框
  */
 function showEditServerModal(serverId) {
     // 触发 Vue 实例的方法
@@ -430,10 +516,18 @@ function showEditServerModal(serverId) {
 }
 
 /**
- * 删除服务器
+ * 删除主机
  */
 async function deleteServer(serverId) {
-    if (!confirm('确定要删除这台服务器吗？')) {
+    const confirmed = await window.vueApp.showConfirm({
+        title: '删除主机',
+        message: '确定要删除这台主机吗？',
+        icon: 'fa-trash',
+        confirmText: '删除',
+        confirmClass: 'btn-danger'
+    });
+
+    if (!confirmed) {
         return;
     }
 
@@ -445,22 +539,22 @@ async function deleteServer(serverId) {
         const data = await response.json();
 
         if (data.success) {
-            showToast('服务器删除成功', 'success');
+            showToast('主机删除成功', 'success');
             loadServers();
         } else {
             showToast('删除失败: ' + data.error, 'error');
         }
     } catch (error) {
-        console.error('删除服务器失败:', error);
-        showToast('删除服务器失败', 'error');
+        console.error('删除主机失败:', error);
+        showToast('删除主机失败', 'error');
     }
 }
 
 /**
- * 手动探测所有服务器
+ * 手动探测所有主机
  */
 async function probeAllServers() {
-    showToast('正在探测所有服务器...', 'info');
+    showToast('正在探测所有主机...', 'info');
 
     try {
         const response = await fetch('/api/server/check-all', {
@@ -476,8 +570,8 @@ async function probeAllServers() {
             showToast('探测失败: ' + data.error, 'error');
         }
     } catch (error) {
-        console.error('探测服务器失败:', error);
-        showToast('探测服务器失败', 'error');
+        console.error('探测主机失败:', error);
+        showToast('探测主机失败', 'error');
     }
 }
 
@@ -487,7 +581,7 @@ async function probeAllServers() {
 function connectSSH(serverId) {
     const server = state.servers.find(s => s.id === serverId);
     if (!server) {
-        showToast('服务器不存在', 'error');
+        showToast('主机不存在', 'error');
         return;
     }
 
@@ -517,26 +611,18 @@ function showDockerContainers(serverId) {
 }
 
 /**
- * 打开文件管理器
- */
-function openFileManager(serverId) {
-    const server = state.servers.find(s => s.id === serverId);
-    if (!server) {
-        showToast('服务器不存在', 'error');
-        return;
-    }
-
-    // 触发 Vue 实例的方法
-    if (window.vueApp) {
-        window.vueApp.openFileManager(server);
-    }
-}
-
-/**
- * 重启服务器
+ * 重启主机
  */
 async function rebootServer(serverId) {
-    if (!confirm('确定要重启这台服务器吗？')) {
+    const confirmed = await window.vueApp.showConfirm({
+        title: '重启主机',
+        message: '确定要重启这台主机吗？',
+        icon: 'fa-redo',
+        confirmText: '重启',
+        confirmClass: 'btn-warning'
+    });
+
+    if (!confirmed) {
         return;
     }
 
@@ -555,8 +641,8 @@ async function rebootServer(serverId) {
             showToast('重启失败: ' + data.message, 'error');
         }
     } catch (error) {
-        console.error('重启服务器失败:', error);
-        showToast('重启服务器失败', 'error');
+        console.error('重启主机失败:', error);
+        showToast('重启主机失败', 'error');
     }
 }
 
@@ -564,7 +650,15 @@ async function rebootServer(serverId) {
  * 关机
  */
 async function shutdownServer(serverId) {
-    if (!confirm('确定要关闭这台服务器吗？此操作不可逆！')) {
+    const confirmed = await window.vueApp.showConfirm({
+        title: '关闭主机',
+        message: '确定要关闭这台主机吗？此操作不可逆！',
+        icon: 'fa-power-off',
+        confirmText: '确定关机',
+        confirmClass: 'btn-danger'
+    });
+
+    if (!confirmed) {
         return;
     }
 
@@ -589,7 +683,7 @@ async function shutdownServer(serverId) {
 }
 
 /**
- * 导入服务器
+ * 导入主机
  */
 function showImportModal() {
     // 触发 Vue 实例的方法
@@ -599,7 +693,7 @@ function showImportModal() {
 }
 
 /**
- * 导出服务器
+ * 导出主机
  */
 async function exportServers() {
     try {
@@ -620,13 +714,13 @@ async function exportServers() {
             showToast('导出失败: ' + data.error, 'error');
         }
     } catch (error) {
-        console.error('导出服务器失败:', error);
-        showToast('导出服务器失败', 'error');
+        console.error('导出主机失败:', error);
+        showToast('导出主机失败', 'error');
     }
 }
 
 /**
- * 绑定服务器卡片事件
+ * 绑定主机卡片事件
  */
 function bindServerCardEvents() {
     // 事件已通过 onclick 属性绑定
@@ -649,9 +743,9 @@ window.serverModule = {
     deleteServer,
     connectSSH,
     showDockerContainers,
-    openFileManager,
     rebootServer,
     shutdownServer,
     refreshServerInfo,
-    loadServers // 导出以便 Vue 可以调用
+    loadServers,
+    initManagementButtons // 初始化后台管理按钮
 };

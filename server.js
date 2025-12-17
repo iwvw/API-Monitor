@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
+const http = require('http');
 
 // 导入日志工具
 const { createLogger } = require('./src/utils/logger');
@@ -22,8 +23,15 @@ const {
 // 导入路由
 const { registerRoutes } = require('./src/routes');
 
+// 导入 SSH 终端服务
+const sshTerminalService = require('./modules/server-management/ssh-terminal-service');
+
 const app = express();
+const server = http.createServer(app);
 const PORT = process.env.PORT || 3000;
+
+// 初始化 WebSocket SSH 终端服务
+sshTerminalService.init(server);
 
 // 应用中间件
 app.use(corsMiddleware);
@@ -53,9 +61,9 @@ app.get('/favicon.ico', (req, res) => {
 // 加载持久化 session
 loadSessions();
 
-// 启动服务器
-app.listen(PORT, '0.0.0.0', () => {
-  logger.success(`服务器启动成功 - http://0.0.0.0:${PORT}`);
+// 启动主机
+server.listen(PORT, '0.0.0.0', () => {
+  logger.success(`主机启动成功 - http://0.0.0.0:${PORT}`);
 
   // 检查密码配置
   if (process.env.ADMIN_PASSWORD) {
@@ -103,11 +111,11 @@ app.listen(PORT, '0.0.0.0', () => {
         logger.groupItem(`OpenAI API: ${openaiEndpoints} 个端点, ${openaiHistory} 条健康检查记录`);
       }
 
-      // 服务器管理模块
+      // 主机管理模块
       const serverAccounts = stats.tables.server_accounts || 0;
       const serverLogs = stats.tables.server_monitor_logs || 0;
       if (serverAccounts > 0 || serverLogs > 0) {
-        logger.groupItem(`服务器管理: ${serverAccounts} 台服务器, ${serverLogs} 条监控日志`);
+        logger.groupItem(`主机管理: ${serverAccounts} 台主机, ${serverLogs} 条监控日志`);
       }
 
       // 系统数据
@@ -126,11 +134,13 @@ app.listen(PORT, '0.0.0.0', () => {
     logger.warn('无法获取数据库统计信息:', error.message);
   }
 
-  // 启动服务器监控服务
+  // 启动主机监控服务
   try {
     const monitorService = require('./modules/server-management/monitor-service');
     monitorService.start();
   } catch (error) {
-    logger.warn('服务器监控服务启动失败:', error.message);
+    logger.warn('主机监控服务启动失败:', error.message);
   }
+  
+  console.log('Server active.');
 });

@@ -24,6 +24,7 @@
 
   /* 颜色 */
   --primary-color: #6366f1;
+  --primary-rgb: 99, 102, 241;
   --primary-dark: #4f46e5;
   --primary-light: #818cf8;
   --secondary-color: #f97316;
@@ -36,9 +37,15 @@
   --openai-color: #10a37f;
   --openai-dark: #0d8a6a;
 
+  /* 主机管理模块专属主题色 */
+  --server-primary: #00d4aa;
+  --server-primary-dark: #00b894;
+  --server-primary-light: #00e6bf;
+
   /* Light theme */
   --bg-primary: #ffffff;
   --bg-secondary: #f9fafb;
+  --bg-secondary-rgb: 249, 250, 251;
   --bg-tertiary: #f3f4f6;
   --text-primary: #4e4e4e;
   --text-secondary: #4b5563;
@@ -66,6 +73,7 @@
   :root {
     --bg-primary: #111827;
     --bg-secondary: #1f2937;
+    --bg-secondary-rgb: 31, 41, 55;
     --bg-tertiary: #374151;
     --text-primary: #f9fafb;
     --text-secondary: #d1d5db;
@@ -99,7 +107,10 @@ body {
   min-height: 100vh;
 }
 
-button, input, select, textarea {
+button,
+input,
+select,
+textarea {
   font-family: inherit;
 }
 
@@ -111,6 +122,7 @@ body.modal-open {
   max-width: 1200px;
   margin: 0 auto;
   padding: 12px;
+  overflow: visible;
 }
 
 /* Header */
@@ -122,7 +134,7 @@ body.modal-open {
   position: relative;
 }
 
-.header > div:last-child {
+.header>div:last-child {
   position: absolute;
   right: 0;
   top: 50%;
@@ -330,8 +342,7 @@ body.modal-open {
   align-items: center;
   cursor: pointer;
   position: relative;
-  overflow-x: auto;
-  overflow-y: visible;
+  overflow: visible;
 }
 
 .account-header:hover {
@@ -387,7 +398,6 @@ body.modal-open {
   gap: 12px;
   flex: 1;
   min-width: 0;
-  overflow-x: auto;
   padding-right: 10px;
 }
 
@@ -535,7 +545,7 @@ body.modal-open {
   background-color: rgba(239, 68, 68, 0.1);
   color: var(--danger-color);
   padding: 16px;
-  border-radius: 8px;
+  border-radius: 12px;
   margin-bottom: 20px;
 }
 
@@ -570,7 +580,7 @@ body.modal-open {
     gap: 10px;
   }
 
-  .header > div:last-child {
+  .header>div:last-child {
     position: static;
     transform: none;
   }
@@ -580,7 +590,7 @@ body.modal-open {
     gap: 12px;
   }
 
-  .controls > div:first-child {
+  .controls>div:first-child {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
@@ -599,7 +609,7 @@ body.modal-open {
     padding-right: 100px;
   }
 
-  .account-header > div:last-child {
+  .account-header>div:last-child {
     right: 8px;
     top: 8px;
   }
@@ -632,7 +642,7 @@ body.modal-open {
     gap: 10px;
   }
 
-  .controls > div:first-child {
+  .controls>div:first-child {
     flex-direction: column;
     gap: 8px;
   }

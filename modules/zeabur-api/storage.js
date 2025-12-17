@@ -9,7 +9,7 @@ const dbService = require('../../src/db/database');
 dbService.initialize();
 
 /**
- * 读取服务器存储的账号
+ * 读取主机存储的账号
  */
 function loadServerAccounts() {
   try {

@@ -52,7 +52,7 @@ export const dnsMethods = {
         account.showToken = false;
         account.apiToken = null;
       } else {
-        // 显示 token - 从服务器获取
+        // 显示 token - 从主机获取
         const response = await fetch(`/api/cf-dns/accounts/${account.id}/token`, {
           headers: this.getAuthHeaders()
         });
@@ -897,7 +897,7 @@ export const dnsMethods = {
         return;
       }
 
-      // 从服务器获取包含 API Token 的完整账号数据
+      // 从主机获取包含 API Token 的完整账号数据
       const response = await fetch('/api/cf-dns/accounts/export', {
         headers: this.getAuthHeaders()
       });

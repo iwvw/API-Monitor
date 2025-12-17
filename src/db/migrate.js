@@ -242,9 +242,10 @@ class DataMigration {
                 module_visibility: settings.moduleVisibility || {
                     zeabur: true,
                     dns: true,
-                    openai: true
+                    openai: true,
+                    server: true
                 },
-                module_order: settings.moduleOrder || ['zeabur', 'dns', 'openai']
+                module_order: settings.moduleOrder || ['zeabur', 'dns', 'openai', 'server']
             });
             console.log('✓ 成功迁移用户设置');
         } catch (error) {

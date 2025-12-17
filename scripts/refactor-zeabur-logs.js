@@ -69,11 +69,11 @@ content = content.replace(/console\.error\('❌ \/api\/projects 未捕获异常:
   "logger.error('获取项目失败', error.message);"
 );
 
-content = content.replace(/console\.log\(`📋 返回 \$\{allAccounts\.length\} 个账号 \(环境变量: \$\{envAccounts\.length\}, 服务器: \$\{serverAccounts\.length\}\)`\);/g,
-  "logger.info(`加载 \${allAccounts.length} 个账号 (环境: \${envAccounts.length}, 服务器: \${serverAccounts.length})`);"
+content = content.replace(/console\.log\(`📋 返回 \$\{allAccounts\.length\} 个账号 \(环境变量: \$\{envAccounts\.length\}, 主机: \$\{serverAccounts\.length\}\)`\);/g,
+  "logger.info(`加载 \${allAccounts.length} 个账号 (环境: \${envAccounts.length}, 主机: \${serverAccounts.length})`);"
 );
 
-content = content.replace(/console\.log\(`✅ 保存 \$\{accounts\.length\} 个账号到服务器`\);/g,
+content = content.replace(/console\.log\(`✅ 保存 \$\{accounts\.length\} 个账号到主机`\);/g,
   "logger.success(`保存 \${accounts.length} 个账号`);"
 );
 

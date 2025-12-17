@@ -10,13 +10,14 @@ import { dnsMethods } from './modules/dns.js';
 import { openaiMethods } from './modules/openai.js';
 import { settingsMethods } from './modules/settings.js';
 import { transitionsMethods } from './modules/transitions.js';
-import { initServerModule } from './modules/server.js';
+// import { initServerModule } from './modules/server.js'; // 已改用 Vue 渲染,不再需要
+import toastManager, { toast } from './modules/toast.js';
 
 // 获取 Vue
 const { createApp } = Vue;
 
 // 创建并配置 Vue 应用
-createApp({
+const app = createApp({
   data() {
     return {
       // Zeabur 相关
@@ -81,6 +82,8 @@ createApp({
 
       // 主标签页
       mainActiveTab: 'zeabur',
+      previousMainTab: null,
+      tabSwitchDebounce: null,
       zeaburCurrentTab: 'monitor',
 
       // DNS 管理相关
@@ -139,8 +142,11 @@ createApp({
       openaiBatchSuccess: '',
       openaiAdding: false,
 
-      // 服务器管理相关
+      // 主机管理相关
       serverCurrentTab: 'list',
+      serverLoading: false,
+      expandedServers: new Set(),
+      expandedDockerPanels: new Set(),
       showServerModal: false,
       serverModalMode: 'add', // 'add' or 'edit'
       serverModalSaving: false,
@@ -165,6 +171,30 @@ createApp({
       showDockerModal: false,
       dockerModalServer: null,
       dockerModalData: null,
+      serverCredentials: [],
+      showAddCredentialModal: false,
+      credForm: {
+        name: '',
+        username: '',
+        password: ''
+      },
+      credError: '',
+      
+      // 批量添加主机
+      serverBatchText: '',
+      serverBatchError: '',
+      serverBatchSuccess: '',
+      serverAddingBatch: false,
+
+      // 主机筛选与自动更新
+      serverSearchText: '',
+      serverStatusFilter: 'all',
+      serverPollingEnabled: true,
+      serverPollingTimer: null,
+      serverCountdownInterval: null,
+      serverRefreshCountdown: 60,
+      serverRefreshProgress: 100,
+      probeStatus: '', // '', 'loading', 'success', 'error'
 
       // SSH 终端相关
       showSSHTerminalModal: false,
@@ -178,6 +208,10 @@ createApp({
       sshSessions: [], // { id, server, terminal, fit, history, historyIndex }
       activeSessionId: null,
       showAddSessionSelectModal: false,
+      // 主题观察器
+      themeObserver: null,
+      docObserver: null,
+      themeUpdateTimer: null,
       monitorConfig: {
         interval: 60,
         timeout: 10,
@@ -195,14 +229,6 @@ createApp({
       },
       logPage: 1,
       logPageSize: 50,
-
-      // 文件管理器相关
-      showFileManagerModal: false,
-      fileManagerServer: null,
-      fileManagerPath: '/',
-      fileManagerFiles: [],
-      fileManagerLoading: false,
-      fileManagerError: '',
 
       // 模块可见性控制
       moduleVisibility: {
@@ -223,9 +249,6 @@ createApp({
       customCss: '',
       customCssError: '',
       customCssSuccess: '',
-
-      // 全局Toast
-      globalToast: { show: false, message: '', type: 'success' },
 
       // 自定义对话框
       customDialog: {
@@ -293,46 +316,29 @@ createApp({
       return total;
     },
 
-    // 获取模块图标
-    getModuleIcon() {
-      return (module) => {
-        const icons = {
-          zeabur: 'fa-cloud',
-          dns: 'fa-globe',
-          openai: 'fa-robot',
-          server: 'fa-server'
-        };
-        return icons[module] || 'fa-cube';
-      };
-    },
+    /**
+     * 实现主机列表的实时筛选
+     */
+    filteredServerList() {
+      let list = this.serverList;
 
-    // 获取模块名称
-    getModuleName() {
-      return (module) => {
-        const names = {
-          zeabur: 'Zeabur 监控',
-          dns: 'DNS 管理',
-          openai: 'OpenAPI',
-          server: '服务器管理'
-        };
-        return names[module] || module;
-      };
-    },
-
-    // 文件管理器面包屑
-    fileManagerBreadcrumbs() {
-      const segments = [];
-      const parts = this.fileManagerPath.split('/').filter(p => p);
-      let currentPath = '';
-
-      segments.push({ name: '/', path: '/' });
-
-      for (const part of parts) {
-        currentPath += '/' + part;
-        segments.push({ name: part, path: currentPath });
+      // 状态筛选
+      if (this.serverStatusFilter !== 'all') {
+        list = list.filter(item => item.status === this.serverStatusFilter);
       }
 
-      return segments;
+      // 搜索文本筛选 (名称、IP、标签)
+      if (this.serverSearchText.trim()) {
+        const search = this.serverSearchText.toLowerCase();
+        list = list.filter(item => {
+          const nameMatch = item.name && item.name.toLowerCase().includes(search);
+          const hostMatch = item.host && item.host.toLowerCase().includes(search);
+          const tagMatch = item.tags && item.tags.some(tag => tag.toLowerCase().includes(search));
+          return nameMatch || hostMatch || tagMatch;
+        });
+      }
+
+      return list;
     }
   },
 
@@ -343,8 +349,11 @@ createApp({
     // 加载模块可见性和顺序设置
     this.loadModuleSettings();
 
+    // SSH 终端使用固定深色主题,不需要监听主题变化
+    // this.setupThemeObserver();
+
     try {
-      // 检查服务器是否已设置密码
+      // 检查主机是否已设置密码
       const hasPasswordResponse = await fetch('/api/check-password');
       const { hasPassword } = await hasPasswordResponse.json();
 
@@ -394,6 +403,22 @@ createApp({
         this.loadMonitorConfig();
         this.loadServerList();
         this.loadMonitorLogs();
+      } else if (newVal === 'list') {
+        // 切换回列表时重新加载
+        this.loadServerList();
+      } else if (newVal && newVal.startsWith('ssh_')) {
+        // 切换到SSH标签页时，调整终端大小并聚焦
+        const sessionId = newVal.replace('ssh_', '');
+        this.$nextTick(() => {
+          const session = this.sshSessions.find(s => s.id === sessionId);
+          if (session && session.fit && session.terminal) {
+            // 延迟一点确保DOM完全渲染
+            setTimeout(() => {
+              session.fit.fit();
+              session.terminal.focus();
+            }, 50);
+          }
+        });
       }
     },
 
@@ -443,12 +468,21 @@ createApp({
       }
     },
 
-    mainActiveTab(newVal) {
-      // 当切换到服务器管理模块时，初始化模块
-      if (newVal === 'server') {
-        this.$nextTick(() => {
-          initServerModule();
-        });
+    mainActiveTab: {
+      handler(newVal) {
+        // 切换到主机管理时加载主机列表（需已认证）
+        // 仅当列表为空时才自动加载，避免切换 tab 导致状态丢失
+        if (newVal === 'server' && this.isAuthenticated && this.serverList.length === 0) {
+          this.loadServerList();
+        }
+      },
+      immediate: true // 初始化时也触发
+    },
+
+    // 认证成功后加载当前标签页数据
+    isAuthenticated(newVal) {
+      if (newVal && this.mainActiveTab === 'server') {
+        this.loadServerList();
       }
     },
 
@@ -533,9 +567,10 @@ createApp({
       }
     },
 
-    showFileManagerModal(newVal) {
-      if (newVal) {
-        this.$nextTick(() => this.focusModalOverlay());
+    serverCurrentTab(newVal) {
+      if (newVal === 'management') {
+        this.loadMonitorConfig();
+        this.loadCredentials();
       }
     }
   },
@@ -554,15 +589,24 @@ createApp({
     if (this.logsRealTimeTimer) {
       clearInterval(this.logsRealTimeTimer);
     }
+    this.stopServerPolling();
   },
 
   methods: {
-    // 通用工具函数
-    showGlobalToast(message, type = 'success') {
-      this.globalToast = { show: true, message, type };
-      setTimeout(() => {
-        this.globalToast.show = false;
-      }, 3000);
+    // Toast 管理系统 - 使用新的独立 Toast 管理器
+    showGlobalToast(message, type = 'success', duration = 3000) {
+      // 使用新的toast系统
+      toast[type](message, { duration });
+    },
+
+    // DNS Toast (使用新系统)
+    showDnsToast(message, type = 'success') {
+      toast[type](message);
+    },
+
+    // OpenAI Toast (使用新系统)
+    showOpenaiToast(message, type = 'success') {
+      toast[type](message);
     },
 
     /**
@@ -651,9 +695,11 @@ createApp({
       return masked + '@' + domain;
     },
 
-    // ==================== 服务器管理方法 ====================
-    openAddServerModal() {
+    // ==================== 主机管理方法 ====================
+    async openAddServerModal() {
       this.serverModalMode = 'add';
+
+      // 重置表单
       this.serverForm = {
         id: null,
         name: '',
@@ -667,6 +713,15 @@ createApp({
         tagsInput: '',
         description: ''
       };
+
+      // 自动应用默认凭据
+      const defaultCred = this.serverCredentials.find(c => c.is_default);
+      if (defaultCred) {
+        this.serverForm.username = defaultCred.username;
+        this.serverForm.password = defaultCred.password || '';
+        this.serverForm.authType = 'password';
+      }
+
       this.serverModalError = '';
       this.showServerModal = true;
     },
@@ -688,7 +743,7 @@ createApp({
               host: server.host,
               port: server.port,
               username: server.username,
-              authType: server.auth_type || 'password',
+              authType: server.auth_type === 'key' ? 'privateKey' : (server.auth_type || 'password'),
               password: '', // 不显示原密码
               privateKey: '', // 不显示原私钥
               passphrase: '',
@@ -697,14 +752,14 @@ createApp({
             };
             this.showServerModal = true;
           } else {
-            this.showGlobalToast('服务器不存在', 'error');
+            this.showGlobalToast('主机不存在', 'error');
           }
         } else {
-          this.showGlobalToast('加载服务器信息失败: ' + data.error, 'error');
+          this.showGlobalToast('加载主机信息失败: ' + data.error, 'error');
         }
       } catch (error) {
-        console.error('加载服务器信息失败:', error);
-        this.showGlobalToast('加载服务器信息失败', 'error');
+        console.error('加载主机信息失败:', error);
+        this.showGlobalToast('加载主机信息失败', 'error');
       }
     },
 
@@ -747,9 +802,9 @@ createApp({
             host: this.serverForm.host,
             port: this.serverForm.port,
             username: this.serverForm.username,
-            authType: this.serverForm.authType,
+            auth_type: this.serverForm.authType === 'privateKey' ? 'key' : this.serverForm.authType,
             password: this.serverForm.password,
-            privateKey: this.serverForm.privateKey,
+            private_key: this.serverForm.privateKey,
             passphrase: this.serverForm.passphrase
           })
         });
@@ -802,7 +857,7 @@ createApp({
           host: this.serverForm.host,
           port: this.serverForm.port,
           username: this.serverForm.username,
-          authType: this.serverForm.authType,
+          auth_type: this.serverForm.authType === 'privateKey' ? 'key' : this.serverForm.authType,
           tags: tags,
           description: this.serverForm.description
         };
@@ -812,7 +867,7 @@ createApp({
           payload.password = this.serverForm.password;
         }
         if (this.serverForm.authType === 'privateKey' && this.serverForm.privateKey) {
-          payload.privateKey = this.serverForm.privateKey;
+          payload.private_key = this.serverForm.privateKey;
           if (this.serverForm.passphrase) {
             payload.passphrase = this.serverForm.passphrase;
           }
@@ -834,23 +889,21 @@ createApp({
 
         if (data.success) {
           this.showGlobalToast(
-            this.serverModalMode === 'add' ? '服务器添加成功' : '服务器更新成功',
+            this.serverModalMode === 'add' ? '主机添加成功' : '主机更新成功',
             'success'
           );
           this.closeServerModal();
 
-          // 刷新服务器列表
-          if (window.serverModule && window.serverModule.loadServers) {
-            window.serverModule.loadServers();
-          }
+          // 刷新主机列表
+          this.loadServerList();
         } else {
           this.serverModalError = data.error || '保存失败';
           this.showGlobalToast('保存失败: ' + data.error, 'error');
         }
       } catch (error) {
-        console.error('保存服务器失败:', error);
+        console.error('保存主机失败:', error);
         this.serverModalError = '保存失败: ' + error.message;
-        this.showGlobalToast('保存服务器失败', 'error');
+        this.showGlobalToast('保存主机失败', 'error');
       } finally {
         this.serverModalSaving = false;
       }
@@ -881,7 +934,7 @@ createApp({
           const data = JSON.parse(e.target.result);
 
           if (!Array.isArray(data)) {
-            this.importModalError = '文件格式错误：应为服务器数组';
+            this.importModalError = '文件格式错误：应为主机数组';
             return;
           }
 
@@ -891,7 +944,7 @@ createApp({
           });
 
           if (validServers.length === 0) {
-            this.importModalError = '文件中没有有效的服务器配置';
+            this.importModalError = '文件中没有有效的主机配置';
             return;
           }
 
@@ -922,23 +975,169 @@ createApp({
         const data = await response.json();
 
         if (data.success) {
-          this.showGlobalToast(`成功导入 ${data.imported} 台服务器`, 'success');
+          this.showGlobalToast(`成功导入 ${data.imported || data.results?.filter(r => r.success).length || 0} 台主机`, 'success');
           this.closeImportServerModal();
 
-          // 刷新服务器列表
-          if (window.serverModule && window.serverModule.loadServers) {
-            window.serverModule.loadServers();
-          }
+          // 刷新主机列表
+          this.loadServerList();
         } else {
           this.importModalError = '导入失败: ' + data.error;
           this.showGlobalToast('导入失败', 'error');
         }
       } catch (error) {
-        console.error('导入服务器失败:', error);
+        console.error('导入主机失败:', error);
         this.importModalError = '导入失败: ' + error.message;
-        this.showGlobalToast('导入服务器失败', 'error');
+        this.showGlobalToast('导入主机失败', 'error');
       } finally {
         this.importModalSaving = false;
+      }
+    },
+
+    /**
+     * 批量添加主机 (文本方式)
+     */
+    async batchAddServers() {
+      this.serverBatchError = '';
+      this.serverBatchSuccess = '';
+      
+      if (!this.serverBatchText.trim()) {
+        this.serverBatchError = '请输入主机信息';
+        return;
+      }
+
+      const lines = this.serverBatchText.split('\n');
+      const servers = [];
+      let parseErrors = [];
+
+      for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line) continue;
+
+        try {
+          // 尝试解析 JSON
+          if (line.startsWith('{')) {
+            const server = JSON.parse(line);
+            if (server.name && server.host) {
+               // 确保必要字段存在
+               server.port = server.port || 22;
+               server.auth_type = server.auth_type || 'password';
+               servers.push(server);
+            } else {
+               parseErrors.push(`第 ${i+1} 行: 缺少必要字段 (name, host)`);
+            }
+          } else {
+            // 解析 CSV: name, host, port, username, password
+            // 支持逗号或竖线分隔
+            const parts = line.split(/[|,，]/).map(p => p.trim());
+            
+            if (parts.length >= 2) {
+              const server = {
+                name: parts[0],
+                host: parts[1],
+                port: parseInt(parts[2]) || 22,
+                username: parts[3] || 'root',
+                auth_type: 'password',
+                password: parts[4] || ''
+              };
+              
+              if (!server.name || !server.host) {
+                 parseErrors.push(`第 ${i+1} 行: 格式错误，缺少名称或IP`);
+                 continue;
+              }
+              
+              servers.push(server);
+            } else {
+              parseErrors.push(`第 ${i+1} 行: 格式错误，请检查分隔符`);
+            }
+          }
+        } catch (e) {
+          parseErrors.push(`第 ${i+1} 行: 解析失败 (${e.message})`);
+        }
+      }
+
+      if (servers.length === 0) {
+        this.serverBatchError = '没有识别到有效的主机信息。\n' + (parseErrors.length > 0 ? '错误示例:\n' + parseErrors.slice(0, 3).join('\n') : '');
+        return;
+      }
+
+      this.serverAddingBatch = true;
+
+      try {
+        const response = await fetch('/api/server/accounts/import', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ servers })
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+          const successCount = data.results ? data.results.filter(r => r.success).length : 0;
+          const failCount = data.results ? data.results.filter(r => !r.success).length : 0;
+          
+          let msg = `批量添加完成: 成功 ${successCount} 台`;
+          if (failCount > 0) msg += `, 失败 ${failCount} 台`;
+          
+          this.serverBatchSuccess = msg;
+          this.showGlobalToast(msg, failCount > 0 ? 'warning' : 'success');
+          
+          if (successCount > 0) {
+             this.serverBatchText = ''; // 清空输入
+             this.loadServerList();
+          }
+        } else {
+          this.serverBatchError = '添加失败: ' + data.error;
+        }
+      } catch (error) {
+        console.error('批量添加失败:', error);
+        this.serverBatchError = '请求失败: ' + error.message;
+      } finally {
+        this.serverAddingBatch = false;
+      }
+    },
+
+    /**
+     * 检测 Docker 容器镜像更新
+     */
+    async checkContainerUpdate(server, container) {
+      if (container.checkingUpdate) return;
+
+      // 使用 Vue.set 确保响应式 (Vue 2 风格) 或直接赋值
+      // container 对象是 dockerModalData.containers 数组的一部分，应该是响应式的
+      container.checkingUpdate = true;
+      // 强制更新视图，防止深层对象未响应
+      this.$forceUpdate();
+
+      try {
+        const response = await fetch('/api/server/docker/check-update', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            serverId: server.id,
+            imageName: container.image
+          })
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+          // 更新容器状态
+          container.updateAvailable = data.data.updateAvailable;
+
+          if (data.data.updateAvailable) {
+            this.showGlobalToast(`容器 ${container.name} 有新版本可用`, 'success');
+          } else {
+            this.showGlobalToast(`容器 ${container.name} 已是最新`, 'info');
+          }
+        } else {
+          this.showGlobalToast('检测失败: ' + (data.error || data.message), 'error');
+        }
+      } catch (error) {
+        console.error('检测更新失败:', error);
+        this.showGlobalToast('检测请求失败', 'error');
+      } finally {
+        container.checkingUpdate = false;
+        this.$forceUpdate();
       }
     },
 
@@ -955,11 +1154,19 @@ createApp({
     },
 
     /**
-     * 打开 SSH 终端
+     * 打开 SSH 终端(作为动态子标签页)
      */
     openSSHTerminal(server) {
-      // 加载服务器列表用于新建会话
+      // 加载主机列表用于新建会话
       this.loadServerList();
+
+      // 检查是否已存在该主机的会话
+      const existingSession = this.sshSessions.find(s => s.server.id === server.id);
+      if (existingSession) {
+        // 如果已存在，直接切换到该标签页
+        this.switchToSSHTab(existingSession.id);
+        return;
+      }
 
       // 创建新会话
       const sessionId = 'session_' + Date.now();
@@ -968,13 +1175,14 @@ createApp({
         server: server,
         terminal: null,
         fit: null,
-        history: [],
-        historyIndex: -1
+        ws: null,
+        connected: false
       };
 
       this.sshSessions.push(session);
-      this.activeSessionId = sessionId;
-      this.showSSHTerminalModal = true;
+
+      // 切换到新的SSH标签页
+      this.serverCurrentTab = 'ssh_' + sessionId;
 
       // 等待 DOM 更新后初始化终端
       this.$nextTick(() => {
@@ -983,7 +1191,272 @@ createApp({
     },
 
     /**
-     * 初始化会话终端
+     * 切换到SSH标签页
+     */
+    switchToSSHTab(sessionId) {
+      this.serverCurrentTab = 'ssh_' + sessionId;
+      this.activeSessionId = sessionId;
+      this.$nextTick(() => {
+        const session = this.sshSessions.find(s => s.id === sessionId);
+        if (session && session.fit) {
+          session.fit.fit();
+          session.terminal.focus();
+        }
+      });
+    },
+
+    /**
+     * 关闭SSH会话（从子标签页）
+     */
+    closeSSHSession(sessionId) {
+      const index = this.sshSessions.findIndex(s => s.id === sessionId);
+      if (index === -1) return;
+
+      const session = this.sshSessions[index];
+
+      // 清除心跳定时器
+      if (session.heartbeatInterval) {
+        clearInterval(session.heartbeatInterval);
+        session.heartbeatInterval = null;
+      }
+
+      // 关闭 WebSocket 连接
+      if (session.ws) {
+        if (session.ws.readyState === WebSocket.OPEN) {
+          session.ws.send(JSON.stringify({ type: 'disconnect' }));
+        }
+        session.ws.close();
+      }
+
+      // 移除 resize 监听器
+      if (session.resizeHandler) {
+        window.removeEventListener('resize', session.resizeHandler);
+      }
+
+      // 销毁终端实例
+      if (session.terminal) {
+        session.terminal.dispose();
+      }
+
+      // 如果当前正在显示此会话，切换到其他标签页
+      if (this.serverCurrentTab === 'ssh_' + sessionId) {
+        if (this.sshSessions.length > 1) {
+          // 切换到其他SSH会话
+          const nextSession = this.sshSessions.find(s => s.id !== sessionId);
+          if (nextSession) {
+            this.serverCurrentTab = 'ssh_' + nextSession.id;
+            this.activeSessionId = nextSession.id;
+          }
+        } else {
+          // 没有其他SSH会话，切回主机列表
+          this.serverCurrentTab = 'list';
+        }
+      }
+
+      // 从列表中移除
+      this.sshSessions.splice(index, 1);
+
+      // 更新 activeSessionId
+      if (this.activeSessionId === sessionId) {
+        this.activeSessionId = this.sshSessions.length > 0 ? this.sshSessions[0].id : null;
+      }
+    },
+
+    /**
+     * 重新连接SSH会话
+     */
+    reconnectSSHSession(sessionId) {
+      const session = this.sshSessions.find(s => s.id === sessionId);
+      if (!session) return;
+
+      console.log(`[SSH ${sessionId}] 开始重新连接...`);
+
+      // 清除心跳定时器
+      if (session.heartbeatInterval) {
+        clearInterval(session.heartbeatInterval);
+        session.heartbeatInterval = null;
+      }
+
+      // 如果已连接，先断开
+      if (session.ws) {
+        if (session.ws.readyState === WebSocket.OPEN) {
+          session.ws.send(JSON.stringify({ type: 'disconnect' }));
+        }
+        session.ws.close();
+        session.ws = null;
+      }
+
+      // 清空终端并显示重连信息
+      if (session.terminal) {
+        session.terminal.clear();
+        session.terminal.writeln(`\x1b[1;33m正在重新连接到 ${session.server.name} (${session.server.host})...\x1b[0m`);
+      }
+
+      // 建立新的 WebSocket 连接
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const ws = new WebSocket(`${protocol}//${window.location.host}/ws/ssh`);
+      session.ws = ws;
+
+      ws.onopen = () => {
+        console.log(`[SSH ${sessionId}] WebSocket 已重新连接`);
+        ws.send(JSON.stringify({
+          type: 'connect',
+          serverId: session.server.id,
+          cols: session.terminal.cols,
+          rows: session.terminal.rows
+        }));
+
+        // 启动心跳保活
+        session.heartbeatInterval = setInterval(() => {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'ping' }));
+          }
+        }, 30000);
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          switch (msg.type) {
+            case 'connected':
+              session.connected = true;
+              session.terminal.writeln(`\x1b[1;32m${msg.message}\x1b[0m`);
+              session.terminal.writeln('');
+              break;
+            case 'output':
+              session.terminal.write(msg.data);
+              break;
+            case 'error':
+              session.terminal.writeln(`\x1b[1;31m错误: ${msg.message}\x1b[0m`);
+              break;
+            case 'disconnected':
+              session.connected = false;
+              session.terminal.writeln('');
+              session.terminal.writeln(`\x1b[1;33m${msg.message}\x1b[0m`);
+              break;
+          }
+        } catch (e) {
+          console.error('解析消息失败:', e);
+        }
+      };
+
+      ws.onerror = () => {
+        session.terminal.writeln(`\x1b[1;31mWebSocket 连接错误\x1b[0m`);
+      };
+
+      ws.onclose = () => {
+        console.log(`[SSH ${sessionId}] WebSocket 已关闭`);
+
+        // 清除心跳定时器
+        if (session.heartbeatInterval) {
+          clearInterval(session.heartbeatInterval);
+          session.heartbeatInterval = null;
+        }
+
+        if (session.connected) {
+          session.terminal.writeln('');
+          session.terminal.writeln(`\x1b[1;33m连接已断开。点击"重新连接"按钮恢复连接。\x1b[0m`);
+        }
+        session.connected = false;
+      };
+    },
+
+    /**
+     * 获取终端主题配置 - 固定深色主题
+     */
+    getTerminalTheme() {
+      // SSH 终端始终使用深色主题
+      return {
+        background: '#1e1e1e',
+        foreground: '#e0e0e0',
+        cursor: '#ffffff',
+        black: '#000000',
+        red: '#cd3131',
+        green: '#0dbc79',
+        yellow: '#e5e510',
+        blue: '#2472c8',
+        magenta: '#bc3fbc',
+        cyan: '#11a8cd',
+        white: '#e5e5e5',
+        brightBlack: '#666666',
+        brightRed: '#f14c4c',
+        brightGreen: '#23d18b',
+        brightYellow: '#f5f543',
+        brightBlue: '#3b8eea',
+        brightMagenta: '#d670d6',
+        brightCyan: '#29b8db',
+        brightWhite: '#e5e5e5'
+      };
+    },
+
+    /**
+     * 更新所有终端的主题
+     */
+    updateAllTerminalThemes() {
+      const theme = this.getTerminalTheme();
+
+      this.sshSessions.forEach(session => {
+        if (session.terminal) {
+          try {
+            session.terminal.options.theme = theme;
+          } catch (err) {
+            console.error('更新终端主题失败:', err);
+          }
+        }
+      });
+    },
+
+    /**
+     * 设置主题观察器
+     */
+    setupThemeObserver() {
+      // 使用 MutationObserver 监听 style 元素的变化
+      const observer = new MutationObserver((mutations) => {
+        mutations.forEach(mutation => {
+          if (mutation.type === 'childList' || mutation.type === 'characterData') {
+            // 延迟更新,避免过于频繁
+            if (this.themeUpdateTimer) {
+              clearTimeout(this.themeUpdateTimer);
+            }
+            this.themeUpdateTimer = setTimeout(() => {
+              this.updateAllTerminalThemes();
+            }, 100);
+          }
+        });
+      });
+
+      // 监听 custom-css style 元素的变化
+      const customCssElement = document.getElementById('custom-css');
+      if (customCssElement) {
+        observer.observe(customCssElement, {
+          childList: true,
+          characterData: true,
+          subtree: true
+        });
+      }
+
+      // 同时监听 document.documentElement 的 style 属性变化
+      const docObserver = new MutationObserver(() => {
+        if (this.themeUpdateTimer) {
+          clearTimeout(this.themeUpdateTimer);
+        }
+        this.themeUpdateTimer = setTimeout(() => {
+          this.updateAllTerminalThemes();
+        }, 100);
+      });
+
+      docObserver.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ['style']
+      });
+
+      // 保存观察器以便后续清理
+      this.themeObserver = observer;
+      this.docObserver = docObserver;
+    },
+
+    /**
+     * 初始化会话终端 (WebSocket 版本)
      */
     initSessionTerminal(sessionId) {
       const session = this.sshSessions.find(s => s.id === sessionId);
@@ -998,32 +1471,15 @@ createApp({
       // 清空容器
       terminalContainer.innerHTML = '';
 
+      // 获取终端主题
+      const theme = this.getTerminalTheme();
+
       // 创建 xterm 实例
       const terminal = new Terminal({
         cursorBlink: true,
         fontSize: 14,
         fontFamily: 'Consolas, "Courier New", monospace',
-        theme: {
-          background: '#1e1e1e',
-          foreground: '#d4d4d4',
-          cursor: '#d4d4d4',
-          black: '#000000',
-          red: '#cd3131',
-          green: '#0dbc79',
-          yellow: '#e5e510',
-          blue: '#2472c8',
-          magenta: '#bc3fbc',
-          cyan: '#11a8cd',
-          white: '#e5e5e5',
-          brightBlack: '#666666',
-          brightRed: '#f14c4c',
-          brightGreen: '#23d18b',
-          brightYellow: '#f5f543',
-          brightBlue: '#3b8eea',
-          brightMagenta: '#d670d6',
-          brightCyan: '#29b8db',
-          brightWhite: '#e5e5e5'
-        },
+        theme: theme,
         cols: 80,
         rows: 24
       });
@@ -1044,66 +1500,90 @@ createApp({
       session.terminal = terminal;
       session.fit = fit;
 
-      // 显示欢迎信息
-      terminal.writeln(`\x1b[1;32m连接到服务器: ${session.server.name}\x1b[0m`);
-      terminal.writeln(`\x1b[1;36m地址: ${session.server.host}:${session.server.port}\x1b[0m`);
-      terminal.writeln('');
-      terminal.write('$ ');
+      // 显示连接中信息
+      terminal.writeln(`\x1b[1;33m正在连接到 ${session.server.name} (${session.server.host})...\x1b[0m`);
 
-      // 监听输入
-      let currentLine = '';
+      // 建立 WebSocket 连接
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const ws = new WebSocket(`${protocol}//${window.location.host}/ws/ssh`);
+      session.ws = ws;
+
+      ws.onopen = () => {
+        console.log(`[SSH ${sessionId}] WebSocket 已连接`);
+        // 发送连接请求
+        ws.send(JSON.stringify({
+          type: 'connect',
+          serverId: session.server.id,
+          cols: terminal.cols,
+          rows: terminal.rows
+        }));
+
+        // 启动心跳保活
+        session.heartbeatInterval = setInterval(() => {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'ping' }));
+          }
+        }, 30000); // 每30秒发送一次心跳
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+
+          switch (msg.type) {
+            case 'connected':
+              session.connected = true;
+              terminal.writeln(`\x1b[1;32m${msg.message}\x1b[0m`);
+              terminal.writeln('');
+              break;
+
+            case 'output':
+              terminal.write(msg.data);
+              break;
+
+            case 'error':
+              terminal.writeln(`\x1b[1;31m错误: ${msg.message}\x1b[0m`);
+              break;
+
+            case 'disconnected':
+              session.connected = false;
+              terminal.writeln('');
+              terminal.writeln(`\x1b[1;33m${msg.message}\x1b[0m`);
+              break;
+          }
+        } catch (e) {
+          console.error('解析消息失败:', e);
+        }
+      };
+
+      ws.onerror = (error) => {
+        terminal.writeln(`\x1b[1;31mWebSocket 连接错误\x1b[0m`);
+        console.error('WebSocket error:', error);
+      };
+
+      ws.onclose = () => {
+        console.log(`[SSH ${sessionId}] WebSocket 已关闭`);
+
+        // 清除心跳定时器
+        if (session.heartbeatInterval) {
+          clearInterval(session.heartbeatInterval);
+          session.heartbeatInterval = null;
+        }
+
+        if (session.connected) {
+          terminal.writeln('');
+          terminal.writeln(`\x1b[1;33m连接已断开。点击"重新连接"按钮恢复连接。\x1b[0m`);
+        }
+        session.connected = false;
+      };
+
+      // 监听终端输入，发送到 WebSocket
       terminal.onData(data => {
-        // 处理特殊按键
-        if (data === '\r') { // Enter
-          terminal.write('\r\n');
-          if (currentLine.trim()) {
-            this.executeSessionCommand(sessionId, currentLine.trim());
-            session.history.push(currentLine.trim());
-            session.historyIndex = session.history.length;
-          }
-          currentLine = '';
-          terminal.write('$ ');
-        } else if (data === '\u007F') { // Backspace
-          if (currentLine.length > 0) {
-            currentLine = currentLine.slice(0, -1);
-            terminal.write('\b \b');
-          }
-        } else if (data === '\u001b[A') { // Up arrow
-          if (session.historyIndex > 0) {
-            // 清除当前行
-            for (let i = 0; i < currentLine.length; i++) {
-              terminal.write('\b \b');
-            }
-            // 显示历史命令
-            session.historyIndex--;
-            currentLine = session.history[session.historyIndex];
-            terminal.write(currentLine);
-          }
-        } else if (data === '\u001b[B') { // Down arrow
-          if (session.historyIndex < session.history.length - 1) {
-            // 清除当前行
-            for (let i = 0; i < currentLine.length; i++) {
-              terminal.write('\b \b');
-            }
-            // 显示历史命令
-            session.historyIndex++;
-            currentLine = session.history[session.historyIndex];
-            terminal.write(currentLine);
-          } else if (session.historyIndex === session.history.length - 1) {
-            // 清除当前行
-            for (let i = 0; i < currentLine.length; i++) {
-              terminal.write('\b \b');
-            }
-            session.historyIndex = session.history.length;
-            currentLine = '';
-          }
-        } else if (data === '\u0003') { // Ctrl+C
-          terminal.write('^C\r\n$ ');
-          currentLine = '';
-        } else {
-          // 普通字符
-          currentLine += data;
-          terminal.write(data);
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({
+            type: 'input',
+            data: data
+          }));
         }
       });
 
@@ -1111,46 +1591,18 @@ createApp({
       const resizeHandler = () => {
         if (session.fit) {
           session.fit.fit();
+          // 通知服务器终端大小变化
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({
+              type: 'resize',
+              cols: terminal.cols,
+              rows: terminal.rows
+            }));
+          }
         }
       };
       window.addEventListener('resize', resizeHandler);
       session.resizeHandler = resizeHandler;
-    },
-
-    /**
-     * 执行会话 SSH 命令
-     */
-    async executeSessionCommand(sessionId, command) {
-      const session = this.sshSessions.find(s => s.id === sessionId);
-      if (!session) return;
-
-      try {
-        const response = await fetch('/api/server/ssh/exec', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            serverId: session.server.id,
-            command: command
-          })
-        });
-
-        const data = await response.json();
-
-        if (data.success) {
-          // 显示命令输出
-          if (data.data.stdout) {
-            session.terminal.write(data.data.stdout);
-          }
-          if (data.data.stderr) {
-            session.terminal.write(`\x1b[1;31m${data.data.stderr}\x1b[0m`);
-          }
-        } else {
-          session.terminal.write(`\x1b[1;31m错误: ${data.error}\x1b[0m\r\n`);
-        }
-      } catch (error) {
-        console.error('执行命令失败:', error);
-        session.terminal.write(`\x1b[1;31m执行命令失败: ${error.message}\x1b[0m\r\n`);
-      }
     },
 
     /**
@@ -1176,12 +1628,13 @@ createApp({
 
       const session = this.sshSessions[index];
 
-      // 断开 SSH 连接
-      fetch('/api/server/ssh/disconnect', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ serverId: session.server.id })
-      }).catch(err => console.error('断开连接失败:', err));
+      // 关闭 WebSocket 连接
+      if (session.ws) {
+        if (session.ws.readyState === WebSocket.OPEN) {
+          session.ws.send(JSON.stringify({ type: 'disconnect' }));
+        }
+        session.ws.close();
+      }
 
       // 移除 resize 监听器
       if (session.resizeHandler) {
@@ -1216,10 +1669,18 @@ createApp({
     },
 
     /**
-     * 为指定服务器添加新会话
+     * 为指定主机添加新会话（作为子标签页）
      */
     addSessionForServer(server) {
       this.showAddSessionSelectModal = false;
+
+      // 检查是否已存在该主机的会话
+      const existingSession = this.sshSessions.find(s => s.server.id === server.id);
+      if (existingSession) {
+        // 如果已存在，直接切换到该标签页
+        this.switchToSSHTab(existingSession.id);
+        return;
+      }
 
       const sessionId = 'session_' + Date.now();
       const session = {
@@ -1227,12 +1688,15 @@ createApp({
         server: server,
         terminal: null,
         fit: null,
-        history: [],
-        historyIndex: -1
+        ws: null,
+        connected: false
       };
 
       this.sshSessions.push(session);
       this.activeSessionId = sessionId;
+
+      // 切换到新的SSH标签页
+      this.serverCurrentTab = 'ssh_' + sessionId;
 
       this.$nextTick(() => {
         this.initSessionTerminal(sessionId);
@@ -1275,151 +1739,150 @@ createApp({
       this.sshCurrentCommand = '';
     },
 
-    // ==================== 文件管理器方法 ====================
+    // ==================== 主机列表展开相关 ====================
 
     /**
-     * 打开文件管理器
+     * 判断主机是否已展开
      */
-    openFileManager(server) {
-      this.fileManagerServer = server;
-      this.fileManagerPath = '/';
-      this.fileManagerFiles = [];
-      this.fileManagerError = '';
-      this.showFileManagerModal = true;
-      this.loadFileList('/');
+    isServerExpanded(serverId) {
+      return this.expandedServers.has(serverId);
     },
 
     /**
-     * 关闭文件管理器
+     * 切换主机展开/收起
      */
-    closeFileManager() {
-      this.showFileManagerModal = false;
-      this.fileManagerServer = null;
-      this.fileManagerPath = '/';
-      this.fileManagerFiles = [];
-      this.fileManagerError = '';
+    async toggleServer(serverId) {
+      if (this.expandedServers.has(serverId)) {
+        // 收起：直接移除
+        this.expandedServers.delete(serverId);
+        this.expandedServers = new Set(this.expandedServers);
+      } else {
+        // 展开：先检查是否需要加载数据
+        const server = this.serverList.find(s => s.id === serverId);
+
+        if (server && !server.info && !server.error) {
+          // 需要加载数据，设置加载状态
+          server.loading = true;
+          // 先加载数据
+          await this.loadServerInfo(serverId);
+          server.loading = false;
+        }
+
+        // 数据加载完成后（或已有数据时）才展开，箭头动画才触发
+        this.expandedServers.add(serverId);
+        this.expandedServers = new Set(this.expandedServers);
+      }
     },
 
     /**
-     * 加载文件列表
+     * 加载主机详细信息
      */
-    async loadFileList(path) {
-      if (!this.fileManagerServer) return;
-
-      this.fileManagerLoading = true;
-      this.fileManagerError = '';
+    async loadServerInfo(serverId) {
+      const server = this.serverList.find(s => s.id === serverId);
+      if (!server) return;
 
       try {
-        const response = await fetch('/api/server/sftp/list', {
+        const response = await fetch('/api/server/info', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            serverId: this.fileManagerServer.id,
-            path: path
-          })
+          body: JSON.stringify({ serverId })
         });
 
         const data = await response.json();
 
         if (data.success) {
-          this.fileManagerPath = data.path || path;
-          // 排序：目录在前，文件在后，然后按名称排序
-          this.fileManagerFiles = (data.files || []).sort((a, b) => {
-            if (a.type === 'directory' && b.type !== 'directory') return -1;
-            if (a.type !== 'directory' && b.type === 'directory') return 1;
-            return a.name.localeCompare(b.name);
-          });
+          server.info = {
+            system: data.system,
+            cpu: data.cpu,
+            memory: data.memory,
+            disk: data.disk,
+            docker: data.docker
+          };
+          server.error = null;
         } else {
-          this.fileManagerError = data.error || '加载文件列表失败';
+          server.error = data.error || '加载失败';
+          server.info = null;
         }
       } catch (error) {
-        console.error('加载文件列表失败:', error);
-        this.fileManagerError = error.message;
-      } finally {
-        this.fileManagerLoading = false;
+        console.error('加载主机信息失败:', error);
+        server.error = error.message;
+        server.info = null;
       }
     },
 
     /**
-     * 刷新文件列表
+     * 刷新主机信息
      */
-    refreshFileList() {
-      this.loadFileList(this.fileManagerPath);
-    },
-
-    /**
-     * 导航到父目录
-     */
-    navigateToParent() {
-      if (this.fileManagerPath === '/') return;
-      const parts = this.fileManagerPath.split('/').filter(p => p);
-      parts.pop();
-      const parentPath = '/' + parts.join('/');
-      this.loadFileList(parentPath || '/');
-    },
-
-    /**
-     * 导航到主目录
-     */
-    navigateToHome() {
-      this.loadFileList('/');
-    },
-
-    /**
-     * 导航到指定路径
-     */
-    navigateToPath(path) {
-      this.loadFileList(path);
-    },
-
-    /**
-     * 处理文件双击
-     */
-    handleFileDoubleClick(file) {
-      if (file.type === 'directory') {
-        const newPath = this.fileManagerPath === '/'
-          ? '/' + file.name
-          : this.fileManagerPath + '/' + file.name;
-        this.loadFileList(newPath);
+    async refreshServerInfo(serverId) {
+      const server = this.serverList.find(s => s.id === serverId);
+      if (server) {
+        server.info = null;
+        server.error = null;
+        await this.loadServerInfo(serverId);
+        showToast('正在刷新主机信息...', 'info');
       }
     },
 
     /**
-     * 获取文件图标
+     * 获取运行中的容器数量
      */
-    getFileIcon(file) {
-      if (file.type === 'directory') return 'fa-folder';
-
-      const ext = file.name.split('.').pop().toLowerCase();
-      const codeExts = ['js', 'ts', 'py', 'java', 'cpp', 'c', 'h', 'css', 'html', 'vue', 'jsx', 'tsx', 'json', 'xml', 'yml', 'yaml', 'sh', 'bash', 'php', 'rb', 'go', 'rs', 'sql'];
-      const imageExts = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'svg', 'ico', 'webp'];
-      const archiveExts = ['zip', 'rar', '7z', 'tar', 'gz', 'bz2', 'xz'];
-
-      if (codeExts.includes(ext)) return 'fa-file-code';
-      if (imageExts.includes(ext)) return 'fa-file-image';
-      if (archiveExts.includes(ext)) return 'fa-file-archive';
-
-      return 'fa-file';
+    getRunningContainers(containers) {
+      if (!containers || !Array.isArray(containers)) return 0;
+      return containers.filter(c => c.status && c.status.includes('Up') && !c.status.includes('Paused')).length;
     },
 
     /**
-     * 格式化文件大小
+     * 获取暂停的容器数量
      */
-    formatFileSize(bytes) {
-      if (!bytes || bytes === 0) return '0 B';
-      const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-      const i = Math.floor(Math.log(bytes) / Math.log(1024));
-      return (bytes / Math.pow(1024, i)).toFixed(i > 0 ? 1 : 0) + ' ' + units[i];
+    getPausedContainers(containers) {
+      if (!containers || !Array.isArray(containers)) return 0;
+      return containers.filter(c => c.status && c.status.includes('Paused')).length;
     },
 
     /**
-     * 格式化文件时间
+     * 切换Docker面板展开/收起
      */
-    formatFileTime(timestamp) {
-      if (!timestamp) return '-';
-      const date = new Date(timestamp);
+    toggleDockerPanel(serverId) {
+      if (this.expandedDockerPanels.has(serverId)) {
+        this.expandedDockerPanels.delete(serverId);
+      } else {
+        this.expandedDockerPanels.add(serverId);
+      }
+      this.expandedDockerPanels = new Set(this.expandedDockerPanels);
+    },
+
+    /**
+     * 检查Docker面板是否展开
+     */
+    isDockerPanelExpanded(serverId) {
+      return this.expandedDockerPanels.has(serverId);
+    },
+
+    /**
+     * 获取内存使用率的样式类
+     */
+    getMemoryClass(usage) {
+      const percent = parseFloat(usage);
+      if (percent > 90) return 'danger';
+      if (percent > 75) return 'warning';
+      return '';
+    },
+
+    /**
+     * 获取磁盘使用率的样式类
+     */
+    getDiskClass(usage) {
+      const percent = parseFloat(usage);
+      if (percent > 90) return 'danger';
+      if (percent > 75) return 'warning';
+      return '';
+    },
+
+    formatDateTime(dateStr) {
+      if (!dateStr) return '从未检查';
+      const date = new Date(dateStr);
       return date.toLocaleString('zh-CN', {
-        year: 'numeric',
+        hour12: false,
         month: '2-digit',
         day: '2-digit',
         hour: '2-digit',
@@ -1428,180 +1891,128 @@ createApp({
     },
 
     /**
-     * 格式化权限
+     * 翻译系统信息的字段名为中文
      */
-    formatPermissions(rights) {
-      if (!rights) return '-';
-      const u = rights.user || '';
-      const g = rights.group || '';
-      const o = rights.other || '';
-      return u + g + o;
+    translateInfoKey(key) {
+      const translations = {
+        // 系统信息
+        'OS': '操作系统',
+        'Kernel': '内核版本',
+        'Architecture': '架构',
+        'Hostname': '主机名',
+        'Uptime': '运行时间',
+        // CPU 信息
+        'Model': '型号',
+        'Cores': '核心数',
+        'Usage': '使用率',
+        // 内存信息
+        'Total': '总计',
+        'Used': '已用',
+        'Free': '可用',
+        // 其他
+        'Version': '版本'
+      };
+      return translations[key] || key;
     },
 
     /**
-     * 显示创建文件夹对话框
+     * 删除主机
      */
-    async showCreateFolderDialog() {
-      const folderName = await this.showPrompt({
-        title: '新建文件夹',
-        message: '请输入文件夹名称',
-        placeholder: '文件夹名称'
-      });
-
-      if (folderName) {
-        this.createFolder(folderName);
-      }
-    },
-
-    /**
-     * 创建文件夹
-     */
-    async createFolder(folderName) {
-      if (!this.fileManagerServer || !folderName) return;
-
-      try {
-        const newPath = this.fileManagerPath === '/'
-          ? '/' + folderName
-          : this.fileManagerPath + '/' + folderName;
-
-        const response = await fetch('/api/server/sftp/mkdir', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            serverId: this.fileManagerServer.id,
-            path: newPath
-          })
-        });
-
-        const data = await response.json();
-
-        if (data.success) {
-          this.showGlobalToast('文件夹创建成功', 'success');
-          this.refreshFileList();
-        } else {
-          this.showGlobalToast('创建失败: ' + data.error, 'error');
-        }
-      } catch (error) {
-        console.error('创建文件夹失败:', error);
-        this.showGlobalToast('创建文件夹失败', 'error');
-      }
-    },
-
-    /**
-     * 显示重命名对话框
-     */
-    async showRenameDialog(file) {
-      const newName = await this.showPrompt({
-        title: '重命名',
-        message: '请输入新名称',
-        placeholder: file.name
-      });
-
-      if (newName && newName !== file.name) {
-        this.renameFile(file, newName);
-      }
-    },
-
-    /**
-     * 重命名文件
-     */
-    async renameFile(file, newName) {
-      if (!this.fileManagerServer || !newName) return;
-
-      try {
-        const oldPath = this.fileManagerPath === '/'
-          ? '/' + file.name
-          : this.fileManagerPath + '/' + file.name;
-        const newPath = this.fileManagerPath === '/'
-          ? '/' + newName
-          : this.fileManagerPath + '/' + newName;
-
-        const response = await fetch('/api/server/sftp/rename', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            serverId: this.fileManagerServer.id,
-            oldPath,
-            newPath
-          })
-        });
-
-        const data = await response.json();
-
-        if (data.success) {
-          this.showGlobalToast('重命名成功', 'success');
-          this.refreshFileList();
-        } else {
-          this.showGlobalToast('重命名失败: ' + data.error, 'error');
-        }
-      } catch (error) {
-        console.error('重命名失败:', error);
-        this.showGlobalToast('重命名失败', 'error');
-      }
-    },
-
-    /**
-     * 删除文件或目录
-     */
-    async deleteFileItem(file) {
+    async deleteServerById(serverId) {
       const confirmed = await this.showConfirm({
-        title: '确认删除',
-        message: `确定要删除 "${file.name}" 吗？${file.type === 'directory' ? '（包括所有子文件）' : ''}`,
+        title: '删除主机',
+        message: '确定要删除这台主机吗？',
         icon: 'fa-trash',
-        confirmText: '删除',
+        confirmText: '确定',
         confirmClass: 'btn-danger'
       });
 
       if (!confirmed) return;
 
       try {
-        const filePath = this.fileManagerPath === '/'
-          ? '/' + file.name
-          : this.fileManagerPath + '/' + file.name;
-
-        const response = await fetch('/api/server/sftp/delete', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            serverId: this.fileManagerServer.id,
-            path: filePath,
-            isDirectory: file.type === 'directory'
-          })
+        const response = await fetch(`/api/server/accounts/${serverId}`, {
+          method: 'DELETE'
         });
 
         const data = await response.json();
 
         if (data.success) {
-          this.showGlobalToast('删除成功', 'success');
-          this.refreshFileList();
+          showToast('主机删除成功', 'success');
+          await this.loadServerList();
         } else {
-          this.showGlobalToast('删除失败: ' + data.error, 'error');
+          showToast('删除失败: ' + data.error, 'error');
         }
       } catch (error) {
-        console.error('删除失败:', error);
-        this.showGlobalToast('删除失败', 'error');
+        console.error('删除主机失败:', error);
+        showToast('删除主机失败', 'error');
       }
     },
 
     /**
-     * 下载文件
+     * 重启主机
      */
-    async downloadFile(file) {
-      this.showGlobalToast('下载功能暂不支持浏览器直接下载，请使用 SSH 终端', 'info');
+    async rebootServerById(serverId) {
+      const confirmed = await this.showConfirm({
+        title: '重启主机',
+        message: '确定要重启这台主机吗？',
+        icon: 'fa-redo',
+        confirmText: '重启',
+        confirmClass: 'btn-warning'
+      });
+
+      if (!confirmed) return;
+
+      try {
+        const response = await fetch('/api/server/action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ serverId, action: 'reboot' })
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+          showToast('重启命令已发送', 'success');
+        } else {
+          showToast('重启失败: ' + data.message, 'error');
+        }
+      } catch (error) {
+        console.error('重启主机失败:', error);
+        showToast('重启主机失败', 'error');
+      }
     },
 
     /**
-     * 处理文件上传
+     * 关机
      */
-    async handleFileUpload(event) {
-      const files = event.target.files;
-      if (!files || files.length === 0) return;
+    async shutdownServerById(serverId) {
+      const confirmed = await this.showConfirm({
+        title: '关闭主机',
+        message: '确定要关闭这台主机吗？此操作不可逆！',
+        icon: 'fa-power-off',
+        confirmText: '确定关机',
+        confirmClass: 'btn-danger'
+      });
 
-      this.showGlobalToast('文件上传功能开发中...', 'info');
+      if (!confirmed) return;
 
-      // 清空文件输入
-      if (this.$refs.uploadFileInput) {
-        this.$refs.uploadFileInput.value = '';
+      try {
+        const response = await fetch('/api/server/action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ serverId, action: 'shutdown' })
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+          showToast('关机命令已发送', 'success');
+        } else {
+          showToast('关机失败: ' + data.message, 'error');
+        }
+      } catch (error) {
+        console.error('关机失败:', error);
+        showToast('关机失败', 'error');
       }
     },
 
@@ -1610,12 +2021,13 @@ createApp({
         const response = await fetch('/api/server/monitor/config');
         const data = await response.json();
 
-        if (data.success) {
+        if (data.success && data.data) {
           this.monitorConfig = {
-            interval: data.data.interval_seconds || 60,
-            timeout: data.data.timeout_seconds || 10,
+            interval: data.data.probe_interval || 60,
+            timeout: data.data.probe_timeout || 10,
             logRetentionDays: data.data.log_retention_days || 7
           };
+          this.startServerPolling(); // 加载配置后启动轮询
         }
       } catch (error) {
         console.error('加载监控配置失败:', error);
@@ -1632,9 +2044,9 @@ createApp({
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            intervalSeconds: this.monitorConfig.interval,
-            timeoutSeconds: this.monitorConfig.timeout,
-            logRetentionDays: this.monitorConfig.logRetentionDays
+            probe_interval: parseInt(this.monitorConfig.interval),
+            probe_timeout: parseInt(this.monitorConfig.timeout),
+            log_retention_days: parseInt(this.monitorConfig.logRetentionDays)
           })
         });
 
@@ -1657,16 +2069,225 @@ createApp({
       }
     },
 
+    /**
+     * 凭据管理
+     */
+    async loadCredentials() {
+      try {
+        const response = await fetch('/api/server/credentials');
+        const data = await response.json();
+        if (data.success) {
+          this.serverCredentials = data.data;
+        }
+      } catch (error) {
+        console.error('加载凭据失败:', error);
+      }
+    },
+
+    async saveCredential() {
+      this.credError = '';
+      if (!this.credForm.name || !this.credForm.username) {
+        this.credError = '请填写完整信息';
+        return;
+      }
+      try {
+        const response = await fetch('/api/server/credentials', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(this.credForm)
+        });
+        const data = await response.json();
+        if (data.success) {
+          this.showGlobalToast('凭据已保存', 'success');
+          this.showAddCredentialModal = false;
+          this.credForm = { name: '', username: '', password: '' };
+          this.credError = '';
+          await this.loadCredentials();
+        } else {
+          this.credError = data.error || '保存失败';
+        }
+      } catch (error) {
+        this.credError = '保存失败: ' + error.message;
+        this.showGlobalToast('保存失败', 'error');
+      }
+    },
+
+    async deleteCredential(id) {
+      const confirmed = await this.showConfirm({
+        title: '删除凭据',
+        message: '确定删除此凭据吗？',
+        icon: 'fa-trash',
+        confirmText: '删除',
+        confirmClass: 'btn-danger'
+      });
+
+      if (!confirmed) return;
+      try {
+        const response = await fetch(`/api/server/credentials/${id}`, {
+          method: 'DELETE'
+        });
+        const data = await response.json();
+        if (data.success) {
+          this.showGlobalToast('凭据已删除', 'success');
+          await this.loadCredentials();
+        }
+      } catch (error) {
+        this.showGlobalToast('删除失败', 'error');
+      }
+    },
+
+    async setDefaultCredential(id) {
+      const confirmed = await this.showConfirm({
+        title: '设为默认',
+        message: '确定将此凭据设为默认吗？',
+        icon: 'fa-star',
+        confirmText: '确定',
+        confirmClass: 'btn-primary'
+      });
+
+      if (!confirmed) return;
+
+      try {
+        const response = await fetch(`/api/server/credentials/${id}/default`, {
+          method: 'PUT'
+        });
+        
+        if (response.status === 404) {
+             this.showGlobalToast('接口未更新，请刷新页面或重启服务', 'error');
+             return;
+        }
+
+        const data = await response.json();
+        if (data.success) {
+          this.showGlobalToast('已设置为默认凭据', 'success');
+          await this.loadCredentials();
+        } else {
+          this.showGlobalToast('设置失败: ' + data.error, 'error');
+        }
+      } catch (error) {
+        this.showGlobalToast('设置失败', 'error');
+      }
+    },
+
+    applyCredential(event) {
+      const id = event.target.value;
+      if (!id) return;
+      const cred = this.serverCredentials.find(c => c.id == id);
+      if (cred) {
+        this.serverForm.username = cred.username;
+        this.serverForm.password = cred.password;
+        this.serverForm.authType = 'password';
+      }
+    },
+
+    /**
+     * Docker 容器操作
+     */
+    async handleDockerAction(serverId, containerId, action) {
+      const server = this.serverList.find(s => s.id === serverId);
+      if (server) server.loading = true;
+
+      try {
+        const response = await fetch('/api/server/docker/action', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ serverId, containerId, action })
+        });
+        const data = await response.json();
+        if (data.success) {
+          this.showGlobalToast('Docker 操作已执行', 'success');
+          // 延迟刷新以等待同步
+          setTimeout(() => this.loadServerInfo(serverId), 1000);
+        } else {
+          this.showGlobalToast('操作失败: ' + data.message, 'error');
+        }
+      } catch (error) {
+        this.showGlobalToast('Docker 操作异常', 'error');
+      } finally {
+        if (server) server.loading = false;
+      }
+    },
+
     async loadServerList() {
+      this.serverLoading = true;
       try {
         const response = await fetch('/api/server/accounts');
         const data = await response.json();
 
         if (data.success) {
-          this.serverList = data.data;
+          // 将主机数据存储到 serverList, 并保留现有的 info 等状态
+          const existingServersMap = new Map(this.serverList.map(s => [s.id, s]));
+
+          this.serverList = data.data.map(server => {
+            const existing = existingServersMap.get(server.id);
+            return {
+              ...server,
+              // 如果已存在且有 info，保留 info；否则初始化为 null
+              info: existing ? existing.info : null,
+              error: existing ? existing.error : null,
+              loading: existing ? existing.loading : false
+            };
+          });
+        } else {
+          // 处理错误情况
+          console.error('加载主机列表失败:', data.error);
+          if (data.error && data.error.includes('未认证')) {
+            // 认证错误,不显示toast,避免干扰用户
+            this.serverList = [];
+          } else {
+            this.showGlobalToast('加载主机列表失败: ' + data.error, 'error');
+            this.serverList = [];
+          }
         }
       } catch (error) {
-        console.error('加载服务器列表失败:', error);
+        console.error('加载主机列表失败:', error);
+        this.showGlobalToast('加载主机列表失败', 'error');
+        this.serverList = [];
+      } finally {
+        this.serverLoading = false;
+        // 成功加载后启动或刷新轮询
+        this.startServerPolling();
+      }
+    },
+
+    /**
+     * 启动主机状态自动轮询
+     */
+    startServerPolling() {
+      this.stopServerPolling();
+      if (!this.serverPollingEnabled) return;
+
+      this.serverPollingTimer = setInterval(async () => {
+        if (!this.serverPollingEnabled || this.mainActiveTab !== 'server' || !this.isAuthenticated) return;
+
+        try {
+          // 仅获取最新状态，不触发全量 loading
+          const response = await fetch('/api/server/accounts');
+          const data = await response.json();
+          if (data.success) {
+            // 合并最新状态，不覆盖展开信息
+            data.data.forEach(updated => {
+              const current = this.serverList.find(s => s.id === updated.id);
+              if (current) {
+                current.status = updated.status;
+                current.response_time = updated.response_time;
+                current.last_check_time = updated.last_check_time;
+              }
+            });
+          }
+        } catch (e) {
+          console.warn('轮询刷新失败:', e);
+        }
+      }, 30000); // 30秒更新一次
+    },
+
+    /**
+     * 停止自动轮询
+     */
+    stopServerPolling() {
+      if (this.serverPollingTimer) {
+        clearInterval(this.serverPollingTimer);
+        this.serverPollingTimer = null;
       }
     },
 
@@ -1717,6 +2338,108 @@ createApp({
         minute: '2-digit',
         second: '2-digit'
       });
+    },
+
+    /**
+     * 启动服务器状态轮询
+     */
+    startServerPolling() {
+      this.stopServerPolling();
+      if (!this.serverPollingEnabled) return;
+
+      const interval = Math.max(10000, (this.monitorConfig.interval || 60) * 1000);
+      console.log('启动主机状态轮询，间隔:', interval / 1000, '秒');
+
+      // 重置倒计时
+      this.serverRefreshCountdown = Math.floor(interval / 1000);
+      this.serverRefreshProgress = 100;
+
+      // 启动倒计时定时器
+      this.serverCountdownInterval = setInterval(() => {
+        if (this.serverRefreshCountdown > 0) {
+          this.serverRefreshCountdown--;
+          this.serverRefreshProgress = (this.serverRefreshCountdown / (interval / 1000)) * 100;
+        }
+      }, 1000);
+
+      // 启动主轮询定时器
+      this.serverPollingTimer = setInterval(() => {
+        // 只有在当前标签页是 server 且子标签是 list 时才自动更新
+        if (this.mainActiveTab === 'server' && this.serverCurrentTab === 'list' && document.visibilityState === 'visible') {
+          this.probeAllServers();
+          // 重置倒计时
+          this.serverRefreshCountdown = Math.floor(interval / 1000);
+          this.serverRefreshProgress = 100;
+        }
+      }, interval);
+    },
+
+    stopServerPolling() {
+      if (this.serverPollingTimer) {
+        clearInterval(this.serverPollingTimer);
+        this.serverPollingTimer = null;
+      }
+      if (this.serverCountdownInterval) {
+        clearInterval(this.serverCountdownInterval);
+        this.serverCountdownInterval = null;
+      }
+    },
+
+    /**
+     * 手动探测所有主机
+     */
+    async probeAllServers() {
+      this.probeStatus = 'loading';
+
+      try {
+        const response = await fetch('/api/server/check-all', {
+          method: 'POST'
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+          this.probeStatus = 'success';
+          await this.loadServerList();
+        } else {
+          this.probeStatus = 'error';
+        }
+      } catch (error) {
+        console.error('探测主机失败:', error);
+        this.probeStatus = 'error';
+      }
+
+      // 3秒后重置状态
+      setTimeout(() => {
+        this.probeStatus = '';
+      }, 3000);
+    },
+
+    /**
+     * 导出主机配置
+     */
+    async exportServers() {
+      try {
+        const response = await fetch('/api/server/accounts/export');
+        const data = await response.json();
+
+        if (data.success) {
+          const blob = new Blob([JSON.stringify(data.data, null, 2)], { type: 'application/json' });
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `servers_${new Date().toISOString().split('T')[0]}.json`;
+          a.click();
+          URL.revokeObjectURL(url);
+
+          this.showGlobalToast('导出成功', 'success');
+        } else {
+          this.showGlobalToast('导出失败: ' + data.error, 'error');
+        }
+      } catch (error) {
+        console.error('导出主机失败:', error);
+        this.showGlobalToast('导出主机失败', 'error');
+      }
     },
 
     // 整合所有模块的方法

@@ -6,14 +6,14 @@
 export const zeaburMethods = {
   async loadManagedAccounts() {
           try {
-            // 从服务器加载账号
+            // 从主机加载账号
             const response = await fetch('/api/server-accounts', {
               headers: this.getAuthHeaders()
             });
             const accounts = await response.json();
             if (accounts && accounts.length > 0) {
               this.managedAccounts = accounts;
-              console.log(`📋 从服务器加载 ${accounts.length} 个账号`);
+              console.log(`📋 从主机加载 ${accounts.length} 个账号`);
 
               // 在后台异步刷新账号余额信息，不阻塞页面显示
               this.refreshManagedAccountsBalance().catch(err => {
@@ -21,7 +21,7 @@ export const zeaburMethods = {
               });
             }
           } catch (error) {
-            console.log('⚠️ 从服务器加载账号失败:', error.message);
+            console.log('⚠️ 从主机加载账号失败:', error.message);
           }
         },
 
@@ -74,7 +74,7 @@ export const zeaburMethods = {
 
   async saveManagedAccounts() {
           try {
-            // 保存到服务器
+            // 保存到主机
             const response = await fetch('/api/server-accounts', {
               method: 'POST',
               headers: this.getAuthHeaders(),
@@ -82,10 +82,10 @@ export const zeaburMethods = {
             });
             const result = await response.json();
             if (result.success) {
-              console.log('✅ 账号已保存到服务器');
+              console.log('✅ 账号已保存到主机');
             }
           } catch (error) {
-            console.error('❌ 保存账号到服务器失败:', error.message);
+            console.error('❌ 保存账号到主机失败:', error.message);
           }
         },
 
@@ -163,7 +163,7 @@ export const zeaburMethods = {
           try {
             // 如果有账号，使用账号
             if (this.managedAccounts.length > 0) {
-              // 清除账号中的手动余额，让服务器使用 API 真实数据
+              // 清除账号中的手动余额，让主机使用 API 真实数据
               const accountsWithoutManualBalance = this.managedAccounts.map(acc => ({
                 ...acc,
                 balance: null // 不发送手动余额
@@ -180,7 +180,7 @@ export const zeaburMethods = {
                   headers: this.getAuthHeaders(),
                   body: JSON.stringify({
                     accounts: accountsWithoutManualBalance,
-                    projectCosts: {} // 不发送手动费用，让服务器尝试从 API 获取
+                    projectCosts: {} // 不发送手动费用，让主机尝试从 API 获取
                   })
                 }).then(r => r.json())
               ]);
@@ -201,7 +201,7 @@ export const zeaburMethods = {
                 });
               });
             } else {
-              // 否则使用服务器配置的账号
+              // 否则使用主机配置的账号
               const [accountsRes, projectsRes] = await Promise.all([
                 fetch('/api/accounts').then(r => r.json()),
                 fetch('/api/projects').then(r => r.json())
@@ -281,7 +281,7 @@ export const zeaburMethods = {
                 status: 'active'
               });
 
-              // 保存到服务器
+              // 保存到主机
               await this.saveManagedAccounts();
 
               // 刷新数据
@@ -1294,7 +1294,7 @@ export const zeaburMethods = {
       // 从列表中删除
       this.managedAccounts.splice(index, 1);
 
-      // 保存到服务器
+      // 保存到主机
       await this.saveManagedAccounts();
 
       this.showGlobalToast(`账号 "${account.name}" 已删除`, 'success');

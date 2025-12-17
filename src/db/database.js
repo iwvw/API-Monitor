@@ -58,12 +58,58 @@ class DatabaseService {
      */
     initializeSchema() {
         try {
+            // 1. 初始化核心 Schema
             const schema = fs.readFileSync(this.schemaPath, 'utf8');
             this.db.exec(schema);
-            logger.debug('数据库表结构已同步');
+            logger.debug('核心数据库表结构已同步');
+
+            // 2. 初始化模块 Schema
+            const modulesDir = path.join(__dirname, '../../modules');
+            if (fs.existsSync(modulesDir)) {
+                const modules = fs.readdirSync(modulesDir, { withFileTypes: true })
+                    .filter(dirent => dirent.isDirectory())
+                    .map(dirent => dirent.name);
+
+                modules.forEach(moduleName => {
+                    const moduleSchemaPath = path.join(modulesDir, moduleName, 'schema.sql');
+                    if (fs.existsSync(moduleSchemaPath)) {
+                        try {
+                            const moduleSchema = fs.readFileSync(moduleSchemaPath, 'utf8');
+                            this.db.exec(moduleSchema);
+                            logger.debug(`模块数据库表结构已同步: ${moduleName}`);
+                        } catch (err) {
+                            logger.error(`模块 Schema 初始化失败 (${moduleName}):`, err.message);
+                            // 继续初始化其他模块
+                        }
+                    }
+                });
+            }
+
+            // 3. 执行数据库迁移
+            this.runMigrations();
         } catch (error) {
             logger.error('数据库表结构初始化失败', error.message);
             throw error;
+        }
+    }
+
+    /**
+     * 执行数据库迁移
+     */
+    runMigrations() {
+        try {
+            // 检查 server_credentials 表是否有 is_default 字段
+            const columns = this.db.pragma('table_info(server_credentials)');
+            const hasIsDefault = columns.some(col => col.name === 'is_default');
+
+            if (!hasIsDefault) {
+                logger.info('正在为 server_credentials 表添加 is_default 字段...');
+                this.db.exec('ALTER TABLE server_credentials ADD COLUMN is_default INTEGER DEFAULT 0');
+                logger.success('is_default 字段添加成功');
+            }
+        } catch (error) {
+            logger.error('数据库迁移失败', error.message);
+            // 不抛出错误，避免影响应用启动
         }
     }
 
