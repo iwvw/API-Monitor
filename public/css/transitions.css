@@ -164,7 +164,7 @@
 }
 
 .main-tab.openai-tab.active::after {
-  background-color: var(--primary-color);
+  background-color: var(--openai-color);
 }
 
 /* 卡片展开/收起动画优化 */

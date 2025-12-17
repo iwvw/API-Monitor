@@ -13,7 +13,11 @@
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
-    "express-fileupload": "^1.5.0"
+    "express-fileupload": "^1.5.0",
+    "node-cron": "^4.2.1",
+    "ssh2": "^1.17.0",
+    "ssh2-sftp-client": "^12.0.1",
+    "uuid": "^13.0.0"
   },
   "devDependencies": {
     "nodemon": "^3.0.1"

@@ -37,7 +37,7 @@ config/
 .example
 ./backup
 todo.md
-
+test-*-*.js
 # 构建输出
 dist/
 build/

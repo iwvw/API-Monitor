@@ -103,6 +103,13 @@ app.listen(PORT, '0.0.0.0', () => {
         logger.groupItem(`OpenAI API: ${openaiEndpoints} 个端点, ${openaiHistory} 条健康检查记录`);
       }
 
+      // 服务器管理模块
+      const serverAccounts = stats.tables.server_accounts || 0;
+      const serverLogs = stats.tables.server_monitor_logs || 0;
+      if (serverAccounts > 0 || serverLogs > 0) {
+        logger.groupItem(`服务器管理: ${serverAccounts} 台服务器, ${serverLogs} 条监控日志`);
+      }
+
       // 系统数据
       if (sessions > 0 || operationLogs > 0) {
         logger.groupItem(`系统: ${sessions} 个会话, ${operationLogs} 条操作日志`);
@@ -117,5 +124,13 @@ app.listen(PORT, '0.0.0.0', () => {
     }
   } catch (error) {
     logger.warn('无法获取数据库统计信息:', error.message);
+  }
+
+  // 启动服务器监控服务
+  try {
+    const monitorService = require('./modules/server-management/monitor-service');
+    monitorService.start();
+  } catch (error) {
+    logger.warn('服务器监控服务启动失败:', error.message);
   }
 });

@@ -237,7 +237,7 @@ export const settingsMethods = {
     const names = {
       zeabur: 'Zeabur 监控',
       dns: 'CF DNS 管理',
-      openai: 'OpenAI API'
+      openai: 'OpenAPI'
     };
     return names[module] || module;
   },
