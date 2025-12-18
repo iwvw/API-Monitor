@@ -2,37 +2,40 @@
  * Antigravity API 模块
  */
 
+import { store } from '../store.js';
+import { toast } from './toast.js';
+
 export const antigravityMethods = {
     switchToAntigravity() {
-        this.mainActiveTab = 'antigravity';
-        this.antigravityCurrentTab = 'quotas';
+        store.mainActiveTab = 'antigravity';
+        store.antigravityCurrentTab = 'quotas';
         this.loadAntigravityAccounts();
         this.loadAntigravityStats();
     },
 
     async loadAntigravityAccounts() {
-        this.antigravityLoading = true;
+        store.antigravityLoading = true;
         try {
             const response = await fetch('/api/antigravity/accounts', {
-                headers: this.getAuthHeaders()
+                headers: store.getAuthHeaders()
             });
             const data = await response.json();
             if (Array.isArray(data)) {
-                this.antigravityAccounts = data;
+                store.antigravityAccounts = data;
 
                 // 如果未选中账号，默认选中第一个在线账号
-                if (!this.antigravityQuotaSelectedAccountId && data.length > 0) {
+                if (!store.antigravityQuotaSelectedAccountId && data.length > 0) {
                     const firstOnline = data.find(acc => acc.status === 'online');
-                    this.antigravityQuotaSelectedAccountId = firstOnline ? firstOnline.id : data[0].id;
+                    store.antigravityQuotaSelectedAccountId = firstOnline ? firstOnline.id : data[0].id;
                     // 加载选中账号的额度
                     this.loadAntigravityQuotas();
                 }
             }
         } catch (error) {
             console.error('加载 Antigravity 账号失败:', error);
-            this.showGlobalToast('加载账号失败', 'error');
+            toast.error('加载账号失败');
         } finally {
-            this.antigravityLoading = false;
+            store.antigravityLoading = false;
         }
     },
 
@@ -78,7 +81,7 @@ export const antigravityMethods = {
             return;
         }
 
-        this.antigravitySaving = true;
+        store.antigravitySaving = true;
         try {
             const url = this.antigravityEditingAccount
                 ? `/api/antigravity/accounts/${this.antigravityEditingAccount.id}`
@@ -87,14 +90,14 @@ export const antigravityMethods = {
             const response = await fetch(url, {
                 method: this.antigravityEditingAccount ? 'PUT' : 'POST',
                 headers: {
-                    ...this.getAuthHeaders(),
+                    ...store.getAuthHeaders(),
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify(this.antigravityAccountForm)
             });
 
             if (response.ok) {
-                this.showGlobalToast(this.antigravityEditingAccount ? '账号已更新' : '账号已添加');
+                toast.success(this.antigravityEditingAccount ? '账号已更新' : '账号已添加');
                 this.showAntigravityAccountModal = false;
                 this.loadAntigravityAccounts();
             } else {
@@ -109,7 +112,7 @@ export const antigravityMethods = {
     },
 
     async deleteAntigravityAccount(account) {
-        const confirmed = await this.showConfirm({
+        const confirmed = await store.showConfirm({
             title: '确认删除',
             message: `确定要删除账号 "${account.name}" 吗？`,
             icon: 'fa-trash',
@@ -122,18 +125,18 @@ export const antigravityMethods = {
         try {
             const response = await fetch(`/api/antigravity/accounts/${account.id}`, {
                 method: 'DELETE',
-                headers: this.getAuthHeaders()
+                headers: store.getAuthHeaders()
             });
 
             if (response.ok) {
-                this.showGlobalToast('账号已删除');
+                toast.success('账号已删除');
                 this.loadAntigravityAccounts();
                 this.loadAntigravityStats(); // Refresh stats
             } else {
-                this.showGlobalToast('删除失败', 'error');
+                toast.error('删除失败');
             }
         } catch (error) {
-            this.showGlobalToast('删除失败: ' + error.message, 'error');
+            toast.error('删除失败: ' + error.message);
         }
     },
 
@@ -144,12 +147,12 @@ export const antigravityMethods = {
             return;
         }
 
-        this.antigravitySaving = true;
+        store.antigravitySaving = true;
         try {
             const response = await fetch('/api/antigravity/accounts/manual', {
                 method: 'POST',
                 headers: {
-                    ...this.getAuthHeaders(),
+                    ...store.getAuthHeaders(),
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify(this.antigravityManualForm)
@@ -157,7 +160,7 @@ export const antigravityMethods = {
 
             const data = await response.json();
             if (response.ok) {
-                this.showGlobalToast('账号添加成功');
+                toast.success('账号添加成功');
                 this.showAntigravityManualModal = false;
                 this.loadAntigravityAccounts();
                 this.loadAntigravityStats();
@@ -169,7 +172,7 @@ export const antigravityMethods = {
         } catch (error) {
             this.antigravityManualFormError = '添加失败: ' + error.message;
         } finally {
-            this.antigravitySaving = false;
+            store.antigravitySaving = false;
         }
     },
 
@@ -177,10 +180,10 @@ export const antigravityMethods = {
     async loadAntigravityStats() {
         try {
             const response = await fetch('/api/antigravity/stats', {
-                headers: this.getAuthHeaders()
+                headers: store.getAuthHeaders()
             });
             const data = await response.json();
-            this.antigravityStats = data;
+            store.antigravityStats = data;
         } catch (error) {
             console.error('Failed to load stats:', error);
         }
@@ -191,17 +194,18 @@ export const antigravityMethods = {
             const response = await fetch(`/api/antigravity/accounts/${account.id}`, {
                 method: 'PUT',
                 headers: {
-                    ...this.getAuthHeaders(),
+                    ...store.getAuthHeaders(),
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({ enable: !account.enable })
             });
 
             if (response.ok) {
+                toast.success(account.enable ? '账号已停用' : '账号已启用');
                 this.loadAntigravityAccounts();
             }
         } catch (error) {
-            console.error('切换状态失败:', error);
+            toast.error('切换状态失败');
         }
     },
 
@@ -331,6 +335,11 @@ export const antigravityMethods = {
         // 只有当前在 Antigravity 模块且在 quotas 标签页时才安排下次刷新
         if (this.mainActiveTab === 'antigravity' && this.antigravityCurrentTab === 'quotas') {
             this.antigravityQuotaTimer = setTimeout(() => {
+                // 如果当前不可见，则不刷新，但重新安排下一次检查
+                if (document.visibilityState !== 'visible') {
+                    this.scheduleNextQuotaLoad();
+                    return;
+                }
                 this.loadAntigravityQuotas(true); // true 表示自动刷新
             }, 30000); // 30秒刷新一次
         }
@@ -345,25 +354,25 @@ export const antigravityMethods = {
 
     // 额度查看
     async loadAntigravityQuotas(isAutoRefresh = false) {
-        this.antigravityCurrentTab = 'quotas';
+        store.antigravityCurrentTab = 'quotas';
         // 如果不是自动刷新，显示 loading 状态
         if (!isAutoRefresh) {
-            this.antigravityQuotaLoading = true;
+            store.antigravityQuotaLoading = true;
         }
 
         try {
             let url = '/api/antigravity/quotas';
             // 如果选中了特定账号，使用特定账号的 API
-            if (this.antigravityQuotaSelectedAccountId) {
-                url = `/api/antigravity/accounts/${this.antigravityQuotaSelectedAccountId}/quotas`;
+            if (store.antigravityQuotaSelectedAccountId) {
+                url = `/api/antigravity/accounts/${store.antigravityQuotaSelectedAccountId}/quotas`;
             }
 
             const res = await fetch(url, {
-                headers: this.getAuthHeaders()
+                headers: store.getAuthHeaders()
             });
             const data = await res.json();
-            this.antigravityQuotas = data;
-            this.antigravityQuotasLastUpdated = new Date().toLocaleString('zh-CN', {
+            store.antigravityQuotas = data;
+            store.antigravityQuotasLastUpdated = new Date().toLocaleString('zh-CN', {
                 year: 'numeric',
                 month: '2-digit',
                 day: '2-digit',
@@ -373,16 +382,16 @@ export const antigravityMethods = {
             });
 
             if (!isAutoRefresh) {
-                this.showGlobalToast('刷新成功');
+                toast.success('刷新成功');
             }
         } catch (error) {
             console.error('加载额度失败:', error);
             if (!isAutoRefresh) {
-                this.showGlobalToast('加载额度失败', 'error');
+                toast.error('加载额度失败');
             }
         } finally {
             if (!isAutoRefresh) {
-                this.antigravityQuotaLoading = false;
+                store.antigravityQuotaLoading = false;
             }
             // 无论成功失败，都安排下一次刷新
             this.scheduleNextQuotaLoad();

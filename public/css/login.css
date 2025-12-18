@@ -26,13 +26,28 @@
         border: 1px solid rgba(255, 255, 255, 0.1);
         box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
     }
-    
+
     .login-title {
         color: #f8fafc !important;
     }
-    
+
     .login-subtitle {
         color: #94a3b8 !important;
+    }
+
+    .login-input {
+        color: #f1f5f9;
+        border-color: rgba(148, 163, 184, 0.3);
+        background: rgba(15, 23, 42, 0.5);
+    }
+
+    .login-input::placeholder {
+        color: #64748b;
+    }
+
+    .login-input:focus {
+        border-color: var(--primary-color);
+        background: rgba(15, 23, 42, 0.7);
     }
 }
 
@@ -109,7 +124,7 @@
     transition: color 0.3s ease;
 }
 
-.login-input:focus + .login-input-icon {
+.login-input:focus+.login-input-icon {
     color: var(--primary-color);
 }
 
@@ -145,6 +160,7 @@
         opacity: 0;
         transform: translateY(20px);
     }
+
     to {
         opacity: 1;
         transform: translateY(0);

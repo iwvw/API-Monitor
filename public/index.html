@@ -60,11 +60,11 @@
         <p style="text-align: center; color: var(--text-secondary); margin-bottom: 24px;">请设置管理员密码</p>
         <div class="form-group">
           <input v-model="setPassword" type="password" class="form-input" placeholder="请输入密码（至少6位）"
-            @keyup.enter="setAdminPassword" />
+            autocomplete="new-password" @keyup.enter="setAdminPassword" />
         </div>
         <div class="form-group">
           <input v-model="setPasswordConfirm" type="password" class="form-input" placeholder="请再次输入密码"
-            @keyup.enter="setAdminPassword" />
+            autocomplete="new-password" @keyup.enter="setAdminPassword" />
         </div>
         <div v-if="setPasswordError" class="form-error">
           {{ setPasswordError }}
@@ -88,7 +88,7 @@
 
         <div class="login-form-group">
           <input v-model="loginPassword" type="password" class="login-input" placeholder="请输入管理员密码"
-            @keyup.enter="verifyPassword" />
+            autocomplete="current-password" @keyup.enter="verifyPassword" />
           <i class="fas fa-lock login-input-icon"></i>
         </div>
 
@@ -135,35 +135,19 @@
       </div>
 
       <!-- ==================== Zeabur 监控部分 ==================== -->
-      <div v-if="mainActiveTab === 'zeabur'" class="tab-content zeabur-tab-content"
-        :class="getTabAnimationClass('zeabur')">
+      <div v-if="mainActiveTab === 'zeabur'" class="tab-content zeabur-sec-tab" :class="getTabAnimationClass('zeabur')">
         <!-- Zeabur 子标签页 -->
         <div class="sec-tabs">
           <button class="tab-btn" :class="{ active: zeaburCurrentTab === 'monitor' }"
-            @click="zeaburCurrentTab = 'monitor'" style="background: var(--primary-color) !important;"
-            v-if="zeaburCurrentTab === 'monitor'">
-            <i class="fas fa-chart-line"></i> 服务监控
-          </button>
-          <button class="tab-btn" :class="{ active: zeaburCurrentTab === 'monitor' }"
-            @click="zeaburCurrentTab = 'monitor'" v-else>
+            @click="zeaburCurrentTab = 'monitor'">
             <i class="fas fa-chart-line"></i> 服务监控
           </button>
           <button class="tab-btn" :class="{ active: zeaburCurrentTab === 'accounts' }"
-            @click="zeaburCurrentTab = 'accounts'" style="background: var(--primary-color) !important;"
-            v-if="zeaburCurrentTab === 'accounts'">
-            <i class="fas fa-users"></i> 账号管理
-          </button>
-          <button class="tab-btn" :class="{ active: zeaburCurrentTab === 'accounts' }"
-            @click="zeaburCurrentTab = 'accounts'" v-else>
+            @click="zeaburCurrentTab = 'accounts'">
             <i class="fas fa-users"></i> 账号管理
           </button>
           <button class="tab-btn" :class="{ active: zeaburCurrentTab === 'settings' }"
-            @click="zeaburCurrentTab = 'settings'" style="background: var(--primary-color) !important;"
-            v-if="zeaburCurrentTab === 'settings'">
-            <i class="fas fa-cog"></i> 模块配置
-          </button>
-          <button class="tab-btn" :class="{ active: zeaburCurrentTab === 'settings' }"
-            @click="zeaburCurrentTab = 'settings'" v-else>
+            @click="zeaburCurrentTab = 'settings'">
             <i class="fas fa-cog"></i> 模块配置
           </button>
         </div>
@@ -2914,7 +2898,7 @@ Web服务器,192.168.1.100,22,root,password123
 
     <!-- Docker 详细列表模态框 -->
     <div v-if="showDockerModal" class="modal-overlay" @click.self="showDockerModal = false">
-      <div class="modal-container glass-panel" style="max-width: 900px; border-radius: 20px;">
+      <div class="modal-container glass-panel modal-lg" style="border-radius: 20px;">
         <div class="modal-header">
           <div class="modal-title">云容器管理 - {{ dockerModalServer ? dockerModalServer.name : '' }}</div>
           <button class="close-btn" @click="showDockerModal = false">×</button>
@@ -2923,20 +2907,19 @@ Web服务器,192.168.1.100,22,root,password123
           <div v-if="dockerModalData && dockerModalData.containers" class="docker-container-list">
             <div v-for="container in dockerModalData.containers" :key="container.id" class="docker-container-card"
               :class="{ 'running': container.status.includes('Up') }">
-              <div class="docker-container-info" style="padding: 15px;">
-                <div
-                  style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px;">
+              <div class="docker-container-info">
+                <div class="docker-container-header-row">
                   <div>
                     <div style="font-weight: 700; font-size: 14px;">{{ container.name }}</div>
-                    <div style="font-size: 11px; opacity: 0.6; font-family: monospace;">{{ container.image }}</div>
+                    <div class="docker-container-image">{{ container.image }}</div>
                   </div>
                   <span class="docker-status-badge"
                     :class="container.status.includes('Up') ? 'status-running' : 'status-exited'">
                     {{ container.status }}
                   </span>
                 </div>
-                <div style="font-size: 11px; opacity: 0.8;">端口: {{ container.ports }}</div>
-                <div class="docker-container-actions" style="margin-top: 15px; justify-content: flex-end;">
+                <div class="docker-container-ports">端口: {{ container.ports }}</div>
+                <div class="docker-container-actions">
                   <button v-if="container.status.includes('Up')" class="btn btn-sm btn-secondary"
                     @click="handleDockerAction(dockerModalServer.id, container.id, 'stop')" title="停止"><i
                       class="fas fa-stop"></i></button>
@@ -2980,7 +2963,7 @@ Web服务器,192.168.1.100,22,root,password123
           </div>
           <div v-if="antigravityAccountFormError" class="form-error">{{ antigravityAccountFormError }}</div>
         </div>
-        <div class="modal-footer" style="display: flex; gap: 12px; margin-top: 20px;">
+        <div class="modal-footer ag-modal-footer">
           <button class="btn btn-primary" @click="saveAntigravityAccount" :disabled="antigravitySaving"
             style="flex: 1;">
             {{ antigravitySaving ? '保存中...' : '提交' }}
@@ -2992,7 +2975,7 @@ Web服务器,192.168.1.100,22,root,password123
 
     <!-- Antigravity 手动添加模态框 -->
     <div v-if="showAntigravityManualModal" class="modal-overlay" @click.self="showAntigravityManualModal = false">
-      <div class="modal" style="max-width: 500px;">
+      <div class="modal ag-modal-manual">
         <div class="modal-header">
           <div class="modal-title">手动添加 Token</div>
           <button class="modal-close" @click="showAntigravityManualModal = false">&times;</button>
@@ -3004,13 +2987,13 @@ Web服务器,192.168.1.100,22,root,password123
           </div>
           <div class="form-group">
             <label>Access Token <span style="color:red">*</span></label>
-            <textarea v-model="antigravityManualForm.accessToken" class="form-textarea" placeholder="ya29.a0..."
-              style="min-height: 80px; font-family: monospace; font-size: 12px;"></textarea>
+            <textarea v-model="antigravityManualForm.accessToken"
+              class="form-textarea ag-form-textarea ag-form-textarea-lg" placeholder="ya29.a0..."></textarea>
           </div>
           <div class="form-group">
             <label>Refresh Token <span style="color:red">*</span></label>
-            <textarea v-model="antigravityManualForm.refreshToken" class="form-textarea" placeholder="1//0..."
-              style="min-height: 60px; font-family: monospace; font-size: 12px;"></textarea>
+            <textarea v-model="antigravityManualForm.refreshToken" class="form-textarea ag-form-textarea"
+              placeholder="1//0..."></textarea>
           </div>
           <div class="form-row">
             <div class="form-group flex-1">

@@ -2,7 +2,8 @@
  * 主机管理模块
  */
 
-import { showToast } from './utils.js';
+import { store } from '../store.js';
+import { toast } from './toast.js';
 
 // 模块状态
 const state = {
@@ -40,7 +41,7 @@ function setupEventListeners() {
     // 刷新按钮
     bindButton('refresh-servers-btn', () => {
         loadServers();
-        showToast('正在刷新主机列表...', 'info');
+        toast.info('正在刷新主机列表...');
     });
 
     // 手动探测按钮
@@ -72,11 +73,11 @@ async function loadServers() {
         if (data.success) {
             state.servers = data.data;
         } else {
-            showToast('加载主机列表失败: ' + data.error, 'error');
+            toast.error('加载主机列表失败: ' + data.error);
         }
     } catch (error) {
         console.error('加载主机列表失败:', error);
-        showToast('加载主机列表失败', 'error');
+        toast.error('加载主机列表失败');
     } finally {
         state.loading = false;
         renderServerList();
@@ -535,7 +536,7 @@ async function loadServerInfo(serverId) {
 async function refreshServerInfo(serverId) {
     state.serverInfo.delete(serverId);
     await loadServerInfo(serverId);
-    showToast('正在刷新主机信息...', 'info');
+    toast.info('正在刷新主机信息...');
 }
 
 /**
@@ -562,7 +563,7 @@ function showEditServerModal(serverId) {
  * 删除主机
  */
 async function deleteServer(serverId) {
-    const confirmed = await window.vueApp.showConfirm({
+    const confirmed = await store.showConfirm({
         title: '删除主机',
         message: '确定要删除这台主机吗？',
         icon: 'fa-trash',
@@ -582,14 +583,14 @@ async function deleteServer(serverId) {
         const data = await response.json();
 
         if (data.success) {
-            showToast('主机删除成功', 'success');
+            toast.success('主机删除成功');
             loadServers();
         } else {
-            showToast('删除失败: ' + data.error, 'error');
+            toast.error('删除失败: ' + data.error);
         }
     } catch (error) {
         console.error('删除主机失败:', error);
-        showToast('删除主机失败', 'error');
+        toast.error('删除主机失败');
     }
 }
 
@@ -597,7 +598,7 @@ async function deleteServer(serverId) {
  * 手动探测所有主机
  */
 async function probeAllServers() {
-    showToast('正在探测所有主机...', 'info');
+    toast.info('正在探测所有主机...');
 
     try {
         const response = await fetch('/api/server/check-all', {
@@ -607,14 +608,14 @@ async function probeAllServers() {
         const data = await response.json();
 
         if (data.success) {
-            showToast(data.message, 'success');
+            toast.success(data.message);
             loadServers();
         } else {
-            showToast('探测失败: ' + data.error, 'error');
+            toast.error('探测失败: ' + data.error);
         }
     } catch (error) {
         console.error('探测主机失败:', error);
-        showToast('探测主机失败', 'error');
+        toast.error('探测主机失败');
     }
 }
 
@@ -624,7 +625,7 @@ async function probeAllServers() {
 function connectSSH(serverId) {
     const server = state.servers.find(s => s.id === serverId);
     if (!server) {
-        showToast('主机不存在', 'error');
+        toast.error('主机不存在');
         return;
     }
 
@@ -640,7 +641,7 @@ function connectSSH(serverId) {
 function showDockerContainers(serverId) {
     const info = state.serverInfo.get(serverId);
     if (!info || !info.docker || !info.docker.containers) {
-        showToast('无法获取容器信息', 'error');
+        toast.error('无法获取容器信息');
         return;
     }
 
@@ -657,7 +658,7 @@ function showDockerContainers(serverId) {
  * 重启主机
  */
 async function rebootServer(serverId) {
-    const confirmed = await window.vueApp.showConfirm({
+    const confirmed = await store.showConfirm({
         title: '重启主机',
         message: '确定要重启这台主机吗？',
         icon: 'fa-redo',
@@ -679,13 +680,13 @@ async function rebootServer(serverId) {
         const data = await response.json();
 
         if (data.success) {
-            showToast('重启命令已发送', 'success');
+            toast.success('重启命令已发送');
         } else {
-            showToast('重启失败: ' + data.message, 'error');
+            toast.error('重启失败: ' + data.message);
         }
     } catch (error) {
         console.error('重启主机失败:', error);
-        showToast('重启主机失败', 'error');
+        toast.error('重启主机失败');
     }
 }
 
@@ -693,7 +694,7 @@ async function rebootServer(serverId) {
  * 关机
  */
 async function shutdownServer(serverId) {
-    const confirmed = await window.vueApp.showConfirm({
+    const confirmed = await store.showConfirm({
         title: '关闭主机',
         message: '确定要关闭这台主机吗？此操作不可逆！',
         icon: 'fa-power-off',
@@ -715,13 +716,13 @@ async function shutdownServer(serverId) {
         const data = await response.json();
 
         if (data.success) {
-            showToast('关机命令已发送', 'success');
+            toast.success('关机命令已发送');
         } else {
-            showToast('关机失败: ' + data.message, 'error');
+            toast.error('关机失败: ' + data.message);
         }
     } catch (error) {
         console.error('关机失败:', error);
-        showToast('关机失败', 'error');
+        toast.error('关机失败');
     }
 }
 
@@ -752,13 +753,13 @@ async function exportServers() {
             a.click();
             URL.revokeObjectURL(url);
 
-            showToast('导出成功', 'success');
+            toast.success('导出成功');
         } else {
-            showToast('导出失败: ' + data.error, 'error');
+            toast.error('导出失败: ' + data.error);
         }
     } catch (error) {
         console.error('导出主机失败:', error);
-        showToast('导出主机失败', 'error');
+        toast.error('导出主机失败');
     }
 }
 
@@ -774,6 +775,7 @@ function bindServerCardEvents() {
  */
 function escapeHtml(text) {
     const div = document.createElement('div');
+    if (text === null || text === undefined) return '';
     div.textContent = text;
     return div.innerHTML;
 }

@@ -221,7 +221,8 @@ class SystemInfoService {
         return {
             installed: true,
             version: versionResult.stdout.trim(),
-            containers
+            containers,
+            daemonRunning: true
         };
     }
 
@@ -241,9 +242,10 @@ class SystemInfoService {
         }
 
         try {
-            return JSON.parse(result.stdout)[0];
+            const data = JSON.parse(result.stdout);
+            return Array.isArray(data) ? data[0] : data;
         } catch (error) {
-            throw new Error('解析容器信息失败');
+            throw new Error(`解析容器信息失败: ${result.stdout.substring(0, 100)}`);
         }
     }
 
@@ -295,9 +297,20 @@ class SystemInfoService {
         }
 
         const result = await sshService.executeCommand(serverId, serverConfig, command);
+
+        let errorMessage = result.success ? '操作已执行' : result.error || result.stderr;
+
+        // 优化 Docker 常见错误信息
+        if (!result.success && errorMessage.includes('Is the docker daemon running')) {
+            errorMessage = 'Docker 守护进程未运行';
+        } else if (!result.success && errorMessage.includes('No such container')) {
+            errorMessage = '找不到指定的容器';
+        }
+
         return {
             success: result.success,
-            message: result.success ? '操作已执行' : result.error || result.stderr
+            message: errorMessage,
+            details: result.stderr
         };
     }
 

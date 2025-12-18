@@ -3,38 +3,38 @@
  * 负责 OpenAI API 相关功能
  */
 
+import { store } from '../store.js';
+import { toast } from './toast.js';
+
 export const openaiMethods = {
   switchToOpenai() {
-    this.mainActiveTab = 'openai';
-    if (this.openaiEndpoints.length === 0) {
+    store.mainActiveTab = 'openai';
+    if (store.openaiEndpoints.length === 0) {
       this.loadOpenaiEndpoints();
     }
   },
 
   showOpenaiToast(message, type = 'success') {
-    this.openaiToast = { show: true, message, type };
-    setTimeout(() => {
-      this.openaiToast.show = false;
-    }, 3000);
+    toast[type](message);
   },
 
   async loadOpenaiEndpoints() {
-    this.openaiLoading = true;
+    store.openaiLoading = true;
     try {
       const response = await fetch('/api/openai/endpoints', {
-        headers: this.getAuthHeaders()
+        headers: store.getAuthHeaders()
       });
       const data = await response.json();
       if (Array.isArray(data)) {
         // 为每个端点添加 showKey 属性
-        this.openaiEndpoints = data.map(ep => ({ ...ep, showKey: false }));
+        store.openaiEndpoints = data.map(ep => ({ ...ep, showKey: false }));
       } else if (data.error) {
         console.error('加载 OpenAI 端点失败:', data.error);
       }
     } catch (error) {
       console.error('加载 OpenAI 端点失败:', error);
     } finally {
-      this.openaiLoading = false;
+      store.openaiLoading = false;
     }
   },
 
@@ -73,7 +73,7 @@ export const openaiMethods = {
 
       const response = await fetch(url, {
         method: this.openaiEditingEndpoint ? 'PUT' : 'POST',
-        headers: this.getAuthHeaders(),
+        headers: store.getAuthHeaders(),
         body: JSON.stringify(this.openaiEndpointForm)
       });
 
@@ -103,7 +103,7 @@ export const openaiMethods = {
   },
 
   async deleteOpenaiEndpoint(endpoint) {
-    const confirmed = await this.showConfirm({
+    const confirmed = await store.showConfirm({
       title: '确认删除',
       message: `确定要删除端点 "${endpoint.name || endpoint.baseUrl}" 吗？`,
       icon: 'fa-trash',
@@ -116,7 +116,7 @@ export const openaiMethods = {
     try {
       const response = await fetch(`/api/openai/endpoints/${endpoint.id}`, {
         method: 'DELETE',
-        headers: this.getAuthHeaders()
+        headers: store.getAuthHeaders()
       });
 
       const data = await response.json();
@@ -133,10 +133,10 @@ export const openaiMethods = {
 
   async verifyOpenaiEndpoint(endpoint) {
     try {
-      this.showOpenaiToast('正在验证...', 'success');
+      toast.info('正在验证...');
       const response = await fetch(`/api/openai/endpoints/${endpoint.id}/verify`, {
         method: 'POST',
-        headers: this.getAuthHeaders()
+        headers: store.getAuthHeaders()
       });
 
       const data = await response.json();
@@ -152,11 +152,11 @@ export const openaiMethods = {
   },
 
   async refreshAllOpenaiEndpoints() {
-    this.openaiRefreshing = true;
+    store.openaiRefreshing = true;
     try {
       const response = await fetch('/api/openai/endpoints/refresh', {
         method: 'POST',
-        headers: this.getAuthHeaders()
+        headers: store.getAuthHeaders()
       });
 
       const data = await response.json();
@@ -198,7 +198,7 @@ export const openaiMethods = {
 
       const response = await fetch('/api/openai/batch-add', {
         method: 'POST',
-        headers: this.getAuthHeaders(),
+        headers: store.getAuthHeaders(),
         body: JSON.stringify(endpoints ? { endpoints } : { text: this.openaiBatchText })
       });
 
@@ -263,15 +263,15 @@ export const openaiMethods = {
   // 导出所有端点
   async exportOpenaiEndpoints() {
     try {
-      if (this.openaiEndpoints.length === 0) {
-        this.showOpenaiToast('没有可导出的端点', 'warning');
+      if (store.openaiEndpoints.length === 0) {
+        toast.warning('没有可导出的端点');
         return;
       }
 
       const exportData = {
         version: '1.0',
         exportTime: new Date().toISOString(),
-        endpoints: this.openaiEndpoints.map(ep => ({
+        endpoints: store.openaiEndpoints.map(ep => ({
           name: ep.name,
           baseUrl: ep.baseUrl,
           apiKey: ep.apiKey,
@@ -298,7 +298,7 @@ export const openaiMethods = {
 
   // 从文件导入端点
   async importOpenaiEndpointsFromFile() {
-    const confirmed = await this.showConfirm({
+    const confirmed = await store.showConfirm({
       title: '确认导入',
       message: '导入端点将添加到现有端点列表中，是否继续？',
       icon: 'fa-exclamation-triangle',
@@ -329,7 +329,7 @@ export const openaiMethods = {
           // 导入端点
           const response = await fetch('/api/openai/import', {
             method: 'POST',
-            headers: this.getAuthHeaders(),
+            headers: store.getAuthHeaders(),
             body: JSON.stringify({ endpoints: importedData.endpoints })
           });
 

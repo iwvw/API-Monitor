@@ -32,6 +32,14 @@
   color: var(--primary-color);
 }
 
+.main-tab.zeabur-tab:hover {
+  color: var(--zeabur-primary);
+}
+
+.main-tab.zeabur-tab.active {
+  color: var(--zeabur-primary);
+}
+
 .main-tab.dns-tab:hover {
   color: var(--cf-color);
 }

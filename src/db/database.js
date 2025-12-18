@@ -40,6 +40,10 @@ class DatabaseService {
             // 启用外键约束
             this.db.pragma('foreign_keys = ON');
 
+            // 启用 WAL 模式 (提升并发性能)
+            this.db.pragma('journal_mode = WAL');
+            this.db.pragma('synchronous = NORMAL');
+
             // 执行数据库初始化脚本
             this.initializeSchema();
 

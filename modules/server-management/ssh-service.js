@@ -98,56 +98,76 @@ class SSHService {
     }
 
     /**
-     * 执行命令
+     * 执行命令 (带重试机制)
      * @param {string} serverId - 主机 ID
      * @param {Object} serverConfig - 主机配置
      * @param {string} command - 要执行的命令
+     * @param {number} maxRetries - 最大重试次数
      * @returns {Promise<Object>} 命令执行结果
      */
-    async executeCommand(serverId, serverConfig, command) {
-        const startTime = Date.now();
+    async executeCommand(serverId, serverConfig, command, maxRetries = 2) {
+        let lastError = null;
 
-        try {
-            const client = await this.getConnection(serverId, serverConfig);
+        for (let attempt = 0; attempt <= maxRetries; attempt++) {
+            const startTime = Date.now();
+            try {
+                if (attempt > 0) {
+                    // console.log(`[SSH] 重试第 ${attempt} 次: ${serverId}`);
+                    // 重试前稍微等待
+                    await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+                }
 
-            return new Promise((resolve, reject) => {
-                client.exec(command, (err, stream) => {
-                    if (err) {
-                        reject(err);
-                        return;
-                    }
+                const client = await this.getConnection(serverId, serverConfig);
 
-                    let stdout = '';
-                    let stderr = '';
+                return await new Promise((resolve, reject) => {
+                    client.exec(command, (err, stream) => {
+                        if (err) {
+                            reject(err);
+                            return;
+                        }
 
-                    stream.on('close', (code, signal) => {
-                        const responseTime = Date.now() - startTime;
-                        resolve({
-                            success: code === 0,
-                            code,
-                            signal,
-                            stdout,
-                            stderr,
-                            responseTime
+                        let stdout = '';
+                        let stderr = '';
+
+                        stream.on('close', (code, signal) => {
+                            const responseTime = Date.now() - startTime;
+                            resolve({
+                                success: code === 0,
+                                code,
+                                signal,
+                                stdout,
+                                stderr,
+                                responseTime
+                            });
+                        });
+
+                        stream.on('data', (data) => {
+                            stdout += data.toString();
+                        });
+
+                        stream.stderr.on('data', (data) => {
+                            stderr += data.toString();
                         });
                     });
-
-                    stream.on('data', (data) => {
-                        stdout += data.toString();
-                    });
-
-                    stream.stderr.on('data', (data) => {
-                        stderr += data.toString();
-                    });
                 });
-            });
-        } catch (error) {
-            const responseTime = Date.now() - startTime;
-            return {
-                success: false,
-                error: error.message,
-                responseTime
-            };
+            } catch (error) {
+                lastError = error;
+                const responseTime = Date.now() - startTime;
+
+                // 如果是连接错误，清理连接以便下次重试重新建立
+                if (error.message.includes('Not connected') || error.message.includes('Socket is closed')) {
+                    this.closeConnection(serverId);
+                }
+
+                if (attempt === maxRetries) {
+                    return {
+                        success: false,
+                        error: error.message,
+                        responseTime,
+                        attempts: attempt + 1
+                    };
+                }
+            }
         }
     }
 

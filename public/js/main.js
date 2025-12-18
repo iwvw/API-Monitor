@@ -1,7 +1,6 @@
 /**
  * API Monitor - 主应用模块
  * 整合所有功能模块，初始化 Vue 应用
- * TEST_COMMENT
  */
 
 // 导入功能模块
@@ -12,23 +11,27 @@ import { openaiMethods } from './modules/openai.js';
 import { antigravityMethods } from './modules/antigravity.js';
 import { settingsMethods } from './modules/settings.js';
 import { transitionsMethods } from './modules/transitions.js';
-// import { initServerModule } from './modules/server.js'; // 已改用 Vue 渲染,不再需要
-import toastManager, { toast } from './modules/toast.js';
-import { formatDateTime, getLocalTimestamp, formatLocalISO, formatFileSize } from './modules/utils.js';
+import { toast } from './modules/toast.js';
+import { formatDateTime, formatFileSize } from './modules/utils.js';
+
+// 导入全局状态
+import { store } from './store.js';
 
 // 获取 Vue
-const { createApp } = Vue;
+const { createApp, toRefs } = Vue;
 
 // 创建并配置 Vue 应用
 const app = createApp({
+  setup() {
+    // 将 store 的所有属性转换为 refs，这样在模板中可以直接使用且保持响应式
+    return {
+      ...toRefs(store)
+    };
+  },
   data() {
     return {
       // Zeabur 相关
-      accounts: [],
-      loading: false,
       lastUpdate: '--:--:--',
-      managedAccounts: [],
-      projectCosts: {},
       newAccount: {
         name: '',
         token: '',
@@ -37,25 +40,11 @@ const app = createApp({
       addingAccount: false,
       addAccountError: '',
       addAccountSuccess: '',
-      opacity: 39,
       expandedAccounts: {},
       refreshInterval: null,
-      zeaburRefreshInterval: 30000, // 默认30秒
       refreshing: false,
       lastFetchAt: 0,
       minFetchInterval: 2000,
-
-      // 密码验证
-      isAuthenticated: false,
-      isCheckingAuth: true, // 添加认证检查状态
-      showLoginModal: false,
-      showSetPasswordModal: false,
-      loginPassword: '',
-      loginError: '',
-      setPassword: '',
-      setPasswordConfirm: '',
-      setPasswordError: '',
-
       // 批量添加
       batchAccounts: '',
       maskedBatchAccounts: '',
@@ -64,37 +53,25 @@ const app = createApp({
       showAddZeaburAccountModal: false,
 
       // 日志模态框
-      showLogsModal: false,
       logsModalTitle: '',
       logsModalInfo: {},
       logsContent: '',
       logsLoading: false,
-      logsAutoScroll: true,
       logsFullscreen: false,
       logsScrollTimer: null,
-      logsRealTime: true,
       logsRealTimeTimer: null,
       logsCurrentAccount: null,
       logsCurrentProject: null,
       logsCurrentService: null,
 
       // 刷新倒计时
-      refreshCountdown: 30,
-      refreshProgress: 100,
       countdownInterval: null,
-      dataRefreshPaused: false,
 
       // 主标签页
-      mainActiveTab: 'zeabur',
       previousMainTab: null,
       tabSwitchDebounce: null,
-      zeaburCurrentTab: 'monitor',
 
-      // DNS 管理相关
-      dnsToast: { show: false, message: '', type: 'success' },
-      dnsCurrentTab: 'dns',
-      dnsAccounts: [],
-      dnsSelectedAccountId: '',
+      // DNS 管理相关 - 表单状态
       showAddDnsAccountModal: false,
       dnsAccountForm: { name: '', apiToken: '', email: '' },
       dnsAccountFormError: '',
@@ -105,19 +82,13 @@ const app = createApp({
       dnsEditAccountForm: { name: '', apiToken: '', email: '' },
       dnsEditAccountFormError: '',
       dnsEditAccountFormSuccess: '',
-      dnsZones: [],
-      dnsSelectedZoneId: '',
       dnsSelectedZoneName: '',
-      dnsLoadingZones: false,
-      dnsRecords: [],
-      dnsLoadingRecords: false,
       showDnsRecordModal: false,
       dnsEditingRecord: null,
       dnsRecordForm: { type: 'A', name: '', content: '', ttl: 1, proxied: false, priority: 10 },
       dnsRecordFormError: '',
       dnsSavingRecord: false,
       dnsRecordTypes: ['A', 'AAAA', 'CNAME', 'TXT', 'MX', 'NS', 'SRV', 'CAA'],
-      dnsSelectedRecords: [],
       dnsQuickSwitchType: 'A',
       dnsQuickSwitchName: '',
       dnsQuickSwitchContent: '',
@@ -130,12 +101,6 @@ const app = createApp({
       dnsSavingTemplate: false,
 
       // OpenAI API 管理相关
-      openaiEndpoints: [],
-      openaiLoading: false,
-      openaiRefreshing: false,
-      openaiCurrentTab: 'endpoints',
-      openaiToast: { show: false, message: '', type: 'success' },
-      showOpenaiEndpointModal: false,
       openaiEditingEndpoint: null,
       openaiEndpointForm: { name: '', baseUrl: '', apiKey: '', notes: '' },
       openaiEndpointFormError: '',
@@ -147,9 +112,6 @@ const app = createApp({
       openaiAdding: false,
 
       // Antigravity API 相关
-      antigravityAccounts: [],
-      antigravityLoading: false,
-      antigravitySaving: false,
       showAntigravityAccountModal: false,
       antigravityEditingAccount: null,
       antigravityAccountForm: {
@@ -162,7 +124,6 @@ const app = createApp({
       },
       antigravityAccountFormError: '',
       antigravityAccountFormSuccess: '',
-      antigravityCurrentTab: 'quotas',
       showAntigravityManualModal: false,
       antigravityManualForm: {
         name: '',
@@ -172,28 +133,18 @@ const app = createApp({
         expiresIn: 3599
       },
       antigravityManualFormError: '',
-      antigravityStats: null,
       agOauthUrl: '',
       agOauthCustomProjectId: '',
       agOauthAllowRandom: false,
-      antigravityQuotas: {},
-      antigravityQuotaSelectedAccountId: '',
-      antigravityQuotaLoading: false,
       antigravityQuotaViewMode: 'list',
-      antigravityLogs: [],
-      antigravitySettings: [],
       antigravityLogDetail: null,
       showAntigravityLogDetailModal: false,
       agSettingsForm: {},
-      antigravitySaving: false,
       antigravityModelRedirects: [],
       newRedirectSource: '',
       newRedirectTarget: '',
 
       // 主机管理相关
-      serverCurrentTab: 'list',
-      serverLoading: false,
-      expandedServers: new Set(),
       expandedDockerPanels: new Set(),
       showServerModal: false,
       serverModalMode: 'add', // 'add' or 'edit'
@@ -219,7 +170,6 @@ const app = createApp({
       showDockerModal: false,
       dockerModalServer: null,
       dockerModalData: null,
-      serverCredentials: [],
       showAddCredentialModal: false,
       credForm: {
         name: '',
@@ -235,13 +185,6 @@ const app = createApp({
       serverAddingBatch: false,
 
       // 主机筛选与自动更新
-      serverSearchText: '',
-      serverStatusFilter: 'all',
-      serverPollingEnabled: true,
-      serverPollingTimer: null,
-      serverCountdownInterval: null,
-      serverRefreshCountdown: 60,
-      serverRefreshProgress: 100,
       probeStatus: '', // '', 'loading', 'success', 'error'
 
       // SSH 终端相关
@@ -260,15 +203,9 @@ const app = createApp({
       themeObserver: null,
       docObserver: null,
       themeUpdateTimer: null,
-      monitorConfig: {
-        interval: 60,
-        timeout: 10,
-        logRetentionDays: 7
-      },
       monitorConfigSaving: false,
       monitorConfigError: '',
       monitorConfigSuccess: '',
-      serverList: [],
       monitorLogs: [],
       monitorLogsLoading: false,
       logFilter: {
@@ -278,19 +215,10 @@ const app = createApp({
       logPage: 1,
       logPageSize: 50,
 
-      // 模块可见性控制
-      moduleVisibility: {
-        zeabur: true,
-        dns: true,
-        openai: true,
-        server: true,
-        antigravity: true
-      },
-      moduleOrder: ['zeabur', 'dns', 'openai', 'server', 'antigravity'],
+      // 拖拽状态 (UI only)
       draggedIndex: null,
 
-      // 设置模态框
-      showSettingsModal: false,
+      // 设置模态框 - 密码与样式表单
       newPassword: '',
       confirmPassword: '',
       passwordError: '',
@@ -307,20 +235,7 @@ const app = createApp({
         dbSizeMB: 0
       },
       logSettingsSaving: false,
-      logLimitsEnforcing: false,
-
-      // 自定义对话框
-      customDialog: {
-        show: false,
-        title: '',
-        message: '',
-        icon: '',
-        confirmText: '',
-        cancelText: '',
-        confirmClass: '',
-        onConfirm: null,
-        onCancel: null
-      }
+      logLimitsEnforcing: false
     };
   },
 
@@ -410,6 +325,28 @@ const app = createApp({
 
     // SSH 终端使用固定深色主题,不需要监听主题变化
     // this.setupThemeObserver();
+
+    // 监听标签页可见性变化，当回到页面时立即触发一次活跃模块的刷新
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible' && this.isAuthenticated) {
+        console.log('👀 标签页已获得关注，触发活跃模块刷新');
+
+        // 服务器模块
+        if (this.mainActiveTab === 'server' && this.serverCurrentTab === 'list' && this.serverPollingEnabled) {
+          this.probeAllServers();
+        }
+
+        // Zeabur 模块
+        if (this.mainActiveTab === 'zeabur') {
+          this.fetchData();
+        }
+
+        // Antigravity 模块
+        if (this.mainActiveTab === 'antigravity' && this.antigravityCurrentTab === 'quotas') {
+          this.loadAntigravityQuotas();
+        }
+      }
+    });
 
     try {
       // 检查主机是否已设置密码
@@ -2421,46 +2358,6 @@ const app = createApp({
       }
     },
 
-    /**
-     * 启动主机状态自动轮询
-     */
-    startServerPolling() {
-      this.stopServerPolling();
-      if (!this.serverPollingEnabled) return;
-
-      this.serverPollingTimer = setInterval(async () => {
-        if (!this.serverPollingEnabled || this.mainActiveTab !== 'server' || !this.isAuthenticated) return;
-
-        try {
-          // 仅获取最新状态，不触发全量 loading
-          const response = await fetch('/api/server/accounts');
-          const data = await response.json();
-          if (data.success) {
-            // 合并最新状态，不覆盖展开信息
-            data.data.forEach(updated => {
-              const current = this.serverList.find(s => s.id === updated.id);
-              if (current) {
-                current.status = updated.status;
-                current.response_time = updated.response_time;
-                current.last_check_time = updated.last_check_time;
-              }
-            });
-          }
-        } catch (e) {
-          console.warn('轮询刷新失败:', e);
-        }
-      }, 30000); // 30秒更新一次
-    },
-
-    /**
-     * 停止自动轮询
-     */
-    stopServerPolling() {
-      if (this.serverPollingTimer) {
-        clearInterval(this.serverPollingTimer);
-        this.serverPollingTimer = null;
-      }
-    },
 
     async loadMonitorLogs(page) {
       if (typeof page === 'number') {
@@ -2498,21 +2395,9 @@ const app = createApp({
       }
     },
 
-    formatDateTime(dateString) {
-      if (!dateString) return '-';
-      const date = new Date(dateString);
-      return date.toLocaleString('zh-CN', {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit'
-      });
-    },
 
     /**
-     * 启动服务器状态轮询
+     * 启动服务器状态轮询 (带可见性检查)
      */
     startServerPolling() {
       this.stopServerPolling();
@@ -2525,8 +2410,10 @@ const app = createApp({
       this.serverRefreshCountdown = Math.floor(interval / 1000);
       this.serverRefreshProgress = 100;
 
-      // 启动倒计时定时器
+      // 启动倒计时定时器 (仅在可见时运行)
       this.serverCountdownInterval = setInterval(() => {
+        if (document.visibilityState !== 'visible') return;
+
         if (this.serverRefreshCountdown > 0) {
           this.serverRefreshCountdown--;
           this.serverRefreshProgress = (this.serverRefreshCountdown / (interval / 1000)) * 100;
@@ -2535,8 +2422,8 @@ const app = createApp({
 
       // 启动主轮询定时器
       this.serverPollingTimer = setInterval(() => {
-        // 只有在当前标签页是 server 且子标签是 list 时才自动更新
-        if (this.mainActiveTab === 'server' && this.serverCurrentTab === 'list' && document.visibilityState === 'visible') {
+        // 只有在可见、已认证且在对应标签页时才执行
+        if (document.visibilityState === 'visible' && this.isAuthenticated && this.mainActiveTab === 'server' && this.serverCurrentTab === 'list') {
           this.probeAllServers();
           // 重置倒计时
           this.serverRefreshCountdown = Math.floor(interval / 1000);

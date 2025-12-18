@@ -7,7 +7,7 @@
     overflow: visible;
 }
 
-/* ==================== 顶部控制栏增强 ==================== */
+/* ==================== 顶部控制栏 ==================== */
 .controls-bar {
     display: flex;
     flex-direction: column;
@@ -30,7 +30,7 @@
     flex-wrap: wrap;
 }
 
-/* ==================== 统计胶囊精致化 ==================== */
+/* ==================== 统计胶囊 ==================== */
 .stats-pills {
     display: flex;
     gap: 8px;
@@ -93,7 +93,7 @@
     box-shadow: 0 8px 16px -4px rgba(239, 68, 68, 0.3);
 }
 
-/* ==================== 现代搜索框 ==================== */
+/* ==================== 搜索框 ==================== */
 .search-box {
     position: relative;
     flex: 1;
@@ -130,7 +130,7 @@
     color: var(--server-primary);
 }
 
-/* ==================== 主机卡片精致化 ==================== */
+/* ==================== 主机卡片 ==================== */
 .server-card {
     background-color: var(--card-bg);
     border-radius: 16px;
@@ -262,10 +262,6 @@
 
 /* ==================== 主机详情（展开部分）==================== */
 /* 动画样式已在 transitions.css 中统一定义 */
-
-
-
-
 .server-card-body {
     display: flex;
     flex-direction: column;
@@ -598,12 +594,41 @@
 .docker-container-card {
     background: var(--card-bg);
     border: 1px solid var(--border-color);
-    border-radius: 8px;
+    border-radius: 12px;
     padding: 0;
     overflow: hidden;
     transition: all 0.2s ease;
     position: relative;
     height: 100%;
+}
+
+.docker-container-info {
+    padding: 15px;
+}
+
+.docker-container-header-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 10px;
+}
+
+.docker-container-image {
+    font-size: 11px;
+    opacity: 0.6;
+    font-family: 'JetBrains Mono', monospace;
+}
+
+.docker-container-ports {
+    font-size: 11px;
+    opacity: 0.8;
+}
+
+.docker-container-actions {
+    margin-top: 15px;
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
 }
 
 .docker-container-card::before {
@@ -2617,7 +2642,7 @@
 }
 
 .config-card .form-row {
-    /* margin-bottom: 12px; */
+    margin-bottom: 0px;
 }
 
 .config-card .form-group {

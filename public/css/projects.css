@@ -124,12 +124,12 @@
 }
 
 .project-edit-btn {
-  background: rgba(99, 102, 241, 0.1);
-  color: var(--primary-color);
+  background: rgba(139, 92, 246, 0.1);
+  color: var(--zeabur-primary);
 }
 
 .project-edit-btn:hover {
-  background: rgba(99, 102, 241, 0.2);
+  background: rgba(139, 92, 246, 0.2);
   transform: scale(1.05);
 }
 
@@ -206,7 +206,7 @@
 
 .mini-card:hover {
   background-color: var(--bg-tertiary);
-  border-color: var(--primary-color);
+  border-color: var(--zeabur-primary);
 }
 
 .mini-card-icon {
@@ -229,13 +229,13 @@
 
 /* Mini Card Variants */
 .region-card {
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(139, 92, 246, 0.1));
-  border-color: rgba(99, 102, 241, 0.25);
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.1), rgba(139, 92, 246, 0.05));
+  border-color: rgba(139, 92, 246, 0.25);
 }
 
 .region-card:hover {
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(139, 92, 246, 0.15));
-  border-color: var(--primary-color);
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.15), rgba(139, 92, 246, 0.1));
+  border-color: var(--zeabur-primary);
 }
 
 .cost-card {
@@ -338,8 +338,8 @@
 .service-cancel-btn {
   padding: 2px 4px;
   border: none;
-  background: rgba(99, 102, 241, 0.1);
-  color: var(--primary-color);
+  background: rgba(139, 92, 246, 0.1);
+  color: var(--zeabur-primary);
   border-radius: 3px;
   cursor: pointer;
   transition: all 0.2s ease;
@@ -353,7 +353,7 @@
 }
 
 .service-edit-btn:hover {
-  background: rgba(99, 102, 241, 0.2);
+  background: rgba(139, 92, 246, 0.2);
   transform: scale(1.05);
 }
 
@@ -446,7 +446,7 @@
 
 .btn-logs {
   background-color: rgba(139, 92, 246, 0.2);
-  color: var(--status-deploying);
+  color: var(--zeabur-primary);
 }
 
 .btn-logs:hover {
@@ -473,7 +473,7 @@
 
 .btn-custom-domain {
   background-color: rgba(139, 92, 246, 0.2);
-  color: var(--status-deploying);
+  color: var(--zeabur-primary);
 }
 
 .btn-custom-domain:hover {
@@ -497,7 +497,7 @@
   padding: 8px 12px;
   background-color: var(--bg-secondary);
   border-radius: 8px;
-  color: var(--primary-color);
+  color: var(--zeabur-primary);
   text-decoration: none;
   font-size: 13px;
   font-weight: 500;
@@ -510,7 +510,7 @@
 }
 
 .domain-badge {
-  background-color: var(--primary-color);
+  background-color: var(--zeabur-primary);
   color: white;
   padding: 2px 6px;
   border-radius: 10px;
@@ -522,7 +522,7 @@
 .create-project-btn {
   padding: 8px 12px;
   border: none;
-  background: linear-gradient(135deg, var(--primary-color), rgba(139, 92, 246, 0.9));
+  background: var(--zeabur-primary);
   color: white;
   border-radius: 8px;
   cursor: pointer;
@@ -533,19 +533,19 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
-  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
+  box-shadow: 0 2px 8px rgba(139, 92, 246, 0.3);
   margin-left: 12px;
 }
 
 .create-project-btn:hover {
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.9), rgba(139, 92, 246, 1));
+  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.4);
+  filter: brightness(1.1);
 }
 
 .create-project-btn:active {
   transform: translateY(0);
-  box-shadow: 0 2px 6px rgba(99, 102, 241, 0.3);
+  box-shadow: 0 2px 6px rgba(139, 92, 246, 0.3);
 }
 
 .create-service-btn {
@@ -553,7 +553,7 @@
   padding: 10px 16px;
   border: 2px dashed var(--border-color);
   background: var(--bg-secondary);
-  color: var(--primary-color);
+  color: var(--zeabur-primary);
   border-radius: 8px;
   cursor: pointer;
   transition: all 0.3s ease;
@@ -568,10 +568,10 @@
 
 .create-service-btn:hover {
   background: var(--bg-tertiary);
-  border-color: var(--primary-color);
+  border-color: var(--zeabur-primary);
   border-style: solid;
   transform: translateY(-1px);
-  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.2);
+  box-shadow: 0 2px 8px rgba(139, 92, 246, 0.2);
 }
 
 .create-service-btn:active {
@@ -588,4 +588,26 @@
     padding: 6px 10px;
     font-size: 12px;
   }
+}
+
+/* ====== Zeabur 模块主题色统一 ====== */
+
+/* Zeabur 模块主按钮 */
+.zeabur-sec-tab .btn-primary {
+  background: var(--zeabur-primary);
+  box-shadow: 0 2px 8px rgba(139, 92, 246, 0.3);
+}
+
+.zeabur-sec-tab .btn-primary:hover {
+  filter: brightness(1.1);
+  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.4);
+}
+
+/* Zeabur 子标签页 */
+.zeabur-sec-tab .tab-btn.active {
+  border-color: var(--zeabur-primary) !important;
+}
+
+#app>div>div.tab-content.zeabur-tab-content>div.sec-tabs>button.tab-btn.active {
+  background: var(--zeabur-primary) !important;
 }

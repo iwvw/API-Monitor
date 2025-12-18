@@ -36,6 +36,7 @@
   --cf-dark: #e5730d;
   --openai-color: #10a37f;
   --openai-dark: #0d8a6a;
+  --zeabur-primary: #6366f1;
 
   /* 主机管理模块主题色 - 石板蓝 */
   --server-primary: #475569;
@@ -134,11 +135,10 @@ body.modal-open {
   position: relative;
 }
 
-.header>div:last-child {
-  position: absolute;
-  right: 0;
-  top: 50%;
-  transform: translateY(-50%);
+.header-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
 }
 
 .title {

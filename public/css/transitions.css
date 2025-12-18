@@ -122,10 +122,10 @@
 
 /* ==================== 模块切换动画主题色 ==================== */
 /* Zeabur 模块 - 紫色主题 */
-.zeabur-tab-content.slide-in-left,
-.zeabur-tab-content.slide-in-right,
-.zeabur-tab-content.slide-out-left,
-.zeabur-tab-content.slide-out-right {
+.zeabur-sec-tab.slide-in-left,
+.zeabur-sec-tab.slide-in-right,
+.zeabur-sec-tab.slide-out-left,
+.zeabur-sec-tab.slide-out-right {
   --module-color: rgba(99, 102, 241, 0.06);
 }
 

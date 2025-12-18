@@ -35,6 +35,38 @@ function formatModule(module) {
   return module ? `[${module}]` : '';
 }
 
+// 敏感数据脱敏
+function maskSensitiveInfo(data) {
+  if (!data) return data;
+
+  if (typeof data === 'string') {
+    // 简单的正则替换常见敏感词
+    return data.replace(/(token|password|key|secret|api_key|apiToken)(["']?\s*[:=]\s*["']?)([^"'\s&,]+)/gi, '$1$2******');
+  }
+
+  if (typeof data === 'object' && data !== null) {
+    const masked = Array.isArray(data) ? [] : {};
+    for (const key in data) {
+      if (Object.prototype.hasOwnProperty.call(data, key)) {
+        const lowerKey = key.toLowerCase();
+        if (lowerKey.includes('token') ||
+          lowerKey.includes('password') ||
+          lowerKey.includes('key') ||
+          lowerKey.includes('secret')) {
+          masked[key] = '******';
+        } else if (typeof data[key] === 'object') {
+          masked[key] = maskSensitiveInfo(data[key]);
+        } else {
+          masked[key] = data[key];
+        }
+      }
+    }
+    return masked;
+  }
+
+  return data;
+}
+
 // 日志输出核心函数
 function log(level, module, message, data) {
   if (LOG_LEVELS[level] < currentLevel) return;
@@ -66,16 +98,21 @@ function log(level, module, message, data) {
 
   const timestampStr = useColor ? chalk.gray(timestamp) : timestamp;
   const moduleColor = useColor ? chalk.blue : (text) => text;
-  const output = `${timestampStr} ${prefix} ${moduleColor(moduleStr)} ${message}`;
+
+  // 脱敏处理
+  const maskedMessage = maskSensitiveInfo(message);
+  const maskedData = maskSensitiveInfo(data);
+
+  const output = `${timestampStr} ${prefix} ${moduleColor(moduleStr)} ${maskedMessage}`;
 
   console.log(colorFn(output));
 
   // 如果有额外数据，格式化输出
-  if (data !== undefined) {
-    if (typeof data === 'object') {
-      console.log(colorFn('   ' + JSON.stringify(data, null, 2).split('\n').join('\n   ')));
+  if (maskedData !== undefined) {
+    if (typeof maskedData === 'object') {
+      console.log(colorFn('   ' + JSON.stringify(maskedData, null, 2).split('\n').join('\n   ')));
     } else {
-      console.log(colorFn('   ' + data));
+      console.log(colorFn('   ' + maskedData));
     }
   }
 }
