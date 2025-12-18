@@ -18,6 +18,14 @@
   overflow: visible;
 }
 
+/* 当有 SSH 全屏时，禁用父级变换以避免 position: fixed 失效 */
+.app-has-fullscreen-ssh .tab-content,
+.app-has-fullscreen-ssh .sub-tab-content {
+  transform: none !important;
+  will-change: auto !important;
+  animation: none !important;
+}
+
 /* 淡入淡出动画 */
 @keyframes fadeIn {
   from {

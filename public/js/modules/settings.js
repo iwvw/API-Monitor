@@ -330,6 +330,19 @@ export const settingsMethods = {
     this.showSettingsModal = false;
   },
 
+  // 保存 Zeabur 设置
+  async saveZeaburSettings() {
+    // 确保也保存到 localStorage，保持一致性
+    localStorage.setItem('zeabur_refresh_interval', this.zeaburRefreshInterval);
+    
+    const success = await this.saveUserSettingsToServer();
+    if (success) {
+      this.showGlobalToast('Zeabur 模块配置已保存', 'success');
+    } else {
+      this.showGlobalToast('保存失败', 'error');
+    }
+  },
+
   // 导出全部数据（数据库文件）
   async exportAllData() {
     try {
