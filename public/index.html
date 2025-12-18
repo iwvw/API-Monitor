@@ -30,6 +30,7 @@
   <link rel="stylesheet" href="/css/transitions.css">
   <link rel="stylesheet" href="/css/server.css">
   <link rel="stylesheet" href="/css/antigravity.css">
+  <link rel="stylesheet" href="/css/login.css">
 </head>
 
 <body>
@@ -75,20 +76,28 @@
     </div>
 
     <!-- 登录界面 -->
-    <div v-if="!isCheckingAuth && showLoginModal" class="modal-overlay">
-      <div class="modal">
-        <div class="modal-header">
-          <div class="modal-title">🔐 管理员登录</div>
+    <div v-if="!isCheckingAuth && showLoginModal" class="modal-overlay login-overlay">
+      <div class="modal login-modal">
+        <div class="login-header">
+          <div class="login-icon-wrapper">
+            <i class="fas fa-shield-alt login-icon"></i>
+          </div>
+          <div class="login-title">欢迎回来</div>
+          <div class="login-subtitle">请登录以继续管理您的 API 监控服务</div>
         </div>
-        <div class="form-group">
-          <input v-model="loginPassword" type="password" class="form-input" placeholder="请输入管理员密码"
+
+        <div class="login-form-group">
+          <input v-model="loginPassword" type="password" class="login-input" placeholder="请输入管理员密码"
             @keyup.enter="verifyPassword" />
+          <i class="fas fa-lock login-input-icon"></i>
         </div>
-        <div v-if="loginError" class="form-error">
-          {{ loginError }}
+
+        <div v-if="loginError" class="form-error" style="text-align: center; margin-bottom: 16px;">
+          <i class="fas fa-exclamation-circle"></i> {{ loginError }}
         </div>
-        <button @click="verifyPassword" class="btn btn-primary" style="width: 100%;">
-          登录
+
+        <button @click="verifyPassword" class="login-btn">
+          立即登录
         </button>
       </div>
     </div>
@@ -2604,85 +2613,190 @@ Web服务器,192.168.1.100,22,root,password123
         </div>
 
         <!-- 侧边栏内容 -->
-        <div class="settings-sidebar-content">
-          <!-- 模块管理 -->
-          <div class="settings-section">
-            <div class="settings-section-title">模块管理</div>
-            <div>
-              <div v-for="(module, index) in moduleOrder" :key="module" class="draggable-module-item" draggable="true"
-                @dragstart="handleDragStart($event, index)" @dragend="handleDragEnd"
-                @dragover.prevent="handleDragOver($event, index)" @drop="handleDrop($event, index)">
-                <i class="fas fa-grip-vertical drag-handle"></i>
-                <i class="draggable-module-icon fas" :class="getModuleIcon(module)"></i>
-                <span class="draggable-module-name">{{ getModuleName(module) }}</span>
-                <!-- 显示/隐藏切换按钮 -->
-                <button class="btn btn-sm" :class="moduleVisibility[module] ? 'btn-success' : 'btn-secondary'"
-                  @click.stop="toggleModuleVisibility(module)" style="padding: 4px 8px; font-size: 12px;">
-                  <i class="fas" :class="moduleVisibility[module] ? 'fa-eye' : 'fa-eye-slash'"></i>
+        <div class="settings-container">
+          <!-- settings-sidebar-left: Navigation -->
+          <div class="settings-nav">
+            <button class="settings-nav-item" :class="{ active: settingsCurrentTab === 'general' }"
+              @click="settingsCurrentTab = 'general'">
+              <i class="fas fa-sliders-h"></i> 通用设置
+            </button>
+            <button class="settings-nav-item" :class="{ active: settingsCurrentTab === 'modules' }"
+              @click="settingsCurrentTab = 'modules'">
+              <i class="fas fa-cubes"></i> 模块管理
+            </button>
+            <button class="settings-nav-item" :class="{ active: settingsCurrentTab === 'database' }"
+              @click="settingsCurrentTab = 'database'">
+              <i class="fas fa-database"></i> 数据库
+            </button>
+            <button class="settings-nav-item" :class="{ active: settingsCurrentTab === 'appearance' }"
+              @click="settingsCurrentTab = 'appearance'">
+              <i class="fas fa-paint-brush"></i> 个性化
+            </button>
+          </div>
+
+          <!-- settings-main: Content Area -->
+          <div class="settings-main">
+            <!-- ==================== General Tab ==================== -->
+            <div v-if="settingsCurrentTab === 'general'" class="settings-tab-content fade-in">
+              <div class="settings-group">
+                <div class="settings-group-title">账户安全</div>
+                <div class="form-group">
+                  <label class="form-label">新密码</label>
+                  <input v-model="newPassword" type="password" class="form-input" placeholder="输入新密码（至少6位）" />
+                </div>
+                <div class="form-group">
+                  <label class="form-label">确认密码</label>
+                  <input v-model="confirmPassword" type="password" class="form-input" placeholder="确认新密码" />
+                </div>
+                <div v-if="passwordError" class="form-error">{{ passwordError }}</div>
+                <div v-if="passwordSuccess" class="form-success">{{ passwordSuccess }}</div>
+                <button class="btn btn-primary" @click="changePassword" style="width: 100%; margin-top: 8px;">
+                  <i class="fas fa-key"></i> 修改密码
+                </button>
+              </div>
+
+              <div class="settings-group">
+                <div class="settings-group-title">数据备份 & 恢复</div>
+                <div class="settings-description">
+                  导出包含所有模块配置和数据的 JSON 文件，以便迁移或备份。
+                </div>
+                <div style="display: flex; gap: 8px; margin-top: 12px;">
+                  <button class="btn btn-secondary" @click="exportAllData" style="flex: 1;">
+                    <i class="fas fa-upload"></i> 导出数据
+                  </button>
+                  <button class="btn btn-secondary" @click="importAllData" style="flex: 1;">
+                    <i class="fas fa-download"></i> 导入数据
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- ==================== Modules Tab ==================== -->
+            <div v-if="settingsCurrentTab === 'modules'" class="settings-tab-content fade-in">
+              <div class="settings-group">
+                <div class="settings-group-title">功能模块管理</div>
+                <div class="settings-description" style="margin-bottom: 12px;">
+                  拖拽调整菜单顺序，点击眼睛图标控制显示/隐藏。
+                </div>
+                <div class="modules-list">
+                  <div v-for="(module, index) in moduleOrder" :key="module" class="draggable-module-item"
+                    draggable="true" @dragstart="handleDragStart($event, index)" @dragend="handleDragEnd"
+                    @dragover.prevent="handleDragOver($event, index)" @drop="handleDrop($event, index)">
+                    <div style="display: flex; align-items: center; gap: 12px; flex: 1;">
+                      <i class="fas fa-grip-vertical drag-handle"></i>
+                      <div class="module-icon-wrapper">
+                        <i class="draggable-module-icon fas" :class="getModuleIcon(module)"></i>
+                      </div>
+                      <span class="draggable-module-name">{{ getModuleName(module) }}</span>
+                    </div>
+                    <button class="btn btn-sm btn-icon"
+                      :class="moduleVisibility[module] ? 'text-success' : 'text-muted'"
+                      @click.stop="toggleModuleVisibility(module)" :title="moduleVisibility[module] ? '已显示' : '已隐藏'">
+                      <i class="fas" :class="moduleVisibility[module] ? 'fa-eye' : 'fa-eye-slash'"></i>
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div class="settings-actions">
+                <button class="btn btn-primary" @click="saveSettings">
+                  <i class="fas fa-check"></i> 保存排序与可见性
                 </button>
               </div>
             </div>
-            <div class="form-help" style="margin-top: 8px;">拖拽调整顺序，点击眼睛图标切换显示/隐藏</div>
-          </div>
 
-          <!-- 修改密码 -->
-          <div class="settings-section">
-            <div class="settings-section-title">修改登录密码</div>
-            <div class="form-group">
-              <input v-model="newPassword" type="password" class="form-input" placeholder="输入新密码（至少6位）" />
-            </div>
-            <div class="form-group">
-              <input v-model="confirmPassword" type="password" class="form-input" placeholder="确认新密码" />
-            </div>
-            <div v-if="passwordError" class="form-error">{{ passwordError }}</div>
-            <div v-if="passwordSuccess" class="form-success">{{ passwordSuccess }}</div>
-            <button class="btn btn-primary" @click="changePassword" style="width: 100%;">
-              <i class="fas fa-key"></i> 修改密码
-            </button>
-          </div>
+            <!-- ==================== Database Tab ==================== -->
+            <div v-if="settingsCurrentTab === 'database'" class="settings-tab-content fade-in">
+              <div class="settings-group">
+                <div class="settings-group-title">存储状态</div>
+                <div class="db-stats-card">
+                  <div class="db-stat-item">
+                    <div class="db-stat-label">数据库大小</div>
+                    <div class="db-stat-value" v-if="dbStats">{{ formatFileSize(dbStats.dbSize) }}</div>
+                    <div class="db-stat-value" v-else>--</div>
+                  </div>
+                  <div class="db-stat-item">
+                    <div class="db-stat-label">数据表总数</div>
+                    <div class="db-stat-value" v-if="dbStats">{{ Object.keys(dbStats.tables || {}).length }}</div>
+                    <div class="db-stat-value" v-else>--</div>
+                  </div>
+                </div>
+                <div style="display: flex; gap: 8px; margin-top: 12px;">
+                  <button class="btn btn-warning" @click="handleClearLogs" style="flex: 1;">
+                    <i class="fas fa-trash-alt"></i> 清理所有日志
+                  </button>
+                  <button class="btn btn-secondary" @click="handleVacuumDb" style="flex: 1;">
+                    <i class="fas fa-compress-arrows-alt"></i> 压缩数据库
+                  </button>
+                </div>
+              </div>
 
-          <!-- 数据导入导出 -->
-          <div class="settings-section">
-            <div class="settings-section-title">数据备份与恢复</div>
-            <div style="display: flex; gap: 8px; margin-bottom: 8px;">
-              <button class="btn btn-success" @click="exportAllData" style="flex: 1;">
-                <i class="fas fa-upload"></i> 导出数据
-              </button>
-              <button class="btn btn-warning" @click="importAllData" style="flex: 1;">
-                <i class="fas fa-download"></i> 导入数据
-              </button>
-            </div>
-            <div class="form-help">导出包含所有模块的配置和数据</div>
-          </div>
+              <div class="settings-group">
+                <div class="settings-group-title">自动清理策略</div>
+                <div class="settings-description">
+                  系统将自动删除超过限制的旧日志数据。
+                </div>
 
-          <!-- 自定义 CSS -->
-          <div class="settings-section">
-            <div class="settings-section-title">自定义 CSS</div>
-            <div class="form-help" style="margin-bottom: 8px;">
-              可以自定义字体、颜色等样式。例如：
-              <code style="display: block; margin-top: 4px;">body { font-family: 'Microsoft YaHei', sans-serif; }</code>
-            </div>
-            <textarea v-model="customCss" class="form-textarea" placeholder="输入自定义 CSS 代码..."
-              style="min-height: 150px; font-family: 'Consolas', 'Monaco', monospace; font-size: 12px;"></textarea>
-            <div v-if="customCssError" class="form-error" style="margin-top: 8px;">{{ customCssError }}</div>
-            <div v-if="customCssSuccess" class="form-success" style="margin-top: 8px;">{{ customCssSuccess }}
-            </div>
-            <div style="display: flex; gap: 8px; margin-top: 8px;">
-              <button class="btn btn-primary" @click="saveCustomCss" style="flex: 1;">
-                <i class="fas fa-save"></i> 应用 CSS
-              </button>
-              <button class="btn btn-secondary" @click="resetCustomCss" style="flex: 1;">
-                <i class="fas fa-undo"></i> 重置
-              </button>
-            </div>
-          </div>
+                <div class="form-group">
+                  <label class="form-label">日志保留天数</label>
+                  <div class="input-with-suffix">
+                    <input v-model.number="logSettings.days" type="number" class="form-input" min="0" placeholder="0"
+                      @change="saveLogSettings">
+                    <span class="input-suffix">天</span>
+                  </div>
+                  <div class="form-help">0 表示不限制</div>
+                </div>
 
-          <!-- 保存按钮 -->
-          <div
-            style="bottom: 0; background: var(--card-bg); padding-top: 16px; border-top: 1px solid var(--border-color); margin-top: 20px;">
-            <button class="btn btn-primary" @click="saveSettings" style="width: 100%;">
-              <i class="fas fa-save"></i> 保存设置
-            </button>
+                <div class="form-group">
+                  <label class="form-label">单表最大记录数</label>
+                  <div class="input-with-suffix">
+                    <input v-model.number="logSettings.count" type="number" class="form-input" min="0" step="1000"
+                      placeholder="0" @change="saveLogSettings">
+                    <span class="input-suffix">条</span>
+                  </div>
+                  <div class="form-help">0 表示不限制</div>
+                </div>
+
+                <div class="form-group">
+                  <label class="form-label">数据库最大体积</label>
+                  <div class="input-with-suffix">
+                    <input v-model.number="logSettings.dbSizeMB" type="number" class="form-input" min="0"
+                      placeholder="0" @change="saveLogSettings">
+                    <span class="input-suffix">MB</span>
+                  </div>
+                  <div class="form-help">0 表示不限制</div>
+                </div>
+
+                <button class="btn btn-secondary" style="width: 100%; margin-top: 8px;" @click="enforceLogLimits"
+                  :disabled="logLimitsEnforcing">
+                  <i class="fas" :class="logLimitsEnforcing ? 'fa-spinner fa-spin' : 'fa-broom'"></i>
+                  {{ logLimitsEnforcing ? '正在清理...' : '立即执行清理' }}
+                </button>
+              </div>
+            </div>
+
+            <!-- ==================== Appearance Tab ==================== -->
+            <div v-if="settingsCurrentTab === 'appearance'" class="settings-tab-content fade-in">
+              <div class="settings-group">
+                <div class="settings-group-title">自定义 CSS</div>
+                <div class="settings-description">
+                  注入自定义 CSS 样式以覆盖默认主题。
+                </div>
+                <textarea v-model="customCss" class="form-textarea code-font" placeholder="/* 在此处输入 CSS 代码 */"
+                  style="min-height: 200px;"></textarea>
+                <div v-if="customCssError" class="form-error" style="margin-top: 8px;">{{ customCssError }}</div>
+                <div v-if="customCssSuccess" class="form-success" style="margin-top: 8px;">{{ customCssSuccess }}</div>
+
+                <div style="display: flex; gap: 8px; margin-top: 12px;">
+                  <button class="btn btn-primary" @click="saveCustomCss" style="flex: 1;">
+                    <i class="fas fa-save"></i> 应用并保存
+                  </button>
+                  <button class="btn btn-secondary" @click="resetCustomCss" style="flex: 1;">
+                    <i class="fas fa-undo"></i> 重置默认
+                  </button>
+                </div>
+              </div>
+            </div>
+
           </div>
         </div>
       </div>

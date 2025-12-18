@@ -14,7 +14,7 @@ import { settingsMethods } from './modules/settings.js';
 import { transitionsMethods } from './modules/transitions.js';
 // import { initServerModule } from './modules/server.js'; // 已改用 Vue 渲染,不再需要
 import toastManager, { toast } from './modules/toast.js';
-import { formatDateTime, getLocalTimestamp, formatLocalISO } from './modules/utils.js';
+import { formatDateTime, getLocalTimestamp, formatLocalISO, formatFileSize } from './modules/utils.js';
 
 // 获取 Vue
 const { createApp } = Vue;
@@ -298,6 +298,16 @@ const app = createApp({
       customCss: '',
       customCssError: '',
       customCssSuccess: '',
+      settingsCurrentTab: 'general', // 'general', 'modules', 'database', 'appearance'
+
+      // 日志保留设置
+      logSettings: {
+        days: 0,
+        count: 0,
+        dbSizeMB: 0
+      },
+      logSettingsSaving: false,
+      logLimitsEnforcing: false,
 
       // 自定义对话框
       customDialog: {
@@ -479,6 +489,7 @@ const app = createApp({
 
     showSettingsModal(newVal) {
       if (newVal) {
+        this.settingsCurrentTab = 'general'; // Reset to general tab
         document.body.classList.add('modal-open');
         this.$nextTick(() => this.focusModalOverlay('.settings-sidebar'));
       } else {
@@ -525,17 +536,44 @@ const app = createApp({
 
     mainActiveTab: {
       handler(newVal) {
-        // 切换到主机管理时加载主机列表（需已认证）
-        // 仅当列表为空时才自动加载，避免切换 tab 导致状态丢失
-        if (newVal === 'server' && this.isAuthenticated && this.serverList.length === 0) {
-          this.loadServerList();
+        // 通用的数据加载逻辑（需已认证）
+        if (this.isAuthenticated) {
+          this.$nextTick(() => {
+            switch (newVal) {
+              case 'zeabur':
+                if (this.accounts.length === 0) {
+                  this.fetchData();
+                }
+                break;
+              case 'dns':
+                if (this.dnsAccounts.length === 0) {
+                  this.loadDnsAccounts();
+                  this.loadDnsTemplates();
+                }
+                break;
+              case 'openai':
+                if (this.openaiEndpoints.length === 0) {
+                  this.loadOpenaiEndpoints();
+                }
+                break;
+              case 'server':
+                if (this.serverList.length === 0) {
+                  this.loadServerList();
+                }
+                break;
+              case 'antigravity':
+                if (this.antigravityCurrentTab === 'quotas') {
+                  if (this.loadAntigravityQuotas) this.loadAntigravityQuotas();
+                }
+                break;
+            }
+          });
         }
 
         // Antigravity 模块额度轮询管理
         if (newVal === 'antigravity' && this.antigravityCurrentTab === 'quotas') {
-          if (this.loadAntigravityQuotas) {
-            this.loadAntigravityQuotas();
-          }
+          // logic already handled above or needs to be specific?
+          // The polling start logic is distinct from initial load.
         } else {
           if (this.stopAntigravityQuotaPolling) {
             this.stopAntigravityQuotaPolling();
@@ -547,8 +585,31 @@ const app = createApp({
 
     // 认证成功后加载当前标签页数据
     isAuthenticated(newVal) {
-      if (newVal && this.mainActiveTab === 'server') {
-        this.loadServerList();
+      if (newVal) {
+        // 登录成功，从后端加载用户设置
+        this.loadUserSettings();
+
+        // 加载当前激活标签页的数据
+        this.$nextTick(() => {
+          switch (this.mainActiveTab) {
+            case 'zeabur':
+              this.fetchData();
+              break;
+            case 'dns':
+              this.loadDnsAccounts();
+              this.loadDnsTemplates();
+              break;
+            case 'openai':
+              this.loadOpenaiEndpoints();
+              break;
+            case 'server':
+              this.loadServerList();
+              break;
+            case 'antigravity':
+              if (this.loadAntigravityQuotas) this.loadAntigravityQuotas();
+              break;
+          }
+        });
       }
     },
 
@@ -665,6 +726,8 @@ const app = createApp({
   },
 
   methods: {
+    formatDateTime,
+    formatFileSize,
     // Toast 管理系统 - 使用新的独立 Toast 管理器
     showGlobalToast(message, type = 'success', duration = 3000) {
       // 使用新的toast系统

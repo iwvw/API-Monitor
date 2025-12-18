@@ -11,6 +11,10 @@ export const settingsMethods = {
         headers: this.getAuthHeaders()
       });
 
+      // 顺便加载数据库统计信息
+      this.fetchDbStats();
+      this.fetchLogSettings(); // 加载日志设置
+
       if (response.ok) {
         const result = await response.json();
         if (result.success && result.data) {
@@ -39,6 +43,7 @@ export const settingsMethods = {
             this.moduleOrder = settings.moduleOrder;
           }
 
+          this.activateFirstVisibleModule();
           return true;
         }
       }
@@ -90,6 +95,20 @@ export const settingsMethods = {
         }
       });
       this.moduleOrder = saved.filter(m => availableModules.includes(m));
+    }
+    this.activateFirstVisibleModule();
+  },
+
+  // 激活第一个可见的模块
+  activateFirstVisibleModule() {
+    // 如果当前选中的模块不可见，或者我们想默认选中第一个
+    // 这里简单的策略是：总是尝试切换到排序后的第一个可见模块
+    // 这样用户登录时就会看到他们配置的第一个模块
+    if (this.moduleOrder && this.moduleOrder.length > 0) {
+      const firstVisible = this.moduleOrder.find(m => this.moduleVisibility[m]);
+      if (firstVisible) {
+        this.mainActiveTab = firstVisible;
+      }
     }
   },
 
@@ -334,7 +353,7 @@ export const settingsMethods = {
   async saveZeaburSettings() {
     // 确保也保存到 localStorage，保持一致性
     localStorage.setItem('zeabur_refresh_interval', this.zeaburRefreshInterval);
-    
+
     const success = await this.saveUserSettingsToServer();
     if (success) {
       this.showGlobalToast('Zeabur 模块配置已保存', 'success');
@@ -536,5 +555,142 @@ export const settingsMethods = {
       reader.readAsText(file);
     };
     input.click();
+  },
+
+  // 获取数据库统计
+  async fetchDbStats() {
+    try {
+      const response = await fetch('/api/settings/database-stats', {
+        headers: this.getAuthHeaders()
+      });
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success) {
+          this.dbStats = result.data;
+        }
+      }
+    } catch (error) {
+      console.error('获取数据库统计失败:', error);
+    }
+  },
+
+  // 压缩数据库
+  async handleVacuumDb() {
+    try {
+      this.showGlobalToast('正在压缩数据库...', 'info');
+      const response = await fetch('/api/settings/vacuum-database', {
+        method: 'POST',
+        headers: this.getAuthHeaders()
+      });
+      const result = await response.json();
+
+      if (result.success) {
+        this.showGlobalToast('数据库压缩成功', 'success');
+        await this.fetchDbStats(); // 刷新统计
+      } else {
+        this.showGlobalToast('操作失败: ' + result.error, 'error');
+      }
+    } catch (error) {
+      this.showGlobalToast('请求失败: ' + error.message, 'error');
+    }
+  },
+
+  // 清理日志
+  async handleClearLogs() {
+    const confirmed = await this.showConfirm({
+      title: '确认清理日志',
+      message: '确定要清空所有操作日志吗？此操作不可恢复。',
+      icon: 'fa-trash-alt',
+      confirmText: '确定清理',
+      confirmClass: 'btn-danger'
+    });
+
+    if (!confirmed) return;
+
+    try {
+      this.showGlobalToast('正在清理日志...', 'info');
+      const response = await fetch('/api/settings/clear-logs', {
+        method: 'POST',
+        headers: this.getAuthHeaders()
+      });
+      const result = await response.json();
+
+      if (result.success) {
+        this.showGlobalToast(result.message, 'success');
+        await this.fetchDbStats(); // 刷新统计
+      } else {
+        this.showGlobalToast('操作失败: ' + result.error, 'error');
+      }
+    } catch (error) {
+      this.showGlobalToast('请求失败: ' + error.message, 'error');
+    }
+  },
+
+  // 获取日志保留设置
+  async fetchLogSettings() {
+    try {
+      const response = await fetch('/api/settings/log-settings', {
+        headers: this.getAuthHeaders()
+      });
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success) {
+          this.logSettings = { ...result.data };
+        }
+      }
+    } catch (error) {
+      console.error('获取日志设置失败:', error);
+    }
+  },
+
+  // 保存日志保留设置
+  async saveLogSettings() {
+    try {
+      this.logSettingsSaving = true;
+      const response = await fetch('/api/settings/log-settings', {
+        method: 'POST',
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify(this.logSettings)
+      });
+      const result = await response.json();
+
+      if (result.success) {
+        this.showGlobalToast('日志保留策略已保存', 'success');
+      } else {
+        this.showGlobalToast('保存失败: ' + result.error, 'error');
+      }
+    } catch (error) {
+      this.showGlobalToast('请求失败: ' + error.message, 'error');
+    } finally {
+      this.logSettingsSaving = false;
+    }
+  },
+
+  // 立即执行日志清理
+  async enforceLogLimits() {
+    try {
+      this.logLimitsEnforcing = true;
+      this.showGlobalToast('正在执行日志清理策略...', 'info');
+
+      // 使用当前输入的值执行清理
+      const response = await fetch('/api/settings/enforce-log-limits', {
+        method: 'POST',
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify(this.logSettings)
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        this.showGlobalToast(result.message, 'success');
+        await this.fetchDbStats(); // 刷新统计
+      } else {
+        this.showGlobalToast('操作失败: ' + result.error, 'error');
+      }
+    } catch (error) {
+      this.showGlobalToast('请求失败: ' + error.message, 'error');
+    } finally {
+      this.logLimitsEnforcing = false;
+    }
   }
 };

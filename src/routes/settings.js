@@ -12,6 +12,7 @@ const {
   updateUserSettings
 } = require('../services/userSettings');
 const dbService = require('../db/database');
+const { SystemConfig } = require('../db/models');
 const { createLogger } = require('../utils/logger');
 
 const logger = createLogger('Settings');
@@ -228,4 +229,125 @@ router.get('/database-stats', (req, res) => {
   }
 });
 
+/**
+ * 压缩数据库 (VACUUM)
+ * POST /api/settings/vacuum-database
+ */
+router.post('/vacuum-database', async (req, res) => {
+  try {
+    logger.info('收到数据库压缩请求');
+    dbService.vacuum();
+    res.json({
+      success: true,
+      message: '数据库压缩整理完成'
+    });
+  } catch (error) {
+    logger.error('数据库压缩请求失败', error.message);
+    res.status(500).json({
+      success: false,
+      error: '数据库压缩失败: ' + error.message
+    });
+  }
+});
+
+/**
+ * 清理日志
+ * POST /api/settings/clear-logs
+ */
+router.post('/clear-logs', async (req, res) => {
+  try {
+    logger.info('收到清理日志请求');
+    const count = dbService.clearLogs();
+    res.json({
+      success: true,
+      message: `日志清理完成，共移除 ${count} 条记录`,
+      count
+    });
+  } catch (error) {
+    logger.error('日志清理请求失败', error.message);
+    res.status(500).json({
+      success: false,
+      error: '日志清理失败: ' + error.message
+    });
+  }
+});
+
 module.exports = router;
+
+/**
+ * 获取日志保留设置
+ * GET /api/settings/log-settings
+ */
+router.get('/log-settings', (req, res) => {
+  try {
+    const days = SystemConfig.getConfigValue('log_retention_days', 0);
+    const count = SystemConfig.getConfigValue('log_max_count', 0);
+    const dbSizeMB = SystemConfig.getConfigValue('log_max_db_size_mb', 0);
+
+    res.json({
+      success: true,
+      data: {
+        days: parseInt(days) || 0,
+        count: parseInt(count) || 0,
+        dbSizeMB: parseInt(dbSizeMB) || 0
+      }
+    });
+  } catch (error) {
+    logger.error('获取日志设置失败', error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * 保存日志保留设置
+ * POST /api/settings/log-settings
+ */
+router.post('/log-settings', (req, res) => {
+  try {
+    const { days, count, dbSizeMB } = req.body;
+
+    SystemConfig.setConfig('log_retention_days', days || 0, '日志保留天数');
+    SystemConfig.setConfig('log_max_count', count || 0, '单表最大日志数');
+    SystemConfig.setConfig('log_max_db_size_mb', dbSizeMB || 0, '数据库最大大小(MB)');
+
+    res.json({
+      success: true,
+      message: '日志设置已保存'
+    });
+  } catch (error) {
+    logger.error('保存日志设置失败', error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * 强制执行日志清理
+ * POST /api/settings/enforce-log-limits
+ */
+router.post('/enforce-log-limits', async (req, res) => {
+  try {
+    // 优先使用传入的参数，如果没有则读取已保存的配置
+    let { days, count, dbSizeMB } = req.body;
+
+    if (days === undefined || count === undefined || dbSizeMB === undefined) {
+      days = parseInt(SystemConfig.getConfigValue('log_retention_days', 0)) || 0;
+      count = parseInt(SystemConfig.getConfigValue('log_max_count', 0)) || 0;
+      dbSizeMB = parseInt(SystemConfig.getConfigValue('log_max_db_size_mb', 0)) || 0;
+    }
+
+    const result = dbService.enforceLogLimits({
+      days: parseInt(days),
+      count: parseInt(count),
+      dbSizeMB: parseInt(dbSizeMB)
+    });
+
+    res.json({
+      success: true,
+      message: `日志清理完成，共移除 ${result.deleted} 条记录`,
+      data: result
+    });
+  } catch (error) {
+    logger.error('强制日志清理失败', error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});

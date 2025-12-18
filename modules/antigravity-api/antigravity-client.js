@@ -518,7 +518,14 @@ async function listQuotas(accountId) {
     const formatDate = (dateInput) => {
         if (!dateInput) return null;
         try {
-            const date = new Date(dateInput);
+            // 支持毫秒或秒时间戳
+            let val = dateInput;
+            if (typeof val === 'number' || (!isNaN(val) && !isNaN(parseFloat(val)))) {
+                val = Number(val);
+                // 简单启发式：如果是秒时间戳 (2024年大约是 1.7e9)，转换为毫秒
+                if (val > 1000000000 && val < 9999999999) val *= 1000;
+            }
+            const date = new Date(val);
             if (isNaN(date.getTime())) return null;
             // 返回 ISO 时间戳，前端计算倒计时
             return date.toISOString();
@@ -567,7 +574,7 @@ async function listQuotas(accountId) {
                 groupModels.push({
                     id: id,
                     remaining: Math.round(modelRem),
-                    resetTime: formatDate(modelResetTime) || '永不重置'
+                    resetTime: formatDate(modelResetTime)
                 });
             }
         });
@@ -582,7 +589,7 @@ async function listQuotas(accountId) {
                 icon: group.icon,
                 models: groupModels,
                 remaining: Math.round(minRemaining),
-                resetTime: formatDate(latestReset) || '01-01 08:00'
+                resetTime: formatDate(latestReset)
             };
         }
     });
@@ -604,7 +611,7 @@ async function listQuotas(accountId) {
             others.push({
                 id,
                 remaining: Math.round(rem),
-                resetTime: formatDate(info.quotaInfo?.resetTime) || '12-18 12:19'
+                resetTime: formatDate(info.quotaInfo?.resetTime)
             });
         }
     });

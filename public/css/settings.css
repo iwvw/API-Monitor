@@ -16,8 +16,9 @@
   top: 0;
   right: 0;
   bottom: 0;
-  width: 400px;
-  max-width: 90vw;
+  width: 800px;
+  /* Increased from 400px for 2-column layout */
+  max-width: 95vw;
   background-color: var(--card-bg);
   box-shadow: -4px 0 20px rgba(0, 0, 0, 0.2);
   display: flex;
@@ -40,7 +41,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 20px;
+  padding: 16px 24px;
   border-bottom: 1px solid var(--border-color);
   background-color: var(--bg-secondary);
 }
@@ -60,80 +61,96 @@
   font-size: 24px;
   color: var(--text-secondary);
   cursor: pointer;
-  padding: 4px 8px;
+  padding: 4px;
   line-height: 1;
   transition: color 0.2s;
+  border-radius: 4px;
 }
 
 .settings-sidebar-close:hover {
   color: var(--text-primary);
+  background-color: rgba(0, 0, 0, 0.05);
 }
 
-.settings-sidebar-content {
+/* New Layout Container */
+.settings-container {
   flex: 1;
+  /* Fill remaining space in sidebar */
+  display: flex;
+  overflow: hidden;
+  /* Contain inner scrolling */
+  min-height: 0;
+  /* Fix for nested flex scrolling */
+}
+
+/* Sidebar Navigation */
+.settings-nav {
+  width: 150px;
+  flex-shrink: 0;
+  background-color: var(--bg-secondary);
+  /* Darker sidebar */
+  border-right: 1px solid var(--border-color);
   overflow-y: auto;
-  padding: 20px;
+  padding: 16px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
-.settings-section {
-  margin-bottom: 9px;
-}
-
-.settings-section-title {
-  font-size: 14px;
-  font-weight: 600;
+.settings-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 24px;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  border-left: 3px solid transparent;
   color: var(--text-secondary);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
-  margin-bottom: 12px;
-}
-
-/* Module Visibility */
-.module-visibility-btn {
-  padding: 8px 12px;
-  border-radius: 6px;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s;
-  border: 1px solid var(--border-color);
-  background-color: var(--card-bg);
+}
+
+.settings-nav-item i {
+  width: 20px;
+  text-align: center;
+  font-size: 16px;
+}
+
+.settings-nav-item:hover {
+  background-color: rgba(0, 0, 0, 0.03);
   color: var(--text-primary);
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  position: relative;
 }
 
-.module-visibility-btn:hover {
-  background-color: var(--bg-secondary);
-  border-color: var(--primary-color);
-}
-
-.module-visibility-btn.active {
-  background-color: var(--primary-color);
-  color: white;
-  border-color: var(--primary-color);
-}
-
-.module-list-dropdown {
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
+.settings-nav-item.active {
   background-color: var(--card-bg);
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  min-width: 200px;
-  z-index: 1000;
-  overflow: hidden;
-  animation: dropdownSlideIn 0.2s ease-out;
+  /* Highlight active with lighter bg */
+  color: var(--primary-color);
+  border-left-color: var(--primary-color);
+  font-weight: 600;
 }
 
-@keyframes dropdownSlideIn {
+/* Main Content Area */
+.settings-main {
+  flex: 1;
+  overflow-y: auto;
+  padding: 15px;
+  background-color: var(--bg-primary);
+  /* Lighter background for content */
+}
+
+/* Tab Animation */
+.settings-tab-content {
+  animation: fadeIn 0.3s ease-out;
+}
+
+@keyframes fadeIn {
   from {
     opacity: 0;
-    transform: translateY(-10px);
+    transform: translateY(5px);
   }
 
   to {
@@ -142,118 +159,178 @@
   }
 }
 
-.module-list-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 14px;
-  cursor: pointer;
-  transition: background-color 0.2s;
-  border-bottom: 1px solid var(--border-color);
+/* Settings Groups (Cards) */
+.settings-group {
+  background-color: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 24px;
+  margin-bottom: 24px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 }
 
-.module-list-item:last-child {
-  border-bottom: none;
+.settings-group:last-child {
+  margin-bottom: 0;
 }
 
-.module-list-item:hover {
-  background-color: var(--bg-secondary);
-}
-
-.module-list-item-info {
+.settings-group-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 8px;
   display: flex;
   align-items: center;
   gap: 8px;
-  flex: 1;
 }
 
-.module-list-item-icon {
-  font-size: 16px;
-  width: 20px;
-  text-align: center;
-}
-
-.module-list-item-name {
+.settings-description {
   font-size: 14px;
-  font-weight: 500;
-  color: var(--text-primary);
+  color: var(--text-secondary);
+  margin-bottom: 20px;
+  line-height: 1.6;
 }
 
-.module-list-item-toggle {
+/* Form Elements Overrides/Specifics */
+.form-label {
+  font-weight: 500;
+  margin-bottom: 8px;
+  display: block;
+}
+
+.input-with-suffix {
+  position: relative;
   display: flex;
   align-items: center;
+}
+
+.input-with-suffix .form-input {
+  padding-right: 40px;
+}
+
+.input-suffix {
+  position: absolute;
+  right: 12px;
+  color: var(--text-tertiary);
+  font-size: 13px;
+  pointer-events: none;
+}
+
+.db-stats-card {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  background-color: var(--bg-secondary);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 20px;
+}
+
+.db-stat-item {
+  display: flex;
+  flex-direction: column;
   gap: 4px;
+}
+
+.db-stat-label {
   font-size: 12px;
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
-.module-list-item.visible .module-list-item-toggle {
-  color: var(--success-color);
+.db-stat-value {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
 }
 
-.module-list-item.hidden .module-list-item-toggle {
-  color: var(--text-tertiary);
+/* Draggable Modules List */
+.modules-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
-.module-list-item.visible {
-  background-color: rgba(16, 185, 129, 0.05);
-}
-
-.module-list-item.visible:hover {
-  background-color: rgba(16, 185, 129, 0.1);
-}
-
-/* Draggable Modules */
 .draggable-module-item {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px;
+  padding: 12px 16px;
   background: var(--bg-secondary);
+  border: 1px solid transparent;
   border-radius: 8px;
-  margin-bottom: 8px;
-  cursor: move;
+  cursor: grab;
   transition: all 0.2s;
-  user-select: none;
-  -webkit-user-select: none;
-  -moz-user-select: none;
-  -ms-user-select: none;
 }
 
 .draggable-module-item:hover {
-  background: var(--bg-primary);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  background: var(--input-bg);
+  border-color: var(--border-color);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
 }
 
-.draggable-module-item.dragging {
-  opacity: 0.5;
+.draggable-module-item:active {
   cursor: grabbing;
-}
-
-.draggable-module-item.drag-over {
-  border-top: 2px solid var(--primary-color);
 }
 
 .drag-handle {
   color: var(--text-tertiary);
+  margin-right: 4px;
   cursor: grab;
-  font-size: 16px;
 }
 
-.drag-handle:active {
-  cursor: grabbing;
-}
-
-.draggable-module-icon {
-  font-size: 18px;
-  width: 24px;
-  text-align: center;
+.module-icon-wrapper {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--card-bg);
+  border-radius: 6px;
   color: var(--text-primary);
 }
 
 .draggable-module-name {
-  flex: 1;
-  font-size: 14px;
   font-weight: 500;
-  color: var(--text-primary);
+  font-size: 15px;
+}
+
+.text-success {
+  color: var(--success-color);
+}
+
+.text-muted {
+  color: var(--text-tertiary);
+}
+
+.code-font {
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* Footer Actions */
+.settings-actions {
+  position: sticky;
+  bottom: 0;
+  background-color: var(--card-bg);
+  padding-top: 20px;
+  margin-top: 20px;
+  border-top: 1px solid var(--border-color);
+  text-align: right;
+  z-index: 10;
+}
+
+/* Hide Spin Buttons */
+/* Chrome, Safari, Edge, Opera */
+input::-webkit-outer-spin-button,
+input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* Firefox */
+input[type=number] {
+  -moz-appearance: textfield;
 }

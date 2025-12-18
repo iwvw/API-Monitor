@@ -24,9 +24,10 @@ function loadUserSettings() {
         zeabur: true,
         dns: true,
         openai: true,
-        server: true
+        server: true,
+        antigravity: true
       },
-      moduleOrder: settings.module_order || ['zeabur', 'dns', 'openai', 'server']
+      moduleOrder: settings.module_order || ['zeabur', 'dns', 'openai', 'server', 'antigravity']
     };
   } catch (error) {
     console.error('加载用户设置失败:', error);
@@ -66,9 +67,10 @@ function getDefaultSettings() {
       zeabur: true,
       dns: true,
       openai: true,
-      server: true
+      server: true,
+      antigravity: true
     },
-    moduleOrder: ['zeabur', 'dns', 'openai', 'server']
+    moduleOrder: ['zeabur', 'dns', 'openai', 'server', 'antigravity']
   };
 }
 

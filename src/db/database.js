@@ -226,6 +226,156 @@ class DatabaseService {
         transaction();
         logger.warn('所有表数据已清空');
     }
+
+    /**
+     * 执行数据库 VACUUM (压缩/整理)
+     */
+    vacuum() {
+        try {
+            const db = this.getDatabase();
+            logger.info('开始执行数据库 VACUUM...');
+            db.exec('VACUUM');
+            logger.success('数据库 VACUUM 完成');
+            return true;
+        } catch (error) {
+            logger.error('数据库 VACUUM 失败', error.message);
+            throw error;
+        }
+    }
+
+    /**
+     * 清理所有日志表数据
+     */
+    clearLogs() {
+        try {
+            const db = this.getDatabase();
+            logger.info('开始清理日志数据...');
+
+            // 查找所有以 _logs 结尾的表
+            const tables = db.prepare(`
+                SELECT name FROM sqlite_master 
+                WHERE type='table' AND name LIKE '%_logs'
+            `).all();
+
+            if (tables.length === 0) {
+                logger.info('未发现日志表');
+                return 0;
+            }
+
+            let deletedCount = 0;
+            const transaction = db.transaction(() => {
+                tables.forEach(({ name }) => {
+                    const result = db.prepare(`DELETE FROM ${name}`).run();
+                    logger.debug(`已清理表 ${name}: ${result.changes} 条记录`);
+                    deletedCount += result.changes;
+                });
+            });
+
+            transaction();
+
+            logger.success(`日志清理完成，共清理 ${deletedCount} 条记录`);
+            return deletedCount;
+        } catch (error) {
+            logger.error('日志清理失败', error.message);
+            throw error;
+        }
+    }
+
+    /**
+     * 强制执行日志保留策略
+     * @param {Object} limits - 限制配置
+     * @param {number} limits.days - 保留天数 (0=不限制)
+     * @param {number} limits.count - 单表最大记录数 (0=不限制)
+     * @param {number} limits.dbSizeMB - 数据库最大大小MB (0=不限制)
+     */
+    enforceLogLimits(limits) {
+        try {
+            const db = this.getDatabase();
+            const { days, count, dbSizeMB } = limits;
+
+            if (!days && !count && !dbSizeMB) {
+                return { deleted: 0, reason: 'no_limits' };
+            }
+
+            logger.info('开始执行日志保留策略检查...', limits);
+            let totalDeleted = 0;
+
+            // 查找所有日志表
+            const tables = db.prepare(`
+                SELECT name FROM sqlite_master 
+                WHERE type='table' AND name LIKE '%_logs'
+            `).all();
+
+            if (tables.length === 0) return { deleted: 0 };
+
+            const transaction = db.transaction(() => {
+                tables.forEach(({ name }) => {
+                    // Determine timestamp column name
+                    const columns = db.pragma(`table_info(${name})`);
+                    const timeCol = columns.find(c => ['created_at', 'checked_at', 'timestamp'].includes(c.name))?.name;
+
+                    if (!timeCol) {
+                        logger.warn(`跳过表 ${name}: 未找到时间戳字段`);
+                        return;
+                    }
+
+                    // 1. 按天数清理
+                    if (days > 0) {
+                        const result = db.prepare(`
+                            DELETE FROM ${name} 
+                            WHERE ${timeCol} < datetime('now', '-${days} days')
+                        `).run();
+                        if (result.changes > 0) {
+                            logger.debug(`[${name}] 清理过期日志(${days}天): ${result.changes}条`);
+                            totalDeleted += result.changes;
+                        }
+                    }
+
+                    // 2. 按数量清理 (保留最新的 N 条)
+                    if (count > 0) {
+                        // SQLite DELETE limit 语法比较特殊，通常用 subquery
+                        const result = db.prepare(`
+                            DELETE FROM ${name} 
+                            WHERE rowid NOT IN (
+                                SELECT rowid FROM ${name} 
+                                ORDER BY ${timeCol} DESC 
+                                LIMIT ?
+                            )
+                        `).run(count);
+
+                        if (result.changes > 0) {
+                            logger.debug(`[${name}] 清理超量日志(保留${count}条): ${result.changes}条`);
+                            totalDeleted += result.changes;
+                        }
+                    }
+                });
+            });
+
+            transaction();
+
+            // 3. 按数据库大小清理 (如果超出限制，触发 VACUUM 并再次检查? 或者简单地警告?)
+            // 实现策略：如果文件大小 > 限制，尝试 VACUUM。如果还大，只能删数据(暂不实现自动删数据以防误删，只做 VACUUM)
+            if (dbSizeMB > 0) {
+                const stats = fs.statSync(this.dbPath);
+                const sizeMB = stats.size / (1024 * 1024);
+
+                if (sizeMB > dbSizeMB) {
+                    logger.warn(`数据库大小 (${sizeMB.toFixed(2)}MB) 超过限制 (${dbSizeMB}MB)，尝试执行 VACUUM...`);
+                    db.exec('VACUUM');
+
+                    // 再次检查
+                    const newStats = fs.statSync(this.dbPath);
+                    const newSizeMB = newStats.size / (1024 * 1024);
+                    logger.info(`VACUUM 完成。当前大小: ${newSizeMB.toFixed(2)}MB`);
+                }
+            }
+
+            return { deleted: totalDeleted };
+        } catch (error) {
+            logger.error('执行日志保留策略失败', error.message);
+            throw error;
+        }
+    }
 }
 
 // 导出单例实例

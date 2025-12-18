@@ -23,6 +23,7 @@ CREATE TABLE IF NOT EXISTS sessions (
 CREATE TABLE IF NOT EXISTS user_settings (
     id INTEGER PRIMARY KEY CHECK (id = 1), -- 单例模式，只允许一条记录
     custom_css TEXT,
+    zeabur_refresh_interval INTEGER DEFAULT 30000, -- Zeabur 自动刷新间隔(ms)
     module_visibility TEXT, -- JSON 格式
     module_order TEXT, -- JSON 格式
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -45,10 +46,11 @@ CREATE INDEX IF NOT EXISTS idx_sessions_active ON sessions(is_active, expires_at
 CREATE INDEX IF NOT EXISTS idx_operation_logs_table ON operation_logs(table_name, created_at);
 
 -- 插入默认用户设置
-INSERT OR IGNORE INTO user_settings (id, custom_css, module_visibility, module_order)
+INSERT OR IGNORE INTO user_settings (id, custom_css, zeabur_refresh_interval, module_visibility, module_order)
 VALUES (
     1,
     '',
-    '{"zeabur":true,"dns":true,"openai":true,"server":true}',
-    '["zeabur","dns","openai","server"]'
+    30000,
+    '{"zeabur":true,"dns":true,"openai":true,"server":true,"antigravity":true}',
+    '["zeabur","dns","openai","server","antigravity"]'
 );

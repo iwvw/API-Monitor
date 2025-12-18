@@ -214,12 +214,30 @@ class UserSettings extends BaseModel {
             settings = this.createDefaultSettings();
         }
 
-        // 解析 JSON 字段
+        const defaults = {
+            zeabur: true,
+            dns: true,
+            openai: true,
+            server: true,
+            antigravity: true
+        };
+        const defaultOrder = ['zeabur', 'dns', 'openai', 'server', 'antigravity'];
+
+        // 解析 JSON 字段并合并默认值
         if (settings.module_visibility) {
-            settings.module_visibility = JSON.parse(settings.module_visibility);
+            const parsed = JSON.parse(settings.module_visibility);
+            settings.module_visibility = { ...defaults, ...parsed };
+        } else {
+            settings.module_visibility = defaults;
         }
+
         if (settings.module_order) {
-            settings.module_order = JSON.parse(settings.module_order);
+            const parsed = JSON.parse(settings.module_order);
+            // 确保所有默认模块都在顺序列表中
+            const missing = defaultOrder.filter(m => !parsed.includes(m));
+            settings.module_order = [...parsed, ...missing];
+        } else {
+            settings.module_order = defaultOrder;
         }
 
         return settings;
@@ -236,9 +254,10 @@ class UserSettings extends BaseModel {
                 zeabur: true,
                 dns: true,
                 openai: true,
-                server: true
+                server: true,
+                antigravity: true
             }),
-            module_order: JSON.stringify(['zeabur', 'dns', 'openai', 'server']),
+            module_order: JSON.stringify(['zeabur', 'dns', 'openai', 'server', 'antigravity']),
             updated_at: new Date().toISOString()
         };
 
