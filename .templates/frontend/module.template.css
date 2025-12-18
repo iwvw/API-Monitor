@@ -1,0 +1,710 @@
+/**
+ * {{MODULE_NAME}} 模块 - CSS 样式
+ * 
+ * 使用说明：
+ * 1. 将 {{module}} 替换为模块名（如 my-feature）
+ * 2. 修改主题色变量为你想要的颜色
+ * 3. 将此文件保存到 public/css/{{module}}.css
+ * 4. 在 index.html 中引入此 CSS 文件
+ */
+
+/* ==================== 模块主题色 ====================
+ * 定义模块专属的主题色，覆盖全局变量
+ */
+
+:root {
+
+    /* 模块主题色 - 可根据需要修改 */
+    -- {
+            {
+            module
+        }
+    }
+
+    -primary: #6366f1;
+
+    /* 主色 */
+    -- {
+            {
+            module
+        }
+    }
+
+    -primary-dark: #4f46e5;
+
+    /* 深色（hover 状态） */
+    -- {
+            {
+            module
+        }
+    }
+
+    -primary-light: #818cf8;
+
+    /* 浅色（背景） */
+    -- {
+            {
+            module
+        }
+    }
+
+    -primary-rgb: 99,
+    102,
+    241;
+    /* RGB 值（用于透明度） */
+}
+
+/* ==================== 模块按钮 ==================== */
+
+.btn- {
+        {
+        module
+    }
+}
+
+    {
+    background-color: var(-- {
+                {
+                module
+            }
+        }
+
+        -primary);
+    color: white;
+}
+
+.btn- {
+        {
+        module
+    }
+}
+
+:hover {
+    background-color: var(-- {
+                {
+                module
+            }
+        }
+
+        -primary-dark);
+}
+
+/* 次要按钮样式 */
+.btn- {
+        {
+        module
+    }
+}
+
+-outline {
+    background-color: transparent;
+
+    color: var(-- {
+                {
+                module
+            }
+        }
+
+        -primary);
+
+    border: 1px solid var(-- {
+                {
+                module
+            }
+        }
+
+        -primary);
+}
+
+.btn- {
+        {
+        module
+    }
+}
+
+-outline:hover {
+    background-color: var(-- {
+                {
+                module
+            }
+        }
+
+        -primary);
+    color: white;
+}
+
+/* ==================== 卡片样式 ==================== */
+
+. {
+        {
+        module
+    }
+}
+
+-card {
+    background: var(--card-bg);
+    border-radius: 10px;
+    padding: 16px;
+    margin-bottom: 12px;
+    border: 1px solid var(--border-color);
+    box-shadow: var(--card-shadow);
+    transition: all 0.2s ease;
+}
+
+. {
+        {
+        module
+    }
+}
+
+-card:hover {
+    box-shadow: var(--card-hover-shadow);
+
+    border-color: var(-- {
+                {
+                module
+            }
+        }
+
+        -primary);
+}
+
+. {
+        {
+        module
+    }
+}
+
+-card.active {
+    border-color: var(-- {
+                {
+                module
+            }
+        }
+
+        -primary);
+
+    background: rgba(var(-- {
+                    {
+                    module
+                }
+            }
+
+            -primary-rgb), 0.05);
+}
+
+. {
+        {
+        module
+    }
+}
+
+-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+
+. {
+        {
+        module
+    }
+}
+
+-card-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+. {
+        {
+        module
+    }
+}
+
+-card-body {
+    color: var(--text-secondary);
+    font-size: 14px;
+}
+
+. {
+        {
+        module
+    }
+}
+
+-card-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border-color);
+}
+
+/* ==================== 网格布局 ==================== */
+
+. {
+        {
+        module
+    }
+}
+
+-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 16px;
+    margin-bottom: 16px;
+}
+
+/* ==================== 列表样式 ==================== */
+
+. {
+        {
+        module
+    }
+}
+
+-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+. {
+        {
+        module
+    }
+}
+
+-list-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    transition: all 0.2s;
+}
+
+. {
+        {
+        module
+    }
+}
+
+-list-item:hover {
+    background: var(--bg-secondary);
+
+    border-color: var(-- {
+                {
+                module
+            }
+        }
+
+        -primary);
+}
+
+/* ==================== 标签页样式 ==================== */
+
+. {
+        {
+        module
+    }
+}
+
+-tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 12px;
+}
+
+. {
+        {
+        module
+    }
+}
+
+-tab {
+    padding: 8px 16px;
+    border: none;
+    background: none;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-secondary);
+    border-radius: 6px;
+    transition: all 0.2s;
+}
+
+. {
+        {
+        module
+    }
+}
+
+-tab:hover:not(.active) {
+    background: var(--bg-secondary);
+}
+
+. {
+        {
+        module
+    }
+}
+
+-tab.active {
+    background: var(-- {
+                {
+                module
+            }
+        }
+
+        -primary);
+    color: white;
+}
+
+/* ==================== 状态徽章 ==================== */
+
+. {
+        {
+        module
+    }
+}
+
+-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+. {
+        {
+        module
+    }
+}
+
+-badge.success {
+    background: rgba(16, 185, 129, 0.2);
+    color: #10b981;
+}
+
+. {
+        {
+        module
+    }
+}
+
+-badge.warning {
+    background: rgba(245, 158, 11, 0.2);
+    color: #f59e0b;
+}
+
+. {
+        {
+        module
+    }
+}
+
+-badge.error {
+    background: rgba(239, 68, 68, 0.2);
+    color: #ef4444;
+}
+
+. {
+        {
+        module
+    }
+}
+
+-badge.info {
+    background: rgba(var(-- {
+                    {
+                    module
+                }
+            }
+
+            -primary-rgb), 0.2);
+
+    color: var(-- {
+                {
+                module
+            }
+        }
+
+        -primary);
+}
+
+/* ==================== 表单样式 ==================== */
+
+. {
+        {
+        module
+    }
+}
+
+-form-group {
+    margin-bottom: 16px;
+}
+
+. {
+        {
+        module
+    }
+}
+
+-form-label {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+. {
+        {
+        module
+    }
+}
+
+-form-input {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1px solid var(--input-border);
+    border-radius: 6px;
+    background: var(--input-bg);
+    color: var(--text-primary);
+    font-size: 14px;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+. {
+        {
+        module
+    }
+}
+
+-form-input:focus {
+    outline: none;
+
+    border-color: var(-- {
+                {
+                module
+            }
+        }
+
+        -primary);
+
+    box-shadow: 0 0 0 3px rgba(var(-- {
+                    {
+                    module
+                }
+            }
+
+            -primary-rgb), 0.2);
+}
+
+. {
+        {
+        module
+    }
+}
+
+-form-input::placeholder {
+    color: var(--text-tertiary);
+}
+
+/* ==================== 空状态 ==================== */
+
+. {
+        {
+        module
+    }
+}
+
+-empty {
+    text-align: center;
+    padding: 40px 20px;
+    color: var(--text-tertiary);
+}
+
+. {
+        {
+        module
+    }
+}
+
+-empty-icon {
+    font-size: 48px;
+    margin-bottom: 16px;
+    opacity: 0.5;
+}
+
+. {
+        {
+        module
+    }
+}
+
+-empty-text {
+    font-size: 16px;
+    margin-bottom: 8px;
+}
+
+. {
+        {
+        module
+    }
+}
+
+-empty-hint {
+    font-size: 14px;
+    color: var(--text-tertiary);
+}
+
+/* ==================== 加载状态 ==================== */
+
+. {
+        {
+        module
+    }
+}
+
+-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 40px;
+    color: var(--text-secondary);
+}
+
+. {
+        {
+        module
+    }
+}
+
+-spinner {
+    width: 32px;
+    height: 32px;
+    border: 3px solid var(--border-color);
+
+    border-top-color: var(-- {
+                {
+                module
+            }
+        }
+
+        -primary);
+    border-radius: 50%;
+
+    animation: {
+            {
+            module
+        }
+    }
+
+    -spin 1s linear infinite;
+}
+
+@keyframes {
+        {
+        module
+    }
+}
+
+-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+/* ==================== 响应式布局 ==================== */
+
+@media (max-width: 768px) {
+    . {
+            {
+            module
+        }
+    }
+
+    -grid {
+        grid-template-columns: 1fr;
+    }
+
+    . {
+            {
+            module
+        }
+    }
+
+    -card {
+        padding: 12px;
+    }
+
+    . {
+            {
+            module
+        }
+    }
+
+    -tabs {
+        flex-wrap: wrap;
+    }
+
+    . {
+            {
+            module
+        }
+    }
+
+    -tab {
+        padding: 6px 12px;
+        font-size: 13px;
+    }
+}
+
+@media (max-width: 480px) {
+    . {
+            {
+            module
+        }
+    }
+
+    -card-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+
+    . {
+            {
+            module
+        }
+    }
+
+    -card-footer {
+        flex-wrap: wrap;
+    }
+
+    . {
+            {
+            module
+        }
+    }
+
+    -list-item {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+}
