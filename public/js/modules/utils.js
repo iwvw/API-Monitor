@@ -38,19 +38,50 @@ export function escapeHtml(text) {
 /**
  * 格式化日期时间
  * @param {string|Date} date - 日期
+ * @param {Object} options - Intl.DateTimeFormat 选项
  * @returns {string} 格式化后的日期时间
  */
-export function formatDateTime(date) {
+export function formatDateTime(date, options = null) {
     if (!date) return '-';
     const d = new Date(date);
-    return d.toLocaleString('zh-CN', {
+    const defaultOptions = options || {
         year: 'numeric',
         month: '2-digit',
         day: '2-digit',
         hour: '2-digit',
         minute: '2-digit',
-        second: '2-digit'
-    });
+        second: '2-digit',
+        hour12: false
+    };
+    return d.toLocaleString('zh-CN', defaultOptions);
+}
+
+/**
+ * 获取本地时间戳字符串 (用于文件名)
+ * 格式: YYYY-MM-DD_HH-MM-SS
+ * @returns {string}
+ */
+export function getLocalTimestamp() {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const day = String(now.getDate()).padStart(2, '0');
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    const seconds = String(now.getSeconds()).padStart(2, '0');
+    return `${year}-${month}-${day}_${hours}-${minutes}-${seconds}`;
+}
+
+/**
+ * 将日期转换为本地 ISO 格式 (YYYY-MM-DDTHH:mm:ss.sss)
+ * @param {Date|string} date 
+ * @returns {string}
+ */
+export function formatLocalISO(date) {
+    const d = date ? new Date(date) : new Date();
+    const tzoffset = d.getTimezoneOffset() * 60000;
+    const localISOTime = (new Date(d.getTime() - tzoffset)).toISOString().slice(0, -1);
+    return localISOTime;
 }
 
 /**
@@ -92,7 +123,7 @@ export function debounce(func, wait) {
  */
 export function throttle(func, limit) {
     let inThrottle;
-    return function(...args) {
+    return function (...args) {
         if (!inThrottle) {
             func.apply(this, args);
             inThrottle = true;

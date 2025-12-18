@@ -28,7 +28,7 @@
   width: 100%;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
-  margin-bottom: 10px;
+  /* margin-bottom: 10px; */
   /* 确保在移动端即使隐藏了全局滚动条,这里也能提示可滑动 */
 }
 

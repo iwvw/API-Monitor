@@ -1,6 +1,7 @@
 /**
  * API Monitor - 主应用模块
  * 整合所有功能模块，初始化 Vue 应用
+ * TEST_COMMENT
  */
 
 // 导入功能模块
@@ -13,6 +14,7 @@ import { settingsMethods } from './modules/settings.js';
 import { transitionsMethods } from './modules/transitions.js';
 // import { initServerModule } from './modules/server.js'; // 已改用 Vue 渲染,不再需要
 import toastManager, { toast } from './modules/toast.js';
+import { formatDateTime, getLocalTimestamp, formatLocalISO } from './modules/utils.js';
 
 // 获取 Vue
 const { createApp } = Vue;
@@ -386,13 +388,6 @@ const app = createApp({
       }
 
       return list;
-    },
-
-    /**
-     * 判断是否有 SSH 会话处于全屏状态
-     */
-    hasFullscreenSSH() {
-      return this.sshSessions.some(s => s.fullscreen);
     }
   },
 
@@ -1253,8 +1248,7 @@ const app = createApp({
         terminal: null,
         fit: null,
         ws: null,
-        connected: false,
-        fullscreen: false
+        connected: false
       };
 
       this.sshSessions.push(session);
@@ -1280,32 +1274,6 @@ const app = createApp({
           session.fit.fit();
           session.terminal.focus();
         }
-      });
-    },
-
-    /**
-     * 切换SSH终端全屏
-     */
-    toggleSSHFullscreen(sessionId) {
-      const session = this.sshSessions.find(s => s.id === sessionId);
-      if (!session) return;
-
-      session.fullscreen = !session.fullscreen;
-
-      // 如果进入全屏，强制滚动到顶部并锁定滚动
-      if (session.fullscreen) {
-        window.scrollTo(0, 0);
-      }
-
-      // 等待 DOM 更新和 CSS 过渡完成后重新计算终端大小
-      this.$nextTick(() => {
-        setTimeout(() => {
-          if (session.fit) {
-            session.fit.fit();
-            session.terminal.focus();
-            console.log(`[SSH ${sessionId}] 全屏切换完成，重新计算尺寸`);
-          }
-        }, 100); // 缩短等待时间，因 transforms 已被禁用
       });
     },
 

@@ -41,7 +41,7 @@
     }
   </style>
 
-  <div id="app" v-cloak :class="{ 'app-has-fullscreen-ssh': hasFullscreenSSH }">
+  <div id="app" v-cloak>
     <!-- 认证检查加载状态 -->
     <div v-if="isCheckingAuth" class="auth-loading">
       <div class="auth-loading-content">
@@ -511,23 +511,41 @@
         <!-- 账号管理标签页结束 -->
 
         <!-- 模块配置标签页 -->
+
         <div v-if="zeaburCurrentTab === 'settings'" class="sub-tab-content quick-fade-in">
+
           <div class="panel">
-            <div class="panel-header" style="border-bottom: 1px solid var(--border-color);">
-               <div class="panel-title">模块设置</div>
-               <button class="btn btn-primary btn-sm" @click="saveZeaburSettings">
-                 <i class="fas fa-save"></i> 保存设置
-               </button>
-            </div>
-            
-            <div style="padding: 10px 3px 3px 3px;">
-              <div class="form-group">
-                <label class="form-label">自动刷新间隔 (秒)</label>
-                <input type="number" :value="zeaburRefreshInterval / 1000" @input="zeaburRefreshInterval = Math.max(5, parseInt($event.target.value)) * 1000" class="form-input" min="5" placeholder="30" />
-                <div class="form-help">设置 Zeabur 监控数据的自动刷新频率（最少5秒）</div>
+
+            <div class="panel-header">
+
+              <!-- <div class="panel-title">模块设置</div> -->
+
+              <div style="display: flex; gap: 8px;">
+
+                <button class="btn btn-primary" @click="saveZeaburSettings" style="padding: 6px 12px;">
+
+                  <i class="fas fa-save"></i> 保存
+
+                </button>
+
               </div>
+
             </div>
+
+
+
+            <div style="padding: 6px;">
+              <div class="form-group" style="margin-bottom: 0;">
+                <label class="form-label" style="margin-bottom: 16px;">自动刷新间隔[>5秒]</label>
+                <input type="number" :value="zeaburRefreshInterval / 1000"
+                  @input="zeaburRefreshInterval = Math.max(5, parseInt($event.target.value)) * 1000" class="form-input"
+                  min="5" placeholder="30" style="max-width: 200px;" />
+              </div>
+
+            </div>
+
           </div>
+
         </div>
 
         <!-- 添加 Zeabur 账号模态框 -->
@@ -1433,7 +1451,7 @@
                 </button>
                 <button class="btn btn-secondary" style="padding: 6px 12px; min-width: 100px;" @click="probeAllServers"
                   :disabled="probeStatus === 'loading'">
-                  <i v-if="probeStatus === 'success'" class="fas fa-check" style="color: #fff; margin-right: 4px;"></i>
+                  <i v-if="probeStatus === 'success'" class="fas fa-check" style="margin-right: 4px;"></i>
                   <i v-else-if="probeStatus === 'error'" class="fas fa-times"
                     style="color: var(--danger-color); margin-right: 4px;"></i>
                   <i v-else class="fas" :class="{
@@ -1651,7 +1669,7 @@
           <!-- 主机管理面板 -->
           <div class="panel">
             <div class="panel-header" style="flex-wrap: wrap; gap: 8px;">
-              <div class="panel-title"></div>
+              <!-- <div class="panel-title"></div> -->
               <div style="display: flex; gap: 8px; flex-wrap: wrap;">
                 <button class="btn btn-success" style="padding: 6px 12px;" @click="openAddServerModal">
                   <i class="fas fa-plus"></i> 添加主机
@@ -1662,7 +1680,7 @@
                 </button>
                 <button class="btn btn-server" style="padding: 6px 12px; min-width: 100px;" @click="probeAllServers"
                   :disabled="probeStatus === 'loading'">
-                  <i v-if="probeStatus === 'success'" class="fas fa-check" style="color: #fff; margin-right: 4px;"></i>
+                  <i v-if="probeStatus === 'success'" class="fas fa-check" style="margin-right: 4px;"></i>
                   <i v-else-if="probeStatus === 'error'" class="fas fa-times"
                     style="color: var(--danger-color); margin-right: 4px;"></i>
                   <i v-else class="fas" :class="{
@@ -1827,23 +1845,14 @@ Web服务器,192.168.1.100,22,root,password123
 
         <!-- SSH 终端子标签页内容 - 使用v-show保持连接 -->
         <template v-for="session in sshSessions" :key="'content-' + session.id">
-          <div v-show="serverCurrentTab === 'ssh_' + session.id" class="sub-tab-content ssh-tab-content"
-            :class="{ 'ssh-fullscreen-mode': session.fullscreen }">
+          <div v-show="serverCurrentTab === 'ssh_' + session.id" class="sub-tab-content ssh-tab-content">
             <!-- 使用 panel 布局 -->
-            <div class="panel" :class="{ 'ssh-panel-fullscreen': session.fullscreen }">
+            <div class="panel">
               <div class="panel-header">
-                <div class="panel-title">
-                  <span v-if="session.server" style="font-size: 13px; font-weight: 600;">
-                    <i class="fas fa-terminal"></i> {{ session.server.name }}
-                  </span>
-                </div>
+                <div class="panel-title"></div>
                 <div style="display: flex; gap: 8px;">
-                  <button class="btn btn-secondary" style="padding: 6px 12px;" @click="toggleSSHFullscreen(session.id)"
-                    title="全屏切换">
-                    <i class="fas" :class="session.fullscreen ? 'fa-compress' : 'fa-expand'"></i>
-                  </button>
                   <button class="btn btn-secondary" style="padding: 6px 12px;" @click="reconnectSSHSession(session.id)"
-                    :disabled="session.connected || !session.ws" title="重新连接">
+                    :disabled="session.connected" title="重新连接">
                     <i class="fas fa-sync-alt"></i>
                   </button>
                   <button class="btn btn-danger" style="padding: 6px 12px;" @click="closeSSHSession(session.id)"
@@ -1856,9 +1865,8 @@ Web服务器,192.168.1.100,22,root,password123
               <!-- 内容容器 -->
               <div class="ssh-content-wrapper">
                 <!-- 终端视图 -->
-                <div class="ssh-terminal-container" :class="{ 'fullscreen': session.fullscreen }">
-                  <div :id="'ssh-terminal-' + session.id" class="ssh-terminal-pane-embedded"
-                    :class="{ 'fullscreen': session.fullscreen }"></div>
+                <div class="ssh-terminal-container">
+                  <div :id="'ssh-terminal-' + session.id" class="ssh-terminal-pane-embedded"></div>
                 </div>
               </div>
             </div>
@@ -2644,10 +2652,10 @@ Web服务器,192.168.1.100,22,root,password123
                 <i class="fas fa-download"></i> 导入数据
               </button>
             </div>
-                        <div class="form-help">导出包含所有模块的配置和数据</div>
-                      </div>
-            
-                      <!-- 自定义 CSS -->
+            <div class="form-help">导出包含所有模块的配置和数据</div>
+          </div>
+
+          <!-- 自定义 CSS -->
           <div class="settings-section">
             <div class="settings-section-title">自定义 CSS</div>
             <div class="form-help" style="margin-bottom: 8px;">

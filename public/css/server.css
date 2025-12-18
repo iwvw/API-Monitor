@@ -143,7 +143,7 @@
 }
 
 .server-card:hover {
-    box-shadow: 0 12px 30px -10px rgba(0, 0, 0, 0.1);
+    box-shadow: var(--card-shadow);
     border-color: rgba(var(--primary-rgb), 0.2);
 }
 

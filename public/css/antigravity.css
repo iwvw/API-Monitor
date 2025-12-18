@@ -257,16 +257,16 @@ input:checked+.slider:before {
 
 /* Google OAuth Button */
 .btn-ag {
-    background: linear-gradient(135deg, #4285F4, #EA4335, #FBBC05, #34A853);
-    color: white;
+    background: linear-gradient(135deg, #4285f49e, #ea4335a3, #fbbc05a8, #34a853ab);
+    color: var(--text-primary);
     border: none;
     transition: filter 0.2s;
     font-weight: 500;
 }
 
 .btn-ag:hover {
-    filter: brightness(1.1);
-    box-shadow: 0 4px 12px rgba(66, 133, 244, 0.3);
+    /* filter: brightness(1.1);
+    box-shadow: 0 4px 12px rgba(66, 133, 244, 0.3); */
 }
 
 /* Modern OAuth Page Styles */
@@ -295,7 +295,7 @@ input:checked+.slider:before {
 }
 
 .oauth-modern-body {
-    padding: 20px;
+    padding: 0px 10px 10px 10px;
 }
 
 .oauth-step-item {
@@ -347,7 +347,7 @@ input:checked+.slider:before {
     padding: 12px;
     resize: vertical;
     border-radius: 8px;
-    background: #f8f9fa;
+    background: #f8f9fa00;
     border: 1px solid var(--border-color);
     transition: all 0.2s ease;
     line-height: 1.5;
@@ -355,7 +355,7 @@ input:checked+.slider:before {
 }
 
 .oauth-textarea:focus {
-    background: #fff;
+    background: #ffffff00;
     border-color: var(--ag-primary);
     box-shadow: 0 0 0 3px rgba(var(--ag-primary-rgb), 0.15);
     outline: none;
