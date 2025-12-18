@@ -19,6 +19,7 @@ function loadUserSettings() {
     // 转换字段名以保持向后兼容
     return {
       customCss: settings.custom_css || '',
+      zeaburRefreshInterval: settings.zeabur_refresh_interval || 30000,
       moduleVisibility: settings.module_visibility || {
         zeabur: true,
         dns: true,
@@ -41,6 +42,7 @@ function saveUserSettings(settings) {
     // 转换字段名
     const dbSettings = {
       custom_css: settings.customCss || settings.custom_css || '',
+      zeabur_refresh_interval: settings.zeaburRefreshInterval || settings.zeabur_refresh_interval || 30000,
       module_visibility: settings.moduleVisibility || settings.module_visibility,
       module_order: settings.moduleOrder || settings.module_order
     };
@@ -59,6 +61,7 @@ function saveUserSettings(settings) {
 function getDefaultSettings() {
   return {
     customCss: '',
+    zeaburRefreshInterval: 30000,
     moduleVisibility: {
       zeabur: true,
       dns: true,

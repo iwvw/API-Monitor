@@ -29,6 +29,7 @@
   <link rel="stylesheet" href="/css/logs.css">
   <link rel="stylesheet" href="/css/transitions.css">
   <link rel="stylesheet" href="/css/server.css">
+  <link rel="stylesheet" href="/css/antigravity.css">
 </head>
 
 <body>
@@ -115,7 +116,8 @@
               module === 'zeabur' ? 'zeabur-tab' : '',
               module === 'dns' ? 'dns-tab' : '',
               module === 'openai' ? 'openai-tab' : '',
-              module === 'server' ? 'server-tab' : ''
+              module === 'server' ? 'server-tab' : '',
+              module === 'antigravity' ? 'antigravity-tab' : ''
             ]" @click="handleTabSwitch(module)">
             <i class="fas" :class="getModuleIcon(module)"></i>
             <span> {{ getModuleName(module) }}</span>
@@ -1530,7 +1532,7 @@
                       <div v-for="(value, key) in server.info.system" :key="key" class="server-detail-item"
                         style="padding: 4px 0;">
                         <span class="server-detail-label">{{ translateInfoKey(key) }}</span>
-                        <span class="server-detail-value">{{ value }}</span>
+                        <span class="server-detail-value">{{ key === 'Uptime' ? formatUptime(value) : value }}</span>
                       </div>
                     </div>
                   </div>
@@ -1619,17 +1621,17 @@
         <div v-show="serverCurrentTab === 'management'" class="sub-tab-content quick-fade-in">
           <!-- 主机管理面板 -->
           <div class="panel">
-            <div class="panel-header">
+            <div class="panel-header" style="flex-wrap: wrap; gap: 8px;">
               <div class="panel-title"></div>
-              <div style="display: flex; gap: 8px;">
+              <div style="display: flex; gap: 8px; flex-wrap: wrap;">
                 <button class="btn btn-success" style="padding: 6px 12px;" @click="openAddServerModal">
                   <i class="fas fa-plus"></i> 添加主机
                 </button>
-                <button class="btn btn-secondary" style="padding: 6px 10px;" @click="loadServerList"
+                <button class="btn btn-server" style="padding: 6px 10px;" @click="loadServerList"
                   :disabled="serverLoading">
                   <i class="fas fa-sync-alt" :class="{ 'fa-spin': serverLoading }"></i>
                 </button>
-                <button class="btn btn-secondary" style="padding: 6px 12px; min-width: 100px;" @click="probeAllServers"
+                <button class="btn btn-server" style="padding: 6px 12px; min-width: 100px;" @click="probeAllServers"
                   :disabled="probeStatus === 'loading'">
                   <i v-if="probeStatus === 'success'" class="fas fa-check" style="color: #fff; margin-right: 4px;"></i>
                   <i v-else-if="probeStatus === 'error'" class="fas fa-times"
@@ -1640,10 +1642,10 @@
                   }"></i>
                   批量拨测
                 </button>
-                <button class="btn btn-secondary" style="padding: 6px 12px;" @click="exportServers">
+                <button class="btn btn-server" style="padding: 6px 12px;" @click="exportServers">
                   <i class="fas fa-upload"></i> 导出
                 </button>
-                <button class="btn btn-secondary" style="padding: 6px 12px;" @click="openImportServerModal">
+                <button class="btn btn-server" style="padding: 6px 12px;" @click="openImportServerModal">
                   <i class="fas fa-download"></i> 导入
                 </button>
               </div>
@@ -1827,92 +1829,613 @@ Web服务器,192.168.1.100,22,root,password123
       </div>
       <!-- ==================== 主机管理部分结束 ==================== -->
 
-      <!-- ==================== 主机管理模态框 ==================== -->
-      <!-- 添加/编辑主机模态框 -->
-      <div v-if="showServerModal" class="modal-overlay" @keydown.esc="closeServerModal" @keydown.ctrl.enter="saveServer"
-        tabindex="-1">
-        <div class="modal server-modal">
-          <div class="modal-header">
-            <div class="modal-title">
-              <i class="fas fa-server"></i>
-              {{ serverModalMode === 'add' ? '添加主机' : '编辑主机' }}
+      <!-- ==================== Antigravity 管理部分 ==================== -->
+      <div v-if="mainActiveTab === 'antigravity'" class="tab-content antigravity-tab-content"
+        :class="getTabAnimationClass('antigravity')">
+
+        <!-- Antigravity 子标签栏 -->
+        <div class="sec-tabs">
+          <button class="tab-btn" :class="{ active: antigravityCurrentTab === 'quotas' }"
+            @click="switchAntigravityTab('quotas')">
+            <i class="fas fa-chart-pie"></i> 额度使用
+          </button>
+          <button class="tab-btn" :class="{ active: antigravityCurrentTab === 'accounts' }"
+            @click="switchAntigravityTab('accounts')">
+            <i class="fas fa-list"></i> 账号管理
+          </button>
+          <button class="tab-btn" :class="{ active: antigravityCurrentTab === 'logs' }"
+            @click="switchAntigravityTab('logs')">
+            <i class="fas fa-history"></i> 调用日志
+          </button>
+          <button class="tab-btn" :class="{ active: antigravityCurrentTab === 'settings' }"
+            @click="switchAntigravityTab('settings')">
+            <i class="fas fa-cog"></i> 模块配置
+          </button>
+        </div>
+
+        <!-- 账号管理列表 -->
+        <!-- 凭证列表 (Accounts) -->
+        <div v-show="antigravityCurrentTab === 'accounts'" class="sub-tab-content quick-fade-in">
+          <div class="panel">
+            <div class="panel-header">
+              <div style="display: flex; gap: 8px;">
+                <button class="btn btn-ag" style="padding: 6px 12px;" @click="showOAuthExpand = !showOAuthExpand">
+                  <i class="fab fa-google"></i> OAuth 授权
+                </button>
+                <button class="btn btn-success" style="padding: 6px 12px;" @click="openAddAntigravityManualModal">
+                  <i class="fas fa-plus-circle"></i> 手动添加
+                </button>
+                <button class="btn btn-secondary" @click="loadAntigravityAccounts" :disabled="antigravityLoading">
+                  <i class="fas fa-sync-alt" :class="{ 'fa-spin': antigravityLoading }"></i>
+                </button>
+                <button class="btn btn-secondary" @click="refreshAllAntigravityTokens" title="刷新所有 Token">
+                  <i class="fas fa-key"></i>
+                </button>
+              </div>
             </div>
-            <button class="modal-close" @click="closeServerModal">&times;</button>
+
+            <!-- Expandable OAuth Panel -->
+            <div class="ag-expandable-panel" :class="{ expanded: showOAuthExpand }">
+              <div class="panel-header" style="border-bottom: none; padding-bottom: 0;">
+                <div class="panel-title" style="width: 100%; text-align: center; padding-top: 10px;">连接 Google 账号</div>
+              </div>
+
+              <div class="oauth-modern-body">
+                <!-- Step 1 -->
+                <div class="oauth-step-item">
+                  <div class="step-badge">1</div>
+                  <div class="step-content">
+                    <div class="step-text">登录 Google 以获取授权码</div>
+                    <button class="btn btn-ag btn-block" @click="openGoogleAuthUrl">
+                      <i class="fab fa-google"></i> 获取授权链接
+                    </button>
+                  </div>
+                </div>
+
+                <!-- Divider -->
+                <div class="oauth-step-line"></div>
+
+                <!-- Step 2 -->
+                <div class="oauth-step-item">
+                  <div class="step-badge">2</div>
+                  <div class="step-content">
+                    <div class="step-text">在下方粘贴重定向后的 URL</div>
+                    <textarea v-model="agOauthUrl" class="form-textarea oauth-textarea"
+                      placeholder="粘贴以 http:// 开头的完整 URL..." spellcheck="false"></textarea>
+                  </div>
+                </div>
+
+                <!-- Options -->
+                <div class="oauth-options">
+                  <div class="oauth-option-row">
+                    <input type="text" v-model="agCustomProjectId" class="form-input input-sm"
+                      placeholder="自定义项目 ID (可选)">
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                      <label class="switch">
+                        <input type="checkbox" v-model="agAllowRandomProjectId">
+                        <span class="slider round"></span>
+                      </label>
+                      <span style="font-size: 12px; color: var(--text-secondary);">允许随机 ID</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Action -->
+                <button class="btn btn-success btn-block btn-lg mt-3" @click="parseAgOauthUrl"
+                  :disabled="!agOauthUrl || antigravityLoading">
+                  <i class="fas" :class="antigravityLoading ? 'fa-spinner fa-spin' : 'fa-link'"></i>
+                  {{ antigravityLoading ? '验证中...' : '验证并连接' }}
+                </button>
+              </div>
+            </div>
+
+            <!-- 统计信息栏 -->
+            <div v-if="antigravityStats" class="stats-bar"
+              style="display: flex; gap: 20px; padding: 12px 16px; background: var(--bg-secondary); margin-bottom: 16px; border-radius: 8px; font-size: 13px;">
+              <div class="stat-item">
+                <span style="opacity: 0.7;">总 Token:</span>
+                <strong style="margin-left: 4px;">{{ antigravityStats.total || 0 }}</strong>
+              </div>
+              <div class="stat-item">
+                <span style="opacity: 0.7;">在线:</span>
+                <strong style="margin-left: 4px; color: var(--success-color);">{{ antigravityStats.online || 0
+                  }}</strong>
+              </div>
+              <div class="stat-item">
+                <span style="opacity: 0.7;">无效:</span>
+                <strong style="margin-left: 4px; color: var(--danger-color);">{{ antigravityStats.disabled || 0
+                  }}</strong>
+              </div>
+            </div>
+
+
+            <div v-if="antigravityLoading && antigravityAccounts.length === 0" class="loading">
+              <div class="spinner"></div>
+              <div style="margin-top: 12px;">加载中...</div>
+            </div>
+
+            <div v-else class="table-container">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>备注名称</th>
+                    <th>项目 ID</th>
+                    <th>邮箱</th>
+                    <th>状态</th>
+                    <th style="width: 140px;">操作</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="account in antigravityAccounts" :key="account.id">
+                    <td><strong>{{ account.name || '未命名' }}</strong></td>
+                    <td><code class="code-sm">{{ account.projectId || '-' }}</code></td>
+                    <td><span style="font-size: 11px; opacity: 0.7;">{{ account.email || '-' }}</span></td>
+                    <td>
+                      <span class="ag-status-badge"
+                        :class="account.status === 'online' ? 'ag-status-online' : (account.status === 'error' ? 'ag-status-error' : 'ag-status-unknown')">
+                        {{ account.status === 'online' ? '在线' : (account.status === 'error' ? '异常' : '未知') }}
+                      </span>
+                    </td>
+                    <td class="actions">
+                      <div style="display: flex; align-items: center; gap: 8px;">
+                        <button class="btn btn-sm btn-secondary icon-only" @click="toggleAntigravityAccount(account)"
+                          :title="account.enable ? '点击停用' : '点击启用'"
+                          :class="{ 'btn-success': account.enable, 'btn-secondary': !account.enable }">
+                          <i class="fas" :class="account.enable ? 'fa-toggle-on' : 'fa-toggle-off'"></i>
+                        </button>
+                        <button class="btn btn-sm btn-secondary icon-only" @click="editAntigravityAccount(account)"
+                          title="编辑">
+                          <i class="fas fa-edit"></i>
+                        </button>
+                        <button class="btn btn-sm btn-danger icon-only" @click="deleteAntigravityAccount(account)"
+                          title="删除">
+                          <i class="fas fa-trash"></i>
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+              <div v-if="antigravityAccounts.length === 0" class="empty-state">
+                <i class="fas fa-atom" style="font-size: 48px; margin-bottom: 16px;"></i>
+                <div>暂无账号，点击上方按钮新增授权</div>
+              </div>
+            </div>
           </div>
-          <div class="modal-body">
-            <!-- 基础信息区 -->
-            <div class="server-form-section">
-              <div class="form-row">
-                <div class="form-group flex-1">
-                  <label>常用凭据</label>
-                  <select class="form-input" @change="applyCredential($event)">
-                    <option value="">-- 选择预设凭据 --</option>
-                    <option v-for="cred in serverCredentials" :key="cred.id" :value="cred.id">
-                      {{ cred.name }} ({{ cred.username }})
-                    </option>
-                  </select>
-                </div>
-              </div>
+        </div>
 
-              <div class="form-row">
-                <div class="form-group flex-1">
-                  <label><i class="fas fa-id-badge"></i> 实例名称</label>
-                  <input type="text" v-model="serverForm.name" class="form-input" placeholder="如: 生产环境-网关" required />
-                </div>
-              </div>
+        <!-- 凭证用量 (Usage/Quotas) -->
+        <div v-show="antigravityCurrentTab === 'quotas'" class="sub-tab-content quick-fade-in">
+          <div class="panel-header" style="justify-content: space-between; padding-bottom: 10px;">
+            <div style="display: flex; gap: 16px; align-items: center;">
+              <div class="panel-title">额度状态</div>
+              <select class="ag-account-selector" v-model="antigravityQuotaSelectedAccountId"
+                @change="loadAntigravityQuotas()" style="padding-left: 8px; width: 180px;">
+                <option v-for="acc in antigravityAccounts" :key="acc.id" :value="acc.id">
+                  {{ acc.name }} ({{ acc.status === 'online' ? '在线' : '离线' }})
+                </option>
+              </select>
+            </div>
+            <div>
+              <button class="btn btn-secondary btn-sm" @click="loadAntigravityQuotas(false)"
+                :disabled="antigravityQuotaLoading">
+                <i class="fas fa-sync-alt" :class="{ 'fa-spin': antigravityQuotaLoading }"></i> 刷新额度
+              </button>
+            </div>
+          </div>
 
-              <div class="form-row">
-                <div class="form-group" style="flex: 7;">
-                  <label><i class="fas fa-network-wired"></i> 主机地址</label>
-                  <input type="text" v-model="serverForm.host" class="form-input" placeholder="IP 或 域名" required />
-                </div>
-                <div class="form-group" style="flex: 3;">
-                  <label><i class="fas fa-door-open"></i> 端口</label>
-                  <input type="number" v-model="serverForm.port" class="form-input" placeholder="22" />
-                </div>
-              </div>
+          <div v-if="antigravityQuotaLoading && Object.keys(antigravityQuotas).length === 0" class="loading">
+            <div class="spinner"></div>
+            <div style="margin-top: 12px;">正在获取额度详情...</div>
+          </div>
 
-              <div class="form-row">
-                <div class="form-group flex-1">
-                  <label><i class="fas fa-user-shield"></i> 登录用户</label>
-                  <input type="text" v-model="serverForm.username" class="form-input" placeholder="root" required />
+          <div v-else class="ag-quota-list-view">
+            <div class="panel">
+              <div class="table-container">
+                <table class="data-table">
+                  <thead>
+                    <tr>
+                      <th style="width: 250px;">模型 ID</th>
+                      <th>分组</th>
+                      <th>剩余额度</th>
+                      <th style="width: 100px;">状态</th>
+                      <th style="width: 150px;">重置时间</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="model in getAllAntigravityModels()" :key="model.id"
+                      :style="{ opacity: model.enabled === false ? 0.5 : 1, filter: model.enabled === false ? 'grayscale(100%)' : 'none', background: model.enabled === false ? 'var(--bg-tertiary)' : 'inherit' }">
+                      <td style="font-family: monospace; font-weight: 600;">{{ model.id }}</td>
+                      <td>{{ model.groupIcon }} {{ model.groupName }}</td>
+                      <td>
+                        <div class="quota-progress-container" style="width: 100%;">
+                          <div class="progress-bar-compact">
+                            <div class="progress-bar-fill"
+                              :style="{ width: model.remaining + '%', background: getAgQuotaColor(model.remaining) }">
+                            </div>
+                          </div>
+                          <span class="quota-percent" style="margin-left: 10px; width: 40px; text-align: right;"
+                            :style="{ color: getAgQuotaColor(model.remaining) }">{{ model.remaining }}%</span>
+                        </div>
+                      </td>
+                      <td>
+                        <label class="switch">
+                          <input type="checkbox" :checked="model.enabled !== false"
+                            @change="toggleModelStatus(model, $event)">
+                          <span class="slider round"></span>
+                        </label>
+                      </td>
+                      <td>{{ formatResetCountdown(model.resetTime) }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 调用日志 (Logs) -->
+        <div v-show="antigravityCurrentTab === 'logs'" class="sub-tab-content quick-fade-in">
+          <div class="panel">
+            <div class="panel-header">
+              <div style="display: flex; gap: 8px;">
+                <button class="btn btn-secondary btn-sm" @click="loadAntigravityLogs">
+                  <i class="fas fa-sync-alt" :class="{ 'fa-spin': antigravityLoading }"></i> 刷新
+                </button>
+                <button class="btn btn-danger btn-sm" @click="clearAntigravityLogs">清空</button>
+              </div>
+            </div>
+            <div class="table-container">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>时间</th>
+                    <th>凭证</th>
+                    <th>模型</th>
+                    <th>路径</th>
+                    <th>状态</th>
+                    <th>耗时</th>
+                    <th>查看</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="log in antigravityLogs" :key="log.id">
+                    <td style="font-size: 11px;">{{ new Date(log.timestamp).toLocaleString() }}</td>
+                    <td>{{ log.accountName || 'System' }}</td>
+                    <td style="font-family: monospace; font-size: 11px;">{{ log.model || '-' }}</td>
+                    <td style="font-family: monospace; font-size: 11px;">{{ log.path }}</td>
+                    <td>
+                      <span :class="getLogStatusClass(log.statusCode)" style="font-weight: 600;">{{
+                        log.statusCode }}</span>
+                    </td>
+                    <td>{{ log.durationMs }}ms</td>
+                    <td>
+                      <button class="btn btn-xs btn-secondary icon-only" @click="viewAntigravityLogDetail(log)">
+                        <i class="fas fa-eye"></i>
+                      </button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+              <div v-if="antigravityLogs.length === 0" class="empty-state">
+                <i class="fas fa-file-alt" style="font-size: 40px; opacity: 0.2; margin-bottom: 12px;"></i>
+                <div>暂无调用日志</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 模块设置 (Settings) -->
+        <div v-show="antigravityCurrentTab === 'settings'" class="sub-tab-content quick-fade-in">
+          <div class="panel">
+            <div class="panel-header" style="border-bottom: 1px solid var(--border-color);">
+              <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                <div class="panel-title-group">
+                  <div class="panel-title">Antigravity API 参数配置</div>
+                </div>
+                <div style="display: flex; gap: 8px;">
+                  <button class="btn btn-secondary btn-sm" @click="loadAntigravitySettings"
+                    :disabled="antigravityLoading">
+                    <i class="fas fa-sync-alt" :class="{ 'fa-spin': antigravityLoading }"></i> 刷新
+                  </button>
+                  <button class="btn btn-primary btn-sm" @click="saveAllAgSettings" :disabled="antigravitySaving">
+                    <i class="fas" :class="antigravitySaving ? 'fa-spinner fa-spin' : 'fa-save'"></i> 保存全部
+                  </button>
                 </div>
               </div>
             </div>
 
-            <!-- 认证方式区 -->
-            <div class="server-form-section">
-              <div class="server-auth-toggle">
-                <button type="button" :class="{ active: serverForm.authType === 'password' }"
-                  @click="serverForm.authType = 'password'">
-                  <i class="fas fa-key"></i> 密码认证
-                </button>
-                <button type="button" :class="{ active: serverForm.authType === 'privateKey' }"
-                  @click="serverForm.authType = 'privateKey'">
-                  <i class="fas fa-file-code"></i> 密钥认证
-                </button>
-              </div>
-
-              <div v-if="serverForm.authType === 'password'" class="server-form-field">
-                <label><i class="fas fa-lock"></i> 密码</label>
-                <input v-model="serverForm.password" type="password" placeholder="请输入密码" />
-              </div>
-
-              <div v-if="serverForm.authType === 'privateKey'">
-                <div class="server-form-field">
-                  <label><i class="fas fa-file-alt"></i> 私钥内容</label>
-                  <textarea v-model="serverForm.privateKey" rows="4"
-                    placeholder="粘贴 SSH 私钥（支持 RSA、ECDSA、Ed25519）"></textarea>
+            <div style="padding: 10px 3px 3px 3px;">
+              <!-- 生成参数 -->
+              <div style="margin-bottom: 20px;">
+                <div style="font-size: 13px; font-weight: 600; margin-bottom: 10px; color: var(--ag-primary);">
+                  <i class="fas fa-sliders-h"></i> 生成参数
                 </div>
-                <div class="server-form-field">
-                  <label><i class="fas fa-unlock-alt"></i> 私钥密码 <span class="optional-tag">可选</span></label>
-                  <input v-model="serverForm.passphrase" type="password" placeholder="私钥有密码保护时填写" />
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px;">
+                  <div>
+                    <label style="font-size: 11px; opacity: 0.7; display: block; margin-bottom: 4px;">默认温度</label>
+                    <input type="number" step="0.1" min="0" max="2" v-model="agSettingsForm.DEFAULT_TEMPERATURE"
+                      class="form-input" style="width: 100%; padding: 6px 10px; font-size: 13px;" placeholder="1">
+                  </div>
+                  <div>
+                    <label style="font-size: 11px; opacity: 0.7; display: block; margin-bottom: 4px;">默认 top_p</label>
+                    <input type="number" step="0.01" min="0" max="1" v-model="agSettingsForm.DEFAULT_TOP_P"
+                      class="form-input" style="width: 100%; padding: 6px 10px; font-size: 13px;" placeholder="0.85">
+                  </div>
+                  <div>
+                    <label style="font-size: 11px; opacity: 0.7; display: block; margin-bottom: 4px;">默认 top_k</label>
+                    <input type="number" step="1" min="1" v-model="agSettingsForm.DEFAULT_TOP_K" class="form-input"
+                      style="width: 100%; padding: 6px 10px; font-size: 13px;" placeholder="50">
+                  </div>
+                  <div>
+                    <label style="font-size: 11px; opacity: 0.7; display: block; margin-bottom: 4px;">默认最大
+                      Tokens</label>
+                    <input type="number" step="1" min="1" v-model="agSettingsForm.DEFAULT_MAX_TOKENS" class="form-input"
+                      style="width: 100%; padding: 6px 10px; font-size: 13px;" placeholder="8096">
+                  </div>
+                </div>
+              </div>
+
+              <!-- 模型重定向 -->
+              <div style="margin-bottom: 24px;">
+                <div
+                  style="font-size: 13px; font-weight: 600; margin-bottom: 10px; color: var(--ag-primary); display: flex; align-items: center; gap: 8px;">
+                  <i class="fas fa-exchange-alt"></i> 模型重定向 (别名)
+                </div>
+                <!-- 列表 -->
+                <div v-if="antigravityModelRedirects.length > 0"
+                  style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 10px; margin-bottom: 12px;">
+                  <div v-for="r in antigravityModelRedirects" :key="r.source_model"
+                    style="background: var(--bg-tertiary); padding: 8px 12px; border-radius: 6px; display: flex; justify-content: space-between; align-items: center; border: 1px solid var(--border-color);">
+                    <div style="font-size: 12px; font-family: monospace;">
+                      <span style="color: var(--text-primary); font-weight: 600;">{{ r.source_model }}</span>
+                      <i class="fas fa-arrow-right" style="font-size: 10px; opacity: 0.5; margin: 0 6px;"></i>
+                      <span style="opacity: 0.8;">{{ r.target_model }}</span>
+                    </div>
+                    <button class="btn btn-xs btn-danger icon-only" @click="removeModelRedirect(r.source_model)"
+                      title="删除重定向">
+                      <i class="fas fa-trash"></i>
+                    </button>
+                  </div>
+                </div>
+                <div v-else style="font-size: 12px; opacity: 0.5; margin-bottom: 12px; padding: 8px 0;">
+                  暂无重定向规则。添加后，请求 source 模型将自动转发给 target 模型。
+                </div>
+
+                <!-- 添加表单 -->
+                <div
+                  style="display: flex; gap: 10px; align-items: flex-end; background: rgba(var(--ag-primary-rgb), 0); padding: 10px; border-radius: 8px;">
+                  <div style="flex: 1;">
+                    <label style="font-size: 11px; opacity: 0.7; display: block; margin-bottom: 4px;">源模型名称
+                      (自定义)</label>
+                    <input type="text" v-model="newRedirectSource" class="form-input"
+                      style="width: 100%; padding: 6px 10px; font-size: 13px;" placeholder="例如: gpt-4o">
+                  </div>
+                  <div style="flex: 1;">
+                    <label style="font-size: 11px; opacity: 0.7; display: block; margin-bottom: 4px;">目标模型 ID
+                      (实际)</label>
+                    <input type="text" v-model="newRedirectTarget" class="form-input"
+                      style="width: 100%; padding: 6px 10px; font-size: 13px;" placeholder="例如: gemini-1.5-pro">
+                  </div>
+                  <button class="btn btn-secondary btn-sm"
+                    @click="addModelRedirect(newRedirectSource, newRedirectTarget).then(s => { if(s) { newRedirectSource=''; newRedirectTarget=''; } })">
+                    <i class="fas fa-plus"></i> 添加
+                  </button>
+                </div>
+              </div>
+
+              <!-- 图片设置 + 限额 -->
+              <div
+                style="display: grid; grid-template-columns: repeat(auto-fit, minmax(350px, 1fr)); gap: 20px; margin-bottom: 20px;">
+                <div>
+                  <div style="font-size: 13px; font-weight: 600; margin-bottom: 10px; color: var(--ag-primary);">
+                    <i class="fas fa-image"></i> 图片设置
+                  </div>
+                  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px;">
+                    <div>
+                      <label style="font-size: 11px; opacity: 0.7; display: block; margin-bottom: 4px;">保存上限</label>
+                      <input type="number" min="1" v-model="agSettingsForm.MAX_IMAGES" class="form-input"
+                        style="width: 100%; padding: 6px 10px; font-size: 13px;" placeholder="10">
+                    </div>
+                    <div>
+                      <label style="font-size: 11px; opacity: 0.7; display: block; margin-bottom: 4px;">访问基础 URL</label>
+                      <input type="text" v-model="agSettingsForm.IMAGE_BASE_URL" class="form-input"
+                        style="width: 100%; padding: 6px 10px; font-size: 13px;" placeholder="留空使用默认">
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <div style="font-size: 13px; font-weight: 600; margin-bottom: 10px; color: var(--ag-primary);">
+                    <i class="fas fa-tachometer-alt"></i> 限额设置
+                  </div>
+                  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px;">
+                    <div>
+                      <label style="font-size: 11px; opacity: 0.7; display: block; margin-bottom: 4px;">每小时上限</label>
+                      <input type="number" v-model="agSettingsForm.CREDENTIAL_MAX_USAGE_PER_HOUR" class="form-input"
+                        style="width: 100%; padding: 6px 10px; font-size: 13px;" placeholder="20">
+                    </div>
+                    <div>
+                      <label style="font-size: 11px; opacity: 0.7; display: block; margin-bottom: 4px;">超时 (ms)</label>
+                      <input type="number" v-model="agSettingsForm.TIMEOUT" class="form-input"
+                        style="width: 100%; padding: 6px 10px; font-size: 13px;" placeholder="120000">
+                    </div>
+                    <div>
+                      <label style="font-size: 11px; opacity: 0.7; display: block; margin-bottom: 4px;">日志保留天数</label>
+                      <input type="number" v-model="agSettingsForm.REQUEST_LOG_RETENTION_DAYS" class="form-input"
+                        style="width: 100%; padding: 6px 10px; font-size: 13px;" placeholder="7">
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 安全设置 -->
+              <div>
+                <div style="font-size: 13px; font-weight: 600; margin-bottom: 10px; color: var(--ag-primary);">
+                  <i class="fas fa-shield-alt"></i> 安全设置
+                </div>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px;">
+                  <div>
+                    <label style="font-size: 11px; opacity: 0.7; display: block; margin-bottom: 4px;">API 访问密钥</label>
+                    <input type="password" v-model="agSettingsForm.API_KEY" class="form-input"
+                      style="width: 100%; padding: 6px 10px; font-size: 13px;" placeholder="留空则无需认证">
+                  </div>
+                  <div>
+                    <label style="font-size: 11px; opacity: 0.7; display: block; margin-bottom: 4px;">HTTP 代理</label>
+                    <input type="text" v-model="agSettingsForm.PROXY" class="form-input"
+                      style="width: 100%; padding: 6px 10px; font-size: 13px;" placeholder="例如 http://127.0.0.1:7890">
+                  </div>
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+      </div>
+    </div>
 
-            <!-- 扩展信息区 -->
-            <!-- <div class="server-form-section collapsed-section">
+    <!-- ==================== Antigravity 日志详情模态框 ==================== -->
+    <div v-if="showAntigravityLogDetailModal" class="modal-overlay" @click.self="showAntigravityLogDetailModal = false"
+      @keydown.esc="showAntigravityLogDetailModal = false" tabindex="-1">
+      <div class="modal" style="max-width: 600px;">
+        <div class="modal-header">
+          <div class="modal-title">
+            <i class="fas fa-file-alt"></i> 调用日志详情
+          </div>
+          <button class="modal-close" @click="showAntigravityLogDetailModal = false">&times;</button>
+        </div>
+        <div class="modal-body" v-if="antigravityLogDetail" style="padding: 20px;">
+          <div class="log-detail-grid"
+            style="display: grid; grid-template-columns: 120px 1fr; gap: 12px; font-size: 13px;">
+            <div style="opacity: 0.6;">请求时间</div>
+            <div>{{ new Date(antigravityLogDetail.created_at).toLocaleString() }}</div>
+
+            <div style="opacity: 0.6;">请求方法</div>
+            <div><code class="code-sm">{{ antigravityLogDetail.request_method }}</code></div>
+
+            <div style="opacity: 0.6;">请求路径</div>
+            <div><code class="code-sm">{{ antigravityLogDetail.request_path }}</code></div>
+
+            <div style="opacity: 0.6;">状态码</div>
+            <div>
+              <span :class="antigravityLogDetail.status_code < 400 ? 'text-success' : 'text-danger'"
+                style="font-weight: 600;">
+                {{ antigravityLogDetail.status_code }}
+              </span>
+            </div>
+
+            <div style="opacity: 0.6;">耗时</div>
+            <div>{{ antigravityLogDetail.duration_ms }} ms</div>
+
+            <div style="opacity: 0.6;">账号 ID</div>
+            <div><code class="code-sm">{{ antigravityLogDetail.account_id || '-' }}</code></div>
+
+            <div style="opacity: 0.6;">客户端 IP</div>
+            <div>{{ antigravityLogDetail.client_ip || '-' }}</div>
+
+            <div style="opacity: 0.6;">User-Agent</div>
+            <div style="word-break: break-all; font-size: 11px; opacity: 0.8;">{{ antigravityLogDetail.user_agent || '-'
+              }}</div>
+          </div>
+
+          <div v-if="antigravityLogDetail.detail" style="margin-top: 16px;">
+            <div style="opacity: 0.6; margin-bottom: 8px; font-size: 13px;">详情信息</div>
+            <pre
+              style="background: var(--bg-secondary); padding: 12px; border-radius: 8px; font-size: 12px; overflow-x: auto; margin: 0;">{{ JSON.stringify(antigravityLogDetail.detail, null, 2) }}</pre>
+          </div>
+        </div>
+        <div class="modal-footer" style="padding: 12px 20px; border-top: 1px solid var(--border-color);">
+          <button class="btn btn-secondary" @click="showAntigravityLogDetailModal = false">
+            关闭
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ==================== 主机管理模态框 ==================== -->
+    <!-- 添加/编辑主机模态框 -->
+    <div v-if="showServerModal" class="modal-overlay" @keydown.esc="closeServerModal" @keydown.ctrl.enter="saveServer"
+      tabindex="-1">
+      <div class="modal server-modal">
+        <div class="modal-header">
+          <div class="modal-title">
+            <i class="fas fa-server"></i>
+            {{ serverModalMode === 'add' ? '添加主机' : '编辑主机' }}
+          </div>
+          <button class="modal-close" @click="closeServerModal">&times;</button>
+        </div>
+        <div class="modal-body">
+          <!-- 基础信息区 -->
+          <div class="server-form-section">
+            <div class="form-row">
+              <div class="form-group flex-1">
+                <label>常用凭据</label>
+                <select class="form-input" @change="applyCredential($event)">
+                  <option value="">-- 选择预设凭据 --</option>
+                  <option v-for="cred in serverCredentials" :key="cred.id" :value="cred.id">
+                    {{ cred.name }} ({{ cred.username }})
+                  </option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group flex-1">
+                <label><i class="fas fa-id-badge"></i> 实例名称</label>
+                <input type="text" v-model="serverForm.name" class="form-input" placeholder="如: 生产环境-网关" required />
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group" style="flex: 7;">
+                <label><i class="fas fa-network-wired"></i> 主机地址</label>
+                <input type="text" v-model="serverForm.host" class="form-input" placeholder="IP 或 域名" required />
+              </div>
+              <div class="form-group" style="flex: 3;">
+                <label><i class="fas fa-door-open"></i> 端口</label>
+                <input type="number" v-model="serverForm.port" class="form-input" placeholder="22" />
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group flex-1">
+                <label><i class="fas fa-user-shield"></i> 登录用户</label>
+                <input type="text" v-model="serverForm.username" class="form-input" placeholder="root" required />
+              </div>
+            </div>
+          </div>
+
+          <!-- 认证方式区 -->
+          <div class="server-form-section">
+            <div class="server-auth-toggle">
+              <button type="button" :class="{ active: serverForm.authType === 'password' }"
+                @click="serverForm.authType = 'password'">
+                <i class="fas fa-key"></i> 密码认证
+              </button>
+              <button type="button" :class="{ active: serverForm.authType === 'privateKey' }"
+                @click="serverForm.authType = 'privateKey'">
+                <i class="fas fa-file-code"></i> 密钥认证
+              </button>
+            </div>
+
+            <div v-if="serverForm.authType === 'password'" class="server-form-field">
+              <label><i class="fas fa-lock"></i> 密码</label>
+              <input v-model="serverForm.password" type="password" placeholder="请输入密码" />
+            </div>
+
+            <div v-if="serverForm.authType === 'privateKey'">
+              <div class="server-form-field">
+                <label><i class="fas fa-file-alt"></i> 私钥内容</label>
+                <textarea v-model="serverForm.privateKey" rows="4"
+                  placeholder="粘贴 SSH 私钥（支持 RSA、ECDSA、Ed25519）"></textarea>
+              </div>
+              <div class="server-form-field">
+                <label><i class="fas fa-unlock-alt"></i> 私钥密码 <span class="optional-tag">可选</span></label>
+                <input v-model="serverForm.passphrase" type="password" placeholder="私钥有密码保护时填写" />
+              </div>
+            </div>
+          </div>
+
+          <!-- 扩展信息区 -->
+          <!-- <div class="server-form-section collapsed-section">
               <div class="server-form-row">
                 <div class="server-form-field" style="flex: 1;">
                   <label><i class="fas fa-tags"></i> 标签 <span class="optional-tag">可选</span></label>
@@ -1923,358 +2446,456 @@ Web服务器,192.168.1.100,22,root,password123
               </div>
             </div> -->
 
-            <div v-if="serverModalError" class="server-form-error">
-              <i class="fas fa-exclamation-circle"></i> {{ serverModalError }}
+          <div v-if="serverModalError" class="server-form-error">
+            <i class="fas fa-exclamation-circle"></i> {{ serverModalError }}
+          </div>
+        </div>
+        <div class="server-modal-footer">
+          <button class="btn-server-cancel" @click="closeServerModal" :disabled="serverModalSaving">
+            取消
+          </button>
+          <div class="server-modal-actions">
+            <button class="btn-server-test" @click="testServerConnection" :disabled="serverModalSaving">
+              <i class="fas fa-plug"></i> 测试
+            </button>
+            <button class="btn-server-save" @click="saveServer" :disabled="serverModalSaving">
+              <i class="fas" :class="serverModalSaving ? 'fa-spinner fa-spin' : 'fa-check'"></i>
+              {{ serverModalSaving ? '保存中' : '保存' }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 批量导入主机模态框 -->
+    <div v-if="showImportServerModal" class="modal-overlay" @keydown.esc="closeImportServerModal"
+      @keydown.enter="confirmImportServers" tabindex="-1">
+      <div class="modal server-modal" style="max-width: 500px;">
+        <div class="modal-header">
+          <div class="modal-title">
+            <i class="fas fa-file-import"></i>
+            批量导入主机
+          </div>
+          <button class="modal-close" @click="closeImportServerModal">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="server-form-section">
+            <div class="form-group">
+              <label><i class="fas fa-file"></i> 选择 JSON 文件</label>
+              <input type="file" ref="importFileInput" accept=".json" class="form-input"
+                @change="handleImportFileChange" />
             </div>
           </div>
-          <div class="server-modal-footer">
-            <button class="btn-server-cancel" @click="closeServerModal" :disabled="serverModalSaving">
-              取消
-            </button>
-            <div class="server-modal-actions">
-              <button class="btn-server-test" @click="testServerConnection" :disabled="serverModalSaving">
-                <i class="fas fa-plug"></i> 测试
-              </button>
-              <button class="btn-server-save" @click="saveServer" :disabled="serverModalSaving">
-                <i class="fas" :class="serverModalSaving ? 'fa-spinner fa-spin' : 'fa-check'"></i>
-                {{ serverModalSaving ? '保存中' : '保存' }}
-              </button>
+          <div v-if="importPreview" class="server-form-section" style="margin-top: 8px;">
+            <div class="form-group">
+              <label><i class="fas fa-list"></i> 预览（将导入 {{ importPreview.length }} 台主机）</label>
+              <div class="import-preview-list">
+                <div v-for="(server, index) in importPreview" :key="index" class="import-preview-item">
+                  <i class="fas fa-server"></i>
+                  <span>{{ server.name }} ({{ server.username }}@{{ server.host }}:{{ server.port }})</span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div v-if="importModalError" class="server-form-error">
+            <i class="fas fa-exclamation-circle"></i> {{ importModalError }}
+          </div>
+        </div>
+        <div class="server-modal-footer">
+          <button class="btn-server-cancel" @click="closeImportServerModal" :disabled="importModalSaving">
+            取消
+          </button>
+          <button class="btn-server-save" @click="confirmImportServers"
+            :disabled="importModalSaving || !importPreview || importPreview.length === 0">
+            <i class="fas fa-check"></i>
+            {{ importModalSaving ? '导入中...' : '确认导入' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 新建终端会话选择模态框 -->
+    <div v-if="showAddSessionSelectModal" class="modal-overlay" @keydown.esc="showAddSessionSelectModal = false"
+      tabindex="-1">
+      <div class="modal server-modal" style="max-width: 360px;">
+        <div class="modal-header">
+          <div class="modal-title">
+            <i class="fas fa-terminal"></i>
+            选择主机
+          </div>
+          <button class="modal-close" @click="showAddSessionSelectModal = false">&times;</button>
+        </div>
+        <div class="modal-body" style="max-height: 400px; overflow-y: auto; padding: 8px;">
+          <div v-if="serverList.length === 0" class="empty-state">
+            <p>暂无可用主机</p>
+          </div>
+          <div v-else class="server-select-list">
+            <div v-for="server in serverList" :key="server.id" class="server-select-item"
+              @click="addSessionForServer(server)">
+              <div class="server-status-indicator" :class="server.status || 'unknown'"></div>
+              <div class="server-select-info">
+                <div class="server-select-name">{{ server.name }}</div>
+                <div class="server-select-host">{{ server.host }}:{{ server.port }}</div>
+              </div>
             </div>
           </div>
         </div>
       </div>
+    </div>
 
-      <!-- 批量导入主机模态框 -->
-      <div v-if="showImportServerModal" class="modal-overlay" @keydown.esc="closeImportServerModal"
-        @keydown.enter="confirmImportServers" tabindex="-1">
-        <div class="modal server-modal" style="max-width: 500px;">
-          <div class="modal-header">
-            <div class="modal-title">
-              <i class="fas fa-file-import"></i>
-              批量导入主机
-            </div>
-            <button class="modal-close" @click="closeImportServerModal">&times;</button>
+    <!-- 设置侧边栏 -->
+    <div v-if="showSettingsModal" @keydown.esc="showSettingsModal = false" tabindex="-1">
+      <div class="settings-sidebar-overlay"></div>
+      <div class="settings-sidebar">
+        <!-- 侧边栏头部 -->
+        <div class="settings-sidebar-header">
+          <div class="settings-sidebar-title">
+            <i class="fas fa-cog"></i>
+            <span>系统设置</span>
           </div>
-          <div class="modal-body">
-            <div class="server-form-section">
-              <div class="form-group">
-                <label><i class="fas fa-file"></i> 选择 JSON 文件</label>
-                <input type="file" ref="importFileInput" accept=".json" class="form-input"
-                  @change="handleImportFileChange" />
+          <button class="settings-sidebar-close" @click="showSettingsModal = false">&times;</button>
+        </div>
+
+        <!-- 侧边栏内容 -->
+        <div class="settings-sidebar-content">
+          <!-- 模块管理 -->
+          <div class="settings-section">
+            <div class="settings-section-title">模块管理</div>
+            <div>
+              <div v-for="(module, index) in moduleOrder" :key="module" class="draggable-module-item" draggable="true"
+                @dragstart="handleDragStart($event, index)" @dragend="handleDragEnd"
+                @dragover.prevent="handleDragOver($event, index)" @drop="handleDrop($event, index)">
+                <i class="fas fa-grip-vertical drag-handle"></i>
+                <i class="draggable-module-icon fas" :class="getModuleIcon(module)"></i>
+                <span class="draggable-module-name">{{ getModuleName(module) }}</span>
+                <!-- 显示/隐藏切换按钮 -->
+                <button class="btn btn-sm" :class="moduleVisibility[module] ? 'btn-success' : 'btn-secondary'"
+                  @click.stop="toggleModuleVisibility(module)" style="padding: 4px 8px; font-size: 12px;">
+                  <i class="fas" :class="moduleVisibility[module] ? 'fa-eye' : 'fa-eye-slash'"></i>
+                </button>
               </div>
             </div>
-            <div v-if="importPreview" class="server-form-section" style="margin-top: 8px;">
+            <div class="form-help" style="margin-top: 8px;">拖拽调整顺序，点击眼睛图标切换显示/隐藏</div>
+          </div>
+
+          <!-- 修改密码 -->
+          <div class="settings-section">
+            <div class="settings-section-title">修改登录密码</div>
+            <div class="form-group">
+              <input v-model="newPassword" type="password" class="form-input" placeholder="输入新密码（至少6位）" />
+            </div>
+            <div class="form-group">
+              <input v-model="confirmPassword" type="password" class="form-input" placeholder="确认新密码" />
+            </div>
+            <div v-if="passwordError" class="form-error">{{ passwordError }}</div>
+            <div v-if="passwordSuccess" class="form-success">{{ passwordSuccess }}</div>
+            <button class="btn btn-primary" @click="changePassword" style="width: 100%;">
+              <i class="fas fa-key"></i> 修改密码
+            </button>
+          </div>
+
+          <!-- 数据导入导出 -->
+          <div class="settings-section">
+            <div class="settings-section-title">数据备份与恢复</div>
+            <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+              <button class="btn btn-success" @click="exportAllData" style="flex: 1;">
+                <i class="fas fa-upload"></i> 导出数据
+              </button>
+              <button class="btn btn-warning" @click="importAllData" style="flex: 1;">
+                <i class="fas fa-download"></i> 导入数据
+              </button>
+            </div>
+            <div class="form-help">导出包含所有模块的配置和数据</div>
+          </div>
+
+          <!-- 模块配置 -->
+          <div class="settings-section">
+            <div class="settings-section-title">模块配置</div>
+
+            <div v-if="moduleVisibility.zeabur">
+              <div style="font-size: 13px; font-weight: 600; margin-bottom: 8px; color: var(--text-primary);">Zeabur
+              </div>
               <div class="form-group">
-                <label><i class="fas fa-list"></i> 预览（将导入 {{ importPreview.length }} 台主机）</label>
-                <div class="import-preview-list">
-                  <div v-for="(server, index) in importPreview" :key="index" class="import-preview-item">
-                    <i class="fas fa-server"></i>
-                    <span>{{ server.name }} ({{ server.username }}@{{ server.host }}:{{ server.port }})</span>
+                <label class="form-label" style="font-size: 12px; opacity: 0.8;">自动刷新间隔 (秒)</label>
+                <input type="number" :value="zeaburRefreshInterval / 1000"
+                  @input="zeaburRefreshInterval = Math.max(5, parseInt($event.target.value)) * 1000" class="form-input"
+                  min="5" placeholder="30" />
+                <div class="form-help">设置 Zeabur 监控数据的自动刷新频率（最少5秒）</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 自定义 CSS -->
+          <div class="settings-section">
+            <div class="settings-section-title">自定义 CSS</div>
+            <div class="form-help" style="margin-bottom: 8px;">
+              可以自定义字体、颜色等样式。例如：
+              <code style="display: block; margin-top: 4px;">body { font-family: 'Microsoft YaHei', sans-serif; }</code>
+            </div>
+            <textarea v-model="customCss" class="form-textarea" placeholder="输入自定义 CSS 代码..."
+              style="min-height: 150px; font-family: 'Consolas', 'Monaco', monospace; font-size: 12px;"></textarea>
+            <div v-if="customCssError" class="form-error" style="margin-top: 8px;">{{ customCssError }}</div>
+            <div v-if="customCssSuccess" class="form-success" style="margin-top: 8px;">{{ customCssSuccess }}
+            </div>
+            <div style="display: flex; gap: 8px; margin-top: 8px;">
+              <button class="btn btn-primary" @click="saveCustomCss" style="flex: 1;">
+                <i class="fas fa-save"></i> 应用 CSS
+              </button>
+              <button class="btn btn-secondary" @click="resetCustomCss" style="flex: 1;">
+                <i class="fas fa-undo"></i> 重置
+              </button>
+            </div>
+          </div>
+
+          <!-- 保存按钮 -->
+          <div
+            style="bottom: 0; background: var(--card-bg); padding-top: 16px; border-top: 1px solid var(--border-color); margin-top: 20px;">
+            <button class="btn btn-primary" @click="saveSettings" style="width: 100%;">
+              <i class="fas fa-save"></i> 保存设置
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 日志模态框 -->
+    <div v-if="showLogsModal" class="modal-overlay" :class="{ 'logs-fullscreen-overlay': logsFullscreen }"
+      @keydown.esc="showLogsModal = false" tabindex="-1">
+      <div class="modal logs-modal" :class="{ 'logs-modal-fullscreen': logsFullscreen }">
+        <div class="logs-header">
+          <div class="logs-title">📋 {{ logsModalTitle }}</div>
+          <div class="logs-controls">
+            <button class="btn btn-secondary" @click="toggleRealTimeRefresh"
+              style="margin-right: 8px; padding: 6px 10px; font-size: 12px;">
+              <i class="fas" :class="logsRealTime ? 'fa-stop' : 'fa-play'"></i>
+              {{ logsRealTime ? '停止实时' : '实时刷新' }}
+            </button>
+            <button class="btn btn-secondary" @click="toggleAutoScroll"
+              style="margin-right: 8px; padding: 6px 10px; font-size: 12px;">
+              <i class="fas" :class="logsAutoScroll ? 'fa-pause' : 'fa-play'"></i>
+              {{ logsAutoScroll ? '停止滚动' : '自动滚动' }}
+            </button>
+            <button class="btn btn-secondary" @click="toggleFullscreen"
+              style="margin-right: 8px; padding: 6px 10px; font-size: 12px;">
+              <i class="fas" :class="logsFullscreen ? 'fa-compress' : 'fa-expand'"></i>
+              {{ logsFullscreen ? '退出全屏' : '全屏' }}
+            </button>
+            <button class="btn btn-danger" @click="showLogsModal = false" style="padding: 6px 10px; font-size: 12px;">
+              <i class="fas fa-times"></i>
+              关闭
+            </button>
+          </div>
+        </div>
+        <div class="logs-info">
+          <span>项目: {{ logsModalInfo.project }}</span>
+          <span>账号: {{ logsModalInfo.account }}</span>
+          <span>日志: {{ logsModalInfo.count }} 条</span>
+          <span>时间: {{ logsModalInfo.time }}</span>
+        </div>
+        <div class="logs-content" ref="logsContent" @wheel.stop @touchmove.stop>
+          <div v-if="logsLoading" style="text-align: center; padding: 40px;">⏳ 正在加载日志...</div>
+          <div v-else class="logs-text-container" ref="logsTextContainer">
+            <pre class="logs-text" ref="logsText">{{ logsContent || '暂无日志' }}</pre>
+            <div class="logs-horizontal-scrollbar" ref="logsScrollbar">
+              <div class="logs-scrollbar-thumb" ref="logsScrollbarThumb"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toast 系统容器将由 toast.js 自动创建 -->
+
+    <!-- 自定义确认对话框 -->
+    <div v-if="customDialog.show" class="custom-dialog-overlay"
+      @keydown.esc="customDialog.onCancel ? customDialog.onCancel() : (customDialog.show = false)"
+      @keydown.enter="customDialog.onConfirm" tabindex="-1">
+      <div class="custom-dialog">
+        <div class="custom-dialog-title">
+          <i class="fas" :class="customDialog.icon || 'fa-question-circle'"></i>
+          {{ customDialog.title || '确认' }}
+        </div>
+        <div class="custom-dialog-message">{{ customDialog.message }}</div>
+        <input v-if="customDialog.isPrompt" v-model="customDialog.promptValue" :placeholder="customDialog.placeholder"
+          @keyup.enter="customDialog.onConfirm" class="custom-dialog-input" ref="promptInput" />
+        <div class="custom-dialog-buttons">
+          <button v-if="customDialog.cancelText" class="btn btn-secondary"
+            @click="customDialog.onCancel ? customDialog.onCancel() : (customDialog.show = false)">
+            {{ customDialog.cancelText }}
+          </button>
+          <button class="btn" :class="customDialog.confirmClass || 'btn-primary'" @click="customDialog.onConfirm">
+            {{ customDialog.confirmText || '确定' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 凭据管理模态框 -->
+    <div v-if="showAddCredentialModal" class="modal-overlay" @click.self="showAddCredentialModal = false"
+      @keydown.esc="showAddCredentialModal = false" tabindex="-1">
+      <div class="modal server-modal" style="max-width: 380px;">
+        <div class="modal-header">
+          <div class="modal-title">
+            <i class="fas fa-key"></i> 保存新凭据
+          </div>
+          <button class="modal-close" @click="showAddCredentialModal = false">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="server-form-section">
+            <div class="form-group">
+              <label><i class="fas fa-tag"></i> 凭据标识</label>
+              <input type="text" v-model="credForm.name" class="form-input" placeholder="例如: 默认密码" />
+            </div>
+            <div class="form-group">
+              <label><i class="fas fa-user"></i> 用户名</label>
+              <input type="text" v-model="credForm.username" class="form-input" placeholder="root" />
+            </div>
+            <div class="form-group">
+              <label><i class="fas fa-lock"></i> 密码</label>
+              <input type="password" v-model="credForm.password" class="form-input" placeholder="登录密码" />
+            </div>
+          </div>
+          <div v-if="credError" class="server-form-error">
+            <i class="fas fa-exclamation-circle"></i> {{ credError }}
+          </div>
+        </div>
+        <div class="server-modal-footer">
+          <button class="btn-server-cancel" @click="showAddCredentialModal = false">取消</button>
+          <button class="btn-server-save" @click="saveCredential">
+            <i class="fas fa-save"></i> 保存
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Docker 详细列表模态框 -->
+    <div v-if="showDockerModal" class="modal-overlay" @click.self="showDockerModal = false">
+      <div class="modal-container glass-panel" style="max-width: 900px; border-radius: 20px;">
+        <div class="modal-header">
+          <div class="modal-title">云容器管理 - {{ dockerModalServer ? dockerModalServer.name : '' }}</div>
+          <button class="close-btn" @click="showDockerModal = false">×</button>
+        </div>
+        <div class="modal-body">
+          <div v-if="dockerModalData && dockerModalData.containers" class="docker-container-list">
+            <div v-for="container in dockerModalData.containers" :key="container.id" class="docker-container-card"
+              :class="{ 'running': container.status.includes('Up') }">
+              <div class="docker-container-info" style="padding: 15px;">
+                <div
+                  style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px;">
+                  <div>
+                    <div style="font-weight: 700; font-size: 14px;">{{ container.name }}</div>
+                    <div style="font-size: 11px; opacity: 0.6; font-family: monospace;">{{ container.image }}</div>
                   </div>
+                  <span class="docker-status-badge"
+                    :class="container.status.includes('Up') ? 'status-running' : 'status-exited'">
+                    {{ container.status }}
+                  </span>
                 </div>
-              </div>
-            </div>
-            <div v-if="importModalError" class="server-form-error">
-              <i class="fas fa-exclamation-circle"></i> {{ importModalError }}
-            </div>
-          </div>
-          <div class="server-modal-footer">
-            <button class="btn-server-cancel" @click="closeImportServerModal" :disabled="importModalSaving">
-              取消
-            </button>
-            <button class="btn-server-save" @click="confirmImportServers"
-              :disabled="importModalSaving || !importPreview || importPreview.length === 0">
-              <i class="fas fa-check"></i>
-              {{ importModalSaving ? '导入中...' : '确认导入' }}
-            </button>
-          </div>
-        </div>
-      </div>
-
-      <!-- 新建终端会话选择模态框 -->
-      <div v-if="showAddSessionSelectModal" class="modal-overlay" @keydown.esc="showAddSessionSelectModal = false"
-        tabindex="-1">
-        <div class="modal server-modal" style="max-width: 360px;">
-          <div class="modal-header">
-            <div class="modal-title">
-              <i class="fas fa-terminal"></i>
-              选择主机
-            </div>
-            <button class="modal-close" @click="showAddSessionSelectModal = false">&times;</button>
-          </div>
-          <div class="modal-body" style="max-height: 400px; overflow-y: auto; padding: 8px;">
-            <div v-if="serverList.length === 0" class="empty-state">
-              <p>暂无可用主机</p>
-            </div>
-            <div v-else class="server-select-list">
-              <div v-for="server in serverList" :key="server.id" class="server-select-item"
-                @click="addSessionForServer(server)">
-                <div class="server-status-indicator" :class="server.status || 'unknown'"></div>
-                <div class="server-select-info">
-                  <div class="server-select-name">{{ server.name }}</div>
-                  <div class="server-select-host">{{ server.host }}:{{ server.port }}</div>
+                <div style="font-size: 11px; opacity: 0.8;">端口: {{ container.ports }}</div>
+                <div class="docker-container-actions" style="margin-top: 15px; justify-content: flex-end;">
+                  <button v-if="container.status.includes('Up')" class="btn btn-sm btn-secondary"
+                    @click="handleDockerAction(dockerModalServer.id, container.id, 'stop')" title="停止"><i
+                      class="fas fa-stop"></i></button>
+                  <button v-else class="btn btn-sm btn-success"
+                    @click="handleDockerAction(dockerModalServer.id, container.id, 'start')" title="启动"><i
+                      class="fas fa-play"></i></button>
+                  <button class="btn btn-sm btn-secondary"
+                    @click="handleDockerAction(dockerModalServer.id, container.id, 'restart')" title="重启"><i
+                      class="fas fa-redo"></i></button>
                 </div>
               </div>
             </div>
           </div>
+          <div v-else class="loading">正在获取容器信息...</div>
         </div>
       </div>
+    </div> <!-- 闭合 Docker 详细列表模态框 -->
 
-      <!-- 设置侧边栏 -->
-      <div v-if="showSettingsModal" @keydown.esc="showSettingsModal = false" tabindex="-1">
-        <div class="settings-sidebar-overlay"></div>
-        <div class="settings-sidebar">
-          <!-- 侧边栏头部 -->
-          <div class="settings-sidebar-header">
-            <div class="settings-sidebar-title">
-              <i class="fas fa-cog"></i>
-              <span>系统设置</span>
-            </div>
-            <button class="settings-sidebar-close" @click="showSettingsModal = false">&times;</button>
+    <!-- ==================== Antigravity 账号模态框 ==================== -->
+    <div v-if="showAntigravityAccountModal" class="modal-overlay" @keydown.esc="showAntigravityAccountModal = false">
+      <div class="modal">
+        <div class="modal-header">
+          <div class="modal-title">
+            <i class="fas fa-atom"></i>
+            {{ antigravityEditingAccount ? '编辑账号' : '添加账号' }}
           </div>
-
-          <!-- 侧边栏内容 -->
-          <div class="settings-sidebar-content">
-            <!-- 模块管理 -->
-            <div class="settings-section">
-              <div class="settings-section-title">模块管理</div>
-              <div>
-                <div v-for="(module, index) in moduleOrder" :key="module" class="draggable-module-item" draggable="true"
-                  @dragstart="handleDragStart($event, index)" @dragend="handleDragEnd"
-                  @dragover.prevent="handleDragOver($event, index)" @drop="handleDrop($event, index)">
-                  <i class="fas fa-grip-vertical drag-handle"></i>
-                  <i class="draggable-module-icon fas" :class="getModuleIcon(module)"></i>
-                  <span class="draggable-module-name">{{ getModuleName(module) }}</span>
-                  <!-- 显示/隐藏切换按钮 -->
-                  <button class="btn btn-sm" :class="moduleVisibility[module] ? 'btn-success' : 'btn-secondary'"
-                    @click.stop="toggleModuleVisibility(module)" style="padding: 4px 8px; font-size: 12px;">
-                    <i class="fas" :class="moduleVisibility[module] ? 'fa-eye' : 'fa-eye-slash'"></i>
-                  </button>
-                </div>
-              </div>
-              <div class="form-help" style="margin-top: 8px;">拖拽调整顺序，点击眼睛图标切换显示/隐藏</div>
-            </div>
-
-            <!-- 修改密码 -->
-            <div class="settings-section">
-              <div class="settings-section-title">修改登录密码</div>
-              <div class="form-group">
-                <input v-model="newPassword" type="password" class="form-input" placeholder="输入新密码（至少6位）" />
-              </div>
-              <div class="form-group">
-                <input v-model="confirmPassword" type="password" class="form-input" placeholder="确认新密码" />
-              </div>
-              <div v-if="passwordError" class="form-error">{{ passwordError }}</div>
-              <div v-if="passwordSuccess" class="form-success">{{ passwordSuccess }}</div>
-              <button class="btn btn-primary" @click="changePassword" style="width: 100%;">
-                <i class="fas fa-key"></i> 修改密码
-              </button>
-            </div>
-
-            <!-- 数据导入导出 -->
-            <div class="settings-section">
-              <div class="settings-section-title">数据备份与恢复</div>
-              <div style="display: flex; gap: 8px; margin-bottom: 8px;">
-                <button class="btn btn-success" @click="exportAllData" style="flex: 1;">
-                  <i class="fas fa-upload"></i> 导出数据
-                </button>
-                <button class="btn btn-warning" @click="importAllData" style="flex: 1;">
-                  <i class="fas fa-download"></i> 导入数据
-                </button>
-              </div>
-              <div class="form-help">导出包含所有模块的配置和数据</div>
-            </div>
-
-            <!-- 自定义 CSS -->
-            <div class="settings-section">
-              <div class="settings-section-title">自定义 CSS</div>
-              <div class="form-help" style="margin-bottom: 8px;">
-                可以自定义字体、颜色等样式。例如：
-                <code
-                  style="display: block; margin-top: 4px;">body { font-family: 'Microsoft YaHei', sans-serif; }</code>
-              </div>
-              <textarea v-model="customCss" class="form-textarea" placeholder="输入自定义 CSS 代码..."
-                style="min-height: 150px; font-family: 'Consolas', 'Monaco', monospace; font-size: 12px;"></textarea>
-              <div v-if="customCssError" class="form-error" style="margin-top: 8px;">{{ customCssError }}</div>
-              <div v-if="customCssSuccess" class="form-success" style="margin-top: 8px;">{{ customCssSuccess }}
-              </div>
-              <div style="display: flex; gap: 8px; margin-top: 8px;">
-                <button class="btn btn-primary" @click="saveCustomCss" style="flex: 1;">
-                  <i class="fas fa-save"></i> 应用 CSS
-                </button>
-                <button class="btn btn-secondary" @click="resetCustomCss" style="flex: 1;">
-                  <i class="fas fa-undo"></i> 重置
-                </button>
-              </div>
-            </div>
-
-            <!-- 保存按钮 -->
-            <div
-              style="bottom: 0; background: var(--card-bg); padding-top: 16px; border-top: 1px solid var(--border-color); margin-top: 20px;">
-              <button class="btn btn-primary" @click="saveSettings" style="width: 100%;">
-                <i class="fas fa-save"></i> 保存设置
-              </button>
-            </div>
+          <button class="modal-close" @click="showAntigravityAccountModal = false">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label class="form-label">账号名称 *</label>
+            <input v-model="antigravityAccountForm.name" class="form-input" placeholder="例如: Google Pro" />
           </div>
+          <div class="form-group">
+            <label class="form-label">Email (可选)</label>
+            <input v-model="antigravityAccountForm.email" class="form-input" placeholder="user@gmail.com" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">API Key (可选)</label>
+            <input v-model="antigravityAccountForm.apiKey" type="password" class="form-input" placeholder="sk-..." />
+          </div>
+          <div v-if="antigravityAccountFormError" class="form-error">{{ antigravityAccountFormError }}</div>
+        </div>
+        <div class="modal-footer" style="display: flex; gap: 12px; margin-top: 20px;">
+          <button class="btn btn-primary" @click="saveAntigravityAccount" :disabled="antigravitySaving"
+            style="flex: 1;">
+            {{ antigravitySaving ? '保存中...' : '提交' }}
+          </button>
+          <button class="btn btn-secondary" @click="showAntigravityAccountModal = false" style="flex: 1;">取消</button>
         </div>
       </div>
+    </div>
 
-      <!-- 日志模态框 -->
-      <div v-if="showLogsModal" class="modal-overlay" :class="{ 'logs-fullscreen-overlay': logsFullscreen }"
-        @keydown.esc="showLogsModal = false" tabindex="-1">
-        <div class="modal logs-modal" :class="{ 'logs-modal-fullscreen': logsFullscreen }">
-          <div class="logs-header">
-            <div class="logs-title">📋 {{ logsModalTitle }}</div>
-            <div class="logs-controls">
-              <button class="btn btn-secondary" @click="toggleRealTimeRefresh"
-                style="margin-right: 8px; padding: 6px 10px; font-size: 12px;">
-                <i class="fas" :class="logsRealTime ? 'fa-stop' : 'fa-play'"></i>
-                {{ logsRealTime ? '停止实时' : '实时刷新' }}
-              </button>
-              <button class="btn btn-secondary" @click="toggleAutoScroll"
-                style="margin-right: 8px; padding: 6px 10px; font-size: 12px;">
-                <i class="fas" :class="logsAutoScroll ? 'fa-pause' : 'fa-play'"></i>
-                {{ logsAutoScroll ? '停止滚动' : '自动滚动' }}
-              </button>
-              <button class="btn btn-secondary" @click="toggleFullscreen"
-                style="margin-right: 8px; padding: 6px 10px; font-size: 12px;">
-                <i class="fas" :class="logsFullscreen ? 'fa-compress' : 'fa-expand'"></i>
-                {{ logsFullscreen ? '退出全屏' : '全屏' }}
-              </button>
-              <button class="btn btn-danger" @click="showLogsModal = false" style="padding: 6px 10px; font-size: 12px;">
-                <i class="fas fa-times"></i>
-                关闭
-              </button>
+    <!-- Antigravity 手动添加模态框 -->
+    <div v-if="showAntigravityManualModal" class="modal-overlay" @click.self="showAntigravityManualModal = false">
+      <div class="modal" style="max-width: 500px;">
+        <div class="modal-header">
+          <div class="modal-title">手动添加 Token</div>
+          <button class="modal-close" @click="showAntigravityManualModal = false">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label>账号名称 (可选)</label>
+            <input type="text" v-model="antigravityManualForm.name" class="form-input" placeholder="默认为 Manual Account">
+          </div>
+          <div class="form-group">
+            <label>Access Token <span style="color:red">*</span></label>
+            <textarea v-model="antigravityManualForm.accessToken" class="form-textarea" placeholder="ya29.a0..."
+              style="min-height: 80px; font-family: monospace; font-size: 12px;"></textarea>
+          </div>
+          <div class="form-group">
+            <label>Refresh Token <span style="color:red">*</span></label>
+            <textarea v-model="antigravityManualForm.refreshToken" class="form-textarea" placeholder="1//0..."
+              style="min-height: 60px; font-family: monospace; font-size: 12px;"></textarea>
+          </div>
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label>Project ID (可选)</label>
+              <input type="text" v-model="antigravityManualForm.projectId" class="form-input" placeholder="如未填将尝试自动获取">
+            </div>
+            <div class="form-group" style="flex: 0 0 120px;">
+              <label>有效期 (秒)</label>
+              <input type="number" v-model="antigravityManualForm.expiresIn" class="form-input" placeholder="3599">
             </div>
           </div>
-          <div class="logs-info">
-            <span>项目: {{ logsModalInfo.project }}</span>
-            <span>账号: {{ logsModalInfo.account }}</span>
-            <span>日志: {{ logsModalInfo.count }} 条</span>
-            <span>时间: {{ logsModalInfo.time }}</span>
-          </div>
-          <div class="logs-content" ref="logsContent" @wheel.stop @touchmove.stop>
-            <div v-if="logsLoading" style="text-align: center; padding: 40px;">⏳ 正在加载日志...</div>
-            <div v-else class="logs-text-container" ref="logsTextContainer">
-              <pre class="logs-text" ref="logsText">{{ logsContent || '暂无日志' }}</pre>
-              <div class="logs-horizontal-scrollbar" ref="logsScrollbar">
-                <div class="logs-scrollbar-thumb" ref="logsScrollbarThumb"></div>
-              </div>
-            </div>
-          </div>
+          <div v-if="antigravityManualFormError" class="form-error">{{ antigravityManualFormError }}</div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" @click="showAntigravityManualModal = false">取消</button>
+          <button class="btn btn-primary" @click="saveAntigravityManualAccount" :disabled="antigravitySaving">
+            <i class="fas" :class="antigravitySaving ? 'fa-spinner fa-spin' : 'fa-save'"></i> 保存
+          </button>
         </div>
       </div>
+    </div>
 
-      <!-- Toast 系统容器将由 toast.js 自动创建 -->
+  </div> <!-- 闭合 isAuthenticated container -->
+  </div> <!-- 闭合 app -->
 
-      <!-- 自定义确认对话框 -->
-      <div v-if="customDialog.show" class="custom-dialog-overlay"
-        @keydown.esc="customDialog.onCancel ? customDialog.onCancel() : (customDialog.show = false)"
-        @keydown.enter="customDialog.onConfirm" tabindex="-1">
-        <div class="custom-dialog">
-          <div class="custom-dialog-title">
-            <i class="fas" :class="customDialog.icon || 'fa-question-circle'"></i>
-            {{ customDialog.title || '确认' }}
-          </div>
-          <div class="custom-dialog-message">{{ customDialog.message }}</div>
-          <input v-if="customDialog.isPrompt" v-model="customDialog.promptValue" :placeholder="customDialog.placeholder"
-            @keyup.enter="customDialog.onConfirm" class="custom-dialog-input" ref="promptInput" />
-          <div class="custom-dialog-buttons">
-            <button v-if="customDialog.cancelText" class="btn btn-secondary"
-              @click="customDialog.onCancel ? customDialog.onCancel() : (customDialog.show = false)">
-              {{ customDialog.cancelText }}
-            </button>
-            <button class="btn" :class="customDialog.confirmClass || 'btn-primary'" @click="customDialog.onConfirm">
-              {{ customDialog.confirmText || '确定' }}
-            </button>
-          </div>
-        </div>
-      </div>
 
-      <!-- 凭据管理模态框 -->
-      <div v-if="showAddCredentialModal" class="modal-overlay" @click.self="showAddCredentialModal = false"
-        @keydown.esc="showAddCredentialModal = false" tabindex="-1">
-        <div class="modal server-modal" style="max-width: 380px;">
-          <div class="modal-header">
-            <div class="modal-title">
-              <i class="fas fa-key"></i> 保存新凭据
-            </div>
-            <button class="modal-close" @click="showAddCredentialModal = false">&times;</button>
-          </div>
-          <div class="modal-body">
-            <div class="server-form-section">
-              <div class="form-group">
-                <label><i class="fas fa-tag"></i> 凭据标识</label>
-                <input type="text" v-model="credForm.name" class="form-input" placeholder="例如: 默认密码" />
-              </div>
-              <div class="form-group">
-                <label><i class="fas fa-user"></i> 用户名</label>
-                <input type="text" v-model="credForm.username" class="form-input" placeholder="root" />
-              </div>
-              <div class="form-group">
-                <label><i class="fas fa-lock"></i> 密码</label>
-                <input type="password" v-model="credForm.password" class="form-input" placeholder="登录密码" />
-              </div>
-            </div>
-            <div v-if="credError" class="server-form-error">
-              <i class="fas fa-exclamation-circle"></i> {{ credError }}
-            </div>
-          </div>
-          <div class="server-modal-footer">
-            <button class="btn-server-cancel" @click="showAddCredentialModal = false">取消</button>
-            <button class="btn-server-save" @click="saveCredential">
-              <i class="fas fa-save"></i> 保存
-            </button>
-          </div>
-        </div>
-      </div>
 
-      <!-- Docker 详细列表模态框 -->
-      <div v-if="showDockerModal" class="modal-overlay" @click.self="showDockerModal = false">
-        <div class="modal-container glass-panel" style="max-width: 900px; border-radius: 20px;">
-          <div class="modal-header">
-            <div class="modal-title">云容器管理 - {{ dockerModalServer ? dockerModalServer.name : '' }}</div>
-            <button class="close-btn" @click="showDockerModal = false">×</button>
-          </div>
-          <div class="modal-body">
-            <div v-if="dockerModalData && dockerModalData.containers" class="docker-container-list">
-              <div v-for="container in dockerModalData.containers" :key="container.id" class="docker-container-card"
-                :class="{ 'running': container.status.includes('Up') }">
-                <div class="docker-container-info" style="padding: 15px;">
-                  <div
-                    style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px;">
-                    <div>
-                      <div style="font-weight: 700; font-size: 14px;">{{ container.name }}</div>
-                      <div style="font-size: 11px; opacity: 0.6; font-family: monospace;">{{ container.image }}</div>
-                    </div>
-                    <span class="docker-status-badge"
-                      :class="container.status.includes('Up') ? 'status-running' : 'status-exited'">
-                      {{ container.status }}
-                    </span>
-                  </div>
-                  <div style="font-size: 11px; opacity: 0.8;">端口: {{ container.ports }}</div>
-                  <div class="docker-container-actions" style="margin-top: 15px; justify-content: flex-end;">
-                    <button v-if="container.status.includes('Up')" class="btn btn-sm btn-secondary"
-                      @click="handleDockerAction(dockerModalServer.id, container.id, 'stop')" title="停止"><i
-                        class="fas fa-stop"></i></button>
-                    <button v-else class="btn btn-sm btn-success"
-                      @click="handleDockerAction(dockerModalServer.id, container.id, 'start')" title="启动"><i
-                        class="fas fa-play"></i></button>
-                    <button class="btn btn-sm btn-secondary"
-                      @click="handleDockerAction(dockerModalServer.id, container.id, 'restart')" title="重启"><i
-                        class="fas fa-redo"></i></button>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div v-else class="loading">正在获取容器信息...</div>
-          </div>
-        </div>
-      </div> <!-- 闭合 isAuthenticated container -->
-    </div> <!-- 闭合 app -->
-
-    <!-- 模块化 JavaScript -->
-    <script type="module" src="/js/main.js"></script>
+  <!-- 模块化 JavaScript -->
+  <script type="module" src="/js/main.js"></script>
 </body>
 
 </html>

@@ -364,17 +364,60 @@ function renderServerDetails(server, info) {
 }
 
 /**
+ * 格式化运行时间为中文格式
+ * 将 "up 6 days, 2 hours, 32 minutes" 转换为 "6天2时32分"
+ */
+function formatUptime(uptimeStr) {
+    if (!uptimeStr || typeof uptimeStr !== 'string') return uptimeStr;
+
+    // 移除 "up " 前缀
+    let str = uptimeStr.replace(/^up\s+/i, '');
+
+    // 提取各个时间部分
+    const weekMatch = str.match(/(\d+)\s*weeks?/i);
+    const dayMatch = str.match(/(\d+)\s*days?/i);
+    const hourMatch = str.match(/(\d+)\s*hours?/i);
+    const minMatch = str.match(/(\d+)\s*minutes?/i);
+
+    let days = dayMatch ? parseInt(dayMatch[1], 10) : 0;
+    const weeks = weekMatch ? parseInt(weekMatch[1], 10) : 0;
+    const hours = hourMatch ? parseInt(hourMatch[1], 10) : 0;
+    const minutes = minMatch ? parseInt(minMatch[1], 10) : 0;
+
+    // 将周转换为天并累加
+    days += weeks * 7;
+
+    // 构建中文格式
+    let result = '';
+    if (days > 0) result += `${days}天`;
+    if (hours > 0) result += `${hours}时`;
+    if (minutes > 0) result += `${minutes}分`;
+
+    // 如果都是0，显示 "0分"
+    if (result === '') result = '0分';
+
+    return result;
+}
+
+/**
  * 渲染详情项
  */
 function renderDetailItems(data) {
     if (!data || typeof data !== 'object') return '<p>无数据</p>';
 
-    return Object.entries(data).map(([key, value]) => `
+    return Object.entries(data).map(([key, value]) => {
+        // 对 Uptime 进行特殊格式化
+        let displayValue = String(value);
+        if (key === 'Uptime') {
+            displayValue = formatUptime(value);
+        }
+        return `
         <div class="server-detail-item">
             <span class="server-detail-label">${escapeHtml(key)}</span>
-            <span class="server-detail-value">${escapeHtml(String(value))}</span>
+            <span class="server-detail-value">${escapeHtml(displayValue)}</span>
         </div>
-    `).join('');
+    `;
+    }).join('');
 }
 
 /**

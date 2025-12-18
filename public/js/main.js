@@ -8,6 +8,7 @@ import { authMethods } from './modules/auth.js';
 import { zeaburMethods } from './modules/zeabur.js';
 import { dnsMethods } from './modules/dns.js';
 import { openaiMethods } from './modules/openai.js';
+import { antigravityMethods } from './modules/antigravity.js';
 import { settingsMethods } from './modules/settings.js';
 import { transitionsMethods } from './modules/transitions.js';
 // import { initServerModule } from './modules/server.js'; // 已改用 Vue 渲染,不再需要
@@ -37,6 +38,7 @@ const app = createApp({
       opacity: 39,
       expandedAccounts: {},
       refreshInterval: null,
+      zeaburRefreshInterval: 30000, // 默认30秒
       refreshing: false,
       lastFetchAt: 0,
       minFetchInterval: 2000,
@@ -142,6 +144,50 @@ const app = createApp({
       openaiBatchSuccess: '',
       openaiAdding: false,
 
+      // Antigravity API 相关
+      antigravityAccounts: [],
+      antigravityLoading: false,
+      antigravitySaving: false,
+      showAntigravityAccountModal: false,
+      antigravityEditingAccount: null,
+      antigravityAccountForm: {
+        name: '',
+        email: '',
+        password: '',
+        apiKey: '',
+        panelUser: 'admin',
+        panelPassword: ''
+      },
+      antigravityAccountFormError: '',
+      antigravityAccountFormSuccess: '',
+      antigravityCurrentTab: 'quotas',
+      showAntigravityManualModal: false,
+      antigravityManualForm: {
+        name: '',
+        accessToken: '',
+        refreshToken: '',
+        projectId: '',
+        expiresIn: 3599
+      },
+      antigravityManualFormError: '',
+      antigravityStats: null,
+      agOauthUrl: '',
+      agOauthCustomProjectId: '',
+      agOauthAllowRandom: false,
+      antigravityQuotas: {},
+      antigravityQuotaSelectedAccountId: '',
+      antigravityQuotaLoading: false,
+      antigravityQuotaViewMode: 'list',
+      antigravityLogs: [],
+      antigravitySettings: [],
+      antigravityLogDetail: null,
+      showAntigravityLogDetailModal: false,
+      agSettingsForm: {},
+      antigravitySaving: false,
+      antigravityModelRedirects: [],
+      newRedirectSource: '',
+      newRedirectTarget: '',
+
       // 主机管理相关
       serverCurrentTab: 'list',
       serverLoading: false,
@@ -179,7 +225,7 @@ const app = createApp({
         password: ''
       },
       credError: '',
-      
+
       // 批量添加主机
       serverBatchText: '',
       serverBatchError: '',
@@ -235,9 +281,10 @@ const app = createApp({
         zeabur: true,
         dns: true,
         openai: true,
-        server: true
+        server: true,
+        antigravity: true
       },
-      moduleOrder: ['zeabur', 'dns', 'openai', 'server'],
+      moduleOrder: ['zeabur', 'dns', 'openai', 'server', 'antigravity'],
       draggedIndex: null,
 
       // 设置模态框
@@ -398,6 +445,12 @@ const app = createApp({
       this.updateOpacity();
     },
 
+    zeaburRefreshInterval(newVal) {
+      if (this.mainActiveTab === 'zeabur' && !this.dataRefreshPaused) {
+        this.startAutoRefresh();
+      }
+    },
+
     serverCurrentTab(newVal) {
       if (newVal === 'management') {
         this.loadMonitorConfig();
@@ -474,6 +527,17 @@ const app = createApp({
         // 仅当列表为空时才自动加载，避免切换 tab 导致状态丢失
         if (newVal === 'server' && this.isAuthenticated && this.serverList.length === 0) {
           this.loadServerList();
+        }
+
+        // Antigravity 模块额度轮询管理
+        if (newVal === 'antigravity' && this.antigravityCurrentTab === 'quotas') {
+          if (this.loadAntigravityQuotas) {
+            this.loadAntigravityQuotas();
+          }
+        } else {
+          if (this.stopAntigravityQuotaPolling) {
+            this.stopAntigravityQuotaPolling();
+          }
         }
       },
       immediate: true // 初始化时也触发
@@ -556,6 +620,12 @@ const app = createApp({
     },
 
     showSSHTerminalModal(newVal) {
+      if (newVal) {
+        this.$nextTick(() => this.focusModalOverlay());
+      }
+    },
+
+    showAntigravityAccountModal(newVal) {
       if (newVal) {
         this.$nextTick(() => this.focusModalOverlay());
       }
@@ -999,7 +1069,7 @@ const app = createApp({
     async batchAddServers() {
       this.serverBatchError = '';
       this.serverBatchSuccess = '';
-      
+
       if (!this.serverBatchText.trim()) {
         this.serverBatchError = '请输入主机信息';
         return;
@@ -1018,18 +1088,18 @@ const app = createApp({
           if (line.startsWith('{')) {
             const server = JSON.parse(line);
             if (server.name && server.host) {
-               // 确保必要字段存在
-               server.port = server.port || 22;
-               server.auth_type = server.auth_type || 'password';
-               servers.push(server);
+              // 确保必要字段存在
+              server.port = server.port || 22;
+              server.auth_type = server.auth_type || 'password';
+              servers.push(server);
             } else {
-               parseErrors.push(`第 ${i+1} 行: 缺少必要字段 (name, host)`);
+              parseErrors.push(`第 ${i + 1} 行: 缺少必要字段 (name, host)`);
             }
           } else {
             // 解析 CSV: name, host, port, username, password
             // 支持逗号或竖线分隔
             const parts = line.split(/[|,，]/).map(p => p.trim());
-            
+
             if (parts.length >= 2) {
               const server = {
                 name: parts[0],
@@ -1039,19 +1109,19 @@ const app = createApp({
                 auth_type: 'password',
                 password: parts[4] || ''
               };
-              
+
               if (!server.name || !server.host) {
-                 parseErrors.push(`第 ${i+1} 行: 格式错误，缺少名称或IP`);
-                 continue;
+                parseErrors.push(`第 ${i + 1} 行: 格式错误，缺少名称或IP`);
+                continue;
               }
-              
+
               servers.push(server);
             } else {
-              parseErrors.push(`第 ${i+1} 行: 格式错误，请检查分隔符`);
+              parseErrors.push(`第 ${i + 1} 行: 格式错误，请检查分隔符`);
             }
           }
         } catch (e) {
-          parseErrors.push(`第 ${i+1} 行: 解析失败 (${e.message})`);
+          parseErrors.push(`第 ${i + 1} 行: 解析失败 (${e.message})`);
         }
       }
 
@@ -1074,16 +1144,16 @@ const app = createApp({
         if (data.success) {
           const successCount = data.results ? data.results.filter(r => r.success).length : 0;
           const failCount = data.results ? data.results.filter(r => !r.success).length : 0;
-          
+
           let msg = `批量添加完成: 成功 ${successCount} 台`;
           if (failCount > 0) msg += `, 失败 ${failCount} 台`;
-          
+
           this.serverBatchSuccess = msg;
           this.showGlobalToast(msg, failCount > 0 ? 'warning' : 'success');
-          
+
           if (successCount > 0) {
-             this.serverBatchText = ''; // 清空输入
-             this.loadServerList();
+            this.serverBatchText = ''; // 清空输入
+            this.loadServerList();
           }
         } else {
           this.serverBatchError = '添加失败: ' + data.error;
@@ -1891,6 +1961,42 @@ const app = createApp({
     },
 
     /**
+     * 格式化运行时间为中文格式
+     * 将 "up 6 days, 2 hours, 32 minutes" 转换为 "6天2时32分"
+     */
+    formatUptime(uptimeStr) {
+      if (!uptimeStr || typeof uptimeStr !== 'string') return uptimeStr;
+
+      // 移除 "up " 前缀
+      let str = uptimeStr.replace(/^up\s+/i, '');
+
+      // 提取各个时间部分
+      const weekMatch = str.match(/(\d+)\s*weeks?/i);
+      const dayMatch = str.match(/(\d+)\s*days?/i);
+      const hourMatch = str.match(/(\d+)\s*hours?/i);
+      const minMatch = str.match(/(\d+)\s*minutes?/i);
+
+      let days = dayMatch ? parseInt(dayMatch[1], 10) : 0;
+      const weeks = weekMatch ? parseInt(weekMatch[1], 10) : 0;
+      const hours = hourMatch ? parseInt(hourMatch[1], 10) : 0;
+      const minutes = minMatch ? parseInt(minMatch[1], 10) : 0;
+
+      // 将周转换为天并累加
+      days += weeks * 7;
+
+      // 构建中文格式
+      let result = '';
+      if (days > 0) result += `${days}天`;
+      if (hours > 0) result += `${hours}时`;
+      if (minutes > 0) result += `${minutes}分`;
+
+      // 如果都是0，显示 "0分"
+      if (result === '') result = '0分';
+
+      return result;
+    },
+
+    /**
      * 翻译系统信息的字段名为中文
      */
     translateInfoKey(key) {
@@ -2151,10 +2257,10 @@ const app = createApp({
         const response = await fetch(`/api/server/credentials/${id}/default`, {
           method: 'PUT'
         });
-        
+
         if (response.status === 404) {
-             this.showGlobalToast('接口未更新，请刷新页面或重启服务', 'error');
-             return;
+          this.showGlobalToast('接口未更新，请刷新页面或重启服务', 'error');
+          return;
         }
 
         const data = await response.json();
@@ -2447,6 +2553,7 @@ const app = createApp({
     ...zeaburMethods,
     ...dnsMethods,
     ...openaiMethods,
+    ...antigravityMethods,
     ...settingsMethods,
     ...transitionsMethods
   }

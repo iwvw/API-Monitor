@@ -105,15 +105,18 @@ export const zeaburMethods = {
               clearInterval(this.countdownInterval);
             }
 
+            // 获取刷新间隔（秒），默认为30
+            const intervalSeconds = (this.zeaburRefreshInterval || 30000) / 1000;
+
             // 重置倒计时
-            this.refreshCountdown = 30;
+            this.refreshCountdown = intervalSeconds;
             this.refreshProgress = 100;
 
-            // 30s自动刷新
+            // 自动刷新
             this.refreshInterval = setInterval(() => {
               console.log('自动刷新触发');
               this.fetchData();
-            }, 30000);
+            }, this.zeaburRefreshInterval || 30000);
 
             // 1s倒计时更新，到0时立即重置
             this.countdownInterval = setInterval(() => {
@@ -121,11 +124,11 @@ export const zeaburMethods = {
 
               if (this.refreshCountdown <= 0) {
                 // 到0时立即重置，无动画
-                this.refreshCountdown = 30;
+                this.refreshCountdown = intervalSeconds;
                 this.refreshProgress = 100;
               } else {
                 // 正常递减
-                this.refreshProgress = (this.refreshCountdown / 30) * 100;
+                this.refreshProgress = (this.refreshCountdown / intervalSeconds) * 100;
               }
             }, 1000);
           } catch (e) {
@@ -157,7 +160,8 @@ export const zeaburMethods = {
           console.log('fetchData 被调用');
 
           // 手动刷新时重置倒计时
-          this.refreshCountdown = 30;
+          const intervalSeconds = (this.zeaburRefreshInterval || 30000) / 1000;
+          this.refreshCountdown = intervalSeconds;
           this.refreshProgress = 100;
 
           try {

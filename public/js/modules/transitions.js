@@ -112,6 +112,11 @@ export const transitionsMethods = {
               this.fetchData();
             }
             break;
+          case 'antigravity':
+            if (!this.antigravityAccounts || this.antigravityAccounts.length === 0) {
+              this.loadAntigravityAccounts();
+            }
+            break;
         }
       });
     }, 150);

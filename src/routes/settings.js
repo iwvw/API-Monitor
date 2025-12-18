@@ -20,7 +20,7 @@ const logger = createLogger('Settings');
  * 获取用户设置
  * GET /api/settings
  */
-router.get('/settings', (req, res) => {
+router.get('/', (req, res) => {
   try {
     const settings = loadUserSettings();
     res.json({
@@ -39,7 +39,7 @@ router.get('/settings', (req, res) => {
  * 保存用户设置（完整替换）
  * POST /api/settings
  */
-router.post('/settings', (req, res) => {
+router.post('/', (req, res) => {
   try {
     const settings = req.body;
     const result = saveUserSettings(settings);
@@ -67,7 +67,7 @@ router.post('/settings', (req, res) => {
  * 更新用户设置（部分更新）
  * PATCH /api/settings
  */
-router.patch('/settings', (req, res) => {
+router.patch('/', (req, res) => {
   try {
     const partialSettings = req.body;
     const result = updateUserSettings(partialSettings);
@@ -95,7 +95,7 @@ router.patch('/settings', (req, res) => {
  * 导出数据库文件
  * GET /api/settings/export-database
  */
-router.get('/settings/export-database', async (req, res) => {
+router.get('/export-database', async (req, res) => {
   try {
     logger.info('开始导出数据库');
 
@@ -139,7 +139,7 @@ router.get('/settings/export-database', async (req, res) => {
  * 导入数据库文件
  * POST /api/settings/import-database
  */
-router.post('/settings/import-database', async (req, res) => {
+router.post('/import-database', async (req, res) => {
   try {
     logger.info('开始导入数据库');
 
@@ -212,7 +212,7 @@ router.post('/settings/import-database', async (req, res) => {
  * 获取数据库统计信息
  * GET /api/settings/database-stats
  */
-router.get('/settings/database-stats', (req, res) => {
+router.get('/database-stats', (req, res) => {
   try {
     const stats = dbService.getStats();
     res.json({

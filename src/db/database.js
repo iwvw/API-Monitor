@@ -107,6 +107,21 @@ class DatabaseService {
                 this.db.exec('ALTER TABLE server_credentials ADD COLUMN is_default INTEGER DEFAULT 0');
                 logger.success('is_default 字段添加成功');
             }
+
+            // Antigravity 迁移: 检查 antigravity_logs 表是否有 detail 字段
+            try {
+                const agLogsColumns = this.db.pragma('table_info(antigravity_logs)');
+                if (agLogsColumns.length > 0) {
+                    const hasDetail = agLogsColumns.some(col => col.name === 'detail');
+                    if (!hasDetail) {
+                        logger.info('正在为 antigravity_logs 表添加 detail 字段...');
+                        this.db.exec('ALTER TABLE antigravity_logs ADD COLUMN detail TEXT');
+                        logger.success('antigravity_logs.detail 字段添加成功');
+                    }
+                }
+            } catch (err) {
+                logger.error('Antigravity 额外字段迁移失败:', err.message);
+            }
         } catch (error) {
             logger.error('数据库迁移失败', error.message);
             // 不抛出错误，避免影响应用启动

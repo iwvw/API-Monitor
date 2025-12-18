@@ -247,14 +247,8 @@
 }
 
 @media (max-width: 480px) {
-  .table-container {
-    overflow-x: auto;
-    -webkit-overflow-scrolling: touch;
-  }
-
   .data-table {
-    min-width: 100%;
-    width: max-content;
+    min-width: 600px !important;
     font-size: 12px;
   }
 
@@ -262,7 +256,6 @@
   .data-table td {
     padding: 8px 10px;
     white-space: nowrap;
-    min-width: fit-content;
   }
 
   .data-table td:nth-child(1),

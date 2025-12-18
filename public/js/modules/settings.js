@@ -22,6 +22,15 @@ export const settingsMethods = {
             this.applyCustomCss();
           }
 
+          // 应用 Zeabur 刷新间隔
+          if (settings.zeaburRefreshInterval) {
+            this.zeaburRefreshInterval = settings.zeaburRefreshInterval;
+            // 如果 Zeabur 模块已激活，重启自动刷新
+            if (this.mainActiveTab === 'zeabur' && !this.dataRefreshPaused) {
+              this.startAutoRefresh();
+            }
+          }
+
           // 应用模块设置
           if (settings.moduleVisibility) {
             this.moduleVisibility = settings.moduleVisibility;
@@ -61,7 +70,7 @@ export const settingsMethods = {
     const savedVisibility = localStorage.getItem('module_visibility');
     const savedOrder = localStorage.getItem('module_order');
 
-    const availableModules = ['zeabur', 'dns', 'openai', 'server'];
+    const availableModules = ['zeabur', 'dns', 'openai', 'server', 'antigravity'];
 
     if (savedVisibility) {
       const saved = JSON.parse(savedVisibility);
@@ -89,6 +98,7 @@ export const settingsMethods = {
     try {
       const settings = {
         customCss: this.customCss,
+        zeaburRefreshInterval: this.zeaburRefreshInterval,
         moduleVisibility: this.moduleVisibility,
         moduleOrder: this.moduleOrder
       };
@@ -166,7 +176,7 @@ export const settingsMethods = {
     await this.loadUserSettings();
 
     // 定义所有可用模块
-    const availableModules = ['zeabur', 'dns', 'openai', 'server'];
+    const availableModules = ['zeabur', 'dns', 'openai', 'server', 'antigravity'];
 
     // 确保所有模块都有配置
     availableModules.forEach(module => {
@@ -238,7 +248,8 @@ export const settingsMethods = {
       zeabur: 'Zeabur',
       dns: 'CF DNS',
       openai: 'OpenAPI',
-      server: '主机管理'
+      server: '主机管理',
+      antigravity: 'Antigravity'
     };
     return names[module] || module;
   },
@@ -249,7 +260,8 @@ export const settingsMethods = {
       zeabur: 'fa-rocket',
       dns: 'fa-cloud',
       openai: 'fa-robot',
-      server: 'fa-server'
+      server: 'fa-server',
+      antigravity: 'fa-atom'
     };
     return icons[module] || 'fa-cube';
   },

@@ -290,7 +290,7 @@
 
 .server-detail-section {
     background: var(--section-bg);
-    padding: 12px 15px;
+    padding: 7px 15px;
     border-radius: 13px;
     border: 1px solid var(--border-color);
 }
@@ -1490,9 +1490,10 @@
     }
 
     .server-card-info {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 10px;
+        flex-direction: row;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: nowrap;
     }
 
     .server-quick-info {

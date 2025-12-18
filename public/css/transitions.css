@@ -153,6 +153,15 @@
   --module-color: rgba(0, 212, 170, 0.06);
 }
 
+/* Antigravity 模块 - 橙色主题 */
+.antigravity-tab-content.slide-in-left,
+.antigravity-tab-content.slide-in-right,
+.antigravity-tab-content.slide-out-left,
+.antigravity-tab-content.slide-out-right {
+  --module-color: rgba(255, 87, 34, 0.06);
+}
+
+
 /* 切换动画使用模块主题色 */
 /* .tab-content.slide-in-left,
 .tab-content.slide-in-right,
@@ -169,7 +178,6 @@
   will-change: transform, opacity;
   backface-visibility: hidden;
   overflow: visible;
-  padding: 4px;
 }
 
 /* 快速淡入效果（用于子标签页） */
@@ -227,6 +235,11 @@
 .main-tab.server-tab::after {
   background-color: var(--server-primary);
 }
+
+.main-tab.antigravity-tab::after {
+  background-color: var(--ag-primary);
+}
+
 
 /* Zeabur tab 使用默认主题色 --primary-color */
 

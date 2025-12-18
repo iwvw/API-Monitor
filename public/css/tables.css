@@ -24,13 +24,22 @@
 }
 
 .table-container {
-  overflow-x: auto;
+  display: block;
   width: 100%;
+  overflow-x: auto;
   -webkit-overflow-scrolling: touch;
+  margin-bottom: 10px;
+  /* 确保在移动端即使隐藏了全局滚动条,这里也能提示可滑动 */
 }
 
 .table-container::-webkit-scrollbar {
-  height: 6px;
+  display: block !important;
+  height: 4px;
+}
+
+.table-container::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 2px;
 }
 
 .table-container::-webkit-scrollbar-track {
@@ -215,6 +224,11 @@
   .openai-table td {
     padding: 8px 10px;
     white-space: nowrap;
+  }
+
+  .data-table,
+  .openai-table {
+    min-width: 600px !important;
   }
 
   .openai-table .cell-url,

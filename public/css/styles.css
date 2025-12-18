@@ -37,10 +37,10 @@
   --openai-color: #10a37f;
   --openai-dark: #0d8a6a;
 
-  /* 主机管理模块专属主题色 */
-  --server-primary: #00d4aa;
-  --server-primary-dark: #00b894;
-  --server-primary-light: #00e6bf;
+  /* 主机管理模块主题色 - 石板蓝 */
+  --server-primary: #475569;
+  --server-primary-dark: #334155;
+  --server-primary-light: #64748b;
 
   /* Light theme */
   --bg-primary: #ffffff;
@@ -210,12 +210,23 @@ body.modal-open {
 }
 
 .btn-secondary {
-  background-color: #00adafbf;
-  color: white;
+  background-color: var(--button-secondary-bg);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
 }
 
 .btn-secondary:hover {
   background-color: var(--button-secondary-hover);
+  color: white;
+}
+
+.btn-server {
+  background-color: var(--server-primary);
+  color: white;
+}
+
+.btn-server:hover {
+  background-color: var(--server-primary-dark);
 }
 
 .btn-danger {
