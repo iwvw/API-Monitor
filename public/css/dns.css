@@ -106,7 +106,7 @@
 }
 
 .record-type.CNAME {
-  background: rgba(139, 92, 246, 0.2);
+  background: rgba(var(--zeabur-secondary-rgb), 0.2);
   color: #a78bfa;
 }
 

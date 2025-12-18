@@ -36,7 +36,13 @@
   --cf-dark: #e5730d;
   --openai-color: #10a37f;
   --openai-dark: #0d8a6a;
+
+  /* Zeabur 模块主题色 */
   --zeabur-primary: #6366f1;
+  --zeabur-primary-rgb: 99, 102, 241;
+  --zeabur-primary-hover: #4f46e5;
+  --zeabur-secondary: #8b5cf6;
+  --zeabur-secondary-rgb: 139, 92, 246;
 
   /* 主机管理模块主题色 - 石板蓝 */
   --server-primary: #475569;
@@ -481,13 +487,13 @@ body.modal-open {
 }
 
 .ai-balance-card {
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(139, 92, 246, 0.1));
-  border-color: rgba(99, 102, 241, 0.3);
+  background: linear-gradient(135deg, rgba(var(--zeabur-primary-rgb), 0.1), rgba(var(--zeabur-secondary-rgb), 0.1));
+  border-color: rgba(var(--zeabur-primary-rgb), 0.3);
 }
 
 .ai-balance-card:hover {
   border-color: var(--primary-color);
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.15), rgba(139, 92, 246, 0.15));
+  background: linear-gradient(135deg, rgba(var(--zeabur-primary-rgb), 0.15), rgba(var(--zeabur-secondary-rgb), 0.15));
 }
 
 .balance-icon {

@@ -117,8 +117,16 @@ class SystemInfoService {
      * @returns {Promise<Object>} 内存信息
      */
     async getMemoryInfo(serverId, serverConfig) {
+        // 使用两个命令：free -h 获取显示值，free -b 获取计算值
         const command = `
-            free -h | awk 'NR==2{printf "Total: %s\\nUsed: %s\\nFree: %s\\nUsage: %.2f%%\\n", $2, $3, $4, $3/$2*100}'
+            total_h=$(free -h | awk 'NR==2{print $2}')
+            used_h=$(free -h | awk 'NR==2{print $3}')
+            free_h=$(free -h | awk 'NR==2{print $4}')
+            usage=$(free -b | awk 'NR==2{printf "%.2f", $3/$2*100}')
+            echo "Total: $total_h"
+            echo "Used: $used_h"
+            echo "Free: $free_h"
+            echo "Usage: $usage%"
         `;
 
         const result = await sshService.executeCommand(serverId, serverConfig, command);

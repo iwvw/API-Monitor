@@ -124,12 +124,12 @@
 }
 
 .project-edit-btn {
-  background: rgba(139, 92, 246, 0.1);
+  background: rgba(var(--zeabur-secondary-rgb), 0.1);
   color: var(--zeabur-primary);
 }
 
 .project-edit-btn:hover {
-  background: rgba(139, 92, 246, 0.2);
+  background: rgba(var(--zeabur-secondary-rgb), 0.2);
   transform: scale(1.05);
 }
 
@@ -229,12 +229,12 @@
 
 /* Mini Card Variants */
 .region-card {
-  background: linear-gradient(135deg, rgba(139, 92, 246, 0.1), rgba(139, 92, 246, 0.05));
-  border-color: rgba(139, 92, 246, 0.25);
+  background: linear-gradient(135deg, rgba(var(--zeabur-secondary-rgb), 0.1), rgba(var(--zeabur-secondary-rgb), 0.05));
+  border-color: rgba(var(--zeabur-secondary-rgb), 0.25);
 }
 
 .region-card:hover {
-  background: linear-gradient(135deg, rgba(139, 92, 246, 0.15), rgba(139, 92, 246, 0.1));
+  background: linear-gradient(135deg, rgba(var(--zeabur-secondary-rgb), 0.15), rgba(var(--zeabur-secondary-rgb), 0.1));
   border-color: var(--zeabur-primary);
 }
 
@@ -283,8 +283,8 @@
 }
 
 .service-item.deploying {
-  background-color: rgba(139, 92, 246, 0.1);
-  border-color: rgba(139, 92, 246, 0.2);
+  background-color: rgba(var(--zeabur-secondary-rgb), 0.1);
+  border-color: rgba(var(--zeabur-secondary-rgb), 0.2);
 }
 
 .service-item.paused {
@@ -338,7 +338,7 @@
 .service-cancel-btn {
   padding: 2px 4px;
   border: none;
-  background: rgba(139, 92, 246, 0.1);
+  background: rgba(var(--zeabur-secondary-rgb), 0.1);
   color: var(--zeabur-primary);
   border-radius: 3px;
   cursor: pointer;
@@ -353,7 +353,7 @@
 }
 
 .service-edit-btn:hover {
-  background: rgba(139, 92, 246, 0.2);
+  background: rgba(var(--zeabur-secondary-rgb), 0.2);
   transform: scale(1.05);
 }
 
@@ -392,7 +392,7 @@
 }
 
 .status-deploying {
-  background-color: rgba(139, 92, 246, 0.2);
+  background-color: rgba(var(--zeabur-secondary-rgb), 0.2);
   color: var(--status-deploying);
 }
 
@@ -445,12 +445,12 @@
 }
 
 .btn-logs {
-  background-color: rgba(139, 92, 246, 0.2);
+  background-color: rgba(var(--zeabur-secondary-rgb), 0.2);
   color: var(--zeabur-primary);
 }
 
 .btn-logs:hover {
-  background-color: rgba(139, 92, 246, 0.3);
+  background-color: rgba(var(--zeabur-secondary-rgb), 0.3);
 }
 
 .btn-delete {
@@ -472,12 +472,12 @@
 }
 
 .btn-custom-domain {
-  background-color: rgba(139, 92, 246, 0.2);
+  background-color: rgba(var(--zeabur-secondary-rgb), 0.2);
   color: var(--zeabur-primary);
 }
 
 .btn-custom-domain:hover {
-  background-color: rgba(139, 92, 246, 0.3);
+  background-color: rgba(var(--zeabur-secondary-rgb), 0.3);
 }
 
 /* Domains */
@@ -533,19 +533,19 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
-  box-shadow: 0 2px 8px rgba(139, 92, 246, 0.3);
+  box-shadow: 0 2px 8px rgba(var(--zeabur-secondary-rgb), 0.3);
   margin-left: 12px;
 }
 
 .create-project-btn:hover {
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.4);
+  box-shadow: 0 4px 12px rgba(var(--zeabur-secondary-rgb), 0.4);
   filter: brightness(1.1);
 }
 
 .create-project-btn:active {
   transform: translateY(0);
-  box-shadow: 0 2px 6px rgba(139, 92, 246, 0.3);
+  box-shadow: 0 2px 6px rgba(var(--zeabur-secondary-rgb), 0.3);
 }
 
 .create-service-btn {
@@ -571,7 +571,7 @@
   border-color: var(--zeabur-primary);
   border-style: solid;
   transform: translateY(-1px);
-  box-shadow: 0 2px 8px rgba(139, 92, 246, 0.2);
+  box-shadow: 0 2px 8px rgba(var(--zeabur-secondary-rgb), 0.2);
 }
 
 .create-service-btn:active {
@@ -595,19 +595,15 @@
 /* Zeabur 模块主按钮 */
 .zeabur-sec-tab .btn-primary {
   background: var(--zeabur-primary);
-  box-shadow: 0 2px 8px rgba(139, 92, 246, 0.3);
+  box-shadow: 0 2px 8px rgba(var(--zeabur-secondary-rgb), 0.3);
 }
 
 .zeabur-sec-tab .btn-primary:hover {
   filter: brightness(1.1);
-  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.4);
+  box-shadow: 0 4px 12px rgba(var(--zeabur-secondary-rgb), 0.4);
 }
 
 /* Zeabur 子标签页 */
 .zeabur-sec-tab .tab-btn.active {
-  border-color: var(--zeabur-primary) !important;
-}
-
-#app>div>div.tab-content.zeabur-tab-content>div.sec-tabs>button.tab-btn.active {
   background: var(--zeabur-primary) !important;
 }
