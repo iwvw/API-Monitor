@@ -925,7 +925,6 @@
 .docker-container-mini-card:hover {
     background: rgba(var(--primary-rgb), 0.08);
     border-color: rgba(var(--primary-rgb), 0.3);
-    transform: translateY(-2px);
 }
 
 .docker-container-mini-card .container-info {
@@ -2641,4 +2640,64 @@
 /* ==================== OpenApi Sec Tabs 样式 ==================== */
 .openai-sec-tabs .tab-btn.active {
     background: var(--openai-color) !important;
+}
+
+/* ==================== SSH 终端全屏模式 ==================== */
+.ssh-tab-content.ssh-fullscreen-mode {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw !important;
+    height: 100vh !important;
+    z-index: 9999;
+    background: var(--bg-primary);
+    padding: 0 !important;
+    margin: 0 !important;
+}
+
+.ssh-panel-fullscreen {
+    height: 100vh !important;
+    margin: 0 !important;
+    border-radius: 0 !important;
+    display: flex;
+    flex-direction: column;
+}
+
+.ssh-panel-fullscreen .panel-header {
+    border-radius: 0 !important;
+    padding: 10px 15px;
+    background: #2d2d2d;
+    border-bottom: 1px solid #444;
+}
+
+.ssh-panel-fullscreen .ssh-content-wrapper {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.ssh-terminal-container.fullscreen {
+    flex: 1;
+    height: 100% !important;
+    margin: 0 !important;
+    border: none !important;
+    border-radius: 0 !important;
+}
+
+.ssh-terminal-pane-embedded.fullscreen {
+    height: 100% !important;
+    max-height: none !important;
+    min-height: auto !important;
+    padding: 15px !important;
+}
+
+/* 全屏按钮动画和微调 */
+.btn-secondary i.fa-compress,
+.btn-secondary i.fa-expand {
+    transition: transform 0.2s;
+}
+
+.ssh-fullscreen-mode .sub-tab-content {
+    padding: 0 !important;
 }
