@@ -299,8 +299,8 @@ export const settingsMethods = {
       zeabur: 'Zeabur',
       dns: 'CF DNS',
       openai: 'OpenAPI',
-      server: '主机管理',
-      antigravity: '反重力',
+      server: 'Hosts',
+      antigravity: 'Antigravity',
       'gemini-cli': 'GCLI'
     };
     return names[module] || module;
@@ -339,40 +339,34 @@ export const settingsMethods = {
 
   // 拖拽经过
   handleDragOver(event, index) {
+    event.preventDefault(); // 允许放下
     if (this.draggedIndex === null || this.draggedIndex === index) return;
 
-    // 移除所有拖拽over样式
-    document.querySelectorAll('.draggable-module-item').forEach(item => {
-      item.classList.remove('drag-over');
-    });
+    // 获取拖拽項和目标项
+    const list = this.moduleOrder;
+    const item = list[this.draggedIndex];
 
-    // 添加当前项的拖拽over样式
-    event.currentTarget.classList.add('drag-over');
+    // 实时交换数组中的位置
+    list.splice(this.draggedIndex, 1);
+    list.splice(index, 0, item);
+
+    // 更新被拖拽项的索引
+    this.draggedIndex = index;
+
+    // 无需手动添加 drag-over 样式，因为列表已经实时更新重绘
   },
 
   // 拖拽放下
   async handleDrop(event, dropIndex) {
     event.preventDefault();
-
-    if (this.draggedIndex === null || this.draggedIndex === dropIndex) return;
-
-    // 重新排列数组
-    const draggedItem = this.moduleOrder[this.draggedIndex];
-    const newOrder = [...this.moduleOrder];
-
-    // 移除拖拽的项
-    newOrder.splice(this.draggedIndex, 1);
-
-    // 插入到新位置
-    newOrder.splice(dropIndex, 0, draggedItem);
-
-    this.moduleOrder = newOrder;
     this.draggedIndex = null;
 
-    // 移除拖拽over样式
-    event.currentTarget.classList.remove('drag-over');
+    // 移除所有可能的拖拽样式
+    document.querySelectorAll('.draggable-module-item').forEach(item => {
+      item.classList.remove('dragging');
+    });
 
-    // 自动保存设置
+    // 自动保存设置（当前 moduleOrder 已经是最新顺序）
     await this.saveModuleSettings();
   },
 

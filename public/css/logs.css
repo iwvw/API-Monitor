@@ -177,9 +177,9 @@
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
   gap: 6px;
-  padding: 12px;
+  padding: 7px;
   background: var(--bg-secondary);
-  border-radius: 8px;
+  border-radius: 13px;
   border: 1px solid var(--border-color);
 }
 
@@ -187,7 +187,7 @@
   padding: 6px 10px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border-color);
-  border-radius: 6px;
+  border-radius: 8px;
   cursor: pointer;
   font-family: monospace;
   font-size: 12px;
