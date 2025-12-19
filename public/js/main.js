@@ -333,6 +333,32 @@ const app = createApp({
       }
 
       return list;
+    },
+
+    /**
+     * 判断当前是否有任何模态框打开
+     */
+    isAnyModalOpen() {
+      return this.showSettingsModal ||
+        this.showLogsModal ||
+        this.showAddZeaburAccountModal ||
+        this.showAddDnsAccountModal ||
+        this.showEditDnsAccountModal ||
+        this.showDnsRecordModal ||
+        this.showDnsTemplateModal ||
+        this.showOpenaiEndpointModal ||
+        this.showServerModal ||
+        this.showImportServerModal ||
+        this.showDockerModal ||
+        this.showSSHTerminalModal ||
+        this.showAntigravityAccountModal ||
+        this.showAddSessionSelectModal ||
+        this.showAntigravityLogDetailModal ||
+        this.showGeminiCliLogDetailModal ||
+        this.showGeminiCliAccountModal ||
+        this.showAntigravityManualModal ||
+        this.showAddCredentialModal ||
+        (this.customDialog && this.customDialog.show);
     }
   },
 
@@ -414,6 +440,15 @@ const app = createApp({
   },
 
   watch: {
+    // 监听全局模态框状态，控制背景滚动
+    isAnyModalOpen(newVal) {
+      if (newVal) {
+        document.body.classList.add('modal-open');
+      } else {
+        document.body.classList.remove('modal-open');
+      }
+    },
+
     opacity(newVal) {
       localStorage.setItem('card_opacity', newVal);
       this.updateOpacity();
@@ -452,14 +487,11 @@ const app = createApp({
     showSettingsModal(newVal) {
       if (newVal) {
         this.settingsCurrentTab = 'general'; // Reset to general tab
-        document.body.classList.add('modal-open');
         this.$nextTick(() => this.focusModalOverlay('.settings-sidebar'));
 
         // 加载必要的设置数据供全局或模块配置使用
         this.loadAntigravitySettings();
         this.loadGeminiCliSettings();
-      } else {
-        document.body.classList.remove('modal-open');
       }
     },
 
@@ -475,7 +507,6 @@ const app = createApp({
           if (modalOverlay) {
             modalOverlay.focus();
           }
-          document.body.style.overflow = 'hidden';
         });
       } else {
         if (this.logsScrollTimer) {
@@ -484,7 +515,6 @@ const app = createApp({
         }
         this.stopRealTimeRefresh();
         this.logsRealTime = false;
-        document.body.style.overflow = '';
       }
     },
 

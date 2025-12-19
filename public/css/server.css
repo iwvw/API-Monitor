@@ -1574,7 +1574,7 @@
 .ssh-session-tab {
     display: flex;
     align-items: center;
-    gap: 6px;
+    /* gap: 6px; */
     padding: 6px 10px !important;
     position: relative;
     background: var(--bg-secondary) !important;
@@ -1764,7 +1764,7 @@
     height: calc(100vh - 280px);
     min-height: 400px;
     max-height: 700px;
-    padding: 12px;
+    /* padding: 12px; */
     background: var(--card-bg);
 }
 
@@ -2725,4 +2725,21 @@
 
 .ssh-fullscreen-mode .sub-tab-content {
     padding: 0 !important;
+}
+
+.xterm .xterm-viewport {
+    background-color: rgb(50 53 87) !important;
+}
+
+.terminal.xterm {
+    margin: 10px;
+}
+
+.ssh-terminal-pane-embedded {
+    background: #323557;
+}
+
+.ssh-terminal-container,
+.ssh-terminal-container {
+    background: #323557;
 }

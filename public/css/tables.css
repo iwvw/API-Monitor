@@ -2,12 +2,12 @@
 
 .panel {
   line-height: 1;
-  background: var(--card-bg);
+  /* background: var(--card-bg); */
   border-radius: 15px;
-  padding: 12px;
-  box-shadow: var(--card-shadow);
-  border: 1px solid var(--border-color);
-  margin-bottom: 12px;
+  /* padding: 12px; */
+  /* box-shadow: var(--card-shadow); */
+  /* border: 1px solid var(--border-color); */
+  /* margin-bottom: 12px; */
 }
 
 .panel-header {

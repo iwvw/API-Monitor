@@ -50,7 +50,7 @@
   --server-primary-light: #64748b;
 
   /* Light theme */
-  --bg-primary: #ffffff;
+  --bg-primary: #f4f6f8;
   --bg-secondary: #f9fafb;
   --bg-secondary-rgb: 249, 250, 251;
   --bg-tertiary: #f3f4f6;
@@ -275,6 +275,32 @@ body.modal-open {
   justify-content: center;
 }
 
+.btn-icon-refined {
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border-radius: 8px;
+  padding: 0;
+  line-height: 1;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.btn-icon-refined:hover {
+  background-color: rgba(var(--primary-rgb), 0.1);
+  color: var(--primary-color);
+  transform: rotate(90deg);
+}
+
+.btn-icon-refined i {
+  font-size: 16px;
+}
+
 /* Cards */
 .info-card {
   display: none;
@@ -336,12 +362,12 @@ body.modal-open {
 
 /* Account Cards */
 .account-card {
-  background-color: var(--card-bg);
-  border-radius: 14px;
-  padding: 12px;
-  margin-bottom: 12px;
-  box-shadow: var(--card-shadow);
-  border: 1px solid var(--border-color);
+  /* background-color: var(--card-bg); */
+  border-radius: 10px;
+  /* padding: 12px; */
+  margin-bottom: 10px;
+  /* box-shadow: var(--card-shadow); */
+  /* border: 1px solid var(--border-color); */
   transition: transform 0.3s, box-shadow 0.3s;
   overflow: visible;
 }
@@ -349,7 +375,7 @@ body.modal-open {
 .account-header {
   padding-left: 18px !important;
   background-color: var(--card-bg);
-  border-radius: 10px;
+  border-radius: 15px;
   padding: 10px;
   border: 1px solid var(--border-color);
   transition: transform 0.3s, box-shadow 0.3s;
@@ -367,7 +393,7 @@ body.modal-open {
 }
 
 .account-header:active {
-  transform: scale(0.995);
+  /* transform: scale(0.995); */
 }
 
 /* account-header 横向滚动条样式 */
@@ -559,6 +585,7 @@ body.modal-open {
 }
 
 .error {
+  display: none;
   background-color: rgba(239, 68, 68, 0.1);
   color: var(--danger-color);
   padding: 16px;

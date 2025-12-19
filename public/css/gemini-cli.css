@@ -19,10 +19,13 @@
   color: var(--gemini-primary) !important;
 }
 
-.gemini-cli-tab.active::after {
+.gemini-cli-tab:after {
   background: var(--gemini-primary) !important;
 }
 
+.gemini-cli-tab.active::after {
+  background: var(--gemini-primary) !important;
+}
 
 .gemini-cli-content {
   animation: fadeIn 0.4s ease-out;
