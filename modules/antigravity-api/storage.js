@@ -243,11 +243,13 @@ function recordLog(logData) {
     try {
         const db = dbService.getDatabase();
         const stmt = db.prepare(`
-            INSERT INTO antigravity_logs (account_id, request_path, request_method, status_code, duration_ms, client_ip, user_agent, detail)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO antigravity_logs (account_id, model, is_balanced, request_path, request_method, status_code, duration_ms, client_ip, user_agent, detail)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
         stmt.run(
             logData.accountId || null,
+            logData.model || null,
+            logData.is_balanced ? 1 : 0,
             logData.path,
             logData.method,
             logData.statusCode,
@@ -271,6 +273,8 @@ function getRecentLogs(limit = 100) {
             SELECT 
                 l.id,
                 l.account_id as accountId,
+                l.model,
+                l.is_balanced as isBalanced,
                 a.name as accountName,
                 l.request_path as path,
                 l.request_method as method,
@@ -286,10 +290,10 @@ function getRecentLogs(limit = 100) {
             LIMIT ?
         `).all(limit);
 
-        // 从 detail 字段提取 model
+        // 如果 model 列为空，尝试从 detail 字段提取 (兼容旧数据)
         return logs.map(log => {
-            let model = null;
-            if (log.detail) {
+            let model = log.model;
+            if (!model && log.detail) {
                 try {
                     const detail = JSON.parse(log.detail);
                     model = detail.model || null;

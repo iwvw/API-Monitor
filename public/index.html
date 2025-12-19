@@ -47,59 +47,71 @@
     <!-- 认证检查加载状态 -->
     <div v-if="isCheckingAuth" class="auth-loading">
       <div class="auth-loading-content">
-        <div class="spinner"></div>
-        <div style="margin-top: 16px; color: var(--text-secondary);">正在加载...</div>
+        <div class="modern-loader"></div>
+        <div class="loading-text">Antigravity</div>
       </div>
     </div>
 
     <!-- 首次设置密码界面 -->
-    <div v-if="!isCheckingAuth && showSetPasswordModal" class="modal-overlay">
-      <div class="modal">
-        <div class="modal-header">
-          <div class="modal-title">🎉 欢迎使用</div>
+    <div v-if="!isCheckingAuth && showSetPasswordModal" class="auth-screen">
+      <div class="auth-card">
+        <div class="auth-header">
+          <div class="auth-logo">
+            <i class="fas fa-rocket"></i>
+          </div>
+          <h1>开启新旅程</h1>
+          <p>请为您的管理后台设置初始密码</p>
         </div>
-        <p style="text-align: center; color: var(--text-secondary); margin-bottom: 24px;">请设置管理员密码</p>
-        <div class="form-group">
-          <input v-model="setPassword" type="password" class="form-input" placeholder="请输入密码（至少6位）"
-            autocomplete="new-password" @keyup.enter="setAdminPassword" />
+        <div class="auth-body">
+          <div class="auth-input-group">
+            <i class="fas fa-key input-icon"></i>
+            <input v-model="setPassword" type="password" class="auth-input" placeholder="设置新密码 (6位以上)"
+              autocomplete="new-password" @keyup.enter="setAdminPassword" />
+          </div>
+          <div class="auth-input-group">
+            <i class="fas fa-check-double input-icon"></i>
+            <input v-model="setPasswordConfirm" type="password" class="auth-input" placeholder="再次确认密码"
+              autocomplete="new-password" @keyup.enter="setAdminPassword" />
+          </div>
+          <div v-if="setPasswordError" class="auth-error-msg">
+            <i class="fas fa-info-circle"></i> {{ setPasswordError }}
+          </div>
+          <button @click="setAdminPassword" class="auth-primary-btn">
+            <span>开始使用</span>
+            <i class="fas fa-arrow-right"></i>
+          </button>
         </div>
-        <div class="form-group">
-          <input v-model="setPasswordConfirm" type="password" class="form-input" placeholder="请再次输入密码"
-            autocomplete="new-password" @keyup.enter="setAdminPassword" />
-        </div>
-        <div v-if="setPasswordError" class="form-error">
-          {{ setPasswordError }}
-        </div>
-        <button @click="setAdminPassword" class="btn btn-primary" style="width: 100%;">
-          设置密码
-        </button>
       </div>
     </div>
 
     <!-- 登录界面 -->
-    <div v-if="!isCheckingAuth && showLoginModal" class="modal-overlay login-overlay">
-      <div class="modal login-modal">
-        <div class="login-header">
-          <div class="login-icon-wrapper">
-            <i class="fas fa-shield-alt login-icon"></i>
+    <div v-if="!isCheckingAuth && showLoginModal" class="auth-screen">
+      <div class="auth-card">
+        <div class="auth-header">
+          <div class="auth-logo login-logo">
+            <i class="fas fa-shield-halved"></i>
           </div>
-          <div class="login-title">欢迎回来</div>
-          <div class="login-subtitle">请登录以继续管理您的 API 监控服务</div>
+          <h1>欢迎回来</h1>
+          <p>身份验证以访问监控面板</p>
         </div>
-
-        <div class="login-form-group">
-          <input v-model="loginPassword" type="password" class="login-input" placeholder="请输入管理员密码"
-            autocomplete="current-password" @keyup.enter="verifyPassword" />
-          <i class="fas fa-lock login-input-icon"></i>
+        <div class="auth-body">
+          <div class="auth-input-group">
+            <i class="fas fa-lock input-icon"></i>
+            <input v-model="loginPassword" type="password" class="auth-input" placeholder="请输入管理员密码"
+              autocomplete="current-password" @keyup.enter="verifyPassword" />
+          </div>
+          <div v-if="loginError" class="auth-error-msg">
+            <i class="fas fa-exclamation-triangle"></i> {{ loginError }}
+          </div>
+          <button @click="verifyPassword" class="auth-primary-btn">
+            <span>立即进入</span>
+            <i class="fas fa-sign-in-alt"></i>
+          </button>
         </div>
-
-        <div v-if="loginError" class="form-error" style="text-align: center; margin-bottom: 16px;">
-          <i class="fas fa-exclamation-circle"></i> {{ loginError }}
+        <div class="auth-footer-decoration">
+          <div class="circle c1"></div>
+          <div class="circle c2"></div>
         </div>
-
-        <button @click="verifyPassword" class="login-btn">
-          立即登录
-        </button>
       </div>
     </div>
 
@@ -189,24 +201,52 @@
 
           <div v-if="accounts.length > 0" class="stats-grid">
             <div class="stat-card">
-              <div class="stat-label">账号数</div>
-              <div class="stat-value">{{ accounts.length }}</div>
+              <div class="stat-icon-wrapper"
+                style="background: rgba(var(--primary-rgb), 0.1); color: var(--primary-color);">
+                <i class="fas fa-user-circle"></i>
+              </div>
+              <div class="stat-content">
+                <div class="stat-label">账号数</div>
+                <div class="stat-value">{{ accounts.length }}</div>
+              </div>
             </div>
             <div class="stat-card">
-              <div class="stat-label">项目总数</div>
-              <div class="stat-value">{{ totalProjects }}</div>
+              <div class="stat-icon-wrapper"
+                style="background: rgba(var(--primary-rgb), 0.1); color: var(--primary-color);">
+                <i class="fas fa-folder-open"></i>
+              </div>
+              <div class="stat-content">
+                <div class="stat-label">项目总数</div>
+                <div class="stat-value">{{ totalProjects }}</div>
+              </div>
             </div>
             <div class="stat-card">
-              <div class="stat-label">服务总数</div>
-              <div class="stat-value">{{ totalServices }}</div>
+              <div class="stat-icon-wrapper"
+                style="background: rgba(var(--primary-rgb), 0.1); color: var(--primary-color);">
+                <i class="fas fa-cube"></i>
+              </div>
+              <div class="stat-content">
+                <div class="stat-label">服务总数</div>
+                <div class="stat-value">{{ totalServices }}</div>
+              </div>
             </div>
             <div class="stat-card">
-              <div class="stat-label">运行中</div>
-              <div class="stat-value">{{ runningServices }}</div>
+              <div class="stat-icon-wrapper" style="background: rgba(16, 185, 129, 0.1); color: #10b981;">
+                <i class="fas fa-play-circle"></i>
+              </div>
+              <div class="stat-content">
+                <div class="stat-label">运行中</div>
+                <div class="stat-value success">{{ runningServices }}</div>
+              </div>
             </div>
             <div class="stat-card">
-              <div class="stat-label">总费用</div>
-              <div class="stat-value">${{ totalCost.toFixed(2) }}</div>
+              <div class="stat-icon-wrapper" style="background: rgba(245, 158, 11, 0.1); color: #f59e0b;">
+                <i class="fas fa-dollar-sign"></i>
+              </div>
+              <div class="stat-content">
+                <div class="stat-label">总费用</div>
+                <div class="stat-value warning">${{ totalCost.toFixed(2) }}</div>
+              </div>
             </div>
           </div>
 
@@ -214,185 +254,188 @@
             ⚡ 正在加载数据...
           </div>
 
-          <div v-for="account in accounts" :key="account.name" class="account-card"
-            :class="{ 'expanded': isAccountExpanded(account.name) }">
-            <div class="account-header" @click="toggleAccount(account.name)">
-              <div class="account-info">
-                <span style="font-size: 20px; transition: transform 0.3s; display: inline-flex; align-items: center;"
-                  :style="{ 
+          <div v-else>
+            <div v-for="account in accounts" :key="account.name" class="account-card"
+              :class="{ 'expanded': isAccountExpanded(account.name) }" style="margin-bottom: 12px;">
+              <div class="account-header" @click="toggleAccount(account.name)">
+                <div class="account-info">
+                  <span style="font-size: 20px; transition: transform 0.3s; display: inline-flex; align-items: center;"
+                    :style="{ 
           /* 保持 span 作为一个容器，不旋转或旋转到特定角度 */
           transform: isAccountExpanded(account.name) ? 'rotate(0deg)' : 'rotate(0deg)' 
       }">
 
-                  <i class="fas fa-chevron-right toggle-icon" :style="{ 
+                    <i class="fas fa-chevron-right toggle-icon" :style="{ 
            transition: 'transform 0.4s cubic-bezier(0.4, 0, 0.2, 1)', 
            // 逻辑调整：
            // 展开 (true) -> 0deg (向下)
            // 收起 (false) -> 90deg (向右)
            transform: isAccountExpanded(account.name) ? 'rotate(90deg)' : 'rotate(0deg)' 
        }">
-                  </i>
-                </span>
-                <div>
-                  <div class="account-name" v-if="!account.isEditingName"
-                    @dblclick.stop="startEditAccountName(account)">
-                    {{ account.name }}
-                  </div>
-                  <div v-else class="account-name-edit" @click.stop>
-                    <input v-model="account.editingName" @keyup.enter="saveAccountName(account)"
-                      @keyup.esc="cancelEditAccountName(account)" @blur="saveAccountName(account)" class="edit-input"
-                      ref="accountNameInput" style="width: 150px;" />
-                    <button @click.stop="cancelEditAccountName(account)" class="cancel-btn" title="取消"
-                      style="margin-left: 4px;">
-                      ✖️
-                    </button>
-                  </div>
-                  <div v-if="account.data" class="account-email">
-                    {{ maskEmail(account.data.email) || account.data.username }}
-                  </div>
-                </div>
-              </div>
-              <div class="account-balance">
-                <div style="display: flex; flex-direction: column; gap: 3px;">
-                  <div class="balance-card credit-balance-card">
-                    <div class="balance-icon">💰</div>
-                    <div class="balance-amount"
-                      :class="account.data?.credit ? getBalanceClass(account.data.credit) : ''">
-                      <span v-if="account.data?.credit">${{ (account.data.credit / 100).toFixed(2) }}</span>
-                      <span v-else>-</span>
+                    </i>
+                  </span>
+                  <div>
+                    <div class="account-name" v-if="!account.isEditingName"
+                      @dblclick.stop="startEditAccountName(account)">
+                      {{ account.name }}
                     </div>
-                  </div>
-                  <div class="balance-card ai-balance-card">
-                    <div class="balance-icon">🤖</div>
-                    <div class="balance-amount">
-                      {{ account.aihub && account.aihub.balance ? '$' + (account.aihub.balance / 100000).toFixed(2) :
-                      '无'
-                      }}
+                    <div v-else class="account-name-edit" @click.stop>
+                      <input v-model="account.editingName" @keyup.enter="saveAccountName(account)"
+                        @keyup.esc="cancelEditAccountName(account)" @blur="saveAccountName(account)" class="edit-input"
+                        ref="accountNameInput" style="width: 150px;" />
+                      <button @click.stop="cancelEditAccountName(account)" class="cancel-btn" title="取消"
+                        style="margin-left: 4px;">
+                        ✖️
+                      </button>
+                    </div>
+                    <div v-if="account.data" class="account-email">
+                      {{ maskEmail(account.data.email) || account.data.username }}
                     </div>
                   </div>
                 </div>
+                <div class="account-balance">
+                  <div style="display: flex; flex-direction: column; gap: 3px;">
+                    <div class="balance-card credit-balance-card">
+                      <div class="balance-icon">💰</div>
+                      <div class="balance-amount"
+                        :class="account.data?.credit ? getBalanceClass(account.data.credit) : ''">
+                        <span v-if="account.data?.credit">${{ (account.data.credit / 100).toFixed(2) }}</span>
+                        <span v-else>-</span>
+                      </div>
+                    </div>
+                    <div class="balance-card ai-balance-card">
+                      <div class="balance-icon">🤖</div>
+                      <div class="balance-amount">
+                        {{ account.aihub && account.aihub.balance ? '$' + (account.aihub.balance / 100000).toFixed(2) :
+                        '无'
+                        }}
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
-            </div>
 
-            <div v-if="account.error" class="error">
-              ❌ 错误: {{ account.error }}
-            </div>
+              <div v-if="account.error" class="error">
+                ❌ 错误: {{ account.error }}
+              </div>
 
-            <div class="account-card-body">
-              <div v-if="account.projects" class="projects-grid"
-                :class="{ 'collapsed': !isAccountExpanded(account.name) }">
-                <div v-for="project in account.projects" :key="project._id" :id="'proj-' + project._id"
-                  class="project-card">
-                  <div class="project-header">
-                    <div class="project-name-wrapper">
-                      <span class="project-name-icon">📦</span>
-                      <span v-if="!project.isEditing" class="project-name-text">{{ project.name }}</span>
-                      <input v-else v-model="project.editingName" @keyup.enter="saveProjectName(account, project)"
-                        @keyup.esc="cancelEditProjectName(project)" @blur="saveProjectName(account, project)"
-                        class="project-name-input" ref="projectNameInput" />
-                    </div>
-                    <div class="project-actions">
-                      <button v-if="!project.isEditing" @click="deleteProject(account, project)"
-                        class="project-delete-btn" title="删除项目">
-                        <i class="fas fa-trash"></i>
-                      </button>
-                      <button v-if="!project.isEditing" @click="startEditProjectName(project)" class="project-edit-btn"
-                        title="重命名项目">
-                        <i class="fas fa-pen"></i>
-                      </button>
-                      <button v-if="project.isEditing" @click="cancelEditProjectName(project)"
-                        class="project-cancel-btn" title="取消">
-                        <i class="fas fa-times"></i>
-                      </button>
-                    </div>
-                  </div>
-                  <div class="project-mini-cards">
-                    <div class="mini-card region-card">
-                      <span class="mini-card-icon">地区📍</span>
-                      <span class="mini-card-value">{{ formatRegion(project.region) }}</span>
-                    </div>
-                    <div class="mini-card cost-card">
-                      <span class="mini-card-icon">已用💰</span>
-                      <span class="mini-card-value">${{ formatCost(project.cost) }}</span>
-                    </div>
-                  </div>
-                  <div class="services-container">
-                    <div v-for="service in project.services" :key="service._id" :id="'service-' + service._id"
-                      :class="['service-item', service.status.toLowerCase()]">
-                      <div class="service-header">
-                        <div class="service-name-container">
-                          <span v-if="!service.isEditing" class="service-name" :title="service.name">
-                            {{ service.name }}
-                          </span>
-                          <input v-else v-model="service.editingName"
-                            @keyup.enter="saveServiceName(account, project, service)"
-                            @keyup.esc="cancelEditServiceName(service)"
-                            @blur="saveServiceName(account, project, service)" class="service-name-input" />
-                          <button v-if="!service.isEditing" @click="startEditServiceName(service)"
-                            class="service-edit-btn" title="重命名服务">
-                            <i class="fas fa-pen"></i>
-                          </button>
-                          <button v-else @click="cancelEditServiceName(service)" class="service-cancel-btn" title="取消">
-                            <i class="fas fa-times"></i>
-                          </button>
-                        </div>
-                        <div :class="['service-status', service.status.toLowerCase()]">
-                          {{ service.status === 'RUNNING' ? '运行中' : service.status === 'SUSPENDED' ? '已暂停' :
-                          service.status
-                          }}
-                        </div>
+              <div class="account-card-body">
+                <div v-if="account.projects" class="projects-grid"
+                  :class="{ 'collapsed': !isAccountExpanded(account.name) }">
+                  <div v-for="project in account.projects" :key="project._id" :id="'proj-' + project._id"
+                    class="project-card">
+                    <div class="project-header">
+                      <div class="project-name-wrapper">
+                        <span class="project-name-icon">📦</span>
+                        <span v-if="!project.isEditing" class="project-name-text">{{ project.name }}</span>
+                        <input v-else v-model="project.editingName" @keyup.enter="saveProjectName(account, project)"
+                          @keyup.esc="cancelEditProjectName(project)" @blur="saveProjectName(account, project)"
+                          class="project-name-input" ref="projectNameInput" />
                       </div>
-                      <div v-if="service.resourceLimit" class="service-info">
-                        <span style="display: inline-flex; align-items: center; gap: 4px; margin-right: 12px;">
-                          <i class="fas fa-microchip"></i>
-                          {{ service.resourceLimit.cpu }}m
-                        </span>
-                        <span style="display: inline-flex; align-items: center; gap: 4px;">
-                          <i class="fas fa-memory"></i>
-                          {{ service.resourceLimit.memory }}MB
-                        </span>
-                      </div>
-                      <div class="service-actions">
-                        <button v-if="service.status === 'RUNNING'" @click="pauseService(account, project, service)"
-                          class="service-btn btn-pause">
-                          <i class="fas fa-pause"></i>
-                          暂停
-                        </button>
-                        <button @click="restartService(account, project, service)" class="service-btn btn-restart">
-                          <i class="fas fa-redo"></i>
-                          {{ service.status === 'SUSPENDED' ? '启动' : '重启' }}
-                        </button>
-                        <button @click="showServiceLogs(account, project, service)" class="service-btn btn-logs">
-                          <i class="fas fa-file-alt"></i>
-                          日志
-                        </button>
-                        <button @click="deleteService(account, project, service)" class="service-btn btn-delete">
+                      <div class="project-actions">
+                        <button v-if="!project.isEditing" @click="deleteProject(account, project)"
+                          class="project-delete-btn" title="删除项目">
                           <i class="fas fa-trash"></i>
-                          删除
+                        </button>
+                        <button v-if="!project.isEditing" @click="startEditProjectName(project)"
+                          class="project-edit-btn" title="重命名项目">
+                          <i class="fas fa-pen"></i>
+                        </button>
+                        <button v-if="project.isEditing" @click="cancelEditProjectName(project)"
+                          class="project-cancel-btn" title="取消">
+                          <i class="fas fa-times"></i>
                         </button>
                       </div>
                     </div>
-                    <div v-if="project.services.length === 0" class="empty-state">
-                      暂无服务
+                    <div class="project-mini-cards">
+                      <div class="mini-card region-card">
+                        <span class="mini-card-icon">地区📍</span>
+                        <span class="mini-card-value">{{ formatRegion(project.region) }}</span>
+                      </div>
+                      <div class="mini-card cost-card">
+                        <span class="mini-card-icon">已用💰</span>
+                        <span class="mini-card-value">${{ formatCost(project.cost) }}</span>
+                      </div>
                     </div>
-                  </div>
+                    <div class="services-container">
+                      <div v-for="service in project.services" :key="service._id" :id="'service-' + service._id"
+                        :class="['service-item', service.status.toLowerCase()]">
+                        <div class="service-header">
+                          <div class="service-name-container">
+                            <span v-if="!service.isEditing" class="service-name" :title="service.name">
+                              {{ service.name }}
+                            </span>
+                            <input v-else v-model="service.editingName"
+                              @keyup.enter="saveServiceName(account, project, service)"
+                              @keyup.esc="cancelEditServiceName(service)"
+                              @blur="saveServiceName(account, project, service)" class="service-name-input" />
+                            <button v-if="!service.isEditing" @click="startEditServiceName(service)"
+                              class="service-edit-btn" title="重命名服务">
+                              <i class="fas fa-pen"></i>
+                            </button>
+                            <button v-else @click="cancelEditServiceName(service)" class="service-cancel-btn"
+                              title="取消">
+                              <i class="fas fa-times"></i>
+                            </button>
+                          </div>
+                          <div :class="['service-status', service.status.toLowerCase()]">
+                            {{ service.status === 'RUNNING' ? '运行中' : service.status === 'SUSPENDED' ? '已暂停' :
+                            service.status
+                            }}
+                          </div>
+                        </div>
+                        <div v-if="service.resourceLimit" class="service-info">
+                          <span style="display: inline-flex; align-items: center; gap: 4px; margin-right: 12px;">
+                            <i class="fas fa-microchip"></i>
+                            {{ service.resourceLimit.cpu }}m
+                          </span>
+                          <span style="display: inline-flex; align-items: center; gap: 4px;">
+                            <i class="fas fa-memory"></i>
+                            {{ service.resourceLimit.memory }}MB
+                          </span>
+                        </div>
+                        <div class="service-actions">
+                          <button v-if="service.status === 'RUNNING'" @click="pauseService(account, project, service)"
+                            class="service-btn btn-pause">
+                            <i class="fas fa-pause"></i>
+                            暂停
+                          </button>
+                          <button @click="restartService(account, project, service)" class="service-btn btn-restart">
+                            <i class="fas fa-redo"></i>
+                            {{ service.status === 'SUSPENDED' ? '启动' : '重启' }}
+                          </button>
+                          <button @click="showServiceLogs(account, project, service)" class="service-btn btn-logs">
+                            <i class="fas fa-file-alt"></i>
+                            日志
+                          </button>
+                          <button @click="deleteService(account, project, service)" class="service-btn btn-delete">
+                            <i class="fas fa-trash"></i>
+                            删除
+                          </button>
+                        </div>
+                      </div>
+                      <div v-if="project.services.length === 0" class="empty-state">
+                        暂无服务
+                      </div>
+                    </div>
 
-                  <!-- 项目域名 -->
-                  <div v-if="getProjectDomains(project).length > 0" class="domains-container">
-                    <a v-for="domainInfo in getProjectDomains(project)" :key="domainInfo.domain"
-                      :href="'https://' + domainInfo.domain" target="_blank" class="domain-link">
-                      <i class="fas fa-globe"></i>
-                      <span>{{ domainInfo.domain }}</span>
-                      <span v-if="domainInfo.isGenerated" class="domain-badge">自动</span>
-                    </a>
+                    <!-- 项目域名 -->
+                    <div v-if="getProjectDomains(project).length > 0" class="domains-container">
+                      <a v-for="domainInfo in getProjectDomains(project)" :key="domainInfo.domain"
+                        :href="'https://' + domainInfo.domain" target="_blank" class="domain-link">
+                        <i class="fas fa-globe"></i>
+                        <span>{{ domainInfo.domain }}</span>
+                        <span v-if="domainInfo.isGenerated" class="domain-badge">自动</span>
+                      </a>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
-          </div>
 
-          <div v-if="!loading && accounts.length === 0" class="error">
-            未配置账号或无法获取数据。请检查 .env 配置文件。
+            <div v-if="!loading && accounts.length === 0" class="error">
+              未配置账号或无法获取数据。请检查 .env 配置文件。
+            </div>
           </div>
         </div>
         <!-- 服务监控标签页结束 -->
@@ -421,53 +464,76 @@
                   <tr>
                     <th>名称</th>
                     <th>邮箱</th>
-                    <th>余额</th>
-                    <th>状态</th>
-                    <th style="width: 150px;">操作</th>
+                    <th class="text-center">余额</th>
+                    <th class="text-center">状态</th>
+                    <th class="text-center" style="width: 120px;">操作</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr v-for="(account, index) in managedAccounts" :key="'local-' + index">
-                    <td>{{ account.name }}</td>
+                    <td>
+                      <div style="display: flex; align-items: center; gap: 8px;">
+                        <i class="fas fa-rocket"
+                          style="font-size: 12px; color: var(--zeabur-primary); opacity: 0.7;"></i>
+                        <strong>{{ account.name }}</strong>
+                      </div>
+                    </td>
                     <td>{{ account.email || '-' }}</td>
-                    <td>
-                      <span v-if="account.balance !== null && account.balance !== undefined">
-                        ${{ account.balance.toFixed(2) }}
-                      </span>
-                      <span v-else>-</span>
+                    <td class="text-center">
+                      <div class="flex-cell">
+                        <span v-if="account.balance !== null && account.balance !== undefined" class="log-duration">
+                          ${{ account.balance.toFixed(2) }}
+                        </span>
+                        <span v-else style="color: var(--text-tertiary);">-</span>
+                      </div>
                     </td>
-                    <td>
-                      <span class="proxied-badge" :class="account.status === 'active' ? 'proxied-on' : 'proxied-off'">
-                        {{ account.status === 'active' ? '正常' : '未知' }}
-                      </span>
+                    <td class="text-center">
+                      <div class="flex-cell">
+                        <span class="ag-status-badge"
+                          :class="account.status === 'active' ? 'ag-status-online' : 'ag-status-unknown'">
+                          {{ account.status === 'active' ? '正常' : '未知' }}
+                        </span>
+                      </div>
                     </td>
-                    <td class="actions">
-                      <button class="btn btn-danger" style="padding: 4px 8px; font-size: 12px;"
-                        @click="removeAccount(index)" title="删除">
-                        <i class="fas fa-trash"></i>
-                      </button>
+                    <td class="actions text-center">
+                      <div class="flex-cell">
+                        <button class="btn btn-icon-refined" @click="removeAccount(index)" title="删除账号"
+                          style="color: var(--danger-color);">
+                          <i class="fas fa-trash"></i>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                   <!-- 显示主机配置的账号（只读） -->
                   <tr v-if="managedAccounts.length === 0 && accounts.length > 0" v-for="account in accounts"
                     :key="'server-' + account.name">
-                    <td>{{ account.name }}</td>
+                    <td>
+                      <div style="display: flex; align-items: center; gap: 8px;">
+                        <i class="fas fa-server"
+                          style="font-size: 12px; color: var(--text-tertiary); opacity: 0.7;"></i>
+                        <strong>{{ account.name }}</strong>
+                      </div>
+                    </td>
                     <td>{{ account.data?.email || '-' }}</td>
-                    <td>
-                      <span v-if="account.data?.credit">
-                        ${{ (account.data.credit / 100).toFixed(2) }}
-                      </span>
-                      <span v-else>-</span>
+                    <td class="text-center">
+                      <div class="flex-cell">
+                        <span v-if="account.data?.credit" class="log-duration">
+                          ${{ (account.data.credit / 100).toFixed(2) }}
+                        </span>
+                        <span v-else style="color: var(--text-tertiary);">-</span>
+                      </div>
                     </td>
-                    <td>
-                      <span class="proxied-badge proxied-off">
-                        主机配置
-                      </span>
+                    <td class="text-center">
+                      <div class="flex-cell">
+                        <span class="ag-status-badge ag-status-unknown">主机配置</span>
+                      </div>
                     </td>
-                    <td class="actions">
-                      <span style="font-size: 12px; color: var(--text-tertiary);">
-                        🔒 只读
-                      </span>
+                    <td class="actions text-center">
+                      <div class="flex-cell">
+                        <span style="font-size: 11px; color: var(--text-tertiary);">
+                          <i class="fas fa-lock" style="margin-right: 4px;"></i>只读
+                        </span>
+                      </div>
                     </td>
                   </tr>
                 </tbody>
@@ -491,7 +557,7 @@
               </p>
               <div style="position: relative; min-height: 150px;">
                 <div
-                  style="width: 100%; min-height: 150px; padding: 12px; border: 1px solid var(--border-color); border-radius: 8px; font-size: 13px; font-family: monospace; white-space: pre-wrap; word-break: break-all; pointer-events: none; color: var(--text-primary); line-height: 1.5; background-color: var(--input-bg);">
+                  style="width: 100%; min-height: 150px; padding: 12px; border: 1px solid var(--border-color); border-radius: 8px; font-family: var(--font-mono); white-space: pre-wrap; word-break: break-all; pointer-events: none; color: var(--text-primary); line-height: 1.5; background-color: var(--input-bg);">
                   {{ maskedBatchAccounts }}</div>
                 <textarea v-model="batchAccounts" @input="updateBatchDisplay" placeholder="每行一个账号，格式：账号名称:API_Token"
                   class="form-textarea"
@@ -552,7 +618,8 @@
           <div class="modal">
             <div class="modal-header">
               <div class="modal-title"></div>
-              <button class="modal-close" @click="showAddZeaburAccountModal = false"></button>
+              <button class="modal-close" @click="showAddZeaburAccountModal = false"><i
+                  class="fas fa-times"></i></button>
             </div>
 
             <div class="form-group">
@@ -697,26 +764,34 @@
               <table class="data-table">
                 <thead>
                   <tr>
-                    <th style="width: 5%;">
-                      <input type="checkbox" @change="toggleSelectAllDnsRecords"
-                        :checked="dnsSelectedRecords.length === dnsRecords.length && dnsRecords.length > 0"
-                        style="width: 16px; height: 16px; cursor: pointer;">
+                    <th style="width: 5%;" class="text-center">
+                      <div class="flex-cell">
+                        <input type="checkbox" @change="toggleSelectAllDnsRecords"
+                          :checked="dnsSelectedRecords.length === dnsRecords.length && dnsRecords.length > 0"
+                          style="width: 16px; height: 16px; cursor: pointer;">
+                      </div>
                     </th>
-                    <th style="width: 12%;">类型</th>
+                    <th style="width: 12%;" class="text-center">类型</th>
                     <th style="width: 18%;">名称</th>
                     <th style="width: 28%;">内容</th>
-                    <th style="width: 8%;">代理</th>
-                    <th style="width: 8%;">TTL</th>
-                    <th style="width: 10%;">操作</th>
+                    <th style="width: 8%;" class="text-center">代理</th>
+                    <th style="width: 8%;" class="text-center">TTL</th>
+                    <th style="width: 10%;" class="text-center">操作</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr v-for="record in dnsRecords" :key="record.id">
-                    <td>
-                      <input type="checkbox" :value="record.id" v-model="dnsSelectedRecords"
-                        style="width: 16px; height: 16px; cursor: pointer;">
+                    <td class="text-center">
+                      <div class="flex-cell">
+                        <input type="checkbox" :value="record.id" v-model="dnsSelectedRecords"
+                          style="width: 16px; height: 16px; cursor: pointer;">
+                      </div>
                     </td>
-                    <td><span class="record-type" :class="record.type">{{ record.type }}</span></td>
+                    <td class="text-center">
+                      <div class="flex-cell">
+                        <span class="record-type" :class="record.type">{{ record.type }}</span>
+                      </div>
+                    </td>
                     <td>
                       <div v-if="!record.isEditingName" class="editable-cell"
                         :title="formatDnsRecordName(record.name) + ' (双击编辑)'" @dblclick="startEditDnsName(record)">
@@ -744,21 +819,29 @@
                         </button>
                       </div>
                     </td>
-                    <td>
-                      <span class="proxied-badge" :class="record.proxied ? 'proxied-on' : 'proxied-off'">
-                        {{ record.proxied ? '开启' : '关闭' }}
-                      </span>
+                    <td class="text-center">
+                      <div class="flex-cell">
+                        <span class="proxied-badge" :class="record.proxied ? 'proxied-on' : 'proxied-off'">
+                          {{ record.proxied ? '开启' : '关闭' }}
+                        </span>
+                      </div>
                     </td>
-                    <td>{{ record.ttl === 1 ? 'Auto' : record.ttl }}</td>
-                    <td class="actions">
-                      <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 12px;"
-                        @click="editDnsRecord(record)" title="编辑">
-                        <i class="fas fa-edit"></i>
-                      </button>
-                      <button class="btn btn-danger" style="padding: 4px 8px; font-size: 12px;"
-                        @click="deleteDnsRecord(record)" title="删除">
-                        <i class="fas fa-trash"></i>
-                      </button>
+                    <td class="text-center">
+                      <div class="flex-cell">
+                        <span class="ttl-badge" style="font-family: var(--font-mono);">{{ record.ttl === 1 ? 'Auto' :
+                          record.ttl }}</span>
+                      </div>
+                    </td>
+                    <td class="actions text-center">
+                      <div class="flex-cell">
+                        <button class="btn btn-icon-refined" @click="openEditDnsRecordModal(record)" title="编辑记录">
+                          <i class="fas fa-edit"></i>
+                        </button>
+                        <button class="btn btn-icon-refined" @click="deleteDnsRecord(record)" title="删除记录"
+                          style="color: var(--danger-color);">
+                          <i class="fas fa-trash"></i>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 </tbody>
@@ -793,45 +876,61 @@
                     <th>名称</th>
                     <th>邮箱</th>
                     <th>API Token</th>
-                    <th>添加时间</th>
-                    <th>最后使用</th>
-                    <th style="width: 150px;">操作</th>
+                    <th class="text-center">添加时间</th>
+                    <th class="text-center">最后使用</th>
+                    <th style="width: 150px;" class="text-center">操作</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr v-for="acc in dnsAccounts" :key="acc.id">
-                    <td>{{ acc.name }}</td>
+                    <td>
+                      <div style="display: flex; align-items: center; gap: 8px;">
+                        <i class="fas fa-user-circle"
+                          style="font-size: 12px; color: var(--cf-color); opacity: 0.7;"></i>
+                        <strong>{{ acc.name }}</strong>
+                      </div>
+                    </td>
                     <td>{{ acc.email || '-' }}</td>
                     <td>
                       <div style="display: flex; align-items: center; gap: 8px;">
-                        <span v-if="!acc.showToken" style="color: var(--text-secondary);">
-                          {{ acc.hasToken ? '••••••••••••••••' : '-' }}
-                        </span>
-                        <span v-else style="font-family: monospace; font-size: 12px; word-break: break-all;">
-                          {{ acc.apiToken || '-' }}
-                        </span>
-                        <button v-if="acc.hasToken" class="btn btn-secondary"
-                          style="padding: 2px 6px; font-size: 11px; min-width: auto;"
-                          @click="toggleDnsTokenVisibility(acc)" :title="acc.showToken ? '隐藏' : '显示'">
+                        <code
+                          style="background: var(--bg-secondary); border: 1px solid var(--border-color); padding: 2px 8px; border-radius: 6px; font-size: 11px; font-family: var(--font-mono); color: var(--text-secondary);">
+                          {{ acc.showToken ? acc.apiToken : (acc.hasToken ? '••••••••••••••••' : '-') }}
+                        </code>
+                        <button v-if="acc.hasToken" class="copy-btn" @click="toggleDnsTokenVisibility(acc)"
+                          :title="acc.showToken ? '隐藏' : '显示'" style="padding: 2px 4px;">
                           <i :class="acc.showToken ? 'fas fa-eye-slash' : 'fas fa-eye'"></i>
                         </button>
                       </div>
                     </td>
-                    <td>{{ formatDnsDate(acc.createdAt) }}</td>
-                    <td>{{ acc.lastUsed ? formatDnsDate(acc.lastUsed) : '-' }}</td>
-                    <td class="actions">
-                      <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 12px;"
-                        @click="verifyDnsAccount(acc)" title="验证Token">
-                        <i class="fas fa-check"></i>
-                      </button>
-                      <button class="btn btn-primary" style="padding: 4px 8px; font-size: 12px;"
-                        @click="editDnsAccount(acc)" title="编辑">
-                        <i class="fas fa-edit"></i>
-                      </button>
-                      <button class="btn btn-danger" style="padding: 4px 8px; font-size: 12px;"
-                        @click="deleteDnsAccount(acc)" title="删除">
-                        <i class="fas fa-trash"></i>
-                      </button>
+                    <td class="text-center">
+                      <div class="flex-cell">
+                        <div class="log-time">
+                          {{ formatDnsDate(acc.createdAt) }}
+                        </div>
+                      </div>
+                    </td>
+                    <td class="text-center">
+                      <div class="flex-cell">
+                        <div class="log-time" v-if="acc.lastUsed">
+                          {{ formatDnsDate(acc.lastUsed) }}
+                        </div>
+                        <span v-else style="color: var(--text-tertiary); font-size: 11px;">从未有效调用</span>
+                      </div>
+                    </td>
+                    <td class="actions text-center">
+                      <div class="flex-cell">
+                        <button class="btn btn-icon-refined" @click="verifyDnsAccount(acc)" title="验证 Token 有效性">
+                          <i class="fas fa-shield-alt"></i>
+                        </button>
+                        <button class="btn btn-icon-refined" @click="editDnsAccount(acc)" title="编辑账号">
+                          <i class="fas fa-edit"></i>
+                        </button>
+                        <button class="btn btn-icon-refined" @click="deleteDnsAccount(acc)" title="删除账号"
+                          style="color: var(--danger-color);">
+                          <i class="fas fa-trash"></i>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 </tbody>
@@ -861,9 +960,9 @@
                     <th>名称</th>
                     <th style="width: 60px;">类型</th>
                     <th>内容</th>
-                    <th style="width: 70px;">代理</th>
+                    <th style="width: 70px;" class="text-center">代理</th>
                     <th>描述</th>
-                    <th style="width: 120px;">操作</th>
+                    <th style="width: 120px;" class="text-center">操作</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -873,21 +972,24 @@
                     <td>
                       <div class="content-truncate" :title="tpl.content">{{ tpl.content }}</div>
                     </td>
-                    <td>
-                      <span class="proxied-badge" :class="tpl.proxied ? 'proxied-on' : 'proxied-off'">
-                        {{ tpl.proxied ? '开启' : '关闭' }}
-                      </span>
+                    <td class="text-center">
+                      <div class="flex-cell">
+                        <span class="proxied-badge" :class="tpl.proxied ? 'proxied-on' : 'proxied-off'">
+                          {{ tpl.proxied ? '开启' : '关闭' }}
+                        </span>
+                      </div>
                     </td>
                     <td>{{ tpl.description || '-' }}</td>
-                    <td class="actions">
-                      <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 12px;"
-                        @click="editDnsTemplate(tpl)" title="编辑">
-                        <i class="fas fa-edit"></i>
-                      </button>
-                      <button class="btn btn-danger" style="padding: 4px 8px; font-size: 12px;"
-                        @click="deleteDnsTemplate(tpl)" title="删除">
-                        <i class="fas fa-trash"></i>
-                      </button>
+                    <td class="actions text-center">
+                      <div class="flex-cell">
+                        <button class="btn btn-icon-refined" @click="editDnsTemplate(tpl)" title="编辑模板">
+                          <i class="fas fa-edit"></i>
+                        </button>
+                        <button class="btn btn-icon-refined" @click="deleteDnsTemplate(tpl)" title="删除模板"
+                          style="color: var(--danger-color);">
+                          <i class="fas fa-trash"></i>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 </tbody>
@@ -909,7 +1011,7 @@
         <div class="modal">
           <div class="modal-header">
             <div class="modal-title">添加 Cloudflare 账号</div>
-            <button class="modal-close" @click="showAddDnsAccountModal = false"></button>
+            <button class="modal-close" @click="showAddDnsAccountModal = false"><i class="fas fa-times"></i></button>
           </div>
 
           <div class="form-group">
@@ -947,7 +1049,7 @@
         <div class="modal">
           <div class="modal-header">
             <div class="modal-title">编辑 Cloudflare 账号</div>
-            <button class="modal-close" @click="showEditDnsAccountModal = false"></button>
+            <button class="modal-close" @click="showEditDnsAccountModal = false"><i class="fas fa-times"></i></button>
           </div>
 
           <div class="form-group">
@@ -985,7 +1087,7 @@
         <div class="modal">
           <div class="modal-header">
             <div class="modal-title">{{ dnsEditingRecord ? '编辑 DNS 记录' : '添加 DNS 记录' }}</div>
-            <button class="modal-close" @click="showDnsRecordModal = false"></button>
+            <button class="modal-close" @click="showDnsRecordModal = false"><i class="fas fa-times"></i></button>
           </div>
 
           <div style="padding-top: 8px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
@@ -1052,7 +1154,7 @@
         <div class="modal">
           <div class="modal-header">
             <div class="modal-title">{{ dnsEditingTemplate ? '编辑模板' : '添加模板' }}</div>
-            <button class="modal-close" @click="showDnsTemplateModal = false"></button>
+            <button class="modal-close" @click="showDnsTemplateModal = false"><i class="fas fa-times"></i></button>
           </div>
 
           <div class="form-group">
@@ -1221,7 +1323,7 @@
                   </thead>
                   <tbody>
                     <tr v-for="row in getGeminiCliMatrixList()" :key="row.id">
-                      <td style="font-family: monospace; font-weight: 600;">{{ row.id }}</td>
+                      <td style="font-family: var(--font-mono); font-weight: 600;">{{ row.id }}</td>
                       <td class="text-center">
                         <label class="switch">
                           <input type="checkbox" :checked="row.base" @change="toggleMatrixItem(row.id, 'base')">
@@ -1351,7 +1453,7 @@
 
             <!-- 统计信息栏 -->
             <div v-if="geminiCliStats" class="stats-bar"
-              style="display: flex; gap: 20px; padding: 12px 16px; margin-bottom: 2px; border-radius: 8px; font-size: 13px;">
+              style="display: none; gap: 20px; padding: 12px 16px; margin-bottom: 2px; border-radius: 8px; font-size: 13px;">
               <div class="stat-item">
                 <span style="opacity: 0.7;">总账号:</span>
                 <strong style="margin-left: 4px;">{{ geminiCliStats.total_accounts || 0 }}</strong>
@@ -1376,8 +1478,8 @@
                     <th>备注名称</th>
                     <th>项目 ID</th>
                     <th>邮箱</th>
-                    <th>状态</th>
-                    <th style="width: 140px;">操作</th>
+                    <th class="text-center">状态</th>
+                    <th class="text-center">操作</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1385,25 +1487,29 @@
                     <td><strong>{{ account.name || '未命名' }}</strong></td>
                     <td><code class="code-sm">{{ account.project_id || '-' }}</code></td>
                     <td><span style="font-size: 11px; opacity: 0.7;">{{ account.email || '-' }}</span></td>
-                    <td>
-                      <span class="ag-status-badge"
-                        :class="account.status === 'online' ? 'ag-status-online' : (account.status === 'error' ? 'ag-status-error' : 'ag-status-unknown')">
-                        {{ account.status === 'online' ? '在线' : (account.status === 'error' ? '异常' : '未知') }}
-                      </span>
+                    <td class="text-center">
+                      <div class="flex-cell">
+                        <span class="ag-status-badge"
+                          :class="account.status === 'online' ? 'ag-status-online' : (account.status === 'error' ? 'ag-status-error' : 'ag-status-unknown')">
+                          {{ account.status === 'online' ? '在线' : (account.status === 'error' ? '异常' : '未知') }}
+                        </span>
+                      </div>
                     </td>
-                    <td class="actions">
-                      <button class="btn btn-success btn-sm icon-only" @click="toggleGeminiCliAccount(account)"
-                        :title="account.enable ? '禁用' : '启用'">
-                        <i class="fas" :class="account.enable ? 'fa-toggle-on' : 'fa-toggle-off'"></i>
-                      </button>
-                      <button class="btn btn-primary btn-sm icon-only" @click="editGeminiCliAccount(account)"
-                        title="编辑">
-                        <i class="fas fa-edit"></i>
-                      </button>
-                      <button class="btn btn-danger btn-sm icon-only" @click="deleteGeminiCliAccount(account)"
-                        title="删除">
-                        <i class="fas fa-trash"></i>
-                      </button>
+                    <td class="actions text-center">
+                      <div class="flex-cell">
+                        <button class="btn btn-icon-refined"
+                          :style="{ color: account.enable ? 'var(--success-color)' : 'var(--text-tertiary)' }"
+                          @click="toggleGeminiCliAccount(account)" :title="account.enable ? '禁用账号' : '启用账号'">
+                          <i class="fas" :class="account.enable ? 'fa-toggle-on' : 'fa-toggle-off'"></i>
+                        </button>
+                        <button class="btn btn-icon-refined" @click="editGeminiCliAccount(account)" title="编辑配置">
+                          <i class="fas fa-edit"></i>
+                        </button>
+                        <button class="btn btn-icon-refined" @click="deleteGeminiCliAccount(account)" title="删除授权"
+                          style="color: var(--danger-color);">
+                          <i class="fas fa-trash"></i>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 </tbody>
@@ -1419,48 +1525,91 @@
         <!-- 调用日志标签页 -->
         <div v-show="geminiCliCurrentTab === 'logs'" class="sub-tab-content quick-fade-in">
           <div class="panel">
-            <div class="panel-header"
-              style="border-bottom: 1px solid var(--border-color); display: flex; justify-content: space-between; align-items: center;">
-              <div class="panel-title">Gemini API 调用日志</div>
-              <div style="display: flex; gap: 8px;">
-                <button class="btn btn-secondary btn-sm" @click="loadGeminiCliLogs" :disabled="geminiCliLoading">
-                  <i class="fas fa-sync-alt" :class="{ 'fa-spin': geminiCliLoading }"></i> 刷新
-                </button>
-                <button class="btn btn-danger btn-sm" @click="clearGeminiCliLogs">
-                  <i class="fas fa-trash-alt"></i> 清空
-                </button>
+            <div class="panel-header" style="border-bottom: 1px solid var(--border-color);">
+              <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                <div class="panel-title-group">
+                  <div class="panel-title">Gemini CLI 调用日志</div>
+                </div>
+                <div style="display: flex; gap: 8px;">
+                  <button class="btn btn-secondary btn-sm" @click="loadGeminiCliLogs" :disabled="geminiCliLoading">
+                    <i class="fas fa-sync-alt" :class="{ 'fa-spin': geminiCliLoading }"></i> 刷新
+                  </button>
+                  <button class="btn btn-danger btn-sm" @click="clearGeminiCliLogs">
+                    <i class="fas fa-trash-alt"></i> 清空
+                  </button>
+                </div>
               </div>
             </div>
             <div class="table-container">
               <table class="data-table">
                 <thead>
                   <tr>
-                    <th>调用时间</th>
-                    <th>账号 ID</th>
-                    <th>路径</th>
-                    <th>状态</th>
-                    <th>耗时</th>
-                    <th>操作</th>
+                    <th style="width: 160px;" class="text-center">调用时间</th>
+                    <th>账号备注</th>
+                    <th style="width: 120px;" class="text-center">调用模型</th>
+                    <th>接口路径</th>
+                    <th class="text-center" style="width: 80px;">状态</th>
+                    <th class="text-center" style="width: 80px;">耗时</th>
+                    <th class="text-center" style="width: 80px;">操作</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr v-for="log in geminiCliLogs" :key="log.id">
-                    <td style="font-size: 12px;">{{ formatDateTime(log.created_at) }}</td>
-                    <td style="font-family: monospace; font-size: 11px;">{{ log.account_id }}</td>
-                    <td style="font-size: 12px; max-width: 150px; overflow: hidden; text-overflow: ellipsis;">{{
-                      log.request_path }}</td>
-                    <td>
-                      <span :class="log.status_code >= 400 ? 'status-err' : 'status-ok'">
-                        {{ log.status_code }}
-                      </span>
+                    <td class="text-center">
+                      <div class="flex-cell">
+                        <div class="log-time">
+                          <i class="far fa-clock" style="margin-right: 4px; opacity: 0.5;"></i>
+                          {{ formatDateTime(log.created_at) }}
+                        </div>
+                      </div>
                     </td>
-                    <td style="font-size: 12px; opacity: 0.7;">{{ log.duration_ms }}ms</td>
                     <td>
-                      <button class="btn btn-xs btn-primary" @click="viewGeminiCliLogDetail(log)">详情</button>
+                      <div style="display: flex; align-items: center; gap: 8px;">
+                        <i class="fas fa-id-card"
+                          style="font-size: 12px; color: var(--primary-color); opacity: 0.7;"></i>
+                        <strong>{{ log.account_name || log.account_id }}</strong>
+                        <span v-if="log.is_balanced" class="badge-lb" title="经过全局负载均衡分发">LB</span>
+                      </div>
+                    </td>
+                    <td class="text-center">
+                      <div class="flex-cell">
+                        <code class="code-sm">{{ log.model || '-' }}</code>
+                      </div>
+                    </td>
+                    <td>
+                      <div style="display: flex; align-items: center;">
+                        <span class="method-badge" :class="'method-' + (log.request_method || 'POST').toLowerCase()">
+                          {{ log.request_method || 'POST' }}
+                        </span>
+                        <span class="log-path" :title="log.request_path">{{ log.request_path }}</span>
+                      </div>
+                    </td>
+                    <td class="text-center">
+                      <div class="flex-cell">
+                        <span :class="getGcliStatusClass(log.status_code)" class="ag-status-badge">
+                          {{ log.status_code }}
+                        </span>
+                      </div>
+                    </td>
+                    <td class="text-center">
+                      <div class="flex-cell">
+                        <span class="log-duration">{{ log.duration_ms }}ms</span>
+                      </div>
+                    </td>
+                    <td class="actions text-center">
+                      <div class="flex-cell">
+                        <button class="btn btn-icon-refined" @click="viewGeminiCliLogDetail(log)" title="查看详情">
+                          <i class="fas fa-eye"></i>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                   <tr v-if="geminiCliLogs.length === 0">
-                    <td colspan="6" style="text-align: center; padding: 40px; opacity: 0.5;">尚无调用记录</td>
+                    <td colspan="7" style="text-align: center; padding: 60px; color: var(--text-tertiary);">
+                      <i class="fas fa-inbox"
+                        style="font-size: 40px; display: block; margin-bottom: 12px; opacity: 0.3;"></i>
+                      尚无调用记录
+                    </td>
                   </tr>
                 </tbody>
               </table>
@@ -1521,47 +1670,81 @@
               <!-- 模型重定向 -->
               <div style="margin-bottom: 24px;">
                 <div
-                  style="font-size: 13px; font-weight: 600; margin-bottom: 10px; color: var(--gemini-primary); display: flex; align-items: center; gap: 8px;">
+                  style="font-size: 14px; font-weight: 600; margin-bottom: 12px; color: var(--gemini-primary); display: flex; align-items: center; gap: 8px;">
                   <i class="fas fa-exchange-alt"></i> 模型重定向 (别名)
                 </div>
                 <!-- 列表 -->
                 <div v-if="geminiCliModelRedirects.length > 0"
-                  style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 10px; margin-bottom: 12px;">
+                  style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px;">
                   <div v-for="r in geminiCliModelRedirects" :key="r.source_model"
-                    style="background: var(--bg-tertiary); padding: 8px 12px; border-radius: 6px; display: flex; justify-content: space-between; align-items: center; border: 1px solid var(--border-color);">
-                    <div style="font-size: 12px; font-family: monospace;">
-                      <span style="color: var(--text-primary); font-weight: 600;">{{ r.source_model }}</span>
-                      <i class="fas fa-arrow-right" style="font-size: 10px; opacity: 0.5; margin: 0 6px;"></i>
-                      <span style="opacity: 0.8;">{{ r.target_model }}</span>
+                    style="background: var(--bg-tertiary); padding: 10px 15px; border-radius: 10px; display: flex; justify-content: space-between; align-items: center; border: 1px solid var(--border-color); transition: all 0.2s;"
+                    :style="gcliEditingRedirectSource === r.source_model ? 'border-color: var(--gemini-primary); box-shadow: 0 0 0 2px rgba(var(--gemini-primary-rgb), 0.1);' : ''">
+
+                    <div v-if="gcliEditingRedirectSource !== r.source_model"
+                      style="display: flex; align-items: center; gap: 10px; flex: 1;"
+                      @dblclick="editGeminiCliModelRedirect(r)">
+                      <div
+                        style="background: rgba(var(--gemini-primary-rgb), 0.1); color: var(--gemini-primary); padding: 2px 8px; border-radius: 4px; font-weight: 600; font-size: 12px;">
+                        {{ r.source_model }}</div>
+                      <i class="fas fa-long-arrow-alt-right" style="opacity: 0.3;"></i>
+                      <div style="font-size: 13px; color: var(--text-primary);">{{ r.target_model }}</div>
                     </div>
-                    <button class="btn btn-xs btn-danger icon-only"
-                      @click="removeGeminiCliModelRedirect(r.source_model)" title="删除重定向">
-                      <i class="fas fa-trash"></i>
-                    </button>
+
+                    <div v-else style="display: flex; align-items: center; gap: 10px; flex: 1;">
+                      <input type="text" v-model="newGeminiCliRedirectSource" class="form-input-sm"
+                        style="flex: 1; min-width: 0;" placeholder="源模型">
+                      <i class="fas fa-long-arrow-alt-right" style="opacity: 0.3;"></i>
+                      <input type="text" v-model="newGeminiCliRedirectTarget" class="form-input-sm"
+                        style="flex: 1; min-width: 0;" placeholder="目标模型">
+                    </div>
+
+                    <div style="display: flex; gap: 6px; margin-left: 15px;">
+                      <template v-if="gcliEditingRedirectSource === r.source_model">
+                        <button class="btn btn-xs btn-success icon-only"
+                          @click="addGeminiCliModelRedirect(newGeminiCliRedirectSource, newGeminiCliRedirectTarget)"
+                          title="保存">
+                          <i class="fas fa-check"></i>
+                        </button>
+                        <button class="btn btn-xs btn-secondary icon-only"
+                          @click="gcliEditingRedirectSource = null; newGeminiCliRedirectSource = ''; newGeminiCliRedirectTarget = '';"
+                          title="取消">
+                          <i class="fas fa-times"></i>
+                        </button>
+                      </template>
+                      <template v-else>
+                        <button class="btn btn-xs btn-primary icon-only" @click="editGeminiCliModelRedirect(r)"
+                          title="编辑">
+                          <i class="fas fa-pen"></i>
+                        </button>
+                        <button class="btn btn-xs btn-danger icon-only"
+                          @click="removeGeminiCliModelRedirect(r.source_model)" title="删除">
+                          <i class="fas fa-trash"></i>
+                        </button>
+                      </template>
+                    </div>
                   </div>
                 </div>
-                <div v-else style="font-size: 12px; opacity: 0.5; margin-bottom: 12px; padding: 8px 0;">
-                  暂无重定向规则。添加后，请求 source 模型将自动转发给 target 模型。
+                <div v-else
+                  style="font-size: 12px; opacity: 0.5; margin-bottom: 16px; padding: 10px; background: var(--bg-secondary); border-radius: 8px; text-align: center; border: 1px dashed var(--border-color);">
+                  暂无重定向规则。请求 source 模型将自动转发给 target 模型。
                 </div>
 
                 <!-- 添加表单 -->
-                <div
-                  style="display: flex; gap: 10px; align-items: flex-end; background: rgba(var(--gemini-primary-rgb), 0); padding: 10px; border-radius: 8px; padding-top: 20px;">
-                  <div style="flex: 1;">
-                    <label style="font-size: 11px; opacity: 0.7; display: block; margin-bottom: 7px;">源模型名称
-                      (自定义)</label>
+                <div v-if="!gcliEditingRedirectSource"
+                  style="display: flex; gap: 10px; align-items: center; background: rgba(var(--gemini-primary-rgb), 0.03); padding: 12px; border-radius: 10px; border: 1px dashed var(--border-color);">
+                  <div style="flex: 1; position: relative;">
                     <input type="text" v-model="newGeminiCliRedirectSource" class="form-input"
-                      style="width: 100%; padding: 6px 10px; font-size: 13px;" placeholder="例如: gpt-4o">
+                      style="width: 100%; padding: 8px 12px; font-size: 13px;" placeholder="源模型 (例如: gpt-4o)">
                   </div>
-                  <div style="flex: 1;">
-                    <label style="font-size: 11px; opacity: 0.7; display: block; margin-bottom: 7px;">目标模型 ID
-                      (实际)</label>
+                  <i class="fas fa-arrow-right" style="opacity: 0.3;"></i>
+                  <div style="flex: 1; position: relative;">
                     <input type="text" v-model="newGeminiCliRedirectTarget" class="form-input"
-                      style="width: 100%; padding: 6px 10px; font-size: 13px;" placeholder="例如: gemini-1.5-pro">
+                      style="width: 100%; padding: 8px 12px; font-size: 13px;" placeholder="目标模型 (例如: gemini-1.5-pro)">
                   </div>
-                  <button class="btn btn-gemini" style="padding: 7px 15px; font-size: 13px;"
+                  <button class="btn btn-gemini"
+                    style="padding: 0 20px; font-size: 13px; height: 38px; display: flex; align-items: center; gap: 6px; white-space: nowrap;"
                     @click="addGeminiCliModelRedirect(newGeminiCliRedirectSource, newGeminiCliRedirectTarget)">
-                    <i class="fas fa-plus"></i> 添加
+                    <i class="fas fa-plus-circle"></i> 添加别名
                   </button>
                 </div>
               </div>
@@ -1569,24 +1752,6 @@
               <!-- 底部设置网格 -->
               <div
                 style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 24px; margin-bottom: 10px;">
-                <!-- 接口设置 -->
-                <div>
-                  <div style="font-size: 13px; font-weight: 600; margin-bottom: 10px; color: var(--gemini-primary);">
-                    <i class="fas fa-plug"></i> 接口设置
-                  </div>
-                  <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px;">
-                    <div>
-                      <label style="font-size: 11px; opacity: 0.7; display: block; margin-bottom: 7px;">API Key</label>
-                      <input type="password" v-model="geminiCliSettingsForm.API_KEY" class="form-input"
-                        style="width: 100%; padding: 6px 10px; font-size: 13px;" placeholder="默认 123456">
-                    </div>
-                    <div>
-                      <label style="font-size: 11px; opacity: 0.7; display: block; margin-bottom: 7px;">代理地址</label>
-                      <input type="text" v-model="geminiCliSettingsForm.PROXY" class="form-input"
-                        style="width: 100%; padding: 6px 10px; font-size: 13px;" placeholder="留空使用默认">
-                    </div>
-                  </div>
-                </div>
 
                 <!-- 安全与负载 -->
                 <div>
@@ -1667,7 +1832,7 @@
                       </span>
                     </div>
                     <div class="account-email" style="font-size: 12px;">
-                      {{ endpoint.baseUrl }}
+                      {{ maskAddress(endpoint.baseUrl, serverIpDisplayMode) }}
                     </div>
                   </div>
                 </div>
@@ -1732,67 +1897,63 @@
                     <th>名称</th>
                     <th>API 地址</th>
                     <th>API Key</th>
-                    <th>状态</th>
-                    <th>模型数量</th>
-                    <th>操作</th>
+                    <th class="text-center">状态</th>
+                    <th class="text-center">模型数量</th>
+                    <th class="text-center">操作</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr v-for="endpoint in openaiEndpoints" :key="endpoint.id">
-                    <td>{{ endpoint.name || '未命名' }}</td>
                     <td>
-                      <div style="display: flex; align-items: center; gap: 4px;">
-                        <span style="font-family: monospace; font-size: 12px;">{{ endpoint.baseUrl }}</span>
-                        <button class="copy-btn" @click.stop="copyToClipboard(endpoint.baseUrl)" title="复制地址"
-                          style="padding: 2px 4px;">
-                          <i class="fas fa-copy"></i>
-                        </button>
-                        <a :href="endpoint.baseUrl" target="_blank" rel="noopener noreferrer" title="在新标签页打开"
-                          class="copy-btn" style="padding: 2px 4px;">
-                          <i class="fas fa-external-link-alt"></i>
-                        </a>
+                      <div style="display: flex; align-items: center; gap: 8px;">
+                        <i class="fas fa-robot"
+                          style="font-size: 12px; color: var(--openai-primary); opacity: 0.7;"></i>
+                        <strong>{{ endpoint.name || '未命名' }}</strong>
                       </div>
                     </td>
                     <td>
-                      <div style="display: flex; align-items: center; gap: 4px;">
-                        <span style="font-family: monospace; font-size: 12px;">
-                          {{ endpoint.showKey ? endpoint.apiKey : maskApiKey(endpoint.apiKey) }}
+                      <code
+                        style="background: var(--bg-secondary); border: 1px solid var(--border-color); padding: 2px 8px; border-radius: 6px; font-size: 11px; font-family: var(--font-mono); color: var(--text-secondary);">
+                        {{ maskAddress(endpoint.baseUrl, serverIpDisplayMode) }}
+                      </code>
+                    </td>
+                    <td>
+                      <code
+                        style="background: var(--bg-secondary); border: 1px solid var(--border-color); padding: 2px 8px; border-radius: 6px; font-size: 11px; font-family: var(--font-mono); color: var(--text-secondary);">
+                        {{ endpoint.showKey ? endpoint.apiKey : maskApiKey(endpoint.apiKey) }}
+                      </code>
+                      <button class="copy-btn" @click.stop="endpoint.showKey = !endpoint.showKey"
+                        :title="endpoint.showKey ? '隐藏' : '显示'" style="padding: 2px 4px; margin-left: 4px;">
+                        <i class="fas" :class="endpoint.showKey ? 'fa-eye-slash' : 'fa-eye'"></i>
+                      </button>
+                    </td>
+                    <td class="text-center">
+                      <div class="flex-cell">
+                        <span class="ag-status-badge"
+                          :class="endpoint.status === 'valid' ? 'ag-status-online' : (endpoint.status === 'invalid' ? 'ag-status-error' : 'ag-status-unknown')">
+                          {{ endpoint.status === 'valid' ? '有效' : (endpoint.status === 'invalid' ? '无效' : '未验证') }}
                         </span>
-                        <button class="copy-btn" @click.stop="endpoint.showKey = !endpoint.showKey"
-                          :title="endpoint.showKey ? '隐藏' : '显示'" style="padding: 2px 4px;">
-                          <i class="fas" :class="endpoint.showKey ? 'fa-eye-slash' : 'fa-eye'"></i>
-                        </button>
-                        <button class="copy-btn" @click.stop="copyToClipboard(endpoint.apiKey)" title="复制 Key"
-                          style="padding: 2px 4px;">
-                          <i class="fas fa-copy"></i>
-                        </button>
                       </div>
                     </td>
-                    <td>
-                      <span class="proxied-badge"
-                        :class="endpoint.status === 'valid' ? 'proxied-on' : (endpoint.status === 'invalid' ? 'proxied-off' : '')">
-                        {{ endpoint.status === 'valid' ? '有效' : (endpoint.status === 'invalid' ? '无效' : '未验证') }}
-                      </span>
-                    </td>
-                    <td>
-                      <span v-if="endpoint.models && endpoint.models.length > 0">
-                        {{ endpoint.models.length }} 个
+                    <td class="text-center">
+                      <span v-if="endpoint.models && endpoint.models.length > 0" class="log-duration">
+                        {{ endpoint.models.length }} 个模型
                       </span>
                       <span v-else style="color: var(--text-tertiary);">-</span>
                     </td>
-                    <td class="actions">
-                      <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 12px;"
-                        @click="verifyOpenaiEndpoint(endpoint)" title="验证">
-                        <i class="fas fa-sync-alt"></i>
-                      </button>
-                      <button class="btn btn-primary" style="padding: 4px 8px; font-size: 12px;"
-                        @click="editOpenaiEndpoint(endpoint)" title="编辑">
-                        <i class="fas fa-edit"></i>
-                      </button>
-                      <button class="btn btn-danger" style="padding: 4px 8px; font-size: 12px;"
-                        @click="deleteOpenaiEndpoint(endpoint)" title="删除">
-                        <i class="fas fa-trash"></i>
-                      </button>
+                    <td class="actions text-center">
+                      <div class="flex-cell">
+                        <button class="btn btn-icon-refined" @click="verifyOpenaiEndpoint(endpoint)" title="验证连接">
+                          <i class="fas fa-sync-alt"></i>
+                        </button>
+                        <button class="btn btn-icon-refined" @click="editOpenaiEndpoint(endpoint)" title="编辑配置">
+                          <i class="fas fa-edit"></i>
+                        </button>
+                        <button class="btn btn-icon-refined" @click="deleteOpenaiEndpoint(endpoint)" title="删除账号"
+                          style="color: var(--danger-color);">
+                          <i class="fas fa-trash"></i>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 </tbody>
@@ -1816,7 +1977,7 @@
               <textarea v-model="openaiBatchText" class="form-textarea" placeholder='每行一个，格式: 名称:https://api.example.com:sk-xxx
 或 JSON 格式:
 [{"name": "示例", "baseUrl": "https://api.example.com", "apiKey": "sk-xxx"}]'
-                style="min-height: 150px; font-family: monospace; font-size: 12px;"></textarea>
+                style="min-height: 150px; font-family: var(--font-mono); font-size: 12px;"></textarea>
               <div v-if="openaiBatchError" class="form-error" style="margin-top: 8px;">{{ openaiBatchError }}
               </div>
               <div v-if="openaiBatchSuccess" class="form-success" style="margin-top: 8px;">{{ openaiBatchSuccess
@@ -1836,7 +1997,7 @@
           <div class="modal">
             <div class="modal-header">
               <div class="modal-title">{{ openaiEditingEndpoint ? '编辑 API 端点' : '添加 API 端点' }}</div>
-              <button class="modal-close" @click="showOpenaiEndpointModal = false"></button>
+              <button class="modal-close" @click="showOpenaiEndpointModal = false"><i class="fas fa-times"></i></button>
             </div>
 
             <div class="form-group">
@@ -1853,7 +2014,7 @@
             <div class="form-group">
               <label class="form-label">API Key *</label>
               <input v-model="openaiEndpointForm.apiKey" type="text" class="form-input" placeholder="sk-xxxxxxxx"
-                style="font-family: monospace;" />
+                style="font-family: var(--font-mono);" />
             </div>
 
             <div class="form-group">
@@ -2008,7 +2169,7 @@
                       {{ server.response_time }}ms
                     </span>
                   </div>
-                  <div class="server-host">{{ server.username }}@{{ server.host }}:{{ server.port }}</div>
+                  <div class="server-host">{{ server.username }}@{{ formatHost(server.host) }}:{{ server.port }}</div>
                 </div>
               </div>
 
@@ -2186,33 +2347,32 @@
         <div v-show="serverCurrentTab === 'management'" class="sub-tab-content quick-fade-in">
           <!-- 主机管理面板 -->
           <div class="panel">
-            <div class="panel-header" style="flex-wrap: wrap; gap: 8px;">
-              <!-- <div class="panel-title"></div> -->
-              <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-                <button class="btn btn-success" style="padding: 6px 12px;" @click="openAddServerModal">
-                  <i class="fas fa-plus"></i> 添加主机
-                </button>
-                <button class="btn btn-server" style="padding: 6px 10px;" @click="loadServerList"
-                  :disabled="serverLoading">
-                  <i class="fas fa-sync-alt" :class="{ 'fa-spin': serverLoading }"></i>
-                </button>
-                <button class="btn btn-server" style="padding: 6px 12px; min-width: 100px;" @click="probeAllServers"
-                  :disabled="probeStatus === 'loading'">
-                  <i v-if="probeStatus === 'success'" class="fas fa-check" style="margin-right: 4px;"></i>
-                  <i v-else-if="probeStatus === 'error'" class="fas fa-times"
-                    style="color: var(--danger-color); margin-right: 4px;"></i>
-                  <i v-else class="fas" :class="{
-                    'fa-heartbeat': probeStatus !== 'loading',
-                    'fa-spinner fa-spin': probeStatus === 'loading'
-                  }"></i>
-                  批量拨测
-                </button>
-                <button class="btn btn-server" style="padding: 6px 12px;" @click="exportServers">
-                  <i class="fas fa-upload"></i> 导出
-                </button>
-                <button class="btn btn-server" style="padding: 6px 12px;" @click="openImportServerModal">
-                  <i class="fas fa-download"></i> 导入
-                </button>
+            <div class="panel-header"
+              style="border-bottom: 1px solid var(--border-color); padding-bottom: 12px; margin-bottom: 12px;">
+              <div
+                style="display: flex; justify-content: space-between; align-items: center; width: 100%; flex-wrap: wrap; gap: 12px;">
+                <div class="panel-title-group" style="display: flex; align-items: center; gap: 12px;">
+                  <div class="panel-title">主机实例管理</div>
+                </div>
+
+                <div style="display: flex; gap: 8px;">
+                  <button class="btn btn-success btn-sm" @click="openAddServerModal">
+                    <i class="fas fa-plus"></i> 添加主机
+                  </button>
+                  <button class="btn btn-secondary btn-sm" @click="loadServerList" :disabled="serverLoading">
+                    <i class="fas fa-sync-alt" :class="{ 'fa-spin': serverLoading }"></i>
+                  </button>
+                  <button class="btn btn-secondary btn-sm" @click="probeAllServers"
+                    :disabled="probeStatus === 'loading'">
+                    <i class="fas fa-heartbeat"></i> 批量拨测
+                  </button>
+                  <button class="btn btn-secondary btn-sm" @click="exportServers">
+                    <i class="fas fa-upload"></i> 导出
+                  </button>
+                  <button class="btn btn-secondary btn-sm" @click="openImportServerModal">
+                    <i class="fas fa-download"></i> 导入
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -2225,42 +2385,62 @@
               <table class="data-table">
                 <thead>
                   <tr>
-                    <th>状态</th>
+                    <th class="text-center" style="width: 80px;">状态</th>
                     <th>主机名称</th>
-                    <th>主机地址</th>
-                    <th>响应</th>
-                    <th>最后检查</th>
-                    <th style="width: 180px;">操作</th>
+                    <th>连接地址</th>
+                    <th class="text-center" style="width: 100px;">响应</th>
+                    <th class="text-center">最后检查</th>
+                    <th class="text-center" style="width: 120px;">操作</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr v-for="server in serverList" :key="server.id">
-                    <td>
-                      <span class="proxied-badge"
-                        :class="server.status === 'online' ? 'proxied-on' : (server.status === 'offline' ? 'proxied-off' : '')">
-                        {{ server.status === 'online' ? '在线' : (server.status === 'offline' ? '离线' : '未知') }}
-                      </span>
+                    <td class="text-center">
+                      <div class="flex-cell">
+                        <span class="ag-status-badge"
+                          :class="server.status === 'online' ? 'ag-status-online' : (server.status === 'offline' ? 'ag-status-error' : 'ag-status-unknown')">
+                          {{ server.status === 'online' ? '在线' : (server.status === 'offline' ? '离线' : '未知') }}
+                        </span>
+                      </div>
                     </td>
                     <td>
-                      <strong>{{ server.name }}</strong>
+                      <div style="display: flex; align-items: center; gap: 8px;">
+                        <i class="fas fa-server"
+                          style="font-size: 12px; color: var(--server-primary); opacity: 0.7;"></i>
+                        <strong>{{ server.name }}</strong>
+                      </div>
                     </td>
                     <td>
                       <code
-                        style="background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px; font-size: 11px;">
-                        {{ server.username }}@{{ server.host }}:{{ server.port }}
+                        style="background: var(--bg-secondary); border: 1px solid var(--border-color); padding: 2px 8px; border-radius: 6px; font-size: 11px; font-family: var(--font-mono); color: var(--text-secondary);">
+                        {{ server.username }}@{{ formatHost(server.host) }}:{{ server.port }}
                       </code>
                     </td>
-                    <td><span v-if="server.response_time" style="font-family: monospace;">{{ server.response_time
-                        }}ms</span><span v-else>-</span></td>
-                    <td style="font-size: 11px; opacity: 0.8;">{{ server.last_check_time ?
-                      formatDateTime(server.last_check_time) : '从未检查' }}</td>
-                    <td class="actions">
-                      <button class="btn btn-sm btn-secondary icon-only" @click="openEditServerModal(server.id)"
-                        title="编辑"><i class="fas fa-edit"></i></button>
-                      <button class="btn btn-sm btn-secondary icon-only" @click="rebootServerById(server.id)"
-                        title="重启"><i class="fas fa-redo"></i></button>
-                      <button class="btn btn-sm btn-danger icon-only" @click="deleteServerById(server.id)" title="删除"><i
-                          class="fas fa-trash"></i></button>
+                    <td class="text-center">
+                      <span v-if="server.response_time" class="log-duration">{{ server.response_time }}ms</span>
+                      <span v-else style="color: var(--text-tertiary);">-</span>
+                    </td>
+                    <td class="text-center">
+                      <div class="log-time" v-if="server.last_check_time">
+                        <i class="far fa-clock" style="margin-right: 4px; opacity: 0.5;"></i>
+                        {{ formatDateTime(server.last_check_time) }}
+                      </div>
+                      <span v-else style="color: var(--text-tertiary); font-size: 11px;">从未检查</span>
+                    </td>
+                    <td class="actions text-center">
+                      <div class="flex-cell">
+                        <button class="btn btn-icon-refined" @click="openEditServerModal(server.id)" title="编辑主机">
+                          <i class="fas fa-edit"></i>
+                        </button>
+                        <button class="btn btn-icon-refined" @click="rebootServerById(server.id)" title="重启主机"
+                          style="color: var(--warning-color);">
+                          <i class="fas fa-redo"></i>
+                        </button>
+                        <button class="btn btn-icon-refined" @click="deleteServerById(server.id)" title="删除主机"
+                          style="color: var(--danger-color);">
+                          <i class="fas fa-trash"></i>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 </tbody>
@@ -2281,7 +2461,7 @@
               <textarea v-model="serverBatchText" class="form-textarea" placeholder="例如：
 Web服务器,192.168.1.100,22,root,password123
 数据库服务器,192.168.1.101,22,root,secure_pass"
-                style="min-height: 150px; font-family: monospace; font-size: 12px; white-space: pre;"></textarea>
+                style="min-height: 150px; font-family: var(--font-mono); font-size: 12px; white-space: pre;"></textarea>
               <div v-if="serverBatchError" class="form-error" style="margin-top: 8px;">{{ serverBatchError }}
               </div>
               <div v-if="serverBatchSuccess" class="form-success" style="margin-top: 8px;">{{ serverBatchSuccess
@@ -2337,29 +2517,34 @@ Web服务器,192.168.1.100,22,root,password123
                   </button>
                 </div>
                 <div v-if="serverCredentials.length > 0" class="credential-list" style="margin-top: 10px;">
-                  <div v-for="cred in serverCredentials" :key="cred.id" class="credential-item">
+                  <div v-for="cred in serverCredentials" :key="cred.id" class="credential-item"
+                    :class="{ 'is-default': cred.is_default }">
                     <div class="cred-info">
                       <span class="cred-name">
+                        <i v-if="cred.is_default" class="fas fa-check-circle"
+                          style="color: var(--success-color); font-size: 10px;" title="默认凭据"></i>
                         {{ cred.name }}
                         <span class="cred-user">{{ cred.username }}</span>
                       </span>
                     </div>
-                    <div class="cred-actions">
-                      <button v-if="!cred.is_default" class="btn btn-sm btn-secondary"
-                        style="padding: 2px 8px; font-size: 15px; margin-right: 6px;"
-                        @click="setDefaultCredential(cred.id)" title="设为默认">
+                    <div class="cred-actions" style="gap: 4px;">
+                      <button v-if="!cred.is_default" class="btn btn-icon-sm" @click="setDefaultCredential(cred.id)"
+                        title="设为默认">
                         <i class="fas fa-star"></i>
                       </button>
-                      <i class="fas fa-trash text-danger" @click="deleteCredential(cred.id)"
-                        style="cursor: pointer;"></i>
+                      <button class="btn btn-icon-sm" @click="deleteCredential(cred.id)" title="删除"
+                        style="color: var(--danger-color);">
+                        <i class="fas fa-trash"></i>
+                      </button>
                     </div>
                   </div>
                 </div>
-                <div v-else class="empty-mini" style="margin-top: 10px;">
-                  <i class="fas fa-shield-alt"></i>
-                  <span>暂无预设凭据</span>
+                <div v-else class="empty-state-mini">
+                  <i class="fas fa-key" style="opacity: 0.3; margin-bottom: 8px;"></i>
+                  <div style="font-size: 11px; opacity: 0.5;">暂无预设凭据</div>
                 </div>
               </div>
+
             </div>
           </div>
         </div>
@@ -2499,7 +2684,7 @@ Web服务器,192.168.1.100,22,root,password123
 
             <!-- 统计信息栏 -->
             <div v-if="antigravityStats" class="stats-bar"
-              style="display: flex; gap: 20px; padding: 12px 16px; background: var(--bg-secondary); margin-bottom: 2px; border-radius: 8px; font-size: 13px;">
+              style="display: none; gap: 20px; padding: 12px 16px; background: var(--bg-secondary); margin-bottom: 2px; border-radius: 8px; font-size: 13px;">
               <div class="stat-item">
                 <span style="opacity: 0.7;">总 Token:</span>
                 <strong style="margin-left: 4px;">{{ antigravityStats.total || 0 }}</strong>
@@ -2529,9 +2714,9 @@ Web服务器,192.168.1.100,22,root,password123
                     <th>备注名称</th>
                     <th>项目 ID</th>
                     <th>邮箱</th>
-                    <th style="width: 100px;">调用统计</th>
-                    <th>状态</th>
-                    <th style="width: 140px;">操作</th>
+                    <th class="text-center">调用统计</th>
+                    <th class="text-center">状态</th>
+                    <th class="text-center">操作</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -2539,35 +2724,36 @@ Web服务器,192.168.1.100,22,root,password123
                     <td><strong>{{ account.name || '未命名' }}</strong></td>
                     <td><code class="code-sm">{{ account.projectId || '-' }}</code></td>
                     <td><span style="font-size: 11px; opacity: 0.7;">{{ account.email || '-' }}</span></td>
-                    <td>
-                      <div style="display: flex; align-items: center; gap: 8px;">
+                    <td class="text-center">
+                      <div class="flex-cell">
                         <span style="color: var(--success-color); font-weight: 700; font-size: 13px;">{{
                           account.success_count || 0 }}</span>
-                        <div style="width: 1px; height: 10px; background: var(--border-color); opacity: 0.5;">
+                        <div style="width: 1px; height: 12px; background: var(--border-color); opacity: 0.5;">
                         </div>
                         <span style="color: var(--danger-color); font-weight: 700; font-size: 13px;">{{
                           account.error_count || 0 }}</span>
                       </div>
                     </td>
-                    <td>
-                      <span class="ag-status-badge"
-                        :class="account.status === 'online' ? 'ag-status-online' : (account.status === 'error' ? 'ag-status-error' : 'ag-status-unknown')">
-                        {{ account.status === 'online' ? '在线' : (account.status === 'error' ? '异常' : '未知') }}
-                      </span>
+                    <td class="text-center">
+                      <div class="flex-cell">
+                        <span class="ag-status-badge"
+                          :class="account.status === 'online' ? 'ag-status-online' : (account.status === 'error' ? 'ag-status-error' : 'ag-status-unknown')">
+                          {{ account.status === 'online' ? '在线' : (account.status === 'error' ? '异常' : '未知') }}
+                        </span>
+                      </div>
                     </td>
-                    <td class="actions">
-                      <div style="display: flex; align-items: center; gap: 8px;">
-                        <button class="btn btn-sm icon-only" @click="toggleAntigravityAccount(account)"
-                          :title="account.enable ? '点击停用' : '点击启用'"
-                          :class="account.enable ? 'btn-success' : 'btn-secondary'">
+                    <td class="actions text-center">
+                      <div class="flex-cell">
+                        <button class="btn btn-icon-refined"
+                          :style="{ color: account.enable ? 'var(--success-color)' : 'var(--text-tertiary)' }"
+                          @click="toggleAntigravityAccount(account)" :title="account.enable ? '停用账号' : '启用账号'">
                           <i class="fas" :class="account.enable ? 'fa-toggle-on' : 'fa-toggle-off'"></i>
                         </button>
-                        <button class="btn btn-sm btn-secondary icon-only" @click="editAntigravityAccount(account)"
-                          title="编辑">
+                        <button class="btn btn-icon-refined" @click="editAntigravityAccount(account)" title="编辑配置">
                           <i class="fas fa-edit"></i>
                         </button>
-                        <button class="btn btn-sm btn-danger icon-only" @click="deleteAntigravityAccount(account)"
-                          title="删除">
+                        <button class="btn btn-icon-refined" @click="deleteAntigravityAccount(account)" title="删除授权"
+                          style="color: var(--danger-color);">
                           <i class="fas fa-trash"></i>
                         </button>
                       </div>
@@ -2657,7 +2843,7 @@ Web服务器,192.168.1.100,22,root,password123
                       style="display: flex; justify-content: space-between; align-items: center; padding: 6px 8px; background: var(--bg-tertiary); border-radius: 6px; font-size: 12px;">
                       <div style="display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0;">
                         <span
-                          style="font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
+                          style="font-family: var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;"
                           :title="model.id">{{ model.id }}</span>
                       </div>
                       <div style="display: flex; align-items: center; gap: 10px;">
@@ -2692,7 +2878,7 @@ Web服务器,192.168.1.100,22,root,password123
                     <tbody>
                       <tr v-for="model in getAllAntigravityModels()" :key="model.id"
                         :style="{ opacity: model.enabled === false ? 0.5 : 1, filter: model.enabled === false ? 'grayscale(100%)' : 'none', background: model.enabled === false ? 'var(--bg-tertiary)' : 'inherit' }">
-                        <td style="font-family: monospace; font-weight: 600;">{{ model.id }}</td>
+                        <td style="font-family: var(--font-mono); font-weight: 600;">{{ model.id }}</td>
                         <td>{{ model.groupIcon }} {{ model.groupName }}</td>
                         <td>
                           <div class="quota-progress-container" style="width: 100%;">
@@ -2728,50 +2914,93 @@ Web服务器,192.168.1.100,22,root,password123
         <!-- 调用日志 (Logs) -->
         <div v-show="antigravityCurrentTab === 'logs'" class="sub-tab-content quick-fade-in">
           <div class="panel">
-            <div class="panel-header">
-              <div style="display: flex; gap: 8px;">
-                <button class="btn btn-secondary btn-sm" @click="loadAntigravityLogs">
-                  <i class="fas fa-sync-alt" :class="{ 'fa-spin': antigravityLoading }"></i> 刷新
-                </button>
-                <button class="btn btn-danger btn-sm" @click="clearAntigravityLogs">清空</button>
+            <div class="panel-header" style="border-bottom: 1px solid var(--border-color);">
+              <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
+                <div class="panel-title-group">
+                  <div class="panel-title">Antigravity API 调用日志</div>
+                </div>
+                <div style="display: flex; gap: 8px;">
+                  <button class="btn btn-secondary btn-sm" @click="loadAntigravityLogs" :disabled="antigravityLoading">
+                    <i class="fas fa-sync-alt" :class="{ 'fa-spin': antigravityLoading }"></i> 刷新
+                  </button>
+                  <button class="btn btn-danger btn-sm" @click="clearAntigravityLogs">
+                    <i class="fas fa-trash-alt"></i> 清空
+                  </button>
+                </div>
               </div>
             </div>
             <div class="table-container">
               <table class="data-table">
                 <thead>
                   <tr>
-                    <th>时间</th>
-                    <th>凭证</th>
-                    <th>模型</th>
+                    <th style="width: 160px;" class="text-center">时间</th>
+                    <th>账号备注</th>
+                    <th class="text-center">模型</th>
                     <th>路径</th>
-                    <th>状态</th>
-                    <th>耗时</th>
-                    <th>查看</th>
+                    <th class="text-center">状态</th>
+                    <th class="text-center">耗时</th>
+                    <th class="text-center" style="width: 80px;">操作</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr v-for="log in antigravityLogs" :key="log.id">
-                    <td style="font-size: 11px;">{{ new Date(log.timestamp).toLocaleString() }}</td>
-                    <td>{{ log.accountName || 'System' }}</td>
-                    <td style="font-family: monospace; font-size: 11px;">{{ log.model || '-' }}</td>
-                    <td style="font-family: monospace; font-size: 11px;">{{ log.path }}</td>
-                    <td>
-                      <span :class="getLogStatusClass(log.statusCode)" style="font-weight: 600;">{{
-                        log.statusCode }}</span>
+                    <td class="text-center">
+                      <div class="flex-cell">
+                        <div class="log-time">
+                          <i class="far fa-clock" style="margin-right: 4px; opacity: 0.5;"></i>
+                          {{ formatDateTime(log.timestamp) }}
+                        </div>
+                      </div>
                     </td>
-                    <td>{{ log.durationMs }}ms</td>
                     <td>
-                      <button class="btn btn-xs btn-secondary icon-only" @click="viewAntigravityLogDetail(log)">
-                        <i class="fas fa-eye"></i>
-                      </button>
+                      <div style="display: flex; align-items: center; gap: 8px;">
+                        <i class="fas fa-id-card" style="font-size: 12px; color: var(--ag-primary); opacity: 0.7;"></i>
+                        <strong>{{ log.accountName || 'System' }}</strong>
+                        <span v-if="log.isBalanced" class="badge-lb" title="经过全局负载均衡分发">LB</span>
+                      </div>
+                    </td>
+                    <td class="text-center">
+                      <div class="flex-cell">
+                        <code class="code-sm">{{ log.model || '-' }}</code>
+                      </div>
+                    </td>
+                    <td>
+                      <div style="display: flex; align-items: center;">
+                        <span class="method-badge" :class="'method-' + (log.method || 'POST').toLowerCase()">
+                          {{ log.method || 'POST' }}
+                        </span>
+                        <span class="log-path" :title="log.path">{{ log.path }}</span>
+                      </div>
+                    </td>
+                    <td class="text-center">
+                      <div class="flex-cell">
+                        <span :class="getGcliStatusClass(log.statusCode)" class="ag-status-badge">
+                          {{ log.statusCode }}
+                        </span>
+                      </div>
+                    </td>
+                    <td class="text-center">
+                      <div class="flex-cell">
+                        <span class="log-duration">{{ log.durationMs }}ms</span>
+                      </div>
+                    </td>
+                    <td class="actions text-center">
+                      <div class="flex-cell">
+                        <button class="btn btn-icon-refined" @click="viewAntigravityLogDetail(log)" title="查看详情">
+                          <i class="fas fa-eye"></i>
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                  <tr v-if="antigravityLogs.length === 0">
+                    <td colspan="7" style="text-align: center; padding: 60px; color: var(--text-tertiary);">
+                      <i class="fas fa-inbox"
+                        style="font-size: 40px; display: block; margin-bottom: 12px; opacity: 0.3;"></i>
+                      暂无调用日志
                     </td>
                   </tr>
                 </tbody>
               </table>
-              <div v-if="antigravityLogs.length === 0" class="empty-state">
-                <i class="fas fa-file-alt" style="font-size: 40px; opacity: 0.2; margin-bottom: 12px;"></i>
-                <div>暂无调用日志</div>
-              </div>
             </div>
           </div>
         </div>
@@ -2832,47 +3061,78 @@ Web服务器,192.168.1.100,22,root,password123
               <!-- 模型重定向 -->
               <div style="margin-bottom: 24px;">
                 <div
-                  style="font-size: 13px; font-weight: 600; margin-bottom: 10px; color: var(--ag-primary); display: flex; align-items: center; gap: 8px;">
+                  style="font-size: 14px; font-weight: 600; margin-bottom: 12px; color: var(--ag-primary); display: flex; align-items: center; gap: 8px;">
                   <i class="fas fa-exchange-alt"></i> 模型重定向 (别名)
                 </div>
                 <!-- 列表 -->
                 <div v-if="antigravityModelRedirects.length > 0"
-                  style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 10px; margin-bottom: 12px;">
+                  style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px;">
                   <div v-for="r in antigravityModelRedirects" :key="r.source_model"
-                    style="background: var(--bg-tertiary); padding: 8px 12px; border-radius: 6px; display: flex; justify-content: space-between; align-items: center; border: 1px solid var(--border-color);">
-                    <div style="font-size: 12px; font-family: monospace;">
-                      <span style="color: var(--text-primary); font-weight: 600;">{{ r.source_model }}</span>
-                      <i class="fas fa-arrow-right" style="font-size: 10px; opacity: 0.5; margin: 0 6px;"></i>
-                      <span style="opacity: 0.8;">{{ r.target_model }}</span>
+                    style="background: var(--bg-tertiary); padding: 10px 15px; border-radius: 10px; display: flex; justify-content: space-between; align-items: center; border: 1px solid var(--border-color); transition: all 0.2s;"
+                    :style="agEditingRedirectSource === r.source_model ? 'border-color: var(--ag-primary); box-shadow: 0 0 0 2px rgba(var(--ag-primary-rgb), 0.1);' : ''">
+
+                    <div v-if="agEditingRedirectSource !== r.source_model"
+                      style="display: flex; align-items: center; gap: 10px; flex: 1;" @dblclick="editModelRedirect(r)">
+                      <div
+                        style="background: rgba(var(--ag-primary-rgb), 0.1); color: var(--ag-primary); padding: 2px 8px; border-radius: 4px; font-weight: 600; font-size: 12px;">
+                        {{ r.source_model }}</div>
+                      <i class="fas fa-long-arrow-alt-right" style="opacity: 0.3;"></i>
+                      <div style="font-size: 13px; color: var(--text-primary);">{{ r.target_model }}</div>
                     </div>
-                    <button class="btn btn-xs btn-danger icon-only" @click="removeModelRedirect(r.source_model)"
-                      title="删除重定向">
-                      <i class="fas fa-trash"></i>
-                    </button>
+
+                    <div v-else style="display: flex; align-items: center; gap: 10px; flex: 1;">
+                      <input type="text" v-model="newRedirectSource" class="form-input-sm"
+                        style="flex: 1; min-width: 0;" placeholder="源模型">
+                      <i class="fas fa-long-arrow-alt-right" style="opacity: 0.3;"></i>
+                      <input type="text" v-model="newRedirectTarget" class="form-input-sm"
+                        style="flex: 1; min-width: 0;" placeholder="目标模型">
+                    </div>
+
+                    <div style="display: flex; gap: 6px; margin-left: 15px;">
+                      <template v-if="agEditingRedirectSource === r.source_model">
+                        <button class="btn btn-xs btn-success icon-only"
+                          @click="addModelRedirect(newRedirectSource, newRedirectTarget)" title="保存">
+                          <i class="fas fa-check"></i>
+                        </button>
+                        <button class="btn btn-xs btn-secondary icon-only"
+                          @click="agEditingRedirectSource = null; newRedirectSource = ''; newRedirectTarget = '';"
+                          title="取消">
+                          <i class="fas fa-times"></i>
+                        </button>
+                      </template>
+                      <template v-else>
+                        <button class="btn btn-xs btn-primary icon-only" @click="editModelRedirect(r)" title="编辑">
+                          <i class="fas fa-pen"></i>
+                        </button>
+                        <button class="btn btn-xs btn-danger icon-only" @click="removeModelRedirect(r.source_model)"
+                          title="删除">
+                          <i class="fas fa-trash"></i>
+                        </button>
+                      </template>
+                    </div>
                   </div>
                 </div>
-                <div v-else style="font-size: 12px; opacity: 0.5; margin-bottom: 12px; padding: 8px 0;">
+                <div v-else
+                  style="font-size: 12px; opacity: 0.5; margin-bottom: 16px; padding: 10px; background: var(--bg-secondary); border-radius: 8px; text-align: center; border: 1px dashed var(--border-color);">
                   暂无重定向规则。添加后，请求 source 模型将自动转发给 target 模型。
                 </div>
 
                 <!-- 添加表单 -->
-                <div
-                  style="display: flex; gap: 10px; align-items: flex-end; background: rgba(var(--ag-primary-rgb), 0); padding: 10px; border-radius: 8px; padding-top: 20px;">
-                  <div style="flex: 1;">
-                    <label style="font-size: 11px; opacity: 0.7; display: block; margin-bottom: 7px;">源模型名称
-                      (自定义)</label>
+                <div v-if="!agEditingRedirectSource"
+                  style="display: flex; gap: 10px; align-items: center; background: rgba(var(--ag-primary-rgb), 0.03); padding: 12px; border-radius: 10px; border: 1px dashed var(--border-color);">
+                  <div style="flex: 1; position: relative;">
                     <input type="text" v-model="newRedirectSource" class="form-input"
-                      style="width: 100%; padding: 6px 10px; font-size: 13px;" placeholder="例如: gpt-4o">
+                      style="width: 100%; padding: 8px 12px; font-size: 13px;" placeholder="源模型 (例如: gpt-4o)">
                   </div>
-                  <div style="flex: 1;">
-                    <label style="font-size: 11px; opacity: 0.7; display: block; margin-bottom: 7px;">目标模型 ID
-                      (实际)</label>
+                  <i class="fas fa-arrow-right" style="opacity: 0.3;"></i>
+                  <div style="flex: 1; position: relative;">
                     <input type="text" v-model="newRedirectTarget" class="form-input"
-                      style="width: 100%; padding: 6px 10px; font-size: 13px;" placeholder="例如: gemini-1.5-pro">
+                      style="width: 100%; padding: 8px 12px; font-size: 13px;" placeholder="目标模型 (例如: gemini-1.5-pro)">
                   </div>
                   <button class="btn btn-secondary btn-sm"
+                    style="padding: 0 20px; font-size: 13px; height: 38px; display: flex; align-items: center; gap: 6px; white-space: nowrap;"
                     @click="addModelRedirect(newRedirectSource, newRedirectTarget).then(s => { if(s) { newRedirectSource=''; newRedirectTarget=''; } })">
-                    <i class="fas fa-plus"></i> 添加
+                    <i class="fas fa-plus-circle"></i> 添加别名
                   </button>
                 </div>
               </div>
@@ -2938,7 +3198,8 @@ Web服务器,192.168.1.100,22,root,password123
           <div class="modal-title">
             <i class="fas fa-file-alt"></i> 调用日志详情
           </div>
-          <button class="modal-close" @click="showAntigravityLogDetailModal = false"></button>
+          <button class="modal-close" @click="showAntigravityLogDetailModal = false"><i
+              class="fas fa-times"></i></button>
         </div>
         <div class="modal-body" v-if="antigravityLogDetail" style="padding: 20px;">
           <div class="log-detail-grid"
@@ -2963,7 +3224,7 @@ Web服务器,192.168.1.100,22,root,password123
             <div style="opacity: 0.6;">耗时</div>
             <div>{{ antigravityLogDetail.duration_ms }} ms</div>
 
-            <div style="opacity: 0.6;">账号 ID</div>
+            <div style="opacity: 0.6;">凭证</div>
             <div><code class="code-sm">{{ antigravityLogDetail.account_id || '-' }}</code></div>
 
             <div style="opacity: 0.6;">客户端 IP</div>
@@ -2998,7 +3259,7 @@ Web服务器,192.168.1.100,22,root,password123
           <div class="modal-title" style="color: var(--gemini-primary);">
             <i class="fas fa-file-alt"></i> Gemini 调用详情
           </div>
-          <button class="modal-close" @click="showGeminiCliLogDetailModal = false"></button>
+          <button class="modal-close" @click="showGeminiCliLogDetailModal = false"><i class="fas fa-times"></i></button>
         </div>
         <div class="modal-body" v-if="geminiCliLogDetail" style="padding: 20px;">
           <div class="log-detail-grid"
@@ -3050,7 +3311,7 @@ Web服务器,192.168.1.100,22,root,password123
             <i class="fas fa-server"></i>
             {{ serverModalMode === 'add' ? '添加主机' : '编辑主机' }}
           </div>
-          <button class="modal-close" @click="closeServerModal"></button>
+          <button class="modal-close" @click="closeServerModal"><i class="fas fa-times"></i></button>
         </div>
         <div class="modal-body">
           <!-- 基础信息区 -->
@@ -3166,7 +3427,7 @@ Web服务器,192.168.1.100,22,root,password123
             <i class="fas fa-file-import"></i>
             批量导入主机
           </div>
-          <button class="modal-close" @click="closeImportServerModal"></button>
+          <button class="modal-close" @click="closeImportServerModal"><i class="fas fa-times"></i></button>
         </div>
         <div class="modal-body">
           <div class="server-form-section">
@@ -3234,7 +3495,7 @@ Web服务器,192.168.1.100,22,root,password123
     </div>
 
     <!-- 设置侧边栏 -->
-    <Transition name="settings-fade">
+    <transition name="settings-fade">
       <div v-if="showSettingsModal" class="settings-modal-wrapper" @keydown.esc="showSettingsModal = false"
         tabindex="-1">
         <div class="settings-sidebar-overlay" @click="showSettingsModal = false"></div>
@@ -3255,11 +3516,7 @@ Web服务器,192.168.1.100,22,root,password123
             <div class="settings-nav">
               <button class="settings-nav-item" :class="{ active: settingsCurrentTab === 'general' }"
                 @click="settingsCurrentTab = 'general'">
-                <i class="fas fa-sliders-h"></i> 通用设置
-              </button>
-              <button class="settings-nav-item" :class="{ active: settingsCurrentTab === 'api' }"
-                @click="settingsCurrentTab = 'api'">
-                <i class="fas fa-network-wired"></i> API 配置
+                <i class="fas fa-cog"></i> 通用设置
               </button>
               <button class="settings-nav-item" :class="{ active: settingsCurrentTab === 'modules' }"
                 @click="settingsCurrentTab = 'modules'">
@@ -3269,9 +3526,17 @@ Web服务器,192.168.1.100,22,root,password123
                 @click="settingsCurrentTab = 'database'">
                 <i class="fas fa-database"></i> 数据库
               </button>
+              <button class="settings-nav-item" :class="{ active: settingsCurrentTab === 'logs' }"
+                @click="settingsCurrentTab = 'logs'">
+                <i class="fas fa-terminal"></i> 系统日志
+              </button>
               <button class="settings-nav-item" :class="{ active: settingsCurrentTab === 'appearance' }"
                 @click="settingsCurrentTab = 'appearance'">
-                <i class="fas fa-paint-brush"></i> 个性化
+                <i class="fas fa-palette"></i> 界面外观
+              </button>
+              <button class="settings-nav-item" :class="{ active: settingsCurrentTab === 'about' }"
+                @click="settingsCurrentTab = 'about'">
+                <i class="fas fa-info-circle"></i> 关于系统
               </button>
             </div>
 
@@ -3308,6 +3573,36 @@ Web服务器,192.168.1.100,22,root,password123
                     <button class="btn btn-secondary" @click="importAllData" style="flex: 1;">
                       <i class="fas fa-download"></i> 导入数据
                     </button>
+                  </div>
+                </div>
+
+                <div class="settings-group">
+                  <div class="settings-group-title">隐私与安全显示</div>
+                  <div class="settings-description">
+                    控制主机地址、API 端点地址等敏感信息的显示方式。
+                  </div>
+                  <div class="form-group" style="margin-top: 12px;">
+                    <label class="form-label" style="font-size: 13px;">地址显示模式</label>
+                    <div style="display: flex; gap: 8px;">
+                      <button class="btn btn-sm"
+                        :class="serverIpDisplayMode === 'normal' ? 'btn-primary' : 'btn-secondary'"
+                        @click="serverIpDisplayMode = 'normal'" style="flex: 1; height: 32px; font-size: 12px;">
+                        明文
+                      </button>
+                      <button class="btn btn-sm"
+                        :class="serverIpDisplayMode === 'masked' ? 'btn-primary' : 'btn-secondary'"
+                        @click="serverIpDisplayMode = 'masked'" style="flex: 1; height: 32px; font-size: 12px;">
+                        打码
+                      </button>
+                      <button class="btn btn-sm"
+                        :class="serverIpDisplayMode === 'hidden' ? 'btn-primary' : 'btn-secondary'"
+                        @click="serverIpDisplayMode = 'hidden'" style="flex: 1; height: 32px; font-size: 12px;">
+                        隐藏
+                      </button>
+                    </div>
+                    <div class="form-help" style="margin-top: 10px;">
+                      打码模式隐藏 IP 后两段或域名核心部分，隐藏模式完全显示为 ****。
+                    </div>
                   </div>
                 </div>
               </div>
@@ -3435,8 +3730,8 @@ Web服务器,192.168.1.100,22,root,password123
                   </div>
                 </div>
                 <div class="settings-actions">
-                  <button class="btn btn-primary" @click="saveSettings">
-                    <i class="fas fa-check"></i> 保存排序与可见性
+                  <button class="btn btn-primary" style="width: 100%;" @click="saveSettings">
+                    <i class="fas fa-save"></i> 立即应用排序与可见性
                   </button>
                 </div>
               </div>
@@ -3444,7 +3739,9 @@ Web服务器,192.168.1.100,22,root,password123
               <!-- ==================== Database Tab ==================== -->
               <div v-if="settingsCurrentTab === 'database'" class="settings-tab-content fade-in">
                 <div class="settings-group">
-                  <div class="settings-group-title">存储状态</div>
+                  <div class="settings-group-title">
+                    <i class="fas fa-database"></i> 存储状态
+                  </div>
                   <div class="db-stats-card">
                     <div class="db-stat-item">
                       <div class="db-stat-label">数据库大小</div>
@@ -3457,18 +3754,20 @@ Web服务器,192.168.1.100,22,root,password123
                       <div class="db-stat-value" v-else>--</div>
                     </div>
                   </div>
-                  <div style="display: flex; gap: 8px; margin-top: 12px;">
-                    <button class="btn btn-warning" @click="handleClearLogs" style="flex: 1;">
-                      <i class="fas fa-trash-alt"></i> 清理所有日志
+                  <div style="display: flex; gap: 12px; margin-top: 12px;">
+                    <button class="btn btn-danger" @click="handleClearLogs" style="flex: 1;">
+                      <i class="fas fa-trash-alt"></i> 清空日志
                     </button>
                     <button class="btn btn-secondary" @click="handleVacuumDb" style="flex: 1;">
-                      <i class="fas fa-compress-arrows-alt"></i> 压缩数据库
+                      <i class="fas fa-compress-arrows-alt"></i> 压缩存储
                     </button>
                   </div>
                 </div>
 
                 <div class="settings-group">
-                  <div class="settings-group-title">自动清理策略</div>
+                  <div class="settings-group-title">
+                    <i class="fas fa-broom"></i> 自动清理策略
+                  </div>
                   <div class="settings-description">
                     系统将自动删除超过限制的旧日志数据。
                   </div>
@@ -3503,10 +3802,10 @@ Web服务器,192.168.1.100,22,root,password123
                     <div class="form-help">0 表示不限制</div>
                   </div>
 
-                  <button class="btn btn-secondary" style="width: 100%; margin-top: 8px;" @click="enforceLogLimits"
+                  <button class="btn btn-primary" style="width: 100%; margin-top: 12px;" @click="enforceLogLimits"
                     :disabled="logLimitsEnforcing">
-                    <i class="fas" :class="logLimitsEnforcing ? 'fa-spinner fa-spin' : 'fa-broom'"></i>
-                    {{ logLimitsEnforcing ? '正在清理...' : '立即执行清理' }}
+                    <i class="fas" :class="logLimitsEnforcing ? 'fa-spinner fa-spin' : 'fa-magic'"></i>
+                    {{ logLimitsEnforcing ? '执行中...' : '立即执行清理' }}
                   </button>
                 </div>
               </div>
@@ -3514,9 +3813,11 @@ Web服务器,192.168.1.100,22,root,password123
               <!-- ==================== Appearance Tab ==================== -->
               <div v-if="settingsCurrentTab === 'appearance'" class="settings-tab-content fade-in">
                 <div class="settings-group">
-                  <div class="settings-group-title">自定义 CSS</div>
+                  <div class="settings-group-title">
+                    <i class="fas fa-paint-brush"></i> 自定义样式 (CSS)
+                  </div>
                   <div class="settings-description">
-                    注入自定义 CSS 样式以覆盖默认主题。
+                    注入自定义 CSS 样式以深度覆盖默认主题。
                   </div>
                   <textarea v-model="customCss" class="form-textarea code-font" placeholder="/* 在此处输入 CSS 代码 */"
                     style="min-height: 200px;"></textarea>
@@ -3524,13 +3825,108 @@ Web服务器,192.168.1.100,22,root,password123
                   <div v-if="customCssSuccess" class="form-success" style="margin-top: 8px;">{{ customCssSuccess }}
                   </div>
 
-                  <div style="display: flex; gap: 8px; margin-top: 12px;">
+                  <div style="display: flex; gap: 12px; margin-top: 12px;">
                     <button class="btn btn-primary" @click="saveCustomCss" style="flex: 1;">
-                      <i class="fas fa-save"></i> 应用并保存
+                      <i class="fas fa-check"></i> 应用样式
                     </button>
                     <button class="btn btn-secondary" @click="resetCustomCss" style="flex: 1;">
-                      <i class="fas fa-undo"></i> 重置默认
+                      <i class="fas fa-undo"></i> 恢复默认
                     </button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- ==================== Logs Tab ==================== -->
+              <div v-if="settingsCurrentTab === 'logs'" class="settings-tab-content fade-in">
+                <div class="settings-group">
+                  <div class="settings-group-title"
+                    style="display: flex; justify-content: space-between; align-items: center;">
+                    <span><i class="fas fa-terminal"></i> 实时运行日志</span>
+                    <span v-if="logFileSize"
+                      style="font-size: 11px; font-weight: normal; opacity: 0.6; font-family: var(--font-mono);">
+                      Disk: {{ logFileSize }}
+                    </span>
+                  </div>
+                  <div class="settings-description">
+                    后端内存中的结构化日志流（最近 200 条）。
+                  </div>
+                  <div class="log-stream-container" ref="settingsLogStream">
+                    <div v-for="(log, index) in systemLogs" :key="index" class="log-line">
+                      <span class="log-time">{{ log.time }}</span>
+                      <span class="log-level" :class="'log-' + (log.level || '').toLowerCase()">{{ log.level }}</span>
+                      <span class="log-module" style="color: var(--primary-color); opacity: 0.8; font-weight: 600;">[{{
+                        log.module }}]</span>
+                      <span class="log-msg">{{ log.message }}</span>
+                    </div>
+                    <div v-if="systemLogs.length === 0" style="opacity: 0.5; text-align: center; padding: 20px;">
+                      等待日志输入...
+                    </div>
+                  </div>
+                  <div style="display: flex; gap: 12px; margin-top: 12px;">
+                    <button class="btn btn-secondary" @click="fetchSystemLogs" style="flex: 1;">
+                      <i class="fas fa-sync-alt"></i> 刷新流
+                    </button>
+                    <button class="btn btn-secondary" @click="viewRawAppLog" style="flex: 1;">
+                      <i class="fas fa-file-alt"></i> 查看文件
+                    </button>
+                    <button class="btn btn-danger" @click="clearAppLogs" style="flex: 1;">
+                      <i class="fas fa-trash-alt"></i> 清空日志
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- ==================== About Tab ==================== -->
+              <div v-if="settingsCurrentTab === 'about'" class="settings-tab-content fade-in">
+                <div class="settings-group" style="text-align: center; padding: 40px 20px;">
+                  <div
+                    style="width: 80px; height: 80px; background: var(--ag-primary); color: white; border-radius: 20px; display: flex; align-items: center; justify-content: center; font-size: 40px; margin: 0 auto 20px; box-shadow: 0 10px 20px rgba(var(--ag-primary-rgb), 0.2);">
+                    <i class="fas fa-rocket"></i>
+                  </div>
+                  <div style="font-size: 24px; font-weight: 800; color: var(--text-primary); margin-bottom: 8px;">
+                    Antigravity API Monitor
+                  </div>
+                  <div style="font-size: 14px; color: var(--text-tertiary); margin-bottom: 24px;">
+                    Version 1.2.0 Stable
+                  </div>
+
+                  <div
+                    style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; max-width: 400px; margin: 0 auto; text-align: left;">
+                    <div
+                      style="background: var(--bg-secondary); padding: 12px; border-radius: 12px; border: 1px solid var(--border-color);">
+                      <div style="font-size: 11px; color: var(--text-tertiary); text-transform: uppercase;">核心架构</div>
+                      <div style="font-weight: 600; margin-top: 4px;">DEBUG Engine</div>
+                    </div>
+                    <div
+                      style="background: var(--bg-secondary); padding: 12px; border-radius: 12px; border: 1px solid var(--border-color);">
+                      <div style="font-size: 11px; color: var(--text-tertiary); text-transform: uppercase;">AI 适配层</div>
+                      <div style="font-weight: 600; margin-top: 4px;">CloudCode Protocol</div>
+                    </div>
+                    <div
+                      style="background: var(--bg-secondary); padding: 12px; border-radius: 12px; border: 1px solid var(--border-color);">
+                      <div style="font-size: 11px; color: var(--text-tertiary); text-transform: uppercase;">运行环境</div>
+                      <div style="font-weight: 600; margin-top: 4px;">node js</div>
+                    </div>
+                    <div
+                      style="background: var(--bg-secondary); padding: 12px; border-radius: 12px; border: 1px solid var(--border-color);">
+                      <div style="font-size: 11px; color: var(--text-tertiary); text-transform: uppercase;">项目主页</div>
+                      <div style="font-weight: 600; margin-top: 4px;">
+                        <a href="https://github.com/iwvw/API-Monitor" target="_blank"
+                          style="color: var(--primary-color); text-decoration: none;">
+                          <i class="fab fa-github"></i> API-Monitor
+                        </a>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style="margin-top: 32px; border-top: 1px solid var(--border-color); padding-top: 24px;">
+                    <p style="font-size: 13px; color: var(--text-secondary); line-height: 1.6;">
+                      专业的 API 监控与分发管理系统，<br>
+                      旨在为 AI 应用提供极致的稳定性与性能。<br>
+                      <span style="font-size: 11px; opacity: 0.6; margin-top: 8px; display: block;">Powered by <a
+                          href="https://github.com/iwvw/API-Monitor" target="_blank"
+                          style="color: inherit;">API-Monitor</a></span>
+                    </p>
                   </div>
                 </div>
               </div>
@@ -3620,7 +4016,7 @@ Web服务器,192.168.1.100,22,root,password123
             <div class="modal-title">
               <i class="fas fa-key"></i> 保存新凭据
             </div>
-            <button class="modal-close" @click="showAddCredentialModal = false">&times;</button>
+            <button class="modal-close" @click="showAddCredentialModal = false"><i class="fas fa-times"></i></button>
           </div>
           <div class="modal-body">
             <div class="server-form-section">
@@ -3700,7 +4096,8 @@ Web服务器,192.168.1.100,22,root,password123
               <i class="fas fa-atom"></i>
               {{ antigravityEditingAccount ? '编辑账号' : '添加账号' }}
             </div>
-            <button class="modal-close" @click="showAntigravityAccountModal = false">&times;</button>
+            <button class="modal-close" @click="showAntigravityAccountModal = false"><i
+                class="fas fa-times"></i></button>
           </div>
           <div class="modal-body">
             <div class="form-group">
@@ -3729,7 +4126,8 @@ Web服务器,192.168.1.100,22,root,password123
         <div class="modal ag-modal-manual">
           <div class="modal-header">
             <div class="modal-title">手动添加 Token</div>
-            <button class="modal-close" @click="showAntigravityManualModal = false">&times;</button>
+            <button class="modal-close" @click="showAntigravityManualModal = false"><i
+                class="fas fa-times"></i></button>
           </div>
           <div class="modal-body">
             <div class="form-group">
@@ -3777,7 +4175,7 @@ Web服务器,192.168.1.100,22,root,password123
               <i class="fas fa-terminal"></i>
               {{ geminiCliEditingAccount ? '编辑 Gemini 账号' : '添加 Gemini 账号' }}
             </div>
-            <button class="modal-close" @click="showGeminiCliAccountModal = false">&times;</button>
+            <button class="modal-close" @click="showGeminiCliAccountModal = false"><i class="fas fa-times"></i></button>
           </div>
           <div class="modal-body">
             <div class="form-group">
@@ -3831,7 +4229,7 @@ Web服务器,192.168.1.100,22,root,password123
         <div class="modal">
           <div class="modal-header">
             <div class="modal-title">添加 Zeabur 账号</div>
-            <button class="modal-close" @click="showAddZeaburAccountModal = false"></button>
+            <button class="modal-close" @click="showAddZeaburAccountModal = false"><i class="fas fa-times"></i></button>
           </div>
 
           <div class="form-group">
@@ -3866,7 +4264,7 @@ Web服务器,192.168.1.100,22,root,password123
         <div class="modal">
           <div class="modal-header">
             <div class="modal-title">添加 Cloudflare 账号</div>
-            <button class="modal-close" @click="showAddDnsAccountModal = false"></button>
+            <button class="modal-close" @click="showAddDnsAccountModal = false"><i class="fas fa-times"></i></button>
           </div>
 
           <div class="form-group">
@@ -3904,7 +4302,7 @@ Web服务器,192.168.1.100,22,root,password123
         <div class="modal">
           <div class="modal-header">
             <div class="modal-title">编辑 Cloudflare 账号</div>
-            <button class="modal-close" @click="showEditDnsAccountModal = false"></button>
+            <button class="modal-close" @click="showEditDnsAccountModal = false"><i class="fas fa-times"></i></button>
           </div>
 
           <div class="form-group">
@@ -3942,7 +4340,7 @@ Web服务器,192.168.1.100,22,root,password123
         <div class="modal">
           <div class="modal-header">
             <div class="modal-title">{{ dnsEditingRecord ? '编辑 DNS 记录' : '添加 DNS 记录' }}</div>
-            <button class="modal-close" @click="showDnsRecordModal = false"></button>
+            <button class="modal-close" @click="showDnsRecordModal = false"><i class="fas fa-times"></i></button>
           </div>
 
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
@@ -4009,7 +4407,7 @@ Web服务器,192.168.1.100,22,root,password123
         <div class="modal">
           <div class="modal-header">
             <div class="modal-title">{{ dnsEditingTemplate ? '编辑模板' : '添加模板' }}</div>
-            <button class="modal-close" @click="showDnsTemplateModal = false"></button>
+            <button class="modal-close" @click="showDnsTemplateModal = false"><i class="fas fa-times"></i></button>
           </div>
 
           <div class="form-group">

@@ -1,11 +1,33 @@
 # 🚀 API Monitor Dashboard
 
+【功能迭代中】
+
 一个全能型的 API 管理与服务器监控面板。它不仅能帮您集中管理 Zeabur、Cloudflare、OpenAI 等多种云服务，还提供了强大的主机管理、实时 SSH 终端及 Docker 容器监控功能。
 
 [![Node.js](https://img.shields.io/badge/Node.js-18+-green.svg)](https://nodejs.org/)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![SQLite](https://img.shields.io/badge/Storage-SQLite3-orange.svg)](https://www.sqlite.org/)
 [![Docker](https://img.shields.io/badge/Support-Docker-blue.svg)](Dockerfile)
+
+---
+
+## 🖼️ 界面预览
+
+| 主机管理 | SSH 终端 |
+| :---: | :---: |
+| ![主机管理](pic/Snipaste_2025-12-20_04-06-50.png) | ![SSH终端](pic/Snipaste_2025-12-20_04-07-25.png) |
+
+| Cloudflare DNS | Zeabur 监控 |
+| :---: | :---: |
+| ![Cloudflare DNS](pic/Snipaste_2025-12-20_04-07-34.png) | ![Zeabur](pic/Snipaste_2025-12-20_04-07-43.png) |
+
+| OpenAI 端点 | Antigravity |
+| :---: | :---: |
+| ![OpenAI](pic/Snipaste_2025-12-20_04-07-52.png) | ![Antigravity](pic/Snipaste_2025-12-20_04-08-05.png) |
+
+| Gemini CLI | 系统设置 |
+| :---: | :---: |
+| ![Gemini CLI](pic/Snipaste_2025-12-20_04-08-16.png) | ![系统设置](pic/Snipaste_2025-12-20_04-08-23.png) |
 
 ---
 

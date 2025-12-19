@@ -116,6 +116,26 @@ router.put('/endpoints/:id', async (req, res) => {
 });
 
 /**
+ * 切换端点启用状态
+ */
+router.post('/endpoints/:id/toggle', (req, res) => {
+  try {
+    const { id } = req.params;
+    const { enabled } = req.body;
+
+    const endpoint = storage.getEndpointById(id);
+    if (!endpoint) {
+      return res.status(404).json({ error: '端点不存在' });
+    }
+
+    storage.updateEndpoint(id, { enabled });
+    res.json({ success: true, enabled });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
  * 删除端点
  */
 router.delete('/endpoints/:id', (req, res) => {
@@ -194,9 +214,9 @@ router.get('/endpoints/:id/models', async (req, res) => {
  * 刷新所有端点的模型列表
  * 支持两个路由: /endpoints/refresh 和 /endpoints/refresh-all
  */
-router.post('/endpoints/refresh', async (req, res) => {
+router.post(['/endpoints/refresh', '/endpoints/refresh-all'], async (req, res) => {
   try {
-    const endpoints = storage.getEndpoints();
+    const endpoints = storage.getEnabledEndpoints();
     const results = [];
 
     for (const endpoint of endpoints) {
@@ -483,11 +503,11 @@ router.post('/import', (req, res) => {
 /**
  * OpenAI 兼容的对话接口 (代理转发)
  */
-router.post(['/v1/chat/completions', '/chat/completions'], async (req, res) => {
+router.post(['/', '/v1/chat/completions', '/chat/completions'], async (req, res) => {
   const startTime = Date.now();
   try {
     const { model, stream } = req.body;
-    const endpoints = storage.getEndpoints().filter(ep => ep.status === 'valid');
+    const endpoints = storage.getEndpoints().filter(ep => ep.status === 'valid' && (ep.enabled === true || ep.enabled === 1));
 
     if (endpoints.length === 0) {
       return res.status(503).json({ error: { message: 'No valid OpenAI endpoints available', type: 'service_unavailable' } });
@@ -530,7 +550,21 @@ router.post(['/v1/chat/completions', '/chat/completions'], async (req, res) => {
     storage.touchEndpoint(endpoint.id);
   } catch (e) {
     console.error('OpenAI Proxy Error:', e.message);
-    res.status(e.response?.status || 500).json(e.response?.data || { error: { message: e.message, type: 'api_error' } });
+    
+    // 严格隔离 Axios 错误对象，仅提取必要数据
+    const responseStatus = (e.response && e.response.status) ? e.response.status : 500;
+    let responseData = { error: { message: e.message, type: 'proxy_error' } };
+    
+    if (e.response && e.response.data) {
+      // 深度克隆数据以断开任何潜在的引用链
+      try {
+        responseData = JSON.parse(JSON.stringify(e.response.data));
+      } catch (parseErr) {
+        responseData = { error: { message: String(e.response.data), type: 'api_error' } };
+      }
+    }
+    
+    res.status(responseStatus).json(responseData);
   }
 });
 
@@ -539,7 +573,7 @@ router.post(['/v1/chat/completions', '/chat/completions'], async (req, res) => {
  */
 router.get(['/v1/models', '/models'], async (req, res) => {
   try {
-    const endpoints = storage.getEndpoints().filter(ep => ep.status === 'valid');
+    const endpoints = storage.getEndpoints().filter(ep => ep.status === 'valid' && (ep.enabled === true || ep.enabled === 1));
     const allModels = new Set();
     
     endpoints.forEach(ep => {

@@ -377,8 +377,7 @@ export const settingsMethods = {
   // 保存设置
   async saveSettings() {
     await this.saveModuleSettings();
-    this.showGlobalToast('设置已保存到主机', 'success');
-    this.showSettingsModal = false;
+    this.showGlobalToast('排序与可见性已保存', 'success');
   },
 
   // 保存 Zeabur 设置

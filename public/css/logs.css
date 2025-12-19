@@ -98,26 +98,14 @@
 }
 
 .logs-text {
-  background-color: var(--bg-tertiary);
-  padding: 12px;
-  border-radius: 8px 8px 0 0;
-  font-family: monospace;
-  font-size: 12px;
-  line-height: 1.5;
-  white-space: pre;
-  overflow-wrap: normal;
-  word-break: normal;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-all;
   color: var(--text-primary);
-  min-height: 100%;
-  width: max-content;
-  max-width: 100%;
-  box-sizing: border-box;
-  overflow-y: auto;
-  overflow-x: auto;
-  height: calc(100% - 12px);
-  scrollbar-width: none;
-  -ms-overflow-style: none;
+  font-size: 13px;
+  line-height: 1.6;
 }
+
 
 .logs-text::-webkit-scrollbar {
   display: none;
@@ -167,17 +155,17 @@
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
   gap: 6px;
-  padding: 7px;
-  background: var(--bg-secondary);
-  border-radius: 13px;
-  border: 1px solid var(--border-color);
+  padding: 0 3px;
+  /* background: var(--bg-secondary); */
+  /* border-radius: 13px; */
+  /* border: 1px solid var(--border-color); */
 }
 
 .model-tag-item {
   padding: 6px 10px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
+  border-radius: 10px;
   cursor: pointer;
   /* font-family: monospace; */
   font-size: 12px;
@@ -189,14 +177,14 @@
 }
 
 .model-tag-item:hover {
-  background: var(--primary-color);
-  color: white;
+  /* background: var(--primary-color); */
+  /* color: white; */
   border-color: var(--primary-color);
-  transform: translateY(-1px);
+  /* transform: translateY(0px); */
 }
 
 .model-tag-item:active {
-  transform: translateY(0);
+  transform: translateY(-0.5px);
 }
 
 .model-tags {
@@ -283,7 +271,7 @@
   background-color: #1e1e1e;
   /* 深色终端背景 */
   color: #d4d4d4;
-  font-family: 'Cascadia Code', 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-family: var(--font-mono);
   font-size: 13px;
   line-height: 1.6;
   padding: 12px;

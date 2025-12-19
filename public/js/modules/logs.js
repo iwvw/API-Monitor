@@ -20,11 +20,18 @@ export const systemLogsMethods = {
 
     this.logWs.onmessage = (event) => {
       const message = JSON.parse(event.data);
+      const formatEntry = (entry) => ({
+        time: entry.timestamp ? new Date(entry.timestamp).toLocaleTimeString('zh-CN', { hour12: false }) : '00:00:00',
+        level: entry.level || 'INFO',
+        module: entry.module || 'core',
+        message: entry.message + (entry.data ? ` [DATA]` : '')
+      });
+
       if (message.type === 'init') {
-        this.systemLogs = message.data;
+        this.systemLogs = (message.data || []).map(formatEntry);
         this.scrollToBottom();
       } else if (message.type === 'log') {
-        this.systemLogs.push(message.data);
+        this.systemLogs.push(formatEntry(message.data));
         if (this.systemLogs.length > 500) {
           this.systemLogs.shift();
         }
@@ -36,7 +43,7 @@ export const systemLogsMethods = {
       this.logWsConnected = false;
       console.log('❌ 系统日志 WebSocket 已断开');
       // 如果模态框还打开着，3秒后尝试重连
-      if (this.showSystemLogsModal) {
+      if (this.showSettingsModal && this.settingsCurrentTab === 'logs') {
         setTimeout(() => this.initLogWs(), 3000);
       }
     };

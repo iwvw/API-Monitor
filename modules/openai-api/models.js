@@ -18,6 +18,7 @@ class OpenAIEndpoint extends BaseModel {
             base_url: endpointData.baseUrl || endpointData.base_url,
             api_key: endpointData.apiKey || endpointData.api_key,
             status: endpointData.status || 'unknown',
+            enabled: endpointData.enabled !== undefined ? (endpointData.enabled ? 1 : 0) : 1,
             models: endpointData.models
                 ? (typeof endpointData.models === 'string' ? endpointData.models : JSON.stringify(endpointData.models))
                 : null,
@@ -49,6 +50,9 @@ class OpenAIEndpoint extends BaseModel {
         if (data.apiKey) {
             data.api_key = data.apiKey;
             delete data.apiKey;
+        }
+        if (data.enabled !== undefined) {
+            data.enabled = data.enabled ? 1 : 0;
         }
         if (data.lastUsed) {
             data.last_used = data.lastUsed;

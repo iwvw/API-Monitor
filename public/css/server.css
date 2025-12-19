@@ -78,7 +78,7 @@
 
 .stat-pill .value {
     font-weight: 700;
-    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-family: var(--font-mono);
 }
 
 .stat-pill.online.active {
@@ -235,7 +235,7 @@
 }
 
 .server-host {
-    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-family: var(--font-mono);
     font-size: 12px;
     opacity: 0.7;
     background: var(--bg-tertiary);
@@ -383,6 +383,72 @@
 .docker-container-status.exited {
     background: #ef444420;
     color: #ef4444;
+}
+
+/* ==================== 磁贴单选按钮组 ==================== */
+.radio-tile-group {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.radio-tile-item {
+    flex: 1;
+    min-width: 120px;
+    position: relative;
+}
+
+.radio-tile-item input {
+    position: absolute;
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.radio-tile-label {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 12px;
+    background: var(--bg-secondary);
+    border: 2px solid var(--border-color);
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    color: var(--text-secondary);
+}
+
+.radio-tile-label i {
+    font-size: 18px;
+    opacity: 0.7;
+}
+
+.radio-tile-label span {
+    font-size: 13px;
+    font-weight: 600;
+}
+
+.radio-tile-item:hover .radio-tile-label {
+    border-color: rgba(var(--primary-rgb), 0.3);
+    background: var(--bg-tertiary);
+    transform: translateY(-2px);
+}
+
+.radio-tile-item input:checked + .radio-tile-label {
+    background: rgba(var(--primary-rgb), 0.1);
+    border-color: var(--primary-color);
+    color: var(--primary-color);
+}
+
+.radio-tile-item input:checked + .radio-tile-label i {
+    opacity: 1;
+    transform: scale(1.1);
+}
+
+.radio-tile-item input:focus-visible + .radio-tile-label {
+    box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.2);
 }
 
 /* ==================== 主机操作按钮 ==================== */
@@ -616,7 +682,7 @@
 .docker-container-image {
     font-size: 11px;
     opacity: 0.6;
-    font-family: 'JetBrains Mono', monospace;
+    font-family: var(--font-mono);
 }
 
 .docker-container-ports {
@@ -664,11 +730,17 @@
 
 .secondary-config-row {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(3, 1fr);
     gap: 15px;
 }
 
-@media (max-width: 992px) {
+@media (max-width: 1200px) {
+    .secondary-config-row {
+        grid-template-columns: 1fr 1fr;
+    }
+}
+
+@media (max-width: 768px) {
     .secondary-config-row {
         grid-template-columns: 1fr;
     }
@@ -733,7 +805,7 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 10px 14px;
+    padding: 6px 12px;
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
     border-radius: 10px;
@@ -1103,7 +1175,7 @@
     font-size: 13px;
     font-weight: 700;
     color: var(--text-primary);
-    font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
+    font-family: var(--font-mono);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1120,7 +1192,7 @@
 }
 
 .docker-uptime {
-    font-family: 'JetBrains Mono', 'Fira Code', 'Courier New', monospace;
+    font-family: var(--font-mono);
 }
 
 .docker-container-right {
@@ -1204,19 +1276,19 @@
     border-radius: 4px;
     font-size: 13px;
     font-weight: 500;
-    font-family: 'Courier New', monospace;
+    font-family: var(--font-mono);
 }
 
 .docker-image-name {
     font-size: 13px;
     color: var(--text-secondary);
-    font-family: 'Courier New', monospace;
+    font-family: var(--font-mono);
 }
 
 .docker-ports {
     font-size: 12px;
     color: var(--text-secondary);
-    font-family: 'Courier New', monospace;
+    font-family: var(--font-mono);
 }
 
 /* ==================== 后台管理页面样式 ==================== */
@@ -1748,7 +1820,7 @@
 }
 
 .ssh-server-info {
-    font-family: 'Consolas', 'Courier New', monospace;
+    font-family: var(--font-mono);
     font-size: 13px;
     color: #888;
 }

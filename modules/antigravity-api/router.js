@@ -851,9 +851,12 @@ router.post('/v1/chat/completions', requireApiAuth, async (req, res) => {
         req.body.model = model;
     }
 
+    // 最终的模型 ID (带前缀，用于校验和显示)
+    const modelWithPrefix = prefix + model;
+
     // 检查模型是否被禁用
     if (!storage.isModelEnabled(model)) {
-        return res.status(403).json({ error: { message: `Model '${model}' is disabled`, type: 'permission_error', code: 'model_disabled' } });
+        return res.status(403).json({ error: { message: `Model '${modelWithPrefix}' is disabled`, type: 'permission_error', code: 'model_disabled' } });
     }
 
     // 获取所有启用账号
@@ -891,19 +894,19 @@ router.post('/v1/chat/completions', requireApiAuth, async (req, res) => {
                 await client.chatCompletionsStream(account.id, req.body, (event) => {
                     if (event.type === 'text') {
                         const chunk = {
-                            id, object: 'chat.completion.chunk', created, model,
+                            id, object: 'chat.completion.chunk', created, model: modelWithPrefix,
                             choices: [{ index: 0, delta: { content: event.content }, finish_reason: null }]
                         };
                         res.write(`data: ${JSON.stringify(chunk)}\n\n`);
                     } else if (event.type === 'thinking') {
                         const chunk = {
-                            id, object: 'chat.completion.chunk', created, model,
+                            id, object: 'chat.completion.chunk', created, model: modelWithPrefix,
                             choices: [{ index: 0, delta: { reasoning_content: event.content }, finish_reason: null }]
                         };
                         res.write(`data: ${JSON.stringify(chunk)}\n\n`);
                     } else if (event.type === 'tool_calls') {
                         const chunk = {
-                            id, object: 'chat.completion.chunk', created, model,
+                            id, object: 'chat.completion.chunk', created, model: modelWithPrefix,
                             choices: [{
                                 index: 0,
                                 delta: {
@@ -927,6 +930,8 @@ router.post('/v1/chat/completions', requireApiAuth, async (req, res) => {
                 // 记录成功日志
                 storage.recordLog({
                     accountId: account.id,
+                    model: modelWithPrefix,
+                    is_balanced: req.lb,
                     path: req.path,
                     method: 'POST',
                     statusCode: 200,
@@ -939,9 +944,13 @@ router.post('/v1/chat/completions', requireApiAuth, async (req, res) => {
             } else {
                 // 非流式处理
                 const result = await client.chatCompletions(account.id, req.body);
+                // 确保返回结果中的 model 是带前缀的
+                if (result && result.model) result.model = modelWithPrefix;
                 
                 storage.recordLog({
                     accountId: account.id,
+                    model: modelWithPrefix,
+                    is_balanced: req.lb,
                     path: req.path,
                     method: 'POST',
                     statusCode: 200,
@@ -960,6 +969,8 @@ router.post('/v1/chat/completions', requireApiAuth, async (req, res) => {
             // 如果是 401 之外的错误（通常是 429 或 5xx），记录日志并继续循环
             storage.recordLog({
                 accountId: account.id,
+                model: modelWithPrefix,
+                is_balanced: req.lb,
                 path: req.path,
                 method: 'POST',
                 statusCode: error.response?.status || 500,

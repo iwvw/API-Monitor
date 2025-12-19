@@ -151,3 +151,54 @@ export function deepClone(obj) {
         return clonedObj;
     }
 }
+
+/**
+ * 格式化地址（支持打码/隐藏）
+ * @param {string} address - 要格式化的地址 (IP 或 域名)
+ * @param {string} mode - 显示模式 ('normal', 'masked', 'hidden')
+ * @returns {string} 格式化后的地址
+ */
+export function maskAddress(address, mode = 'normal') {
+    if (!address) return '';
+    if (mode === 'normal') return address;
+    if (mode === 'hidden') return '****';
+
+    // 处理带有协议和路径的 URL (API Endpoint 常见)
+    let displayAddress = address;
+    let prefix = '';
+    let suffix = '';
+
+    try {
+        if (address.includes('://')) {
+            const url = new URL(address);
+            prefix = url.protocol + '//';
+            displayAddress = url.hostname;
+            suffix = url.pathname !== '/' ? url.pathname : '';
+            if (url.port) prefix += ''; // 端口通常也打码，所以合并到 hostname 处理
+        }
+    } catch (e) {
+        // 如果不是标准 URL，则按原样处理
+    }
+
+    const doMask = (str) => {
+        // 严谨检测 IPv4
+        const ipv4Regex = /^(\d{1,3}\.){3}\d{1,3}$/;
+        if (ipv4Regex.test(str)) {
+            const parts = str.split('.');
+            return `${parts[0]}.${parts[1]}.*.*`;
+        }
+
+        // 域名或其他: example.com -> ex****.com
+        const parts = str.split('.');
+        if (parts.length >= 2) {
+            const main = parts[0];
+            const tld = parts[parts.length - 1];
+            if (main.length > 2) {
+                return main.substring(0, 2) + '****.' + tld;
+            }
+        }
+        return str.length > 4 ? str.substring(0, 2) + '****' : '****';
+    };
+
+    return prefix + doMask(displayAddress) + suffix;
+}

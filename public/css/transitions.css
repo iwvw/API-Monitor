@@ -262,10 +262,12 @@
   display: grid;
   grid-template-rows: 0fr;
   opacity: 0;
-  margin-top: 0;
+  margin: 0;
+  padding: 0;
   transition: grid-template-rows 0.5s cubic-bezier(0.25, 1, 0.5, 1),
     opacity 0.4s ease,
-    margin-top 0.4s cubic-bezier(0.25, 1, 0.5, 1);
+    margin-top 0.4s cubic-bezier(0.25, 1, 0.5, 1),
+    padding 0.4s cubic-bezier(0.25, 1, 0.5, 1);
   overflow: hidden;
   will-change: grid-template-rows, opacity;
   transform: translateZ(0);
@@ -280,16 +282,13 @@
 .account-card.expanded>.account-card-body {
   grid-template-rows: 1fr;
   opacity: 1;
-  /* margin-top: 12px; */
+  padding-top: 8px;
+  /* margin-top: 8px; */
+  padding-bottom: 8px;
 }
 
 .account-card.expanded>.account-card-body>* {
   overflow: visible;
-}
-
-/* 特殊修正：Zeabur 列表在展开时需要底部留白 */
-.account-card.expanded .projects-grid {
-  padding-bottom: 8px;
 }
 
 /* 切换图标旋转动画优化 */

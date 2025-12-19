@@ -2,6 +2,49 @@ import { store } from '../store.js';
 import { toast } from './toast.js';
 
 export const zeaburMethods = {
+  // 缓存数据到本地 (保留最新4个快照)
+  saveToZeaburCache(data) {
+    try {
+      const cacheKey = 'zeabur_data_snapshots';
+      let history = [];
+      const saved = localStorage.getItem(cacheKey);
+      if (saved) {
+        history = JSON.parse(saved);
+      }
+      
+      // 添加新快照到开头
+      history.unshift({
+        timestamp: Date.now(),
+        accounts: data
+      });
+      
+      // 仅保留最近 4 个
+      if (history.length > 4) {
+        history = history.slice(0, 4);
+      }
+      
+      localStorage.setItem(cacheKey, JSON.stringify(history));
+    } catch (e) {
+      // 静默失败
+    }
+  },
+
+  // 从本地缓存加载最新快照
+  loadFromZeaburCache() {
+    try {
+      const cacheKey = 'zeabur_data_snapshots';
+      const saved = localStorage.getItem(cacheKey);
+      if (saved) {
+        const history = JSON.parse(saved);
+        if (history && history.length > 0) {
+          store.accounts = history[0].accounts;
+          return true;
+        }
+      }
+    } catch (e) {}
+    return false;
+  },
+
   async loadManagedAccounts() {
     try {
       // 从主机加载账号
@@ -11,16 +54,11 @@ export const zeaburMethods = {
       const accounts = await response.json();
       if (accounts && accounts.length > 0) {
         store.managedAccounts = accounts;
-        console.log(`📋 从主机加载 ${accounts.length} 个账号`);
 
         // 在后台异步刷新账号余额信息，不阻塞页面显示
-        this.refreshManagedAccountsBalance().catch(err => {
-          console.error('后台刷新账号余额失败:', err);
-        });
+        this.refreshManagedAccountsBalance().catch(err => {});
       }
-    } catch (error) {
-      console.log('⚠️ 从主机加载账号失败:', error.message);
-    }
+    } catch (error) {}
   },
 
   async refreshManagedAccountsBalance() {
@@ -54,7 +92,6 @@ export const zeaburMethods = {
           };
         }
       } catch (error) {
-        console.error(`刷新账号 ${account.name} 余额失败:`, error);
         // 保持原有状态
         store.managedAccounts[i] = {
           ...account,
@@ -78,13 +115,7 @@ export const zeaburMethods = {
         headers: store.getAuthHeaders(),
         body: JSON.stringify({ accounts: store.managedAccounts })
       });
-      const result = await response.json();
-      if (result.success) {
-        console.log('✅ 账号已保存到主机');
-      }
-    } catch (error) {
-      console.error('❌ 保存账号到主机失败:', error.message);
-    }
+    } catch (error) {}
   },
 
   loadProjectCosts() {
@@ -113,7 +144,6 @@ export const zeaburMethods = {
       // 自动刷新 (仅在可见时触发)
       this.refreshInterval = setInterval(() => {
         if (document.visibilityState !== 'visible') return;
-        console.log('自动刷新触发');
         this.fetchData();
       }, store.zeaburRefreshInterval || 30000);
 
@@ -132,9 +162,7 @@ export const zeaburMethods = {
           store.refreshProgress = (store.refreshCountdown / intervalSeconds) * 100;
         }
       }, 1000);
-    } catch (e) {
-      console.error('startAutoRefresh error', e);
-    }
+    } catch (e) {}
   },
 
   stopAutoRefresh() {
@@ -157,8 +185,6 @@ export const zeaburMethods = {
     this.lastFetchAt = now;
     store.refreshing = true;
     store.loading = true;
-
-    console.log('fetchData 被调用');
 
     // 手动刷新时重置倒计时
     const intervalSeconds = (store.zeaburRefreshInterval || 30000) / 1000;
@@ -190,20 +216,19 @@ export const zeaburMethods = {
           }).then(r => r.json())
         ]);
 
-        console.log('API 返回的账号数据:', accountsRes);
-        console.log('API 返回的项目数据:', projectsRes);
-
         // 使用Vue.set或直接重新赋值确保响应式更新
         store.accounts = [];
         this.$nextTick(() => {
-          store.accounts = accountsRes.map((account, index) => {
+          const accountsData = accountsRes.map((account, index) => {
             const projectData = projectsRes[index];
-            console.log(`账号 ${account.name} 余额: ${account.data?.credit} (${account.data?.credit / 100} USD)`);
             return {
               ...account,
               projects: projectData.projects || []
             };
           });
+          store.accounts = accountsData;
+          // 保存到缓存
+          this.saveToZeaburCache(accountsData);
         });
       } else {
         // 否则使用主机配置的账号
@@ -215,24 +240,25 @@ export const zeaburMethods = {
         // 使用Vue.set或直接重新赋值确保响应式更新
         store.accounts = [];
         this.$nextTick(() => {
-          store.accounts = accountsRes.map((account, index) => {
+          const accountsData = accountsRes.map((account, index) => {
             const projectData = projectsRes[index];
             return {
               ...account,
               projects: projectData.projects || []
             };
           });
+          store.accounts = accountsData;
+          // 保存到缓存
+          this.saveToZeaburCache(accountsData);
         });
       }
     } catch (error) {
-      console.error('获取数据失败:', error);
       toast.error('获取数据失败: ' + error.message);
     } finally {
       store.loading = false;
       store.refreshing = false;
       // 强制重新渲染组件
       this.$forceUpdate();
-      console.log('数据更新完成，强制重新渲染');
     }
   },
 

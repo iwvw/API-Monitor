@@ -2,10 +2,10 @@
 
 .panel {
   line-height: 1;
-  /* background: var(--card-bg); */
+  background: var(--card-bg);
   border-radius: 16px;
   padding: 10px;
-  /* box-shadow: var(--card-shadow); */
+  box-shadow: var(--card-shadow);
   border: 2px solid var(--border-color);
   /* margin-bottom: 12px; */
 }
@@ -65,34 +65,481 @@
 }
 
 .data-table th,
+
 .data-table td {
-  padding: 8px 10px;
+
+  padding: 10px 12px;
+
   text-align: left;
+
   border-bottom: 1px solid var(--border-color);
+
   color: var(--text-primary);
-  white-space: nowrap;
+
+  white-space: nowrap !important;
+
+  vertical-align: middle !important;
+
 }
+
+
+
+.data-table th.text-center,
+
+.data-table td.text-center {
+
+  text-align: center !important;
+
+}
+
+
 
 .data-table th {
+
   background: var(--bg-secondary);
+
   font-weight: 600;
+
   color: var(--text-secondary);
+
   position: sticky;
+
   top: 0;
-  white-space: nowrap;
+
+  z-index: 10;
+
 }
+
+
 
 .data-table tr:hover {
+
   background: var(--bg-secondary);
+
 }
+
+
+
+/* 统一操作列和单元格内 flex 布局 */
+
+
+
+.data-table td.actions,
+
+
+
+.data-table td .flex-cell {
+
+
+
+  vertical-align: middle;
+
+
+
+}
+
+
+
+
+
+
+
+.data-table td.actions > div,
+
+
+
+.data-table td .flex-cell {
+
+
+
+  display: inline-flex !important;
+
+
+
+  align-items: center;
+
+
+
+  justify-content: center; /* 默认居中对齐 */
+
+
+
+  gap: 8px;
+
+
+
+  white-space: nowrap !important;
+
+
+
+  flex-wrap: nowrap !important;
+
+
+
+  margin: 0 auto; /* 确保水平居中 */
+
+
+
+}
+
+
+
+
+
+
+
+/* 方法标签样式 */
+
+
+
+.method-badge {
+
+
+
+    font-size: 10px;
+
+
+
+    font-weight: 800;
+
+
+
+    padding: 2px 5px;
+
+
+
+    border-radius: 4px;
+
+
+
+    margin-right: 6px;
+
+
+
+        font-family: var(--font-mono);
+
+
+
+    
+
+
+
+        text-transform: uppercase;
+
+
+
+    
+
+
+
+    }
+
+
+
+.method-post { background: rgba(var(--primary-rgb), 0.1); color: var(--primary-color); }
+
+
+
+.method-get { background: rgba(16, 185, 129, 0.1); color: #10b981; }
+
+
+
+.method-put { background: rgba(245, 158, 11, 0.1); color: #f59e0b; }
+
+
+
+.method-delete { background: rgba(239, 68, 68, 0.1); color: #ef4444; }
+
+
+
+
+
+
+
+.log-path {
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    font-family: var(--font-mono);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    font-size: 11px;
+
+
+
+    color: var(--text-secondary);
+
+
+
+    max-width: 240px;
+
+
+
+    overflow: hidden;
+
+
+
+    text-overflow: ellipsis;
+
+
+
+    display: inline-block;
+
+
+
+    vertical-align: middle;
+
+
+
+}
+
+
+
+
+
+
+
+.log-time {
+
+
+
+    font-size: 11px;
+
+
+
+    color: var(--text-tertiary);
+
+
+
+    white-space: nowrap;
+
+
+
+}
+
+
+
+
+
+
+
+.log-duration {
+
+
+
+
+
+
+
+    font-size: 11px;
+
+
+
+
+
+
+
+    font-weight: 600;
+
+
+
+
+
+
+
+    color: var(--text-secondary);
+
+
+
+
+
+
+
+        font-family: var(--font-mono);
+
+
+
+
+
+
+
+    
+
+
+
+
+
+
+
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+/* 负载均衡勋章 */
+
+
+
+
+
+
+
+.badge-lb {
+
+
+
+
+
+
+
+    background: rgba(139, 92, 246, 0.1);
+
+
+
+
+
+
+
+    color: #8b5cf6;
+
+
+
+
+
+
+
+    border: 1px solid rgba(139, 92, 246, 0.2);
+
+
+
+
+
+
+
+    font-size: 10px;
+
+
+
+
+
+
+
+    padding: 1px 4px;
+
+
+
+
+
+
+
+    border-radius: 4px;
+
+
+
+
+
+
+
+    font-weight: 700;
+
+
+
+
+
+
+
+    margin-left: 4px;
+
+
+
+
+
+
+
+    display: inline-block;
+
+
+
+
+
+
+
+    line-height: 1;
+
+
+
+
+
+
+
+}
+
+
+
+/* 如果需要左对齐，可以覆盖 */
+
+.data-table td .flex-cell.justify-start {
+
+  justify-content: flex-start;
+
+}
+
+
 
 .data-table td.actions {
-  padding: 8px 10px;
-  vertical-align: middle;
+
+  width: 1px;
+
+  white-space: nowrap;
+
+  text-align: center !important;
+
 }
 
-.data-table td.actions>*:not(:last-child) {
-  margin-right: 6px;
+
+
+.data-table td.actions > div {
+
+  width: 100%;
+
+  justify-content: center;
+
 }
 
 /* OpenAI Table */
@@ -151,7 +598,6 @@
   max-width: 300px;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-family: monospace;
   font-size: 12px;
 }
 
@@ -159,7 +605,6 @@
   max-width: 200px;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-family: monospace;
   font-size: 12px;
 }
 

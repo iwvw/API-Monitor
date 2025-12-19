@@ -28,6 +28,7 @@ function getEndpoints() {
       apiKey: ep.api_key,
       notes: '', // 旧版本有 notes 字段，新版本没有，保持兼容
       status: ep.status,
+      enabled: (ep.enabled == 1 || ep.enabled === true || ep.enabled === '1'),
       models: ep.models || [],
       createdAt: ep.created_at,
       lastUsed: ep.last_used,
@@ -37,6 +38,13 @@ function getEndpoints() {
     console.error('❌ 读取 OpenAI 端点失败:', e.message);
     return [];
   }
+}
+
+/**
+ * 获取所有已启用的端点
+ */
+function getEnabledEndpoints() {
+  return getEndpoints().filter(ep => ep.enabled);
 }
 
 /**
@@ -58,6 +66,7 @@ function saveEndpoints(endpoints) {
           baseUrl: endpoint.baseUrl,
           apiKey: endpoint.apiKey,
           status: endpoint.status || 'unknown',
+          enabled: endpoint.enabled === undefined ? 1 : (endpoint.enabled ? 1 : 0),
           models: endpoint.models || [],
           createdAt: endpoint.createdAt,
           lastUsed: endpoint.lastUsed,
@@ -90,6 +99,7 @@ function addEndpoint(endpoint) {
     lastUsed: null,
     lastChecked: null,
     status: 'unknown',
+    enabled: 1,
     models: []
   };
 
@@ -110,6 +120,7 @@ function updateEndpoint(id, updates) {
     if (updates.baseUrl !== undefined) updateData.baseUrl = updates.baseUrl;
     if (updates.apiKey !== undefined) updateData.apiKey = updates.apiKey;
     if (updates.status !== undefined) updateData.status = updates.status;
+    if (updates.enabled !== undefined) updateData.enabled = updates.enabled;
     if (updates.models !== undefined) updateData.models = updates.models;
     if (updates.lastUsed !== undefined) updateData.lastUsed = updates.lastUsed;
     if (updates.lastChecked !== undefined) updateData.lastChecked = updates.lastChecked;
@@ -125,6 +136,7 @@ function updateEndpoint(id, updates) {
       apiKey: updated.api_key,
       notes: '',
       status: updated.status,
+      enabled: (updated.enabled == 1 || updated.enabled === true || updated.enabled === '1'),
       models: updated.models,
       createdAt: updated.created_at,
       lastUsed: updated.last_used,
@@ -163,6 +175,7 @@ function getEndpointById(id) {
       apiKey: endpoint.api_key,
       notes: '',
       status: endpoint.status,
+      enabled: (endpoint.enabled == 1 || endpoint.enabled === true || endpoint.enabled === '1'),
       models: endpoint.models,
       createdAt: endpoint.created_at,
       lastUsed: endpoint.last_used,
@@ -217,6 +230,7 @@ function importEndpoints(endpointsData, overwrite = false) {
       lastUsed: null,
       lastChecked: null,
       status: 'unknown',
+      enabled: data.enabled !== undefined ? (data.enabled ? 1 : 0) : 1,
       models: []
     };
 
@@ -375,6 +389,7 @@ function clearAllHealthData() {
 
 module.exports = {
   getEndpoints,
+  getEnabledEndpoints,
   saveEndpoints,
   addEndpoint,
   updateEndpoint,

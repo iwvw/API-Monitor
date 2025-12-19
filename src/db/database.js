@@ -179,6 +179,50 @@ class DatabaseService {
                 logger.error('User Settings 额外字段迁移失败:', err.message);
             }
 
+            // Antigravity Logs 迁移: 添加 model 字段
+            try {
+                const agLogColumns = this.db.pragma('table_info(antigravity_logs)');
+                if (agLogColumns.length > 0) {
+                    const hasModel = agLogColumns.some(col => col.name === 'model');
+                    if (!hasModel) {
+                        logger.info('正在为 antigravity_logs 表添加 model 字段...');
+                        this.db.exec("ALTER TABLE antigravity_logs ADD COLUMN model TEXT");
+                        logger.success('antigravity_logs.model 字段添加成功');
+                    }
+                    
+                    const hasBalanced = agLogColumns.some(col => col.name === 'is_balanced');
+                    if (!hasBalanced) {
+                        logger.info('正在为 antigravity_logs 表添加 is_balanced 字段...');
+                        this.db.exec("ALTER TABLE antigravity_logs ADD COLUMN is_balanced INTEGER DEFAULT 0");
+                        logger.success('antigravity_logs.is_balanced 字段添加成功');
+                    }
+                }
+            } catch (err) {
+                logger.error('Antigravity Logs 迁移失败:', err.message);
+            }
+
+            // Gemini CLI Logs 迁移: 添加 model 字段
+            try {
+                const gcliLogColumns = this.db.pragma('table_info(gemini_cli_logs)');
+                if (gcliLogColumns.length > 0) {
+                    const hasModel = gcliLogColumns.some(col => col.name === 'model');
+                    if (!hasModel) {
+                        logger.info('正在为 gemini_cli_logs 表添加 model 字段...');
+                        this.db.exec("ALTER TABLE gemini_cli_logs ADD COLUMN model TEXT");
+                        logger.success('gemini_cli_logs.model 字段添加成功');
+                    }
+
+                    const hasBalanced = gcliLogColumns.some(col => col.name === 'is_balanced');
+                    if (!hasBalanced) {
+                        logger.info('正在为 gemini_cli_logs 表添加 is_balanced 字段...');
+                        this.db.exec("ALTER TABLE gemini_cli_logs ADD COLUMN is_balanced INTEGER DEFAULT 0");
+                        logger.success('gemini_cli_logs.is_balanced 字段添加成功');
+                    }
+                }
+            } catch (err) {
+                logger.error('Gemini CLI Logs 迁移失败:', err.message);
+            }
+
             // Operation Logs 迁移: 检查 operation_logs 表是否有 trace_id 字段
             try {
                 const logColumns = this.db.pragma('table_info(operation_logs)');

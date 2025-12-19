@@ -143,7 +143,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0px 0px 5px 0px;
+  padding: 12px 16px;
   border-bottom: 1px solid var(--border-color);
   background: linear-gradient(to bottom, var(--bg-secondary), var(--card-bg));
   border-radius: 12px 12px 0 0;
@@ -159,43 +159,25 @@
 .modal-close {
   background: transparent;
   border: none;
-  cursor: pointer;
+  font-size: 16px;
   color: var(--text-secondary);
+  cursor: pointer;
   width: 32px;
   height: 32px;
   padding: 0;
+  line-height: 1;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 8px;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  position: relative;
-}
-
-.modal-close::before,
-.modal-close::after {
-  content: '';
-  position: absolute;
-  width: 16px;
-  height: 2.5px;
-  background-color: currentColor;
-  border-radius: 1px;
-  left: 50%;
-  top: 50%;
-}
-
-.modal-close::before {
-  transform: translate(-50%, -50%) rotate(45deg);
-}
-
-.modal-close::after {
-  transform: translate(-50%, -50%) rotate(-45deg);
+  border-radius: 8px;
+  margin-right: -4px;
 }
 
 .modal-close:hover {
-  background-color: rgba(239, 68, 68, 0.1);
   color: var(--danger-color);
-  transform: rotate(90deg) scale(1.1);
+  background-color: rgba(239, 68, 68, 0.1);
+  transform: rotate(90deg);
 }
 
 /* Forms */
@@ -217,14 +199,33 @@
   border: 1px solid var(--input-border);
   border-radius: 8px;
   font-size: 14px;
-  background-color: var(--input-bg);
+  background-color: var(--bg-secondary);
   color: var(--text-primary);
-  transition: border-color 0.2s;
+  transition: border-color 0.2s, background-color 0.2s, box-shadow 0.2s;
 }
 
 .form-input:focus {
   outline: none;
   border-color: var(--input-focus-border);
+  box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.1);
+}
+
+/* 小尺寸输入框 - 用于模型重定向等 */
+.form-input-sm {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--input-border);
+  border-radius: 6px;
+  font-size: 13px;
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+  transition: border-color 0.2s, background-color 0.2s, box-shadow 0.2s;
+}
+
+.form-input-sm:focus {
+  outline: none;
+  border-color: var(--input-focus-border);
+  box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.1);
 }
 
 .form-textarea {
@@ -233,17 +234,17 @@
   border: 1px solid var(--input-border);
   border-radius: 8px;
   font-size: 14px;
-  background-color: var(--input-bg);
+  background-color: var(--bg-secondary);
   color: var(--text-primary);
-  transition: border-color 0.2s;
+  transition: border-color 0.2s, box-shadow 0.2s;
   resize: none;
   min-height: 120px;
-  font-family: monospace;
 }
 
 .form-textarea:focus {
   outline: none;
   border-color: var(--input-focus-border);
+  box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.1);
 }
 
 .form-help {

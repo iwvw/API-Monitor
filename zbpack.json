@@ -1,4 +1,0 @@
-{
-  "build_command": "npm install",
-  "start_command": "npm start"
-}

@@ -20,6 +20,11 @@ export function initServerModule() {
     console.log('初始化主机管理模块');
     loadServers();
     setupEventListeners();
+
+    // 监听显示模式变化事件
+    window.addEventListener('server-display-mode-changed', () => {
+        renderServerList();
+    });
 }
 
 /**
@@ -165,24 +170,30 @@ function renderServerTable(servers) {
 /**
  * 格式化主机地址（支持打码/隐藏）
  */
-function formatHost(host) {
-    const mode = store.serverIpDisplayMode || 'normal';
+function formatHost(host, explicitMode) {
+    if (!host) return '';
+    const mode = explicitMode || store.serverIpDisplayMode || 'normal';
     if (mode === 'normal') return host;
     if (mode === 'hidden') return '****';
 
     // 打码模式 (masked): 1.2.3.4 -> 1.2.*.*
-    // 简单处理：如果是 IPv4，保留前两段；否则（域名等）打码中间部分
+    // 严谨检测 IPv4
+    const ipv4Regex = /^(\d{1,3}\.){3}\d{1,3}$/;
+    if (ipv4Regex.test(host)) {
+        const parts = host.split('.');
+        return `${parts[0]}.${parts[1]}.*.*`;
+    }
+
+    // 域名或其他: example.com -> ex****.com
     const parts = host.split('.');
     if (parts.length >= 2) {
-        if (parts.length === 4 && parts.every(p => !isNaN(p))) {
-            // 看起来是 IPv4
-            return `${parts[0]}.${parts[1]}.*.*`;
-        }
-        // 域名或其他
-        if (parts.length > 2) {
-            return `${parts[0]}.****.${parts[parts.length - 1]}`;
+        const main = parts[0];
+        const tld = parts[parts.length - 1];
+        if (main.length > 2) {
+            return main.substring(0, 2) + '****.' + tld;
         }
     }
+    
     return host.length > 4 ? host.substring(0, 2) + '****' : '****';
 }
 
@@ -817,5 +828,6 @@ window.serverModule = {
     refreshServerInfo,
     loadServers,
     renderServerList, // 导出渲染函数，支持直接重绘
-    initManagementButtons // 初始化后台管理按钮
+    initManagementButtons, // 初始化后台管理按钮
+    formatHost // 导出格式化函数
 };

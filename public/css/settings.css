@@ -450,7 +450,7 @@
 .log-stream-container {
   background: #1e1e1e;
   color: #d4d4d4;
-  font-family: 'JetBrains Mono', 'Consolas', monospace;
+  font-family: var(--font-mono);
   font-size: 12px;
   padding: 12px;
   border-radius: 8px;
@@ -490,7 +490,7 @@
 
 
 .code-font {
-  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-family: var(--font-mono);
   font-size: 13px;
   line-height: 1.5;
 }

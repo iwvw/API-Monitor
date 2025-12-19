@@ -34,24 +34,72 @@ router.get('/operation-logs', (req, res) => {
 });
 
 /**
- * 获取实时系统运行日志 (从内存缓冲区)
+ * 获取系统运行内存日志 (最近 200 条)
  * GET /api/settings/sys-logs
  */
 router.get('/sys-logs', (req, res) => {
   try {
-    const buffer = getBuffer();
-    // 转换为前端期望的格式
-    const formattedLogs = buffer.map(entry => ({
-      time: entry.timestamp.split('T')[1].split('.')[0], // HH:mm:ss
-      level: entry.level.toLowerCase(),
-      message: entry.message + (entry.data ? ` ${JSON.stringify(entry.data)}` : '')
+    const { getBuffer, LOG_FILE } = require('../utils/logger');
+    let buffer = getBuffer();
+    
+    // 如果内存 Buffer 为空，尝试从物理文件兜底读取最近 50 条
+    if (!buffer || buffer.length === 0) {
+      if (fs.existsSync(LOG_FILE)) {
+        const content = fs.readFileSync(LOG_FILE, 'utf8');
+        const lines = content.trim().split('\n').slice(-50);
+        buffer = lines.map(line => {
+          try { return JSON.parse(line); } 
+          catch(e) { return { message: line, level: 'INFO', timestamp: new Date().toISOString() }; }
+        });
+      }
+    }
+
+    const formattedLogs = (buffer || []).map(entry => ({
+      time: entry.timestamp ? new Date(entry.timestamp).toLocaleTimeString('zh-CN', { hour12: false }) : '00:00:00',
+      level: entry.level || 'INFO',
+      module: entry.module || 'core',
+      message: entry.message + (entry.data ? ` [DATA]` : '')
     }));
+
+    // 获取文件大小
+    let fileSize = '0 KB';
+    if (fs.existsSync(LOG_FILE)) {
+      fileSize = (fs.statSync(LOG_FILE).size / 1024 / 1024).toFixed(2) + ' MB';
+    }
 
     res.json({
       success: true,
-      data: formattedLogs
+      data: formattedLogs,
+      fileSize: fileSize
     });
   } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * 读取原始 app.log 文件内容
+ * GET /api/settings/app-log-file
+ */
+router.get('/app-log-file', (req, res) => {
+  try {
+    const logPath = path.join(process.cwd(), 'data/logs/app.log');
+    if (!fs.existsSync(logPath)) {
+      return res.json({ success: true, data: 'Log file not found at: ' + logPath });
+    }
+
+    // 使用 readFileSync + slice 读取末尾内容，避免 open/read 权限冲突
+    const content = fs.readFileSync(logPath, 'utf8');
+    const lines = content.split('\n');
+    const lastLines = lines.slice(-500).join('\n'); // 读取最后 500 行
+
+    res.json({ 
+      success: true, 
+      data: lastLines,
+      size: (fs.statSync(logPath).size / 1024).toFixed(2) + ' KB'
+    });
+  } catch (error) {
+    logger.error('读取日志文件失败:', error.message);
     res.status(500).json({ success: false, error: error.message });
   }
 });
@@ -309,6 +357,30 @@ router.post('/clear-logs', async (req, res) => {
       success: false,
       error: '日志清理失败: ' + error.message
     });
+  }
+});
+
+/**
+ * 物理清空 app.log 文件
+ * POST /api/settings/clear-app-logs
+ */
+router.post('/clear-app-logs', (req, res) => {
+  try {
+    const logPath = path.join(__dirname, '../../data/logs/app.log');
+    if (fs.existsSync(logPath)) {
+      // 物理清空
+      fs.writeFileSync(logPath, '', 'utf8');
+      
+      // 同时清空内存 buffer (如果 logger 支持)
+      const { clearBuffer } = require('../utils/logger');
+      if (typeof clearBuffer === 'function') clearBuffer();
+      
+      logger.success('系统日志文件已物理清空');
+    }
+    res.json({ success: true, message: 'Logs cleared' });
+  } catch (error) {
+    logger.error('清空日志文件失败:', error.message);
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 

@@ -635,6 +635,8 @@ async function chatCompletionsStream(accountId, requestBody, callback) {
 
         storage.recordLog({
             accountId,
+            model: requestBody.model,
+            is_balanced: req.lb,
             path: '/v1/chat/completions',
             method: 'POST',
             statusCode,
@@ -644,6 +646,8 @@ async function chatCompletionsStream(accountId, requestBody, callback) {
     } catch (error) {
         storage.recordLog({
             accountId,
+            model: requestBody.model,
+            is_balanced: req.lb,
             path: '/v1/chat/completions',
             method: 'POST',
             statusCode: statusCode || 500,

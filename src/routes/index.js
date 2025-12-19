@@ -9,6 +9,7 @@ const { requireAuth } = require('../middleware/auth');
 const authRouter = require('./auth');
 const healthRouter = require('./health');
 const settingsRouter = require('./settings');
+const logService = require('../services/log-service');
 
 // 导入聚合的 v1 路由
 const v1Router = require('./v1');
@@ -31,6 +32,9 @@ function registerRoutes(app) {
 
   // 用户设置路由（需要认证）- 挂载到精确路径避免拦截其他 API 请求
   app.use('/api/settings', requireAuth, settingsRouter);
+
+  // 系统日志路由
+  app.use('/api/logs', logService.router);
 
   // 挂载聚合的 OpenAI 兼容接口
   app.use('/v1', v1Router);
@@ -69,7 +73,7 @@ function registerRoutes(app) {
           } else {
             app.use(routePath, requireAuth, moduleRouter);
           }
-          logger.debug(`模块已加载: ${moduleName} -> ${routePath}`);
+          logger.success(`模块已挂载 -> ${moduleName}`);
         } catch (e) {
           logger.error(`模块加载失败: ${moduleName}`, e);
         }

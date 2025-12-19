@@ -9,7 +9,14 @@ dbService.initialize();
 function getAccounts() {
     try {
         const db = dbService.getDatabase();
-        return db.prepare('SELECT * FROM gemini_cli_accounts ORDER BY created_at DESC').all();
+        return db.prepare(`
+            SELECT 
+                a.*,
+                (SELECT COUNT(*) FROM gemini_cli_logs l WHERE l.account_id = a.id AND l.status_code = 200) as success_count,
+                (SELECT COUNT(*) FROM gemini_cli_logs l WHERE l.account_id = a.id AND l.status_code != 200) as error_count
+            FROM gemini_cli_accounts a 
+            ORDER BY a.created_at DESC
+        `).all();
     } catch (e) {
         console.error('❌ 读取 Gemini CLI 账号失败:', e.message);
         return [];
@@ -145,11 +152,13 @@ function addLog(logData) {
     try {
         const db = dbService.getDatabase();
         const stmt = db.prepare(`
-            INSERT INTO gemini_cli_logs (account_id, request_path, request_method, status_code, duration_ms, client_ip, user_agent, detail)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO gemini_cli_logs (account_id, model, is_balanced, request_path, request_method, status_code, duration_ms, client_ip, user_agent, detail)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
         stmt.run(
             logData.account_id || null,
+            logData.model || null,
+            logData.is_balanced ? 1 : 0,
             logData.request_path,
             logData.request_method,
             logData.status_code,
@@ -169,7 +178,13 @@ function addLog(logData) {
 function getLogs(limit = 100, offset = 0) {
     try {
         const db = dbService.getDatabase();
-        return db.prepare('SELECT * FROM gemini_cli_logs ORDER BY created_at DESC LIMIT ? OFFSET ?').all(limit, offset);
+        return db.prepare(`
+            SELECT l.*, a.name as account_name 
+            FROM gemini_cli_logs l
+            LEFT JOIN gemini_cli_accounts a ON l.account_id = a.id
+            ORDER BY l.created_at DESC 
+            LIMIT ? OFFSET ?
+        `).all(limit, offset);
     } catch (e) {
         console.error('❌ 获取 Gemini CLI 日志失败:', e.message);
         return [];

@@ -99,7 +99,31 @@ class Session extends BaseModel {
         };
 
         this.insert(data);
+        
+        // 强制限制活跃会话数量为 10 条
+        this.enforceSessionLimit(10);
+        
         return data;
+    }
+
+    /**
+     * 强制限制会话数量
+     */
+    enforceSessionLimit(limit = 10) {
+        try {
+            const db = this.getDb();
+            // 删除除了最近访问的 limit 条之外的所有会话
+            db.prepare(`
+                DELETE FROM ${this.tableName}
+                WHERE session_id NOT IN (
+                    SELECT session_id FROM ${this.tableName}
+                    ORDER BY last_accessed_at DESC
+                    LIMIT ?
+                )
+            `).run(limit);
+        } catch (e) {
+            console.error('❌ 限制会话数量失败:', e.message);
+        }
     }
 
     /**

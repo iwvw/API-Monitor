@@ -105,7 +105,14 @@ class GeminiCliClient {
             }
             return { thinkingBudget: 32768, includeThoughts: true };
         }
-        // 普通模型：不添加 thinkingConfig (与 gcli2api 一致)
+        // Gemini 3 系列必须包含 thinkingConfig (参考 CatieCli)
+        if (model.includes('gemini-3')) {
+            if (model.includes('flash')) {
+                return { thinkingBudget: 4096, includeThoughts: true };
+            }
+            return { thinkingBudget: 16384, includeThoughts: true };
+        }
+        // 其他模型 (如 2.0/1.5) 不需要默认 thinkingConfig
         return null;
     }
 

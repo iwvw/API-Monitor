@@ -35,6 +35,15 @@ function apiRequest(baseUrl, apiKey, method, path, body = null) {
     try {
       // 解析 baseUrl
       let fullUrl = baseUrl.replace(/\/+$/, ''); // 移除末尾斜杠
+      
+      // 自动修正：如果用户填入了完整的 API 路径，截断它
+      const endpointsToStrip = ['/chat/completions', '/completions', '/models', '/embeddings'];
+      for (const end of endpointsToStrip) {
+        if (fullUrl.endsWith(end)) {
+          fullUrl = fullUrl.slice(0, -end.length).replace(/\/+$/, '');
+        }
+      }
+
       if (!fullUrl.startsWith('http://') && !fullUrl.startsWith('https://')) {
         fullUrl = 'https://' + fullUrl;
       }

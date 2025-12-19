@@ -3,7 +3,17 @@
  * 使用 Vue 3 的 reactive API 实现简单的状态分发
  */
 
-const { reactive } = Vue;
+// 确保 reactive 始终从全局 Vue 对象获取，增加鲁棒性
+const reactive = (obj) => {
+    if (window.Vue && window.Vue.reactive) {
+        return window.Vue.reactive(obj);
+    }
+    // 回退方案：如果此时 Vue 还没加载（在 module script 中理论上不应该发生），
+    // 则返回一个普通对象，并在之后通过某种方式使其响应式，
+    // 但最简单的是确保调用时 Vue 已存在。
+    console.warn('Vue not yet loaded when store was initialized, using plain object');
+    return obj;
+};
 
 export const store = reactive({
     // 认证与基础状态
@@ -93,6 +103,24 @@ export const store = reactive({
     openaiLoading: false,
     openaiRefreshing: false,
     showOpenaiEndpointModal: false,
+    showOpenaiEndpointsList: false,
+    showHChatSettingsModal: false,
+
+    // OpenAI Chat
+    openaiChatMessages: [],
+    openaiChatModel: '',
+    openaiChatSystemPrompt: '你是一个有用的 AI 助手。',
+    openaiChatMessageInput: '',
+    openaiChatLoading: false,
+    openaiAllModels: [],
+    openaiModelSearch: '',
+    openaiChatSettings: {
+        temperature: 0.7,
+        top_p: 1,
+        max_tokens: 2000,
+        presence_penalty: 0,
+        frequency_penalty: 0
+    },
 
     // Antigravity
     antigravityAccounts: [],

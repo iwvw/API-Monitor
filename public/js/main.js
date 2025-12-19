@@ -14,13 +14,17 @@ import { settingsMethods } from './modules/settings.js';
 import { systemLogsMethods } from './modules/logs.js';
 import { transitionsMethods } from './modules/transitions.js';
 import { toast } from './modules/toast.js';
-import { formatDateTime, formatFileSize } from './modules/utils.js';
+import { formatDateTime, formatFileSize, maskAddress } from './modules/utils.js';
 
 // 导入全局状态
 import { store } from './store.js';
 
 // 获取 Vue
-const { createApp, toRefs } = Vue;
+if (!window.Vue) {
+  alert('Vue.js 核心库加载失败，请检查网络连接并刷新页面。');
+  throw new Error('Vue not found');
+}
+const { createApp, toRefs } = window.Vue;
 
 // 创建并配置 Vue 应用
 const app = createApp({
@@ -236,6 +240,11 @@ const app = createApp({
       customCss: '',
       customCssError: '',
       customCssSuccess: '',
+      
+      // 系统日志
+      systemLogs: [],
+      logFileSize: '',
+      logsAutoRefreshTimer: null,
       settingsCurrentTab: 'general', // 'general', 'modules', 'database', 'appearance'
 
       // 日志保留设置
@@ -382,7 +391,10 @@ const app = createApp({
 
         // Zeabur 模块
         if (this.mainActiveTab === 'zeabur') {
-          this.fetchData();
+          // 不再自动刷新，仅在缓存为空时加载一次
+          if (this.accounts.length === 0) {
+            this.loadFromZeaburCache();
+          }
         }
 
         // Antigravity 模块
@@ -458,6 +470,19 @@ const app = createApp({
       }
     },
 
+    settingsCurrentTab(newVal) {
+      if (newVal === 'logs') {
+        this.fetchSystemLogs();
+        this.initLogWs();
+      } else {
+        this.closeLogWs();
+        if (this.logsAutoRefreshTimer) {
+          clearInterval(this.logsAutoRefreshTimer);
+          this.logsAutoRefreshTimer = null;
+        }
+      }
+    },
+
     serverCurrentTab(newVal) {
       if (newVal === 'management') {
         this.loadMonitorConfig();
@@ -493,6 +518,21 @@ const app = createApp({
       }
     },
 
+    serverIpDisplayMode(newVal) {
+      // 更新全局 store
+      store.serverIpDisplayMode = newVal;
+      
+      // 发送全局自定义事件，让非 Vue 渲染的模块感知
+      window.dispatchEvent(new CustomEvent('server-display-mode-changed', { detail: newVal }));
+      
+      // 触发 UI 重新渲染 (针对 innerHTML 渲染的部分)
+      if (window.serverModule && window.serverModule.renderServerList) {
+        window.serverModule.renderServerList();
+      }
+      // 自动保存到后端
+      this.saveUserSettingsToServer();
+    },
+
     mainActiveTab: {
       handler(newVal) {
         // 通用的数据加载逻辑（需已认证）
@@ -501,7 +541,7 @@ const app = createApp({
             switch (newVal) {
               case 'zeabur':
                 if (this.accounts.length === 0) {
-                  this.fetchData();
+                  this.loadFromZeaburCache();
                 }
                 break;
               case 'dns':
@@ -555,7 +595,7 @@ const app = createApp({
         this.$nextTick(() => {
           switch (this.mainActiveTab) {
             case 'zeabur':
-              this.fetchData();
+              this.loadFromZeaburCache();
               break;
             case 'dns':
               this.loadDnsAccounts();
@@ -647,13 +687,6 @@ const app = createApp({
       }
     },
 
-    serverIpDisplayMode(newVal) {
-      // 当 IP 显示模式改变时，重新渲染主机列表（无需重新加载数据）
-      if (window.serverModule && window.serverModule.renderServerList) {
-        window.serverModule.renderServerList();
-      }
-    },
-
     showSSHTerminalModal(newVal) {
       if (newVal) {
         this.$nextTick(() => this.focusModalOverlay());
@@ -698,6 +731,80 @@ const app = createApp({
   },
 
   methods: {
+    // 通用打码函数
+    maskAddress,
+
+    // 系统运行日志
+    async fetchSystemLogs() {
+      try {
+        const response = await fetch('/api/settings/sys-logs', {
+          headers: this.getAuthHeaders()
+        });
+        const result = await response.json();
+        if (result.success) {
+          this.systemLogs = result.data;
+          this.logFileSize = result.fileSize || '';
+          // 自动滚动到底部
+          this.$nextTick(() => {
+            const container = this.$refs.settingsLogStream;
+            if (container) {
+              container.scrollTop = container.scrollHeight;
+            }
+          });
+        }
+      } catch (error) {
+        console.error('获取系统日志失败:', error);
+      }
+    },
+
+    async clearAppLogs() {
+      const confirmed = await store.showConfirm({
+        title: '确认清空',
+        message: '确定要物理清空磁盘上的 app.log 日志文件吗？此操作不可撤销。',
+        icon: 'fa-trash-alt',
+        confirmText: '立即清空',
+        confirmClass: 'btn-danger'
+      });
+
+      if (!confirmed) return;
+
+      try {
+        const response = await fetch('/api/settings/clear-app-logs', {
+          method: 'POST',
+          headers: this.getAuthHeaders()
+        });
+        if (response.ok) {
+          toast.success('日志文件已清空');
+          this.systemLogs = [];
+        }
+      } catch (error) {
+        toast.error('清空失败: ' + error.message);
+      }
+    },
+
+    async viewRawAppLog() {
+      try {
+        const response = await fetch('/api/settings/app-log-file', {
+          headers: this.getAuthHeaders()
+        });
+        const result = await response.json();
+        if (result.success) {
+          this.logsModalTitle = `系统原始日志 (Size: ${result.size || 'Unknown'})`;
+          this.logsModalInfo = {
+            project: 'System',
+            account: 'Core',
+            count: 'Raw',
+            time: new Date().toLocaleString()
+          };
+          this.logsContent = result.data;
+          this.showLogsModal = true;
+          this.logsFullscreen = true; // 默认全屏查看文件
+        }
+      } catch (error) {
+        toast.error('读取日志文件失败: ' + error.message);
+      }
+    },
+
     async copyToClipboard(text) {
       if (!text) return;
       try {
@@ -720,30 +827,65 @@ const app = createApp({
       }
     },
 
-    formatDateTime,
-    formatFileSize,
-
-    /**
-     * 格式化主机地址（支持打码/隐藏）
-     */
+    // 辅助函数
+    formatDateTime(date) {
+      if (!date) return '-';
+      return formatDateTime(date);
+    },
+    formatRemainingTime(ms) {
+      if (ms <= 0) return '0s';
+      const seconds = Math.floor((ms / 1000) % 60);
+      const minutes = Math.floor((ms / (1000 * 60)) % 60);
+      const hours = Math.floor((ms / (1000 * 60 * 60)));
+      
+      let res = '';
+      if (hours > 0) res += hours + 'h';
+      if (minutes > 0) res += minutes + 'm';
+      if (seconds > 0 || res === '') res += seconds + 's';
+      return res;
+    },
+    formatFileSize(bytes) {
+      return formatFileSize(bytes);
+    },
     formatHost(host) {
+      if (!host) return '';
       const mode = this.serverIpDisplayMode || 'normal';
+      
       if (mode === 'normal') return host;
       if (mode === 'hidden') return '****';
-
-      // 打码模式 (masked): 1.2.3.4 -> 1.2.*.*
-      const parts = host.split('.');
-      if (parts.length >= 2) {
-        if (parts.length === 4 && parts.every(p => !isNaN(p))) {
-          // IPv4
+      
+      if (mode === 'masked') {
+        // 打码模式 (masked): 1.2.3.4 -> 1.2.*.*
+        const ipv4Regex = /^(\d{1,3}\.){3}\d{1,3}$/;
+        if (ipv4Regex.test(host)) {
+          const parts = host.split('.');
           return `${parts[0]}.${parts[1]}.*.*`;
         }
-        // 域名或其他
-        if (parts.length > 2) {
-          return `${parts[0]}.****.${parts[parts.length - 1]}`;
+        
+        // 域名或其他: example.com -> ex****.com
+        const parts = host.split('.');
+        if (parts.length >= 2) {
+          const main = parts[0];
+          const tld = parts[parts.length - 1];
+          if (main.length > 2) {
+            return main.substring(0, 2) + '****.' + tld;
+          }
         }
+        return host.length > 4 ? host.substring(0, 2) + '****' : '****';
       }
-      return host.length > 4 ? host.substring(0, 2) + '****' : '****';
+      
+      return host;
+    },
+    getModuleName(id) {
+      const names = {
+        'openai': 'OpenAI API',
+        'antigravity': 'Antigravity',
+        'gemini-cli': 'Gemini CLI',
+        'zeabur': 'Zeabur',
+        'dns': 'DNS 管理',
+        'server': '主机管理'
+      };
+      return names[id] || id;
     },
 
     // Toast 管理系统 - 使用新的独立 Toast 管理器

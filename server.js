@@ -27,12 +27,16 @@ const { registerRoutes } = require('./src/routes');
 // 导入 SSH 终端服务
 const sshTerminalService = require('./modules/server-management/ssh-terminal-service');
 
+// 导入日志服务
+const logService = require('./src/services/log-service');
+
 const app = express();
 const server = http.createServer(app);
 const PORT = process.env.PORT || 3000;
 
 // 初始化 WebSocket 服务
 sshTerminalService.init(server);
+logService.init(server);
 
 // 应用中间件
 app.use(loggerMiddleware);
@@ -50,6 +54,7 @@ app.use(fileUpload({
 
 // 注册所有路由
 registerRoutes(app);
+logger.info('所有系统路由及功能模块已就绪');
 
 // Favicon 处理
 app.get('/favicon.ico', (req, res) => {

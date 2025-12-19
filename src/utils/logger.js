@@ -16,9 +16,12 @@ const asyncLocalStorage = new AsyncLocalStorage();
 class LogEmitter extends EventEmitter {}
 const logEmitter = new LogEmitter();
 
-// 日志缓存，用于新连接获取历史日志
+// 日志缓存，用于新连接获取历史日志 (挂载到全局以防多模块加载副本)
 const LOG_BUFFER_SIZE = 200;
-const logBuffer = [];
+if (!global.__LOG_BUFFER__) {
+  global.__LOG_BUFFER__ = [];
+}
+const logBuffer = global.__LOG_BUFFER__;
 
 // 日志目录
 const LOG_DIR = path.join(process.cwd(), 'data', 'logs');
@@ -29,7 +32,38 @@ if (!fs.existsSync(LOG_DIR)) {
 const LOG_FILE = path.join(LOG_DIR, 'app.log');
 
 // 使用流式写入以提升性能
-const logStream = fs.createWriteStream(LOG_FILE, { flags: 'a', encoding: 'utf8' });
+let logStream = fs.createWriteStream(LOG_FILE, { flags: 'a', encoding: 'utf8' });
+
+/**
+ * 物理清空日志文件并重建流
+ */
+function clearLogFile() {
+  try {
+    logStream.end(); // 关闭当前流
+    fs.writeFileSync(LOG_FILE, '', 'utf8'); // 清空文件
+    logStream = fs.createWriteStream(LOG_FILE, { flags: 'a', encoding: 'utf8' }); // 重新打开
+    global.__LOG_BUFFER__ = []; // 同时清空内存缓存
+    return true;
+  } catch (e) {
+    console.error('Failed to clear log file:', e);
+    return false;
+  }
+}
+
+/**
+ * 检查并自动清理日志 (超过 10MB 则清空)
+ */
+function checkSizeAndRotation() {
+  try {
+    if (fs.existsSync(LOG_FILE)) {
+      const stats = fs.statSync(LOG_FILE);
+      if (stats.size > 10 * 1024 * 1024) { // 10MB
+        console.log('Log file too large, auto-clearing...');
+        clearLogFile();
+      }
+    }
+  } catch (e) {}
+}
 
 // 日志级别
 const LOG_LEVELS = {
@@ -114,6 +148,9 @@ function log(level, module, message, data) {
   // 脱敏处理
   const maskedMessage = maskSensitiveInfo(message);
   const maskedData = maskSensitiveInfo(data);
+
+  // 自动检查大小
+  checkSizeAndRotation();
 
   // 1. 终端渲染 (用于开发调试)
   renderTerminal(level, module, timestamp, traceId, maskedMessage, maskedData);
@@ -229,7 +266,9 @@ module.exports = {
   createLogger,
   logger: globalLogger,
   logEmitter,
-  getBuffer: () => logBuffer,
+  getBuffer: () => global.__LOG_BUFFER__ || [],
+  clearLogFile,
+  LOG_FILE,
   asyncLocalStorage,
   LOG_LEVELS
 };

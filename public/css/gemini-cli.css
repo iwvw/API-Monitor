@@ -209,3 +209,30 @@
 .gemini-oauth-panel.expanded {
   max-height: 600px;
 }
+
+/* 模型冷却标签 */
+.model-cooldowns {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: center;
+  margin-top: 4px;
+}
+
+.model-cooldown-tag {
+  font-size: 10px;
+  padding: 1px 6px;
+  background: rgba(245, 158, 11, 0.1);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.2);
+  border-radius: 4px;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-weight: 600;
+  cursor: help;
+}
+
+.model-cooldown-tag i {
+  font-size: 9px;
+  margin-right: 2px;
+}

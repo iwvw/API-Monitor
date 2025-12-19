@@ -45,6 +45,14 @@ export const geminiCliMethods = {
 
         // 后台加载账号列表
         this.loadGeminiCliAccounts();
+
+        // 启动账号列表自动刷新 (用于更新冷却倒计时)
+        if (this.gcliAccountTimer) clearInterval(this.gcliAccountTimer);
+        this.gcliAccountTimer = setInterval(() => {
+            if (store.mainActiveTab === 'gemini-cli' && store.geminiCliCurrentTab === 'accounts') {
+                this.loadGeminiCliAccounts();
+            }
+        }, 10000);
     },
 
     // 获取所有模型列表
@@ -98,9 +106,18 @@ export const geminiCliMethods = {
 
     // 获取额度进度条颜色
     getGeminiCliQuotaColor(percent) {
-        if (percent >= 70) return '#10b981';
-        if (percent >= 30) return '#f59e0b';
-        return '#ef4444';
+        if (percent > 80) return '#ef4444'; // 危险
+        if (percent > 50) return '#f59e0b'; // 警告
+        return '#10b981'; // 正常
+    },
+
+    // 获取日志状态码对应的 CSS 类
+    getGcliStatusClass(code) {
+        if (!code) return 'ag-status-unknown';
+        if (code >= 200 && code < 300) return 'ag-status-success';
+        if (code === 429) return 'ag-status-warning';
+        if (code >= 400) return 'ag-status-danger';
+        return 'ag-status-unknown';
     },
 
     // 加载模型矩阵配置

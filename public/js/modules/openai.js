@@ -21,21 +21,186 @@ export const openaiMethods = {
   async loadOpenaiEndpoints() {
     store.openaiLoading = true;
     try {
-      const response = await fetch('/api/openai/endpoints', {
+      // 1. 加载端点列表（用于账号管理展示）
+      const epResponse = await fetch('/api/openai/endpoints', {
         headers: store.getAuthHeaders()
       });
-      const data = await response.json();
-      if (Array.isArray(data)) {
-        // 为每个端点添加 showKey 属性
-        store.openaiEndpoints = data.map(ep => ({ ...ep, showKey: false }));
-      } else if (data.error) {
-        console.error('加载 OpenAI 端点失败:', data.error);
+      const epData = await epResponse.json();
+      if (Array.isArray(epData)) {
+        store.openaiEndpoints = epData.map(ep => ({ ...ep, showKey: false }));
+      }
+
+      // 2. 从聚合接口加载全渠道模型列表 (HChat 使用)
+      const modelsResponse = await fetch('/v1/models', {
+        headers: store.getAuthHeaders()
+      });
+      const modelsData = await modelsResponse.json();
+      
+      if (modelsData && Array.isArray(modelsData.data)) {
+        // 存储包含渠道信息的完整对象
+        store.openaiAllModels = modelsData.data.sort((a, b) => {
+          // 先按渠道排序，再按名称排序
+          if (a.owned_by !== b.owned_by) return a.owned_by.localeCompare(b.owned_by);
+          return a.id.localeCompare(b.id);
+        });
+
+        // 智能初始化模型
+        if (store.openaiAllModels.length > 0) {
+          if (!store.openaiChatModel || !store.openaiAllModels.find(m => m.id === store.openaiChatModel)) {
+            store.openaiChatModel = store.openaiAllModels[0].id;
+          }
+        }
       }
     } catch (error) {
-      console.error('加载 OpenAI 端点失败:', error);
+      console.error('加载模型列表失败:', error);
     } finally {
       store.openaiLoading = false;
     }
+  },
+
+  // 移除旧的本地过滤方法，改用聚合数据
+  updateOpenaiAllModels() {
+    this.loadOpenaiEndpoints();
+  },
+
+  async sendOpenaiChatMessage() {
+    if (!store.openaiChatMessageInput.trim() || store.openaiChatLoading) return;
+
+    const userContent = store.openaiChatMessageInput;
+    store.openaiChatMessageInput = '';
+    
+    // 添加用户消息
+    store.openaiChatMessages.push({
+      role: 'user',
+      content: userContent
+    });
+
+    this.scrollToBottom();
+
+    store.openaiChatLoading = true;
+
+    try {
+      const messages = [
+        { role: 'system', content: store.openaiChatSystemPrompt },
+        ...store.openaiChatMessages
+      ];
+
+      // 显式指定完整路径，防止丢失前缀
+      const response = await fetch('/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          ...store.getAuthHeaders(),
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          model: store.openaiChatModel,
+          messages: messages,
+          stream: true,
+          ...store.openaiChatSettings
+        })
+      });
+
+      if (!response.ok) {
+        let errorMessage = `HTTP 错误 ${response.status}`;
+        try {
+          const errData = await response.json();
+          // 智能提取 OpenAI 格式或通用格式的错误消息
+          errorMessage = errData.error?.message || errData.message || JSON.stringify(errData);
+        } catch (e) {
+          // 保持默认 HTTP 错误
+        }
+        throw new Error(errorMessage);
+      }
+
+      // 处理流式响应
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let assistantMsg = { role: 'assistant', content: '', reasoning: '' };
+      store.openaiChatMessages.push(assistantMsg);
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const chunk = decoder.decode(value, { stream: true });
+        const lines = chunk.split('\n');
+        
+        for (const line of lines) {
+          const trimmedLine = line.trim();
+          if (trimmedLine.startsWith('data: ')) {
+            const dataStr = trimmedLine.slice(6);
+            if (dataStr === '[DONE]') break;
+            
+            try {
+              const data = JSON.parse(dataStr);
+              const delta = data.choices?.[0]?.delta;
+              
+              if (delta) {
+                // 处理思考内容 (Reasoning / Thinking)
+                if (delta.reasoning_content) {
+                  assistantMsg.reasoning += delta.reasoning_content;
+                }
+                // 处理标准内容
+                if (delta.content) {
+                  assistantMsg.content += delta.content;
+                }
+                this.scrollToBottom();
+              }
+            } catch (e) {
+              // 忽略解析错误
+            }
+          }
+        }
+      }
+    } catch (error) {
+      console.error('AI 对话失败:', error);
+      
+      // 核心修复：确保 error 是字符串，防止显示 [object Object]
+      const displayError = error.message || (typeof error === 'string' ? error : JSON.stringify(error));
+      
+      this.showOpenaiToast('对话失败: ' + displayError, 'error');
+      store.openaiChatMessages.push({
+        role: 'assistant', // 改为 assistant 角色以保持 UI 一致
+        content: '❌ **错误**: ' + displayError
+      });
+    } finally {
+      store.openaiChatLoading = false;
+      this.scrollToBottom();
+    }
+  },
+
+  clearOpenaiChat() {
+    store.openaiChatMessages = [];
+  },
+
+  stopOpenaiChat() {
+    store.openaiChatLoading = false;
+    // 这里如果需要中断 Fetch，可以使用 AbortController，暂先简单重置状态
+  },
+
+  renderMarkdown(content) {
+    if (!content) return '';
+    try {
+      return marked.parse(content);
+    } catch (e) {
+      return content;
+    }
+  },
+
+  scrollToBottom() {
+    setTimeout(() => {
+      const el = document.getElementById('openai-chat-messages');
+      if (el) {
+        el.scrollTop = el.scrollHeight;
+      }
+      // 触发代码高亮
+      document.querySelectorAll('pre code').forEach((block) => {
+        if (!block.dataset.highlighted) {
+          hljs.highlightElement(block);
+          block.dataset.highlighted = 'true';
+        }
+      });
+    }, 50);
   },
 
   openAddOpenaiEndpointModal() {
@@ -91,7 +256,8 @@ export const openaiMethods = {
           this.showOpenaiToast('端点已添加', 'success');
         }
         this.showOpenaiEndpointModal = false;
-        await this.loadOpenaiEndpoints();
+        await this.loadOpenaiEndpoints(); // 加载端点列表
+        this.updateOpenaiAllModels();    // 立即更新 HChat 可用模型列表
       } else {
         this.openaiEndpointFormError = data.error || '保存失败';
       }
@@ -151,6 +317,33 @@ export const openaiMethods = {
     }
   },
 
+  async toggleOpenaiEndpoint(endpoint) {
+    try {
+      const response = await fetch(`/api/openai/endpoints/${endpoint.id}/toggle`, {
+        method: 'POST',
+        headers: {
+          ...store.getAuthHeaders(),
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ enabled: endpoint.enabled })
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        this.showOpenaiToast(endpoint.enabled ? '端点已启用' : '端点已禁用', 'success');
+        // 刷新模型列表，因为禁用端点会影响可用模型
+        this.updateOpenaiAllModels();
+      } else {
+        this.showOpenaiToast('操作失败: ' + (data.error || '未知错误'), 'error');
+        // 恢复 UI 状态
+        endpoint.enabled = !endpoint.enabled;
+      }
+    } catch (error) {
+      this.showOpenaiToast('操作失败: ' + error.message, 'error');
+      endpoint.enabled = !endpoint.enabled;
+    }
+  },
+
   async refreshAllOpenaiEndpoints() {
     store.openaiRefreshing = true;
     try {
@@ -161,7 +354,8 @@ export const openaiMethods = {
 
       const data = await response.json();
       if (data.success) {
-        this.showOpenaiToast(`刷新完成！成功: ${data.results?.filter(r => r.success).length || 0}`, 'success');
+        const successCount = data.results?.filter(r => r.success).length || 0;
+        this.showOpenaiToast(`刷新完成！已更新 ${successCount} 个启用端点`, 'success');
         await this.loadOpenaiEndpoints();
       } else {
         this.showOpenaiToast('刷新失败: ' + (data.error || '未知错误'), 'error');

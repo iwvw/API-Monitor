@@ -416,10 +416,10 @@ export const antigravityMethods = {
     },
 
     getLogStatusClass(statusCode) {
-        if (statusCode >= 200 && statusCode < 300) return 'ag-status-2xx';
-        if (statusCode >= 300 && statusCode < 400) return 'ag-status-3xx';
-        if (statusCode >= 400 && statusCode < 500) return 'ag-status-4xx';
-        if (statusCode >= 500) return 'ag-status-5xx';
+        if (statusCode >= 200 && statusCode < 300) return 'status-2xx';
+        if (statusCode >= 300 && statusCode < 400) return 'status-3xx';
+        if (statusCode >= 400 && statusCode < 500) return 'status-4xx';
+        if (statusCode >= 500) return 'status-5xx';
         return '';
     },
 

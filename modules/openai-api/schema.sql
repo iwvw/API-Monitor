@@ -7,6 +7,7 @@ CREATE TABLE IF NOT EXISTS openai_endpoints (
     base_url TEXT NOT NULL,
     api_key TEXT NOT NULL,
     status TEXT DEFAULT 'unknown',
+    enabled INTEGER DEFAULT 1, -- 1 为启用，0 为禁用
     models TEXT, -- JSON 格式存储模型数组
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     last_used DATETIME,

@@ -159,28 +159,6 @@ router.get('/models', async (req, res) => {
             }
         }
 
-        // --- 3. 处理 OpenAI 渠道 ---
-        if (channelEnabled['openai']) {
-            try {
-                const oaiStorage = require(path.join(modulesDir, 'openai-api', 'storage.js'));
-                const prefix = channelModelPrefix['openai'] || '';
-                const endpoints = oaiStorage.getEndpoints().filter(ep => ep.status === 'valid');
-                
-                endpoints.forEach(ep => {
-                    if (ep.models) {
-                        ep.models.forEach(m => {
-                            const id = prefix + m;
-                            if (!allModelsMap.has(id)) {
-                                allModelsMap.set(id, { id, object: 'model', created: now, owned_by: ep.name || 'openai' });
-                            }
-                        });
-                    }
-                });
-            } catch (e) {
-                console.warn('[v1/models] OpenAI process failed:', e.message);
-            }
-        }
-
         const data = Array.from(allModelsMap.values());
         if (data.length === 0) {
             return res.status(404).json({ error: { message: 'No enabled AI models found', type: 'invalid_request_error' } });
@@ -193,111 +171,109 @@ router.get('/models', async (req, res) => {
 });
 
 // 辅助函数：根据配置转发请求
-const dispatch = (req, res, next) => {
-    // 1. 还原路径 (因为挂载在 /v1 下，req.url 被截断了)
-    // 如果 req.url 已经包含 /v1 (例如被手动修改过)，则不重复添加
+const dispatch = async (req, res, next) => {
+    // 标记为经过 V1 分发器 (负载均衡)
+    req.lb = true;
+
+    // 1. 还原路径
+    // 如果 req.url 不以 /v1 开头，添加它
     if (!req.url.startsWith('/v1')) {
         req.url = '/v1' + req.url;
     }
 
     // 2. 获取配置
     const settings = userSettingsService.loadUserSettings();
-    const visibility = settings.moduleVisibility || {};
     const channelEnabled = settings.channelEnabled || {};
     const channelModelPrefix = settings.channelModelPrefix || {};
 
-    // 3. 根据前缀判断目标渠道
-    const agPrefix = channelModelPrefix['antigravity'] || '';
-    const gcliPrefix = channelModelPrefix['gemini-cli'] || '';
-    const oaiPrefix = channelModelPrefix['openai'] || '';
+    const agEnabled = channelEnabled['antigravity'] && agRouter;
+    const gcliEnabled = channelEnabled['gemini-cli'] && gcliRouter;
 
-    // 如果是 POST 请求且有 body.model，尝试根据前缀路由
+    // 3. 模型路由逻辑 (仅针对包含 model 的 POST 请求)
     if (req.method === 'POST' && req.body && req.body.model) {
-        const model = req.body.model;
+        const fullModelId = req.body.model;
+        const agPrefix = channelModelPrefix['antigravity'] || '';
+        const gcliPrefix = channelModelPrefix['gemini-cli'] || '';
 
-        // 检查是否匹配 Antigravity 前缀
-        if (agPrefix && model.startsWith(agPrefix)) {
-            req.body.model = model.substring(agPrefix.length);
-            if (channelEnabled['antigravity'] && agRouter) {
-                return agRouter(req, res, next);
-            }
-        }
-
-        // 检查是否匹配 GCLI 前缀
-        if (gcliPrefix && model.startsWith(gcliPrefix)) {
-            req.body.model = model.substring(gcliPrefix.length);
-            if (channelEnabled['gemini-cli'] && gcliRouter) {
+        // --- A. 精确匹配前缀优先 ---
+        
+        // 尝试匹配 GCLI 前缀 (如果前缀非空且匹配)
+        if (gcliPrefix && fullModelId.startsWith(gcliPrefix)) {
+            const innerModel = fullModelId.substring(gcliPrefix.length);
+            if (gcliEnabled) {
+                req.body.model = innerModel;
                 return gcliRouter(req, res, next);
             }
         }
 
-        // 检查是否匹配 OpenAI 前缀
-        if (oaiPrefix && model.startsWith(oaiPrefix)) {
-            req.body.model = model.substring(oaiPrefix.length);
-            const oaiRouterPath = path.join(modulesDir, 'openai-api', 'router.js');
-            if (channelEnabled['openai'] && fs.existsSync(oaiRouterPath)) {
-                const oaiRouter = require(oaiRouterPath);
-                return oaiRouter(req, res, next);
+        // 尝试匹配 Antigravity 前缀 (如果前缀非空且匹配)
+        if (agPrefix && fullModelId.startsWith(agPrefix)) {
+            const innerModel = fullModelId.substring(agPrefix.length);
+            if (agEnabled) {
+                req.body.model = innerModel;
+                return agRouter(req, res, next);
             }
         }
-    }
 
-    // 4. 默认分发逻辑（无前缀时）
-    // 优先 Antigravity
-    if (channelEnabled['antigravity'] && agRouter) {
-        // 尝试让 Antigravity 处理
-        return agRouter(req, res, (err) => {
-            if (err) return next(err);
-            // 如果 Antigravity 没处理 (next)，尝试 GCLI
-            if (channelEnabled['gemini-cli'] && gcliRouter) {
-                return gcliRouter(req, res, (err2) => {
-                    if (err2) return next(err2);
-                    // 尝试 OpenAI
-                    if (channelEnabled['openai']) {
-                        const oaiRouterPath = path.join(modulesDir, 'openai-api', 'router.js');
-                        if (fs.existsSync(oaiRouterPath)) {
-                            const oaiRouter = require(oaiRouterPath);
-                            return oaiRouter(req, res, next);
+        // --- B. 无前缀匹配或前缀为空时的探测逻辑 ---
+        
+        // 如果两个都开启，需要判断模型归属
+        if (agEnabled && gcliEnabled) {
+            try {
+                // 1. 加载 GCLI 矩阵和获取实时可用列表
+                const matrixPath = path.join(modulesDir, 'gemini-cli-api', 'gemini-matrix.json');
+                const gcliRouterPath = path.join(modulesDir, 'gemini-cli-api', 'router.js');
+                
+                let isGcliModel = false;
+
+                // 优先检查全名匹配 (剥离空前缀后)
+                const checkModelId = gcliPrefix ? (fullModelId.startsWith(gcliPrefix) ? fullModelId.substring(gcliPrefix.length) : null) : fullModelId;
+                
+                if (checkModelId) {
+                    // a. 检查矩阵中的基础模型定义
+                    if (fs.existsSync(matrixPath)) {
+                        const matrix = JSON.parse(fs.readFileSync(matrixPath, 'utf8'));
+                        // 尝试直接匹配键名 (例如 gemini-2.0-pro)
+                        if (matrix[checkModelId]) {
+                            isGcliModel = true;
+                        } else {
+                            // 尝试模糊匹配：模型 ID 是否以矩阵中的某个键开头
+                            // 这处理了 gemini-2.0-pro-search 等变体
+                            const baseId = Object.keys(matrix).find(key => checkModelId.includes(key));
+                            if (baseId) isGcliModel = true;
                         }
                     }
-                    next();
-                });
-            }
-            // 如果 GCLI 也关闭，直接尝试 OpenAI
-            if (channelEnabled['openai']) {
-                const oaiRouterPath = path.join(modulesDir, 'openai-api', 'router.js');
-                if (fs.existsSync(oaiRouterPath)) {
-                    const oaiRouter = require(oaiRouterPath);
-                    return oaiRouter(req, res, next);
-                }
-            }
-            next();
-        });
-    }
 
-    // 如果 Antigravity 关闭，尝试 Gemini CLI
-    if (channelEnabled['gemini-cli'] && gcliRouter) {
-        return gcliRouter(req, res, (err) => {
-            if (err) return next(err);
-            if (channelEnabled['openai']) {
-                const oaiRouterPath = path.join(modulesDir, 'openai-api', 'router.js');
-                if (fs.existsSync(oaiRouterPath)) {
-                    const oaiRouter = require(oaiRouterPath);
-                    return oaiRouter(req, res, next);
+                    // b. 辅助判断：如果是 google/gemini 相关的路径且没匹配上前置条件
+                    if (!isGcliModel && (checkModelId.toLowerCase().includes('gemini') || checkModelId.toLowerCase().includes('google'))) {
+                        // 启发式：含有 gemini 关键字且不是显式的 Antigravity 模型时，倾向于给 GCLI (如果是它特有的格式)
+                        // 但这里我们保持严谨，如果不确定，后面还有 fallback
+                    }
                 }
-            }
-            next();
-        });
-    }
 
-    // 如果前面都关闭，尝试 OpenAI
-    if (channelEnabled['openai']) {
-        const oaiRouterPath = path.join(modulesDir, 'openai-api', 'router.js');
-        if (fs.existsSync(oaiRouterPath)) {
-            const oaiRouter = require(oaiRouterPath);
-            return oaiRouter(req, res, next);
+                if (isGcliModel) {
+                    if (gcliPrefix && fullModelId.startsWith(gcliPrefix)) {
+                        req.body.model = fullModelId.substring(gcliPrefix.length);
+                    }
+                    return gcliRouter(req, res, next);
+                }
+            } catch (e) {
+                console.error('[Dispatch] Precise GCLI model check failed:', e.message);
+            }
+            
+            // 默认走 Antigravity (因为它支持的模型更多/更灵活)
+            if (agPrefix && fullModelId.startsWith(agPrefix)) {
+                req.body.model = fullModelId.substring(agPrefix.length);
+            }
+            return agRouter(req, res, next);
         }
     }
+
+    // 4. 非模型请求或降级路由
+    if (agEnabled) return agRouter(req, res, next);
+    if (gcliEnabled) return gcliRouter(req, res, next);
+    
+    next();
 };
 
 // 挂载所有请求到分发器

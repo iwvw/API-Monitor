@@ -50,22 +50,28 @@ class StreamProcessor {
      * 核心流式处理入口
      */
     async *processStream(openaiRequest, accountId, maxAttempts = 3) {
+        const isAntiTrunc = openaiRequest.model.includes('流式抗截断/');
         let currentAttempt = 0;
         let fullContent = '';
-        let foundDone = false;
+        let foundDone = !isAntiTrunc; // 如果不开启抗截断，默认视为已找到结束标记（即不循环）
         let responseId = `chatcmpl-${Math.random().toString(36).slice(2)}`;
 
-        // 注入反截断指令到 System Prompt
         const modifiedRequest = JSON.parse(JSON.stringify(openaiRequest));
-        const systemMsg = modifiedRequest.messages.find(m => m.role === 'system');
-        const antiTruncInstr = `\n[系统指令] 请在回答完全结束时，在最后一行输出 [done] 标记。`;
-        if (systemMsg) {
-            systemMsg.content += antiTruncInstr;
-        } else {
-            modifiedRequest.messages.unshift({ role: 'system', content: antiTruncInstr });
+
+        if (isAntiTrunc) {
+            // 仅在抗截断模式下注入指令
+            const systemMsg = modifiedRequest.messages.find(m => m.role === 'system');
+            const antiTruncInstr = `\n[系统指令] 请在回答完全结束时，在最后一行输出 [done] 标记。`;
+            if (systemMsg) {
+                systemMsg.content += antiTruncInstr;
+            } else {
+                modifiedRequest.messages.unshift({ role: 'system', content: antiTruncInstr });
+            }
         }
 
-        while (currentAttempt < maxAttempts && !foundDone) {
+        const loopLimit = isAntiTrunc ? maxAttempts : 1;
+
+        while (currentAttempt < loopLimit && (isAntiTrunc ? !foundDone : currentAttempt === 0)) {
             currentAttempt++;
 
             // 如果是后续尝试，调整请求内容实现“续写”
@@ -90,8 +96,8 @@ class StreamProcessor {
 
                         let { text, reasoning } = parsed;
 
-                        // 检测 [done] 标记
-                        if (text.includes(this.DONE_MARKER)) {
+                        // 抗截断逻辑：检测 [done] 标记
+                        if (isAntiTrunc && text.includes(this.DONE_MARKER)) {
                             foundDone = true;
                             text = text.replace(this.DONE_MARKER, '').trim();
                         }
@@ -115,10 +121,13 @@ class StreamProcessor {
                     }
                 }
 
-                if (foundDone) break;
+                if (!isAntiTrunc || foundDone) break;
                 console.log(`Stream interrupted, attempt ${currentAttempt} failed to find [done].`);
             } catch (e) {
-                console.error('Stream processing error:', e.message);
+                console.error(`Stream processing error (Attempt ${currentAttempt}):`, e.message);
+                if (currentAttempt === 1) {
+                    throw e; // 第一次尝试失败，抛出异常让外层（如负载均衡/账号重试）处理
+                }
                 break;
             }
         }
