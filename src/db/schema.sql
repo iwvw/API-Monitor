@@ -26,6 +26,9 @@ CREATE TABLE IF NOT EXISTS user_settings (
     zeabur_refresh_interval INTEGER DEFAULT 30000, -- Zeabur 自动刷新间隔(ms)
     module_visibility TEXT, -- JSON 格式
     module_order TEXT, -- JSON 格式
+    channel_enabled TEXT, -- JSON 格式: 启用的渠道
+    channel_model_prefix TEXT, -- JSON 格式: 渠道模型前缀
+    load_balancing_strategy TEXT DEFAULT 'random', -- 负载均衡策略: random/round-robin
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -51,6 +54,6 @@ VALUES (
     1,
     '',
     30000,
-    '{"zeabur":true,"dns":true,"openai":true,"server":true,"antigravity":true}',
-    '["zeabur","dns","openai","server","antigravity"]'
+    '{"zeabur":true,"dns":true,"openai":true,"server":true,"antigravity":true,"gemini-cli":true}',
+    '["zeabur","dns","openai","server","antigravity","gemini-cli"]'
 );

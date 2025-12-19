@@ -215,6 +215,28 @@
   pointer-events: none;
 }
 
+.input-with-icon {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.input-with-icon i {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-tertiary);
+  font-size: 14px;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.input-with-icon .form-input {
+  padding-left: 38px !important;
+  width: 100%;
+}
+
 .db-stats-card {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -304,6 +326,17 @@
   color: var(--text-tertiary);
 }
 
+/* Icon button - fixed size for consistent width */
+.btn-sm.btn-icon {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
 .code-font {
   font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
   font-size: 13px;
@@ -314,7 +347,6 @@
 .settings-actions {
   position: sticky;
   bottom: 0;
-  background-color: var(--card-bg);
   padding-top: 20px;
   margin-top: 20px;
   border-top: 1px solid var(--border-color);

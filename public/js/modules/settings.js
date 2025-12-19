@@ -42,6 +42,15 @@ export const settingsMethods = {
           if (settings.moduleOrder) {
             this.moduleOrder = settings.moduleOrder;
           }
+          if (settings.channelEnabled) {
+            this.channelEnabled = settings.channelEnabled;
+          }
+          if (settings.channelModelPrefix) {
+            this.channelModelPrefix = settings.channelModelPrefix;
+          }
+          if (settings.load_balancing_strategy) {
+            this.agSettingsForm.load_balancing_strategy = settings.load_balancing_strategy;
+          }
 
           this.activateFirstVisibleModule();
           return true;
@@ -75,7 +84,7 @@ export const settingsMethods = {
     const savedVisibility = localStorage.getItem('module_visibility');
     const savedOrder = localStorage.getItem('module_order');
 
-    const availableModules = ['zeabur', 'dns', 'openai', 'server', 'antigravity'];
+    const availableModules = ['zeabur', 'dns', 'openai', 'server', 'antigravity', 'gemini-cli'];
 
     if (savedVisibility) {
       const saved = JSON.parse(savedVisibility);
@@ -85,6 +94,15 @@ export const settingsMethods = {
         }
       });
       this.moduleVisibility = saved;
+    }
+
+    // 简单的 channelEnabled 向后兼容 (默认为 true)
+    if (!this.channelEnabled) {
+      this.channelEnabled = { antigravity: true, 'gemini-cli': true };
+    }
+    // channelModelPrefix 向后兼容
+    if (!this.channelModelPrefix) {
+      this.channelModelPrefix = { antigravity: '', 'gemini-cli': '' };
     }
 
     if (savedOrder) {
@@ -119,7 +137,10 @@ export const settingsMethods = {
         customCss: this.customCss,
         zeaburRefreshInterval: this.zeaburRefreshInterval,
         moduleVisibility: this.moduleVisibility,
-        moduleOrder: this.moduleOrder
+        channelEnabled: this.channelEnabled,
+        channelModelPrefix: this.channelModelPrefix,
+        moduleOrder: this.moduleOrder,
+        load_balancing_strategy: this.agSettingsForm.load_balancing_strategy
       };
 
       const response = await fetch('/api/settings', {
@@ -195,7 +216,7 @@ export const settingsMethods = {
     await this.loadUserSettings();
 
     // 定义所有可用模块
-    const availableModules = ['zeabur', 'dns', 'openai', 'server', 'antigravity'];
+    const availableModules = ['zeabur', 'dns', 'openai', 'server', 'antigravity', 'gemini-cli'];
 
     // 确保所有模块都有配置
     availableModules.forEach(module => {
@@ -232,6 +253,8 @@ export const settingsMethods = {
     // 保存到localStorage（向后兼容）
     localStorage.setItem('module_visibility', JSON.stringify(this.moduleVisibility));
     localStorage.setItem('module_order', JSON.stringify(this.moduleOrder));
+    // channelEnabled 通常不需要存 localStorage，因为主要依赖后端配置，但为了保持一致也可以存
+    localStorage.setItem('channel_enabled', JSON.stringify(this.channelEnabled));
 
     // 保存到后端
     await this.saveUserSettingsToServer();
@@ -261,6 +284,15 @@ export const settingsMethods = {
     this.showGlobalToast(`${this.getModuleName(module)} 模块已${this.moduleVisibility[module] ? '显示' : '隐藏'}`, 'success');
   },
 
+  // 切换渠道启用状态 (不影响 UI 可见性)
+  toggleChannelEnabled(channel) {
+    if (!this.channelEnabled) this.channelEnabled = {};
+    this.channelEnabled[channel] = !this.channelEnabled[channel];
+
+    this.saveModuleSettings(); // 复用保存逻辑
+    this.showGlobalToast(`${this.getModuleName(channel)} 渠道已${this.channelEnabled[channel] ? '启用' : '禁用'}`, 'success');
+  },
+
   // 获取模块名称
   getModuleName(module) {
     const names = {
@@ -268,7 +300,8 @@ export const settingsMethods = {
       dns: 'CF DNS',
       openai: 'OpenAPI',
       server: '主机管理',
-      antigravity: 'Antigravity'
+      antigravity: '反重力',
+      'gemini-cli': 'GCLI'
     };
     return names[module] || module;
   },
@@ -280,7 +313,8 @@ export const settingsMethods = {
       dns: 'fa-cloud',
       openai: 'fa-robot',
       server: 'fa-server',
-      antigravity: 'fa-atom'
+      antigravity: 'fa-atom',
+      'gemini-cli': 'fa-terminal'
     };
     return icons[module] || 'fa-cube';
   },
@@ -543,6 +577,9 @@ export const settingsMethods = {
             if (importedData.settings.moduleOrder) {
               this.moduleOrder = importedData.settings.moduleOrder;
             }
+            if (importedData.settings.channelEnabled) {
+              this.channelEnabled = importedData.settings.channelEnabled;
+            }
             this.saveModuleSettings();
           }
 
@@ -691,6 +728,63 @@ export const settingsMethods = {
       this.showGlobalToast('请求失败: ' + error.message, 'error');
     } finally {
       this.logLimitsEnforcing = false;
+    }
+  },
+
+  // 保存全局 API 设置 (统一保存到 Antigravity 和 Gemini CLI)
+  async saveGlobalApiSettings() {
+    this.antigravitySaving = true;
+    try {
+      const apiKey = this.agSettingsForm.API_KEY;
+      const proxy = this.agSettingsForm.PROXY;
+
+      // 1. 保存到 Antigravity
+      const agUpdates = [
+        { key: 'API_KEY', value: apiKey },
+        { key: 'PROXY', value: proxy }
+      ];
+
+      for (const update of agUpdates) {
+        await fetch('/api/antigravity/settings', {
+          method: 'POST',
+          headers: {
+            ...this.getAuthHeaders(),
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(update)
+        });
+      }
+
+      // 2. 保存到 Gemini CLI
+      const gcliUpdates = {
+        API_KEY: apiKey,
+        PROXY: proxy
+      };
+
+      // 同步到本地表单对象
+      if (this.geminiCliSettingsForm) {
+        this.geminiCliSettingsForm.API_KEY = apiKey;
+        this.geminiCliSettingsForm.PROXY = proxy;
+      }
+
+      await fetch('/api/gemini-cli-api/settings', {
+        method: 'POST',
+        headers: {
+          ...this.getAuthHeaders(),
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(gcliUpdates)
+      });
+
+      // 3. 保存 User Settings (Load Balancing Strategy)
+      await this.saveUserSettingsToServer();
+
+      this.showGlobalToast('全局 API 及网络配置已同步应用', 'success');
+    } catch (error) {
+      console.error('保存全局设置失败:', error);
+      this.showGlobalToast('保存失败: ' + error.message, 'error');
+    } finally {
+      this.antigravitySaving = false;
     }
   }
 };

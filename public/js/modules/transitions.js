@@ -117,6 +117,9 @@ export const transitionsMethods = {
               this.loadAntigravityAccounts();
             }
             break;
+          case 'gemini-cli':
+            this.initGeminiCli();
+            break;
         }
       });
     }, 150);

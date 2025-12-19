@@ -9,6 +9,7 @@ import { zeaburMethods } from './modules/zeabur.js';
 import { dnsMethods } from './modules/dns.js';
 import { openaiMethods } from './modules/openai.js';
 import { antigravityMethods } from './modules/antigravity.js';
+import { geminiCliMethods } from './modules/gemini-cli.js';
 import { settingsMethods } from './modules/settings.js';
 import { transitionsMethods } from './modules/transitions.js';
 import { toast } from './modules/toast.js';
@@ -118,7 +119,6 @@ const app = createApp({
         name: '',
         email: '',
         password: '',
-        apiKey: '',
         panelUser: 'admin',
         panelPassword: ''
       },
@@ -134,15 +134,35 @@ const app = createApp({
       },
       antigravityManualFormError: '',
       agOauthUrl: '',
-      agOauthCustomProjectId: '',
-      agOauthAllowRandom: false,
-      antigravityQuotaViewMode: 'list',
+      agCustomProjectId: '',
+      agAllowRandomProjectId: true,
+      showOAuthExpand: false,
+      antigravityQuotaViewMode: 'grouped',
       antigravityLogDetail: null,
       showAntigravityLogDetailModal: false,
-      agSettingsForm: {},
+      agSettingsForm: {
+        API_KEY: '',
+        PROXY: '',
+        load_balancing_strategy: 'random'
+      },
       antigravityModelRedirects: [],
       newRedirectSource: '',
       newRedirectTarget: '',
+
+      // Gemini CLI API 相关
+      geminiCliAccountForm: {
+        name: '',
+        client_id: '',
+        client_secret: '',
+        refresh_token: '',
+        project_id: ''
+      },
+      geminiCliAccountFormError: '',
+      geminiCliEditingAccount: null,
+      geminiCliLogDetail: null,
+      showGeminiCliLogDetailModal: false,
+      geminiCliSettingsForm: {},
+
 
       // 主机管理相关
       expandedDockerPanels: new Set(),
@@ -345,6 +365,11 @@ const app = createApp({
         if (this.mainActiveTab === 'antigravity' && this.antigravityCurrentTab === 'quotas') {
           this.loadAntigravityQuotas();
         }
+
+        // Gemini CLI 模块
+        if (this.mainActiveTab === 'gemini-cli' && this.geminiCliCurrentTab === 'models') {
+          this.loadGeminiCliModels();
+        }
       }
     });
 
@@ -429,6 +454,10 @@ const app = createApp({
         this.settingsCurrentTab = 'general'; // Reset to general tab
         document.body.classList.add('modal-open');
         this.$nextTick(() => this.focusModalOverlay('.settings-sidebar'));
+
+        // 加载必要的设置数据供全局或模块配置使用
+        this.loadAntigravitySettings();
+        this.loadGeminiCliSettings();
       } else {
         document.body.classList.remove('modal-open');
       }
@@ -503,6 +532,9 @@ const app = createApp({
                   if (this.loadAntigravityQuotas) this.loadAntigravityQuotas();
                 }
                 break;
+              case 'gemini-cli':
+                this.initGeminiCli();
+                break;
             }
           });
         }
@@ -544,6 +576,9 @@ const app = createApp({
               break;
             case 'antigravity':
               if (this.loadAntigravityQuotas) this.loadAntigravityQuotas();
+              break;
+            case 'gemini-cli':
+              this.initGeminiCli();
               break;
           }
         });
@@ -2506,6 +2541,7 @@ const app = createApp({
     ...dnsMethods,
     ...openaiMethods,
     ...antigravityMethods,
+    ...geminiCliMethods,
     ...settingsMethods,
     ...transitionsMethods
   }

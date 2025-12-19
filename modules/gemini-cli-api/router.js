@@ -1,0 +1,785 @@
+const express = require('express');
+const router = express.Router();
+const axios = require('axios');
+const storage = require('./storage');
+const client = require('./gemini-client');
+const StreamProcessor = require('./utils/stream-processor');
+const { requireAuth } = require('../../src/middleware/auth');
+
+const streamProcessor = new StreamProcessor(client);
+
+/**
+ * API Key 认证中间件 (供外部客户端使用)
+ */
+const requireApiKey = async (req, res, next) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).json({ error: { message: 'Unauthorized', type: 'invalid_request_error', code: '401' } });
+    }
+
+    const token = authHeader.substring(7);
+
+    try {
+        const settings = await storage.getSettings();
+        const configuredKey = settings.API_KEY || '123456'; // 默认 123456 仅供兼容，建议设置
+
+        if (token !== configuredKey) {
+            return res.status(401).json({ error: { message: 'Invalid API Key', type: 'invalid_request_error', code: '401' } });
+        }
+        next();
+    } catch (e) {
+        console.error('API Key 验证出错:', e);
+        res.status(500).json({ error: 'Auth Error' });
+    }
+};
+
+/**
+ * OpenAI 兼容的模型列表接口 - 返回基础模型和思考模型变体
+ */
+const path = require('path');
+const fs = require('fs');
+
+const MATRIX_FILE = path.join(__dirname, 'gemini-matrix.json');
+
+// 默认矩阵配置（如果文件不存在）
+const DEFAULT_MATRIX = {
+    "gemini-2.5-pro": { base: true, maxThinking: true, noThinking: true, search: true, fakeStream: true, antiTrunc: true },
+    "gemini-2.5-flash": { base: true, maxThinking: true, noThinking: true, search: true, fakeStream: true, antiTrunc: true },
+    "gemini-3-pro-preview": { base: true, maxThinking: true, noThinking: true, search: true, fakeStream: true, antiTrunc: true },
+    "gemini-3-flash-preview": { base: true, maxThinking: true, noThinking: true, search: true, fakeStream: true, antiTrunc: true }
+};
+
+// 辅助函数：读取矩阵配置
+function getMatrixConfig() {
+    try {
+        if (fs.existsSync(MATRIX_FILE)) {
+            return JSON.parse(fs.readFileSync(MATRIX_FILE, 'utf8'));
+        }
+    } catch (e) {
+        console.error('Failed to read matrix file:', e);
+    }
+    return DEFAULT_MATRIX;
+}
+
+// 辅助函数：保存矩阵配置
+function saveMatrixConfig(config) {
+    try {
+        fs.writeFileSync(MATRIX_FILE, JSON.stringify(config, null, 2), 'utf8');
+        return true;
+    } catch (e) {
+        console.error('Failed to save matrix file:', e);
+        return false;
+    }
+}
+
+/**
+ * 获取模型矩阵配置 (内部 API)
+ */
+router.get('/config/matrix', requireAuth, (req, res) => {
+    res.json(getMatrixConfig());
+});
+
+/**
+ * 更新模型矩阵配置 (内部 API)
+ */
+router.post('/config/matrix', requireAuth, (req, res) => {
+    const newConfig = req.body;
+    if (saveMatrixConfig(newConfig)) {
+        res.json({ success: true });
+    } else {
+        res.status(500).json({ error: 'Failed to save configuration' });
+    }
+});
+
+/**
+ * OpenAI 兼容的模型列表接口 - 基于矩阵配置动态生成
+ */
+router.get(['/v1/models', '/models'], requireApiKey, async (req, res) => {
+    try {
+        const matrix = getMatrixConfig();
+
+        // 获取全局设置中的前缀
+        const userSettingsService = require('../../src/services/userSettings');
+        const globalSettings = userSettingsService.loadUserSettings();
+        const prefix = (globalSettings.channelModelPrefix || {})['gemini-cli'] || '';
+
+        const models = [];
+
+        Object.keys(matrix).forEach(baseModelId => {
+            const config = matrix[baseModelId];
+            if (!config) return;
+
+            // 1. 收集当前模型的基础可用变体 ID (不含前缀)
+            const standardVariants = [];
+
+            // A. 基础模型
+            if (config.base) {
+                standardVariants.push(baseModelId);
+                // A.1 搜索变体
+                if (config.search) {
+                    standardVariants.push(baseModelId + '-search');
+                }
+            }
+
+            // B. 深度思考 (MaxThinking)
+            if (config.maxThinking) {
+                standardVariants.push(baseModelId + '-maxthinking');
+                // B.1 搜索变体
+                if (config.search) {
+                    standardVariants.push(baseModelId + '-maxthinking-search');
+                }
+            }
+
+            // C. 快速思考 (NoThinking)
+            if (config.noThinking) {
+                standardVariants.push(baseModelId + '-nothinking');
+                // C.1 搜索变体
+                if (config.search) {
+                    standardVariants.push(baseModelId + '-nothinking-search');
+                }
+            }
+
+            // 2. 为每个变体生成最终的模型对象 (应用全局前缀 + 功能前缀)
+            standardVariants.forEach(variantId => {
+                // 2.1 添加标准模型 (带全局前缀)
+                models.push(createModelObject(prefix + variantId));
+
+                // 2.2 添加假流式变体
+                if (config.fakeStream) {
+                    models.push(createModelObject(prefix + '假流式/' + variantId));
+                }
+
+                // 2.3 添加抗截断变体
+                if (config.antiTrunc) {
+                    models.push(createModelObject(prefix + '流式抗截断/' + variantId));
+                }
+            });
+        });
+
+        // 3. 注入重定向模型
+        const redirects = storage.getModelRedirects();
+        redirects.forEach(r => {
+            // 仅当源模型不冲突时添加 (应用前缀后的源模型名)
+            const sourceWithPrefix = prefix + r.source_model;
+            if (!models.find(m => m.id === sourceWithPrefix)) {
+                models.push(createModelObject(sourceWithPrefix));
+            }
+        });
+
+        res.json({ object: 'list', data: models });
+    } catch (e) {
+        console.error('[GCLI] Failed to fetch matrix models:', e.message);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+function createModelObject(id) {
+    return {
+        id: id,
+        object: 'model',
+        created: Math.floor(Date.now() / 1000),
+        owned_by: 'google'
+    };
+}
+
+
+
+// 全局渠道启用状态检查中间件
+function requireChannelEnabled(req, res, next) {
+    const userSettingsService = require('../../src/services/userSettings');
+    const settings = userSettingsService.loadUserSettings();
+    const channelEnabled = settings.channelEnabled || {};
+
+    if (channelEnabled['gemini-cli'] === false) {
+        return res.status(403).json({
+            error: {
+                message: 'Gemini CLI channel is disabled in global settings.',
+                type: 'permission_error',
+                code: 'channel_disabled'
+            }
+        });
+    }
+    next();
+}
+
+// 所有 /v1 (及为了兼容性直接暴露在根部的 chat/completions) 接口受全局启用状态控制
+router.use(['/v1', '/chat/completions'], requireChannelEnabled);
+
+// ============== 管理接口 (需 Admin 权限) ==============
+router.use(['/accounts', '/oauth/exchange', '/logs', '/settings', '/stats', '/quotas', '/models'], requireAuth);
+
+/**
+ * 获取额度信息
+ */
+router.get('/quotas', async (req, res) => {
+    try {
+        const { accountId } = req.query;
+        if (!accountId) {
+            return res.json({});
+        }
+
+        // 获取账号
+        const accounts = storage.getAccounts();
+        const account = accounts.find(a => a.id === accountId);
+        if (!account) {
+            return res.status(404).json({ error: 'Account not found' });
+        }
+
+        // 使用 client 获取模型列表和额度
+        const quotas = await client.getQuotas(account);
+        res.json(quotas);
+    } catch (e) {
+        console.error('获取额度失败:', e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+/**
+ * 切换模型状态
+ */
+router.post('/models/status', async (req, res) => {
+    try {
+        const { modelId, enabled } = req.body;
+        if (!modelId) {
+            return res.status(400).json({ error: 'Model ID required' });
+        }
+
+        storage.setModelStatus(modelId, enabled);
+        res.json({ success: true, modelId, enabled });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+/**
+ * 获取模型重定向列表
+ */
+router.get('/models/redirects', async (req, res) => {
+    try {
+        const redirects = storage.getModelRedirects();
+        res.json(redirects);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+/**
+ * 添加模型重定向
+ */
+router.post('/models/redirects', async (req, res) => {
+    const { sourceModel, targetModel } = req.body;
+    if (!sourceModel || !targetModel) {
+        return res.status(400).json({ error: 'Source and target models required' });
+    }
+
+    if (sourceModel === targetModel) {
+        return res.status(400).json({ error: 'Cannot redirect to self' });
+    }
+
+    try {
+        storage.addModelRedirect(sourceModel, targetModel);
+        res.json({ success: true, sourceModel, targetModel });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+/**
+ * 删除模型重定向
+ */
+router.delete('/models/redirects/:sourceModel', async (req, res) => {
+    const { sourceModel } = req.params;
+    try {
+        storage.removeModelRedirect(sourceModel);
+        res.json({ success: true, sourceModel });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+/**
+ * 账号管理 - 获取列表 (带状态验证)
+ */
+router.get('/accounts', async (req, res) => {
+    try {
+        const accounts = storage.getAccounts();
+
+        // 尝试验证每个账号的 Token 状态
+        const accountsWithStatus = await Promise.all(accounts.map(async (account) => {
+            try {
+                // 尝试获取 Access Token 来验证账号状态
+                await client.getAccessToken(account.id);
+                return { ...account, status: 'online' };
+            } catch (e) {
+                console.log(`Account ${account.name} validation failed:`, e.message);
+                return { ...account, status: 'error' };
+            }
+        }));
+
+        res.json(accountsWithStatus);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+/**
+ * 强制刷新所有账号状态和信息 (Email)
+ */
+router.post('/accounts/refresh', async (req, res) => {
+    try {
+        const accounts = storage.getAccounts();
+        let refreshed = 0;
+        let failed = 0;
+
+        for (const account of accounts) {
+            try {
+                // 1. 获取 Token (这一步如果过期会自动刷新)
+                const token = await client.getAccessToken(account.id);
+
+                // 2. 强制获取最新 UserInfo 和 Project ID (如果缺失)
+                const axiosConfig = await client.getAxiosConfig();
+                let newEmail = account.email;
+                let newProjectId = account.project_id;
+
+                try {
+                    const userRes = await axios.get('https://www.googleapis.com/oauth2/v2/userinfo', {
+                        ...axiosConfig,
+                        headers: { Authorization: `Bearer ${token}` }
+                    });
+                    if (userRes.data?.email) newEmail = userRes.data.email;
+                } catch (infoErr) {
+                    console.warn(`Failed to get email for ${account.name}: ${infoErr.message}`);
+                }
+
+                if (!newProjectId) {
+                    try {
+                        const projRes = await axios.get('https://cloudresourcemanager.googleapis.com/v1/projects', {
+                            ...axiosConfig,
+                            headers: { Authorization: `Bearer ${token}` }
+                        });
+                        const projects = projRes.data.projects || [];
+                        if (projects.length > 0) newProjectId = projects[0].projectId;
+                    } catch (projErr) {
+                        // 忽略 Project ID 获取失败
+                    }
+                }
+
+                if (newEmail !== account.email || newProjectId !== account.project_id) {
+                    storage.updateAccount(account.id, {
+                        ...account,
+                        email: newEmail,
+                        project_id: newProjectId
+                    });
+
+                    // 更新 token 记录
+                    const tokenRecord = storage.getTokenByAccountId(account.id);
+                    if (tokenRecord) {
+                        storage.saveToken({
+                            account_id: account.id,
+                            ...tokenRecord,
+                            email: newEmail,
+                            project_id: newProjectId
+                        });
+                    }
+                }
+
+                refreshed++;
+            } catch (e) {
+                console.error(`Failed to refresh account ${account.name}:`, e.message);
+                failed++;
+            }
+        }
+
+        // 刷新完成后，重新获取最新账号列表返回
+        const updatedAccounts = await Promise.all(storage.getAccounts().map(async (account) => {
+            // 这里不再验证 Token 状态，因为刷新过程中已经验证/刷新过了，直接返回 online 即可（或者简单验证）
+            // 为了响应速度，这里只返回静态数据，状态已经在刷新循环中处理了
+            // 如果需要状态，可以简单标记
+            return { ...account, status: 'online' };
+        }));
+
+        res.json({ success: true, refreshed, failed, accounts: updatedAccounts });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+/**
+ * 账号管理 - 添加账号
+ */
+router.post('/accounts', async (req, res) => {
+    try {
+        const { name, email, client_id, client_secret, refresh_token, project_id } = req.body;
+        if (!client_id || !client_secret || !refresh_token) {
+            return res.status(400).json({ error: 'Missing OAuth credentials' });
+        }
+        const id = `acc_${Math.random().toString(36).slice(2, 7)}`;
+        await storage.addAccount({
+            id, name: name || 'Unnamed Account', email,
+            client_id, client_secret, refresh_token, project_id
+        });
+        res.json({ message: 'Account added', id });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+/**
+ * 账号管理 - 更新账号
+ */
+router.put('/accounts/:id', async (req, res) => {
+    try {
+        const { name, email, client_id, client_secret, refresh_token, project_id } = req.body;
+        storage.updateAccount(req.params.id, {
+            name, email, client_id, client_secret, refresh_token, project_id
+        });
+        res.json({ message: 'Account updated', id: req.params.id });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+/**
+ * 手动获取邮箱
+ */
+router.post('/accounts/fetch-email', async (req, res) => {
+    try {
+        const { client_id, client_secret, refresh_token } = req.body;
+        if (!client_id || !client_secret || !refresh_token) {
+            return res.status(400).json({ error: 'Missing credentials' });
+        }
+
+        const axios = require('axios');
+
+        // 刷新 Token 获取 Access Token
+        const params = new URLSearchParams({
+            client_id,
+            client_secret,
+            refresh_token,
+            grant_type: 'refresh_token'
+        });
+
+        const tokenRes = await axios.post('https://oauth2.googleapis.com/token', params.toString(), {
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+        });
+
+        // 获取用户信息
+        const userRes = await axios.get('https://www.googleapis.com/oauth2/v2/userinfo', {
+            headers: { Authorization: `Bearer ${tokenRes.data.access_token}` }
+        });
+
+        res.json({ email: userRes.data.email });
+    } catch (e) {
+        console.error('Fetch email error:', e.response?.data || e.message);
+        res.status(500).json({ error: e.response?.data?.error_description || e.message });
+    }
+});
+
+/**
+ * 账号管理 - 删除账号
+ */
+router.delete('/accounts/:id', async (req, res) => {
+    try {
+        storage.deleteAccount(req.params.id);
+        res.json({ message: 'Account deleted' });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+/**
+ * 账号管理 - 切换启用状态
+ */
+router.post('/accounts/:id/toggle', async (req, res) => {
+    try {
+        const result = storage.toggleAccount(req.params.id);
+        res.json({ message: 'Account toggled', enable: result });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+/**
+ * 日志管理 - 获取列表
+ */
+router.get('/logs', async (req, res) => {
+    try {
+        const limit = parseInt(req.query.limit) || 100;
+        const offset = parseInt(req.query.offset) || 0;
+        const logs = await storage.getLogs(limit, offset);
+        res.json(logs);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+/**
+ * 日志管理 - 获取详情
+ */
+router.get('/logs/:id', async (req, res) => {
+    try {
+        const log = await storage.getLogDetail(req.params.id);
+        if (log && log.detail) {
+            log.detail = JSON.parse(log.detail);
+        }
+        res.json(log);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+/**
+ * 日志管理 - 清空日志
+ */
+router.delete('/logs', async (req, res) => {
+    try {
+        await storage.clearLogs();
+        res.json({ message: 'Logs cleared' });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+/**
+ * 设置管理 - 获取设置
+ */
+router.get('/settings', async (req, res) => {
+    try {
+        const settings = await storage.getSettings();
+        res.json(settings);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+/**
+ * 设置管理 - 更新设置
+ */
+router.post('/settings', async (req, res) => {
+    try {
+        for (const [key, value] of Object.entries(req.body)) {
+            await storage.updateSetting(key, String(value));
+        }
+        res.json({ message: 'Settings updated' });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+/**
+ * 概览统计
+ */
+router.get('/stats', async (req, res) => {
+    try {
+        const accounts = await storage.getAccounts();
+        const logs = await storage.getLogs(10, 0);
+
+        // 简单统计过去 24 小时调用量 (这里为了演示简单处理)
+        const stats = {
+            total_accounts: accounts.length,
+            active_accounts: accounts.filter(a => a.enable !== 0).length,
+            total_logs_count: logs.length, // 实际上应该是全部
+            recent_logs: logs
+        };
+        res.json(stats);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+/**
+ * 账号管理 - OAuth Token 交换
+ */
+router.post('/oauth/exchange', async (req, res) => {
+    try {
+        const { code, redirect_uri, client_id, client_secret, project_id: customProjectId } = req.body;
+        if (!code || !redirect_uri || !client_id || !client_secret) {
+            return res.status(400).json({ error: 'Missing code, redirect_uri, client_id, or client_secret' });
+        }
+
+        const axios = require('axios');
+        const params = new URLSearchParams({
+            code,
+            client_id,
+            client_secret,
+            redirect_uri,
+            grant_type: 'authorization_code'
+        });
+        const response = await axios.post('https://oauth2.googleapis.com/token', params.toString(), {
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+        });
+
+        let project_id = customProjectId || '';
+        let email = null;
+
+        // 获取用户邮箱
+        try {
+            const userRes = await axios.get('https://www.googleapis.com/oauth2/v2/userinfo', {
+                headers: { Authorization: `Bearer ${response.data.access_token}` }
+            });
+            email = userRes.data.email;
+        } catch (ue) {
+            console.warn('Auto-discover email failed:', ue.message);
+        }
+
+        // 尝试自动发现 Project ID (可选)
+        if (!project_id) {
+            try {
+                const projectsRes = await axios.get('https://cloudresourcemanager.googleapis.com/v1/projects', {
+                    headers: { Authorization: `Bearer ${response.data.access_token}` }
+                });
+                if (projectsRes.data.projects && projectsRes.data.projects.length > 0) {
+                    // 默认取第一个
+                    project_id = projectsRes.data.projects[0].projectId;
+                }
+            } catch (pe) {
+                console.warn('Auto-discover Project ID failed:', pe.message);
+            }
+        }
+
+        res.json({
+            ...response.data,
+            project_id,
+            email
+        });
+    } catch (e) {
+        console.error('OAuth Exchange Error:', e.response?.data || e.message);
+        res.status(e.response?.status || 500).json({
+            error: e.response?.data?.error_description || e.message
+        });
+    }
+});
+
+
+
+/**
+ * OpenAI 兼容的对话接口
+ */
+router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async (req, res) => {
+    const startTime = Date.now();
+    let selectedAccountId = null;
+    try {
+        let { model } = req.body;
+
+        // 获取前缀
+        const userSettingsService = require('../../src/services/userSettings');
+        const globalSettings = userSettingsService.loadUserSettings();
+        const prefix = (globalSettings.channelModelPrefix || {})['gemini-cli'] || '';
+
+        // 处理模型重定向
+        const redirects = storage.getModelRedirects();
+        let redirect = redirects.find(r => (prefix + r.source_model) === model);
+        if (!redirect) {
+            redirect = redirects.find(r => r.source_model === model);
+        }
+
+        if (redirect) {
+            model = redirect.target_model;
+            req.body.model = model;
+        }
+
+        const accounts = await storage.getAccounts();
+        if (accounts.length === 0) {
+            return res.status(500).json({ error: { message: 'No accounts configured', type: 'api_error' } });
+        }
+
+        // 简单的随机轮询逻辑
+        const account = accounts[Math.floor(Math.random() * accounts.length)];
+        selectedAccountId = account.id;
+
+        if (req.body.stream) {
+            res.setHeader('Content-Type', 'text/event-stream');
+            res.setHeader('Cache-Control', 'no-cache');
+            res.setHeader('Connection', 'keep-alive');
+
+            const stream = streamProcessor.processStream(req.body, account.id);
+            for await (const chunk of stream) {
+                res.write(chunk);
+            }
+            res.end();
+
+            // 流式日志记录比较复杂，这里简单记录一下请求
+            await storage.addLog({
+                account_id: selectedAccountId,
+                request_path: req.path,
+                request_method: req.method,
+                status_code: 200,
+                duration_ms: Date.now() - startTime,
+                client_ip: req.ip,
+                user_agent: req.get('user-agent'),
+                detail: JSON.stringify({ request: req.body, type: 'stream' })
+            });
+        } else {
+            const response = await client.generateContent(req.body, account.id);
+            const geminiData = response.data;
+
+            const candidate = geminiData.candidates?.[0];
+            const text = candidate?.content?.parts?.[0]?.text || '';
+            const reasoning = candidate?.content?.parts?.find(p => p.thought)?.text || '';
+
+            const responseData = {
+                id: `chatcmpl-${Math.random().toString(36).slice(2)}`,
+                object: 'chat.completion',
+                created: Math.floor(Date.now() / 1000),
+                model: req.body.model,
+                choices: [{
+                    index: 0,
+                    message: {
+                        role: 'assistant',
+                        content: text,
+                        reasoning_content: reasoning
+                    },
+                    finish_reason: 'stop'
+                }],
+                usage: {
+                    prompt_tokens: geminiData.usageMetadata?.promptTokenCount || 0,
+                    completion_tokens: geminiData.usageMetadata?.candidatesTokenCount || 0,
+                    total_tokens: geminiData.usageMetadata?.totalTokenCount || 0
+                }
+            };
+
+            // 记录日志
+            await storage.addLog({
+                account_id: selectedAccountId,
+                request_path: req.path,
+                request_method: req.method,
+                status_code: 200,
+                duration_ms: Date.now() - startTime,
+                client_ip: req.ip,
+                user_agent: req.get('user-agent'),
+                detail: JSON.stringify({ request: req.body, response: responseData })
+            });
+
+            res.json(responseData);
+        }
+    } catch (e) {
+        console.error('Chat Completion Error:', e.message);
+        const duration = Date.now() - startTime;
+
+        // 记录错误日志
+        try {
+            await storage.addLog({
+                account_id: selectedAccountId,
+                request_path: req.path,
+                request_method: req.method,
+                status_code: e.response?.status || 500,
+                duration_ms: duration,
+                client_ip: req.ip,
+                user_agent: req.get('user-agent'),
+                detail: JSON.stringify({ error: e.message, stack: e.stack, body: req.body })
+            });
+        } catch (le) {
+            console.error('Failed to log error:', le.message);
+        }
+
+        res.status(e.response?.status || 500).json({
+            error: {
+                message: e.message,
+                type: 'api_error',
+                code: e.response?.status || 500
+            }
+        });
+    }
+});
+
+module.exports = router;

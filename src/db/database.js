@@ -126,6 +126,51 @@ class DatabaseService {
             } catch (err) {
                 logger.error('Antigravity 额外字段迁移失败:', err.message);
             }
+
+            // Gemini CLI 迁移: 检查 gemini_cli_accounts 表是否有 project_id 字段
+            try {
+                const gcliColumns = this.db.pragma('table_info(gemini_cli_accounts)');
+                if (gcliColumns.length > 0) {
+                    const hasProjectId = gcliColumns.some(col => col.name === 'project_id');
+                    if (!hasProjectId) {
+                        logger.info('正在为 gemini_cli_accounts 表添加 project_id 字段...');
+                        this.db.exec('ALTER TABLE gemini_cli_accounts ADD COLUMN project_id TEXT');
+                        logger.success('gemini_cli_accounts.project_id 字段添加成功');
+                    }
+
+                    // 添加 cloudaicompanion_project_id 字段 (用于缓存 loadCodeAssist 返回的项目 ID)
+                    const hasCloudaicompanion = gcliColumns.some(col => col.name === 'cloudaicompanion_project_id');
+                    if (!hasCloudaicompanion) {
+                        logger.info('正在为 gemini_cli_accounts 表添加 cloudaicompanion_project_id 字段...');
+                        this.db.exec('ALTER TABLE gemini_cli_accounts ADD COLUMN cloudaicompanion_project_id TEXT');
+                        logger.success('gemini_cli_accounts.cloudaicompanion_project_id 字段添加成功');
+                    }
+                }
+            } catch (err) {
+                logger.error('Gemini CLI 额外字段迁移失败:', err.message);
+            }
+
+            // User Settings 迁移: 检查 user_settings 表是否有 channel_enabled 字段
+            try {
+                const settingsColumns = this.db.pragma('table_info(user_settings)');
+                if (settingsColumns.length > 0) {
+                    const hasChannelEnabled = settingsColumns.some(col => col.name === 'channel_enabled');
+                    if (!hasChannelEnabled) {
+                        logger.info('正在为 user_settings 表添加 channel_enabled 字段...');
+                        this.db.exec('ALTER TABLE user_settings ADD COLUMN channel_enabled TEXT');
+                        logger.success('user_settings.channel_enabled 字段添加成功');
+                    }
+
+                    const hasLoadStrategy = settingsColumns.some(col => col.name === 'load_balancing_strategy');
+                    if (!hasLoadStrategy) {
+                        logger.info('正在为 user_settings 表添加 load_balancing_strategy 字段...');
+                        this.db.exec("ALTER TABLE user_settings ADD COLUMN load_balancing_strategy TEXT DEFAULT 'random'");
+                        logger.success('user_settings.load_balancing_strategy 字段添加成功');
+                    }
+                }
+            } catch (err) {
+                logger.error('User Settings 额外字段迁移失败:', err.message);
+            }
         } catch (error) {
             logger.error('数据库迁移失败', error.message);
             // 不抛出错误，避免影响应用启动
