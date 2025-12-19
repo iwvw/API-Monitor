@@ -236,7 +236,7 @@
   background-color: var(--input-bg);
   color: var(--text-primary);
   transition: border-color 0.2s;
-  resize: vertical;
+  resize: none;
   min-height: 120px;
   font-family: monospace;
 }

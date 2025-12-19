@@ -162,14 +162,19 @@ class Session extends BaseModel {
     }
 
     /**
-     * 清理过期会话
+     * 清理过期或长期未使用的会话
      */
     cleanExpiredSessions() {
         const db = this.getDb();
+        // 清理规则：
+        // 1. 明确已过期的 (expires_at < now)
+        // 2. 标记为不活跃且超过 7 天未访问的
+        // 3. 活跃但超过 3 天未访问的（认为是僵尸会话）
         const stmt = db.prepare(`
             DELETE FROM ${this.tableName}
             WHERE expires_at < datetime('now')
-                OR (is_active = 0 AND last_accessed_at < datetime('now', '-7 days'))
+                OR is_active = 0
+                OR last_accessed_at < datetime('now', '-3 days')
         `);
         return stmt.run().changes;
     }
@@ -336,15 +341,20 @@ class UserSettings extends BaseModel {
 /**
  * 操作日志模型
  */
+const { asyncLocalStorage } = require('../../utils/logger');
+
 class OperationLog extends BaseModel {
     constructor() {
         super('operation_logs');
     }
 
     /**
-     * 记录操作
+     * 记录操作 (审计日志)
      */
     logOperation(logData) {
+        // 从异步上下文中获取信息
+        const context = asyncLocalStorage.getStore() || {};
+        
         const data = {
             operation_type: logData.operation_type,
             table_name: logData.table_name,
@@ -352,8 +362,9 @@ class OperationLog extends BaseModel {
             details: logData.details
                 ? (typeof logData.details === 'string' ? logData.details : JSON.stringify(logData.details))
                 : null,
-            ip_address: logData.ip_address || null,
+            ip_address: logData.ip_address || context.ip || null,
             user_agent: logData.user_agent || null,
+            trace_id: context.traceId || null, // 关联 Trace ID
             created_at: new Date().toISOString()
         };
 

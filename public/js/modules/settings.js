@@ -51,6 +51,9 @@ export const settingsMethods = {
           if (settings.load_balancing_strategy) {
             this.agSettingsForm.load_balancing_strategy = settings.load_balancing_strategy;
           }
+          if (settings.serverIpDisplayMode) {
+            this.serverIpDisplayMode = settings.serverIpDisplayMode;
+          }
 
           this.activateFirstVisibleModule();
           return true;
@@ -84,7 +87,7 @@ export const settingsMethods = {
     const savedVisibility = localStorage.getItem('module_visibility');
     const savedOrder = localStorage.getItem('module_order');
 
-    const availableModules = ['zeabur', 'dns', 'openai', 'server', 'antigravity', 'gemini-cli'];
+    const availableModules = ['openai', 'antigravity', 'gemini-cli', 'zeabur', 'dns', 'server'];
 
     if (savedVisibility) {
       const saved = JSON.parse(savedVisibility);
@@ -140,7 +143,8 @@ export const settingsMethods = {
         channelEnabled: this.channelEnabled,
         channelModelPrefix: this.channelModelPrefix,
         moduleOrder: this.moduleOrder,
-        load_balancing_strategy: this.agSettingsForm.load_balancing_strategy
+        load_balancing_strategy: this.agSettingsForm.load_balancing_strategy,
+        serverIpDisplayMode: this.serverIpDisplayMode
       };
 
       const response = await fetch('/api/settings', {
@@ -722,6 +726,117 @@ export const settingsMethods = {
       this.showGlobalToast('请求失败: ' + error.message, 'error');
     } finally {
       this.logLimitsEnforcing = false;
+    }
+  },
+
+  // 获取系统审计日志
+  async fetchSystemLogs() {
+    try {
+      this.systemLogsLoading = true;
+      const response = await fetch('/api/settings/operation-logs', {
+        headers: this.getAuthHeaders()
+      });
+      const result = await response.json();
+      if (result.success) {
+        this.systemLogs = result.data;
+      }
+    } catch (error) {
+      console.error('获取审计日志失败:', error);
+    } finally {
+      this.systemLogsLoading = false;
+    }
+  },
+
+  // 翻译操作类型
+  translateOpType(type) {
+    const types = {
+      create: '新增',
+      update: '修改',
+      delete: '删除',
+      login: '登录',
+      logout: '登出',
+      system: '系统'
+    };
+    return types[type] || type;
+  },
+
+  // 查看日志详情
+  viewLogDetail(log) {
+    let detailStr = '';
+    try {
+      const details = typeof log.details === 'string' ? JSON.parse(log.details) : log.details;
+      detailStr = JSON.stringify(details, null, 2);
+    } catch (e) {
+      detailStr = log.details;
+    }
+
+    this.showInfo({
+      title: '日志详情 - ' + this.translateOpType(log.operation_type),
+      message: `<pre style="background: var(--bg-tertiary); padding: 10px; border-radius: 6px; font-size: 12px; max-height: 400px; overflow-y: auto;">${detailStr}</pre>`,
+      icon: 'fa-info-circle'
+    });
+  },
+
+  // 切换日志流
+  toggleLogStream() {
+    if (this.logStreamEnabled) {
+      this.startLogStream();
+    } else {
+      this.stopLogStream();
+    }
+  },
+
+  // 开始日志流
+  startLogStream() {
+    if (this.logStreamInterval) return;
+
+    // 初始加载
+    this.fetchRecentLogMessages();
+
+    // 定时轮询 (如果没有 WebSocket)
+    this.logStreamInterval = setInterval(() => {
+      this.fetchRecentLogMessages();
+    }, 3000);
+  },
+
+  // 停止日志流
+  stopLogStream() {
+    if (this.logStreamInterval) {
+      clearInterval(this.logStreamInterval);
+      this.logStreamInterval = null;
+    }
+  },
+
+  // 获取最近的系统运行日志
+  async fetchRecentLogMessages() {
+    try {
+      const response = await fetch('/api/settings/sys-logs', {
+        headers: this.getAuthHeaders()
+      });
+      const result = await response.json();
+      if (result.success && result.data) {
+        // 简单的追加去重逻辑 (实际应用中可能需要更复杂的 traceId 或 id 检查)
+        const currentMessages = [...this.systemLogMessages];
+        result.data.forEach(newMsg => {
+          const exists = currentMessages.some(m => m.time === newMsg.time && m.message === newMsg.message);
+          if (!exists) {
+            currentMessages.push(newMsg);
+          }
+        });
+
+        // 保持最后 100 条
+        this.systemLogMessages = currentMessages.slice(-100);
+
+        // 自动滚动到底部
+        this.$nextTick(() => {
+          const container = document.querySelector('.log-stream-container');
+          if (container) {
+            container.scrollTop = container.scrollHeight;
+          }
+        });
+      }
+    } catch (error) {
+      console.error('获取实时日志失败:', error);
     }
   },
 

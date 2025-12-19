@@ -752,7 +752,16 @@ export const antigravityMethods = {
 
     async addModelRedirect(sourceModel, targetModel) {
         if (!sourceModel || !targetModel) return;
+        
         try {
+            // 如果是编辑模式，且修改了源模型名称（主键变了），则需要先删除旧的
+            if (store.agEditingRedirectSource && store.agEditingRedirectSource !== sourceModel) {
+                await fetch(`/api/antigravity/models/redirects/${encodeURIComponent(store.agEditingRedirectSource)}`, {
+                    method: 'DELETE',
+                    headers: store.getAuthHeaders()
+                });
+            }
+
             const response = await fetch('/api/antigravity/models/redirects', {
                 method: 'POST',
                 headers: {
@@ -763,17 +772,35 @@ export const antigravityMethods = {
             });
 
             if (response.ok) {
-                toast.success('添加重定向成功');
+                toast.success('重定向规则已保存');
+                // 清空输入框和编辑状态
+                store.newRedirectSource = '';
+                store.newRedirectTarget = '';
+                store.agEditingRedirectSource = null;
                 await this.loadModelRedirects();
                 return true;
             } else {
                 const data = await response.json();
-                toast.error('添加失败: ' + (data.error || '未知错误'));
+                toast.error('保存失败: ' + (data.error || '未知错误'));
                 return false;
             }
         } catch (error) {
             toast.error('请求失败: ' + error.message);
             return false;
+        }
+    },
+
+    editModelRedirect(r) {
+        store.newRedirectSource = r.source_model;
+        store.newRedirectTarget = r.target_model;
+        store.agEditingRedirectSource = r.source_model;
+        // 滚动到输入框
+        const el = document.getElementById('ag-redirect-inputs');
+        if (el) {
+            el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            // 简单的高亮效果
+            el.style.boxShadow = '0 0 10px var(--ag-primary)';
+            setTimeout(() => { el.style.boxShadow = 'none'; }, 1000);
         }
     },
 

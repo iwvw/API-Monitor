@@ -11,6 +11,7 @@ import { openaiMethods } from './modules/openai.js';
 import { antigravityMethods } from './modules/antigravity.js';
 import { geminiCliMethods } from './modules/gemini-cli.js';
 import { settingsMethods } from './modules/settings.js';
+import { systemLogsMethods } from './modules/logs.js';
 import { transitionsMethods } from './modules/transitions.js';
 import { toast } from './modules/toast.js';
 import { formatDateTime, formatFileSize } from './modules/utils.js';
@@ -52,18 +53,6 @@ const app = createApp({
       batchAddError: '',
       batchAddSuccess: '',
       showAddZeaburAccountModal: false,
-
-      // 日志模态框
-      logsModalTitle: '',
-      logsModalInfo: {},
-      logsContent: '',
-      logsLoading: false,
-      logsFullscreen: false,
-      logsScrollTimer: null,
-      logsRealTimeTimer: null,
-      logsCurrentAccount: null,
-      logsCurrentProject: null,
-      logsCurrentService: null,
 
       // 刷新倒计时
       countdownInterval: null,
@@ -145,6 +134,7 @@ const app = createApp({
         PROXY: '',
         load_balancing_strategy: 'random'
       },
+      showAgApiKey: false,
       antigravityModelRedirects: [],
       newRedirectSource: '',
       newRedirectTarget: '',
@@ -255,7 +245,14 @@ const app = createApp({
         dbSizeMB: 0
       },
       logSettingsSaving: false,
-      logLimitsEnforcing: false
+      logLimitsEnforcing: false,
+
+      // 系统日志
+      systemLogs: [],
+      systemLogsLoading: false,
+      systemLogMessages: [],
+      logStreamEnabled: false,
+      logStreamInterval: null
     };
   },
 
@@ -341,6 +338,7 @@ const app = createApp({
     isAnyModalOpen() {
       return this.showSettingsModal ||
         this.showLogsModal ||
+        this.showSystemLogsModal ||
         this.showAddZeaburAccountModal ||
         this.showAddDnsAccountModal ||
         this.showEditDnsAccountModal ||
@@ -492,41 +490,6 @@ const app = createApp({
         // 加载必要的设置数据供全局或模块配置使用
         this.loadAntigravitySettings();
         this.loadGeminiCliSettings();
-      }
-    },
-
-    showLogsModal(newVal) {
-      if (newVal) {
-        this.$nextTick(() => {
-          this.setupAutoScroll();
-          this.setupHorizontalScrollbar();
-          if (this.logsRealTime) {
-            this.startRealTimeRefresh();
-          }
-          const modalOverlay = document.querySelector('.modal-overlay.logs-fullscreen-overlay, .modal-overlay');
-          if (modalOverlay) {
-            modalOverlay.focus();
-          }
-        });
-      } else {
-        if (this.logsScrollTimer) {
-          clearInterval(this.logsScrollTimer);
-          this.logsScrollTimer = null;
-        }
-        this.stopRealTimeRefresh();
-        this.logsRealTime = false;
-      }
-    },
-
-    logsAutoScroll(newVal) {
-      this.setupAutoScroll();
-    },
-
-    logsRealTime(newVal) {
-      if (newVal) {
-        this.startRealTimeRefresh();
-      } else {
-        this.stopRealTimeRefresh();
       }
     },
 
@@ -684,6 +647,13 @@ const app = createApp({
       }
     },
 
+    serverIpDisplayMode(newVal) {
+      // 当 IP 显示模式改变时，重新渲染主机列表（无需重新加载数据）
+      if (window.serverModule && window.serverModule.renderServerList) {
+        window.serverModule.renderServerList();
+      }
+    },
+
     showSSHTerminalModal(newVal) {
       if (newVal) {
         this.$nextTick(() => this.focusModalOverlay());
@@ -728,8 +698,54 @@ const app = createApp({
   },
 
   methods: {
+    async copyToClipboard(text) {
+      if (!text) return;
+      try {
+        await navigator.clipboard.writeText(text);
+        this.showGlobalToast('已成功复制到剪贴板', 'success');
+      } catch (err) {
+        console.error('无法复制文本: ', err);
+        // 回退方案
+        try {
+          const textArea = document.createElement("textarea");
+          textArea.value = text;
+          document.body.appendChild(textArea);
+          textArea.select();
+          document.execCommand('copy');
+          document.body.removeChild(textArea);
+          this.showGlobalToast('已成功复制到剪贴板', 'success');
+        } catch (copyErr) {
+          this.showGlobalToast('复制失败，请手动选择复制', 'error');
+        }
+      }
+    },
+
     formatDateTime,
     formatFileSize,
+
+    /**
+     * 格式化主机地址（支持打码/隐藏）
+     */
+    formatHost(host) {
+      const mode = this.serverIpDisplayMode || 'normal';
+      if (mode === 'normal') return host;
+      if (mode === 'hidden') return '****';
+
+      // 打码模式 (masked): 1.2.3.4 -> 1.2.*.*
+      const parts = host.split('.');
+      if (parts.length >= 2) {
+        if (parts.length === 4 && parts.every(p => !isNaN(p))) {
+          // IPv4
+          return `${parts[0]}.${parts[1]}.*.*`;
+        }
+        // 域名或其他
+        if (parts.length > 2) {
+          return `${parts[0]}.****.${parts[parts.length - 1]}`;
+        }
+      }
+      return host.length > 4 ? host.substring(0, 2) + '****' : '****';
+    },
+
     // Toast 管理系统 - 使用新的独立 Toast 管理器
     showGlobalToast(message, type = 'success', duration = 3000) {
       // 使用新的toast系统
@@ -1426,7 +1442,7 @@ const app = createApp({
       // 清空终端并显示重连信息
       if (session.terminal) {
         session.terminal.clear();
-        session.terminal.writeln(`\x1b[1;33m正在重新连接到 ${session.server.name} (${session.server.host})...\x1b[0m`);
+        session.terminal.writeln(`\x1b[1;33m正在重新连接到 ${session.server.name} (${this.formatHost(session.server.host)})...\x1b[0m`);
       }
 
       // 建立新的 WebSocket 连接
@@ -1638,7 +1654,7 @@ const app = createApp({
       session.fit = fit;
 
       // 显示连接中信息
-      terminal.writeln(`\x1b[1;33m正在连接到 ${session.server.name} (${session.server.host})...\x1b[0m`);
+      terminal.writeln(`\x1b[1;33m正在连接到 ${session.server.name} (${this.formatHost(session.server.host)})...\x1b[0m`);
 
       // 建立 WebSocket 连接
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -2583,6 +2599,8 @@ const app = createApp({
     ...antigravityMethods,
     ...geminiCliMethods,
     ...settingsMethods,
-    ...transitionsMethods
+    ...transitionsMethods,
+    ...systemLogsMethods,
+    formatDateTime,
   }
 }).mount('#app');

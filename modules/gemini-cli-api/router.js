@@ -667,7 +667,6 @@ router.post('/oauth/exchange', async (req, res) => {
  */
 router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async (req, res) => {
     const startTime = Date.now();
-    let selectedAccountId = null;
     try {
         let { model } = req.body;
 
@@ -676,133 +675,162 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
         const globalSettings = userSettingsService.loadUserSettings();
         const prefix = (globalSettings.channelModelPrefix || {})['gemini-cli'] || '';
 
+        // 验证并处理模型名 (移除可能存在的前缀以便后续处理)
+        let originalModel = model;
+        if (prefix && model.startsWith(prefix)) {
+            model = model.substring(prefix.length);
+        }
+
         // 处理模型重定向
         const redirects = storage.getModelRedirects();
-        let redirect = redirects.find(r => (prefix + r.source_model) === model);
+        let redirect = redirects.find(r => r.source_model === model);
         if (!redirect) {
-            redirect = redirects.find(r => r.source_model === model);
+            // 尝试匹配带前缀的重定向（兼容旧逻辑）
+            redirect = redirects.find(r => (prefix + r.source_model) === originalModel);
         }
 
         if (redirect) {
             model = redirect.target_model;
-            req.body.model = model;
         }
 
+        // 最终的模型 ID (带前缀，用于验证)
+        const modelWithPrefix = prefix + model;
+        
         // 验证模型是否有效（即在矩阵配置中存在且未被禁用）
         const availableModels = getAvailableModels(prefix);
-        if (!availableModels.find(m => m.id === model)) {
-            // 细分错误原因：是根本不存在，还是被禁用？
+        if (!availableModels.find(m => m.id === modelWithPrefix)) {
             const disabledModels = storage.getDisabledModels();
-            if (disabledModels.includes(model)) {
-                return res.status(403).json({ error: { message: `Model '${model}' is disabled`, type: 'permission_error', code: 'model_disabled' } });
+            if (disabledModels.includes(modelWithPrefix)) {
+                return res.status(403).json({ error: { message: `Model '${modelWithPrefix}' is disabled`, type: 'permission_error', code: 'model_disabled' } });
             } else {
-                return res.status(404).json({ error: { message: `Model '${model}' not found or disabled in configuration`, type: 'invalid_request_error', code: 'model_not_found' } });
+                return res.status(404).json({ error: { message: `Model '${modelWithPrefix}' not found or disabled in configuration`, type: 'invalid_request_error', code: 'model_not_found' } });
             }
         }
+        
+        // 更新请求中的模型名为剥离前缀后的名字，供 client 使用
+        req.body.model = model; 
 
-        const accounts = await storage.getAccounts();
-        const enabledAccounts = accounts.filter(a => a.enable !== 0);
-
-        if (enabledAccounts.length === 0) {
+        // 获取所有启用账号
+        const allAccounts = (await storage.getAccounts()).filter(a => a.enable !== 0);
+        if (allAccounts.length === 0) {
             return res.status(503).json({ error: { message: 'No enabled accounts available', type: 'service_unavailable' } });
         }
 
-        // 简单的随机轮询逻辑
-        const account = enabledAccounts[Math.floor(Math.random() * enabledAccounts.length)];
-        selectedAccountId = account.id;
+        const strategy = globalSettings.load_balancing_strategy || 'random';
+        const loadBalancer = require('../../src/utils/loadBalancer');
 
-        if (req.body.stream) {
-            res.setHeader('Content-Type', 'text/event-stream');
-            res.setHeader('Cache-Control', 'no-cache');
-            res.setHeader('Connection', 'keep-alive');
+        // 智能重试逻辑
+        let attemptedAccounts = new Set();
+        let lastError = null;
 
-            const stream = streamProcessor.processStream(req.body, account.id);
-            for await (const chunk of stream) {
-                res.write(chunk);
-            }
-            res.end();
+        while (attemptedAccounts.size < allAccounts.length) {
+            const availableAccounts = allAccounts.filter(a => !attemptedAccounts.has(a.id));
+            if (availableAccounts.length === 0) break;
 
-            // 流式日志记录比较复杂，这里简单记录一下请求
-            await storage.addLog({
-                account_id: selectedAccountId,
-                request_path: req.path,
-                request_method: req.method,
-                status_code: 200,
-                duration_ms: Date.now() - startTime,
-                client_ip: req.ip,
-                user_agent: req.get('user-agent'),
-                detail: JSON.stringify({ request: req.body, type: 'stream' })
-            });
-        } else {
-            const response = await client.generateContent(req.body, account.id);
-            const geminiData = response.data;
+            const account = loadBalancer.getNextAccount('gemini-cli', availableAccounts, strategy);
+            attemptedAccounts.add(account.id);
 
-            const candidate = geminiData.candidates?.[0];
-            const text = candidate?.content?.parts?.[0]?.text || '';
-            const reasoning = candidate?.content?.parts?.find(p => p.thought)?.text || '';
+            try {
+                if (req.body.stream) {
+                    res.setHeader('Content-Type', 'text/event-stream');
+                    res.setHeader('Cache-Control', 'no-cache');
+                    res.setHeader('Connection', 'keep-alive');
 
-            const responseData = {
-                id: `chatcmpl-${Math.random().toString(36).slice(2)}`,
-                object: 'chat.completion',
-                created: Math.floor(Date.now() / 1000),
-                model: req.body.model,
-                choices: [{
-                    index: 0,
-                    message: {
-                        role: 'assistant',
-                        content: text,
-                        reasoning_content: reasoning
-                    },
-                    finish_reason: 'stop'
-                }],
-                usage: {
-                    prompt_tokens: geminiData.usageMetadata?.promptTokenCount || 0,
-                    completion_tokens: geminiData.usageMetadata?.candidatesTokenCount || 0,
-                    total_tokens: geminiData.usageMetadata?.totalTokenCount || 0
+                    const stream = streamProcessor.processStream(req.body, account.id);
+                    for await (const chunk of stream) {
+                        res.write(chunk);
+                    }
+                    res.end();
+
+                    // 记录成功日志
+                    await storage.addLog({
+                        account_id: account.id,
+                        request_path: req.path,
+                        request_method: req.method,
+                        status_code: 200,
+                        duration_ms: Date.now() - startTime,
+                        client_ip: req.ip,
+                        user_agent: req.get('user-agent'),
+                        detail: JSON.stringify({ request: req.body, type: 'stream' })
+                    });
+                    return; // 成功后退出
+                } else {
+                    const response = await client.generateContent(req.body, account.id);
+                    const geminiData = response.data;
+
+                    const candidate = geminiData.candidates?.[0];
+                    const text = candidate?.content?.parts?.[0]?.text || '';
+                    const reasoning = candidate?.content?.parts?.find(p => p.thought)?.text || '';
+
+                    const responseData = {
+                        id: `chatcmpl-${Math.random().toString(36).slice(2)}`,
+                        object: 'chat.completion',
+                        created: Math.floor(Date.now() / 1000),
+                        model: modelWithPrefix, // 返回给用户带前缀的 ID
+                        choices: [{
+                            index: 0,
+                            message: {
+                                role: 'assistant',
+                                content: text,
+                                reasoning_content: reasoning
+                            },
+                            finish_reason: 'stop'
+                        }],
+                        usage: {
+                            prompt_tokens: geminiData.usageMetadata?.promptTokenCount || 0,
+                            completion_tokens: geminiData.usageMetadata?.candidatesTokenCount || 0,
+                            total_tokens: geminiData.usageMetadata?.totalTokenCount || 0
+                        }
+                    };
+
+                    // 记录成功日志
+                    await storage.addLog({
+                        account_id: account.id,
+                        request_path: req.path,
+                        request_method: req.method,
+                        status_code: 200,
+                        duration_ms: Date.now() - startTime,
+                        client_ip: req.ip,
+                        user_agent: req.get('user-agent'),
+                        detail: JSON.stringify({ request: req.body, response: responseData })
+                    });
+
+                    return res.json(responseData); // 成功后退出
                 }
-            };
+            } catch (error) {
+                console.warn(`[GCLI] Account ${account.name} failed, trying next... Error: ${error.message}`);
+                lastError = error;
 
-            // 记录日志
-            await storage.addLog({
-                account_id: selectedAccountId,
-                request_path: req.path,
-                request_method: req.method,
-                status_code: 200,
-                duration_ms: Date.now() - startTime,
-                client_ip: req.ip,
-                user_agent: req.get('user-agent'),
-                detail: JSON.stringify({ request: req.body, response: responseData })
-            });
+                // 记录错误日志
+                await storage.addLog({
+                    account_id: account.id,
+                    request_path: req.path,
+                    request_method: req.method,
+                    status_code: error.response?.status || 500,
+                    duration_ms: Date.now() - startTime,
+                    client_ip: req.ip,
+                    user_agent: req.get('user-agent'),
+                    detail: JSON.stringify({ error: error.message, body: req.body })
+                });
 
-            res.json(responseData);
-        }
-    } catch (e) {
-        console.error('Chat Completion Error:', e.message);
-        const duration = Date.now() - startTime;
-
-        // 记录错误日志
-        try {
-            await storage.addLog({
-                account_id: selectedAccountId,
-                request_path: req.path,
-                request_method: req.method,
-                status_code: e.response?.status || 500,
-                duration_ms: duration,
-                client_ip: req.ip,
-                user_agent: req.get('user-agent'),
-                detail: JSON.stringify({ error: e.message, stack: e.stack, body: req.body })
-            });
-        } catch (le) {
-            console.error('Failed to log error:', le.message);
+                if (res.headersSent) {
+                    if (req.body.stream) res.write(`data: ${JSON.stringify({ error: { message: 'Stream interrupted: ' + error.message } })}\n\n`);
+                    return res.end();
+                }
+            }
         }
 
-        res.status(e.response?.status || 500).json({
+        // 所有账号都尝试过了
+        res.status(lastError?.response?.status || 503).json({
             error: {
-                message: e.message,
-                type: 'api_error',
-                code: e.response?.status || 500
+                message: `All Gemini accounts failed. Last error: ${lastError?.message}`,
+                type: 'api_error'
             }
         });
+
+    } catch (e) {
+        console.error('Chat Completion General Error:', e.message);
+        res.status(500).json({ error: { message: e.message, type: 'api_error' } });
     }
 });
 

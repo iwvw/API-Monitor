@@ -1950,7 +1950,7 @@
 }
 
 .server-form-field textarea {
-    resize: vertical;
+    resize: none;
     min-height: 60px;
     font-family: 'Consolas', 'Monaco', monospace;
     font-size: 12px;

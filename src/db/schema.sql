@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS user_settings (
     channel_enabled TEXT, -- JSON 格式: 启用的渠道
     channel_model_prefix TEXT, -- JSON 格式: 渠道模型前缀
     load_balancing_strategy TEXT DEFAULT 'random', -- 负载均衡策略: random/round-robin
+    server_ip_display_mode TEXT DEFAULT 'normal', -- 主机 IP 显示模式: normal/masked/hidden
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -41,6 +42,7 @@ CREATE TABLE IF NOT EXISTS operation_logs (
     details TEXT, -- JSON 格式存储详细信息
     ip_address TEXT,
     user_agent TEXT,
+    trace_id TEXT, -- 关联 Trace ID
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -54,6 +56,6 @@ VALUES (
     1,
     '',
     30000,
-    '{"zeabur":true,"dns":true,"openai":true,"server":true,"antigravity":true,"gemini-cli":true}',
-    '["zeabur","dns","openai","server","antigravity","gemini-cli"]'
+    '{"openai":true,"antigravity":true,"gemini-cli":true,"zeabur":true,"dns":true,"server":true}',
+    '["openai","antigravity","gemini-cli","zeabur","dns","server"]'
 );

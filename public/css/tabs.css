@@ -40,6 +40,10 @@
   color: var(--zeabur-primary);
 }
 
+.main-tab.zeabur-tab::after {
+  background-color: var(--zeabur-primary);
+}
+
 .main-tab.dns-tab:hover {
   color: var(--cf-color);
 }

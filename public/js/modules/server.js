@@ -102,8 +102,8 @@ function renderServerList() {
             `;
         } else if (state.servers.length === 0) {
             container.innerHTML = `
-                <div class="server-empty-state">
-                    <div class="server-empty-state-icon">🖥️</div>
+                <div class="empty-state-refined">
+                    <i class="fas fa-server"></i>
                     <h3>还没有主机</h3>
                     <p>请切换到"后台管理"标签页添加您的第一台主机</p>
                 </div>
@@ -124,8 +124,8 @@ function renderServerList() {
             `;
         } else if (state.servers.length === 0) {
             managementContainer.innerHTML = `
-                <div class="server-empty-state">
-                    <div class="server-empty-state-icon">🖥️</div>
+                <div class="empty-state-refined">
+                    <i class="fas fa-server"></i>
                     <h3>还没有主机</h3>
                     <p>点击上方"添加主机"按钮开始添加您的第一台主机</p>
                 </div>
@@ -163,6 +163,30 @@ function renderServerTable(servers) {
 }
 
 /**
+ * 格式化主机地址（支持打码/隐藏）
+ */
+function formatHost(host) {
+    const mode = store.serverIpDisplayMode || 'normal';
+    if (mode === 'normal') return host;
+    if (mode === 'hidden') return '****';
+
+    // 打码模式 (masked): 1.2.3.4 -> 1.2.*.*
+    // 简单处理：如果是 IPv4，保留前两段；否则（域名等）打码中间部分
+    const parts = host.split('.');
+    if (parts.length >= 2) {
+        if (parts.length === 4 && parts.every(p => !isNaN(p))) {
+            // 看起来是 IPv4
+            return `${parts[0]}.${parts[1]}.*.*`;
+        }
+        // 域名或其他
+        if (parts.length > 2) {
+            return `${parts[0]}.****.${parts[parts.length - 1]}`;
+        }
+    }
+    return host.length > 4 ? host.substring(0, 2) + '****' : '****';
+}
+
+/**
  * 渲染后台管理表格的行
  */
 function renderServerTableRow(server) {
@@ -196,7 +220,7 @@ function renderServerTableRow(server) {
             </td>
             <td>
                 <code style="background: var(--section-bg); padding: 2px 6px; border-radius: 3px; font-size: 12px;">
-                    ${escapeHtml(server.username)}@${escapeHtml(server.host)}:${server.port}
+                    ${escapeHtml(server.username)}@${escapeHtml(formatHost(server.host))}:${server.port}
                 </code>
             </td>
             <td>${responseTime}</td>
@@ -257,7 +281,7 @@ function renderServerCard(server) {
             server.tags.map(tag => `<span class="server-tag">${escapeHtml(tag)}</span>`).join('')
             : ''}
                         </div>
-                        <div class="server-host">${escapeHtml(server.username)}@${escapeHtml(server.host)}:${server.port}</div>
+                        <div class="server-host">${escapeHtml(server.username)}@${escapeHtml(formatHost(server.host))}:${server.port}</div>
                     </div>
                 </div>
                 <div class="server-quick-info">
@@ -792,5 +816,6 @@ window.serverModule = {
     shutdownServer,
     refreshServerInfo,
     loadServers,
+    renderServerList, // 导出渲染函数，支持直接重绘
     initManagementButtons // 初始化后台管理按钮
 };

@@ -369,7 +369,7 @@ input:checked+.slider:before {
     font-family: Consolas, monospace;
     font-size: 13px;
     padding: 12px;
-    resize: vertical;
+    resize: none;
     border-radius: 8px;
     background: #f8f9fa00;
     border: 1px solid var(--border-color);

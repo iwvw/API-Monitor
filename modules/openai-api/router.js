@@ -480,74 +480,82 @@ router.post('/import', (req, res) => {
  * 批量添加端点（简化格式）
  * 支持格式：每行一个，格式为 "名称:baseUrl:apiKey" 或 JSON 数组
  */
-router.post('/batch-add', async (req, res) => {
+/**
+ * OpenAI 兼容的对话接口 (代理转发)
+ */
+router.post(['/v1/chat/completions', '/chat/completions'], async (req, res) => {
+  const startTime = Date.now();
   try {
-    const { text, endpoints: jsonEndpoints } = req.body;
-    let endpointsToAdd = [];
+    const { model, stream } = req.body;
+    const endpoints = storage.getEndpoints().filter(ep => ep.status === 'valid');
 
-    if (text) {
-      // 解析文本格式
-      const lines = text.split('\n').filter(line => line.trim());
-      for (const line of lines) {
-        const parts = line.split(':');
-        if (parts.length >= 3) {
-          // 格式: name:baseUrl:apiKey 或 name:https://url:apiKey
-          const name = parts[0].trim();
-          // 处理 URL 中可能包含的冒号（如 https://）
-          let baseUrl, apiKey;
-          if (parts[1].includes('//')) {
-            // URL 格式如 https://api.example.com
-            baseUrl = parts[1] + ':' + parts[2];
-            apiKey = parts.slice(3).join(':').trim();
-          } else {
-            baseUrl = parts[1].trim();
-            apiKey = parts.slice(2).join(':').trim();
-          }
+    if (endpoints.length === 0) {
+      return res.status(503).json({ error: { message: 'No valid OpenAI endpoints available', type: 'service_unavailable' } });
+    }
 
-          if (name && baseUrl && apiKey) {
-            endpointsToAdd.push({ name, baseUrl, apiKey });
-          }
-        }
+    // 找到拥有该模型的端点
+    const eligibleEndpoints = endpoints.filter(ep => ep.models && ep.models.includes(model));
+    const targetEndpoints = eligibleEndpoints.length > 0 ? eligibleEndpoints : endpoints;
+
+    // 负载均衡：随机选择一个端点
+    const endpoint = targetEndpoints[Math.floor(Math.random() * targetEndpoints.length)];
+
+    // 构建请求
+    const axios = require('axios');
+    const config = {
+      method: 'post',
+      url: `${endpoint.baseUrl.replace(/\/+$/, '')}/chat/completions`,
+      headers: {
+        'Authorization': `Bearer ${endpoint.apiKey}`,
+        'Content-Type': 'application/json',
+        'Accept': stream ? 'text/event-stream' : 'application/json'
+      },
+      data: req.body,
+      responseType: stream ? 'stream' : 'json',
+      timeout: 60000
+    };
+
+    const response = await axios(config);
+
+    if (stream) {
+      res.setHeader('Content-Type', 'text/event-stream');
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Connection', 'keep-alive');
+      response.data.pipe(res);
+    } else {
+      res.status(response.status).json(response.data);
+    }
+
+    // 记录使用情况
+    storage.touchEndpoint(endpoint.id);
+  } catch (e) {
+    console.error('OpenAI Proxy Error:', e.message);
+    res.status(e.response?.status || 500).json(e.response?.data || { error: { message: e.message, type: 'api_error' } });
+  }
+});
+
+/**
+ * OpenAI 兼容的模型列表接口
+ */
+router.get(['/v1/models', '/models'], async (req, res) => {
+  try {
+    const endpoints = storage.getEndpoints().filter(ep => ep.status === 'valid');
+    const allModels = new Set();
+    
+    endpoints.forEach(ep => {
+      if (ep.models) {
+        ep.models.forEach(m => allModels.add(m));
       }
-    } else if (jsonEndpoints && Array.isArray(jsonEndpoints)) {
-      endpointsToAdd = jsonEndpoints;
-    }
-
-    if (endpointsToAdd.length === 0) {
-      return res.status(400).json({ error: '没有有效的端点数据' });
-    }
-
-    const results = [];
-    for (const ep of endpointsToAdd) {
-      try {
-        const endpoint = storage.addEndpoint(ep);
-        // 验证并获取模型
-        const verification = await openaiApi.verifyApiKey(ep.baseUrl, ep.apiKey);
-        if (verification.valid) {
-          const modelsResult = await openaiApi.listModels(ep.baseUrl, ep.apiKey);
-          storage.updateEndpoint(endpoint.id, {
-            status: 'valid',
-            models: modelsResult.models || [],
-            lastChecked: new Date().toISOString()
-          });
-        } else {
-          storage.updateEndpoint(endpoint.id, {
-            status: 'invalid',
-            lastChecked: new Date().toISOString()
-          });
-        }
-        results.push({ name: ep.name, success: true, valid: verification.valid });
-      } catch (e) {
-        results.push({ name: ep.name, success: false, error: e.message });
-      }
-    }
-
-    res.json({
-      success: true,
-      added: results.filter(r => r.success).length,
-      failed: results.filter(r => !r.success).length,
-      results
     });
+
+    const modelList = Array.from(allModels).map(id => ({
+      id,
+      object: 'model',
+      created: Math.floor(Date.now() / 1000),
+      owned_by: 'openai'
+    }));
+
+    res.json({ object: 'list', data: modelList });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
