@@ -658,6 +658,134 @@ async function chatCompletionsStream(accountId, requestBody, callback) {
 }
 
 /**
+ * 发送聊天补全请求 (非流式)
+ */
+async function chatCompletions(accountId, requestBody) {
+    const account = storage.getAccountById(accountId);
+    if (!account || !account.enable) throw new Error('Account not found or disabled');
+
+    let tokenObj = storage.getTokenByAccountId(accountId);
+    if (!tokenObj) throw new Error('No valid token available');
+
+    // 检查是否过期并刷新
+    const expiresAt = tokenObj.timestamp + (tokenObj.expires_in * 1000);
+    if (Date.now() >= expiresAt - 300000) {
+        try {
+            const newToken = await refreshToken(account, tokenObj);
+            tokenObj = { ...tokenObj, access_token: newToken.accessToken, project_id: newToken.projectId || tokenObj.project_id };
+        } catch (e) {
+            throw new Error('Token refresh failed');
+        }
+    }
+
+    const accessToken = tokenObj.access_token;
+
+    const config = getConfig();
+    const headers = buildHeaders(accessToken);
+    const req = getRequester();
+
+    const startTime = Date.now();
+    let statusCode = 200;
+
+    // 将 OpenAI 格式转换为 Antigravity API 格式
+    const antigravityRequest = convertOpenAIToAntigravityRequest(requestBody, tokenObj);
+
+    try {
+        const response = await req.antigravity_fetch(config.NO_STREAM_URL, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(antigravityRequest),
+            proxy: config.PROXY,
+            timeout: config.TIMEOUT
+        });
+
+        statusCode = response.status;
+
+        if (statusCode !== 200) {
+            const text = await response.text();
+            throw new Error(`API Error ${statusCode}: ${text}`);
+        }
+
+        const data = await response.json();
+
+        // 转换响应为 OpenAI 格式
+        const parts = data.response?.candidates?.[0]?.content?.parts || [];
+        let content = '';
+        let reasoningContent = '';
+        const toolCalls = [];
+
+        for (const part of parts) {
+            if (part.thought === true) {
+                reasoningContent += part.text || '';
+            } else if (part.text !== undefined) {
+                content += part.text;
+            } else if (part.functionCall) {
+                toolCalls.push({
+                    id: part.functionCall.id || `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+                    type: 'function',
+                    function: {
+                        name: part.functionCall.name,
+                        arguments: JSON.stringify(part.functionCall.args || {})
+                    }
+                });
+            }
+        }
+
+        const usage = data.response?.usageMetadata || {};
+        const result = {
+            id: `chatcmpl-${Date.now().toString(36)}`,
+            object: 'chat.completion',
+            created: Math.floor(Date.now() / 1000),
+            model: requestBody.model,
+            choices: [{
+                index: 0,
+                message: {
+                    role: 'assistant',
+                    content: content,
+                    reasoning_content: reasoningContent
+                },
+                finish_reason: data.response?.candidates?.[0]?.finishReason?.toLowerCase() || 'stop'
+            }],
+            usage: {
+                prompt_tokens: usage.promptTokenCount || 0,
+                completion_tokens: usage.candidatesTokenCount || 0,
+                total_tokens: (usage.promptTokenCount || 0) + (usage.candidatesTokenCount || 0)
+            }
+        };
+
+        // 如果有工具调用，添加到消息中
+        if (toolCalls.length > 0) {
+            result.choices[0].message.tool_calls = toolCalls;
+            result.choices[0].finish_reason = 'tool_calls';
+        }
+
+        storage.recordLog({
+            accountId,
+            model: requestBody.model,
+            is_balanced: req.lb,
+            path: '/v1/chat/completions',
+            method: 'POST',
+            statusCode,
+            durationMs: Date.now() - startTime,
+            detail: { model: requestBody.model, type: 'non-stream', messageCount: requestBody.messages?.length || 0 }
+        });
+
+        return result;
+    } catch (error) {
+        storage.recordLog({
+            accountId,
+            model: requestBody.model,
+            is_balanced: req.lb,
+            path: '/v1/chat/completions',
+            method: 'POST',
+            statusCode: statusCode || 500,
+            durationMs: Date.now() - startTime
+        });
+        throw error;
+    }
+}
+
+/**
  * 获取额度并进行模型分组
  */
 async function listQuotas(accountId) {
@@ -732,7 +860,9 @@ async function listQuotas(accountId) {
             const date = new Date(val);
             if (isNaN(date.getTime())) return null;
             // 转换为北京时间显示格式 (MM-DD HH:mm) 匹配参考项目
+            // 明确指定时区，确保云端服务器也使用北京时间
             return date.toLocaleString('zh-CN', {
+                timeZone: 'Asia/Shanghai',
                 hour12: false,
                 month: '2-digit',
                 day: '2-digit',
@@ -855,6 +985,7 @@ module.exports = {
     getValidToken,
     listModels,
     listQuotas,
+    chatCompletions,
     chatCompletionsStream,
     refreshAllAccounts,
     refreshToken,
