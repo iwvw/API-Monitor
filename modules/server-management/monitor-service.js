@@ -111,12 +111,35 @@ class MonitorService {
 
             const responseTime = Date.now() - startTime;
 
-            // 更新主机状态
+            let cachedInfo = null;
+
+            // 如果连接成功，获取详细信息并缓存
+            if (result.success) {
+                try {
+                    const systemInfoService = require('./system-info-service');
+                    const info = await systemInfoService.getServerInfo(server.id, server);
+                    if (info.success) {
+                        cachedInfo = {
+                            system: info.system,
+                            cpu: info.cpu,
+                            memory: info.memory,
+                            disk: info.disk,
+                            docker: info.docker,
+                            cached_at: new Date().toISOString()
+                        };
+                    }
+                } catch (infoError) {
+                    logger.warn(`获取主机 ${server.name} 详细信息失败: ${infoError.message}`);
+                }
+            }
+
+            // 更新主机状态（包含缓存信息）
             ServerAccount.updateStatus(server.id, {
                 status: result.success ? 'online' : 'offline',
                 last_check_time: new Date().toISOString(),
                 last_check_status: result.success ? 'success' : 'failed',
-                response_time: responseTime
+                response_time: responseTime,
+                cached_info: cachedInfo
             });
 
             // 记录监控日志

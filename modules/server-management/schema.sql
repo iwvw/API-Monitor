@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS server_accounts (
     last_check_time DATETIME, -- 最后探测时间
     last_check_status TEXT, -- 最后探测状态
     response_time INTEGER, -- 响应时间（毫秒）
+    cached_info TEXT, -- JSON 格式缓存的详细信息（CPU/内存/磁盘）
     tags TEXT, -- JSON 格式存储标签数组
     description TEXT, -- 主机描述
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,

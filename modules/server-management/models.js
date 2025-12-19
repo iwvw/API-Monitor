@@ -136,23 +136,50 @@ class ServerAccount {
     }
 
     /**
-     * 更新主机状态
-     * @param {string} id - 主机 ID
-     * @param {Object} statusData - 状态数据
-     * @returns {boolean} 是否更新成功
-     */
+ * 更新主机状态
+ * @param {string} id - 主机 ID
+ * @param {Object} statusData - 状态数据
+ * @returns {boolean} 是否更新成功
+ */
     static updateStatus(id, statusData) {
         const now = new Date().toISOString();
 
-        const stmt = getDb().prepare(`
+        // 如果有 cached_info，一并更新
+        if (statusData.cached_info) {
+            const stmt = getDb().prepare(`
             UPDATE server_accounts
             SET status = ?,
                 last_check_time = ?,
                 last_check_status = ?,
                 response_time = ?,
+                cached_info = ?,
                 updated_at = ?
             WHERE id = ?
         `);
+
+            const result = stmt.run(
+                statusData.status,
+                statusData.last_check_time || now,
+                statusData.last_check_status,
+                statusData.response_time || null,
+                JSON.stringify(statusData.cached_info),
+                now,
+                id
+            );
+
+            return result.changes > 0;
+        }
+
+        // 无 cached_info 时保持原逻辑
+        const stmt = getDb().prepare(`
+        UPDATE server_accounts
+        SET status = ?,
+            last_check_time = ?,
+            last_check_status = ?,
+            response_time = ?,
+            updated_at = ?
+        WHERE id = ?
+    `);
 
         const result = stmt.run(
             statusData.status,
@@ -213,10 +240,10 @@ class ServerAccount {
     }
 
     /**
-     * 解密敏感数据
-     * @param {Object} account - 数据库中的账号对象
-     * @returns {Object} 解密后的账号对象
-     */
+ * 解密敏感数据
+ * @param {Object} account - 数据库中的账号对象
+ * @returns {Object} 解密后的账号对象
+ */
     static decryptSensitiveData(account) {
         if (!account) return null;
 
@@ -234,6 +261,9 @@ class ServerAccount {
             }
             if (account.tags) {
                 decrypted.tags = JSON.parse(account.tags);
+            }
+            if (account.cached_info) {
+                decrypted.cached_info = JSON.parse(account.cached_info);
             }
         } catch (error) {
             console.error('解密主机账号数据失败:', error);
@@ -476,9 +506,9 @@ class ServerCredential {
             db.prepare('UPDATE server_credentials SET is_default = 0').run();
             // 设置指定凭据为默认
             const result = db.prepare('UPDATE server_credentials SET is_default = 1 WHERE id = ?').run(id);
-            
+
             console.log(`[ServerCredential] Set default credential ID=${id}, changes=${result.changes}`);
-            
+
             return result.changes > 0;
         } catch (error) {
             console.error(`[ServerCredential] Failed to set default credential ID=${id}:`, error);

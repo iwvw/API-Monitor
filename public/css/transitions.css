@@ -211,7 +211,7 @@
   left: 0;
   width: 0;
   height: 3px;
-  background-color: var(--primary-color);
+  background-color: var(--ag-primary);
   transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -236,49 +236,60 @@
   background-color: var(--server-primary);
 }
 
-.main-tab.antigravity-tab::after {
-  background-color: var(--ag-primary);
-}
-
-
 /* Zeabur tab 使用默认主题色 --primary-color */
 
-/* 卡片展开/收起动画优化 */
-.projects-grid,
-.openai-models-container,
+/* ===== Hosts 模块 - 优化展开动画 ===== */
 .server-card-body {
-  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
-  transform-origin: top;
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+  transition: max-height 0.35s ease-out,
+    opacity 0.25s ease-out,
+    margin-top 0.25s ease-out;
+  margin-top: 0;
+}
+
+.server-card.expanded>.server-card-body {
+  max-height: 800px;
+  /* 降低到更接近实际高度的值 */
+  opacity: 1;
+  /* margin-top: 12px; */
   overflow: visible;
-  will-change: max-height, opacity, transform;
+}
+
+/* ===== Zeabur/OpenAPI 模块 - 使用 Grid 0fr->1fr 方案 ===== */
+.account-card-body {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  margin-top: 0;
+  transition: grid-template-rows 0.5s cubic-bezier(0.25, 1, 0.5, 1),
+    opacity 0.4s ease,
+    margin-top 0.4s cubic-bezier(0.25, 1, 0.5, 1);
+  overflow: hidden;
+  will-change: grid-template-rows, opacity;
+  transform: translateZ(0);
   backface-visibility: hidden;
 }
 
-.projects-grid.collapsed,
-.openai-models-container.collapsed {
-  max-height: 0;
-  opacity: 0;
-  transform: scaleY(0.95);
-  margin-top: 0;
-  padding-top: 0;
-  padding-bottom: 0;
+.account-card-body>* {
+  min-height: 0;
   overflow: hidden;
 }
 
-/* 主机卡片使用相反的逻辑（默认收起，expanded 时展开） */
-.server-card-body {
-  max-height: 0;
-  opacity: 0;
-  transform: scaleY(0.95);
-  margin-top: 0;
-  overflow: hidden;
-}
-
-.server-card.expanded .server-card-body {
-  max-height: 2000px;
+.account-card.expanded>.account-card-body {
+  grid-template-rows: 1fr;
   opacity: 1;
-  transform: scaleY(1);
+  margin-top: 12px;
+}
+
+.account-card.expanded>.account-card-body>* {
   overflow: visible;
+}
+
+/* 特殊修正：Zeabur 列表在展开时需要底部留白 */
+.account-card.expanded .projects-grid {
+  padding-bottom: 8px;
 }
 
 /* 切换图标旋转动画优化 */

@@ -157,21 +157,11 @@
   text-align: right;
 }
 
-/* OpenAI Models */
+/* OpenAI Models Layout */
 .openai-models-container {
-  margin-top: 12px;
-  transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
   overflow: visible;
-  transform-origin: top;
 }
 
-.openai-models-container.collapsed {
-  max-height: 0;
-  opacity: 0;
-  margin-top: 0;
-  transform: scaleY(0.95);
-  overflow: hidden;
-}
 
 .models-grid {
   display: grid;

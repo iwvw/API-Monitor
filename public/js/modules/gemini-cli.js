@@ -35,14 +35,16 @@ export const geminiCliMethods = {
     },
 
     async initGeminiCli() {
-        if (store.channelEnabled['gemini-cli']) {
-            await this.loadGeminiCliAccounts();
-
-            // 如果默认标签页是 models，则加载矩阵配置
-            if (store.geminiCliCurrentTab === 'models') {
-                await this.loadGeminiCliMatrix();
-            }
+        // 确保默认标签页设置
+        if (!store.geminiCliCurrentTab) {
+            store.geminiCliCurrentTab = 'models';
         }
+
+        // 始终加载矩阵配置（这是首页，必须加载）
+        await this.loadGeminiCliMatrix();
+
+        // 后台加载账号列表
+        this.loadGeminiCliAccounts();
     },
 
     // 获取所有模型列表

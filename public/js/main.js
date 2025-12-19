@@ -1886,28 +1886,38 @@ const app = createApp({
     },
 
     /**
-     * 切换主机展开/收起
-     */
+ * 切换主机展开/收起
+ */
     async toggleServer(serverId) {
       if (this.expandedServers.has(serverId)) {
         // 收起：直接移除
         this.expandedServers.delete(serverId);
         this.expandedServers = new Set(this.expandedServers);
       } else {
-        // 展开：先检查是否需要加载数据
-        const server = this.serverList.find(s => s.id === serverId);
+        // 展开：先立即展开卡片
+        this.expandedServers.add(serverId);
+        this.expandedServers = new Set(this.expandedServers);
 
-        if (server && !server.info && !server.error) {
-          // 需要加载数据，设置加载状态
+        const server = this.serverList.find(s => s.id === serverId);
+        if (!server) return;
+
+        // 如果有缓存数据，立即使用（零等待）
+        if (server.cached_info && !server.info) {
+          server.info = {
+            system: server.cached_info.system,
+            cpu: server.cached_info.cpu,
+            memory: server.cached_info.memory,
+            disk: server.cached_info.disk,
+            docker: server.cached_info.docker
+          };
+          // 后台静默刷新最新数据（不显示 loading）
+          this.loadServerInfo(serverId);
+        } else if (!server.info && !server.error) {
+          // 无缓存，显示 loading 并加载
           server.loading = true;
-          // 先加载数据
           await this.loadServerInfo(serverId);
           server.loading = false;
         }
-
-        // 数据加载完成后（或已有数据时）才展开，箭头动画才触发
-        this.expandedServers.add(serverId);
-        this.expandedServers = new Set(this.expandedServers);
       }
     },
 

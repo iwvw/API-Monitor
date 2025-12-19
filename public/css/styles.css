@@ -57,7 +57,7 @@
   --text-primary: #4e4e4e;
   --text-secondary: #4b5563;
   --text-tertiary: #6b7280;
-  --border-color: #e5e7eb;
+  --border-color: #dedede;
   --card-bg: #ffffff;
   --card-shadow: 5px 5px 8px -5px rgba(0, 0, 0, 0.1), 0 7px 7px -7px rgba(0, 0, 0, 0.04);
   --card-hover-shadow: 5px 5px 6px 0px rgb(0 0 0 / 0%), 4px 4px 5px 0px rgb(0 0 0 / 9%);
@@ -361,36 +361,55 @@ body.modal-open {
 }
 
 /* Account Cards */
+/* Account Cards - Unified Style with Hosts Module */
 .account-card {
-  /* background-color: var(--card-bg); */
-  border-radius: 10px;
-  /* padding: 12px; */
-  margin-bottom: 10px;
-  /* box-shadow: var(--card-shadow); */
-  /* border: 1px solid var(--border-color); */
-  transition: transform 0.3s, box-shadow 0.3s;
-  overflow: visible;
+  background-color: var(--card-bg);
+  border-radius: 16px;
+  padding: 4px;
+  margin-bottom: 12px;
+  border: 1px solid var(--border-color);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  overflow: hidden;
+}
+
+.account-card:hover {
+  box-shadow: var(--card-shadow);
+  border-color: rgba(var(--primary-rgb), 0.2);
 }
 
 .account-header {
-  padding-left: 18px !important;
-  background-color: var(--card-bg);
-  border-radius: 15px;
-  padding: 10px;
-  border: 1px solid var(--border-color);
-  transition: transform 0.3s, box-shadow 0.3s;
-  min-height: 60px;
+  padding: 4px 18px !important;
+  background: transparent;
+  border-radius: 14px;
+  min-height: 56px;
   display: flex;
   justify-content: flex-start;
   align-items: center;
   cursor: pointer;
   position: relative;
   overflow: visible;
+  transition: background 0.2s, box-shadow 0.3s;
+  border: none !important;
+  /* Remove old border as it's now on the parent */
 }
 
 .account-header:hover {
-  box-shadow: var(--card-shadow);
+  background: rgba(var(--bg-secondary-rgb), 0.5);
 }
+
+.account-card.expanded .account-header {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.account-card-body {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+
 
 .account-header:active {
   /* transform: scale(0.995); */

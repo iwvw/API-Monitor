@@ -3,10 +3,10 @@
 .panel {
   line-height: 1;
   /* background: var(--card-bg); */
-  border-radius: 15px;
-  /* padding: 12px; */
+  border-radius: 16px;
+  padding: 10px;
   /* box-shadow: var(--card-shadow); */
-  /* border: 1px solid var(--border-color); */
+  border: 2px solid var(--border-color);
   /* margin-bottom: 12px; */
 }
 

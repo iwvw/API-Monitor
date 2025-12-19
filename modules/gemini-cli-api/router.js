@@ -91,80 +91,90 @@ router.post('/config/matrix', requireAuth, (req, res) => {
     }
 });
 
+// 辅助函数：根据矩阵配置和禁用列表生成可用模型列表
+function getAvailableModels(prefix) {
+    const matrix = getMatrixConfig();
+    const models = [];
+    const disabledModels = storage.getDisabledModels();
+
+    Object.keys(matrix).forEach(baseModelId => {
+        const config = matrix[baseModelId];
+        if (!config) return;
+
+        // 1. 收集当前模型的基础可用变体 ID (不含前缀)
+        const standardVariants = [];
+
+        // A. 基础模型
+        if (config.base) {
+            standardVariants.push(baseModelId);
+            // A.1 搜索变体
+            if (config.search) {
+                standardVariants.push(baseModelId + '-search');
+            }
+        }
+
+        // B. 深度思考 (MaxThinking)
+        if (config.maxThinking) {
+            standardVariants.push(baseModelId + '-maxthinking');
+            // B.1 搜索变体
+            if (config.search) {
+                standardVariants.push(baseModelId + '-maxthinking-search');
+            }
+        }
+
+        // C. 快速思考 (NoThinking)
+        if (config.noThinking) {
+            standardVariants.push(baseModelId + '-nothinking');
+            // C.1 搜索变体
+            if (config.search) {
+                standardVariants.push(baseModelId + '-nothinking-search');
+            }
+        }
+
+        // 2. 为每个变体生成最终的模型对象 (应用全局前缀 + 功能前缀)
+        standardVariants.forEach(variantId => {
+            // 2.1 添加标准模型 (带全局前缀)
+            const id1 = prefix + variantId;
+            if (!disabledModels.includes(id1)) models.push(createModelObject(id1));
+
+            // 2.2 添加假流式变体
+            if (config.fakeStream) {
+                const id2 = prefix + '假流式/' + variantId;
+                if (!disabledModels.includes(id2)) models.push(createModelObject(id2));
+            }
+
+            // 2.3 添加抗截断变体
+            if (config.antiTrunc) {
+                const id3 = prefix + '流式抗截断/' + variantId;
+                if (!disabledModels.includes(id3)) models.push(createModelObject(id3));
+            }
+        });
+    });
+
+    // 3. 注入重定向模型
+    const redirects = storage.getModelRedirects();
+    redirects.forEach(r => {
+        // 仅当源模型不冲突时添加 (应用前缀后的源模型名)
+        const sourceWithPrefix = prefix + r.source_model;
+        if (!models.find(m => m.id === sourceWithPrefix) && !disabledModels.includes(sourceWithPrefix)) {
+            models.push(createModelObject(sourceWithPrefix));
+        }
+    });
+    
+    return models;
+}
+
 /**
  * OpenAI 兼容的模型列表接口 - 基于矩阵配置动态生成
  */
 router.get(['/v1/models', '/models'], requireApiKey, async (req, res) => {
     try {
-        const matrix = getMatrixConfig();
-
         // 获取全局设置中的前缀
         const userSettingsService = require('../../src/services/userSettings');
         const globalSettings = userSettingsService.loadUserSettings();
         const prefix = (globalSettings.channelModelPrefix || {})['gemini-cli'] || '';
 
-        const models = [];
-
-        Object.keys(matrix).forEach(baseModelId => {
-            const config = matrix[baseModelId];
-            if (!config) return;
-
-            // 1. 收集当前模型的基础可用变体 ID (不含前缀)
-            const standardVariants = [];
-
-            // A. 基础模型
-            if (config.base) {
-                standardVariants.push(baseModelId);
-                // A.1 搜索变体
-                if (config.search) {
-                    standardVariants.push(baseModelId + '-search');
-                }
-            }
-
-            // B. 深度思考 (MaxThinking)
-            if (config.maxThinking) {
-                standardVariants.push(baseModelId + '-maxthinking');
-                // B.1 搜索变体
-                if (config.search) {
-                    standardVariants.push(baseModelId + '-maxthinking-search');
-                }
-            }
-
-            // C. 快速思考 (NoThinking)
-            if (config.noThinking) {
-                standardVariants.push(baseModelId + '-nothinking');
-                // C.1 搜索变体
-                if (config.search) {
-                    standardVariants.push(baseModelId + '-nothinking-search');
-                }
-            }
-
-            // 2. 为每个变体生成最终的模型对象 (应用全局前缀 + 功能前缀)
-            standardVariants.forEach(variantId => {
-                // 2.1 添加标准模型 (带全局前缀)
-                models.push(createModelObject(prefix + variantId));
-
-                // 2.2 添加假流式变体
-                if (config.fakeStream) {
-                    models.push(createModelObject(prefix + '假流式/' + variantId));
-                }
-
-                // 2.3 添加抗截断变体
-                if (config.antiTrunc) {
-                    models.push(createModelObject(prefix + '流式抗截断/' + variantId));
-                }
-            });
-        });
-
-        // 3. 注入重定向模型
-        const redirects = storage.getModelRedirects();
-        redirects.forEach(r => {
-            // 仅当源模型不冲突时添加 (应用前缀后的源模型名)
-            const sourceWithPrefix = prefix + r.source_model;
-            if (!models.find(m => m.id === sourceWithPrefix)) {
-                models.push(createModelObject(sourceWithPrefix));
-            }
-        });
+        const models = getAvailableModels(prefix);
 
         res.json({ object: 'list', data: models });
     } catch (e) {
@@ -678,13 +688,27 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
             req.body.model = model;
         }
 
+        // 验证模型是否有效（即在矩阵配置中存在且未被禁用）
+        const availableModels = getAvailableModels(prefix);
+        if (!availableModels.find(m => m.id === model)) {
+            // 细分错误原因：是根本不存在，还是被禁用？
+            const disabledModels = storage.getDisabledModels();
+            if (disabledModels.includes(model)) {
+                return res.status(403).json({ error: { message: `Model '${model}' is disabled`, type: 'permission_error', code: 'model_disabled' } });
+            } else {
+                return res.status(404).json({ error: { message: `Model '${model}' not found or disabled in configuration`, type: 'invalid_request_error', code: 'model_not_found' } });
+            }
+        }
+
         const accounts = await storage.getAccounts();
-        if (accounts.length === 0) {
-            return res.status(500).json({ error: { message: 'No accounts configured', type: 'api_error' } });
+        const enabledAccounts = accounts.filter(a => a.enable !== 0);
+
+        if (enabledAccounts.length === 0) {
+            return res.status(503).json({ error: { message: 'No enabled accounts available', type: 'service_unavailable' } });
         }
 
         // 简单的随机轮询逻辑
-        const account = accounts[Math.floor(Math.random() * accounts.length)];
+        const account = enabledAccounts[Math.floor(Math.random() * enabledAccounts.length)];
         selectedAccountId = account.id;
 
         if (req.body.stream) {
