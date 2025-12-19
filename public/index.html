@@ -3517,6 +3517,10 @@ Web服务器,192.168.1.100,22,root,password123
                 @click="settingsCurrentTab = 'general'">
                 <i class="fas fa-cog"></i> 通用设置
               </button>
+              <button class="settings-nav-item" :class="{ active: settingsCurrentTab === 'api' }"
+                @click="settingsCurrentTab = 'api'">
+                <i class="fas fa-globe"></i> 全局 API
+              </button>
               <button class="settings-nav-item" :class="{ active: settingsCurrentTab === 'modules' }"
                 @click="settingsCurrentTab = 'modules'">
                 <i class="fas fa-cubes"></i> 模块管理
