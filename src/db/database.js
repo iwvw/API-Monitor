@@ -9,7 +9,7 @@ class DatabaseService {
     constructor() {
         this.db = null;
         this.initialized = false;
-        this.dbPath = path.join(__dirname, '../../data/api-monitor.db');
+        this.dbPath = path.join(__dirname, '../../data/data.db');
         this.schemaPath = path.join(__dirname, 'schema.sql');
     }
 
@@ -167,9 +167,31 @@ class DatabaseService {
                         this.db.exec("ALTER TABLE user_settings ADD COLUMN load_balancing_strategy TEXT DEFAULT 'random'");
                         logger.success('user_settings.load_balancing_strategy 字段添加成功');
                     }
+
+                    const hasIpDisplayMode = settingsColumns.some(col => col.name === 'server_ip_display_mode');
+                    if (!hasIpDisplayMode) {
+                        logger.info('正在为 user_settings 表添加 server_ip_display_mode 字段...');
+                        this.db.exec("ALTER TABLE user_settings ADD COLUMN server_ip_display_mode TEXT DEFAULT 'normal'");
+                        logger.success('user_settings.server_ip_display_mode 字段添加成功');
+                    }
                 }
             } catch (err) {
                 logger.error('User Settings 额外字段迁移失败:', err.message);
+            }
+
+            // Operation Logs 迁移: 检查 operation_logs 表是否有 trace_id 字段
+            try {
+                const logColumns = this.db.pragma('table_info(operation_logs)');
+                if (logColumns.length > 0) {
+                    const hasTraceId = logColumns.some(col => col.name === 'trace_id');
+                    if (!hasTraceId) {
+                        logger.info('正在为 operation_logs 表添加 trace_id 字段...');
+                        this.db.exec("ALTER TABLE operation_logs ADD COLUMN trace_id TEXT");
+                        logger.success('operation_logs.trace_id 字段添加成功');
+                    }
+                }
+            } catch (err) {
+                logger.error('Operation Logs 额外字段迁移失败:', err.message);
             }
         } catch (error) {
             logger.error('数据库迁移失败', error.message);
@@ -300,14 +322,14 @@ class DatabaseService {
             const db = this.getDatabase();
             logger.info('开始清理日志数据...');
 
-            // 查找所有以 _logs 结尾的表
+            // 查找所有以 _logs 或 _history 结尾的表
             const tables = db.prepare(`
                 SELECT name FROM sqlite_master 
-                WHERE type='table' AND name LIKE '%_logs'
+                WHERE type='table' AND (name LIKE '%_logs' OR name LIKE '%_history')
             `).all();
 
             if (tables.length === 0) {
-                logger.info('未发现日志表');
+                logger.info('未发现日志或历史表');
                 return 0;
             }
 
@@ -349,10 +371,10 @@ class DatabaseService {
             logger.info('开始执行日志保留策略检查...', limits);
             let totalDeleted = 0;
 
-            // 查找所有日志表
+            // 查找所有日志或历史记录表
             const tables = db.prepare(`
                 SELECT name FROM sqlite_master 
-                WHERE type='table' AND name LIKE '%_logs'
+                WHERE type='table' AND (name LIKE '%_logs' OR name LIKE '%_history')
             `).all();
 
             if (tables.length === 0) return { deleted: 0 };

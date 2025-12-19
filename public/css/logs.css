@@ -179,7 +179,7 @@
   border: 1px solid var(--border-color);
   border-radius: 8px;
   cursor: pointer;
-  font-family: monospace;
+  /* font-family: monospace; */
   font-size: 12px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -278,12 +278,110 @@
   color: var(--text-tertiary);
 }
 
-/* 响应式设计 */
-@media (max-width: 480px) {
-  .openai-action-btn {
-    padding: 4px 6px;
-    min-width: 28px;
-    height: 28px;
-    font-size: 11px;
+/* 系统日志容器样式 */
+.system-logs-container {
+  background-color: #1e1e1e;
+  /* 深色终端背景 */
+  color: #d4d4d4;
+  font-family: 'Cascadia Code', 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  padding: 12px;
+  overflow-y: auto !important;
+  display: flex;
+  flex-direction: column;
+}
+
+.log-line {
+  margin-bottom: 2px;
+  word-break: break-all;
+  white-space: pre-wrap;
+  border-left: 3px solid transparent;
+  padding-left: 8px;
+}
+
+.log-time {
+  color: #888;
+  margin-right: 8px;
+}
+
+.log-level {
+  font-weight: bold;
+  margin-right: 8px;
+  display: inline-block;
+  min-width: 60px;
+}
+
+.log-module {
+  color: #569cd6;
+  margin-right: 8px;
+}
+
+.log-message {
+  color: #d4d4d4;
+}
+
+.log-data {
+  display: block;
+  margin: 4px 0 8px 20px;
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+  font-size: 12px;
+  color: #ce9178;
+}
+
+/* 级别颜色 */
+.log-level-info .log-level {
+  color: #4fc1ff;
+}
+
+.log-level-info {
+  border-left-color: #4fc1ff;
+}
+
+.log-level-warn .log-level {
+  color: #cca700;
+}
+
+.log-level-warn {
+  border-left-color: #cca700;
+  background: rgba(204, 167, 0, 0.05);
+}
+
+.log-level-error .log-level {
+  color: #f48771;
+}
+
+.log-level-error {
+  border-left-color: #f48771;
+  background: rgba(244, 135, 113, 0.05);
+}
+
+.log-level-debug .log-level {
+  color: #808080;
+}
+
+.log-level-debug {
+  border-left-color: #808080;
+  opacity: 0.8;
+}
+
+.status-online {
+  color: var(--success-color);
+  font-weight: bold;
+}
+
+.status-offline {
+  color: var(--danger-color);
+  font-weight: bold;
+}
+
+/* 响应式调整 */
+@media (max-width: 768px) {
+  .logs-modal {
+    width: 100%;
+    height: 100%;
+    border-radius: 0;
   }
 }

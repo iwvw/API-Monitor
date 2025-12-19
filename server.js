@@ -10,6 +10,7 @@ const logger = createLogger('Server');
 
 // 导入中间件
 const corsMiddleware = require('./src/middleware/cors');
+const loggerMiddleware = require('./src/middleware/logger');
 
 // 导入服务
 const { loadSessions } = require('./src/services/session');
@@ -30,10 +31,11 @@ const app = express();
 const server = http.createServer(app);
 const PORT = process.env.PORT || 3000;
 
-// 初始化 WebSocket SSH 终端服务
+// 初始化 WebSocket 服务
 sshTerminalService.init(server);
 
 // 应用中间件
+app.use(loggerMiddleware);
 app.use(corsMiddleware);
 app.use(express.json({ limit: '50mb' }));
 app.use(express.static('public'));
@@ -142,5 +144,26 @@ server.listen(PORT, '0.0.0.0', () => {
     logger.warn('主机监控服务启动失败:', error.message);
   }
 
-  console.log('Server active.');
+  // 启动自动日志清理任务 (每 12 小时执行一次)
+  const AUTO_CLEANUP_INTERVAL = 12 * 60 * 60 * 1000;
+  setInterval(() => {
+    try {
+      const dbService = require('./src/db/database');
+      const { SystemConfig } = require('./src/db/models');
+
+      const days = parseInt(SystemConfig.getConfigValue('log_retention_days', 0)) || 0;
+      const count = parseInt(SystemConfig.getConfigValue('log_max_count', 0)) || 0;
+      const dbSizeMB = parseInt(SystemConfig.getConfigValue('log_max_db_size_mb', 0)) || 0;
+
+      if (days > 0 || count > 0 || dbSizeMB > 0) {
+        logger.info('执行定时日志清理任务...');
+        const result = dbService.enforceLogLimits({ days, count, dbSizeMB });
+        if (result.deleted > 0) {
+          logger.success(`定时清理完成，移除 ${result.deleted} 条记录`);
+        }
+      }
+    } catch (error) {
+      logger.error('定时日志清理任务失败:', error.message);
+    }
+  }, AUTO_CLEANUP_INTERVAL);
 });

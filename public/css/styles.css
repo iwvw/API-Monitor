@@ -37,14 +37,14 @@
   --openai-color: #10a37f;
   --openai-dark: #0d8a6a;
 
-  /* Zeabur 模块主题色 */
+  /* Zeabur 模块主题�?*/
   --zeabur-primary: #6366f1;
   --zeabur-primary-rgb: 99, 102, 241;
   --zeabur-primary-hover: #4f46e5;
   --zeabur-secondary: #8b5cf6;
   --zeabur-secondary-rgb: 139, 92, 246;
 
-  /* 主机管理模块主题色 - 石板蓝 */
+  /* 主机管理模块主题�?- 石板�?*/
   --server-primary: #475569;
   --server-primary-dark: #334155;
   --server-primary-light: #64748b;
@@ -119,6 +119,7 @@ input,
 select,
 textarea {
   font-family: inherit;
+  resize: none;
 }
 
 body.modal-open {
@@ -415,7 +416,7 @@ body.modal-open {
   /* transform: scale(0.995); */
 }
 
-/* account-header 横向滚动条样式 */
+/* account-header 横向滚动条样�?*/
 .account-header::-webkit-scrollbar {
   height: 4px;
 }
@@ -584,7 +585,7 @@ body.modal-open {
   }
 }
 
-/* 认证加载状态 */
+/* 认证加载状�?*/
 .auth-loading {
   position: fixed;
   top: 0;
@@ -720,3 +721,5 @@ body.modal-open {
     gap: 8px;
   }
 }
+
+

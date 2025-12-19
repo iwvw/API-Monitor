@@ -1,0 +1,120 @@
+/* ==================== Refined UI Components ==================== */
+
+/* --- Batch Input Area --- */
+.batch-input-wrapper {
+    position: relative;
+    /* margin-bottom: 16px; */
+    border-radius: 12px;
+    overflow: hidden;
+    box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.05);
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.batch-textarea {
+    width: 100%;
+    min-height: 180px;
+    padding: 12px 16px;
+    padding-top: 40px;
+    /* Offset for indicator */
+    background: transparent;
+    border: none;
+    color: var(--text-primary);
+    font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+    font-size: 13px;
+    line-height: 1.6;
+    resize: none;
+    outline: none;
+    display: block;
+    white-space: pre;
+}
+
+.batch-input-wrapper:focus-within {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 4px rgba(var(--primary-rgb), 0.1), 0 4px 12px rgba(0, 0, 0, 0.05);
+    transform: translateY(-1px);
+}
+
+.batch-input-indicator {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 32px;
+    background: rgba(var(--primary-rgb), 0.05);
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    gap: 8px;
+    pointer-events: none;
+    z-index: 10;
+}
+
+.batch-input-indicator i {
+    font-size: 12px;
+    color: var(--primary-color);
+}
+
+.batch-input-indicator span {
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 1px;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+}
+
+.batch-textarea::placeholder {
+    color: var(--text-tertiary);
+    opacity: 0.5;
+}
+
+/* --- Refined Empty State --- */
+.empty-state-refined {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 59px 28px;
+    text-align: center;
+}
+
+.empty-state-refined i {
+    font-size: 48px;
+    color: var(--text-tertiary);
+    margin-bottom: 16px;
+    opacity: 0.5;
+}
+
+.empty-state-refined h3 {
+    font-size: 18px;
+    font-weight: 700;
+    color: var(--text-primary);
+    margin-bottom: 8px;
+}
+
+.empty-state-refined p {
+    font-size: 14px;
+    color: var(--text-secondary);
+    max-width: 500px;
+    line-height: 1.6;
+}
+
+/* --- Scrollbar --- */
+.batch-textarea::-webkit-scrollbar {
+    width: 8px;
+    display: block !important;
+}
+
+.batch-textarea::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.batch-textarea::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: 10px;
+}
+
+.batch-textarea::-webkit-scrollbar-thumb:hover {
+    background: var(--text-tertiary);
+}

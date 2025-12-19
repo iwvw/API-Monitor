@@ -35,7 +35,7 @@ function loadUserSettings() {
       'gemini-cli': ''
     };
 
-    const order = settings.module_order || ['zeabur', 'dns', 'openai', 'server', 'antigravity', 'gemini-cli'];
+    const order = settings.module_order || ['openai', 'antigravity', 'gemini-cli', 'zeabur', 'dns', 'server'];
 
     // 确保 gemini-cli 在现有设置中
     if (!('gemini-cli' in visibility)) {
@@ -52,7 +52,8 @@ function loadUserSettings() {
       channelEnabled: channelEnabled,
       channelModelPrefix: channelModelPrefix,
       moduleOrder: order,
-      load_balancing_strategy: settings.load_balancing_strategy || 'random'
+      load_balancing_strategy: settings.load_balancing_strategy || 'random',
+      serverIpDisplayMode: settings.server_ip_display_mode || 'normal'
     };
   } catch (error) {
     console.error('加载用户设置失败:', error);
@@ -73,7 +74,8 @@ function saveUserSettings(settings) {
       channel_enabled: settings.channelEnabled || settings.channel_enabled,
       channel_model_prefix: settings.channelModelPrefix || settings.channel_model_prefix,
       module_order: settings.moduleOrder || settings.module_order,
-      load_balancing_strategy: settings.load_balancing_strategy || settings.load_balancing_strategy_form || 'random'
+      load_balancing_strategy: settings.load_balancing_strategy || settings.load_balancing_strategy_form || 'random',
+      server_ip_display_mode: settings.serverIpDisplayMode || settings.server_ip_display_mode || 'normal'
     };
 
     // 确保 channel_model_prefix 是字符串，如果不是则进行 JSON.stringify
@@ -115,8 +117,9 @@ function getDefaultSettings() {
       antigravity: '',
       'gemini-cli': ''
     },
-    moduleOrder: ['zeabur', 'dns', 'openai', 'server', 'antigravity', 'gemini-cli'],
-    load_balancing_strategy: 'random'
+    moduleOrder: ['openai', 'antigravity', 'gemini-cli', 'zeabur', 'dns', 'server'],
+    load_balancing_strategy: 'random',
+    serverIpDisplayMode: 'normal'
   };
 }
 

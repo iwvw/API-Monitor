@@ -4,6 +4,32 @@
  */
 
 const chalk = require('chalk');
+const fs = require('fs');
+const path = require('path');
+const EventEmitter = require('events');
+const { AsyncLocalStorage } = require('async_hooks');
+
+// 创建全局存储，用于追踪请求 Trace ID
+const asyncLocalStorage = new AsyncLocalStorage();
+
+// 日志事件发射器，用于实时推送
+class LogEmitter extends EventEmitter {}
+const logEmitter = new LogEmitter();
+
+// 日志缓存，用于新连接获取历史日志
+const LOG_BUFFER_SIZE = 200;
+const logBuffer = [];
+
+// 日志目录
+const LOG_DIR = path.join(process.cwd(), 'data', 'logs');
+if (!fs.existsSync(LOG_DIR)) {
+  fs.mkdirSync(LOG_DIR, { recursive: true });
+}
+
+const LOG_FILE = path.join(LOG_DIR, 'app.log');
+
+// 使用流式写入以提升性能
+const logStream = fs.createWriteStream(LOG_FILE, { flags: 'a', encoding: 'utf8' });
 
 // 日志级别
 const LOG_LEVELS = {
@@ -11,7 +37,8 @@ const LOG_LEVELS = {
   INFO: 1,
   WARN: 2,
   ERROR: 3,
-  SILENT: 4
+  FATAL: 4,
+  SILENT: 5
 };
 
 // 当前日志级别（从环境变量读取，默认为INFO）
@@ -22,7 +49,11 @@ const useColor = process.env.NO_COLOR !== '1';
 
 // 格式化时间戳
 function getTimestamp() {
-  const now = new Date();
+  return new Date().toISOString();
+}
+
+function formatDisplayTimestamp(isoString) {
+  const now = new Date(isoString);
   const hours = String(now.getHours()).padStart(2, '0');
   const minutes = String(now.getMinutes()).padStart(2, '0');
   const seconds = String(now.getSeconds()).padStart(2, '0');
@@ -30,135 +61,176 @@ function getTimestamp() {
   return `${hours}:${minutes}:${seconds}.${ms}`;
 }
 
-// 格式化模块名称
-function formatModule(module) {
-  return module ? `[${module}]` : '';
-}
-
 // 敏感数据脱敏
 function maskSensitiveInfo(data) {
   if (!data) return data;
 
   if (typeof data === 'string') {
-    // 简单的正则替换常见敏感词
+    // 基础字符串脱敏
     return data.replace(/(token|password|key|secret|api_key|apiToken)(["']?\s*[:=]\s*["']?)([^"'\s&,]+)/gi, '$1$2******');
   }
 
   if (typeof data === 'object' && data !== null) {
-    const masked = Array.isArray(data) ? [] : {};
-    for (const key in data) {
-      if (Object.prototype.hasOwnProperty.call(data, key)) {
-        const lowerKey = key.toLowerCase();
-        if (lowerKey.includes('token') ||
-          lowerKey.includes('password') ||
-          lowerKey.includes('key') ||
-          lowerKey.includes('secret')) {
-          masked[key] = '******';
-        } else if (typeof data[key] === 'object') {
-          masked[key] = maskSensitiveInfo(data[key]);
-        } else {
-          masked[key] = data[key];
+    // 递归对象脱敏
+    try {
+      const masked = Array.isArray(data) ? [] : {};
+      for (const key in data) {
+        if (Object.prototype.hasOwnProperty.call(data, key)) {
+          const lowerKey = key.toLowerCase();
+          const isSensitive = lowerKey.includes('token') ||
+            lowerKey.includes('password') ||
+            lowerKey.includes('key') ||
+            lowerKey.includes('secret') ||
+            lowerKey.includes('credential');
+
+          if (isSensitive) {
+            masked[key] = '******';
+          } else if (typeof data[key] === 'object') {
+            masked[key] = maskSensitiveInfo(data[key]);
+          } else {
+            masked[key] = data[key];
+          }
         }
       }
+      return masked;
+    } catch (e) {
+      return '[Circular or Error Data]';
     }
-    return masked;
   }
 
   return data;
 }
 
-// 日志输出核心函数
+/**
+ * 日志输出核心函数
+ */
 function log(level, module, message, data) {
   if (LOG_LEVELS[level] < currentLevel) return;
 
   const timestamp = getTimestamp();
-  const moduleStr = formatModule(module);
-
-  let prefix = '';
-  let colorFn = (text) => text;
-
-  switch (level) {
-    case 'DEBUG':
-      prefix = '🔍';
-      colorFn = useColor ? chalk.gray : (text) => text;
-      break;
-    case 'INFO':
-      prefix = 'ℹ️ ';
-      colorFn = useColor ? chalk.cyan : (text) => text;
-      break;
-    case 'WARN':
-      prefix = '⚠️ ';
-      colorFn = useColor ? chalk.yellow : (text) => text;
-      break;
-    case 'ERROR':
-      prefix = '❌';
-      colorFn = useColor ? chalk.red : (text) => text;
-      break;
-  }
-
-  const timestampStr = useColor ? chalk.gray(timestamp) : timestamp;
-  const moduleColor = useColor ? chalk.blue : (text) => text;
+  const context = asyncLocalStorage.getStore() || {};
+  const traceId = context.traceId || '';
 
   // 脱敏处理
   const maskedMessage = maskSensitiveInfo(message);
   const maskedData = maskSensitiveInfo(data);
 
-  const output = `${timestampStr} ${prefix} ${moduleColor(moduleStr)} ${maskedMessage}`;
+  // 1. 终端渲染 (用于开发调试)
+  renderTerminal(level, module, timestamp, traceId, maskedMessage, maskedData);
 
-  console.log(colorFn(output));
+  // 2. 构造结构化日志对象
+  const logEntry = {
+    timestamp,
+    level,
+    traceId,
+    module: module || 'core',
+    message: maskedMessage,
+    data: maskedData
+  };
 
-  // 如果有额外数据，格式化输出
-  if (maskedData !== undefined) {
-    if (typeof maskedData === 'object') {
-      console.log(colorFn('   ' + JSON.stringify(maskedData, null, 2).split('\n').join('\n   ')));
+  // 3. 内存缓冲区更新
+  logBuffer.push(logEntry);
+  if (logBuffer.length > LOG_BUFFER_SIZE) {
+    logBuffer.shift();
+  }
+
+  // 4. 持久化到文件 (JSON 格式)
+  const logLine = JSON.stringify(logEntry) + '\n';
+  logStream.write(logLine);
+
+  // 5. 实时推送事件
+  logEmitter.emit('log', logEntry);
+}
+
+function renderTerminal(level, module, timestamp, traceId, message, data) {
+  const levelColors = {
+    'DEBUG': useColor ? chalk.gray : (t) => t,
+    'INFO': useColor ? chalk.blue : (t) => t,
+    'WARN': useColor ? chalk.yellow : (t) => t,
+    'ERROR': useColor ? chalk.red : (t) => t,
+    'FATAL': useColor ? chalk.bgRed.white.bold : (t) => t
+  };
+
+  const colorFn = levelColors[level] || ((t) => t);
+  const displayTime = formatDisplayTimestamp(timestamp);
+  
+  // 固定宽度定义
+  const COL_TIME = 12;    // HH:mm:ss.SSS
+  const COL_LEVEL = 5;    // ERROR
+  const COL_MODULE = 12;  // ModuleName
+  const COL_TRACE = 8;    // [abc12]
+
+  const timeStr = useColor ? chalk.gray(displayTime.padEnd(COL_TIME)) : displayTime.padEnd(COL_TIME);
+  const levelStr = colorFn(level.padEnd(COL_LEVEL));
+  
+  const rawModule = (module || 'core').substring(0, 10);
+  const formattedModule = `[${rawModule}]`.padEnd(12);
+  const moduleStr = useColor ? chalk.magenta(formattedModule) : formattedModule;
+
+  const output = `${timeStr} ${levelStr} ${moduleStr} ${message}`;
+  console.log(output);
+
+  if (data !== undefined && level !== 'INFO') {
+    if (typeof data === 'object') {
+      try {
+        const json = JSON.stringify(data, null, 2).split('\n').map(line => ' '.repeat(COL_TIME + COL_LEVEL + COL_MODULE + 2) + line).join('\n');
+        console.log(colorFn(json));
+      } catch (e) {
+        console.log(colorFn('   [Complex Data]'));
+      }
     } else {
-      console.log(colorFn('   ' + maskedData));
+      console.log(colorFn('   ' + data));
     }
   }
 }
 
-// 创建模块日志器
+/**
+ * 创建模块化的日志器
+ */
 function createLogger(moduleName) {
   return {
     debug: (message, data) => log('DEBUG', moduleName, message, data),
     info: (message, data) => log('INFO', moduleName, message, data),
     warn: (message, data) => log('WARN', moduleName, message, data),
     error: (message, data) => log('ERROR', moduleName, message, data),
+    fatal: (message, data) => log('FATAL', moduleName, message, data),
 
-    // 便捷方法
     success: (message, data) => {
-      const successMsg = useColor ? chalk.green('✓ ' + message) : '✓ ' + message;
-      log('INFO', moduleName, successMsg, data);
+      const msg = useColor ? chalk.green('✓ ' + message) : '✓ ' + message;
+      log('INFO', moduleName, msg, data);
     },
 
     start: (message) => {
-      const startMsg = useColor ? chalk.cyan('▶ ' + message) : '▶ ' + message;
-      log('INFO', moduleName, startMsg);
+      const msg = useColor ? chalk.cyan('▶ ' + message) : '▶ ' + message;
+      log('INFO', moduleName, msg);
     },
 
     complete: (message, data) => {
-      const completeMsg = useColor ? chalk.green('✓ ' + message) : '✓ ' + message;
-      log('INFO', moduleName, completeMsg, data);
+      const msg = useColor ? chalk.green('✓ ' + message) : '✓ ' + message;
+      log('INFO', moduleName, msg, data);
     },
 
-    // 分组日志
+    // 恢复这些方法以兼容现有代码，防止报错
     group: (title) => {
-      const groupMsg = useColor ? chalk.bold(title) : title;
-      log('INFO', moduleName, groupMsg);
+      const msg = useColor ? chalk.bold(title) : title;
+      log('INFO', moduleName, msg);
     },
 
     groupItem: (message, data) => {
-      const itemMsg = '  • ' + message;
-      log('INFO', moduleName, itemMsg, data);
+      const msg = '  • ' + message;
+      log('INFO', moduleName, msg, data);
     }
   };
 }
 
-// 全局日志器（无模块名）
 const globalLogger = createLogger('');
 
 module.exports = {
   createLogger,
   logger: globalLogger,
+  logEmitter,
+  getBuffer: () => logBuffer,
+  asyncLocalStorage,
   LOG_LEVELS
 };
+

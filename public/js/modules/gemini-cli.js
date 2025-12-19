@@ -610,6 +610,14 @@ export const geminiCliMethods = {
             return;
         }
         try {
+            // 如果是编辑模式，且修改了源模型名称（主键变了），则需要先删除旧的
+            if (store.gcliEditingRedirectSource && store.gcliEditingRedirectSource !== sourceModel) {
+                await fetch(`/api/gemini-cli-api/models/redirects/${encodeURIComponent(store.gcliEditingRedirectSource)}`, {
+                    method: 'DELETE',
+                    headers: store.getAuthHeaders()
+                });
+            }
+
             const response = await fetch('/api/gemini-cli-api/models/redirects', {
                 method: 'POST',
                 headers: {
@@ -620,20 +628,27 @@ export const geminiCliMethods = {
             });
 
             if (response.ok) {
-                toast.success('添加重定向成功');
+                toast.success('操作成功');
                 store.newGeminiCliRedirectSource = '';
                 store.newGeminiCliRedirectTarget = '';
+                store.gcliEditingRedirectSource = null;
                 await this.loadGeminiCliModelRedirects();
                 return true;
             } else {
                 const data = await response.json();
-                toast.error('添加失败: ' + (data.error || '未知错误'));
+                toast.error('操作失败: ' + (data.error || '未知错误'));
                 return false;
             }
         } catch (error) {
             toast.error('请求失败: ' + error.message);
             return false;
         }
+    },
+
+    editGeminiCliModelRedirect(r) {
+        store.newGeminiCliRedirectSource = r.source_model;
+        store.newGeminiCliRedirectTarget = r.target_model;
+        store.gcliEditingRedirectSource = r.source_model;
     },
 
     async removeGeminiCliModelRedirect(sourceModel) {

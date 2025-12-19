@@ -280,7 +280,7 @@
 .account-card.expanded>.account-card-body {
   grid-template-rows: 1fr;
   opacity: 1;
-  margin-top: 12px;
+  /* margin-top: 12px; */
 }
 
 .account-card.expanded>.account-card-body>* {

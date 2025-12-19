@@ -12,10 +12,49 @@ const {
   updateUserSettings
 } = require('../services/userSettings');
 const dbService = require('../db/database');
-const { SystemConfig } = require('../db/models');
-const { createLogger } = require('../utils/logger');
+const { SystemConfig, OperationLog } = require('../db/models');
+const { createLogger, getBuffer } = require('../utils/logger');
 
 const logger = createLogger('Settings');
+
+/**
+ * 获取系统审计日志
+ * GET /api/settings/operation-logs
+ */
+router.get('/operation-logs', (req, res) => {
+  try {
+    const logs = OperationLog.getLogs(null, 100);
+    res.json({
+      success: true,
+      data: logs
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * 获取实时系统运行日志 (从内存缓冲区)
+ * GET /api/settings/sys-logs
+ */
+router.get('/sys-logs', (req, res) => {
+  try {
+    const buffer = getBuffer();
+    // 转换为前端期望的格式
+    const formattedLogs = buffer.map(entry => ({
+      time: entry.timestamp.split('T')[1].split('.')[0], // HH:mm:ss
+      level: entry.level.toLowerCase(),
+      message: entry.message + (entry.data ? ` ${JSON.stringify(entry.data)}` : '')
+    }));
+
+    res.json({
+      success: true,
+      data: formattedLogs
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
 
 /**
  * 获取用户设置
@@ -180,7 +219,7 @@ router.post('/import-database', async (req, res) => {
     dbService.close();
 
     // 替换数据库文件
-    const dbPath = path.join(__dirname, '../../data/api-monitor.db');
+    const dbPath = path.join(__dirname, '../../data/data.db');
     await uploadedFile.mv(dbPath);
 
     // 重新初始化数据库连接

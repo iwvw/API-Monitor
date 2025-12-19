@@ -5,11 +5,14 @@
 const express = require('express');
 const router = express.Router();
 const { createSession, destroySession, getSession } = require('../services/session');
+const { createLogger } = require('../utils/logger');
 const {
   loadAdminPassword,
   isPasswordSavedToFile,
   saveAdminPassword
 } = require('../services/config');
+
+const logger = createLogger('Auth');
 
 /**
  * 检查是否已设置密码
@@ -42,7 +45,7 @@ router.post('/login', (req, res) => {
     maxAge: 24 * 60 * 60 * 1000 // 24小时（毫秒）
   };
 
-  console.log(`✅ 创建会话 sid=${sid.substring(0, 8)}... (24小时有效期)`);
+  logger.info(`用户登录成功 sid=${sid.substring(0, 8)}...`);
   res.cookie('sid', sid, cookieOptions);
   res.json({ success: true, sessionId: sid });
 });
@@ -61,7 +64,7 @@ router.post('/logout', (req, res) => {
  */
 router.get('/session', (req, res) => {
   const session = getSession(req);
-  console.log(`🔍 /api/session 检查 - 认证状态:`, !!session);
+  logger.debug(`Session 状态检查: ${session ? '已认证' : '未认证'}`);
   res.json({ authenticated: !!session });
 });
 
@@ -84,7 +87,7 @@ router.post('/set-password', (req, res) => {
   }
 
   if (saveAdminPassword(password)) {
-    console.log('✅ 管理员密码已设置');
+    logger.info('管理员密码已成功初始化');
     res.json({ success: true });
   } else {
     res.status(500).json({ error: '保存密码失败' });
@@ -132,7 +135,7 @@ router.post('/change-password', (req, res) => {
 
   // 保存新密码
   if (saveAdminPassword(newPassword)) {
-    console.log('✅ 管理员密码已修改');
+    logger.info('管理员密码已通过控制面板修改');
     res.json({ success: true });
   } else {
     res.status(500).json({ success: false, error: '保存密码失败' });

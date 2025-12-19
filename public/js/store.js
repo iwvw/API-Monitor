@@ -18,14 +18,14 @@ export const store = reactive({
     setPasswordError: '',
 
     // 导航与布局
-    mainActiveTab: 'server',
+    mainActiveTab: 'openai',
     moduleVisibility: {
-        server: true,
-        zeabur: true,
-        dns: true,
         openai: true,
         antigravity: true,
-        'gemini-cli': true
+        'gemini-cli': true,
+        zeabur: true,
+        dns: true,
+        server: true
     },
     channelEnabled: {
         antigravity: true,
@@ -35,10 +35,11 @@ export const store = reactive({
         antigravity: '',
         'gemini-cli': ''
     },
-    moduleOrder: ['server', 'zeabur', 'dns', 'openai', 'antigravity', 'gemini-cli'],
+    moduleOrder: ['openai', 'antigravity', 'gemini-cli', 'zeabur', 'dns', 'server'],
 
     // 全局设置
     opacity: 39,
+    serverIpDisplayMode: 'normal',
     showSettingsModal: false,
     showLogsModal: false,
     logsAutoScroll: true,
@@ -107,6 +108,10 @@ export const store = reactive({
     antigravitySettings: [],
     agRefreshingAll: false,
     antigravityQuotaViewMode: 'list',
+    antigravityModelRedirects: [],
+    newRedirectSource: '',
+    newRedirectTarget: '',
+    agEditingRedirectSource: null,
 
     // Gemini CLI
     geminiCliAccounts: [],
@@ -133,6 +138,7 @@ export const store = reactive({
     geminiCliModelRedirects: [], // Stores model redirect rules
     newGeminiCliRedirectSource: '',
     newGeminiCliRedirectTarget: '',
+    gcliEditingRedirectSource: null,
     geminiCliModelSelectedAccountId: '',
 
     // 自定义对话框状态

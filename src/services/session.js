@@ -6,6 +6,9 @@ const crypto = require('crypto');
 const { parseCookies } = require('../utils/cookie');
 const { Session } = require('../db/models');
 const dbService = require('../db/database');
+const { createLogger } = require('../utils/logger');
+
+const logger = createLogger('Session');
 
 // 初始化数据库
 dbService.initialize();
@@ -15,10 +18,16 @@ dbService.initialize();
  */
 function loadSessions() {
   try {
+    // 启动时先清理一次过期会话
+    const cleaned = Session.cleanExpiredSessions();
+    if (cleaned > 0) {
+      logger.info(`清理了 ${cleaned} 个过期或无效会_话`);
+    }
+    
     const sessions = Session.getActiveSessions();
-    console.log('✅ 已从数据库加载 session，数量:', sessions.length);
+    logger.info(`已从数据库加载 ${sessions.length} 个活跃会话`);
   } catch (err) {
-    console.error('❌ 加载 session 失败:', err.message);
+    logger.error('加载 session 失败:', err);
   }
 }
 
@@ -31,10 +40,10 @@ function saveSessions() {
   try {
     const cleaned = Session.cleanExpiredSessions();
     if (cleaned > 0) {
-      console.log(`🧹 清理了 ${cleaned} 个过期 session`);
+      logger.info(`自动清理了 ${cleaned} 个过期会话`);
     }
   } catch (err) {
-    console.error('❌ 清理过期 session 失败:', err.message);
+    logger.error('清理过期会话失败:', err);
   }
 }
 
@@ -53,7 +62,7 @@ function createSession(password) {
     expires_at: expiresAt.toISOString()
   });
 
-  console.log('✨ 创建新 session:', sid.substring(0, 8) + '...');
+  logger.info(`创建新会话: ${sid.substring(0, 8)}...`);
   return sid;
 }
 
@@ -65,18 +74,17 @@ function getSession(req) {
   const sid = cookies.sid;
 
   if (!sid) {
-    console.log('⚠️ 无 session cookie');
     return null;
   }
 
   const validation = Session.validateSession(sid);
 
   if (!validation.valid) {
-    console.log(`⚠️ session 无效 sid=${sid.substring(0, 8)}... 原因: ${validation.reason}`);
+    logger.debug(`Session 无效 sid=${sid.substring(0, 8)}... 原因: ${validation.reason}`);
     return null;
   }
 
-  console.log(`✓ session 有效 sid=${sid.substring(0, 8)}... (数据库存储)`);
+  logger.debug(`Session 有效 sid=${sid.substring(0, 8)}...`);
 
   const session = validation.session;
   return {
@@ -121,7 +129,7 @@ function destroySession(req) {
     const session = Session.getSession(sid);
     if (session) {
       Session.invalidateSession(sid);
-      console.log('🔒 销毁 session:', sid.substring(0, 8) + '...');
+      logger.info(`销毁会话: ${sid.substring(0, 8)}...`);
       return true;
     }
   }

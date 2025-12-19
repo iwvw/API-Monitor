@@ -12,6 +12,9 @@ const settingsRouter = require('./settings');
 
 // 导入聚合的 v1 路由
 const v1Router = require('./v1');
+const { createLogger } = require('../utils/logger');
+
+const logger = createLogger('Router');
 
 /**
  * 注册所有路由
@@ -66,9 +69,9 @@ function registerRoutes(app) {
           } else {
             app.use(routePath, requireAuth, moduleRouter);
           }
-          console.log(`✅ 模块已加载: ${moduleName} -> ${routePath}`);
+          logger.debug(`模块已加载: ${moduleName} -> ${routePath}`);
         } catch (e) {
-          console.error(`⚠️ 模块加载失败: ${moduleName}`, e.message);
+          logger.error(`模块加载失败: ${moduleName}`, e);
         }
       }
     });

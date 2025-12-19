@@ -6,6 +6,9 @@ const express = require('express');
 const router = express.Router();
 const storage = require('./storage');
 const cfApi = require('./cloudflare-api');
+const { createLogger } = require('../../src/utils/logger');
+
+const logger = createLogger('CF-DNS');
 
 // ==================== 账号管理 ====================
 
@@ -196,6 +199,7 @@ router.get('/accounts/:id/zones', async (req, res) => {
       pagination: resultInfo
     });
   } catch (e) {
+    logger.error(`获取域名列表失败 (ID: ${req.params.id}):`, e.message);
     res.status(500).json({ error: e.message });
   }
 });
