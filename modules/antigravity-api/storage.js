@@ -19,12 +19,19 @@ try {
 }
 
 /**
- * 获取所有 Antigravity 账号
+ * 获取所有 Antigravity 账号 (带统计)
  */
 function getAccounts() {
     try {
         const db = dbService.getDatabase();
-        return db.prepare('SELECT * FROM antigravity_accounts').all();
+        return db.prepare(`
+            SELECT 
+                a.*,
+                (SELECT project_id FROM antigravity_tokens t WHERE t.account_id = a.id LIMIT 1) as projectId,
+                (SELECT COUNT(*) FROM antigravity_logs l WHERE l.account_id = a.id AND l.status_code = 200) as success_count,
+                (SELECT COUNT(*) FROM antigravity_logs l WHERE l.account_id = a.id AND l.status_code != 200) as error_count
+            FROM antigravity_accounts a
+        `).all();
     } catch (e) {
         console.error('❌ 读取 Antigravity 账号失败:', e.message);
         return [];

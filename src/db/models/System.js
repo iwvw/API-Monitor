@@ -231,6 +231,21 @@ class UserSettings extends BaseModel {
             settings.module_visibility = defaults;
         }
 
+        if (settings.channel_enabled) {
+            const parsed = JSON.parse(settings.channel_enabled);
+            // 确保都有值
+            settings.channel_enabled = {
+                antigravity: true,
+                'gemini-cli': true,
+                ...parsed
+            };
+        } else {
+            settings.channel_enabled = {
+                antigravity: true,
+                'gemini-cli': true
+            };
+        }
+
         if (settings.module_order) {
             const parsed = JSON.parse(settings.module_order);
             // 确保所有默认模块都在顺序列表中
@@ -238,6 +253,20 @@ class UserSettings extends BaseModel {
             settings.module_order = [...parsed, ...missing];
         } else {
             settings.module_order = defaultOrder;
+        }
+
+        if (settings.channel_model_prefix) {
+            try {
+                settings.channel_model_prefix = JSON.parse(settings.channel_model_prefix);
+            } catch (e) {
+                settings.channel_model_prefix = { antigravity: '', 'gemini-cli': '' };
+            }
+        } else {
+            settings.channel_model_prefix = { antigravity: '', 'gemini-cli': '' };
+        }
+
+        if (!settings.load_balancing_strategy) {
+            settings.load_balancing_strategy = 'random';
         }
 
         return settings;
@@ -256,6 +285,10 @@ class UserSettings extends BaseModel {
                 openai: true,
                 server: true,
                 antigravity: true
+            }),
+            channel_enabled: JSON.stringify({
+                antigravity: true,
+                'gemini-cli': true
             }),
             module_order: JSON.stringify(['zeabur', 'dns', 'openai', 'server', 'antigravity']),
             updated_at: new Date().toISOString()
@@ -278,6 +311,15 @@ class UserSettings extends BaseModel {
         if (data.module_order && typeof data.module_order !== 'string') {
             data.module_order = JSON.stringify(data.module_order);
         }
+        if (data.channel_enabled && typeof data.channel_enabled !== 'string') {
+            data.channel_enabled = JSON.stringify(data.channel_enabled);
+        }
+        if (data.channel_model_prefix && typeof data.channel_model_prefix !== 'string') {
+            data.channel_model_prefix = JSON.stringify(data.channel_model_prefix);
+        }
+
+        console.log('[DEBUG] System.js: data.channel_model_prefix ->', data.channel_model_prefix);
+        console.log('[DEBUG] System.js: Final data keys to update ->', Object.keys(data));
 
         return this.update(1, data);
     }

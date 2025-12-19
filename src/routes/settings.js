@@ -43,6 +43,7 @@ router.get('/', (req, res) => {
 router.post('/', (req, res) => {
   try {
     const settings = req.body;
+    console.log('[DEBUG] POST /api/settings - Body:', JSON.stringify(settings, null, 2));
     const result = saveUserSettings(settings);
 
     if (result.success) {

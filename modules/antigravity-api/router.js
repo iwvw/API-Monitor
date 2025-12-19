@@ -11,6 +11,7 @@ const router = express.Router();
 
 // 内存中的 OAuth State
 const OAUTH_STATE = crypto.randomUUID();
+const OAUTH_REDIRECT_URI = 'http://localhost:8045/oauth-callback';
 
 /**
  * API Key 认证中间件
@@ -56,6 +57,27 @@ function requireApiAuth(req, res, next) {
 // 所有管理接口使用 requireAuth
 router.use(['/accounts', '/settings', '/logs', '/oauth', '/stats', '/quotas'], requireAuth);
 
+// 全局渠道启用状态检查中间件
+function requireChannelEnabled(req, res, next) {
+    const userSettingsService = require('../../src/services/userSettings');
+    const settings = userSettingsService.loadUserSettings();
+    const channelEnabled = settings.channelEnabled || {};
+
+    if (channelEnabled['antigravity'] === false) {
+        return res.status(403).json({
+            error: {
+                message: 'Antigravity channel is disabled in global settings.',
+                type: 'permission_error',
+                code: 'channel_disabled'
+            }
+        });
+    }
+    next();
+}
+
+// 所有 /v1 接口受全局启用状态控制
+router.use('/v1', requireChannelEnabled);
+
 
 // OAuth 配置 (与 client.js 保持一致)
 const GOOGLE_CLIENT_ID = '1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com';
@@ -73,6 +95,21 @@ router.get('/accounts', (req, res) => {
     try {
         const accounts = storage.getAccounts();
         res.json(accounts);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// 刷新所有凭证
+router.post('/accounts/refresh-all', async (req, res) => {
+    try {
+        const results = await client.refreshAllAccounts();
+        res.json({
+            success: true,
+            total: results.total || 0,
+            success_count: results.success || 0,
+            fail_count: results.fail || 0
+        });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -260,14 +297,16 @@ router.delete('/models/redirects/:sourceModel', requireApiAuth, (req, res) => {
 
 // 获取 Google OAuth URL
 router.get('/oauth/url', (req, res) => {
-    // 强制使用 8045 端口，因为这是原程序默认且在 Google Console 中授权的端口
-    const redirectUri = `http://localhost:8045/oauth-callback`;
+    // 动态获取当前请求的 Origin
+    // const protocol = req.headers['x-forwarded-proto'] || req.protocol;
+    // const host = req.headers['x-forwarded-host'] || req.get('host');
+    // const redirectUri = `${protocol}://${host}/oauth-callback`;
 
     const params = new URLSearchParams({
         access_type: 'offline',
         client_id: GOOGLE_CLIENT_ID,
         prompt: 'consent',
-        redirect_uri: redirectUri,
+        redirect_uri: OAUTH_REDIRECT_URI,
         response_type: 'code',
         scope: SCOPES.join(' '),
         state: OAUTH_STATE
@@ -301,15 +340,16 @@ router.post('/oauth/parse-url', async (req, res) => {
         }
 
 
-        // 完美复刻原程序模式：Google 交换 token 时的 redirect_uri 必须与授权链接中的完全一致。
-        // 原程序默认使用 8045 端口，这是 Google Console 中注册的唯一合法端口。
-        const redirectUri = `http://localhost:8045/oauth-callback`;
+        // 已经回归固定回调策略
+        // const protocol = req.headers['x-forwarded-proto'] || req.protocol;
+        // const host = req.headers['x-forwarded-host'] || req.get('host');
+        // const redirectUri = `${protocol}://${host}/oauth-callback`;
 
-        // 构造交换参数 (完美对齐 oauth_client.js)
+        // 构造交换参数
         const params = new URLSearchParams({
             code,
             client_id: GOOGLE_CLIENT_ID,
-            redirect_uri: redirectUri,
+            redirect_uri: OAUTH_REDIRECT_URI,
             grant_type: 'authorization_code'
         });
         if (GOOGLE_CLIENT_SECRET) {
@@ -319,7 +359,7 @@ router.post('/oauth/parse-url', async (req, res) => {
         // 交换 Token (增加原程序中使用的 User-Agent 等关键 Header)
         let tokenData;
         try {
-            console.log('Exchanging code for token...', { code: code.substring(0, 5) + '...', redirectUri });
+            console.log('Exchanging code for token...', { code: code.substring(0, 5) + '...', redirectUri: OAUTH_REDIRECT_URI });
             const tokenRes = await axios({
                 method: 'POST',
                 url: 'https://oauth2.googleapis.com/token',
@@ -415,7 +455,116 @@ router.post('/accounts/refresh-all', async (req, res) => {
 
     for (const acc of accounts) {
         try {
-            await client.getValidToken(acc.id);
+            const accessToken = await client.getValidToken(acc.id);
+            if (!accessToken) throw new Error('Failed to get token');
+
+            // 自动刷新邮箱信息和项目 ID
+
+            // 1. 刷新邮箱
+            let newEmail = null;
+            try {
+                // 尝试 v2 接口
+                let userRes;
+                try {
+                    userRes = await axios.get('https://www.googleapis.com/oauth2/v2/userinfo', {
+                        headers: {
+                            Authorization: `Bearer ${accessToken}`,
+                            'User-Agent': 'antigravity/1.11.3'
+                        },
+                        timeout: 5000
+                    });
+                } catch (v2Err) {
+                    // 如果 v2 失败，尝试 v3
+                    console.warn(`UserInfo v2 failed for ${acc.id}, trying v3:`, v2Err.message);
+                    userRes = await axios.get('https://www.googleapis.com/oauth2/v3/userinfo', {
+                        headers: {
+                            Authorization: `Bearer ${accessToken}`,
+                            'User-Agent': 'antigravity/1.11.3'
+                        },
+                        timeout: 5000
+                    });
+                }
+
+                if (userRes.data && userRes.data.email) {
+                    newEmail = userRes.data.email;
+                    if (newEmail !== acc.email) {
+                        storage.updateAccount(acc.id, { email: newEmail });
+
+                        // 记录成功的更新 (Info level)
+                        storage.recordLog({
+                            accountId: acc.id,
+                            path: 'refresh-email',
+                            method: 'INTERNAL',
+                            statusCode: 200,
+                            durationMs: 0,
+                            detail: { message: 'Email updated', oldEmail: acc.email, newEmail }
+                        });
+                    }
+                } else {
+                    storage.recordLog({
+                        accountId: acc.id,
+                        path: 'refresh-email',
+                        method: 'INTERNAL',
+                        statusCode: 200,
+                        durationMs: 0,
+                        detail: { warning: 'No email field in response', data: userRes.data }
+                    });
+                }
+            } catch (userInfoError) {
+                const status = userInfoError.response?.status || 0;
+                const errorDetail = userInfoError.response?.data || userInfoError.message;
+                console.warn(`Failed to refresh user info for ${acc.id}:`, userInfoError.message);
+
+                // 记录错误到日志
+                storage.recordLog({
+                    accountId: acc.id,
+                    path: 'refresh-email',
+                    method: 'INTERNAL',
+                    statusCode: status,
+                    durationMs: 0,
+                    detail: { error: 'Failed to fetch userinfo', detail: errorDetail }
+                });
+            }
+
+            // 2. 刷新项目 ID (如果缺失) 并更新 Token
+            try {
+                const currentToken = storage.getTokenByAccountId(acc.id);
+                if (currentToken) {
+                    let newProjectId = currentToken.project_id;
+
+                    if (!newProjectId) {
+                        try {
+                            const projRes = await axios.get('https://cloudresourcemanager.googleapis.com/v1/projects', {
+                                headers: { Authorization: `Bearer ${accessToken}` },
+                                timeout: 10000
+                            });
+                            const projects = projRes.data.projects || [];
+                            if (projects.length > 0) {
+                                newProjectId = projects[0].projectId;
+                            }
+                        } catch (projErr) {
+                            // 忽略 Project ID 获取失败
+                        }
+                    }
+
+                    // 构造符合 saveToken 期望的驼峰命名对象
+                    const tokenData = {
+                        accountId: currentToken.account_id,
+                        accessToken: currentToken.access_token,
+                        refreshToken: currentToken.refresh_token,
+                        expiresIn: currentToken.expires_in,
+                        timestamp: currentToken.timestamp,
+                        projectId: newProjectId,
+                        email: newEmail || currentToken.email,
+                        userId: currentToken.user_id,
+                        userEmail: newEmail || currentToken.user_email
+                    };
+                    storage.saveToken(tokenData);
+                }
+            } catch (tokenErr) {
+                console.warn(`Failed to update token info for ${acc.id}:`, tokenErr.message);
+            }
+
             storage.updateAccount(acc.id, { status: 'online' });
             refreshed++;
         } catch (e) {
@@ -424,7 +573,9 @@ router.post('/accounts/refresh-all', async (req, res) => {
         }
     }
 
-    res.json({ success: true, refreshed, failed, total: accounts.length });
+    // 获取最新列表返回
+    const updatedAccounts = storage.getAccounts();
+    res.json({ success: true, refreshed, failed, total: accounts.length, accounts: updatedAccounts });
 });
 
 // 手动添加账号 (Access Token + Refresh Token)
@@ -691,13 +842,17 @@ router.post('/v1/chat/completions', requireApiAuth, async (req, res) => {
             });
         }
 
-        // 策略：简单负载均衡或使用指定账号（目前简写为使用第一个）
+        // 策略：负载均衡
         const accounts = storage.getAccounts().filter(a => a.enable);
         if (accounts.length === 0) {
             return res.status(503).json({ error: 'No enabled accounts available' });
         }
 
-        const account = accounts[0];
+        const settings = require('../../src/services/userSettings').loadUserSettings();
+        const strategy = settings.load_balancing_strategy || 'random';
+
+        const loadBalancer = require('../../src/utils/loadBalancer');
+        const account = loadBalancer.getNextAccount('antigravity', accounts, strategy);
 
         if (stream) {
             res.setHeader('Content-Type', 'text/event-stream');
@@ -710,32 +865,41 @@ router.post('/v1/chat/completions', requireApiAuth, async (req, res) => {
             await client.chatCompletionsStream(account.id, req.body, (event) => {
                 if (event.type === 'text') {
                     const chunk = {
-                        id,
-                        object: 'chat.completion.chunk',
-                        created,
-                        model,
-                        choices: [{
-                            index: 0,
-                            delta: { content: event.content },
-                            finish_reason: null
-                        }]
+                        id, object: 'chat.completion.chunk', created, model,
+                        choices: [{ index: 0, delta: { content: event.content }, finish_reason: null }]
                     };
                     res.write(`data: ${JSON.stringify(chunk)}\n\n`);
                 } else if (event.type === 'thinking') {
                     const chunk = {
-                        id,
-                        object: 'chat.completion.chunk',
-                        created,
-                        model,
+                        id, object: 'chat.completion.chunk', created, model,
+                        choices: [{ index: 0, delta: { reasoning_content: event.content }, finish_reason: null }]
+                    };
+                    res.write(`data: ${JSON.stringify(chunk)}\n\n`);
+                } else if (event.type === 'tool_calls') {
+                    const chunk = {
+                        id, object: 'chat.completion.chunk', created, model,
                         choices: [{
                             index: 0,
-                            delta: { reasoning_content: event.content },
+                            delta: {
+                                tool_calls: event.tool_calls.map((tc, idx) => ({
+                                    index: idx,
+                                    id: tc.id,
+                                    type: 'function',
+                                    function: { name: tc.name, arguments: JSON.stringify(tc.args) }
+                                }))
+                            },
                             finish_reason: null
                         }]
                     };
                     res.write(`data: ${JSON.stringify(chunk)}\n\n`);
+                } else if (event.type === 'signature') {
+                    // 透传签名（可选，某些客户端可能需要这个来维持长对话）
+                    const chunk = {
+                        id, object: 'chat.completion.chunk', created, model,
+                        choices: [{ index: 0, delta: { signature: event.content }, finish_reason: null }]
+                    };
+                    res.write(`data: ${JSON.stringify(chunk)}\n\n`);
                 }
-                // TODO: handle tool_calls
             });
 
             res.write(`data: [DONE]\n\n`);

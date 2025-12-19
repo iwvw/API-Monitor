@@ -122,36 +122,49 @@
     /* 使用 CSS 构建箭头更可靠，或者 SVG */
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%23888888'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E");
     background-repeat: no-repeat;
-    background-position: right 8px center;
-    background-size: 12px;
-    padding: 4px 28px 4px 10px !important;
-    /* 紧凑内边距 */
-    background-color: transparent;
-    /* 融入背景 */
+    background-position: right 10px center;
+    background-size: 14px;
+    padding: 8px 36px 8px 14px !important;
+    background-color: var(--bg-secondary);
     border: 1px solid var(--border-color);
-    border-radius: 6px;
-    font-size: 12px;
-    /* 更小字体 */
+    border-radius: 8px;
+    font-size: 13px;
     font-weight: 500;
     color: var(--text-primary);
     cursor: pointer;
-    transition: all 0.2s;
-    height: 28px;
-    /* 紧凑高度 */
-    min-width: 140px;
+    transition: all 0.2s ease;
+    height: 36px;
+    min-width: 260px;
     outline: none;
     line-height: normal;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 }
 
 .ag-account-selector:hover {
     border-color: var(--ag-primary);
-    background-color: rgba(var(--ag-primary-rgb), 0.04);
+    background-color: var(--bg-tertiary);
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
 }
 
 .ag-account-selector:focus {
     border-color: var(--ag-primary);
-    box-shadow: 0 0 0 2px rgba(var(--ag-primary-rgb), 0.1);
+    box-shadow: 0 0 0 3px rgba(var(--ag-primary-rgb), 0.15);
 }
+
+/* 下拉选项样式 - 修复夜间模式 */
+.ag-account-selector option {
+    background-color: var(--bg-secondary);
+    color: var(--text-primary);
+    padding: 10px 14px;
+    font-size: 13px;
+}
+
+.ag-account-selector option:hover,
+.ag-account-selector option:focus,
+.ag-account-selector option:checked {
+    background-color: var(--bg-tertiary);
+}
+
 
 /* Switch 开关样式 - 紧凑 */
 .switch {
@@ -248,12 +261,23 @@ input:checked+.slider:before {
 @media (prefers-color-scheme: dark) {
     .ag-account-selector {
         background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%23aaaaaa'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E");
+        background-color: var(--bg-tertiary);
+    }
+
+    .ag-account-selector option {
+        background-color: #374151;
+        color: #f9fafb;
+    }
+
+    .ag-account-selector option:checked {
+        background-color: #4b5563;
     }
 
     .slider {
         background-color: #555;
     }
 }
+
 
 /* Google OAuth Button */
 .btn-ag {

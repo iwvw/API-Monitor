@@ -56,8 +56,7 @@ export const antigravityMethods = {
         this.antigravityAccountForm = {
             name: '',
             email: '',
-            password: '',
-            apiKey: ''
+            password: ''
         };
         this.antigravityAccountFormError = '';
         this.showAntigravityAccountModal = true;
@@ -68,8 +67,7 @@ export const antigravityMethods = {
         this.antigravityAccountForm = {
             name: account.name || '',
             email: account.email || '',
-            password: account.password || '',
-            apiKey: account.api_key || ''
+            password: account.password || ''
         };
         this.antigravityAccountFormError = '';
         this.showAntigravityAccountModal = true;
@@ -213,14 +211,14 @@ export const antigravityMethods = {
     async openGoogleAuthUrl() {
         try {
             const response = await fetch('/api/antigravity/oauth/url', {
-                headers: this.getAuthHeaders()
+                headers: store.getAuthHeaders()
             });
             const data = await response.json();
             if (data.url) {
                 window.open(data.url, '_blank');
             }
         } catch (error) {
-            this.showGlobalToast('获取授权链接失败', 'error');
+            toast.error('获取授权链接失败');
         }
     },
 
@@ -231,68 +229,81 @@ export const antigravityMethods = {
             const response = await fetch('/api/antigravity/oauth/parse-url', {
                 method: 'POST',
                 headers: {
-                    ...this.getAuthHeaders(),
+                    ...store.getAuthHeaders(),
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({
                     url: this.agOauthUrl,
-                    customProjectId: this.agOauthCustomProjectId,
-                    allowRandomProjectId: this.agOauthAllowRandom
+                    customProjectId: this.agCustomProjectId,
+                    allowRandomProjectId: this.agAllowRandomProjectId
                 })
             });
 
             const data = await response.json();
             if (response.ok) {
-                this.showGlobalToast('账号授权成功');
+                toast.success('账号授权成功');
                 this.agOauthUrl = '';
                 this.antigravityCurrentTab = 'accounts';
                 this.loadAntigravityAccounts();
             } else {
-                this.showGlobalToast(data.error || '解析失败', 'error');
+                toast.error(data.error || '解析失败');
             }
         } catch (error) {
-            this.showGlobalToast('解析失败: ' + error.message, 'error');
+            toast.error('解析失败: ' + error.message);
         } finally {
             this.antigravityLoading = false;
         }
     },
 
-    // 刷新项目 ID
     async refreshAntigravityProjectId(account) {
         try {
             const response = await fetch(`/api/antigravity/accounts/${account.id}/refresh-project-id`, {
                 method: 'POST',
-                headers: this.getAuthHeaders()
+                headers: store.getAuthHeaders()
             });
             const data = await response.json();
             if (response.ok) {
-                this.showGlobalToast(`项目 ID 已更新: ${data.projectId}`);
+                toast.success(`项目 ID 已更新: ${data.projectId}`);
                 this.loadAntigravityAccounts();
             } else {
-                this.showGlobalToast(data.error || '更新失败', 'error');
+                toast.error(data.error || '更新失败');
             }
         } catch (error) {
-            this.showGlobalToast('更新失败: ' + error.message, 'error');
+            toast.error('更新失败: ' + error.message);
         }
     },
 
-    // 刷新所有 Token
-    async refreshAllAntigravityTokens() {
-        this.antigravityLoading = true;
+    // 刷新所有凭证
+    async refreshAllAgAccounts() {
+        store.agRefreshingAll = true;
+        toast.info('正在刷新所有凭证及邮箱信息...');
         try {
             const response = await fetch('/api/antigravity/accounts/refresh-all', {
                 method: 'POST',
-                headers: this.getAuthHeaders()
+                headers: store.getAuthHeaders()
             });
             const data = await response.json();
-            this.showGlobalToast(`同步完成: 成功 ${data.refreshed}, 失败 ${data.failed}`);
-            this.loadAntigravityAccounts();
+            if (response.ok) {
+                const s = data.success_count !== undefined ? data.success_count : (typeof data.refreshed === 'number' ? data.refreshed : 0);
+                const f = data.fail_count !== undefined ? data.fail_count : (typeof data.failed === 'number' ? data.failed : 0);
+                toast.success(`同步完成: 成功 ${s}, 失败 ${f}`);
+
+                if (Array.isArray(data.accounts)) {
+                    store.antigravityAccounts = data.accounts;
+                } else {
+                    this.loadAntigravityAccounts();
+                }
+                this.loadAntigravityStats();
+            } else {
+                toast.error(data.error || '刷新失败');
+            }
         } catch (error) {
-            this.showGlobalToast('刷新失败', 'error');
+            toast.error('刷新失败: ' + error.message);
         } finally {
-            this.antigravityLoading = false;
+            store.agRefreshingAll = false;
         }
     },
+
 
     // 切换 Antigravity 子标签页
     switchAntigravityTab(tabName) {
@@ -416,7 +427,16 @@ export const antigravityMethods = {
     formatResetCountdown(isoTime) {
         if (!isoTime) return '无';
         try {
-            const resetDate = new Date(isoTime);
+            let timeStr = isoTime;
+            // 如果是 MM-DD HH:mm 格式，补全当前年份
+            if (/^\d{1,2}-\d{1,2}\s\d{1,2}:\d{1,2}$/.test(timeStr)) {
+                const year = new Date().getFullYear();
+                // 替换 - 为 / 以兼容更多浏览器，或者直接拼接 ISO 格式 (YYYY-MM-DDTHH:mm:ss)
+                // 这里简单假设系统能解析 YYYY-MM-DD HH:mm
+                timeStr = `${year}-${timeStr}`;
+            }
+
+            const resetDate = new Date(timeStr);
             if (isNaN(resetDate.getTime())) return '无';
             const now = new Date();
             const diffMs = resetDate - now;
@@ -444,12 +464,12 @@ export const antigravityMethods = {
         this.antigravityLoading = true;
         try {
             const response = await fetch('/api/antigravity/logs', {
-                headers: this.getAuthHeaders()
+                headers: store.getAuthHeaders()
             });
             const data = await response.json();
             this.antigravityLogs = data.logs || [];
         } catch (error) {
-            this.showGlobalToast('加载日志失败', 'error');
+            toast.error('加载日志失败');
         } finally {
             this.antigravityLoading = false;
         }
@@ -469,23 +489,23 @@ export const antigravityMethods = {
         try {
             const response = await fetch('/api/antigravity/logs/clear', {
                 method: 'POST',
-                headers: this.getAuthHeaders()
+                headers: store.getAuthHeaders()
             });
             if (response.ok) {
-                this.showGlobalToast('日志已清空');
+                toast.success('日志已清空');
                 this.loadAntigravityLogs();
             } else {
-                this.showGlobalToast('清空失败', 'error');
+                toast.error('清空失败');
             }
         } catch (error) {
-            this.showGlobalToast('请求失败: ' + error.message, 'error');
+            toast.error('请求失败: ' + error.message);
         }
     },
 
     async viewAntigravityLogDetail(log) {
         try {
             const response = await fetch(`/api/antigravity/logs/${log.id}`, {
-                headers: this.getAuthHeaders()
+                headers: store.getAuthHeaders()
             });
             const data = await response.json();
 
@@ -493,11 +513,11 @@ export const antigravityMethods = {
                 this.antigravityLogDetail = data.log;
                 this.showAntigravityLogDetailModal = true;
             } else {
-                this.showGlobalToast('日志详情获取失败', 'error');
+                toast.error('日志详情获取失败');
             }
         } catch (error) {
             console.error('获取日志详情失败:', error);
-            this.showGlobalToast('获取日志详情失败: ' + error.message, 'error');
+            toast.error('获取日志详情失败: ' + error.message);
         }
     },
 
@@ -507,7 +527,7 @@ export const antigravityMethods = {
         this.antigravityLoading = true;
         try {
             const response = await fetch('/api/antigravity/settings', {
-                headers: this.getAuthHeaders()
+                headers: store.getAuthHeaders()
             });
             const data = await response.json();
             this.antigravitySettings = data;
@@ -531,12 +551,13 @@ export const antigravityMethods = {
                     form[s.key] = s.value;
                 });
             }
-            this.agSettingsForm = form;
+            // 使用 Object.assign 而非直接赋值，以保留已有的全局设置（如负载均衡策略）
+            Object.assign(this.agSettingsForm, form);
 
             // 并行加载重定向配置
             await this.loadModelRedirects();
         } catch (error) {
-            this.showGlobalToast('加载设置失败', 'error');
+            toast.error('加载设置失败');
         } finally {
             this.antigravityLoading = false;
         }
@@ -554,7 +575,7 @@ export const antigravityMethods = {
                     await fetch('/api/antigravity/settings', {
                         method: 'POST',
                         headers: {
-                            ...this.getAuthHeaders(),
+                            ...store.getAuthHeaders(),
                             'Content-Type': 'application/json'
                         },
                         body: JSON.stringify({ key, value: String(value) })
@@ -562,9 +583,9 @@ export const antigravityMethods = {
                     saved++;
                 }
             }
-            this.showGlobalToast(`已保存 ${saved} 项设置`);
+            toast.success(`已保存 ${saved} 项设置`);
         } catch (error) {
-            this.showGlobalToast('保存失败: ' + error.message, 'error');
+            toast.error('保存失败: ' + error.message);
         } finally {
             this.antigravitySaving = false;
         }
@@ -615,7 +636,7 @@ export const antigravityMethods = {
             const response = await fetch('/api/antigravity/settings', {
                 method: 'POST',
                 headers: {
-                    ...this.getAuthHeaders(),
+                    ...store.getAuthHeaders(),
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({ key: s.key, value: s.value })
@@ -624,7 +645,7 @@ export const antigravityMethods = {
                 this.showGlobalToast(`设置已保存: ${this.getAgSettingLabel(s.key)}`);
             }
         } catch (error) {
-            this.showGlobalToast('保存失败', 'error');
+            toast.error('保存失败');
         }
     },
 
@@ -635,11 +656,10 @@ export const antigravityMethods = {
 
     // 视图切换
     toggleAntigravityQuotaView() {
-        // 如果未定义（旧状态），初始化为 list
-        if (!this.antigravityQuotaViewMode) {
-            this.antigravityQuotaViewMode = 'grouped'; // 切换到分组
+        if (!store.antigravityQuotaViewMode) {
+            store.antigravityQuotaViewMode = 'grouped';
         } else {
-            this.antigravityQuotaViewMode = this.antigravityQuotaViewMode === 'list' ? 'grouped' : 'list';
+            store.antigravityQuotaViewMode = store.antigravityQuotaViewMode === 'list' ? 'grouped' : 'list';
         }
     },
 
@@ -649,7 +669,7 @@ export const antigravityMethods = {
         let allModels = [];
 
         // 明确的分组顺序
-        const groupOrder = ['banana_pro', 'claude_gpt', 'tab_completion', 'gemini', 'others'];
+        const groupOrder = ['图像生成', 'claude_gpt', 'tab_completion', 'gemini', 'others'];
 
         // 按照固定顺序遍历分组
         groupOrder.forEach(groupId => {
@@ -694,27 +714,27 @@ export const antigravityMethods = {
             const response = await fetch(`/api/antigravity/models/${modelId}/status`, {
                 method: 'POST',
                 headers: {
-                    ...this.getAuthHeaders(),
+                    ...store.getAuthHeaders(),
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({ enabled })
             });
 
             if (response.ok) {
-                this.showGlobalToast(`模型 ${modelId} 已${enabled ? '启用' : '禁用'}`);
+                toast.success(`模型 ${modelId} 已${enabled ? '启用' : '禁用'}`);
             } else {
                 // Revert
                 if (foundModel) foundModel.enabled = !enabled;
                 model.enabled = !enabled;
                 event.target.checked = !enabled;
-                this.showGlobalToast('状态更新失败', 'error');
+                toast.error('状态更新失败');
             }
         } catch (error) {
             // Revert
             if (foundModel) foundModel.enabled = !enabled;
             model.enabled = !enabled;
             event.target.checked = !enabled;
-            this.showGlobalToast('请求失败: ' + error.message, 'error');
+            toast.error('请求失败: ' + error.message);
         }
     },
 
@@ -722,11 +742,11 @@ export const antigravityMethods = {
     async loadModelRedirects() {
         try {
             const response = await fetch('/api/antigravity/models/redirects', {
-                headers: this.getAuthHeaders()
+                headers: store.getAuthHeaders()
             });
             this.antigravityModelRedirects = await response.json();
         } catch (error) {
-            this.showGlobalToast('加载重定向配置失败', 'error');
+            toast.error('加载重定向配置失败');
         }
     },
 
@@ -736,23 +756,23 @@ export const antigravityMethods = {
             const response = await fetch('/api/antigravity/models/redirects', {
                 method: 'POST',
                 headers: {
-                    ...this.getAuthHeaders(),
+                    ...store.getAuthHeaders(),
                     'Content-Type': 'application/json'
                 },
                 body: JSON.stringify({ sourceModel, targetModel })
             });
 
             if (response.ok) {
-                this.showGlobalToast('添加重定向成功');
+                toast.success('添加重定向成功');
                 await this.loadModelRedirects();
                 return true;
             } else {
                 const data = await response.json();
-                this.showGlobalToast('添加失败: ' + (data.error || '未知错误'), 'error');
+                toast.error('添加失败: ' + (data.error || '未知错误'));
                 return false;
             }
         } catch (error) {
-            this.showGlobalToast('请求失败: ' + error.message, 'error');
+            toast.error('请求失败: ' + error.message);
             return false;
         }
     },
@@ -762,17 +782,17 @@ export const antigravityMethods = {
         try {
             const response = await fetch(`/api/antigravity/models/redirects/${encodeURIComponent(sourceModel)}`, {
                 method: 'DELETE',
-                headers: this.getAuthHeaders()
+                headers: store.getAuthHeaders()
             });
 
             if (response.ok) {
-                this.showGlobalToast('删除成功');
+                toast.success('删除成功');
                 await this.loadModelRedirects();
             } else {
-                this.showGlobalToast('删除失败', 'error');
+                toast.error('删除失败');
             }
         } catch (error) {
-            this.showGlobalToast('请求失败: ' + error.message, 'error');
+            toast.error('请求失败: ' + error.message);
         }
     }
 };

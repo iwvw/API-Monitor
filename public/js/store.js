@@ -24,9 +24,18 @@ export const store = reactive({
         zeabur: true,
         dns: true,
         openai: true,
-        antigravity: true
+        antigravity: true,
+        'gemini-cli': true
     },
-    moduleOrder: ['server', 'zeabur', 'dns', 'openai', 'antigravity'],
+    channelEnabled: {
+        antigravity: true,
+        'gemini-cli': true
+    },
+    channelModelPrefix: {
+        antigravity: '',
+        'gemini-cli': ''
+    },
+    moduleOrder: ['server', 'zeabur', 'dns', 'openai', 'antigravity', 'gemini-cli'],
 
     // 全局设置
     opacity: 39,
@@ -96,6 +105,35 @@ export const store = reactive({
     antigravityStats: null,
     antigravityLogs: [],
     antigravitySettings: [],
+    agRefreshingAll: false,
+    antigravityQuotaViewMode: 'list',
+
+    // Gemini CLI
+    geminiCliAccounts: [],
+    geminiCliCurrentTab: 'models',
+    geminiCliLoading: false,
+    geminiCliSaving: false,
+    showGeminiCliAccountModal: false,
+    showGeminiCliOAuthExpand: false,
+    geminiCliOAuthUrl: '',
+    geminiCliOauthReturnUrl: '',
+    // 使用 Antigravity 的 Client ID 以获得 API 访问权限
+    geminiCliCustomClientId: '1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com',
+    geminiCliCustomClientSecret: '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',
+    geminiCliOAuthRedirectUri: 'http://localhost:11451',
+    geminiCliCustomProjectId: '',
+    geminiCliAllowRandomProjectId: true,
+    geminiCliStats: null,
+    geminiCliLogs: [],
+    geminiCliSettings: {},
+    geminiCliEditingAccount: null,
+    geminiCliModels: {},
+    geminiCliMatrix: null, // Stores the model matrix configuration
+    geminiCliModelLoading: false,
+    geminiCliModelRedirects: [], // Stores model redirect rules
+    newGeminiCliRedirectSource: '',
+    newGeminiCliRedirectTarget: '',
+    geminiCliModelSelectedAccountId: '',
 
     // 自定义对话框状态
     customDialog: {

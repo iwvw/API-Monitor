@@ -10,6 +10,9 @@ const authRouter = require('./auth');
 const healthRouter = require('./health');
 const settingsRouter = require('./settings');
 
+// 导入聚合的 v1 路由
+const v1Router = require('./v1');
+
 /**
  * 注册所有路由
  */
@@ -26,6 +29,9 @@ function registerRoutes(app) {
   // 用户设置路由（需要认证）- 挂载到精确路径避免拦截其他 API 请求
   app.use('/api/settings', requireAuth, settingsRouter);
 
+  // 挂载聚合的 OpenAI 兼容接口
+  app.use('/v1', v1Router);
+
   // 动态加载模块路由
   const modulesDir = path.join(__dirname, '../../modules');
 
@@ -35,7 +41,8 @@ function registerRoutes(app) {
     'cloudflare-dns': '/api/cf-dns',
     'openai-api': '/api/openai',
     'server-management': '/api/server',
-    'antigravity-api': '/api/antigravity'
+    'antigravity-api': '/api/antigravity',
+    'gemini-cli-api': '/api/gemini-cli-api'
   };
 
   if (fs.existsSync(modulesDir)) {
@@ -49,26 +56,13 @@ function registerRoutes(app) {
       if (fs.existsSync(routerPath)) {
         try {
           const moduleRouter = require(routerPath);
-          // 使用配置的路径，如果未配置则默认使用 /api/{moduleName}
+          // 使用配置的路径，如果未配置则默认使用 /api/${moduleName}
           const routePath = moduleRouteMap[moduleName] || `/api/${moduleName}`;
 
-          if (moduleName === 'antigravity-api') {
-            // Antigravity 模块需要自定义认证逻辑（API Key 支持）
+          if (moduleName === 'antigravity-api' || moduleName === 'gemini-cli-api') {
+            // 这些模块需要自定义认证逻辑（API Key 支持），挂载到各自的 API 路径
             app.use(routePath, moduleRouter);
-
-            // 创建简洁的 /v1 端点（OpenAI 兼容格式）
-            // 将 /v1/* 请求映射到模块内部的 /v1/* 路由
-            const openaiRouter = express.Router();
-            openaiRouter.get('/models', (req, res, next) => {
-              req.url = '/v1/models';
-              moduleRouter(req, res, next);
-            });
-            openaiRouter.post('/chat/completions', (req, res, next) => {
-              req.url = '/v1/chat/completions';
-              moduleRouter(req, res, next);
-            });
-            app.use('/v1', openaiRouter);
-            console.log(`✅ 模块已加载: ${moduleName} -> /v1 (OpenAI 兼容端点)`);
+            // 注意：/v1 路径现在由 v1Router 统一接管，不再在此处单独挂载
           } else {
             app.use(routePath, requireAuth, moduleRouter);
           }

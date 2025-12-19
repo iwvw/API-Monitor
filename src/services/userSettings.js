@@ -16,18 +16,43 @@ function loadUserSettings() {
   try {
     const settings = UserSettings.getSettings();
 
-    // 转换字段名以保持向后兼容
+    const visibility = settings.module_visibility || {
+      zeabur: true,
+      dns: true,
+      openai: true,
+      server: true,
+      antigravity: true,
+      'gemini-cli': true
+    };
+
+    const channelEnabled = settings.channel_enabled || {
+      antigravity: true,
+      'gemini-cli': true
+    };
+
+    const channelModelPrefix = settings.channel_model_prefix || {
+      antigravity: '',
+      'gemini-cli': ''
+    };
+
+    const order = settings.module_order || ['zeabur', 'dns', 'openai', 'server', 'antigravity', 'gemini-cli'];
+
+    // 确保 gemini-cli 在现有设置中
+    if (!('gemini-cli' in visibility)) {
+      visibility['gemini-cli'] = true;
+    }
+    if (!order.includes('gemini-cli')) {
+      order.push('gemini-cli');
+    }
+
     return {
       customCss: settings.custom_css || '',
       zeaburRefreshInterval: settings.zeabur_refresh_interval || 30000,
-      moduleVisibility: settings.module_visibility || {
-        zeabur: true,
-        dns: true,
-        openai: true,
-        server: true,
-        antigravity: true
-      },
-      moduleOrder: settings.module_order || ['zeabur', 'dns', 'openai', 'server', 'antigravity']
+      moduleVisibility: visibility,
+      channelEnabled: channelEnabled,
+      channelModelPrefix: channelModelPrefix,
+      moduleOrder: order,
+      load_balancing_strategy: settings.load_balancing_strategy || 'random'
     };
   } catch (error) {
     console.error('加载用户设置失败:', error);
@@ -45,9 +70,20 @@ function saveUserSettings(settings) {
       custom_css: settings.customCss || settings.custom_css || '',
       zeabur_refresh_interval: settings.zeaburRefreshInterval || settings.zeabur_refresh_interval || 30000,
       module_visibility: settings.moduleVisibility || settings.module_visibility,
-      module_order: settings.moduleOrder || settings.module_order
+      channel_enabled: settings.channelEnabled || settings.channel_enabled,
+      channel_model_prefix: settings.channelModelPrefix || settings.channel_model_prefix,
+      module_order: settings.moduleOrder || settings.module_order,
+      load_balancing_strategy: settings.load_balancing_strategy || settings.load_balancing_strategy_form || 'random'
     };
 
+    // 确保 channel_model_prefix 是字符串，如果不是则进行 JSON.stringify
+    if (dbSettings.channel_model_prefix && typeof dbSettings.channel_model_prefix !== 'string') {
+      const originalPrefix = dbSettings.channel_model_prefix;
+      dbSettings.channel_model_prefix = JSON.stringify(dbSettings.channel_model_prefix);
+      console.log('[DEBUG] Stringified channel_model_prefix for saving:', originalPrefix, '->', dbSettings.channel_model_prefix);
+    }
+
+    console.log('[DEBUG] Saving User Settings:', JSON.stringify(dbSettings, null, 2));
     UserSettings.updateSettings(dbSettings);
     return { success: true };
   } catch (error) {
@@ -68,9 +104,19 @@ function getDefaultSettings() {
       dns: true,
       openai: true,
       server: true,
-      antigravity: true
+      antigravity: true,
+      'gemini-cli': true
     },
-    moduleOrder: ['zeabur', 'dns', 'openai', 'server', 'antigravity']
+    channelEnabled: {
+      antigravity: true,
+      'gemini-cli': true
+    },
+    channelModelPrefix: {
+      antigravity: '',
+      'gemini-cli': ''
+    },
+    moduleOrder: ['zeabur', 'dns', 'openai', 'server', 'antigravity', 'gemini-cli'],
+    load_balancing_strategy: 'random'
   };
 }
 
