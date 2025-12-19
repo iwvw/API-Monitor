@@ -26,7 +26,7 @@ on:
       platforms:
         description: '构建平台（可选）'
         required: false
-        default: 'linux/amd64,linux/arm64'
+        default: 'linux/amd64'
 
 permissions:
   contents: read
@@ -95,7 +95,7 @@ jobs:
           context: .
           file: ./Dockerfile
           push: true
-          platforms: ${{ github.event.inputs.platforms != '' && github.event.inputs.platforms || 'linux/amd64,linux/arm64' }}
+          platforms: ${{ github.event.inputs.platforms != '' && github.event.inputs.platforms || 'linux/amd64' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha

@@ -13,19 +13,19 @@
 
 ## 🖼️ 界面预览
 
-| 主机管理 | SSH 终端 |
+|  |  |
 | :---: | :---: |
 | ![主机管理](pic/Snipaste_2025-12-20_04-06-50.png) | ![SSH终端](pic/Snipaste_2025-12-20_04-07-25.png) |
 
-| Cloudflare DNS | Zeabur 监控 |
+|  |  |
 | :---: | :---: |
 | ![Cloudflare DNS](pic/Snipaste_2025-12-20_04-07-34.png) | ![Zeabur](pic/Snipaste_2025-12-20_04-07-43.png) |
 
-| OpenAI 端点 | Antigravity |
+|  | |
 | :---: | :---: |
 | ![OpenAI](pic/Snipaste_2025-12-20_04-07-52.png) | ![Antigravity](pic/Snipaste_2025-12-20_04-08-05.png) |
 
-| Gemini CLI | 系统设置 |
+|  | |
 | :---: | :---: |
 | ![Gemini CLI](pic/Snipaste_2025-12-20_04-08-16.png) | ![系统设置](pic/Snipaste_2025-12-20_04-08-23.png) |
 
