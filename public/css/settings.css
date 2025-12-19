@@ -1,16 +1,5 @@
 /* Settings Sidebar Styles */
 
-.settings-sidebar-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: var(--modal-overlay);
-  z-index: 2000;
-  /* animation removed */
-}
-
 .settings-sidebar {
   position: fixed;
   top: 0;
@@ -46,6 +35,7 @@
   right: 0;
   bottom: 0;
   z-index: 2000;
+  background-color: var(--modal-overlay);
 }
 
 /* Specific animations for sidebar sliding */
@@ -476,17 +466,50 @@
   font-weight: 600;
 }
 
-.log-info .log-level { color: #3b82f6; }
-.log-success .log-level { color: #10b981; }
-.log-warn .log-level { color: #f59e0b; }
-.log-error .log-level { color: #ef4444; }
-.log-debug .log-level { color: #8b5cf6; }
+.log-info .log-level {
+  color: #3b82f6;
+}
+
+.log-success .log-level {
+  color: #10b981;
+}
+
+.log-warn .log-level {
+  color: #f59e0b;
+}
+
+.log-error .log-level {
+  color: #ef4444;
+}
+
+.log-debug .log-level {
+  color: #8b5cf6;
+}
 
 /* Operation Badge Styles */
-.status-badge.status-create { background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.2); }
-.status-badge.status-update { background: rgba(59, 130, 246, 0.15); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.2); }
-.status-badge.status-delete { background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.2); }
-.status-badge.status-login { background: rgba(139, 92, 246, 0.15); color: #8b5cf6; border: 1px solid rgba(139, 92, 246, 0.2); }
+.status-badge.status-create {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.2);
+}
+
+.status-badge.status-update {
+  background: rgba(59, 130, 246, 0.15);
+  color: #3b82f6;
+  border: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+.status-badge.status-delete {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+.status-badge.status-login {
+  background: rgba(139, 92, 246, 0.15);
+  color: #8b5cf6;
+  border: 1px solid rgba(139, 92, 246, 0.2);
+}
 
 
 .code-font {

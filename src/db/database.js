@@ -258,6 +258,12 @@ class DatabaseService {
      */
     close() {
         if (this.db) {
+            try {
+                // 关闭前确保 WAL 内容已合并
+                this.db.pragma('wal_checkpoint(TRUNCATE)');
+            } catch (e) {
+                logger.warn('WAL checkpoint failed during close:', e.message);
+            }
             this.db.close();
             this.db = null;
             this.initialized = false;

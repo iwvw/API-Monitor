@@ -268,6 +268,15 @@ router.post('/import-database', async (req, res) => {
 
     // 替换数据库文件
     const dbPath = path.join(__dirname, '../../data/data.db');
+    
+    // 显式清理可能残留的 WAL 临时文件，防止文件锁定冲突
+    try {
+      if (fs.existsSync(dbPath + '-shm')) fs.unlinkSync(dbPath + '-shm');
+      if (fs.existsSync(dbPath + '-wal')) fs.unlinkSync(dbPath + '-wal');
+    } catch (e) {
+      logger.warn('清理临时数据库文件失败:', e.message);
+    }
+
     await uploadedFile.mv(dbPath);
 
     // 重新初始化数据库连接

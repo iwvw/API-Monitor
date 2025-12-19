@@ -429,51 +429,84 @@ export const settingsMethods = {
 
   // 导入全部数据（数据库文件）
   async importAllData() {
-    const confirmed = await this.showConfirm({
-      title: '确认导入数据库',
-      message: '导入数据库将完全覆盖当前所有数据，原数据库会自动备份。是否继续？',
-      icon: 'fa-exclamation-triangle',
-      confirmText: '确定导入',
-      confirmClass: 'btn-warning'
-    });
-
-    if (!confirmed) return;
-
+    // 1. 创建隐藏的文件输入框
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.db';
+    input.style.position = 'absolute';
+    input.style.opacity = '0';
+    input.style.pointerEvents = 'none';
+    document.body.appendChild(input);
+
+    // 2. 监听文件选择
     input.onchange = async (event) => {
+      this.showGlobalToast('已选择文件，正在准备...', 'info');
       const file = event.target.files[0];
-      if (!file) return;
+      
+      // 触发后立即清理 DOM
+      if (document.body.contains(input)) {
+        document.body.removeChild(input);
+      }
+      
+      if (!file) {
+        this.showGlobalToast('未选择文件', 'warning');
+        return;
+      }
 
       // 验证文件类型
       if (!file.name.endsWith('.db')) {
-        this.showGlobalToast('请选择 .db 数据库文件', 'error');
+        this.showGlobalToast('文件格式错误，请选择 .db 文件', 'error');
+        return;
+      }
+
+      this.showGlobalToast('请在弹出的对话框中确认', 'info');
+
+      // 3. 用户二次确认
+      // 注意：这里由于对话框组件限制，message 只能传字符串，<br> 会被转义，先改回纯文本
+      const confirmed = await this.showConfirm({
+        title: '确认导入数据库',
+        message: `确定要导入文件 ${file.name} 吗？这会覆盖当前所有数据并自动备份。`,
+        icon: 'fa-exclamation-triangle',
+        confirmText: '开始导入',
+        confirmClass: 'btn-warning'
+      });
+
+      if (!confirmed) {
+        this.showGlobalToast('已取消导入', 'info');
         return;
       }
 
       try {
-        this.showGlobalToast('正在导入数据库，请稍候...', 'info');
+        this.showGlobalToast('正在上传并恢复数据库，请勿关闭页面...', 'info');
 
-        // 创建 FormData
+        // 4. 构建上传数据
         const formData = new FormData();
         formData.append('database', file);
 
-        // 上传数据库文件
+        // 获取认证头
+        const authHeaders = this.getAuthHeaders();
+        const headers = {};
+        if (authHeaders['x-admin-password']) {
+          headers['x-admin-password'] = authHeaders['x-admin-password'];
+        }
+
+        // 5. 发送请求
         const response = await fetch('/api/settings/import-database', {
           method: 'POST',
-          headers: {
-            'X-Session-ID': localStorage.getItem('session_id')
-          },
+          headers: headers,
           body: formData
         });
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({ error: '网络错误 ' + response.status }));
+          throw new Error(errorData.error || '导入失败 (' + response.status + ')');
+        }
 
         const result = await response.json();
 
         if (result.success) {
-          this.showGlobalToast('数据库导入成功！页面将在3秒后刷新', 'success');
-
-          // 3秒后刷新页面以加载新数据
+          this.showGlobalToast('数据库导入成功！页面将在3秒后自动刷新', 'success');
+          // 延迟刷新
           setTimeout(() => {
             window.location.reload();
           }, 3000);
@@ -481,31 +514,45 @@ export const settingsMethods = {
           this.showGlobalToast('导入失败: ' + result.error, 'error');
         }
       } catch (error) {
-        this.showGlobalToast('导入失败: ' + error.message, 'error');
+        console.error('Database import error:', error);
+        this.showGlobalToast('操作失败: ' + error.message, 'error');
       }
     };
 
+    // 3. 立即触发点击
     input.click();
+    
+    // 兜底清理：如果用户取消了选择框，且 input 还在 body 里（某些浏览器行为不同），1分钟后清理
+    setTimeout(() => {
+      if (document.body.contains(input)) {
+        document.body.removeChild(input);
+      }
+    }, 60000);
   },
 
   // 旧版JSON导入（保留用于兼容）
   async importAllDataLegacy() {
-    const confirmed = await this.showConfirm({
-      title: '确认导入',
-      message: '导入数据将覆盖当前所有配置，是否继续？',
-      icon: 'fa-exclamation-triangle',
-      confirmText: '确定导入',
-      confirmClass: 'btn-warning'
-    });
-
-    if (!confirmed) return;
-
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.json';
+    input.style.display = 'none';
+    document.body.appendChild(input);
+
     input.onchange = async (event) => {
       const file = event.target.files[0];
+      // 触发后立即移除元素
+      document.body.removeChild(input);
       if (!file) return;
+
+      const confirmed = await this.showConfirm({
+        title: '确认导入',
+        message: '导入数据将覆盖当前所有配置，是否继续？',
+        icon: 'fa-exclamation-triangle',
+        confirmText: '确定导入',
+        confirmClass: 'btn-warning'
+      });
+
+      if (!confirmed) return;
 
       const reader = new FileReader();
       reader.onload = async (e) => {
