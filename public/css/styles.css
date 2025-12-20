@@ -464,7 +464,7 @@ body.modal-open {
 .account-card {
   background-color: var(--card-bg);
   border-radius: 16px;
-  padding: 4px 4px 0 4px;
+  padding: 4px;
   margin-bottom: 12px;
   border: 1px solid var(--border-color);
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
@@ -661,6 +661,826 @@ body.modal-open {
 
 .balance-amount.low {
   color: var(--warning-color);
+}
+
+/* Zeabur Balance Panel - 现代化紧凑徽章设计 */
+.zeabur-balance-panel {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  background: linear-gradient(135deg,
+      rgba(var(--zeabur-primary-rgb), 0.08) 0%,
+      rgba(var(--zeabur-secondary-rgb), 0.05) 100%);
+  border: 1px solid rgba(var(--zeabur-primary-rgb), 0.15);
+  border-radius: 12px;
+  padding: 6px 10px;
+  backdrop-filter: blur(8px);
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.zeabur-balance-panel:hover {
+  border-color: rgba(var(--zeabur-primary-rgb), 0.35);
+  background: linear-gradient(135deg,
+      rgba(var(--zeabur-primary-rgb), 0.12) 0%,
+      rgba(var(--zeabur-secondary-rgb), 0.08) 100%);
+  box-shadow: 0 4px 16px rgba(var(--zeabur-primary-rgb), 0.12);
+}
+
+.zeabur-balance-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+}
+
+.zeabur-balance-divider {
+  width: 1px;
+  height: 28px;
+  background: linear-gradient(180deg,
+      transparent 0%,
+      rgba(var(--zeabur-primary-rgb), 0.3) 50%,
+      transparent 100%);
+}
+
+.zeabur-balance-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  flex-shrink: 0;
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.zeabur-credit .zeabur-balance-icon {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.2) 0%, rgba(34, 197, 94, 0.15) 100%);
+  color: var(--success-color);
+}
+
+.zeabur-aihub .zeabur-balance-icon {
+  background: linear-gradient(135deg, rgba(var(--zeabur-primary-rgb), 0.2) 0%, rgba(var(--zeabur-secondary-rgb), 0.15) 100%);
+  color: var(--zeabur-primary);
+}
+
+.zeabur-balance-panel:hover .zeabur-balance-icon {
+  transform: scale(1.08) rotate(3deg);
+}
+
+.zeabur-balance-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 48px;
+}
+
+.zeabur-balance-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  line-height: 1;
+}
+
+.zeabur-balance-value {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.2;
+  font-family: var(--font-mono);
+  letter-spacing: -0.3px;
+}
+
+.zeabur-credit .zeabur-balance-value {
+  color: var(--success-color);
+}
+
+.zeabur-aihub .zeabur-balance-value {
+  color: var(--zeabur-primary);
+}
+
+.zeabur-balance-value.low {
+  color: var(--warning-color);
+}
+
+.zeabur-balance-value.critical {
+  color: var(--danger-color);
+}
+
+/* Zeabur Account Info - 现代化账户信息设计 */
+.zeabur-account-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+  padding-right: 10px;
+}
+
+.zeabur-expand-toggle {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: rgba(var(--zeabur-primary-rgb), 0.08);
+  color: var(--zeabur-primary);
+  font-size: 11px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  flex-shrink: 0;
+}
+
+.zeabur-expand-toggle.expanded {
+  background: rgba(var(--zeabur-primary-rgb), 0.15);
+}
+
+.zeabur-expand-toggle i {
+  transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.zeabur-expand-toggle.expanded i {
+  transform: rotate(90deg);
+}
+
+.zeabur-account-avatar {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, var(--zeabur-primary) 0%, var(--zeabur-secondary) 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: 0 3px 10px rgba(var(--zeabur-primary-rgb), 0.25);
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.account-card:hover .zeabur-account-avatar {
+  transform: scale(1.05);
+  box-shadow: 0 5px 15px rgba(var(--zeabur-primary-rgb), 0.35);
+}
+
+.avatar-letter {
+  color: white;
+  font-size: 16px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0;
+}
+
+.zeabur-account-details {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.zeabur-account-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.3;
+  cursor: text;
+  transition: color 0.2s;
+}
+
+.zeabur-account-name:hover {
+  color: var(--zeabur-primary);
+}
+
+.zeabur-account-email {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  line-height: 1.2;
+}
+
+.zeabur-account-email i {
+  font-size: 10px;
+  opacity: 0.6;
+}
+
+.zeabur-account-name-edit {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.zeabur-account-name-edit .edit-input {
+  width: 160px;
+  padding: 4px 10px;
+  font-size: 14px;
+  font-weight: 500;
+  border: 1px solid rgba(var(--zeabur-primary-rgb), 0.3);
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  outline: none;
+  transition: all 0.2s;
+}
+
+.zeabur-account-name-edit .edit-input:focus {
+  border-color: var(--zeabur-primary);
+  box-shadow: 0 0 0 3px rgba(var(--zeabur-primary-rgb), 0.1);
+}
+
+.cancel-edit-btn {
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 6px;
+  background: rgba(var(--danger-color), 0.1);
+  color: var(--danger-color);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 11px;
+}
+
+.cancel-edit-btn:hover {
+  background: var(--danger-color);
+  color: white;
+}
+
+/* OpenAI Endpoint Card - 现代化端点卡片设计 */
+.openai-endpoint-card {
+  border-color: rgba(16, 163, 127, 0.15);
+}
+
+.openai-endpoint-card:hover {
+  border-color: rgba(16, 163, 127, 0.3);
+}
+
+.openai-endpoint-info {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
+}
+
+.openai-expand-toggle {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: rgba(16, 163, 127, 0.1);
+  color: var(--openai-color);
+  font-size: 11px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  flex-shrink: 0;
+}
+
+.openai-expand-toggle.expanded {
+  background: rgba(16, 163, 127, 0.18);
+}
+
+.openai-expand-toggle i {
+  transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.openai-expand-toggle.expanded i {
+  transform: rotate(90deg);
+}
+
+.openai-endpoint-avatar {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 16px;
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.openai-endpoint-avatar.valid {
+  background: linear-gradient(135deg, #10a37f 0%, #0d8a6a 100%);
+  color: white;
+  box-shadow: 0 3px 10px rgba(16, 163, 127, 0.3);
+}
+
+.openai-endpoint-avatar.invalid {
+  background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+  color: white;
+  box-shadow: 0 3px 10px rgba(239, 68, 68, 0.3);
+}
+
+.openai-endpoint-avatar:not(.valid):not(.invalid) {
+  background: linear-gradient(135deg, #6b7280 0%, #4b5563 100%);
+  color: white;
+  box-shadow: 0 3px 10px rgba(107, 114, 128, 0.3);
+}
+
+.openai-endpoint-card:hover .openai-endpoint-avatar {
+  transform: scale(1.05);
+}
+
+.openai-endpoint-details {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1;
+}
+
+.openai-endpoint-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.openai-endpoint-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.3;
+}
+
+.openai-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.openai-status-badge.status-valid {
+  background: rgba(16, 185, 129, 0.12);
+  color: var(--success-color);
+}
+
+.openai-status-badge.status-invalid {
+  background: rgba(239, 68, 68, 0.12);
+  color: var(--danger-color);
+}
+
+.openai-status-badge.status-unknown {
+  background: rgba(107, 114, 128, 0.12);
+  color: var(--text-tertiary);
+}
+
+.openai-status-badge i {
+  font-size: 10px;
+}
+
+.openai-endpoint-url {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+}
+
+.openai-endpoint-url i {
+  font-size: 10px;
+  opacity: 0.6;
+}
+
+/* 模型数量徽章 */
+.openai-models-badge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: linear-gradient(135deg, rgba(16, 163, 127, 0.08) 0%, rgba(13, 138, 106, 0.05) 100%);
+  border: 1px solid rgba(16, 163, 127, 0.15);
+  border-radius: 10px;
+  padding: 6px 12px;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.openai-models-badge:hover {
+  border-color: rgba(16, 163, 127, 0.3);
+  background: linear-gradient(135deg, rgba(16, 163, 127, 0.12) 0%, rgba(13, 138, 106, 0.08) 100%);
+}
+
+.models-count-icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  background: linear-gradient(135deg, rgba(16, 163, 127, 0.2) 0%, rgba(13, 138, 106, 0.15) 100%);
+  color: var(--openai-color);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.openai-models-badge:hover .models-count-icon {
+  transform: scale(1.08) rotate(3deg);
+}
+
+.models-count-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.models-count-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  line-height: 1;
+}
+
+.models-count-value {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--openai-color);
+  line-height: 1.2;
+  font-family: var(--font-mono);
+}
+
+/* ========================================
+   CF DNS Module - 现代化卡片设计
+   ======================================== */
+
+/* CF 账号卡片网格 */
+.cf-account-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-bottom: 8px;
+}
+
+.cf-account-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  min-width: 280px;
+  flex: 1;
+}
+
+.cf-account-card:hover {
+  border-color: rgba(243, 128, 32, 0.3);
+  box-shadow: 0 4px 12px rgba(243, 128, 32, 0.08);
+}
+
+.cf-account-card.active {
+  background: linear-gradient(135deg, rgba(243, 128, 32, 0.08) 0%, rgba(243, 128, 32, 0.04) 100%);
+  border-color: rgba(243, 128, 32, 0.4);
+  /* box-shadow: 0 4px 16px rgba(243, 128, 32, 0.12); */
+}
+
+.cf-account-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #f38020 0%, #e5730d 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 16px;
+  flex-shrink: 0;
+  box-shadow: 0 3px 10px rgba(243, 128, 32, 0.25);
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.cf-account-card:hover .cf-account-avatar {
+  transform: scale(1.05);
+}
+
+.cf-account-details {
+  flex: 1;
+  min-width: 0;
+}
+
+.cf-account-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.cf-account-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(34, 197, 94, 0.1));
+  color: var(--success-color);
+  border-radius: 20px;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.cf-account-email {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin-top: 2px;
+}
+
+.cf-account-email i {
+  font-size: 10px;
+  opacity: 0.6;
+}
+
+.cf-account-actions {
+  display: flex;
+  align-items: center;
+}
+
+.cf-refresh-btn {
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 8px;
+  background: rgba(243, 128, 32, 0.1);
+  color: var(--cf-color);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 13px;
+}
+
+.cf-refresh-btn:hover {
+  background: var(--cf-color);
+  color: white;
+  transform: rotate(180deg);
+}
+
+/* CF 域名卡片网格 */
+.cf-domain-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.cf-domain-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 14px;
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.cf-domain-card:hover {
+  border-color: rgba(243, 128, 32, 0.3);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+}
+
+.cf-domain-card.active {
+  background: linear-gradient(135deg, rgba(243, 128, 32, 0.08) 0%, rgba(243, 128, 32, 0.03) 100%);
+  border-color: var(--cf-color);
+  box-shadow: 0 0 0 2px rgba(243, 128, 32, 0.15);
+}
+
+.cf-domain-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.cf-domain-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 3px;
+}
+
+.cf-domain-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: capitalize;
+}
+
+.cf-domain-status.active {
+  color: var(--success-color);
+}
+
+.cf-domain-status i {
+  font-size: 9px;
+}
+
+.cf-domain-arrow {
+  color: var(--text-tertiary);
+  font-size: 12px;
+  transition: transform 0.2s;
+}
+
+.cf-domain-card:hover .cf-domain-arrow {
+  transform: translateX(3px);
+  color: var(--cf-color);
+}
+
+/* ========================================
+   Hosts Module - 现代化卡片设计
+   ======================================== */
+
+.hosts-server-card {
+  border-color: rgba(71, 85, 105, 0.2);
+}
+
+.hosts-server-card:hover {
+  border-color: rgba(71, 85, 105, 0.4);
+}
+
+.hosts-server-info {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex: 1;
+  min-width: 0;
+}
+
+.hosts-status-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  transition: all 0.3s;
+}
+
+.hosts-status-dot.online {
+  background: var(--success-color);
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.5);
+}
+
+.hosts-status-dot.offline {
+  background: var(--danger-color);
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.5);
+}
+
+.hosts-status-dot.unknown {
+  background: var(--text-tertiary);
+  box-shadow: 0 0 8px rgba(107, 114, 128, 0.3);
+}
+
+.hosts-server-card:hover .hosts-status-indicator {
+  transform: scale(1.05);
+}
+
+.hosts-server-details {
+  flex: 1;
+  min-width: 0;
+}
+
+.hosts-server-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.hosts-server-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.hosts-server-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.hosts-meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+}
+
+.hosts-meta-item i {
+  font-size: 10px;
+  opacity: 0.7;
+}
+
+.hosts-latency {
+  color: var(--success-color);
+}
+
+.hosts-server-address {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  margin-top: 3px;
+}
+
+.hosts-server-address i {
+  font-size: 10px;
+  opacity: 0.5;
+}
+
+.hosts-header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.hosts-server-tags {
+  display: flex;
+  gap: 4px;
+}
+
+.hosts-tag {
+  padding: 3px 8px;
+  background: rgba(var(--server-primary), 0.1);
+  color: var(--server-primary);
+  border-radius: 6px;
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.hosts-action-buttons {
+  display: flex;
+  gap: 6px;
+}
+
+.hosts-action-btn {
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 13px;
+}
+
+.hosts-action-btn.secondary {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+}
+
+.hosts-action-btn.secondary:hover {
+  background: var(--server-primary);
+  color: white;
+  border-color: var(--server-primary);
+}
+
+.hosts-action-btn.primary {
+  background: linear-gradient(135deg, var(--server-primary) 0%, var(--server-primary-dark) 100%);
+  color: white;
+  box-shadow: 0 2px 8px rgba(71, 85, 105, 0.2);
+}
+
+.hosts-action-btn.primary:hover {
+  transform: scale(1.05);
+  box-shadow: 0 4px 12px rgba(71, 85, 105, 0.3);
+}
+
+
+
+@keyframes pulse {
+
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.4;
+  }
 }
 
 /* Loading & Empty States */

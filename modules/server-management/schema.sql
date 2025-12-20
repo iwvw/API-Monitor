@@ -61,7 +61,6 @@ CREATE INDEX IF NOT EXISTS idx_server_accounts_status ON server_accounts(status)
 CREATE INDEX IF NOT EXISTS idx_server_monitor_logs_server ON server_monitor_logs(server_id, checked_at);
 CREATE INDEX IF NOT EXISTS idx_server_monitor_logs_status ON server_monitor_logs(status, checked_at);
 
--- 插入默认主机监控配置
 INSERT OR IGNORE INTO server_monitor_config (
     id,
     probe_interval,

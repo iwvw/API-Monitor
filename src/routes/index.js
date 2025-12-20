@@ -49,7 +49,8 @@ function registerRoutes(app) {
     'openai-api': '/api/openai',
     'server-management': '/api/server',
     'antigravity-api': '/api/antigravity',
-    'gemini-cli-api': '/api/gemini-cli-api'
+    'gemini-cli-api': '/api/gemini-cli-api',
+    'nextchat': '/api/nextchat'
   };
 
   if (fs.existsSync(modulesDir)) {

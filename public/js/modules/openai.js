@@ -18,8 +18,8 @@ export const openaiMethods = {
     toast[type](message);
   },
 
-  async loadOpenaiEndpoints() {
-    store.openaiLoading = true;
+  async loadOpenaiEndpoints(silent = false) {
+    if (!silent) store.openaiLoading = true;
     try {
       // 1. 加载端点列表（用于账号管理展示）
       const epResponse = await fetch('/api/openai/endpoints', {
@@ -27,7 +27,14 @@ export const openaiMethods = {
       });
       const epData = await epResponse.json();
       if (Array.isArray(epData)) {
-        store.openaiEndpoints = epData.map(ep => ({ ...ep, showKey: false }));
+        // 保持当前的展开状态
+        const expandedIds = { ...this.openaiExpandedEndpoints };
+
+        store.openaiEndpoints = epData.map(ep => ({
+          ...ep,
+          showKey: false,
+          refreshing: false
+        }));
       }
 
       // 2. 从聚合接口加载全渠道模型列表 (HChat 使用)
@@ -35,7 +42,7 @@ export const openaiMethods = {
         headers: store.getAuthHeaders()
       });
       const modelsData = await modelsResponse.json();
-      
+
       if (modelsData && Array.isArray(modelsData.data)) {
         // 存储包含渠道信息的完整对象
         store.openaiAllModels = modelsData.data.sort((a, b) => {
@@ -54,13 +61,13 @@ export const openaiMethods = {
     } catch (error) {
       console.error('加载模型列表失败:', error);
     } finally {
-      store.openaiLoading = false;
+      if (!silent) store.openaiLoading = false;
     }
   },
 
   // 移除旧的本地过滤方法，改用聚合数据
   updateOpenaiAllModels() {
-    this.loadOpenaiEndpoints();
+    this.loadOpenaiEndpoints(true);
   },
 
   async sendOpenaiChatMessage() {
@@ -68,7 +75,7 @@ export const openaiMethods = {
 
     const userContent = store.openaiChatMessageInput;
     store.openaiChatMessageInput = '';
-    
+
     // 添加用户消息
     store.openaiChatMessages.push({
       role: 'user',
@@ -124,17 +131,17 @@ export const openaiMethods = {
 
         const chunk = decoder.decode(value, { stream: true });
         const lines = chunk.split('\n');
-        
+
         for (const line of lines) {
           const trimmedLine = line.trim();
           if (trimmedLine.startsWith('data: ')) {
             const dataStr = trimmedLine.slice(6);
             if (dataStr === '[DONE]') break;
-            
+
             try {
               const data = JSON.parse(dataStr);
               const delta = data.choices?.[0]?.delta;
-              
+
               if (delta) {
                 // 处理思考内容 (Reasoning / Thinking)
                 if (delta.reasoning_content) {
@@ -154,10 +161,10 @@ export const openaiMethods = {
       }
     } catch (error) {
       console.error('AI 对话失败:', error);
-      
+
       // 核心修复：确保 error 是字符串，防止显示 [object Object]
       const displayError = error.message || (typeof error === 'string' ? error : JSON.stringify(error));
-      
+
       this.showOpenaiToast('对话失败: ' + displayError, 'error');
       store.openaiChatMessages.push({
         role: 'assistant', // 改为 assistant 角色以保持 UI 一致
@@ -314,6 +321,32 @@ export const openaiMethods = {
       }
     } catch (error) {
       this.showOpenaiToast('验证失败: ' + error.message, 'error');
+    }
+  },
+
+  async refreshEndpointModels(endpoint) {
+    if (endpoint.refreshing) return;
+
+    endpoint.refreshing = true;
+    try {
+      const response = await fetch(`/api/openai/endpoints/${endpoint.id}/verify`, {
+        method: 'POST',
+        headers: store.getAuthHeaders()
+      });
+
+      const data = await response.json();
+      if (data.valid) {
+        this.showOpenaiToast(`${endpoint.name || '端点'} 模型列表已更新`, 'success');
+        // 重新加载端点列表以获取新模型 (静默模式，不显示加载动画)
+        await this.loadOpenaiEndpoints(true);
+        // 如果是展开状态，确保它保持展开
+      } else {
+        this.showOpenaiToast('刷新失败: ' + (data.error || 'API Key 无效'), 'error');
+      }
+    } catch (error) {
+      this.showOpenaiToast('刷新失败: ' + error.message, 'error');
+    } finally {
+      endpoint.refreshing = false;
     }
   },
 

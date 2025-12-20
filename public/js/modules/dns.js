@@ -1024,5 +1024,668 @@ export const dnsMethods = {
       reader.readAsText(file);
     };
     input.click();
+  },
+
+  // ==================== Workers 管理 ====================
+
+  /**
+   * 加载 Workers 列表
+   */
+  async loadWorkers() {
+    if (!store.dnsSelectedAccountId) {
+      toast.warning('请先选择一个账号');
+      return;
+    }
+
+    this.workersLoading = true;
+    // 不清空数组，避免闪烁
+    // this.workers = [];
+
+    try {
+      const response = await fetch(`/api/cf-dns/accounts/${store.dnsSelectedAccountId}/workers`, {
+        headers: store.getAuthHeaders()
+      });
+      const data = await response.json();
+
+      if (response.ok) {
+        this.workers = data.workers || [];
+        this.workersSubdomain = data.subdomain || null;
+        this.workersCfAccountId = data.cfAccountId || null;  // 保存 CF 账号 ID
+        // 同时加载 Pages
+        this.loadPages();
+
+      } else {
+        toast.error(data.error || '加载 Workers 失败');
+      }
+    } catch (error) {
+      toast.error('加载 Workers 失败: ' + error.message);
+    } finally {
+      this.workersLoading = false;
+    }
+  },
+
+
+  /**
+   * 格式化 Worker 日期
+   */
+  formatWorkerDate(dateStr) {
+    if (!dateStr) return '-';
+    const date = new Date(dateStr);
+    return date.toLocaleString('zh-CN', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  },
+
+
+  async deleteWorker(scriptName) {
+    const confirmed = await store.showConfirm({
+      title: '确认删除',
+      message: `确定要删除 Worker "${scriptName}" 吗？此操作不可恢复。`,
+      icon: 'fa-trash',
+      confirmText: '删除',
+      confirmClass: 'btn-danger'
+    });
+
+    if (!confirmed) return;
+
+    try {
+      const response = await fetch(
+        `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/workers/${encodeURIComponent(scriptName)}`,
+        {
+          method: 'DELETE',
+          headers: store.getAuthHeaders()
+        }
+      );
+      const data = await response.json();
+
+      if (response.ok) {
+        toast.success('Worker 已删除');
+        if (this.selectedWorker?.name === scriptName) {
+          this.selectedWorker = null;
+          this.workerEditorContent = '';
+        }
+        await this.loadWorkers();
+      } else {
+        toast.error(data.error || '删除失败');
+      }
+    } catch (error) {
+      toast.error('删除失败: ' + error.message);
+    }
+  },
+
+  /**
+   * 打开新建 Worker 模态框
+   */
+  openNewWorkerModal() {
+    this.newWorkerName = '';
+    this.newWorkerScript = `// 新建 Worker
+export default {
+  async fetch(request, env, ctx) {
+    return new Response('Hello World!');
+  },
+};`;
+    this.showNewWorkerModal = true;
+  },
+
+  /**
+   * 保存新 Worker
+   */
+  async saveNewWorker() {
+    const name = this.newWorkerName?.trim();
+    const script = this.newWorkerScript;
+
+    if (!name) {
+      toast.error('请输入 Worker 名称');
+      return;
+    }
+    if (!script) {
+      toast.error('请输入脚本内容');
+      return;
+    }
+
+    // 验证名称格式
+    if (!/^[a-z0-9-]+$/.test(name)) {
+      toast.error('Worker 名称只能包含小写字母、数字和连字符');
+      return;
+    }
+
+    try {
+      const response = await fetch(
+        `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/workers/${encodeURIComponent(name)}`,
+        {
+          method: 'PUT',
+          headers: {
+            ...store.getAuthHeaders(),
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ script })
+        }
+      );
+      const data = await response.json();
+
+      if (response.ok) {
+        toast.success('Worker 已创建，正在打开 Cloudflare 编辑器...');
+        this.showNewWorkerModal = false;
+        await this.loadWorkers();
+        // 自动打开 Cloudflare 编辑器（使用新版链接格式）
+        if (this.workersCfAccountId) {
+          window.open(`https://dash.cloudflare.com/${this.workersCfAccountId}/workers/services/edit/${name}/production`, '_blank');
+        }
+
+      } else {
+        toast.error(data.error || '创建失败');
+      }
+    } catch (error) {
+      toast.error('创建失败: ' + error.message);
+    }
+  },
+
+
+  /**
+   * 打开 Worker 路由管理模态框（暂未实现完整 UI）
+   */
+  openWorkerRoutesModal(worker) {
+    toast.info(`路由管理功能开发中...`);
+    // TODO: 实现路由管理模态框
+  },
+
+  // ==================== Pages 管理 ====================
+
+  /**
+   * 加载 Pages 项目列表
+   */
+  async loadPages() {
+    if (!store.dnsSelectedAccountId) {
+      return;
+    }
+
+    this.pagesLoading = true;
+
+    try {
+      const response = await fetch(`/api/cf-dns/accounts/${store.dnsSelectedAccountId}/pages`, {
+        headers: store.getAuthHeaders()
+      });
+      const data = await response.json();
+
+      if (response.ok) {
+        this.pagesProjects = data.projects || [];
+      } else {
+        toast.error(data.error || '加载 Pages 失败');
+      }
+    } catch (error) {
+      toast.error('加载 Pages 失败: ' + error.message);
+    } finally {
+      this.pagesLoading = false;
+    }
+  },
+
+  /**
+   * 删除 Pages 项目
+   */
+  async deletePagesProject(project) {
+    const confirmed = await store.showConfirm({
+      title: '确认删除',
+      message: `确定要删除 Pages 项目 "${project.name}" 吗？此操作不可恢复，所有部署和自定义域名都将被删除。`,
+      icon: 'fa-trash',
+      confirmText: '删除',
+      confirmClass: 'btn-danger'
+    });
+
+    if (!confirmed) return;
+
+    try {
+      const response = await fetch(
+        `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/pages/${encodeURIComponent(project.name)}`,
+        {
+          method: 'DELETE',
+          headers: store.getAuthHeaders()
+        }
+      );
+
+      if (response.ok) {
+        toast.success('项目已删除');
+        await this.loadPages();
+      } else {
+        const data = await response.json();
+        toast.error(data.error || '删除失败');
+      }
+    } catch (error) {
+      toast.error('删除失败: ' + error.message);
+    }
+  },
+
+  /**
+   * 查看 Pages 部署历史
+   */
+  async viewPagesDeployments(project) {
+    this.selectedPagesProject = project;
+    this.showPagesDeploymentsModal = true;
+    this.pagesDeploymentsLoading = true;
+    this.pagesDeployments = [];
+
+    try {
+      const response = await fetch(
+        `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/pages/${encodeURIComponent(project.name)}/deployments`,
+        { headers: store.getAuthHeaders() }
+      );
+      const data = await response.json();
+
+      if (response.ok) {
+        this.pagesDeployments = data.deployments || [];
+      } else {
+        toast.error(data.error || '加载部署历史失败');
+      }
+    } catch (error) {
+      toast.error('加载部署历史失败: ' + error.message);
+    } finally {
+      this.pagesDeploymentsLoading = false;
+    }
+  },
+
+  /**
+   * 关闭 Pages 部署历史模态框
+   */
+  closePagesDeploymentsModal() {
+    this.showPagesDeploymentsModal = false;
+    this.selectedPagesProject = null;
+    this.pagesDeployments = [];
+  },
+
+  /**
+   * 格式化部署状态
+   */
+  formatDeploymentStatus(status) {
+    const map = {
+      success: '成功',
+      failure: '失败',
+      active: '活跃',
+      canceled: '已取消',
+      queued: '排队中',
+      building: '构建中'
+    };
+    return map[status] || status;
+  },
+
+  /**
+   * 获取状态对应的 CSS 类
+   */
+  getDeploymentStatusClass(status) {
+    if (status === 'success' || status === 'active') return 'ag-status-online';
+    if (status === 'failure') return 'ag-status-offline';
+    return 'ag-status-unknown';
+  },
+
+  // ==================== Worker 路由管理 ====================
+
+  /**
+   * 打开 Worker 路由管理模态框
+   */
+  async openWorkerRoutesModal(worker) {
+    this.selectedWorkerForRoutes = worker;
+    this.showWorkerRoutesModal = true;
+    this.workerRoutesLoading = true;
+    this.workerRoutes = [];
+
+    // 需要先选择一个域名才能获取路由
+    if (!store.dnsSelectedZoneId) {
+      toast.warning('请先在 DNS 记录标签页选择一个域名，然后再管理路由');
+      this.showWorkerRoutesModal = false;
+      return;
+    }
+
+    try {
+      const response = await fetch(
+        `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/zones/${store.dnsSelectedZoneId}/workers/routes`,
+        { headers: store.getAuthHeaders() }
+      );
+      const data = await response.json();
+
+      if (response.ok) {
+        this.workerRoutes = data.routes || [];
+      } else {
+        toast.error(data.error || '加载路由失败');
+      }
+    } catch (error) {
+      toast.error('加载路由失败: ' + error.message);
+    } finally {
+      this.workerRoutesLoading = false;
+    }
+  },
+
+  /**
+   * 关闭 Worker 路由模态框
+   */
+  closeWorkerRoutesModal() {
+    this.showWorkerRoutesModal = false;
+    this.selectedWorkerForRoutes = null;
+    this.workerRoutes = [];
+  },
+
+  /**
+   * 删除 Worker 路由
+   */
+  async deleteWorkerRoute(route) {
+    const confirmed = await store.showConfirm({
+      title: '确认删除',
+      message: `确定要删除路由 "${route.pattern}" 吗？`,
+      icon: 'fa-trash',
+      confirmText: '删除',
+      confirmClass: 'btn-danger'
+    });
+
+    if (!confirmed) return;
+
+    try {
+      const response = await fetch(
+        `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/zones/${store.dnsSelectedZoneId}/workers/routes/${route.id}`,
+        {
+          method: 'DELETE',
+          headers: store.getAuthHeaders()
+        }
+      );
+
+      if (response.ok) {
+        toast.success('路由已删除');
+        // 重新加载路由列表
+        await this.openWorkerRoutesModal(this.selectedWorkerForRoutes);
+      } else {
+        const data = await response.json();
+        toast.error(data.error || '删除失败');
+      }
+    } catch (error) {
+      toast.error('删除失败: ' + error.message);
+    }
+  },
+
+  /**
+   * 创建新的 Worker 路由
+   */
+  async createWorkerRoute() {
+    const pattern = this.newRoutePattern?.trim();
+    const script = this.newRouteScript?.trim();
+
+    if (!pattern) {
+      toast.error('请输入路由模式，例如：example.com/*');
+      return;
+    }
+
+    if (!store.dnsSelectedZoneId) {
+      toast.error('请先在 DNS 记录标签页选择一个域名');
+      return;
+    }
+
+    try {
+      const response = await fetch(
+        `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/zones/${store.dnsSelectedZoneId}/workers/routes`,
+        {
+          method: 'POST',
+          headers: store.getAuthHeaders(),
+          body: JSON.stringify({
+            pattern: pattern,
+            script: script || undefined  // 空字符串时不传
+          })
+        }
+      );
+      const data = await response.json();
+
+      if (response.ok) {
+        toast.success('路由已创建');
+        this.newRoutePattern = '';
+        this.newRouteScript = '';
+        // 重新加载路由列表
+        await this.openWorkerRoutesModal(this.selectedWorkerForRoutes);
+      } else {
+        toast.error(data.error || '创建失败');
+      }
+    } catch (error) {
+      toast.error('创建失败: ' + error.message);
+    }
+  },
+
+  // ==================== Pages 自定义域名管理 ====================
+
+  /**
+   * 打开 Pages 自定义域名管理模态框
+   */
+  async openPagesDomainsModal(project) {
+    this.selectedPagesProjectForDomains = project;
+    this.showPagesDomainsModal = true;
+    this.pagesDomainsLoading = true;
+    this.pagesDomains = [];
+    this.newPagesDomain = '';
+
+    try {
+      const response = await fetch(
+        `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/pages/${encodeURIComponent(project.name)}/domains`,
+        { headers: store.getAuthHeaders() }
+      );
+      const data = await response.json();
+
+      if (response.ok) {
+        this.pagesDomains = data.domains || [];
+      } else {
+        toast.error(data.error || '加载域名失败');
+      }
+    } catch (error) {
+      toast.error('加载域名失败: ' + error.message);
+    } finally {
+      this.pagesDomainsLoading = false;
+    }
+  },
+
+  /**
+   * 关闭 Pages 域名模态框
+   */
+  closePagesDomainsModal() {
+    this.showPagesDomainsModal = false;
+    this.selectedPagesProjectForDomains = null;
+    this.pagesDomains = [];
+    this.newPagesDomain = '';
+  },
+
+  /**
+   * 添加 Pages 自定义域名
+   */
+  async addPagesDomain() {
+    const domain = this.newPagesDomain?.trim();
+    if (!domain) {
+      toast.error('请输入域名');
+      return;
+    }
+
+    try {
+      const response = await fetch(
+        `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/pages/${encodeURIComponent(this.selectedPagesProjectForDomains.name)}/domains`,
+        {
+          method: 'POST',
+          headers: store.getAuthHeaders(),
+          body: JSON.stringify({ domain })
+        }
+      );
+      const data = await response.json();
+
+      if (response.ok) {
+        toast.success('域名已添加');
+        this.newPagesDomain = '';
+        // 重新加载域名列表
+        await this.openPagesDomainsModal(this.selectedPagesProjectForDomains);
+      } else {
+        toast.error(data.error || '添加失败');
+      }
+    } catch (error) {
+      toast.error('添加失败: ' + error.message);
+    }
+  },
+
+  /**
+   * 删除 Pages 自定义域名
+   */
+  async deletePagesDomain(domain) {
+    const confirmed = await store.showConfirm({
+      title: '确认删除',
+      message: `确定要删除域名 "${domain.name}" 吗？`,
+      icon: 'fa-trash',
+      confirmText: '删除',
+      confirmClass: 'btn-danger'
+    });
+
+    if (!confirmed) return;
+
+    try {
+      const response = await fetch(
+        `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/pages/${encodeURIComponent(this.selectedPagesProjectForDomains.name)}/domains/${encodeURIComponent(domain.name)}`,
+        {
+          method: 'DELETE',
+          headers: store.getAuthHeaders()
+        }
+      );
+
+      if (response.ok) {
+        toast.success('域名已删除');
+        await this.openPagesDomainsModal(this.selectedPagesProjectForDomains);
+      } else {
+        const data = await response.json();
+        toast.error(data.error || '删除失败');
+      }
+    } catch (error) {
+      toast.error('删除失败: ' + error.message);
+    }
+  },
+
+  /**
+   * 获取域名状态显示
+   */
+  getDomainStatusText(status) {
+    const map = {
+      active: '已激活',
+      pending: '待验证',
+      initializing: '初始化中',
+      error: '错误'
+    };
+    return map[status] || status;
+  },
+
+  /**
+   * 获取域名状态的 CSS 类
+   */
+  getDomainStatusClass(status) {
+    if (status === 'active') return 'ag-status-online';
+    if (status === 'error') return 'ag-status-offline';
+    return 'ag-status-unknown';
+  },
+
+  // ==================== Workers 自定义域名管理 ====================
+
+  /**
+   * 打开 Workers 自定义域名管理模态框
+   */
+  async openWorkerDomainsModal(worker) {
+    this.selectedWorkerForDomains = worker;
+    this.showWorkerDomainsModal = true;
+    this.workerDomainsLoading = true;
+    this.workerDomains = [];
+    this.newWorkerDomain = '';
+
+    try {
+      const response = await fetch(
+        `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/workers/${encodeURIComponent(worker.name)}/domains`,
+        { headers: store.getAuthHeaders() }
+      );
+      const data = await response.json();
+
+      if (response.ok) {
+        this.workerDomains = data.domains || [];
+      } else {
+        toast.error(data.error || '加载域名失败');
+      }
+    } catch (error) {
+      toast.error('加载域名失败: ' + error.message);
+    } finally {
+      this.workerDomainsLoading = false;
+    }
+  },
+
+  /**
+   * 关闭 Workers 域名模态框
+   */
+  closeWorkerDomainsModal() {
+    this.showWorkerDomainsModal = false;
+    this.selectedWorkerForDomains = null;
+    this.workerDomains = [];
+    this.newWorkerDomain = '';
+  },
+
+  /**
+   * 添加 Workers 自定义域名
+   */
+  async addWorkerDomain() {
+    const hostname = this.newWorkerDomain?.trim();
+    if (!hostname) {
+      toast.error('请输入域名');
+      return;
+    }
+
+    try {
+      const response = await fetch(
+        `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/workers/${encodeURIComponent(this.selectedWorkerForDomains.name)}/domains`,
+        {
+          method: 'POST',
+          headers: store.getAuthHeaders(),
+          body: JSON.stringify({ hostname })
+        }
+      );
+      const data = await response.json();
+
+      if (response.ok) {
+        toast.success('域名已添加');
+        this.newWorkerDomain = '';
+        // 重新加载域名列表
+        await this.openWorkerDomainsModal(this.selectedWorkerForDomains);
+      } else {
+        toast.error(data.error || '添加失败');
+      }
+    } catch (error) {
+      toast.error('添加失败: ' + error.message);
+    }
+  },
+
+  /**
+   * 删除 Workers 自定义域名
+   */
+  async deleteWorkerDomain(domain) {
+    const confirmed = await store.showConfirm({
+      title: '确认删除',
+      message: `确定要删除域名 "${domain.hostname}" 吗？`,
+      icon: 'fa-trash',
+      confirmText: '删除',
+      confirmClass: 'btn-danger'
+    });
+
+    if (!confirmed) return;
+
+    try {
+      const response = await fetch(
+        `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/workers/${encodeURIComponent(this.selectedWorkerForDomains.name)}/domains/${domain.id}`,
+        {
+          method: 'DELETE',
+          headers: store.getAuthHeaders()
+        }
+      );
+
+      if (response.ok) {
+        toast.success('域名已删除');
+        await this.openWorkerDomainsModal(this.selectedWorkerForDomains);
+      } else {
+        const data = await response.json();
+        toast.error(data.error || '删除失败');
+      }
+    } catch (error) {
+      toast.error('删除失败: ' + error.message);
+    }
   }
 };
+

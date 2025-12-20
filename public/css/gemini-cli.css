@@ -23,7 +23,8 @@
   background: var(--gemini-primary) !important;
 }
 
-.gemini-cli-tab.active::after {
+/* 仅应用于顶部导航的下划线，不影响侧边栏的 tooltip */
+.main-tabs .gemini-cli-tab.active::after {
   background: var(--gemini-primary) !important;
 }
 

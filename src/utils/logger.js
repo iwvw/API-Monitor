@@ -13,7 +13,7 @@ const { AsyncLocalStorage } = require('async_hooks');
 const asyncLocalStorage = new AsyncLocalStorage();
 
 // 日志事件发射器，用于实时推送
-class LogEmitter extends EventEmitter {}
+class LogEmitter extends EventEmitter { }
 const logEmitter = new LogEmitter();
 
 // 日志缓存，用于新连接获取历史日志 (挂载到全局以防多模块加载副本)
@@ -22,6 +22,14 @@ if (!global.__LOG_BUFFER__) {
   global.__LOG_BUFFER__ = [];
 }
 const logBuffer = global.__LOG_BUFFER__;
+
+// 日志配置 (挂载到全局以便运行时修改)
+if (!global.__LOG_CONFIG__) {
+  global.__LOG_CONFIG__ = {
+    maxFileSizeMB: 10  // 默认 10MB
+  };
+}
+const logConfig = global.__LOG_CONFIG__;
 
 // 日志目录
 const LOG_DIR = path.join(process.cwd(), 'data', 'logs');
@@ -33,6 +41,45 @@ const LOG_FILE = path.join(LOG_DIR, 'app.log');
 
 // 使用流式写入以提升性能
 let logStream = fs.createWriteStream(LOG_FILE, { flags: 'a', encoding: 'utf8' });
+
+/**
+ * 获取日志配置
+ */
+function getLogConfig() {
+  return { ...logConfig };
+}
+
+/**
+ * 更新日志配置
+ */
+function updateLogConfig(config) {
+  if (config.maxFileSizeMB !== undefined) {
+    logConfig.maxFileSizeMB = Math.max(1, parseInt(config.maxFileSizeMB) || 10);
+  }
+  return getLogConfig();
+}
+
+/**
+ * 获取当前日志文件信息
+ */
+function getLogFileInfo() {
+  try {
+    if (fs.existsSync(LOG_FILE)) {
+      const stats = fs.statSync(LOG_FILE);
+      return {
+        size: stats.size,
+        sizeMB: (stats.size / (1024 * 1024)).toFixed(2),
+        maxSizeMB: logConfig.maxFileSizeMB,
+        usagePercent: ((stats.size / (logConfig.maxFileSizeMB * 1024 * 1024)) * 100).toFixed(1),
+        modifiedAt: stats.mtime.toISOString(),
+        path: LOG_FILE
+      };
+    }
+    return { size: 0, sizeMB: '0.00', maxSizeMB: logConfig.maxFileSizeMB, usagePercent: '0.0', path: LOG_FILE };
+  } catch (e) {
+    return { size: 0, sizeMB: '0.00', maxSizeMB: logConfig.maxFileSizeMB, usagePercent: '0.0', path: LOG_FILE, error: e.message };
+  }
+}
 
 /**
  * 物理清空日志文件并重建流
@@ -51,18 +98,19 @@ function clearLogFile() {
 }
 
 /**
- * 检查并自动清理日志 (超过 10MB 则清空)
+ * 检查并自动清理日志 (超过配置的最大大小则清空)
  */
 function checkSizeAndRotation() {
   try {
     if (fs.existsSync(LOG_FILE)) {
       const stats = fs.statSync(LOG_FILE);
-      if (stats.size > 10 * 1024 * 1024) { // 10MB
-        console.log('Log file too large, auto-clearing...');
+      const maxSize = logConfig.maxFileSizeMB * 1024 * 1024;
+      if (maxSize > 0 && stats.size > maxSize) {
+        console.log(`Log file (${(stats.size / (1024 * 1024)).toFixed(2)}MB) exceeds limit (${logConfig.maxFileSizeMB}MB), auto-clearing...`);
         clearLogFile();
       }
     }
-  } catch (e) {}
+  } catch (e) { }
 }
 
 // 日志级别
@@ -190,7 +238,7 @@ function renderTerminal(level, module, timestamp, traceId, message, data) {
 
   const colorFn = levelColors[level] || ((t) => t);
   const displayTime = formatDisplayTimestamp(timestamp);
-  
+
   // 固定宽度定义
   const COL_TIME = 12;    // HH:mm:ss.SSS
   const COL_LEVEL = 5;    // ERROR
@@ -199,7 +247,7 @@ function renderTerminal(level, module, timestamp, traceId, message, data) {
 
   const timeStr = useColor ? chalk.gray(displayTime.padEnd(COL_TIME)) : displayTime.padEnd(COL_TIME);
   const levelStr = colorFn(level.padEnd(COL_LEVEL));
-  
+
   const rawModule = (module || 'core').substring(0, 10);
   const formattedModule = `[${rawModule}]`.padEnd(12);
   const moduleStr = useColor ? chalk.magenta(formattedModule) : formattedModule;
@@ -270,6 +318,10 @@ module.exports = {
   clearLogFile,
   LOG_FILE,
   asyncLocalStorage,
-  LOG_LEVELS
+  LOG_LEVELS,
+  // 新增日志配置管理
+  getLogConfig,
+  updateLogConfig,
+  getLogFileInfo
 };
 

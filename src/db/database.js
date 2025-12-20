@@ -174,6 +174,13 @@ class DatabaseService {
                         this.db.exec("ALTER TABLE user_settings ADD COLUMN server_ip_display_mode TEXT DEFAULT 'normal'");
                         logger.success('user_settings.server_ip_display_mode 字段添加成功');
                     }
+
+                    const hasMainTabsLayout = settingsColumns.some(col => col.name === 'main_tabs_layout');
+                    if (!hasMainTabsLayout) {
+                        logger.info('正在为 user_settings 表添加 main_tabs_layout 字段...');
+                        this.db.exec("ALTER TABLE user_settings ADD COLUMN main_tabs_layout TEXT DEFAULT 'top'");
+                        logger.success('user_settings.main_tabs_layout 字段添加成功');
+                    }
                 }
             } catch (err) {
                 logger.error('User Settings 额外字段迁移失败:', err.message);
@@ -189,7 +196,7 @@ class DatabaseService {
                         this.db.exec("ALTER TABLE antigravity_logs ADD COLUMN model TEXT");
                         logger.success('antigravity_logs.model 字段添加成功');
                     }
-                    
+
                     const hasBalanced = agLogColumns.some(col => col.name === 'is_balanced');
                     if (!hasBalanced) {
                         logger.info('正在为 antigravity_logs 表添加 is_balanced 字段...');

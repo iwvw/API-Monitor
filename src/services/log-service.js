@@ -5,11 +5,12 @@
 
 const { WebSocketServer } = require('ws');
 const express = require('express');
-const { logEmitter, getBuffer } = require('../utils/logger');
+const { logEmitter, getBuffer, createLogger } = require('../utils/logger');
 const { requireAuth } = require('../middleware/auth');
 const fs = require('fs');
 const path = require('path');
 
+const logger = createLogger('LogService');
 const router = express.Router();
 
 /**
@@ -56,32 +57,52 @@ function init(server) {
     path: '/ws/logs'
   });
 
-  wss.on('connection', (ws) => {
+  wss.on('connection', (ws, req) => {
+    logger.info(`日志 WebSocket 客户端已连接 (来自 ${req.socket.remoteAddress})`);
+
     // 发送当前缓冲区中的日志
-    const buffer = getBuffer();
-    ws.send(JSON.stringify({
-      type: 'init',
-      data: buffer
-    }));
+    try {
+      const buffer = getBuffer();
+      ws.send(JSON.stringify({
+        type: 'init',
+        data: buffer
+      }));
+    } catch (err) {
+      logger.error('发送初始日志失败:', err.message);
+    }
 
     // 监听新日志
     const logHandler = (logEntry) => {
       if (ws.readyState === ws.OPEN) {
-        ws.send(JSON.stringify({
-          type: 'log',
-          data: logEntry
-        }));
+        try {
+          ws.send(JSON.stringify({
+            type: 'log',
+            data: logEntry
+          }));
+        } catch (err) {
+          // 发送失败，忽略
+        }
       }
     };
 
     logEmitter.on('log', logHandler);
 
-    ws.on('close', () => {
+    ws.on('close', (code, reason) => {
+      logger.info(`日志 WebSocket 客户端已断开 (code: ${code})`);
+      logEmitter.off('log', logHandler);
+    });
+
+    ws.on('error', (error) => {
+      logger.error('WebSocket 错误:', error.message);
       logEmitter.off('log', logHandler);
     });
   });
 
-  console.log('✅ 系统日志 WebSocket 服务已启动: /ws/logs');
+  wss.on('error', (error) => {
+    logger.error('WebSocket 服务器错误:', error.message);
+  });
+
+  logger.success('日志 WebSocket 服务已启动: /ws/logs');
 }
 
 module.exports = {

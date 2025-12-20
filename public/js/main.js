@@ -10,6 +10,7 @@ import { dnsMethods } from './modules/dns.js';
 import { openaiMethods } from './modules/openai.js';
 import { antigravityMethods } from './modules/antigravity.js';
 import { geminiCliMethods } from './modules/gemini-cli.js';
+import { nextchatMethods } from './modules/nextchat.js';
 import { settingsMethods } from './modules/settings.js';
 import { systemLogsMethods } from './modules/logs.js';
 import { transitionsMethods } from './modules/transitions.js';
@@ -93,6 +94,50 @@ const app = createApp({
       dnsTemplateForm: { name: '', type: 'A', content: '', ttl: 1, proxied: false, description: '' },
       dnsTemplateFormError: '',
       dnsSavingTemplate: false,
+
+      // Workers 管理相关
+      workers: [],
+      workersLoading: false,
+      workersSubdomain: null,
+      workersCfAccountId: null,  // Cloudflare 账号 ID，用于生成编辑器链接
+      selectedWorker: null,
+      workerEditorContent: '',
+      showNewWorkerModal: false,
+      newWorkerName: '',
+      newWorkerScript: '',
+
+
+
+      // Pages 管理相关
+      pagesProjects: [],
+      pagesLoading: false,
+      showPagesDeploymentsModal: false,
+      selectedPagesProject: null,
+      pagesDeployments: [],
+      pagesDeploymentsLoading: false,
+
+      // Worker 路由相关
+      showWorkerRoutesModal: false,
+      selectedWorkerForRoutes: null,
+      workerRoutes: [],
+      workerRoutesLoading: false,
+      newRoutePattern: '',
+      newRouteScript: '',
+
+      // Pages 自定义域名相关
+      showPagesDomainsModal: false,
+      selectedPagesProjectForDomains: null,
+      pagesDomains: [],
+      pagesDomainsLoading: false,
+      newPagesDomain: '',
+
+      // Workers 自定义域名相关
+      showWorkerDomainsModal: false,
+      selectedWorkerForDomains: null,
+      workerDomains: [],
+      workerDomainsLoading: false,
+      newWorkerDomain: '',
+
 
       // OpenAI API 管理相关
       openaiEditingEndpoint: null,
@@ -201,6 +246,8 @@ const app = createApp({
       // 主机筛选与自动更新
       probeStatus: '', // '', 'loading', 'success', 'error'
 
+
+
       // SSH 终端相关
       showSSHTerminalModal: false,
       sshTerminalServer: null,
@@ -240,24 +287,30 @@ const app = createApp({
       customCss: '',
       customCssError: '',
       customCssSuccess: '',
-      
+
       // 系统日志
       systemLogs: [],
       logFileSize: '',
+      logFileInfo: null,  // 详细的日志文件信息
       logsAutoRefreshTimer: null,
-      settingsCurrentTab: 'general', // 'general', 'modules', 'database', 'appearance'
+      settingsCurrentTab: 'general', // 'general', 'modules', 'database', 'logs', 'appearance', 'about'
 
       // 日志保留设置
       logSettings: {
         days: 0,
         count: 0,
-        dbSizeMB: 0
+        dbSizeMB: 0,
+        logFileSizeMB: 10  // 日志文件最大大小(MB)
       },
       logSettingsSaving: false,
       logLimitsEnforcing: false,
 
-      // 系统日志
-      systemLogs: [],
+      // 系统日志流 WebSocket 状态
+      logWs: null,
+      logWsConnected: false,
+      logWsConnecting: false,
+      logWsAutoReconnect: false,  // 是否自动重连
+      autoScrollLogs: true,       // 是否自动滚动
       systemLogsLoading: false,
       systemLogMessages: [],
       logStreamEnabled: false,
@@ -342,6 +395,14 @@ const app = createApp({
     },
 
     /**
+     * 计算当前可见的模块数量
+     */
+    visibleModulesCount() {
+      if (!this.moduleVisibility) return 0;
+      return Object.values(this.moduleVisibility).filter(v => v).length;
+    },
+
+    /**
      * 判断当前是否有任何模态框打开
      */
     isAnyModalOpen() {
@@ -385,8 +446,10 @@ const app = createApp({
         console.log('👀 标签页已获得关注，触发活跃模块刷新');
 
         // 服务器模块
-        if (this.mainActiveTab === 'server' && this.serverCurrentTab === 'list' && this.serverPollingEnabled) {
-          this.probeAllServers();
+        if (this.mainActiveTab === 'server') {
+          if (this.serverCurrentTab === 'list' && this.serverPollingEnabled) {
+            this.probeAllServers();
+          }
         }
 
         // Zeabur 模块
@@ -434,19 +497,20 @@ const app = createApp({
           // 4天内，自动登录
           this.loginPassword = savedPassword;
           await this.verifyPassword();
-          this.isCheckingAuth = false;
-          return;
         }
       }
-
-      // 需要输入密码
-      this.showLoginModal = true;
-      this.isCheckingAuth = false;
     } catch (error) {
-      console.error('认证检查失败:', error);
-      this.showLoginModal = true;
+      console.error('初始化失败:', error);
+    } finally {
+      // 停止检查状态
       this.isCheckingAuth = false;
+
+      // 如果经过所有尝试后仍未认证，则显示登录框
+      if (!this.isAuthenticated && !this.showSetPasswordModal) {
+        this.showLoginModal = true;
+      }
     }
+
   },
 
   watch: {
@@ -472,9 +536,16 @@ const app = createApp({
 
     settingsCurrentTab(newVal) {
       if (newVal === 'logs') {
+        // 进入日志标签页：加载日志数据和设置
         this.fetchSystemLogs();
-        this.initLogWs();
+        this.fetchLogSettings();
+        // 不再自动连接 WebSocket，由用户手动点击「连接日志流」
+      } else if (newVal === 'database') {
+        // 进入数据库标签页时加载日志保留设置和数据库统计
+        this.fetchLogSettings();
+        this.fetchDbStats();
       } else {
+        // 离开日志标签页：关闭 WebSocket 连接
         this.closeLogWs();
         if (this.logsAutoRefreshTimer) {
           clearInterval(this.logsAutoRefreshTimer);
@@ -483,28 +554,31 @@ const app = createApp({
       }
     },
 
-    serverCurrentTab(newVal) {
-      if (newVal === 'management') {
-        this.loadMonitorConfig();
-        this.loadServerList();
-        this.loadMonitorLogs();
-      } else if (newVal === 'list') {
-        // 切换回列表时重新加载
-        this.loadServerList();
-      } else if (newVal && newVal.startsWith('ssh_')) {
-        // 切换到SSH标签页时，调整终端大小并聚焦
-        const sessionId = newVal.replace('ssh_', '');
-        this.$nextTick(() => {
-          const session = this.sshSessions.find(s => s.id === sessionId);
-          if (session && session.fit && session.terminal) {
-            // 延迟一点确保DOM完全渲染
-            setTimeout(() => {
-              session.fit.fit();
-              session.terminal.focus();
-            }, 50);
-          }
-        });
-      }
+    serverCurrentTab: {
+      handler(newVal) {
+        if (newVal === 'management') {
+          this.loadMonitorConfig();
+          this.loadServerList();
+          this.loadMonitorLogs();
+        } else if (newVal === 'list') {
+          // 切换回列表时重新加载
+          this.loadServerList();
+        } else if (newVal && newVal.startsWith('ssh_')) {
+          // 切换到SSH标签页时，调整终端大小并聚焦
+          const sessionId = newVal.replace('ssh_', '');
+          this.$nextTick(() => {
+            const session = this.sshSessions.find(s => s.id === sessionId);
+            if (session && session.fit && session.terminal) {
+              // 延迟一点确保DOM完全渲染
+              setTimeout(() => {
+                session.fit.fit();
+                session.terminal.focus();
+              }, 50);
+            }
+          });
+        }
+      },
+      immediate: true
     },
 
     showSettingsModal(newVal) {
@@ -521,10 +595,10 @@ const app = createApp({
     serverIpDisplayMode(newVal) {
       // 更新全局 store
       store.serverIpDisplayMode = newVal;
-      
+
       // 发送全局自定义事件，让非 Vue 渲染的模块感知
       window.dispatchEvent(new CustomEvent('server-display-mode-changed', { detail: newVal }));
-      
+
       // 触发 UI 重新渲染 (针对 innerHTML 渲染的部分)
       if (window.serverModule && window.serverModule.renderServerList) {
         window.serverModule.renderServerList();
@@ -709,6 +783,7 @@ const app = createApp({
       if (newVal === 'management') {
         this.loadMonitorConfig();
         this.loadCredentials();
+        this.loadNezhaConfigs();
       }
     }
   },
@@ -744,13 +819,16 @@ const app = createApp({
         if (result.success) {
           this.systemLogs = result.data;
           this.logFileSize = result.fileSize || '';
+          this.logFileInfo = result.fileInfo || null;
           // 自动滚动到底部
-          this.$nextTick(() => {
-            const container = this.$refs.settingsLogStream;
-            if (container) {
-              container.scrollTop = container.scrollHeight;
-            }
-          });
+          if (this.autoScrollLogs) {
+            this.$nextTick(() => {
+              const container = this.$refs.settingsLogStream;
+              if (container) {
+                container.scrollTop = container.scrollHeight;
+              }
+            });
+          }
         }
       } catch (error) {
         console.error('获取系统日志失败:', error);
@@ -798,7 +876,7 @@ const app = createApp({
           };
           this.logsContent = result.data;
           this.showLogsModal = true;
-          this.logsFullscreen = true; // 默认全屏查看文件
+          this.logsFullscreen = false; // 默认不全屏，用户可手动切换
         }
       } catch (error) {
         toast.error('读取日志文件失败: ' + error.message);
@@ -837,7 +915,7 @@ const app = createApp({
       const seconds = Math.floor((ms / 1000) % 60);
       const minutes = Math.floor((ms / (1000 * 60)) % 60);
       const hours = Math.floor((ms / (1000 * 60 * 60)));
-      
+
       let res = '';
       if (hours > 0) res += hours + 'h';
       if (minutes > 0) res += minutes + 'm';
@@ -850,10 +928,10 @@ const app = createApp({
     formatHost(host) {
       if (!host) return '';
       const mode = this.serverIpDisplayMode || 'normal';
-      
+
       if (mode === 'normal') return host;
       if (mode === 'hidden') return '****';
-      
+
       if (mode === 'masked') {
         // 打码模式 (masked): 1.2.3.4 -> 1.2.*.*
         const ipv4Regex = /^(\d{1,3}\.){3}\d{1,3}$/;
@@ -861,7 +939,7 @@ const app = createApp({
           const parts = host.split('.');
           return `${parts[0]}.${parts[1]}.*.*`;
         }
-        
+
         // 域名或其他: example.com -> ex****.com
         const parts = host.split('.');
         if (parts.length >= 2) {
@@ -873,7 +951,7 @@ const app = createApp({
         }
         return host.length > 4 ? host.substring(0, 2) + '****' : '****';
       }
-      
+
       return host;
     },
     getModuleName(id) {
@@ -2733,6 +2811,13 @@ const app = createApp({
       }
     },
 
+    // ==================== 哪吒监控相关方法 ====================
+
+    /**
+     * 加载哪吒配置列表
+     */
+
+
     // 整合所有模块的方法
     ...authMethods,
     ...zeaburMethods,
@@ -2740,9 +2825,10 @@ const app = createApp({
     ...openaiMethods,
     ...antigravityMethods,
     ...geminiCliMethods,
+    ...nextchatMethods,
     ...settingsMethods,
     ...transitionsMethods,
     ...systemLogsMethods,
-    formatDateTime,
+    formatDateTime
   }
 }).mount('#app');

@@ -39,17 +39,17 @@ router.get('/operation-logs', (req, res) => {
  */
 router.get('/sys-logs', (req, res) => {
   try {
-    const { getBuffer, LOG_FILE } = require('../utils/logger');
+    const { getBuffer, LOG_FILE, getLogFileInfo } = require('../utils/logger');
     let buffer = getBuffer();
-    
+
     // 如果内存 Buffer 为空，尝试从物理文件兜底读取最近 50 条
     if (!buffer || buffer.length === 0) {
       if (fs.existsSync(LOG_FILE)) {
         const content = fs.readFileSync(LOG_FILE, 'utf8');
         const lines = content.trim().split('\n').slice(-50);
         buffer = lines.map(line => {
-          try { return JSON.parse(line); } 
-          catch(e) { return { message: line, level: 'INFO', timestamp: new Date().toISOString() }; }
+          try { return JSON.parse(line); }
+          catch (e) { return { message: line, level: 'INFO', timestamp: new Date().toISOString() }; }
         });
       }
     }
@@ -61,16 +61,14 @@ router.get('/sys-logs', (req, res) => {
       message: entry.message + (entry.data ? ` [DATA]` : '')
     }));
 
-    // 获取文件大小
-    let fileSize = '0 KB';
-    if (fs.existsSync(LOG_FILE)) {
-      fileSize = (fs.statSync(LOG_FILE).size / 1024 / 1024).toFixed(2) + ' MB';
-    }
+    // 获取详细日志文件信息
+    const fileInfo = getLogFileInfo();
 
     res.json({
       success: true,
       data: formattedLogs,
-      fileSize: fileSize
+      fileSize: `${fileInfo.sizeMB} MB`,
+      fileInfo: fileInfo
     });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
@@ -93,8 +91,8 @@ router.get('/app-log-file', (req, res) => {
     const lines = content.split('\n');
     const lastLines = lines.slice(-500).join('\n'); // 读取最后 500 行
 
-    res.json({ 
-      success: true, 
+    res.json({
+      success: true,
       data: lastLines,
       size: (fs.statSync(logPath).size / 1024).toFixed(2) + ' KB'
     });
@@ -268,7 +266,7 @@ router.post('/import-database', async (req, res) => {
 
     // 替换数据库文件
     const dbPath = path.join(__dirname, '../../data/data.db');
-    
+
     // 显式清理可能残留的 WAL 临时文件，防止文件锁定冲突
     try {
       if (fs.existsSync(dbPath + '-shm')) fs.unlinkSync(dbPath + '-shm');
@@ -379,11 +377,11 @@ router.post('/clear-app-logs', (req, res) => {
     if (fs.existsSync(logPath)) {
       // 物理清空
       fs.writeFileSync(logPath, '', 'utf8');
-      
+
       // 同时清空内存 buffer (如果 logger 支持)
       const { clearBuffer } = require('../utils/logger');
       if (typeof clearBuffer === 'function') clearBuffer();
-      
+
       logger.success('系统日志文件已物理清空');
     }
     res.json({ success: true, message: 'Logs cleared' });
@@ -401,17 +399,27 @@ module.exports = router;
  */
 router.get('/log-settings', (req, res) => {
   try {
+    const { getLogConfig, getLogFileInfo } = require('../utils/logger');
+
     const days = SystemConfig.getConfigValue('log_retention_days', 0);
     const count = SystemConfig.getConfigValue('log_max_count', 0);
     const dbSizeMB = SystemConfig.getConfigValue('log_max_db_size_mb', 0);
+    const logFileSizeMB = SystemConfig.getConfigValue('log_file_max_size_mb', 10);
+
+    // 同步配置到 logger 模块
+    const logConfig = getLogConfig();
+    const fileInfo = getLogFileInfo();
 
     res.json({
       success: true,
       data: {
         days: parseInt(days) || 0,
         count: parseInt(count) || 0,
-        dbSizeMB: parseInt(dbSizeMB) || 0
-      }
+        dbSizeMB: parseInt(dbSizeMB) || 0,
+        logFileSizeMB: parseInt(logFileSizeMB) || 10
+      },
+      logConfig: logConfig,
+      fileInfo: fileInfo
     });
   } catch (error) {
     logger.error('获取日志设置失败', error.message);
@@ -425,15 +433,24 @@ router.get('/log-settings', (req, res) => {
  */
 router.post('/log-settings', (req, res) => {
   try {
-    const { days, count, dbSizeMB } = req.body;
+    const { days, count, dbSizeMB, logFileSizeMB } = req.body;
+    const { updateLogConfig, getLogFileInfo } = require('../utils/logger');
 
     SystemConfig.setConfig('log_retention_days', days || 0, '日志保留天数');
     SystemConfig.setConfig('log_max_count', count || 0, '单表最大日志数');
     SystemConfig.setConfig('log_max_db_size_mb', dbSizeMB || 0, '数据库最大大小(MB)');
 
+    // 保存并同步日志文件大小设置到运行时
+    if (logFileSizeMB !== undefined) {
+      const sizeMB = Math.max(1, parseInt(logFileSizeMB) || 10);
+      SystemConfig.setConfig('log_file_max_size_mb', sizeMB, '日志文件最大大小(MB)');
+      updateLogConfig({ maxFileSizeMB: sizeMB });
+    }
+
     res.json({
       success: true,
-      message: '日志设置已保存'
+      message: '日志设置已保存',
+      fileInfo: getLogFileInfo()
     });
   } catch (error) {
     logger.error('保存日志设置失败', error.message);

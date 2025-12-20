@@ -15,6 +15,7 @@
   display: flex;
   align-items: center;
   min-height: 32px;
+  justify-content: space-between;
 }
 
 .panel-title {
@@ -144,7 +145,7 @@
 
 
 
-.data-table td.actions > div,
+.data-table td.actions>div,
 
 
 
@@ -160,7 +161,8 @@
 
 
 
-  justify-content: center; /* 默认居中对齐 */
+  justify-content: center;
+  /* 默认居中对齐 */
 
 
 
@@ -176,7 +178,8 @@
 
 
 
-  margin: 0 auto; /* 确保水平居中 */
+  margin: 0 auto;
+  /* 确保水平居中 */
 
 
 
@@ -196,59 +199,71 @@
 
 
 
-    font-size: 10px;
+  font-size: 10px;
 
 
 
-    font-weight: 800;
+  font-weight: 800;
 
 
 
-    padding: 2px 5px;
+  padding: 2px 5px;
 
 
 
-    border-radius: 4px;
+  border-radius: 4px;
 
 
 
-    margin-right: 6px;
+  margin-right: 6px;
 
 
 
-        font-family: var(--font-mono);
+  font-family: var(--font-mono);
 
 
 
-    
 
 
 
-        text-transform: uppercase;
+
+  text-transform: uppercase;
 
 
 
-    
 
 
 
-    }
+
+}
 
 
 
-.method-post { background: rgba(var(--primary-rgb), 0.1); color: var(--primary-color); }
+.method-post {
+  background: rgba(var(--primary-rgb), 0.1);
+  color: var(--primary-color);
+}
 
 
 
-.method-get { background: rgba(16, 185, 129, 0.1); color: #10b981; }
+.method-get {
+  background: rgba(16, 185, 129, 0.1);
+  color: #10b981;
+}
 
 
 
-.method-put { background: rgba(245, 158, 11, 0.1); color: #f59e0b; }
+.method-put {
+  background: rgba(245, 158, 11, 0.1);
+  color: #f59e0b;
+}
 
 
 
-.method-delete { background: rgba(239, 68, 68, 0.1); color: #ef4444; }
+.method-delete {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+}
 
 
 
@@ -272,7 +287,7 @@
 
 
 
-    font-family: var(--font-mono);
+  font-family: var(--font-mono);
 
 
 
@@ -288,31 +303,31 @@
 
 
 
-    font-size: 11px;
+  font-size: 11px;
 
 
 
-    color: var(--text-secondary);
+  color: var(--text-secondary);
 
 
 
-    max-width: 240px;
+  max-width: 240px;
 
 
 
-    overflow: hidden;
+  overflow: hidden;
 
 
 
-    text-overflow: ellipsis;
+  text-overflow: ellipsis;
 
 
 
-    display: inline-block;
+  display: inline-block;
 
 
 
-    vertical-align: middle;
+  vertical-align: middle;
 
 
 
@@ -328,15 +343,15 @@
 
 
 
-    font-size: 11px;
+  font-size: 11px;
 
 
 
-    color: var(--text-tertiary);
+  color: var(--text-tertiary);
 
 
 
-    white-space: nowrap;
+  white-space: nowrap;
 
 
 
@@ -356,7 +371,7 @@
 
 
 
-    font-size: 11px;
+  font-size: 11px;
 
 
 
@@ -364,7 +379,7 @@
 
 
 
-    font-weight: 600;
+  font-weight: 600;
 
 
 
@@ -372,7 +387,7 @@
 
 
 
-    color: var(--text-secondary);
+  color: var(--text-secondary);
 
 
 
@@ -380,7 +395,7 @@
 
 
 
-        font-family: var(--font-mono);
+  font-family: var(--font-mono);
 
 
 
@@ -388,7 +403,6 @@
 
 
 
-    
 
 
 
@@ -396,7 +410,8 @@
 
 
 
-    }
+
+}
 
 
 
@@ -428,7 +443,7 @@
 
 
 
-    background: rgba(139, 92, 246, 0.1);
+  background: rgba(139, 92, 246, 0.1);
 
 
 
@@ -436,7 +451,7 @@
 
 
 
-    color: #8b5cf6;
+  color: #8b5cf6;
 
 
 
@@ -444,7 +459,7 @@
 
 
 
-    border: 1px solid rgba(139, 92, 246, 0.2);
+  border: 1px solid rgba(139, 92, 246, 0.2);
 
 
 
@@ -452,7 +467,7 @@
 
 
 
-    font-size: 10px;
+  font-size: 10px;
 
 
 
@@ -460,7 +475,7 @@
 
 
 
-    padding: 1px 4px;
+  padding: 1px 4px;
 
 
 
@@ -468,7 +483,7 @@
 
 
 
-    border-radius: 4px;
+  border-radius: 4px;
 
 
 
@@ -476,7 +491,7 @@
 
 
 
-    font-weight: 700;
+  font-weight: 700;
 
 
 
@@ -484,7 +499,7 @@
 
 
 
-    margin-left: 4px;
+  margin-left: 4px;
 
 
 
@@ -492,7 +507,7 @@
 
 
 
-    display: inline-block;
+  display: inline-block;
 
 
 
@@ -500,7 +515,7 @@
 
 
 
-    line-height: 1;
+  line-height: 1;
 
 
 
@@ -534,7 +549,7 @@
 
 
 
-.data-table td.actions > div {
+.data-table td.actions>div {
 
   width: 100%;
 

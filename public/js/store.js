@@ -46,6 +46,7 @@ export const store = reactive({
         'gemini-cli': ''
     },
     moduleOrder: ['openai', 'antigravity', 'gemini-cli', 'zeabur', 'dns', 'server'],
+    mainTabsLayout: 'top', // 'top' = 顶部横向, 'sidebar' = 左侧竖向(仅图标)
 
     // 全局设置
     opacity: 39,
@@ -73,6 +74,8 @@ export const store = reactive({
         logRetentionDays: 7
     },
     serverCredentials: [],
+
+
 
     // Zeabur
     accounts: [],
@@ -168,6 +171,25 @@ export const store = reactive({
     newGeminiCliRedirectTarget: '',
     gcliEditingRedirectSource: null,
     geminiCliModelSelectedAccountId: '',
+
+    // NextChat 模块
+    nextchat: {
+        sessions: [],
+        currentSessionId: null,
+        messages: [],
+        inputText: '',
+        isStreaming: false,
+        selectedModel: 'gemini-2.5-flash',
+        availableModels: [
+            { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash', provider: 'gemini' },
+            { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro', provider: 'gemini' },
+            { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash', provider: 'gemini' },
+            { id: 'gpt-4o', name: 'GPT-4o', provider: 'openai' },
+            { id: 'gpt-4o-mini', name: 'GPT-4o Mini', provider: 'openai' },
+            { id: 'claude-3-5-sonnet', name: 'Claude 3.5 Sonnet', provider: 'anthropic' }
+        ],
+        isLoading: false
+    },
 
     // 自定义对话框状态
     customDialog: {

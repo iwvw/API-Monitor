@@ -184,7 +184,7 @@ router.get('/accounts/:id/zones', async (req, res) => {
 
     storage.touchAccount(id);
     const { zones, resultInfo } = await cfApi.listZones(account.apiToken);
-    
+
     res.json({
       zones: zones.map(z => ({
         id: z.id,
@@ -613,6 +613,577 @@ router.post('/import/templates', (req, res) => {
     }
 
     res.json({ success: true, count: templates.length });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ==================== Workers 管理 ====================
+
+/**
+ * 获取账号的 Cloudflare Account ID
+ */
+router.get('/accounts/:id/cf-account-id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const account = storage.getAccountById(id);
+    if (!account) {
+      return res.status(404).json({ error: '账号不存在' });
+    }
+
+    const cfAccountId = await cfApi.getAccountId(account.apiToken);
+    res.json({ success: true, cfAccountId });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * 获取账号下的所有 Workers
+ */
+router.get('/accounts/:id/workers', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const account = storage.getAccountById(id);
+    if (!account) {
+      return res.status(404).json({ error: '账号不存在' });
+    }
+
+    storage.touchAccount(id);
+
+    // 先获取 CF Account ID
+    const cfAccountId = await cfApi.getAccountId(account.apiToken);
+    const workers = await cfApi.listWorkers(account.apiToken, cfAccountId);
+    logger.info(`获取到 ${workers.length} 个 Workers (Account: ${cfAccountId})`);
+
+    // 获取子域名信息
+    const subdomain = await cfApi.getWorkersSubdomain(account.apiToken, cfAccountId);
+
+    res.json({
+      workers: workers.map(w => ({
+        id: w.id,
+        name: w.id, // Worker 的 id 就是名称
+        createdOn: w.created_on,
+        modifiedOn: w.modified_on,
+        etag: w.etag
+      })),
+      subdomain: subdomain?.subdomain || null,
+      cfAccountId
+    });
+  } catch (e) {
+    logger.error(`获取 Workers 列表失败:`, e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * 获取 Worker 脚本内容
+ */
+router.get('/accounts/:id/workers/:scriptName', async (req, res) => {
+  try {
+    const { id, scriptName } = req.params;
+    const account = storage.getAccountById(id);
+    if (!account) {
+      return res.status(404).json({ error: '账号不存在' });
+    }
+
+    const cfAccountId = await cfApi.getAccountId(account.apiToken);
+    const worker = await cfApi.getWorkerScript(account.apiToken, cfAccountId, scriptName);
+
+    res.json({
+      success: true,
+      worker: {
+        name: worker.name,
+        script: worker.script,
+        meta: worker.meta
+      }
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * 创建或更新 Worker 脚本
+ */
+router.put('/accounts/:id/workers/:scriptName', async (req, res) => {
+  try {
+    const { id, scriptName } = req.params;
+    const { script, bindings, compatibility_date } = req.body;
+
+    logger.info(`保存 Worker: ${scriptName}, 脚本长度: ${script?.length || 0}`);
+
+    if (!script) {
+      return res.status(400).json({ error: '脚本内容不能为空' });
+    }
+
+    const account = storage.getAccountById(id);
+    if (!account) {
+      return res.status(404).json({ error: '账号不存在' });
+    }
+
+    storage.touchAccount(id);
+    const cfAccountId = await cfApi.getAccountId(account.apiToken);
+    logger.info(`CF Account ID: ${cfAccountId}`);
+
+    const result = await cfApi.putWorkerScript(
+      account.apiToken,
+      cfAccountId,
+      scriptName,
+      script,
+      { bindings, compatibility_date }
+    );
+
+    res.json({
+      success: true,
+      worker: result
+    });
+  } catch (e) {
+    logger.error(`保存 Worker 失败:`, e.message, e.stack);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * 删除 Worker 脚本
+ */
+router.delete('/accounts/:id/workers/:scriptName', async (req, res) => {
+  try {
+    const { id, scriptName } = req.params;
+    const account = storage.getAccountById(id);
+    if (!account) {
+      return res.status(404).json({ error: '账号不存在' });
+    }
+
+    storage.touchAccount(id);
+    const cfAccountId = await cfApi.getAccountId(account.apiToken);
+    await cfApi.deleteWorkerScript(account.apiToken, cfAccountId, scriptName);
+
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * 启用/禁用 Worker (子域访问)
+ */
+router.post('/accounts/:id/workers/:scriptName/toggle', async (req, res) => {
+  try {
+    const { id, scriptName } = req.params;
+    const { enabled } = req.body;
+
+    const account = storage.getAccountById(id);
+    if (!account) {
+      return res.status(404).json({ error: '账号不存在' });
+    }
+
+    storage.touchAccount(id);
+    const cfAccountId = await cfApi.getAccountId(account.apiToken);
+    const result = await cfApi.setWorkerEnabled(account.apiToken, cfAccountId, scriptName, enabled);
+
+    res.json({ success: true, result });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * 获取域名的 Worker 路由
+ */
+router.get('/accounts/:accountId/zones/:zoneId/workers/routes', async (req, res) => {
+  try {
+    const { accountId, zoneId } = req.params;
+    const account = storage.getAccountById(accountId);
+    if (!account) {
+      return res.status(404).json({ error: '账号不存在' });
+    }
+
+    storage.touchAccount(accountId);
+    const routes = await cfApi.listWorkerRoutes(account.apiToken, zoneId);
+
+    res.json({
+      routes: routes.map(r => ({
+        id: r.id,
+        pattern: r.pattern,
+        script: r.script
+      }))
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * 创建 Worker 路由
+ */
+router.post('/accounts/:accountId/zones/:zoneId/workers/routes', async (req, res) => {
+  try {
+    const { accountId, zoneId } = req.params;
+    const { pattern, script } = req.body;
+
+    if (!pattern || !script) {
+      return res.status(400).json({ error: 'pattern 和 script 必填' });
+    }
+
+    const account = storage.getAccountById(accountId);
+    if (!account) {
+      return res.status(404).json({ error: '账号不存在' });
+    }
+
+    storage.touchAccount(accountId);
+    const route = await cfApi.createWorkerRoute(account.apiToken, zoneId, pattern, script);
+
+    res.json({
+      success: true,
+      route: {
+        id: route.id,
+        pattern: route.pattern,
+        script: route.script
+      }
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * 更新 Worker 路由
+ */
+router.put('/accounts/:accountId/zones/:zoneId/workers/routes/:routeId', async (req, res) => {
+  try {
+    const { accountId, zoneId, routeId } = req.params;
+    const { pattern, script } = req.body;
+
+    const account = storage.getAccountById(accountId);
+    if (!account) {
+      return res.status(404).json({ error: '账号不存在' });
+    }
+
+    storage.touchAccount(accountId);
+    const route = await cfApi.updateWorkerRoute(account.apiToken, zoneId, routeId, pattern, script);
+
+    res.json({
+      success: true,
+      route: {
+        id: route.id,
+        pattern: route.pattern,
+        script: route.script
+      }
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * 删除 Worker 路由
+ */
+router.delete('/accounts/:accountId/zones/:zoneId/workers/routes/:routeId', async (req, res) => {
+  try {
+    const { accountId, zoneId, routeId } = req.params;
+    const account = storage.getAccountById(accountId);
+    if (!account) {
+      return res.status(404).json({ error: '账号不存在' });
+    }
+
+    storage.touchAccount(accountId);
+    await cfApi.deleteWorkerRoute(account.apiToken, zoneId, routeId);
+
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * 获取 Worker 统计信息
+ */
+router.get('/accounts/:id/workers/:scriptName/analytics', async (req, res) => {
+  try {
+    const { id, scriptName } = req.params;
+    const { since } = req.query;
+
+    const account = storage.getAccountById(id);
+    if (!account) {
+      return res.status(404).json({ error: '账号不存在' });
+    }
+
+    const cfAccountId = await cfApi.getAccountId(account.apiToken);
+    const analytics = await cfApi.getWorkerAnalytics(account.apiToken, cfAccountId, scriptName, since);
+
+    res.json({ success: true, analytics });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ==================== Workers 自定义域名管理 ====================
+
+/**
+ * 获取 Worker 的自定义域名列表
+ */
+router.get('/accounts/:id/workers/:scriptName/domains', async (req, res) => {
+  try {
+    const { id, scriptName } = req.params;
+    const account = storage.getAccountById(id);
+    if (!account) {
+      return res.status(404).json({ error: '账号不存在' });
+    }
+
+    const cfAccountId = await cfApi.getAccountId(account.apiToken);
+    const domains = await cfApi.listWorkerDomains(account.apiToken, cfAccountId, scriptName);
+
+    res.json({
+      success: true,
+      domains: domains.map(d => ({
+        id: d.id,
+        hostname: d.hostname,
+        service: d.service,
+        environment: d.environment,
+        zoneId: d.zone_id,
+        zoneName: d.zone_name
+      }))
+    });
+  } catch (e) {
+    logger.error(`获取 Worker 域名失败:`, e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * 添加 Worker 自定义域名
+ */
+router.post('/accounts/:id/workers/:scriptName/domains', async (req, res) => {
+  try {
+    const { id, scriptName } = req.params;
+    const { hostname, environment } = req.body;
+
+    if (!hostname) {
+      return res.status(400).json({ error: '请输入域名' });
+    }
+
+    const account = storage.getAccountById(id);
+    if (!account) {
+      return res.status(404).json({ error: '账号不存在' });
+    }
+
+    storage.touchAccount(id);
+    const cfAccountId = await cfApi.getAccountId(account.apiToken);
+    const result = await cfApi.addWorkerDomain(account.apiToken, cfAccountId, scriptName, hostname, environment || 'production');
+
+    res.json({ success: true, domain: result });
+  } catch (e) {
+    logger.error(`添加 Worker 域名失败:`, e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * 删除 Worker 自定义域名
+ */
+router.delete('/accounts/:id/workers/:scriptName/domains/:domainId', async (req, res) => {
+  try {
+    const { id, scriptName, domainId } = req.params;
+    const account = storage.getAccountById(id);
+    if (!account) {
+      return res.status(404).json({ error: '账号不存在' });
+    }
+
+    storage.touchAccount(id);
+    const cfAccountId = await cfApi.getAccountId(account.apiToken);
+    await cfApi.deleteWorkerDomain(account.apiToken, cfAccountId, domainId);
+
+    res.json({ success: true });
+  } catch (e) {
+    logger.error(`删除 Worker 域名失败:`, e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ==================== Pages 管理路由 ====================
+
+
+/**
+ * 获取 Pages 项目列表
+ */
+router.get('/accounts/:id/pages', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const account = storage.getAccountById(id);
+    if (!account) {
+      return res.status(404).json({ error: '账号不存在' });
+    }
+
+    storage.touchAccount(id);
+    const cfAccountId = await cfApi.getAccountId(account.apiToken);
+    const projects = await cfApi.listPagesProjects(account.apiToken, cfAccountId);
+
+    logger.info(`获取到 ${projects.length} 个 Pages 项目 (Account: ${cfAccountId})`);
+
+    res.json({
+      projects: projects.map(p => ({
+        name: p.name,
+        subdomain: p.subdomain,
+        domains: p.domains || [],
+        createdOn: p.created_on,
+        productionBranch: p.production_branch,
+        latestDeployment: p.latest_deployment ? {
+          id: p.latest_deployment.id,
+          url: p.latest_deployment.url,
+          status: p.latest_deployment.latest_stage?.status || 'unknown',
+          createdOn: p.latest_deployment.created_on
+        } : null
+      })),
+      cfAccountId
+    });
+  } catch (e) {
+    logger.error(`获取 Pages 项目失败:`, e.message);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * 获取 Pages 项目的部署列表
+ */
+router.get('/accounts/:id/pages/:projectName/deployments', async (req, res) => {
+  try {
+    const { id, projectName } = req.params;
+    const account = storage.getAccountById(id);
+    if (!account) {
+      return res.status(404).json({ error: '账号不存在' });
+    }
+
+    const cfAccountId = await cfApi.getAccountId(account.apiToken);
+    const deployments = await cfApi.listPagesDeployments(account.apiToken, cfAccountId, projectName);
+
+    res.json({
+      success: true,
+      deployments: deployments.map(d => ({
+        id: d.id,
+        url: d.url,
+        environment: d.environment,
+        status: d.latest_stage?.status || 'unknown',
+        createdOn: d.created_on,
+        source: d.source,
+        buildConfig: d.build_config
+      }))
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * 删除 Pages 部署
+ */
+router.delete('/accounts/:id/pages/:projectName/deployments/:deploymentId', async (req, res) => {
+  try {
+    const { id, projectName, deploymentId } = req.params;
+    const account = storage.getAccountById(id);
+    if (!account) {
+      return res.status(404).json({ error: '账号不存在' });
+    }
+
+    const cfAccountId = await cfApi.getAccountId(account.apiToken);
+    await cfApi.deletePagesDeployment(account.apiToken, cfAccountId, projectName, deploymentId);
+
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * 获取 Pages 项目的自定义域名
+ */
+router.get('/accounts/:id/pages/:projectName/domains', async (req, res) => {
+  try {
+    const { id, projectName } = req.params;
+    const account = storage.getAccountById(id);
+    if (!account) {
+      return res.status(404).json({ error: '账号不存在' });
+    }
+
+    const cfAccountId = await cfApi.getAccountId(account.apiToken);
+    const domains = await cfApi.listPagesDomains(account.apiToken, cfAccountId, projectName);
+
+    res.json({
+      success: true,
+      domains: domains.map(d => ({
+        id: d.id,
+        name: d.name,
+        status: d.status,
+        validationStatus: d.validation_data?.status || null,
+        createdOn: d.created_on
+      }))
+    });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * 添加 Pages 自定义域名
+ */
+router.post('/accounts/:id/pages/:projectName/domains', async (req, res) => {
+  try {
+    const { id, projectName } = req.params;
+    const { domain } = req.body;
+
+    if (!domain) {
+      return res.status(400).json({ error: '请输入域名' });
+    }
+
+    const account = storage.getAccountById(id);
+    if (!account) {
+      return res.status(404).json({ error: '账号不存在' });
+    }
+
+    const cfAccountId = await cfApi.getAccountId(account.apiToken);
+    const result = await cfApi.addPagesDomain(account.apiToken, cfAccountId, projectName, domain);
+
+    res.json({ success: true, domain: result.result });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * 删除 Pages 自定义域名
+ */
+router.delete('/accounts/:id/pages/:projectName/domains/:domain', async (req, res) => {
+  try {
+    const { id, projectName, domain } = req.params;
+    const account = storage.getAccountById(id);
+    if (!account) {
+      return res.status(404).json({ error: '账号不存在' });
+    }
+
+    const cfAccountId = await cfApi.getAccountId(account.apiToken);
+    await cfApi.deletePagesDomain(account.apiToken, cfAccountId, projectName, domain);
+
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * 删除 Pages 项目
+ */
+router.delete('/accounts/:id/pages/:projectName', async (req, res) => {
+  try {
+    const { id, projectName } = req.params;
+    const account = storage.getAccountById(id);
+    if (!account) {
+      return res.status(404).json({ error: '账号不存在' });
+    }
+
+    const cfAccountId = await cfApi.getAccountId(account.apiToken);
+    await cfApi.deletePagesProject(account.apiToken, cfAccountId, projectName);
+
+    res.json({ success: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }

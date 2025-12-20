@@ -54,6 +54,9 @@ export const settingsMethods = {
           if (settings.serverIpDisplayMode) {
             this.serverIpDisplayMode = settings.serverIpDisplayMode;
           }
+          if (settings.mainTabsLayout) {
+            this.mainTabsLayout = settings.mainTabsLayout;
+          }
 
           this.activateFirstVisibleModule();
           return true;
@@ -144,7 +147,8 @@ export const settingsMethods = {
         channelModelPrefix: this.channelModelPrefix,
         moduleOrder: this.moduleOrder,
         load_balancing_strategy: this.agSettingsForm.load_balancing_strategy,
-        serverIpDisplayMode: this.serverIpDisplayMode
+        serverIpDisplayMode: this.serverIpDisplayMode,
+        mainTabsLayout: this.mainTabsLayout
       };
 
       const response = await fetch('/api/settings', {
@@ -442,12 +446,12 @@ export const settingsMethods = {
     input.onchange = async (event) => {
       this.showGlobalToast('已选择文件，正在准备...', 'info');
       const file = event.target.files[0];
-      
+
       // 触发后立即清理 DOM
       if (document.body.contains(input)) {
         document.body.removeChild(input);
       }
-      
+
       if (!file) {
         this.showGlobalToast('未选择文件', 'warning');
         return;
@@ -521,7 +525,7 @@ export const settingsMethods = {
 
     // 3. 立即触发点击
     input.click();
-    
+
     // 兜底清理：如果用户取消了选择框，且 input 还在 body 里（某些浏览器行为不同），1分钟后清理
     setTimeout(() => {
       if (document.body.contains(input)) {
@@ -717,6 +721,10 @@ export const settingsMethods = {
         const result = await response.json();
         if (result.success) {
           this.logSettings = { ...result.data };
+          // 同步保存文件信息
+          if (result.fileInfo) {
+            this.logFileInfo = result.fileInfo;
+          }
         }
       }
     } catch (error) {
@@ -737,6 +745,10 @@ export const settingsMethods = {
 
       if (result.success) {
         this.showGlobalToast('日志保留策略已保存', 'success');
+        // 更新文件信息
+        if (result.fileInfo) {
+          this.logFileInfo = result.fileInfo;
+        }
       } else {
         this.showGlobalToast('保存失败: ' + result.error, 'error');
       }

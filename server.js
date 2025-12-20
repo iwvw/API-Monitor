@@ -38,6 +38,17 @@ const PORT = process.env.PORT || 3000;
 sshTerminalService.init(server);
 logService.init(server);
 
+// 初始化日志配置 - 从数据库加载日志文件大小设置
+try {
+  const { SystemConfig } = require('./src/db/models');
+  const { updateLogConfig } = require('./src/utils/logger');
+  const savedLogFileSizeMB = parseInt(SystemConfig.getConfigValue('log_file_max_size_mb', 10)) || 10;
+  updateLogConfig({ maxFileSizeMB: savedLogFileSizeMB });
+  logger.info(`日志文件配置已加载: 最大 ${savedLogFileSizeMB} MB`);
+} catch (err) {
+  logger.warn('加载日志配置失败，使用默认值 10 MB:', err.message);
+}
+
 // 应用中间件
 app.use(loggerMiddleware);
 app.use(corsMiddleware);

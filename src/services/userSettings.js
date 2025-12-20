@@ -53,7 +53,8 @@ function loadUserSettings() {
       channelModelPrefix: channelModelPrefix,
       moduleOrder: order,
       load_balancing_strategy: settings.load_balancing_strategy || 'random',
-      serverIpDisplayMode: settings.server_ip_display_mode || 'normal'
+      serverIpDisplayMode: settings.server_ip_display_mode || 'normal',
+      mainTabsLayout: settings.main_tabs_layout || 'top'
     };
   } catch (error) {
     console.error('加载用户设置失败:', error);
@@ -75,7 +76,8 @@ function saveUserSettings(settings) {
       channel_model_prefix: settings.channelModelPrefix || settings.channel_model_prefix,
       module_order: settings.moduleOrder || settings.module_order,
       load_balancing_strategy: settings.load_balancing_strategy || settings.load_balancing_strategy_form || 'random',
-      server_ip_display_mode: settings.serverIpDisplayMode || settings.server_ip_display_mode || 'normal'
+      server_ip_display_mode: settings.serverIpDisplayMode || settings.server_ip_display_mode || 'normal',
+      main_tabs_layout: settings.mainTabsLayout || settings.main_tabs_layout || 'top'
     };
 
     // 确保 channel_model_prefix 是字符串，如果不是则进行 JSON.stringify
@@ -119,7 +121,8 @@ function getDefaultSettings() {
     },
     moduleOrder: ['openai', 'antigravity', 'gemini-cli', 'zeabur', 'dns', 'server'],
     load_balancing_strategy: 'random',
-    serverIpDisplayMode: 'normal'
+    serverIpDisplayMode: 'normal',
+    mainTabsLayout: 'top'
   };
 }
 
