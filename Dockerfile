@@ -1,27 +1,23 @@
 # ===================================
 # API Monitor Docker Image
 # ===================================
-# 多阶段构建：Deps -> Builder -> Runner
+# 多阶段构建：Builder -> Runner
 
-# 阶段 1: 依赖安装 (包含 devDependencies)
-FROM node:20-alpine AS deps
+# 阶段 1: 构建前端 (Builder)
+FROM node:20-alpine AS builder
+# 安装构建工具
 RUN apk add --no-cache python3 make g++
 WORKDIR /app
 COPY package.json package-lock.json ./
-# 这里必须安装所有依赖，因为 build 需要 vite
+# 显式安装所有依赖 (包括 devDependencies)
 RUN npm install --legacy-peer-deps
-
-# 阶段 2: 构建前端
-FROM node:20-alpine AS builder
-WORKDIR /app
-COPY --from=deps /app/node_modules ./
 COPY . .
-# 设置环境变量为 production (某些构建脚本可能会用到)
+# 设置环境变量为 production
 ENV NODE_ENV=production
 # 执行构建，生成 dist 目录
 RUN npm run build
 
-# 阶段 3: 运行时镜像 (仅包含生产依赖)
+# 阶段 2: 运行时镜像 (Runner)
 FROM node:20-alpine AS runner
 
 LABEL org.opencontainers.image.title="API Monitor"
