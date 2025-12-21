@@ -8,13 +8,20 @@ FROM node:20-alpine AS builder
 # 安装构建工具
 RUN apk add --no-cache python3 make g++
 WORKDIR /app
+
+# 1. 复制依赖定义
 COPY package.json package-lock.json ./
-# 显式安装所有依赖 (包括 devDependencies)
+
+# 2. 直接安装所有依赖 (确保 vite 可用)
+# 注意：不使用 --only=production，确保安装 devDependencies
 RUN npm install --legacy-peer-deps
+
+# 3. 复制源码
 COPY . .
-# 设置环境变量为 production
-ENV NODE_ENV=production
-# 执行构建，生成 dist 目录
+
+# 4. 执行构建
+# 显式设置 PATH (虽然 npm run 通常不需要，但以防万一)
+ENV PATH /app/node_modules/.bin:$PATH
 RUN npm run build
 
 # 阶段 2: 运行时镜像 (Runner)
@@ -35,14 +42,16 @@ WORKDIR /app
 # 创建数据目录
 RUN mkdir -p /app/config /app/data && chown -R nodejs:nodejs /app
 
-# 安装仅生产依赖 (为了减小体积，这里重新安装一次 production deps)
+# 1. 复制依赖定义
 COPY package.json package-lock.json ./
+
+# 2. 仅安装生产依赖 (减小体积)
 RUN npm install --only=production --legacy-peer-deps && npm cache clean --force
 
-# 从 Builder 阶段复制构建好的前端资源
-COPY --from=builder --chown=nodejs:nodejs /app/dist ./
+# 3. 从 Builder 阶段复制构建好的前端资源
+COPY --from=builder --chown=nodejs:nodejs /app/dist ./dist
 
-# 复制后端源码
+# 4. 复制后端源码
 COPY --chown=nodejs:nodejs . .
 
 ENV NODE_ENV=production \
