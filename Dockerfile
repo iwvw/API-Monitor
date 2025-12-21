@@ -15,8 +15,8 @@ WORKDIR /app
 # 复制依赖文件
 COPY package.json package-lock.json ./
 
-# 安装生产依赖（使用 npm ci 确保依赖一致性）
-RUN npm ci --only=production && \
+# 安装生产依赖（使用 npm install 更宽容，避免 lock 文件冲突）
+RUN npm install --only=production --legacy-peer-deps && \
     npm cache clean --force
 
 # 阶段 2: 运行时镜像
