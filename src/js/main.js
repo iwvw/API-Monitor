@@ -495,8 +495,8 @@ const app = createApp({
           // 防止超出屏幕顶部
           if (top < 10) top = rect.bottom + 10;
 
-          tooltipEl.style.top = `${top + window.scrollY}px`;
-          tooltipEl.style.left = `${left + window.scrollX}px`;
+          tooltipEl.style.top = `${top}px`;
+          tooltipEl.style.left = `${left}px`;
         }
       });
 

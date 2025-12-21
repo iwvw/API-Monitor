@@ -11,19 +11,31 @@
   box-sizing: border-box;
 }
 
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  width: 100%;
+}
+
 body {
   font-family: var(--font-main);
   font-size: var(--font-size-base);
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  background-color: var(--bg-primary);
+  color: var(--text-primary);
+  transition: background-color 0.3s, color 0.3s;
+  overflow: hidden; /* 核心修复：禁止 body 层级的滚动，由 app-main 接管 */
 }
 
-input,
 button,
+input,
 select,
 textarea {
   font-family: inherit;
+  resize: none;
 }
 
 code,
@@ -150,22 +162,6 @@ pre,
   }
 }
 
-body {
-  background-color: var(--bg-primary);
-  color: var(--text-primary);
-  line-height: 1.6;
-  transition: background-color 0.3s, color 0.3s;
-  min-height: 100vh;
-}
-
-button,
-input,
-select,
-textarea {
-  font-family: inherit;
-  resize: none;
-}
-
 body.modal-open {
   overflow: hidden;
 }
@@ -173,7 +169,8 @@ body.modal-open {
 /* App Layout */
 .app-wrapper {
   display: flex;
-  min-height: 100vh;
+  height: 100vh; /* 使用固定高度 */
+  overflow: hidden;
 }
 
 .app-sidebar {
@@ -194,14 +191,15 @@ body.modal-open {
   min-width: 0;
   display: flex;
   flex-direction: column;
-  height: 100vh;
+  height: 100%; /* 改为 100% 填充容器 */
   overflow-y: auto;
+  position: relative;
 }
 
 .container {
   max-width: 1200px;
   margin: 0 auto;
-  padding: 12px;
+  padding: 12px 12px 24px 12px; /* 增加底部边距确保内容不紧贴底部 */
   width: 100%;
 }
 
@@ -1832,7 +1830,7 @@ body.modal-open {
 /* Responsive */
 /* 现代化全局动态 Tooltip (引擎版) */
 .system-tooltip {
-  position: absolute;
+  position: fixed; /* 改为 fixed，避免撑开 body 滚动条 */
   background: rgba(17, 24, 39, 0.95);
   color: white;
   padding: 8px 14px;
