@@ -43,12 +43,15 @@ class GeminiCliClient {
 
         messages.forEach(msg => {
             if (msg.role === 'system') {
-                systemInstruction = { parts: [{ text: msg.content }] };
+                // system 消息只取文本部分
+                const textContent = this._extractTextContent(msg.content);
+                systemInstruction = { parts: [{ text: textContent }] };
             } else {
                 const role = msg.role === 'assistant' ? 'model' : 'user';
+                const parts = this._convertContentToParts(msg.content);
                 contents.push({
                     role: role,
-                    parts: [{ text: msg.content }]
+                    parts: parts
                 });
             }
         });
@@ -89,6 +92,98 @@ class GeminiCliClient {
 
         return payload;
     }
+
+    /**
+     * 提取内容中的文本部分
+     * @param {string|Array} content - OpenAI 消息内容
+     * @returns {string} 文本内容
+     */
+    _extractTextContent(content) {
+        if (typeof content === 'string') {
+            return content;
+        }
+        if (Array.isArray(content)) {
+            return content
+                .filter(item => item.type === 'text')
+                .map(item => item.text || '')
+                .join('');
+        }
+        return String(content || '');
+    }
+
+    /**
+     * 将 OpenAI 格式的 content 转换为 Gemini parts
+     * 支持多模态输入（文本 + 图像）
+     * @param {string|Array} content - OpenAI 消息内容
+     * @returns {Array} Gemini parts 数组
+     */
+    _convertContentToParts(content) {
+        // 简单字符串
+        if (typeof content === 'string') {
+            return [{ text: content }];
+        }
+
+        // 数组格式 (多模态)
+        if (Array.isArray(content)) {
+            const parts = [];
+            for (const item of content) {
+                if (item.type === 'text') {
+                    parts.push({ text: item.text || '' });
+                } else if (item.type === 'image_url') {
+                    const imageUrl = item.image_url?.url || '';
+                    const imagePart = this._parseImageUrl(imageUrl);
+                    if (imagePart) {
+                        parts.push(imagePart);
+                    }
+                }
+            }
+            return parts.length > 0 ? parts : [{ text: '' }];
+        }
+
+        // 其他类型，转为字符串
+        return [{ text: String(content || '') }];
+    }
+
+    /**
+     * 解析图像 URL 并转换为 Gemini inlineData 格式
+     * @param {string} imageUrl - 图像 URL (base64 data URI 或 HTTP URL)
+     * @returns {Object|null} Gemini inlineData part
+     */
+    _parseImageUrl(imageUrl) {
+        if (!imageUrl) return null;
+
+        // 处理 Base64 Data URI: data:image/jpeg;base64,/9j/4AAQ...
+        const base64Match = imageUrl.match(/^data:image\/(\w+);base64,(.+)$/);
+        if (base64Match) {
+            return {
+                inlineData: {
+                    mimeType: `image/${base64Match[1]}`,
+                    data: base64Match[2]
+                }
+            };
+        }
+
+        // 处理其他 MIME 类型 (如 data:application/octet-stream)
+        const genericBase64Match = imageUrl.match(/^data:([^;]+);base64,(.+)$/);
+        if (genericBase64Match) {
+            return {
+                inlineData: {
+                    mimeType: genericBase64Match[1],
+                    data: genericBase64Match[2]
+                }
+            };
+        }
+
+        // HTTP/HTTPS URL 暂不支持（需要下载图片）
+        if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
+            console.warn('[Gemini CLI] HTTP image URLs not yet supported, skipping:', imageUrl.substring(0, 80));
+            return null;
+        }
+
+        console.warn('[Gemini CLI] Unsupported image URL format:', imageUrl.substring(0, 50));
+        return null;
+    }
+
 
     /**
      * 根据模型名获取 thinking 配置 (参考 gcli2api utils.py)

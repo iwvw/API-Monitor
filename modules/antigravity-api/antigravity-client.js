@@ -595,10 +595,10 @@ async function chatCompletionsStream(accountId, requestBody, callback) {
 
     const startTime = Date.now();
     let statusCode = 200;
-    let errorText = '';
-
     // 将 OpenAI 格式转换为 Antigravity API 格式
     const antigravityRequest = convertOpenAIToAntigravityRequest(requestBody, tokenObj);
+    
+    console.log(`[Debug] Antigravity Request: Project=${antigravityRequest.project}, Model=${antigravityRequest.model}`);
 
     try {
         const stream = req.antigravity_fetchStream(config.API_URL, {
@@ -632,27 +632,7 @@ async function chatCompletionsStream(accountId, requestBody, callback) {
                 })
                 .onError(reject);
         });
-
-        storage.recordLog({
-            accountId,
-            model: requestBody.model,
-            is_balanced: req.lb,
-            path: '/v1/chat/completions',
-            method: 'POST',
-            statusCode,
-            durationMs: Date.now() - startTime,
-            detail: { model: requestBody.model, messageCount: requestBody.messages?.length || 0 }
-        });
     } catch (error) {
-        storage.recordLog({
-            accountId,
-            model: requestBody.model,
-            is_balanced: req.lb,
-            path: '/v1/chat/completions',
-            method: 'POST',
-            statusCode: statusCode || 500,
-            durationMs: Date.now() - startTime
-        });
         throw error;
     }
 }
@@ -759,28 +739,8 @@ async function chatCompletions(accountId, requestBody) {
             result.choices[0].finish_reason = 'tool_calls';
         }
 
-        storage.recordLog({
-            accountId,
-            model: requestBody.model,
-            is_balanced: req.lb,
-            path: '/v1/chat/completions',
-            method: 'POST',
-            statusCode,
-            durationMs: Date.now() - startTime,
-            detail: { model: requestBody.model, type: 'non-stream', messageCount: requestBody.messages?.length || 0 }
-        });
-
         return result;
     } catch (error) {
-        storage.recordLog({
-            accountId,
-            model: requestBody.model,
-            is_balanced: req.lb,
-            path: '/v1/chat/completions',
-            method: 'POST',
-            statusCode: statusCode || 500,
-            durationMs: Date.now() - startTime
-        });
         throw error;
     }
 }

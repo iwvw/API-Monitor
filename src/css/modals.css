@@ -1,0 +1,590 @@
+/* Modal & Form Styles */
+
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: var(--modal-overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 20px;
+}
+
+.modal-overlay.logs-fullscreen-overlay {
+  align-items: stretch;
+  justify-content: stretch;
+  padding: 0;
+  z-index: 1000;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+}
+
+.modal {
+  background-color: var(--card-bg);
+  border-radius: 16px;
+  padding: 0;
+  max-width: 480px;
+  width: 95%;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 15px 50px rgba(0, 0, 0, 0.25);
+  overflow: hidden;
+  position: relative;
+  /* 强制裁切圆角，解决部分浏览器背景色溢出问题 */
+  -webkit-mask-image: -webkit-radial-gradient(white, black);
+  border: 1px solid var(--border-color);
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.3s ease;
+}
+
+/* 大尺寸模态框 */
+.modal-lg {
+  max-width: 900px;
+}
+
+/* 小尺寸模态框 */
+.modal-sm {
+  max-width: 400px;
+}
+
+/* 权限修改模态框样式 */
+.permissions-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.permissions-row {
+  display: grid;
+  grid-template-columns: 80px repeat(3, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.permissions-row.permissions-header {
+  font-weight: 600;
+  color: var(--text-secondary);
+  font-size: 13px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-color);
+  margin-bottom: 4px;
+}
+
+.permissions-label {
+  font-weight: 500;
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.permissions-cell {
+  text-align: center;
+}
+
+.permissions-cell input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  accent-color: var(--primary-color);
+}
+
+/* 属性查看模态框样式 */
+.properties-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.properties-item {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.properties-item .properties-label {
+  font-weight: 500;
+  color: var(--text-secondary);
+  min-width: 80px;
+  font-size: 14px;
+}
+
+.properties-item .properties-value {
+  color: var(--text-primary);
+  font-size: 14px;
+  flex: 1;
+}
+
+/* 模态框内容区域 */
+.modal-body {
+  padding: 10px 16px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+/* 无内部结构的简单模态框(如登录框) */
+.modal:not(:has(.modal-body)):not(:has(.modal-footer)) {
+  padding: 7px 15px 15px 15px;
+}
+
+/* 模态框底部 */
+.modal-footer {
+  padding: 12px 16px;
+  border-top: 1px solid var(--border-color);
+  background: var(--section-bg);
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.modal-header {
+  padding: 14px 20px;
+  background-color: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.modal-close {
+  position: absolute;
+  top: 14px; /* 固定定位 */
+  right: 16px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  color: var(--text-tertiary);
+  border: none;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 100; /* 确保层级足够高 */
+}
+
+.modal-close:hover {
+  background-color: rgba(239, 68, 68, 0.1);
+  color: var(--danger-color);
+  transform: rotate(90deg) scale(1.1);
+}
+
+.modal-close:active {
+  transform: rotate(90deg) scale(0.9);
+}
+
+/* Forms */
+.form-group {
+  margin-bottom: 6px;
+}
+
+.form-label {
+  display: block;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.form-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--input-border);
+  border-radius: 8px;
+  font-size: 14px;
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+  transition: border-color 0.2s, background-color 0.2s, box-shadow 0.2s;
+}
+
+.form-input:focus {
+  outline: none;
+  border-color: var(--input-focus-border);
+  box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.1);
+}
+
+/* 小尺寸输入框 - 用于模型重定向等 */
+.form-input-sm {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--input-border);
+  border-radius: 6px;
+  font-size: 13px;
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+  transition: border-color 0.2s, background-color 0.2s, box-shadow 0.2s;
+}
+
+.form-input-sm:focus {
+  outline: none;
+  border-color: var(--input-focus-border);
+  box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.1);
+}
+
+.form-textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--input-border);
+  border-radius: 8px;
+  font-size: 14px;
+  background-color: var(--bg-secondary);
+  color: var(--text-primary);
+  transition: border-color 0.2s, box-shadow 0.2s;
+  resize: none;
+  min-height: 120px;
+}
+
+.form-textarea:focus {
+  outline: none;
+  border-color: var(--input-focus-border);
+  box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.1);
+}
+
+.form-help {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin-top: 4px;
+}
+
+.form-error {
+  color: var(--danger-color);
+  font-size: 13px;
+  margin-bottom: 7px;
+  margin-top: -9px;
+}
+
+.form-success {
+  color: var(--success-color);
+  font-size: 13px;
+  margin-top: 4px;
+}
+
+/* Edit Controls */
+.edit-input {
+  width: 120px;
+  padding: 4px 28px 4px 8px;
+  border: 1px solid var(--input-focus-border);
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  outline: none;
+  background-color: var(--input-bg);
+  color: var(--text-primary);
+}
+
+.edit-btn {
+  padding: 4px 8px;
+  background-color: rgba(99, 102, 241, 0.2);
+  border: 1px solid rgba(99, 102, 241, 0.4);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.edit-btn:hover {
+  background-color: rgba(99, 102, 241, 0.3);
+}
+
+.cancel-btn {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  transform: translateY(-50%);
+  padding: 2px 4px;
+  background-color: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 0.2s;
+  color: var(--text-tertiary);
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.cancel-btn:hover {
+  color: var(--danger-color);
+  background-color: rgba(239, 68, 68, 0.1);
+  border-radius: 3px;
+}
+
+.account-name-edit {
+  position: relative;
+  display: inline-block;
+}
+
+/* Account List */
+.account-list {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 16px;
+}
+
+.account-item {
+  padding-left: 18px !important;
+  background-color: var(--card-bg);
+  border-radius: 10px;
+  padding: 10px;
+  border: 1px solid var(--border-color);
+  transition: transform 0.3s, box-shadow 0.3s;
+  height: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+}
+
+.account-item:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--card-hover-shadow);
+}
+
+.account-item-info {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.account-item-name {
+  font-weight: 600;
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+/* Custom Dialog */
+.custom-dialog-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: var(--modal-overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 2001;
+  animation: fadeIn 0.2s;
+}
+
+.custom-dialog {
+  background-color: var(--card-bg);
+  border-radius: 12px;
+  padding: 24px;
+  max-width: 400px;
+  width: 90%;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+  animation: scaleIn 0.2s;
+}
+
+.custom-dialog-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.custom-dialog-message {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin-bottom: 20px;
+  line-height: 1.5;
+}
+
+.custom-dialog-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--input-border);
+  border-radius: 8px;
+  font-size: 14px;
+  background-color: var(--input-bg);
+  color: var(--text-primary);
+  transition: border-color 0.2s;
+  margin-bottom: 20px;
+  box-sizing: border-box;
+}
+
+.custom-dialog-input:focus {
+  outline: none;
+  border-color: var(--input-focus-border);
+}
+
+.custom-dialog-buttons {
+  display: flex;
+  gap: 12px;
+  justify-content: flex-end;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes scaleIn {
+  from {
+    transform: scale(0.9);
+    opacity: 0;
+  }
+
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+@media (max-width: 768px) {
+  .modal {
+    padding: 0;
+  }
+
+  .modal-lg {
+    max-width: 95%;
+  }
+
+  .modal-header {
+    padding: 16px 20px;
+  }
+
+  .modal-body {
+    padding: 20px;
+  }
+
+  .modal-footer {
+    padding: 14px 20px;
+  }
+}
+
+/* 现代化视图切换按钮 (Pill Toggle) - 极简紧凑版 */
+.view-toggle-container {
+  padding: 10px 20px;
+  background: transparent;
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  justify-content: flex-end; /* 改为靠右对齐 */
+}
+
+.pill-group {
+  display: inline-flex;
+  background: rgba(0, 0, 0, 0.03);
+  padding: 2px; /* 进一步缩减 */
+  border-radius: 20px;
+  border: 1px solid var(--border-color);
+}
+
+.pill-btn {
+  border: none;
+  padding: 4px 12px; /* 缩减宽度 */
+  border-radius: 18px;
+  font-size: 12px; /* 字号减小 */
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+}
+
+/* 选中态 */
+.pill-btn.active {
+  background: var(--ag-primary) !important;
+  color: white !important;
+  box-shadow: 0 2px 8px rgba(var(--ag-primary-rgb), 0.3);
+  transform: none; /* 移除位移以保持稳定感 */
+}
+
+/* 悬停态：仅针对非活动按钮 */
+.pill-btn:not(.active):hover {
+  background: rgba(var(--ag-primary-rgb), 0.08) !important;
+  color: var(--ag-primary) !important;
+  transform: translateY(-1px);
+}
+
+/* 点击瞬间反馈 */
+.pill-btn:active {
+  transform: translateY(1px) scale(0.98);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  transition: all 0.05s;
+}
+
+/* 图标动画 */
+.pill-btn i {
+  transition: transform 0.2s ease;
+}
+
+.pill-btn:hover i {
+  transform: scale(1.1);
+}
+
+.pill-btn.active i {
+  color: white !important;
+}
+
+/* 迷你开关容器 (用于模态框标题栏) */
+.mini-view-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  padding: 4px 10px;
+  background: var(--bg-tertiary);
+  border-radius: 20px;
+  border: 1px solid var(--border-color);
+  user-select: none;
+  transition: all 0.2s;
+}
+
+.mini-switch {
+  width: 28px;
+  height: 14px;
+  background: #ccc;
+  border-radius: 10px;
+  position: relative;
+  transition: background 0.3s;
+}
+
+.mini-slider {
+  width: 10px;
+  height: 10px;
+  background: white;
+  border-radius: 50%;
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.mini-switch.on {
+  background: var(--ag-primary) !important;
+  box-shadow: 0 0 8px rgba(var(--ag-primary-rgb), 0.3);
+}
+
+.mini-view-toggle:hover {
+  background: var(--bg-secondary) !important;
+  border-color: var(--ag-primary) !important;
+}
+
+.mini-view-toggle:active {
+  transform: scale(0.95);
+}

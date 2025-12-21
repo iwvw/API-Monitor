@@ -53,10 +53,20 @@ router.get('/full', requireAuth, (req, res) => {
  */
 function init(server) {
   const wss = new WebSocketServer({
-    server,
-    path: '/ws/logs'
+    noServer: true,
+    perMessageDeflate: false
   });
 
+  handleConnection(wss);
+
+  // 返回 wss 实例以便在 server.js 中处理升级
+  return wss;
+}
+
+/**
+ * 启动连接处理逻辑（由外部调用）
+ */
+function handleConnection(wss) {
   wss.on('connection', (ws, req) => {
     logger.info(`日志 WebSocket 客户端已连接 (来自 ${req.socket.remoteAddress})`);
 
@@ -102,10 +112,11 @@ function init(server) {
     logger.error('WebSocket 服务器错误:', error.message);
   });
 
-  logger.success('日志 WebSocket 服务已启动: /ws/logs');
+  logger.success('日志 WebSocket 服务已就绪: /ws/logs');
 }
 
 module.exports = {
   router,
-  init
+  init,
+  handleConnection
 };

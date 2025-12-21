@@ -1,0 +1,72 @@
+/**
+ * 模板模块样式
+ */
+.{{module_name}}-module {
+    padding: 20px;
+    animation: fadeIn 0.3s ease-in-out;
+}
+
+.{{module_name}}-module .module-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+    background: var(--bg-card);
+    padding: 16px 24px;
+    border-radius: 12px;
+    box-shadow: 0 4px 6px var(--shadow-color);
+}
+
+.{{module_name}}-module .title-area {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.{{module_name}}-module .title-area i {
+    font-size: 24px;
+    color: var(--primary-color);
+}
+
+.{{module_name}}-module .title-area h2 {
+    margin: 0;
+    font-size: 20px;
+}
+
+.{{module_name}}-module .data-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 20px;
+}
+
+.{{module_name}}-module .data-card {
+    background: var(--bg-card);
+    border-radius: 12px;
+    padding: 20px;
+    border: 1px solid var(--border-color);
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.{{module_name}}-module .data-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 8px 15px var(--shadow-color);
+}
+
+.{{module_name}}-module .card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 15px;
+}
+
+.{{module_name}}-module .status-badge {
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    text-transform: uppercase;
+}
+
+.{{module_name}}-module .status-badge.active {
+    background: rgba(40, 167, 69, 0.2);
+    color: #28a745;
+}

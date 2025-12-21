@@ -1,0 +1,1325 @@
+<!-- 自定义确认对话框 -->
+<div v-if="customDialog.show" class="custom-dialog-overlay"
+  @keydown.esc="customDialog.onCancel ? customDialog.onCancel() : (customDialog.show = false)"
+  @keydown.enter="customDialog.onConfirm" tabindex="-1">
+  <div class="custom-dialog">
+    <div class="custom-dialog-title">
+      <i class="fas" :class="customDialog.icon || 'fa-question-circle'"></i>
+      {{ customDialog.title || '确认' }}
+    </div>
+    <div class="custom-dialog-message">{{ customDialog.message }}</div>
+    <input v-if="customDialog.isPrompt" v-model="customDialog.promptValue" :placeholder="customDialog.placeholder"
+      @keyup.enter="customDialog.onConfirm" class="custom-dialog-input" ref="promptInput" />
+    <div class="custom-dialog-buttons">
+      <button v-if="customDialog.cancelText" class="btn btn-secondary"
+        @click="customDialog.onCancel ? customDialog.onCancel() : (customDialog.show = false)">
+        {{ customDialog.cancelText }}
+      </button>
+      <button class="btn" :class="customDialog.confirmClass || 'btn-primary'" @click="customDialog.onConfirm">
+        {{ customDialog.confirmText || '确定' }}
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- 统一日志查看器模态框 -->
+<div v-if="logViewer.visible" class="modal-overlay log-viewer-overlay"
+  :class="{ 'logs-fullscreen': logViewer.fullscreen }" @keydown.esc.stop="closeLogViewer" tabindex="-1">
+  <div class="modal log-viewer-modal" :class="{ 'fullscreen': logViewer.fullscreen }">
+    <!-- 顶栏：标题与核心控制 -->
+    <div class="log-header">
+      <div class="log-title-group">
+        <div class="log-icon">
+          <i class="fas fa-terminal"></i>
+        </div>
+        <div class="log-info">
+          <div class="log-title">{{ logViewer.title }}</div>
+          <div class="log-subtitle" v-if="logViewer.subtitle">{{ logViewer.subtitle }}</div>
+        </div>
+        <div class="log-status-badge" :class="logViewer.streamActive ? 'live' : 'static'">
+          <span class="dot"></span> {{ logViewer.streamActive ? 'LIVE' : 'ARCHIVE' }}
+        </div>
+      </div>
+      <div class="log-window-controls">
+        <button class="win-btn" @click="logViewer.fullscreen = !logViewer.fullscreen"
+          :title="logViewer.fullscreen ? '退出全屏' : '全屏'">
+          <i class="fas" :class="logViewer.fullscreen ? 'fa-compress' : 'fa-expand'"></i>
+        </button>
+        <button class="win-btn close" @click="closeLogViewer" title="关闭">
+          <i class="fas fa-times"></i>
+        </button>
+      </div>
+    </div>
+
+    <!-- 工具栏：过滤与操作 -->
+    <div class="log-toolbar">
+      <div class="log-filters">
+        <div class="search-box">
+          <i class="fas fa-search"></i>
+          <input v-model="logViewer.filterText" placeholder="搜索日志..." />
+          <button v-if="logViewer.filterText" @click="logViewer.filterText = ''" class="clear-search">
+            <i class="fas fa-times-circle"></i>
+          </button>
+        </div>
+        <select v-model="logViewer.levelFilter" class="level-select">
+          <option value="ALL">所有级别</option>
+          <option value="INFO">INFO</option>
+          <option value="WARN">WARN</option>
+          <option value="ERROR">ERROR</option>
+          <option value="DEBUG">DEBUG</option>
+        </select>
+      </div>
+      <div class="log-actions">
+        <button class="tool-btn" :class="{ active: logViewer.autoScroll }" @click="toggleLogAutoScroll" title="自动滚动">
+          <i class="fas fa-arrow-down"></i> <span>Auto-scroll</span>
+        </button>
+        <button class="tool-btn" :class="{ active: logViewer.wrapText }" @click="toggleLogWrap" title="自动换行">
+          <i class="fas fa-align-left"></i> <span>Wrap</span>
+        </button>
+        <div class="divider"></div>
+        <button class="tool-btn" @click="clearLogs" title="清空视图">
+          <i class="fas fa-trash-alt"></i>
+        </button>
+        <button class="tool-btn" @click="downloadLogs" title="下载日志">
+          <i class="fas fa-download"></i>
+        </button>
+      </div>
+    </div>
+
+    <!-- 日志内容区域 -->
+    <div id="log-viewer-container" class="log-viewport" :class="{ 'wrap-text': logViewer.wrapText }">
+      <div v-if="logViewer.loading && logViewer.logs.length === 0" class="log-loading">
+        <div class="spinner"></div>
+        <span>正在加载日志流...</span>
+      </div>
+
+      <div v-if="!logViewer.loading && getFilteredLogs().length === 0" class="log-empty">
+        <i class="fas fa-inbox"></i>
+        <span>无匹配日志</span>
+      </div>
+
+      <!-- 虚拟列表优化：实际渲染的日志行 -->
+      <div class="log-lines">
+        <div v-for="(log, index) in getFilteredLogs()" :key="log.id || index" class="log-entry"
+          :class="log.level.toLowerCase()">
+          <span class="line-num">{{ index + 1 }}</span>
+          <span class="time">{{ new Date(log.timestamp).toLocaleTimeString() }}</span>
+          <span class="level-tag"><i class="fas" :class="getLogIcon(log.level)"></i> {{ log.level }}</span>
+          <span v-if="log.module" class="log-module-tag" :class="'module-' + log.module.toLowerCase()">[{{ log.module
+            }}]</span>
+          <span class="message" v-html="formatMessage(log.message)"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 底部状态栏 -->
+    <div class="log-footer">
+      <div class="footer-stat">
+        <i class="fas fa-list-ol"></i> {{ logViewer.logs.length }} lines
+      </div>
+      <div class="footer-stat" v-if="logViewer.filterText">
+        <i class="fas fa-filter"></i> Filtered: {{ getFilteredLogs().length }}
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 保留其他特定的模态框 -->
+<!-- Antigravity Log Detail Modal -->
+<div v-if="showAntigravityLogDetailModal" class="modal-overlay" @click.self="showAntigravityLogDetailModal = false"
+  @keydown.esc="showAntigravityLogDetailModal = false" tabindex="-1">
+  <div class="modal" style="max-width: 800px;">
+    <div class="modal-header" style="justify-content: space-between;">
+      <div style="display: flex; align-items: center; gap: 15px;">
+        <div class="modal-title"><i class="fas fa-file-alt"></i> 调用日志详情</div>
+        
+        <!-- 迷你视图切换开关 -->
+        <div class="mini-view-toggle" @click="agLogDetailShowRaw = !agLogDetailShowRaw" 
+             data-tooltip="在易读视图与原始 JSON 之间切换">
+          <span style="font-size: 11px; font-weight: 600; opacity: 0.7;">原始 JSON</span>
+          <div class="mini-switch" :class="{ on: agLogDetailShowRaw }" 
+               style="width: 28px; height: 14px; background: #ccc; border-radius: 10px; position: relative; transition: background 0.3s;">
+            <div class="mini-slider" 
+                 style="width: 10px; height: 10px; background: white; border-radius: 50%; position: absolute; top: 2px; left: 2px; transition: transform 0.3s;"
+                 :style="{ transform: agLogDetailShowRaw ? 'translateX(14px)' : 'none' }">
+            </div>
+          </div>
+        </div>
+      </div>
+      <button class="modal-close" @click="showAntigravityLogDetailModal = false"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-body" v-if="antigravityLogDetail" style="padding: 0;">
+      <div style="padding: 20px; max-height: 75vh; overflow-y: auto;">
+        <!-- 易读视图 -->
+        <div v-if="!agLogDetailShowRaw" class="log-readable-view">
+          <div class="log-detail-section">
+            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 15px;">
+              <div style="width: 4px; height: 16px; background: var(--ag-primary); border-radius: 2px;"></div>
+              <h4 style="margin: 0; font-size: 15px; font-weight: 600;">基础运行信息</h4>
+            </div>
+            
+            <div class="info-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; background: var(--bg-secondary); padding: 16px; border-radius: 10px; border: 1px solid var(--border-color);">
+              <div class="info-item" style="display: flex; flex-direction: column; gap: 4px;">
+                <span style="font-size: 11px; opacity: 0.5; text-transform: uppercase; letter-spacing: 0.5px;">请求标识 ID</span>
+                <span style="font-family: var(--font-mono); font-size: 13px; color: var(--text-primary);">#{{ antigravityLogDetail.id }}</span>
+              </div>
+              
+              <div class="info-item" style="display: flex; flex-direction: column; gap: 4px;">
+                <span style="font-size: 11px; opacity: 0.5; text-transform: uppercase; letter-spacing: 0.5px;">发生时间</span>
+                <span style="font-size: 13px;">{{ formatDateTime(antigravityLogDetail.created_at || antigravityLogDetail.timestamp) }}</span>
+              </div>
+
+              <div class="info-item" style="display: flex; flex-direction: column; gap: 4px;">
+                <span style="font-size: 11px; opacity: 0.5; text-transform: uppercase; letter-spacing: 0.5px;">接口路径 & 方法</span>
+                <div style="display: flex; align-items: center; gap: 6px;">
+                  <span class="method-badge" :class="'method-' + (antigravityLogDetail.request_method || antigravityLogDetail.method || 'POST').toLowerCase()" style="font-size: 10px; padding: 2px 6px;">
+                    {{ antigravityLogDetail.request_method || antigravityLogDetail.method || 'POST' }}
+                  </span>
+                  <code style="font-size: 12px; background: rgba(0,0,0,0.05); padding: 2px 4px; border-radius: 4px;">{{ antigravityLogDetail.request_path || antigravityLogDetail.path }}</code>
+                </div>
+              </div>
+
+              <div class="info-item" style="display: flex; flex-direction: column; gap: 4px;">
+                <span style="font-size: 11px; opacity: 0.5; text-transform: uppercase; letter-spacing: 0.5px;">状态与耗时</span>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <span class="ag-status-badge" :class="getLogStatusClass(antigravityLogDetail.status_code || antigravityLogDetail.statusCode)" style="font-size: 10px;">
+                    {{ antigravityLogDetail.status_code || antigravityLogDetail.statusCode }}
+                  </span>
+                  <span style="font-size: 13px; font-weight: 600; color: var(--ag-primary);">{{ antigravityLogDetail.duration_ms || antigravityLogDetail.durationMs }}ms</span>
+                </div>
+              </div>
+
+              <div class="info-item" style="display: flex; flex-direction: column; gap: 4px;">
+                <span style="font-size: 11px; opacity: 0.5; text-transform: uppercase; letter-spacing: 0.5px;">调用客户端</span>
+                <div style="font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; opacity: 0.9;" 
+                     :data-tooltip="antigravityLogDetail.user_agent || '未知浏览器'">
+                  <i class="fas fa-network-wired" style="margin-right: 4px; opacity: 0.5;"></i>
+                  {{ antigravityLogDetail.client_ip || antigravityLogDetail.clientIp || '-' }}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div v-if="antigravityLogDetail.detail" class="log-detail-section" style="margin-top: 24px;">
+            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 15px;">
+              <div style="width: 4px; height: 16px; background: var(--ag-primary); border-radius: 2px;"></div>
+              <h4 style="margin: 0; font-size: 15px; font-weight: 600;">对话流回溯</h4>
+            </div>
+            
+            <!-- 现代对话流展示 -->
+            <div v-if="antigravityLogDetail.detail.messages || (antigravityLogDetail.detail.response && antigravityLogDetail.detail.response.choices)" 
+                 class="chat-history-modern" style="display: flex; flex-direction: column; gap: 16px; background: var(--bg-secondary); padding: 20px; border-radius: 12px; border: 1px solid var(--border-color);">
+              
+              <!-- 遍历历史请求消息 -->
+              <div v-for="(msg, idx) in antigravityLogDetail.detail.messages" :key="'req-'+idx" 
+                   :style="{ alignSelf: msg.role === 'user' ? 'flex-end' : 'flex-start', width: 'fit-content', maxWidth: '90%' }">
+                
+                <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 6px;" 
+                     :style="{ flexDirection: msg.role === 'user' ? 'row-reverse' : 'row' }">
+                  <div style="width: 20px; height: 20px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 10px; background: var(--bg-tertiary); color: var(--text-secondary); border: 1px solid var(--border-color);">
+                    <i class="fas" :class="msg.role === 'user' ? 'fa-user' : 'fa-robot'"></i>
+                  </div>
+                  <span style="font-size: 11px; font-weight: 600; opacity: 0.6;">
+                    {{ msg.role === 'user' ? 'User' : (msg.role === 'assistant' ? 'Assistant' : msg.role.toUpperCase()) }}
+                  </span>
+                </div>
+
+                <div class="msg-bubble" style="padding: 10px 14px; border-radius: 12px; font-size: 13px; line-height: 1.5; position: relative;"
+                     :style="{ 
+                        background: msg.role === 'user' ? 'rgba(var(--ag-primary-rgb), 0.08)' : 'var(--bg-tertiary)', 
+                        color: 'var(--text-primary)',
+                        border: msg.role === 'user' ? '1px solid rgba(var(--ag-primary-rgb), 0.2)' : '1px solid var(--border-color)',
+                        borderTopRightRadius: msg.role === 'user' ? '2px' : '12px',
+                        borderTopLeftRadius: msg.role === 'user' ? '12px' : '2px'
+                     }"
+                     v-html="renderMarkdown(msg.content)">
+                </div>
+              </div>
+
+              <!-- 展示本次 AI 响应 (包含思考过程) -->
+              <div v-if="antigravityLogDetail.detail.response && antigravityLogDetail.detail.response.choices && antigravityLogDetail.detail.response.choices[0].message" 
+                   style="align-self: flex-start; width: 100%; max-width: 95%;">
+                
+                <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 6px;">
+                  <div style="width: 20px; height: 20px; border-radius: 50%; background: var(--ag-primary); color: white; display: flex; align-items: center; justify-content: center; font-size: 10px; box-shadow: 0 2px 6px rgba(var(--ag-primary-rgb), 0.3);">
+                    <i class="fas fa-magic"></i>
+                  </div>
+                  <span style="font-size: 11px; font-weight: 700; color: var(--ag-primary);">Current Response</span>
+                </div>
+                
+                <div style="display: flex; flex-direction: column; gap: 10px; background: var(--bg-tertiary); padding: 14px; border-radius: 12px; border: 1px solid var(--border-color); border-top-left-radius: 2px;">
+                  <!-- 思考过程 (折叠) -->
+                  <details v-if="antigravityLogDetail.detail.response.choices[0].message.reasoning_content" 
+                           class="reasoning-details">
+                    <summary>
+                      <i class="fas fa-brain" style="color: #9c27b0;"></i>
+                      <span>Thinking Process</span>
+                      <i class="fas fa-chevron-down" style="margin-left: auto; font-size: 10px; opacity: 0.5;"></i>
+                    </summary>
+                    <div class="reasoning-content-inner"
+                         v-html="renderMarkdown(antigravityLogDetail.detail.response.choices[0].message.reasoning_content)">
+                    </div>
+                  </details>
+
+                  <!-- 最终回复正文 -->
+                  <div class="response-content" style="font-size: 13px; line-height: 1.6; color: var(--text-primary);"
+                       v-html="renderMarkdown(antigravityLogDetail.detail.response.choices[0].message.content)">
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 如果没有 messages 只有 response 摘要 -->
+            <div v-else-if="antigravityLogDetail.detail.response" style="background: var(--bg-tertiary); padding: 12px; border-radius: 8px;">
+               <strong>响应摘要:</strong>
+               <div v-if="antigravityLogDetail.detail.response.choices" style="margin-top: 4px; font-size: 12px; opacity: 0.9;">
+                 {{ antigravityLogDetail.detail.response.choices[0].message.content }}
+               </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 原始视图 -->
+        <div v-else>
+          <pre style="background: var(--bg-secondary); padding: 12px; border-radius: 8px; font-size: 12px; overflow-x: auto;">{{ JSON.stringify(antigravityLogDetail, null, 2) }}</pre>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 全屏图片预览模态框 -->
+<div v-if="showImagePreviewModal" class="modal-overlay image-preview-overlay" @click="showImagePreviewModal = false"
+  @keydown.esc="showImagePreviewModal = false" tabindex="-1">
+  <button class="modal-close" @click="showImagePreviewModal = false">
+    <i class="fas fa-times"></i>
+  </button>
+  <div class="image-preview-container" style="position: relative; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; padding: 40px;">
+    <img :src="previewImageUrl" style="max-width: 100%; max-height: 100%; object-fit: contain; box-shadow: 0 0 30px rgba(0,0,0,0.5); border-radius: 4px;" @click="showImagePreviewModal = false" />
+    <div style="position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); color: rgba(255,255,255,0.5); font-size: 12px; pointer-events: none; letter-spacing: 1px;">
+      点击任意位置或按 ESC 键退出预览
+    </div>
+  </div>
+</div>
+
+<!-- Gemini CLI Log Detail Modal -->
+<div v-if="showGeminiCliLogDetailModal" class="modal-overlay" @click.self="showGeminiCliLogDetailModal = false"
+  @keydown.esc="showGeminiCliLogDetailModal = false" tabindex="-1">
+  <div class="modal" style="max-width: 600px;">
+    <div class="modal-header">
+      <div class="modal-title"><i class="fas fa-file-alt"></i> Gemini CLI 调用日志详情</div>
+      <button class="modal-close" @click="showGeminiCliLogDetailModal = false"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-body" v-if="geminiCliLogDetail" style="padding: 20px;">
+      <pre
+        style="background: var(--bg-secondary); padding: 12px; border-radius: 8px; font-size: 12px; overflow-x: auto; max-height: 400px; overflow-y: auto;">{{ JSON.stringify(geminiCliLogDetail, null, 2) }}</pre>
+    </div>
+  </div>
+</div>
+
+<!-- Server Modals -->
+
+<!-- 添加/编辑主机模态框 -->
+<div v-if="showServerModal" class="modal-overlay" @keydown.esc="closeServerModal" @keydown.ctrl.enter="saveServer"
+  tabindex="-1">
+  <div class="modal server-modal">
+    <div class="modal-header">
+      <div class="modal-title">
+        <i class="fas fa-server"></i>
+        {{ serverModalMode === 'add' ? '添加主机' : '编辑主机' }}
+      </div>
+      <button class="modal-close" @click="closeServerModal"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-body">
+      <!-- 基础信息区 -->
+      <div class="server-form-section">
+        <div class="form-row">
+          <div class="form-group flex-1">
+            <label>常用凭据</label>
+            <select class="form-input" @change="applyCredential($event)">
+              <option value="">-- 选择预设凭据 --</option>
+              <option v-for="cred in serverCredentials" :key="cred.id" :value="cred.id">
+                {{ cred.name }} ({{ cred.username }})
+              </option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group flex-1">
+            <label><i class="fas fa-id-badge"></i> 实例名称</label>
+            <input type="text" v-model="serverForm.name" class="form-input" placeholder="如: 生产环境-网关" required />
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group" style="flex: 7;">
+            <label><i class="fas fa-network-wired"></i> 主机地址</label>
+            <input type="text" v-model="serverForm.host" class="form-input" placeholder="IP 或 域名" required />
+          </div>
+          <div class="form-group" style="flex: 3;">
+            <label><i class="fas fa-door-open"></i> 端口</label>
+            <input type="number" v-model="serverForm.port" class="form-input" placeholder="22" />
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group flex-1">
+            <label><i class="fas fa-user-shield"></i> 登录用户</label>
+            <input type="text" v-model="serverForm.username" class="form-input" placeholder="root" required />
+          </div>
+        </div>
+      </div>
+
+      <!-- 认证方式区 -->
+      <div class="server-form-section">
+        <div class="server-auth-toggle">
+          <button type="button" :class="{ active: serverForm.authType === 'password' }"
+            @click="serverForm.authType = 'password'">
+            <i class="fas fa-key"></i> 密码认证
+          </button>
+          <button type="button" :class="{ active: serverForm.authType === 'privateKey' }"
+            @click="serverForm.authType = 'privateKey'">
+            <i class="fas fa-file-code"></i> 密钥认证
+          </button>
+        </div>
+
+        <div v-if="serverForm.authType === 'password'" class="server-form-field">
+          <label><i class="fas fa-lock"></i> 密码</label>
+          <input v-model="serverForm.password" type="password" placeholder="请输入密码" />
+        </div>
+
+        <div v-if="serverForm.authType === 'privateKey'">
+          <div class="server-form-field">
+            <label><i class="fas fa-file-alt"></i> 私钥内容</label>
+            <textarea v-model="serverForm.privateKey" rows="4" placeholder="粘贴 SSH 私钥（支持 RSA、ECDSA、Ed25519）"></textarea>
+          </div>
+          <div class="server-form-field">
+            <label><i class="fas fa-unlock-alt"></i> 私钥密码 <span class="optional-tag">可选</span></label>
+            <input v-model="serverForm.passphrase" type="password" placeholder="私钥有密码保护时填写" />
+          </div>
+        </div>
+      </div>
+
+      <div v-if="serverModalError" class="server-form-error">
+        <i class="fas fa-exclamation-circle"></i> {{ serverModalError }}
+      </div>
+    </div>
+    <div class="server-modal-footer">
+      <button class="btn-server-cancel" @click="closeServerModal" :disabled="serverModalSaving">
+        取消
+      </button>
+      <div class="server-modal-actions">
+        <button class="btn-server-test" @click="testServerConnection" :disabled="serverModalSaving">
+          <i class="fas fa-plug"></i> 测试
+        </button>
+        <button class="btn-server-save" @click="saveServer" :disabled="serverModalSaving">
+          <i class="fas" :class="serverModalSaving ? 'fa-spinner fa-spin' : 'fa-check'"></i>
+          {{ serverModalSaving ? '保存中' : '保存' }}
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 批量导入主机模态框 -->
+<div v-if="showImportServerModal" class="modal-overlay" @keydown.esc="closeImportServerModal"
+  @keydown.enter="confirmImportServers" tabindex="-1">
+  <div class="modal server-modal" style="max-width: 500px;">
+    <div class="modal-header">
+      <div class="modal-title">
+        <i class="fas fa-file-import"></i>
+        批量导入主机
+      </div>
+      <button class="modal-close" @click="closeImportServerModal"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="server-form-section">
+        <div class="form-group">
+          <label><i class="fas fa-file"></i> 选择 JSON 文件</label>
+          <input type="file" ref="importFileInput" accept=".json" class="form-input" @change="handleImportFileChange" />
+        </div>
+      </div>
+      <div v-if="importPreview" class="server-form-section" style="margin-top: 8px;">
+        <div class="form-group">
+          <label><i class="fas fa-list"></i> 预览（将导入 {{ importPreview.length }} 台主机）</label>
+          <div class="import-preview-list">
+            <div v-for="(server, index) in importPreview" :key="index" class="import-preview-item">
+              <i class="fas fa-server"></i>
+              <span>{{ server.name }} ({{ server.username }}@{{ server.host }}:{{ server.port }})</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div v-if="importModalError" class="server-form-error">
+        <i class="fas fa-exclamation-circle"></i> {{ importModalError }}
+      </div>
+    </div>
+    <div class="server-modal-footer">
+      <button class="btn-server-cancel" @click="closeImportServerModal" :disabled="importModalSaving">
+        取消
+      </button>
+      <button class="btn-server-save" @click="confirmImportServers"
+        :disabled="importModalSaving || !importPreview || importPreview.length === 0">
+        <i class="fas fa-check"></i>
+        {{ importModalSaving ? '导入中...' : '确认导入' }}
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- 凭据管理模态框 -->
+<div v-if="showAddCredentialModal" class="modal-overlay" @click.self="showAddCredentialModal = false"
+  @keydown.esc="showAddCredentialModal = false" tabindex="-1">
+  <div class="modal server-modal" style="max-width: 380px;">
+    <div class="modal-header">
+      <div class="modal-title">
+        <i class="fas fa-key"></i> 保存新凭据
+      </div>
+      <button class="modal-close" @click="showAddCredentialModal = false"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="server-form-section">
+        <div class="form-group">
+          <label><i class="fas fa-tag"></i> 凭据标识</label>
+          <input type="text" v-model="credForm.name" class="form-input" placeholder="例如: 默认密码" />
+        </div>
+        <div class="form-group">
+          <label><i class="fas fa-user"></i> 用户名</label>
+          <input type="text" v-model="credForm.username" class="form-input" placeholder="root" />
+        </div>
+        <div class="form-group">
+          <label><i class="fas fa-lock"></i> 密码</label>
+          <input type="password" v-model="credForm.password" class="form-input" placeholder="登录密码" />
+        </div>
+      </div>
+      <div v-if="credError" class="server-form-error">
+        <i class="fas fa-exclamation-circle"></i> {{ credError }}
+      </div>
+    </div>
+    <div class="server-modal-footer">
+      <button class="btn-server-cancel" @click="showAddCredentialModal = false">取消</button>
+      <button class="btn-server-save" @click="saveCredential">
+        <i class="fas fa-save"></i> 保存
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- Docker 详细列表模态框 -->
+<div v-if="showDockerModal" class="modal-overlay" @click.self="showDockerModal = false"
+  @keydown.esc="showDockerModal = false" tabindex="-1">
+  <div class="modal-container glass-panel modal-lg" style="border-radius: 20px;">
+    <div class="modal-header">
+      <div class="modal-title">云容器管理 - {{ dockerModalServer ? dockerModalServer.name : '' }}</div>
+      <button class="close-btn" @click="showDockerModal = false">×</button>
+    </div>
+    <div class="modal-body">
+      <div v-if="dockerModalData && dockerModalData.containers" class="docker-container-list">
+        <div v-for="container in dockerModalData.containers" :key="container.id" class="docker-container-card"
+          :class="{ 'running': container.status.includes('Up') }">
+          <div class="docker-container-info">
+            <div class="docker-container-header-row">
+              <div>
+                <div style="font-weight: 700; font-size: 14px;">{{ container.name }}</div>
+                <div class="docker-container-image">{{ container.image }}</div>
+              </div>
+              <span class="docker-status-badge"
+                :class="container.status.includes('Up') ? 'status-running' : 'status-exited'">
+                {{ container.status }}
+              </span>
+            </div>
+            <div class="docker-container-ports">端口: {{ container.ports }}</div>
+            <div class="docker-container-actions">
+              <button v-if="container.status.includes('Up')" class="btn btn-sm btn-secondary"
+                @click="handleDockerAction(dockerModalServer.id, container.id, 'stop')" title="停止"><i
+                  class="fas fa-stop"></i></button>
+              <button v-else class="btn btn-sm btn-success"
+                @click="handleDockerAction(dockerModalServer.id, container.id, 'start')" title="启动"><i
+                  class="fas fa-play"></i></button>
+              <button class="btn btn-sm btn-secondary"
+                @click="handleDockerAction(dockerModalServer.id, container.id, 'restart')" title="重启"><i
+                  class="fas fa-redo"></i></button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div v-else class="loading">正在获取容器信息...</div>
+    </div>
+  </div>
+</div>
+
+<!-- 新建终端会话选择模态框 -->
+<div v-if="showAddSessionSelectModal" class="modal-overlay" @click.self="showAddSessionSelectModal = false"
+  @keydown.esc="showAddSessionSelectModal = false" tabindex="-1">
+  <div class="modal" style="max-width: 480px;">
+    <div class="modal-header"
+      style="background: linear-gradient(135deg, var(--server-primary), var(--server-primary-dark));">
+      <div class="modal-title"><i class="fas fa-terminal"></i> 选择主机</div>
+      <button class="modal-close" @click="showAddSessionSelectModal = false"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-body" style="padding: 16px; max-height: 400px; overflow-y: auto;">
+      <div v-if="serverList.length === 0" class="empty-state" style="padding: 40px;">
+        <i class="fas fa-server" style="font-size: 40px; margin-bottom: 12px; opacity: 0.3;"></i>
+        <div>暂无可用主机</div>
+      </div>
+      <div v-else class="server-select-list">
+        <div v-for="server in serverList" :key="server.id" class="server-select-item"
+          @click="addSessionForServer(server)"
+          :style="{ borderColor: server.status === 'online' ? 'var(--server-primary)' : 'var(--border-color)' }">
+          <div class="server-select-avatar" :style="{
+            background: server.status === 'online' 
+              ? 'linear-gradient(135deg, var(--server-primary), var(--server-primary-dark))' 
+              : 'linear-gradient(135deg, #6b7280, #4b5563)'
+          }">
+            <i class="fas fa-server"></i>
+          </div>
+          <div class="server-select-info">
+            <div class="server-select-name">{{ server.name }}</div>
+            <div class="server-select-host">{{ server.host }}:{{ server.port }}</div>
+          </div>
+          <div class="server-select-status">
+            <span class="status-dot" :class="server.status === 'online' ? 'online' : 'offline'"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== Antigravity 账号模态框 ==================== -->
+<div v-if="showAntigravityAccountModal" class="modal-overlay" @keydown.esc="showAntigravityAccountModal = false"
+  tabindex="-1">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">
+        <i class="fas fa-atom"></i>
+        {{ antigravityEditingAccount ? '编辑账号' : '添加账号' }}
+      </div>
+      <button class="modal-close" @click="showAntigravityAccountModal = false"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">账号名称 *</label>
+        <input v-model="antigravityAccountForm.name" class="form-input" placeholder="例如: Google Pro" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Email (可选)</label>
+        <input v-model="antigravityAccountForm.email" class="form-input" placeholder="user@gmail.com" />
+      </div>
+
+      <div v-if="antigravityAccountFormError" class="form-error">{{ antigravityAccountFormError }}</div>
+    </div>
+    <div class="modal-footer ag-modal-footer">
+      <button class="btn btn-primary" @click="saveAntigravityAccount" :disabled="antigravitySaving" style="flex: 1;">
+        {{ antigravitySaving ? '保存中...' : '提交' }}
+      </button>
+      <button class="btn btn-secondary" @click="showAntigravityAccountModal = false" style="flex: 1;">取消</button>
+    </div>
+  </div>
+</div>
+
+<!-- Antigravity 手动添加模态框 -->
+<div v-if="showAntigravityManualModal" class="modal-overlay" @click.self="showAntigravityManualModal = false"
+  @keydown.esc="showAntigravityManualModal = false" tabindex="-1">
+  <div class="modal ag-modal-manual">
+    <div class="modal-header">
+      <div class="modal-title">手动添加 Token</div>
+      <button class="modal-close" @click="showAntigravityManualModal = false"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>账号名称 (可选)</label>
+        <input type="text" v-model="antigravityManualForm.name" class="form-input" placeholder="默认为 Manual Account">
+      </div>
+      <div class="form-group">
+        <label>Access Token <span style="color:red">*</span></label>
+        <textarea v-model="antigravityManualForm.accessToken" class="form-textarea ag-form-textarea ag-form-textarea-lg"
+          placeholder="ya29.a0..."></textarea>
+      </div>
+      <div class="form-group">
+        <label>Refresh Token <span style="color:red">*</span></label>
+        <textarea v-model="antigravityManualForm.refreshToken" class="form-textarea ag-form-textarea"
+          placeholder="1//0..."></textarea>
+      </div>
+      <div class="form-row">
+        <div class="form-group flex-1">
+          <label>Project ID (可选)</label>
+          <input type="text" v-model="antigravityManualForm.projectId" class="form-input" placeholder="如未填将尝试自动获取">
+        </div>
+        <div class="form-group" style="flex: 0 0 120px;">
+          <label>有效期 (秒)</label>
+          <input type="number" v-model="antigravityManualForm.expiresIn" class="form-input" placeholder="3599">
+        </div>
+      </div>
+      <div v-if="antigravityManualFormError" class="form-error">{{ antigravityManualFormError }}</div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" @click="showAntigravityManualModal = false">取消</button>
+      <button class="btn btn-primary" @click="saveAntigravityManualAccount" :disabled="antigravitySaving">
+        <i class="fas" :class="antigravitySaving ? 'fa-spinner fa-spin' : 'fa-save'"></i> 保存
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== Gemini CLI 账号模态框 ==================== -->
+<div v-if="showGeminiCliAccountModal" class="modal-overlay" @click.self="showGeminiCliAccountModal = false"
+  @keydown.esc="showGeminiCliAccountModal = false" tabindex="-1">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">
+        <i class="fas fa-terminal"></i>
+        {{ geminiCliEditingAccount ? '编辑 Gemini 账号' : '添加 Gemini 账号' }}
+      </div>
+      <button class="modal-close" @click="showGeminiCliAccountModal = false"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">备注名称 <span style="color:red">*</span></label>
+        <input v-model="geminiCliAccountForm.name" class="form-input" placeholder="例如: Gemini Project 1" />
+      </div>
+      <div class="form-group">
+        <label class="form-label" style="display: flex; justify-content: space-between;">
+          <span>Email 地址 (可选)</span>
+          <a href="javascript:void(0)" @click="fetchGeminiCliEmail"
+            style="font-size: 11px; text-decoration: none; color: var(--gemini-primary); line-height: 1.5; display: inline-flex; align-items: center;">
+            <i class="fas fa-magic"></i> 获取地址
+          </a>
+        </label>
+        <input v-model="geminiCliAccountForm.email" class="form-input" placeholder="自动获取或手动填写" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Client ID <span style="color:red">*</span></label>
+        <input v-model="geminiCliAccountForm.client_id" class="form-input"
+          placeholder="717...-....apps.googleusercontent.com" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">Client Secret (可选)</label>
+        <input v-model="geminiCliAccountForm.client_secret" type="password" class="form-input"
+          placeholder="GOCSPX-..." />
+        <div style="font-size: 10px; opacity: 0.5; margin-top: 4px;">如果凭据包含 Client Secret 请填写。</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Refresh Token <span style="color:red">*</span></label>
+        <textarea v-model="geminiCliAccountForm.refresh_token" class="form-textarea" placeholder="1//0..."
+          style="min-height: 80px;"></textarea>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Project ID (可选)</label>
+        <input v-model="geminiCliAccountForm.project_id" class="form-input" placeholder="my-gemini-project" />
+      </div>
+      <div v-if="geminiCliAccountFormError" class="form-error">{{ geminiCliAccountFormError }}</div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" @click="showGeminiCliAccountModal = false">取消</button>
+      <button class="btn btn-primary" @click="saveGeminiCliAccount" :disabled="geminiCliSaving">
+        <i class="fas" :class="geminiCliSaving ? 'fa-spinner fa-spin' : 'fa-save'"></i> 保存并同步
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== PaaS 相关模态框 ==================== -->
+<!-- 添加 Zeabur 账号模态框 -->
+<div v-if="showAddZeaburAccountModal" class="modal-overlay" @keydown.esc="showAddZeaburAccountModal = false"
+  @keydown.enter="addAccountToList" tabindex="-1">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">添加 Zeabur 账号</div>
+      <button class="modal-close" @click="showAddZeaburAccountModal = false"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">账号名称 *</label>
+        <input v-model="newAccount.name" class="form-input" placeholder="例如: 我的账号" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">API Token *</label>
+        <input v-model="newAccount.token" type="password" class="form-input" placeholder="sk-xxxxxxxxxxxxxxxx" />
+        <div class="form-help">在 Zeabur 控制台的设置中创建 API Token</div>
+      </div>
+      <div v-if="addAccountError" class="form-error">{{ addAccountError }}</div>
+      <div v-if="addAccountSuccess" class="form-success">{{ addAccountSuccess }}</div>
+      <div style="display: flex; gap: 12px; margin-top: 20px;">
+        <button class="btn btn-primary" @click="addAccountToList" :disabled="addingAccount" style="flex: 1;">
+          {{ addingAccount ? '验证中...' : '添加账号' }}
+        </button>
+        <button class="btn btn-secondary" @click="showAddZeaburAccountModal = false" style="flex: 1;">取消</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 添加 Koyeb 账号模态框 -->
+<div v-if="showAddKoyebAccountModal" class="modal-overlay" @keydown.esc="showAddKoyebAccountModal = false"
+  tabindex="-1">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">添加 Koyeb 账号</div>
+      <button class="modal-close" @click="showAddKoyebAccountModal = false"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">账号名称 *</label>
+        <input v-model="newKoyebAccount.name" class="form-input" placeholder="例如: 我的 Koyeb" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">API Token *</label>
+        <input v-model="newKoyebAccount.token" type="password" class="form-input" placeholder="koyeb_xxxxxxxxxxxx" />
+        <div class="form-help">在 Koyeb Account Settings -> API Access 中创建</div>
+      </div>
+      <div v-if="koyebAddAccountError" class="form-error">{{ koyebAddAccountError }}</div>
+      <div v-if="koyebAddAccountSuccess" class="form-success">{{ koyebAddAccountSuccess }}</div>
+      <div style="display: flex; gap: 12px; margin-top: 20px;">
+        <button class="btn btn-primary" @click="addKoyebAccount" :disabled="koyebAddingAccount" style="flex: 1;">
+          {{ koyebAddingAccount ? '验证中...' : '添加账号' }}
+        </button>
+        <button class="btn btn-secondary" @click="showAddKoyebAccountModal = false" style="flex: 1;">取消</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== OpenAI 相关模态框 ==================== -->
+<div v-if="showOpenaiEndpointModal" class="modal-overlay" @keydown.esc="showOpenaiEndpointModal = false"
+  @keydown.ctrl.enter="saveOpenaiEndpoint" tabindex="-1">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">{{ openaiEditingEndpoint ? '编辑 API 端点' : '添加 API 端点' }}</div>
+      <button class="modal-close" @click="showOpenaiEndpointModal = false"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">名称</label>
+        <input v-model="openaiEndpointForm.name" class="form-input" placeholder="例如: OpenAI 官方" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">API 地址 *</label>
+        <input v-model="openaiEndpointForm.baseUrl" class="form-input" placeholder="https://api.openai.com" />
+        <div class="form-help">OpenAI 兼容的 API 基础地址（不需要 /v1）</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">API Key *</label>
+        <input v-model="openaiEndpointForm.apiKey" type="text" class="form-input" placeholder="sk-xxxxxxxx"
+          style="font-family: var(--font-mono);" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">备注</label>
+        <textarea v-model="openaiEndpointForm.notes" class="form-textarea" placeholder="可选备注信息"
+          style="min-height: 60px;"></textarea>
+      </div>
+      <div v-if="openaiEndpointFormError" class="form-error">{{ openaiEndpointFormError }}</div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-primary" @click="saveOpenaiEndpoint" :disabled="openaiSaving" style="flex: 1;">
+        {{ openaiSaving ? '保存中...' : '保存' }}
+      </button>
+      <button class="btn btn-secondary" @click="showOpenaiEndpointModal = false" style="flex: 1;">取消</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== DNS 相关模态框 ==================== -->
+<!-- 添加 CF 账号模态框 -->
+<div v-if="showAddDnsAccountModal" class="modal-overlay" @keydown.esc="showAddDnsAccountModal = false"
+  @keydown.enter="addDnsAccount" tabindex="-1">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">添加 Cloudflare 账号</div>
+      <button class="modal-close" @click="showAddDnsAccountModal = false"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">账号名称 *</label>
+        <input v-model="dnsAccountForm.name" class="form-input" placeholder="例如: 主账号" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">API Token *</label>
+        <input v-model="dnsAccountForm.apiToken" type="password" class="form-input"
+          placeholder="Cloudflare API Token" />
+        <div class="form-help">在 Cloudflare 控制台 → My Profile → API Tokens 创建</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">邮箱（可选）</label>
+        <input v-model="dnsAccountForm.email" class="form-input" placeholder="用于标识账号" />
+      </div>
+      <div v-if="dnsAccountFormError" class="form-error">{{ dnsAccountFormError }}</div>
+      <div v-if="dnsAccountFormSuccess" class="form-success">{{ dnsAccountFormSuccess }}</div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-primary" @click="addDnsAccount" :disabled="dnsSavingAccount" style="flex: 1;">
+        {{ dnsSavingAccount ? '验证中...' : '添加账号' }}
+      </button>
+      <button class="btn btn-secondary" @click="showAddDnsAccountModal = false" style="flex: 1;">取消</button>
+    </div>
+  </div>
+</div>
+
+<!-- 编辑 CF 账号模态框 -->
+<div v-if="showEditDnsAccountModal" class="modal-overlay" @keydown.esc="showEditDnsAccountModal = false"
+  @keydown.enter="updateDnsAccount" tabindex="-1">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">编辑 Cloudflare 账号</div>
+      <button class="modal-close" @click="showEditDnsAccountModal = false"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">账号名称 *</label>
+        <input v-model="dnsEditAccountForm.name" class="form-input" placeholder="例如: 主账号" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">API Token *</label>
+        <input v-model="dnsEditAccountForm.apiToken" type="password" class="form-input"
+          placeholder="Cloudflare API Token" />
+        <div class="form-help">留空表示不修改 Token</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">邮箱（可选）</label>
+        <input v-model="dnsEditAccountForm.email" class="form-input" placeholder="用于标识账号" />
+      </div>
+      <div v-if="dnsEditAccountFormError" class="form-error">{{ dnsEditAccountFormError }}</div>
+      <div v-if="dnsEditAccountFormSuccess" class="form-success">{{ dnsEditAccountFormSuccess }}</div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-primary" @click="updateDnsAccount" :disabled="dnsSavingAccount" style="flex: 1;">
+        {{ dnsSavingAccount ? '保存中...' : '保存修改' }}
+      </button>
+      <button class="btn btn-secondary" @click="showEditDnsAccountModal = false" style="flex: 1;">取消</button>
+    </div>
+  </div>
+</div>
+
+<!-- 添加/编辑 DNS 记录模态框 -->
+<div v-if="showDnsRecordModal" class="modal-overlay" @keydown.esc="showDnsRecordModal = false"
+  @keydown.enter="saveDnsRecord" tabindex="-1">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">{{ dnsEditingRecord ? '编辑 DNS 记录' : '添加 DNS 记录' }}</div>
+      <button class="modal-close" @click="showDnsRecordModal = false"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-body">
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+        <div class="form-group">
+          <label class="form-label">类型 *</label>
+          <select v-model="dnsRecordForm.type" class="form-input" :disabled="!!dnsEditingRecord">
+            <option v-for="t in dnsRecordTypes" :key="t" :value="t">{{ t }}</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">名称 *</label>
+          <input v-model="dnsRecordForm.name" class="form-input" placeholder="@ 或 www" />
+          <div class="form-help">@ 表示根域名</div>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">内容 *</label>
+        <input v-model="dnsRecordForm.content" class="form-input" placeholder="IP 地址或目标域名" />
+      </div>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px;">
+        <div class="form-group" style="margin-bottom: 0;">
+          <label class="form-label">TTL</label>
+          <select v-model="dnsRecordForm.ttl" class="form-input">
+            <option :value="1">Auto</option>
+            <option :value="60">1 分钟</option>
+            <option :value="300">5 分钟</option>
+            <option :value="600">10 分钟</option>
+            <option :value="3600">1 小时</option>
+            <option :value="86400">1 天</option>
+          </select>
+        </div>
+        <div class="form-group" style="margin-bottom: 0;" v-if="canDnsBeProxied(dnsRecordForm.type)">
+          <label class="form-label" style="display: flex; align-items: center; justify-content: space-between;">
+            CDN 代理
+            <label class="switch" style="transform: scale(0.85); transform-origin: right;">
+              <input type="checkbox" v-model="dnsRecordForm.proxied" />
+              <span class="slider round"></span>
+            </label>
+          </label>
+          <div class="form-help" style="margin-top: 5px; font-size: 10px;">通过 Cloudflare 边缘加速</div>
+        </div>
+        <div class="form-group" v-if="dnsRecordForm.type === 'MX'" style="margin-bottom: 0;">
+          <label class="form-label">优先级</label>
+          <input v-model.number="dnsRecordForm.priority" type="number" class="form-input" placeholder="10" />
+        </div>
+      </div>
+      <div v-if="dnsRecordFormError" class="form-error">{{ dnsRecordFormError }}</div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-primary" @click="saveDnsRecord" :disabled="dnsSavingRecord" style="flex: 1;">
+        {{ dnsSavingRecord ? '保存中...' : '保存' }}
+      </button>
+      <button class="btn btn-secondary" @click="showDnsRecordModal = false" style="flex: 1;">取消</button>
+    </div>
+  </div>
+</div>
+
+<!-- 添加/编辑模板模态框 -->
+<div v-if="showDnsTemplateModal" class="modal-overlay" @keydown.esc="showDnsTemplateModal = false"
+  @keydown.enter="saveDnsTemplate" tabindex="-1">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">{{ dnsEditingTemplate ? '编辑模板' : '添加模板' }}</div>
+      <button class="modal-close" @click="showDnsTemplateModal = false"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">模板名称 *</label>
+        <input v-model="dnsTemplateForm.name" class="form-input" placeholder="例如: CDN 记录" />
+      </div>
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+        <div class="form-group">
+          <label class="form-label">记录类型 *</label>
+          <select v-model="dnsTemplateForm.type" class="form-input">
+            <option v-for="t in dnsRecordTypes" :key="t" :value="t">{{ t }}</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">TTL</label>
+          <select v-model="dnsTemplateForm.ttl" class="form-input">
+            <option :value="1">Auto</option>
+            <option :value="300">5 分钟</option>
+            <option :value="3600">1 小时</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">内容 *</label>
+        <input v-model="dnsTemplateForm.content" class="form-input" placeholder="IP 地址或目标域名" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">描述（可选）</label>
+        <input v-model="dnsTemplateForm.description" class="form-input" placeholder="模板用途说明" />
+      </div>
+      <div class="form-group" v-if="canDnsBeProxied(dnsTemplateForm.type)">
+        <label style="display: flex; align-items: center; gap: 8px; font-size: 14px; cursor: pointer;">
+          <input type="checkbox" v-model="dnsTemplateForm.proxied" style="width: 16px; height: 16px;" />
+          启用 Cloudflare 代理
+        </label>
+      </div>
+      <div v-if="dnsTemplateFormError" class="form-error">{{ dnsTemplateFormError }}</div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-primary" @click="saveDnsTemplate" :disabled="dnsSavingTemplate" style="flex: 1;">
+        {{ dnsSavingTemplate ? '保存中...' : '保存' }}
+      </button>
+      <button class="btn btn-secondary" @click="showDnsTemplateModal = false" style="flex: 1;">取消</button>
+    </div>
+  </div>
+</div>
+
+<!-- Worker 自定义域名管理模态框 -->
+<div v-if="showWorkerDomainsModal" class="modal-overlay" @click.self="showWorkerDomainsModal = false"
+  @keydown.esc="showWorkerDomainsModal = false" tabindex="-1">
+  <div class="modal" style="max-width: 700px; width: 90%;">
+    <div class="modal-header">
+      <div class="modal-title">自定义域名: {{ selectedWorkerForDomains?.name }}</div>
+      <button class="modal-close" @click="showWorkerDomainsModal = false"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-body" style="padding:0;">
+      <div v-if="workerDomainsLoading" class="loading" style="padding: 40px;">
+        <div class="spinner"></div>
+        <div style="margin-top: 12px;">加载域名列表...</div>
+      </div>
+      <div v-else>
+        <div class="table-container" style="max-height: 400px; overflow-y: auto;">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>自定义域名</th>
+                <th>状态</th>
+                <th class="text-center" style="width: 80px;">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="domain in workerDomains" :key="domain.id">
+                <td><strong>{{ domain.hostname }}</strong></td>
+                <td>
+                  <span class="status-badge" :class="getDomainStatusClass(domain.status)">
+                    {{ getDomainStatusText(domain.status) }}
+                  </span>
+                </td>
+                <td class="text-center">
+                  <button class="btn btn-icon-refined" style="color: var(--danger-color);"
+                    @click="deleteWorkerDomain(domain)">
+                    <i class="fas fa-trash"></i>
+                  </button>
+                </td>
+              </tr>
+              <tr v-if="workerDomains.length === 0">
+                <td colspan="3" class="empty-state" style="padding: 40px;">暂无自定义域名</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div style="padding: 20px; background: var(--bg-tertiary); border-top: 1px solid var(--border-color);">
+          <div style="font-size: 13px; font-weight: 600; margin-bottom: 12px;">绑定新域名</div>
+          <div style="display: flex; gap: 10px;">
+            <input v-model="newWorkerDomain" class="form-input" style="flex: 1;" placeholder="例如: api.example.com" />
+            <button class="btn btn-cf" @click="addWorkerDomain" :disabled="!newWorkerDomain">
+              <i class="fas fa-link"></i> 绑定
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" @click="showWorkerDomainsModal = false">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- Pages 部署预览模态框 -->
+<div v-if="showPagesDeploymentsModal" class="modal-overlay" @click.self="closePagesDeploymentsModal"
+  @keydown.esc="closePagesDeploymentsModal" tabindex="-1">
+  <div class="modal" style="max-width: 850px; width: 95%;">
+    <div class="modal-header">
+      <div class="modal-title">部署历史: {{ selectedPagesProject?.name }}</div>
+      <button class="modal-close" @click="closePagesDeploymentsModal"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-body" style="padding:0;">
+      <div v-if="pagesDeploymentsLoading" class="loading" style="padding: 40px;">
+        <div class="spinner"></div>
+        <div style="margin-top: 12px;">获取部署记录...</div>
+      </div>
+      <div v-else class="table-container" style="max-height: 500px; overflow-y: auto;">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>状态</th>
+              <th>环境</th>
+              <th>部署域名</th>
+              <th>更新于</th>
+              <th class="text-center">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="dep in pagesDeployments" :key="dep.id">
+              <td>
+                <span class="status-badge" :class="getDeploymentStatusClass(dep.latest_stage.status)">
+                  {{ formatDeploymentStatus(dep.latest_stage.status) }}
+                </span>
+              </td>
+              <td>
+                {{ dep.environment === 'production' ? '🚀 生产环境' : '🏗️ 预览环境' }}
+              </td>
+              <td>
+                <a href="javascript:void(0)" @click="openExternalLink(dep.url)" class="content-truncate"
+                  style="max-width: 250px; font-size: 11px; color: var(--cf-color); text-decoration: none;">
+                  {{ dep.url }}
+                </a>
+              </td>
+              <td><small>{{ formatWorkerDate(dep.created_on) }}</small></td>
+              <td class="text-center">
+                <button class="btn btn-icon-refined" @click="openExternalLink(dep.url)">
+                  <i class="fas fa-external-link-alt"></i>
+                </button>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" @click="closePagesDeploymentsModal">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- Pages 自定义域名管理模态框 -->
+<div v-if="showPagesDomainsModal" class="modal-overlay" @click.self="showPagesDomainsModal = false"
+  @keydown.esc="showPagesDomainsModal = false" tabindex="-1">
+  <div class="modal" style="max-width: 700px; width: 90%;">
+    <div class="modal-header">
+      <div class="modal-title">自定义域名: {{ selectedPagesProjectForDomains?.name }}</div>
+      <button class="modal-close" @click="showPagesDomainsModal = false"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-body" style="padding:0;">
+      <div v-if="pagesDomainsLoading" class="loading" style="padding: 40px;">
+        <div class="spinner"></div>
+        <div style="margin-top: 12px;">加载域名列表...</div>
+      </div>
+      <div v-else>
+        <div class="table-container" style="max-height: 400px; overflow-y: auto;">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>自定义域名</th>
+                <th>状态</th>
+                <th class="text-center" style="width: 80px;">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="domain in pagesDomains" :key="domain.id">
+                <td><strong>{{ domain.name }}</strong></td>
+                <td>
+                  <span class="status-badge" :class="getDomainStatusClass(domain.status)">
+                    {{ getDomainStatusText(domain.status) }}
+                  </span>
+                </td>
+                <td class="text-center">
+                  <button class="btn btn-icon-refined" style="color: var(--danger-color);"
+                    @click="deletePagesDomain(domain)">
+                    <i class="fas fa-trash"></i>
+                  </button>
+                </td>
+              </tr>
+              <tr v-if="pagesDomains.length === 0">
+                <td colspan="3" class="empty-state" style="padding: 40px;">暂无自定义域名</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div style="padding: 20px; background: var(--bg-tertiary); border-top: 1px solid var(--border-color);">
+          <div style="font-size: 13px; font-weight: 600; margin-bottom: 12px;">绑定新域名</div>
+          <div style="display: flex; gap: 10px;">
+            <input v-model="newPagesDomain" class="form-input" style="flex: 1;" placeholder="例如: docs.example.com" />
+            <button class="btn btn-cf" @click="addPagesDomain" :disabled="!newPagesDomain">
+              <i class="fas fa-link"></i> 绑定
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" @click="showPagesDomainsModal = false">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- 新建/编辑 Worker 模态框 -->
+<div v-if="showNewWorkerModal" class="modal-overlay" @click.self="showNewWorkerModal = false"
+  @keydown.esc="showNewWorkerModal = false" tabindex="-1">
+  <div class="modal" style="max-width: 800px; width: 90%;">
+    <div class="modal-header">
+      <div class="modal-title">{{ isEditingWorker ? '编辑 Worker' : '新建 Worker' }}</div>
+      <button class="modal-close" @click="showNewWorkerModal = false"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label class="form-label">Worker 名称 *</label>
+        <input v-model="newWorkerName" class="form-input" placeholder="例如: my-api" :disabled="isEditingWorker" />
+      </div>
+      <div class="form-group">
+        <label class="form-label">脚本代码 (JavaScript) *</label>
+        <div id="monaco-editor-container"
+          style="height: 400px; border: 1px solid var(--border-color); border-radius: 8px; overflow: hidden;"></div>
+        <!-- Monaco Editor 将在此处初始化 -->
+      </div>
+    </div>
+    <div class="modal-footer" style="padding: 12px 20px; border-top: 1px solid var(--border-color);">
+      <div style="display: flex; gap: 12px; width: 100%;">
+        <button class="btn btn-primary" @click="saveNewWorker" :disabled="workersLoading" style="flex: 1;">
+          <i class="fas fa-save"></i> 保存并部署
+        </button>
+        <button class="btn btn-secondary" @click="showNewWorkerModal = false" style="flex: 1;">取消</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Worker 路由管理模态框 -->
+<div v-if="showWorkerRoutesModal" class="modal-overlay" @click.self="closeWorkerRoutesModal">
+  <div class="modal" style="max-width: 700px; width: 90%;">
+    <div class="modal-header">
+      <div class="modal-title">
+        管理路由: {{ selectedWorkerForRoutes?.name }}
+      </div>
+      <button class="modal-close" @click="closeWorkerRoutesModal"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-body" style="padding:0;">
+      <div v-if="workerRoutesLoading" class="loading" style="padding: 40px;">
+        <div class="spinner"></div>
+        <div style="margin-top: 12px;">同步路由配置...</div>
+      </div>
+      <div v-else>
+        <!-- 路由列表 -->
+        <div class="table-container" style="max-height: 400px; overflow-y: auto;">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>路由模式 (Pattern)</th>
+                <th>状态</th>
+                <th class="text-center" style="width: 80px;">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="route in workerRoutes" :key="route.id">
+                <td><code class="code-sm">{{ route.pattern }}</code></td>
+                <td>
+                  <span class="status-badge" :class="route.script === selectedWorkerForRoutes?.name ? 'active' : ''">
+                    {{ route.script === selectedWorkerForRoutes?.name ? '当前 Worker' : (route.script || '未绑定') }}
+                  </span>
+                </td>
+                <td class="text-center">
+                  <button class="btn btn-icon-refined" style="color: var(--danger-color);"
+                    @click="deleteWorkerRoute(route)">
+                    <i class="fas fa-trash"></i>
+                  </button>
+                </td>
+              </tr>
+              <tr v-if="workerRoutes.length === 0">
+                <td colspan="3" class="empty-state" style="padding: 40px;">暂无路由，Worker 仅可通过子域名访问</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <!-- 添加区域 -->
+        <div style="padding: 20px; background: var(--bg-tertiary); border-top: 1px solid var(--border-color);">
+          <div style="font-size: 13px; font-weight: 600; margin-bottom: 12px;">添加新路由</div>
+          <div style="display: flex; gap: 10px;">
+            <input v-model="newRoutePattern" class="form-input" style="flex: 1;" placeholder="例如: example.com/api/*" />
+            <button class="btn btn-cf" @click="createWorkerRoute" :disabled="!newRoutePattern">
+              <i class="fas fa-plus"></i> 添加
+            </button>
+          </div>
+          <div class="form-help" style="margin-top: 8px;">
+            域名必须已在 Cloudflare 托管且启用代理 (Proxied)。
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" @click="closeWorkerRoutesModal">关闭</button>
+    </div>
+  </div>
+</div>
+
+<!-- 新建终端会话选择模态框 -->
+<div v-if="showAddSessionSelectModal" class="modal-overlay" @click.self="showAddSessionSelectModal = false"
+  tabindex="-1">
+  <div class="modal" style="max-width: 480px;">
+    <div class="modal-header"
+      style="background: linear-gradient(135deg, var(--server-primary), var(--server-primary-dark));">
+      <div class="modal-title"><i class="fas fa-terminal"></i> 选择主机</div>
+      <button class="modal-close" @click="showAddSessionSelectModal = false"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-body" style="padding: 16px; max-height: 400px; overflow-y: auto;">
+      <div v-if="serverList.length === 0" class="empty-state" style="padding: 40px;">
+        <i class="fas fa-server" style="font-size: 40px; margin-bottom: 12px; opacity: 0.3;"></i>
+        <div>暂无可用主机</div>
+      </div>
+      <div v-else class="server-select-list">
+        <div v-for="server in serverList" :key="server.id" class="server-select-item"
+          @click="addSessionForServer(server)"
+          :style="{ borderColor: server.status === 'online' ? 'var(--server-primary)' : 'var(--border-color)' }">
+          <div class="server-select-avatar" :style="{
+            background: server.status === 'online' 
+              ? 'linear-gradient(135deg, var(--server-primary), var(--server-primary-dark))' 
+              : 'linear-gradient(135deg, #6b7280, #4b5563)'
+          }">
+            <i class="fas fa-server"></i>
+          </div>
+          <div class="server-select-info">
+            <div class="server-select-name">{{ server.name }}</div>
+            <div class="server-select-host">{{ server.host }}:{{ server.port }}</div>
+          </div>
+          <div class="server-select-status">
+            <span class="status-dot" :class="server.status === 'online' ? 'online' : 'offline'"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

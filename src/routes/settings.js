@@ -128,7 +128,7 @@ router.get('/', (req, res) => {
 router.post('/', (req, res) => {
   try {
     const settings = req.body;
-    console.log('[DEBUG] POST /api/settings - Body:', JSON.stringify(settings, null, 2));
+
     const result = saveUserSettings(settings);
 
     if (result.success) {
@@ -373,17 +373,12 @@ router.post('/clear-logs', async (req, res) => {
  */
 router.post('/clear-app-logs', (req, res) => {
   try {
-    const logPath = path.join(__dirname, '../../data/logs/app.log');
-    if (fs.existsSync(logPath)) {
-      // 物理清空
-      fs.writeFileSync(logPath, '', 'utf8');
-
-      // 同时清空内存 buffer (如果 logger 支持)
-      const { clearBuffer } = require('../utils/logger');
-      if (typeof clearBuffer === 'function') clearBuffer();
-
+    const { clearLogFile } = require('../utils/logger');
+    const success = clearLogFile();
+    if (success) {
       logger.success('系统日志文件已物理清空');
     }
+
     res.json({ success: true, message: 'Logs cleared' });
   } catch (error) {
     logger.error('清空日志文件失败:', error.message);

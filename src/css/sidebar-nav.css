@@ -1,0 +1,189 @@
+/* Sidebar Navigation (Vertical Tabs) */
+.sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  padding: 0 10px;
+  margin-top: 20px;
+  flex: 1;
+  overflow-y: auto;
+  align-items: flex-start;
+  /* 改为左对齐，方便展开 */
+}
+
+.sidebar-tab {
+  width: 40px;
+  /* 初始宽度 */
+  height: 40px;
+  border-radius: 10px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  /* 从 tertiary 改为 secondary 以增强对比度 */
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  /* 图标靠左 */
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  font-size: 16px;
+  position: relative;
+  padding: 10px;
+  overflow: hidden;
+  white-space: nowrap;
+  gap: 12px;
+}
+
+.tab-label {
+  font-size: 14px;
+  font-weight: 500;
+  opacity: 0;
+  transition: opacity 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  pointer-events: none;
+  white-space: nowrap;
+  /* 强制不换行，防止宽度不足时文字抖动 */
+  visibility: hidden;
+  /* 隐藏时完全移除 */
+}
+
+/* 侧边栏悬停状态下的样式 */
+.app-sidebar:not(.sidebar-locked):hover {
+  width: 160px !important;
+  /* 展开宽度 */
+}
+
+.app-sidebar:not(.sidebar-locked):hover .sidebar-tab {
+  width: 100%;
+  /* 按钮撑满 */
+}
+
+.app-sidebar:not(.sidebar-locked):hover .tab-label {
+  opacity: 1;
+  visibility: visible;
+  transition-delay: 0.1s;
+  /* 稍微延迟显示，等待侧边栏展开一定宽度 */
+}
+
+.sidebar-tab i {
+  width: 20px;
+  /* 固定图标容器宽度 */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  /* 统一图标视觉大小 */
+  flex-shrink: 0;
+  text-align: center;
+}
+
+.sidebar-tab:hover {
+  background: rgba(var(--primary-rgb), 0.08);
+  color: var(--primary-color);
+  transform: translateX(2px);
+}
+
+.sidebar-tab.active {
+  background: linear-gradient(135deg, var(--primary-color) 0%, var(--primary-dark) 100%);
+  color: white;
+  box-shadow: 0 4px 12px rgba(var(--primary-rgb), 0.3);
+}
+
+/* Mobile adaptation for sidebar nav */
+@media (max-width: 768px) {
+  .sidebar-nav {
+    flex-direction: row;
+    margin-top: 0;
+    gap: 4px;
+    padding: 0;
+    overflow-x: auto;
+    justify-content: flex-start;
+    /* Left align items */
+    align-items: center;
+  }
+
+  .sidebar-tab {
+    width: auto;
+    min-width: 40px;
+    height: 40px;
+    padding: 0 12px;
+  }
+
+  .tab-label {
+    display: none;
+    /* 移动端不显示名称 */
+  }
+
+  /* 移动端禁用展开效果 */
+  .app-sidebar:hover {
+    width: 100% !important;
+  }
+}
+
+/* Hide scrollbar */
+.sidebar-nav::-webkit-scrollbar {
+  display: none;
+}
+
+/* Footer buttons adaptation */
+.sidebar-footer {
+  align-items: flex-start !important;
+  padding: 0 10px !important;
+}
+
+.auth-btn {
+  width: 40px !important;
+  height: 40px !important;
+  justify-content: flex-start !important;
+  padding: 10px !important;
+  /* 修改为 10px，与顶部 tab 一致以实现视觉居中 */
+  gap: 12px !important;
+  overflow: hidden;
+  white-space: nowrap;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  background: transparent !important;
+  color: var(--primary-color) !important;
+  /* 强制按钮使用主色调文字，确保可见 */
+  border-radius: 10px !important;
+}
+
+.auth-btn.active {
+  background: var(--primary-color) !important;
+  color: white !important;
+  box-shadow: 0 4px 12px rgba(var(--primary-rgb), 0.3);
+}
+
+.auth-btn:hover {
+  /* background: rgba(var(--primary-rgb), 0.1) !important; */
+}
+
+.auth-btn i {
+  width: 20px;
+  /* 与上方标签保持一致 */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  flex-shrink: 0;
+  text-align: center;
+}
+
+.app-sidebar:not(.sidebar-locked):hover .auth-btn {
+  width: 100% !important;
+}
+
+.app-sidebar {
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+.sidebar-logo {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  margin-left: 14px;
+  /* 初始偏移以居中 (32px logo in 60px sidebar) */
+  align-self: flex-start;
+}
+
+.app-sidebar:hover .sidebar-logo {
+  margin-left: 14px;
+  /* 保持左对齐 */
+}

@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>API Monitor</title>
+  <link rel="icon" type="image/svg+xml" href="./logo.svg">
+  <link rel="shortcut icon" href="./logo.svg">
+  <link rel="icon" type="image/svg+xml" href="./logo.svg" sizes="32x32">
+
+
+  <!-- Template Loader imported in main.js -->
+</head>
+
+<body>
+  <!-- 自定义 CSS -->
+  <style id="custom-css"></style>
+  <style>
+    [v-cloak] {
+      display: none !important;
+    }
+  </style>
+
+  <div id="app" v-cloak>
+    <!-- 认证模块 (用于设置密码等) -->
+    <div id="template-auth"></div>
+
+    <!-- 主界面布局 -->
+    <div v-if="isAuthenticated" class="app-wrapper">
+
+      <!-- 左侧边栏 -->
+      <aside class="app-sidebar" :class="{ 'sidebar-locked': showSettingsModal }">
+        <!-- Logo -->
+        <img src="./logo.svg" class="sidebar-logo" alt="Logo" title="API Monitor">
+
+        <!-- 侧边栏导航 (Sidebar Mode) -->
+        <div v-if="navLayout === 'sidebar'" class="sidebar-nav">
+          <template v-for="module in moduleOrder" :key="module">
+            <button v-if="moduleVisibility[module]" class="sidebar-tab" :class="{ active: mainActiveTab === module }"
+              @click="handleTabSwitch(module)" :title="getModuleName(module)">
+              <i class="fas" :class="getModuleIcon(module)"></i>
+              <span class="tab-label">{{ getModuleName(module) }}</span>
+            </button>
+          </template>
+        </div>
+        <!-- 底部登录控制 -->
+        <div class="sidebar-footer">
+          <!-- PC端设置按钮 -->
+          <button v-if="isAuthenticated" class="auth-btn desktop-settings-btn" :class="{ active: showSettingsModal }"
+            @click="showSettingsModal = !showSettingsModal" title="系统设置">
+            <i class="fas fa-cog"></i>
+            <span class="tab-label">系统设置</span>
+          </button>
+          <!-- 未登录状态 -->
+          <template v-if="!isAuthenticated">
+            <button class="auth-btn" @click="showLoginModal = true" title="登录">
+              <i class="fas fa-sign-in-alt"></i>
+              <span class="tab-label">登录</span>
+            </button>
+          </template>
+          <!-- 已登录状态 -->
+          <template v-else>
+            <button class="auth-btn" @click="logout" title="退出登录">
+              <i class="fas fa-sign-out-alt"></i>
+              <span class="tab-label">退出登录</span>
+            </button>
+          </template>
+        </div>
+      </aside>
+
+      <!-- 主内容区 -->
+      <main class="app-main">
+        <div v-if="isAuthenticated" class="container">
+          <!-- 页面头部 - 模块控制和设置 -->
+          <div class="header">
+            <div class="title" style="cursor: default;">
+              <i class="fas fa-chart-line"></i>
+              API Monitor
+            </div>
+            <!-- 右侧占位，保持布局平衡 -->
+            <div style="width: 32px;"></div>
+          </div>
+
+          <!-- 主标签页导航 (Top Mode) -->
+          <div v-if="navLayout === 'top'" class="main-tabs">
+            <template v-for="module in moduleOrder" :key="module">
+              <button v-if="moduleVisibility[module]" class="main-tab" :class="[
+                  { active: mainActiveTab === module },
+                  module === 'paas' ? 'paas-tab' : '',
+                  module === 'dns' ? 'dns-tab' : '',
+                  module === 'openai' ? 'openai-tab' : '',
+                  module === 'server' ? 'server-tab' : '',
+                  module === 'antigravity' ? 'antigravity-tab' : '',
+                  module === 'gemini-cli' ? 'gemini-cli-tab' : ''
+                ]" @click="handleTabSwitch(module)">
+                <i class="fas" :class="getModuleIcon(module)"></i>
+                <span> {{ getModuleName(module) }}</span>
+              </button>
+            </template>
+          </div>
+
+          <!-- 模块模板占位符 -->
+          <div id="template-paas"></div>
+          <div id="template-dns"></div>
+          <div id="template-gemini-cli"></div>
+          <div id="template-openai"></div>
+          <div id="template-server"></div>
+          <div id="template-antigravity"></div>
+        </div>
+
+        <!-- 未登录占位符 -->
+        <div v-else class="guest-placeholder">
+          <i class="fas fa-lock"></i>
+          <p>请在左侧栏登录以访问控制台</p>
+        </div>
+      </main>
+    </div>
+
+    <!-- 全局组件占位符 -->
+    <div id="template-settings"></div>
+    <div id="template-modals"></div>
+
+    <!-- Toast 系统容器将由 toast.js 自动创建 -->
+  </div>
+
+  <!-- 模块化 JavaScript -->
+  <script type="module" src="/js/main.js"></script>
+</body>
+
+</html>

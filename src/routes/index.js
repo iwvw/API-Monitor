@@ -45,17 +45,17 @@ function registerRoutes(app) {
   // 模块路由映射配置 (保持向后兼容)
   const moduleRouteMap = {
     'zeabur-api': '/api', // 注意：Zeabur 模块内部路由可能以 /zeabur 开头，或者直接挂载在 /api 下
+    'koyeb-api': '/api', // Koyeb 模块 - 内部路由以 /koyeb 开头
     'cloudflare-dns': '/api/cf-dns',
     'openai-api': '/api/openai',
     'server-management': '/api/server',
     'antigravity-api': '/api/antigravity',
-    'gemini-cli-api': '/api/gemini-cli-api',
-    'nextchat': '/api/nextchat'
+    'gemini-cli-api': '/api/gemini-cli-api'
   };
 
   if (fs.existsSync(modulesDir)) {
     const modules = fs.readdirSync(modulesDir, { withFileTypes: true })
-      .filter(dirent => dirent.isDirectory())
+      .filter(dirent => dirent.isDirectory() && !dirent.name.startsWith('_'))
       .map(dirent => dirent.name);
 
     modules.forEach(moduleName => {

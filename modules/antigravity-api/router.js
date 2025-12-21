@@ -838,10 +838,16 @@ router.post('/v1/chat/completions', requireApiAuth, async (req, res) => {
     const globalSettings = userSettingsService.loadUserSettings();
     const prefix = (globalSettings.channelModelPrefix || {})['antigravity'] || '';
     
-    if (prefix && model.startsWith(prefix)) {
-        model = model.substring(prefix.length);
-        req.body.model = model;
+    // 极致解析：移除所有可能的前缀，包括 [AG] 标记
+    let rawModel = model;
+    if (prefix && rawModel.startsWith(prefix)) {
+        rawModel = rawModel.substring(prefix.length);
     }
+    if (rawModel.startsWith('[AG]')) {
+        rawModel = rawModel.substring(4);
+    }
+    model = rawModel;
+    req.body.model = model;
 
     // 预处理重定向
     const redirects = storage.getModelRedirects();
@@ -883,29 +889,35 @@ router.post('/v1/chat/completions', requireApiAuth, async (req, res) => {
 
         try {
             if (stream) {
-                // 流式处理
-                res.setHeader('Content-Type', 'text/event-stream');
-                res.setHeader('Cache-Control', 'no-cache');
-                res.setHeader('Connection', 'keep-alive');
+                // 仅在尚未发送 Header 时设置
+                if (!res.headersSent) {
+                    res.setHeader('Content-Type', 'text/event-stream');
+                    res.setHeader('Cache-Control', 'no-cache');
+                    res.setHeader('Connection', 'keep-alive');
+                    res.setHeader('X-Accel-Buffering', 'no'); // 禁用代理缓存
+                }
 
                 const id = `chatcmpl-${uuidv4()}`;
                 const created = Math.floor(Date.now() / 1000);
+                let fullContent = '';
+                let fullReasoning = '';
 
                 await client.chatCompletionsStream(account.id, req.body, (event) => {
+                    let chunk = null;
                     if (event.type === 'text') {
-                        const chunk = {
+                        fullContent += event.content;
+                        chunk = {
                             id, object: 'chat.completion.chunk', created, model: modelWithPrefix,
                             choices: [{ index: 0, delta: { content: event.content }, finish_reason: null }]
                         };
-                        res.write(`data: ${JSON.stringify(chunk)}\n\n`);
                     } else if (event.type === 'thinking') {
-                        const chunk = {
+                        fullReasoning += event.content;
+                        chunk = {
                             id, object: 'chat.completion.chunk', created, model: modelWithPrefix,
                             choices: [{ index: 0, delta: { reasoning_content: event.content }, finish_reason: null }]
                         };
-                        res.write(`data: ${JSON.stringify(chunk)}\n\n`);
                     } else if (event.type === 'tool_calls') {
-                        const chunk = {
+                        chunk = {
                             id, object: 'chat.completion.chunk', created, model: modelWithPrefix,
                             choices: [{
                                 index: 0,
@@ -920,6 +932,9 @@ router.post('/v1/chat/completions', requireApiAuth, async (req, res) => {
                                 finish_reason: null
                             }]
                         };
+                    }
+
+                    if (chunk) {
                         res.write(`data: ${JSON.stringify(chunk)}\n\n`);
                     }
                 });
@@ -927,7 +942,8 @@ router.post('/v1/chat/completions', requireApiAuth, async (req, res) => {
                 res.write('data: [DONE]\n\n');
                 res.end();
 
-                // 记录成功日志
+                // 记录成功日志 (包含累计的回复内容和思考过程)
+                const originalMessages = JSON.parse(JSON.stringify(req.body.messages || []));
                 storage.recordLog({
                     accountId: account.id,
                     model: modelWithPrefix,
@@ -938,7 +954,21 @@ router.post('/v1/chat/completions', requireApiAuth, async (req, res) => {
                     durationMs: Date.now() - startTime,
                     clientIp: req.ip,
                     userAgent: req.headers['user-agent'],
-                    detail: { model: req.body.model, type: 'stream' }
+                    detail: { 
+                        model: req.body.model, 
+                        type: 'stream', 
+                        accountName: account.name,
+                        messages: originalMessages,
+                        response: {
+                            choices: [{
+                                message: {
+                                    role: 'assistant',
+                                    content: fullContent,
+                                    reasoning_content: fullReasoning
+                                }
+                            }]
+                        }
+                    }
                 });
                 return; // 成功后退出
             } else {
@@ -947,6 +977,7 @@ router.post('/v1/chat/completions', requireApiAuth, async (req, res) => {
                 // 确保返回结果中的 model 是带前缀的
                 if (result && result.model) result.model = modelWithPrefix;
                 
+                const originalMessages = JSON.parse(JSON.stringify(req.body.messages || []));
                 storage.recordLog({
                     accountId: account.id,
                     model: modelWithPrefix,
@@ -957,7 +988,12 @@ router.post('/v1/chat/completions', requireApiAuth, async (req, res) => {
                     durationMs: Date.now() - startTime,
                     clientIp: req.ip,
                     userAgent: req.headers['user-agent'],
-                    detail: { model: req.body.model, response: result }
+                    detail: { 
+                        model: req.body.model, 
+                        response: result, 
+                        accountName: account.name,
+                        messages: originalMessages // 添加对话消息
+                    }
                 });
 
                 return res.json(result); // 成功后退出

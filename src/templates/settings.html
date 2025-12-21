@@ -1,0 +1,478 @@
+<transition name="settings-fade">
+  <div v-if="showSettingsModal" class="settings-modal-wrapper" @keydown.esc="handleSettingsEsc" tabindex="-1"
+    @click.self="showSettingsModal = false">
+    <div class="settings-sidebar">
+      <!-- 侧边栏头部 -->
+      <div class="settings-sidebar-header">
+        <div class="settings-sidebar-title">
+          <i class="fas fa-cog"></i>
+          <span>系统设置</span>
+        </div>
+        <button class="modal-close" @click="showSettingsModal = false"><i class="fas fa-times"></i></button>
+      </div>
+
+      <!-- 侧边栏内容 -->
+      <div class="settings-container">
+        <!-- settings-sidebar-left: Navigation -->
+        <div class="settings-nav">
+          <button class="settings-nav-item" :class="{ active: settingsCurrentTab === 'general' }"
+            @click="settingsCurrentTab = 'general'">
+            <i class="fas fa-cog"></i> <span>通用设置</span>
+          </button>
+          <button class="settings-nav-item" :class="{ active: settingsCurrentTab === 'api' }"
+            @click="settingsCurrentTab = 'api'">
+            <i class="fas fa-globe"></i> <span>全局 API</span>
+          </button>
+          <button class="settings-nav-item" :class="{ active: settingsCurrentTab === 'modules' }"
+            @click="settingsCurrentTab = 'modules'">
+            <i class="fas fa-cubes"></i> <span>模块管理</span>
+          </button>
+          <button class="settings-nav-item" :class="{ active: settingsCurrentTab === 'database' }"
+            @click="settingsCurrentTab = 'database'">
+            <i class="fas fa-database"></i> <span>数据库</span>
+          </button>
+          <button class="settings-nav-item" :class="{ active: settingsCurrentTab === 'logs' }"
+            @click="settingsCurrentTab = 'logs'">
+            <i class="fas fa-terminal"></i> <span>系统日志</span>
+          </button>
+          <button class="settings-nav-item" :class="{ active: settingsCurrentTab === 'appearance' }"
+            @click="settingsCurrentTab = 'appearance'">
+            <i class="fas fa-palette"></i> <span>界面外观</span>
+          </button>
+          <button class="settings-nav-item" :class="{ active: settingsCurrentTab === 'about' }"
+            @click="settingsCurrentTab = 'about'">
+            <i class="fas fa-info-circle"></i> <span>关于系统</span>
+          </button>
+        </div>
+
+        <!-- settings-main: Content Area -->
+        <div class="settings-main">
+          <!-- ==================== General Tab ==================== -->
+          <div v-if="settingsCurrentTab === 'general'" class="settings-tab-content fade-in">
+            <div class="settings-group">
+              <div class="settings-group-title">账户安全</div>
+              <div class="form-group">
+                <label class="form-label">新密码</label>
+                <input v-model="newPassword" type="password" class="form-input" placeholder="输入新密码（至少6位）" />
+              </div>
+              <div class="form-group">
+                <label class="form-label">确认密码</label>
+                <input v-model="confirmPassword" type="password" class="form-input" placeholder="确认新密码" />
+              </div>
+              <div v-if="passwordError" class="form-error">{{ passwordError }}</div>
+              <div v-if="passwordSuccess" class="form-success">{{ passwordSuccess }}</div>
+              <button class="btn btn-primary" @click="changePassword" style="width: 100%; margin-top: 8px;">
+                <i class="fas fa-key"></i> 修改密码
+              </button>
+            </div>
+
+            <div class="settings-group">
+              <div class="settings-group-title">数据备份 & 恢复</div>
+              <div class="settings-description">
+                导出包含所有模块配置和数据的.db文件，以便迁移或备份。
+              </div>
+              <div style="display: flex; gap: 8px; margin-top: 12px;">
+                <button class="btn btn-secondary" @click="exportAllData" style="flex: 1;">
+                  <i class="fas fa-upload"></i> 导出数据
+                </button>
+                <button class="btn btn-secondary" @click="importAllData" style="flex: 1;">
+                  <i class="fas fa-download"></i> 导入数据
+                </button>
+              </div>
+            </div>
+
+            <div class="settings-group">
+              <div class="settings-group-title">隐私与安全显示</div>
+              <div class="settings-description">
+                控制主机地址、API 端点地址等敏感信息的显示方式。
+              </div>
+              <div class="form-group" style="margin-top: 12px;">
+                <label class="form-label" style="font-size: 13px;">地址显示模式</label>
+                <div style="display: flex; gap: 8px;">
+                  <button class="btn btn-sm" :class="serverIpDisplayMode === 'normal' ? 'btn-primary' : 'btn-secondary'"
+                    @click="serverIpDisplayMode = 'normal'" style="flex: 1; height: 32px; font-size: 12px;">
+                    明文
+                  </button>
+                  <button class="btn btn-sm" :class="serverIpDisplayMode === 'masked' ? 'btn-primary' : 'btn-secondary'"
+                    @click="serverIpDisplayMode = 'masked'" style="flex: 1; height: 32px; font-size: 12px;">
+                    打码
+                  </button>
+                  <button class="btn btn-sm" :class="serverIpDisplayMode === 'hidden' ? 'btn-primary' : 'btn-secondary'"
+                    @click="serverIpDisplayMode = 'hidden'" style="flex: 1; height: 32px; font-size: 12px;">
+                    隐藏
+                  </button>
+                </div>
+                <div class="form-help" style="margin-top: 10px;">
+                  打码模式隐藏 IP 后两段或域名核心部分，隐藏模式完全显示为 ****。
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ==================== API Configuration Tab ==================== -->
+          <div v-if="settingsCurrentTab === 'api'" class="settings-tab-content fade-in">
+            <div class="settings-group">
+              <div class="settings-group-title">全局 API & 网络配置</div>
+              <div class="settings-description">
+                此处设置的 API 密钥和代理将统一应用于 Antigravity 和 Gemini CLI 模块。
+              </div>
+
+              <div class="form-group" style="margin-top: 16px;">
+                <label class="form-label">全局 API 访问密钥 (API_KEY)</label>
+                <div class="input-with-icon">
+                  <i class="fas fa-key"></i>
+                  <input type="password" v-model="agSettingsForm.API_KEY" class="form-input" placeholder="留空则无需认证" />
+                </div>
+                <div class="form-help">用于 v1/chat/completions 等接口的身份验证</div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">全局 HTTP 代理地址 (PROXY)</label>
+                <div class="input-with-icon">
+                  <i class="fas fa-globe"></i>
+                  <input type="text" v-model="agSettingsForm.PROXY" class="form-input"
+                    placeholder="例如: http://127.0.0.1:7890" />
+                </div>
+                <div class="form-help">如果服务器无法直连 Google API，请配置代理</div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">负载均衡策略 (Load Balancing)</label>
+                <div class="input-with-icon">
+                  <i class="fas fa-balance-scale"></i>
+                  <select v-model="agSettingsForm.load_balancing_strategy" class="form-input">
+                    <option value="random">随机 (Random)</option>
+                    <option value="round_robin">轮询 (Round Robin)</option>
+                  </select>
+                </div>
+                <div class="form-help">决定多个启用账号之间的调用分配方式</div>
+              </div>
+
+              <div class="form-group" style="margin-top: 16px;">
+                <label class="form-label">渠道模块开关</label>
+                <div
+                  style="display: flex; gap: 24px; padding: 10px; background: var(--bg-tertiary); border-radius: 8px;">
+                  <div style="display: flex; align-items: center; gap: 10px;">
+                    <label class="switch">
+                      <input type="checkbox" :checked="channelEnabled && channelEnabled['antigravity']"
+                        @change="toggleChannelEnabled('antigravity')">
+                      <span class="slider round"></span>
+                    </label>
+                    <span style="font-size: 13px; font-weight: 500;">Antigravity</span>
+                  </div>
+
+                  <div style="display: flex; align-items: center; gap: 10px;">
+                    <label class="switch">
+                      <input type="checkbox" :checked="channelEnabled && channelEnabled['gemini-cli']"
+                        @change="toggleChannelEnabled('gemini-cli')">
+                      <span class="slider round"></span>
+                    </label>
+                    <span style="font-size: 13px; font-weight: 500;">Gemini CLI</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="form-group" style="margin-top: 16px;">
+                <label class="form-label" style="font-size: 14px; font-weight: 600;">模型前缀配置 (Model
+                  Prefix)</label>
+                <div class="form-help" style="margin-bottom: 12px; font-size: 13px; opacity: 0.8;">
+                  为每个渠道的模型添加前缀，避免名称冲突
+                  (例如 "ag/" 或 "gcli/")</div>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px;">
+                  <div class="form-group" style="margin-bottom: 0;">
+                    <label class="form-label"
+                      style="font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; font-weight: 500;">Antigravity
+                      前缀</label>
+                    <input type="text" class="form-input" v-model="channelModelPrefix['antigravity']"
+                      placeholder="例如: ag/">
+                  </div>
+                  <div class="form-group" style="margin-bottom: 0;">
+                    <label class="form-label"
+                      style="font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; font-weight: 500;">Gemini
+                      CLI 前缀</label>
+                    <input type="text" class="form-input" v-model="channelModelPrefix['gemini-cli']"
+                      placeholder="例如: gcli/">
+                  </div>
+                </div>
+              </div>
+
+              <button class="btn btn-primary" @click="saveGlobalApiSettings" :disabled="antigravitySaving"
+                style="width: 100%; margin-top: 12px; height: 42px; font-weight: 600;">
+                <i class="fas" :class="antigravitySaving ? 'fa-spinner fa-spin' : 'fa-save'"></i>
+                同步并应用配置
+              </button>
+            </div>
+          </div>
+
+          <!-- ==================== Modules Tab ==================== -->
+          <div v-if="settingsCurrentTab === 'modules'" class="settings-tab-content fade-in">
+            <div class="settings-group">
+              <div class="settings-group-title">功能模块管理</div>
+              <div class="settings-description" style="margin-bottom: 12px;">
+                拖拽调整菜单顺序，点击眼睛图标控制显示/隐藏。
+              </div>
+              <div class="modules-list">
+                <div v-for="(module, index) in moduleOrder" :key="module" class="draggable-module-item" draggable="true"
+                  @dragstart="handleDragStart($event, index)" @dragend="handleDragEnd"
+                  @dragover.prevent="handleDragOver($event, index)" @drop="handleDrop($event, index)"
+                  @touchstart="handleTouchStart($event, index)" @touchmove="handleTouchMove($event, index)"
+                  @touchend="handleTouchEnd($event, index)">
+                  <div style="display: flex; align-items: center; gap: 12px; flex: 1;">
+                    <i class="fas fa-grip-vertical drag-handle"></i>
+                    <div class="module-icon-wrapper">
+                      <i class="draggable-module-icon fas" :class="getModuleIcon(module)"></i>
+                    </div>
+                    <span class="draggable-module-name">{{ getModuleName(module) }}</span>
+                  </div>
+                  <button class="btn btn-sm btn-icon" :class="moduleVisibility[module] ? 'text-success' : 'text-muted'"
+                    @click.stop="toggleModuleVisibility(module)" :title="moduleVisibility[module] ? '已显示' : '已隐藏'">
+                    <i class="fas" :class="moduleVisibility[module] ? 'fa-eye' : 'fa-eye-slash'"></i>
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div class="settings-actions">
+              <button class="btn btn-primary" style="width: 100%;" @click="saveSettings">
+                <i class="fas fa-save"></i> 立即应用排序与可见性
+              </button>
+            </div>
+          </div>
+
+          <!-- ==================== Database Tab ==================== -->
+          <div v-if="settingsCurrentTab === 'database'" class="settings-tab-content fade-in">
+            <div class="settings-group">
+              <div class="settings-group-title">
+                <i class="fas fa-database"></i> 存储状态
+              </div>
+              <div class="db-stats-card">
+                <div class="db-stat-item">
+                  <div class="db-stat-label">数据库大小</div>
+                  <div class="db-stat-value" v-if="dbStats">{{ formatFileSize(dbStats.dbSize) }}</div>
+                  <div class="db-stat-value" v-else>--</div>
+                </div>
+                <div class="db-stat-item">
+                  <div class="db-stat-label">数据表总数</div>
+                  <div class="db-stat-value" v-if="dbStats">{{ Object.keys(dbStats.tables || {}).length }}</div>
+                  <div class="db-stat-value" v-else>--</div>
+                </div>
+              </div>
+              <div style="display: flex; gap: 12px; margin-top: 12px;">
+                <button class="btn btn-danger" @click="handleClearLogs" style="flex: 1;">
+                  <i class="fas fa-trash-alt"></i> 清空日志
+                </button>
+                <button class="btn btn-secondary" @click="handleVacuumDb" style="flex: 1;">
+                  <i class="fas fa-compress-arrows-alt"></i> 压缩存储
+                </button>
+              </div>
+            </div>
+
+            <div class="settings-group">
+              <div class="settings-group-title">
+                <i class="fas fa-broom"></i> 自动清理策略
+              </div>
+              <div class="settings-description">
+                系统将自动删除超过限制的旧日志数据。
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">日志保留天数</label>
+                <div class="input-with-suffix">
+                  <input v-model.number="logSettings.days" type="number" class="form-input" min="0" placeholder="0"
+                    @change="saveLogSettings">
+                  <span class="input-suffix">天</span>
+                </div>
+                <div class="form-help">0 表示不限制</div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">单表最大记录数</label>
+                <div class="input-with-suffix">
+                  <input v-model.number="logSettings.count" type="number" class="form-input" min="0" step="1000"
+                    placeholder="0" @change="saveLogSettings">
+                  <span class="input-suffix">条</span>
+                </div>
+                <div class="form-help">0 表示不限制</div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label">数据库最大体积</label>
+                <div class="input-with-suffix">
+                  <input v-model.number="logSettings.dbSizeMB" type="number" class="form-input" min="0" placeholder="0"
+                    @change="saveLogSettings">
+                  <span class="input-suffix">MB</span>
+                </div>
+                <div class="form-help">0 表示不限制</div>
+              </div>
+
+              <button class="btn btn-primary" style="width: 100%; margin-top: 12px;" @click="enforceLogLimits"
+                :disabled="logLimitsEnforcing">
+                <i class="fas" :class="logLimitsEnforcing ? 'fa-spinner fa-spin' : 'fa-magic'"></i>
+                {{ logLimitsEnforcing ? '执行中...' : '立即执行清理' }}
+              </button>
+            </div>
+          </div>
+
+          <!-- ==================== Appearance Tab ==================== -->
+          <div v-if="settingsCurrentTab === 'appearance'" class="settings-tab-content fade-in">
+            <div class="settings-group">
+              <div class="settings-group-title">
+                <i class="fas fa-columns"></i> 界面布局
+              </div>
+              <div class="settings-description">
+                选择主功能模块导航栏 (Main Tabs) 的显示位置。
+              </div>
+              <div class="form-group" style="margin-top: 12px;">
+                <label class="form-label" style="font-size: 13px;">导航栏位置</label>
+                <div style="display: flex; gap: 8px;">
+                  <button class="btn btn-sm" :class="navLayout === 'sidebar' ? 'btn-primary' : 'btn-secondary'"
+                    @click="navLayout = 'sidebar'; saveUserSettingsToServer()"
+                    style="flex: 1; height: 36px; font-size: 13px;">
+                    <i class="fas fa-bars" style="margin-right: 6px;"></i> 左侧边栏
+                  </button>
+                  <button class="btn btn-sm" :class="navLayout === 'top' ? 'btn-primary' : 'btn-secondary'"
+                    @click="navLayout = 'top'; saveUserSettingsToServer()"
+                    style="flex: 1; height: 36px; font-size: 13px;">
+                    <i class="fas fa-window-maximize" style="margin-right: 6px;"></i> 顶部栏
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div class="settings-group">
+              <div class="settings-group-title">
+                <i class="fas fa-paint-brush"></i> 自定义样式 (CSS)
+              </div>
+              <div class="settings-description">
+                注入自定义 CSS 样式以深度覆盖默认主题。
+              </div>
+              <textarea v-model="customCss" class="form-textarea code-font" placeholder="/* 在此处输入 CSS 代码 */"
+                style="min-height: 200px;"></textarea>
+              <div v-if="customCssError" class="form-error" style="margin-top: 8px;">{{ customCssError }}</div>
+              <div v-if="customCssSuccess" class="form-success" style="margin-top: 8px;">{{ customCssSuccess }}
+              </div>
+
+              <div style="display: flex; gap: 12px; margin-top: 12px;">
+                <button class="btn btn-primary" @click="saveCustomCss" style="flex: 1;">
+                  <i class="fas fa-check"></i> 应用样式
+                </button>
+                <button class="btn btn-secondary" @click="resetCustomCss" style="flex: 1;">
+                  <i class="fas fa-undo"></i> 恢复默认
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- ==================== Logs Tab ==================== -->
+          <div v-if="settingsCurrentTab === 'logs'" class="settings-tab-content fade-in"
+            style="display: flex; flex-direction: column; height: 100%;">
+            <div class="settings-group" style="display: flex; flex-direction: column; flex: 1; min-height: 0;">
+              <div class="settings-group-title"
+                style="display: flex; justify-content: space-between; align-items: center;">
+                <span><i class="fas fa-terminal"></i> 实时运行日志</span>
+                <span v-if="logFileSize"
+                  style="font-size: 11px; font-weight: normal; opacity: 0.6; font-family: var(--font-mono);">
+                  Disk: {{ logFileSize }}
+                </span>
+              </div>
+              <div class="settings-description"
+                style="display: flex; justify-content: space-between; align-items: center;">
+                <span>后端内存中的结构化日志流（最近 200 条）。</span>
+                <button class="btn btn-sm" :class="logWsConnected ? 'btn-success' : 'btn-secondary'"
+                  @click="toggleLogStream">
+                  <i class="fas"
+                    :class="logWsConnecting ? 'fa-spinner fa-spin' : (logWsConnected ? 'fa-plug-circle-check' : 'fa-plug-circle-xmark')"></i>
+                  {{ logWsConnecting ? '连接中...' : (logWsConnected ? '实时已开启' : '连接实时流') }}
+                </button>
+              </div>
+              <div class="log-stream-container" ref="settingsLogStream">
+                <div v-for="(log, index) in systemLogs" :key="index" class="log-item">
+                  <div class="log-line log-line-header">
+                    <span class="log-time">{{ log.time }}</span>
+                    <span class="log-level" :class="'log-' + (log.level || '').toLowerCase()">
+                      <i class="fas" :class="getLogIcon(log.level)"></i> {{ log.level }}
+                    </span>
+                  </div>
+                  <div class="log-line log-line-content">
+                    <span class="log-module" :class="'module-' + (log.module || 'core').toLowerCase()">[{{ log.module
+                      }}]</span>
+                    <span class="log-msg" v-html="formatMessage(log.message)"></span>
+                  </div>
+                </div>
+                <div v-if="systemLogs.length === 0" style="opacity: 0.5; text-align: center; padding: 20px;">
+                  等待日志输入...
+                </div>
+              </div>
+              <div style="display: flex; gap: 12px; margin-top: 12px;">
+                <button class="btn btn-secondary" @click="openSystemLogViewer" style="flex: 1;">
+                  <i class="fas fa-expand"></i> 日志查看
+                </button>
+                <button class="btn btn-secondary" @click="viewRawAppLog" style="flex: 1;">
+                  <i class="fas fa-file-alt"></i> 文件查看
+                </button>
+                <button class="btn btn-danger" @click="clearAppLogs" style="flex: 1;">
+                  <i class="fas fa-trash-alt"></i> 清空日志
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- ==================== About Tab ==================== -->
+          <div v-if="settingsCurrentTab === 'about'" class="settings-tab-content fade-in">
+            <div class="settings-group" style="text-align: center; padding: 40px 20px;">
+              <div
+                style="width: 80px; height: 80px; background: var(--ag-primary); color: white; border-radius: 20px; display: flex; align-items: center; justify-content: center; font-size: 40px; margin: 0 auto 20px; box-shadow: 0 10px 20px rgba(var(--ag-primary-rgb), 0.2);">
+                <i class="fas fa-rocket"></i>
+              </div>
+              <div style="font-size: 24px; font-weight: 800; color: var(--text-primary); margin-bottom: 8px;">
+                API Monitor
+              </div>
+              <div style="font-size: 14px; color: var(--text-tertiary); margin-bottom: 24px;">
+                Version β
+              </div>
+
+              <div
+                style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; max-width: 400px; margin: 0 auto; text-align: left;">
+                <div
+                  style="background: var(--bg-secondary); padding: 12px; border-radius: 12px; border: 1px solid var(--border-color);">
+                  <div style="font-size: 11px; color: var(--text-tertiary); text-transform: uppercase;">核心架构</div>
+                  <div style="font-weight: 600; margin-top: 4px;">DEBUG Engine</div>
+                </div>
+                <div
+                  style="background: var(--bg-secondary); padding: 12px; border-radius: 12px; border: 1px solid var(--border-color);">
+                  <div style="font-size: 11px; color: var(--text-tertiary); text-transform: uppercase;">AI 适配层</div>
+                  <div style="font-weight: 600; margin-top: 4px;">CloudCode Protocol</div>
+                </div>
+                <div
+                  style="background: var(--bg-secondary); padding: 12px; border-radius: 12px; border: 1px solid var(--border-color);">
+                  <div style="font-size: 11px; color: var(--text-tertiary); text-transform: uppercase;">运行环境</div>
+                  <div style="font-weight: 600; margin-top: 4px;">node js</div>
+                </div>
+                <div
+                  style="background: var(--bg-secondary); padding: 12px; border-radius: 12px; border: 1px solid var(--border-color);">
+                  <div style="font-size: 11px; color: var(--text-tertiary); text-transform: uppercase;">项目主页</div>
+                  <div style="font-weight: 600; margin-top: 4px;">
+                    <a href="https://github.com/iwvw/API-Monitor" target="_blank"
+                      style="color: var(--primary-color); text-decoration: none;">
+                      <i class="fab fa-github"></i> API-Monitor
+                    </a>
+                  </div>
+                </div>
+              </div>
+
+              <div style="margin-top: 32px; border-top: 1px solid var(--border-color); padding-top: 24px;">
+                <p style="font-size: 13px; color: var(--text-secondary); line-height: 1.6;">
+                  专业的 API 监控与分发管理系统，<br>
+                  旨在为 AI 应用提供极致的稳定性与性能。<br>
+                  <span style="font-size: 11px; opacity: 0.6; margin-top: 8px; display: block;">Powered by <a
+                      href="https://github.com/iwvw/API-Monitor" target="_blank"
+                      style="color: inherit;">API-Monitor</a></span>
+                </p>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  </div>
+</transition>

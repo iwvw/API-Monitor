@@ -1,0 +1,70 @@
+<!-- 认证检查加载状态 -->
+<div v-if="isCheckingAuth" class="auth-loading">
+  <div class="auth-loading-content">
+    <div class="modern-loader"></div>
+    <div class="loading-text">Gravity</div>
+  </div>
+</div>
+
+<!-- 首次设置密码界面 -->
+<div v-if="!isCheckingAuth && showSetPasswordModal" class="auth-screen">
+  <div class="auth-card">
+    <div class="auth-header">
+      <div class="auth-logo">
+        <i class="fas fa-rocket"></i>
+      </div>
+      <h1>开启新旅程</h1>
+      <p>请为您的管理后台设置初始密码</p>
+    </div>
+    <div class="auth-body">
+      <div class="auth-input-group">
+        <i class="fas fa-key input-icon"></i>
+        <input v-model="setPassword" type="password" class="auth-input" placeholder="设置新密码 (6位以上)"
+          autocomplete="new-password" @keyup.enter="setAdminPassword" />
+      </div>
+      <div class="auth-input-group">
+        <i class="fas fa-check-double input-icon"></i>
+        <input v-model="setPasswordConfirm" type="password" class="auth-input" placeholder="再次确认密码"
+          autocomplete="new-password" @keyup.enter="setAdminPassword" />
+      </div>
+      <div v-if="setPasswordError" class="auth-error-msg">
+        <i class="fas fa-info-circle"></i> {{ setPasswordError }}
+      </div>
+      <button @click="setAdminPassword" class="auth-primary-btn">
+        <span>开始使用</span>
+        <i class="fas fa-arrow-right"></i>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- 登录界面 -->
+<div v-if="!isCheckingAuth && showLoginModal" class="auth-screen">
+  <div class="auth-card">
+    <div class="auth-header">
+      <div class="auth-logo login-logo">
+        <i class="fas fa-shield-halved"></i>
+      </div>
+      <h1>欢迎回来</h1>
+      <p>身份验证以访问监控面板</p>
+    </div>
+    <div class="auth-body">
+      <div class="auth-input-group">
+        <i class="fas fa-lock input-icon"></i>
+        <input v-model="loginPassword" type="password" class="auth-input" placeholder="请输入管理员密码"
+          autocomplete="current-password" @keyup.enter="verifyPassword" />
+      </div>
+      <div v-if="loginError" class="auth-error-msg">
+        <i class="fas fa-exclamation-triangle"></i> {{ loginError }}
+      </div>
+      <button @click="verifyPassword" class="auth-primary-btn">
+        <span>立即进入</span>
+        <i class="fas fa-sign-in-alt"></i>
+      </button>
+    </div>
+    <div class="auth-footer-decoration">
+      <div class="circle c1"></div>
+      <div class="circle c2"></div>
+    </div>
+  </div>
+</div>

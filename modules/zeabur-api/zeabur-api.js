@@ -121,11 +121,43 @@ async function fetchAccountData(token) {
   ]);
 
   const user = userData?.data?.me || {};
-  const projects = projectsData?.data?.projects?.edges?.map(e => e.node) || [];
+  const queryProjects = projectsData?.data?.projects?.edges?.map(e => e.node) || [];
   const aihub = aihubData?.data?.aihubTenant || {};
   const serviceCosts = serviceCostsData?.data?.me?.serviceCostsThisMonth || 0;
 
+  // 在后端直接转换地域为中文
+  const projects = queryProjects.map(project => {
+    if (project.region && project.region.name) {
+      project.region.name = mapZeaburRegion(project.region.name);
+    }
+    return project;
+  });
+
   return { user, projects, aihub, serviceCosts };
+}
+
+/**
+ * 内部辅助：映射 Zeabur 地域为中文
+ */
+function mapZeaburRegion(region) {
+  if (!region) return '';
+  const lowerRegion = region.toLowerCase();
+
+  const regionMap = {
+    'silicon': '硅谷',
+    'jakarta': '雅加达',
+    'hong kong': '香港',
+    'tokyo': '东京',
+    'singapore': '新加坡',
+    'frankfurt': '法兰克福',
+    'london': '伦敦',
+    'sydney': '悉尼'
+  };
+
+  for (const [key, value] of Object.entries(regionMap)) {
+    if (lowerRegion.includes(key)) return value;
+  }
+  return region;
 }
 
 /**

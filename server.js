@@ -4,6 +4,20 @@ const path = require('path');
 const fs = require('fs');
 const http = require('http');
 
+// 打印 Logo
+console.log(`\x1b[36m
+  ______   _______   ______         ______    ______         __ 
+ /      \\ /       \\ /      |       /      \\  /      \\       /  |
+/$$$$$$  |$$$$$$$  |$$$$$$/       /$$$$$$  |/$$$$$$  |      $$ |
+$$ |__$$ |$$ |__$$ |  $$ |        $$ | _$$/ $$ |  $$ |      $$ |
+$$    $$ |$$    $$/   $$ |        $$ |/    |$$ |  $$ |      $$ |
+$$$$$$$$ |$$$$$$$/    $$ |        $$ |$$$$ |$$ |  $$ |      $$/ 
+$$ |  $$ |$$ |       _$$ |_       $$ \\__$$ |$$ \\__$$ |       __ 
+$$ |  $$ |$$ |      / $$   |      $$    $$/ $$    $$/       /  |
+$$/   $$/ $$/       $$$$$$/        $$$$$$/   $$$$$$/        $$/ 
+\x1b[0m\x1b[33m
+ >>> Gravity Engineering System v0.1.1 测试版 <<<\x1b[0m
+`);
 // 导入日志工具
 const { createLogger } = require('./src/utils/logger');
 const logger = createLogger('Server');
@@ -35,8 +49,29 @@ const server = http.createServer(app);
 const PORT = process.env.PORT || 3000;
 
 // 初始化 WebSocket 服务
-sshTerminalService.init(server);
-logService.init(server);
+const sshWss = sshTerminalService.init(server);
+const logWss = logService.init(server);
+
+// 统一处理 WebSocket 升级请求
+server.on('upgrade', (request, socket, head) => {
+  const pathname = request.url.split('?')[0];
+  logger.info(`[WS Upgrade] 路径: ${pathname} (来自 ${socket.remoteAddress})`);
+
+  if (pathname === '/ws/ssh') {
+    sshWss.handleUpgrade(request, socket, head, (ws) => {
+      logger.info(`[WS Upgrade] SSH 握手完成`);
+      sshWss.emit('connection', ws, request);
+    });
+  } else if (pathname === '/ws/logs') {
+    logWss.handleUpgrade(request, socket, head, (ws) => {
+      logger.info(`[WS Upgrade] 日志 握手完成`);
+      logWss.emit('connection', ws, request);
+    });
+  } else {
+    logger.warn(`[WS Upgrade] 拦截未知路径: ${pathname}`);
+    socket.destroy();
+  }
+});
 
 // 初始化日志配置 - 从数据库加载日志文件大小设置
 try {
@@ -53,7 +88,12 @@ try {
 app.use(loggerMiddleware);
 app.use(corsMiddleware);
 app.use(express.json({ limit: '50mb' }));
-app.use(express.static('public'));
+// 静态文件服务 - 优先服务 dist (生产构建)，否则 serving public (开发/旧版)
+if (fs.existsSync(path.join(__dirname, 'dist'))) {
+  app.use(express.static('dist'));
+} else {
+  app.use(express.static('public'));
+}
 
 // 文件上传中间件
 const fileUpload = require('express-fileupload');
@@ -68,13 +108,11 @@ registerRoutes(app);
 logger.info('所有系统路由及功能模块已就绪');
 
 // Favicon 处理
+// Favicon 处理 - 前端构建已包含 hash URL，服务端直接返回 204
 app.get('/favicon.ico', (req, res) => {
-  const faviconPath = path.join(__dirname, 'public', 'logo.png');
-  if (fs.existsSync(faviconPath)) {
-    return res.sendFile(faviconPath);
-  }
   return res.sendStatus(204);
 });
+
 
 // 加载持久化 session
 loadSessions();

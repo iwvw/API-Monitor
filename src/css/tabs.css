@@ -1,0 +1,269 @@
+/* Tabs & Navigation Styles */
+
+.main-tabs {
+  display: flex;
+  gap: 0;
+  /* margin-bottom: 10px; */
+  border-bottom: 2px solid var(--border-color);
+}
+
+.main-tab {
+  padding: 12px 24px;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: -2px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  position: relative;
+}
+
+.main-tab:hover {
+  color: var(--primary-color);
+  /* background-color: var(--bg-secondary); */
+}
+
+.main-tab.active {
+  color: var(--primary-color);
+}
+
+.main-tab.zeabur-tab:hover {
+  color: var(--zeabur-primary);
+}
+
+.main-tab.zeabur-tab.active {
+  color: var(--zeabur-primary);
+}
+
+.main-tab.zeabur-tab::after {
+  background-color: var(--zeabur-primary);
+}
+
+.main-tab.dns-tab:hover {
+  color: var(--cf-color);
+}
+
+.main-tab.dns-tab.active {
+  color: var(--cf-color);
+}
+
+.main-tab.openai-tab:hover {
+  color: var(--openai-color);
+}
+
+.main-tab.openai-tab.active {
+  color: var(--openai-color);
+}
+
+.main-tab.server-tab:hover {
+  color: var(--server-primary);
+}
+
+.main-tab.server-tab.active {
+  color: var(--server-primary);
+}
+
+.main-tab.antigravity-tab:hover {
+  color: var(--ag-primary);
+}
+
+.main-tab.antigravity-tab.active {
+  color: var(--ag-primary);
+}
+
+@media (max-width: 768px) {
+  .main-tab {
+    padding: 12px 16px;
+    min-width: auto;
+  }
+
+  .main-tab i {
+    margin-right: 0;
+  }
+
+  .main-tab span {
+    display: none;
+  }
+}
+
+/* ==================== 侧边栏布局模式 ==================== */
+
+/* 主容器 - 侧边栏模式 */
+.container.sidebar-layout {
+  display: flex;
+  flex-direction: row;
+  gap: 0;
+  position: relative;
+}
+
+/* 侧边栏导航 - 悬浮固定，贴靠主框架左边 */
+.main-tabs-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 6px;
+  background: transparent;
+  position: fixed;
+  left: calc(50% - 600px - 50px);
+  /* 600px = max-width/2, 50px = 侧边栏宽度 + 间距 */
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 100;
+}
+
+/* 侧边栏按钮 */
+.main-tabs-sidebar .sidebar-tab {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: none;
+  background: transparent;
+  color: var(--text-tertiary);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  font-size: 18px;
+  position: relative;
+}
+
+.main-tabs-sidebar .sidebar-tab:hover {
+  color: var(--text-primary);
+  transform: scale(1.15);
+}
+
+.main-tabs-sidebar .sidebar-tab.active {
+  color: var(--primary-color);
+  transform: scale(1.1);
+}
+
+/* 各模块特色颜色 - 激活状态 */
+.main-tabs-sidebar .sidebar-tab.zeabur-tab.active {
+  color: var(--zeabur-primary);
+}
+
+.main-tabs-sidebar .sidebar-tab.dns-tab.active {
+  color: var(--cf-color);
+}
+
+.main-tabs-sidebar .sidebar-tab.openai-tab.active {
+  color: var(--openai-color);
+}
+
+.main-tabs-sidebar .sidebar-tab.server-tab.active {
+  color: var(--server-primary);
+}
+
+.main-tabs-sidebar .sidebar-tab.antigravity-tab.active {
+  color: var(--ag-primary);
+}
+
+.main-tabs-sidebar .sidebar-tab.gemini-cli-tab.active {
+  color: #4285f4;
+}
+
+/* Tooltip 提示 - 侧边栏模式 */
+.main-tabs-sidebar .sidebar-tab::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  left: calc(100% + 8px);
+  top: 50%;
+  transform: translateY(-50%);
+  /* 统一深色主题 tooltip */
+  background: var(--bg-primary) !important;
+  color: var(--text-primary) !important;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  white-space: nowrap;
+  opacity: 0;
+  visibility: hidden;
+  transition: all 0.2s ease;
+  pointer-events: none;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  border: 1px solid var(--border-color);
+  z-index: 1000;
+  /* 重置可能被模块主题色覆盖的属性 */
+  width: auto !important;
+  height: auto !important;
+}
+
+.main-tabs-sidebar .sidebar-tab:hover::after {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* 主内容区域 - 侧边栏模式 */
+.container.sidebar-layout .main-content-area {
+  flex: 1;
+  min-width: 0;
+  padding: 16px 20px;
+  overflow-x: hidden;
+}
+
+/* 侧边栏模式下隐藏 header 的一些元素 */
+.container.sidebar-layout .header {
+  padding: 12px 0;
+  margin-bottom: 8px;
+}
+
+/* 布局选项卡片样式 */
+.layout-option {
+  background: var(--bg-secondary);
+}
+
+.layout-option:hover {
+  border-color: var(--primary-color) !important;
+  background: var(--bg-tertiary);
+}
+
+.layout-option.active {
+  border-color: var(--primary-color) !important;
+  background: rgba(var(--primary-rgb), 0.1);
+}
+
+.layout-option.active>div:first-child {
+  color: var(--primary-color) !important;
+}
+
+/* 侧边栏模式响应式 - 中等屏幕 */
+@media (max-width: 1350px) {
+  .main-tabs-sidebar {
+    left: 8px;
+    /* 屏幕较窄时贴靠左边 */
+  }
+}
+
+/* 侧边栏模式响应式 - 小屏幕 */
+@media (max-width: 768px) {
+  .container.sidebar-layout {
+    padding-left: 0;
+    padding-bottom: 60px;
+  }
+
+  .main-tabs-sidebar {
+    flex-direction: row;
+    position: fixed;
+    left: 0;
+    right: 0;
+    top: auto;
+    bottom: 0;
+    transform: none;
+    justify-content: center;
+    background: var(--bg-primary);
+    border-top: 1px solid var(--border-color);
+    padding: 8px 12px;
+    gap: 8px;
+  }
+
+  .main-tabs-sidebar .sidebar-tab::after {
+    display: none;
+  }
+}

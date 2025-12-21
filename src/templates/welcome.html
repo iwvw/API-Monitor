@@ -1,0 +1,51 @@
+<transition name="fade-slide">
+  <div v-if="showWelcomeScreen" class="welcome-screen">
+    <div class="welcome-content">
+      <div class="welcome-header">
+        <img src="/logo.svg" alt="Logo" class="welcome-logo">
+        <h1>API Monitor</h1>
+        <p>一站式云服务管理与 API 监控平台</p>
+      </div>
+
+      <div class="welcome-grid">
+        <div class="welcome-card" @click="enterModule('paas')">
+          <div class="card-icon" style="background: linear-gradient(135deg, #4f46e5, #7c3aed);">
+            <i class="fas fa-cloud"></i>
+          </div>
+          <h3>PaaS 管理</h3>
+          <p>Zeabur & Koyeb 资源监控</p>
+        </div>
+
+        <div class="welcome-card" @click="enterModule('dns')">
+          <div class="card-icon" style="background: linear-gradient(135deg, #f59e0b, #d97706);">
+            <i class="fas fa-globe"></i>
+          </div>
+          <h3>DNS & CDN</h3>
+          <p>Cloudflare 域名与解析</p>
+        </div>
+
+        <div class="welcome-card" @click="enterModule('openai')">
+          <div class="card-icon" style="background: linear-gradient(135deg, #10b981, #059669);">
+            <i class="fas fa-robot"></i>
+          </div>
+          <h3>AI 接口</h3>
+          <p>OpenAI API 聚合管理</p>
+        </div>
+
+        <div class="welcome-card" @click="enterModule('server')">
+          <div class="card-icon" style="background: linear-gradient(135deg, #3b82f6, #2563eb);">
+            <i class="fas fa-server"></i>
+          </div>
+          <h3>主机监控</h3>
+          <p>SSH 终端与状态监控</p>
+        </div>
+      </div>
+
+      <div class="welcome-footer">
+        <button class="btn-enter" @click="closeWelcomeScreen">
+          进入控制台 <i class="fas fa-arrow-right"></i>
+        </button>
+      </div>
+    </div>
+  </div>
+</transition>

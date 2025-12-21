@@ -1,0 +1,737 @@
+/* Settings Sidebar Styles */
+
+.settings-sidebar {
+  position: fixed;
+  top: 0;
+  left: var(--sidebar-width);
+  bottom: 0;
+  width: 800px;
+  /* Increased from 400px for 2-column layout */
+  max-width: calc(95vw - var(--sidebar-width));
+  background-color: var(--sidebar-bg);
+  box-shadow: 20px 0px 30px rgba(0, 0, 0, 0.1);
+  display: flex;
+  flex-direction: column;
+  /* animation removed, handled by Vue transition */
+  z-index: 2001;
+  border-right: 1px solid var(--border-color);
+}
+
+/* Vue Transition: settings-fade */
+.settings-fade-enter-active,
+.settings-fade-leave-active {
+  transition: clip-path 0.35s cubic-bezier(0.25, 1, 0.5, 1), opacity 0.3s ease;
+  transform: none !important;
+}
+
+.settings-fade-enter-from,
+.settings-fade-leave-to {
+  /* 从左向右展开 */
+  clip-path: inset(0 100% 0 0);
+  opacity: 0;
+}
+
+.settings-fade-enter-to,
+.settings-fade-leave-from {
+  clip-path: inset(0 0 0 0);
+  opacity: 1;
+}
+
+/* Ensure wrapper doesn't block clicks when hidden (though v-if removes it, this positions it correctly) */
+.settings-modal-wrapper {
+  position: fixed;
+  top: 0;
+  left: var(--sidebar-width);
+  /* Adjust to start after sidebar */
+  right: 0;
+  bottom: 0;
+  z-index: 2000;
+  background-color: transparent;
+  /* Keep it transparent as requested */
+  pointer-events: auto;
+  /* Enable clicks to allow click-outside-to-close */
+}
+
+/* 桌面端：隐藏移动端导航（如果有的话） */
+.settings-nav-mobile {
+  display: none;
+}
+
+/* Mobile Responsive */
+@media (max-width: 768px) {
+  .settings-sidebar {
+    left: auto;
+    right: 0;
+    width: 100vw;
+    max-width: 100vw;
+    border-left: none;
+    bottom: 60px;
+    /* 避开底部导航栏 */
+  }
+
+  .settings-modal-wrapper {
+    left: 0;
+    bottom: 60px;
+    /* 避开底部导航栏 */
+  }
+
+  /* 从右向左展开动画 */
+  .settings-fade-enter-from,
+  .settings-fade-leave-to {
+    clip-path: inset(0 0 0 100%);
+    /* 从右向左展开 */
+  }
+
+  .settings-container {
+    flex-direction: column;
+  }
+
+  /* 移动端：完全隐藏设置导航栏（已在底部栏实现） */
+  .settings-nav {
+    display: none !important;
+  }
+
+  .settings-main {
+    padding: 12px;
+    height: 100%;
+  }
+
+  .settings-group {
+    padding: 16px;
+  }
+
+  .settings-group-title {
+    font-size: 16px;
+  }
+}
+
+/* Enable pointer events for the sidebar itself */
+.settings-modal-wrapper>.settings-sidebar {
+  pointer-events: auto;
+}
+
+/* Specific animations for sidebar sliding - REMOVED completely */
+/* Removed transform transitions */
+
+.settings-sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--sidebar-border);
+  background-color: var(--sidebar-bg);
+  color: var(--text-primary);
+}
+
+.settings-sidebar-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.settings-sidebar-close {
+  background: transparent;
+  border: none;
+  font-size: 16px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  border-radius: 8px;
+}
+
+.settings-sidebar-close:hover {
+  color: var(--danger-color);
+  background-color: rgba(239, 68, 68, 0.1);
+  transform: rotate(90deg);
+}
+
+/* New Layout Container */
+.settings-container {
+  flex: 1;
+  /* Fill remaining space in sidebar */
+  display: flex;
+  overflow: hidden;
+  /* Contain inner scrolling */
+  min-height: 0;
+  /* Fix for nested flex scrolling */
+}
+
+/* Sidebar Navigation */
+.settings-nav {
+  width: 60px;
+  /* 初始仅显示图标 */
+  flex-shrink: 0;
+  background-color: var(--sidebar-bg);
+  border-right: 1px solid var(--sidebar-border);
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 16px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.settings-nav:hover {
+  width: 150px;
+  /* 悬停展开 */
+}
+
+.settings-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 18px;
+  /* 调整内边距以居中图标 */
+  width: 150px;
+  /* 固定宽度以防止文字换行 */
+  text-align: left;
+  background: none;
+  border: none;
+  border-left: 3px solid transparent;
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.settings-nav-item span {
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.2s ease;
+}
+
+.settings-nav:hover .settings-nav-item span {
+  opacity: 1;
+  visibility: visible;
+  transition-delay: 0.1s;
+}
+
+.settings-nav-item i {
+  width: 20px;
+  text-align: center;
+  font-size: 16px;
+}
+
+.settings-nav-item:hover {
+  background-color: rgba(0, 0, 0, 0.03);
+  color: var(--text-primary);
+}
+
+.settings-nav-item.active {
+  background-color: #6366f11c;
+  color: var(--primary-color);
+  border-left-color: var(--primary-color);
+  font-weight: 600;
+}
+
+/* Main Content Area */
+.settings-main {
+  flex: 1;
+  overflow-y: auto;
+  padding: 15px;
+  background-color: var(--bg-primary);
+  /* Lighter background for content */
+}
+
+/* Tab Animation */
+.settings-tab-content {
+  animation: fadeIn 0.3s ease-out;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Settings Groups (Cards) */
+.settings-group {
+  background-color: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 24px;
+  margin-bottom: 18px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.settings-group:last-child {
+  margin-bottom: 0;
+}
+
+.settings-group-title {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.settings-description {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+  line-height: 1.6;
+}
+
+/* Form Elements Overrides/Specifics */
+.form-label {
+  font-weight: 500;
+  margin-bottom: 8px;
+  display: block;
+}
+
+.input-with-suffix {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.input-with-suffix .form-input {
+  padding-right: 40px;
+}
+
+.input-suffix {
+  position: absolute;
+  right: 12px;
+  color: var(--text-tertiary);
+  font-size: 13px;
+  pointer-events: none;
+}
+
+.input-with-icon {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.input-with-icon i {
+  position: absolute;
+  left: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-tertiary);
+  font-size: 14px;
+  pointer-events: none;
+  z-index: 2;
+}
+
+.input-with-icon .form-input {
+  padding-left: 38px !important;
+  width: 100%;
+}
+
+.db-stats-card {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  background-color: var(--bg-secondary);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 20px;
+}
+
+.db-stat-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.db-stat-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.db-stat-value {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}
+
+/* Draggable Modules List */
+.modules-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  position: relative;
+}
+
+.draggable-module-item {
+  display: flex;
+  align-items: center;
+  padding: 12px 16px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  cursor: grab;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  user-select: none;
+}
+
+.draggable-module-item.module-hidden {
+  background: var(--bg-tertiary);
+  border-style: dashed;
+  border-color: var(--border-color);
+  opacity: 0.7;
+}
+
+.draggable-module-item.module-hidden .draggable-module-name {
+  color: var(--text-tertiary);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+
+.draggable-module-item.module-hidden .module-icon-wrapper {
+  background-color: var(--bg-secondary);
+  color: var(--text-tertiary);
+  filter: grayscale(1);
+  opacity: 0.8;
+}
+
+.draggable-module-item.module-hidden .drag-handle {
+  opacity: 0.5;
+}
+
+.draggable-module-item.dragging {
+  opacity: 0.5;
+  transform: scale(0.98);
+  background: var(--input-bg);
+  border-style: dashed;
+  cursor: grabbing;
+}
+
+.draggable-module-item:hover {
+  background: var(--input-bg);
+  border-color: var(--primary-light);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+.draggable-module-item:active {
+  cursor: grabbing;
+}
+
+.drag-handle {
+  color: var(--text-tertiary);
+  margin-right: 8px;
+  cursor: grab;
+  padding: 4px;
+}
+
+.module-icon-wrapper {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  color: var(--text-primary);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02);
+}
+
+.draggable-module-name {
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--text-primary);
+}
+
+.text-success {
+  color: var(--success-color) !important;
+}
+
+.text-muted {
+  color: var(--text-tertiary) !important;
+}
+
+/* Icon button - refined visibility toggle */
+.btn-sm.btn-icon {
+  width: 34px;
+  height: 34px;
+  min-width: 34px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  color: var(--text-secondary);
+}
+
+.btn-sm.btn-icon:hover {
+  background: var(--bg-secondary);
+  border-color: var(--primary-color);
+  color: var(--primary-color);
+  transform: scale(1.05);
+}
+
+.btn-sm.btn-icon.text-success {
+  background: rgba(16, 185, 129, 0.1);
+  border-color: rgba(16, 185, 129, 0.2);
+}
+
+.btn-sm.btn-icon.text-success:hover {
+  background: rgba(16, 185, 129, 0.2);
+  border-color: var(--success-color);
+}
+
+.btn-sm.btn-icon.text-muted {
+  background: var(--bg-secondary);
+  opacity: 0.8;
+}
+
+.btn-sm.btn-icon i {
+  font-size: 14px;
+  transition: transform 0.2s ease;
+}
+
+.btn-sm.btn-icon:hover i {
+  transform: scale(1.15);
+}
+
+/* Log Stream Styles */
+.log-stream-container {
+  background: #1e1e1e;
+  color: #d4d4d4;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 12px;
+  border-radius: 8px;
+  flex: 1;
+  min-height: 200px;
+  overflow-y: auto;
+  border: 1px solid #333;
+}
+
+/* 日志条目容器 */
+.log-item {
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.log-item:last-child {
+  border-bottom: none;
+}
+
+/* 日志行通用样式 */
+.log-line {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-start;
+  line-height: 1.5;
+  gap: 0;
+  flex-wrap: nowrap;
+}
+
+/* 第一行：时间 + 级别 */
+.log-line-header {
+  margin-bottom: 2px;
+}
+
+/* 第二行：模块 + 消息 */
+.log-line-content {
+  padding-left: 4px;
+}
+
+.log-time {
+  color: #888;
+  margin-right: 10px;
+  font-size: 12px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.log-level {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-right: 6px;
+  font-weight: 600;
+  flex-shrink: 0;
+  white-space: nowrap;
+  min-width: 50px;
+}
+
+.log-module {
+  flex-shrink: 0;
+  white-space: nowrap;
+  margin-right: 6px;
+  font-weight: 600;
+  color: var(--module-color, var(--primary-color));
+}
+
+.log-msg {
+  flex: 1;
+  min-width: 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.log-info {
+  color: #3b82f6;
+}
+
+.log-success {
+  color: #10b981;
+}
+
+.log-warn {
+  color: #f59e0b;
+}
+
+.log-error {
+  color: #ef4444;
+}
+
+.log-debug {
+  color: #8b5cf6;
+}
+
+/* 日志模块颜色 */
+.log-module.module-servermonitor {
+  color: #10b981;
+}
+
+.log-module.module-server {
+  color: #10b981;
+}
+
+.log-module.module-http {
+  color: #3b82f6;
+}
+
+.log-module.module-logservice {
+  color: #8b5cf6;
+}
+
+.log-module.module-database {
+  color: #f59e0b;
+}
+
+.log-module.module-db {
+  color: #f59e0b;
+}
+
+.log-module.module-auth {
+  color: #ef4444;
+}
+
+.log-module.module-websocket {
+  color: #06b6d4;
+}
+
+.log-module.module-ws {
+  color: #06b6d4;
+}
+
+.log-module.module-api {
+  color: #ec4899;
+}
+
+.log-module.module-core {
+  color: #6b7280;
+}
+
+.log-module.module-antigravity {
+  color: #a855f7;
+}
+
+.log-module.module-gemini {
+  color: #4285f4;
+}
+
+.log-module.module-dns {
+  color: #f97316;
+}
+
+.log-module.module-paas {
+  color: #14b8a6;
+}
+
+.log-module.module-openai {
+  color: #22c55e;
+}
+
+/* Operation Badge Styles */
+.status-badge.status-create {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.2);
+}
+
+.status-badge.status-update {
+  background: rgba(59, 130, 246, 0.15);
+  color: #3b82f6;
+  border: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+.status-badge.status-delete {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+.status-badge.status-login {
+  background: rgba(139, 92, 246, 0.15);
+  color: #8b5cf6;
+  border: 1px solid rgba(139, 92, 246, 0.2);
+}
+
+
+.code-font {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+/* Footer Actions */
+.settings-actions {
+  position: sticky;
+  bottom: 0;
+  /* padding-top: 20px; */
+  margin-top: 20px;
+  /* border-top: 1px solid var(--border-color); */
+  text-align: right;
+  z-index: 10;
+}
+
+/* Hide Spin Buttons */
+/* Chrome, Safari, Edge, Opera */
+input::-webkit-outer-spin-button,
+input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* Firefox */
+input[type=number] {
+  -moz-appearance: textfield;
+}

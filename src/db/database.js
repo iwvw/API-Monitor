@@ -71,7 +71,7 @@ class DatabaseService {
             const modulesDir = path.join(__dirname, '../../modules');
             if (fs.existsSync(modulesDir)) {
                 const modules = fs.readdirSync(modulesDir, { withFileTypes: true })
-                    .filter(dirent => dirent.isDirectory())
+                    .filter(dirent => dirent.isDirectory() && !dirent.name.startsWith('_'))
                     .map(dirent => dirent.name);
 
                 modules.forEach(moduleName => {

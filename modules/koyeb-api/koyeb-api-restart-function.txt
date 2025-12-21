@@ -1,0 +1,29 @@
+﻿/**
+ * 恢复/重启服务
+ */
+async function restartService(token, serviceId) {
+  try {
+    // 先获取服务信息以判断状态
+    const serviceResponse = await koyebRequest(token, `/services/${serviceId}`);
+    const service = serviceResponse.service;
+    
+    if (!service) {
+      throw new Error('服务不存在');
+    }
+    
+    // 判断服务状态
+    const status = service.status?.toUpperCase();
+    
+    // 如果服务是暂停/停止状态,使用 resume
+    if (status === 'PAUSED' || status === 'STOPPED' || status === 'SUSPENDED') {
+      await koyebRequest(token, `/services/${serviceId}/resume`, 'POST');
+    } else {
+      // 如果服务正在运行或其他状态,使用 redeploy 来重启
+      await koyebRequest(token, `/services/${serviceId}/redeploy`, 'POST');
+    }
+    
+    return { success: true };
+  } catch (error) {
+    throw error;
+  }
+}

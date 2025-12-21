@@ -1,0 +1,51 @@
+﻿/* Koyeb 模块专属样式 - 基于 Zeabur 样式 */
+
+/* 
+ * 说明:
+ * 这个文件为 Koyeb 模块提供专属样式支持
+ * 当前继承 Zeabur 的所有样式,作为修改基础
+ * 如需自定义 Koyeb 样式,在下方添加覆盖规则即可
+ * 
+ * 注意: 由于添加了 .koyeb-* 类名,这些元素会自动继承对应的基础样式
+ * 例如: .koyeb-account-card 会自动继承 .account-card 的样式
+ */
+
+/* ==================== Koyeb 专属样式 - 将来可在此添加自定义样式 ==================== */
+
+/* 双击编辑样式 - 应用名称 */
+.paas-sec-tab .koyeb-project-name-text {
+  cursor: text;
+  user-select: none;
+  transition: all 0.2s ease;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+.paas-sec-tab .koyeb-project-name-text:hover {
+  background: rgba(79, 70, 229, 0.08);
+  box-shadow: 0 0 0 1px rgba(79, 70, 229, 0.2);
+}
+
+/* 双击编辑样式 - 服务名称 */
+.paas-sec-tab .koyeb-service-name {
+  cursor: text;
+  user-select: none;
+  transition: all 0.2s ease;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+
+.paas-sec-tab .koyeb-service-name:hover {
+  background: rgba(79, 70, 229, 0.08);
+  box-shadow: 0 0 0 1px rgba(79, 70, 229, 0.2);
+}
+
+/* 单应用模式 - 铺满一行 */
+.paas-sec-tab .koyeb-projects-grid.single-app {
+  display: block;
+}
+
+.paas-sec-tab .koyeb-projects-grid.single-app .koyeb-project-card {
+  width: 100%;
+  max-width: 100%;
+}

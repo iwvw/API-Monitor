@@ -99,10 +99,10 @@ class Session extends BaseModel {
         };
 
         this.insert(data);
-        
+
         // 强制限制活跃会话数量为 10 条
         this.enforceSessionLimit(10);
-        
+
         return data;
     }
 
@@ -347,8 +347,7 @@ class UserSettings extends BaseModel {
             data.channel_model_prefix = JSON.stringify(data.channel_model_prefix);
         }
 
-        console.log('[DEBUG] System.js: data.channel_model_prefix ->', data.channel_model_prefix);
-        console.log('[DEBUG] System.js: Final data keys to update ->', Object.keys(data));
+
 
         return this.update(1, data);
     }
@@ -378,7 +377,7 @@ class OperationLog extends BaseModel {
     logOperation(logData) {
         // 从异步上下文中获取信息
         const context = asyncLocalStorage.getStore() || {};
-        
+
         const data = {
             operation_type: logData.operation_type,
             table_name: logData.table_name,

@@ -17,7 +17,7 @@ function loadUserSettings() {
     const settings = UserSettings.getSettings();
 
     const visibility = settings.module_visibility || {
-      zeabur: true,
+      paas: true,
       dns: true,
       openai: true,
       server: true,
@@ -35,7 +35,7 @@ function loadUserSettings() {
       'gemini-cli': ''
     };
 
-    const order = settings.module_order || ['openai', 'antigravity', 'gemini-cli', 'zeabur', 'dns', 'server'];
+    const order = settings.module_order || ['openai', 'antigravity', 'gemini-cli', 'paas', 'dns', 'server'];
 
     // 确保 gemini-cli 在现有设置中
     if (!('gemini-cli' in visibility)) {
@@ -54,7 +54,7 @@ function loadUserSettings() {
       moduleOrder: order,
       load_balancing_strategy: settings.load_balancing_strategy || 'random',
       serverIpDisplayMode: settings.server_ip_display_mode || 'normal',
-      mainTabsLayout: settings.main_tabs_layout || 'top'
+      navLayout: settings.main_tabs_layout || 'top'
     };
   } catch (error) {
     console.error('加载用户设置失败:', error);
@@ -77,17 +77,17 @@ function saveUserSettings(settings) {
       module_order: settings.moduleOrder || settings.module_order,
       load_balancing_strategy: settings.load_balancing_strategy || settings.load_balancing_strategy_form || 'random',
       server_ip_display_mode: settings.serverIpDisplayMode || settings.server_ip_display_mode || 'normal',
-      main_tabs_layout: settings.mainTabsLayout || settings.main_tabs_layout || 'top'
+      main_tabs_layout: settings.navLayout || settings.mainTabsLayout || settings.main_tabs_layout || 'top'
     };
 
     // 确保 channel_model_prefix 是字符串，如果不是则进行 JSON.stringify
     if (dbSettings.channel_model_prefix && typeof dbSettings.channel_model_prefix !== 'string') {
       const originalPrefix = dbSettings.channel_model_prefix;
       dbSettings.channel_model_prefix = JSON.stringify(dbSettings.channel_model_prefix);
-      console.log('[DEBUG] Stringified channel_model_prefix for saving:', originalPrefix, '->', dbSettings.channel_model_prefix);
+
     }
 
-    console.log('[DEBUG] Saving User Settings:', JSON.stringify(dbSettings, null, 2));
+
     UserSettings.updateSettings(dbSettings);
     return { success: true };
   } catch (error) {
@@ -104,7 +104,7 @@ function getDefaultSettings() {
     customCss: '',
     zeaburRefreshInterval: 30000,
     moduleVisibility: {
-      zeabur: true,
+      paas: true,
       dns: true,
       openai: true,
       server: true,
@@ -119,10 +119,10 @@ function getDefaultSettings() {
       antigravity: '',
       'gemini-cli': ''
     },
-    moduleOrder: ['openai', 'antigravity', 'gemini-cli', 'zeabur', 'dns', 'server'],
+    moduleOrder: ['openai', 'antigravity', 'gemini-cli', 'paas', 'dns', 'server'],
     load_balancing_strategy: 'random',
     serverIpDisplayMode: 'normal',
-    mainTabsLayout: 'top'
+    navLayout: 'top'
   };
 }
 

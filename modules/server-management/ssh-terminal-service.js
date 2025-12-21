@@ -19,10 +19,15 @@ const activeConnections = new Map();
  */
 function init(server) {
     const wss = new WebSocketServer({
-        server,
-        path: '/ws/ssh'
+        noServer: true,
+        perMessageDeflate: false
     });
 
+    handleConnection(wss);
+    return wss;
+}
+
+function handleConnection(wss) {
     wss.on('connection', (ws, req) => {
         logger.info('新的 WebSocket 连接');
 
@@ -32,11 +37,13 @@ function init(server) {
 
         ws.on('message', async (message) => {
             try {
-                const data = JSON.parse(message.toString());
+                const messageStr = message.toString();
+                logger.info(`收到 WebSocket 消息: ${messageStr.substring(0, 100)}`);
+                const data = JSON.parse(messageStr);
 
                 switch (data.type) {
                     case 'connect':
-                        // 连接到 SSH 服务器
+                        logger.info(`尝试连接 SSH, serverId: ${data.serverId}`);
                         const { serverId } = data;
                         const serverConfig = serverStorage.getById(serverId);
 
@@ -190,7 +197,7 @@ function init(server) {
         }
     });
 
-    logger.info('SSH 终端 WebSocket 服务已启动');
+    logger.info('SSH 终端 WebSocket 服务已就绪');
 }
 
 /**

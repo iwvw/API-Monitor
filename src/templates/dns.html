@@ -1,0 +1,556 @@
+<div v-if="mainActiveTab === 'dns'" class="tab-content dns-tab-content" :class="getTabAnimationClass('dns')">
+  <!-- DNS 子标签页 -->
+  <div class="sec-tabs">
+    <button class="tab-btn" :class="{ active: dnsCurrentTab === 'dns' }" @click="dnsCurrentTab = 'dns'">
+      <i class="fas fa-globe"></i> DNS 记录
+    </button>
+    <button class="tab-btn" :class="{ active: dnsCurrentTab === 'compute' }"
+      @click="dnsCurrentTab = 'compute'; computeCurrentTab === 'workers' ? loadWorkers() : loadPages()">
+      <i class="fas fa-microchip"></i> 计算
+    </button>
+    <button class="tab-btn" :class="{ active: dnsCurrentTab === 'accounts' }" @click="dnsCurrentTab = 'accounts'">
+      <i class="fas fa-users"></i> 账号管理
+    </button>
+  </div>
+
+  <!-- DNS 记录标签页 -->
+  <div v-if="dnsCurrentTab === 'dns'" class="sub-tab-content quick-fade-in">
+    <!-- 账号选择 - 卡片式 -->
+    <div style="margin-bottom: 16px;">
+      <div class="zones-grid">
+        <div v-for="acc in dnsAccounts" :key="acc.id" class="zone-card"
+          :class="{ active: dnsSelectedAccountId === acc.id }" @click="selectDnsAccount(acc)">
+          <div style="flex: 1;">
+            <div class="zone-name">
+              <i class="fas fa-user-circle" style="margin-right: 6px; color: var(--cf-color);"></i>
+              {{ acc.name }}
+            </div>
+            <div class="zone-status" style="font-size: 11px;">{{ acc.email || '账号' }}</div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <i v-if="dnsSelectedAccountId === acc.id" class="fas fa-check-circle" style="color: var(--cf-color);"></i>
+            <button v-if="dnsSelectedAccountId === acc.id" class="btn btn-secondary"
+              style="padding: 4px 8px; font-size: 12px;" @click.stop="loadDnsZones" :disabled="dnsLoadingZones">
+              <i class="fas fa-sync-alt" :class="{ 'fa-spin': dnsLoadingZones }"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div v-if="dnsLoadingZones" class="loading">
+      <div class="spinner"></div>
+      <div style="margin-top: 12px;">加载域名列表...</div>
+    </div>
+
+    <!-- 域名网格 -->
+    <div v-if="dnsSelectedAccountId && dnsZones.length > 0 && !dnsLoadingZones" class="zones-grid">
+      <div v-for="zone in dnsZones" :key="zone.id" class="zone-card" :class="{ active: dnsSelectedZoneId === zone.id }"
+        @click="selectDnsZone(zone)">
+        <div>
+          <div class="zone-name">{{ zone.name }}</div>
+          <div class="zone-status" :class="zone.status">{{ zone.status }}</div>
+        </div>
+        <i class="fas fa-chevron-right" style="color: var(--text-tertiary);"></i>
+      </div>
+    </div>
+
+    <div v-if="dnsSelectedAccountId && dnsZones.length === 0 && !dnsLoadingZones" class="empty-state">
+      <i class="fas fa-globe" style="font-size: 48px; margin-bottom: 16px;"></i>
+      <div>该账号下没有域名</div>
+    </div>
+
+    <!-- 快速切换 -->
+    <div v-if="dnsSelectedZoneId" class="quick-switch">
+      <i class="fas fa-bolt" style="color: var(--cf-color);"></i>
+      <span style="font-weight: 500; white-space: nowrap;">快速切换：</span>
+      <select v-model="dnsQuickSwitchType"
+        style="color: #f38020; padding: 6px 10px; border-radius: 4px; border: 1px solid var(--input-border); background: var(--input-bg); min-width: 80px;">
+        <option value="A">A</option>
+        <option value="AAAA">AAAA</option>
+        <option value="CNAME">CNAME</option>
+      </select>
+      <input v-model="dnsQuickSwitchName" placeholder="记录名称 (如 @, www, *)" />
+      <input v-model="dnsQuickSwitchContent" placeholder="新的内容 (IP 或域名)" />
+      <button class="btn btn-cf" style="padding: 6px 12px;" @click="dnsQuickSwitch" :disabled="dnsSwitching">
+        {{ dnsSwitching ? '切换中...' : '切换' }}
+      </button>
+    </div>
+
+    <!-- DNS 记录表格 -->
+    <div v-if="dnsSelectedZoneId" class="panel">
+      <div class="panel-header">
+        <div class="panel-title"><i class="fas fa-list-alt" style="margin-right: 8px; color: var(--cf-color);"></i>DNS
+          记录列表</div>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn btn-success paas-control-btn" style="padding: 6px 12px;" @click="openAddDnsRecordModal">
+            <i class="fas fa-plus"></i> 添加
+          </button>
+          <button v-if="dnsSelectedRecords.length > 0" class="btn btn-danger paas-control-btn"
+            style="padding: 6px 12px;" @click="batchDeleteDnsRecords">
+            <i class="fas fa-trash-alt"></i> 删除 ({{ dnsSelectedRecords.length }})
+          </button>
+          <button class="btn btn-secondary paas-control-btn" style="padding: 6px 12px;" @click="exportDnsRecords">
+            <i class="fas fa-upload"></i> 导出
+          </button>
+          <button class="btn btn-secondary paas-control-btn" style="padding: 6px 12px;" @click="importDnsRecords">
+            <i class="fas fa-download"></i> 导入
+          </button>
+          <button class="btn btn-secondary paas-control-btn" style="padding: 6px 10px;" @click="loadDnsRecords"
+            :disabled="dnsLoadingRecords">
+            <i class="fas fa-sync-alt" :class="{ 'fa-spin': dnsLoadingRecords }"></i>
+          </button>
+        </div>
+      </div>
+
+      <div v-if="dnsLoadingRecords" class="loading">
+        <div class="spinner"></div>
+        <div style="margin-top: 12px;">加载中...</div>
+      </div>
+
+      <div v-else class="table-container">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th style="width: 5%;" class="text-center">
+                <div class="flex-cell">
+                  <input type="checkbox" @change="toggleSelectAllDnsRecords"
+                    :checked="dnsSelectedRecords.length === dnsRecords.length && dnsRecords.length > 0"
+                    style="width: 16px; height: 16px; cursor: pointer;">
+                </div>
+              </th>
+              <th style="width: 12%;" class="text-center">类型</th>
+              <th style="width: 18%;">名称</th>
+              <th style="width: 28%;">内容</th>
+              <th style="width: 8%;" class="text-center">代理</th>
+              <th style="width: 8%;" class="text-center">TTL</th>
+              <th style="width: 10%;" class="text-center">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="record in dnsRecords" :key="record.id">
+              <td class="text-center">
+                <div class="flex-cell">
+                  <input type="checkbox" :value="record.id" v-model="dnsSelectedRecords"
+                    style="width: 16px; height: 16px; cursor: pointer;">
+                </div>
+              </td>
+              <td class="text-center">
+                <div class="flex-cell">
+                  <span class="record-type" :class="record.type">{{ record.type }}</span>
+                </div>
+              </td>
+              <td>
+                <div v-if="!record.isEditingName" class="editable-cell"
+                  :title="formatDnsRecordName(record.name) + ' (双击编辑)'" @dblclick="startEditDnsName(record)">
+                  {{ formatDnsRecordName(record.name) }}
+                </div>
+                <div v-else class="inline-edit-container" @click.stop>
+                  <input v-model="record.editingName" class="inline-edit-input" @keyup.enter="saveDnsName(record)"
+                    @keyup.esc="cancelEditDnsName(record)" @blur="saveDnsName(record)" ref="dnsNameInput" />
+                  <button @click.stop="cancelEditDnsName(record)" class="inline-edit-cancel" title="取消">
+                    ✖️
+                  </button>
+                </div>
+              </td>
+              <td>
+                <div v-if="!record.isEditingContent" class="content-truncate editable-cell"
+                  :title="record.content + ' (双击编辑)'" @dblclick="startEditDnsContent(record)">
+                  {{ record.content }}
+                </div>
+                <div v-else class="inline-edit-container" @click.stop>
+                  <input v-model="record.editingContent" class="inline-edit-input" @keyup.enter="saveDnsContent(record)"
+                    @keyup.esc="cancelEditDnsContent(record)" @blur="saveDnsContent(record)" ref="dnsContentInput" />
+                  <button @click.stop="cancelEditDnsContent(record)" class="inline-edit-cancel" title="取消">
+                    ✖️
+                  </button>
+                </div>
+              </td>
+              <td class="text-center">
+                <div class="flex-cell">
+                  <span class="proxied-badge" :class="record.proxied ? 'proxied-on' : 'proxied-off'">
+                    {{ record.proxied ? '开启' : '关闭' }}
+                  </span>
+                </div>
+              </td>
+              <td class="text-center">
+                <div class="flex-cell">
+                  <span class="ttl-badge" style="font-family: var(--font-mono);">{{ record.ttl === 1 ? 'Auto' :
+                    record.ttl }}</span>
+                </div>
+              </td>
+              <td class="actions text-center">
+                <div class="flex-cell">
+                  <button class="btn btn-icon-refined" @click="openEditDnsRecordModal(record)" title="编辑记录">
+                    <i class="fas fa-edit"></i>
+                  </button>
+                  <button class="btn btn-icon-refined" @click="deleteDnsRecord(record)" title="删除记录"
+                    style="color: var(--danger-color);">
+                    <i class="fas fa-trash"></i>
+                  </button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <div v-if="dnsRecords.length === 0" class="empty-state">暂无 DNS 记录</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 计算标签页 (Workers + Pages) -->
+  <div v-if="dnsCurrentTab === 'compute'" class="sub-tab-content quick-fade-in">
+    <!-- 账号选择 - 卡片式 -->
+    <div style="margin-bottom: 16px;">
+      <div class="zones-grid">
+        <div v-for="acc in dnsAccounts" :key="acc.id" class="zone-card"
+          :class="{ active: dnsSelectedAccountId === acc.id }"
+          @click="selectDnsAccount(acc); computeCurrentTab === 'workers' ? loadWorkers() : loadPages()">
+          <div style="flex: 1;">
+            <div class="zone-name">
+              <i class="fas fa-user-circle" style="margin-right: 6px; color: var(--cf-color);"></i>
+              {{ acc.name }}
+            </div>
+            <div class="zone-status" style="font-size: 11px;">{{ acc.email || '账号' }}</div>
+          </div>
+          <div v-if="dnsSelectedAccountId === acc.id" style="display: flex; align-items: center; gap: 8px;">
+            <i class="fas fa-check-circle" style="color: var(--cf-color);"></i>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 计算二级标签页 -->
+    <div class="compute-inner-tabs" style="margin-bottom: 16px; display: flex; gap: 8px;">
+      <button class="btn" :class="computeCurrentTab === 'workers' ? 'btn-cf' : 'btn-secondary'"
+        @click="if (computeCurrentTab !== 'workers') { computeCurrentTab = 'workers'; loadWorkers(); }">
+        <i class="fas fa-bolt"></i> Workers
+      </button>
+      <button class="btn" :class="computeCurrentTab === 'pages' ? 'btn-cf' : 'btn-secondary'"
+        @click="if (computeCurrentTab !== 'pages') { computeCurrentTab = 'pages'; loadPages(); }">
+        <i class="fas fa-file-code"></i> Pages
+      </button>
+    </div>
+
+    <!-- Workers 内容 -->
+    <div v-if="computeCurrentTab === 'workers'">
+      <!-- 有账号时始终显示面板 -->
+      <div v-if="dnsSelectedAccountId" class="panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            Cloudflare Workers
+            <span v-if="workersSubdomain"
+              style="font-size: 12px; font-weight: normal; margin-left: 12px; opacity: 0.7;">
+              子域名: <code class="code-sm">{{ workersSubdomain }}.workers.dev</code>
+            </span>
+          </div>
+          <div style="display: flex; gap: 8px;">
+            <button class="btn btn-success" @click="openNewWorkerModal">
+              <i class="fas fa-plus"></i> 新建 Worker
+            </button>
+            <button class="btn btn-secondary" @click="loadWorkers">
+              <i class="fas fa-sync-alt" :class="{ 'fa-spin': workersLoading }"></i> 刷新
+            </button>
+          </div>
+        </div>
+
+        <div class="table-container">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>名称</th>
+                <th>子域名地址</th>
+                <th class="text-center">创建时间</th>
+                <th class="text-center">更新时间</th>
+                <th class="text-center" style="width: 180px;">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="worker in workers" :key="worker.id">
+                <td>
+                  <div style="font-weight: 600; color: var(--cf-color);">{{ worker.name }}</div>
+                </td>
+                <td>
+                  <div v-if="workersSubdomain" class="content-truncate" style="opacity: 0.8;">
+                    <a href="javascript:void(0)"
+                      @click="openExternalLink(worker.name + '.' + workersSubdomain + '.workers.dev')"
+                      style="color: inherit; text-decoration: none;">
+                      {{ worker.name }}.{{ workersSubdomain }}.workers.dev
+                      <i class="fas fa-external-link-alt" style="font-size: 10px; margin-left: 4px;"></i>
+                    </a>
+                  </div>
+                  <span v-else style="opacity: 0.4;">-</span>
+                </td>
+                <td class="text-center">
+                  <div class="log-time">{{ formatWorkerDate(worker.createdOn) }}</div>
+                </td>
+                <td class="text-center">
+                  <div class="log-time">{{ formatWorkerDate(worker.modifiedOn) }}</div>
+                </td>
+                <td class="actions text-center">
+                  <div class="flex-cell">
+                    <button class="btn btn-icon-refined" title="本地编辑代码" @click="openEditWorkerModal(worker)">
+                      <i class="fas fa-code"></i>
+                    </button>
+                    <button class="btn btn-icon-refined" title="在 Cloudflare 官网打开"
+                      @click="openExternalLink('https://dash.cloudflare.com/' + workersCfAccountId + '/workers/services/edit/' + worker.name + '/production')">
+                      <i class="fab fa-cloudflare"></i>
+                    </button>
+                    <button class="btn btn-icon-refined" title="路由管理" @click="openWorkerRoutesModal(worker)">
+                      <i class="fas fa-route"></i>
+                    </button>
+                    <button class="btn btn-icon-refined" title="自定义域名" @click="openWorkerDomainsModal(worker)">
+                      <i class="fas fa-globe"></i>
+                    </button>
+                    <button class="btn btn-icon-refined" title="删除" @click="deleteWorker(worker.name)"
+                      style="color: var(--danger-color);">
+                      <i class="fas fa-trash"></i>
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <div v-if="workers.length === 0" class="empty-state">
+            <i class="fas fa-bolt" style="font-size: 48px; margin-bottom: 16px; opacity: 0.2;"></i>
+            <div>暂无 Workers，点击按钮新建一个</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Pages 内容 -->
+    <div v-if="computeCurrentTab === 'pages'">
+      <!-- 有账号时始终显示面板 -->
+      <div v-if="dnsSelectedAccountId" class="panel">
+        <div class="panel-header">
+          <div class="panel-title">Cloudflare Pages</div>
+          <div style="display: flex; gap: 8px;">
+            <button class="btn btn-cf"
+              @click="openExternalLink('https://dash.cloudflare.com/' + workersCfAccountId + '/pages/new')">
+              <i class="fas fa-plus"></i> 新建项目
+            </button>
+            <button class="btn btn-secondary" @click="loadPages">
+              <i class="fas fa-sync-alt" :class="{ 'fa-spin': pagesLoading }"></i> 刷新
+            </button>
+          </div>
+        </div>
+
+        <div class="table-container">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>项目名称</th>
+                <th>部署域名</th>
+                <th>来源</th>
+                <th class="text-center">更新时间</th>
+                <th class="text-center" style="width: 180px;">操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="project in pagesProjects" :key="project.id">
+                <td>
+                  <div style="font-weight: 600; color: var(--cf-color);">{{ project.name }}</div>
+                </td>
+                <td>
+                  <div class="content-truncate" style="opacity: 0.8;">
+                    <a href="javascript:void(0)" @click="openExternalLink(project.subdomain)"
+                      style="color: var(--cf-color); text-decoration: none;">
+                      {{ project.subdomain }}
+                      <i class="fas fa-external-link-alt" style="font-size: 10px; margin-left: 4px;"></i>
+                    </a>
+                  </div>
+                </td>
+                <td>
+                  <div v-if="project.source" style="font-size: 12px;">
+                    <i :class="project.source.type === 'github' ? 'fab fa-github' : 'fas fa-code-branch'"
+                      style="margin-right: 4px;"></i>
+                    {{ project.source.config?.owner }}/{{ project.source.config?.repo_name }}
+                  </div>
+                  <span v-else style="opacity: 0.4;">直接上传</span>
+                </td>
+                <td class="text-center">
+                  <div class="log-time">{{ formatWorkerDate(project.created_on) }}</div>
+                </td>
+                <td class="actions text-center">
+                  <div class="flex-cell">
+                    <button class="btn btn-icon-refined" title="查看部署" @click="viewPagesDeployments(project)">
+                      <i class="fas fa-history"></i>
+                    </button>
+                    <button class="btn btn-icon-refined" title="自定义域名" @click="openPagesDomainsModal(project)">
+                      <i class="fas fa-globe"></i>
+                    </button>
+                    <button class="btn btn-icon-refined" title="控制台"
+                      @click="openExternalLink('https://dash.cloudflare.com/' + workersCfAccountId + '/pages/view/' + project.name)">
+                      <i class="fas fa-external-link-square-alt"></i>
+                    </button>
+                    <button class="btn btn-icon-refined" title="删除" @click="deletePagesProject(project)"
+                      style="color: var(--danger-color);">
+                      <i class="fas fa-trash"></i>
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <div v-if="pagesProjects.length === 0" class="empty-state">
+            <i class="fas fa-file-code" style="font-size: 48px; margin-bottom: 16px; opacity: 0.2;"></i>
+            <div>暂无 Pages 项目</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CF 账号管理标签页 -->
+  <div v-if="dnsCurrentTab === 'accounts'" class="sub-tab-content quick-fade-in">
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title"><i class="fas fa-users"
+            style="margin-right: 8px; color: var(--cf-color);"></i>Cloudflare 账号管理</div>
+        <div style="display: flex; gap: 8px;">
+          <button class="btn btn-success" style="padding: 6px 12px;" @click="openAddDnsAccountModal">
+            <i class="fas fa-plus"></i> 添加账号
+          </button>
+          <button class="btn btn-secondary" style="padding: 6px 12px;" @click="exportDnsAccounts">
+            <i class="fas fa-upload"></i> 导出
+          </button>
+          <button class="btn btn-secondary" style="padding: 6px 12px;" @click="importDnsAccounts">
+            <i class="fas fa-download"></i> 导入
+          </button>
+        </div>
+      </div>
+
+      <div class="table-container">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>名称</th>
+              <th>邮箱</th>
+              <th>API Token</th>
+              <th class="text-center">添加时间</th>
+              <th class="text-center">最后使用</th>
+              <th style="width: 150px;" class="text-center">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="acc in dnsAccounts" :key="acc.id">
+              <td>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <i class="fas fa-user-circle" style="font-size: 12px; color: var(--cf-color); opacity: 0.7;"></i>
+                  <strong>{{ acc.name }}</strong>
+                </div>
+              </td>
+              <td>{{ acc.email || '-' }}</td>
+              <td>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                  <code
+                    style="background: var(--bg-secondary); border: 1px solid var(--border-color); padding: 2px 8px; border-radius: 6px; font-size: 11px; font-family: var(--font-mono); color: var(--text-secondary);">
+                    {{ acc.showToken ? acc.apiToken : (acc.hasToken ? '••••••••••••••••' : '-') }}
+                  </code>
+                  <button v-if="acc.hasToken" class="copy-btn" @click="toggleDnsTokenVisibility(acc)"
+                    :title="acc.showToken ? '隐藏' : '显示'" style="padding: 2px 4px;">
+                    <i :class="acc.showToken ? 'fas fa-eye-slash' : 'fas fa-eye'"></i>
+                  </button>
+                </div>
+              </td>
+              <td class="text-center">
+                <div class="flex-cell">
+                  <div class="log-time">
+                    {{ formatDnsDate(acc.createdAt) }}
+                  </div>
+                </div>
+              </td>
+              <td class="text-center">
+                <div class="flex-cell">
+                  <div class="log-time" v-if="acc.lastUsed">
+                    {{ formatDnsDate(acc.lastUsed) }}
+                  </div>
+                  <span v-else style="color: var(--text-tertiary); font-size: 11px;">从未有效调用</span>
+                </div>
+              </td>
+              <td class="actions text-center">
+                <div class="flex-cell">
+                  <button class="btn btn-icon-refined" @click="verifyDnsAccount(acc)" title="验证 Token 有效性">
+                    <i class="fas fa-shield-alt"></i>
+                  </button>
+                  <button class="btn btn-icon-refined" @click="editDnsAccount(acc)" title="编辑账号">
+                    <i class="fas fa-edit"></i>
+                  </button>
+                  <button class="btn btn-icon-refined" @click="deleteDnsAccount(acc)" title="删除账号"
+                    style="color: var(--danger-color);">
+                    <i class="fas fa-trash"></i>
+                  </button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <div v-if="dnsAccounts.length === 0" class="empty-state">
+          <i class="fas fa-key" style="font-size: 48px; margin-bottom: 16px;"></i>
+          <div>暂无账号，请添加 Cloudflare API Token</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 模板标签页 -->
+  <div v-if="dnsCurrentTab === 'templates'">
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title"><i class="fas fa-file-code" style="margin-right: 8px; color: var(--cf-color);"></i>DNS
+          模板</div>
+        <button class="btn btn-success" style="padding: 6px 12px;" @click="openAddDnsTemplateModal">
+          <i class="fas fa-plus"></i> 添加模板
+        </button>
+      </div>
+
+      <div class="table-container">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>名称</th>
+              <th style="width: 60px;">类型</th>
+              <th>内容</th>
+              <th style="width: 70px;" class="text-center">代理</th>
+              <th>描述</th>
+              <th style="width: 120px;" class="text-center">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="tpl in dnsTemplates" :key="tpl.id">
+              <td>{{ tpl.name }}</td>
+              <td><span class="record-type" :class="tpl.type">{{ tpl.type }}</span></td>
+              <td>
+                <div class="content-truncate" :title="tpl.content">{{ tpl.content }}</div>
+              </td>
+              <td class="text-center">
+                <div class="flex-cell">
+                  <span class="proxied-badge" :class="tpl.proxied ? 'proxied-on' : 'proxied-off'">
+                    {{ tpl.proxied ? '开启' : '关闭' }}
+                  </span>
+                </div>
+              </td>
+              <td>{{ tpl.description || '-' }}</td>
+              <td class="actions text-center">
+                <div class="flex-cell">
+                  <button class="btn btn-icon-refined" @click="editDnsTemplate(tpl)" title="编辑模板">
+                    <i class="fas fa-edit"></i>
+                  </button>
+                  <button class="btn btn-icon-refined" @click="deleteDnsTemplate(tpl)" title="删除模板"
+                    style="color: var(--danger-color);">
+                    <i class="fas fa-trash"></i>
+                  </button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <div v-if="dnsTemplates.length === 0" class="empty-state">
+          <i class="fas fa-copy" style="font-size: 48px; margin-bottom: 16px;"></i>
+          <div>暂无模板，添加常用 DNS 配置模板以快速应用</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
