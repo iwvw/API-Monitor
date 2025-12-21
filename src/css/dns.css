@@ -1,68 +1,21 @@
-﻿/* DNS Management Styles */
+/* DNS Management Styles */
 
-.sec-tabs {
-  display: flex;
-  gap: 6px;
-  margin-bottom: 10px;
-  margin-top: 10px;
-  border-bottom: 1px solid var(--border-color);
-  padding-bottom: 12px;
+.dns-sec-tabs {
+  /* 继承全局 .sec-tabs 布局 */
 }
 
-.tab-btn {
-  min-width: 90px;
-  padding: 8px 14px;
-  border: none;
-  background: var(--bg-secondary);
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-secondary);
-  border-radius: 8px;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  position: relative;
-  overflow: hidden;
-}
-
-.tab-btn::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(135deg, transparent 0%, rgba(255, 255, 255, 0.05) 100%);
-  opacity: 0;
-  transition: opacity 0.25s;
-}
-
-.tab-btn:hover::before {
-  opacity: 1;
-}
-
-.tab-btn i {
-  font-size: 12px;
-  transition: transform 0.25s;
-}
-
-.tab-btn:hover i {
-  transform: scale(1.1);
-}
-
-.tab-btn.active {
-  background: linear-gradient(135deg, var(--cf-color), #e67320);
-  color: white;
+.theme-cf-dns .tab-btn.active {
+  background: linear-gradient(135deg, var(--cf-primary), var(--cf-dark)) !important;
+  color: white !important;
   box-shadow: 0 2px 8px rgba(243, 128, 32, 0.3);
 }
 
-.tab-btn:hover:not(.active) {
-  background: var(--bg-tertiary);
-  color: var(--text-primary);
+.theme-cf-dns .tab-btn:hover:not(.active) {
+  color: var(--cf-primary);
 }
 
 .btn-cf {
-  background-color: var(--cf-color);
+  background-color: var(--cf-primary);
   color: white;
 }
 
@@ -322,7 +275,7 @@
   }
 }
 
-/* Worker ����˫���༭��ʽ */
+/* Worker */
 .worker-name-text:hover {
   background: rgba(247, 147, 20, 0.08);
   box-shadow: 0 0 0 1px rgba(247, 147, 20, 0.2);

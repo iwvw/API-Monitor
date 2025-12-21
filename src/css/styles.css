@@ -72,6 +72,138 @@ pre,
   --font-size-2xl: 18px;
   --font-size-3xl: 20px;
 
+  /* 核心模块颜色系统 - 高辨识度调色盘 */
+  --openai-primary: #10a37f;
+  --openai-dark: #0d8a6a;
+  
+  --ag-primary: #f43f5e;
+  --ag-dark: #e11d48;
+  
+  --gemini-primary: #4285f4;
+  --gemini-dark: #1a73e8;
+  
+  --cf-primary: #f38020;
+  --cf-dark: #e5730d;
+  
+  --selfh-primary: #06b6d4;
+  --selfh-dark: #0891b2;
+  
+  --server-primary: #475569;
+  --server-primary-dark: #334155;
+  
+  --paas-primary: #6366f1;
+  --paas-dark: #4f46e5;
+
+  /* 常用功能色映射 (核心驱动) */
+  --primary-color: var(--paas-primary);
+  --primary-dark: var(--paas-dark);
+  --success-color: #10b981;
+  --success-dark: #059669;
+  --warning-color: #f59e0b;
+  --danger-color: #ef4444;
+  --info-color: #3b82f6;
+
+  /* --- 通用组件样式 --- */
+  
+  /* 二级标签栏基础布局 */
+  .sec-tabs {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 10px;
+      margin-top: 10px;
+      border-bottom: 1px solid var(--border-color);
+      padding-bottom: 12px;
+      align-items: center;
+      flex-wrap: wrap; /* 允许在小屏幕换行 */
+  }
+
+  /* 标签按钮基础样式 */
+  .tab-btn {
+      min-width: 90px;
+      padding: 8px 14px;
+      border: none;
+      background: var(--bg-secondary);
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-secondary);
+      border-radius: 8px;
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      position: relative;
+      overflow: hidden;
+  }
+
+  .tab-btn:hover {
+      background: var(--bg-tertiary);
+      color: var(--text-primary);
+  }
+
+  /* --- 模块主题类定义 --- */
+  
+  /* 二级标签页激活状态通用逻辑 */
+  .tab-content .sec-tabs .tab-btn.active {
+      color: white !important;
+      transition: all 0.3s ease;
+  }
+
+  /* 通用元素颜色覆盖逻辑 */
+  .theme-openai, .theme-antigravity, .theme-gemini-cli, .theme-cf-dns, .theme-self-h, .theme-server, .theme-paas {
+      --current-primary: var(--primary-color);
+      --current-dark: var(--primary-dark);
+  }
+
+  .theme-openai { --current-primary: var(--openai-primary); --current-dark: var(--openai-dark); }
+  .theme-antigravity { --current-primary: var(--ag-primary); --current-dark: var(--ag-dark); }
+  .theme-gemini-cli { --current-primary: var(--gemini-primary); --current-dark: var(--gemini-dark); }
+  .theme-cf-dns { --current-primary: var(--cf-primary); --current-dark: var(--cf-dark); }
+  .theme-self-h { --current-primary: var(--selfh-primary); --current-dark: var(--selfh-dark); }
+  .theme-server { --current-primary: var(--server-primary); --current-dark: var(--server-primary-dark); }
+  .theme-paas { --current-primary: var(--paas-primary); --current-dark: var(--paas-dark); }
+
+  /* 应用动态颜色到通用组件 */
+  [class*="theme-"] .btn-primary {
+      background: var(--current-primary) !important;
+      border-color: var(--current-primary) !important;
+  }
+  [class*="theme-"] .btn-primary:hover {
+      background: var(--current-dark) !important;
+      border-color: var(--current-dark) !important;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  }
+  [class*="theme-"] .panel-title i, 
+  [class*="theme-"] .module-color-text,
+  [class*="theme-"] .stat-card i { 
+      color: var(--current-primary) !important; 
+  }
+  [class*="theme-"] .spinner,
+  [class*="theme-"] .spinner-sm {
+      border-left-color: var(--current-primary) !important;
+  }
+  [class*="theme-"] .progress-bar-fill {
+      background: var(--current-primary) !important;
+  }
+  /* 状态徽章动态配色 */
+  [class*="theme-"] .ag-status-online {
+      background: color-mix(in srgb, var(--current-primary), transparent 90%);
+      color: var(--current-primary);
+      border-color: color-mix(in srgb, var(--current-primary), transparent 80%);
+  }
+
+  /* 模块专属激活态阴影适配 */
+  .theme-openai .tab-btn.active { background: linear-gradient(135deg, var(--openai-primary), var(--openai-dark)) !important; box-shadow: 0 2px 8px rgba(16, 163, 127, 0.3); }
+  .theme-antigravity .tab-btn.active { background: linear-gradient(135deg, var(--ag-primary), var(--ag-dark)) !important; box-shadow: 0 2px 8px rgba(244, 63, 94, 0.3); }
+  .theme-gemini-cli .tab-btn.active { background: linear-gradient(135deg, var(--gemini-primary), var(--gemini-dark)) !important; box-shadow: 0 2px 8px rgba(66, 133, 244, 0.3); }
+  .theme-cf-dns .tab-btn.active { background: linear-gradient(135deg, var(--cf-primary), var(--cf-dark)) !important; box-shadow: 0 2px 8px rgba(243, 128, 32, 0.3); }
+  .theme-self-h .tab-btn.active { background: linear-gradient(135deg, var(--selfh-primary), var(--selfh-dark)) !important; box-shadow: 0 2px 8px rgba(6, 182, 212, 0.3); }
+  .theme-server .tab-btn.active { background: linear-gradient(135deg, var(--server-primary), var(--server-primary-dark)) !important; box-shadow: 0 2px 8px rgba(71, 85, 105, 0.3); }
+  .theme-paas .tab-btn.active { background: linear-gradient(135deg, var(--paas-primary), var(--paas-dark)) !important; box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3); }
+
+  /* --- 结束模块主题类定义 --- */
+
   /* 颜色 */
   --primary-color: #6366f1;
   --primary-rgb: 99, 102, 241;
@@ -79,6 +211,7 @@ pre,
   --primary-light: #818cf8;
   --secondary-color: #f97316;
   --success-color: #10b981;
+  --success-dark: #059669;
   --warning-color: #f59e0b;
   --danger-color: #ef4444;
   --info-color: #3b82f6;

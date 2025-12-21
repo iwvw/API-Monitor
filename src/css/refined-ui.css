@@ -118,3 +118,18 @@
 .batch-textarea::-webkit-scrollbar-thumb:hover {
     background: var(--text-tertiary);
 }
+/* Self-H 模块二级标签页样式 */
+.self-h-sec-tabs {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 10px;
+    margin-top: 10px;
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 12px;
+}
+
+.theme-self-h .tab-btn.active {
+    background: linear-gradient(135deg, var(--selfh-primary), var(--success-dark)) !important;
+    color: white !important;
+    box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+}

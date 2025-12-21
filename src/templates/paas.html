@@ -1,7 +1,7 @@
-<div v-if="mainActiveTab === 'paas'" class="tab-content paas-sec-tab" :class="getTabAnimationClass('paas')">
-  <!-- PaaS 统一子标签页：Zeabur | Koyeb | Fly.io | 账号管理 | 模块配置 -->
-  <div class="sec-tabs"
-    style="display: flex; justify-content: space-between; align-items: center; padding-right: 15px;">
+<!-- ==================== PaaS 管理部分 ==================== -->
+<div v-show="mainActiveTab === 'paas'" class="tab-content paas-tab-content theme-paas" :class="getTabAnimationClass('paas')">
+  <!-- PaaS 子标签页 -->
+  <div class="sec-tabs paas-sec-tabs">
     <div style="display: flex; gap: 5px;">
       <button class="tab-btn" :class="{ active: paasCurrentTab === 'zeabur' }"
         @click="paasCurrentTab = 'zeabur'; paasCurrentPlatform = 'zeabur'">

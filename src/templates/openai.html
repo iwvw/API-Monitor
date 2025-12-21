@@ -1,5 +1,5 @@
 <!-- ==================== OpenApi 管理部分 ==================== -->
-<div v-if="mainActiveTab === 'openai'" class="tab-content openai-tab-content" :class="getTabAnimationClass('openai')">
+<div v-if="mainActiveTab === 'openai'" class="tab-content openai-tab-content theme-openai" :class="getTabAnimationClass('openai')">
   <!-- OpenApi 子标签页 -->
   <div class="sec-tabs openai-sec-tabs">
     <button class="tab-btn" :class="{ active: openaiCurrentTab === 'endpoints' }"

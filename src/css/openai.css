@@ -178,6 +178,17 @@
     line-height: 1.2;
 }
 
+/* OpenAI 模块二级标签页样式 */
+.openai-sec-tabs {
+    /* 继承全局 .sec-tabs 布局 */
+}
+
+.theme-openai .tab-btn.active {
+    background: linear-gradient(135deg, var(--openai-primary), var(--openai-dark)) !important;
+    color: white !important;
+    box-shadow: 0 2px 8px rgba(16, 163, 127, 0.3);
+}
+
 @keyframes openaiFadeIn {
     from {
         opacity: 0;

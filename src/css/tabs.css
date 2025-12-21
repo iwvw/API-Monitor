@@ -32,61 +32,28 @@
   color: var(--primary-color);
 }
 
-.main-tab.paas-tab:hover {
-  color: var(--zeabur-primary);
-}
+/* 统一主标签页配色 - 匹配新重构的色彩系统 */
 
-.main-tab.paas-tab.active {
-  color: var(--zeabur-primary);
-}
+.main-tab.paas-tab:hover, .main-tab.paas-tab.active { color: var(--paas-primary) !important; }
+.main-tab.paas-tab::after { background-color: var(--paas-primary) !important; }
 
-.main-tab.paas-tab::after {
-  background-color: var(--zeabur-primary);
-}
+.main-tab.dns-tab:hover, .main-tab.dns-tab.active { color: var(--cf-primary) !important; }
+.main-tab.dns-tab::after { background-color: var(--cf-primary) !important; }
 
-.main-tab.dns-tab:hover {
-  color: var(--cf-color);
-}
+.main-tab.openai-tab:hover, .main-tab.openai-tab.active { color: var(--openai-primary) !important; }
+.main-tab.openai-tab::after { background-color: var(--openai-primary) !important; }
 
-.main-tab.dns-tab.active {
-  color: var(--cf-color);
-}
+.main-tab.server-tab:hover, .main-tab.server-tab.active { color: var(--server-primary) !important; }
+.main-tab.server-tab::after { background-color: var(--server-primary) !important; }
 
-.main-tab.openai-tab:hover {
-  color: var(--openai-color);
-}
+.main-tab.self-h-tab:hover, .main-tab.self-h-tab.active { color: var(--selfh-primary) !important; }
+.main-tab.self-h-tab::after { background-color: var(--selfh-primary) !important; }
 
-.main-tab.openai-tab.active {
-  color: var(--openai-color);
-}
+.main-tab.antigravity-tab:hover, .main-tab.antigravity-tab.active { color: var(--ag-primary) !important; }
+.main-tab.antigravity-tab::after { background-color: var(--ag-primary) !important; }
 
-.main-tab.server-tab:hover {
-  color: var(--server-primary);
-}
-
-.main-tab.server-tab.active {
-  color: var(--server-primary);
-}
-
-.main-tab.self-h-tab:hover {
-  color: var(--success-color);
-}
-
-.main-tab.self-h-tab.active {
-  color: var(--success-color);
-}
-
-.main-tab.self-h-tab::after {
-  background-color: var(--success-color);
-}
-
-.main-tab.antigravity-tab:hover {
-  color: var(--ag-primary);
-}
-
-.main-tab.antigravity-tab.active {
-  color: var(--ag-primary);
-}
+.main-tab.gemini-cli-tab:hover, .main-tab.gemini-cli-tab.active { color: var(--gemini-primary) !important; }
+.main-tab.gemini-cli-tab::after { background-color: var(--gemini-primary) !important; }
 
 @media (max-width: 768px) {
   .main-tab {
@@ -156,29 +123,13 @@
 }
 
 /* 各模块特色颜色 - 激活状态 */
-.main-tabs-sidebar .sidebar-tab.paas-tab.active {
-  color: var(--zeabur-primary);
-}
-
-.main-tabs-sidebar .sidebar-tab.dns-tab.active {
-  color: var(--cf-color);
-}
-
-.main-tabs-sidebar .sidebar-tab.openai-tab.active {
-  color: var(--openai-color);
-}
-
-.main-tabs-sidebar .sidebar-tab.server-tab.active {
-  color: var(--server-primary);
-}
-
-.main-tabs-sidebar .sidebar-tab.self-h-tab.active {
-  color: var(--success-color);
-}
-
-.main-tabs-sidebar .sidebar-tab.antigravity-tab.active {
-  color: var(--ag-primary);
-}
+.main-tabs-sidebar .sidebar-tab.paas-tab.active { color: var(--paas-primary) !important; }
+.main-tabs-sidebar .sidebar-tab.dns-tab.active { color: var(--cf-primary) !important; }
+.main-tabs-sidebar .sidebar-tab.openai-tab.active { color: var(--openai-primary) !important; }
+.main-tabs-sidebar .sidebar-tab.server-tab.active { color: var(--server-primary) !important; }
+.main-tabs-sidebar .sidebar-tab.self-h-tab.active { color: var(--selfh-primary) !important; }
+.main-tabs-sidebar .sidebar-tab.antigravity-tab.active { color: var(--ag-primary) !important; }
+.main-tabs-sidebar .sidebar-tab.gemini-cli-tab.active { color: var(--gemini-primary) !important; }
 
 
 

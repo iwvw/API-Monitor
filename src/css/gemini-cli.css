@@ -1,41 +1,22 @@
 /* Gemini CLI 模块专属样式 */
-:root {
-  --gemini-primary: #00BFA5;
-  /* Gemini Teal/翡翠绿 */
-  --gemini-secondary: #00897B;
-  /* Darker Teal */
-  --gemini-accent: #64FFDA;
-  /* Mint accent */
-  --gemini-bg-gradient: linear-gradient(135deg, #00BFA5 0%, #64FFDA 100%);
-  --gemini-shadow: 0 8px 32px rgba(0, 191, 165, 0.15);
-}
-
-
-.main-tab.gemini-cli-tab.active {
-  color: var(--gemini-primary) !important;
-}
-
-.main-tab.gemini-cli-tab:hover {
-  color: var(--gemini-primary) !important;
-}
-
-.gemini-cli-tab:after {
-  background: var(--gemini-primary) !important;
-}
-
-/* 仅应用于顶部导航的下划线，不影响侧边栏的 tooltip */
-.main-tabs .gemini-cli-tab.active::after {
-  background: var(--gemini-primary) !important;
-}
 
 .gemini-cli-content {
   animation: fadeIn 0.4s ease-out;
 }
 
-/* Gemini CLI 子标签页激活状态 */
-.gemini-sec-tabs .tab-btn.active {
-  background: linear-gradient(135deg, var(--gemini-primary), var(--gemini-secondary)) !important;
-  box-shadow: 0 2px 8px rgba(0, 191, 165, 0.3);
+/* Gemini CLI Secondary Tabs */
+.gemini-sec-tabs {
+    /* 继承全局 .sec-tabs 布局 */
+}
+
+.theme-gemini-cli .tab-btn:hover:not(.active) {
+    color: var(--gemini-primary);
+}
+
+.theme-gemini-cli .tab-btn.active {
+    background: linear-gradient(135deg, var(--gemini-primary), var(--gemini-dark)) !important;
+    color: white !important;
+    box-shadow: 0 2px 8px rgba(66, 133, 244, 0.3);
 }
 
 .gemini-card {

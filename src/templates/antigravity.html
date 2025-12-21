@@ -1,9 +1,9 @@
 <!-- ==================== Antigravity 管理部分 ==================== -->
-<div v-if="mainActiveTab === 'antigravity'" class="tab-content antigravity-tab-content"
+<div v-if="mainActiveTab === 'antigravity'" class="tab-content antigravity-tab-content theme-antigravity"
   :class="getTabAnimationClass('antigravity')">
 
-  <!-- Antigravity 子标签栏 -->
-  <div class="sec-tabs">
+  <!-- Antigravity 子标签页 -->
+  <div class="sec-tabs antigravity-sec-tabs">
     <button class="tab-btn" :class="{ active: antigravityCurrentTab === 'quotas' }"
       @click="switchAntigravityTab('quotas')">
       <i class="fas fa-chart-pie"></i> 额度使用

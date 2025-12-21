@@ -194,90 +194,29 @@
    ================================================================= */
 
 /* Zeabur Tab */
-.sidebar-tab.paas-tab:hover {
-  background: rgba(var(--zeabur-primary-rgb), 0.08);
-  color: var(--zeabur-primary);
-}
-
-.sidebar-tab.paas-tab.active {
-  background: linear-gradient(135deg, var(--zeabur-primary) 0%, var(--zeabur-secondary) 100%);
-  color: white;
-  box-shadow: 0 4px 12px rgba(var(--zeabur-primary-rgb), 0.3);
-}
+.sidebar-tab.paas-tab:hover { background: rgba(99, 102, 241, 0.08); color: var(--paas-primary); }
+.sidebar-tab.paas-tab.active { background: linear-gradient(135deg, var(--paas-primary) 0%, var(--paas-dark) 100%); color: white; box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3); }
 
 /* DNS Tab (Cloudflare) */
-.sidebar-tab.dns-tab:hover {
-  background: rgba(243, 128, 32, 0.08);
-  /* --cf-color rgb */
-  color: var(--cf-color);
-}
-
-.sidebar-tab.dns-tab.active {
-  background: linear-gradient(135deg, var(--cf-color) 0%, var(--cf-dark) 100%);
-  color: white;
-  box-shadow: 0 4px 12px rgba(243, 128, 32, 0.3);
-}
+.sidebar-tab.dns-tab:hover { background: rgba(243, 128, 32, 0.08); color: var(--cf-primary); }
+.sidebar-tab.dns-tab.active { background: linear-gradient(135deg, var(--cf-primary) 0%, var(--cf-dark) 100%); color: white; box-shadow: 0 4px 12px rgba(243, 128, 32, 0.3); }
 
 /* OpenAI Tab */
-.sidebar-tab.openai-tab:hover {
-  background: rgba(16, 163, 127, 0.08);
-  /* --openai-color rgb */
-  color: var(--openai-color);
-}
-
-.sidebar-tab.openai-tab.active {
-  background: linear-gradient(135deg, var(--openai-color) 0%, var(--openai-dark) 100%);
-  color: white;
-  box-shadow: 0 4px 12px rgba(16, 163, 127, 0.3);
-}
+.sidebar-tab.openai-tab:hover { background: rgba(16, 163, 127, 0.08); color: var(--openai-primary); }
+.sidebar-tab.openai-tab.active { background: linear-gradient(135deg, var(--openai-primary) 0%, var(--openai-dark) 100%); color: white; box-shadow: 0 4px 12px rgba(16, 163, 127, 0.3); }
 
 /* Server Tab (Hosts) */
-.sidebar-tab.server-tab:hover {
-  background: rgba(71, 85, 105, 0.08);
-  /* --server-primary rgb */
-  color: var(--server-primary);
-}
-
-.sidebar-tab.server-tab.active {
-  background: linear-gradient(135deg, var(--server-primary) 0%, var(--server-primary-dark) 100%);
-  color: white;
-  box-shadow: 0 4px 12px rgba(71, 85, 105, 0.3);
-}
+.sidebar-tab.server-tab:hover { background: rgba(71, 85, 105, 0.08); color: var(--server-primary); }
+.sidebar-tab.server-tab.active { background: linear-gradient(135deg, var(--server-primary) 0%, var(--server-primary-dark) 100%); color: white; box-shadow: 0 4px 12px rgba(71, 85, 105, 0.3); }
 
 /* Self-H Tab */
-.sidebar-tab.self-h-tab:hover {
-  background: rgba(16, 185, 129, 0.08); /* --success-color rgb approx */
-  color: var(--success-color);
-}
-
-.sidebar-tab.self-h-tab.active {
-  background: linear-gradient(135deg, var(--success-color) 0%, #059669 100%);
-  color: white;
-  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
-}
+.sidebar-tab.self-h-tab:hover { background: rgba(6, 182, 212, 0.08); color: var(--selfh-primary); }
+.sidebar-tab.self-h-tab.active { background: linear-gradient(135deg, var(--selfh-primary) 0%, var(--selfh-dark) 100%); color: white; box-shadow: 0 4px 12px rgba(6, 182, 212, 0.3); }
 
 /* Antigravity Tab */
-.sidebar-tab.antigravity-tab:hover {
-  background: rgba(var(--ag-primary-rgb), 0.08);
-  color: var(--ag-primary);
-}
-
-.sidebar-tab.antigravity-tab.active {
-  background: linear-gradient(135deg, var(--ag-primary) 0%, #f4511e 100%);
-  /* #f4511e is ag-primary-hover */
-  color: white;
-  box-shadow: 0 4px 12px rgba(var(--ag-primary-rgb), 0.3);
-}
+.sidebar-tab.antigravity-tab:hover { background: rgba(244, 63, 94, 0.08); color: var(--ag-primary); }
+.sidebar-tab.antigravity-tab.active { background: linear-gradient(135deg, var(--ag-primary) 0%, var(--ag-dark) 100%); color: white; box-shadow: 0 4px 12px rgba(244, 63, 94, 0.3); }
 
 /* Gemini CLI Tab */
-.sidebar-tab.gemini-cli-tab:hover {
-  background: rgba(0, 191, 165, 0.08);
-  /* --gemini-primary rgb */
-  color: var(--gemini-primary);
-}
-
-.sidebar-tab.gemini-cli-tab.active {
-  background: linear-gradient(135deg, var(--gemini-primary) 0%, var(--gemini-secondary) 100%);
-  color: white;
-  box-shadow: 0 4px 12px rgba(0, 191, 165, 0.3);
-}
+.sidebar-tab.gemini-cli-tab:hover { background: rgba(66, 133, 244, 0.08); color: var(--gemini-primary); }
+.sidebar-tab.gemini-cli-tab.active { background: linear-gradient(135deg, var(--gemini-primary) 0%, var(--gemini-dark) 100%); color: white; box-shadow: 0 4px 12px rgba(66, 133, 244, 0.3); }

@@ -1678,21 +1678,24 @@
     gap: 4px;
 }
 
-/* Server 模块中的 btn-primary 使用青色主题 */
-.server-tab-content .btn-primary {
+.server-sec-tabs {
+    /* 继承全局 .sec-tabs 布局 */
+}
+
+.theme-server .tab-btn.active {
+    background: linear-gradient(135deg, var(--server-primary), var(--server-primary-dark)) !important;
+    color: white !important;
+    box-shadow: 0 2px 8px rgba(71, 85, 105, 0.3);
+}
+
+.theme-server .btn-primary {
     background: var(--server-primary);
     border-color: var(--server-primary);
 }
 
-.server-tab-content .btn-primary:hover {
+.theme-server .btn-primary:hover {
     background: var(--server-primary-dark);
     border-color: var(--server-primary-dark);
-}
-
-/* Server 子标签激活状态 */
-.server-sec-tabs .tab-btn.active {
-    background: linear-gradient(135deg, var(--server-primary), var(--server-primary-dark)) !important;
-    box-shadow: 0 2px 8px rgba(0, 212, 170, 0.3);
 }
 
 /* SSH 添加按钮居中 */

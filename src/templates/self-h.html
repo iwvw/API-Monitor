@@ -1,7 +1,7 @@
 <!-- ==================== 自建服务模块 (Self-H) ==================== -->
-<div v-show="mainActiveTab === 'self-h'" class="tab-content self-h-tab-content" :class="getTabAnimationClass('self-h')">
+<div v-show="mainActiveTab === 'self-h'" class="tab-content self-h-tab-content theme-self-h" :class="getTabAnimationClass('self-h')">
   <!-- 子标签页导航 -->
-  <div class="sec-tabs">
+  <div class="sec-tabs self-h-sec-tabs">
     <button class="tab-btn" :class="{ active: selfHCurrentTab === 'openlist' }" @click="selfHCurrentTab = 'openlist'">
       <i class="fas fa-folder-tree"></i> OpenList
     </button>

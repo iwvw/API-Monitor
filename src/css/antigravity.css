@@ -18,14 +18,18 @@
 }
 
 /* Antigravity Secondary Tabs */
-.antigravity-tab-content .sec-tabs {
-    background: transparent;
-    border: none;
-    padding: 0;
+.antigravity-sec-tabs {
+    /* 继承全局 .sec-tabs 布局 */
 }
 
-.antigravity-tab-content .tab-btn:hover:not(.active) {
+.theme-antigravity .tab-btn:hover:not(.active) {
     color: var(--ag-primary);
+}
+
+.theme-antigravity .tab-btn.active {
+    background: linear-gradient(135deg, var(--ag-primary), var(--ag-dark)) !important;
+    color: white !important;
+    box-shadow: 0 2px 8px rgba(255, 87, 34, 0.3);
 }
 
 /* 子页面布局优化 */
