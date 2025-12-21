@@ -1,75 +1,65 @@
 # ===================================
 # API Monitor Docker Image
 # ===================================
-# 多阶段构建，优化镜像大小和安全性
+# 多阶段构建：Deps -> Builder -> Runner
 
-# 阶段 1: 依赖安装
+# 阶段 1: 依赖安装 (包含 devDependencies)
 FROM node:20-alpine AS deps
-
-# 安装构建依赖（better-sqlite3 需要）
 RUN apk add --no-cache python3 make g++
-
-# 设置工作目录
 WORKDIR /app
-
-# 复制依赖文件
 COPY package.json package-lock.json ./
+# 这里必须安装所有依赖，因为 build 需要 vite
+RUN npm install --legacy-peer-deps
 
-# 安装生产依赖（使用 npm install 更宽容，避免 lock 文件冲突）
-RUN npm install --only=production --legacy-peer-deps && \
-    npm cache clean --force
+# 阶段 2: 构建前端
+FROM node:20-alpine AS builder
+WORKDIR /app
+COPY --from=deps /app/node_modules ./
+COPY . .
+# 设置环境变量为 production (某些构建脚本可能会用到)
+ENV NODE_ENV=production
+# 执行构建，生成 dist 目录
+RUN npm run build
 
-# 阶段 2: 运行时镜像
+# 阶段 3: 运行时镜像 (仅包含生产依赖)
 FROM node:20-alpine AS runner
 
-# 添加元数据标签
 LABEL org.opencontainers.image.title="API Monitor"
 LABEL org.opencontainers.image.description="API聚合监控面板"
 LABEL org.opencontainers.image.source="https://github.com/iwvw/api-monitor"
 LABEL org.opencontainers.image.licenses="MIT"
-LABEL org.opencontainers.image.vendor="iwvw"
 LABEL maintainer="iwvw"
 
-# 安装运行时依赖
-RUN apk add --no-cache \
-    curl \
-    tini \
-    && rm -rf /var/cache/apk/*
+RUN apk add --no-cache curl tini && rm -rf /var/cache/apk/*
 
-# 创建非 root 用户
-RUN addgroup -g 1001 -S nodejs && \
-    adduser -S nodejs -u 1001
+RUN addgroup -g 1001 -S nodejs && adduser -S nodejs -u 1001
 
-# 设置工作目录
 WORKDIR /app
 
-# 创建必要的目录并设置权限
-RUN mkdir -p /app/config /app/data && \
-    chown -R nodejs:nodejs /app
+# 创建数据目录
+RUN mkdir -p /app/config /app/data && chown -R nodejs:nodejs /app
 
-# 从依赖阶段复制 node_modules
-COPY --from=deps --chown=nodejs:nodejs /app/node_modules ./node_modules
+# 安装仅生产依赖 (为了减小体积，这里重新安装一次 production deps)
+COPY package.json package-lock.json ./
+RUN npm install --only=production --legacy-peer-deps && npm cache clean --force
 
-# 复制应用源码
+# 从 Builder 阶段复制构建好的前端资源
+COPY --from=builder --chown=nodejs:nodejs /app/dist ./
+
+# 复制后端源码
 COPY --chown=nodejs:nodejs . .
 
-# 设置环境变量
 ENV NODE_ENV=production \
     PORT=3000 \
     CONFIG_DIR=/app/config
 
-# 暴露端口
 EXPOSE 3000
 
-# 健康检查
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:3000/ || exit 1
 
-# 切换到非 root 用户
 USER nodejs
 
-# 使用 tini 作为 init 进程
 ENTRYPOINT ["/sbin/tini", "--"]
 
-# 启动应用
 CMD ["node", "server.js"]
