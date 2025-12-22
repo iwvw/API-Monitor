@@ -21,7 +21,7 @@ function loadUserSettings() {
       dns: true,
       openai: true,
       server: true,
-      'self-h': true,
+      'self-h': false,
       antigravity: true,
       'gemini-cli': true
     };
@@ -43,7 +43,7 @@ function loadUserSettings() {
       visibility['gemini-cli'] = true;
     }
     if (!('self-h' in visibility)) {
-      visibility['self-h'] = true;
+      visibility['self-h'] = false;
     }
     
     if (!order.includes('gemini-cli')) {
@@ -122,7 +122,7 @@ function getDefaultSettings() {
       dns: true,
       openai: true,
       server: true,
-      'self-h': true,
+      'self-h': false,
       antigravity: true,
       'gemini-cli': true
     },

@@ -581,10 +581,205 @@ class ServerSnippet {
     }
 }
 
+/**
+ * ServerMetricsHistory 模型 - 实时指标历史记录
+ */
+class ServerMetricsHistory {
+    /**
+     * 创建历史记录
+     * @param {Object} data - 指标数据
+     * @returns {Object} 创建的记录
+     */
+    static create(data) {
+        const stmt = getDb().prepare(`
+            INSERT INTO server_metrics_history (
+                server_id, cpu_usage, cpu_load, cpu_cores,
+                mem_used, mem_total, mem_usage,
+                disk_used, disk_total, disk_usage,
+                docker_installed, docker_running, docker_stopped
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+
+        const result = stmt.run(
+            data.server_id,
+            data.cpu_usage || 0,
+            data.cpu_load || '',
+            data.cpu_cores || 0,
+            data.mem_used || 0,
+            data.mem_total || 0,
+            data.mem_usage || 0,
+            data.disk_used || '',
+            data.disk_total || '',
+            data.disk_usage || 0,
+            data.docker_installed ? 1 : 0,
+            data.docker_running || 0,
+            data.docker_stopped || 0
+        );
+
+        return { id: result.lastInsertRowid, ...data };
+    }
+
+    /**
+     * 批量创建历史记录 (用于多台主机同时采集)
+     * @param {Array} records - 记录数组
+     * @returns {number} 插入的记录数
+     */
+    static createMany(records) {
+        if (!records || records.length === 0) return 0;
+
+        const insert = getDb().prepare(`
+            INSERT INTO server_metrics_history (
+                server_id, cpu_usage, cpu_load, cpu_cores,
+                mem_used, mem_total, mem_usage,
+                disk_used, disk_total, disk_usage,
+                docker_installed, docker_running, docker_stopped,
+                recorded_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+
+        const now = new Date().toISOString();
+
+        const insertMany = getDb().transaction((rows) => {
+            for (const data of rows) {
+                insert.run(
+                    data.server_id,
+                    data.cpu_usage || 0,
+                    data.cpu_load || '',
+                    data.cpu_cores || 0,
+                    data.mem_used || 0,
+                    data.mem_total || 0,
+                    data.mem_usage || 0,
+                    data.disk_used || '',
+                    data.disk_total || '',
+                    data.disk_usage || 0,
+                    data.docker_installed ? 1 : 0,
+                    data.docker_running || 0,
+                    data.docker_stopped || 0,
+                    now
+                );
+            }
+            return rows.length;
+        });
+
+        return insertMany(records);
+    }
+
+    /**
+     * 获取指定时间范围的历史记录
+     * @param {Object} options - 查询选项
+     * @returns {Array} 历史记录列表
+     */
+    static getHistory(options = {}) {
+        const {
+            serverId = null,
+            startTime = null,
+            endTime = null,
+            limit = 100,
+            offset = 0
+        } = options;
+
+        let sql = 'SELECT h.*, a.name as server_name, a.host as server_host FROM server_metrics_history h LEFT JOIN server_accounts a ON h.server_id = a.id WHERE 1=1';
+        const params = [];
+
+        if (serverId) {
+            sql += ' AND h.server_id = ?';
+            params.push(serverId);
+        }
+
+        if (startTime) {
+            sql += ' AND h.recorded_at >= ?';
+            params.push(startTime);
+        }
+
+        if (endTime) {
+            sql += ' AND h.recorded_at <= ?';
+            params.push(endTime);
+        }
+
+        sql += ' ORDER BY h.recorded_at DESC LIMIT ? OFFSET ?';
+        params.push(limit, offset);
+
+        const stmt = getDb().prepare(sql);
+        return stmt.all(...params);
+    }
+
+    /**
+     * 获取记录总数
+     * @param {Object} filters - 过滤条件
+     * @returns {number} 记录总数
+     */
+    static getCount(filters = {}) {
+        let sql = 'SELECT COUNT(*) as count FROM server_metrics_history WHERE 1=1';
+        const params = [];
+
+        if (filters.serverId) {
+            sql += ' AND server_id = ?';
+            params.push(filters.serverId);
+        }
+
+        if (filters.startTime) {
+            sql += ' AND recorded_at >= ?';
+            params.push(filters.startTime);
+        }
+
+        if (filters.endTime) {
+            sql += ' AND recorded_at <= ?';
+            params.push(filters.endTime);
+        }
+
+        const stmt = getDb().prepare(sql);
+        const result = stmt.get(...params);
+        return result.count;
+    }
+
+    /**
+     * 删除过期记录
+     * @param {number} days - 保留天数
+     * @returns {number} 删除的记录数
+     */
+    static deleteOldRecords(days) {
+        const cutoffDate = new Date();
+        cutoffDate.setDate(cutoffDate.getDate() - days);
+
+        const stmt = getDb().prepare('DELETE FROM server_metrics_history WHERE recorded_at < ?');
+        const result = stmt.run(cutoffDate.toISOString());
+        return result.changes;
+    }
+
+    /**
+     * 获取指标统计数据 (用于图表展示)
+     * @param {string} serverId - 主机 ID
+     * @param {number} hours - 统计最近多少小时
+     * @returns {Object} 统计数据
+     */
+    static getStats(serverId, hours = 24) {
+        const cutoffDate = new Date();
+        cutoffDate.setHours(cutoffDate.getHours() - hours);
+
+        const stmt = getDb().prepare(`
+            SELECT 
+                AVG(cpu_usage) as avg_cpu,
+                MAX(cpu_usage) as max_cpu,
+                MIN(cpu_usage) as min_cpu,
+                AVG(mem_usage) as avg_mem,
+                MAX(mem_usage) as max_mem,
+                MIN(mem_usage) as min_mem,
+                AVG(disk_usage) as avg_disk,
+                MAX(disk_usage) as max_disk,
+                COUNT(*) as record_count
+            FROM server_metrics_history 
+            WHERE server_id = ? AND recorded_at >= ?
+        `);
+
+        return stmt.get(serverId, cutoffDate.toISOString());
+    }
+}
+
 module.exports = {
     ServerAccount,
     ServerMonitorLog,
     ServerMonitorConfig,
     ServerCredential,
-    ServerSnippet
+    ServerSnippet,
+    ServerMetricsHistory
 };

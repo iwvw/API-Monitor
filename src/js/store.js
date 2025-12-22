@@ -30,7 +30,7 @@ export const store = reactive({
         'gemini-cli': true,
         paas: true,
         dns: true,
-        'self-h': true,
+        'self-h': false,
         server: true
     },
     channelEnabled: {
@@ -287,6 +287,11 @@ export const store = reactive({
     autoScrollLogs: true,
     logFileSize: '',
     logFileInfo: null,
+
+    // 实时指标流 (Real-time Metrics Stream)
+    metricsWs: null,
+    metricsWsConnected: false,
+    metricsWsConnecting: false,
 
     // 自定义对话框状态
     customDialog: {

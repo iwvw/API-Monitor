@@ -149,11 +149,11 @@
       <button class="modal-close" @click="showAntigravityLogDetailModal = false"><i class="fas fa-times"></i></button>
     </div>
     <div class="modal-body" v-if="antigravityLogDetail" style="padding: 0;">
-      <div style="padding: 20px; max-height: 75vh; overflow-y: auto;">
+      <div style="padding: 10px; max-height: 75vh; overflow-y: auto;">
         <!-- 易读视图 -->
         <div v-if="!agLogDetailShowRaw" class="log-readable-view">
           <div class="log-detail-section">
-            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 15px;">
+            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 5px;">
               <div style="width: 4px; height: 16px; background: var(--ag-primary); border-radius: 2px;"></div>
               <h4 style="margin: 0; font-size: 15px; font-weight: 600;">基础运行信息</h4>
             </div>
@@ -226,7 +226,7 @@
             </div>
           </div>
 
-          <div v-if="antigravityLogDetail.detail" class="log-detail-section" style="margin-top: 24px;">
+          <div v-if="antigravityLogDetail.detail" class="log-detail-section" style="margin-top: 10px;">
             <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 15px;">
               <div style="width: 4px; height: 16px; background: var(--ag-primary); border-radius: 2px;"></div>
               <h4 style="margin: 0; font-size: 15px; font-weight: 600;">对话流回溯</h4>
@@ -259,8 +259,9 @@
                     <i class="fas fa-terminal"></i>
                     <span>系统指令 / System Prompt</span>
                   </summary>
-                  <div class="msg-bubble system-bubble" 
-                    style="font-family: var(--font-mono); font-size: 12px; background: var(--bg-tertiary); border: 1px dashed var(--border-color); white-space: pre-wrap; opacity: 0.8; width: 100%; border-top: none; border-radius: 0 0 8px 8px; margin-top: 0;">{{ msg.content }}</div>
+                  <div class="msg-bubble system-bubble"
+                    style="font-family: var(--font-mono); font-size: 12px; background: var(--bg-tertiary); border: 1px dashed var(--border-color); white-space: pre-wrap; opacity: 0.8; width: 100%; border-top: none; border-radius: 0 0 8px 8px; margin-top: 0;">
+                    {{ msg.content }}</div>
                 </details>
                 <div v-else class="msg-bubble" :class="msg.role === 'user' ? 'user-bubble' : 'assistant-bubble'"
                   v-html="renderMarkdown(msg.content)">
@@ -365,11 +366,11 @@
       <button class="modal-close" @click="showGeminiCliLogDetailModal = false"><i class="fas fa-times"></i></button>
     </div>
     <div class="modal-body" v-if="geminiCliLogDetail" style="padding: 0;">
-      <div style="padding: 20px; max-height: 75vh; overflow-y: auto;">
+      <div style="padding: 10px; max-height: 75vh; overflow-y: auto;">
         <!-- 易读视图 -->
         <div v-if="!gcliLogDetailShowRaw" class="log-readable-view">
           <div class="log-detail-section">
-            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 15px;">
+            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 5px;">
               <div style="width: 4px; height: 16px; background: var(--gemini-primary, #4285f4); border-radius: 2px;">
               </div>
               <h4 style="margin: 0; font-size: 15px; font-weight: 600;">基础运行信息</h4>
@@ -418,7 +419,7 @@
             </div>
           </div>
 
-          <div v-if="geminiCliLogDetail.detail" class="log-detail-section" style="margin-top: 24px;">
+          <div v-if="geminiCliLogDetail.detail" class="log-detail-section" style="margin-top: 10px;">
             <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 15px;">
               <div style="width: 4px; height: 16px; background: var(--gemini-primary, #4285f4); border-radius: 2px;">
               </div>
@@ -452,8 +453,9 @@
                     <i class="fas fa-terminal"></i>
                     <span>系统指令 / System Prompt</span>
                   </summary>
-                  <div class="msg-bubble system-bubble" 
-                    style="font-family: var(--font-mono); font-size: 12px; background: var(--bg-tertiary); border: 1px dashed var(--border-color); white-space: pre-wrap; opacity: 0.8; width: 100%; border-top: none; border-radius: 0 0 8px 8px; margin-top: 0;">{{ msg.content }}</div>
+                  <div class="msg-bubble system-bubble"
+                    style="font-family: var(--font-mono); font-size: 12px; background: var(--bg-tertiary); border: 1px dashed var(--border-color); white-space: pre-wrap; opacity: 0.8; width: 100%; border-top: none; border-radius: 0 0 8px 8px; margin-top: 0;">
+                    {{ msg.content }}</div>
                 </details>
                 <div v-else class="msg-bubble" :class="msg.role === 'user' ? 'user-bubble' : 'assistant-bubble'"
                   v-html="renderMarkdown(msg.content)">
@@ -983,8 +985,7 @@
 </div>
 
 <!-- 添加 Fly.io 账号模态框 -->
-<div v-if="showAddFlyAccountModal" class="modal-overlay" @keydown.esc="showAddFlyAccountModal = false"
-  tabindex="-1">
+<div v-if="showAddFlyAccountModal" class="modal-overlay" @keydown.esc="showAddFlyAccountModal = false" tabindex="-1">
   <div class="modal">
     <div class="modal-header">
       <div class="modal-title">添加 Fly.io 账号</div>

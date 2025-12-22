@@ -76,11 +76,6 @@ async function loadServers(silent = false) {
 
         if (data.success) {
             state.servers = data.data;
-            if (!silent) {
-                toast.success('主机列表已刷新');
-            }
-        } else {
-            toast.error('加载主机列表失败: ' + data.error);
         }
     } catch (error) {
         console.error('加载主机列表失败:', error);
@@ -147,6 +142,28 @@ function renderServerList() {
 }
 
 /**
+ * 获取延迟徽标 HTML
+ */
+function getLatencyBadgeHtml(rt) {
+    if (!rt) {
+        return `
+            <div style="display: inline-flex; align-items: center; padding: 2px 10px; border-radius: 10px; font-size: 11px; font-weight: 700; font-family: var(--font-mono); background: rgba(128, 128, 128, 0.08); color: #8b949e;">
+                WAIT
+            </div>
+        `;
+    }
+    const num = parseInt(rt);
+    const bg = num < 100 ? 'rgba(16, 185, 129, 0.1)' : (num < 300 ? 'rgba(245, 158, 11, 0.1)' : 'rgba(239, 68, 68, 0.1)');
+    const color = num < 100 ? '#10b981' : (num < 300 ? '#f59e0b' : '#ef4444');
+    
+    return `
+        <div style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 10px; border-radius: 10px; font-size: 11px; font-weight: 700; font-family: var(--font-mono); background: ${bg}; color: ${color};">
+            ${rt}ms
+        </div>
+    `;
+}
+
+/**
  * 渲染后台管理的主机表格
  */
 function renderServerTable(servers) {
@@ -157,8 +174,7 @@ function renderServerTable(servers) {
                     <th>状态</th>
                     <th>主机名称</th>
                     <th>主机地址</th>
-                    <th>响应时间</th>
-                    <th>最后检查</th>
+                    <th class="text-center">延迟</th>
                     <th style="width: 150px;">操作</th>
                 </tr>
             </thead>
@@ -210,10 +226,6 @@ function renderServerTableRow(server) {
         'unknown': '未知'
     }[statusClass] || '未知';
 
-    const lastCheckTime = server.last_check_time
-        ? new Date(server.last_check_time).toLocaleString('zh-CN')
-        : '从未检查';
-
     const responseTime = server.response_time ? `${server.response_time}ms` : '-';
 
     const statusBadgeClass = statusClass === 'online' ? 'proxied-on' : (statusClass === 'offline' ? 'proxied-off' : '');
@@ -236,8 +248,9 @@ function renderServerTableRow(server) {
                     ${escapeHtml(server.username)}@${escapeHtml(formatHost(server.host))}:${server.port}
                 </code>
             </td>
-            <td>${responseTime}</td>
-            <td>${lastCheckTime}</td>
+            <td class="text-center">
+                ${getLatencyBadgeHtml(server.response_time)}
+            </td>
             <td class="actions">
                 <button class="btn btn-secondary" style="padding: 4px 8px; font-size: 12px;"
                     onclick="window.serverModule.connectSSH('${server.id}')" title="SSH 连接">
@@ -272,10 +285,6 @@ function renderServerCard(server) {
 
     const statusBadgeClass = statusClass === 'online' ? 'proxied-on' : (statusClass === 'offline' ? 'proxied-off' : '');
 
-    const lastCheckTime = server.last_check_time
-        ? new Date(server.last_check_time).toLocaleString('zh-CN')
-        : '从未检查';
-
     const responseTime = server.response_time ? `${server.response_time}ms` : '-';
 
     return `
@@ -294,12 +303,20 @@ function renderServerCard(server) {
             server.tags.map(tag => `<span class="server-tag">${escapeHtml(tag)}</span>`).join('')
             : ''}
                         </div>
-                        <div class="server-host">${escapeHtml(server.username)}@${escapeHtml(formatHost(server.host))}:${server.port}</div>
+                        <div class="server-host" style="margin-top: 6px; background: transparent; padding: 0;">
+                            ${server.response_time ? `
+                                <div style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 12px; font-size: 10px; font-weight: 700; font-family: var(--font-mono); 
+                                    background: ${parseInt(server.response_time) < 100 ? 'rgba(16, 185, 129, 0.1)' : (parseInt(server.response_time) < 300 ? 'rgba(245, 158, 11, 0.1)' : 'rgba(239, 68, 68, 0.1)')}; 
+                                    color: ${parseInt(server.response_time) < 100 ? '#10b981' : (parseInt(server.response_time) < 300 ? '#f59e0b' : '#ef4444')};
+                                    border: 1px solid ${parseInt(server.response_time) < 100 ? 'rgba(16, 185, 129, 0.2)' : (parseInt(server.response_time) < 300 ? 'rgba(245, 158, 11, 0.2)' : 'rgba(239, 68, 68, 0.2)')}">
+                                    <i class="fas fa-bolt" style="font-size: 9px;"></i>
+                                    <span>${server.response_time}ms</span>
+                                </div>
+                            ` : '<span style="font-size: 11px; color: var(--text-tertiary); opacity: 0.5;">未探测</span>'}
+                        </div>
                     </div>
                 </div>
                 <div class="server-quick-info">
-                    <span>响应: ${responseTime}</span>
-                    <span>检查: ${lastCheckTime}</span>
                 </div>
                 <div class="server-card-actions" onclick="event.stopPropagation()">
                     <button class="btn btn-sm btn-primary" onclick="window.serverModule.connectSSH('${server.id}')" title="SSH 连接">
@@ -818,19 +835,342 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
-// 导出函数到全局作用域，供 HTML 中的 onclick 使用
+/**
+ * Vue 实例混入方法 - 用于解耦 main.js
+ */
+export const serverMethods = {
+    /**
+     * 加载主机列表
+     */
+    async loadServerList() {
+        this.serverLoading = true;
+        try {
+            const response = await fetch('/api/server/accounts', {
+                headers: this.getAuthHeaders()
+            });
+            const data = await response.json();
+            if (data.success) {
+                // 智能合并数据，保留 loading 等 UI 状态
+                const newList = data.data;
+                if (this.serverList.length === 0) {
+                    this.serverList = newList;
+                } else {
+                    newList.forEach(newServer => {
+                        const existing = this.serverList.find(s => s.id === newServer.id);
+                        if (existing) {
+                            // 更新基础属性，但保留 info 等可能正在实时更新的数据（如果新数据里没有）
+                            Object.assign(existing, newServer);
+                        } else {
+                            this.serverList.push(newServer);
+                        }
+                    });
+                    // 移除已删除的主机
+                    this.serverList = this.serverList.filter(s => newList.find(ns => ns.id === s.id));
+                }
+            }
+        } catch (error) {
+            console.error('加载主机列表失败:', error);
+        } finally {
+            this.serverLoading = false;
+        }
+    },
+
+    /**
+     * 刷新单个主机信息
+     */
+    async refreshServerInfo(serverId) {
+        const server = this.serverList.find(s => s.id === serverId);
+        if (!server) return;
+
+        server.loading = true;
+        try {
+            const response = await fetch('/api/server/info', {
+                method: 'POST',
+                headers: {
+                    ...this.getAuthHeaders(),
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ serverId })
+            });
+            const data = await response.json();
+            if (data.success) {
+                server.info = data;
+                server.status = 'online';
+                server.error = null;
+            } else {
+                server.error = data.error || '获取失败';
+                server.status = 'offline';
+            }
+        } catch (error) {
+            server.error = error.message;
+            server.status = 'offline';
+        } finally {
+            server.loading = false;
+        }
+    },
+
+    /**
+     * 探测所有主机
+     */
+    async probeAllServers() {
+        this.serverLoading = true;
+        try {
+            const response = await fetch('/api/server/check-all', {
+                method: 'POST',
+                headers: this.getAuthHeaders()
+            });
+            const data = await response.json();
+            if (data.success) {
+                await this.loadServerList();
+            }
+        } catch (error) {
+            console.error('探测主机失败:', error);
+        } finally {
+            this.serverLoading = false;
+        }
+    },
+
+    /**
+     * 加载历史指标记录
+     */
+    async loadMetricsHistory(page = null) {
+        if (page !== null) {
+            this.metricsHistoryPagination.page = page;
+        }
+
+        this.metricsHistoryLoading = true;
+
+        try {
+            // 计算时间范围
+            let startTime = null;
+            const now = Date.now();
+
+            switch (this.metricsHistoryTimeRange) {
+                case '1h': startTime = new Date(now - 60 * 60 * 1000).toISOString(); break;
+                case '6h': startTime = new Date(now - 6 * 60 * 60 * 1000).toISOString(); break;
+                case '24h': startTime = new Date(now - 24 * 60 * 60 * 1000).toISOString(); break;
+                case '7d': startTime = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString(); break;
+                case 'all': default: startTime = null;
+            }
+
+            const params = new URLSearchParams({
+                page: this.metricsHistoryPagination.page,
+                pageSize: this.metricsHistoryPagination.pageSize
+            });
+
+            if (this.metricsHistoryFilter.serverId) {
+                params.append('serverId', this.metricsHistoryFilter.serverId);
+            }
+
+            if (startTime) {
+                params.append('startTime', startTime);
+            }
+
+            const response = await fetch(`/api/server/metrics/history?${params}`, {
+                headers: this.getAuthHeaders()
+            });
+            const data = await response.json();
+
+            if (data.success) {
+                this.metricsHistoryList = data.data;
+                this.metricsHistoryTotal = data.pagination.total;
+                this.metricsHistoryPagination = {
+                    page: data.pagination.page,
+                    pageSize: data.pagination.pageSize,
+                    totalPages: data.pagination.totalPages
+                };
+            }
+
+            // 加载采集器状态
+            this.loadCollectorStatus();
+
+            // 渲染图表
+            this.$nextTick(() => {
+                this.renderMetricsCharts();
+            });
+        } catch (error) {
+            console.error('加载历史指标失败:', error);
+        } finally {
+            this.metricsHistoryLoading = false;
+        }
+    },
+
+    /**
+     * 渲染历史指标图表
+     */
+    renderMetricsCharts() {
+        if (!window.Chart || !this.groupedMetricsHistory) return;
+
+        Object.entries(this.groupedMetricsHistory).forEach(([serverId, records]) => {
+            const sortedRecords = [...records].reverse();
+            const labels = sortedRecords.map(r => {
+                const d = new Date(r.recorded_at);
+                return d.getHours() + ':' + String(d.getMinutes()).padStart(2, '0');
+            });
+            const cpuData = sortedRecords.map(r => r.cpu_usage || 0);
+            const memData = sortedRecords.map(r => r.mem_usage || 0);
+
+            this.$nextTick(() => {
+                const canvasId = `metrics-chart-${serverId}`;
+                const canvas = document.getElementById(canvasId);
+                if (!canvas) return;
+
+                const existingChart = Chart.getChart(canvas);
+                if (existingChart) existingChart.destroy();
+
+                new Chart(canvas, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [
+                            {
+                                label: 'CPU (%)',
+                                data: cpuData,
+                                borderColor: '#10b981',
+                                backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                                borderWidth: 2,
+                                fill: true,
+                                tension: 0.4,
+                                pointRadius: 0,
+                                pointHoverRadius: 4
+                            },
+                            {
+                                label: '内存 (%)',
+                                data: memData,
+                                borderColor: '#3b82f6',
+                                backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                                borderWidth: 2,
+                                fill: true,
+                                tension: 0.4,
+                                pointRadius: 0,
+                                pointHoverRadius: 4
+                            }
+                        ]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: { display: false },
+                            tooltip: {
+                                mode: 'index',
+                                intersect: false,
+                                padding: 10,
+                                backgroundColor: 'rgba(13, 17, 23, 0.9)',
+                                titleColor: '#8b949e',
+                                bodyColor: '#e6edf3',
+                                borderColor: 'rgba(255, 255, 255, 0.1)',
+                                borderWidth: 1
+                            }
+                        },
+                        scales: {
+                            x: {
+                                display: true,
+                                grid: { display: false },
+                                ticks: {
+                                    maxRotation: 0,
+                                    autoSkip: true,
+                                    maxTicksLimit: 6,
+                                    font: { size: 10 },
+                                    color: '#8b949e'
+                                }
+                            },
+                            y: {
+                                display: true,
+                                min: 0,
+                                max: 100,
+                                grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                                ticks: {
+                                    font: { size: 10 },
+                                    color: '#8b949e',
+                                    stepSize: 20
+                                }
+                            }
+                        },
+                        interaction: {
+                            mode: 'nearest',
+                            axis: 'x',
+                            intersect: false
+                        }
+                    }
+                });
+            });
+        });
+    },
+
+    /**
+     * 手动触发指标采集
+     */
+    async triggerMetricsCollect() {
+        try {
+            const response = await fetch('/api/server/metrics/collect', {
+                method: 'POST',
+                headers: this.getAuthHeaders()
+            });
+            const data = await response.json();
+            if (data.success) {
+                this.showGlobalToast('已触发历史指标采集', 'success');
+                setTimeout(() => this.loadMetricsHistory(), 1000);
+            }
+        } catch (error) {
+            console.error('触发采集失败:', error);
+        }
+    },
+
+    /**
+     * 设置指标时间范围
+     */
+    setMetricsTimeRange(range) {
+        this.metricsHistoryTimeRange = range;
+        this.loadMetricsHistory(1);
+    },
+
+    /**
+     * 加载采集器状态
+     */
+    async loadCollectorStatus() {
+        try {
+            const response = await fetch('/api/server/metrics/collector/status', {
+                headers: this.getAuthHeaders()
+            });
+            const data = await response.json();
+            if (data.success) {
+                this.metricsCollectorStatus = data.data;
+            }
+        } catch (error) {
+            console.error('加载采集器状态失败:', error);
+        }
+    },
+
+    /**
+     * 更新指标采集间隔
+     */
+    async updateMetricsCollectInterval() {
+        try {
+            const response = await fetch('/api/server/monitor/config', {
+                method: 'PUT',
+                headers: {
+                    ...this.getAuthHeaders(),
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    probe_interval: parseInt(this.metricsCollectInterval)
+                })
+            });
+            const data = await response.json();
+            if (data.success) {
+                this.showGlobalToast('采集间隔已更新', 'success');
+                this.loadCollectorStatus();
+            }
+        } catch (error) {
+            this.showGlobalToast('更新失败', 'error');
+        }
+    }
+};
+
+// 导出函数到全局作用域...
 window.serverModule = {
-    toggleServerCard,
-    showAddServerModal,
-    showEditServerModal,
-    deleteServer,
-    connectSSH,
-    showDockerContainers,
-    rebootServer,
-    shutdownServer,
-    refreshServerInfo,
-    loadServers,
-    renderServerList, // 导出渲染函数，支持直接重绘
-    initManagementButtons, // 初始化后台管理按钮
+    // ...
     formatHost // 导出格式化函数
 };
+

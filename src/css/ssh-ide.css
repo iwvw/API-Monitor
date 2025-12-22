@@ -15,8 +15,15 @@
 }
 
 @keyframes ssh-view-fade {
-    from { opacity: 0; transform: translateY(10px); }
-    to { opacity: 1; transform: translateY(0); }
+    from {
+        opacity: 0;
+        transform: translateY(10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 /* 主容器 - 简洁框架 */
@@ -39,8 +46,14 @@
 
 .ssh-ide-layout.fullscreen {
     position: fixed;
-    top: 0; left: 0; width: 100vw !important; height: 100vh !important;
-    max-width: none !important; border-radius: 0; z-index: 9999; border: none;
+    top: 0;
+    left: 0;
+    width: 100vw !important;
+    height: 100vh !important;
+    max-width: none !important;
+    border-radius: 0;
+    z-index: 9999;
+    border: none;
 }
 
 /* 顶部工具栏 */
@@ -58,30 +71,104 @@
 }
 
 /* 会话标签 */
-.ssh-session-tabs { display: flex; align-items: center; gap: 8px; flex: 1; overflow-x: auto; scrollbar-width: none; }
-.ssh-session-tabs::-webkit-scrollbar { display: none; }
+.ssh-session-tabs {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex: 1;
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+
+.ssh-session-tabs::-webkit-scrollbar {
+    display: none;
+}
 
 .ssh-session-tab {
-    display: flex; align-items: center; gap: 8px; padding: 0 14px; height: 34px;
-    background: rgba(var(--primary-rgb), 0.02); border: 1px solid var(--border-color);
-    border-radius: 10px; color: var(--text-secondary); font-size: 12px;
-    cursor: pointer; transition: all 0.2s; white-space: nowrap; max-width: 180px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 14px;
+    height: 34px;
+    background: rgba(var(--primary-rgb), 0.02);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    color: var(--text-secondary);
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+    max-width: 180px;
 }
-.ssh-session-tab.active { background: var(--bg-tertiary); color: var(--primary-color); border-color: var(--primary-color); }
-.ssh-tab-close { opacity: 0.3; font-size: 9px; margin-left: 4px; }
-.ssh-session-tab:hover .ssh-tab-close { opacity: 0.6; }
+
+.ssh-session-tab.active {
+    background: var(--bg-tertiary);
+    color: var(--primary-color);
+    border-color: var(--primary-color);
+}
+
+.ssh-tab-close {
+    opacity: 0.3;
+    font-size: 9px;
+    margin-left: 4px;
+}
+
+.ssh-session-tab:hover .ssh-tab-close {
+    opacity: 0.6;
+}
 
 /* 终端容器 */
-.ssh-main-container { display: flex; flex: 1; width: 100%; height: 100%; overflow: hidden; position: relative; }
-.ssh-terminal-wrapper { flex: 1; height: 100%; overflow-x: hidden; overflow-y: auto !important; background: var(--bg-primary); position: relative; }
+.ssh-main-container {
+    display: flex;
+    flex: 1;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    position: relative;
+}
+
+.ssh-terminal-wrapper {
+    flex: 1;
+    height: 100%;
+    overflow-x: hidden;
+    overflow-y: auto !important;
+    background: var(--bg-primary);
+    position: relative;
+}
 
 /* 网格布局 */
-.ssh-terminal-wrapper.layout-grid, .ssh-terminal-wrapper.layout-grid-v { display: grid !important; gap: 2px; background: var(--border-color); width: 100%; height: 100%; grid-auto-rows: minmax(250px, 1fr); }
-.ssh-terminal-wrapper[data-pane-count="1"] { grid-template-columns: 1fr; }
-.ssh-terminal-wrapper[data-pane-count="2"] { grid-template-columns: 1fr 1fr; }
-.ssh-terminal-wrapper.layout-split-v { grid-template-columns: 1fr !important; grid-template-rows: 1fr 1fr; }
-.ssh-terminal-wrapper[data-pane-count="3"], .ssh-terminal-wrapper[data-pane-count="4"] { grid-template-columns: 1fr 1fr; }
-.ssh-terminal-wrapper[data-pane-count="5"], .ssh-terminal-wrapper[data-pane-count="6"] { grid-template-columns: repeat(3, 1fr); }
+.ssh-terminal-wrapper.layout-grid,
+.ssh-terminal-wrapper.layout-grid-v {
+    display: grid !important;
+    gap: 2px;
+    background: var(--border-color);
+    width: 100%;
+    height: 100%;
+    grid-auto-rows: minmax(250px, 1fr);
+}
+
+.ssh-terminal-wrapper[data-pane-count="1"] {
+    grid-template-columns: 1fr;
+}
+
+.ssh-terminal-wrapper[data-pane-count="2"] {
+    grid-template-columns: 1fr 1fr;
+}
+
+.ssh-terminal-wrapper.layout-split-v {
+    grid-template-columns: 1fr !important;
+    grid-template-rows: 1fr 1fr;
+}
+
+.ssh-terminal-wrapper[data-pane-count="3"],
+.ssh-terminal-wrapper[data-pane-count="4"] {
+    grid-template-columns: 1fr 1fr;
+}
+
+.ssh-terminal-wrapper[data-pane-count="5"],
+.ssh-terminal-wrapper[data-pane-count="6"] {
+    grid-template-columns: repeat(3, 1fr);
+}
 
 /* 终端窗口实例 */
 .ssh-terminal-sub-page {
@@ -101,50 +188,248 @@
     animation: none !important;
     transition: none !important;
 }
-.ssh-terminal-instance.active { z-index: 2; box-shadow: inset 0 0 0 2px rgba(var(--primary-rgb), 0.4); }
 
-.ssh-slot { flex: 1; width: 100%; height: 100%; overflow: hidden; display: flex; flex-direction: column; }
-div[id^="ssh-terminal-"] { flex: 1 !important; width: 100% !important; height: 100% !important; display: flex !important; flex-direction: column !important; }
-.terminal.xterm { height: 100% !important; padding: 10px 0 0 10px !important; }
-.xterm-viewport { background-color: var(--bg-primary) !important; }
+.ssh-terminal-instance.active {
+    z-index: 2;
+    box-shadow: inset 0 0 0 2px rgba(var(--primary-rgb), 0.4);
+}
+
+.ssh-slot {
+    flex: 1;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+div[id^="ssh-terminal-"] {
+    flex: 1 !important;
+    width: 100% !important;
+    height: 100% !important;
+    display: flex !important;
+    flex-direction: column !important;
+}
+
+.terminal.xterm {
+    height: 100% !important;
+    padding: 10px 0 0 10px !important;
+}
+
+.xterm-viewport {
+    background-color: var(--bg-primary) !important;
+}
 
 /* 窗口内标题栏 */
 .ssh-instance-header {
-    height: 32px; background: var(--bg-secondary); border-bottom: 1px solid var(--border-color);
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 0 12px; font-size: 12px; color: var(--text-secondary); user-select: none; flex-shrink: 0;
+    height: 32px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 12px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    user-select: none;
+    flex-shrink: 0;
 }
-.ssh-instance-title { display: flex; align-items: center; gap: 8px; font-weight: 600; }
-.mini-btn { background: transparent; border: none; color: var(--text-tertiary); cursor: pointer; padding: 4px 8px; border-radius: 4px; transition: all 0.2s; font-size: 10px; }
-.mini-btn:hover { background: rgba(248, 81, 73, 0.1); color: #f85149; }
+
+.ssh-instance-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+}
+
+.mini-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-tertiary);
+    cursor: pointer;
+    padding: 4px 8px;
+    border-radius: 4px;
+    transition: all 0.2s;
+    font-size: 10px;
+}
+
+.mini-btn:hover {
+    background: rgba(248, 81, 73, 0.1);
+    color: #f85149;
+}
 
 /* 侧边栏与代码片段 */
-.ssh-snippets-sidebar { width: 240px; background: var(--bg-secondary); border-left: 1px solid var(--border-color); display: flex; flex-direction: column; z-index: 10; animation: sidebarSlideIn 0.3s ease; }
-@keyframes sidebarSlideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
-.sidebar-header { height: 40px; padding: 0 12px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); font-weight: 600; font-size: 13px; }
-.snippets-list { flex: 1; overflow-y: auto; padding: 8px; }
-.snippet-item { padding: 10px 12px; background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 8px; margin-bottom: 8px; cursor: pointer; transition: all 0.2s; display: flex; justify-content: space-between; align-items: center; }
-.snippet-item:hover { border-color: var(--primary-color); transform: translateY(-1px); }
-.snippet-title { font-size: 12px; font-weight: 500; }
-.snippet-category { font-size: 10px; color: var(--text-tertiary); }
-.snippet-actions { display: flex; gap: 4px; opacity: 0; transition: opacity 0.2s; }
-.snippet-item:hover .snippet-actions { opacity: 1; }
+.ssh-snippets-sidebar {
+    width: 240px;
+    background: var(--bg-secondary);
+    border-left: 1px solid var(--border-color);
+    display: flex;
+    flex-direction: column;
+    z-index: 10;
+    animation: sidebarSlideIn 0.3s ease;
+}
+
+@keyframes sidebarSlideIn {
+    from {
+        transform: translateX(100%);
+    }
+
+    to {
+        transform: translateX(0);
+    }
+}
+
+.sidebar-header {
+    height: 40px;
+    padding: 0 12px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--border-color);
+    font-weight: 600;
+    font-size: 13px;
+}
+
+.snippets-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px;
+}
+
+.snippet-item {
+    padding: 10px 12px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.snippet-item:hover {
+    border-color: var(--primary-color);
+    transform: translateY(-1px);
+}
+
+.snippet-title {
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.snippet-category {
+    font-size: 10px;
+    color: var(--text-tertiary);
+}
+
+.snippet-actions {
+    display: flex;
+    gap: 4px;
+    opacity: 0;
+    transition: opacity 0.2s;
+}
+
+.snippet-item:hover .snippet-actions {
+    opacity: 1;
+}
 
 /* 拖拽感应 */
-.instance-drop-overlay { position: absolute; inset: 0; z-index: 100; pointer-events: none; display: none; }
-.dragging-active .instance-drop-overlay { display: block; }
-.instance-drop-indicator { position: absolute; background: rgba(var(--primary-rgb), 0.2); border: 2px solid var(--primary-color); z-index: 102; transition: all 0.15s ease; }
-.drop-zone { position: absolute; pointer-events: auto; z-index: 101; }
-.drop-zone.pos-top { top: 0; left: 0; right: 0; height: 25%; }
-.drop-zone.pos-bottom { bottom: 0; left: 0; right: 0; height: 25%; }
-.drop-zone.pos-left { top: 25%; bottom: 25%; left: 0; width: 25%; }
-.drop-zone.pos-right { top: 25%; bottom: 25%; right: 0; width: 25%; }
-.drop-zone.pos-center { top: 25%; bottom: 25%; left: 25%; right: 25%; }
-.instance-drop-indicator.hint-top { top: 4px; left: 4px; right: 4px; height: calc(50% - 6px); }
-.instance-drop-indicator.hint-bottom { bottom: 4px; left: 4px; right: 4px; height: calc(50% - 6px); }
-.instance-drop-indicator.hint-left { top: 4px; bottom: 4px; left: 4px; width: calc(50% - 6px); }
-.instance-drop-indicator.hint-right { top: 4px; bottom: 4px; right: 4px; width: calc(50% - 6px); }
-.instance-drop-indicator.hint-center { inset: 15%; border-style: dashed; border-radius: 12px; }
+.instance-drop-overlay {
+    position: absolute;
+    inset: 0;
+    z-index: 100;
+    pointer-events: none;
+    display: none;
+}
+
+.dragging-active .instance-drop-overlay {
+    display: block;
+}
+
+.instance-drop-indicator {
+    position: absolute;
+    background: rgba(var(--primary-rgb), 0.2);
+    border: 2px solid var(--primary-color);
+    z-index: 102;
+    transition: all 0.15s ease;
+}
+
+.drop-zone {
+    position: absolute;
+    pointer-events: auto;
+    z-index: 101;
+}
+
+.drop-zone.pos-top {
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 25%;
+}
+
+.drop-zone.pos-bottom {
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 25%;
+}
+
+.drop-zone.pos-left {
+    top: 25%;
+    bottom: 25%;
+    left: 0;
+    width: 25%;
+}
+
+.drop-zone.pos-right {
+    top: 25%;
+    bottom: 25%;
+    right: 0;
+    width: 25%;
+}
+
+.drop-zone.pos-center {
+    top: 25%;
+    bottom: 25%;
+    left: 25%;
+    right: 25%;
+}
+
+.instance-drop-indicator.hint-top {
+    top: 4px;
+    left: 4px;
+    right: 4px;
+    height: calc(50% - 6px);
+}
+
+.instance-drop-indicator.hint-bottom {
+    bottom: 4px;
+    left: 4px;
+    right: 4px;
+    height: calc(50% - 6px);
+}
+
+.instance-drop-indicator.hint-left {
+    top: 4px;
+    bottom: 4px;
+    left: 4px;
+    width: calc(50% - 6px);
+}
+
+.instance-drop-indicator.hint-right {
+    top: 4px;
+    bottom: 4px;
+    right: 4px;
+    width: calc(50% - 6px);
+}
+
+.instance-drop-indicator.hint-center {
+    inset: 15%;
+    border-style: dashed;
+    border-radius: 12px;
+}
 
 /* 操作按钮与图标 */
 .ssh-header-actions {
@@ -155,23 +440,67 @@ div[id^="ssh-terminal-"] { flex: 1 !important; width: 100% !important; height: 1
     margin-left: 15px;
 }
 
-.ssh-icon-btn { display: flex; align-items: center; justify-content: center; width: 32px; height: 32px; background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 8px; color: var(--text-secondary); cursor: pointer; transition: all 0.2s; }
-.ssh-icon-btn:hover { background: var(--bg-tertiary); color: var(--text-primary); transform: translateY(-1px); }
-.ssh-icon-btn.active-primary { background: rgba(var(--primary-rgb), 0.1); color: var(--primary-color); border-color: var(--primary-color); }
+.ssh-icon-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.ssh-icon-btn:hover {
+    background: var(--bg-tertiary);
+    color: var(--text-primary);
+    transform: translateY(-1px);
+}
+
+.ssh-icon-btn.active-primary {
+    background: rgba(var(--primary-rgb), 0.1);
+    color: var(--primary-color);
+    border-color: var(--primary-color);
+}
 
 /* 全部打开按钮 */
-.mini-btn-primary { background: transparent; color: var(--primary-color); border: 1px solid rgba(var(--primary-rgb), 0.3); padding: 2px 10px; border-radius: 6px; font-size: 11px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
-.mini-btn-primary:hover { background: rgba(var(--primary-rgb), 0.1); border-color: var(--primary-color); }
+.mini-btn-primary {
+    background: transparent;
+    color: var(--primary-color);
+    border: 1px solid rgba(var(--primary-rgb), 0.3);
+    padding: 2px 10px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.mini-btn-primary:hover {
+    background: rgba(var(--primary-rgb), 0.1);
+    border-color: var(--primary-color);
+}
 
 /* 响应式 */
-@media (max-width: 768px) { .ssh-top-bar { padding: 0 8px; } .ssh-snippets-sidebar { width: 200px; } }
+@media (max-width: 768px) {
+    .ssh-top-bar {
+        padding: 0 8px;
+    }
+
+    .ssh-snippets-sidebar {
+        width: 200px;
+    }
+}
 
 /* ==================== 补全主机资源展示样式 ==================== */
 .server-details-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-    gap: 16px;
-    margin-bottom: 16px;
+    gap: 6px;
+    /* margin-bottom: 16px; */
 }
 
 .server-detail-section {
@@ -182,7 +511,7 @@ div[id^="ssh-terminal-"] { flex: 1 !important; width: 100% !important; height: 1
 }
 
 .server-detail-section h4 {
-    margin: 0 0 10px 0;
+    /* margin: 0 0 10px 0; */
     font-size: 13px;
     color: var(--text-primary);
     display: flex;
@@ -198,8 +527,15 @@ div[id^="ssh-terminal-"] { flex: 1 !important; width: 100% !important; height: 1
     font-size: 12px;
 }
 
-.server-detail-label { color: var(--text-tertiary); }
-.server-detail-value { color: var(--text-primary); font-weight: 600; font-family: var(--font-mono); }
+.server-detail-label {
+    color: var(--text-tertiary);
+}
+
+.server-detail-value {
+    color: var(--text-primary);
+    font-weight: 600;
+    font-family: var(--font-mono);
+}
 
 .progress-bar {
     width: 100%;
@@ -217,8 +553,13 @@ div[id^="ssh-terminal-"] { flex: 1 !important; width: 100% !important; height: 1
     transition: width 0.5s ease;
 }
 
-.progress-bar-fill.warning { background: var(--warning-color); }
-.progress-bar-fill.danger { background: var(--danger-color); }
+.progress-bar-fill.warning {
+    background: var(--warning-color);
+}
+
+.progress-bar-fill.danger {
+    background: var(--danger-color);
+}
 
 /* Docker 列表优化 */
 .docker-containers-grid {
@@ -234,7 +575,5 @@ div[id^="ssh-terminal-"] { flex: 1 !important; width: 100% !important; height: 1
     padding: 8px;
     border-radius: 8px;
     display: flex;
-    flex-direction: column;
     gap: 6px;
 }
-

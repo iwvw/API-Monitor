@@ -16,18 +16,18 @@
   },
   "gemini-3-pro-high": {
     "base": false,
-    "fakeStream": true,
+    "fakeStream": false,
     "antiTrunc": true
   },
   "gemini-3-pro-low": {
-    "base": true,
-    "fakeStream": true,
+    "base": false,
+    "fakeStream": false,
     "antiTrunc": true
   },
   "claude-sonnet-4-5": {
     "base": true,
-    "fakeStream": true,
-    "antiTrunc": true
+    "fakeStream": false,
+    "antiTrunc": false
   },
   "gpt-oss-120b-medium": {
     "base": true,
@@ -36,27 +36,27 @@
   },
   "gemini-3-pro-image": {
     "base": true,
-    "fakeStream": true,
-    "antiTrunc": true
+    "fakeStream": false,
+    "antiTrunc": false
   },
   "claude-opus-4-5-thinking": {
     "base": false,
-    "fakeStream": true,
+    "fakeStream": false,
     "antiTrunc": true
   },
   "claude-sonnet-4-5-thinking": {
     "base": true,
-    "fakeStream": true,
-    "antiTrunc": true
+    "fakeStream": false,
+    "antiTrunc": false
   },
   "rev19-uic3-1p": {
     "base": false,
-    "fakeStream": true,
+    "fakeStream": false,
     "antiTrunc": true
   },
   "gemini-3-flash": {
     "base": false,
-    "fakeStream": true,
+    "fakeStream": false,
     "antiTrunc": true
   }
 }

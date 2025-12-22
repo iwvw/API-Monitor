@@ -313,7 +313,6 @@ export const settingsMethods = {
     }
 
     this.saveModuleSettings();
-    this.showGlobalToast(`${this.getModuleName(module)} 模块已${this.moduleVisibility[module] ? '显示' : '隐藏'}`, 'success');
   },
 
   // 一键设置所有模块可见性
@@ -336,7 +335,6 @@ export const settingsMethods = {
     }
 
     this.saveModuleSettings();
-    this.showGlobalToast(`所有模块已${visible ? '显示' : '隐藏（已保留首位模块）'}`, 'success');
   },
 
   // 切换渠道启用状态 (不影响 UI 可见性)
@@ -345,7 +343,6 @@ export const settingsMethods = {
     this.channelEnabled[channel] = !this.channelEnabled[channel];
 
     this.saveModuleSettings(); // 复用保存逻辑
-    this.showGlobalToast(`${this.getModuleName(channel)} 渠道已${this.channelEnabled[channel] ? '启用' : '禁用'}`, 'success');
   },
 
   // 获取模块名称
@@ -429,8 +426,6 @@ export const settingsMethods = {
   // ========== 触摸拖拽支持 ==========
   // 触摸开始
   handleTouchStart(event, index) {
-    // 阻止默认滚动行为
-    event.preventDefault();
     this.touchStartIndex = index;
     this.touchStartY = event.touches[0].clientY;
     this.touchCurrentY = this.touchStartY;
@@ -442,13 +437,18 @@ export const settingsMethods = {
 
   // 触摸移动
   handleTouchMove(event, index) {
-    if (this.touchStartIndex === null && this.touchStartIndex === undefined) return;
+    if (this.touchStartIndex === null || this.touchStartIndex === undefined) return;
 
-    event.preventDefault();
     this.touchCurrentY = event.touches[0].clientY;
 
     // 计算移动的 Y 方向距离
     const deltaY = this.touchCurrentY - this.touchStartY;
+
+    // 如果移动距离过小，认为是点击而不是拖拽
+    if (Math.abs(deltaY) < 10) return;
+
+    // 确定是拖拽，阻止默认滚动行为
+    event.preventDefault();
 
     // 基于移动距离计算目标位置
     const items = document.querySelectorAll('.draggable-module-item');
@@ -459,11 +459,14 @@ export const settingsMethods = {
     targetIndex = Math.max(0, Math.min(targetIndex, this.moduleOrder.length - 1));
 
     // 如果目标位置变化了，交换顺序
-    if (targetIndex !== index && targetIndex >= 0 && targetIndex < this.moduleOrder.length) {
+    if (targetIndex !== this.touchStartIndex) {
       const list = this.moduleOrder;
-      const item = list[index];
-      list.splice(index, 1);
+      const item = list[this.touchStartIndex];
+      list.splice(this.touchStartIndex, 1);
       list.splice(targetIndex, 0, item);
+      // 更新开始位置
+      this.touchStartIndex = targetIndex;
+      this.touchStartY = this.touchCurrentY;
     }
   },
 
@@ -479,14 +482,14 @@ export const settingsMethods = {
     this.touchStartY = null;
     this.touchCurrentY = null;
 
-    // 保存设置
-    await this.saveModuleSettings();
+    // 静默保存设置到后端
+    this.saveModuleSettings();
   },
 
   // 保存设置
   async saveSettings() {
     await this.saveModuleSettings();
-    this.showGlobalToast('排序与可见性已保存', 'success');
+    this.showGlobalToast('排序与可见性已保存', 'success', 3000, true);
   },
 
   // 处理设置面板的 ESC 键
@@ -1006,7 +1009,7 @@ export const settingsMethods = {
       // 3. 保存 User Settings (Load Balancing Strategy)
       await this.saveUserSettingsToServer();
 
-      this.showGlobalToast('全局 API 及网络配置已同步应用', 'success');
+      this.showGlobalToast('全局 API 及网络配置已同步应用', 'success', 3000, true);
     } catch (error) {
       console.error('保存全局设置失败:', error);
       this.showGlobalToast('保存失败: ' + error.message, 'error');

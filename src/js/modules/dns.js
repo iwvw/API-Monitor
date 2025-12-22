@@ -122,10 +122,6 @@ export const dnsMethods = {
         if (!store.dnsSelectedAccountId && store.dnsAccounts.length > 0) {
           this.selectDnsAccount(store.dnsAccounts[0]);
         }
-
-        if (!silent) {
-          toast.success('账号列表已刷新');
-        }
       } else if (data.error) {
         console.error('加载 CF 账号失败:', data.error);
       }
@@ -257,14 +253,11 @@ export const dnsMethods = {
         } catch (e) {
           console.warn('[DNS] 缓存保存失败:', e);
         }
-        if (store.mainActiveTab === 'dns') { // Changed from store.dnsCurrentTab to store.mainActiveTab
-          toast.success('域名列表已刷新');
-        }
       } else if (data.error) {
-        this.showDnsToast('加载域名失败: ' + data.error, 'error');
+        console.error('加载域名失败:', data.error);
       }
     } catch (error) {
-      this.showDnsToast('加载域名失败: ' + error.message, 'error');
+      console.error('加载域名失败:', error);
     } finally {
       store.dnsLoadingZones = false;
     }

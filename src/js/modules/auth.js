@@ -122,6 +122,11 @@ export const authMethods = {
             case 'openai':
               this.loadOpenaiEndpoints();
               break;
+            case 'server':
+              if (this.serverCurrentTab === 'list') {
+                this.connectMetricsStream();
+              }
+              break;
           }
         });
 
@@ -194,5 +199,52 @@ export const authMethods = {
       'Content-Type': 'application/json',
       'x-admin-password': this.loginPassword
     };
+  },
+
+  // 检查认证状态 (应用启动时调用)
+  async checkAuth() {
+    this.isCheckingAuth = true;
+    try {
+      // 1. 检查是否已设置密码
+      const res = await fetch('/api/check-password');
+      const { hasPassword } = await res.json();
+
+      if (!hasPassword) {
+        this.showSetPasswordModal = true;
+        this.isAuthenticated = false;
+        return false;
+      }
+
+      // 2. 检查本地凭据
+      const savedPassword = localStorage.getItem('admin_password');
+      const savedTime = localStorage.getItem('password_time');
+
+      if (savedPassword && savedTime) {
+        const now = Date.now();
+        // 4天有效期
+        if (now - parseInt(savedTime) < 4 * 24 * 60 * 60 * 1000) {
+          this.loginPassword = savedPassword;
+          // 复用登录逻辑
+          await this.verifyPassword();
+
+          // 如果登录失败(密码变更等)，verifyPassword 会设置错误并保持 isAuthenticated=false
+          if (!this.isAuthenticated) {
+            this.showLoginModal = true;
+          }
+          return this.isAuthenticated;
+        }
+      }
+
+      // 未登录或凭据过期
+      this.showLoginModal = true;
+      return false;
+
+    } catch (e) {
+      console.error('Auth check error:', e);
+      this.showLoginModal = true;
+      return false;
+    } finally {
+      this.isCheckingAuth = false;
+    }
   }
 };

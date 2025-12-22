@@ -12,7 +12,8 @@ const DEFAULT_CONFIG = {
     MODELS_URL: 'https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:fetchAvailableModels',
     NO_STREAM_URL: 'https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:generateContent',
     API_HOST: 'daily-cloudcode-pa.sandbox.googleapis.com',
-    USER_AGENT: 'antigravity/1.11.3 windows/amd64'
+    USER_AGENT: 'antigravity/1.11.3 windows/amd64',
+    SYSTEM_INSTRUCTION: ''
 };
 
 let requester = null;
@@ -42,6 +43,7 @@ function getConfig() {
         NO_STREAM_URL: configMap.API_NO_STREAM_URL || DEFAULT_CONFIG.NO_STREAM_URL,
         API_HOST: configMap.API_HOST || DEFAULT_CONFIG.API_HOST,
         USER_AGENT: configMap.API_USER_AGENT || DEFAULT_CONFIG.USER_AGENT,
+        SYSTEM_INSTRUCTION: configMap.SYSTEM_INSTRUCTION || DEFAULT_CONFIG.SYSTEM_INSTRUCTION,
         PROXY: configMap.PROXY || '',
         TIMEOUT: parseInt(configMap.TIMEOUT) || 30000
     };
@@ -955,6 +957,7 @@ async function listQuotas(accountId) {
 }
 
 module.exports = {
+    getConfig,
     getValidToken,
     listModels,
     listQuotas,

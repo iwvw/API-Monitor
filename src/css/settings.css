@@ -423,6 +423,7 @@
   cursor: grab;
   transition: all 0.2s ease;
   user-select: none;
+  touch-action: none;
 }
 
 .draggable-module-item.module-hidden {

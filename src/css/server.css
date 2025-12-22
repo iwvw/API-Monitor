@@ -52,14 +52,14 @@
 .stat-pill:hover {
     transform: translateY(-1px);
     border-color: var(--server-primary);
-    box-shadow: 0 4px 12px rgba(0, 212, 170, 0.1);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
 }
 
 .stat-pill.active {
     background: var(--server-primary);
     border-color: var(--server-primary);
     color: white;
-    box-shadow: 0 2px 5px -4px rgba(0, 212, 170, 0.3);
+    box-shadow: 0 2px 5px -4px rgba(0, 0, 0, 0.2);
 }
 
 .stat-pill .label {
@@ -71,6 +71,53 @@
     color: white;
     opacity: 0.9;
 }
+
+/* 实时监控 LIVE 指示器 */
+.live-indicator-wrapper {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: 6px;
+    padding: 1px 5px;
+    background: rgba(16, 185, 129, 0.15);
+    border-radius: 4px;
+    vertical-align: middle;
+}
+
+.live-indicator-dot {
+    width: 6px;
+    height: 6px;
+    background: #10b981;
+    border-radius: 50%;
+    box-shadow: 0 0 6px #10b981;
+    animation: live-pulse 1.5s infinite;
+}
+
+.live-indicator-text {
+    font-size: 9px;
+    font-weight: 800;
+    color: #10b981;
+    letter-spacing: 0.5px;
+    font-family: var(--font-mono);
+}
+
+@keyframes live-pulse {
+    0% {
+        transform: scale(0.9);
+        opacity: 0.6;
+    }
+
+    50% {
+        transform: scale(1.2);
+        opacity: 1;
+    }
+
+    100% {
+        transform: scale(0.9);
+        opacity: 0.6;
+    }
+}
+
 
 .stat-pill .value {
     font-weight: 700;
@@ -93,7 +140,7 @@
 .search-box {
     position: relative;
     flex: 1;
-    min-width: 260px;
+    min-width: 230px;
 }
 
 .search-box input {
@@ -118,7 +165,7 @@
 
 .search-box input:focus {
     border-color: var(--server-primary);
-    box-shadow: 0 0 0 4px rgba(0, 212, 170, 0.1);
+    box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.05);
     outline: none;
 }
 
@@ -126,6 +173,7 @@
     color: var(--server-primary);
 }
 
+/* ==================== 主机卡片 ==================== */
 /* ==================== 主机卡片 ==================== */
 .server-card {
     background-color: var(--card-bg);
@@ -306,7 +354,7 @@
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
     gap: 12px;
-    margin-bottom: 10px;
+    /* margin-bottom: 10px; */
 }
 
 .server-detail-section {
@@ -317,7 +365,7 @@
 }
 
 .server-detail-section h4 {
-    margin: 0 0 12px 0;
+    /* margin: 0 0 12px 0; */
     font-size: 14px;
     font-weight: 600;
     color: var(--text-primary);
@@ -363,10 +411,11 @@
 
 .progress-bar-fill {
     height: 100%;
-    background: linear-gradient(90deg, #00d4aa, #00ffcc);
-    transition: width 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+    background: linear-gradient(90deg, #10b981, #34d399);
+    transition: width 0.8s cubic-bezier(0.34, 1.56, 0.64, 1);
     position: relative;
-    box-shadow: 0 0 8px rgba(0, 212, 170, 0.4);
+    box-shadow: 0 0 12px rgba(16, 185, 129, 0.3);
+    border-radius: 6px;
 }
 
 /* 进度条流动纹理效果 */
@@ -403,12 +452,62 @@
 
 .progress-bar-fill.warning {
     background: linear-gradient(90deg, #f59e0b, #fbbf24);
-    box-shadow: 0 0 8px rgba(245, 158, 11, 0.4);
+    box-shadow: 0 0 12px rgba(245, 158, 11, 0.3);
 }
 
 .progress-bar-fill.danger {
     background: linear-gradient(90deg, #ef4444, #f87171);
-    box-shadow: 0 0 8px rgba(239, 68, 68, 0.4);
+    box-shadow: 0 0 12px rgba(239, 68, 68, 0.3);
+}
+
+/* 实时监控 LIVE 指示器 */
+.live-indicator-wrapper {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: 8px;
+    padding: 2px 6px;
+    background: rgba(16, 185, 129, 0.12);
+    border: 1px solid rgba(16, 185, 129, 0.2);
+    border-radius: 4px;
+    vertical-align: middle;
+    line-height: 1;
+    pointer-events: none;
+}
+
+.live-indicator-dot {
+    width: 6px;
+    height: 6px;
+    background: #10b981;
+    border-radius: 50%;
+    box-shadow: 0 0 6px #10b981;
+    animation: live-pulse-new 1.5s infinite;
+    flex-shrink: 0;
+}
+
+.live-indicator-text {
+    font-size: 10px;
+    font-weight: 800;
+    color: #10b981;
+    letter-spacing: 0.5px;
+    font-family: monospace;
+}
+
+@keyframes live-pulse-new {
+    0% {
+        transform: scale(0.85);
+        opacity: 0.5;
+    }
+
+    50% {
+        transform: scale(1.15);
+        opacity: 1;
+    }
+
+    100% {
+        transform: scale(0.85);
+        opacity: 0.5;
+    }
 }
 
 /* Docker 容器列表 */
@@ -2631,5 +2730,443 @@
 
     .ssh-quick-item-host {
         font-size: 10px;
+    }
+}
+
+/* ==================== 历史指标页面样式 ==================== */
+
+/* 时间范围选择按钮组 */
+.time-range-pills {
+    display: flex;
+    gap: 6px;
+    padding: 4px;
+    background: var(--bg-secondary);
+    border-radius: 10px;
+    border: 1px solid var(--border-color);
+}
+
+/* 时间范围选择药片按钮 */
+.pill-btn {
+    padding: 6px 12px;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+}
+
+.pill-btn:hover {
+    background: rgba(0, 212, 170, 0.1);
+    color: var(--server-primary);
+}
+
+.pill-btn.active {
+    background: var(--server-primary);
+    color: white;
+}
+
+/* 状态点指示器 */
+.status-dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.status-dot.online {
+    background: #10b981;
+    box-shadow: 0 0 6px rgba(16, 185, 129, 0.5);
+}
+
+.status-dot.offline {
+    background: #ef4444;
+}
+
+/* 指标单元格 */
+.metrics-cell {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+}
+
+.metrics-value {
+    font-weight: 600;
+    font-family: var(--font-mono);
+    font-size: 13px;
+}
+
+.metrics-value.normal {
+    color: #10b981;
+}
+
+.metrics-value.warning {
+    color: #f59e0b;
+}
+
+.metrics-value.critical {
+    color: #ef4444;
+}
+
+/* 迷你进度条颜色 */
+.mini-progress .normal {
+    background: linear-gradient(90deg, #10b981, #34d399);
+}
+
+.mini-progress .warning {
+    background: linear-gradient(90deg, #f59e0b, #fbbf24);
+}
+
+.mini-progress .critical {
+    background: linear-gradient(90deg, #ef4444, #f87171);
+}
+
+/* 采集器状态栏 */
+.collector-status-bar {
+    flex-wrap: wrap;
+}
+
+@media (max-width: 768px) {
+    .collector-status-bar {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+
+    .time-range-pills {
+        flex-wrap: wrap;
+    }
+}
+
+/* 美化的筛选下拉框 */
+.metrics-filter-select {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    min-width: 150px;
+}
+
+.metrics-filter-select>i:first-child {
+    position: absolute;
+    left: 12px;
+    font-size: 11px;
+    color: var(--server-primary);
+    pointer-events: none;
+    z-index: 1;
+}
+
+.metrics-filter-select>i:last-child {
+    position: absolute;
+    right: 10px;
+    font-size: 10px;
+    color: var(--text-tertiary);
+    pointer-events: none;
+    transition: transform 0.2s ease;
+}
+
+.metrics-filter-select:hover>i:last-child {
+    transform: translateY(1px);
+}
+
+.metrics-filter-select select {
+    width: 100%;
+    height: 32px;
+    padding: 0 28px 0 32px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-primary);
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    transition: all 0.2s ease;
+}
+
+.metrics-filter-select select:hover {
+    border-color: var(--server-primary);
+    background: var(--bg-tertiary);
+}
+
+.metrics-filter-select select:focus {
+    outline: none;
+    border-color: var(--server-primary);
+    box-shadow: 0 0 0 3px rgba(0, 212, 170, 0.1);
+}
+
+.metrics-filter-select select option {
+    padding: 8px 12px;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+}
+
+/* 采集间隔选择框 */
+.metrics-interval-select {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+}
+
+.metrics-interval-select select {
+    width: 100%;
+    height: 36px;
+    padding: 0 12px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-primary);
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    transition: all 0.2s ease;
+    padding-right: 30px;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23888' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+}
+
+.metrics-interval-select select:hover {
+    border-color: var(--server-primary);
+}
+
+.metrics-interval-select select:focus {
+    outline: none;
+    border-color: var(--server-primary);
+}
+
+/* 历史记录工具栏 */
+.metrics-history-toolbar {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+/* 统一的工具栏按钮 */
+.metrics-toolbar-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    height: 32px;
+    padding: 0 12px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+}
+
+.metrics-toolbar-btn:hover {
+    border-color: var(--server-primary);
+    color: var(--server-primary);
+}
+
+.metrics-toolbar-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.metrics-toolbar-btn i {
+    font-size: 11px;
+}
+
+/* 主要按钮样式 */
+.metrics-toolbar-btn.primary {
+    background: var(--server-primary);
+    border-color: var(--server-primary);
+    color: white;
+}
+
+.metrics-toolbar-btn.primary:hover {
+    background: #00b894;
+    border-color: #00b894;
+}
+
+/* ==================== 按主机分类的历史记录 ==================== */
+
+.metrics-history-grouped {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+/* 主机卡片 */
+.metrics-server-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.metrics-server-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 16px;
+    cursor: pointer;
+    transition: background 0.15s ease;
+}
+
+.metrics-server-header:hover {
+    background: var(--bg-secondary);
+}
+
+.metrics-server-info {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.metrics-server-info>i {
+    font-size: 14px;
+    color: var(--server-primary);
+}
+
+.metrics-server-name {
+    font-weight: 600;
+    font-size: 14px;
+}
+
+.metrics-server-host {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    background: var(--bg-tertiary);
+    padding: 2px 8px;
+    border-radius: 4px;
+}
+
+.metrics-server-stats {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.metrics-record-count {
+    font-size: 12px;
+    color: var(--text-secondary);
+    background: var(--bg-secondary);
+    padding: 4px 10px;
+    border-radius: 10px;
+}
+
+.metrics-server-stats>i {
+    font-size: 12px;
+    color: var(--text-tertiary);
+    transition: transform 0.2s ease;
+}
+
+/* 记录列表 */
+.metrics-records-list {
+    border-top: 1px solid var(--border-color);
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+.metrics-record-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-color);
+    gap: 16px;
+}
+
+.metrics-record-item:last-child {
+    border-bottom: none;
+}
+
+.metrics-record-item:hover {
+    background: rgba(0, 212, 170, 0.02);
+}
+
+.metrics-record-time {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    min-width: 140px;
+    flex-shrink: 0;
+}
+
+.metrics-record-time i {
+    font-size: 11px;
+    opacity: 0.5;
+}
+
+.metrics-record-data {
+    display: flex;
+    gap: 20px;
+    flex-wrap: wrap;
+    flex: 1;
+    justify-content: flex-end;
+}
+
+.metrics-data-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+.metrics-data-label {
+    font-size: 11px;
+    color: var(--text-tertiary);
+}
+
+.metrics-data-value {
+    font-size: 13px;
+    font-weight: 600;
+    font-family: var(--font-mono);
+}
+
+.metrics-data-value.normal {
+    color: #10b981;
+}
+
+.metrics-data-value.warning {
+    color: #f59e0b;
+}
+
+.metrics-data-value.critical {
+    color: #ef4444;
+}
+
+.metrics-load-value {
+    font-size: 11px;
+    background: var(--bg-secondary);
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+/* 响应式 */
+@media (max-width: 768px) {
+    .metrics-record-item {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+    }
+
+    .metrics-record-data {
+        justify-content: flex-start;
+        gap: 12px;
+    }
+
+    .metrics-server-host {
+        display: none;
     }
 }

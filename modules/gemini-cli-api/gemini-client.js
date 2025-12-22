@@ -56,6 +56,11 @@ class GeminiCliClient {
             }
         });
 
+        // 如果没有消息中的 system 指令，尝试使用设置中的默认指令
+        if (!systemInstruction && settings.SYSTEM_INSTRUCTION) {
+            systemInstruction = { parts: [{ text: settings.SYSTEM_INSTRUCTION }] };
+        }
+
         const generationConfig = {
             temperature: temperature ?? parseFloat(settings.DEFAULT_TEMPERATURE || 1),
             topP: top_p ?? parseFloat(settings.DEFAULT_TOP_P || 0.95),

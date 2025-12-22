@@ -89,3 +89,27 @@ CREATE TABLE IF NOT EXISTS server_snippets (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+-- 18. 实时指标历史表 (定期采集快照)
+CREATE TABLE IF NOT EXISTS server_metrics_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    server_id TEXT NOT NULL,                     -- 主机 ID
+    cpu_usage REAL,                              -- CPU 使用率 (%)
+    cpu_load TEXT,                               -- 负载均值 (1/5/15)
+    cpu_cores INTEGER,                           -- CPU 核心数
+    mem_used INTEGER,                            -- 已用内存 (MB)
+    mem_total INTEGER,                           -- 总内存 (MB)
+    mem_usage REAL,                              -- 内存使用率 (%)
+    disk_used TEXT,                              -- 磁盘已用
+    disk_total TEXT,                             -- 磁盘总量
+    disk_usage REAL,                             -- 磁盘使用率 (%)
+    docker_installed INTEGER DEFAULT 0,          -- Docker 是否安装
+    docker_running INTEGER DEFAULT 0,            -- Docker 运行容器数
+    docker_stopped INTEGER DEFAULT 0,            -- Docker 停止容器数
+    recorded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (server_id) REFERENCES server_accounts(id) ON DELETE CASCADE
+);
+
+-- 索引优化历史查询
+CREATE INDEX IF NOT EXISTS idx_metrics_history_server_time ON server_metrics_history(server_id, recorded_at DESC);
+CREATE INDEX IF NOT EXISTS idx_metrics_history_time ON server_metrics_history(recorded_at DESC);

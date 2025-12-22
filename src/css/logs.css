@@ -184,25 +184,15 @@
 }
 
 .log-filters {
-
     display: flex;
-
     align-items: center;
-
     gap: 8px;
-
 }
 
-
-
 .search-box {
-
     position: relative;
-
-    width: 260px;
-
+    width: 230px;
     max-width: 100%;
-
 }
 
 .search-box i {
@@ -394,7 +384,7 @@
     flex-direction: row;
     align-items: flex-start;
     justify-content: flex-start;
-    padding: 2px 12px;
+    padding: 2px 0px;
     font-size: 13px;
     line-height: 1.6;
     transition: background 0.1s;

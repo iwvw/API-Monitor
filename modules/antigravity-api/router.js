@@ -948,6 +948,15 @@ router.post('/v1/chat/completions', requireApiAuth, async (req, res) => {
 
                     // 记录成功日志 (包含累计的回复内容和思考过程)
                     const originalMessages = JSON.parse(JSON.stringify(req.body.messages || []));
+
+                    // 确保合并系统指令到日志中
+                    if (!originalMessages.some(m => m.role === 'system')) {
+                        const systemInst = client.getConfig().SYSTEM_INSTRUCTION;
+                        if (systemInst) {
+                            originalMessages.unshift({ role: 'system', content: systemInst });
+                        }
+                    }
+
                     storage.recordLog({
                         accountId: account.id,
                         model: modelWithPrefix,
@@ -982,6 +991,15 @@ router.post('/v1/chat/completions', requireApiAuth, async (req, res) => {
                     if (result && result.model) result.model = modelWithPrefix;
 
                     const originalMessages = JSON.parse(JSON.stringify(req.body.messages || []));
+
+                    // 确保合并系统指令到日志中
+                    if (!originalMessages.some(m => m.role === 'system')) {
+                        const systemInst = client.getConfig().SYSTEM_INSTRUCTION;
+                        if (systemInst) {
+                            originalMessages.unshift({ role: 'system', content: systemInst });
+                        }
+                    }
+
                     storage.recordLog({
                         accountId: account.id,
                         model: modelWithPrefix,
@@ -1007,6 +1025,16 @@ router.post('/v1/chat/completions', requireApiAuth, async (req, res) => {
                 lastError = error;
 
                 // 如果是 401 之外的错误（通常是 429 或 5xx），记录日志并继续循环
+                const originalMessages = JSON.parse(JSON.stringify(req.body.messages || []));
+
+                // 确保合并系统指令到日志中
+                if (!originalMessages.some(m => m.role === 'system')) {
+                    const systemInst = client.getConfig().SYSTEM_INSTRUCTION;
+                    if (systemInst) {
+                        originalMessages.unshift({ role: 'system', content: systemInst });
+                    }
+                }
+
                 storage.recordLog({
                     accountId: account.id,
                     model: modelWithPrefix,
@@ -1017,7 +1045,11 @@ router.post('/v1/chat/completions', requireApiAuth, async (req, res) => {
                     durationMs: Date.now() - startTime,
                     clientIp: req.ip,
                     userAgent: req.headers['user-agent'],
-                    detail: { error: error.message, model: req.body.model }
+                    detail: { 
+                        error: error.message, 
+                        model: req.body.model,
+                        messages: originalMessages
+                    }
                 });
 
                 // 如果已经发送了 Header (流式过程中报错)，则无法切换账号，只能报错

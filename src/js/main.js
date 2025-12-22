@@ -346,10 +346,26 @@ const app = createApp({
       logPage: 1,
       logPageSize: 50,
 
+      // 历史指标相关
+      metricsHistoryList: [],
+      metricsHistoryLoading: false,
+      metricsHistoryTotal: 0,
+      metricsHistoryFilter: {
+        serverId: ''
+      },
+      metricsHistoryPagination: {
+        page: 1,
+        pageSize: 50,
+        totalPages: 0
+      },
+      metricsHistoryTimeRange: '24h', // '1h', '6h', '24h', '7d', 'all'
+      metricsCollectorStatus: null,
+      expandedMetricsServers: [], // 展开的主机 ID 列表
+      metricsCollectInterval: 5, // 采集间隔（分钟）
+
       // 拖拽状态 (UI only)
       draggedIndex: null,
 
-      // 设置模态框 - 密码与样式表单
       newPassword: '',
       confirmPassword: '',
       passwordError: '',
@@ -469,6 +485,21 @@ const app = createApp({
     },
 
     /**
+     * 按主机分组的历史记录
+     */
+    groupedMetricsHistory() {
+      const grouped = {};
+      for (const record of this.metricsHistoryList) {
+        const serverId = record.server_id || 'unknown';
+        if (!grouped[serverId]) {
+          grouped[serverId] = [];
+        }
+        grouped[serverId].push(record);
+      }
+      return grouped;
+    },
+
+    /**
      * 计算当前可见的模块数量
      */
     visibleModulesCount() {
@@ -512,231 +543,56 @@ const app = createApp({
     }
   },
 
-    async mounted() {
-      // 加载代码片段和凭据
-      this.loadSnippets();
-      this.loadServerCredentials();
-      
-      // 初始化 SSH 终端自动挂载观察者
-      this.initSshMountObserver();
-      
-      // 定期刷新数据
+  async mounted() {
+    // 1. 核心数据与 UI 重置 (立即执行)
     window.vueApp = this;
-
-    // 1. 全局图片点击代理 (针对 Markdown 动态生成的图片)
-    window.addEventListener('click', (e) => {
-      const target = e.target;
-      if (target.tagName === 'IMG' && (target.classList.contains('msg-inline-image') || target.closest('.chat-history-compact'))) {
-        const link = target.closest('a');
-        if (link) e.preventDefault();
-        this.openImagePreview(target.src);
-      }
-    }, true);
-
-    // 2. 增强版全局 Tooltip 引擎
-    const tooltipEl = document.createElement('div');
-    tooltipEl.className = 'system-tooltip';
-    document.body.appendChild(tooltipEl);
-
-    window.addEventListener('mouseover', (e) => {
-      const trigger = e.target.closest('[data-tooltip]');
-      if (trigger) {
-        const text = trigger.getAttribute('data-tooltip');
-        if (!text) return;
-
-        tooltipEl.textContent = text;
-        tooltipEl.classList.add('visible');
-
-        const rect = trigger.getBoundingClientRect();
-        const tooltipRect = tooltipEl.getBoundingClientRect();
-
-        // 智能定位：居中对齐触发器顶部
-        let top = rect.top - tooltipRect.height - 10;
-        let left = rect.left + (rect.width / 2) - (tooltipRect.width / 2);
-
-        // 边缘检测：防止超出屏幕左侧/右侧
-        if (left < 10) left = 10;
-        if (left + tooltipRect.width > window.innerWidth - 10) {
-          left = window.innerWidth - tooltipRect.width - 10;
-        }
-        // 防止超出屏幕顶部
-        if (top < 10) top = rect.bottom + 10;
-
-        tooltipEl.style.top = `${top}px`;
-        tooltipEl.style.left = `${left}px`;
-      }
-    });
-
-    window.addEventListener('mouseout', (e) => {
-      if (e.target.closest('[data-tooltip]')) {
-        tooltipEl.classList.remove('visible');
-      }
-    });
-
-    // 全局 Esc 键监听，用于关闭当前打开的模态框
-    window.addEventListener('keydown', (e) => {
-      // ... existing code ...
-    });
-
-    // 加载模块可见性和顺序设置
     this.loadModuleSettings();
+    this.updateBrowserThemeColor();
 
-    // 3. 手机端左右滑动切换标签页
-    let touchStartX = null;
-    let touchStartY = null;
-    const swipeThreshold = 80; // 滑动位移阈值
+    // 2. 尝试从缓存恢复主机列表 (实现瞬间展示)
+    if (this.mainActiveTab === 'server') {
+      this.loadFromServerListCache();
+    }
 
-    window.addEventListener('touchstart', (e) => {
-      touchStartX = null; // 重置状态
-      touchStartY = null;
+    // 3. 异步认证与关键数据加载
+    this.checkAuth().then(() => {
+      if (this.isAuthenticated) {
+        // 关键业务数据
+        this.loadSnippets();
+        this.loadCredentials();
 
-      // 仅在移动端开启手势
-      if (window.innerWidth > 768) return;
-      // 排除在设置面板或模态框内的滑动
-      if (this.isAnyModalOpen) return;
-      // 排除在代码编辑器、滚动容器或二级标签页内的滑动
-      if (e.target.closest('#monaco-editor-container') || e.target.closest('.log-stream-container') || e.target.closest('.table-container') || e.target.closest('.sec-tabs')) return;
-
-      touchStartX = e.changedTouches[0].screenX;
-      touchStartY = e.changedTouches[0].screenY;
-    }, { passive: true });
-
-    window.addEventListener('touchend', (e) => {
-      if (window.innerWidth > 768) return;
-      if (touchStartX === null || touchStartY === null) return; // 如果起点无效（被排除），则忽略
-
-      const touchEndX = e.changedTouches[0].screenX;
-      const touchEndY = e.changedTouches[0].screenY;
-      const dx = touchEndX - touchStartX;
-      const dy = touchEndY - touchStartY;
-
-      // 判定条件：水平位移 > 阈值 且 水平位移 > 2倍垂直位移
-      if (Math.abs(dx) > swipeThreshold && Math.abs(dx) > Math.abs(dy) * 2) {
-
-        // --- 情况 A: 设置面板已打开 ---
-        if (this.showSettingsModal) {
-          const settingsTabs = ['general', 'api', 'modules', 'database', 'logs', 'appearance', 'about'];
-          const currentIndex = settingsTabs.indexOf(this.settingsCurrentTab);
-          let nextIndex = -1;
-
-          if (dx > 0) { // 右划：上一个
-            nextIndex = (currentIndex - 1 + settingsTabs.length) % settingsTabs.length;
-          } else { // 左划：下一个
-            nextIndex = (currentIndex + 1) % settingsTabs.length;
-          }
-
-          if (nextIndex !== -1 && nextIndex !== currentIndex) {
-            this.settingsCurrentTab = settingsTabs[nextIndex];
-            if ('vibrate' in navigator) navigator.vibrate(10);
-          }
-          return; // 处理完设置滑动后退出
-        }
-
-        // --- 情况 B: 主界面 (无模态框) ---
-        if (!this.isAnyModalOpen) {
-          const visibleModules = this.moduleOrder.filter(m => this.moduleVisibility[m]);
-          if (visibleModules.length <= 1) return;
-
-          const currentIndex = visibleModules.indexOf(this.mainActiveTab);
-          let nextIndex = -1;
-
-          if (dx > 0) {
-            nextIndex = (currentIndex - 1 + visibleModules.length) % visibleModules.length;
-          } else {
-            nextIndex = (currentIndex + 1) % visibleModules.length;
-          }
-
-          if (nextIndex !== -1 && nextIndex !== currentIndex) {
-            this.handleTabSwitch(visibleModules[nextIndex]);
-            if ('vibrate' in navigator) navigator.vibrate(15);
-          }
-        }
-      }
-    }, { passive: true });
-
-    // SSH 终端使用固定深色主题,不需要监听主题变化
-    // this.setupThemeObserver();
-
-    // 监听标签页可见性变化，当回到页面时立即触发一次活跃模块的刷新
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible' && this.isAuthenticated) {
-        console.log('👀 标签页已获得关注，触发活跃模块刷新');
-
-        // 服务器模块
+        // 如果当前在主机页，立即加载
         if (this.mainActiveTab === 'server') {
-          if (this.serverCurrentTab === 'list' && this.serverPollingEnabled) {
-            this.probeAllServers();
-          }
-        }
-
-        // PaaS 模块 (Zeabur/Koyeb)
-        if (this.mainActiveTab === 'paas') {
-          // 不再自动刷新，仅在缓存为空时加载一次
-          if (this.paasCurrentPlatform === 'zeabur' && this.accounts.length === 0) {
-            this.loadFromZeaburCache();
-          } else if (this.paasCurrentPlatform === 'koyeb' && this.koyebAccounts.length === 0) {
-            this.loadKoyebData();
-          }
-        }
-
-        // Antigravity 模块
-        if (this.mainActiveTab === 'antigravity' && this.antigravityCurrentTab === 'quotas') {
-          this.loadAntigravityQuotas();
-        }
-
-        // Gemini CLI 模块
-        if (this.mainActiveTab === 'gemini-cli' && this.geminiCliCurrentTab === 'models') {
-          this.loadGeminiCliModels();
+          this.loadServerList();
         }
       }
     });
 
-    try {
-      // 检查主机是否已设置密码
-      const hasPasswordResponse = await fetch('/api/check-password');
-      const { hasPassword } = await hasPasswordResponse.json();
+    // 4. 延迟加载非核心功能 (500ms 后执行，不影响首屏渲染)
+    setTimeout(() => {
+      // 初始化辅助组件 (方法需在 methods 中定义)
+      this.initSshMountObserver();
+      this.initGlobalImageProxy();
+      this.initGlobalTooltipEngine();
+      this.initMobileGestures();
+      this.initGlobalKeyListeners();
 
-      if (!hasPassword) {
-        // 首次使用，显示设置密码界面
-        this.showSetPasswordModal = true;
-        this.isCheckingAuth = false;
-        return;
-      }
-
-      // 检查本地是否有保存的密码和时间戳
-      const savedPassword = localStorage.getItem('admin_password');
-      const savedTime = localStorage.getItem('password_time');
-
-      if (savedPassword && savedTime) {
-        const now = Date.now();
-        const elapsed = now - parseInt(savedTime);
-        const fourDays = 4 * 24 * 60 * 60 * 1000;
-
-        if (elapsed < fourDays) {
-          // 4天内，自动登录
-          this.loginPassword = savedPassword;
-          await this.verifyPassword();
-        }
-      }
-    } catch (error) {
-      console.error('初始化失败:', error);
-    } finally {
-      // 停止检查状态
-      this.isCheckingAuth = false;
-
-      // 如果经过所有尝试后仍未认证，则显示登录框
-      if (!this.isAuthenticated && !this.showSetPasswordModal) {
-        this.showLoginModal = true;
-      }
-
-      // 4. 监听系统深色模式切换，实时更新标题栏
+      // 深色模式自动适配
       window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
         this.updateBrowserThemeColor();
       });
-      // 初始执行一次
-      this.updateBrowserThemeColor();
-    }
 
+      // 标签页可见性监听
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible' && this.isAuthenticated) {
+          if (this.mainActiveTab === 'server' && this.serverCurrentTab === 'list' && this.serverPollingEnabled) {
+            this.probeAllServers();
+          }
+        }
+      });
+
+      console.log('[System] 非核心功能加载完成');
+    }, 500);
   },
 
   watch: {
@@ -756,6 +612,21 @@ const app = createApp({
             this.fitAllVisibleSessions();
           }, 300);
         });
+
+        // 如果在主机列表页，开启实时指标流
+        if (this.serverCurrentTab === 'list') {
+          this.connectMetricsStream();
+        }
+      } else {
+        // 离开主机管理模块，关闭实时指标流
+        this.closeMetricsStream();
+      }
+    },
+    serverCurrentTab(newVal) {
+      if (newVal === 'list' && this.mainActiveTab === 'server') {
+        this.connectMetricsStream();
+      } else {
+        this.closeMetricsStream();
       }
     },
     // 监听全局模态框状态，控制背景滚动
@@ -776,6 +647,11 @@ const app = createApp({
       if (this.mainActiveTab === 'paas' && this.paasCurrentPlatform === 'zeabur' && !this.dataRefreshPaused) {
         this.startAutoRefresh();
       }
+    },
+
+    'monitorConfig.interval'(newVal) {
+      console.log('主机刷新间隔变更为:', newVal, '秒，重启轮询');
+      this.startServerPolling();
     },
 
     settingsCurrentTab(newVal) {
@@ -1203,6 +1079,144 @@ const app = createApp({
   },
 
   methods: {
+    ...authMethods,
+    ...zeaburMethods,
+    ...paasMethods,
+    ...koyebMethods,
+    ...flyMethods,
+    ...selfHMethods,
+    ...dnsMethods,
+    ...r2Methods,
+    ...openaiMethods,
+    ...antigravityMethods,
+    ...geminiCliMethods,
+    ...settingsMethods,
+    ...systemLogsMethods,
+    ...logViewerMethods,
+    ...transitionsMethods,
+
+    /**
+     * 初始化全局 Tooltip 引擎
+     */
+    initGlobalTooltipEngine() {
+      // 避免重复初始化
+      if (document.querySelector('.system-tooltip')) return;
+
+      const tooltipEl = document.createElement('div');
+      tooltipEl.className = 'system-tooltip';
+      document.body.appendChild(tooltipEl);
+
+      window.addEventListener('mouseover', (e) => {
+        const trigger = e.target.closest('[data-tooltip]');
+        if (trigger) {
+          const text = trigger.getAttribute('data-tooltip');
+          if (!text) return;
+
+          tooltipEl.textContent = text;
+          tooltipEl.classList.add('visible');
+
+          const rect = trigger.getBoundingClientRect();
+          const tooltipRect = tooltipEl.getBoundingClientRect();
+
+          // 居中对齐触发器顶部
+          let top = rect.top - tooltipRect.height - 10;
+          let left = rect.left + (rect.width / 2) - (tooltipRect.width / 2);
+
+          // 边缘检测
+          if (left < 10) left = 10;
+          if (left + tooltipRect.width > window.innerWidth - 10) {
+            left = window.innerWidth - tooltipRect.width - 10;
+          }
+          if (top < 10) top = rect.bottom + 10;
+
+          tooltipEl.style.top = `${top}px`;
+          tooltipEl.style.left = `${left}px`;
+        }
+      });
+
+      window.addEventListener('mouseout', (e) => {
+        if (e.target.closest('[data-tooltip]')) {
+          tooltipEl.classList.remove('visible');
+        }
+      });
+    },
+
+    /**
+     * 初始化图片点击预览代理
+     */
+    initGlobalImageProxy() {
+      window.addEventListener('click', (e) => {
+        const target = e.target;
+        if (target.tagName === 'IMG' && (target.classList.contains('msg-inline-image') || target.closest('.chat-history-compact'))) {
+          const link = target.closest('a');
+          if (link) e.preventDefault();
+          this.openImagePreview(target.src);
+        }
+      }, true);
+    },
+
+    /**
+     * 初始化全局按键监听 (Esc 等)
+     */
+    initGlobalKeyListeners() {
+      window.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+          // 优先关闭最活跃的模态层
+          if (this.showImagePreviewModal) {
+            this.showImagePreviewModal = false;
+          } else if (this.showSettingsModal) {
+            this.showSettingsModal = false;
+          } else if (this.isAnyModalOpen) {
+            // 这里可以添加更详细的 Esc 逻辑，目前先关闭通用模态框
+            this.showServerModal = false;
+            this.showCredentialModal = false;
+            this.showImportServerModal = false;
+            // 更多模态框...
+          }
+        }
+      });
+    },
+
+    /**
+     * 初始化移动端标签页切换手势
+     */
+    initMobileGestures() {
+      let touchStartX = null;
+      let touchStartY = null;
+      const swipeThreshold = 80;
+
+      window.addEventListener('touchstart', (e) => {
+        if (window.innerWidth > 768 || this.isAnyModalOpen) return;
+        // 排除干扰容器
+        if (e.target.closest('#monaco-editor-container') || e.target.closest('.log-stream-container') || e.target.closest('.table-container')) return;
+
+        touchStartX = e.changedTouches[0].screenX;
+        touchStartY = e.changedTouches[0].screenY;
+      }, { passive: true });
+
+      window.addEventListener('touchend', (e) => {
+        if (window.innerWidth > 768 || touchStartX === null) return;
+
+        const touchEndX = e.changedTouches[0].screenX;
+        const touchEndY = e.changedTouches[0].screenY;
+        const dx = touchEndX - touchStartX;
+        const dy = touchEndY - touchStartY;
+
+        if (Math.abs(dx) > swipeThreshold && Math.abs(dx) > Math.abs(dy) * 2) {
+          const visibleModules = this.moduleOrder.filter(m => this.moduleVisibility[m]);
+          const currentIndex = visibleModules.indexOf(this.mainActiveTab);
+          let nextIndex = -1;
+
+          if (dx > 0 && currentIndex > 0) nextIndex = currentIndex - 1;
+          else if (dx < 0 && currentIndex < visibleModules.length - 1) nextIndex = currentIndex + 1;
+
+          if (nextIndex !== -1) {
+            this.handleTabSwitch(visibleModules[nextIndex]);
+          }
+        }
+      }, { passive: true });
+    },
+
     // 通用打码函数
     maskAddress,
 
@@ -1250,9 +1264,9 @@ const app = createApp({
         try {
           const oldCols = terminal.cols;
           const oldRows = terminal.rows;
-          
+
           fit.fit();
-          
+
           // 仅在尺寸确实发生变化或初次渲染时刷新，且只刷新可见区域
           if (terminal.cols !== oldCols || terminal.rows !== oldRows || !session._initialFitDone) {
             session._initialFitDone = true;
@@ -1260,7 +1274,7 @@ const app = createApp({
               terminal.refresh(0, terminal.rows - 1);
             }
           }
-          
+
           // 只有当尺寸真正发生变化且 WebSocket 开启时才通知后端
           if ((terminal.cols !== oldCols || terminal.rows !== oldRows) && session.ws && session.ws.readyState === WebSocket.OPEN) {
             session.ws.send(JSON.stringify({
@@ -1361,7 +1375,7 @@ const app = createApp({
         const ipv4Regex = /^(\d{1,3}\.){3}\d{1,3}$/;
         if (ipv4Regex.test(host)) {
           const parts = host.split('.');
-          return `${parts[0]}.${parts[1]}.*.*`;
+          return `${parts[0]}.${parts[1]}.*.* `;
         }
 
         // 域名或其他: example.com -> ex****.com
@@ -1391,9 +1405,9 @@ const app = createApp({
     },
 
     // Toast 管理系统 - 使用新的独立 Toast 管理器
-    showGlobalToast(message, type = 'success', duration = 3000) {
+    showGlobalToast(message, type = 'success', duration = 3000, isManual = false) {
       // 使用新的toast系统
-      toast[type](message, { duration });
+      toast[type](message, { duration, isManual });
     },
 
     // DNS Toast (使用新系统)
@@ -1545,12 +1559,22 @@ const app = createApp({
         description: ''
       };
 
+      // 确保凭据列表已加载
+      if (this.serverCredentials.length === 0) {
+        await this.loadCredentials();
+      }
+
       // 自动应用默认凭据
       const defaultCred = this.serverCredentials.find(c => c.is_default);
       if (defaultCred) {
-        this.serverForm.username = defaultCred.username;
+        this.serverForm.username = defaultCred.username || '';
         this.serverForm.password = defaultCred.password || '';
-        this.serverForm.authType = 'password';
+        this.serverForm.authType = defaultCred.auth_type === 'key' ? 'privateKey' : 'password';
+        if (defaultCred.private_key) {
+          this.serverForm.privateKey = defaultCred.private_key || '';
+          this.serverForm.passphrase = defaultCred.passphrase || '';
+        }
+        console.log('[Server] 已应用默认凭据:', defaultCred.name);
       }
 
       this.serverModalError = '';
@@ -1643,15 +1667,15 @@ const app = createApp({
         const data = await response.json();
 
         if (data.success) {
-          this.showGlobalToast('连接测试成功！', 'success');
+          this.showGlobalToast('连接测试成功！', 'success', 3000, true);
         } else {
           this.serverModalError = '连接测试失败: ' + data.message;
-          this.showGlobalToast('连接测试失败', 'error');
+          this.showGlobalToast('连接测试失败', 'error', 3000, true);
         }
       } catch (error) {
         console.error('测试连接失败:', error);
         this.serverModalError = '测试连接失败: ' + error.message;
-        this.showGlobalToast('测试连接失败', 'error');
+        this.showGlobalToast('测试连接失败', 'error', 3000, true);
       } finally {
         this.serverModalSaving = false;
       }
@@ -1706,7 +1730,7 @@ const app = createApp({
 
         const url = this.serverModalMode === 'add'
           ? '/api/server/accounts'
-          : `/api/server/accounts/${this.serverForm.id}`;
+          : `/ api / server / accounts / ${this.serverForm.id}`;
 
         const method = this.serverModalMode === 'add' ? 'POST' : 'PUT';
 
@@ -1726,7 +1750,12 @@ const app = createApp({
           this.closeServerModal();
 
           // 刷新主机列表
-          this.loadServerList();
+          await this.loadServerList();
+
+          // 如果是添加模式，立即刷新新主机的详细信息
+          if (this.serverModalMode === 'add' && data.data && data.data.id) {
+            this.refreshServerInfo(data.data.id);
+          }
         } else {
           this.serverModalError = data.error || '保存失败';
           this.showGlobalToast('保存失败: ' + data.error, 'error');
@@ -1854,7 +1883,7 @@ const app = createApp({
               server.auth_type = server.auth_type || 'password';
               servers.push(server);
             } else {
-              parseErrors.push(`第 ${i + 1} 行: 缺少必要字段 (name, host)`);
+              parseErrors.push(`第 ${i + 1} 行: 缺少必要字段(name, host)`);
             }
           } else {
             // 解析 CSV: name, host, port, username, password
@@ -1882,7 +1911,7 @@ const app = createApp({
             }
           }
         } catch (e) {
-          parseErrors.push(`第 ${i + 1} 行: 解析失败 (${e.message})`);
+          parseErrors.push(`第 ${i + 1} 行: 解析失败(${e.message})`);
         }
       }
 
@@ -1914,7 +1943,18 @@ const app = createApp({
 
           if (successCount > 0) {
             this.serverBatchText = ''; // 清空输入
-            this.loadServerList();
+            await this.loadServerList();
+
+            // 立即刷新所有新添加的主机信息
+            if (data.results) {
+              const newServerIds = data.results
+                .filter(r => r.success && r.data && r.data.id)
+                .map(r => r.data.id);
+
+              for (const id of newServerIds) {
+                this.refreshServerInfo(id);
+              }
+            }
           }
         } else {
           this.serverBatchError = '添加失败: ' + data.error;
@@ -2127,7 +2167,7 @@ const app = createApp({
       // 清空终端并显示重连信息
       if (session.terminal) {
         session.terminal.clear();
-        session.terminal.writeln(`\x1b[1;33m正在重新连接到 ${session.server.name} (${this.formatHost(session.server.host)})...\x1b[0m`);
+        session.terminal.writeln(`\x1b[1; 33m正在重新连接到 ${session.server.name} (${this.formatHost(session.server.host)})...\x1b[0m`);
       }
 
       // 建立新的 WebSocket 连接
@@ -2205,7 +2245,7 @@ const app = createApp({
       this.draggedSessionId = sessionId;
       this.dropHint = '';
       this.dropTargetId = null;
-      
+
       // 增强某些浏览器的兼容性
       if (event && event.dataTransfer) {
         event.dataTransfer.effectAllowed = 'move';
@@ -2242,7 +2282,7 @@ const app = createApp({
 
       const draggedId = this.draggedSessionId;
       const isAlreadyVisible = this.visibleSessionIds.includes(draggedId);
-      
+
       // --- 1. 重复性检查 (仅针对从标签栏新拖入的情况) ---
       if (!isAlreadyVisible) {
         const draggedSession = this.getSessionById(draggedId);
@@ -2256,9 +2296,9 @@ const app = createApp({
 
           // 如果是单屏模式切分屏，检查 active 会话
           const activeSession = this.getSessionById(this.activeSSHSessionId);
-          const isActiveSameServer = this.sshViewLayout === 'single' && 
-                                    activeSession && 
-                                    activeSession.server.id === draggedSession.server.id;
+          const isActiveSameServer = this.sshViewLayout === 'single' &&
+            activeSession &&
+            activeSession.server.id === draggedSession.server.id;
 
           if (isServerShown || (isActiveSameServer && effectivePosition !== 'center')) {
             toast.info('该服务器已在分屏显示中');
@@ -2274,8 +2314,8 @@ const app = createApp({
           this.activeSSHSessionId = draggedId;
         } else {
           // 单屏切分屏
-          this.visibleSessionIds = (effectivePosition === 'left' || effectivePosition === 'top') 
-            ? [draggedId, this.activeSSHSessionId] 
+          this.visibleSessionIds = (effectivePosition === 'left' || effectivePosition === 'top')
+            ? [draggedId, this.activeSSHSessionId]
             : [this.activeSSHSessionId, draggedId];
           this.sshViewLayout = (effectivePosition === 'left' || effectivePosition === 'right') ? 'split-h' : 'split-v';
           this.activeSSHSessionId = draggedId;
@@ -2302,30 +2342,30 @@ const app = createApp({
           // 拆分或重新排序 (Rearrange)
           let newVisibleIds = this.visibleSessionIds.filter(id => id !== draggedId);
           let targetIdx = newVisibleIds.indexOf(targetId);
-          
+
           if (targetIdx !== -1) {
             let insertAt = targetIdx;
-            
+
             // 核心修复：针对 2 列 Grid 布局计算索引
             // 在 Grid 中，索引 0|1 是第一行，2|3 是第二行
             if (effectivePosition === 'right' || effectivePosition === 'bottom') {
               insertAt = targetIdx + 1;
             }
-            
+
             // 特殊处理：如果当前是 2 屏左右(H) 且 向下拆分左侧窗口(0)
             // 我们希望结果是：[0, 1] 变成 [0, 1, new]，在网格中 new 就会出现在 0 的下方
             if (this.sshViewLayout === 'split-h' && effectivePosition === 'bottom' && targetIdx === 0) {
-              insertAt = 2; 
+              insertAt = 2;
             }
-            
+
             newVisibleIds.splice(insertAt, 0, draggedId);
           } else {
             // 边缘放置
             newVisibleIds.push(draggedId);
           }
-          
+
           this.visibleSessionIds = newVisibleIds;
-          
+
           // 智能布局切换
           if (this.visibleSessionIds.length === 2) {
             if (effectivePosition === 'left' || effectivePosition === 'right') {
@@ -2337,7 +2377,7 @@ const app = createApp({
             // 核心修复：根据当前布局趋势决定 3 屏方向
             // 如果已经在左右分屏，向下拆分应保持左右结构 (Master-Stack)
             if (this.sshViewLayout === 'split-h') {
-              this.sshViewLayout = 'grid'; 
+              this.sshViewLayout = 'grid';
             } else if (this.sshViewLayout === 'split-v') {
               this.sshViewLayout = 'grid-v';
             } else {
@@ -2356,7 +2396,7 @@ const app = createApp({
       // --- 4. 同步与适配 ---
       this.$nextTick(() => {
         this.syncTerminalDOM();
-        
+
         // 针对复杂的 3 屏/4 屏布局，二次同步确保万无一失
         setTimeout(() => this.syncTerminalDOM(), 100);
 
@@ -2366,7 +2406,7 @@ const app = createApp({
 
     closeSplitView(sessionId) {
       this.visibleSessionIds = this.visibleSessionIds.filter(id => id !== sessionId);
-      
+
       // 自适应：如果只剩一个会话，或没有会话了，自动恢复到 single 模式
       if (this.visibleSessionIds.length <= 1) {
         this.resetToSingleLayout();
@@ -2389,11 +2429,11 @@ const app = createApp({
 
       this.sshViewLayout = 'single';
       this.visibleSessionIds = [];
-      
+
       this.$nextTick(() => {
         this.syncTerminalDOM(); // 2. 重新挂载到单屏 Slot
         this.fitAllVisibleSessions();
-        
+
         // 3. 二次补偿同步
         setTimeout(() => {
           this.syncTerminalDOM();
@@ -2416,12 +2456,12 @@ const app = createApp({
         const slot = document.getElementById('ssh-slot-' + id);
         const terminalEl = document.getElementById('ssh-terminal-' + id);
         const session = this.getSessionById(id);
-        
+
         if (slot && terminalEl && session && session.terminal) {
           if (terminalEl.parentElement !== slot) {
             // 将终端节点移动到可见的槽位中
             slot.appendChild(terminalEl);
-            
+
             this.$nextTick(() => {
               this.safeTerminalFit(session);
               if (id === this.activeSSHSessionId) {
@@ -2465,7 +2505,7 @@ const app = createApp({
      */
     initSshMountObserver() {
       if (this.sshMountObserver) this.sshMountObserver.disconnect();
-      
+
       const observer = new MutationObserver((mutations) => {
         // 只有当有子节点变化时才尝试同步
         const hasRelevantChange = mutations.some(m => m.type === 'childList');
@@ -2489,7 +2529,7 @@ const app = createApp({
      * 对所有当前可见的终端执行 Fit 序列，解决布局切换时的尺寸计算错位
      */
     fitAllVisibleSessions() {
-      const ids = this.sshViewLayout === 'single' 
+      const ids = this.sshViewLayout === 'single'
         ? (this.activeSSHSessionId ? [this.activeSSHSessionId] : [])
         : this.visibleSessionIds;
 
@@ -2625,13 +2665,13 @@ const app = createApp({
     updateAllTerminalThemes() {
       // 获取当前最新的主题配置
       const theme = this.getTerminalTheme();
-      
+
       this.sshSessions.forEach(session => {
         if (session.terminal) {
           try {
             // 核心修复：显式创建新对象，触发 xterm.js 的 options 监听器
             session.terminal.options.theme = { ...theme };
-            
+
             // 确保渲染器重绘
             if (session.terminal.buffer && session.terminal.buffer.active) {
               session.terminal.refresh(0, session.terminal.rows - 1);
@@ -2651,7 +2691,7 @@ const app = createApp({
       const computedStyle = getComputedStyle(document.body);
       let bg = computedStyle.getPropertyValue('--bg-primary').trim();
       let fg = computedStyle.getPropertyValue('--text-primary').trim();
-      
+
       // 2. 转换颜色为规范的 RGB 格式以便计算亮度
       const parseToRGB = (colorStr) => {
         if (!colorStr) return [255, 255, 255];
@@ -2740,7 +2780,7 @@ const app = createApp({
           this.updateAllTerminalThemes();
         }, 150);
       };
-      
+
       if (darkModeQuery.addEventListener) {
         darkModeQuery.addEventListener('change', handleThemeChange);
       } else if (darkModeQuery.addListener) {
@@ -2954,7 +2994,7 @@ const app = createApp({
         if (this.sshSyncEnabled && this.sshViewLayout !== 'single' && this.visibleSessionIds.includes(sessionId)) {
           this.visibleSessionIds.forEach(targetId => {
             if (targetId === sessionId) return; // 避免重复发送给原始会话
-            
+
             const targetSession = this.getSessionById(targetId);
             if (targetSession && targetSession.ws && targetSession.ws.readyState === WebSocket.OPEN) {
               targetSession.ws.send(JSON.stringify({
@@ -2995,17 +3035,17 @@ const app = createApp({
      */
     async openAllServersInSSH() {
       if (this.serverList.length === 0) return;
-      
+
       const count = this.serverList.length;
       this.showGlobalToast(`正在批量建立 ${count} 个连接...`, 'info');
-      
+
       // 切换到终端标签页
       this.serverCurrentTab = 'terminal';
       this.showSSHQuickMenu = false;
 
       // 准备批量会话
       let newSessionIds = [];
-      
+
       for (const server of this.serverList) {
         // 检查是否已经打开
         let session = this.sshSessions.find(s => s.server.id === server.id);
@@ -3092,7 +3132,7 @@ const app = createApp({
      */
     async closeAllSSHSessions() {
       if (this.sshSessions.length === 0) return;
-      
+
       const confirmed = await this.showConfirm({
         title: '关闭所有会话',
         message: `确定要断开并关闭所有 ${this.sshSessions.length} 个 SSH 会话吗？`,
@@ -3146,13 +3186,16 @@ const app = createApp({
         const server = this.serverList.find(s => s.id === serverId);
         if (!server) return;
 
-        // 如果有缓存数据，立即使用（零等待）
-        if (server.cached_info && !server.info) {
+        // 判断是否已经加载了完整详情（不仅仅是实时流的指标）
+        const hasFullInfo = server.info && server.info.system && Object.keys(server.info.system).length > 0;
+
+        // 如果有缓存数据且当前没有完整详情，立即使用
+        if (server.cached_info && !hasFullInfo) {
           server.info = { ...server.cached_info };
-          // 后台静默刷新最新数据（不显示 loading）
+          // 后台静默刷新最新数据
           this.loadServerInfo(serverId, false, true);
-        } else if (!server.info) {
-          // 无缓存，显示 loading 并加载
+        } else if (!hasFullInfo) {
+          // 确实没有详情数据，去拉取
           this.loadServerInfo(serverId, false, false);
         }
       }
@@ -3165,7 +3208,6 @@ const app = createApp({
       const server = this.serverList.find(s => s.id === serverId);
       if (!server) return;
 
-      // 仅在非静默模式且没有数据时显示加载动画
       if (!silent && !server.info) {
         server.loading = true;
       }
@@ -3179,11 +3221,9 @@ const app = createApp({
 
         const data = await response.json();
         if (data.success) {
-          // 确保 Vue 响应式更新
           server.info = { ...data };
           server.error = null;
-          
-          // 如果拿到的是后端缓存数据且不是强制同步，自动在后台发起一次真实采集以确保数据最新
+
           if (data.is_cached && !force) {
             setTimeout(() => this.loadServerInfo(serverId, true, true), 300);
           }
@@ -3225,6 +3265,14 @@ const app = createApp({
     getPausedContainers(containers) {
       if (!containers || !Array.isArray(containers)) return 0;
       return containers.filter(c => c.status && c.status.includes('Paused')).length;
+    },
+
+    /**
+     * 获取已停止的容器数量
+     */
+    getStoppedContainers(containers) {
+      if (!containers || !Array.isArray(containers)) return 0;
+      return containers.filter(c => c.status && !c.status.includes('Up')).length;
     },
 
     /**
@@ -3669,8 +3717,40 @@ const app = createApp({
         this.serverList = [];
       } finally {
         this.serverLoading = false;
-        // 成功加载后启动或刷新轮询
+        // 1. 首先尝试连接实时指标推送流 (秒级监控)
+        if (this.isAuthenticated && this.mainActiveTab === 'server') {
+          this.connectMetricsStream();
+        }
+
+        // 2. 作为保底或背景维护，启动标准轮询
         this.startServerPolling();
+
+        // 3. 进入页面时立即 ping 所有主机获取延迟
+        this.pingAllServers();
+      }
+    },
+
+    /**
+     * 批量 ping 所有主机获取延迟
+     */
+    async pingAllServers() {
+      if (this.serverList.length === 0) return;
+
+      try {
+        const response = await fetch('/api/server/ping-all', { method: 'POST' });
+        const data = await response.json();
+
+        if (data.success && data.results) {
+          // 更新 serverList 中的延迟数据
+          for (const result of data.results) {
+            const server = this.serverList.find(s => s.id === result.serverId);
+            if (server && result.success) {
+              server.response_time = result.latency;
+            }
+          }
+        }
+      } catch (error) {
+        console.warn('批量 ping 失败:', error);
       }
     },
 
@@ -3716,11 +3796,20 @@ const app = createApp({
      * 启动服务器状态轮询 (带可见性检查)
      */
     startServerPolling() {
-      this.stopServerPolling();
-      if (!this.serverPollingEnabled) return;
+      // 关键决策：若有 WebSocket 实时流，则无需发起任何 HTTP 主动探测
+      if (this.metricsWsConnected) {
+        if (this.serverPollingTimer) {
+          console.warn('🛡️ 实时流已接管，正在休眠后台轮询任务');
+          this.stopServerPolling();
+        }
+        return;
+      }
 
-      const interval = Math.max(10000, (this.monitorConfig.interval || 60) * 1000);
-      console.log('启动主机状态轮询，间隔:', interval / 1000, '秒');
+      // 确保只有一个轮询定时器在运行
+      if (this.serverPollingTimer) return;
+
+      const interval = Math.max(30000, (this.monitorConfig.interval || 60) * 1000);
+      console.log(`📡 实时流不可用，启动后台降级轮询 (${interval / 1000}s)`);
 
       // 重置倒计时
       this.serverRefreshCountdown = Math.floor(interval / 1000);
@@ -3738,8 +3827,8 @@ const app = createApp({
 
       // 启动主轮询定时器
       this.serverPollingTimer = setInterval(() => {
-        // 只有在可见、已认证且在对应标签页时才执行
-        if (document.visibilityState === 'visible' && this.isAuthenticated && this.mainActiveTab === 'server' && this.serverCurrentTab === 'list') {
+        // 只要可见且已认证就探测，不再局限于 server 标签页
+        if (document.visibilityState === 'visible' && this.isAuthenticated) {
           this.probeAllServers();
           // 重置倒计时
           this.serverRefreshCountdown = Math.floor(interval / 1000);
@@ -3760,18 +3849,140 @@ const app = createApp({
     },
 
     /**
+     * 连接实时指标流 (WebSocket)
+     */
+    connectMetricsStream() {
+      if (!this.isAuthenticated) {
+        console.warn('⚠️ 尝试连接实时流失败: 用户未登录');
+        return;
+      }
+
+      if (this.metricsWsConnected || this.metricsWsConnecting) {
+        console.warn('ℹ️ 实时指标流已在连接中或已连接');
+        return;
+      }
+
+      this.metricsWsConnecting = true;
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${protocol}//${window.location.host}/ws/metrics`;
+
+      console.warn('🚀 正在发起实时指标流连接:', wsUrl);
+      const ws = new WebSocket(wsUrl);
+
+      ws.onopen = () => {
+        this.metricsWsConnected = true;
+        this.metricsWsConnecting = false;
+        console.warn('✅ 实时指标流握手成功');
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(event.data);
+          if (payload.type === 'metrics_update') {
+            // console.log('📊 收到实时指标更新:', payload.data.length, '台主机');
+            this.handleMetricsUpdate(payload.data);
+          }
+        } catch (err) {
+          console.error('解析指标数据失败:', err);
+        }
+      };
+
+      ws.onclose = () => {
+        this.metricsWsConnected = false;
+        this.metricsWsConnecting = false;
+        this.metricsWs = null;
+        console.warn('❌ 实时指标流连接已关闭');
+      };
+
+      ws.onerror = (err) => {
+        console.error('WebSocket 连接错误:', err);
+        this.metricsWsConnecting = false;
+        this.metricsWsConnected = false;
+      };
+
+      this.metricsWs = ws;
+    },
+
+    /**
+     * 关闭实时指标流
+     */
+    closeMetricsStream() {
+      if (this.metricsWs) {
+        this.metricsWs.close();
+        this.metricsWs = null;
+      }
+    },
+
+    /**
+     * 处理收到的实时指标更新
+     */
+    handleMetricsUpdate(data) {
+      if (!data || !Array.isArray(data)) return;
+
+      // 智能更新 serverList 中的数据
+      data.forEach(item => {
+        const server = this.serverList.find(s => s.id === item.serverId);
+        if (server) {
+          // 初始化结构（如果为空），防止模板渲染 crash
+          if (!server.info) {
+            // 注意：在 Vue 3 中，为了确保响应性，直接给对象添加新属性可能不触发更新
+            // 但如果 server 本身是 reactive 的，直接赋值 server.info = {...} 应该是没问题的
+            server.info = {
+              cpu: { Load: '', Usage: '0%', Cores: '-' },
+              memory: { Used: '-', Total: '-', Usage: '0%' },
+              disk: [{ device: '/', used: '-', total: '-', usage: '0%' }],
+              system: {},
+              docker: { installed: false, containers: [] }
+            };
+          }
+
+          // 1. 更新 CPU 负载
+          if (!server.info.cpu) server.info.cpu = {};
+          server.info.cpu.Load = item.metrics.load;
+          server.info.cpu.Usage = item.metrics.cpu_usage;
+          server.info.cpu.Cores = item.metrics.cores || '-';
+
+          // 2. 更新内存数据 (解析 "123/1024MB")
+          if (!server.info.memory) server.info.memory = {};
+          const memMatch = item.metrics.mem_usage.match(/(\d+)\/(\d+)MB/);
+          if (memMatch) {
+            const used = parseInt(memMatch[1]);
+            const total = parseInt(memMatch[2]);
+            server.info.memory.Used = used + ' MB';
+            server.info.memory.Total = total + ' MB';
+            server.info.memory.Usage = Math.round((used / total) * 100) + '%';
+          }
+
+          // 3. 更新磁盘数据 (解析 "10G/50G (20%)")
+          if (!server.info.disk || !server.info.disk[0]) {
+            server.info.disk = [{ device: '/', used: '-', total: '-', usage: '0%' }];
+          }
+          const diskMatch = item.metrics.disk_usage.match(/([^\/]+)\/([^\s]+)\s\(([\d%.]+)\)/);
+          if (diskMatch) {
+            server.info.disk[0].used = diskMatch[1];
+            server.info.disk[0].total = diskMatch[2];
+            server.info.disk[0].usage = diskMatch[3];
+          }
+
+          // 4. 更新 Docker 概要信息
+          if (!server.info.docker) server.info.docker = { installed: false, containers: [] };
+          server.info.docker.installed = item.metrics.docker.installed;
+          server.info.docker.runningCount = item.metrics.docker.running;
+          server.info.docker.stoppedCount = item.metrics.docker.stopped;
+
+          server.status = 'online';
+          server.error = null;
+        }
+      });
+    },
+    /**
      * 手动探测所有主机
      */
     async probeAllServers() {
       this.probeStatus = 'loading';
-
       try {
-        const response = await fetch('/api/server/check-all', {
-          method: 'POST'
-        });
-
+        const response = await fetch('/api/server/check-all', { method: 'POST' });
         const data = await response.json();
-
         if (data.success) {
           this.probeStatus = 'success';
           await this.loadServerList();
@@ -3782,11 +3993,292 @@ const app = createApp({
         console.error('探测主机失败:', error);
         this.probeStatus = 'error';
       }
+      setTimeout(() => { this.probeStatus = ''; }, 3000);
+    },
 
-      // 3秒后重置状态
-      setTimeout(() => {
-        this.probeStatus = '';
-      }, 3000);
+    /**
+     * 加载历史指标记录
+     */
+    async loadMetricsHistory(page = null) {
+      if (page !== null) {
+        this.metricsHistoryPagination.page = page;
+      }
+
+      this.metricsHistoryLoading = true;
+
+      try {
+        // 计算时间范围 (使用 UTC 时间，与数据库 CURRENT_TIMESTAMP 一致)
+        let startTime = null;
+        const now = Date.now();
+
+        switch (this.metricsHistoryTimeRange) {
+          case '1h':
+            startTime = new Date(now - 60 * 60 * 1000).toISOString();
+            break;
+          case '6h':
+            startTime = new Date(now - 6 * 60 * 60 * 1000).toISOString();
+            break;
+          case '24h':
+            startTime = new Date(now - 24 * 60 * 60 * 1000).toISOString();
+            break;
+          case '7d':
+            startTime = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString();
+            break;
+          case 'all':
+          default:
+            startTime = null;
+        }
+
+        console.log('[History] 查询时间范围:', this.metricsHistoryTimeRange, '起始时间:', startTime);
+
+        const params = new URLSearchParams({
+          page: this.metricsHistoryPagination.page,
+          pageSize: this.metricsHistoryPagination.pageSize
+        });
+
+        if (this.metricsHistoryFilter.serverId) {
+          params.append('serverId', this.metricsHistoryFilter.serverId);
+        }
+
+        if (startTime) {
+          params.append('startTime', startTime);
+        }
+
+        const response = await fetch(`/api/server/metrics/history?${params}`);
+        const data = await response.json();
+
+        if (data.success) {
+          this.metricsHistoryList = data.data;
+          this.metricsHistoryTotal = data.pagination.total;
+          this.metricsHistoryPagination = {
+            page: data.pagination.page,
+            pageSize: data.pagination.pageSize,
+            totalPages: data.pagination.totalPages
+          };
+        } else {
+          this.showGlobalToast('加载历史记录失败: ' + data.error, 'error');
+        }
+
+        // 同时加载采集器状态
+        this.loadCollectorStatus();
+
+        // 渲染图表
+        this.$nextTick(() => {
+          this.renderMetricsCharts();
+        });
+      } catch (error) {
+        console.error('加载历史指标失败:', error);
+        this.showGlobalToast('加载历史指标失败', 'error');
+      } finally {
+        this.metricsHistoryLoading = false;
+      }
+    },
+
+    /**
+     * 设置时间范围筛选
+     */
+    setMetricsTimeRange(range) {
+      this.metricsHistoryTimeRange = range;
+      this.loadMetricsHistory(1);
+    },
+
+    /**
+     * 手动触发一次历史采集
+     */
+    async triggerMetricsCollect() {
+      try {
+        const response = await fetch('/api/server/metrics/collect', { method: 'POST' });
+        const data = await response.json();
+
+        if (data.success) {
+          this.showGlobalToast('已触发历史指标采集', 'success');
+          // 延迟刷新数据
+          setTimeout(() => this.loadMetricsHistory(), 1000);
+        } else {
+          this.showGlobalToast('触发采集失败: ' + data.error, 'error');
+        }
+      } catch (error) {
+        console.error('触发采集失败:', error);
+        this.showGlobalToast('触发采集失败', 'error');
+      }
+    },
+
+    /**
+     * 渲染历史指标图表
+     */
+    renderMetricsCharts() {
+      if (!window.Chart || !this.groupedMetricsHistory) return;
+
+      Object.entries(this.groupedMetricsHistory).forEach(([serverId, records]) => {
+        // 由于记录是倒序排列的，绘图前先克隆并正序排列
+        const sortedRecords = [...records].reverse();
+
+        // 准备数据
+        const labels = sortedRecords.map(r => {
+          const d = new Date(r.recorded_at);
+          return d.getHours() + ':' + String(d.getMinutes()).padStart(2, '0');
+        });
+        const cpuData = sortedRecords.map(r => r.cpu_usage || 0);
+        const memData = sortedRecords.map(r => r.mem_usage || 0);
+
+        this.$nextTick(() => {
+          const canvasId = `metrics-chart-${serverId}`;
+          const canvas = document.getElementById(canvasId);
+          if (!canvas) return;
+
+          // 使用 Chart.js 官方推荐的方式获取并销毁已存在的实例
+          const existingChart = Chart.getChart(canvas);
+          if (existingChart) {
+            existingChart.destroy();
+          }
+
+          // 创建新图表
+          new Chart(canvas, {
+            type: 'line',
+            data: {
+              labels: labels,
+              datasets: [
+                {
+                  label: 'CPU (%)',
+                  data: cpuData,
+                  borderColor: '#10b981',
+                  backgroundColor: 'rgba(16, 185, 129, 0.1)',
+                  borderWidth: 2,
+                  fill: true,
+                  tension: 0.4,
+                  pointRadius: 0,
+                  pointHoverRadius: 4
+                },
+                {
+                  label: '内存 (%)',
+                  data: memData,
+                  borderColor: '#3b82f6',
+                  backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                  borderWidth: 2,
+                  fill: true,
+                  tension: 0.4,
+                  pointRadius: 0,
+                  pointHoverRadius: 4
+                }
+              ]
+            },
+            options: {
+              responsive: true,
+              maintainAspectRatio: false,
+              plugins: {
+                legend: { display: false },
+                tooltip: {
+                  mode: 'index',
+                  intersect: false,
+                  padding: 10,
+                  backgroundColor: 'rgba(13, 17, 23, 0.9)',
+                  titleColor: '#8b949e',
+                  bodyColor: '#e6edf3',
+                  borderColor: 'rgba(255, 255, 255, 0.1)',
+                  borderWidth: 1
+                }
+              },
+              scales: {
+                x: {
+                  display: true,
+                  grid: { display: false },
+                  ticks: {
+                    maxRotation: 0,
+                    autoSkip: true,
+                    maxTicksLimit: 6,
+                    font: { size: 10 },
+                    color: '#8b949e'
+                  }
+                },
+                y: {
+                  display: true,
+                  min: 0,
+                  max: 100,
+                  grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                  ticks: {
+                    font: { size: 10 },
+                    color: '#8b949e',
+                    stepSize: 20
+                  }
+                }
+              },
+              interaction: {
+                mode: 'nearest',
+                axis: 'x',
+                intersect: false
+              }
+            }
+          });
+        });
+      });
+    },
+
+    /**
+     * 加载采集器状态
+     */
+    async loadCollectorStatus() {
+      try {
+        const response = await fetch('/api/server/metrics/collector/status');
+        const data = await response.json();
+
+        if (data.success) {
+          this.metricsCollectorStatus = data.data;
+          // 同步采集间隔设置
+          if (data.data.interval) {
+            this.metricsCollectInterval = Math.floor(data.data.interval / 60000);
+          }
+        }
+      } catch (error) {
+        console.error('加载采集器状态失败:', error);
+      }
+    },
+
+    /**
+     * 获取 CPU 使用率对应的颜色类
+     */
+    getCpuClass(usage) {
+      if (!usage && usage !== 0) return '';
+      const val = parseFloat(usage);
+      if (val >= 90) return 'critical';
+      if (val >= 70) return 'warning';
+      return 'normal';
+    },
+
+    /**
+     * 切换历史记录主机卡片的展开状态
+     */
+    toggleMetricsServerExpand(serverId) {
+      const index = this.expandedMetricsServers.indexOf(serverId);
+      if (index === -1) {
+        this.expandedMetricsServers.push(serverId);
+      } else {
+        this.expandedMetricsServers.splice(index, 1);
+      }
+    },
+
+    /**
+     * 更新历史采集间隔
+     */
+    async updateMetricsCollectInterval() {
+      try {
+        const intervalMs = this.metricsCollectInterval * 60 * 1000;
+        const response = await fetch('/api/server/metrics/collector/interval', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ interval: intervalMs })
+        });
+        const data = await response.json();
+
+        if (data.success) {
+          this.showGlobalToast(`采集间隔已更新为 ${this.metricsCollectInterval} 分钟`, 'success');
+          this.loadCollectorStatus();
+        } else {
+          this.showGlobalToast('更新失败: ' + data.error, 'error');
+        }
+      } catch (error) {
+        console.error('更新采集间隔失败:', error);
+        this.showGlobalToast('更新采集间隔失败', 'error');
+      }
     },
 
     /**
@@ -3796,7 +4288,6 @@ const app = createApp({
       try {
         const response = await fetch('/api/server/accounts/export');
         const data = await response.json();
-
         if (data.success) {
           const blob = new Blob([JSON.stringify(data.data, null, 2)], { type: 'application/json' });
           const url = URL.createObjectURL(blob);
@@ -3805,7 +4296,6 @@ const app = createApp({
           a.download = `servers_${new Date().toISOString().split('T')[0]}.json`;
           a.click();
           URL.revokeObjectURL(url);
-
           this.showGlobalToast('导出成功', 'success');
         } else {
           this.showGlobalToast('导出失败: ' + data.error, 'error');
@@ -3832,67 +4322,6 @@ const app = createApp({
     },
 
     /**
-     * 加载服务器凭据列表
-     */
-    async loadServerCredentials() {
-      try {
-        const response = await fetch('/api/server/credentials');
-        const data = await response.json();
-        if (data.success) {
-          this.serverCredentials = data.data;
-        }
-      } catch (error) {
-        console.error('加载凭据失败:', error);
-      }
-    },
-
-    /**
-     * 设置默认凭据
-     */
-    async setDefaultCredential(id) {
-      try {
-        const response = await fetch(`/api/server/credentials/${id}/default`, {
-          method: 'PUT'
-        });
-        const data = await response.json();
-        if (data.success) {
-          this.showGlobalToast('已设置为默认凭据', 'success');
-          await this.loadServerCredentials();
-        }
-      } catch (error) {
-        this.showGlobalToast('设置失败', 'error');
-      }
-    },
-
-    /**
-     * 删除凭据
-     */
-    async deleteCredential(id) {
-      const confirmed = await this.showConfirm({
-        title: '删除凭据',
-        message: '确定要删除这个访问凭据吗？',
-        icon: 'fa-trash',
-        confirmText: '删除',
-        confirmClass: 'btn-danger'
-      });
-
-      if (!confirmed) return;
-
-      try {
-        const response = await fetch(`/api/server/credentials/${id}`, {
-          method: 'DELETE'
-        });
-        const data = await response.json();
-        if (data.success) {
-          this.showGlobalToast('已删除', 'success');
-          await this.loadServerCredentials();
-        }
-      } catch (error) {
-        this.showGlobalToast('删除失败', 'error');
-      }
-    },
-
-    /**
      * 保存代码片段 (新增或更新)
      */
     async saveSnippet() {
@@ -3900,21 +4329,17 @@ const app = createApp({
         this.snippetError = '标题和内容不能为空';
         return;
       }
-
       this.snippetSaving = true;
       this.snippetError = '';
-
       try {
         const isEdit = !!this.snippetForm.id;
         const url = isEdit ? `/api/server/snippets/${this.snippetForm.id}` : '/api/server/snippets';
         const method = isEdit ? 'PUT' : 'POST';
-
         const response = await fetch(url, {
           method,
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(this.snippetForm)
         });
-
         const data = await response.json();
         if (data.success) {
           this.showGlobalToast(isEdit ? '更新成功' : '创建成功', 'success');
@@ -3941,13 +4366,9 @@ const app = createApp({
         confirmText: '删除',
         confirmClass: 'btn-danger'
       });
-
       if (!confirmed) return;
-
       try {
-        const response = await fetch(`/api/server/snippets/${id}`, {
-          method: 'DELETE'
-        });
+        const response = await fetch(`/api/server/snippets/${id}`, { method: 'DELETE' });
         const data = await response.json();
         if (data.success) {
           this.showGlobalToast('已删除', 'success');
@@ -3963,12 +4384,8 @@ const app = createApp({
      */
     sendSnippet(content) {
       if (!content) return;
-      
-      // 处理换行符 (发送 \r 以执行命令)
       const dataToSend = content.endsWith('\n') ? content.replace(/\n$/, '\r') : content + '\r';
-
       if (this.sshSyncEnabled && this.sshViewLayout !== 'single') {
-        // 同步模式：发送到所有可见窗口
         this.visibleSessionIds.forEach(id => {
           const session = this.getSessionById(id);
           if (session && session.ws && session.ws.readyState === WebSocket.OPEN) {
@@ -3977,7 +4394,6 @@ const app = createApp({
         });
         this.showGlobalToast('指令已同步广播', 'success');
       } else {
-        // 单发模式：发送到当前激活窗口
         const session = this.getSessionById(this.activeSSHSessionId);
         if (session && session.ws && session.ws.readyState === WebSocket.OPEN) {
           session.ws.send(JSON.stringify({ type: 'input', data: dataToSend }));
@@ -4017,7 +4433,35 @@ const app = createApp({
     ...systemLogsMethods,
     ...logViewerMethods,
     formatDateTime,
-    formatRegion
+    formatRegion,
+
+    /**
+     * 获取日志级别对应的图标
+     */
+    getLogIcon(level) {
+      const icons = {
+        'DEBUG': 'fa-bug',
+        'INFO': 'fa-info-circle',
+        'WARN': 'fa-exclamation-triangle',
+        'ERROR': 'fa-times-circle',
+        'FATAL': 'fa-skull-crossbones'
+      };
+      return icons[level?.toUpperCase()] || 'fa-file-alt';
+    },
+
+    /**
+     * 格式化日志消息，支持简易 ANSI 颜色转换
+     */
+    formatMessage(msg) {
+      if (!msg) return '';
+      // 基础 ANSI 颜色转换 (简单实现)
+      let formatted = msg
+        .replace(/\x1b\[1;32m/g, '<span class="ansi-fg-32">')
+        .replace(/\x1b\[1;33m/g, '<span class="ansi-fg-33">')
+        .replace(/\x1b\[1;31m/g, '<span class="ansi-fg-31">')
+        .replace(/\x1b\[0m/g, '</span>');
+      return formatted;
+    }
   }
 });
 

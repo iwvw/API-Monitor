@@ -48,8 +48,12 @@ class SystemInfoService {
             echo "Usage: $MEM_USAGE"
             
             echo "---DISK---"
-            # 更加通用的磁盘过滤
-            df -h | grep -E '^/dev/|^tmpfs|^/dev/root|overlay' | awk '{printf "%s|%s|%s|%s|%s\n", $1, $2, $3, $4, $5}'
+            # 使用 -P (POSIX) 确保输出不换行，且过滤掉特殊文件系统
+            df -hP | grep -E '^/dev/|^/dev/root|overlay' | awk '{printf "%s|%s|%s|%s|%s\\n", $1, $2, $3, $4, $5}'
+            # 如果上面的 grep 没有匹配到，尝试显示主分区
+            if [ $? -ne 0 ]; then
+                df -hP / | awk 'NR>1 {printf "%s|%s|%s|%s|%s\\n", $1, $2, $3, $4, $5}'
+            fi
             
             echo "---DOCKER---"
             if command -v docker >/dev/null 2>&1;
@@ -72,7 +76,7 @@ class SystemInfoService {
             const rawOutput = result.stdout;
             const startIndex = rawOutput.indexOf('START_METRICS');
             const endIndex = rawOutput.lastIndexOf('END_METRICS');
-            
+
             if (startIndex === -1 || endIndex === -1) {
                 throw new Error('未能获取到有效的指标数据段');
             }
@@ -99,14 +103,14 @@ class SystemInfoService {
             const startTag = `---${name}---`;
             const startIdx = stdout.indexOf(startTag);
             if (startIdx === -1) return '';
-            
+
             const contentStart = startIdx + startTag.length;
             const remaining = stdout.substring(contentStart);
-            
+
             // 查找下一个任何形式的 ---TAG---
             const nextTagMatch = remaining.match(/\n---[A-Z]+---/);
             const nextTagIdx = nextTagMatch ? nextTagMatch.index : -1;
-            
+
             const sectionContent = nextTagIdx === -1 ? remaining.trim() : remaining.substring(0, nextTagIdx).trim();
             return sectionContent;
         };
@@ -114,7 +118,7 @@ class SystemInfoService {
         const parseKV = (text) => {
             const res = {};
             if (!text) return res;
-            text.split('\n').forEach(line => {
+            text.split(/[\r\n]+/).forEach(line => {
                 const trimLine = line.trim();
                 if (!trimLine) return;
                 const parts = trimLine.split(':');
@@ -129,17 +133,23 @@ class SystemInfoService {
         data.system = parseKV(getSection('SYSTEM'));
         data.cpu = parseKV(getSection('CPU'));
         data.memory = parseKV(getSection('MEM'));
-        
+
         // 磁盘列表
         const diskText = getSection('DISK');
         if (diskText) {
-            diskText.split('\n').forEach(line => {
+            diskText.split(/[\r\n]+/).forEach(line => {
                 const trimLine = line.trim();
                 if (!trimLine) return;
                 const parts = trimLine.split('|');
                 if (parts.length >= 5) {
                     const [device, total, used, available, usage] = parts;
-                    data.disk.push({ device, total, used, available, usage });
+                    data.disk.push({
+                        device: device.trim(),
+                        total: total.trim(),
+                        used: used.trim(),
+                        available: available.trim(),
+                        usage: usage.trim()
+                    });
                 }
             });
         }
@@ -155,18 +165,18 @@ class SystemInfoService {
         // 容器列表
         const containersText = getSection('CONTAINERS');
         if (containersText) {
-            containersText.split('\n').forEach(line => {
+            containersText.split(/[\r\n]+/).forEach(line => {
                 const trimLine = line.trim();
                 if (!trimLine || trimLine.includes('END_METRICS')) return;
                 const parts = trimLine.split('|');
                 if (parts.length >= 3) {
                     const [id, name, status, image, ports] = parts;
-                    data.docker.containers.push({ 
-                        id, 
-                        name, 
-                        status, 
-                        image: image || '-', 
-                        ports: ports || '-' 
+                    data.docker.containers.push({
+                        id: id.trim(),
+                        name: name.trim(),
+                        status: status.trim(),
+                        image: (image || '-').trim(),
+                        ports: (ports || '-').trim()
                     });
                 }
             });

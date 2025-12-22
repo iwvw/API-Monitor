@@ -72,6 +72,11 @@
                 ]" @click="handleTabSwitch(module)">
                 <i class="fas" :class="getModuleIcon(module)"></i>
                 <span> {{ getModuleName(module) }}</span>
+                <!-- 实时监控流指示器 (仅针对 Hosts 模块) -->
+                <div v-if="module === 'server'" class="nav-live-badge" :class="{ disconnected: !metricsWsConnected }"
+                  :title="metricsWsConnected ? '实时指标流已连接' : '实时监控离线 (后台探测模式)'">
+                  <span class="pulse-dot"></span>
+                </div>
               </button>
             </template>
           </div>
@@ -101,11 +106,10 @@
     <div id="template-modals"></div>
 
     <!-- 全局 SSH 终端保活仓库 (不受 v-if 销毁影响) -->
-    <div id="ssh-terminal-warehouse" style="visibility: hidden !important; position: absolute !important; left: -9999px !important; top: -9999px !important; width: 100px; height: 100px; overflow: hidden; pointer-events: none;">
-       <!-- 这里将动态存放所有 SSH 会话的原生 DOM 节点 -->
+    <div id="ssh-terminal-warehouse"
+      style="visibility: hidden !important; position: absolute !important; left: -9999px !important; top: -9999px !important; width: 100px; height: 100px; overflow: hidden; pointer-events: none;">
+      <!-- 这里将动态存放所有 SSH 会话的原生 DOM 节点 -->
     </div>
-
-    <!-- Toast 系统容器将由 toast.js 自动创建 -->
   </div>
 
   <!-- CDN 脚本 (由 Vite 注入) -->

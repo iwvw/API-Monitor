@@ -264,6 +264,53 @@
         z-index: 999 !important;
     }
 
+    /* --- 设置面板位置调整 --- */
+    .settings-container {
+        display: flex !important;
+        flex-direction: column !important;
+    }
+
+    .settings-main {
+        order: 1 !important;
+        /* 内容区在上 */
+        flex: 1 !important;
+        overflow-y: auto !important;
+    }
+
+    .settings-footer-actions {
+        order: 2 !important;
+        /* 按钮在中间 */
+        border-bottom: 1px solid var(--border-color) !important;
+    }
+
+    .settings-nav {
+        order: 3 !important;
+        /* 导航栏在最底部 */
+        border-bottom: none !important;
+        border-top: 1px solid var(--border-color) !important;
+        padding: 6px 4px !important;
+        background: var(--bg-secondary) !important;
+    }
+
+    .settings-nav-item {
+        flex-direction: column !important;
+        gap: 4px !important;
+        flex: 1 !important;
+        padding: 8px 4px !important;
+        min-width: 60px !important;
+        justify-content: center !important;
+    }
+
+    .settings-nav-item i {
+        font-size: 18px !important;
+        margin: 0 !important;
+    }
+
+    .settings-nav-item span {
+        font-size: 10px !important;
+        font-weight: 500 !important;
+    }
+
     /* --- 模态框全屏化 --- */
     .modal {
         width: 95% !important;
@@ -274,7 +321,7 @@
     }
 
     .modal-body {
-        padding: 16px !important;
+        padding: 5px !important;
     }
 
     .info-grid {

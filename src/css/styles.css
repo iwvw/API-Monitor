@@ -90,8 +90,8 @@ pre,
   --selfh-primary: #06b6d4;
   --selfh-dark: #0891b2;
 
-  --server-primary: #475569;
-  --server-primary-dark: #334155;
+  --server-primary: #1d4ed8;
+  --server-primary-dark: #1e40af;
 
   --paas-primary: #6366f1;
   --paas-dark: #4f46e5;
@@ -317,7 +317,108 @@ pre,
     box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
   }
 
-  /* --- 结束模块主题类定义 --- */
+  /* ========================================
+   Antigravity Loading System (Elegant Fluid)
+   ======================================== */
+
+/* 极简流光旋转器 - 极致纤细与优雅 */
+.ag-spinner-elegant {
+  width: 28px;
+  height: 28px;
+  border: 1.5px solid rgba(var(--current-rgb, 100, 100, 100), 0.08);
+  border-top-color: var(--current-primary, var(--primary-color));
+  border-radius: 50%;
+  animation: ag-spin-elegant 1s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  display: inline-block;
+}
+
+.ag-spinner-elegant-sm {
+  width: 16px;
+  height: 16px;
+  border-width: 1.2px;
+}
+
+/* 优雅的骨架屏流光效果 */
+.ag-shimmer {
+  background: linear-gradient(
+    90deg, 
+    rgba(var(--bg-secondary-rgb), 0) 0%, 
+    rgba(var(--current-rgb, 255, 255, 255), 0.05) 50%, 
+    rgba(var(--bg-secondary-rgb), 0) 100%
+  );
+  background-size: 200% 100%;
+  animation: ag-shimmer 2s infinite;
+}
+
+/* 品牌 Logo 呼吸加载器 */
+.ag-logo-pulse {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ag-logo-pulse img {
+  width: 40px;
+  height: 40px;
+  filter: drop-shadow(0 0 0px var(--current-primary));
+  animation: ag-logo-breath 2.5s ease-in-out infinite;
+}
+
+.ag-logo-pulse::after {
+  content: '';
+  position: absolute;
+  width: 50px;
+  height: 50px;
+  border-radius: 50%;
+  border: 1px solid var(--current-primary);
+  opacity: 0;
+  animation: ag-ping 2.5s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+@keyframes ag-spin-elegant {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+@keyframes ag-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes ag-logo-breath {
+  0%, 100% { transform: scale(1); opacity: 0.8; filter: drop-shadow(0 0 2px rgba(var(--current-rgb), 0)); }
+  50% { transform: scale(1.05); opacity: 1; filter: drop-shadow(0 0 12px rgba(var(--current-rgb), 0.4)); }
+}
+
+@keyframes ag-ping {
+  0% { transform: scale(0.8); opacity: 0.5; }
+  70%, 100% { transform: scale(1.8); opacity: 0; }
+}
+
+/* 加载遮罩层美化 */
+.loading-overlay-elegant {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  padding: 60px;
+  background: transparent;
+}
+
+.loading-text-elegant {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  font-family: var(--font-mono);
+  opacity: 0.6;
+}
+
+/* --- 结束 AG-Loading-System 定义 --- */
+
 
   /* 颜色 */
   --primary-color: #6366f1;
@@ -348,11 +449,6 @@ pre,
   --zeabur-secondary-rgb: 139,
   92,
   246;
-
-  /* 主机管理模块主题色 - 石板灰 */
-  --server-primary: #475569;
-  --server-primary-dark: #334155;
-  --server-primary-light: #64748b;
 
   /* Light theme */
   --bg-primary: #f4f6f8;
@@ -647,6 +743,98 @@ body.modal-open {
   display: flex;
   gap: 10px;
   align-items: center;
+}
+
+/* 导航栏 Host 实时指示器 */
+.nav-live-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 10px;
+  height: 10px;
+  align-self: flex-end;
+  margin-bottom: 3px;
+  /* 匹配文字基线 */
+  pointer-events: none;
+}
+
+.pulse-dot {
+  width: 6.5px;
+  height: 6.5px;
+  background-color: #10b981;
+  border-radius: 50%;
+  position: relative;
+  box-shadow: 0 0 0 rgba(16, 185, 129, 0.4);
+  animation: nav-pulse 1.8s infinite;
+}
+
+.pulse-dot::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  animation: nav-pulse-spread 1.8s infinite;
+  background-color: #10b981;
+  opacity: 0.5;
+}
+
+/* 离线状态：显示为模块主题色 (不带强烈跳动，改为温和呼吸) */
+.nav-live-badge.disconnected .pulse-dot {
+  background-color: var(--server-primary);
+  box-shadow: 0 0 0 rgba(71, 85, 105, 0.3);
+  animation: nav-pulse-theme 3s infinite;
+}
+
+.nav-live-badge.disconnected .pulse-dot::before {
+  background-color: var(--server-primary);
+  opacity: 0.3;
+  animation-duration: 3s;
+}
+
+@keyframes nav-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+  }
+
+  70% {
+    box-shadow: 0 0 0 6px rgba(16, 185, 129, 0);
+  }
+
+  100% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0);
+  }
+}
+
+@keyframes nav-pulse-theme {
+  0% {
+    transform: scale(0.9);
+    opacity: 0.8;
+  }
+
+  50% {
+    transform: scale(1);
+    opacity: 1;
+  }
+
+  100% {
+    transform: scale(0.9);
+    opacity: 0.8;
+  }
+}
+
+@keyframes nav-pulse-spread {
+  0% {
+    transform: scale(1);
+    opacity: 0.6;
+  }
+
+  100% {
+    transform: scale(2.8);
+    opacity: 0;
+  }
 }
 
 .title {
@@ -2040,16 +2228,10 @@ body.modal-open {
 
 
 
-@keyframes pulse {
-
-  0%,
-  100% {
-    opacity: 1;
-  }
-
-  50% {
-    opacity: 0.4;
-  }
+@keyframes ag-pulse {
+  0% { transform: scale(1); opacity: 0.6; }
+  50% { transform: scale(1.5); opacity: 0; }
+  100% { transform: scale(1); opacity: 0.6; }
 }
 
 /* Loading & Empty States */

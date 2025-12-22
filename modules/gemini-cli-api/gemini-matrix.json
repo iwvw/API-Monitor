@@ -5,7 +5,7 @@
     "noThinking": false,
     "search": false,
     "fakeStream": false,
-    "antiTrunc": true
+    "antiTrunc": false
   },
   "gemini-2.5-flash": {
     "base": false,
@@ -13,7 +13,7 @@
     "noThinking": false,
     "search": false,
     "fakeStream": false,
-    "antiTrunc": true
+    "antiTrunc": false
   },
   "gemini-3-pro-preview": {
     "base": false,
@@ -21,14 +21,14 @@
     "noThinking": false,
     "search": false,
     "fakeStream": false,
-    "antiTrunc": true
+    "antiTrunc": false
   },
   "gemini-3-flash-preview": {
     "base": false,
     "maxThinking": false,
     "noThinking": false,
     "search": false,
-    "fakeStream": true,
-    "antiTrunc": true
+    "fakeStream": false,
+    "antiTrunc": false
   }
 }

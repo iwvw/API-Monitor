@@ -44,6 +44,9 @@ const sshTerminalService = require('./modules/server-management/ssh-terminal-ser
 // 导入日志服务
 const logService = require('./src/services/log-service');
 
+// 导入实时监控服务
+const metricsService = require('./modules/server-management/metrics-service');
+
 const app = express();
 const server = http.createServer(app);
 const PORT = process.env.PORT || 3000;
@@ -51,6 +54,7 @@ const PORT = process.env.PORT || 3000;
 // 初始化 WebSocket 服务
 const sshWss = sshTerminalService.init(server);
 const logWss = logService.init(server);
+const metricsWss = metricsService.init(server);
 
 // 统一处理 WebSocket 升级请求
 server.on('upgrade', (request, socket, head) => {
@@ -66,6 +70,11 @@ server.on('upgrade', (request, socket, head) => {
     logWss.handleUpgrade(request, socket, head, (ws) => {
       logger.info(`[WS Upgrade] 日志 握手完成`);
       logWss.emit('connection', ws, request);
+    });
+  } else if (pathname === '/ws/metrics') {
+    metricsWss.handleUpgrade(request, socket, head, (ws) => {
+      logger.info(`[WS Upgrade] 监控指标 握手完成`);
+      metricsWss.emit('connection', ws, request);
     });
   } else {
     logger.warn(`[WS Upgrade] 拦截未知路径: ${pathname}`);
@@ -208,6 +217,13 @@ server.listen(PORT, '0.0.0.0', () => {
     monitorService.start();
   } catch (error) {
     logger.warn('主机监控服务启动失败:', error.message);
+  }
+
+  // 启动历史指标采集器
+  try {
+    metricsService.startHistoryCollector();
+  } catch (error) {
+    logger.warn('历史指标采集器启动失败:', error.message);
   }
 
   // 启动自动日志清理任务 (每 12 小时执行一次)

@@ -30,6 +30,7 @@ class ToastManager {
             icon: null, // 自定义图标
             onClick: null, // 点击回调
             onClose: null, // 关闭回调
+            isManual: false, // 是否为手动点击触发 (默认为 false，不显示自动提示)
         };
 
         // 默认图标映射
@@ -403,6 +404,14 @@ class ToastManager {
     show(options) {
         const config = { ...this.defaultOptions, ...options };
 
+        // 核心过滤器: 只有手动触发 (isManual: true) 或 错误提示 (type: 'error') 才会显示
+        // 自动生成的 'success', 'info', 'warning' 将被拦截，不在界面弹出
+        if (!config.isManual && config.type !== 'error') {
+            // 可以在控制台输出调试信息，但不展示 UI
+            // console.log(`[Toast Intercepted] ${config.title || ''}: ${config.message}`);
+            return null;
+        }
+
         // 检查是否超过最大数量,如果超过则移除最旧的toast
         const positionToasts = Array.from(this.toasts.values())
             .filter(t => t.config.position === config.position);
@@ -643,6 +652,7 @@ class ToastManager {
         return this.show({
             type: 'success',
             message,
+            isManual: false, // 默认不显示，除非显式指定
             ...options,
         });
     }
@@ -655,6 +665,7 @@ class ToastManager {
             type: 'error',
             message,
             duration: 4000, // 错误提示默认显示更久
+            isManual: true, // 错误始终显示
             ...options,
         });
     }
@@ -666,6 +677,7 @@ class ToastManager {
         return this.show({
             type: 'warning',
             message,
+            isManual: false,
             ...options,
         });
     }
@@ -677,6 +689,7 @@ class ToastManager {
         return this.show({
             type: 'info',
             message,
+            isManual: false,
             ...options,
         });
     }

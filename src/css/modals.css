@@ -166,7 +166,8 @@
   border: none;
   cursor: pointer;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  margin-left: auto; /* 靠右对齐 */
+  margin-left: auto;
+  /* 靠右对齐 */
   flex-shrink: 0;
 }
 
@@ -176,8 +177,8 @@
 }
 
 /* 兜底：如果不在 header 内，则保持绝对定位但位置优化 */
-.modal > .modal-close:only-child,
-.modal > .close-btn {
+.modal>.modal-close:only-child,
+.modal>.close-btn {
   position: absolute !important;
   top: 10px;
   right: 10px;
@@ -213,11 +214,6 @@
   background-color: rgba(248, 81, 73, 0.15);
   color: #f85149;
   transform: rotate(90deg);
-}
-
-/* Forms */
-.form-group {
-  margin-bottom: 6px;
 }
 
 .form-label {

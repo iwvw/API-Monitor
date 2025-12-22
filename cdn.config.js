@@ -51,6 +51,12 @@ const cdnDependencies = {
         global: 'Vue',
         css: false
     },
+    'chart.js': {
+        version: '4.4.7',
+        file: '/dist/chart.umd.js',
+        global: 'Chart',
+        css: false
+    },
     '@fortawesome/fontawesome-free': {
         version: '6.7.2',
         file: '/css/all.min.css',

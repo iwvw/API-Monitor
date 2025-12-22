@@ -830,6 +830,14 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
                     res.end();
 
                     // 记录成功日志（包含累积的回复内容）
+                    const originalMessages = JSON.parse(JSON.stringify(req.body.messages || []));
+                    const settings = await storage.getSettings();
+                    
+                    // 确保合并系统指令到日志中
+                    if (!originalMessages.some(m => m.role === 'system') && settings.SYSTEM_INSTRUCTION) {
+                        originalMessages.unshift({ role: 'system', content: settings.SYSTEM_INSTRUCTION });
+                    }
+
                     storage.recordLog({
                         accountId: account.id,
                         model: modelWithPrefix,
@@ -841,7 +849,8 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
                         clientIp: req.ip,
                         userAgent: req.get('user-agent'),
                         detail: {
-                            request: req.body,
+                            model: req.body.model,
+                            messages: originalMessages,
                             type: 'stream',
                             response: {
                                 choices: [{
@@ -885,6 +894,14 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
                     };
 
                     // 记录成功日志
+                    const originalMessages = JSON.parse(JSON.stringify(req.body.messages || []));
+                    const settings = await storage.getSettings();
+
+                    // 确保合并系统指令到日志中
+                    if (!originalMessages.some(m => m.role === 'system') && settings.SYSTEM_INSTRUCTION) {
+                        originalMessages.unshift({ role: 'system', content: settings.SYSTEM_INSTRUCTION });
+                    }
+
                     storage.recordLog({
                         accountId: account.id,
                         model: modelWithPrefix,
@@ -895,7 +912,11 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
                         durationMs: Date.now() - startTime,
                         clientIp: req.ip,
                         userAgent: req.get('user-agent'),
-                        detail: { request: req.body, response: responseData }
+                        detail: { 
+                            model: req.body.model, 
+                            messages: originalMessages,
+                            response: responseData 
+                        }
                     });
 
                     return res.json(responseData); // 成功后退出
@@ -926,6 +947,14 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
                 }
 
                 // 记录错误日志
+                const originalMessages = JSON.parse(JSON.stringify(req.body.messages || []));
+                const settings = await storage.getSettings();
+
+                // 确保合并系统指令到日志中
+                if (!originalMessages.some(m => m.role === 'system') && settings.SYSTEM_INSTRUCTION) {
+                    originalMessages.unshift({ role: 'system', content: settings.SYSTEM_INSTRUCTION });
+                }
+
                 storage.recordLog({
                     accountId: account.id,
                     model: modelWithPrefix,
@@ -939,7 +968,8 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
                     detail: {
                         error: error.message,
                         response_data: error.response?.data,
-                        body: req.body
+                        messages: originalMessages,
+                        model: req.body.model
                     }
                 });
 

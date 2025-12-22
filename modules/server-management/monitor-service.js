@@ -26,44 +26,17 @@ class MonitorService {
     }
 
     /**
-     * 启动监控服务
+     * 启动监控服务 (已废弃自动拨测，仅保留占位符)
      */
     start() {
-        if (this.isRunning) {
-            logger.warn('监控服务已在运行');
-            return;
-        }
-
-        const config = ServerMonitorConfig.get();
-        if (!config || !config.auto_start) {
-            logger.info('监控服务未启用（auto_start = 0）');
-            return;
-        }
-
-        const interval = config.probe_interval || 60;
-
-        // 创建定时任务（每 N 秒执行一次）
-        this.task = cron.schedule(`*/${interval} * * * * *`, async () => {
-            await this.probeAllServers();
-        });
-
-        this.isRunning = true;
-        logger.success(`监控服务已启动，探测间隔: ${interval} 秒`);
-
-        // 立即执行一次探测
-        this.probeAllServers();
+        logger.info('监控服务已由「实时流」模式接管，后台拨测已停用');
     }
 
     /**
      * 停止监控服务
      */
     stop() {
-        if (this.task) {
-            this.task.stop();
-            this.task = null;
-        }
-
-        this.isRunning = false;
+        this.metricsCache.clear();
         logger.info('监控服务已停止');
     }
 
@@ -109,16 +82,18 @@ class MonitorService {
     /**
      * 探测单个主机
      * @param {Object} server - 主机配置
+     * @param {boolean} silent - 是否静默探测 (不写入数据库和日志)
      * @returns {Promise<Object>} 探测结果
      */
-    async probeServer(server) {
-        const startTime = Date.now();
+    async probeServer(server, silent = false) {
         const systemInfoService = require('./system-info-service');
 
         try {
-            // 优化：直接尝试获取详细信息，获取成功即代表连接正常且在线
+            // 1. 先用 TCP ping 测量网络延迟
+            const responseTime = await this.tcpPing(server.host, server.port || 22);
+
+            // 2. 获取详细系统信息
             const info = await systemInfoService.getServerInfo(server.id, server);
-            const responseTime = Date.now() - startTime;
 
             if (info.success) {
                 const metrics = {
@@ -126,46 +101,54 @@ class MonitorService {
                     cached_at: new Date().toISOString()
                 };
 
-                // 1. 更新内存缓存 (极速访问)
+                // 更新内存缓存
                 this.metricsCache.set(server.id, metrics);
 
-                // 2. 异步更新数据库缓存 (持久化)
-                ServerAccount.updateStatus(server.id, {
-                    status: 'online',
-                    last_check_time: new Date().toISOString(),
-                    last_check_status: 'success',
-                    response_time: responseTime,
-                    cached_info: metrics
-                });
+                if (!silent) {
+                    // 更新数据库
+                    ServerAccount.updateStatus(server.id, {
+                        status: 'online',
+                        last_check_time: new Date().toISOString(),
+                        last_check_status: 'success',
+                        response_time: responseTime,
+                        cached_info: metrics
+                    });
 
-                // 3. 记录日志
-                ServerMonitorLog.create({
-                    server_id: server.id,
-                    status: 'success',
-                    response_time: responseTime
-                });
+                    ServerMonitorLog.create({
+                        server_id: server.id,
+                        status: 'success',
+                        response_time: responseTime
+                    });
+                }
 
                 return { success: true, serverId: server.id, responseTime };
             } else {
                 throw new Error(info.error);
             }
         } catch (error) {
-            const responseTime = Date.now() - startTime;
+            // 尝试获取 TCP 延迟，如果失败则为 null
+            let responseTime = null;
+            try {
+                responseTime = await this.tcpPing(server.host, server.port || 22);
+            } catch (e) {
+                // TCP ping 也失败
+            }
 
-            // 更新主机状态为离线
-            ServerAccount.updateStatus(server.id, {
-                status: 'offline',
-                last_check_time: new Date().toISOString(),
-                last_check_status: 'failed',
-                response_time: responseTime
-            });
+            if (!silent) {
+                ServerAccount.updateStatus(server.id, {
+                    status: 'offline',
+                    last_check_time: new Date().toISOString(),
+                    last_check_status: 'failed',
+                    response_time: responseTime
+                });
 
-            ServerMonitorLog.create({
-                server_id: server.id,
-                status: 'failed',
-                response_time: responseTime,
-                error_message: error.message
-            });
+                ServerMonitorLog.create({
+                    server_id: server.id,
+                    status: 'failed',
+                    response_time: responseTime,
+                    error_message: error.message
+                });
+            }
 
             return {
                 success: false,
@@ -177,11 +160,50 @@ class MonitorService {
     }
 
     /**
+     * TCP Ping - 测量 TCP 端口连接延迟
+     * @param {string} host - 主机地址
+     * @param {number} port - 端口号
+     * @param {number} timeout - 超时时间(ms)
+     * @returns {Promise<number>} 延迟时间(ms)
+     */
+    tcpPing(host, port, timeout = 5000) {
+        return new Promise((resolve, reject) => {
+            const net = require('net');
+            const { performance } = require('perf_hooks');
+            const startTime = performance.now();
+
+            const socket = new net.Socket();
+
+            socket.setNoDelay(true);
+            socket.setTimeout(timeout);
+
+            socket.on('connect', () => {
+                const latency = Math.round(performance.now() - startTime);
+                socket.destroy();
+                resolve(latency);
+            });
+
+            socket.on('timeout', () => {
+                socket.destroy();
+                reject(new Error('TCP ping timeout'));
+            });
+
+            socket.on('error', (err) => {
+                socket.destroy();
+                reject(err);
+            });
+
+            socket.connect(port, host);
+        });
+    }
+
+    /**
      * 手动触发探测所有主机
+     * @param {boolean} silent - 是否静默探测
      * @returns {Promise<Object>} 探测结果
      */
-    async manualProbeAll() {
-        logger.info('手动触发探测所有主机');
+    async manualProbeAll(silent = false) {
+        if (!silent) logger.info('手动触发探测所有主机');
 
         const servers = ServerAccount.getAll();
 
@@ -194,7 +216,7 @@ class MonitorService {
         }
 
         const results = await Promise.allSettled(
-            servers.map(server => this.probeServer(server))
+            servers.map(server => this.probeServer(server, silent))
         );
 
         const successCount = results.filter(r => r.status === 'fulfilled' && r.value.success).length;

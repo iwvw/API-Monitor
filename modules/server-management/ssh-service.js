@@ -13,6 +13,8 @@ class SSHService {
     constructor() {
         // SSH 连接池：{ serverId: { client, lastUsed, serverId } }
         this.connections = new Map();
+        // 正在连接中的 Promise：{ serverId: Promise }
+        this.connectionPromises = new Map();
 
         // 定时清理过期连接
         this.startCleanupTimer();
@@ -20,8 +22,6 @@ class SSHService {
 
     /**
      * 创建 SSH 连接
-     * @param {Object} serverConfig - 主机配置
-     * @returns {Promise<Client>} SSH 客户端
      */
     async connect(serverConfig) {
         return new Promise((resolve, reject) => {
@@ -29,7 +29,6 @@ class SSHService {
             const config = ServerMonitorConfig.get();
             const timeout = (config?.probe_timeout || 10) * 1000;
 
-            // 连接配置
             const sshConfig = {
                 host: serverConfig.host,
                 port: serverConfig.port || 22,
@@ -37,7 +36,6 @@ class SSHService {
                 readyTimeout: timeout
             };
 
-            // 根据认证方式添加配置
             if (serverConfig.auth_type === 'password') {
                 sshConfig.password = serverConfig.password;
             } else if (serverConfig.auth_type === 'key') {
@@ -47,48 +45,24 @@ class SSHService {
                 }
             }
 
-            // 连接事件处理
-            client.on('ready', () => {
-                resolve(client);
-            });
-
-            client.on('error', (err) => {
-                reject(err);
-            });
-
-            // 发起连接
+            client.on('ready', () => resolve(client));
+            client.on('error', (err) => reject(err));
             client.connect(sshConfig);
         });
     }
 
     /**
-     * 获取或创建连接
-     * @param {string} serverId - 主机 ID
-     * @param {Object} serverConfig - 主机配置
-     * @returns {Promise<Client>} SSH 客户端
+     * 获取或创建连接 (带并发锁)
      */
     async getConnection(serverId, serverConfig) {
-        // 1. 检查连接池中是否有可用连接
+        // 1. 如果已有活跃连接且通过校验，直接返回
         if (this.connections.has(serverId)) {
             const conn = this.connections.get(serverId);
-            
             try {
-                // 验证连接是否仍然可用
-                await new Promise((resolve, reject) => {
-                    const timer = setTimeout(() => reject(new Error('Connection check timeout')), 1500);
-                    conn.client.exec('true', (err, stream) => {
-                        if (err) {
-                            clearTimeout(timer);
-                            reject(err);
-                            return;
-                        }
-                        stream.on('close', () => {
-                            clearTimeout(timer);
-                            resolve();
-                        });
-                    });
-                });
-                
+                // 极简校验，如果 Socket 已关闭则直接抛错进入重建
+                if (!conn.client._sock || conn.client._sock.destroyed) {
+                    throw new Error('Socket destroyed');
+                }
                 conn.lastUsed = Date.now();
                 return conn.client;
             } catch (e) {
@@ -96,41 +70,62 @@ class SSHService {
             }
         }
 
-        // 2. 检查连接数限制
-        const maxConnections = 50;
-        if (this.connections.size >= maxConnections) {
-            this.cleanupOldestConnection();
+        // 2. 如果正在连接中，等待现有的 Promise
+        if (this.connectionPromises.has(serverId)) {
+            return this.connectionPromises.get(serverId);
         }
 
-        // 3. 准备认证信息并记录诊断日志 (不记录密码明文)
+        // 3. 开启新的连接任务
+        const connectPromise = (async () => {
+            try {
+                const client = await this.connect(serverConfig);
+
+                client.on('error', (err) => {
+                    logger.error(`[SSH] 连接中断 (${serverId}): ${err.message}`);
+                    this.connections.delete(serverId);
+                });
+                client.on('end', () => this.connections.delete(serverId));
+                client.on('close', () => this.connections.delete(serverId));
+
+                this.connections.set(serverId, {
+                    client,
+                    lastUsed: Date.now(),
+                    serverId
+                });
+                return client;
+            } finally {
+                this.connectionPromises.delete(serverId);
+            }
+        })();
+
+        this.connectionPromises.set(serverId, connectPromise);
+        return connectPromise;
+    }
+
+    /**
+     * 执行流式命令 (长任务)
+     * @param {string} serverId - 主机 ID
+     * @param {Object} serverConfig - 主机配置
+     * @param {string} command - 要执行的循环脚本
+     * @returns {Promise<Object>} 包含 stream 的对象
+     */
+    async executeStream(serverId, serverConfig, command) {
         try {
-            const hasPwd = !!serverConfig.password;
-            const pwdLen = serverConfig.password ? serverConfig.password.length : 0;
-            const hasKey = !!serverConfig.private_key;
+            const client = await this.getConnection(serverId, serverConfig);
 
-            logger.info(`尝试连接: ${serverConfig.username}@${serverConfig.host}:${serverConfig.port}`);
-            logger.debug(`认证诊断: 方式=${serverConfig.auth_type}, 密码已就绪=${hasPwd}(长度:${pwdLen}), 私钥已就绪=${hasKey}`);
+            return new Promise((resolve, reject) => {
+                client.exec(command, (err, stream) => {
+                    if (err) return reject(err);
 
-            const client = await this.connect(serverConfig);
-            
-            // 监听连接断开事件
-            client.on('error', (err) => {
-                console.error(`[SSH] 连接异常断开 (${serverId}):`, err.message);
-                this.connections.delete(serverId);
+                    // 标记连接活动，防止被清理
+                    const conn = this.connections.get(serverId);
+                    if (conn) conn.lastUsed = Date.now();
+
+                    resolve(stream);
+                });
             });
-            client.on('end', () => this.connections.delete(serverId));
-            client.on('close', () => this.connections.delete(serverId));
-
-            // 添加到连接池
-            this.connections.set(serverId, {
-                client,
-                lastUsed: Date.now(),
-                serverId
-            });
-
-            return client;
         } catch (error) {
-            logger.error(`连接失败 (${serverConfig.host}): ${error.message}`);
+            logger.error(`无法开启流式传输 (${serverConfig.host}): ${error.message}`);
             throw error;
         }
     }

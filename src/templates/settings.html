@@ -86,19 +86,32 @@
                 <div class="form-group" style="margin-top: auto; padding-top: 12px;">
                   <label class="form-label" style="font-size: 13px;">地址显示模式</label>
                   <div style="display: flex; gap: 8px;">
-                    <button class="btn btn-sm" :class="serverIpDisplayMode === 'normal' ? 'btn-primary' : 'btn-secondary'"
+                    <button class="btn btn-sm"
+                      :class="serverIpDisplayMode === 'normal' ? 'btn-primary' : 'btn-secondary'"
                       @click="serverIpDisplayMode = 'normal'" style="flex: 1; height: 32px; font-size: 12px;">
                       明文
                     </button>
-                    <button class="btn btn-sm" :class="serverIpDisplayMode === 'masked' ? 'btn-primary' : 'btn-secondary'"
+                    <button class="btn btn-sm"
+                      :class="serverIpDisplayMode === 'masked' ? 'btn-primary' : 'btn-secondary'"
                       @click="serverIpDisplayMode = 'masked'" style="flex: 1; height: 32px; font-size: 12px;">
                       打码
                     </button>
-                    <button class="btn btn-sm" :class="serverIpDisplayMode === 'hidden' ? 'btn-primary' : 'btn-secondary'"
+                    <button class="btn btn-sm"
+                      :class="serverIpDisplayMode === 'hidden' ? 'btn-primary' : 'btn-secondary'"
                       @click="serverIpDisplayMode = 'hidden'" style="flex: 1; height: 32px; font-size: 12px;">
                       隐藏
                     </button>
                   </div>
+                </div>
+
+                <div class="form-group" style="margin-top: 12px;">
+                  <label class="form-label" style="font-size: 13px;">主机刷新间隔 (秒)</label>
+                  <div class="input-with-suffix">
+                    <input v-model.number="monitorConfig.interval" type="number" class="form-input" min="10" max="3600"
+                      placeholder="60" @change="saveUserSettingsToServer" style="height: 32px; font-size: 13px;">
+                    <span class="input-suffix">秒</span>
+                  </div>
+                  <div class="form-help" style="font-size: 11px;">设置主机状态自动刷新的频率，最小 10 秒。</div>
                 </div>
               </div>
             </div>
@@ -211,14 +224,17 @@
                   <div class="db-stat-item">
                     <div class="db-stat-label" style="font-size: 10px;">数据库大小</div>
                     <div style="display: flex; align-items: baseline; gap: 6px;">
-                      <div class="db-stat-value" v-if="dbStats" style="font-size: 20px;">{{ formatFileSize(dbStats.dbSize) }}</div>
+                      <div class="db-stat-value" v-if="dbStats" style="font-size: 20px;">{{
+                        formatFileSize(dbStats.dbSize) }}</div>
                       <div class="db-stat-value" v-else>--</div>
-                      <span style="font-size: 11px; color: var(--text-tertiary); font-weight: normal;">(含配置、账号及日志)</span>
+                      <span
+                        style="font-size: 11px; color: var(--text-tertiary); font-weight: normal;">(含配置、账号及日志)</span>
                     </div>
                   </div>
                   <div class="db-stat-item" style="border-top: 1px dashed var(--border-color); padding-top: 12px;">
                     <div class="db-stat-label" style="font-size: 10px;">数据表总数</div>
-                    <div class="db-stat-value" v-if="dbStats" style="font-size: 20px;">{{ Object.keys(dbStats.tables || {}).length }} 个表</div>
+                    <div class="db-stat-value" v-if="dbStats" style="font-size: 20px;">{{ Object.keys(dbStats.tables ||
+                      {}).length }} 个表</div>
                     <div class="db-stat-value" v-else>--</div>
                   </div>
                 </div>
@@ -263,15 +279,15 @@
                   <div class="form-group" style="margin-bottom: 0;">
                     <label class="form-label" style="font-size: 12px;">数据库最大体积</label>
                     <div class="input-with-suffix">
-                      <input v-model.number="logSettings.dbSizeMB" type="number" class="form-input" min="0" placeholder="0"
-                        @change="saveLogSettings" style="height: 32px; font-size: 13px;">
+                      <input v-model.number="logSettings.dbSizeMB" type="number" class="form-input" min="0"
+                        placeholder="0" @change="saveLogSettings" style="height: 32px; font-size: 13px;">
                       <span class="input-suffix">MB</span>
                     </div>
                   </div>
                 </div>
 
-                <button class="btn btn-primary btn-sm" style="width: 100%; margin-top: 15px; height: 36px;" @click="enforceLogLimits"
-                  :disabled="logLimitsEnforcing">
+                <button class="btn btn-primary btn-sm" style="width: 100%; margin-top: 15px; height: 36px;"
+                  @click="enforceLogLimits" :disabled="logLimitsEnforcing">
                   <i class="fas" :class="logLimitsEnforcing ? 'fa-spinner fa-spin' : 'fa-magic'"></i>
                   {{ logLimitsEnforcing ? '执行中...' : '立即执行清理' }}
                 </button>
@@ -346,7 +362,8 @@
               <div class="settings-group" style="margin-bottom: 0; display: flex; flex-direction: column;">
                 <div class="settings-group-title"
                   style="display: flex; justify-content: space-between; align-items: center;">
-                  <span><i class="fas fa-cubes" style="margin-right: 8px; color: var(--primary-color);"></i>功能模块管理</span>
+                  <span><i class="fas fa-cubes"
+                      style="margin-right: 8px; color: var(--primary-color);"></i>功能模块管理</span>
                   <div style="display: flex; gap: 8px;">
                     <button class="btn btn-xs btn-secondary" @click="setAllModulesVisibility(true)" title="显示所有模块">
                       <i class="fas fa-eye"></i>
@@ -378,7 +395,8 @@
                   </div>
                 </div>
                 <button class="btn btn-primary btn-sm"
-                  style="width: 100%; margin-top: 16px; height: 36px; font-size: 13px; font-weight: 600;" @click="saveSettings">
+                  style="width: 100%; margin-top: 16px; height: 36px; font-size: 13px; font-weight: 600;"
+                  @click="saveSettings">
                   <i class="fas fa-save"></i> 应用排序与可见性
                 </button>
               </div>
@@ -416,8 +434,10 @@
                     <i class="fas fa-bolt" style="color: #f59e0b;"></i> CDN 加速状态
                   </div>
                   <div class="settings-description">静态资源加速服务当前运行状态。</div>
-                  <div style="background: var(--bg-tertiary); border-radius: 12px; padding: 16px; margin-top: 12px; border: 1px solid var(--border-color);">
-                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+                  <div
+                    style="background: var(--bg-tertiary); border-radius: 12px; padding: 16px; margin-top: 12px; border: 1px solid var(--border-color);">
+                    <div
+                      style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
                       <span style="font-size: 13px; color: var(--text-secondary);">服务状态</span>
                       <span v-if="cdnEnabled" class="status-badge"
                         style="background: rgba(16, 185, 129, 0.15); color: #10b981; font-size: 11px; padding: 2px 8px; border-radius: 6px;">
@@ -428,9 +448,11 @@
                         <i class="fas fa-times-circle" style="margin-right: 4px;"></i> 已禁用
                       </span>
                     </div>
-                    <div v-if="cdnEnabled" style="display: flex; align-items: center; justify-content: space-between; padding-top: 10px; border-top: 1px dashed var(--border-color);">
+                    <div v-if="cdnEnabled"
+                      style="display: flex; align-items: center; justify-content: space-between; padding-top: 10px; border-top: 1px dashed var(--border-color);">
                       <span style="font-size: 13px; color: var(--text-secondary);">加速节点</span>
-                      <span style="font-size: 13px; font-weight: 700; color: var(--primary-color);">{{ cdnProvider }}</span>
+                      <span style="font-size: 13px; font-weight: 700; color: var(--primary-color);">{{ cdnProvider
+                        }}</span>
                     </div>
                   </div>
                 </div>
@@ -461,9 +483,9 @@
           <!-- ==================== About Tab ==================== -->
           <div v-if="settingsCurrentTab === 'about'" class="settings-tab-content fade-in">
             <div class="settings-group" style="text-align: center;">
-            <div class="about-logo">
-              <img src="./logo.svg" alt="Logo" style="width: 100%; height: 100%; object-fit: contain;">
-            </div>
+              <div class="about-logo">
+                <img src="./logo.svg" alt="Logo" style="width: 100%; height: 100%; object-fit: contain;">
+              </div>
               <div style="font-size: 24px; font-weight: 800; color: var(--text-primary); margin-bottom: 8px;">
                 API Monitor
               </div>
