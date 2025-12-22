@@ -1,144 +1,654 @@
-/* ==================== 统一日志系统 - 核心对齐版 ==================== */
+/* 统一日志查看器样式 */
 
+/* 模态框遮罩层 (高优先级) */
 .log-viewer-overlay {
-    position: fixed;
-    top: 0; left: 0; right: 0; bottom: 0;
     z-index: 2200 !important;
-    background-color: rgba(0, 0, 0, 0.5);
-    backdrop-filter: blur(10px);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 20px;
+    /* 高于设置页面(2001) */
 }
 
+/* 模态框容器 */
 .log-viewer-modal {
-    width: 100%;
-    max-width: 1100px;
-    height: 85vh;
-    background: var(--bg-primary);
-    border: 1px solid var(--border-color);
-    border-radius: 16px;
+    width: 900px;
+    height: 620px;
+    max-width: 95vw;
+    max-height: 92vh;
+    background-color: var(--card-bg);
+    color: var(--text-primary);
     display: flex;
     flex-direction: column;
-    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
+    /* border-radius: 24px; */
+    box-shadow: 0 40px 120px rgba(0, 0, 0, 0.5);
     overflow: hidden;
-    color: var(--text-primary);
-    font-family: inherit;
+    border: 1px solid var(--border-color);
+    font-family: var(--font-main);
+    transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+    position: relative;
+    /* 极致圆角裁剪：解决部分浏览器背景色溢出 parent 边框的问题 */
+    -webkit-mask-image: -webkit-radial-gradient(white, black);
+    mask-image: radial-gradient(white, black);
 }
 
-/* 头部样式：对齐系统 Header */
+/* 覆盖 .modal-lg 和 .modal 的 max-width */
+.modal.log-viewer-modal {
+    max-width: 900px;
+}
+
+.log-viewer-modal.fullscreen {
+    width: 100vw;
+    height: 100vh;
+    max-width: 100vw;
+    max-height: 100vh;
+    border-radius: 0;
+    border: none;
+}
+
+/* 顶栏 */
 .log-header {
-    padding: 16px 20px;
-    background: var(--bg-secondary);
-    border-bottom: 1px solid var(--border-color);
+    height: 50px;
+    background-color: var(--bg-secondary);
+    backdrop-filter: blur(15px);
+    -webkit-backdrop-filter: blur(15px);
     display: flex;
     align-items: center;
     justify-content: space-between;
+    padding: 0 5px;
+    border-bottom: 1px solid var(--border-color);
+    flex-shrink: 0;
+}
+
+.log-title-group {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.log-icon {
+    width: 32px;
+    height: 32px;
+    background: var(--primary-color);
+    color: white;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 16px;
+    box-shadow: 0 2px 6px rgba(var(--primary-rgb), 0.3);
+}
+
+.log-info {
+    gap: 8px;
+    display: flex;
+    flex-direction: row;
+    justify-content: center;
+    /* align-items: flex-end; */
 }
 
 .log-title {
-    font-size: 16px;
+    font-size: 15px;
     font-weight: 700;
+    color: var(--text-primary);
+}
+
+.log-subtitle {
+    font-size: 12px;
+    color: var(--text-tertiary);
+    margin-top: 1px;
+}
+
+.log-status-badge {
+    padding: 2px 10px;
+    border-radius: 20px;
+    font-size: 10px;
+    font-weight: 800;
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 6px;
+    text-transform: uppercase;
+    background: var(--bg-tertiary);
+    color: var(--text-tertiary);
+    letter-spacing: 0.5px;
 }
 
-.log-title i {
-    color: var(--primary-color);
+.log-status-badge.live {
+    background: rgba(16, 185, 129, 0.1);
+    color: var(--success-color);
 }
 
-/* 工具栏样式：对齐系统控制栏 */
+.log-status-badge.live .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #10b981;
+    box-shadow: 0 0 8px #10b981;
+    animation: log-pulse 2s infinite;
+}
+
+@keyframes log-pulse {
+    0% {
+        transform: scale(1);
+        opacity: 1;
+    }
+
+    50% {
+        transform: scale(1.5);
+        opacity: 0.5;
+    }
+
+    100% {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
+/* 窗口控制按钮 */
+.log-window-controls {
+    display: flex;
+    gap: 8px;
+}
+
+.win-btn {
+    width: 28px;
+    height: 28px;
+    border: none;
+    background: transparent;
+    color: #888;
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+}
+
+.win-btn:hover {
+    background: #3c3c3c;
+    color: #fff;
+}
+
+.win-btn.close:hover {
+    background: #c42b1c;
+}
+
+/* 工具栏 */
 .log-toolbar {
-    padding: 10px 20px;
-    background: var(--bg-primary);
-    border-bottom: 1px solid var(--border-color);
+    min-height: 52px;
+    background-color: var(--bg-primary);
     display: flex;
-    gap: 12px;
     align-items: center;
+    justify-content: space-between;
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--border-color);
+    flex-shrink: 0;
     flex-wrap: wrap;
+    gap: 12px;
 }
 
 .log-filters {
+
     display: flex;
+
+    align-items: center;
+
     gap: 8px;
-    flex: 1;
+
 }
 
-/* 日志输出区域：极致紧凑 */
+
+
+.search-box {
+
+    position: relative;
+
+    width: 260px;
+
+    max-width: 100%;
+
+}
+
+.search-box i {
+    position: absolute;
+    left: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #888;
+    font-size: 13px;
+}
+
+.search-box input {
+    width: 100%;
+    height: 32px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    border-radius: 16px;
+    padding: 0 30px 0 36px;
+    color: var(--text-primary);
+    font-size: 13px;
+    outline: none;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.search-box input:focus {
+    border-color: var(--primary-color);
+    background: var(--card-bg);
+    box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.15);
+}
+
+.clear-search {
+    position: absolute;
+    right: 4px;
+    top: 50%;
+    transform: translateY(-50%);
+    background: none;
+    border: none;
+    color: #666;
+    cursor: pointer;
+    padding: 2px;
+}
+
+.clear-search:hover {
+    color: #ccc;
+}
+
+.level-select {
+    height: 32px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    color: var(--text-primary);
+    border-radius: 8px;
+    padding: 0 12px;
+    font-size: 12px;
+    outline: none;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.level-select:hover {
+    border-color: var(--primary-color);
+}
+
+.log-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.tool-btn {
+    height: 32px;
+    padding: 0 14px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    color: var(--text-secondary);
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    font-weight: 500;
+}
+
+.tool-btn:hover {
+    background: var(--bg-tertiary);
+    border-color: var(--text-tertiary);
+    color: var(--text-primary);
+}
+
+.tool-btn.active {
+    background: var(--primary-color);
+    color: #fff;
+    border-color: var(--primary-color);
+    box-shadow: 0 4px 12px rgba(var(--primary-rgb), 0.3);
+}
+
+.divider {
+    width: 1px;
+    height: 20px;
+    background-color: var(--border-color);
+    margin: 0 4px;
+}
+
+.tool-btn i {
+    font-size: 13px;
+}
+
+.divider {
+    width: 1px;
+    height: 16px;
+    background: #444;
+    margin: 0 4px;
+}
+
+/* 日志可视区域 */
 .log-viewport {
     flex: 1;
-    overflow: auto;
-    background: var(--bg-tertiary); /* 稍深的背景 */
-    padding: 10px 0;
-    font-family: var(--font-mono, monospace);
+    overflow-y: auto;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    background-color: var(--bg-primary);
+    padding: 16px 0;
+    position: relative;
+    scroll-behavior: smooth;
+    overscroll-behavior-x: contain;
+    /* 自定义滚动条 */
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-color) var(--bg-primary);
+}
+
+.log-viewport::-webkit-scrollbar {
+    display: block !important;
+    width: 8px;
+    height: 8px;
+}
+
+.log-viewport::-webkit-scrollbar-track {
+    background: var(--bg-primary);
+}
+
+.log-viewport::-webkit-scrollbar-thumb {
+    background-color: var(--border-color);
+    border: 2px solid var(--bg-primary);
+    border-radius: 10px;
+}
+
+.log-viewport::-webkit-scrollbar-thumb:hover {
+    background-color: var(--text-tertiary);
+}
+
+.log-viewport.wrap-text .message {
+    white-space: pre-wrap;
+    word-break: break-all;
+    min-width: 0;
+}
+
+.log-viewport:not(.wrap-text) .log-lines {
+    width: max-content;
+    min-width: 100%;
+}
+
+.log-viewport:not(.wrap-text) .log-entry {
+    width: max-content;
+    min-width: 100%;
+}
+
+.log-loading,
+.log-empty {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    color: #666;
+    gap: 12px;
+    padding: 40px;
+}
+
+.log-empty i {
+    font-size: 48px;
+    opacity: 0.5;
 }
 
 .log-entry {
     display: flex;
-    padding: 2px 16px;
+    flex-direction: row;
+    align-items: flex-start;
+    justify-content: flex-start;
+    padding: 2px 12px;
     font-size: 13px;
-    line-height: 1.5;
-    border-left: 3px solid transparent;
+    line-height: 1.6;
     transition: background 0.1s;
+    border-left: 3px solid transparent;
+    gap: 0;
+    flex-wrap: nowrap;
+    /* 禁止换行 */
 }
 
 .log-entry:hover {
     background: rgba(var(--primary-rgb), 0.05);
 }
 
-/* 核心列对齐 */
+.log-entry.error {
+    color: var(--danger-color);
+    background: rgba(239, 68, 68, 0.08);
+    /* border-left-color: var(--danger-color); */
+}
+
+.log-entry.warn {
+    color: var(--warning-color);
+    background: rgba(245, 158, 11, 0.05);
+    border-left-color: var(--warning-color);
+}
+
+.log-entry.debug {
+    color: var(--text-tertiary);
+    opacity: 0.8;
+}
+
 .log-entry .line-num {
     color: var(--text-tertiary);
-    min-width: 45px;
+    min-width: 35px;
     text-align: right;
-    margin-right: 15px;
-    opacity: 0.5;
+    margin-right: 12px;
     user-select: none;
+    font-size: 11px;
+    opacity: 0.6;
+    flex-shrink: 0;
+    display: inline-block;
 }
 
 .log-entry .time {
-    color: var(--text-secondary);
+    color: var(--info-color);
     margin-right: 12px;
+    font-size: 12px;
+    opacity: 0.9;
+    font-weight: 500;
+    flex-shrink: 0;
+    display: inline-block;
     white-space: nowrap;
 }
 
 .log-entry .level-tag {
+    display: inline-flex;
+    align-items: center;
     min-width: 55px;
-    font-weight: 700;
-    margin-right: 10px;
-    text-transform: uppercase;
-}
-
-.log-entry.info .level-tag { color: var(--primary-color); }
-.log-entry.warn .level-tag { color: var(--warning-color); }
-.log-entry.error .level-tag { color: var(--danger-color); }
-
-/* 模块胶囊标签：对齐系统标签样式 */
-.log-module-tag {
-    padding: 1px 6px;
-    border-radius: 4px;
-    background: var(--bg-secondary);
-    color: var(--text-secondary);
+    font-weight: bold;
     font-size: 11px;
     margin-right: 10px;
-    border: 1px solid var(--border-color);
+    text-transform: uppercase;
+    gap: 4px;
+    flex-shrink: 0;
     white-space: nowrap;
+}
+
+.log-entry .level-tag i {
+    font-size: 10px;
 }
 
 .log-entry .message {
     flex: 1;
-    word-break: break-all;
-    white-space: pre-wrap;
+    white-space: pre;
 }
 
-/* 响应式适配 */
-@media (max-width: 768px) {
-    .log-viewer-overlay { padding: 0; }
-    .log-viewer-modal { height: 100vh; border-radius: 0; border: none; }
-    .log-entry .line-num { display: none; }
-    .log-entry .time { font-size: 11px; }
-    .log-toolbar { flex-direction: column; padding: 10px; }
-    .log-filters { width: 100%; }
+/* 日志模块标签 */
+.log-module-tag {
+    font-weight: 600;
+    font-size: 11px;
+    margin-right: 8px;
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+
+/* 不同模块的颜色 */
+.module-servermonitor {
+    color: #10b981;
+}
+
+/* 绿色 */
+.module-server {
+    color: #10b981;
+}
+
+.module-http {
+    color: #3b82f6;
+}
+
+/* 蓝色 */
+.module-logservice {
+    color: #8b5cf6;
+}
+
+/* 紫色 */
+.module-database {
+    color: #f59e0b;
+}
+
+/* 橙色 */
+.module-db {
+    color: #f59e0b;
+}
+
+.module-auth {
+    color: #ef4444;
+}
+
+/* 红色 */
+.module-websocket {
+    color: #06b6d4;
+}
+
+/* 青色 */
+.module-ws {
+    color: #06b6d4;
+}
+
+.module-api {
+    color: #ec4899;
+}
+
+/* 粉色 */
+.module-core {
+    color: #6b7280;
+}
+
+/* 灰色 */
+.module-antigravity {
+    color: var(--ag-primary, #a855f7);
+}
+
+/* Antigravity 紫色 */
+.module-gemini {
+    color: var(--gemini-primary, #4285f4);
+}
+
+/* Gemini 蓝色 */
+.module-dns {
+    color: #f97316;
+}
+
+/* CF DNS 橙色 */
+.module-paas {
+    color: #14b8a6;
+}
+
+/* PaaS 青绿色 */
+.module-openai {
+    color: #22c55e;
+}
+
+/* OpenAI 绿色 */
+
+.log-footer {
+    height: 36px;
+    background-color: var(--primary-color);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    padding: 0 20px;
+    font-size: 11px;
+    gap: 16px;
+    flex-shrink: 0;
+    /* 移除内部投影，由外部 modal 容器统一处理圆角 */
+    box-shadow: none;
+    border-top: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.footer-stat {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 600;
+}
+
+@keyframes blink {
+
+    0%,
+    100% {
+        opacity: 1;
+    }
+
+    50% {
+        opacity: 0.4;
+    }
+}
+
+/* ANSI Colors - Adaptive */
+.ansi-fg-30 {
+    color: var(--text-tertiary);
+}
+
+.ansi-fg-31 {
+    color: var(--danger-color);
+}
+
+.ansi-fg-32 {
+    color: var(--success-color);
+}
+
+.ansi-fg-33 {
+    color: var(--warning-color);
+}
+
+.ansi-fg-34 {
+    color: var(--info-color);
+}
+
+.ansi-fg-35 {
+    color: #c678dd;
+}
+
+/* Purple */
+.ansi-fg-36 {
+    color: #56b6c2;
+}
+
+/* Cyan */
+.ansi-fg-37 {
+    color: var(--text-primary);
+}
+
+/* White */
+.ansi-fg-39 {
+    color: #cccccc;
+}
+
+/* Default */
+
+/* 适配移动端 */
+@media (max-width: 600px) {
+    .log-viewer-modal {
+        width: 100vw;
+        height: 100vh;
+        max-width: none;
+        max-height: none;
+        border-radius: 0;
+    }
+
+    .log-actions span {
+        display: none;
+    }
+
+    .log-title-group .log-icon {
+        display: none;
+    }
 }

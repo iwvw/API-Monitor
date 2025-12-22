@@ -11,9 +11,6 @@
     <input v-if="customDialog.isPrompt" v-model="customDialog.promptValue" :placeholder="customDialog.placeholder"
       @keyup.enter="customDialog.onConfirm" class="custom-dialog-input" ref="promptInput" />
     <div class="custom-dialog-buttons">
-      <button v-if="customDialog.deleteText" class="btn btn-danger" @click="customDialog.onDelete" style="margin-right: auto;">
-        <i class="fas fa-trash-alt"></i> {{ customDialog.deleteText }}
-      </button>
       <button v-if="customDialog.cancelText" class="btn btn-secondary"
         @click="customDialog.onCancel ? customDialog.onCancel() : (customDialog.show = false)">
         {{ customDialog.cancelText }}
@@ -93,21 +90,23 @@
     <div id="log-viewer-container" class="log-viewport" :class="{ 'wrap-text': logViewer.wrapText }">
       <div v-if="logViewer.loading && logViewer.logs.length === 0" class="log-loading">
         <div class="spinner"></div>
-        <span>正在同步日志流...</span>
+        <span>正在加载日志流...</span>
       </div>
 
       <div v-if="!logViewer.loading && getFilteredLogs().length === 0" class="log-empty">
         <i class="fas fa-inbox"></i>
-        <span>当前无日志数据</span>
+        <span>无匹配日志</span>
       </div>
 
+      <!-- 虚拟列表优化：实际渲染的日志行 -->
       <div class="log-lines">
         <div v-for="(log, index) in getFilteredLogs()" :key="log.id || index" class="log-entry"
           :class="log.level.toLowerCase()">
           <span class="line-num">{{ index + 1 }}</span>
-          <span class="time">{{ new Date(log.timestamp).toLocaleTimeString([], {hour12: false}) }}</span>
-          <span class="level-tag">{{ log.level }}</span>
-          <span v-if="log.module" class="log-module-tag">{{ log.module }}</span>
+          <span class="time">{{ new Date(log.timestamp).toLocaleTimeString() }}</span>
+          <span class="level-tag"><i class="fas" :class="getLogIcon(log.level)"></i> {{ log.level }}</span>
+          <span v-if="log.module" class="log-module-tag" :class="'module-' + log.module.toLowerCase()">[{{ log.module
+            }}]</span>
           <span class="message" v-html="formatMessage(log.message)"></span>
         </div>
       </div>
@@ -260,9 +259,8 @@
                     <i class="fas fa-terminal"></i>
                     <span>系统指令 / System Prompt</span>
                   </summary>
-                  <div class="msg-bubble system-bubble"
-                    style="font-family: var(--font-mono); font-size: 12px; background: var(--bg-tertiary); border: 1px dashed var(--border-color); white-space: pre-wrap; opacity: 0.8; width: 100%; border-top: none; border-radius: 0 0 8px 8px; margin-top: 0;">
-                    {{ msg.content }}</div>
+                  <div class="msg-bubble system-bubble" 
+                    style="font-family: var(--font-mono); font-size: 12px; background: var(--bg-tertiary); border: 1px dashed var(--border-color); white-space: pre-wrap; opacity: 0.8; width: 100%; border-top: none; border-radius: 0 0 8px 8px; margin-top: 0;">{{ msg.content }}</div>
                 </details>
                 <div v-else class="msg-bubble" :class="msg.role === 'user' ? 'user-bubble' : 'assistant-bubble'"
                   v-html="renderMarkdown(msg.content)">
@@ -454,9 +452,8 @@
                     <i class="fas fa-terminal"></i>
                     <span>系统指令 / System Prompt</span>
                   </summary>
-                  <div class="msg-bubble system-bubble"
-                    style="font-family: var(--font-mono); font-size: 12px; background: var(--bg-tertiary); border: 1px dashed var(--border-color); white-space: pre-wrap; opacity: 0.8; width: 100%; border-top: none; border-radius: 0 0 8px 8px; margin-top: 0;">
-                    {{ msg.content }}</div>
+                  <div class="msg-bubble system-bubble" 
+                    style="font-family: var(--font-mono); font-size: 12px; background: var(--bg-tertiary); border: 1px dashed var(--border-color); white-space: pre-wrap; opacity: 0.8; width: 100%; border-top: none; border-radius: 0 0 8px 8px; margin-top: 0;">{{ msg.content }}</div>
                 </details>
                 <div v-else class="msg-bubble" :class="msg.role === 'user' ? 'user-bubble' : 'assistant-bubble'"
                   v-html="renderMarkdown(msg.content)">
@@ -986,7 +983,8 @@
 </div>
 
 <!-- 添加 Fly.io 账号模态框 -->
-<div v-if="showAddFlyAccountModal" class="modal-overlay" @keydown.esc="showAddFlyAccountModal = false" tabindex="-1">
+<div v-if="showAddFlyAccountModal" class="modal-overlay" @keydown.esc="showAddFlyAccountModal = false"
+  tabindex="-1">
   <div class="modal">
     <div class="modal-header">
       <div class="modal-title">添加 Fly.io 账号</div>
@@ -1377,7 +1375,7 @@
                   {{ dep.url }}
                 </a>
               </td>
-              <td><small>{{ formatWorkerDate(dep.createdOn) }}</small></td>
+              <td><small>{{ formatWorkerDate(dep.created_on) }}</small></td>
               <td class="text-center">
                 <button class="btn btn-icon-refined" @click="openExternalLink(dep.url)">
                   <i class="fas fa-external-link-alt"></i>
