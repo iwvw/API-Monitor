@@ -145,18 +145,17 @@
   --module-color: rgba(16, 163, 127, 0.06);
 }
 
-/* 主机管理模块 - 青绿色主题 - 核心优化：彻底禁用水平移动动画，仅保留纯淡入以配合 Canvas 渲染，防止极其缓慢的位移感 */
+/* 主机管理模块 - 青绿色主题 */
 .server-tab-content.slide-in-left,
 .server-tab-content.slide-in-right,
 .server-tab-content.slide-out-left,
-.server-tab-content.slide-out-right,
-.active-ssh-terminal.sub-tab-content {
+.server-tab-content.slide-out-right {
   --module-color: rgba(0, 212, 170, 0.06);
-  animation-duration: 0s !important;
-  animation-name: none !important;
-  transition: none !important;
-  transform: none !important;
-  /* 极致优化：彻底禁用 SSH 相关的 Server 标签页动画，解决极其缓慢的位移感 */
+}
+
+.active-ssh-terminal.sub-tab-content {
+  animation-duration: 0.4s;
+  animation-name: fadeIn;
 }
 
 /* Antigravity 模块 - 橙色主题 */
@@ -165,6 +164,14 @@
 .antigravity-tab-content.slide-out-left,
 .antigravity-tab-content.slide-out-right {
   --module-color: rgba(255, 87, 34, 0.06);
+}
+
+/* Gemini CLI 模块 - 蓝色主题 */
+.gemini-cli-content.slide-in-left,
+.gemini-cli-content.slide-in-right,
+.gemini-cli-content.slide-out-left,
+.gemini-cli-content.slide-out-right {
+  --module-color: rgba(66, 133, 244, 0.06);
 }
 
 /* Self-H 模块 - 青色主题 */
