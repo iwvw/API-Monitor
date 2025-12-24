@@ -463,6 +463,7 @@
   display: flex;
   gap: 5px;
   flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 /* Single Service Compact Mode */
@@ -491,16 +492,37 @@
 }
 
 .service-btn {
-  padding: 3px 7px;
-  border-radius: 6px;
-  font-size: 12px;
+  padding: 5px;
+  border-radius: 8px;
+  font-size: 15px;
+  /* 增大图标 */
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: all 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
   border: none;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  justify-content: center;
+  min-width: 34px;
+  height: 34px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.service-btn:hover {
+  transform: scale(1.08) rotate(3deg);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+}
+
+.service-btn:active {
+  transform: scale(0.92) rotate(-1deg);
+}
+
+.service-btn i {
+  transition: transform 0.25s;
+}
+
+.service-btn:hover i {
+  transform: scale(1.1);
 }
 
 .btn-pause {

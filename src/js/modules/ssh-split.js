@@ -1,3 +1,5 @@
+import { toast } from './toast.js';
+
 /**
  * SSH 分屏管理模块 (重构版)
  * 
@@ -26,15 +28,15 @@ export const sshSplitMethods = {
     addToSplitView(sessionId, position = 'right') {
         if (!sessionId) return;
 
-        // 防止重复添加
+        // 如果已经在分屏视图中，则直接激活该分屏并退出
         if (this.visibleSessionIds.includes(sessionId)) {
             this.activeSSHSessionId = sessionId;
             return;
         }
 
-        // 最多支持 4 个窗格
-        if (this.visibleSessionIds.length >= 4) {
-            this.showGlobalToast('最多支持 4 个分屏窗格', 'warning');
+        // 最多支持 9 个窗格
+        if (this.visibleSessionIds.length >= 9) {
+            if (toast && toast.warning) toast.warning('最多支持 9 个分屏窗格');
             return;
         }
 
@@ -74,6 +76,7 @@ export const sshSplitMethods = {
         if (this.visibleSessionIds.length <= 1) {
             this._resetToSingle();
         } else {
+            this._updateLayoutMode();
             this._scheduleSync();
         }
 
@@ -99,20 +102,106 @@ export const sshSplitMethods = {
     /**
      * 根据窗格数量和位置自动更新布局模式
      */
-    _updateLayoutMode(position = 'right') {
+    _updateLayoutMode(position = 'right', targetIndex = -1) {
         const count = this.visibleSessionIds.length;
 
         if (count <= 1) {
             this.sshViewLayout = 'single';
+            this.sshSplitSide = '';
         } else if (count === 2) {
-            // 2 屏根据位置决定横向/纵向
             this.sshViewLayout = (position === 'top' || position === 'bottom')
                 ? 'split-v'
                 : 'split-h';
+            this.sshSplitSide = '';
+        } else if (count === 3) {
+            // 3 屏的核心逻辑：如果已经是 grid 模式（如从 4 屏回退），则优先维持 grid 模式
+            const isVerticalAction = position === 'top' || position === 'bottom';
+            const wasGrid = this.sshViewLayout === 'grid';
+
+            if (isVerticalAction || wasGrid) {
+                this.sshViewLayout = 'grid';
+                // 如果没有明确的方向偏好，默认使用 'right' (左 1 右 2)
+                if (targetIndex === 0) {
+                    this.sshSplitSide = 'left';
+                } else {
+                    this.sshSplitSide = 'right';
+                }
+            } else {
+                // 仅在明确的左右拆分且非 Grid 背景下，才使用纵向三分屏
+                this.sshViewLayout = 'grid-v';
+                this.sshSplitSide = '';
+            }
         } else {
-            // 3-4 屏使用网格
+            // 4-9 屏：进入密集网格模式
             this.sshViewLayout = 'grid';
+            this.sshSplitSide = '';
         }
+
+        // 每次布局更新后，更新快照并整理标签
+        this._updateGroupState();
+        this._organizeTabs();
+    },
+
+    /**
+     * 重新整理标签顺序：基于快照或当前视图
+     */
+    _organizeTabs() {
+        if (!this.sshSessions || this.sshSessions.length <= 1) return;
+
+        // 优先使用快照中的 ID，保证即使切出去了，标签组顺序也不变
+        const groupIds = this.sshGroupState ? this.sshGroupState.ids : (this.visibleSessionIds || []);
+        if (groupIds.length <= 1) return;
+
+        const groupSessions = [];
+        const otherSessions = [];
+
+        groupIds.forEach(id => {
+            const session = this.getSessionById(id);
+            if (session) groupSessions.push(session);
+        });
+
+        this.sshSessions.forEach(s => {
+            if (!groupIds.includes(s.id)) otherSessions.push(s);
+        });
+
+        this.sshSessions = [...groupSessions, ...otherSessions];
+    },
+
+    /**
+     * 更新分屏组快照
+     */
+    _updateGroupState() {
+        // 只有当真正处于分屏模式且有多个窗格时，才更新快照
+        if (this.sshViewLayout !== 'single' && this.visibleSessionIds.length > 1) {
+            this.sshGroupState = {
+                ids: [...this.visibleSessionIds],
+                layout: this.sshViewLayout,
+                side: this.sshSplitSide
+            };
+        } else if (this.visibleSessionIds.length <= 1) {
+            // 如果物理上只剩一个窗格，且并非是“暂时切出”状态，则销毁快照
+        }
+    },
+
+    /**
+     * 恢复分屏视图（从快照）
+     */
+    _restoreGroupView() {
+        if (!this.sshGroupState) return;
+
+        this.visibleSessionIds = [...this.sshGroupState.ids];
+        this.sshViewLayout = this.sshGroupState.layout;
+        this.sshSplitSide = this.sshGroupState.side;
+    },
+
+    /**
+     * 切出到单屏模式（挂起分屏）
+     * 仅改变 visibleSessionIds 为当前单个，且不清除 sshGroupState
+     */
+    _switchOutToSingle(targetSessionId) {
+        this.visibleSessionIds = [targetSessionId];
+        this.sshViewLayout = 'single';
+        this.sshSplitSide = '';
     },
 
     // ==================== 拖拽处理 ====================
@@ -158,11 +247,8 @@ export const sshSplitMethods = {
 
     /**
      * 处理放置操作
-     * @param {string} targetId - 目标窗格的会话 ID (null 表示空区域)
-     * @param {string} position - 放置位置
      */
     onDrop(targetId, position) {
-        // 使用传入位置或当前悬停提示
         const effectivePosition = position || this.dropHint || 'center';
         const draggedId = this.draggedSessionId;
 
@@ -180,20 +266,18 @@ export const sshSplitMethods = {
             return;
         }
 
-        // 检查是否重复添加同一服务器 (分屏中一个服务器通常只显示一个会话)
         if (!this.visibleSessionIds.includes(draggedId)) {
             const isDuplicate = this.visibleSessionIds.some(id => {
                 const s = this.getSessionById(id);
                 return s && s.server.id === draggedSession.server.id && id !== targetId;
             });
             if (isDuplicate && effectivePosition !== 'center') {
-                this.showGlobalToast('该服务器已在分屏显示中', 'info');
+                if (toast && toast.info) toast.info('该服务器已在分屏显示中');
                 this.onTabDragEnd();
                 return;
             }
         }
 
-        // 执行分屏或替换逻辑
         if (effectivePosition === 'center' && targetId) {
             this._replaceInSplit(targetId, draggedId);
         } else if (this.sshViewLayout === 'single') {
@@ -212,10 +296,8 @@ export const sshSplitMethods = {
     _replaceInSplit(targetId, newId) {
         const index = this.visibleSessionIds.indexOf(targetId);
         if (index !== -1) {
-            // 如果新会话已在列表中，先移除再替换（实现交换）
             const newIndex = this.visibleSessionIds.indexOf(newId);
             if (newIndex !== -1) {
-                // 交换位置
                 this.visibleSessionIds[newIndex] = targetId;
             }
             this.visibleSessionIds[index] = newId;
@@ -227,76 +309,88 @@ export const sshSplitMethods = {
      * 在分屏中插入会话
      */
     _insertInSplit(sessionId, targetId, position) {
-        // 先移除（如果已存在）
         const existingIndex = this.visibleSessionIds.indexOf(sessionId);
         if (existingIndex !== -1) {
             this.visibleSessionIds.splice(existingIndex, 1);
         }
 
-        // 最多 4 个
-        if (this.visibleSessionIds.length >= 4) {
-            this.showGlobalToast('最多支持 4 个分屏窗格', 'warning');
-            return;
-        }
-
-        // 计算插入位置
+        const targetIndex = targetId ? this.visibleSessionIds.indexOf(targetId) : -1;
         let insertAt = this.visibleSessionIds.length;
-        if (targetId) {
-            const targetIndex = this.visibleSessionIds.indexOf(targetId);
-            if (targetIndex !== -1) {
-                insertAt = (position === 'right' || position === 'bottom')
-                    ? targetIndex + 1
-                    : targetIndex;
-            }
+        if (targetIndex !== -1) {
+            insertAt = (position === 'right' || position === 'bottom')
+                ? targetIndex + 1
+                : targetIndex;
         } else {
-            // 无目标时根据位置决定
             insertAt = (position === 'left' || position === 'top') ? 0 : this.visibleSessionIds.length;
         }
 
         this.visibleSessionIds.splice(insertAt, 0, sessionId);
-        this._updateLayoutMode(position);
+
+        if (this.visibleSessionIds.length > 9) {
+            this.visibleSessionIds = this.visibleSessionIds.slice(0, 9);
+            if (toast && toast.warning) toast.warning('最多支持 9 个分屏');
+        }
+
+        this._updateLayoutMode(position, targetIndex);
         this.activeSSHSessionId = sessionId;
     },
 
     // ==================== DOM 同步 ====================
 
-    /**
-     * 调度 DOM 同步（防抖）
-     */
     _scheduleSync() {
         if (this._syncTimer) clearTimeout(this._syncTimer);
 
         this.$nextTick(() => {
             this._syncTerminals();
-            // 延迟二次同步确保渲染完成
+            this._fitAll();
+
             this._syncTimer = setTimeout(() => {
                 this._syncTerminals();
                 this._fitAll();
-            }, 100);
+            }, 150);
+
+            setTimeout(() => {
+                this._fitAll();
+            }, 300);
         });
     },
 
-    /**
-     * 同步终端 DOM 节点到对应槽位
-     */
     _syncTerminals() {
         // 确定当前应该显示的会话列表
-        const idsToShow = this.sshViewLayout === 'single'
-            ? (this.activeSSHSessionId ? [this.activeSSHSessionId] : [])
-            : this.visibleSessionIds;
+        let idsToShow = [];
 
-        // 将需要显示的终端移动到对应槽位
-        idsToShow.forEach(id => {
+        if (this.sshViewLayout === 'single') {
+            // 单屏模式下，只显示当前激活的会话
+            if (this.activeSSHSessionId) {
+                idsToShow = [this.activeSSHSessionId];
+            }
+        } else {
+            // 分屏模式下，显示所有可见会话
+            idsToShow = this.visibleSessionIds;
+        }
+
+        // 将需要显示的终端移动到对应索引的静态槽位
+        idsToShow.forEach((id, index) => {
             if (!id) return;
-            const slot = document.getElementById('ssh-slot-' + id);
+            // 关键修复：server.html 定义的槽位 ID 是 ssh-slot-idx-{index}
+            // 在单屏模式下，index 恒为 0
+            const slotId = 'ssh-slot-idx-' + index;
+            const slot = document.getElementById(slotId);
             const terminal = document.getElementById('ssh-terminal-' + id);
 
             if (slot && terminal && terminal.parentElement !== slot) {
+                // 先清空槽位内可能残留的其他元素（虽然理论上 Vue 会控制显隐，但为了保险）
+                // 实际上不需要清空，因为我们有 warehouse 机制回收了不该显示的
                 slot.appendChild(terminal);
+
+                // 触发一次 resize 以适应新容器
+                const session = this.getSessionById(id);
+                if (session && this.safeTerminalFit) {
+                    this.safeTerminalFit(session);
+                }
             }
         });
 
-        // 将不显示的终端移回仓库
         const warehouse = document.getElementById('ssh-terminal-warehouse');
         if (warehouse) {
             this.sshSessions.forEach(session => {
@@ -310,9 +404,6 @@ export const sshSplitMethods = {
         }
     },
 
-    /**
-     * 保存所有终端到仓库
-     */
     _saveToWarehouse() {
         const warehouse = document.getElementById('ssh-terminal-warehouse');
         if (!warehouse) return;
@@ -325,9 +416,6 @@ export const sshSplitMethods = {
         });
     },
 
-    /**
-     * 适配所有可见终端尺寸
-     */
     _fitAll() {
         const idsToFit = this.sshViewLayout === 'single'
             ? (this.activeSSHSessionId ? [this.activeSSHSessionId] : [])
@@ -335,7 +423,7 @@ export const sshSplitMethods = {
 
         idsToFit.forEach(id => {
             const session = this.getSessionById(id);
-            if (session) {
+            if (session && this.safeTerminalFit) {
                 this.safeTerminalFit(session);
             }
         });
@@ -343,10 +431,8 @@ export const sshSplitMethods = {
 
     // ==================== 兼容旧 API ====================
 
-    // 以下方法是对旧 API 的兼容封装
-
-    handleTabDragStart(sessionId) {
-        this.onTabDragStart(sessionId, window.event);
+    handleTabDragStart(sessionId, event) {
+        this.onTabDragStart(sessionId, event);
     },
 
     handleTabDragEnd() {
@@ -366,7 +452,29 @@ export const sshSplitMethods = {
     },
 
     handleTerminalDrop(targetId = null, position = 'center') {
-        this.onDrop(targetId, position);
+        const effectivePosition = targetId ? position : (this.dropHint || 'center');
+        this.onDrop(targetId, effectivePosition);
+    },
+
+    /**
+     * 计算全局预提示层的样式
+     */
+    getGlobalDropHintStyle() {
+        if (!this.dropHint || this.dropTargetId) return { display: 'none' };
+
+        const styles = {
+            top: '0', left: '0', right: '0', bottom: '0'
+        };
+
+        switch (this.dropHint) {
+            case 'left': styles.right = '50%'; break;
+            case 'right': styles.left = '50%'; break;
+            case 'top': styles.bottom = '50%'; break;
+            case 'bottom': styles.top = '50%'; break;
+            default: return { display: 'none' };
+        }
+
+        return styles;
     },
 
     closeSplitView(sessionId) {
@@ -387,5 +495,9 @@ export const sshSplitMethods = {
 
     fitAllVisibleSessions() {
         this._fitAll();
+    },
+
+    scheduleSync() {
+        this._scheduleSync();
     }
 };

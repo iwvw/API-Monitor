@@ -169,13 +169,13 @@
                   </div>
                   <div class="service-actions">
                     <button v-if="service.status === 'RUNNING'" @click="pauseService(account, project, service)"
-                      class="service-btn btn-pause"><i class="fas fa-pause"></i> 暂停</button>
-                    <button @click="restartService(account, project, service)" class="service-btn btn-restart"><i
-                        class="fas fa-redo"></i> 重启</button>
-                    <button @click="showServiceLogs(account, project, service)" class="service-btn btn-logs"><i
-                        class="fas fa-file-alt"></i> 日志</button>
-                    <button @click="deleteService(account, project, service)" class="service-btn btn-delete"><i
-                        class="fas fa-trash"></i> 删除</button>
+                      class="service-btn btn-pause" title="暂停"><i class="fas fa-pause"></i></button>
+                    <button @click="restartService(account, project, service)" class="service-btn btn-restart"
+                      title="重启"><i class="fas fa-redo"></i></button>
+                    <button @click="showServiceLogs(account, project, service)" class="service-btn btn-logs"
+                      title="日志"><i class="fas fa-file-alt"></i></button>
+                    <button @click="deleteService(account, project, service)" class="service-btn btn-delete"
+                      title="删除"><i class="fas fa-trash"></i></button>
                   </div>
                 </div>
               </div>

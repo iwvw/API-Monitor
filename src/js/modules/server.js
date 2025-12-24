@@ -142,6 +142,20 @@ function renderServerList() {
 }
 
 /**
+ * 局部更新单个主机卡片
+ */
+function renderSingleServerCard(serverId) {
+    const card = document.querySelector(`.server-card[data-server-id="${serverId}"]`);
+    if (!card) return;
+
+    const server = state.servers.find(s => s.id === serverId);
+    if (!server) return;
+
+    console.log('[Server] Partial rendering card:', serverId);
+    card.outerHTML = renderServerCard(server);
+}
+
+/**
  * 获取延迟徽标 HTML
  */
 function getLatencyBadgeHtml(rt) {
@@ -557,7 +571,7 @@ async function toggleServerCard(serverId) {
         }
     }
 
-    renderServerList();
+    renderSingleServerCard(serverId);
 }
 
 /**
@@ -573,14 +587,14 @@ async function loadServerInfo(serverId) {
 
         const data = await response.json();
         state.serverInfo.set(serverId, data);
-        renderServerList();
+        renderSingleServerCard(serverId);
     } catch (error) {
         console.error('加载主机信息失败:', error);
         state.serverInfo.set(serverId, {
             success: false,
             error: error.message
         });
-        renderServerList();
+        renderSingleServerCard(serverId);
     }
 }
 

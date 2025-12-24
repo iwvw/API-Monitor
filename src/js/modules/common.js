@@ -113,6 +113,10 @@ export const commonMethods = {
                 else if (dx < 0 && currentIndex < visibleModules.length - 1) nextIndex = currentIndex + 1;
 
                 if (nextIndex !== -1) {
+                    // 震动反馈 (如果支持)
+                    if (navigator.vibrate) {
+                        navigator.vibrate(15);
+                    }
                     this.handleTabSwitch(visibleModules[nextIndex]);
                 }
             }

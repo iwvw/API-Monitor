@@ -149,11 +149,14 @@
 .server-tab-content.slide-in-left,
 .server-tab-content.slide-in-right,
 .server-tab-content.slide-out-left,
-.server-tab-content.slide-out-right {
+.server-tab-content.slide-out-right,
+.active-ssh-terminal.sub-tab-content {
   --module-color: rgba(0, 212, 170, 0.06);
-  animation-duration: 0.15s !important;
-  animation-name: fadeIn !important;
-  /* 强制覆盖 slideIn，防止横向移动 */
+  animation-duration: 0s !important;
+  animation-name: none !important;
+  transition: none !important;
+  transform: none !important;
+  /* 极致优化：彻底禁用 SSH 相关的 Server 标签页动画，解决极其缓慢的位移感 */
 }
 
 /* Antigravity 模块 - 橙色主题 */
@@ -164,6 +167,14 @@
   --module-color: rgba(255, 87, 34, 0.06);
 }
 
+/* Self-H 模块 - 青色主题 */
+.self-h-tab-content.slide-in-left,
+.self-h-tab-content.slide-in-right,
+.self-h-tab-content.slide-out-left,
+.self-h-tab-content.slide-out-right,
+.self-h-tab-content.fade-in {
+  --module-color: rgba(6, 182, 212, 0.06);
+}
 
 /* 切换动画使用模块主题色 */
 /* .tab-content.slide-in-left,
@@ -247,23 +258,28 @@
   background-color: var(--server-primary);
 }
 
-/* ===== Hosts 模块 - 优化展开动画 ===== */
+/* ===== Hosts 模块 - 优化展开动画 (Grid 方案) ===== */
 .server-card-body {
-  max-height: 0;
+  display: grid;
+  grid-template-rows: 0fr;
   opacity: 0;
   overflow: hidden;
-  transition: max-height 0.35s ease-out,
-    opacity 0.25s ease-out,
-    margin-top 0.25s ease-out;
-  margin-top: 0;
+  transition: grid-template-rows 0.4s cubic-bezier(0.25, 1, 0.5, 1),
+    opacity 0.3s ease-out;
+  will-change: grid-template-rows, opacity;
+  transform: translateZ(0);
+  /* 开启硬件加速 */
 }
 
 .server-card.expanded>.server-card-body {
-  max-height: 800px;
-  /* 降低到更接近实际高度的值 */
+  grid-template-rows: 1fr;
   opacity: 1;
-  /* margin-top: 12px; */
-  overflow: visible;
+}
+
+/* 内部包装器，确保 Grid 转换生效 */
+.server-card-body>div {
+  min-height: 0;
+  overflow: hidden;
 }
 
 /* ===== Zeabur/OpenAPI 模块 - 使用 Grid 0fr->1fr 方案 ===== */

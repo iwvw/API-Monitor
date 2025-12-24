@@ -1,6 +1,5 @@
 <!-- ==================== Antigravity 管理部分 ==================== -->
-<div class="tab-content antigravity-tab-content theme-antigravity"
-  :class="getTabAnimationClass('antigravity')">
+<div class="tab-content antigravity-tab-content theme-antigravity" :class="getTabAnimationClass('antigravity')">
 
   <!-- Antigravity 子标签页 -->
   <div class="sec-tabs antigravity-sec-tabs">
@@ -222,8 +221,7 @@
       <!-- 分组视图 (Cards) -->
       <div v-if="antigravityQuotaViewMode === 'grouped'" class="ag-quota-grid quick-fade-in">
         <div v-for="(group, groupId) in antigravityQuotas" :key="groupId" class="quota-card">
-          <div class="panel-header"
-            style="background: var(--bg-secondary); border-bottom: 1px solid var(--border-color); padding: 8px 12px;">
+          <div class="panel-header" style="background: var(--bg-secondary);  padding: 8px 12px;">
             <div class="panel-title" style="font-size: 14px; gap: 8px;">
               <span style="font-size: 18px;">{{ group.icon }}</span>
               <span>{{ group.name }}</span>
@@ -541,7 +539,7 @@
   <!-- 模块设置 (Settings) -->
   <div v-show="antigravityCurrentTab === 'settings'" class="sub-tab-content quick-fade-in">
     <div class="panel">
-      <div class="panel-header" style="border-bottom: 1px solid var(--border-color);">
+      <div class="panel-header">
         <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
           <div class="panel-title-group">
             <div class="panel-title"><i class="fas fa-cogs"
@@ -673,7 +671,7 @@
         <div
           style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; margin-bottom: 0px;">
           <!-- 安全配置 -->
-          <div>
+          <!-- <div>
             <div style="font-size: 13px; font-weight: 600; margin-bottom: 10px; color: var(--ag-primary);">
               <i class="fas fa-shield-alt"></i> 安全配置
             </div>
@@ -691,7 +689,7 @@
                 </div>
               </div>
             </div>
-          </div>
+          </div> -->
 
           <!-- 图片设置 -->
           <div>

@@ -1,6 +1,5 @@
 <!-- ==================== Gemini CLI 管理部分 ==================== -->
-<div class="tab-content gemini-cli-content theme-gemini-cli"
-  :class="getTabAnimationClass('gemini-cli')">
+<div class="tab-content gemini-cli-content theme-gemini-cli" :class="getTabAnimationClass('gemini-cli')">
 
   <!-- Gemini CLI 子标签页 -->
   <div class="sec-tabs gemini-sec-tabs">
@@ -326,7 +325,7 @@
   <!-- 调用日志标签页 -->
   <div v-show="geminiCliCurrentTab === 'logs'" class="sub-tab-content quick-fade-in">
     <div class="panel">
-      <div class="panel-header log-header-adaptive" style="border-bottom: 1px solid var(--border-color);">
+      <div class="panel-header log-header-adaptive">
         <div class="panel-title-group">
           <div class="panel-title"><i class="fas fa-history"
               style="margin-right: 8px; color: var(--gemini-primary);"></i>日志管理</div>
@@ -434,7 +433,7 @@
   <!-- 模块设置标签页 -->
   <div v-show="geminiCliCurrentTab === 'settings'" class="sub-tab-content quick-fade-in">
     <div class="panel">
-      <div class="panel-header" style="border-bottom: 1px solid var(--border-color);">
+      <div class="panel-header">
         <div style="display: flex; justify-content: space-between; align-items: center; width: 100%;">
           <div class="panel-title-group">
             <div class="panel-title"><i class="fas fa-cogs"

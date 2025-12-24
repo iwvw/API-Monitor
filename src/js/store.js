@@ -57,12 +57,20 @@ export const store = reactive({
     openListStats: { onlineCount: 0 },
     currentOpenListAccount: null,
     newOpenListAcc: { name: '', api_url: '', api_token: '' },
+    openListStorages: [], // 存储挂载点详细信息
     openListFiles: [],
     openListFilesLoading: false,
     openListPath: '/',
     openListReadme: '',
-    openListSortKey: 'name', // 'name', 'size', 'modified'
+    openListSortKey: null, // null 表示跟随后端原始排序
     openListSortOrder: 'asc', // 'asc', 'desc'
+    openListFileCache: {}, // 路径 -> 文件列表缓存
+    openListPreviewSize: 800, // 预览图最大尺寸
+    openListSearchScope: 0, // 0: 全部, 1: 文件夹, 2: 文件
+    openListSearchActive: false, // 是否处于搜索激活状态
+    // 临时标签页状态 (支持多个)
+    openListTempTabs: [], // 数组项: { id, name, path, files: [], loading: false, pathParts: [] }
+    openListActiveTempTabId: null,
 
     // 全局数据刷新控制
     serverList: [],
@@ -75,7 +83,7 @@ export const store = reactive({
     serverRefreshProgress: 100,
     serverSearchText: '',
     serverStatusFilter: 'all',
-    expandedServers: new Set(),
+    expandedServers: [],
     monitorConfig: {
         interval: 60,
         timeout: 10,

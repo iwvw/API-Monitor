@@ -756,7 +756,7 @@ input:checked+.slider:before {
     flex-wrap: wrap;
     gap: 12px;
     height: auto !important;
-    padding: 12px 16px !important;
+    padding: 3px 5px 10px 5px !important;
 }
 
 .panel-title-group {

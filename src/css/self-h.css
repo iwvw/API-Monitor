@@ -1,387 +1,407 @@
-/* Self-H 模块主题定义 */
-.theme-self-h {
-    --self-h-primary: #5c6bc0;
-    --self-h-primary-rgb: 92, 107, 192;
-    --self-h-accent: #26c6da;
-    --self-h-bg-soft: rgba(92, 107, 192, 0.05);
-    --self-h-border: rgba(92, 107, 192, 0.2);
-}
+/* ==================== Self-H (OpenList) 核心布局 ==================== */
 
-/* 覆盖局部变量以实现主题化 */
-.theme-self-h .tab-btn-refined.active {
-    background: var(--self-h-bg-soft);
-    color: var(--self-h-primary);
-}
-
-.theme-self-h .panel-header-refined i.text-primary {
-    color: var(--self-h-primary) !important;
-}
-
-.theme-self-h .bc-item {
-    color: var(--self-h-primary);
-}
-
-.theme-self-h .bc-home:hover {
-    color: var(--self-h-primary);
-}
-
-.theme-self-h .btn-primary {
-    background-color: var(--self-h-primary);
-    border-color: var(--self-h-primary);
-}
-
-.theme-self-h .btn-primary:hover {
-    background-color: #3f51b5;
-    border-color: #3f51b5;
-}
-
-.theme-self-h .form-input-refined:focus {
-    border-color: var(--self-h-primary);
-}
-
-.theme-self-h .stat-card-refined .card-icon {
-    color: var(--self-h-primary);
-}
-
-/* OpenList 专属样式优化 */
-.module-control-bar {
+/* 文件列表主容器 - 在父容器内自适应 */
+.openlist-files-layout {
+    box-shadow: var(--card-shadow);
+    border: 2px solid var(--border-color);
     display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 20px;
-    padding-bottom: 12px;
-    border-bottom: 1px solid var(--border-color);
-}
-
-.tab-btn-refined {
-    background: none;
-    border: none;
-    padding: 8px 16px;
-    margin-right: 8px;
-    border-radius: 6px;
-    color: var(--text-secondary);
-    font-size: 14px;
-    font-weight: 500;
-    transition: all 0.2s ease;
-    cursor: pointer;
-}
-
-.tab-btn-refined:hover {
-    background: var(--bg-secondary);
-    color: var(--text-primary);
-}
-
-.tab-btn-refined.active {
-    background: var(--accent-primary-transparent);
-    color: var(--accent-primary);
-}
-
-.tab-btn-refined i {
-    margin-right: 6px;
-    font-size: 13px;
-}
-
-.panel-refined {
-    background: var(--bg-primary);
-    border: 1px solid var(--border-color);
-    border-radius: 12px;
+    flex-direction: column;
+    height: 100%;
+    border-radius: 16px;
     overflow: hidden;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
 }
 
-.panel-header-refined {
-    padding: 10px 16px;
+/* 移除对其他 tab 的侵入性样式重置 */
+/* .sub-tab-content > div:not(.openlist-files-layout) { padding: 15px 12px; } - REMOVED */
+
+.openlist-main-view {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    background: var(--bg-primary);
+}
+
+/* 顶部工具栏 - 独立风格 */
+.openlist-toolbar-standalone {
     background: var(--bg-secondary);
     border-bottom: 1px solid var(--border-color);
+    padding: 10px 12px;
     display: flex;
+    align-items: center;
     justify-content: space-between;
-    align-items: center;
+    gap: 16px;
+    z-index: 10;
+    /* box-shadow: 0 2px 10px rgba(0, 0, 0, 0.02); */
 }
 
-.panel-header-refined .header-left {
+.toolbar-left,
+.toolbar-right {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 12px;
 }
 
-.panel-header-refined .title {
-    font-weight: 600;
-    font-size: 14px;
-    color: var(--text-primary);
+.toolbar-right .btn-icon-refined {
+    border-radius: 8px;
+    /* 圆角矩形 */
+    color: var(--selfh-primary);
+    /* background: rgba(6, 182, 212, 0.05); */
+    border: 1px solid rgb(6 182 212 / 62%);
 }
 
-.panel-header-refined .path-badge {
-    background: var(--bg-tertiary);
-    padding: 1px 6px;
-    border-radius: 4px;
-    font-family: var(--font-mono);
-    font-size: 10px;
-    color: var(--text-tertiary);
-    border: 1px solid var(--border-color);
+.toolbar-right .btn-icon-refined:hover {
+    background: var(--selfh-primary);
+    color: white;
+    transform: translateY(-1px);
 }
 
-.breadcrumb-container-refined {
-    padding: 6px 16px;
-    background: var(--bg-tertiary);
-    border-bottom: 1px solid var(--border-color);
-    display: flex;
-    align-items: center;
-    font-size: 12px;
-}
-
-.bc-home {
-    cursor: pointer;
-    color: var(--text-secondary);
-    padding: 2px 6px;
-    border-radius: 4px;
-}
-
-.bc-home:hover {
-    background: var(--bg-secondary);
-    color: var(--accent-primary);
-}
-
-.bc-list {
-    display: flex;
-    align-items: center;
-    margin-left: 4px;
-    flex-wrap: wrap;
-}
-
-.bc-sep {
-    margin: 0 6px;
-    color: var(--text-tertiary);
-    opacity: 0.5;
-}
-
-.bc-item {
-    cursor: pointer;
-    color: var(--text-secondary);
-    font-weight: 400;
-    padding: 2px 4px;
-    border-radius: 4px;
-}
-
-.bc-item:hover {
-    background: var(--bg-secondary);
-    color: var(--accent-primary);
-    text-decoration: none;
-}
-
-.file-list-wrapper {
-    min-height: 300px;
-    max-height: 60vh;
-.file-list-wrapper.is-loading {
-    opacity: 0.6;
-    pointer-events: none; /* CSS 级禁止点击 */
-    user-select: none;
-    cursor: wait;
-}
-
-.loading-overlay {
-    backdrop-filter: blur(1px);
-    cursor: wait;
-}
-
-/* 滚动条美化 */
-.file-list-wrapper::-webkit-scrollbar {
-    width: 6px;
-}
-
-.file-list-wrapper::-webkit-scrollbar-track {
-    background: transparent;
-}
-
-.file-list-wrapper::-webkit-scrollbar-thumb {
-    background: var(--border-color);
-    border-radius: 10px;
-}
-
-.file-list-wrapper::-webkit-scrollbar-thumb:hover {
-    background: var(--text-tertiary);
-}
-
-.refined-table {
-    width: 100%;
-    border-collapse: collapse;
-    table-layout: fixed;
-}
-
-.refined-table th {
-    text-align: left;
-    padding: 8px 16px;
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: var(--text-tertiary);
-    border-bottom: 1px solid var(--border-color);
-    background: var(--bg-primary);
-}
-
-.refined-table th.text-end {
-    text-align: right;
-}
-
-.refined-table td {
-    padding: 6px 16px;
-    font-size: 13px;
-    border-bottom: 1px solid var(--border-color-faint);
-    white-space: nowrap;
-    vertical-align: middle; /* 确保垂直居中 */
-}
-
-.cell-actions {
-    display: flex;
-    justify-content: flex-end;
-    align-items: center;
-    gap: 4px;
-    /* 移除之前的 padding override，让 td 控制 padding */
-    width: 100%;
-}
-
-.clickable-rows tbody tr {
-    cursor: pointer;
-    transition: background 0.1s ease;
-}
-
-.clickable-rows tbody tr:hover {
-    background: var(--bg-secondary) !important;
-}
-
-.up-level-row td {
-    color: var(--text-tertiary);
-    font-style: italic;
-    font-size: 12px;
-}
-
-.icon-up {
-    margin-right: 8px;
-    font-size: 12px;
-    opacity: 0.7;
-}
-
-.file-name-content {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-}
-
-.file-type-icon {
-    font-size: 14px;
-    width: 18px;
-    text-align: center;
-    opacity: 0.9;
-}
-
-.name-text {
+.toolbar-left {
+    flex: 1;
     overflow: hidden;
-    text-overflow: ellipsis;
-    max-width: 400px;
-    display: inline-block;
 }
 
-.cell-size {
-    font-family: var(--font-mono);
-    font-size: 12px;
-    color: var(--text-secondary);
-}
-
-.cell-time {
-    font-size: 12px;
-    color: var(--text-tertiary);
-}
-
-.readme-panel-refined {
-    padding: 20px 30px;
-    background: var(--bg-primary);
-    border-top: 1px solid var(--border-color);
-}
-
-.readme-header {
-    font-size: 14px;
-    font-weight: 700;
-    margin-bottom: 15px;
+/* 账号切换胶囊 */
+.account-pill {
+    position: relative;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 4px 12px;
     display: flex;
     align-items: center;
     gap: 8px;
-    color: var(--text-secondary);
-    text-transform: uppercase;
 }
 
-.stat-card-refined {
-    background: var(--bg-primary);
+/* 搜索范围分段选择器容器 */
+.search-scope-wrapper {
+    display: flex;
+    margin-right: 8px;
+    background: rgba(6, 182, 212, 0.05);
+    /* 注入主题色的极淡背景 */
+    border-radius: 8px;
+    border: 1px solid rgba(6, 182, 212, 0.1);
+}
+
+.search-scope-segmented {
+    display: flex;
+    background: var(--bg-tertiary);
+    padding: 3px;
+    border-radius: 8px;
+    gap: 2px;
     border: 1px solid var(--border-color);
-    border-radius: 12px;
-    padding: 20px;
+    white-space: nowrap;
+    /* 极其重要：防止折叠时文字换行导致高度抖动 */
+}
+
+.search-scope-segmented button {
+    background: transparent;
+    border: none;
+    padding: 4px 10px;
+    border-radius: 5px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-tertiary);
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    white-space: nowrap;
+}
+
+.search-scope-segmented button:hover {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.05);
+}
+
+.search-scope-segmented button.active {
+    background: var(--selfh-primary);
+    color: white;
+    box-shadow: 0 2px 8px rgba(6, 182, 212, 0.4);
+}
+
+/* 深色主题下的特殊微调 */
+@media (prefers-color-scheme: dark) {
+    .search-scope-segmented button.active {
+        background: var(--selfh-primary);
+        color: white;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+    }
+}
+
+.integrated-search {
+    position: relative;
     display: flex;
     align-items: center;
-    gap: 20px;
 }
 
-.stat-card-refined .card-icon {
-    width: 48px;
-    height: 48px;
-    border-radius: 12px;
+/* 进场动画 */
+.quick-fade-in {
+    animation: ag-quick-fade-in 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+@keyframes ag-quick-fade-in {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+.account-pill select {
+    background: transparent;
+    border: none;
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 600;
+    outline: none;
+    cursor: pointer;
+    padding-right: 15px;
+    appearance: none;
+}
+
+/* 增强面包屑 */
+.breadcrumb-fluid-container {
+    display: flex;
+    align-items: center;
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+
+.bc-node {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-size: 13.5px;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+}
+
+.bc-node:hover {
+    background: rgba(6, 182, 212, 0.1);
+    color: var(--selfh-primary);
+}
+
+.bc-node.active {
+    color: var(--text-primary);
+    font-weight: 700;
+    cursor: default;
+}
+
+.bc-divider {
+    font-size: 10px;
+    color: var(--text-tertiary);
+    opacity: 0.5;
+    margin: 0 4px;
+}
+
+/* 集成搜索框 */
+.integrated-search {
+    position: relative;
+    width: 200px;
+}
+
+.integrated-search i {
+    position: absolute;
+    left: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    font-size: 12px;
+    color: var(--selfh-primary);
+    /* 主题色图标 */
+    opacity: 0.8;
+}
+
+.integrated-search input {
+    width: 100%;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    /* 圆角矩形 */
+    padding: 6px 12px 6px 32px;
+    font-size: 13px;
+    color: var(--text-primary);
+    transition: background 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+        border-color 0.25s cubic-bezier(0.4, 0, 0.2, 1),
+        box-shadow 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.integrated-search input:focus {
+    outline: none;
+    /* 移除浏览器默认的黑色边框 */
+    background: var(--bg-primary);
+    border-color: var(--selfh-primary);
+    /* 模块主题色 */
+    box-shadow: 0 0 0 3px rgba(6, 182, 212, 0.15);
+}
+
+/* 列表滚动区域 */
+.openlist-list-container {
+    flex: 1;
+    overflow-y: auto;
+    position: relative;
+    background: var(--bg-primary);
+}
+
+/* 固定表头效果 */
+.sticky-header thead th {
+    position: sticky;
+    top: 0;
+    z-index: 5;
     background: var(--bg-secondary);
+    border-bottom: 2px solid var(--border-color);
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02);
+}
+
+/* 文件行样式 */
+.openlist-list-container tbody tr {
+    cursor: pointer;
+    transition: background 0.15s, box-shadow 0.15s;
+}
+
+.openlist-list-container tbody tr:hover {
+    background: rgba(6, 182, 212, 0.08);
+    /* 使用模块主题色的淡蓝背景，浅色模式更清晰 */
+}
+
+/* 深色模式下保持原有效果 */
+@media (prefers-color-scheme: dark) {
+    .openlist-list-container tbody tr:hover {
+        background: var(--bg-tertiary);
+    }
+}
+
+.file-cell-main {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+    overflow: hidden;
+    /* 外部保护 */
+}
+
+.file-icon-wrapper {
+    width: 32px;
+    height: 32px;
+    min-width: 32px;
+    /* 关键：防止 flex 压缩 */
+    max-width: 32px;
     display: flex;
     align-items: center;
     justify-content: center;
     font-size: 20px;
-    color: var(--text-secondary);
+    border-radius: 6px;
+    overflow: hidden;
+    /* 内部裁切 */
+    background: var(--bg-tertiary);
+    flex-shrink: 0;
+    /* 禁止收缩 */
 }
 
-.stat-card-refined .card-icon.success { color: var(--success); background: var(--success-transparent); }
-.stat-card-refined .card-icon.info { color: var(--info); background: var(--info-transparent); }
+.file-thumb-icon {
+    width: 32px;
+    height: 32px;
+    min-width: 100%;
+    min-height: 100%;
+    object-fit: cover;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+}
 
-.stat-card-refined .card-value {
-    font-size: 24px;
-    font-weight: 700;
+.file-name-text {
+    flex: 1;
+    font-size: 14px;
+    font-weight: 500;
     color: var(--text-primary);
-    line-height: 1;
-}
-
-.stat-card-refined .card-label {
-    font-size: 12px;
-    color: var(--text-tertiary);
-    margin-top: 4px;
-}
-
-.form-group-refined {
-    margin-bottom: 16px;
-}
-
-.form-group-refined label {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
     display: block;
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--text-secondary);
-    margin-bottom: 6px;
 }
 
-.form-input-refined {
-    width: 100%;
+/* 骨架屏 */
+.list-loading-shimmer {
+    padding: 20px;
+}
+
+.shimmer-row {
+    height: 48px;
+    background: linear-gradient(90deg, var(--bg-secondary) 25%, var(--bg-tertiary) 50%, var(--bg-secondary) 75%);
+    background-size: 200% 100%;
+    animation: ag-shimmer 1.5s infinite;
+    border-radius: 8px;
+    margin-bottom: 8px;
+}
+
+/* README 底部 */
+.readme-footer {
+    margin: 30px 20px;
+    padding: 24px;
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
-    border-radius: 6px;
-    padding: 10px 12px;
-    color: var(--text-primary);
-    font-size: 14px;
-    transition: border-color 0.2s;
+    border-radius: 12px;
 }
 
-.form-input-refined:focus {
-    border-color: var(--accent-primary);
-    outline: none;
-}
-
-.btn-icon-refined.sm {
-    width: 24px;
-    height: 24px;
+.readme-label {
     font-size: 11px;
-    padding: 0;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border-radius: 4px;
+    font-weight: 800;
+    color: var(--text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    margin-bottom: 15px;
 }
 
+/* 预览图容器 */
+.file-hover-preview {
+    position: fixed;
+    z-index: 9999;
+    background: var(--card-bg);
+    border-radius: 8px;
+    box-shadow: 0 15px 50px rgba(0, 0, 0, 0.4);
+    border: 1px solid var(--border-color);
+    pointer-events: none;
+    overflow: hidden;
+    display: none;
+}
+
+.file-hover-preview img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    display: block;
+}
+
+/* 预览骨架屏 */
+.file-hover-preview.loading {
+    min-width: 200px;
+    min-height: 150px;
+    background: linear-gradient(90deg, var(--bg-secondary) 25%, var(--bg-tertiary) 50%, var(--bg-secondary) 75%);
+    background-size: 200% 100%;
+    animation: ag-shimmer 1.5s infinite;
+}
+
+.file-hover-preview.loading img {
+    opacity: 0;
+}
+
+/* 临时标签页样式 */
+.tab-btn.temp-tab {
+    position: relative;
+    border-left: 2px dashed var(--border-color);
+    margin-left: 5px;
+    background: rgba(var(--primary-rgb), 0.03);
+
+    /* 宽度限制与文本省略 */
+    max-width: 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    display: inline-block;
+    vertical-align: bottom;
+}
+
+.tab-btn.temp-tab.active {
+    background: rgba(var(--primary-rgb), 0.1);
+}

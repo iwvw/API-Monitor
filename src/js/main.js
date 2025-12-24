@@ -78,11 +78,17 @@ const app = createApp({
   setup() {
     // 自定义计算属性
     const openListPathParts = computed(() => selfHComputed.openListPathParts(store));
+    const currentOpenListTempTab = computed(() => selfHComputed.currentOpenListTempTab(store));
+    const openListTempPathParts = computed(() => selfHComputed.openListTempPathParts(store));
+    const sortedOpenListFiles = computed(() => selfHComputed.sortedOpenListFiles(store));
 
     // 将 store 的所有属性转换为 refs，这样在模板中可以直接使用且保持响应式
     return {
       ...toRefs(store),
-      openListPathParts
+      openListPathParts,
+      currentOpenListTempTab,
+      openListTempPathParts,
+      sortedOpenListFiles
     };
   },
   data() {
@@ -308,6 +314,8 @@ const app = createApp({
       activeSSHSessionId: null, // 当前激活的 SSH 会话 ID
       visibleSessionIds: [],    // 分屏显示的会话 ID 列表
       sshViewLayout: 'single',  // 'single', 'split-h', 'split-v'
+      sshSplitSide: '',         // 分屏偏向 ('left', 'right')
+      sshGroupState: null,      // 分屏组状态快照 { ids: [], layout: '', side: '' }
       sshSyncEnabled: false,    // 是否开启多屏同步操作
       draggedSessionId: null,   // 正在拖拽的会话 ID
       dropTargetId: null,       // 正在悬停的目标容器 ID
@@ -419,6 +427,49 @@ const app = createApp({
     currentSSHSession() {
       if (!this.activeSSHSessionId || this.sshSessions.length === 0) return null;
       return this.sshSessions.find(s => s.id === this.activeSSHSessionId) || null;
+    },
+
+    /**
+     * 合并逻辑标签页：基于分屏快照或当前物理视图
+     */
+    sshTabList() {
+      // 优先从快照中读取分屏组信息
+      const groupData = this.sshGroupState;
+
+      // 如果没有快照，且物理上也只有 1 个或没有，则显示散乱标签
+      if (!groupData && (this.visibleSessionIds.length <= 1)) {
+        return this.sshSessions;
+      }
+
+      // 确定实际要聚合的 ID 列表 (优先用快照，否则用物理)
+      const splitIds = groupData ? groupData.ids : this.visibleSessionIds;
+      if (!splitIds || splitIds.length <= 1) return this.sshSessions;
+
+      const tabs = [];
+      let groupInjected = false;
+
+      // 创建聚合标签
+      const groupTab = {
+        id: 'ssh-group-tab',
+        isGroup: true,
+        name: `(${splitIds.length})分屏`,
+        // 激活条件：当前 active session 属于组内成员
+        active: splitIds.includes(this.activeSSHSessionId),
+        sessions: this.sshSessions.filter(s => splitIds.includes(s.id))
+      };
+
+      this.sshSessions.forEach(session => {
+        if (splitIds.includes(session.id)) {
+          if (!groupInjected) {
+            tabs.push(groupTab);
+            groupInjected = true;
+          }
+        } else {
+          tabs.push(session);
+        }
+      });
+
+      return tabs;
     },
 
     totalProjects() {
@@ -723,7 +774,7 @@ const app = createApp({
         // [离开保护] 如果离开主机管理模块，强制将 DOM 节点搬回仓库，防止被销毁
         if (oldVal === 'server') {
           this.saveTerminalsToWarehouse();
-          this.closeMetricsStream();
+          // 离开时不要关闭指标流，保持后台更新
         }
 
         // [切回恢复] 当重新进入时，重新挂载
@@ -841,8 +892,9 @@ const app = createApp({
     // 认证成功后加载当前标签页数据
     isAuthenticated(newVal) {
       if (newVal) {
-        // 登录成功，从后端加载用户设置
+        // 登录成功，从后端加载用户设置并启动指标流
         this.loadUserSettings();
+        this.connectMetricsStream();
 
         // 加载当前激活标签页的数据
         this.$nextTick(() => {

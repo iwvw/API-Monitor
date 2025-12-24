@@ -338,16 +338,6 @@ pre,
     border-width: 1.2px;
   }
 
-  /* 优雅的骨架屏流光效果 */
-  .ag-shimmer {
-    background: linear-gradient(90deg,
-        rgba(var(--bg-secondary-rgb), 0) 0%,
-        rgba(var(--current-rgb, 255, 255, 255), 0.05) 50%,
-        rgba(var(--bg-secondary-rgb), 0) 100%);
-    background-size: 200% 100%;
-    animation: ag-shimmer 2s infinite;
-  }
-
   /* 品牌 Logo 呼吸加载器 */
   .ag-logo-pulse {
     position: relative;
@@ -363,67 +353,7 @@ pre,
     animation: ag-logo-breath 2.5s ease-in-out infinite;
   }
 
-  .ag-logo-pulse::after {
-    content: '';
-    position: absolute;
-    width: 50px;
-    height: 50px;
-    border-radius: 50%;
-    border: 1px solid var(--current-primary);
-    opacity: 0;
-    animation: ag-ping 2.5s cubic-bezier(0, 0, 0.2, 1) infinite;
-  }
-
-  @keyframes ag-spin-elegant {
-    0% {
-      transform: rotate(0deg);
-    }
-
-    100% {
-      transform: rotate(360deg);
-    }
-  }
-
-  @keyframes ag-shimmer {
-    0% {
-      background-position: -200% 0;
-    }
-
-    100% {
-      background-position: 200% 0;
-    }
-  }
-
-  @keyframes ag-logo-breath {
-
-    0%,
-    100% {
-      transform: scale(1);
-      opacity: 0.8;
-      filter: drop-shadow(0 0 2px rgba(var(--current-rgb), 0));
-    }
-
-    50% {
-      transform: scale(1.05);
-      opacity: 1;
-      filter: drop-shadow(0 0 12px rgba(var(--current-rgb), 0.4));
-    }
-  }
-
-  @keyframes ag-ping {
-    0% {
-      transform: scale(0.8);
-      opacity: 0.5;
-    }
-
-    70%,
-    100% {
-      transform: scale(1.8);
-      opacity: 0;
-    }
-  }
-
-  /* 加载遮罩层美化 */
+  /* 加载遮罩层 */
   .loading-overlay-elegant {
     display: flex;
     flex-direction: column;
@@ -945,7 +875,6 @@ body.modal-open {
    ======================================== */
 .btn {
   height: 36px;
-  /* 统一高度 */
   padding: 0 16px;
   border-radius: 8px;
   font-weight: 600;
@@ -960,7 +889,7 @@ body.modal-open {
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   border: 1px solid transparent;
   user-select: none;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  /* box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05); */
 }
 
 /* 所有的 Hover 统一逻辑：仅亮度微调 */

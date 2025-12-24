@@ -36,15 +36,26 @@ export const sshMethods = {
             connected: false
         };
 
+        // 核心修复：在新打开会话或切换前，先将当前所有可见终端 DOM 归还给仓库，防止被 Vue 销毁
+        this.saveTerminalsToWarehouse();
+
         this.sshSessions.push(session);
+
+        // 核心优化：新开终端作为独立标签，挂起现有分屏组（如果存在）
+        if (this.sshViewLayout !== 'single') {
+            // 如果已经在分屏，切出到单屏，不破坏现有分屏组
+            this._switchOutToSingle(sessionId);
+        } else {
+            this.activeSSHSessionId = sessionId;
+        }
+
         this.activeSSHSessionId = sessionId;
         this.serverCurrentTab = 'terminal';
 
         this.$nextTick(() => {
             this.initSessionTerminal(sessionId);
-            // 延迟同步 DOM 确保 Vue 渲染完成
-            setTimeout(() => this.syncTerminalDOM(), 50);
-            setTimeout(() => this.syncTerminalDOM(), 200);
+            // 核心修复：调度智能同步，处理 DOM 挂载和多级尺寸适配补偿
+            this.scheduleSync();
         });
     },
 
@@ -52,12 +63,21 @@ export const sshMethods = {
      * 切换当前激活的 SSH 会话
      */
     switchToSSHTab(sessionId) {
+        // 核心修复：在物理状态切换前，确保 DOM 节点已安全归还仓库
+        this.saveTerminalsToWarehouse();
+
         this.serverCurrentTab = 'terminal';
         this.activeSSHSessionId = sessionId;
 
-        // 如果目标会话不在当前分屏中，自动退出分屏返回单屏模式
-        if (this.sshViewLayout !== 'single' && !this.visibleSessionIds.includes(sessionId)) {
-            this.resetToSingleLayout();
+        const groupState = this.sshGroupState;
+        const isInGroup = groupState && groupState.ids.includes(sessionId);
+
+        if (isInGroup) {
+            // 如果目标在分屏组中，则恢复分屏视图
+            this._restoreGroupView();
+        } else {
+            // 如果目标是单屏会话，则切出到单屏模式（挂起分屏组）
+            this._switchOutToSingle(sessionId);
         }
 
         this.$nextTick(() => {
@@ -72,6 +92,9 @@ export const sshMethods = {
      * 关闭SSH会话
      */
     closeSSHSession(sessionId) {
+        // 核心修复：在关闭和状态变更前，先将所有终端 DOM 归还仓库，防止布局重排导致节点丢失
+        this.saveTerminalsToWarehouse();
+
         const index = this.sshSessions.findIndex(s => s.id === sessionId);
         if (index === -1) return;
 
@@ -110,6 +133,11 @@ export const sshMethods = {
         const terminalEl = document.getElementById('ssh-terminal-' + sessionId);
         if (terminalEl) {
             terminalEl.remove();
+        }
+
+        // 从分屏视图中移除 (如果有)
+        if (this.visibleSessionIds && this.visibleSessionIds.includes(sessionId)) {
+            this.removeFromSplitView(sessionId);
         }
 
         // 从数组中移除
@@ -233,31 +261,73 @@ export const sshMethods = {
     /**
      * 对所有当前可见的终端执行 Fit 序列，解决布局切换时的尺寸计算错位
      */
+    /**
+     * 手动计算并调整终端尺寸 (替代不稳定的 FitAddon)
+     */
+    manualTerminalResize(session) {
+        if (!session || !session.terminal) return;
+        const terminal = session.terminal;
+        const container = document.getElementById('ssh-terminal-' + session.id);
+        if (!container || container.offsetWidth === 0) return;
+
+        // 1. 获取或缓存字符尺寸 (Consolas 14px 约 8.4x17)
+        // 动态测量以适应不同系统缩放
+        if (!this._charSize) {
+            const measure = document.createElement('div');
+            measure.style.fontFamily = 'Consolas, "Courier New", monospace';
+            measure.style.fontSize = '14px';
+            measure.style.lineHeight = '1.2';
+            measure.style.position = 'absolute';
+            measure.style.visibility = 'hidden';
+            measure.style.whiteSpace = 'pre';
+            measure.innerText = 'W'.repeat(10); // 测量10个字符取平均值更准
+            document.body.appendChild(measure);
+            this._charSize = {
+                width: measure.offsetWidth / 10,
+                height: measure.offsetHeight
+            };
+            document.body.removeChild(measure);
+        }
+
+        // 2. 计算理想行列数 (预留内边距)
+        const padding = 20; // 考虑 padding (10px * 2)
+        const cols = Math.floor((container.offsetWidth - padding) / this._charSize.width);
+        const rows = Math.floor((container.offsetHeight - 10) / this._charSize.height);
+
+        // 3. 执行调整
+        if (cols !== terminal.cols || rows !== terminal.rows) {
+            terminal.resize(Math.max(20, cols), Math.max(5, rows));
+
+            // 4. 同步到后端
+            if (session.ws && session.ws.readyState === WebSocket.OPEN) {
+                if (session._resizeDebounce) clearTimeout(session._resizeDebounce);
+                session._resizeDebounce = setTimeout(() => {
+                    if (session.ws && session.ws.readyState === WebSocket.OPEN) {
+                        session.ws.send(JSON.stringify({
+                            type: 'resize',
+                            cols: terminal.cols,
+                            rows: terminal.rows
+                        }));
+                    }
+                }, 400);
+            }
+        }
+    },
+
     fitAllVisibleSessions() {
         const ids = this.sshViewLayout === 'single'
             ? (this.activeSSHSessionId ? [this.activeSSHSessionId] : [])
             : this.visibleSessionIds;
 
-        const runFit = () => {
-            ids.forEach(id => {
-                const session = this.getSessionById(id);
-                if (session) this.safeTerminalFit(session);
-            });
-        };
-
-        // 仅执行少量必要序列，配合 safeTerminalFit 内部的 rAF
-        runFit();
-        setTimeout(runFit, 150);
+        ids.forEach(id => {
+            const session = this.getSessionById(id);
+            if (session) this.manualTerminalResize(session);
+        });
     },
 
-    /**
-     * 重新调整当前终端尺寸
-     */
     fitCurrentSSHSession() {
-        const session = this.sshSessions.find(s => s.id === this.activeSSHSessionId);
-        if (session) {
-            this.safeTerminalFit(session);
-        }
+        const session = this.getSessionById(this.activeSSHSessionId);
+        if (session) this.manualTerminalResize(session);
     },
 
     /**
@@ -548,10 +618,7 @@ export const sshMethods = {
         // 获取终端主题
         const theme = this.getTerminalTheme();
 
-        // 创建 fit addon（必须在 Terminal 之前创建）
-        const fit = new FitAddon();
-
-        // 创建 xterm 实例 - 不指定固定的 cols/rows，让 FitAddon 计算
+        // 创建 xterm 实例 - 不指定固定的 cols/rows，后续手动计算
         const terminal = new Terminal({
             cursorBlink: true,
             cursorStyle: 'bar',
@@ -560,11 +627,10 @@ export const sshMethods = {
             lineHeight: 1.2,
             theme: theme,
             scrollback: 5000,
-            allowProposedApi: true // 允许使用新 API
+            allowProposedApi: true
         });
 
-        // 加载插件
-        terminal.loadAddon(fit);
+        // 加载基本插件
         terminal.loadAddon(new WebLinksAddon());
 
         // 打开终端到容器
@@ -572,35 +638,19 @@ export const sshMethods = {
 
         // 保存到会话
         session.terminal = terminal;
-        session.fit = fit;
+        // 移除 session.fit，改用手动模式
 
-        // 打印容器尺寸用于调试
-        console.log(`[SSH] 容器尺寸: ${terminalContainer.offsetWidth}x${terminalContainer.offsetHeight}`);
-
-        // 安全的 fit 函数
-        const doFit = () => {
-            try {
-                fit.fit();
-                console.log(`[SSH] Fit 成功: ${terminal.cols}x${terminal.rows}`);
-                return true;
-            } catch (e) {
-                console.log('[SSH] Fit 失败:', e.message);
-                return false;
-            }
-        };
-
-        // 延迟执行 fit - 给渲染器足够时间初始化
-        setTimeout(doFit, 100);
-        setTimeout(doFit, 300);
-        setTimeout(doFit, 500);
-        setTimeout(doFit, 1000);
+        // 立即执行一次手动适配
+        this.$nextTick(() => {
+            this.manualTerminalResize(session);
+        });
 
         // 使用 ResizeObserver 监听容器大小变化
         const resizeObserver = new ResizeObserver(() => {
-            if (session.fitTimeout) clearTimeout(session.fitTimeout);
-            session.fitTimeout = setTimeout(() => {
-                this.safeTerminalFit(session);
-            }, 150);
+            // 使用 rAF 依然是好的实践，确保在浏览器布局完成后执行
+            window.requestAnimationFrame(() => {
+                this.manualTerminalResize(session);
+            });
         });
         resizeObserver.observe(terminalContainer);
         session.resizeObserver = resizeObserver;
@@ -710,12 +760,7 @@ export const sshMethods = {
             }
         });
 
-        // 监听窗口大小变化
-        const resizeHandler = () => {
-            this.safeTerminalFit(session);
-        };
-        window.addEventListener('resize', resizeHandler);
-        session.resizeHandler = resizeHandler;
+        // 已使用 ResizeObserver 监听容器，此处无需 window.resize
     },
 
     /**
@@ -855,6 +900,62 @@ export const sshMethods = {
         // 最终确认状态
         this.activeSSHSessionId = null;
         this.serverCurrentTab = 'list';
+    },
+
+    /**
+     * 初始化 SSH 挂载观察器
+     * 监视 DOM 变化以确保终端被正确挂载
+     */
+    initSshMountObserver() {
+        if (this.sshMountObserver) return;
+
+        const targetNode = document.getElementById('app');
+        if (!targetNode) return;
+
+        const observer = new MutationObserver((mutations) => {
+            let shouldSync = false;
+            for (const mutation of mutations) {
+                // 检查是否有 SSH 槽位相关的 DOM 变化
+                if (mutation.type === 'childList') {
+                    const target = mutation.target;
+                    if (target.id && target.id.startsWith('ssh-slot-')) {
+                        shouldSync = true;
+                        break;
+                    }
+                    if (target.classList && target.classList.contains('ssh-terminal-wrapper')) {
+                        shouldSync = true;
+                        break;
+                    }
+                    // 检查新增节点
+                    if (mutation.addedNodes.length > 0) {
+                        for (let i = 0; i < mutation.addedNodes.length; i++) {
+                            const node = mutation.addedNodes[i];
+                            if (node.nodeType === 1 && node.classList && node.classList.contains('ssh-terminal-wrapper')) {
+                                shouldSync = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if (shouldSync) {
+                // 防抖同步
+                if (this._mountSyncTimer) clearTimeout(this._mountSyncTimer);
+                this._mountSyncTimer = setTimeout(() => {
+                    this.syncTerminalDOM();
+                }, 50);
+            }
+        });
+
+        observer.observe(targetNode, {
+            childList: true,
+            subtree: true,
+            attributes: false
+        });
+
+        this.sshMountObserver = observer;
+        console.log('[System] SSH Mount Observer initialized');
     },
 
     // 展开分屏管理方法（来自 ssh-split.js）

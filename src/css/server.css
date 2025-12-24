@@ -1,9 +1,9 @@
-/* ==================== 进度条 ==================== */
+﻿/* ==================== 杩涘害鏉?==================== */
 .server-list-container {
     overflow: visible;
 }
 
-/* ==================== 顶部控制栏 ==================== */
+/* ==================== 椤堕儴鎺у埗鏍?==================== */
 .controls-bar {
     display: flex;
     flex-direction: column;
@@ -26,7 +26,7 @@
     flex-wrap: wrap;
 }
 
-/* ==================== 统计胶囊 ==================== */
+/* ==================== 缁熻鑳跺泭 ==================== */
 .stats-pills {
     display: flex;
     gap: 8px;
@@ -72,7 +72,7 @@
     opacity: 0.9;
 }
 
-/* 实时监控 LIVE 指示器 */
+/* 瀹炴椂鐩戞帶 LIVE 鎸囩ず鍣?*/
 .live-indicator-wrapper {
     display: inline-flex;
     align-items: center;
@@ -136,7 +136,7 @@
     box-shadow: 0 8px 16px -4px rgba(239, 68, 68, 0.3);
 }
 
-/* ==================== 搜索框 ==================== */
+/* ==================== 鎼滅储妗?==================== */
 .search-box {
     position: relative;
     flex: 1;
@@ -173,8 +173,8 @@
     color: var(--server-primary);
 }
 
-/* ==================== 主机卡片 ==================== */
-/* ==================== 主机卡片 ==================== */
+/* ==================== 涓绘満鍗＄墖 ==================== */
+/* ==================== 涓绘満鍗＄墖 ==================== */
 .server-card {
     background-color: var(--card-bg);
     border-radius: 16px;
@@ -333,10 +333,8 @@
     padding-left: 15px;
 }
 
-/* ==================== 主机详情（展开部分）==================== */
-/* 动画样式已在 transitions.css 中统一定义 */
 .server-card-body {
-    display: flex;
+    /* display: grid; 动画由 transitions.css 控制 */
     flex-direction: column;
     width: 100%;
 }
@@ -346,8 +344,8 @@
     width: 100%;
     background-color: var(--card-bg);
     border-radius: 10px;
-    padding: 15px;
-    border: 1px solid var(--border-color);
+    padding: 0px 10px 0px 10px;
+    /* border: 1px solid var(--border-color); */
 }
 
 .server-details-grid {
@@ -397,7 +395,7 @@
     font-family: var(--font-mono, 'JetBrains Mono', monospace);
 }
 
-/* 进度条 */
+/* 杩涘害鏉?*/
 .progress-bar {
     width: 100%;
     height: 10px;
@@ -418,7 +416,7 @@
     border-radius: 6px;
 }
 
-/* 进度条流动纹理效果 */
+
 .progress-bar-fill::after {
     content: '';
     position: absolute;
@@ -460,7 +458,7 @@
     box-shadow: 0 0 12px rgba(239, 68, 68, 0.3);
 }
 
-/* 实时监控 LIVE 指示器 */
+/* 瀹炴椂鐩戞帶 LIVE 鎸囩ず鍣?*/
 .live-indicator-wrapper {
     display: inline-flex;
     align-items: center;
@@ -510,7 +508,7 @@
     }
 }
 
-/* Docker 容器列表 */
+/* Docker 瀹瑰櫒鍒楄〃 */
 .docker-container-list {
     margin-top: 10px;
 }
@@ -549,7 +547,7 @@
     color: #ef4444;
 }
 
-/* ==================== 磁贴单选按钮组 ==================== */
+/* ==================== 纾佽创鍗曢€夋寜閽粍 ==================== */
 .radio-tile-group {
     display: flex;
     gap: 12px;
@@ -615,7 +613,7 @@
     box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.2);
 }
 
-/* ==================== 主机操作按钮 ==================== */
+/* ==================== 涓绘満鎿嶄綔鎸夐挳 ==================== */
 .server-actions-bar {
     display: flex;
     gap: 10px;
@@ -629,7 +627,7 @@
     margin-top: 15px;
 }
 
-/* ==================== 空状态 ==================== */
+/* ==================== 绌虹姸鎬?==================== */
 .server-empty-state {
     text-align: center;
     padding: 60px 20px;
@@ -653,7 +651,7 @@
     margin-bottom: 20px;
 }
 
-/* ==================== 加载状态 ==================== */
+/* ==================== 鍔犺浇鐘舵€?==================== */
 .server-loading {
     text-align: center;
     padding: 40px 20px;
@@ -675,7 +673,7 @@
     }
 }
 
-/* ==================== 标签 ==================== */
+/* ==================== 鏍囩 ==================== */
 .server-tags {
     display: flex;
     gap: 6px;
@@ -692,7 +690,7 @@
     font-weight: 500;
 }
 
-/* ==================== 导入预览列表 ==================== */
+/* ==================== 瀵煎叆棰勮鍒楄〃 ==================== */
 .import-preview-list {
     max-height: 300px;
     overflow-y: auto;
@@ -726,7 +724,7 @@
     color: var(--text-primary);
 }
 
-/* ==================== Docker 模态框样式 ==================== */
+/* ==================== Docker 妯℃€佹鏍峰紡 ==================== */
 .docker-modal-content {
     padding: 0;
 }
@@ -801,7 +799,7 @@
     line-height: 1.1;
 }
 
-/* Docker 容器列表 - 多列紧凑网格 */
+/* Docker 瀹瑰櫒鍒楄〃 - 澶氬垪绱у噾缃戞牸 */
 .docker-container-list {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
@@ -809,7 +807,7 @@
     max-height: 65vh;
     overflow-y: auto;
     padding: 2px;
-    /* 隐藏滚动条但保留滚动功能 */
+    /* 闅愯棌婊氬姩鏉′絾淇濈暀婊氬姩鍔熻兘 */
     scrollbar-width: none;
     /* Firefox */
     -ms-overflow-style: none;
@@ -884,7 +882,7 @@
     z-index: 1;
 }
 
-/* 后台管理网格布局 */
+/* 鍚庡彴绠＄悊缃戞牸甯冨眬 */
 .management-grid {
     display: flex;
     flex-direction: column;
@@ -905,7 +903,7 @@
     }
 }
 
-/* 配置卡片样式 */
+/* 閰嶇疆鍗＄墖鏍峰紡 */
 .config-card {
     background: var(--bg-secondary);
     border: 1px solid var(--border-color);
@@ -987,7 +985,7 @@
     width: 100%;
 }
 
-/* 凭据列表样式 */
+/* 鍑嵁鍒楄〃鏍峰紡 */
 .compact-list {
     padding: 10px !important;
     max-height: 250px;
@@ -1072,7 +1070,7 @@
     font-size: 24px;
 }
 
-/* Docker 迷你列表 - 用于主机卡片详情 */
+/* Docker 杩蜂綘鍒楄〃 - 鐢ㄤ簬涓绘満鍗＄墖璇︽儏 */
 .docker-mini-list {
     background: rgba(0, 0, 0, 0.2);
     border-radius: 12px;
@@ -1148,7 +1146,7 @@
     text-decoration: underline;
 }
 
-/* ==================== 容器虚拟化独占区域样式 ==================== */
+/* ==================== 瀹瑰櫒铏氭嫙鍖栫嫭鍗犲尯鍩熸牱寮?==================== */
 .docker-section {
     /* margin-top: 1px; */
     background: linear-gradient(135deg, rgba(0, 150, 215, 0.03), rgba(0, 212, 170, 0.02));
@@ -1196,7 +1194,7 @@
     font-weight: 500;
 }
 
-/* 容器网格布局 */
+/* 瀹瑰櫒缃戞牸甯冨眬 */
 .docker-containers-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
@@ -1256,7 +1254,7 @@
     box-shadow: 0 0 6px #f59e0b;
 }
 
-/* 按钮尺寸 */
+/* 鎸夐挳灏哄 */
 .btn-xs {
     padding: 3px 6px !important;
     font-size: 10px !important;
@@ -1294,7 +1292,7 @@
     justify-content: center;
 }
 
-/* Docker 面板展开内容样式 */
+/* Docker 闈㈡澘灞曞紑鍐呭鏍峰紡 */
 .docker-panel-content {
     background: rgba(0, 0, 0, 0);
     border-radius: 10px;
@@ -1435,7 +1433,7 @@
     border-radius: 6px;
 }
 
-/* Docker 空状态 */
+/* Docker 绌虹姸鎬?*/
 .docker-empty-state {
     text-align: center;
     padding: 60px 20px;
@@ -1462,7 +1460,7 @@
     color: var(--text-secondary);
 }
 
-/* 旧样式保留以兼容 */
+/* 鏃ф牱寮忎繚鐣欎互鍏煎 */
 .docker-container-table {
     overflow-x: auto;
 }
@@ -1490,8 +1488,8 @@
     font-family: var(--font-mono);
 }
 
-/* ==================== 后台管理页面样式 ==================== */
-/* 复用 account-card 风格 */
+/* ==================== 鍚庡彴绠＄悊椤甸潰鏍峰紡 ==================== */
+/* 澶嶇敤 account-card 椋庢牸 */
 .server-management-container {
     padding: 20px;
 }
@@ -1629,7 +1627,7 @@
     color: var(--text-secondary);
 }
 
-/* ==================== SSH 终端样式增强 ==================== */
+/* ==================== SSH 缁堢鏍峰紡澧炲己 ==================== */
 .ssh-terminal-modal {
     max-width: 1100px;
 }
@@ -1729,7 +1727,7 @@
     padding: 10px;
 }
 
-/* 主机选择列表 */
+/* 涓绘満閫夋嫨鍒楄〃 */
 .server-select-list {
     display: flex;
     flex-direction: column;
@@ -1806,7 +1804,7 @@
     background: #ef4444;
 }
 
-/* ==================== 响应式设计 ==================== */
+/* ==================== 鍝嶅簲寮忚璁?==================== */
 @media (max-width: 768px) {
     .server-list-header {
         flex-direction: column;
@@ -1840,23 +1838,23 @@
     }
 }
 
-/* ==================== 内嵌式 SSH 终端子标签页样式 ==================== */
+/* ==================== 鍐呭祵寮?SSH 缁堢瀛愭爣绛鹃〉鏍峰紡 ==================== */
 
-/* SSH 会话标签页按钮样式 */
+/* SSH 浼氳瘽鏍囩椤垫寜閽牱寮?*/
 .server-sec-tabs {
     flex-wrap: nowrap;
     gap: 4px;
     overflow: visible !important;
 }
 
-/* 滚动包装器 */
+/* 婊氬姩鍖呰鍣?*/
 .server-tabs-scroll-wrapper {
     display: flex;
     align-items: center;
     justify-content: center;
     gap: 8px;
     overflow: visible;
-    /* 允许快速连接下拉菜单溢出显示 */
+    /* 鍏佽蹇€熻繛鎺ヤ笅鎷夎彍鍗曟孩鍑烘樉绀?*/
     max-width: 100%;
     padding-bottom: 2px;
     scrollbar-width: none;
@@ -1892,7 +1890,7 @@
     border-color: var(--server-primary-dark);
 }
 
-/* SSH 添加按钮居中 */
+/* SSH 娣诲姞鎸夐挳灞呬腑 */
 .ssh-add-tab {
     display: flex !important;
     align-items: center !important;
@@ -1909,14 +1907,14 @@
     display: flex;
     align-items: center;
     /* gap: 6px; */
-    padding: 6px 10px !important;
+    padding: 3px 4px !important;
     position: relative;
     background: var(--bg-secondary) !important;
     border: 1px solid var(--border-color) !important;
     color: var(--text-primary) !important;
     border-radius: 6px;
     transition: all 0.2s ease;
-    min-width: 80px;
+    min-width: 120px;
     max-width: 180px;
     font-size: 13px;
 }
@@ -1930,6 +1928,7 @@
 .ssh-session-tab span:not(.ssh-tab-close) {
     flex: 1;
     min-width: 0;
+    text-align: center;
     font-size: 13px;
     color: var(--text-primary);
     white-space: nowrap;
@@ -2011,7 +2010,7 @@
     transform: rotate(90deg);
 }
 
-/* SSH 终端内容区域 */
+/* SSH 缁堢鍐呭鍖哄煙 */
 .ssh-tab-content {
     padding: 0 !important;
 }
@@ -2024,7 +2023,7 @@
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
-/* SSH 终端工具栏 */
+/* SSH 缁堢宸ュ叿鏍?*/
 .ssh-terminal-toolbar {
     display: flex;
     justify-content: space-between;
@@ -2100,7 +2099,7 @@
     gap: 8px;
 }
 
-/* 内嵌终端面板 */
+/* 鍐呭祵缁堢闈㈡澘 */
 .ssh-terminal-pane-embedded {
     width: 100%;
     height: calc(100vh - 280px);
@@ -2110,7 +2109,7 @@
     background: var(--card-bg);
 }
 
-/* SSH 终端工具栏 */
+/* SSH 缁堢宸ュ叿鏍?*/
 .ssh-terminal-toolbar {
     display: flex;
     justify-content: space-between;
@@ -2186,7 +2185,7 @@
     gap: 8px;
 }
 
-/* 内嵌终端面板 */
+/* 鍐呭祵缁堢闈㈡澘 */
 .ssh-terminal-pane-embedded {
     width: 100%;
     height: calc(100vh - 280px);
@@ -2196,7 +2195,7 @@
     background: var(--card-bg);
 }
 
-/* SSH 终端底部提示 */
+/* SSH 缁堢搴曢儴鎻愮ず */
 .ssh-terminal-footer {
     padding: 8px 15px;
     background: var(--section-bg);
@@ -2209,7 +2208,7 @@
     margin-right: 6px;
 }
 
-/* 响应式调整 */
+/* 鍝嶅簲寮忚皟鏁?*/
 @media (max-width: 768px) {
     .ssh-terminal-toolbar {
         flex-direction: column;
@@ -2231,7 +2230,7 @@
     }
 }
 
-/* ==================== 主机编辑模态框样式 ==================== */
+/* ==================== 涓绘満缂栬緫妯℃€佹鏍峰紡 ==================== */
 .server-modal {
     max-width: 640px;
     padding: 0;
@@ -2260,7 +2259,7 @@
     overflow-y: auto;
 }
 
-/* 覆盖server-modal中的form-group样式 */
+/* 瑕嗙洊server-modal涓殑form-group鏍峰紡 */
 .server-modal .form-group label {
     font-size: 11px;
     font-weight: 500;
@@ -2290,7 +2289,7 @@
     margin-bottom: 4px;
 }
 
-/* 表单区块 */
+/* 琛ㄥ崟鍖哄潡 */
 .server-form-section {
     background: var(--section-bg);
     border: 1px solid var(--border-color);
@@ -2303,7 +2302,7 @@
     background: transparent;
 }
 
-/* 认证方式切换按钮组 */
+/* 璁よ瘉鏂瑰紡鍒囨崲鎸夐挳缁?*/
 .server-auth-toggle {
     display: flex;
     gap: 8px;
@@ -2344,7 +2343,7 @@
     font-size: 14px;
 }
 
-/* 表单字段样式 */
+/* 琛ㄥ崟瀛楁鏍峰紡 */
 .server-form-field {
     margin-bottom: 12px;
 }
@@ -2402,7 +2401,7 @@
     font-family: var(--font-mono);
 }
 
-/* 表单错误提示 */
+/* 琛ㄥ崟閿欒鎻愮ず */
 .server-form-error {
     display: flex;
     align-items: center;
@@ -2420,7 +2419,7 @@
     font-size: 14px;
 }
 
-/* 模态框底部操作栏 */
+/* 妯℃€佹搴曢儴鎿嶄綔鏍?*/
 .server-modal-footer {
     display: flex;
     justify-content: space-between;
@@ -2436,7 +2435,7 @@
     gap: 10px;
 }
 
-/* 模态框按钮样式 */
+/* 妯℃€佹鎸夐挳鏍峰紡 */
 .btn-server-cancel {
     padding: 10px 20px;
     background: transparent;
@@ -2514,8 +2513,8 @@
     transform: none;
 }
 
-/* ==================== SSH 快速连接下拉菜单动画 ==================== */
-/* 下拉菜单展开动画 */
+/* ==================== SSH 蹇€熻繛鎺ヤ笅鎷夎彍鍗曞姩鐢?==================== */
+/* 涓嬫媺鑿滃崟灞曞紑鍔ㄧ敾 */
 .dropdown-fade-enter-active {
     animation: dropdownSlideIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
@@ -2548,7 +2547,7 @@
     }
 }
 
-/* 遮罩层淡入淡出 */
+/* 閬僵灞傛贰鍏ユ贰鍑?*/
 .fade-enter-active,
 .fade-leave-active {
     transition: opacity 0.15s ease;
@@ -2559,7 +2558,7 @@
     opacity: 0;
 }
 
-/* ==================== SSH 快速连接按钮样式 ==================== */
+/* ==================== SSH 蹇€熻繛鎺ユ寜閽牱寮?==================== */
 .ssh-quick-connect-btn {
     display: flex;
     align-items: center;
@@ -2584,7 +2583,7 @@
     box-shadow: 0 4px 12px rgba(0, 212, 170, 0.25);
 }
 
-/* 快速连接下拉菜单 */
+/* 蹇€熻繛鎺ヤ笅鎷夎彍鍗?*/
 .ssh-quick-menu {
     position: absolute;
     top: calc(100% + 8px);
@@ -2622,7 +2621,7 @@
     color: var(--server-primary);
 }
 
-/* 全部打开按钮 */
+/* 鍏ㄩ儴鎵撳紑鎸夐挳 */
 .ssh-quick-menu-header .mini-btn-primary {
     padding: 5px 10px;
     font-size: 10px;
@@ -2653,7 +2652,7 @@
     padding: 4px;
 }
 
-/* 简洁滚动条 */
+/* 绠€娲佹粴鍔ㄦ潯 */
 .ssh-quick-menu-list::-webkit-scrollbar {
     width: 4px;
 }
@@ -2663,7 +2662,7 @@
     border-radius: 2px;
 }
 
-/* 列表项 */
+/* 鍒楄〃椤?*/
 .ssh-quick-item {
     padding: 10px 12px;
     margin: 2px 0;
@@ -2732,7 +2731,7 @@
     color: var(--server-primary);
 }
 
-/* 空状态 */
+/* 绌虹姸鎬?*/
 .ssh-quick-empty {
     padding: 40px 20px;
     text-align: center;
@@ -2749,7 +2748,7 @@
     opacity: 0.2;
 }
 
-/* ==================== 快速连接响应式适配 ==================== */
+/* ==================== 蹇€熻繛鎺ュ搷搴斿紡閫傞厤 ==================== */
 @media (max-width: 768px) {
     .ssh-quick-connect-btn {
         min-width: 32px;
@@ -2797,9 +2796,9 @@
     }
 }
 
-/* ==================== 历史指标页面样式 ==================== */
+/* ==================== 鍘嗗彶鎸囨爣椤甸潰鏍峰紡 ==================== */
 
-/* 时间范围选择按钮组 */
+/* 鏃堕棿鑼冨洿閫夋嫨鎸夐挳缁?*/
 .time-range-pills {
     display: flex;
     gap: 6px;
@@ -2809,7 +2808,7 @@
     border: 1px solid var(--border-color);
 }
 
-/* 时间范围选择药片按钮 */
+/* 鏃堕棿鑼冨洿閫夋嫨鑽墖鎸夐挳 */
 .pill-btn {
     padding: 6px 12px;
     border: none;
@@ -2833,7 +2832,7 @@
     color: white;
 }
 
-/* 状态点指示器 */
+/* 鐘舵€佺偣鎸囩ず鍣?*/
 .status-dot {
     display: inline-block;
     width: 8px;
@@ -2851,7 +2850,7 @@
     background: #ef4444;
 }
 
-/* 指标单元格 */
+/* 鎸囨爣鍗曞厓鏍?*/
 .metrics-cell {
     display: flex;
     flex-direction: column;
@@ -2877,7 +2876,7 @@
     color: #ef4444;
 }
 
-/* 迷你进度条颜色 */
+/* 杩蜂綘杩涘害鏉￠鑹?*/
 .mini-progress .normal {
     background: linear-gradient(90deg, #10b981, #34d399);
 }
@@ -2890,7 +2889,7 @@
     background: linear-gradient(90deg, #ef4444, #f87171);
 }
 
-/* 采集器状态栏 */
+/* 閲囬泦鍣ㄧ姸鎬佹爮 */
 .collector-status-bar {
     flex-wrap: wrap;
 }
@@ -2907,7 +2906,7 @@
     }
 }
 
-/* 美化的筛选下拉框 */
+/* 缇庡寲鐨勭瓫閫変笅鎷夋 */
 .metrics-filter-select {
     position: relative;
     display: inline-flex;
@@ -2971,7 +2970,7 @@
     color: var(--text-primary);
 }
 
-/* 采集间隔选择框 */
+/* 閲囬泦闂撮殧閫夋嫨妗?*/
 .metrics-interval-select {
     position: relative;
     display: inline-flex;
@@ -3008,7 +3007,7 @@
     border-color: var(--server-primary);
 }
 
-/* 历史记录工具栏 */
+/* 鍘嗗彶璁板綍宸ュ叿鏍?*/
 .metrics-history-toolbar {
     display: flex;
     gap: 10px;
@@ -3016,7 +3015,7 @@
     flex-wrap: wrap;
 }
 
-/* 统一的工具栏按钮 */
+/* 缁熶竴鐨勫伐鍏锋爮鎸夐挳 */
 .metrics-toolbar-btn {
     display: inline-flex;
     align-items: center;
@@ -3049,7 +3048,7 @@
     font-size: 11px;
 }
 
-/* 主要按钮样式 */
+/* 涓昏鎸夐挳鏍峰紡 */
 .metrics-toolbar-btn.primary {
     background: var(--server-primary);
     border-color: var(--server-primary);
@@ -3061,7 +3060,7 @@
     border-color: #00b894;
 }
 
-/* ==================== 按主机分类的历史记录 ==================== */
+/* ==================== 鎸変富鏈哄垎绫荤殑鍘嗗彶璁板綍 ==================== */
 
 .metrics-history-grouped {
     display: flex;
@@ -3069,7 +3068,7 @@
     gap: 6px;
 }
 
-/* 主机卡片 */
+/* 涓绘満鍗＄墖 */
 .metrics-server-card {
     background: var(--card-bg);
     border: 1px solid var(--border-color);
@@ -3134,7 +3133,7 @@
     transition: transform 0.2s ease;
 }
 
-/* 记录列表 */
+/* 璁板綍鍒楄〃 */
 .metrics-records-list {
     border-top: 1px solid var(--border-color);
     max-height: 400px;
@@ -3217,7 +3216,7 @@
     border-radius: 4px;
 }
 
-/* 响应式 */
+/* 鍝嶅簲寮?*/
 @media (max-width: 768px) {
     .metrics-record-item {
         flex-direction: column;
@@ -3234,12 +3233,13 @@
         display: none;
     }
 }
-/* ==================== �ɼ���״̬�� (������) ==================== */
+
+/* ==================== 采集器状态栏 (美化版) ==================== */
 .collector-status-bar {
     transition: all 0.3s ease;
 }
 
-/* ״̬���� (������) */
+/* 状态胶囊 (运行中) */
 .status-pill-running {
     background: linear-gradient(135deg, rgba(16, 185, 129, 0.1), rgba(16, 185, 129, 0.05));
     border-color: rgba(16, 185, 129, 0.3);
@@ -3247,7 +3247,7 @@
     box-shadow: 0 4px 12px -2px rgba(16, 185, 129, 0.2);
 }
 
-/* ״̬���� (��ֹͣ) */
+/* 状态胶囊 (已停止) */
 .status-pill-stopped {
     background: linear-gradient(135deg, rgba(239, 68, 68, 0.1), rgba(239, 68, 68, 0.05));
     border-color: rgba(239, 68, 68, 0.3);

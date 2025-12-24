@@ -441,7 +441,7 @@ export const antigravityMethods = {
         try {
             const date = new Date(isoTime);
             if (isNaN(date.getTime())) return isoTime;
-            
+
             return date.toLocaleString('zh-CN', {
                 month: '2-digit',
                 day: '2-digit',
@@ -460,7 +460,7 @@ export const antigravityMethods = {
         try {
             const resetDate = new Date(isoTime);
             if (isNaN(resetDate.getTime())) return '无';
-            
+
             const now = new Date();
             const diffMs = resetDate - now;
 
@@ -479,7 +479,7 @@ export const antigravityMethods = {
             if (totalHours > 0) {
                 return `${totalHours}时${remainMinutes}分`;
             }
-            
+
             return `${remainMinutes}分`;
         } catch (e) {
             return '无';
@@ -597,7 +597,7 @@ export const antigravityMethods = {
                 'CREDENTIAL_MAX_USAGE_PER_HOUR': '',
                 'TIMEOUT': '',
                 'REQUEST_LOG_RETENTION_DAYS': '',
-                'API_KEY': '',
+                // 'API_KEY': '',
                 'PROXY': ''
             };
             if (Array.isArray(data)) {
@@ -656,7 +656,7 @@ export const antigravityMethods = {
 
     getAgSettingLabel(key) {
         const labels = {
-            'API_KEY': 'API 访问密钥 (v1/*)',
+            // 'API_KEY': 'API 访问密钥 (v1/*)',
             'CREDENTIAL_MAX_USAGE_PER_HOUR': '凭证每小时调用上限',
             'REQUEST_LOG_RETENTION_DAYS': '日志保留天数',
             'PORT': '服务监听端口',
@@ -685,9 +685,9 @@ export const antigravityMethods = {
         return defaults[key] || '-';
     },
 
-    isAgSettingSensitive(key) {
-        return ['PANEL_PASSWORD', 'API_KEY', 'GOOGLE_CLIENT_SECRET'].includes(key);
-    },
+    // isAgSettingSensitive(key) {
+    //     return ['PANEL_PASSWORD', 'API_KEY', 'GOOGLE_CLIENT_SECRET'].includes(key);
+    // },
 
     async saveAgSetting(s) {
         try {
@@ -935,12 +935,12 @@ export const antigravityMethods = {
 
     getAntigravityMatrixList() {
         if (!store.antigravityMatrix) return [];
-        
+
         // 我们希望矩阵列表包含当前在“额度状态”中出现且已启用的所有内部模型
         const allInternalModels = this.getAllAntigravityModels()
             .filter(m => m.enabled !== false) // 仅包含在额度状态中启用的模型
             .map(m => m.id);
-        
+
         // 确保矩阵中有这些内部模型的条目
         allInternalModels.forEach(id => {
             if (!store.antigravityMatrix[id]) {
@@ -975,7 +975,7 @@ export const antigravityMethods = {
     toggleAgMatrixColumn(field) {
         const list = this.getAntigravityMatrixList();
         const allChecked = this.isAgMatrixColumnAllChecked(field);
-        
+
         list.forEach(item => {
             store.antigravityMatrix[item.id][field] = !allChecked;
         });
@@ -983,12 +983,12 @@ export const antigravityMethods = {
 
     toggleAgMatrixRow(modelId) {
         if (!store.antigravityMatrix[modelId]) return;
-        
+
         const row = store.antigravityMatrix[modelId];
         // 逻辑：如果当前行有任何一项是 true，则全部设为 false；否则全部设为 true
         const hasAnyOn = row.base || row.fakeStream || row.antiTrunc;
         const newState = !hasAnyOn;
-        
+
         row.base = newState;
         row.fakeStream = newState;
         row.antiTrunc = newState;

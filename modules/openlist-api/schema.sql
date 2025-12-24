@@ -23,3 +23,10 @@ CREATE TABLE IF NOT EXISTS openlist_storage_snapshots (
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (account_id) REFERENCES openlist_accounts(id) ON DELETE CASCADE
 );
+
+-- OpenList 模块全局设置
+CREATE TABLE IF NOT EXISTS openlist_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT
+);
+

@@ -59,6 +59,20 @@ class OpenListStorage {
     deleteAccount(id) {
         return db.getDatabase().prepare('DELETE FROM openlist_accounts WHERE id = ?').run(id);
     }
+
+    // --- Settings ---
+    getSetting(key) {
+        const row = db.getDatabase().prepare('SELECT value FROM openlist_settings WHERE key = ?').get(key);
+        return row ? row.value : null;
+    }
+
+    setSetting(key, value) {
+        const stmt = db.getDatabase().prepare(`
+            INSERT INTO openlist_settings (key, value) VALUES (?, ?)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value
+        `);
+        return stmt.run(key, value);
+    }
 }
 
 module.exports = new OpenListStorage();

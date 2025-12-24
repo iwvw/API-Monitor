@@ -1,278 +1,360 @@
 <!-- ==================== 自建服务模块 (Self-H) ==================== -->
-<div v-show="mainActiveTab === 'self-h'" class="tab-content self-h-tab-content theme-self-h" :class="getTabAnimationClass('self-h')">
-  <!-- 子标签页导航 (仅一项时隐藏) -->
-  <div class="sec-tabs self-h-sec-tabs" style="display: none;">
-    <button class="tab-btn" :class="{ active: selfHCurrentTab === 'openlist' }" @click="selfHCurrentTab = 'openlist'">
-      <i class="fas fa-folder-tree"></i> OpenList
-    </button>
-  </div>
+<div v-show="mainActiveTab === 'self-h'" class="tab-content self-h-tab-content theme-self-h"
+    :class="getTabAnimationClass('self-h')">
 
-  <!-- OpenList 内容区 -->
-  <div v-show="selfHCurrentTab === 'openlist'" class="sub-tab-content quick-fade-in">
-    <!-- OpenList 顶部控制栏 -->
-    <div class="module-control-bar">
-        <div class="inner-tabs">
-            <button class="tab-btn-refined" :class="{ active: openListSubTab === 'files' }" @click="openListSubTab = 'files'">
-                <i class="fas fa-file-alt"></i> 文件列表
+    <!-- 二级导航栏 -->
+    <div class="sec-tabs server-sec-tabs">
+        <div class="server-tabs-scroll-wrapper">
+            <button class="tab-btn" :class="{ active: openListSubTab === 'files' }" @click="openListSubTab = 'files'">
+                <i class="fas fa-folder-open"></i> 文件列表
             </button>
-            <button class="tab-btn-refined" :class="{ active: openListSubTab === 'offline' }" @click="openListSubTab = 'offline'">
-                <i class="fas fa-download"></i> 离线下载
+            <button class="tab-btn" :class="{ active: openListSubTab === 'settings' }"
+                @click="openListSubTab = 'settings'">
+                <i class="fas fa-cog"></i> 设置
             </button>
-            <button class="tab-btn-refined" :class="{ active: openListSubTab === 'accounts' }" @click="openListSubTab = 'accounts'">
-                <i class="fas fa-person-circle-check"></i> 账号管理
+            <!-- 临时标签页列表 -->
+            <button v-for="tab in openListTempTabs" :key="tab.id" class="tab-btn temp-tab"
+                :class="{ active: openListSubTab === 'temp' && openListActiveTempTabId === tab.id }"
+                @click="selectTempTab(tab.id)" @dblclick="closeOpenListTempTab(tab.id)"
+                @auxclick.middle.stop="closeOpenListTempTab(tab.id)" :title="tab.name">
+                {{ tab.name }}
             </button>
-            <button class="tab-btn-refined" :class="{ active: openListSubTab === 'settings' }" @click="openListSubTab = 'settings'">
-                <i class="fas fa-sliders-h"></i> 模块设置
-            </button>
-        </div>
-        
-        <!-- 快速切换账号 -->
-        <div v-if="openListSubTab === 'files' && openListAccounts.length > 0" class="control-actions">
-            <select class="form-select-refined select-sm" :value="currentOpenListAccount?.id" @change="e => selectOpenListAccountById(e.target.value)">
-                <option v-for="acc in openListAccounts" :key="acc.id" :value="acc.id">{{ acc.name }}</option>
-            </select>
         </div>
     </div>
 
-    <!-- 1. 文件列表 (First Tab) -->
-    <div v-if="openListSubTab === 'files'" class="openlist-files-container animate-fade-in">
-        <div v-if="!currentOpenListAccount" class="empty-placeholder">
-            <div class="empty-icon"><i class="fas fa-plug"></i></div>
-            <p>尚未连接 OpenList 实例</p>
-            <button class="btn btn-primary btn-sm" @click="openListSubTab = 'accounts'">前往配置账号</button>
-        </div>
-        <div v-else>
-            <div class="panel-refined">
-                <div class="panel-header-refined">
-                    <div class="header-left">
-                        <i class="fas fa-hdd" style="color: var(--self-h-primary);"></i>
-                        <span class="title">{{ currentOpenListAccount.name }}</span>
-                        <span class="path-badge">{{ openListPath }}</span>
+    <!-- 内容区域 -->
+    <div class="sub-tab-content quick-fade-in">
+
+        <!-- 1. 文件列表 -->
+        <div v-if="openListSubTab === 'files'" class="openlist-files-layout">
+            <div v-if="!currentOpenListAccount" class="empty-state" style="margin-top: 40px;">
+                <div class="empty-icon"><i class="fas fa-plug"></i></div>
+                <p>尚未连接 OpenList 实例</p>
+                <button class="btn btn-primary" @click="openListSubTab = 'settings'">
+                    <i class="fas fa-plus"></i> 前往配置
+                </button>
+            </div>
+
+            <div v-else class="openlist-main-view">
+                <!-- 顶部工具栏 (Header Area) -->
+                <div class="openlist-toolbar-standalone">
+                    <div class="toolbar-left">
+                        <!-- 账号切换 -->
+                        <div class="account-pill" v-if="openListAccounts.length > 1">
+                            <select :value="currentOpenListAccount?.id"
+                                @change="e => selectOpenListAccountById(e.target.value)">
+                                <option v-for="acc in openListAccounts" :key="acc.id" :value="acc.id">{{ acc.name }}
+                                </option>
+                            </select>
+                            <i class="fas fa-caret-down"></i>
+                        </div>
+
+                        <!-- 面包屑导航 -->
+                        <div class="breadcrumb-fluid-container">
+                            <button class="bc-node" @click="loadOpenListFiles('/')"><i class="fas fa-home"></i></button>
+                            <template v-for="(part, index) in openListPathParts" :key="part.path">
+                                <i class="fas fa-chevron-right bc-divider"></i>
+                                <button class="bc-node" :class="{ 'active': index === openListPathParts.length - 1 }"
+                                    @click="loadOpenListFiles(part.path)">
+                                    {{ part.name }}
+                                </button>
+                            </template>
+                        </div>
                     </div>
-                    <div class="header-right">
-                        <button class="btn btn-icon-refined" @click="loadOpenListFiles(openListPath, true)" :class="{ 'fa-spin-once': openListFilesLoading }">
-                            <i class="fas fa-sync-alt"></i>
-                        </button>
-                    </div>
-                </div>
-                
-                <!-- 导航与面包屑 -->
-                <div class="breadcrumb-container-refined">
-                    <div class="bc-home" @click="loadOpenListFiles('/')"><i class="fas fa-home"></i></div>
-                    <div class="bc-list">
-                        <template v-for="(part, index) in openListPathParts" :key="part.path">
-                            <div class="bc-item" @click="loadOpenListFiles(part.path)">{{ part.name }}</div>
-                            <div v-if="index < openListPathParts.length - 1" class="bc-sep">/</div>
-                        </template>
+
+                    <!-- 右侧搜索 -->
+                    <div class="toolbar-right">
+                        <!-- 搜索范围选择 (仅在搜索激活时显示) -->
+                        <div class="search-scope-wrapper quick-fade-in" v-show="openListSearchActive">
+                            <div class="search-scope-segmented">
+                                <button :class="{ active: openListSearchScope === 0 }"
+                                    @click="openListSearchScope = 0">全部</button>
+                                <button :class="{ active: openListSearchScope === 1 }"
+                                    @click="openListSearchScope = 1">文件夹</button>
+                                <button :class="{ active: openListSearchScope === 2 }"
+                                    @click="openListSearchScope = 2">文件</button>
+                            </div>
+                        </div>
+                        <div class="integrated-search">
+                            <i class="fas fa-search"></i>
+                            <input type="text" placeholder="搜索文件..." @focus="openListSearchActive = true"
+                                @blur="e => { if(!e.target.value) window.setTimeout(() => { openListSearchActive = false }, 200) }"
+                                @input="e => { if(!e.target.value) openListSearchActive = false; else openListSearchActive = true; }"
+                                @keyup.enter="e => searchOpenListFiles(e.target.value)">
+                        </div>
+                        <button class="btn btn-icon-refined" @click="mkdirOpenList" title="新建文件夹"><i
+                                class="fas fa-folder-plus"></i></button>
+                        <button class="btn btn-icon-refined" @click="loadOpenListFiles(openListPath, true)"
+                            title="刷新"><i class="fas fa-sync-alt"
+                                :class="{ 'fa-spin': openListFilesLoading }"></i></button>
                     </div>
                 </div>
 
-                <!-- 文件列表主体 -->
-                <div class="file-list-wrapper" :class="{ 'is-loading': openListFilesLoading }">
-                    <table class="refined-table clickable-rows">
+                <!-- 文件列表区域 (Scrolling Area) -->
+                <div class="openlist-list-container">
+                    <table class="data-table sticky-header" style="table-layout: fixed; width: 100%;">
                         <thead>
                             <tr>
-                                <th class="col-name" style="width: 50%;">名称</th>
-                                <th class="col-size" style="width: 15%;">大小</th>
-                                <th class="col-time" style="width: 20%;">修改时间</th>
-                                <th class="col-actions text-end" style="width: 15%;">操作</th>
+                                <th style="width: 50%;" @click="toggleOpenListSort('name')">名称 <i
+                                        v-if="openListSortKey === 'name'" class="fas"
+                                        :class="openListSortOrder === 'asc' ? 'fa-sort-up' : 'fa-sort-down'"></i></th>
+                                <th style="width: 12%;" @click="toggleOpenListSort('size')">大小 <i
+                                        v-if="openListSortKey === 'size'" class="fas"
+                                        :class="openListSortOrder === 'asc' ? 'fa-sort-up' : 'fa-sort-down'"></i></th>
+                                <th style="width: 20%;" @click="toggleOpenListSort('modified')">修改时间 <i
+                                        v-if="openListSortKey === 'modified'" class="fas"
+                                        :class="openListSortOrder === 'asc' ? 'fa-sort-up' : 'fa-sort-down'"></i></th>
+                                <th style="width: 13%;" class="text-center">操作</th>
                             </tr>
                         </thead>
-                        <tbody>
-                            <!-- 返回上一级 -->
-                            <tr v-if="openListPath !== '/'" class="up-level-row" @click="goUpOpenListDir">
-                                <td colspan="4">
-                                    <i class="fas fa-level-up-alt icon-up"></i>
-                                    <span>..</span>
-                                </td>
-                            </tr>
-                            
-                            <tr v-for="file in openListFiles" :key="file.name" @click="handleOpenFile(file)">
-                                <td class="cell-name">
-                                    <div class="file-name-content">
-                                        <i :class="getFileIconClass(file)" class="file-type-icon"></i>
-                                        <span class="name-text">{{ file.name }}</span>
+                        <tbody v-if="sortedOpenListFiles.length > 0">
+                            <tr v-for="file in sortedOpenListFiles" :key="file.name" @click="handleOpenFile(file)"
+                                @auxclick.middle.stop="handleMiddleClickItem(file)">
+                                <td style="overflow: hidden;">
+                                    <div class="file-cell-main">
+                                        <div class="file-icon-wrapper">
+                                            <img v-if="getFileThumbnail(file)" :src="getFileThumbnail(file)"
+                                                class="file-thumb-icon" referrerpolicy="no-referrer" loading="lazy"
+                                                @mouseenter="showHoverPreview($event, getFileThumbnail(file))"
+                                                @mouseleave="hideHoverPreview" />
+                                            <i v-else :class="getFileIconClass(file)"></i>
+                                        </div>
+                                        <span class="file-name-text" :title="file.name">{{ file.name }}</span>
                                     </div>
                                 </td>
-                                <td class="cell-size">{{ file.is_dir ? '-' : formatFileSize(file.size) }}</td>
-                                <td class="cell-time">{{ formatDateTime(file.modified) }}</td>
-                                <td class="cell-actions text-end" @click.stop>
-                                    <button v-if="!file.is_dir" class="btn btn-icon-refined sm" @click="downloadOpenListFile(file)" title="下载">
-                                        <i class="fas fa-download"></i>
-                                    </button>
-                                    <button class="btn btn-icon-refined sm" @click="showOpenFileDetail(file)" title="详情">
-                                        <i class="fas fa-info-circle"></i>
-                                    </button>
+                                <td class="font-mono text-secondary"
+                                    style="overflow: hidden; white-space: nowrap; text-overflow: ellipsis;">{{
+                                    getOpenListFileSize(file) }}</td>
+                                <td class="text-tertiary"
+                                    style="overflow: hidden; white-space: nowrap; text-overflow: ellipsis;">{{
+                                    formatDateTime(file.modified) }}</td>
+                                <td class="text-center" @click.stop>
+                                    <div class="flex-cell justify-center">
+                                        <button v-if="!file.is_dir" class="btn btn-icon-refined sm"
+                                            @click="downloadOpenListFile(file)"><i class="fas fa-download"></i></button>
+                                        <button class="btn btn-icon-refined sm" @click="renameOpenListFile(file)"><i
+                                                class="fas fa-edit"></i></button>
+                                        <button class="btn btn-icon-refined sm danger"
+                                            @click="deleteOpenListFile(file)"><i class="fas fa-trash-alt"></i></button>
+                                    </div>
                                 </td>
                             </tr>
-                            
-                            <tr v-if="openListFiles.length === 0 && !openListFilesLoading">
-                                <td colspan="4" class="empty-cell">
-                                    <div class="empty-notice">
+                        </tbody>
+                        <!-- 空状态：仅在不加载且确实没有文件时显示 -->
+                        <tbody v-else-if="!openListFilesLoading">
+                            <tr>
+                                <td colspan="4" style="border: none;">
+                                    <div class="openlist-empty-state">
                                         <i class="fas fa-folder-open"></i>
-                                        <span>当前目录为空</span>
+                                        <p>当前目录为空</p>
                                     </div>
                                 </td>
                             </tr>
                         </tbody>
                     </table>
-                </div>
-                
-                <!-- README 说明 -->
-                <div v-if="openListReadme" class="readme-panel-refined">
-                    <div class="readme-header">
-                        <i class="fab fa-markdown"></i> README.md
+
+                    <!-- 加载骨架 -->
+                    <div v-if="openListFilesLoading" class="list-loading-shimmer">
+                        <div v-for="i in 10" :key="i" class="shimmer-row"></div>
                     </div>
-                    <div class="markdown-body" v-html="renderMarkdown(openListReadme)"></div>
+
+                    <!-- README -->
+                    <div v-if="openListReadme" class="readme-footer">
+                        <div class="readme-label"><i class="fab fa-markdown"></i> README</div>
+                        <div class="markdown-body" v-html="renderMarkdown(openListReadme)"></div>
+                    </div>
                 </div>
             </div>
         </div>
-    </div>
 
-    <!-- 2. 离线下载 -->
-    <div v-if="openListSubTab === 'offline'" class="openlist-offline animate-fade-in">
-        <div class="panel-refined">
-            <div class="empty-placeholder">
-                <i class="fas fa-cloud-download-alt fa-3x" style="opacity: 0.1; margin-bottom: 20px;"></i>
-                <p>离线下载功能正在对接中</p>
-                <small class="text-muted">支持 Aria2 / qBittorrent 状态监控</small>
-            </div>
+        <!-- 缩略图悬停预览容器 -->
+        <div id="file-hover-preview" class="file-hover-preview">
+            <img id="file-hover-img" src="" alt="Preview" />
         </div>
-    </div>
 
-    <!-- 3. 账号管理 -->
-    <div v-if="openListSubTab === 'accounts'" class="openlist-accounts animate-fade-in">
-        <div class="row g-3">
-            <div class="col-lg-8">
-                <div class="panel-refined">
-                    <div class="panel-header-refined">
-                        <div class="title">已配置的 OpenList 实例</div>
+        <!-- 2. 设置（实例管理 + 偏好设置）-->
+        <div v-if="openListSubTab === 'settings'" class="openlist-settings animate-fade-in" style="padding: 10px;">
+
+            <!-- 实例管理卡片 -->
+            <div class="panel shadow-sm" style="margin-bottom: 16px;">
+                <div class="panel-header" style="padding: 10px;">
+                    <div class="panel-title"><i class="fas fa-server text-primary"></i> 实例管理</div>
+                </div>
+                <div style="padding: 0;">
+                    <!-- 已有实例列表 -->
+                    <div v-for="acc in openListAccounts" :key="acc.id" class="setting-item"
+                        style="display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid var(--border-color); gap: 12px;">
+                        <div style="flex: 1; min-width: 0;">
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <span :class="['status-dot', acc.status === 'online' ? 'online' : 'offline']"></span>
+                                <span style="font-weight: 600; color: var(--text-primary); font-size: 14px;">{{ acc.name
+                                    }}</span>
+                            </div>
+                            <div
+                                style="font-size: 12px; color: var(--text-tertiary); margin-top: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                {{ acc.api_url }}</div>
+                        </div>
+                        <div style="display: flex; gap: 8px;">
+                            <button class="btn btn-icon-refined sm" @click="selectOpenListAccount(acc)" title="使用此实例">
+                                <i class="fas fa-check"></i>
+                            </button>
+                            <button class="btn btn-icon-refined sm" @click="testOpenListAccount(acc.id)" title="连接测试">
+                                <i class="fas fa-plug"></i>
+                            </button>
+                            <button class="btn btn-icon-refined sm" style="color: var(--danger-color);"
+                                @click="deleteOpenListAccount(acc.id)" title="删除">
+                                <i class="fas fa-trash-alt"></i>
+                            </button>
+                        </div>
                     </div>
-                    <div class="table-container">
-                        <table class="refined-table">
-                            <thead>
-                                <tr>
-                                    <th>状态</th>
-                                    <th>名称</th>
-                                    <th>API 地址</th>
-                                    <th class="text-end">操作</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr v-for="acc in openListAccounts" :key="acc.id">
-                                    <td>
-                                        <span class="status-dot" :class="acc.status === 'online' ? 'bg-success' : 'bg-danger'"></span>
-                                        {{ acc.status === 'online' ? '在线' : '离线' }}
-                                    </td>
-                                    <td><strong>{{ acc.name }}</strong></td>
-                                    <td><code>{{ acc.api_url }}</code></td>
-                                    <td class="text-end">
-                                        <button class="btn btn-icon-refined" @click="testOpenListAccount(acc.id)" title="连通性测试">
-                                            <i class="fas fa-plug"></i>
-                                        </button>
-                                        <button class="btn btn-icon-refined danger" @click="deleteOpenListAccount(acc.id)" title="删除账号">
-                                            <i class="fas fa-trash-alt"></i>
-                                        </button>
-                                    </td>
-                                </tr>
-                                <tr v-if="openListAccounts.length === 0">
-                                    <td colspan="4" class="text-center py-4 text-muted">尚未添加任何账号</td>
-                                </tr>
-                            </tbody>
-                        </table>
+                    <!-- 添加新实例 -->
+                    <div class="setting-item" style="padding: 10px;">
+                        <div
+                            style="font-weight: 600; color: var(--text-primary); font-size: 14px; margin-bottom: 12px;">
+                            <i class="fas fa-plus-circle text-primary" style="margin-right: 6px;"></i> 添加新实例
+                        </div>
+                        <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+                            <input type="text" v-model="newOpenListAcc.name" class="form-input" placeholder="名称"
+                                style="flex: 1; min-width: 100px;" />
+                            <input type="text" v-model="newOpenListAcc.api_url" class="form-input" placeholder="API 地址"
+                                style="flex: 2; min-width: 200px;" />
+                            <input type="password" v-model="newOpenListAcc.api_token" class="form-input"
+                                placeholder="Token" style="flex: 1; min-width: 120px;" />
+                            <button class="btn btn-primary" @click="doAddOpenListAccount">
+                                <i class="fas fa-check"></i> 保存
+                            </button>
+                        </div>
+                    </div>
+                    <!-- 空状态 -->
+                    <div v-if="openListAccounts.length === 0" class="setting-item"
+                        style="padding: 10px; text-align: center; border-top: 1px solid var(--border-color);">
+                        <div style="color: var(--text-tertiary); font-size: 13px;">
+                            <i class="fas fa-info-circle" style="margin-right: 6px;"></i> 暂无配置，请添加实例
+                        </div>
                     </div>
                 </div>
             </div>
-            <div class="col-lg-4">
-                <div class="panel-refined">
-                    <div class="panel-header-refined">
-                        <div class="title">添加新实例</div>
+
+            <!-- 偏好设置卡片 -->
+            <div class="panel shadow-sm">
+                <div class="panel-header" style="padding: 10px;">
+                    <div class="panel-title"><i class="fas fa-sliders-h text-primary"></i> 偏好设置</div>
+                </div>
+                <div style="padding: 0;">
+                    <div class="setting-item"
+                        style="display: flex; justify-content: space-between; align-items: center; padding: 10px; border-bottom: 1px solid var(--border-color); gap: 12px;">
+                        <div style="flex: 1;">
+                            <div
+                                style="font-weight: 600; color: var(--text-primary); font-size: 14px; margin-bottom: 4px;">
+                                自动刷新目录</div>
+                            <div style="font-size: 12px; color: var(--text-tertiary);">进入目录时自动请求后端刷新，确保数据实时性</div>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" disabled checked>
+                            <span class="slider round"></span>
+                        </label>
                     </div>
-                    <div class="panel-body-refined">
-                        <div class="form-group-refined">
-                            <label>实例名称</label>
-                            <input type="text" v-model="newOpenListAcc.name" class="form-input-refined" placeholder="我的存储云">
+                    <div class="setting-item"
+                        style="display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; gap: 12px;">
+                        <div style="flex: 1;">
+                            <div
+                                style="font-weight: 600; color: var(--text-primary); font-size: 14px; margin-bottom: 4px;">
+                                预览图最大尺寸</div>
+                            <div style="font-size: 12px; color: var(--text-tertiary);">调整悬停预览的最大显示尺寸 (当前: <span
+                                    class="badge bg-primary">{{ openListPreviewSize }}px</span>)</div>
                         </div>
-                        <div class="form-group-refined">
-                            <label>API 地址</label>
-                            <input type="text" v-model="newOpenListAcc.api_url" class="form-input-refined" placeholder="https://alist.example.com">
+                        <div style="display: flex; align-items: center; gap: 12px;">
+                            <input type="range" class="form-range" min="300" max="1200" step="50"
+                                v-model="openListPreviewSize" style="width: 120px;">
+                            <button class="btn btn-secondary btn-sm" @click="saveOpenListPreviewSize">保存</button>
                         </div>
-                        <div class="form-group-refined">
-                            <label>API Token</label>
-                            <input type="password" v-model="newOpenListAcc.api_token" class="form-input-refined" placeholder="Alist 管理后台生成的 Token">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 3. 临时标签页（搜索结果跳转目标）-->
+        <div v-if="openListSubTab === 'temp' && currentOpenListTempTab" class="openlist-files-layout animate-fade-in">
+            <div class="openlist-main-view">
+                <!-- 顶部工具栏 -->
+                <div class="openlist-toolbar-standalone">
+                    <div class="toolbar-left">
+                        <div class="breadcrumb-fluid-container">
+                            <button class="bc-node" @click="loadTempTabFiles('/')"><i class="fas fa-home"></i></button>
+                            <template v-for="(part, index) in openListTempPathParts" :key="part.path">
+                                <i class="fas fa-chevron-right bc-divider"></i>
+                                <button class="bc-node"
+                                    :class="{ 'active': index === openListTempPathParts.length - 1 }"
+                                    @click="loadTempTabFiles(part.path)">
+                                    {{ part.name }}
+                                </button>
+                            </template>
                         </div>
-                        <button class="btn btn-primary w-100 mt-3" @click="doAddOpenListAccount">
-                            <i class="fas fa-save"></i> 保存并连接
+                    </div>
+                    <div class="toolbar-right">
+                        <button class="btn btn-icon-refined"
+                            @click="loadTempTabFiles(currentOpenListTempTab.path, true)" title="刷新">
+                            <i class="fas fa-sync-alt" :class="{ 'fa-spin': currentOpenListTempTab.loading }"></i>
+                        </button>
+                        <button class="btn btn-secondary btn-sm" @click="mergeToMainTab">
+                            <i class="fas fa-arrow-left"></i> 合并到主列表
                         </button>
                     </div>
                 </div>
-            </div>
-        </div>
-    </div>
 
-    <!-- 4. 模块设置 (Replaced Overview) -->
-    <div v-if="openListSubTab === 'settings'" class="openlist-settings animate-fade-in">
-        <div class="row g-3">
-            <div class="col-md-4">
-                <div class="stat-card-refined">
-                    <div class="card-icon" style="color: var(--self-h-primary); background: var(--self-h-bg-soft);"><i class="fas fa-server"></i></div>
-                    <div class="card-content">
-                        <div class="card-value">{{ openListAccounts.length }}</div>
-                        <div class="card-label">已连接实例</div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-4">
-                <div class="stat-card-refined">
-                    <div class="card-icon success" style="color: #10b981; background: rgba(16, 185, 129, 0.1);"><i class="fas fa-check-circle"></i></div>
-                    <div class="card-content">
-                        <div class="card-value">{{ openListStats.onlineCount || 0 }}</div>
-                        <div class="card-label">运行正常</div>
-                    </div>
-                </div>
-            </div>
-            <div class="col-md-4">
-                <div class="stat-card-refined">
-                    <div class="card-icon info" style="color: var(--self-h-accent); background: rgba(38, 198, 218, 0.1);"><i class="fas fa-database"></i></div>
-                    <div class="card-content">
-                        <div class="card-value">V3</div>
-                        <div class="card-label">API 协议版本</div>
+                <!-- 文件列表 -->
+                <div class="openlist-list-container">
+                    <table class="data-table sticky-header" style="table-layout: fixed; width: 100%;">
+                        <thead>
+                            <tr>
+                                <th style="width: 55%;">名称</th>
+                                <th style="width: 15%;">大小</th>
+                                <th style="width: 20%;">修改时间</th>
+                                <th style="width: 10%;" class="text-center">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody v-if="currentOpenListTempTab.files.length > 0">
+                            <tr v-for="file in currentOpenListTempTab.files" :key="file.name"
+                                @click="handleTempTabFile(file)" @auxclick.middle.stop="handleMiddleClickItem(file)">
+                                <td style="overflow: hidden;">
+                                    <div class="file-cell-main">
+                                        <div class="file-icon-wrapper">
+                                            <i :class="getFileIconClass(file)"></i>
+                                        </div>
+                                        <span class="file-name-text" :title="file.name">{{ file.name }}</span>
+                                    </div>
+                                </td>
+                                <td class="font-mono text-secondary">{{ getOpenListFileSize(file) }}</td>
+                                <td class="text-tertiary">{{ formatDateTime(file.modified) }}</td>
+                                <td class="text-center" @click.stop>
+                                    <button v-if="!file.is_dir" class="btn btn-icon-refined sm"
+                                        @click="downloadOpenListFile(file, currentOpenListTempTab.path)">
+                                        <i class="fas fa-download"></i>
+                                    </button>
+                                </td>
+                            </tr>
+                        </tbody>
+                        <tbody v-else-if="!currentOpenListTempTab.loading">
+                            <tr>
+                                <td colspan="4" style="border: none;">
+                                    <div class="openlist-empty-state">
+                                        <i class="fas fa-folder-open"></i>
+                                        <p>当前目录为空</p>
+                                    </div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    <div v-if="currentOpenListTempTab.loading" class="list-loading-shimmer">
+                        <div v-for="i in 8" :key="i" class="shimmer-row"></div>
                     </div>
                 </div>
             </div>
         </div>
 
-        <div class="panel-refined mt-3">
-            <div class="panel-header-refined">
-                <div class="title">偏好设置</div>
-            </div>
-            <div class="panel-body-refined">
-                <div class="settings-list">
-                    <div class="setting-item-refined">
-                        <div class="info">
-                            <div class="name">自动刷新目录</div>
-                            <div class="desc">进入目录时自动请求后端刷新缓存</div>
-                        </div>
-                        <div class="control">
-                            <div class="form-check form-switch">
-                                <input class="form-check-input" type="checkbox" checked disabled>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="setting-item-refined">
-                        <div class="info">
-                            <div class="name">渲染预览图</div>
-                            <div class="desc">在详情页尝试显示图片和视频预览</div>
-                        </div>
-                        <div class="control">
-                            <div class="form-check form-switch">
-                                <input class="form-check-input" type="checkbox" checked disabled>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
     </div>
-  </div>
+</div>
+<!-- 悬停预览图容器 -->
+<div id="file-hover-preview" class="file-hover-preview" style="display: none;">
+    <img id="file-hover-img" src="" referrerpolicy="no-referrer" />
 </div>

@@ -79,14 +79,47 @@
 }
 
 /* 关键帧 */
-@keyframes ag-spin { to { transform: rotate(360deg); } }
-@keyframes ag-spin-reverse { to { transform: rotate(-360deg); } }
-@keyframes ag-pulse {
-    0%, 100% { transform: scale(1); filter: brightness(1); }
-    50% { transform: scale(1.4); filter: brightness(1.2); }
+@keyframes ag-spin {
+    to {
+        transform: rotate(360deg);
+    }
 }
-@keyframes ag-text-shine { to { background-position: 200% center; } }
-@keyframes ag-fade-in { from { opacity: 0; } to { opacity: 1; } }
+
+@keyframes ag-spin-reverse {
+    to {
+        transform: rotate(-360deg);
+    }
+}
+
+@keyframes ag-pulse {
+
+    0%,
+    100% {
+        transform: scale(1);
+        filter: brightness(1);
+    }
+
+    50% {
+        transform: scale(1.4);
+        filter: brightness(1.2);
+    }
+}
+
+@keyframes ag-text-shine {
+    to {
+        background-position: 200% center;
+    }
+}
+
+@keyframes ag-fade-in {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
 
 /* 紧凑型加载器 */
 .ag-spinner-mini {
@@ -96,4 +129,42 @@
     border-top-color: var(--primary-color);
     border-radius: 50%;
     animation: ag-spin 0.6s linear infinite;
+}
+
+/* Refined Icon Button */
+.btn-icon-refined {
+    background: transparent;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    color: var(--text-secondary);
+    width: 32px;
+    height: 32px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.btn-icon-refined:hover {
+    background: var(--bg-tertiary);
+    color: var(--primary-color);
+    border-color: var(--border-color);
+}
+
+.btn-icon-refined:active {
+    transform: scale(0.95);
+}
+
+.btn-icon-refined.sm {
+    width: 33px;
+    height: 33px;
+    font-size: 16px;
+    border-radius: 9px;
+}
+
+.btn-icon-refined.danger:hover {
+    color: #ef4444;
+    background: rgba(239, 68, 68, 0.1);
+    border-color: rgba(239, 68, 68, 0.2);
 }

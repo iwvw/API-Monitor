@@ -559,18 +559,17 @@ export const hostMethods = {
     // ==================== 主机列表展开相关 ====================
 
     isServerExpanded(serverId) {
-        return this.expandedServers.has(serverId);
+        return this.expandedServers.includes(serverId);
     },
 
     async toggleServer(serverId) {
-        if (this.expandedServers.has(serverId)) {
-            // 收起：直接移除
-            this.expandedServers.delete(serverId);
-            this.expandedServers = new Set(this.expandedServers);
+        const index = this.expandedServers.indexOf(serverId);
+        if (index !== -1) {
+            // 收起：从数组中移除
+            this.expandedServers.splice(index, 1);
         } else {
-            // 展开：先立即展开卡片
-            this.expandedServers.add(serverId);
-            this.expandedServers = new Set(this.expandedServers);
+            // 展开：添加到数组
+            this.expandedServers.push(serverId);
 
             const server = this.serverList.find(s => s.id === serverId);
             if (!server) return;

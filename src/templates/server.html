@@ -35,12 +35,13 @@
             <div class="ssh-quick-menu-header"
               style="display: flex; justify-content: space-between; align-items: center;">
               <span><i class="fas fa-terminal"></i> 选择主机</span>
-              <button class="mini-btn-primary" @click="openAllServersInSSH" v-if="serverList.length > 0">
-                <i class="fas fa-layer-group" style="margin-right: 4px;"></i> 全部打开
+              <button class="mini-btn-primary" @click="openAllServersInSSH(); showSSHQuickMenu = false"
+                v-if="serverList.length > 0">
+                <i class="fas fa-layer-group" style="margin-right: 4px;"></i> 全部
               </button>
             </div>
             <div class="ssh-quick-menu-list">
-              <div v-for="server in serverList" :key="'ssh-quick-' + server.id" @click="openSSHTerminal(server)"
+              <div v-for="server in serverList" :key="'ssh-quick-list-' + server.id" @click="openSSHTerminal(server)"
                 class="ssh-quick-item">
                 <div :class="['server-status-indicator', server.status || 'unknown']"></div>
                 <div class="ssh-quick-item-info">
@@ -57,6 +58,7 @@
           </div>
         </transition>
       </div>
+
     </div>
   </div>
 
@@ -242,9 +244,9 @@
 
       <!-- 卡片展开详情区域 -->
       <div class="server-card-body">
-        <div class="server-details" style="border: none; padding: 10px;">
+        <div class="server-details">
 
-          <div v-if="server.loading"
+          <div v-if=" server.loading"
             style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px 0; gap: 16px;">
             <div class="ag-spinner-elegant ag-spinner-elegant-sm"></div>
             <p class="loading-text-elegant" style="font-size: 12px;">Retrieving Telemetry</p>
@@ -948,19 +950,26 @@ Web服务器,192.168.1.100,22,root,password123
   <div v-show="serverCurrentTab === 'terminal'" class="sub-tab-content ssh-terminal-sub-page">
     <div class="ssh-ide-layout" :class="{ fullscreen: sshIdeFullscreen }">
       <!-- 顶部工具栏 -->
+      <!-- 顶部工具栏 -->
       <div class="ssh-top-bar">
         <!-- 会话标签 -->
         <div class="ssh-session-tabs">
-          <div v-for="session in sshSessions" :key="session.id" class="ssh-session-tab"
-            :class="{ active: activeSSHSessionId === session.id }" draggable="true"
-            @dragstart="handleTabDragStart(session.id)" @dragend="handleTabDragEnd" @click="switchToSSHTab(session.id)"
-            @dblclick="closeSSHSession(session.id)" @mousedown.middle.stop="closeSSHSession(session.id)">
-            <i class="fas fa-terminal"></i>
-            <span class="ssh-tab-name">{{ session.server.name }}</span>
-            <div class="ssh-tab-close" @click.stop="closeSSHSession(session.id)" title="关闭">
-              <i class="fas fa-times"></i>
-            </div>
+          <div v-for="tab in sshTabList" :key="tab.id" class="ssh-session-tab"
+            :class="{ active: tab.isGroup ? tab.active : activeSSHSessionId === tab.id, 'is-group': tab.isGroup, 'is-split': !tab.isGroup && visibleSessionIds.includes(tab.id) }"
+            :draggable="!tab.isGroup" @dragstart="tab.isGroup ? null : handleTabDragStart(tab.id, $event)"
+            @dragend="handleTabDragEnd"
+            @click="tab.isGroup ? switchToSSHTab(tab.sessions[0].id) : switchToSSHTab(tab.id)"
+            @dblclick="tab.isGroup ? null : closeSSHSession(tab.id)"
+            @mousedown.middle.stop="tab.isGroup ? null : closeSSHSession(tab.id)">
+
+            <span class="ssh-tab-name">{{ tab.name || tab.server.name }}</span>
+
+            <!-- 聚合组右侧显示分屏数量 -->
+            <span v-if="tab.isGroup"
+              style="font-size: 10px; opacity: 0.6; background: rgba(var(--primary-rgb), 0.1); padding: 1px 2px; border-radius: 4px; margin-left: 2px;">{{
+              tab.sessions.length }}P</span>
           </div>
+
         </div>
 
         <!-- 操作按钮 -->
@@ -1005,40 +1014,55 @@ Web服务器,192.168.1.100,22,root,password123
       <div class="ssh-main-container" v-if="sshSessions.length > 0">
         <!-- 终端网格区域 (核心修复：使用 Vue 绑定属性确保状态持久) -->
         <div class="ssh-terminal-wrapper" :class="['layout-' + sshViewLayout, { 'dragging-active': draggedSessionId }]"
-          :data-pane-count="visibleSessionIds.length" @dragover.prevent="handleTerminalDragOver">
+          :data-pane-count="visibleSessionIds.length" :data-split-side="sshSplitSide"
+          @dragover.prevent="handleTerminalDragOver" @dragleave="clearDropHint" @drop="handleTerminalDrop()">
 
-          <div v-for="(sessionId, index) in (sshViewLayout === 'single' ? [activeSSHSessionId] : visibleSessionIds)"
-            :key="'slot-' + sessionId" class="ssh-terminal-instance"
-            :class="{ 'active': activeSSHSessionId === sessionId }" @mousedown="activeSSHSessionId = sessionId">
+          <!-- 全局放置预提示 (用于空白区域或整体布局调整) -->
+          <section class="global-drop-hint" :class="{ 'visible': dropHint && !dropTargetId }"
+            :style="getGlobalDropHintStyle()"></section>
 
-            <div class="ssh-instance-header" v-if="sshViewLayout !== 'single'" draggable="true"
-              @dragstart="handleTabDragStart(sessionId)" @dragend="handleTabDragEnd">
+          <!-- 核心优化：使用静态槽位（0-8），支持最高 9 分屏 -->
+          <div v-for="index in [0, 1, 2, 3, 4, 5, 6, 7, 8]" :key="'static-slot-' + index"
+            v-show="sshViewLayout === 'single' ? index === 0 : index < visibleSessionIds.length"
+            class="ssh-terminal-instance"
+            :class="{ 'active': activeSSHSessionId === (sshViewLayout === 'single' ? activeSSHSessionId : visibleSessionIds[index]) }"
+            @mousedown="sshViewLayout === 'single' ? null : (activeSSHSessionId = visibleSessionIds[index])">
+
+            <div class="ssh-instance-header" v-if="sshViewLayout !== 'single' && visibleSessionIds[index]"
+              draggable="true" @dragstart="handleTabDragStart(visibleSessionIds[index], $event)"
+              @dragend="handleTabDragEnd">
               <span class="ssh-instance-title">
-                <i class="fas fa-terminal"></i> {{ getSessionById(sessionId)?.server.name }}
+                <i class="fas fa-terminal"></i> {{ getSessionById(visibleSessionIds[index])?.server.name || 'SSH' }}
               </span>
               <div class="ssh-instance-actions">
-                <button class="mini-btn" @click.stop="closeSplitView(sessionId)" title="关闭分屏"><i
+                <button class="mini-btn" @click.stop="removeFromSplitView(visibleSessionIds[index])" title="关闭分屏"><i
                     class="fas fa-times"></i></button>
               </div>
             </div>
 
-            <div class="instance-drop-overlay" v-if="draggedSessionId && draggedSessionId !== sessionId">
-              <div class="drop-zone pos-top" @dragover.prevent.stop="setDropHint('top', sessionId)"
-                @dragleave="clearDropHint" @drop.stop="handleTerminalDrop(sessionId, 'top')"></div>
-              <div class="drop-zone pos-bottom" @dragover.prevent.stop="setDropHint('bottom', sessionId)"
-                @dragleave="clearDropHint" @drop.stop="handleTerminalDrop(sessionId, 'bottom')"></div>
-              <div class="drop-zone pos-left" @dragover.prevent.stop="setDropHint('left', sessionId)"
-                @dragleave="clearDropHint" @drop.stop="handleTerminalDrop(sessionId, 'left')"></div>
-              <div class="drop-zone pos-right" @dragover.prevent.stop="setDropHint('right', sessionId)"
-                @dragleave="clearDropHint" @drop.stop="handleTerminalDrop(sessionId, 'right')"></div>
-              <div class="drop-zone pos-center" @dragover.prevent.stop="setDropHint('center', sessionId)"
-                @dragleave="clearDropHint" @drop.stop="handleTerminalDrop(sessionId, 'center')"></div>
-              <div class="instance-drop-indicator" v-if="dropTargetId === sessionId" :class="'hint-' + dropHint">
+            <!-- 拖拽覆盖层，仅在分屏模式且非当前拖拽项时显示 -->
+            <div class="instance-drop-overlay" v-if="draggedSessionId && draggedSessionId !== visibleSessionIds[index]">
+              <div class="drop-zone pos-top" @dragover.prevent.stop="onDropZoneEnter('top', visibleSessionIds[index])"
+                @dragleave="onDropZoneLeave" @drop.stop="onDrop(visibleSessionIds[index], 'top')"></div>
+              <div class="drop-zone pos-bottom"
+                @dragover.prevent.stop="onDropZoneEnter('bottom', visibleSessionIds[index])"
+                @dragleave="onDropZoneLeave" @drop.stop="onDrop(visibleSessionIds[index], 'bottom')"></div>
+              <div class="drop-zone pos-left" @dragover.prevent.stop="onDropZoneEnter('left', visibleSessionIds[index])"
+                @dragleave="onDropZoneLeave" @drop.stop="onDrop(visibleSessionIds[index], 'left')"></div>
+              <div class="drop-zone pos-right"
+                @dragover.prevent.stop="onDropZoneEnter('right', visibleSessionIds[index])" @dragleave="onDropZoneLeave"
+                @drop.stop="onDrop(visibleSessionIds[index], 'right')"></div>
+              <div class="drop-zone pos-center"
+                @dragover.prevent.stop="onDropZoneEnter('center', visibleSessionIds[index])"
+                @dragleave="onDropZoneLeave" @drop.stop="onDrop(visibleSessionIds[index], 'center')"></div>
+              <div class="instance-drop-indicator" v-if="dropTargetId === visibleSessionIds[index]"
+                :class="'hint-' + dropHint">
                 <span v-if="dropHint === 'center'">替换</span><span v-else>拆分</span>
               </div>
             </div>
 
-            <div :id="'ssh-slot-' + sessionId" class="ssh-slot"></div>
+            <!-- 静态索引槽位 -->
+            <div :id="'ssh-slot-idx-' + index" class="ssh-slot"></div>
           </div>
         </div>
 
@@ -1059,10 +1083,10 @@ Web服务器,192.168.1.100,22,root,password123
                   <div class="snippet-category" v-if="snippet.category">{{ snippet.category }}</div>
                 </div>
                 <div class="snippet-actions">
-                  <button class="icon-btn" @click.stop="openEditSnippetModal(snippet)"><i
+                  <button class="btn-icon-refined sm" @click.stop="openEditSnippetModal(snippet)"><i
                       class="fas fa-edit"></i></button>
-                  <button class="icon-btn danger" @click.stop="deleteSnippet(snippet.id)"><i
-                      class="fas fa-trash"></i></button>
+                  <button class="btn-icon-refined sm" style="color: var(--danger-color);"
+                    @click.stop="deleteSnippet(snippet.id)"><i class="fas fa-trash"></i></button>
                 </div>
               </div>
               <div v-if="sshSnippets.length === 0" class="empty-text">

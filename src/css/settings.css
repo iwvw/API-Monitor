@@ -115,12 +115,12 @@
 }
 
 .settings-main {
-  padding: 12px;
+  padding: 10px;
   height: 100%;
 }
 
 .settings-group {
-  padding: 16px;
+  padding: 10px;
 }
 
 .settings-group-title {
@@ -139,7 +139,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 24px;
+  padding: 10px 16px;
   border-bottom: 1px solid var(--sidebar-border);
   background-color: var(--sidebar-bg);
   color: var(--text-primary);
@@ -264,7 +264,8 @@
 .settings-main {
   flex: 1;
   overflow-y: auto;
-  overflow-x: hidden; /* 防止水平溢出 */
+  overflow-x: hidden;
+  /* 防止水平溢出 */
   width: 100%;
   box-sizing: border-box;
   padding: 12px;
@@ -300,7 +301,7 @@
   background-color: var(--card-bg);
   border: 1px solid var(--border-color);
   border-radius: 12px;
-  padding: 20px;
+  padding: 10px;
   margin-bottom: 0;
   /* 使用 gap 控制间距 */
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
@@ -789,6 +790,7 @@ input::-webkit-inner-spin-button {
 input[type=number] {
   -moz-appearance: textfield;
 }
+
 /* About Section Logo */
 .about-logo {
   width: 80px;
