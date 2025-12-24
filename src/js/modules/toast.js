@@ -52,329 +52,276 @@ class ToastManager {
         if (document.getElementById('toast-manager-styles')) return;
 
         const styles = `
-            /* Toast容器 - 不同位置 */
+            /* ============ Toast 容器 ============ */
             .toast-manager-container {
                 position: fixed;
-                z-index: 9999;
+                z-index: 10000;
                 pointer-events: none;
                 display: flex;
                 flex-direction: column;
-                gap: 12px;
-                max-width: 420px;
-                padding: 16px;
+                gap: 8px;
+                max-width: 360px;
+                padding: 0;
             }
 
-            .toast-manager-container.top-right {
-                top: 0;
-                right: 0;
-                align-items: flex-end;
-            }
+            .toast-manager-container.top-right { top: 16px; right: 16px; align-items: flex-end; }
+            .toast-manager-container.top-left { top: 16px; left: 16px; align-items: flex-start; }
+            .toast-manager-container.bottom-right { bottom: 16px; right: 16px; align-items: flex-end; flex-direction: column-reverse; }
+            .toast-manager-container.bottom-left { bottom: 16px; left: 16px; align-items: flex-start; flex-direction: column-reverse; }
+            .toast-manager-container.top-center { top: 16px; left: 50%; transform: translateX(-50%); align-items: center; }
+            .toast-manager-container.bottom-center { bottom: 16px; left: 50%; transform: translateX(-50%); align-items: center; flex-direction: column-reverse; }
 
-            .toast-manager-container.top-left {
-                top: 0;
-                left: 0;
-                align-items: flex-start;
-            }
-
-            .toast-manager-container.bottom-right {
-                bottom: 0;
-                right: 0;
-                align-items: flex-end;
-                flex-direction: column-reverse;
-            }
-
-            .toast-manager-container.bottom-left {
-                bottom: 0;
-                left: 0;
-                align-items: flex-start;
-                flex-direction: column-reverse;
-            }
-
-            .toast-manager-container.top-center {
-                top: 0;
-                left: 50%;
-                transform: translateX(-50%);
-                align-items: center;
-            }
-
-            .toast-manager-container.bottom-center {
-                bottom: 0;
-                left: 50%;
-                transform: translateX(-50%);
-                align-items: center;
-                flex-direction: column-reverse;
-            }
-
-            /* Toast主体 */
+            /* ============ Toast 主体 - 紧凑现代风 ============ */
             .toast-manager-item {
                 position: relative;
-                min-width: 240px;
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                min-width: 200px;
                 max-width: 320px;
-                padding: 12px 14px;
+                padding: 10px 14px 10px 12px;
                 background: var(--card-bg, #ffffff);
-                border-radius: 8px;
-                box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12),
-                            0 0 0 1px rgba(0, 0, 0, 0.04);
+                backdrop-filter: blur(12px) saturate(150%);
+                -webkit-backdrop-filter: blur(12px) saturate(150%);
+                border: 1px solid var(--border-color, rgba(0,0,0,0.08));
+                border-radius: 10px;
+                box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.06);
                 pointer-events: auto;
                 cursor: pointer;
                 overflow: hidden;
-                transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
             }
 
             .toast-manager-item:hover {
                 transform: translateY(-2px);
-                box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2),
-                            0 0 0 1px rgba(0, 0, 0, 0.1);
+                box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12), 0 2px 6px rgba(0, 0, 0, 0.08);
             }
 
-            .toast-manager-item.paused {
-                transform: scale(1.02);
-            }
+            .toast-manager-item.paused { transform: scale(1.01); }
 
-            /* Toast内容区域 */
+            /* ============ 类型边框色 ============ */
+            .toast-manager-item.success { border-left: 3px solid #10b981; }
+            .toast-manager-item.error { border-left: 3px solid #ef4444; }
+            .toast-manager-item.warning { border-left: 3px solid #f59e0b; }
+            .toast-manager-item.info { border-left: 3px solid #3b82f6; }
+
+            /* ============ 内容区域 ============ */
             .toast-manager-content {
                 display: flex;
-                align-items: flex-start;
-                gap: 12px;
-            }
-
-            /* 图标样式 */
-            .toast-manager-icon {
-                flex-shrink: 0;
-                width: 20px;
-                height: 20px;
-                display: flex;
                 align-items: center;
-                justify-content: center;
-                font-size: 16px;
-                border-radius: 50%;
-                padding: 3px;
-            }
-
-            .toast-manager-item.success .toast-manager-icon {
-                color: #10b981;
-                background: rgba(16, 185, 129, 0.1);
-            }
-
-            .toast-manager-item.error .toast-manager-icon {
-                color: #ef4444;
-                background: rgba(239, 68, 68, 0.1);
-            }
-
-            .toast-manager-item.warning .toast-manager-icon {
-                color: #f59e0b;
-                background: rgba(245, 158, 11, 0.1);
-            }
-
-            .toast-manager-item.info .toast-manager-icon {
-                color: #3b82f6;
-                background: rgba(59, 130, 246, 0.1);
-            }
-
-            /* 文本内容 */
-            .toast-manager-text {
+                gap: 10px;
                 flex: 1;
                 min-width: 0;
             }
 
-            .toast-manager-title {
+            /* ============ 图标 ============ */
+            .toast-manager-icon {
+                flex-shrink: 0;
+                width: 28px;
+                height: 28px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
                 font-size: 13px;
+                border-radius: 8px;
+            }
+
+            .toast-manager-item.success .toast-manager-icon { color: #10b981; background: rgba(16, 185, 129, 0.1); }
+            .toast-manager-item.error .toast-manager-icon { color: #ef4444; background: rgba(239, 68, 68, 0.1); }
+            .toast-manager-item.warning .toast-manager-icon { color: #f59e0b; background: rgba(245, 158, 11, 0.1); }
+            .toast-manager-item.info .toast-manager-icon { color: #3b82f6; background: rgba(59, 130, 246, 0.1); }
+
+            /* ============ 文字 ============ */
+            .toast-manager-text { flex: 1; min-width: 0; }
+
+            .toast-manager-title {
+                font-size: 12px;
                 font-weight: 600;
-                color: var(--text-primary, #1f2937);
-                margin-bottom: 3px;
+                color: var(--text-primary);
                 line-height: 1.3;
+                margin-bottom: 1px;
             }
 
             .toast-manager-message {
                 font-size: 12px;
-                color: var(--text-secondary, #6b7280);
+                color: var(--text-secondary);
                 line-height: 1.4;
-                word-wrap: break-word;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
             }
 
-            /* 仅有消息无标题时的样式 */
+            /* 仅消息无标题时 */
             .toast-manager-text:not(:has(.toast-manager-title)) .toast-manager-message {
-                color: var(--text-primary, #1f2937);
+                color: var(--text-primary);
                 font-weight: 500;
             }
 
-            /* 关闭按钮 */
+            /* ============ 关闭按钮 ============ */
             .toast-manager-close {
                 position: absolute;
-                top: 10px;
-                right: 10px;
-                width: 18px;
-                height: 18px;
+                top: 6px;
+                right: 6px;
+                width: 16px;
+                height: 16px;
                 display: flex;
                 align-items: center;
                 justify-content: center;
                 background: transparent;
                 border: none;
-                border-radius: 3px;
-                color: var(--text-tertiary, #9ca3af);
+                border-radius: 4px;
+                color: var(--text-tertiary);
                 cursor: pointer;
-                font-size: 12px;
-                transition: all 0.2s;
+                font-size: 9px;
+                transition: all 0.15s;
                 opacity: 0;
             }
 
-            .toast-manager-item:hover .toast-manager-close {
-                opacity: 1;
-            }
+            .toast-manager-item:hover .toast-manager-close { opacity: 0.6; }
+            .toast-manager-close:hover { opacity: 1 !important; background: rgba(239, 68, 68, 0.1); color: #ef4444; }
 
-            .toast-manager-close:hover {
-                background: var(--bg-secondary, #f3f4f6);
-                color: var(--text-primary, #1f2937);
-            }
-
-            /* 进度条 */
+            /* ============ 进度条 ============ */
             .toast-manager-progress {
                 position: absolute;
                 bottom: 0;
                 left: 0;
                 height: 2px;
                 background: currentColor;
-                opacity: 0.3;
+                opacity: 0.4;
                 transition: width linear;
+                border-radius: 0 0 0 10px;
             }
 
-            .toast-manager-item.success .toast-manager-progress {
-                color: #10b981;
-            }
+            .toast-manager-item.success .toast-manager-progress { color: #10b981; }
+            .toast-manager-item.error .toast-manager-progress { color: #ef4444; }
+            .toast-manager-item.warning .toast-manager-progress { color: #f59e0b; }
+            .toast-manager-item.info .toast-manager-progress { color: #3b82f6; }
 
-            .toast-manager-item.error .toast-manager-progress {
-                color: #ef4444;
+            /* ============ 动画 ============ */
+            @keyframes toast-pop-in {
+                0% { transform: translateX(20px) scale(0.95); opacity: 0; }
+                100% { transform: translateX(0) scale(1); opacity: 1; }
             }
-
-            .toast-manager-item.warning .toast-manager-progress {
-                color: #f59e0b;
+            @keyframes toast-pop-in-left {
+                0% { transform: translateX(-20px) scale(0.95); opacity: 0; }
+                100% { transform: translateX(0) scale(1); opacity: 1; }
             }
-
-            .toast-manager-item.info .toast-manager-progress {
-                color: #3b82f6;
+            @keyframes toast-pop-in-center {
+                0% { transform: translateY(-10px) scale(0.95); opacity: 0; }
+                100% { transform: translateY(0) scale(1); opacity: 1; }
             }
-
-            /* 进入动画 */
-            @keyframes toast-slide-in-right {
-                from {
-                    transform: translateX(calc(100% + 16px));
-                    opacity: 0;
-                }
-                to {
-                    transform: translateX(0);
-                    opacity: 1;
-                }
+            @keyframes toast-pop-out {
+                0% { transform: translateX(0) scale(1); opacity: 1; }
+                100% { transform: translateX(30px) scale(0.9); opacity: 0; }
             }
-
-            @keyframes toast-slide-in-left {
-                from {
-                    transform: translateX(calc(-100% - 16px));
-                    opacity: 0;
-                }
-                to {
-                    transform: translateX(0);
-                    opacity: 1;
-                }
+            @keyframes toast-pop-out-left {
+                0% { transform: translateX(0) scale(1); opacity: 1; }
+                100% { transform: translateX(-30px) scale(0.9); opacity: 0; }
             }
-
-            @keyframes toast-slide-in-center {
-                from {
-                    transform: translateY(-20px) scale(0.95);
-                    opacity: 0;
-                }
-                to {
-                    transform: translateY(0) scale(1);
-                    opacity: 1;
-                }
+            @keyframes toast-fade-out {
+                0% { transform: scale(1); opacity: 1; }
+                100% { transform: scale(0.95); opacity: 0; }
+            }
+            @keyframes toast-fade-in {
+                0% { opacity: 0; transform: scale(0.95); }
+                100% { opacity: 1; transform: scale(1); }
             }
 
             .toast-manager-container.top-right .toast-manager-item,
             .toast-manager-container.bottom-right .toast-manager-item {
-                animation: toast-slide-in-right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                animation: toast-pop-in 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
             }
-
             .toast-manager-container.top-left .toast-manager-item,
             .toast-manager-container.bottom-left .toast-manager-item {
-                animation: toast-slide-in-left 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                animation: toast-pop-in-left 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
             }
-
             .toast-manager-container.top-center .toast-manager-item,
             .toast-manager-container.bottom-center .toast-manager-item {
-                animation: toast-slide-in-center 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                animation: toast-pop-in-center 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
             }
 
-            /* 退出动画 */
-            @keyframes toast-slide-out-right {
-                from {
-                    transform: translateX(0);
-                    opacity: 1;
-                }
-                to {
-                    transform: translateX(calc(100% + 16px));
-                    opacity: 0;
-                }
-            }
-
-            @keyframes toast-slide-out-left {
-                from {
-                    transform: translateX(0);
-                    opacity: 1;
-                }
-                to {
-                    transform: translateX(calc(-100% - 16px));
-                    opacity: 0;
-                }
-            }
-
-            @keyframes toast-fade-out {
-                from {
-                    transform: scale(1);
-                    opacity: 1;
-                }
-                to {
-                    transform: scale(0.95);
-                    opacity: 0;
-                }
-            }
-
-            .toast-manager-item.removing {
-                pointer-events: none;
-            }
+            .toast-manager-item.removing { pointer-events: none; }
 
             .toast-manager-container.top-right .toast-manager-item.removing,
             .toast-manager-container.bottom-right .toast-manager-item.removing {
-                animation: toast-slide-out-right 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+                animation: toast-pop-out 0.2s ease forwards;
             }
-
             .toast-manager-container.top-left .toast-manager-item.removing,
             .toast-manager-container.bottom-left .toast-manager-item.removing {
-                animation: toast-slide-out-left 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+                animation: toast-pop-out-left 0.2s ease forwards;
             }
-
             .toast-manager-container.top-center .toast-manager-item.removing,
             .toast-manager-container.bottom-center .toast-manager-item.removing {
-                animation: toast-fade-out 0.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+                animation: toast-fade-out 0.2s ease forwards;
             }
 
-            /* 响应式设计 */
-            @media (max-width: 640px) {
-                .toast-manager-container {
-                    max-width: calc(100vw - 24px);
+            /* ============ 移动端适配 ============ */
+            @media (max-width: 768px) {
+                .toast-manager-container,
+                .toast-manager-container.top-right,
+                .toast-manager-container.top-left,
+                .toast-manager-container.top-center,
+                .toast-manager-container.bottom-right,
+                .toast-manager-container.bottom-left,
+                .toast-manager-container.bottom-center {
                     padding: 8px;
+                    max-width: 280px;
+                    left: auto !important;
+                    right: 0 !important;
+                    top: 0 !important;
+                    bottom: auto !important;
+                    transform: none !important;
+                    align-items: flex-end !important;
+                    flex-direction: column !important;
                 }
 
-                .toast-manager-item {
-                    min-width: 220px;
-                    max-width: calc(100vw - 24px);
-                    padding: 10px 12px;
+                .toast-manager-container .toast-manager-item,
+                .toast-manager-container.top-right .toast-manager-item,
+                .toast-manager-container.top-left .toast-manager-item,
+                .toast-manager-container.top-center .toast-manager-item,
+                .toast-manager-container.bottom-right .toast-manager-item,
+                .toast-manager-container.bottom-left .toast-manager-item,
+                .toast-manager-container.bottom-center .toast-manager-item {
+                    width: auto;
+                    max-width: 260px;
+                    min-width: 160px;
+                    padding: 6px 10px;
+                    border-radius: 8px;
+                    gap: 8px;
+                    animation: toast-fade-in 0.2s ease !important;
+                }
+
+                .toast-manager-container .toast-manager-item.removing,
+                .toast-manager-container.top-right .toast-manager-item.removing,
+                .toast-manager-container.top-left .toast-manager-item.removing,
+                .toast-manager-container.top-center .toast-manager-item.removing,
+                .toast-manager-container.bottom-right .toast-manager-item.removing,
+                .toast-manager-container.bottom-left .toast-manager-item.removing,
+                .toast-manager-container.bottom-center .toast-manager-item.removing {
+                    animation: toast-fade-out 0.15s ease forwards !important;
+                }
+
+                .toast-manager-icon {
+                    width: 20px;
+                    height: 20px;
+                    font-size: 10px;
+                    border-radius: 5px;
                 }
 
                 .toast-manager-title {
-                    font-size: 12px;
+                    font-size: 11px;
                 }
 
                 .toast-manager-message {
-                    font-size: 11px;
+                    font-size: 10px;
+                }
+
+                .toast-manager-close {
+                    display: none;
+                }
+
+                .toast-manager-progress {
+                    height: 1.5px;
                 }
             }
         `;

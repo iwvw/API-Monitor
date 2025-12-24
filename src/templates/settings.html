@@ -104,7 +104,7 @@
                   </div>
                 </div>
 
-                <div class="form-group" style="margin-top: 12px;">
+                <!-- <div class="form-group" style="margin-top: 12px;">
                   <label class="form-label" style="font-size: 13px;">主机刷新间隔 (秒)</label>
                   <div class="input-with-suffix">
                     <input v-model.number="monitorConfig.interval" type="number" class="form-input" min="10" max="3600"
@@ -112,7 +112,7 @@
                     <span class="input-suffix">秒</span>
                   </div>
                   <div class="form-help" style="font-size: 11px;">设置主机状态自动刷新的频率，最小 10 秒。</div>
-                </div>
+                </div> -->
               </div>
             </div>
           </div>
@@ -227,8 +227,6 @@
                       <div class="db-stat-value" v-if="dbStats" style="font-size: 20px;">{{
                         formatFileSize(dbStats.dbSize) }}</div>
                       <div class="db-stat-value" v-else>--</div>
-                      <span
-                        style="font-size: 11px; color: var(--text-tertiary); font-weight: normal;">(含配置、账号及日志)</span>
                     </div>
                   </div>
                   <div class="db-stat-item" style="border-top: 1px dashed var(--border-color); padding-top: 12px;">
