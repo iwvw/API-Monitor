@@ -30,7 +30,21 @@ ENV PATH=/app/node_modules/.bin:$PATH \
     VITE_CDN_PROVIDER=npmmirror
 RUN npm run build
 
-# 阶段 2: 运行时镜像 (Runner)
+# 阶段 2: 构建 Agent 二进制 (Agent Builder)
+FROM node:18-slim AS agent-builder
+WORKDIR /app/agent
+# 安装构建和压缩工具 (curl 用于下载 UPX, xz-utils 用于解压 .tar.xz)
+RUN apt-get update && apt-get install -y curl xz-utils && rm -rf /var/lib/apt/lists/*
+COPY agent/package.json agent/ ./
+# 设置镜像源并安装依赖
+RUN npm config set registry https://registry.npmmirror.com && \
+    npm install
+# 复制脚本并执行构建 (会调用 build.js 进行打包 + UPX 压缩)
+COPY agent/ .
+ENV PKG_TARGETS=node18-linux-x64,node18-win-x64
+RUN npm run build
+
+# 阶段 3: 运行时镜像 (Runner)
 FROM node:20-alpine AS runner
 
 LABEL org.opencontainers.image.title="API Monitor"
@@ -57,8 +71,12 @@ RUN npm config set registry https://registry.npmmirror.com
 # 2. 仅安装生产依赖 (减小体积)
 RUN npm install --only=production --legacy-peer-deps && npm cache clean --force
 
-# 3. 从 Builder 阶段复制构建好的前端资源
+# 3. 从各阶段复制构建好的资源
 COPY --from=builder --chown=nodejs:nodejs /app/dist ./dist
+# 将 Agent 二进制文件放入 dist/agent 目录以便静态服务
+RUN mkdir -p /app/dist/agent
+COPY --from=agent-builder --chown=nodejs:nodejs /app/agent/dist/api-monitor-agent-linux /app/dist/agent/
+COPY --from=agent-builder --chown=nodejs:nodejs /app/agent/dist/api-monitor-agent-win.exe /app/dist/agent/
 
 # 4. 复制后端源码
 COPY --chown=nodejs:nodejs . .

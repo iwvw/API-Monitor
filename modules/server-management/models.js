@@ -620,10 +620,12 @@ class ServerMetricsHistory {
                 server_id, cpu_usage, cpu_load, cpu_cores,
                 mem_used, mem_total, mem_usage,
                 disk_used, disk_total, disk_usage,
-                docker_installed, docker_running, docker_stopped
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                docker_installed, docker_running, docker_stopped,
+                recorded_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
 
+        const now = new Date().toISOString();
         const result = stmt.run(
             data.server_id,
             data.cpu_usage || 0,
@@ -637,7 +639,8 @@ class ServerMetricsHistory {
             data.disk_usage || 0,
             data.docker_installed ? 1 : 0,
             data.docker_running || 0,
-            data.docker_stopped || 0
+            data.docker_stopped || 0,
+            now
         );
 
         return { id: result.lastInsertRowid, ...data };
@@ -796,6 +799,28 @@ class ServerMetricsHistory {
         `);
 
         return stmt.get(serverId, cutoffDate.toISOString());
+    }
+
+    /**
+     * 清空记录
+     * @param {string} serverId - 可选，指定主机 ID
+     * @returns {number} 删除的记录数
+     */
+    static clear(serverId = null) {
+        const db = getDb();
+        if (serverId) {
+            const stmt = db.prepare('DELETE FROM server_metrics_history WHERE server_id = ?');
+            const result = stmt.run(serverId);
+            return result.changes;
+        } else {
+            const stmt = db.prepare('DELETE FROM server_metrics_history');
+            const result = stmt.run();
+            // 重置自增 ID (可选，通常建议清空时重置)
+            try {
+                db.prepare("DELETE FROM sqlite_sequence WHERE name = 'server_metrics_history'").run();
+            } catch (e) { }
+            return result.changes;
+        }
     }
 }
 

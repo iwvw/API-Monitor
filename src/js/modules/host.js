@@ -12,6 +12,9 @@ export const hostMethods = {
 
     async openAddServerModal() {
         this.serverModalMode = 'add';
+        this.serverAddMode = 'ssh'; // 重置为 SSH 模式
+        this.quickDeployName = '';  // 重置快速部署名称
+        this.quickDeployResult = null; // 重置快速部署结果
 
         // 重置表单
         this.serverForm = {
@@ -90,6 +93,78 @@ export const hostMethods = {
     closeServerModal() {
         this.showServerModal = false;
         this.serverModalError = '';
+        this.quickDeployResult = null; // 关闭时清空结果
+    },
+
+    /**
+     * 生成快速安装命令 (Agent 模式)
+     */
+    async generateQuickInstallCommand() {
+        const name = this.quickDeployName?.trim();
+        if (!name) {
+            this.serverModalError = '请输入服务器名称';
+            return;
+        }
+
+        this.serverModalSaving = true;
+        this.serverModalError = '';
+
+        try {
+            const response = await fetch('/api/server/agent/quick-install', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name })
+            });
+
+            const data = await response.json();
+
+            if (data.success) {
+                this.quickDeployResult = data.data;
+                this.showGlobalToast(
+                    data.data.isNew
+                        ? `已创建主机 "${name}"`
+                        : `主机 "${name}" 已存在，已生成安装命令`,
+                    'success'
+                );
+
+                // 如果是新创建的主机，刷新主机列表
+                if (data.data.isNew) {
+                    await this.loadServerList();
+                }
+            } else {
+                this.serverModalError = data.error || '生成安装命令失败';
+            }
+        } catch (error) {
+            console.error('[Quick Deploy] 生成失败:', error);
+            this.serverModalError = '生成安装命令失败: ' + error.message;
+        } finally {
+            this.serverModalSaving = false;
+        }
+    },
+
+    /**
+     * 复制快速部署安装命令到剪贴板
+     */
+    async copyQuickDeployCommand() {
+        const command = this.agentInstallOS === 'linux'
+            ? this.quickDeployResult?.installCommand
+            : this.quickDeployResult?.winInstallCommand;
+
+        if (!command) return;
+
+        try {
+            await navigator.clipboard.writeText(command);
+            this.showGlobalToast('安装命令已复制到剪贴板', 'success');
+        } catch (error) {
+            // 降级方案
+            const textarea = document.createElement('textarea');
+            textarea.value = command;
+            document.body.appendChild(textarea);
+            textarea.select();
+            document.execCommand('copy');
+            document.body.removeChild(textarea);
+            this.showGlobalToast('安装命令已复制', 'success');
+        }
     },
 
     async testServerConnection() {
@@ -574,20 +649,10 @@ export const hostMethods = {
             const server = this.serverList.find(s => s.id === serverId);
             if (!server) return;
 
-            // 展开时加载历史指标图表
-            this.loadCardMetrics(serverId);
+            // 延迟加载历史指标图表，避免展开瞬间卡顿
+            setTimeout(() => this.loadCardMetrics(serverId), 300);
 
-            // 彻底摒弃 SSH 缓存机制：点击展开即触发强制刷新 (Agent 模式除外，因为 Agent 有实时推送)
-            const isAgent = server.monitor_mode === 'agent';
-            const hasLiveUpdate = server.info && server.info.cpu_usage; // 如果已经有实时规律跳动的数据
-
-            if (isAgent && hasLiveUpdate) {
-                // Agent 且已有实时数据，无需操作
-                return;
-            }
-
-            // 强制刷新：显示 loading 并拉取最新数据
-            this.loadServerInfo(serverId, true, false);
+            // 不再强制刷新数据 - 实时数据由 Socket.IO 推送
         }
     },
 
@@ -681,8 +746,14 @@ export const hostMethods = {
                 this.connectMetricsStream();
             }
 
-            // 2. 作为保底或背景维护，启动标准轮询
-            this.startServerPolling();
+            // 2. 仅在 Socket.IO 未连接时才启动 HTTP 轮询作为降级
+            // 注意: connectMetricsStream 是异步的, 这里延迟检查连接状态
+            setTimeout(() => {
+                if (!this.metricsWsConnected && !this.metricsWsConnecting) {
+                    console.log('[Host] Socket.IO 未连接，启动 HTTP 轮询作为降级');
+                    this.startServerPolling();
+                }
+            }, 3000);
 
             // 3. 进入页面时立即 ping 所有主机获取延迟
             this.pingAllServers();
@@ -1078,6 +1149,8 @@ export const hostMethods = {
         }
 
         this.agentInstallLoading = true;
+        this.agentInstallLog = '';
+        this.agentInstallResult = null;
         this.showAgentModal = true;
         this.agentModalData = {
             serverId,
@@ -1116,15 +1189,19 @@ export const hostMethods = {
      * 复制安装命令到剪贴板
      */
     async copyAgentCommand() {
-        if (!this.agentModalData?.installCommand) return;
+        const command = this.agentInstallOS === 'linux'
+            ? this.agentModalData?.installCommand
+            : this.agentModalData?.winInstallCommand;
+
+        if (!command) return;
 
         try {
-            await navigator.clipboard.writeText(this.agentModalData.installCommand);
+            await navigator.clipboard.writeText(command);
             this.showGlobalToast('安装命令已复制到剪贴板', 'success');
         } catch (error) {
             // 降级方案
             const textarea = document.createElement('textarea');
-            textarea.value = this.agentModalData.installCommand;
+            textarea.value = command;
             document.body.appendChild(textarea);
             textarea.select();
             document.execCommand('copy');
@@ -1137,16 +1214,6 @@ export const hostMethods = {
      * 重新生成 Agent 密钥 (全局统一密钥)
      */
     async regenerateAgentKey(serverId) {
-        const confirmed = await this.showConfirm({
-            title: '重新生成全局密钥',
-            message: '警告：重新生成密钥后，所有已部署的 Agent 将无法连接，必须全部重新部署方能恢复监控。确定继续？',
-            icon: 'fa-exclamation-triangle',
-            confirmText: '确定重置',
-            confirmClass: 'btn-danger'
-        });
-
-        if (!confirmed) return;
-
         try {
             const response = await fetch(`/api/server/agent/regenerate-key`, {
                 method: 'POST'
@@ -1172,18 +1239,9 @@ export const hostMethods = {
      * 自动安装 Agent（通过 SSH）
      */
     async autoInstallAgent(serverId) {
-        const confirmed = await this.showConfirm({
-            title: '自动安装 Agent',
-            message: '将通过 SSH 在目标服务器上自动安装 Agent，安装过程可能需要几秒钟。确定继续？',
-            icon: 'fa-download',
-            confirmText: '开始安装',
-            confirmClass: 'btn-primary'
-        });
-
-        if (!confirmed) return;
-
         this.agentInstallLoading = true;
-        this.showGlobalToast('正在安装 Agent...', 'info');
+        this.agentInstallLog = '正在连接服务器并安装 Agent...\n';
+        this.agentInstallResult = null;
 
         try {
             const response = await fetch(`/api/server/agent/auto-install/${serverId}`, {
@@ -1193,14 +1251,18 @@ export const hostMethods = {
             const data = await response.json();
 
             if (data.success) {
+                this.agentInstallLog += (data.output || '') + '\n\n✅ Agent 安装成功！';
+                this.agentInstallResult = 'success';
                 this.showGlobalToast('Agent 安装成功！', 'success');
-                this.closeAgentModal();
             } else {
+                this.agentInstallLog += (data.output || '') + '\n\n❌ 安装失败: ' + (data.error || '未知错误');
+                this.agentInstallResult = 'error';
                 this.showGlobalToast('安装失败: ' + (data.error || '未知错误'), 'error');
-                console.error('Agent 安装输出:', data.output);
             }
         } catch (error) {
             console.error('自动安装 Agent 失败:', error);
+            this.agentInstallLog += '\n❌ 网络错误: ' + error.message;
+            this.agentInstallResult = 'error';
             this.showGlobalToast('安装失败: ' + error.message, 'error');
         } finally {
             this.agentInstallLoading = false;
@@ -1315,15 +1377,7 @@ export const hostMethods = {
     async runBatchAgentInstall() {
         if (this.selectedBatchServers.length === 0) return;
 
-        const confirmed = await this.showConfirm({
-            title: '批量安装 Agent',
-            message: `确定在选中的 ${this.selectedBatchServers.length} 台主机上批量安装 Agent 吗？这可能需要一些时间。`,
-            icon: 'fa-robot',
-            confirmText: '开始部署',
-            confirmClass: 'btn-primary'
-        });
-
-        if (!confirmed) return;
+        // 直接开始安装，无需确认
 
         this.agentInstallLoading = true;
         this.batchInstallResults = this.selectedBatchServers.map(id => {

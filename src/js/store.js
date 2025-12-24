@@ -175,11 +175,19 @@ export const store = reactive({
     showAgentModal: false,
     agentModalData: null,
     agentInstallLoading: false,
+    agentInstallLog: '',       // 安装日志输出
+    agentInstallResult: null,  // 'success' | 'error' | null
+    agentInstallOS: 'linux',   // 'linux' | 'windows'
 
     // 批量 Agent 部署
     showBatchAgentModal: false,
     selectedBatchServers: [],
     batchInstallResults: [],
+
+    // 快速部署模式
+    serverAddMode: 'ssh', // 'ssh' | 'agent'
+    quickDeployName: '',  // 快速部署输入的服务器名称
+    quickDeployResult: null, // 快速部署生成的结果 { serverId, serverName, isNew, installCommand }
 
     serverCredentials: [],
     showSSHQuickMenu: false, // SSH 快速连接下拉菜单

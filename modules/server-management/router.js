@@ -563,4 +563,199 @@ router.delete('/metrics/history/cleanup', (req, res) => {
     }
 });
 
+/**
+ * 清空历史指标记录
+ */
+router.delete('/metrics/history/clear', (req, res) => {
+    try {
+        const { serverId = null } = req.query;
+        const deleted = ServerMetricsHistory.clear(serverId);
+        res.json({
+            success: true,
+            message: serverId ? `已清空指定主机的 ${deleted} 条记录` : `已清空所有主机的 ${deleted} 条指标记录`
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// ==================== 任务下发接口 ====================
+
+const { TaskTypes } = require('./protocol');
+
+/**
+ * 向指定主机执行命令
+ */
+router.post('/task/command/:serverId', async (req, res) => {
+    try {
+        const { serverId } = req.params;
+        const { command, timeout = 60000 } = req.body;
+
+        if (!command) {
+            return res.status(400).json({ success: false, error: '缺少命令' });
+        }
+
+        // 检查主机是否在线
+        if (!agentService.isOnline(serverId)) {
+            return res.status(400).json({ success: false, error: '主机不在线' });
+        }
+
+        const taskId = require('crypto').randomUUID();
+        const result = agentService.sendTask(serverId, {
+            id: taskId,
+            type: TaskTypes.COMMAND,
+            data: command,
+            timeout
+        });
+
+        if (!result) {
+            return res.status(500).json({ success: false, error: '任务下发失败' });
+        }
+
+        res.json({
+            success: true,
+            data: {
+                taskId,
+                serverId,
+                command,
+                status: 'sent'
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * 向指定主机执行命令并等待结果
+ */
+router.post('/task/command/:serverId/sync', async (req, res) => {
+    try {
+        const { serverId } = req.params;
+        const { command, timeout = 60000 } = req.body;
+
+        if (!command) {
+            return res.status(400).json({ success: false, error: '缺少命令' });
+        }
+
+        // 检查主机是否在线
+        if (!agentService.isOnline(serverId)) {
+            return res.status(400).json({ success: false, error: '主机不在线' });
+        }
+
+        // 使用 Promise 等待任务结果
+        const result = await agentService.sendTaskAndWait(serverId, {
+            type: TaskTypes.COMMAND,
+            data: command,
+            timeout
+        }, timeout + 5000);
+
+        res.json({
+            success: result.successful,
+            data: {
+                output: result.data,
+                delay: result.delay,
+                successful: result.successful
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * 批量向多个主机执行命令
+ */
+router.post('/task/command/batch', async (req, res) => {
+    try {
+        const { serverIds, command, timeout = 60000 } = req.body;
+
+        if (!Array.isArray(serverIds) || serverIds.length === 0) {
+            return res.status(400).json({ success: false, error: '缺少目标主机列表' });
+        }
+        if (!command) {
+            return res.status(400).json({ success: false, error: '缺少命令' });
+        }
+
+        const results = [];
+        for (const serverId of serverIds) {
+            const online = agentService.isOnline(serverId);
+            if (!online) {
+                results.push({ serverId, success: false, error: '主机不在线' });
+                continue;
+            }
+
+            const taskId = require('crypto').randomUUID();
+            const sent = agentService.sendTask(serverId, {
+                id: taskId,
+                type: TaskTypes.COMMAND,
+                data: command,
+                timeout
+            });
+
+            results.push({
+                serverId,
+                success: sent,
+                taskId: sent ? taskId : null
+            });
+        }
+
+        res.json({
+            success: true,
+            data: {
+                total: serverIds.length,
+                sent: results.filter(r => r.success).length,
+                results
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * 获取主机连接状态
+ */
+router.get('/task/status/:serverId', (req, res) => {
+    try {
+        const { serverId } = req.params;
+        const online = agentService.isOnline(serverId);
+        const hostInfo = agentService.getHostInfo ? agentService.getHostInfo(serverId) : null;
+
+        res.json({
+            success: true,
+            data: {
+                serverId,
+                online,
+                hostInfo,
+                canExecuteTask: online
+            }
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+/**
+ * 请求主机上报系统信息
+ */
+router.post('/task/refresh/:serverId', (req, res) => {
+    try {
+        const { serverId } = req.params;
+
+        if (!agentService.isOnline(serverId)) {
+            return res.status(400).json({ success: false, error: '主机不在线' });
+        }
+
+        const result = agentService.requestHostInfo(serverId);
+
+        res.json({
+            success: result,
+            message: result ? '已请求主机上报信息' : '请求失败'
+        });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
 module.exports = router;

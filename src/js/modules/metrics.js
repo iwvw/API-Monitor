@@ -100,9 +100,52 @@ export const metricsMethods = {
         }
     },
 
-    // ==================== WebSocket 实时流 ====================
+    // ==================== Socket.IO 实时流 ====================
 
-    connectMetricsStream() {
+    /**
+     * 动态加载 Socket.IO 客户端
+     */
+    async loadSocketIO() {
+        if (window.io) return true;
+
+        const CDN_SOURCES = [
+            'https://registry.npmmirror.com/socket.io-client/4.7.2/files/dist/socket.io.min.js',
+            'https://cdn.jsdelivr.net/npm/socket.io-client@4.7.2/dist/socket.io.min.js',
+            'https://unpkg.com/socket.io-client@4.7.2/dist/socket.io.min.js'
+        ];
+
+        for (let i = 0; i < CDN_SOURCES.length; i++) {
+            const src = CDN_SOURCES[i];
+            console.log(`[Metrics] 加载 Socket.IO 客户端 (${i + 1}/${CDN_SOURCES.length})...`);
+
+            try {
+                await new Promise((resolve, reject) => {
+                    const script = document.createElement('script');
+                    script.src = src;
+                    script.async = true;
+                    script.onload = () => {
+                        if (window.io) {
+                            console.log(`[Metrics] ✅ Socket.IO 客户端加载成功`);
+                            resolve();
+                        } else {
+                            reject(new Error('io not available'));
+                        }
+                    };
+                    script.onerror = () => reject(new Error('Failed to load'));
+                    setTimeout(() => reject(new Error('Timeout')), 5000);
+                    document.head.appendChild(script);
+                });
+                return true;
+            } catch (err) {
+                console.warn(`[Metrics] ❌ CDN 源不可用: ${src.split('/')[2]}`);
+            }
+        }
+
+        console.error('[Metrics] 所有 Socket.IO CDN 源均不可用');
+        return false;
+    },
+
+    async connectMetricsStream() {
         if (!this.isAuthenticated) {
             console.warn('⚠️ 尝试连接实时流失败: 用户未登录');
             return;
@@ -114,50 +157,215 @@ export const metricsMethods = {
         }
 
         this.metricsWsConnecting = true;
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const wsUrl = `${protocol}//${window.location.host}/ws/metrics`;
 
-        console.warn('🚀 正在发起实时指标流连接:', wsUrl);
-        const ws = new WebSocket(wsUrl);
-
-        ws.onopen = () => {
-            this.metricsWsConnected = true;
+        // 动态加载 Socket.IO 客户端
+        const loaded = await this.loadSocketIO();
+        if (!loaded) {
+            console.warn('[Metrics] Socket.IO 加载失败，降级到 HTTP 轮询');
             this.metricsWsConnecting = false;
-            console.warn('✅ 实时指标流握手成功');
-        };
+            this.startServerPolling();
+            return;
+        }
 
-        ws.onmessage = (event) => {
-            try {
-                const payload = JSON.parse(event.data);
-                if (payload.type === 'metrics_update') {
-                    this.handleMetricsUpdate(payload.data);
+        console.log('🚀 正在连接 Socket.IO 实时流...');
+
+        try {
+            // 连接到 /metrics 命名空间
+            const socket = window.io('/metrics', {
+                reconnection: true,
+                reconnectionDelay: 1000,
+                reconnectionDelayMax: 5000,
+                reconnectionAttempts: Infinity,
+                transports: ['websocket', 'polling']
+            });
+
+            socket.on('connect', () => {
+                this.metricsWsConnected = true;
+                this.metricsWsConnecting = false;
+                console.log('✅ Socket.IO 实时流已连接');
+
+                // 停止 HTTP 轮询
+                this.stopServerPolling();
+            });
+
+            // 单个主机指标更新
+            socket.on('metrics:update', (data) => {
+                if (data && data.serverId && data.metrics) {
+                    this.handleSingleMetricUpdate(data);
                 }
-            } catch (err) {
-                console.error('解析指标数据失败:', err);
+            });
+
+            // 批量指标更新 (初始连接时)
+            socket.on('metrics:batch', (dataArray) => {
+                if (Array.isArray(dataArray)) {
+                    dataArray.forEach(data => this.handleSingleMetricUpdate(data));
+                }
+            });
+
+            // 主机状态变更
+            socket.on('server:status', (data) => {
+                if (data && data.serverId) {
+                    this.updateServerStatus(data.serverId, data.status);
+                }
+            });
+
+            socket.on('disconnect', (reason) => {
+                this.metricsWsConnected = false;
+                this.metricsWsConnecting = false;
+                console.warn('❌ Socket.IO 连接断开:', reason);
+
+                // 如果不是主动断开，启动轮询作为降级
+                if (reason === 'io server disconnect' || reason === 'transport close') {
+                    console.log('[Metrics] 启动 HTTP 轮询作为降级...');
+                    this.startServerPolling();
+                }
+            });
+
+            socket.on('connect_error', (err) => {
+                console.error('[Metrics] Socket.IO 连接错误:', err.message);
+                this.metricsWsConnecting = false;
+            });
+
+            this.metricsSocket = socket;
+
+        } catch (err) {
+            console.error('[Metrics] Socket.IO 初始化失败:', err);
+            this.metricsWsConnecting = false;
+            this.startServerPolling();
+        }
+    },
+
+    /**
+     * 处理单个主机的指标更新 (Socket.IO 事件格式)
+     * 优化: 使用增量更新避免不必要的 Vue 响应式触发
+     */
+    handleSingleMetricUpdate(data) {
+        if (!data || !data.serverId || !data.metrics) return;
+
+        const server = this.serverList.find(s => s.id === data.serverId);
+        if (!server) return;
+
+        try {
+            const metrics = data.metrics;
+
+            // 确保 info 对象存在，但不替换整个对象
+            if (!server.info) {
+                server.info = {
+                    cpu: {}, memory: {}, disk: [], network: {}, docker: {}
+                };
             }
-        };
+            const info = server.info;
 
-        ws.onclose = () => {
-            this.metricsWsConnected = false;
-            this.metricsWsConnecting = false;
-            this.metricsWs = null;
-            console.warn('❌ 实时指标流连接已关闭');
-        };
+            // 增量更新 CPU (仅在值变化时更新)
+            const newCpuLoad = metrics.load || '-';
+            const newCpuUsage = metrics.cpu_usage || '0%';
+            const newCpuCores = metrics.cores || '-';
 
-        ws.onerror = (err) => {
-            console.error('WebSocket 连接错误:', err);
-            this.metricsWsConnecting = false;
-            this.metricsWsConnected = false;
-        };
+            if (!info.cpu) info.cpu = {};
+            if (info.cpu.Load !== newCpuLoad) info.cpu.Load = newCpuLoad;
+            if (info.cpu.Usage !== newCpuUsage) info.cpu.Usage = newCpuUsage;
+            if (info.cpu.Cores !== newCpuCores) info.cpu.Cores = newCpuCores;
 
-        this.metricsWs = ws;
+            // 增量更新内存
+            if (metrics.mem_usage || metrics.mem) {
+                const memStr = metrics.mem_usage || metrics.mem || '';
+                const memMatch = memStr.match(/(\d+)\/(\d+)MB/);
+                if (memMatch) {
+                    const used = parseInt(memMatch[1]);
+                    const total = parseInt(memMatch[2]);
+                    const usagePercent = Math.round((used / total) * 100) + '%';
+                    const usedStr = used + ' MB';
+                    const totalStr = total + ' MB';
+
+                    if (!info.memory) info.memory = {};
+                    if (info.memory.Used !== usedStr) info.memory.Used = usedStr;
+                    if (info.memory.Total !== totalStr) info.memory.Total = totalStr;
+                    if (info.memory.Usage !== usagePercent) info.memory.Usage = usagePercent;
+                }
+            }
+
+            // 增量更新磁盘
+            if (metrics.disk_usage || metrics.disk) {
+                const diskStr = metrics.disk_usage || metrics.disk || '';
+                // 匹配格式: "473.78 GB/1.49 TB (31%)"
+                const diskMatch = diskStr.match(/(.+?)\/(.+?)\s*\((\d+%?)\)/);
+                if (diskMatch) {
+                    if (!Array.isArray(info.disk)) info.disk = [{}];
+                    if (!info.disk[0]) info.disk[0] = {};
+
+                    if (info.disk[0].device !== '/') info.disk[0].device = '/';
+                    if (info.disk[0].used !== diskMatch[1].trim()) info.disk[0].used = diskMatch[1].trim();
+                    if (info.disk[0].total !== diskMatch[2].trim()) info.disk[0].total = diskMatch[2].trim();
+                    if (info.disk[0].usage !== diskMatch[3]) info.disk[0].usage = diskMatch[3];
+                }
+            }
+
+            // 增量更新 Docker
+            if (metrics.docker) {
+                if (!info.docker) info.docker = {};
+
+                const installed = !!metrics.docker.installed;
+                const running = metrics.docker.running || 0;
+                const stopped = metrics.docker.stopped || 0;
+
+                if (info.docker.installed !== installed) info.docker.installed = installed;
+                if (info.docker.runningCount !== running) info.docker.runningCount = running;
+                if (info.docker.stoppedCount !== stopped) info.docker.stoppedCount = stopped;
+
+                // 容器列表只在数量变化时更新
+                const newContainers = Array.isArray(metrics.docker.containers) ? metrics.docker.containers : [];
+                if (!info.docker.containers || info.docker.containers.length !== newContainers.length) {
+                    info.docker.containers = newContainers;
+                }
+            }
+
+            // 增量更新网络
+            if (metrics.network) {
+                if (!info.network) info.network = {};
+                Object.keys(metrics.network).forEach(key => {
+                    if (info.network[key] !== metrics.network[key]) {
+                        info.network[key] = metrics.network[key];
+                    }
+                });
+            }
+
+            // 更新时间戳 (简化格式)
+            const newTimestamp = new Date(data.timestamp || Date.now()).toLocaleTimeString();
+            if (info.lastUpdate !== newTimestamp) info.lastUpdate = newTimestamp;
+
+            // 仅在状态变化时更新
+            if (server.status !== 'online') server.status = 'online';
+            if (server.error !== null) server.error = null;
+
+        } catch (err) {
+            console.warn('[Metrics] 数据转换失败:', err, data);
+        }
+    },
+
+    /**
+     * 更新主机状态
+     */
+    updateServerStatus(serverId, status) {
+        const server = this.serverList.find(s => s.id === serverId);
+        if (server) {
+            server.status = status;
+            if (status === 'offline') {
+                server.error = 'Agent 离线';
+            }
+        }
     },
 
     closeMetricsStream() {
+        if (this.metricsSocket) {
+            this.metricsSocket.disconnect();
+            this.metricsSocket = null;
+        }
+        // 兼容旧的 WebSocket
         if (this.metricsWs) {
             this.metricsWs.close();
             this.metricsWs = null;
         }
+        this.metricsWsConnected = false;
     },
 
     handleMetricsUpdate(data) {
@@ -384,6 +592,39 @@ export const metricsMethods = {
         } catch (error) {
             console.error('触发采集失败:', error);
             this.showGlobalToast('触发采集失败', 'error');
+        }
+    },
+
+    async clearMetricsHistory() {
+        const confirmMsg = this.metricsHistoryFilter.serverId
+            ? '确定要清空该主机的历史指标记录吗？'
+            : '确定要清空所有主机的历史指标记录吗？此操作不可撤销！';
+
+        if (!confirm(confirmMsg)) return;
+
+        try {
+            const params = new URLSearchParams();
+            if (this.metricsHistoryFilter.serverId) {
+                params.append('serverId', this.metricsHistoryFilter.serverId);
+            }
+
+            const response = await fetch(`/api/server/metrics/history/clear?${params}`, {
+                method: 'DELETE',
+                headers: this.getAuthHeaders()
+            });
+            const data = await response.json();
+
+            if (data.success) {
+                this.showGlobalToast(data.message, 'success');
+                this.metricsHistoryList = [];
+                this.metricsHistoryTotal = 0;
+                this.loadMetricsHistory(1);
+            } else {
+                this.showGlobalToast('清空失败: ' + data.error, 'error');
+            }
+        } catch (error) {
+            console.error('清空历史指标失败:', error);
+            this.showGlobalToast('清空历史指标失败', 'error');
         }
     },
 

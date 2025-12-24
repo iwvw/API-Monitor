@@ -1,0 +1,10 @@
+﻿{"timestamp":"2025-12-24T21:43:33.730Z","level":"INFO","traceId":"477c4af9-76d8-4af6-9a5e-f739fa5ed0f5","module":"Zeabur","message":"  鈥?ds.uk: 鐢ㄩ噺 $0.00, 鍓╀綑 $5.00"}
+{"timestamp":"2025-12-24T21:43:33.733Z","level":"INFO","traceId":"477c4af9-76d8-4af6-9a5e-f739fa5ed0f5","module":"Zeabur","message":"  鈥?dsuk: 鐢ㄩ噺 $0.00, 鍓╀綑 $5.00"}
+{"timestamp":"2025-12-24T21:43:33.733Z","level":"INFO","traceId":"477c4af9-76d8-4af6-9a5e-f739fa5ed0f5","module":"Zeabur","message":"  鈥?salen5014: 鐢ㄩ噺 $0.00, 鍓╀綑 $5.00"}
+{"timestamp":"2025-12-24T21:43:33.734Z","level":"INFO","traceId":"477c4af9-76d8-4af6-9a5e-f739fa5ed0f5","module":"Zeabur","message":"\u001b[32m鉁?杩斿洖 3 涓处鍙蜂俊鎭痋u001b[39m"}
+{"timestamp":"2025-12-24T21:43:33.735Z","level":"INFO","traceId":"477c4af9-76d8-4af6-9a5e-f739fa5ed0f5","module":"HTTP","message":"POST   /temp-accounts 200 - 1814ms","data":{"method":"POST","path":"/temp-accounts","status":200,"duration":1814,"ip":"127.0.0.1","contentLength":"785"}}
+{"timestamp":"2025-12-24T21:43:33.736Z","level":"INFO","traceId":"41042283-e74b-4863-98d9-eb10bc3fa601","module":"Zeabur","message":"  鈥?dsuk: 3 涓」鐩?}
+{"timestamp":"2025-12-24T21:43:33.737Z","level":"INFO","traceId":"41042283-e74b-4863-98d9-eb10bc3fa601","module":"Zeabur","message":"  鈥?salen5014: 5 涓」鐩?}
+{"timestamp":"2025-12-24T21:43:33.752Z","level":"INFO","traceId":"41042283-e74b-4863-98d9-eb10bc3fa601","module":"Zeabur","message":"  鈥?ds.uk: 5 涓」鐩?}
+{"timestamp":"2025-12-24T21:43:33.753Z","level":"INFO","traceId":"41042283-e74b-4863-98d9-eb10bc3fa601","module":"Zeabur","message":"\u001b[32m鉁?杩斿洖 3 涓处鍙风殑椤圭洰淇℃伅\u001b[39m"}
+{"timestamp":"2025-12-24T21:43:33.754Z","level":"INFO","traceId":"41042283-e74b-4863-98d9-eb10bc3fa601","module":"HTTP","message":"POST   /temp-projects 200 - 1813ms","data":{"method":"POST","path":"/temp-projects","status":200,"duration":1813,"ip":"127.0.0.1","contentLength":"5143"}}

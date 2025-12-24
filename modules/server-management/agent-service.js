@@ -1,11 +1,20 @@
 /**
- * Agent 服务 - 处理来自被监控服务器的 Agent 推送数据
+ * Agent 服务 - 基于 Socket.IO 的实时连接管理器
+ * 参考 Nezha 0.20.13 架构设计
  */
 
 const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
+const { Server: SocketIOServer } = require('socket.io');
 const { serverStorage } = require('./storage');
+const {
+    Events,
+    TaskTypes,
+    validateHostState,
+    stateToFrontendFormat
+} = require('./protocol');
+const { ServerMetricsHistory, ServerMonitorConfig } = require('./models');
 
 class AgentService {
     constructor() {
@@ -13,10 +22,28 @@ class AgentService {
         this.globalAgentKey = null;
         // 密钥存储路径
         this.keyFilePath = path.join(__dirname, '../../data/agent-key.txt');
-        // 存储最新的 agent 指标
-        this.agentMetrics = new Map();
-        // 存储 agent 连接状态
-        this.agentStatus = new Map();
+
+        // Socket.IO 服务端实例
+        this.io = null;
+
+        // 连接池: serverId -> socket
+        this.connections = new Map();
+
+        // 主机信息缓存: serverId -> HostInfo
+        this.hostInfoCache = new Map();
+
+        // 实时状态缓存: serverId -> { state, timestamp }
+        this.stateCache = new Map();
+
+        // 心跳超时定时器: serverId -> timerId
+        this.heartbeatTimers = new Map();
+
+        // 心跳超时时间 (毫秒) - 增加到 30 秒以适应采集延迟
+        this.heartbeatTimeout = 30000;
+
+        // 兼容旧版 HTTP 推送的缓存 (过渡期使用)
+        this.legacyMetrics = new Map();
+        this.legacyStatus = new Map();
 
         // 初始化加载或生成全局密钥
         this.loadOrGenerateGlobalKey();
@@ -27,7 +54,6 @@ class AgentService {
      */
     loadOrGenerateGlobalKey() {
         try {
-            // 确保 data 目录存在
             const dataDir = path.dirname(this.keyFilePath);
             if (!fs.existsSync(dataDir)) {
                 fs.mkdirSync(dataDir, { recursive: true });
@@ -43,7 +69,6 @@ class AgentService {
             }
         } catch (error) {
             console.error('[AgentService] 密钥管理失败:', error.message);
-            // 降级为内存密钥
             this.globalAgentKey = crypto.randomBytes(16).toString('hex');
         }
     }
@@ -52,7 +77,6 @@ class AgentService {
      * 获取全局 Agent 密钥
      */
     getAgentKey(serverId) {
-        // 忽略 serverId，返回全局统一密钥
         return this.globalAgentKey;
     }
 
@@ -70,15 +94,651 @@ class AgentService {
     }
 
     /**
-     * 验证 Agent 请求（使用全局密钥）
+     * 验证 Agent 请求 (兼容性方法)
      */
     verifyAgent(serverId, providedKey) {
-        // 验证全局密钥
         return providedKey === this.globalAgentKey;
     }
 
     /**
-     * 处理 Agent 推送的指标数据
+     * 获取当前连接的 Agent 数量
+     */
+    getConnectionCount() {
+        return this.connections.size;
+    }
+
+    // ==================== Socket.IO 服务 ====================
+
+    /**
+     * 初始化 Socket.IO 服务
+     * @param {Object} httpServer - HTTP 服务器实例
+     */
+    initSocketIO(httpServer) {
+        this.io = new SocketIOServer(httpServer, {
+            cors: {
+                origin: '*',
+                methods: ['GET', 'POST']
+            },
+            pingTimeout: 10000,
+            pingInterval: 5000
+        });
+
+        // Agent 命名空间 - 处理 Agent 连接
+        const agentNamespace = this.io.of('/agent');
+        agentNamespace.on('connection', (socket) => this.handleAgentConnection(socket));
+
+        // Metrics 命名空间 - 处理前端订阅
+        const metricsNamespace = this.io.of('/metrics');
+        metricsNamespace.on('connection', (socket) => this.handleFrontendConnection(socket));
+
+        // 启动历史指标自动采集定时器
+        this.startHistoryCollector();
+
+        console.log('[AgentService] Socket.IO 已初始化 (命名空间: /agent, /metrics)');
+    }
+
+    /**
+     * 启动历史指标自动采集
+     */
+    startHistoryCollector() {
+        // 如果已存在定时器，先清除
+        if (this.historyCollectorTimer) {
+            clearInterval(this.historyCollectorTimer);
+        }
+
+        // 获取采集间隔 (优先从配置读取，默认 300 秒)
+        const config = ServerMonitorConfig.get();
+        const intervalSec = config?.metrics_collect_interval || 300;
+        const intervalMs = intervalSec * 1000;
+
+        console.log(`[AgentService] 历史指标自动采集已启动 (间隔: ${intervalSec}秒)`);
+
+        // 立即执行一次采集
+        this.collectHistoryMetrics();
+
+        // 设置定时采集
+        this.historyCollectorTimer = setInterval(() => {
+            this.collectHistoryMetrics();
+        }, intervalMs);
+    }
+
+    /**
+     * 采集当前所有在线主机的指标并存入历史记录
+     */
+    collectHistoryMetrics() {
+        try {
+            let collected = 0;
+            const servers = serverStorage.getAll();
+
+            for (const server of servers) {
+                const cached = this.stateCache.get(server.id);
+                if (!cached) continue;
+
+                const hostInfo = this.hostInfoCache.get(server.id) || {};
+                const state = cached.state;
+
+                // 使用协议转换函数获取前端格式指标
+                const frontendMetrics = stateToFrontendFormat(state, hostInfo);
+
+                // 解析内存数值 (格式: "123/456MB")
+                let memUsed = 0;
+                let memTotal = 0;
+                if (frontendMetrics.mem && typeof frontendMetrics.mem === 'string') {
+                    const parts = frontendMetrics.mem.replace('MB', '').split('/');
+                    memUsed = parseInt(parts[0]) || 0;
+                    memTotal = parseInt(parts[1]) || 0;
+                }
+
+                ServerMetricsHistory.create({
+                    server_id: server.id,
+                    cpu_usage: parseFloat(frontendMetrics.cpu_usage) || 0,
+                    cpu_load: frontendMetrics.load || '',
+                    cpu_cores: frontendMetrics.cores || 1,
+                    mem_used: memUsed,
+                    mem_total: memTotal,
+                    mem_usage: frontendMetrics.mem_percent || 0,
+                    disk_used: frontendMetrics.disk_used || '',
+                    disk_total: frontendMetrics.disk_total || '',
+                    disk_usage: frontendMetrics.disk_percent || 0,
+                    docker_installed: frontendMetrics.docker?.installed ? 1 : 0,
+                    docker_running: frontendMetrics.docker?.running || 0,
+                    docker_stopped: frontendMetrics.docker?.stopped || 0
+                });
+                collected++;
+            }
+
+            if (collected > 0) {
+                console.log(`[AgentService] 历史指标采集完成: ${collected} 台主机`);
+            }
+        } catch (error) {
+            console.error('[AgentService] 历史指标采集失败:', error.message);
+        }
+    }
+
+    /**
+     * 处理 Agent 连接
+     * @param {Object} socket - Socket.IO 连接
+     */
+    handleAgentConnection(socket) {
+        let serverId = null;
+        let authenticated = false;
+
+        console.log(`[AgentService] Agent 连接中: ${socket.id}`);
+
+        // 设置认证超时 (10 秒内必须完成认证)
+        const authTimeout = setTimeout(() => {
+            if (!authenticated) {
+                console.log(`[AgentService] Agent 认证超时: ${socket.id}`);
+                socket.emit(Events.DASHBOARD_AUTH_FAIL, { reason: 'Authentication timeout' });
+                socket.disconnect();
+            }
+        }, 10000);
+
+        // 1. 处理认证请求
+        socket.on(Events.AGENT_CONNECT, (data) => {
+            clearTimeout(authTimeout);
+
+            // 验证密钥
+            if (!data || data.key !== this.globalAgentKey) {
+                console.log(`[AgentService] Agent 认证失败: 无效密钥`);
+                socket.emit(Events.DASHBOARD_AUTH_FAIL, { reason: 'Invalid key' });
+                socket.disconnect();
+                return;
+            }
+
+            // 解析 server_id 和 hostname
+            const requestedId = data.server_id;
+            const hostname = data.hostname;
+
+            if (!requestedId && !hostname) {
+                socket.emit(Events.DASHBOARD_AUTH_FAIL, { reason: 'Missing server_id or hostname' });
+                socket.disconnect();
+                return;
+            }
+
+            // 智能匹配主机 ID
+            serverId = this.resolveServerId(requestedId, hostname);
+
+            if (!serverId) {
+                console.log(`[AgentService] Agent 认证失败: 无法匹配主机 (id=${requestedId}, hostname=${hostname})`);
+                socket.emit(Events.DASHBOARD_AUTH_FAIL, {
+                    reason: 'Server not found in dashboard. Please add the host first.',
+                    requested_id: requestedId,
+                    hostname: hostname
+                });
+                socket.disconnect();
+                return;
+            }
+
+            // 检查是否有旧连接，断开它
+            const oldSocket = this.connections.get(serverId);
+            if (oldSocket && oldSocket.id !== socket.id) {
+                console.log(`[AgentService] 断开旧连接: ${serverId}`);
+                oldSocket.disconnect();
+            }
+
+            // 注册新连接
+            authenticated = true;
+            this.connections.set(serverId, socket);
+            this.startHeartbeat(serverId);
+
+            // 更新数据库状态
+            this.updateServerStatus(serverId, 'online');
+
+            // 发送认证成功 (包含解析后的实际 serverId)
+            socket.emit(Events.DASHBOARD_AUTH_OK, {
+                server_time: Date.now(),
+                heartbeat_interval: this.heartbeatTimeout / 2,
+                resolved_id: serverId  // 告知 Agent 实际使用的 ID
+            });
+
+            // 广播上线状态给前端
+            this.broadcastServerStatus(serverId, 'online');
+
+            console.log(`[AgentService] Agent 认证成功: ${serverId} (requested: ${requestedId}, hostname: ${hostname}, version: ${data.version || 'unknown'})`);
+        });
+
+        // 2. 接收主机硬件信息
+        socket.on(Events.AGENT_HOST_INFO, (hostInfo) => {
+            if (!authenticated) return;
+
+            this.hostInfoCache.set(serverId, {
+                ...hostInfo,
+                received_at: Date.now()
+            });
+
+            console.log(`[AgentService] 收到主机信息: ${serverId} (${hostInfo.platform} ${hostInfo.platform_version})`);
+        });
+
+        // 3. 接收实时状态
+        socket.on(Events.AGENT_STATE, (state) => {
+            if (!authenticated) {
+                console.warn(`[AgentService] 收到未认证 Agent 的状态数据，忽略`);
+                return;
+            }
+
+            // 验证数据
+            if (!validateHostState(state)) {
+                console.warn(`[AgentService] 无效状态数据: ${serverId}`, JSON.stringify(state).substring(0, 200));
+                return;
+            }
+
+            // 存储状态
+            const timestamp = Date.now();
+            this.stateCache.set(serverId, {
+                state,
+                timestamp
+            });
+
+            // 重置心跳 - 在此行添加日志确认执行
+            console.log(`[AgentService] 收到状态上报: ${serverId} CPU=${state.cpu?.toFixed(1)}%`);
+            this.resetHeartbeat(serverId);
+
+            // 转换为前端格式并广播
+            const hostInfo = this.hostInfoCache.get(serverId) || {};
+            const frontendData = stateToFrontendFormat(state, hostInfo);
+
+            this.broadcastMetrics(serverId, frontendData);
+
+            // 同时更新兼容缓存
+            this.legacyMetrics.set(serverId, frontendData);
+            this.legacyStatus.set(serverId, {
+                lastSeen: timestamp,
+                connected: true,
+                version: hostInfo.agent_version || 'socket.io'
+            });
+        });
+
+        // 4. 接收任务结果
+        socket.on(Events.AGENT_TASK_RESULT, (result) => {
+            if (!authenticated) return;
+            console.log(`[AgentService] 任务结果: ${serverId} -> ${result.id} (${result.successful ? '成功' : '失败'})`);
+            // TODO: 处理任务结果 (日志记录、通知等)
+        });
+
+        // 5. 断开连接
+        socket.on('disconnect', (reason) => {
+            if (serverId) {
+                console.log(`[AgentService] Agent 断开: ${serverId} (${reason})`);
+                this.connections.delete(serverId);
+                this.stopHeartbeat(serverId);
+                this.updateServerStatus(serverId, 'offline');
+                this.broadcastServerStatus(serverId, 'offline');
+
+                // 更新兼容缓存
+                const status = this.legacyStatus.get(serverId);
+                if (status) {
+                    status.connected = false;
+                }
+            }
+        });
+
+        // 错误处理
+        socket.on('error', (err) => {
+            console.error(`[AgentService] Socket 错误 (${serverId || socket.id}):`, err.message);
+        });
+    }
+
+    /**
+     * 处理前端连接
+     * @param {Object} socket - Socket.IO 连接
+     */
+    handleFrontendConnection(socket) {
+        // 自动加入广播房间
+        socket.join('metrics_room');
+        console.log(`[AgentService] 前端连接: ${socket.id}`);
+
+        // 发送当前所有在线主机的最新状态
+        const initialData = [];
+        for (const [serverId, cached] of this.stateCache.entries()) {
+            const hostInfo = this.hostInfoCache.get(serverId) || {};
+            initialData.push({
+                serverId,
+                metrics: stateToFrontendFormat(cached.state, hostInfo),
+                timestamp: cached.timestamp
+            });
+        }
+
+        if (initialData.length > 0) {
+            socket.emit(Events.METRICS_BATCH, initialData);
+        }
+
+        // 发送所有在线主机的状态 (确保前端知道哪些主机在线)
+        for (const [serverId] of this.connections.entries()) {
+            socket.emit(Events.SERVER_STATUS, {
+                serverId,
+                status: 'online',
+                timestamp: Date.now()
+            });
+        }
+
+        socket.on('disconnect', () => {
+            console.log(`[AgentService] 前端断开: ${socket.id}`);
+        });
+    }
+
+    // ==================== 心跳管理 ====================
+
+    /**
+     * 启动心跳超时检测
+     */
+    startHeartbeat(serverId) {
+        this.stopHeartbeat(serverId);
+        this.heartbeatTimers.set(serverId, setTimeout(() => {
+            console.log(`[AgentService] 心跳超时: ${serverId}`);
+            const socket = this.connections.get(serverId);
+            if (socket) {
+                socket.disconnect();
+            }
+            this.handleAgentTimeout(serverId);
+        }, this.heartbeatTimeout));
+    }
+
+    /**
+     * 重置心跳计时器
+     */
+    resetHeartbeat(serverId) {
+        this.startHeartbeat(serverId);
+    }
+
+    /**
+     * 停止心跳检测
+     */
+    stopHeartbeat(serverId) {
+        const timer = this.heartbeatTimers.get(serverId);
+        if (timer) {
+            clearTimeout(timer);
+            this.heartbeatTimers.delete(serverId);
+        }
+    }
+
+    /**
+     * 处理 Agent 超时
+     */
+    handleAgentTimeout(serverId) {
+        this.connections.delete(serverId);
+        this.updateServerStatus(serverId, 'offline');
+        this.broadcastServerStatus(serverId, 'offline');
+    }
+
+    // ==================== 广播方法 ====================
+
+    /**
+     * 广播单个主机的指标更新
+     */
+    broadcastMetrics(serverId, metrics) {
+        if (!this.io) return;
+
+        this.io.of('/metrics').to('metrics_room').emit(Events.METRICS_UPDATE, {
+            serverId,
+            metrics,
+            timestamp: Date.now()
+        });
+    }
+
+    /**
+     * 广播主机状态变更
+     */
+    broadcastServerStatus(serverId, status) {
+        if (!this.io) return;
+
+        this.io.of('/metrics').to('metrics_room').emit(Events.SERVER_STATUS, {
+            serverId,
+            status,
+            timestamp: Date.now()
+        });
+    }
+
+    // ==================== 主机匹配 ====================
+
+    /**
+     * 智能解析 Agent 提供的标识符，匹配到数据库中的主机 ID
+     * 匹配优先级: 精确 ID -> 名称匹配 -> 主机地址匹配
+     * @param {string} requestedId - Agent 请求的 ID
+     * @param {string} hostname - Agent 的 hostname
+     * @returns {string|null} 匹配到的主机 ID，未匹配返回 null
+     */
+    resolveServerId(requestedId, hostname) {
+        try {
+            const servers = serverStorage.getAll();
+
+            // 1. 精确 ID 匹配
+            if (requestedId) {
+                const exactMatch = servers.find(s => s.id === requestedId);
+                if (exactMatch) {
+                    return exactMatch.id;
+                }
+            }
+
+            // 2. 按名称匹配 (requestedId 或 hostname 与主机名称匹配)
+            const nameToMatch = requestedId || hostname;
+            if (nameToMatch) {
+                // 精确名称匹配
+                const nameMatch = servers.find(s =>
+                    s.name === nameToMatch ||
+                    s.name?.toLowerCase() === nameToMatch.toLowerCase()
+                );
+                if (nameMatch) {
+                    console.log(`[AgentService] 按名称匹配: ${nameToMatch} -> ${nameMatch.id}`);
+                    return nameMatch.id;
+                }
+            }
+
+            // 3. 按主机地址匹配 (hostname 与 host 字段匹配)
+            if (hostname) {
+                const hostMatch = servers.find(s =>
+                    s.host === hostname ||
+                    s.host?.toLowerCase() === hostname.toLowerCase()
+                );
+                if (hostMatch) {
+                    console.log(`[AgentService] 按 host 匹配: ${hostname} -> ${hostMatch.id}`);
+                    return hostMatch.id;
+                }
+            }
+
+            // 4. 部分名称匹配 (模糊匹配)
+            if (nameToMatch) {
+                const partialMatch = servers.find(s =>
+                    s.name?.toLowerCase().includes(nameToMatch.toLowerCase()) ||
+                    nameToMatch.toLowerCase().includes(s.name?.toLowerCase())
+                );
+                if (partialMatch) {
+                    console.log(`[AgentService] 模糊名称匹配: ${nameToMatch} -> ${partialMatch.id}`);
+                    return partialMatch.id;
+                }
+            }
+
+            return null;
+        } catch (error) {
+            console.error('[AgentService] 主机匹配失败:', error.message);
+            return null;
+        }
+    }
+
+    // ==================== 任务下发 ====================
+
+    /**
+     * 向 Agent 下发任务
+     * @param {string} serverId - 目标主机 ID
+     * @param {Object} task - 任务对象
+     * @returns {boolean} 是否成功发送
+     */
+    sendTask(serverId, task) {
+        const socket = this.connections.get(serverId);
+        if (!socket) {
+            console.warn(`[AgentService] 无法下发任务: ${serverId} 不在线`);
+            return false;
+        }
+
+        socket.emit(Events.DASHBOARD_TASK, {
+            id: task.id || crypto.randomUUID(),
+            type: task.type,
+            data: task.data,
+            timeout: task.timeout || 0
+        });
+
+        console.log(`[AgentService] 任务已下发: ${serverId} -> ${task.type}`);
+        return true;
+    }
+
+    /**
+     * 请求 Agent 上报主机信息
+     */
+    requestHostInfo(serverId) {
+        return this.sendTask(serverId, {
+            type: TaskTypes.REPORT_HOST_INFO,
+            data: ''
+        });
+    }
+
+    /**
+     * 检查主机是否在线
+     * @param {string} serverId
+     * @returns {boolean}
+     */
+    isOnline(serverId) {
+        return this.connections.has(serverId);
+    }
+
+    /**
+     * 获取主机硬件信息
+     * @param {string} serverId
+     * @returns {Object|null}
+     */
+    getHostInfo(serverId) {
+        return this.hostInfoCache.get(serverId) || null;
+    }
+
+    /**
+     * 发送任务并等待结果
+     * @param {string} serverId
+     * @param {Object} task
+     * @param {number} timeout - 超时时间 (毫秒)
+     * @returns {Promise<Object>}
+     */
+    sendTaskAndWait(serverId, task, timeout = 60000) {
+        return new Promise((resolve, reject) => {
+            const taskId = task.id || crypto.randomUUID();
+            const socket = this.connections.get(serverId);
+
+            if (!socket) {
+                return reject(new Error('主机不在线'));
+            }
+
+            // 设置超时
+            const timer = setTimeout(() => {
+                socket.off(Events.AGENT_TASK_RESULT, resultHandler);
+                reject(new Error('任务执行超时'));
+            }, timeout);
+
+            // 结果处理器
+            const resultHandler = (result) => {
+                if (result.id === taskId) {
+                    clearTimeout(timer);
+                    socket.off(Events.AGENT_TASK_RESULT, resultHandler);
+                    resolve(result);
+                }
+            };
+
+            // 监听任务结果
+            socket.on(Events.AGENT_TASK_RESULT, resultHandler);
+
+            // 发送任务
+            socket.emit(Events.DASHBOARD_TASK, {
+                id: taskId,
+                type: task.type,
+                data: task.data,
+                timeout: task.timeout || 0
+            });
+
+            console.log(`[AgentService] 同步任务已下发: ${serverId} -> ${task.type} (id: ${taskId})`);
+        });
+    }
+
+    // ==================== 状态查询 ====================
+
+    /**
+     * 获取 Agent 指标 (兼容旧接口)
+     */
+    getMetrics(serverId) {
+        // 优先返回 Socket.IO 缓存
+        const cached = this.stateCache.get(serverId);
+        if (cached) {
+            const hostInfo = this.hostInfoCache.get(serverId) || {};
+            return stateToFrontendFormat(cached.state, hostInfo);
+        }
+
+        // 降级到旧 HTTP 缓存
+        return this.legacyMetrics.get(serverId);
+    }
+
+    /**
+     * 获取 Agent 状态 (兼容旧接口)
+     */
+    getStatus(serverId) {
+        // 优先检查 Socket.IO 连接
+        if (this.connections.has(serverId)) {
+            const cached = this.stateCache.get(serverId);
+            return {
+                connected: true,
+                lastSeen: cached?.timestamp || Date.now(),
+                version: this.hostInfoCache.get(serverId)?.agent_version || 'socket.io'
+            };
+        }
+
+        // 降级到旧缓存
+        const status = this.legacyStatus.get(serverId);
+        if (!status) {
+            return { connected: false, lastSeen: null };
+        }
+
+        const isOnline = Date.now() - status.lastSeen < 10000;
+        return {
+            ...status,
+            connected: isOnline
+        };
+    }
+
+    /**
+     * 获取所有在线 Agent 列表
+     */
+    getOnlineAgents() {
+        return Array.from(this.connections.keys());
+    }
+
+    /**
+     * 获取连接统计
+     */
+    getConnectionStats() {
+        return {
+            online: this.connections.size,
+            cached: this.stateCache.size,
+            frontendClients: this.io?.of('/metrics').sockets.size || 0
+        };
+    }
+
+    // ==================== 数据库状态同步 ====================
+
+    /**
+     * 更新数据库中的主机状态
+     */
+    updateServerStatus(serverId, status) {
+        try {
+            serverStorage.updateStatus(serverId, {
+                status: status,
+                last_check_time: new Date().toISOString(),
+                last_check_status: status === 'online' ? 'success' : 'offline'
+            });
+        } catch (e) {
+            // 主机可能不存在于数据库
+        }
+    }
+
+    // ==================== 兼容旧 HTTP 推送 (过渡期) ====================
+
+    /**
+     * 处理 HTTP POST 推送的指标数据 (兼容旧 Agent)
+     * @deprecated 将在未来版本移除
      */
     processMetrics(serverId, metrics) {
         const timestamp = Date.now();
@@ -86,39 +746,26 @@ class AgentService {
         // 解析 CPU
         const cpuUsage = parseFloat(metrics.cpu) || 0;
 
-        // 解析内存 (格式: "1024/2048" 或 "1024/2048MB")
-        let memUsed = 0, memTotal = 0, memUsage = 0;
+        // 解析内存
+        let memUsed = 0, memTotal = 0;
         if (metrics.mem) {
             const memMatch = metrics.mem.match(/(\d+)\/(\d+)/);
             if (memMatch) {
                 memUsed = parseInt(memMatch[1]);
                 memTotal = parseInt(memMatch[2]);
-                memUsage = memTotal > 0 ? Math.round((memUsed / memTotal) * 100) : 0;
             }
         }
 
-        // 解析磁盘 (格式: "38G/40G (95%)")
+        // 解析磁盘
         let diskUsed = '', diskTotal = '', diskUsage = '';
         if (metrics.disk) {
-            const diskMatch = metrics.disk.match(/([^\/]+)\/([^\s]+)\s*\(?([\d.]+%?)?\)?/);
+            const diskMatch = metrics.disk.match(/([^/]+)\/([^\s]+)\s*\(?([.\d]+%?)?\)?/);
             if (diskMatch) {
                 diskUsed = diskMatch[1];
                 diskTotal = diskMatch[2];
                 diskUsage = diskMatch[3] || '';
             }
         }
-
-        // 解析网络速度
-        const rxSpeed = metrics.rx_speed || '0 B/s';
-        const txSpeed = metrics.tx_speed || '0 B/s';
-        const rxTotal = metrics.rx_total || '0 B';
-        const txTotal = metrics.tx_total || '0 B';
-        const connections = parseInt(metrics.connections) || 0;
-
-        // Docker 信息
-        const dockerInstalled = metrics.docker_installed === true || metrics.docker_installed === 'true' || parseInt(metrics.docker_installed) === 1;
-        const dockerRunning = parseInt(metrics.docker_running) || 0;
-        const dockerStopped = parseInt(metrics.docker_stopped) || 0;
 
         const processedMetrics = {
             timestamp,
@@ -133,239 +780,198 @@ class AgentService {
             load: metrics.load || '0 0 0',
             cores: parseInt(metrics.cores) || 1,
             network: {
-                rx_speed: rxSpeed,
-                tx_speed: txSpeed,
-                rx_total: rxTotal,
-                tx_total: txTotal,
-                connections: connections
+                rx_speed: metrics.rx_speed || '0 B/s',
+                tx_speed: metrics.tx_speed || '0 B/s',
+                rx_total: metrics.rx_total || '0 B',
+                tx_total: metrics.tx_total || '0 B',
+                connections: parseInt(metrics.connections) || 0
             },
             docker: {
-                installed: dockerInstalled,
-                running: dockerRunning,
-                stopped: dockerStopped,
+                installed: metrics.docker_installed === true || metrics.docker_installed === 'true',
+                running: parseInt(metrics.docker_running) || 0,
+                stopped: parseInt(metrics.docker_stopped) || 0,
                 containers: Array.isArray(metrics.containers) ? metrics.containers : []
             }
         };
 
-        // logger.debug(`[AgentService] 处理服务器 ${serverId} 的指标: CPU=${processedMetrics.cpu_usage}, MEM=${processedMetrics.mem_usage}, NET=${rxSpeed}/${txSpeed}, DOCKER=${dockerInstalled ? 'Installed' : 'None'}`);
-        console.log(`[AgentService] Broadcast: ${serverId} -> CPU: ${processedMetrics.cpu_usage}, MEM: ${processedMetrics.mem_usage}, RX: ${rxSpeed}, DOCKER: ${dockerInstalled ? (metrics.containers?.length || 0) + ' containers' : 'No'}`);
-
-        // 存储指标
-        this.agentMetrics.set(serverId, processedMetrics);
-
-        // 更新 agent 状态
-        this.agentStatus.set(serverId, {
+        // 存储到兼容缓存
+        this.legacyMetrics.set(serverId, processedMetrics);
+        this.legacyStatus.set(serverId, {
             lastSeen: timestamp,
             connected: true,
-            version: metrics.agent_version || 'unknown'
+            version: metrics.agent_version || 'http-legacy'
         });
 
-        // 指标已存储到内存缓存中，前端通过 API 轮询获取
+        // 广播给前端
+        this.broadcastMetrics(serverId, processedMetrics);
+
+        console.log(`[AgentService] HTTP 推送: ${serverId} -> CPU: ${processedMetrics.cpu_usage}`);
 
         return processedMetrics;
     }
 
-    /**
-     * 获取 Agent 指标
-     */
-    getMetrics(serverId) {
-        return this.agentMetrics.get(serverId);
-    }
+    // ==================== 安装脚本生成 ====================
 
     /**
-     * 获取 Agent 状态
-     */
-    getStatus(serverId) {
-        const status = this.agentStatus.get(serverId);
-        if (!status) {
-            return { connected: false, lastSeen: null };
-        }
-
-        // 如果超过 10 秒没有收到数据，认为离线
-        const isOnline = Date.now() - status.lastSeen < 10000;
-        return {
-            ...status,
-            connected: isOnline
-        };
-    }
-
-    /**
-     * 生成 Agent 安装脚本
+     * 生成新版 Agent 安装脚本 (Node.js Agent)
      */
     generateInstallScript(serverId, serverUrl) {
         const agentKey = this.getAgentKey(serverId);
-        const server = serverStorage.getById(serverId);
-        const serverName = server?.name || serverId;
 
         return `#!/bin/bash
-# API Monitor Agent 安装脚本
-# 服务器: ${serverName}
-# 生成时间: ${new Date().toISOString()}
+# API Monitor Agent 自动安装脚本 (二进制版)
 
-set -e
+# 颜色定义
+RED='\\033[0;31m'
+GREEN='\\033[0;32m'
+YELLOW='\\033[1;33m'
+NC='\\033[0m'
 
-AGENT_DIR="/opt/api-monitor-agent"
-SERVICE_NAME="api-monitor-agent"
+echo -e "\${GREEN}>>> 正在安装 API Monitor Agent (二进制版)...\${NC}"
 
-# 创建目录
-mkdir -p "$AGENT_DIR"
-
-# 写入配置
-cat > "$AGENT_DIR/config.env" << 'EOF'
-API_URL="${serverUrl}/api/server/agent/push"
+# 配置信息
+SERVER_URL="${serverUrl}"
 SERVER_ID="${serverId}"
 AGENT_KEY="${agentKey}"
-INTERVAL=2
+INSTALL_DIR="/opt/api-monitor-agent"
+SERVICE_NAME="api-monitor-agent"
+# 根据架构选择二进制文件名 (目前仅支持 x86_64)
+BINARY_URL="\${SERVER_URL}/agent/api-monitor-agent-linux"
+
+# 1. 检查权限
+if [ "$EUID" -ne 0 ]; then 
+  echo -e "\${RED}错误: 请使用 sudo 运行此脚本\${NC}"
+  exit 1
+fi
+
+# 2. 创建目录
+echo "📁 创建目录: $INSTALL_DIR"
+mkdir -p "$INSTALL_DIR"
+cd "$INSTALL_DIR"
+
+# 3. 下载二进制文件
+echo -e "\${YELLOW}📥 正在从主控端下载 Agent 二进制文件...\${NC}"
+curl -L -f -s "\$BINARY_URL" -o agent-bin
+if [ $? -ne 0 ]; then
+    echo -e "\${RED}❌ 错误: 无法从 \$BINARY_URL 下载二进制文件。\${NC}"
+    echo -e "\${YELLOW}请确保主控端已完成打包并放置在 public/agent 目录下。\${NC}"
+    exit 1
+fi
+chmod +x agent-bin
+
+# 4. 生成配置文件
+echo -e "\${YELLOW}📝 生成配置文件...\${NC}"
+cat > config.json << EOF
+{
+    "serverUrl": "\$SERVER_URL",
+    "serverId": "\$SERVER_ID",
+    "agentKey": "\$AGENT_KEY",
+    "reportInterval": 1500,
+    "reconnectInterval": 4000
+}
 EOF
 
-# 写入 Agent 脚本
-cat > "$AGENT_DIR/agent.sh" << 'AGENT_SCRIPT'
-#!/bin/bash
-source /opt/api-monitor-agent/config.env
-
-get_net_interface() {
-    ip route | awk '/default/ {print $5; exit}'
-}
-
-get_net_bytes() {
-    local iface=$1
-    local rx=$(cat /sys/class/net/$iface/statistics/rx_bytes 2>/dev/null || echo 0)
-    local tx=$(cat /sys/class/net/$iface/statistics/tx_bytes 2>/dev/null || echo 0)
-    echo "$rx $tx"
-}
-
-format_bytes() {
-    local bytes=$1
-    if [ $bytes -ge 1073741824 ]; then
-        echo "$(awk "BEGIN {printf \\"%.2f\\", $bytes/1073741824}") GB"
-    elif [ $bytes -ge 1048576 ]; then
-        echo "$(awk "BEGIN {printf \\"%.2f\\", $bytes/1048576}") MB"
-    elif [ $bytes -ge 1024 ]; then
-        echo "$(awk "BEGIN {printf \\"%.2f\\", $bytes/1024}") KB"
-    else
-        echo "$bytes B"
-    fi
-}
-
-format_speed() {
-    local bps=$1
-    if [ $bps -ge 1048576 ]; then
-        echo "$(awk "BEGIN {printf \\"%.2f\\", $bps/1048576}") MB/s"
-    elif [ $bps -ge 1024 ]; then
-        echo "$(awk "BEGIN {printf \\"%.2f\\", $bps/1024}") KB/s"
-    else
-        echo "$bps B/s"
-    fi
-}
-
-IF=$(get_net_interface)
-read P_RX P_TX <<< $(get_net_bytes $IF)
-P_TIME=$(date +%s%3N)
-
-while true; do
-    sleep $INTERVAL
-    
-    # CPU
-    CPU=$(grep 'cpu ' /proc/stat | awk '{u=($2+$4)*100/($2+$4+$5)} END {printf "%.1f", u}')
-    
-    # Memory
-    MEM=$(free -m | awk 'NR==2{printf "%d/%d", $3, $2}')
-    
-    # Disk
-    DISK=$(df -h / | awk 'NR==2{printf "%s/%s (%s)", $3, $2, $5}')
-    
-    # Load
-    LOAD=$(cat /proc/loadavg | awk '{print $1,$2,$3}')
-    
-    # Cores
-    CORES=$(nproc 2>/dev/null || grep -c ^processor /proc/cpuinfo)
-    
-    # Network
-    read C_RX C_TX <<< $(get_net_bytes $IF)
-    C_TIME=$(date +%s%3N)
-    
-    DT=$((C_TIME - P_TIME))
-    if [ $DT -gt 0 ]; then
-        RX_SPEED=$(( (C_RX - P_RX) * 1000 / DT ))
-        TX_SPEED=$(( (C_TX - P_TX) * 1000 / DT ))
-    else
-        RX_SPEED=0
-        TX_SPEED=0
-    fi
-    
-    P_RX=$C_RX; P_TX=$C_TX; P_TIME=$C_TIME
-    
-    RX_S=$(format_speed $RX_SPEED)
-    TX_S=$(format_speed $TX_SPEED)
-    RX_T=$(format_bytes $C_RX)
-    TX_T=$(format_bytes $C_TX)
-    
-    # Connections
-    CONNS=$(ss -ant 2>/dev/null | grep -c ESTAB || echo 0)
-    
-    # Docker
-    if command -v docker &>/dev/null; then
-        DOCKER_INSTALLED=true
-        DOCKER_RUNNING=$(docker ps -q 2>/dev/null | wc -l | tr -d ' ')
-        DOCKER_TOTAL=$(docker ps -aq 2>/dev/null | wc -l | tr -d ' ')
-        DOCKER_STOPPED=$((DOCKER_TOTAL - DOCKER_RUNNING))
-    else
-        DOCKER_INSTALLED=false
-        DOCKER_RUNNING=0
-        DOCKER_STOPPED=0
-    fi
-    
-    # 推送数据
-    curl -s -L -X POST "$API_URL" \\
-        -H "Content-Type: application/json" \\
-        -H "X-Server-ID: $SERVER_ID" \\
-        -H "X-Agent-Key: $AGENT_KEY" \\
-        -d "{
-            \\"cpu\\": \\"$CPU\\",
-            \\"mem\\": \\"$MEM\\",
-            \\"disk\\": \\"$DISK\\",
-            \\"load\\": \\"$LOAD\\",
-            \\"cores\\": $CORES,
-            \\"rx_speed\\": \\"$RX_S\\",
-            \\"tx_speed\\": \\"$TX_S\\",
-            \\"rx_total\\": \\"$RX_T\\",
-            \\"tx_total\\": \\"$TX_T\\",
-            \\"connections\\": $CONNS,
-            \\"docker_installed\\": $DOCKER_INSTALLED,
-            \\"docker_running\\": $DOCKER_RUNNING,
-            \\"docker_stopped\\": $DOCKER_STOPPED,
-            \\"agent_version\\": \\"1.0.0\\"
-        }" >/dev/null 2>&1 || true
-done
-AGENT_SCRIPT
-
-chmod +x "$AGENT_DIR/agent.sh"
-
-# 创建 systemd 服务
-cat > "/etc/systemd/system/$SERVICE_NAME.service" << EOF
+# 5. 创建 systemd 服务
+echo -e "${YELLOW}⚙️ 注册 systemd 服务...${NC}"
+cat > /etc/systemd/system/$SERVICE_NAME.service << EOF
 [Unit]
 Description=API Monitor Agent
 After=network.target
 
 [Service]
 Type=simple
-ExecStart=/bin/bash $AGENT_DIR/agent.sh
+User=root
+WorkingDirectory=$INSTALL_DIR
+ExecStart=$INSTALL_DIR/agent-bin
 Restart=always
-RestartSec=5
+RestartSec=10
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-# 启动服务
+# 6. 启动服务
+echo -e "${YELLOW}🚀 启动服务...${NC}"
 systemctl daemon-reload
 systemctl enable $SERVICE_NAME
 systemctl restart $SERVICE_NAME
 
-echo "✅ API Monitor Agent 安装成功！"
-echo "   状态: systemctl status $SERVICE_NAME"
-echo "   日志: journalctl -u $SERVICE_NAME -f"
+if systemctl is-active --quiet $SERVICE_NAME; then
+    echo -e "${GREEN}================================================${NC}"
+    echo -e "${GREEN}  ✅ API Monitor Agent 安装成功并已作为服务启动!${NC}"
+    echo -e "${GREEN}  使用状态: systemctl status $SERVICE_NAME${NC}"
+    echo -e "${GREEN}  查看日志: journalctl -u $SERVICE_NAME -f${NC}"
+    echo -e "${GREEN}================================================${NC}"
+else
+    echo -e "${RED}❌ 服务启动失败，请检查日志: journalctl -u $SERVICE_NAME${NC}"
+fi
 `;
+    }
+
+    /**
+     * 生成 Windows (PowerShell) 安装脚本
+     */
+    generateWinInstallScript(serverId, serverUrl) {
+        const agentKey = this.getAgentKey(serverId);
+
+        return `
+# API Monitor Agent Windows 自动安装脚本
+$ErrorActionPreference = "Stop"
+
+$SERVER_URL = "${serverUrl}"
+$SERVER_ID = "${serverId}"
+$AGENT_KEY = "${agentKey}"
+$INSTALL_DIR = "$env:LOCALAPPDATA\\api-monitor-agent"
+$BINARY_URL = "$SERVER_URL/agent/api-monitor-agent-win.exe"
+
+Write-Host ">>> 正在安装 API Monitor Agent (Windows 二进制版)..." -ForegroundColor Green
+
+# 1. 创建目录
+if (-not (Test-Path $INSTALL_DIR)) {
+    Write-Host "📁 创建目录: $INSTALL_DIR"
+    New-Item -ItemType Directory -Force -Path $INSTALL_DIR | Out-Null
+}
+Set-Location $INSTALL_DIR
+
+# 2. 下载二进制文件
+Write-Host "📥 正在从主控端下载 Agent 二进制文件..." -ForegroundColor Yellow
+Invoke-WebRequest -Uri $BINARY_URL -OutFile "api-monitor-agent.exe"
+
+# 3. 生成配置文件
+Write-Host "📝 生成配置文件..." -ForegroundColor Yellow
+$config = @{
+    serverUrl = $SERVER_URL
+    serverId = $SERVER_ID
+    agentKey = $AGENT_KEY
+    reportInterval = 1500
+    reconnectInterval = 4000
+} | ConvertTo-Json
+
+$config | Out-File -FilePath "config.json" -Encoding ASCII -Force
+
+# 4. 设置并启动服务 (开机自启)
+Write-Host "⚙️ 正在配置开机自启..." -ForegroundColor Yellow
+$taskName = "APIMonitorAgent"
+$executablePath = Join-Path $INSTALL_DIR "api-monitor-agent.exe"
+
+# 停止并删除已存在的同名任务
+Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue | Unregister-ScheduledTask -Confirm:$false
+
+$action = New-ScheduledTaskAction -Execute $executablePath -WorkingDirectory $INSTALL_DIR
+$trigger = New-ScheduledTaskTrigger -AtLogOn
+$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+Register-ScheduledTask -Action $action -Trigger $trigger -Settings $settings -TaskName $taskName -Description "API Monitor Agent Auto-start Task" | Out-Null
+
+# 立即开始运行
+Start-ScheduledTask -TaskName $taskName
+
+Write-Host "================================================" -ForegroundColor Green
+Write-Host "  ✅ API Monitor Agent 安装完成!" -ForegroundColor Green
+Write-Host "  安装目录: $INSTALL_DIR" -ForegroundColor White
+Write-Host "  自启配置: 已添加 Windows 计划任务 ($taskName)" -ForegroundColor White
+Write-Host "  启动状态: 已在后台启动" -ForegroundColor White
+Write-Host "================================================" -ForegroundColor Green
+        `.trim();
     }
 
     /**
@@ -375,16 +981,24 @@ echo "   日志: journalctl -u $SERVICE_NAME -f"
         return `#!/bin/bash
 # API Monitor Agent 卸载脚本
 
+if [ "$EUID" -ne 0 ]; then 
+  echo "请以 root 身份运行"
+  exit 1
+fi
+
 SERVICE_NAME="api-monitor-agent"
-AGENT_DIR="/opt/api-monitor-agent"
+INSTALL_DIR="/opt/api-monitor-agent"
 
-systemctl stop $SERVICE_NAME 2>/dev/null || true
-systemctl disable $SERVICE_NAME 2>/dev/null || true
-rm -f /etc/systemd/system/$SERVICE_NAME.service
+echo "正在停止并移除 API Monitor Agent..."
+
+systemctl stop \$SERVICE_NAME 2>/dev/null || true
+systemctl disable \$SERVICE_NAME 2>/dev/null || true
+rm -f /etc/systemd/system/\$SERVICE_NAME.service
 systemctl daemon-reload
-rm -rf "$AGENT_DIR"
 
-echo "✅ API Monitor Agent 已卸载"
+rm -rf "\$INSTALL_DIR"
+
+echo "✅ 卸载完成"
 `;
     }
 }

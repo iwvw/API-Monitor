@@ -21,7 +21,7 @@ export function initServerModule() {
     console.log('初始化主机管理模块');
     loadServers();
     setupEventListeners();
-    
+
     // 启动 WebSocket 连接
     connectMetricsWS();
 
@@ -263,7 +263,7 @@ function renderServerTableRow(server) {
             </td>
             <td>
                 <code style="background: var(--section-bg); padding: 2px 6px; border-radius: 3px; font-size: 12px;">
-                    ${escapeHtml(server.username)}@${escapeHtml(formatHost(server.host))}:${server.port}
+                    ${escapeHtml(formatHost(server.host))}:${server.port}
                 </code>
             </td>
             <td class="text-center">
@@ -1350,7 +1350,7 @@ export const serverMethods = {
 function connectMetricsWS() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const wsUrl = `${protocol}//${window.location.host}/ws/metrics`;
-    
+
     console.log('[Metrics] Connecting to WebSocket:', wsUrl);
     const ws = new WebSocket(wsUrl);
 
@@ -1386,13 +1386,13 @@ function handleMetricsUpdate(metricsData) {
     if (!Array.isArray(metricsData)) return;
 
     let hasUpdates = false;
-    
+
     metricsData.forEach(item => {
         const { serverId, metrics } = item;
-        
+
         // 1. 更新内部状态
         state.metrics.set(serverId, metrics);
-        
+
         // 2. 更新服务器在线状态 (如果 metrics 存在，说明在线)
         const server = state.servers.find(s => s.id === serverId);
         if (server) {
@@ -1400,7 +1400,7 @@ function handleMetricsUpdate(metricsData) {
                 server.status = 'online';
                 hasUpdates = true;
             }
-            
+
             // 3. 更新 UI
             updateServerCardMetrics(serverId, metrics);
         }
@@ -1441,7 +1441,7 @@ function updateServerCardMetrics(serverId, metrics) {
             detailsContainer.innerHTML = renderServerDetails(server, state.serverInfo.get(serverId));
         }
     }
-    
+
     // 4. 同步更新后台管理表格中的状态（如果存在）
     const tableRow = document.querySelector(`tr:has(button[onclick*="'${serverId}'"])`);
     if (tableRow) {

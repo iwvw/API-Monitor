@@ -97,6 +97,22 @@ module.exports = defineConfig(({ mode }) => {
                     target: 'ws://127.0.0.1:3000',
                     ws: true,
                     changeOrigin: true
+                },
+                // Socket.IO 代理 (/agent, /metrics 命名空间)
+                '/socket.io': {
+                    target: 'http://127.0.0.1:3000',
+                    ws: true,
+                    changeOrigin: true
+                },
+                '/agent': {
+                    target: 'http://127.0.0.1:3000',
+                    ws: true,
+                    changeOrigin: true
+                },
+                '/metrics': {
+                    target: 'http://127.0.0.1:3000',
+                    ws: true,
+                    changeOrigin: true
                 }
             }
         },

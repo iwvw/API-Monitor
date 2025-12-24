@@ -535,72 +535,186 @@
       <button class="modal-close" @click="closeServerModal"><i class="fas fa-times"></i></button>
     </div>
     <div class="modal-body">
-      <!-- 基础信息区 -->
-      <div class="server-form-section">
-        <div class="form-row">
-          <div class="form-group flex-1">
-            <label>常用凭据</label>
-            <select class="form-input" v-model="selectedCredentialId" @change="applyCredential($event)">
-              <option value="">-- 选择预设凭据 --</option>
-              <option v-for="cred in serverCredentials" :key="cred.id" :value="cred.id">
-                {{ cred.name }} ({{ cred.username }}) {{ cred.is_default ? '★' : '' }}
-              </option>
-            </select>
+      <!-- 模式切换标签 (仅添加模式显示) -->
+      <div v-if="serverModalMode === 'add'" class="server-add-mode-tabs"
+        style="display: flex; gap: 0; margin-bottom: 20px; background: var(--bg-tertiary); border-radius: 10px; padding: 4px;">
+        <button type="button" :class="{ active: serverAddMode === 'ssh' }" @click="serverAddMode = 'ssh'"
+          style="flex: 1; padding: 10px 16px; border: none; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 8px;"
+          :style="serverAddMode === 'ssh' 
+            ? 'background: var(--server-primary); color: white; box-shadow: 0 2px 8px rgba(var(--current-rgb), 0.3);' 
+            : 'background: transparent; color: var(--text-secondary);'">
+          <i class="fas fa-terminal"></i> SSH 模式
+        </button>
+        <button type="button" :class="{ active: serverAddMode === 'agent' }" @click="serverAddMode = 'agent'"
+          style="flex: 1; padding: 10px 16px; border: none; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 8px;"
+          :style="serverAddMode === 'agent' 
+            ? 'background: var(--server-primary); color: white; box-shadow: 0 2px 8px rgba(var(--current-rgb), 0.3);' 
+            : 'background: transparent; color: var(--text-secondary);'">
+          <i class="fas fa-robot"></i> Agent 快速部署
+        </button>
+      </div>
+
+      <!-- ==================== SSH 模式表单 ==================== -->
+      <div v-if="serverModalMode === 'edit' || serverAddMode === 'ssh'">
+        <!-- 基础信息区 -->
+        <div class="server-form-section">
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label>常用凭据</label>
+              <select class="form-input" v-model="selectedCredentialId" @change="applyCredential($event)">
+                <option value="">-- 选择预设凭据 --</option>
+                <option v-for="cred in serverCredentials" :key="cred.id" :value="cred.id">
+                  {{ cred.name }} ({{ cred.username }}) {{ cred.is_default ? '★' : '' }}
+                </option>
+              </select>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label><i class="fas fa-id-badge"></i> 实例名称</label>
+              <input type="text" v-model="serverForm.name" class="form-input" placeholder="如: 生产环境-网关" required />
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group" style="flex: 7;">
+              <label><i class="fas fa-network-wired"></i> 主机地址</label>
+              <input type="text" v-model="serverForm.host" class="form-input" placeholder="IP 或 域名" required />
+            </div>
+            <div class="form-group" style="flex: 3;">
+              <label><i class="fas fa-door-open"></i> 端口</label>
+              <input type="number" v-model="serverForm.port" class="form-input" placeholder="22" />
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label><i class="fas fa-user-shield"></i> 登录用户</label>
+              <input type="text" v-model="serverForm.username" class="form-input" placeholder="root" required />
+            </div>
           </div>
         </div>
 
-        <div class="form-row">
-          <div class="form-group flex-1">
-            <label><i class="fas fa-id-badge"></i> 实例名称</label>
-            <input type="text" v-model="serverForm.name" class="form-input" placeholder="如: 生产环境-网关" required />
+        <!-- 认证方式区 -->
+        <div class="server-form-section">
+          <div class="server-auth-toggle">
+            <button type="button" :class="{ active: serverForm.authType === 'password' }"
+              @click="serverForm.authType = 'password'">
+              <i class="fas fa-key"></i> 密码认证
+            </button>
+            <button type="button" :class="{ active: serverForm.authType === 'privateKey' }"
+              @click="serverForm.authType = 'privateKey'">
+              <i class="fas fa-file-code"></i> 密钥认证
+            </button>
           </div>
-        </div>
 
-        <div class="form-row">
-          <div class="form-group" style="flex: 7;">
-            <label><i class="fas fa-network-wired"></i> 主机地址</label>
-            <input type="text" v-model="serverForm.host" class="form-input" placeholder="IP 或 域名" required />
+          <div v-if="serverForm.authType === 'password'" class="server-form-field">
+            <label><i class="fas fa-lock"></i> 密码</label>
+            <input v-model="serverForm.password" type="password" placeholder="请输入密码" />
           </div>
-          <div class="form-group" style="flex: 3;">
-            <label><i class="fas fa-door-open"></i> 端口</label>
-            <input type="number" v-model="serverForm.port" class="form-input" placeholder="22" />
-          </div>
-        </div>
 
-        <div class="form-row">
-          <div class="form-group flex-1">
-            <label><i class="fas fa-user-shield"></i> 登录用户</label>
-            <input type="text" v-model="serverForm.username" class="form-input" placeholder="root" required />
+          <div v-if="serverForm.authType === 'privateKey'">
+            <div class="server-form-field">
+              <label><i class="fas fa-file-alt"></i> 私钥内容</label>
+              <textarea v-model="serverForm.privateKey" rows="4"
+                placeholder="粘贴 SSH 私钥（支持 RSA、ECDSA、Ed25519）"></textarea>
+            </div>
+            <div class="server-form-field">
+              <label><i class="fas fa-unlock-alt"></i> 私钥密码 <span class="optional-tag">可选</span></label>
+              <input v-model="serverForm.passphrase" type="password" placeholder="私钥有密码保护时填写" />
+            </div>
           </div>
         </div>
       </div>
 
-      <!-- 认证方式区 -->
-      <div class="server-form-section">
-        <div class="server-auth-toggle">
-          <button type="button" :class="{ active: serverForm.authType === 'password' }"
-            @click="serverForm.authType = 'password'">
-            <i class="fas fa-key"></i> 密码认证
-          </button>
-          <button type="button" :class="{ active: serverForm.authType === 'privateKey' }"
-            @click="serverForm.authType = 'privateKey'">
-            <i class="fas fa-file-code"></i> 密钥认证
-          </button>
-        </div>
-
-        <div v-if="serverForm.authType === 'password'" class="server-form-field">
-          <label><i class="fas fa-lock"></i> 密码</label>
-          <input v-model="serverForm.password" type="password" placeholder="请输入密码" />
-        </div>
-
-        <div v-if="serverForm.authType === 'privateKey'">
-          <div class="server-form-field">
-            <label><i class="fas fa-file-alt"></i> 私钥内容</label>
-            <textarea v-model="serverForm.privateKey" rows="4" placeholder="粘贴 SSH 私钥（支持 RSA、ECDSA、Ed25519）"></textarea>
+      <!-- ==================== Agent 快速部署模式 ==================== -->
+      <div v-if="serverModalMode === 'add' && serverAddMode === 'agent'">
+        <div class="server-form-section">
+          <div class="form-row">
+            <div class="form-group flex-1">
+              <label><i class="fas fa-id-badge"></i> 服务器名称</label>
+              <input type="text" v-model="quickDeployName" class="form-input" placeholder="输入服务器名称，如: Debian-生产服务器"
+                @keyup.enter="generateQuickInstallCommand" autofocus />
+            </div>
           </div>
-          <div class="server-form-field">
-            <label><i class="fas fa-unlock-alt"></i> 私钥密码 <span class="optional-tag">可选</span></label>
-            <input v-model="serverForm.passphrase" type="password" placeholder="私钥有密码保护时填写" />
+        </div>
+
+        <!-- 生成的安装命令 -->
+        <div v-if="quickDeployResult" class="server-form-section" style="margin: 10px;">
+          <div style="background: var(--bg-tertiary); border-radius: 12px; padding: 16px;">
+            <div style="display: flex; align-items: center; gap: 8px; margin: 10px;">
+              <i class="fas fa-check-circle" style="color: #10b981;"></i>
+              <span style="font-weight: 600; color: var(--text-primary);">已生成安装命令</span>
+            </div>
+
+            <div style="margin-bottom: 16px;">
+              <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 8px;">
+                <label style="font-size: 12px; color: var(--text-secondary);">
+                  <i class="fas fa-terminal" style="margin-right: 6px;"></i>在目标服务器执行此命令:
+                </label>
+                <div
+                  style="display: flex; background: var(--bg-primary); border-radius: 6px; padding: 2px; border: 1px solid var(--border-color);">
+                  <button @click="agentInstallOS = 'linux'"
+                    :style="agentInstallOS === 'linux' ? 'background: var(--server-primary); color: white; padding: 2px 8px; border-radius: 4px; font-size: 10px; border: none; font-weight: 600;' : 'background: transparent; color: var(--text-secondary); padding: 2px 8px; font-size: 10px; border: none; cursor: pointer;'">Linux</button>
+                  <button @click="agentInstallOS = 'windows'"
+                    :style="agentInstallOS === 'windows' ? 'background: var(--server-primary); color: white; padding: 2px 8px; border-radius: 4px; font-size: 10px; border: none; font-weight: 600;' : 'background: transparent; color: var(--text-secondary); padding: 2px 8px; font-size: 10px; border: none; cursor: pointer;'">Windows</button>
+                </div>
+              </div>
+              <div style="position: relative;">
+                <pre
+                  style="background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 8px; padding: 14px; padding-right: 50px; font-size: 12px; margin: 0; white-space: pre-wrap; word-break: break-all; color: var(--text-primary); font-family: var(--font-mono);">{{ agentInstallOS === 'linux' ? quickDeployResult.installCommand : quickDeployResult.winInstallCommand }}</pre>
+                <button class="btn-icon-refined" @click="copyQuickDeployCommand"
+                  style="position: absolute; top: 10px; right: 10px; background: rgba(var(--current-rgb), 0.1); border: 1px solid rgba(var(--current-rgb), 0.2); color: var(--server-primary);"
+                  title="复制">
+                  <i class="fas fa-copy"></i>
+                </button>
+              </div>
+            </div>
+
+            <div
+              style="display: flex; gap: 12px; padding: 12px; background: rgba(16, 185, 129, 0.1); border-radius: 8px; margin-bottom: 12px;">
+              <i class="fas fa-check-circle" style="color: #10b981; margin-top: 2px;"></i>
+              <div style="font-size: 12px; color: var(--text-secondary); line-height: 1.6;">
+                <p style="margin: 0 0 4px 0;"><strong>{{ quickDeployResult.isNew ? `已创建新主机` : `使用已存在的主机` }}</strong>: {{
+                  quickDeployResult.serverName }}</p>
+                <p style="margin: 0;">{{ agentInstallOS === 'linux' ? `复制上方命令在目标 Linux 服务器执行。` : `在 Windows PowerShell
+                  (管理员) 中执行上方命令。` }} 该脚本将自动下载二进制 Agent 并配置运行。</p>
+              </div>
+            </div>
+
+            <!-- 二进制文件下载 (Quick Deploy) -->
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+              <label style="font-size: 11px; color: var(--text-tertiary); font-weight: 600;">或者手动下载二进制文件:</label>
+              <div style="display: flex; gap: 8px;">
+                <a :href="quickDeployResult.apiUrl + '/agent/api-monitor-agent-linux'" target="_blank"
+                  style="flex: 1; padding: 6px; background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 6px; font-size: 11px; text-decoration: none; color: var(--text-primary); display: flex; align-items: center; justify-content: center; gap: 6px;">
+                  <i class="fab fa-linux"></i> Linux
+                </a>
+                <a :href="quickDeployResult.apiUrl + '/agent/api-monitor-agent-win.exe'" target="_blank"
+                  style="flex: 1; padding: 6px; background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 6px; font-size: 11px; text-decoration: none; color: var(--text-primary); display: flex; align-items: center; justify-content: center; gap: 6px;">
+                  <i class="fab fa-windows"></i> Windows
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+
+
+        <!-- 提示信息 -->
+        <div v-else
+          style="margin: 10px; padding: 10px; background: linear-gradient(135deg, rgba(59, 130, 246, 0.08), rgba(16, 185, 129, 0.08)); border-radius: 12px; border: 1px dashed var(--border-color);">
+          <div style="display: flex; gap: 12px;">
+            <i class="fas fa-lightbulb" style="color: #f59e0b; font-size: 18px;"></i>
+            <div style="font-size: 13px; color: var(--text-secondary); line-height: 1.7;">
+              <p style="margin: 0 0 8px 0; font-weight: 600; color: var(--text-primary);">Agent 快速部署说明</p>
+              <ol style="margin: 0; padding-left: 18px;">
+                <li>输入服务器名称后点击「生成安装命令」</li>
+                <li>复制生成的命令到目标 Linux 服务器执行</li>
+                <li>Agent 将自动安装并连接到本 Dashboard</li>
+                <li>无需配置 SSH 凭据，数据通过 Socket.IO 实时推送</li>
+              </ol>
+            </div>
           </div>
         </div>
       </div>
@@ -613,13 +727,24 @@
       <button class="btn-server-cancel" @click="closeServerModal" :disabled="serverModalSaving">
         取消
       </button>
-      <div class="server-modal-actions">
+
+      <!-- SSH 模式按钮 -->
+      <div v-if="serverModalMode === 'edit' || serverAddMode === 'ssh'" class="server-modal-actions">
         <button class="btn-server-test" @click="testServerConnection" :disabled="serverModalSaving">
           <i class="fas fa-plug"></i> 测试
         </button>
         <button class="btn-server-save" @click="saveServer" :disabled="serverModalSaving">
           <i class="fas" :class="serverModalSaving ? 'fa-spinner fa-spin' : 'fa-check'"></i>
           {{ serverModalSaving ? '保存中' : '保存' }}
+        </button>
+      </div>
+
+      <!-- Agent 模式按钮 -->
+      <div v-if="serverModalMode === 'add' && serverAddMode === 'agent'" class="server-modal-actions">
+        <button class="btn-server-save" @click="generateQuickInstallCommand"
+          :disabled="serverModalSaving || !quickDeployName.trim()">
+          <i class="fas" :class="serverModalSaving ? 'fa-spinner fa-spin' : 'fa-magic'"></i>
+          {{ serverModalSaving ? '生成中...' : '生成安装命令' }}
         </button>
       </div>
     </div>
@@ -778,12 +903,21 @@
           </div>
 
           <div style="margin-bottom: 20px;">
-            <label style="display: block; margin-bottom: 8px; font-weight: 500; color: var(--text-secondary);">
-              <i class="fas fa-terminal" style="margin-right: 8px;"></i>一键安装命令
-            </label>
+            <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 8px;">
+              <label style="font-weight: 500; color: var(--text-secondary);">
+                <i class="fas fa-terminal" style="margin-right: 8px;"></i>一键安装命令
+              </label>
+              <div
+                style="display: flex; background: var(--bg-tertiary); border-radius: 8px; padding: 3px; border: 1px solid var(--border-color);">
+                <button @click="agentInstallOS = 'linux'"
+                  :style="agentInstallOS === 'linux' ? 'background: var(--server-primary); color: white; padding: 4px 12px; border-radius: 6px; font-size: 11px; border: none; font-weight: 600; cursor: pointer;' : 'background: transparent; color: var(--text-secondary); padding: 4px 12px; font-size: 11px; border: none; cursor: pointer;'">Linux</button>
+                <button @click="agentInstallOS = 'windows'"
+                  :style="agentInstallOS === 'windows' ? 'background: var(--server-primary); color: white; padding: 4px 12px; border-radius: 6px; font-size: 11px; border: none; font-weight: 600; cursor: pointer;' : 'background: transparent; color: var(--text-secondary); padding: 4px 12px; font-size: 11px; border: none; cursor: pointer;'">Windows</button>
+              </div>
+            </div>
             <div style="position: relative;">
               <pre
-                style="background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 8px; padding: 16px; padding-right: 50px; overflow-x: auto; font-size: 12px; color: var(--text-primary); margin: 0; white-space: pre-wrap; word-break: break-all;">{{ agentModalData.installCommand }}</pre>
+                style="background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 8px; padding: 16px; padding-right: 50px; overflow-x: auto; font-size: 12px; color: var(--text-primary); margin: 0; white-space: pre-wrap; word-break: break-all; font-family: var(--font-mono);">{{ agentInstallOS === 'linux' ? agentModalData.installCommand : agentModalData.winInstallCommand }}</pre>
               <button class="btn-icon-refined" @click="copyAgentCommand"
                 style="position: absolute; top: 10px; right: 10px; background: rgba(var(--current-rgb, 59, 130, 246), 0.1); border: 1px solid rgba(var(--current-rgb, 59, 130, 246), 0.2); color: var(--server-primary);"
                 title="复制">
@@ -793,16 +927,48 @@
           </div>
 
           <div
-            style="background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(16, 185, 129, 0.1)); border-radius: 12px; padding: 16px; margin-bottom: 20px;">
+            style="background: linear-gradient(135deg, rgba(59, 130, 246, 0.1), rgba(16, 185, 129, 0.1)); border-radius: 12px; padding: 16px; margin-bottom: 10px;">
             <p style="margin: 0 0 12px 0; font-weight: 600; color: var(--text-primary);">
               <i class="fas fa-lightbulb" style="color: #f59e0b; margin-right: 8px;"></i>使用说明
             </p>
             <ol style="margin: 0; padding-left: 20px; color: var(--text-secondary); line-height: 1.8;">
-              <li><strong>一键安装</strong>：点击下方按钮自动通过 SSH 安装</li>
+              <li v-if="agentInstallOS === 'linux'"><strong>一键安装</strong>：点击下方按钮自动通过 SSH 安装</li>
               <li><strong>手动安装</strong>：复制上方命令到服务器执行</li>
-              <li>Agent 会自动安装为 systemd 服务</li>
-              <li>数据每 2 秒推送一次，无需保持 SSH 连接</li>
+              <li>Agent 会自识别系统并安装为服务</li>
+              <li><strong>无需 Node.js</strong>：使用预编译二进制文件安装</li>
             </ol>
+          </div>
+
+          <!-- 二进制文件下载 -->
+          <div style="padding: 16px; background: var(--bg-tertiary); border-radius: 12px; margin-bottom: 10px;">
+            <p style="margin: 0 0 12px 0; font-weight: 600; color: var(--text-primary);">
+              <i class="fas fa-file-download" style="color: var(--server-primary); margin-right: 8px;"></i>直接下载二进制 Agent
+            </p>
+            <div style="display: flex; gap: 10px;">
+              <a :href="agentModalData.apiUrl + '/agent/api-monitor-agent-linux'" target="_blank"
+                class="btn btn-secondary btn-sm" style="flex: 1; text-decoration: none; justify-content: center;">
+                <i class="fab fa-linux"></i> Linux (x64)
+              </a>
+              <a :href="agentModalData.apiUrl + '/agent/api-monitor-agent-win.exe'" target="_blank"
+                class="btn btn-secondary btn-sm" style="flex: 1; text-decoration: none; justify-content: center;">
+                <i class="fab fa-windows"></i> Windows (x64)
+              </a>
+            </div>
+          </div>
+
+          <!-- 安装日志显示区 -->
+          <div v-if="agentInstallLog"
+            style="margin-bottom: 10px; padding: 16px; background: var(--bg-primary); border: 1px solid var(--border-color); border-radius: 8px;">
+            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px;">
+              <i class="fas"
+                :class="agentInstallResult === 'success' ? 'fa-check-circle' : (agentInstallResult === 'error' ? 'fa-times-circle' : 'fa-terminal')"
+                :style="{ color: agentInstallResult === 'success' ? '#10b981' : (agentInstallResult === 'error' ? '#ef4444' : 'var(--text-secondary)') }"></i>
+              <span style="font-weight: 600; color: var(--text-primary);">安装日志</span>
+              <span v-if="agentInstallLoading" class="ag-spinner-elegant ag-spinner-elegant-xs"
+                style="margin-left: auto;"></span>
+            </div>
+            <pre
+              style="margin: 0; font-size: 11px; font-family: var(--font-mono); white-space: pre-wrap; word-break: break-all; color: var(--text-secondary); max-height: 200px; overflow-y: auto;">{{ agentInstallLog }}</pre>
           </div>
         </div>
       </div>

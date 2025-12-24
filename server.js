@@ -56,9 +56,21 @@ const metricsWss = metricsService.init(server);
 const sshService = require('./modules/server-management/ssh-service');
 const sshWss = sshService.init(server);
 
+// 初始化 Agent Socket.IO 服务 (Nezha 风格实时连接)
+const agentService = require('./modules/server-management/agent-service');
+agentService.initSocketIO(server);
+
 // 统一处理 WebSocket 升级请求
+// 注意: Socket.IO 会自动处理 /socket.io/ 路径的升级请求，这里只处理其他 WebSocket 路径
 server.on('upgrade', (request, socket, head) => {
   const pathname = request.url.split('?')[0];
+
+  // Socket.IO 自动处理其命名空间的升级请求，这里直接跳过
+  if (pathname.startsWith('/socket.io')) {
+    // Socket.IO 已经通过 initSocketIO 注册，无需额外处理
+    return;
+  }
+
   logger.info(`[WS Upgrade] 路径: ${pathname} (来自 ${socket.remoteAddress})`);
 
   if (pathname === '/ws/logs') {
@@ -97,14 +109,15 @@ try {
 app.use(loggerMiddleware);
 app.use(corsMiddleware);
 app.use(express.json({ limit: '50mb' }));
-// 静态文件服务 - 优先服务 dist (生产构建)，否则 serving src (开发模式)
+// 静态文件服务
+// 1. 优先服务 dist (生产构建内容)
 if (fs.existsSync(path.join(__dirname, 'dist'))) {
   app.use(express.static('dist'));
-} else {
-  // 按照 Vite 的逻辑，根目录资源在 public，源代码在 src
-  app.use(express.static('public'));
-  app.use(express.static('src'));
 }
+
+// 2. 总是服务 public 和 src (开发模式资源，或作为生产环境下的动态资源补充，如 Agent 二进制)
+app.use(express.static('public'));
+app.use(express.static('src'));
 
 // 文件上传中间件
 const fileUpload = require('express-fileupload');

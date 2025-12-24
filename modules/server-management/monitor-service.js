@@ -257,9 +257,16 @@ class MonitorService {
     getStatus() {
         const config = ServerMonitorConfig.get();
         const servers = ServerAccount.getAll();
+        const agentService = require('./agent-service');
+
+        // 获取 Agent 连接数
+        const onlineAgents = agentService.getConnectionCount ? agentService.getConnectionCount() : 0;
 
         return {
-            isRunning: this.isRunning,
+            isRunning: onlineAgents > 0,
+            interval: (config?.probe_interval || 60) * 1000, // 转换为毫秒
+            cachedServers: this.metricsCache.size,
+            activeStreams: onlineAgents,
             config: {
                 probe_interval: config?.probe_interval || 60,
                 probe_timeout: config?.probe_timeout || 10,

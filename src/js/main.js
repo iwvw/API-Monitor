@@ -649,10 +649,14 @@ const app = createApp({
       });
 
       // 标签页可见性监听
+      // 注释：Socket.IO 实时流会自动维持数据更新，无需切屏刷新
       document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible' && this.isAuthenticated) {
-          if (this.mainActiveTab === 'server' && this.serverCurrentTab === 'list' && this.serverPollingEnabled) {
-            this.probeAllServers();
+          // 仅重新连接已断开的实时流，不触发完整刷新
+          if (this.mainActiveTab === 'server' && this.serverCurrentTab === 'list') {
+            if (!this.metricsWsConnected) {
+              this.connectMetricsStream();
+            }
           }
         }
       });
@@ -713,27 +717,31 @@ const app = createApp({
 
     serverCurrentTab: {
       handler(newVal) {
-        // 1. 指标流连接管理 - 仅在列表页时连接，不在此处关闭（避免切换子标签时断开）
-        // 关闭操作由 mainActiveTab watcher 在离开 server 模块时负责
+        // 1. 指标流连接管理 - 仅在列表页时连接
         if (newVal === 'list' && this.mainActiveTab === 'server') {
           this.connectMetricsStream();
         }
 
-        // 2. 标签页特定数据加载
+        // 2. 标签页特定数据加载（仅在数据为空时加载，避免切换时重复刷新）
         if (newVal === 'management') {
           this.loadMonitorConfig();
-          this.loadServerList();
           this.loadMonitorLogs();
           this.loadCredentials();
+          // 仅在列表为空时才加载
+          if (this.serverList.length === 0) {
+            this.loadServerList();
+          }
         } else if (newVal === 'list') {
-          this.loadServerList();
+          // 已有 Socket.IO 实时数据时不刷新（避免跳变）
+          if (this.serverList.length === 0) {
+            this.loadServerList();
+          }
         } else if (newVal === 'terminal') {
           // 切换到 SSH 终端视图时，恢复 DOM 挂载并调整大小
           this.$nextTick(() => {
             this.syncTerminalDOM();
             const session = this.sshSessions.find(s => s.id === this.activeSSHSessionId);
             if (session) {
-              // 延迟一次确保容器尺寸稳定
               setTimeout(() => {
                 this.safeTerminalFit(session);
                 if (session.terminal) session.terminal.focus();
@@ -855,12 +863,11 @@ const app = createApp({
                 }
                 break;
               case 'server':
-                // 先从缓存恢复（瞬间展示）
+                // 仅在列表为空时加载（已有数据时依赖 Socket.IO 实时流）
                 if (this.serverList.length === 0) {
                   this.loadFromServerListCache();
+                  this.loadServerList();
                 }
-                // 始终加载最新数据
-                this.loadServerList();
                 // 如果当前选中的是管理子标签，确保加载配置和相关数据
                 if (this.serverCurrentTab === 'management') {
                   this.loadMonitorConfig();
@@ -926,7 +933,10 @@ const app = createApp({
               this.loadOpenListAccounts();
               break;
             case 'server':
-              this.loadServerList();
+              // 仅在列表为空时加载
+              if (this.serverList.length === 0) {
+                this.loadServerList();
+              }
               break;
             case 'antigravity':
               if (this.antigravityCurrentTab === 'quotas') {

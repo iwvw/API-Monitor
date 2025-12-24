@@ -43,7 +43,7 @@
                 <div :class="['server-status-indicator', server.status || 'unknown']"></div>
                 <div class="ssh-quick-item-info">
                   <div class="ssh-quick-item-name">{{ server.name }}</div>
-                  <div class="ssh-quick-item-host">{{ server.username }}@{{ server.host }}</div>
+                  <div class="ssh-quick-item-host">{{ server.host }}</div>
                 </div>
                 <i class="fas fa-arrow-right"></i>
               </div>
@@ -171,56 +171,6 @@
         <!-- Telemetry Group (Center/Responsive) -->
         <div class="metrics-row"
           style="display: flex; align-items: center; gap: 12px; flex: 2; justify-content: flex-end; min-width: 240px;">
-          <!-- CPU Micro-meter -->
-          <div style="flex: 1; max-width: 80px;">
-            <div
-              style="display: flex; justify-content: space-between; font-size: 12px; font-weight: 800; color: var(--text-tertiary); margin-bottom: 4px; text-transform: uppercase;">
-              <span>CPU</span>
-              <span v-if="server.info && server.info.cpu" style="color: #10b981;">{{ parseInt(server.info.cpu.Usage)
-                }}%</span>
-            </div>
-            <div style="height: 4px; background: var(--bg-tertiary); border-radius: 2px; overflow: hidden;">
-              <div v-if="server.info && server.info.cpu" :style="{ 
-                width: server.info.cpu.Usage, height: '100%', 
-                background: parseFloat(server.info.cpu.Usage) > 85 ? '#ef4444' : '#10b981',
-                boxShadow: '0 0 4px ' + (parseFloat(server.info.cpu.Usage) > 85 ? 'rgba(239, 68, 68, 0.4)' : 'rgba(16, 185, 129, 0.2)')
-              }"></div>
-            </div>
-          </div>
-
-          <!-- MEM Micro-meter -->
-          <div style="flex: 1; max-width: 80px;">
-            <div
-              style="display: flex; justify-content: space-between; font-size: 12px; font-weight: 800; color: var(--text-tertiary); margin-bottom: 4px; text-transform: uppercase;">
-              <span>MEM</span>
-              <span v-if="server.info && server.info.memory" style="color: #3b82f6;">{{
-                parseInt(server.info.memory.Usage) }}%</span>
-            </div>
-            <div style="height: 4px; background: var(--bg-tertiary); border-radius: 2px; overflow: hidden;">
-              <div v-if="server.info && server.info.memory" :style="{ 
-                width: server.info.memory.Usage, height: '100%', 
-                background: parseFloat(server.info.memory.Usage) > 85 ? '#ef4444' : '#3b82f6',
-                boxShadow: '0 0 4px ' + (parseFloat(server.info.memory.Usage) > 85 ? 'rgba(239, 68, 68, 0.4)' : 'rgba(59, 130, 246, 0.2)')
-              }"></div>
-            </div>
-          </div>
-
-          <!-- DISK Micro-meter -->
-          <div style="flex: 1; max-width: 80px;">
-            <div
-              style="display: flex; justify-content: space-between; font-size: 12px; font-weight: 800; color: var(--text-tertiary); margin-bottom: 4px; text-transform: uppercase;">
-              <span>DSK</span>
-              <span v-if="server.info && server.info.disk && server.info.disk.length > 0" style="color: #a855f7;">{{
-                parseInt(server.info.disk[0].usage) }}%</span>
-            </div>
-            <div style="height: 4px; background: var(--bg-tertiary); border-radius: 2px; overflow: hidden;">
-              <div v-if="server.info && server.info.disk && server.info.disk.length > 0" :style="{ 
-                width: server.info.disk[0].usage, height: '100%', 
-                background: parseFloat(server.info.disk[0].usage) > 85 ? '#ef4444' : '#a855f7',
-                boxShadow: '0 0 4px ' + (parseFloat(server.info.disk[0].usage) > 85 ? 'rgba(239, 68, 68, 0.4)' : 'rgba(168, 85, 247, 0.2)')
-              }"></div>
-            </div>
-          </div>
 
           <!-- Network Speed Mini -->
           <div v-if="server.info && server.info.network"
@@ -244,12 +194,63 @@
           </div>
         </div>
 
+        <!-- CPU Micro-meter -->
+        <div style="flex: 1; max-width: 80px;">
+          <div
+            style="display: flex; justify-content: space-between; font-size: 12px; font-weight: 800; color: var(--text-tertiary); margin-bottom: 4px; text-transform: uppercase;">
+            <span>CPU</span>
+            <span v-if="server.info && server.info.cpu" style="color: #10b981;">{{ parseInt(server.info.cpu.Usage)
+              }}%</span>
+          </div>
+          <div style="height: 4px; background: var(--bg-tertiary); border-radius: 2px; overflow: hidden;">
+            <div v-if="server.info && server.info.cpu" :style="{ 
+                width: server.info.cpu.Usage, height: '100%', 
+                transition: 'width 0.5s ease, background 0.3s ease',
+                background: parseFloat(server.info.cpu.Usage) > 85 ? '#ef4444' : '#10b981',
+                boxShadow: '0 0 4px ' + (parseFloat(server.info.cpu.Usage) > 85 ? 'rgba(239, 68, 68, 0.4)' : 'rgba(16, 185, 129, 0.2)')
+              }"></div>
+          </div>
+        </div>
+
+        <!-- MEM Micro-meter -->
+        <div style="flex: 1; max-width: 80px;">
+          <div
+            style="display: flex; justify-content: space-between; font-size: 12px; font-weight: 800; color: var(--text-tertiary); margin-bottom: 4px; text-transform: uppercase;">
+            <span>MEM</span>
+            <span v-if="server.info && server.info.memory" style="color: #3b82f6;">{{
+              parseInt(server.info.memory.Usage) }}%</span>
+          </div>
+          <div style="height: 4px; background: var(--bg-tertiary); border-radius: 2px; overflow: hidden;">
+            <div v-if="server.info && server.info.memory" :style="{ 
+                width: server.info.memory.Usage, height: '100%', 
+                transition: 'width 0.5s ease, background 0.3s ease',
+                background: parseFloat(server.info.memory.Usage) > 85 ? '#ef4444' : '#3b82f6',
+                boxShadow: '0 0 4px ' + (parseFloat(server.info.memory.Usage) > 85 ? 'rgba(239, 68, 68, 0.4)' : 'rgba(59, 130, 246, 0.2)')
+              }"></div>
+          </div>
+        </div>
+
+        <!-- DISK Micro-meter -->
+        <div style="flex: 1; max-width: 80px;">
+          <div
+            style="display: flex; justify-content: space-between; font-size: 12px; font-weight: 800; color: var(--text-tertiary); margin-bottom: 4px; text-transform: uppercase;">
+            <span>DSK</span>
+            <span v-if="server.info && server.info.disk && server.info.disk.length > 0" style="color: #a855f7;">{{
+              parseInt(server.info.disk[0].usage) }}%</span>
+          </div>
+          <div style="height: 4px; background: var(--bg-tertiary); border-radius: 2px; overflow: hidden;">
+            <div v-if="server.info && server.info.disk && server.info.disk.length > 0" :style="{ 
+                width: server.info.disk[0].usage, height: '100%', 
+                transition: 'width 0.5s ease, background 0.3s ease',
+                background: parseFloat(server.info.disk[0].usage) > 85 ? '#ef4444' : '#a855f7',
+                boxShadow: '0 0 4px ' + (parseFloat(server.info.disk[0].usage) > 85 ? 'rgba(239, 68, 68, 0.4)' : 'rgba(168, 85, 247, 0.2)')
+              }"></div>
+          </div>
+        </div>
+
+
         <!-- Action Group (Right) -->
         <div class="action-group" @click.stop style="display: flex; align-items: center; gap: 6px;">
-          <button class="btn-icon-refined" @click="refreshServerInfo(server.id)"
-            style="width: 34px; height: 34px; background: var(--bg-tertiary);" title="刷新">
-            <i class="fas" :class="server.loading ? 'fa-spinner fa-spin' : 'fa-sync-alt'" style="font-size: 13px;"></i>
-          </button>
           <button class="btn-icon-refined" @click="openSSHTerminal(server)"
             style="width: 34px; height: 34px; background: var(--bg-tertiary);" title="SSH 终端">
             <i class="fas fa-terminal" style="font-size: 13px;"></i>
@@ -634,6 +635,12 @@
               <i class="fas fa-camera"></i>
               <span>采集</span>
             </button>
+
+            <!-- 清除数据按钮 -->
+            <button class="metrics-toolbar-btn danger" @click="clearMetricsHistory" title="清除所有历史指标数据">
+              <i class="fas fa-trash-alt"></i>
+              <span>清除</span>
+            </button>
           </div>
         </div>
       </div>
@@ -845,7 +852,7 @@
               <td>
                 <code
                   style="background: var(--bg-secondary); border: 1px solid var(--border-color); padding: 2px 8px; border-radius: 6px; font-size: 11px; font-family: var(--font-mono); color: var(--text-secondary);">
-                  {{ server.username }}@{{ formatHost(server.host) }}:{{ server.port }}
+                  {{ formatHost(server.host) }}:{{ server.port }}
                 </code>
               </td>
               <td class="text-center">

@@ -173,8 +173,7 @@
     color: var(--server-primary);
 }
 
-/* ==================== 涓绘満鍗＄墖 ==================== */
-/* ==================== 涓绘満鍗＄墖 ==================== */
+
 .server-card {
     background-color: var(--card-bg);
     border-radius: 16px;
@@ -3075,6 +3074,19 @@
 .metrics-toolbar-btn.primary:hover {
     background: #00b894;
     border-color: #00b894;
+}
+
+/* 危险按钮样式 */
+.metrics-toolbar-btn.danger {
+    background: rgba(239, 68, 68, 0.1);
+    border-color: rgba(239, 68, 68, 0.3);
+    color: #ef4444;
+}
+
+.metrics-toolbar-btn.danger:hover {
+    background: #ef4444;
+    border-color: #ef4444;
+    color: white;
 }
 
 /* ==================== 鎸変富鏈哄垎绫荤殑鍘嗗彶璁板綍 ==================== */

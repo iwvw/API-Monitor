@@ -71,14 +71,58 @@ function registerRoutes(app) {
 
   // Agent 路由根路径说明
   agentPublicRouter.get('/', (req, res) => {
+    const stats = agentService.getConnectionStats ? agentService.getConnectionStats() : { online: 0 };
+    const protocol = req.protocol;
+    const host = req.get('host');
+    const baseUrl = `${protocol}://${host}`;
+
     res.json({
       success: true,
       message: 'API Monitor Agent 公开接口',
+      version: '2.0.0',
+      protocol: 'Socket.IO + HTTP (兼容)',
+      connections: stats,
+      quickInstall: {
+        description: '一键安装：只需服务器名称，自动创建并生成安装命令',
+        example: `curl -fsSL "${baseUrl}/api/server/agent/quick-install/我的服务器" | sudo bash`,
+        api: {
+          method: 'POST',
+          url: `${baseUrl}/api/server/agent/quick-install`,
+          body: '{ "name": "服务器名称" }',
+          description: '需要认证，返回 JSON 格式的安装命令'
+        }
+      },
       endpoints: [
-        { path: '/push', method: 'POST', description: '数据推送' },
-        { path: '/install/:serverId', method: 'GET', description: '安装脚本下载' }
-      ]
+        { path: '/push', method: 'POST', description: '数据推送 (HTTP 兼容)' },
+        { path: '/install/:serverId', method: 'GET', description: '安装脚本下载' },
+        { path: '/quick-install/:name', method: 'GET', description: '一键安装脚本 (自动创建主机)' },
+        { path: '/quick-install', method: 'POST', description: '快速安装 API (需要认证)' },
+        { path: '/status', method: 'GET', description: 'Socket.IO 连接统计' }
+      ],
+      socketio: {
+        namespace: '/agent',
+        events: ['agent:connect', 'agent:state', 'agent:host_info']
+      }
     });
+  });
+
+  // Socket.IO 连接状态 (需要认证)
+  agentPublicRouter.get('/status', requireAuth, (req, res) => {
+    try {
+      const stats = agentService.getConnectionStats ? agentService.getConnectionStats() : {};
+      const onlineAgents = agentService.getOnlineAgents ? agentService.getOnlineAgents() : [];
+      res.json({
+        success: true,
+        data: {
+          ...stats,
+          onlineAgents,
+          protocol: 'socket.io',
+          version: '2.0.0'
+        }
+      });
+    } catch (error) {
+      res.status(500).json({ success: false, error: error.message });
+    }
   });
 
   // Agent 安装脚本下载 (由远程服务器通过 curl 调用)
@@ -96,6 +140,162 @@ function registerRoutes(app) {
       const serverUrl = `${protocol}://${host}`;
 
       const script = agentService.generateInstallScript(serverId, serverUrl);
+
+      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+      res.send(script);
+    } catch (error) {
+      res.status(500).send(`# Error: ${error.message}`);
+    }
+  });
+
+  // Windows Agent 安装脚本下载 (由远程服务器通过 PowerShell 调用)
+  agentPublicRouter.get('/install/win/:serverId', (req, res) => {
+    try {
+      const { serverId } = req.params;
+      const server = serverStorage.getById(serverId);
+
+      if (!server) {
+        return res.status(404).send('# Error: Server not found');
+      }
+
+      const protocol = req.protocol;
+      const host = req.get('host');
+      const serverUrl = `${protocol}://${host}`;
+
+      const script = agentService.generateWinInstallScript(serverId, serverUrl);
+
+      // 设置为 UTF-8 编码，防止 PowerShell 处理中文乱码
+      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+      res.send(script);
+    } catch (error) {
+      res.status(500).send(`# Error: ${error.message}`);
+    }
+  });
+
+  // ==================== 快速安装 API ====================
+  // 只需输入名称，自动创建主机并生成安装命令
+
+  /**
+   * POST /api/server/agent/quick-install
+   * Body: { name: "服务器名称" }
+   * 
+   * 创建一个新的主机记录并返回一键安装命令
+   */
+  agentPublicRouter.post('/quick-install', requireAuth, (req, res) => {
+    try {
+      const { name } = req.body;
+
+      if (!name || typeof name !== 'string' || name.trim().length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: '请提供有效的服务器名称'
+        });
+      }
+
+      const serverName = name.trim();
+
+      // 检查是否已存在同名主机
+      const allServers = serverStorage.getAll();
+      const existing = allServers.find(s => s.name === serverName);
+
+      let server;
+      let isNew = false;
+
+      if (existing) {
+        // 使用已存在的主机
+        server = existing;
+      } else {
+        // 创建新的主机记录 (Agent 模式不需要 SSH 凭据)
+        server = serverStorage.create({
+          name: serverName,
+          host: '',  // Agent 连接后由主机信息自动填充
+          port: 22,
+          username: 'agent',  // 占位符，Agent 模式不需要真正的 SSH 用户
+          password: '',
+          auth_type: 'password',  // 数据库约束只允许 password/key
+          status: 'offline',
+          monitor_mode: 'agent',  // 通过此字段标记为 Agent 模式
+          tags: ['agent-auto'],  // 自动标记
+          notes: `通过快速安装 API 创建于 ${new Date().toLocaleString('zh-CN')}`
+        });
+        isNew = true;
+        logger.info(`[Quick Install] 已创建新主机: ${serverName} (ID: ${server.id})`);
+      }
+
+      // 生成安装命令
+      const protocol = req.protocol;
+      const host = req.get('host');
+      const serverUrl = `${protocol}://${host}`;
+      const installUrl = `${serverUrl}/api/server/agent/install/${server.id}`;
+      const agentKey = agentService.getAgentKey(server.id);
+
+      res.json({
+        success: true,
+        data: {
+          serverId: server.id,
+          serverName: server.name,
+          isNew,
+          installCommand: `curl -fsSL "${installUrl}" | sudo bash`,
+          winInstallCommand: `powershell -c "irm ${serverUrl}/api/server/agent/install/win/${server.id} | iex"`,
+          apiUrl: serverUrl,
+          // 也提供环境变量方式安装（适用于 Docker 等场景）
+          envInstall: {
+            command: `API_MONITOR_SERVER=${serverUrl} API_MONITOR_SERVER_ID=${server.id} API_MONITOR_KEY=${agentKey} node index.js`,
+            serverUrl,
+            serverId: server.id,
+            agentKey
+          },
+          message: isNew
+            ? `已创建新主机 "${serverName}"，请在目标服务器执行安装命令`
+            : `主机 "${serverName}" 已存在，请在目标服务器执行安装命令`
+        }
+      });
+    } catch (error) {
+      logger.error('[Quick Install] 错误:', error.message);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  /**
+   * GET /api/server/agent/quick-install/:name
+   * 
+   * 直接返回安装脚本 (可通过 curl | bash 直接执行)
+   * 自动创建主机记录（如果不存在）
+   */
+  agentPublicRouter.get('/quick-install/:name', (req, res) => {
+    try {
+      const { name } = req.params;
+      const serverName = decodeURIComponent(name).trim();
+
+      if (!serverName) {
+        return res.status(400).send('# Error: 请提供服务器名称');
+      }
+
+      // 查找或创建主机
+      const allServers = serverStorage.getAll();
+      let server = allServers.find(s => s.name === serverName);
+
+      if (!server) {
+        server = serverStorage.create({
+          name: serverName,
+          host: '',
+          port: 22,
+          username: 'agent',
+          password: '',
+          auth_type: 'password',  // 数据库约束只允许 password/key
+          status: 'offline',
+          monitor_mode: 'agent',  // 通过此字段标记为 Agent 模式
+          tags: ['agent-auto'],
+          notes: `通过一键安装创建于 ${new Date().toLocaleString('zh-CN')}`
+        });
+        console.log(`[Quick Install] 自动创建主机: ${serverName} (ID: ${server.id})`);
+      }
+
+      // 生成安装脚本
+      const protocol = req.protocol;
+      const host = req.get('host');
+      const serverUrl = `${protocol}://${host}`;
+      const script = agentService.generateInstallScript(server.id, serverUrl);
 
       res.setHeader('Content-Type', 'text/plain; charset=utf-8');
       res.send(script);
@@ -124,7 +324,8 @@ function registerRoutes(app) {
           serverId,
           serverName: server.name,
           installCommand: `curl -fsSL ${installUrl} | sudo bash`,
-          apiUrl: `${serverUrl}/api/server/agent/push`,
+          winInstallCommand: `powershell -c "irm ${serverUrl}/api/server/agent/install/win/${serverId} | iex"`,
+          apiUrl: serverUrl,
           agentKey: agentService.getAgentKey(serverId)
         }
       });
