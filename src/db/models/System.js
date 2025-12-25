@@ -333,6 +333,10 @@ class UserSettings extends BaseModel {
                 antigravity: true,
                 'gemini-cli': true
             }),
+            channel_model_prefix: JSON.stringify({
+                antigravity: '',
+                'gemini-cli': ''
+            }),
             module_order: JSON.stringify(['zeabur', 'dns', 'openai', 'server', 'antigravity']),
             updated_at: new Date().toISOString()
         };
@@ -367,6 +371,14 @@ class UserSettings extends BaseModel {
                 this.getDb().prepare(`ALTER TABLE ${this.tableName} ADD COLUMN totp_settings TEXT`).run();
             } catch (e) {
                 console.warn('Auto-migration for totp_settings failed:', e.message);
+            }
+        }
+
+        if (!this.hasColumn('agent_download_url')) {
+            try {
+                this.getDb().prepare(`ALTER TABLE ${this.tableName} ADD COLUMN agent_download_url TEXT`).run();
+            } catch (e) {
+                console.warn('Auto-migration for agent_download_url failed:', e.message);
             }
         }
 

@@ -91,6 +91,7 @@
                 <div class="settings-description">
                   控制主机地址、API 端点地址等敏感信息的显示方式。
                 </div>
+                <!-- 隐藏地址显示模式 -->
                 <div class="form-group" style="margin-top: auto; padding-top: 12px;">
                   <label class="form-label" style="font-size: 13px;">地址显示模式</label>
                   <div style="display: flex; gap: 8px;">
@@ -111,16 +112,37 @@
                     </button>
                   </div>
                 </div>
+              </div>
+            </div>
 
-                <!-- <div class="form-group" style="margin-top: 12px;">
-                  <label class="form-label" style="font-size: 13px;">主机刷新间隔 (秒)</label>
-                  <div class="input-with-suffix">
-                    <input v-model.number="monitorConfig.interval" type="number" class="form-input" min="10" max="3600"
-                      placeholder="60" @change="saveUserSettingsToServer" style="height: 32px; font-size: 13px;">
-                    <span class="input-suffix">秒</span>
+            <!-- Agent 下载地址配置 -->
+            <div class="settings-group" style="margin-top: 20px;">
+              <div class="settings-group-title">
+                <i class="fas fa-download" style="color: var(--primary-color);"></i> Agent 下载地址
+              </div>
+              <div class="settings-description">
+                配置 Agent 二进制文件的下载地址。默认使用主控端自身提供的文件。
+              </div>
+              <div class="form-group" style="margin-top: 12px;">
+                <label class="form-label" style="font-size: 13px;">下载来源</label>
+                <div style="display: flex; gap: 8px; margin-bottom: 12px;">
+                  <button class="btn btn-sm" :class="!agentDownloadUrl ? 'btn-primary' : 'btn-secondary'"
+                    @click="agentDownloadUrl = ''" style="flex: 1; height: 36px; font-size: 12px;">
+                    <i class="fas fa-server" style="margin-right: 4px;"></i> 使用主控端
+                  </button>
+                  <button class="btn btn-sm" :class="agentDownloadUrl ? 'btn-primary' : 'btn-secondary'"
+                    @click="agentDownloadUrl = agentDownloadUrl || 'https://'"
+                    style="flex: 1; height: 36px; font-size: 12px;">
+                    <i class="fas fa-cloud" style="margin-right: 4px;"></i> 自定义 CDN
+                  </button>
+                </div>
+                <div v-if="agentDownloadUrl !== undefined && agentDownloadUrl !== ''">
+                  <input type="text" v-model="agentDownloadUrl" class="form-input"
+                    placeholder="例如: https://github.com/user/repo/releases/download/v1.0" />
+                  <div class="form-help" style="font-size: 11px; margin-top: 4px;">
+                    Agent 将从此地址下载对应架构的二进制文件 (如 agent-linux-amd64)
                   </div>
-                  <div class="form-help" style="font-size: 11px;">设置主机状态自动刷新的频率，最小 10 秒。</div>
-                </div> -->
+                </div>
               </div>
             </div>
           </div>

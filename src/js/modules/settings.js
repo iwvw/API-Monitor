@@ -79,6 +79,9 @@ export const settingsMethods = {
             // 如果之前是侧边栏，或者没有设置，现在统一切换到底栏风格
             store.navLayout = (settings.navLayout === 'sidebar' || !settings.navLayout) ? 'bottom' : settings.navLayout;
           }
+          if (settings.agentDownloadUrl !== undefined) {
+            store.agentDownloadUrl = settings.agentDownloadUrl;
+          }
 
           this.activateFirstVisibleModule();
           return true;
@@ -173,7 +176,8 @@ export const settingsMethods = {
         serverIpDisplayMode: this.serverIpDisplayMode,
         vibrationEnabled: this.vibrationEnabled,
         navLayout: store.navLayout,
-        totpSettings: store.totpSettings
+        totpSettings: store.totpSettings,
+        agentDownloadUrl: store.agentDownloadUrl
       };
 
       const response = await fetch('/api/settings', {

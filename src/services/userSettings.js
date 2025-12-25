@@ -70,7 +70,8 @@ function loadUserSettings() {
       serverIpDisplayMode: settings.server_ip_display_mode || 'normal',
       vibrationEnabled: settings.vibration_enabled !== undefined ? Boolean(settings.vibration_enabled) : true,
       navLayout: settings.main_tabs_layout || 'top',
-      totpSettings: settings.totp_settings || {}
+      totpSettings: settings.totp_settings || {},
+      agentDownloadUrl: settings.agent_download_url || ''
     };
   } catch (error) {
     console.error('加载用户设置失败:', error);
@@ -96,7 +97,8 @@ function saveUserSettings(settings) {
       server_ip_display_mode: settings.serverIpDisplayMode !== undefined ? settings.serverIpDisplayMode : settings.server_ip_display_mode,
       vibration_enabled: settings.vibrationEnabled !== undefined ? (settings.vibrationEnabled ? 1 : 0) : settings.vibration_enabled,
       main_tabs_layout: settings.navLayout || settings.mainTabsLayout || settings.main_tabs_layout,
-      totp_settings: settings.totpSettings !== undefined ? settings.totpSettings : settings.totp_settings
+      totp_settings: settings.totpSettings !== undefined ? settings.totpSettings : settings.totp_settings,
+      agent_download_url: settings.agentDownloadUrl !== undefined ? settings.agentDownloadUrl : settings.agent_download_url
     };
 
     // 直接交给 Model 层处理，Model 层会自动处理 JSON 序列化和数据库列更新

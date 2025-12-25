@@ -126,6 +126,7 @@ export const store = reactive({
     serverIpDisplayMode: 'normal', // 'normal', 'masked', 'hidden'
     vibrationEnabled: true, // 移动端震动反馈开关
     navLayout: 'bottom', // 'sidebar' (左侧), 'top' (顶部) or 'bottom' (底栏)
+    agentDownloadUrl: '', // 自定义 Agent 下载地址，空则使用主控端
     showSettingsModal: false, // 设置面板显示状态
     mobileSettingsNavExpanded: false, // 移动端设置导航展开状态
 

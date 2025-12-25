@@ -15,6 +15,7 @@ const {
     stateToFrontendFormat
 } = require('./protocol');
 const { ServerMetricsHistory, ServerMonitorConfig } = require('./models');
+const userSettings = require('../../src/services/userSettings');
 
 class AgentService {
     constructor() {
@@ -819,6 +820,20 @@ class AgentService {
         const agentKey = this.getAgentKey(serverId);
         const $ = '$'; // 用于在模板字符串中输出 $
 
+        // 读取用户设置的自定义下载地址
+        let customDownloadUrl = '';
+        try {
+            const settings = userSettings.loadUserSettings();
+            customDownloadUrl = settings.agentDownloadUrl || '';
+        } catch (e) {
+            console.warn('[AgentService] 读取用户设置失败:', e.message);
+        }
+
+        // 如果设置了自定义地址，使用它；否则使用主控端地址
+        const binaryBaseUrl = customDownloadUrl
+            ? customDownloadUrl.replace(/\/$/, '') // 移除末尾斜杠
+            : `${serverUrl}/agent`;
+
         return `#!/bin/bash
 # API Monitor Agent 自动安装/升级脚本 (Go 版)
 # 支持从旧版 Node.js Agent 无缝升级
@@ -836,6 +851,7 @@ SERVER_ID="${serverId}"
 AGENT_KEY="${agentKey}"
 INSTALL_DIR="/opt/api-monitor-agent"
 SERVICE_NAME="api-monitor-agent"
+BINARY_BASE_URL="${binaryBaseUrl}"
 
 # 检测系统架构
 ARCH=${$}(uname -m)
@@ -851,7 +867,7 @@ case ${$}ARCH in
         exit 1
         ;;
 esac
-BINARY_URL="${$}{SERVER_URL}/agent/${$}{BINARY_NAME}"
+BINARY_URL="${$}{BINARY_BASE_URL}/${$}{BINARY_NAME}"
 
 # 1. 检查权限
 if [ "${$}EUID" -ne 0 ]; then 
@@ -907,10 +923,8 @@ chmod +x agent
 
 # 7. 生成/更新配置文件
 echo -e "${$}{YELLOW}📝 生成配置文件...${$}{NC}"
-if [ -f "config.json" ] && [ "${$}UPGRADE_MODE" = true ]; then
-    echo -e "${$}{CYAN}   保留现有配置文件${$}{NC}"
-else
-    cat > config.json << 'CONFIGEOF'
+# 始终更新配置文件以确保服务器地址正确（升级到新控制端时需要）
+cat > config.json << 'CONFIGEOF'
 {
     "serverUrl": "__SERVER_URL__",
     "serverId": "__SERVER_ID__",
@@ -919,10 +933,10 @@ else
     "reconnectDelay": 4000
 }
 CONFIGEOF
-    sed -i "s|__SERVER_URL__|${$}SERVER_URL|g" config.json
-    sed -i "s|__SERVER_ID__|${$}SERVER_ID|g" config.json
-    sed -i "s|__AGENT_KEY__|${$}AGENT_KEY|g" config.json
-fi
+sed -i "s|__SERVER_URL__|${$}SERVER_URL|g" config.json
+sed -i "s|__SERVER_ID__|${$}SERVER_ID|g" config.json
+sed -i "s|__AGENT_KEY__|${$}AGENT_KEY|g" config.json
+echo -e "${$}{CYAN}   配置已更新: ${$}SERVER_URL${$}{NC}"
 
 # 8. 创建/更新 systemd 服务
 echo -e "${$}{YELLOW}⚙️ 配置 systemd 服务...${$}{NC}"
@@ -976,6 +990,20 @@ fi
     generateWinInstallScript(serverId, serverUrl) {
         const agentKey = this.getAgentKey(serverId);
 
+        // 读取用户设置的自定义下载地址
+        let customDownloadUrl = '';
+        try {
+            const settings = userSettings.loadUserSettings();
+            customDownloadUrl = settings.agentDownloadUrl || '';
+        } catch (e) {
+            console.warn('[AgentService] 读取用户设置失败:', e.message);
+        }
+
+        // 如果设置了自定义地址，使用它；否则使用主控端地址
+        const binaryBaseUrl = customDownloadUrl
+            ? customDownloadUrl.replace(/\/$/, '')
+            : `${serverUrl}/agent`;
+
         return `
 # API Monitor Agent Windows 自动安装/升级脚本 (Go 版)
 # 支持从旧版 Node.js Agent 无缝升级
@@ -985,7 +1013,7 @@ $SERVER_URL = "${serverUrl}"
 $SERVER_ID = "${serverId}"
 $AGENT_KEY = "${agentKey}"
 $INSTALL_DIR = "$env:LOCALAPPDATA\\api-monitor-agent"
-$BINARY_URL = "$SERVER_URL/agent/agent-windows-amd64.exe"
+$BINARY_URL = "${binaryBaseUrl}/agent-windows-amd64.exe"
 $taskName = "APIMonitorAgent"
 
 Write-Host ">>> API Monitor Agent 安装/升级脚本 (Go 版)" -ForegroundColor Cyan
