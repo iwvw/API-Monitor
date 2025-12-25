@@ -1,4 +1,5 @@
 const axios = require('axios');
+const { HttpsProxyAgent } = require('https-proxy-agent');
 const AntigravityRequester = require('./antigravity-requester');
 const storage = require('./storage');
 const path = require('path');
@@ -78,7 +79,8 @@ async function refreshToken(account, token) {
     });
 
     try {
-        const response = await axios({
+        // 构建 axios 请求配置
+        const axiosConfig = {
             method: 'POST',
             url: 'https://oauth2.googleapis.com/token',
             headers: {
@@ -87,10 +89,16 @@ async function refreshToken(account, token) {
                 'Content-Type': 'application/x-www-form-urlencoded'
             },
             data: body.toString(),
-            timeout: config.TIMEOUT,
-            // 如果有代理，Axios 需要额外配置，这里暂时略过 proxy agent 的复杂配置，假设 oauth 请求直连或系统代理
-            // 若需支持代理，可引入 https-proxy-agent
-        });
+            timeout: config.TIMEOUT
+        };
+
+        // 添加代理支持
+        if (config.PROXY && (config.PROXY.startsWith('http://') || config.PROXY.startsWith('https://'))) {
+            axiosConfig.httpsAgent = new HttpsProxyAgent(config.PROXY);
+            axiosConfig.proxy = false; // 禁用 axios 默认代理，使用 httpsAgent
+        }
+
+        const response = await axios(axiosConfig);
 
         const newTokenData = {
             accountId: account.id,

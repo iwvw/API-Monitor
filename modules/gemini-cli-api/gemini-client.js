@@ -1,4 +1,5 @@
 const axios = require('axios');
+const { HttpsProxyAgent } = require('https-proxy-agent');
 const AntigravityRequester = require('../antigravity-api/antigravity-requester');
 const path = require('path');
 let storage;
@@ -261,17 +262,10 @@ class GeminiCliClient {
             const proxyUrl = settings.PROXY;
 
             if (proxyUrl && (proxyUrl.startsWith('http://') || proxyUrl.startsWith('https://'))) {
-                const url = new URL(proxyUrl);
+                // 使用 httpsAgent 确保代理对 HTTPS 请求生效
                 return {
-                    proxy: {
-                        protocol: url.protocol.replace(':', ''),
-                        host: url.hostname,
-                        port: parseInt(url.port) || (url.protocol === 'https:' ? 443 : 80),
-                        auth: url.username ? {
-                            username: url.username,
-                            password: url.password
-                        } : undefined
-                    }
+                    httpsAgent: new HttpsProxyAgent(proxyUrl),
+                    proxy: false // 禁用 axios 默认代理，使用 httpsAgent
                 };
             }
         } catch (e) {
