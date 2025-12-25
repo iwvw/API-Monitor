@@ -96,6 +96,9 @@ pre,
   --paas-primary: #6366f1;
   --paas-dark: #4f46e5;
 
+  --totp-primary: #8b5cf6;
+  --totp-dark: #7c3aed;
+
   /* 常用功能色映射 (核心驱动) */
   --primary-color: var(--paas-primary);
   --primary-dark: var(--paas-dark);
@@ -188,6 +191,10 @@ pre,
     border-color: var(--paas-primary) !important;
   }
 
+  .theme-totp .tab-btn:hover:not(.active) {
+    border-color: var(--totp-primary) !important;
+  }
+
   .tab-btn.active {
     border-color: rgba(0, 0, 0, 0.1) !important;
     /* 激活时保持细微边框感 */
@@ -208,7 +215,8 @@ pre,
   .theme-cf-dns,
   .theme-self-h,
   .theme-server,
-  .theme-paas {
+  .theme-paas,
+  .theme-totp {
     --current-primary: var(--primary-color);
     --current-dark: var(--primary-dark);
   }
@@ -253,6 +261,12 @@ pre,
     --current-primary: var(--paas-primary);
     --current-dark: var(--paas-dark);
     --current-rgb: 99, 102, 241;
+  }
+
+  .theme-totp {
+    --current-primary: var(--totp-primary);
+    --current-dark: var(--totp-dark);
+    --current-rgb: 139, 92, 246;
   }
 
   /* 应用动态颜色到通用组件 */
@@ -316,6 +330,11 @@ pre,
   .theme-paas .tab-btn.active {
     background: linear-gradient(135deg, var(--paas-primary), var(--paas-dark)) !important;
     box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
+  }
+
+  .theme-totp .tab-btn.active {
+    background: linear-gradient(135deg, var(--totp-primary), var(--totp-dark)) !important;
+    box-shadow: 0 2px 8px rgba(139, 92, 246, 0.3);
   }
 
   /* ========================================

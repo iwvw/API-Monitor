@@ -207,7 +207,28 @@ export const authMethods = {
     try {
       // 1. 检查是否已设置密码
       const res = await fetch('/api/check-password');
-      const { hasPassword } = await res.json();
+      const { hasPassword, isDemoMode } = await res.json();
+      this.isDemoMode = isDemoMode;
+
+      if (isDemoMode) {
+        // 演示模式：如果未登录，则自动尝试登录
+        const savedTime = localStorage.getItem('password_time');
+        const now = Date.now();
+        const isValidSession = savedTime && (now - parseInt(savedTime) < 4 * 24 * 60 * 60 * 1000);
+
+        if (!isValidSession) {
+          this.loginPassword = ''; // 演示模式登录不需要真实密码
+          await this.verifyPassword();
+        } else {
+          // 已经有有效会话，直接进入
+          this.isAuthenticated = true;
+          this.showLoginModal = false;
+          await this.loadManagedAccounts();
+          this.loadProjectCosts();
+          this.startAutoRefresh();
+        }
+        return true;
+      }
 
       if (!hasPassword) {
         this.showSetPasswordModal = true;

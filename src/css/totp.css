@@ -1,0 +1,837 @@
+/**
+ * TOTP/HOTP 验证器模块样式
+ * 全站统一风格
+ */
+
+/* ==================== 搜索框 ==================== */
+.totp-search-box {
+    position: relative;
+    min-width: 180px;
+}
+
+.totp-search-box i {
+    position: absolute;
+    left: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-tertiary);
+    font-size: 13px;
+}
+
+.totp-search-box input {
+    width: 100%;
+    padding: 8px 12px 8px 34px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--bg-secondary);
+    font-size: 13px;
+    color: var(--text-primary);
+    transition: all 0.2s;
+}
+
+.totp-search-box input:focus {
+    outline: none;
+    border-color: var(--totp-primary);
+    box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
+}
+
+/* ==================== 验证码卡片网格 ==================== */
+.totp-cards-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 12px;
+    padding: 12px 0px 0px 0px;
+}
+
+/* 平台分隔标题 */
+.totp-platform-header {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 0px 0 8px 0;
+    margin-top: 8px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.totp-platform-header:first-child {
+    margin-top: 0;
+}
+
+.totp-platform-header .platform-icon {
+    font-size: 18px;
+}
+
+.totp-platform-header .platform-name {
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--text-primary);
+}
+
+.totp-platform-header .platform-count {
+    font-size: 12px;
+    color: var(--text-tertiary);
+    margin-left: auto;
+}
+
+/* 最小化模式 - 只显示分割线 */
+.totp-platform-header.header-minimal {
+    height: 1px;
+    padding: 0;
+    margin: 2px 0 2px 0;
+}
+
+.totp-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 12px 12px 6px 12px;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    overflow: hidden;
+    user-select: none;
+    -webkit-tap-highlight-color: transparent;
+}
+
+.totp-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 8px;
+    background: var(--card-accent, var(--totp-primary));
+    opacity: 0.5;
+}
+
+.totp-card::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: var(--card-accent, var(--totp-primary));
+    opacity: 0.02;
+    pointer-events: none;
+}
+
+/* 仅在支持 hover 的设备上应用 hover 效果 */
+@media (hover: hover) {
+    .totp-card:hover {
+        border-color: var(--card-accent, var(--totp-primary));
+        box-shadow: var(--card-hover-shadow);
+        /* transform: translateY(-2px); */
+    }
+}
+
+/* 点击反馈 - 适用于所有设备 */
+.totp-card:active {
+    transform: scale(0.98) !important;
+    background: var(--bg-hover) !important;
+    opacity: 0.8;
+    transition: all 0.05s;
+}
+
+/* ==================== 卡片头部 ==================== */
+.totp-card-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding-top: 5px;
+    padding-bottom: 1px;
+}
+
+.totp-issuer-badge {
+    width: 32px;
+    height: 32px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 21px;
+    background: var(--card-accent, var(--totp-primary));
+    color: white;
+    flex-shrink: 0;
+}
+
+/* 确保图标继承白色 */
+.totp-issuer-badge i,
+.totp-issuer-badge [class*="si-"],
+.totp-issuer-badge .fab,
+.totp-issuer-badge .fas {
+    color: white !important;
+    fill: white !important;
+}
+
+.totp-issuer-badge.issuer-default {
+    background: var(--totp-primary);
+}
+
+.totp-card-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.totp-issuer-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    line-height: 1.4;
+}
+
+.totp-account-name {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    line-height: 1.4;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.totp-card-type {
+    font-size: 10px;
+    font-weight: 700;
+    padding: 3px 6px;
+    border-radius: 4px;
+    text-transform: uppercase;
+}
+
+.totp-card-type.type-totp {
+    background: rgba(139, 92, 246, 0.1);
+    color: var(--totp-primary);
+}
+
+.totp-card-type.type-hotp {
+    background: rgba(16, 185, 129, 0.1);
+    color: #10b981;
+}
+
+/* ==================== 验证码显示 ==================== */
+.totp-code-area {
+    text-align: center;
+}
+
+.totp-code-display {
+    font-family: var(--font-mono);
+    font-size: 24px;
+    font-weight: 700;
+    letter-spacing: 3px;
+    color: var(--text-primary);
+    padding: 8px 10px;
+    /* background: var(--bg-secondary); */
+    border-radius: 8px;
+    transition: all 0.3s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 120px;
+}
+
+.totp-code-display.expiring {
+    color: var(--danger-color);
+    animation: pulse-warning 0.5s ease-in-out infinite alternate;
+}
+
+@keyframes pulse-warning {
+    from {
+        opacity: 1;
+    }
+
+    to {
+        opacity: 0.6;
+    }
+}
+
+/* 隐藏验证码样式 */
+.totp-code-display.code-hidden {
+    cursor: pointer;
+    line-height: 1;
+    /* 修正星号偏高的问题 */
+}
+
+/* 下一个验证码预览 */
+.totp-next-code {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 4px;
+    font-size: 12px;
+}
+
+.totp-next-code .next-label {
+    color: var(--text-tertiary);
+}
+
+.totp-next-code .next-value {
+    font-family: var(--font-mono);
+    color: var(--text-secondary);
+    font-weight: 500;
+}
+
+/* ==================== TOTP 计时器 ==================== */
+.totp-timer {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 4px;
+    height: 16px;
+}
+
+/* 进度条轨道容器 */
+.totp-timer-track {
+    flex: 1;
+    height: 4px;
+    background: var(--border-color);
+    border-radius: 2px;
+    position: relative;
+    overflow: hidden;
+}
+
+.totp-timer-bar {
+    height: 4px;
+    background: var(--totp-primary);
+    border-radius: 2px;
+    transition: width 0.3s linear;
+    position: absolute;
+    left: 0;
+    top: 0;
+}
+
+.totp-timer-text {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-tertiary);
+    min-width: 24px;
+    text-align: right;
+    flex-shrink: 0;
+}
+
+/* ==================== HOTP 计数器 ==================== */
+.totp-counter {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    margin-top: 12px;
+}
+
+.totp-counter span {
+    font-family: var(--font-mono);
+    font-size: 14px;
+    color: var(--text-secondary);
+}
+
+.btn-hotp-next {
+    padding: 6px 12px;
+    background: linear-gradient(135deg, #10b981, #059669);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 12px;
+    transition: all 0.2s;
+}
+
+.btn-hotp-next:hover {
+    transform: scale(1.05);
+    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+}
+
+/* ==================== 卡片操作 (悬浮) ==================== */
+.totp-card-actions {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    display: flex;
+    gap: 4px;
+    opacity: 0;
+    transition: opacity 0.2s;
+    z-index: 10;
+}
+
+.totp-card:hover .totp-card-actions {
+    opacity: 1;
+}
+
+.totp-action-btn {
+    width: 26px;
+    height: 26px;
+    border: none;
+    border-radius: 6px;
+    background: var(--bg-tertiary);
+    color: var(--text-secondary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    transition: all 0.2s;
+}
+
+.totp-action-btn:hover {
+    background: var(--bg-secondary);
+    color: var(--totp-primary);
+}
+
+.totp-action-btn.danger:hover {
+    background: rgba(239, 68, 68, 0.1);
+    color: var(--danger-color);
+}
+
+/* ==================== 分组颜色点 ==================== */
+.group-color-dot {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+}
+
+/* ==================== 类型选择器 ==================== */
+.totp-type-selector {
+    display: flex;
+    gap: 10px;
+}
+
+.totp-type-selector .type-btn {
+    flex: 1;
+    padding: 12px 16px;
+    border: 2px solid var(--border-color);
+    border-radius: 10px;
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    transition: all 0.2s;
+}
+
+.totp-type-selector .type-btn:hover {
+    border-color: var(--totp-primary);
+}
+
+.totp-type-selector .type-btn.active {
+    border-color: var(--totp-primary);
+    background: rgba(139, 92, 246, 0.1);
+    color: var(--totp-primary);
+}
+
+/* ==================== 密钥输入 ==================== */
+.totp-secret-input {
+    display: flex;
+    gap: 8px;
+}
+
+.totp-secret-input input {
+    flex: 1;
+}
+
+.totp-toggle-secret {
+    padding: 0 14px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--bg-secondary);
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+
+.totp-toggle-secret:hover {
+    color: var(--totp-primary);
+}
+
+/* ==================== 高级选项 ==================== */
+.totp-advanced {
+    margin-top: 16px;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+.totp-advanced summary {
+    padding: 12px 16px;
+    background: var(--bg-secondary);
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.totp-advanced summary:hover {
+    color: var(--totp-primary);
+}
+
+.totp-advanced-content {
+    padding: 20px !important;
+    /* 修正内边距 */
+}
+
+.totp-grid-three {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 20px;
+    /* 增大网格间距 */
+    margin-bottom: 20px;
+}
+
+.totp-grid-three .form-group {
+    margin-bottom: 0 !important;
+}
+
+/* ==================== TOTP 模态框 ==================== */
+.totp-modal {
+    max-width: 500px;
+}
+
+.totp-modal .modal-body {
+    padding: 24px 28px;
+    /* 增大全局内边距，提升呼吸感 */
+}
+
+.totp-modal .form-group {
+    margin-bottom: 20px;
+    /* 增大字段间距 */
+}
+
+.totp-modal .form-group:last-child {
+    margin-bottom: 0;
+}
+
+.totp-modal .form-group label {
+    margin-bottom: 8px;
+    /* 增大标签下方间距 */
+    display: block;
+    font-weight: 500;
+    color: var(--text-secondary);
+    font-size: 13px;
+}
+
+.totp-modal .form-group label i {
+    margin-right: 8px;
+    opacity: 0.8;
+}
+
+.totp-modal .color-input {
+    width: 60px;
+    height: 38px;
+    padding: 4px;
+    cursor: pointer;
+}
+
+.totp-modal .totp-advanced-content {
+    padding: 20px 0 0 0 !important;
+}
+
+/* 主题色输入框样式 */
+.totp-modal .totp-advanced-content>.form-group {
+    margin-top: 12px;
+}
+
+/* ==================== 设置页面 ==================== */
+.totp-settings-content {
+    padding: 20px;
+}
+
+.settings-stats {
+    display: flex;
+    gap: 32px;
+    margin-bottom: 8px;
+}
+
+.stat-item {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+}
+
+.stat-value {
+    font-size: 32px;
+    font-weight: 700;
+    color: var(--totp-primary);
+}
+
+.stat-label {
+    font-size: 14px;
+    color: var(--text-tertiary);
+}
+
+.settings-divider {
+    height: 1px;
+    background: var(--border-color);
+    margin: 20px 0;
+}
+
+.setting-item {
+    margin-bottom: 16px;
+}
+
+.toggle-label {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    cursor: pointer;
+}
+
+.toggle-checkbox {
+    display: none;
+}
+
+.toggle-switch {
+    width: 40px;
+    height: 22px;
+    background: var(--border-color);
+    border-radius: 11px;
+    position: relative;
+    transition: all 0.2s;
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+
+.toggle-switch::after {
+    content: '';
+    position: absolute;
+    width: 18px;
+    height: 18px;
+    background: white;
+    border-radius: 50%;
+    top: 2px;
+    left: 2px;
+    transition: all 0.2s;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.toggle-checkbox:checked+.toggle-switch {
+    background: var(--totp-primary);
+}
+
+.toggle-checkbox:checked+.toggle-switch::after {
+    left: 20px;
+}
+
+.setting-text {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.setting-title {
+    font-weight: 500;
+    color: var(--text-primary);
+}
+
+.setting-desc {
+    font-size: 13px;
+    color: var(--text-tertiary);
+    line-height: 1.5;
+}
+
+.setting-sub {
+    margin-left: 52px;
+    margin-top: 12px;
+    padding: 12px;
+    background: var(--bg-secondary);
+    border-radius: 8px;
+}
+
+/* ==================== 二维码导入 ==================== */
+.qr-paste-zone {
+    border: 2px dashed var(--border-color);
+    border-radius: 12px;
+    padding: 24px;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.2s;
+    background: var(--bg-secondary);
+}
+
+.qr-paste-zone:hover,
+.qr-paste-zone:focus {
+    border-color: var(--totp-primary);
+    background: rgba(139, 92, 246, 0.05);
+    outline: none;
+}
+
+.qr-hint {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    color: var(--text-secondary);
+}
+
+.qr-hint i {
+    font-size: 24px;
+    color: var(--totp-primary);
+}
+
+.qr-hint-sub {
+    font-size: 12px;
+    color: var(--text-tertiary);
+}
+
+.qr-loading {
+    color: var(--totp-primary);
+}
+
+.qr-loading i {
+    margin-right: 8px;
+}
+
+.qr-actions {
+    margin-top: 12px;
+    text-align: center;
+}
+
+.form-divider {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin: 16px 0;
+    color: var(--text-tertiary);
+    font-size: 12px;
+}
+
+.form-divider::before,
+.form-divider::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border-color);
+}
+
+/* ==================== 响应式 - 手机端列表布局 ==================== */
+@media (max-width: 768px) {
+
+    /* 列表布局 */
+    .totp-cards-grid {
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+        padding: 0;
+    }
+
+    /* 卡片变成列表项 */
+    .totp-card {
+        border-radius: 0;
+        border: none;
+        border-bottom: 1px solid var(--border-color);
+        padding: 12px 16px;
+        display: flex;
+        flex-direction: row;
+        align-items: center;
+        gap: 12px;
+    }
+
+    .totp-card::before {
+        display: none;
+    }
+
+    .totp-card:hover {
+        transform: none;
+        box-shadow: none;
+        background: var(--bg-secondary);
+    }
+
+    /* 头部左侧 */
+    .totp-card-header {
+        flex: 1;
+        min-width: 0;
+        margin-bottom: 0;
+    }
+
+    .totp-issuer-badge {
+        width: 28px;
+        height: 28px;
+        font-size: 12px;
+        border-radius: 6px;
+    }
+
+    .totp-issuer-name {
+        font-size: 14px;
+        font-weight: 600;
+    }
+
+    .totp-account-name {
+        font-size: 11px;
+        color: var(--text-tertiary);
+    }
+
+    /* 验证码右侧 */
+    .totp-code-area {
+        text-align: right;
+        flex-shrink: 0;
+    }
+
+    .totp-code-display {
+        font-size: 20px;
+        letter-spacing: 2px;
+        padding: 4px 8px;
+        background: transparent;
+        border-radius: 0;
+    }
+
+    /* 进度条紧凑显示 */
+    .totp-timer {
+        justify-content: flex-end;
+        margin-top: 4px;
+        gap: 0;
+    }
+
+    .totp-timer-track {
+        width: 50px;
+        height: 3px;
+    }
+
+    .totp-timer-bar {
+        display: block;
+        height: 3px;
+    }
+
+    .totp-timer-text {
+        display: none;
+    }
+
+    /* 操作按钮隐藏 */
+    .totp-card-actions {
+        display: none;
+    }
+
+    .totp-type-selector {
+        flex-direction: column;
+    }
+
+    /* 工具栏响应式 */
+    .totp-tab-content .panel-header {
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .totp-tab-content .panel-header>div:last-child {
+        flex-wrap: wrap;
+        width: 100%;
+    }
+
+    .totp-tab-content .panel-header select,
+    .totp-tab-content .panel-header .totp-search-box {
+        flex: 1;
+        min-width: 0;
+    }
+
+    .totp-tab-content .panel-header .totp-search-box input {
+        width: 100%;
+    }
+
+    .totp-tab-content .panel-header .btn {
+        flex-shrink: 0;
+    }
+}

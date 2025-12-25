@@ -16,13 +16,13 @@ import { reactive } from 'vue';
 export const MODULE_CONFIG = {
     'openai': {
         name: 'OpenAI',
-        shortName: 'OpenAPI',
+        shortName: 'OAI',
         icon: 'fa-robot',
         description: 'OpenAI 兼容 API 管理与聊天'
     },
     'antigravity': {
-        name: 'Antigravity',
-        shortName: 'AG',
+        name: 'AntiG',
+        shortName: 'AntiG',
         icon: 'fa-rocket',
         description: 'Antigravity API 代理服务'
     },
@@ -40,7 +40,7 @@ export const MODULE_CONFIG = {
     },
     'dns': {
         name: 'DNS',
-        shortName: 'CF DNS',
+        shortName: 'CF',
         icon: 'fa-globe',
         description: 'Cloudflare DNS / Workers / Pages 管理'
     },
@@ -48,13 +48,19 @@ export const MODULE_CONFIG = {
         name: 'SelfH',
         shortName: 'Self-H',
         icon: 'fa-server',
-        description: 'OpenList 等自建服务管理'
+        description: '自建服务管理'
     },
     'server': {
         name: 'Hosts',
         shortName: 'Hosts',
         icon: 'fa-hdd',
         description: 'SSH 终端与服务器监控'
+    },
+    'totp': {
+        name: '2FA',
+        shortName: '2FA',
+        icon: 'fa-shield-alt',
+        description: 'TOTP 验证器'
     }
 };
 
@@ -102,7 +108,8 @@ export const store = reactive({
         paas: true,
         dns: true,
         'self-h': true,
-        server: true
+        server: true,
+        totp: true
     },
     channelEnabled: {
         antigravity: true,
@@ -112,14 +119,28 @@ export const store = reactive({
         antigravity: '',
         'gemini-cli': ''
     },
-    moduleOrder: ['openai', 'antigravity', 'gemini-cli', 'paas', 'dns', 'self-h', 'server'],
+    moduleOrder: ['openai', 'antigravity', 'gemini-cli', 'paas', 'dns', 'self-h', 'server', 'totp'],
 
     // 界面设置
     opacity: 100,
     serverIpDisplayMode: 'normal', // 'normal', 'masked', 'hidden'
+    vibrationEnabled: true, // 移动端震动反馈开关
     navLayout: 'bottom', // 'sidebar' (左侧), 'top' (顶部) or 'bottom' (底栏)
     showSettingsModal: false, // 设置面板显示状态
     mobileSettingsNavExpanded: false, // 移动端设置导航展开状态
+
+    // TOTP 模块设置
+    totpSettings: {
+        hideCode: false,           // 隐藏验证码
+        allowRevealCode: false,    // 允许临时显示
+        groupByPlatform: true,     // 按平台分组显示
+        showPlatformHeaders: false, // 显示平台分隔标题
+        hidePlatformText: false,   // 隐藏标题文字
+        maskAccount: false,        // 账号名称打码
+        autoSave: true,           // 自动保存账号
+        lockInputMode: false,     // 锁定录入方式
+        defaultInputMode: 'qr'    // 默认录入模式
+    },
 
     // Self-H (Self-Hosted) module state
     selfHCurrentTab: 'openlist',
@@ -152,7 +173,7 @@ export const store = reactive({
         file: null,
         baseDir: '/'
     },
-    // 交互辅助状态 (原本放在 methods 中会导致 Vue 报错)
+    // 交互辅助状态
     openListInteraction: {
         lastTapTime: 0,
         lastTapTabId: null,

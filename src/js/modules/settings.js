@@ -38,7 +38,7 @@ export const settingsMethods = {
           }
 
           // 应用模块设置 (过滤掉已废弃的模块)
-          const validModules = ['openai', 'antigravity', 'gemini-cli', 'paas', 'dns', 'self-h', 'server'];
+          const validModules = ['openai', 'antigravity', 'gemini-cli', 'paas', 'dns', 'self-h', 'server', 'totp'];
           if (settings.moduleVisibility) {
             // 过滤掉不再支持的模块
             const filtered = {};
@@ -68,6 +68,12 @@ export const settingsMethods = {
           }
           if (settings.serverIpDisplayMode) {
             this.serverIpDisplayMode = settings.serverIpDisplayMode;
+          }
+          if (settings.vibrationEnabled !== undefined) {
+            this.vibrationEnabled = settings.vibrationEnabled;
+          }
+          if (settings.totpSettings) {
+            Object.assign(store.totpSettings, settings.totpSettings);
           }
           if (settings.navLayout) {
             // 如果之前是侧边栏，或者没有设置，现在统一切换到底栏风格
@@ -106,7 +112,7 @@ export const settingsMethods = {
     const savedVisibility = localStorage.getItem('module_visibility');
     const savedOrder = localStorage.getItem('module_order');
 
-    const availableModules = ['openai', 'antigravity', 'gemini-cli', 'paas', 'dns', 'server'];
+    const availableModules = ['openai', 'antigravity', 'gemini-cli', 'paas', 'dns', 'self-h', 'server', 'totp'];
 
     if (savedVisibility) {
       const saved = JSON.parse(savedVisibility);
@@ -165,7 +171,9 @@ export const settingsMethods = {
         moduleOrder: this.moduleOrder,
         load_balancing_strategy: this.agSettingsForm.load_balancing_strategy,
         serverIpDisplayMode: this.serverIpDisplayMode,
-        navLayout: store.navLayout
+        vibrationEnabled: this.vibrationEnabled,
+        navLayout: store.navLayout,
+        totpSettings: store.totpSettings
       };
 
       const response = await fetch('/api/settings', {
@@ -190,6 +198,18 @@ export const settingsMethods = {
       return false;
     } finally {
       this.antigravitySaving = false;
+    }
+  },
+
+  // 统一保存全局 API 设置 (Antigravity/通道等)
+  async saveGlobalApiSettings() {
+    try {
+      // 1. 保存 Antigravity 模块内部设置 (API_KEY, PROXY 等)
+      await this.saveAllAgSettings();
+      // 2. 保存全局用户设置 (负载均衡策略, 渠道开关, 前缀等)
+      await this.saveUserSettingsToServer();
+    } catch (e) {
+      console.error('保存全局 API 设置失败:', e);
     }
   },
 
@@ -249,7 +269,7 @@ export const settingsMethods = {
     await this.loadUserSettings();
 
     // 定义所有可用模块
-    const availableModules = ['paas', 'dns', 'openai', 'server', 'antigravity', 'gemini-cli'];
+    const availableModules = ['paas', 'dns', 'openai', 'server', 'antigravity', 'gemini-cli', 'self-h', 'totp'];
 
     // 确保所有模块都有配置
     availableModules.forEach(module => {

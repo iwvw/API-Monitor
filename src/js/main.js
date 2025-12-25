@@ -29,6 +29,7 @@ import '../css/chat.css'; // 聊天界面样式
 import '../css/template.css'; // 模块模板通用样式
 import '../css/refined-ui.css'; // 精选组件样式
 import '../css/stream-player.css'; // 流媒体播放器样式
+import '../css/totp.css'; // 2FA 验证器样式
 import '../css/refined-mobile.css'; // 移动端适配 (必须最后加载)
 
 // 导入模板加载器
@@ -68,6 +69,7 @@ import { sshMethods } from './modules/ssh.js';
 import { commonMethods } from './modules/common.js';
 import { toast } from './modules/toast.js';
 import { streamPlayerMethods } from './modules/stream-player-ui.js';
+import { totpMethods, totpComputed, totpData } from './modules/totp.js';
 import { formatDateTime, formatFileSize, maskAddress, formatRegion } from './modules/utils.js';
 
 // 导入全局状态
@@ -429,7 +431,10 @@ const app = createApp({
 
       // CDN 配置状态 (构建时注入)
       cdnEnabled: typeof __USE_CDN__ !== 'undefined' ? __USE_CDN__ : false,
-      cdnProvider: typeof __CDN_PROVIDER__ !== 'undefined' ? __CDN_PROVIDER__ : 'npmmirror'
+      cdnProvider: typeof __CDN_PROVIDER__ !== 'undefined' ? __CDN_PROVIDER__ : 'npmmirror',
+
+      // TOTP 2FA 验证器模块
+      ...totpData
     };
   },
 
@@ -614,8 +619,13 @@ const app = createApp({
         this.showPagesDomainsModal ||
         this.showImagePreviewModal ||
         this.showAddZoneModal ||
+        this.showTotpModal ||
+        this.showTotpImportModal ||
         (this.customDialog && this.customDialog.show);
-    }
+    },
+
+    // TOTP 验证器模块计算属性
+    ...totpComputed
   },
 
   async mounted() {
@@ -899,6 +909,10 @@ const app = createApp({
               case 'gemini-cli':
                 this.initGeminiCli();
                 break;
+              case 'totp':
+                this.loadTotpAccounts();
+                this.startTotpTimer();
+                break;
             }
           });
         }
@@ -959,6 +973,10 @@ const app = createApp({
               break;
             case 'gemini-cli':
               this.initGeminiCli();
+              break;
+            case 'totp':
+              this.loadTotpAccounts();
+              this.startTotpTimer();
               break;
           }
         });
@@ -1191,6 +1209,7 @@ const app = createApp({
     ...sshMethods,
     ...commonMethods,
     ...streamPlayerMethods,
+    ...totpMethods,
 
     // ==================== 工具函数 ====================
     formatDateTime,

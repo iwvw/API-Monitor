@@ -3,7 +3,7 @@
  */
 
 const { getSession, getSessionById } = require('../services/session');
-const { loadAdminPassword } = require('../services/config');
+const { loadAdminPassword, isDemoMode } = require('../services/config');
 const { createLogger } = require('../utils/logger');
 
 const logger = createLogger('Auth');
@@ -54,9 +54,9 @@ function requireAuth(req, res, next) {
   const password = req.headers['x-admin-password'];
   const savedPassword = loadAdminPassword();
 
-  if (!savedPassword) {
-    // 如果没有设置密码，允许访问（首次设置）
-    logger.debug('无密码设置，允许访问');
+  if (!savedPassword || isDemoMode()) {
+    // 如果没有设置密码或处于演示模式，允许访问
+    logger.debug(isDemoMode() ? '演示模式，允许访问' : '无密码设置，允许访问');
     return next();
   }
 

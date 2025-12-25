@@ -144,6 +144,13 @@ function getEnvAccounts() {
   }
 }
 
+/**
+ * 检查是否处于演示模式
+ */
+function isDemoMode() {
+  return process.env.DEMO_MODE === 'true';
+}
+
 module.exports = {
   CONFIG_DIR,
   ACCOUNTS_FILE,
@@ -154,5 +161,6 @@ module.exports = {
   isPasswordSavedToFile,
   saveAdminPassword,
   getEnvAccounts,
-  ensureConfigDir
+  ensureConfigDir,
+  isDemoMode
 };

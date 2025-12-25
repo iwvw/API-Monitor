@@ -9,7 +9,8 @@ const { createLogger } = require('../utils/logger');
 const {
   loadAdminPassword,
   isPasswordSavedToFile,
-  saveAdminPassword
+  saveAdminPassword,
+  isDemoMode
 } = require('../services/config');
 
 const logger = createLogger('Auth');
@@ -19,7 +20,10 @@ const logger = createLogger('Auth');
  */
 router.get('/check-password', (req, res) => {
   const savedPassword = loadAdminPassword();
-  res.json({ hasPassword: !!savedPassword });
+  res.json({
+    hasPassword: !!savedPassword,
+    isDemoMode: isDemoMode()
+  });
 });
 
 /**
@@ -29,15 +33,19 @@ router.post('/login', (req, res) => {
   const { password } = req.body;
   const savedPassword = loadAdminPassword();
 
-  if (!savedPassword) {
-    return res.status(400).json({ success: false, error: '请先设置管理员密码' });
+  if (isDemoMode()) {
+    logger.info('演示模式：免密登录');
+  } else {
+    if (!savedPassword) {
+      return res.status(400).json({ success: false, error: '请先设置管理员密码' });
+    }
+
+    if (password !== savedPassword) {
+      return res.status(401).json({ success: false, error: '密码错误' });
+    }
   }
 
-  if (password !== savedPassword) {
-    return res.status(401).json({ success: false, error: '密码错误' });
-  }
-
-  const sid = createSession(password);
+  const sid = createSession(isDemoMode() ? 'demo' : password);
   const cookieOptions = {
     httpOnly: true,
     sameSite: 'lax',
@@ -73,6 +81,10 @@ router.get('/session', (req, res) => {
  */
 router.post('/set-password', (req, res) => {
   const { password } = req.body;
+
+  if (isDemoMode()) {
+    return res.status(403).json({ error: '演示模式禁止设置密码' });
+  }
 
   if (process.env.ADMIN_PASSWORD) {
     return res.status(400).json({ error: '密码已通过环境变量设置，无法修改' });
@@ -112,11 +124,14 @@ router.post('/verify-password', (req, res) => {
   }
 });
 
-/**
- * 修改密码
- */
+// 修改密码
 router.post('/change-password', (req, res) => {
   const { oldPassword, newPassword } = req.body;
+
+  if (isDemoMode()) {
+    return res.status(403).json({ success: false, error: '演示模式禁止修改密码' });
+  }
+
   const savedPassword = loadAdminPassword();
 
   if (!savedPassword) {

@@ -30,6 +30,7 @@
     "https-proxy-agent": "^7.0.6",
     "marked": "^17.0.1",
     "node-cron": "^4.2.1",
+    "otplib": "^12.0.1",
     "socket.io": "^4.7.2",
     "ssh2": "^1.17.0",
     "uuid": "^13.0.0",

@@ -298,6 +298,20 @@ class UserSettings extends BaseModel {
             settings.load_balancing_strategy = 'random';
         }
 
+        if (settings.vibration_enabled === undefined) {
+            settings.vibration_enabled = 1;
+        }
+
+        if (settings.totp_settings) {
+            try {
+                settings.totp_settings = JSON.parse(settings.totp_settings);
+            } catch (e) {
+                settings.totp_settings = {};
+            }
+        } else {
+            settings.totp_settings = {};
+        }
+
         return settings;
     }
 
@@ -340,6 +354,22 @@ class UserSettings extends BaseModel {
             }
         }
 
+        if (!this.hasColumn('vibration_enabled')) {
+            try {
+                this.getDb().prepare(`ALTER TABLE ${this.tableName} ADD COLUMN vibration_enabled INTEGER DEFAULT 1`).run();
+            } catch (e) {
+                console.warn('Auto-migration for vibration_enabled failed:', e.message);
+            }
+        }
+
+        if (!this.hasColumn('totp_settings')) {
+            try {
+                this.getDb().prepare(`ALTER TABLE ${this.tableName} ADD COLUMN totp_settings TEXT`).run();
+            } catch (e) {
+                console.warn('Auto-migration for totp_settings failed:', e.message);
+            }
+        }
+
         const data = { ...updates };
 
         // 处理 JSON 字段
@@ -354,6 +384,9 @@ class UserSettings extends BaseModel {
         }
         if (data.channel_model_prefix && typeof data.channel_model_prefix !== 'string') {
             data.channel_model_prefix = JSON.stringify(data.channel_model_prefix);
+        }
+        if (data.totp_settings && typeof data.totp_settings !== 'string') {
+            data.totp_settings = JSON.stringify(data.totp_settings);
         }
 
 

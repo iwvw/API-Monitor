@@ -45,11 +45,13 @@
       <div class="auth-logo login-logo">
         <i class="fas fa-shield-halved"></i>
       </div>
-      <h1>欢迎回来</h1>
-      <p>身份验证以访问监控面板</p>
+      <h1 v-if="isDemoMode">演示模式</h1>
+      <h1 v-else>欢迎回来</h1>
+      <p v-if="isDemoMode">账号无需密码，点击“立即进入”以继续</p>
+      <p v-else>身份验证以访问监控面板</p>
     </div>
     <div class="auth-body">
-      <div class="auth-input-group">
+      <div v-if="!isDemoMode" class="auth-input-group">
         <i class="fas fa-lock input-icon"></i>
         <input v-model="loginPassword" type="password" class="auth-input" placeholder="请输入管理员密码"
           autocomplete="current-password" @keyup.enter="verifyPassword" />

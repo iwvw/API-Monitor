@@ -68,7 +68,9 @@ function loadUserSettings() {
       moduleOrder: order,
       load_balancing_strategy: settings.load_balancing_strategy || 'random',
       serverIpDisplayMode: settings.server_ip_display_mode || 'normal',
-      navLayout: settings.main_tabs_layout || 'top'
+      vibrationEnabled: settings.vibration_enabled !== undefined ? Boolean(settings.vibration_enabled) : true,
+      navLayout: settings.main_tabs_layout || 'top',
+      totpSettings: settings.totp_settings || {}
     };
   } catch (error) {
     console.error('加载用户设置失败:', error);
@@ -92,7 +94,9 @@ function saveUserSettings(settings) {
       module_order: settings.moduleOrder !== undefined ? settings.moduleOrder : settings.module_order,
       load_balancing_strategy: settings.load_balancing_strategy || settings.load_balancing_strategy_form,
       server_ip_display_mode: settings.serverIpDisplayMode !== undefined ? settings.serverIpDisplayMode : settings.server_ip_display_mode,
-      main_tabs_layout: settings.navLayout || settings.mainTabsLayout || settings.main_tabs_layout
+      vibration_enabled: settings.vibrationEnabled !== undefined ? (settings.vibrationEnabled ? 1 : 0) : settings.vibration_enabled,
+      main_tabs_layout: settings.navLayout || settings.mainTabsLayout || settings.main_tabs_layout,
+      totp_settings: settings.totpSettings !== undefined ? settings.totpSettings : settings.totp_settings
     };
 
     // 直接交给 Model 层处理，Model 层会自动处理 JSON 序列化和数据库列更新
@@ -131,7 +135,18 @@ function getDefaultSettings() {
     moduleOrder: ['openai', 'antigravity', 'gemini-cli', 'paas', 'dns', 'self-h', 'server'],
     load_balancing_strategy: 'random',
     serverIpDisplayMode: 'normal',
-    navLayout: 'top'
+    navLayout: 'top',
+    totpSettings: {
+      hideCode: false,
+      allowRevealCode: true,
+      groupByPlatform: true,
+      showPlatformHeaders: true,
+      hidePlatformText: false,
+      maskAccount: false,
+      autoSave: true,
+      lockInputMode: false,
+      defaultInputMode: 'code'
+    }
   };
 }
 

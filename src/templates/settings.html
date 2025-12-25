@@ -46,18 +46,26 @@
           <!-- ==================== General Tab ==================== -->
           <div v-if="settingsCurrentTab === 'general'" class="settings-tab-content fade-in">
             <div class="settings-group">
-              <div class="settings-group-title">账户安全</div>
+              <div class="settings-group-title">账户安全 <span v-if="isDemoMode" class="badge badge-warning"
+                  style="font-size: 10px; margin-left: 8px;">演示模式</span></div>
+              <div v-if="isDemoMode" class="settings-description"
+                style="color: var(--warning-color); font-weight: 500;">
+                <i class="fas fa-exclamation-triangle"></i> 演示模式下禁止修改管理员密码。
+              </div>
               <div class="form-group">
                 <label class="form-label">新密码</label>
-                <input v-model="newPassword" type="password" class="form-input" placeholder="输入新密码（至少6位）" />
+                <input v-model="newPassword" type="password" class="form-input" placeholder="输入新密码（至少6位）"
+                  :disabled="isDemoMode" />
               </div>
               <div class="form-group">
                 <label class="form-label">确认密码</label>
-                <input v-model="confirmPassword" type="password" class="form-input" placeholder="确认新密码" />
+                <input v-model="confirmPassword" type="password" class="form-input" placeholder="确认新密码"
+                  :disabled="isDemoMode" />
               </div>
               <div v-if="passwordError" class="form-error">{{ passwordError }}</div>
               <div v-if="passwordSuccess" class="form-success">{{ passwordSuccess }}</div>
-              <button class="btn btn-primary" @click="changePassword" style="width: 100%; margin-top: 8px;">
+              <button class="btn btn-primary" @click="changePassword" style="width: 100%; margin-top: 8px;"
+                :disabled="isDemoMode">
                 <i class="fas fa-key"></i> 修改密码
               </button>
             </div>
@@ -406,6 +414,23 @@
                   <div class="settings-group-title">
                     <i class="fas fa-columns" style="color: var(--primary-color);"></i> 界面布局
                   </div>
+
+                  <!-- 震动反馈开关 (移动端) -->
+                  <div class="form-group"
+                    style="margin-bottom: 20px; padding-bottom: 12px; border-bottom: 1px dashed var(--border-color);">
+                    <div style="display: flex; align-items: center; justify-content: space-between;">
+                      <div>
+                        <div style="font-size: 14px; font-weight: 600; color: var(--text-primary);">触感反馈 (震动)</div>
+                        <div style="font-size: 11px; color: var(--text-tertiary); margin-top: 2px;">
+                          开启后，移动端点击交互元素将提供物理震动反馈</div>
+                      </div>
+                      <label class="switch">
+                        <input type="checkbox" v-model="vibrationEnabled" @change="saveUserSettingsToServer">
+                        <span class="slider round"></span>
+                      </label>
+                    </div>
+                  </div>
+
                   <div class="settings-description">
                     选择主功能模块导航栏的显示位置。
                   </div>

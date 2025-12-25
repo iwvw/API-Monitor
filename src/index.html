@@ -13,11 +13,14 @@
   <!-- CDN 样式 (由 Vite 注入) -->
   <%- cdnStyleTags %>
 
+    <!-- jsQR 二维码解析库 -->
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+
     <!-- Template Loader imported in main.js -->
     <link rel="stylesheet" href="css/refined-mobile.css">
 </head>
 
-<body>
+<body ontouchstart="">
   <!-- 自定义 CSS -->
   <style id="custom-css"></style>
   <style>
@@ -76,7 +79,8 @@
                     module === 'server' ? 'server-tab' : '',
                     module === 'self-h' ? 'self-h-tab' : '',
                     module === 'antigravity' ? 'antigravity-tab' : '',
-                    module === 'gemini-cli' ? 'gemini-cli-tab' : ''
+                    module === 'gemini-cli' ? 'gemini-cli-tab' : '',
+                    module === 'totp' ? 'totp-tab' : ''
                   ]" @click="handleTabSwitch(module)">
                   <i class="fas" :class="getModuleIcon(module)"></i>
                   <span> {{ getModuleName(module) }}</span>
@@ -104,6 +108,7 @@
           <div id="template-gemini-cli" v-show="mainActiveTab === 'gemini-cli'"></div>
           <div id="template-server" v-show="mainActiveTab === 'server'"></div>
           <div id="template-self-h" v-show="mainActiveTab === 'self-h'"></div>
+          <div id="template-totp" v-show="mainActiveTab === 'totp'"></div>
         </div>
 
         <!-- 未登录占位符 -->

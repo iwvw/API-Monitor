@@ -88,13 +88,120 @@ export const commonMethods = {
         // 为移动端所有可交互元素添加震动反馈
         window.addEventListener('click', (e) => {
             if (window.innerWidth > 768) return;
+            if (!navigator.vibrate || !this.vibrationEnabled) return;
 
-            // 匹配常见的可点击元素
-            const interactiveSelectors = 'button, a.btn, .tab-btn, .main-tab, .clickable, .ssh-quick-item, .project-card, .service-card, .server-card-header, .btn-icon-refined, .stat-pill, .chip-btn';
+            // 全面的可交互元素选择器
+            const interactiveSelectors = [
+                // 基础交互元素
+                'button',
+                'a[href]',
+                'a.btn',
+                '[role="button"]',
+                '[tabindex]:not([tabindex="-1"])',
+
+                // 表单控件
+                'input[type="checkbox"]',
+                'input[type="radio"]',
+                'input[type="file"]',
+                'input[type="color"]',
+                'select',
+                '.toggle-switch',
+                '.switch-slider',
+                '.custom-checkbox',
+                '.custom-radio',
+
+                // 标签页和导航
+                '.tab-btn',
+                '.main-tab',
+                '.sub-tab',
+                '.sectab-btn',
+                '.nav-item',
+                '.nav-link',
+                '.bottom-nav-item',
+                '.sidebar-item',
+                '.menu-item',
+
+                // 卡片和列表项
+                '.clickable',
+                '.card-clickable',
+                '.list-item',
+                '.list-item-clickable',
+                '.project-card',
+                '.service-card',
+                '.server-card',
+                '.server-card-header',
+                '.account-card',
+                '.host-card',
+                '.dns-zone-item',
+                '.totp-card',
+                '.feature-card',
+                '.ssh-quick-item',
+                '.credential-item',
+                '.snippet-item',
+
+                // 按钮变体
+                '.btn-icon',
+                '.btn-icon-refined',
+                '.btn-ghost',
+                '.btn-primary',
+                '.btn-secondary',
+                '.btn-danger',
+                '.btn-outline',
+                '.icon-btn',
+                '.action-btn',
+                '.close-btn',
+
+                // 状态指示器和标签
+                '.stat-pill',
+                '.chip-btn',
+                '.tag',
+                '.badge-clickable',
+                '.status-indicator',
+
+                // 下拉菜单和弹出层
+                '.dropdown-item',
+                '.dropdown-trigger',
+                '.select-option',
+                '.context-menu-item',
+                '.popover-trigger',
+
+                // 模态框操作
+                '.modal-close',
+                '.modal-action',
+                '.dialog-btn',
+
+                // 折叠/展开
+                '.accordion-header',
+                '.collapsible-header',
+                '.expandable-trigger',
+
+                // 播放器控件
+                '.player-btn',
+                '.playback-control',
+                '.volume-control',
+
+                // TOTP 特定
+                '.totp-code-display',
+                '.totp-copy-btn',
+
+                // 其他自定义可点击元素
+                '[data-action]'
+            ].join(', ');
+
             const target = e.target.closest(interactiveSelectors);
 
-            if (target && navigator.vibrate) {
-                navigator.vibrate(12);
+            if (target) {
+                // 根据元素类型调整震动强度（增强版）
+                const isHeavyAction = target.matches('.btn-danger, .modal-close, [data-action="delete"], [data-action="remove"]');
+                const isLightAction = target.matches('.tab-btn, .nav-item, .chip-btn, .tag');
+
+                if (isHeavyAction) {
+                    navigator.vibrate(50); // 强反馈用于重要/危险操作
+                } else if (isLightAction) {
+                    navigator.vibrate(25); // 中等反馈用于导航类操作
+                } else {
+                    navigator.vibrate(35); // 标准反馈
+                }
             }
         }, true);
 
