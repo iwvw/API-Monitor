@@ -130,6 +130,14 @@ pre,
     -webkit-overflow-scrolling: touch;
   }
 
+  /* 单页模式下移除分割线 */
+  body.single-page-mode .sec-tabs,
+  body.single-page-mode [class*="-sec-tabs"] {
+    border-bottom: none;
+    margin-top: 0;
+    margin-bottom: 0;
+  }
+
   .sec-tabs::-webkit-scrollbar {
 
     display: none;

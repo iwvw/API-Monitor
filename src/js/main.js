@@ -629,6 +629,9 @@ const app = createApp({
   },
 
   async mounted() {
+    // 0. 检测单页模式 (通过 URL 路径直接访问模块)
+    this.detectSinglePageMode();
+
     // 1. 核心数据与 UI 重置 (立即执行)
     window.vueApp = this;
     this.loadModuleSettings();
@@ -1216,6 +1219,41 @@ const app = createApp({
     formatFileSize,
     formatRegion,
     renderMarkdown,
+
+    /**
+     * 检测单页模式 - 通过 URL 路径直接访问特定模块
+     * 支持路径: /2FA, /totp, /hosts, /server, /dns, /paas, /openai, /antigravity, /gemini-cli, /self-h
+     */
+    detectSinglePageMode() {
+      const path = window.location.pathname.toLowerCase().replace(/^\//, '');
+
+      // 模块路径映射
+      const moduleMap = {
+        '2fa': 'totp',
+        'totp': 'totp',
+        'hosts': 'server',
+        'server': 'server',
+        'dns': 'dns',
+        'paas': 'paas',
+        'openai': 'openai',
+        'antigravity': 'antigravity',
+        'gemini-cli': 'gemini-cli',
+        'gcli': 'gemini-cli',
+        'self-h': 'self-h',
+        'selfh': 'self-h'
+      };
+
+      if (path && moduleMap[path]) {
+        const targetModule = moduleMap[path];
+        store.singlePageMode = true;
+        store.mainActiveTab = targetModule;
+        document.body.classList.add('single-page-mode');
+        console.log(`[SinglePageMode] 已激活: ${path} -> ${targetModule}`);
+
+        // 更新页面标题
+        document.title = `API Monitor - ${path.toUpperCase()}`;
+      }
+    }
   }
 });
 

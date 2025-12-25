@@ -57,7 +57,7 @@
 
             <!-- 右侧操作区 -->
             <div class="header-actions" v-if="!isSelfHVideoActive || !isMobile">
-              <button class="btn-settings-toggle"
+              <button class="btn-settings-toggle" v-show="!singlePageMode"
                 :class="{ active: showSettingsModal, 'pc-hide': navLayout === 'bottom' || navLayout === 'top-capsule' }"
                 @click="showSettingsModal = !showSettingsModal" title="系统设置">
                 <i class="fas fa-cog"></i>
@@ -66,14 +66,14 @@
             </div>
           </div>
 
-          <!-- 主导航容器 (底部模式固定定位) -->
-          <div class="main-nav-container" v-show="!isSelfHVideoActive || !isMobile" :class="[
+          <!-- 主导航容器 (底部模式固定定位，单页模式下完全隐藏) -->
+          <div class="main-nav-container" v-show="!singlePageMode && (!isSelfHVideoActive || !isMobile)" :class="[
             {'nav-bottom-fixed': navLayout === 'bottom' || navLayout === 'bottom-normal'},
             {'nav-capsule': navLayout === 'bottom' || navLayout === 'top-capsule'},
             'theme-' + (mainActiveTab === 'self-h' ? 'self-h' : mainActiveTab === 'gemini-cli' ? 'gemini-cli' : mainActiveTab === 'dns' ? 'cf-dns' : mainActiveTab)
           ]">
-            <!-- 主标签页导航 (仅在有多个模块可见时显示) -->
-            <div class="main-tabs" v-if="Object.values(moduleVisibility).filter(v => v).length > 1">
+            <!-- 主标签页导航 (仅在有多个模块可见时显示，单页模式下隐藏) -->
+            <div class="main-tabs" v-if="!singlePageMode && Object.values(moduleVisibility).filter(v => v).length > 1">
               <template v-for="module in moduleOrder" :key="module">
                 <button v-if="moduleVisibility[module]" class="main-tab" :class="[
                     { active: mainActiveTab === module },
@@ -92,9 +92,10 @@
               </template>
             </div>
 
-            <!-- 胶囊模式专用设置按钮 -->
-            <button v-if="navLayout === 'bottom' || navLayout === 'top-capsule'" class="btn-settings-pc-bottom pc-only"
-              :class="{ active: showSettingsModal }" @click="showSettingsModal = !showSettingsModal" title="系统设置">
+            <!-- 胶囊模式专用设置按钮 (单页模式下隐藏) -->
+            <button v-if="!singlePageMode && (navLayout === 'bottom' || navLayout === 'top-capsule')"
+              class="btn-settings-pc-bottom pc-only" :class="{ active: showSettingsModal }"
+              @click="showSettingsModal = !showSettingsModal" title="系统设置">
               <i class="fas fa-cog"></i>
             </button>
           </div>

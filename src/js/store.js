@@ -128,6 +128,7 @@ export const store = reactive({
     navLayout: 'bottom', // 'sidebar' (左侧), 'top' (顶部) or 'bottom' (底栏)
     agentDownloadUrl: '', // 自定义 Agent 下载地址，空则使用主控端
     showSettingsModal: false, // 设置面板显示状态
+    singlePageMode: false, // 单页模式（通过 URL 路径访问特定模块时隐藏导航）
     mobileSettingsNavExpanded: false, // 移动端设置导航展开状态
 
     // TOTP 模块设置

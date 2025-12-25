@@ -109,8 +109,12 @@ module.exports = defineConfig(({ mode }) => {
                     ws: true,
                     changeOrigin: true
                 }
-            }
+            },
+            // 配置 history fallback 用于 SPA 单页路由（如 /2FA, /hosts 等）
+            // Vite 内置支持，使用自定义中间件处理非文件路径
         },
+        // SPA 模式：所有未匹配的路径返回 index.html
+        appType: 'spa',
         // 定义全局变量注入
         define: {
             '__USE_CDN__': JSON.stringify(useCdn),
