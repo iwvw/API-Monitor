@@ -2,9 +2,7 @@
  * 流媒体播放器模块 (Stream Player)
  * 
  * 功能:
- * - 支持多种视频格式 (MP4, WebM, MKV, HLS, FLV, DASH)
- * - 按需动态加载解码库 (hls.js, flv.js, dash.js)
- * - FFmpeg.wasm 转码支持 (AVI, WMV, RMVB 等)
+ * - 原生视频播放 (MP4, WebM, MKV 等浏览器支持的格式)
  * - 沉浸式全屏播放体验
  * - 快捷键控制
  * 
@@ -17,27 +15,8 @@ import { toast } from './toast.js';
 // ==================== 配置常量 ====================
 
 const PLAYER_CONFIG = {
-    // 浏览器原生支持度高的格式
-    NATIVE_FORMATS: ['mp4', 'webm', 'ogg'],
-
-    // 需要 Hls.js 支持的格式
-    HLS_FORMATS: ['m3u8'],
-
-    // 需要 flv.js 支持的格式
-    FLV_FORMATS: ['flv'],
-
-    // 需要 dash.js 支持 the 格式
-    DASH_FORMATS: ['mpd'],
-
-    // 可能可以直接播放的格式 (取决于编码或浏览器插件)
-    MAYBE_NATIVE: ['mkv', 'ts', 'avi', 'wmv', 'rmvb', 'rm', 'asf', 'vob', '3gp', 'mov'],
-
-    // CDN 地址 (使用 npmmirror)
-    CDN: {
-        hlsjs: 'https://registry.npmmirror.com/hls.js/1.5.7/files/dist/hls.min.js',
-        flvjs: 'https://registry.npmmirror.com/flv.js/1.6.2/files/dist/flv.min.js',
-        dashjs: 'https://registry.npmmirror.com/dashjs/4.7.4/files/dist/dash.all.min.js'
-    }
+    // 支持的视频格式
+    VIDEO_FORMATS: ['mp4', 'webm', 'ogg', 'mkv', 'ts', 'avi', 'wmv', 'rmvb', 'rm', 'asf', 'vob', '3gp', 'mov', 'm3u8', 'flv', 'mpd']
 };
 
 // ==================== 状态管理 ====================
@@ -45,16 +24,6 @@ const PLAYER_CONFIG = {
 const playerState = {
     // 当前播放器实例
     videoElement: null,
-    hlsInstance: null,
-    flvPlayer: null,
-    dashPlayer: null,
-
-    // 库加载状态
-    libsLoaded: {
-        hls: false,
-        flv: false,
-        dash: false
-    },
 
     // 当前播放信息
     currentFile: null,
@@ -82,45 +51,15 @@ function getFileExtension(filename) {
     return parts.length > 1 ? parts.pop().toLowerCase() : '';
 }
 
-function getFormatType(ext) {
-    if (PLAYER_CONFIG.NATIVE_FORMATS.includes(ext)) return 'native';
-    if (PLAYER_CONFIG.HLS_FORMATS.includes(ext)) return 'hls';
-    if (PLAYER_CONFIG.FLV_FORMATS.includes(ext)) return 'flv';
-    if (PLAYER_CONFIG.DASH_FORMATS.includes(ext)) return 'dash';
-    if (PLAYER_CONFIG.MAYBE_NATIVE.includes(ext)) return 'maybe';
-    return 'unknown';
-}
-
-/**
- * 动态加载 JS 库
- * @param {string} url - 库的 URL
- * @param {string} globalName - 全局变量名 (用于检测是否已加载)
- * @returns {Promise<void>}
- */
-function loadScript(url, globalName) {
-    return new Promise((resolve, reject) => {
-        // 检查是否已加载
-        if (globalName && window[globalName]) {
-            resolve();
-            return;
-        }
-
-        const script = document.createElement('script');
-        script.src = url;
-        script.async = true;
-        script.onload = () => resolve();
-        script.onerror = () => reject(new Error(`Failed to load: ${url}`));
-        document.head.appendChild(script);
-    });
-}
-
 /**
  * 格式化时间
  * @param {number} seconds - 秒数
  * @returns {string} 格式化的时间字符串
  */
 function formatTime(seconds) {
-    if (!seconds || isNaN(seconds)) return '0:00';
+    if (typeof seconds !== 'number' || isNaN(seconds) || !isFinite(seconds) || seconds < 0) {
+        return '0:00';
+    }
     const h = Math.floor(seconds / 3600);
     const m = Math.floor((seconds % 3600) / 60);
     const s = Math.floor(seconds % 60);
@@ -130,73 +69,12 @@ function formatTime(seconds) {
     return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
-// ==================== 库加载器 ====================
-
-/**
- * 加载 HLS.js
- */
-async function loadHlsJs() {
-    if (playerState.libsLoaded.hls || window.Hls) {
-        playerState.libsLoaded.hls = true;
-        return;
-    }
-
-    await loadScript(PLAYER_CONFIG.CDN.hlsjs, 'Hls');
-    playerState.libsLoaded.hls = true;
-    console.log('[StreamPlayer] HLS.js loaded');
-}
-
-/**
- * 加载 FLV.js
- */
-async function loadFlvJs() {
-    if (playerState.libsLoaded.flv || window.flvjs) {
-        playerState.libsLoaded.flv = true;
-        return;
-    }
-
-    await loadScript(PLAYER_CONFIG.CDN.flvjs, 'flvjs');
-    playerState.libsLoaded.flv = true;
-    console.log('[StreamPlayer] flv.js loaded');
-}
-
-/**
- * 加载 Dash.js
- */
-async function loadDashJs() {
-    if (playerState.libsLoaded.dash || window.dashjs) {
-        playerState.libsLoaded.dash = true;
-        return;
-    }
-
-    await loadScript(PLAYER_CONFIG.CDN.dashjs, 'dashjs');
-    playerState.libsLoaded.dash = true;
-    console.log('[StreamPlayer] dash.js loaded');
-}
-
 // ==================== 播放器核心 ====================
 
 /**
  * 销毁当前播放器实例
  */
 function destroyPlayer() {
-    if (playerState.hlsInstance) {
-        playerState.hlsInstance.destroy();
-        playerState.hlsInstance = null;
-    }
-
-    if (playerState.flvPlayer) {
-        playerState.flvPlayer.unload();
-        playerState.flvPlayer.detachMediaElement();
-        playerState.flvPlayer.destroy();
-        playerState.flvPlayer = null;
-    }
-
-    if (playerState.dashPlayer) {
-        playerState.dashPlayer.reset();
-        playerState.dashPlayer = null;
-    }
-
     if (playerState.videoElement) {
         playerState.videoElement.pause();
         playerState.videoElement.src = '';
@@ -215,153 +93,7 @@ function destroyPlayer() {
  */
 async function playNative(video, url) {
     video.src = url;
-
-    // 监听音频轨道，检测不支持的编码
-    video.onloadedmetadata = () => {
-        checkAudioTracks(video);
-    };
-
     await video.play();
-    playerState.isPlaying = true;
-}
-
-/**
- * 检查音频轨道兼容性
- * @param {HTMLVideoElement} video - 视频元素
- */
-function checkAudioTracks(video) {
-    // 检查是否有音频
-    if (video.audioTracks && video.audioTracks.length === 0) {
-        console.warn('[StreamPlayer] No audio tracks detected');
-        return;
-    }
-
-    // 5秒后检查是否有声音（启发式检测）
-    setTimeout(() => {
-        // 如果视频正在播放但音量为0或静音状态不是用户设置的
-        if (!video.paused && video.volume > 0 && !video.muted) {
-            // 尝试通过 Web Audio API 检测音频
-            try {
-                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                const source = audioContext.createMediaElementSource(video);
-                const analyser = audioContext.createAnalyser();
-                source.connect(analyser);
-                analyser.connect(audioContext.destination);
-
-                // 采样检测
-                const dataArray = new Uint8Array(analyser.frequencyBinCount);
-                analyser.getByteFrequencyData(dataArray);
-
-                const hasAudio = dataArray.some(v => v > 0);
-                if (!hasAudio && video.currentTime > 2) {
-                    showAudioWarning();
-                }
-            } catch (e) {
-                // Web Audio API 可能已经被使用过，忽略错误
-                console.log('[StreamPlayer] Audio check via Web Audio API failed:', e.message);
-            }
-        }
-    }, 3000);
-}
-
-/**
- * 显示音频警告
- */
-function showAudioWarning() {
-    toast.warning('⚠️ 此视频可能使用了不受支持的音频编码 (如 AC3/DTS)，建议下载后用本地播放器观看', 8000);
-}
-
-/**
- * HLS 播放
- * @param {HTMLVideoElement} video - 视频元素
- * @param {string} url - m3u8 URL
- */
-async function playHls(video, url) {
-    await loadHlsJs();
-
-    if (window.Hls.isSupported()) {
-        const hls = new window.Hls({
-            enableWorker: true,
-            lowLatencyMode: false
-        });
-
-        hls.loadSource(url);
-        hls.attachMedia(video);
-
-        hls.on(window.Hls.Events.MANIFEST_PARSED, () => {
-            video.play();
-            playerState.isPlaying = true;
-        });
-
-        hls.on(window.Hls.Events.ERROR, (event, data) => {
-            console.error('[StreamPlayer] HLS error:', data);
-            if (data.fatal) {
-                toast.error('HLS 播放失败: ' + data.type);
-            }
-        });
-
-        playerState.hlsInstance = hls;
-    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-        // Safari 原生支持 HLS
-        video.src = url;
-        await video.play();
-        playerState.isPlaying = true;
-    } else {
-        throw new Error('浏览器不支持 HLS 播放');
-    }
-}
-
-/**
- * FLV 播放
- * @param {HTMLVideoElement} video - 视频元素
- * @param {string} url - FLV URL
- */
-async function playFlv(video, url) {
-    await loadFlvJs();
-
-    if (!window.flvjs.isSupported()) {
-        throw new Error('浏览器不支持 FLV 播放');
-    }
-
-    const flvPlayer = window.flvjs.createPlayer({
-        type: 'flv',
-        url: url,
-        isLive: false,
-        hasAudio: true,
-        hasVideo: true,
-        cors: true
-    });
-
-    flvPlayer.attachMediaElement(video);
-    flvPlayer.load();
-    await flvPlayer.play();
-
-    flvPlayer.on(window.flvjs.Events.ERROR, (errType, errDetail) => {
-        console.error('[StreamPlayer] FLV error:', errType, errDetail);
-        toast.error('FLV 播放失败: ' + errDetail);
-    });
-
-    playerState.flvPlayer = flvPlayer;
-    playerState.isPlaying = true;
-}
-
-/**
- * DASH 播放
- * @param {HTMLVideoElement} video - 视频元素
- * @param {string} url - MPD URL
- */
-async function playDash(video, url) {
-    await loadDashJs();
-
-    const player = window.dashjs.MediaPlayer().create();
-    player.initialize(video, url, true);
-
-    player.on(window.dashjs.MediaPlayer.events.ERROR, (e) => {
-        console.error('[StreamPlayer] DASH error:', e);
-        toast.error('DASH 播放失败');
-    });
-
-    playerState.dashPlayer = player;
     playerState.isPlaying = true;
 }
 
@@ -383,7 +115,15 @@ async function play(options) {
         return { success: false, message: '缺少必要参数' };
     }
 
-    // 销毁之前的播放器
+    // 检查是否已经是当前正在播放的资源且元素一致
+    if (playerState.currentUrl === url && playerState.videoElement === videoElement && videoElement.src) {
+        console.log('[StreamPlayer] Already playing this source on this element, skipping reload.');
+        playerState.isPlaying = true;
+        videoElement.play().catch(() => { });
+        return { success: true };
+    }
+
+    // 销毁之前的播放器状态
     destroyPlayer();
 
     playerState.videoElement = videoElement;
@@ -391,50 +131,18 @@ async function play(options) {
     playerState.currentFile = filename;
 
     const ext = getFileExtension(filename);
-    const formatType = getFormatType(ext);
-
-    console.log(`[StreamPlayer] Playing: ${filename}, format: ${formatType}`);
+    console.log(`[StreamPlayer] Playing: ${filename}, ext: ${ext}`);
 
     try {
-        switch (formatType) {
-            case 'native':
-                await playNative(videoElement, url);
-                return { success: true };
-
-            case 'hls':
-                await playHls(videoElement, url);
-                return { success: true };
-
-            case 'flv':
-                await playFlv(videoElement, url);
-                return { success: true };
-
-            case 'dash':
-                await playDash(videoElement, url);
-                return { success: true };
-
-            case 'maybe':
-            case 'unknown':
-            default:
-                // 尝试直接播放 (针对 maybe 或未知格式)
-                try {
-                    console.log(`[StreamPlayer] Attempting playback for ${ext || 'unknown'} (type: ${formatType})`);
-                    await playNative(videoElement, url);
-                    return { success: true };
-                } catch (e) {
-                    console.warn('[StreamPlayer] Playback failed for', ext, e);
-                    if (onUnsupported) {
-                        onUnsupported(ext, url, filename);
-                    }
-                    const msg = formatType === 'maybe'
-                        ? `${ext.toUpperCase()} 格式可能不受浏览器支持，请尝试下载后播放`
-                        : '该视频格式可能不受支持，播放失败';
-                    return { success: false, message: msg };
-                }
-        }
+        // 直接尝试原生播放
+        await playNative(videoElement, url);
+        return { success: true };
     } catch (error) {
-        console.error('[StreamPlayer] Play error:', error);
-        return { success: false, message: error.message || '播放失败' };
+        console.warn('[StreamPlayer] Playback failed:', error);
+        if (onUnsupported) {
+            onUnsupported(ext, url, filename);
+        }
+        return { success: false, message: '该视频格式可能不受支持，请下载后用本地播放器观看' };
     }
 }
 
@@ -498,14 +206,36 @@ function skip(seconds) {
  */
 async function toggleFullscreen(container) {
     const elem = container || playerState.videoElement?.parentElement;
+    const video = playerState.videoElement;
     if (!elem) return;
 
     if (!document.fullscreenElement) {
-        await elem.requestFullscreen?.() || elem.webkitRequestFullscreen?.() || elem.msRequestFullscreen?.();
-        playerState.isFullscreen = true;
+        try {
+            await (elem.requestFullscreen?.() || elem.webkitRequestFullscreen?.() || elem.msRequestFullscreen?.());
+            playerState.isFullscreen = true;
+
+            // 移动端自动横竖屏切换
+            if (video && screen.orientation && screen.orientation.lock) {
+                const isLandscape = video.videoWidth > video.videoHeight;
+                try {
+                    await screen.orientation.lock(isLandscape ? 'landscape' : 'portrait');
+                } catch (e) {
+                    console.log('[StreamPlayer] Orientation lock not supported or failed:', e);
+                }
+            }
+        } catch (e) {
+            console.error('[StreamPlayer] Fullscreen request failed:', e);
+        }
     } else {
-        await document.exitFullscreen?.() || document.webkitExitFullscreen?.() || document.msExitFullscreen?.();
-        playerState.isFullscreen = false;
+        try {
+            if (screen.orientation && screen.orientation.unlock) {
+                screen.orientation.unlock();
+            }
+            await (document.exitFullscreen?.() || document.webkitExitFullscreen?.() || document.msExitFullscreen?.());
+            playerState.isFullscreen = false;
+        } catch (e) {
+            console.error('[StreamPlayer] Exit fullscreen failed:', e);
+        }
     }
 }
 
@@ -595,32 +325,9 @@ function bindKeyboardShortcuts(container) {
 
 // ==================== 格式检查工具 ====================
 
-function checkFormatSupport(filename) {
-    const ext = getFileExtension(filename);
-    const formatType = getFormatType(ext);
-
-    return {
-        extension: ext,
-        formatType,
-        canPlayNatively: formatType === 'native',
-        needsLibrary: ['hls', 'flv', 'dash'].includes(formatType),
-        maybePlayable: formatType === 'maybe',
-        libraryName: formatType === 'hls' ? 'hls.js' :
-            formatType === 'flv' ? 'flv.js' :
-                formatType === 'dash' ? 'dash.js' : null
-    };
-}
-
 function isVideoFile(filename) {
     const ext = getFileExtension(filename);
-    const allFormats = [
-        ...PLAYER_CONFIG.NATIVE_FORMATS,
-        ...PLAYER_CONFIG.HLS_FORMATS,
-        ...PLAYER_CONFIG.FLV_FORMATS,
-        ...PLAYER_CONFIG.DASH_FORMATS,
-        ...PLAYER_CONFIG.MAYBE_NATIVE
-    ];
-    return allFormats.includes(ext);
+    return PLAYER_CONFIG.VIDEO_FORMATS.includes(ext);
 }
 
 // ==================== 导出 ====================
@@ -648,16 +355,10 @@ export const streamPlayer = {
     togglePictureInPicture,
 
     // 工具方法
-    checkFormatSupport,
     isVideoFile,
     getFileExtension,
     formatTime,
-    bindKeyboardShortcuts,
-
-    // 库加载器 (供外部预加载)
-    loadHlsJs,
-    loadFlvJs,
-    loadDashJs
+    bindKeyboardShortcuts
 };
 
 export default streamPlayer;

@@ -84,6 +84,11 @@ const app = createApp({
     const currentOpenListTempTab = computed(() => selfHComputed.currentOpenListTempTab(store));
     const openListTempPathParts = computed(() => selfHComputed.openListTempPathParts(store));
     const sortedOpenListFiles = computed(() => selfHComputed.sortedOpenListFiles(store));
+    const isSelfHVideoActive = computed(() => {
+      if (store.mainActiveTab !== 'self-h' || store.openListSubTab !== 'temp') return false;
+      const activeTab = store.openListTempTabs.find(t => t.id === store.openListActiveTempTabId);
+      return activeTab && activeTab.isVideo;
+    });
 
     // 将 store 的所有属性转换为 refs，这样在模板中可以直接使用且保持响应式
     return {
@@ -91,7 +96,8 @@ const app = createApp({
       openListPathParts,
       currentOpenListTempTab,
       openListTempPathParts,
-      sortedOpenListFiles
+      sortedOpenListFiles,
+      isSelfHVideoActive
     };
   },
   data() {
@@ -124,6 +130,9 @@ const app = createApp({
       // 主标签页
       previousMainTab: null,
       tabSwitchDebounce: null,
+
+      // 响应式状态
+      isMobile: window.innerWidth <= 768,
 
       // DNS 管理相关 - 表单状态
       showAddDnsAccountModal: false,
@@ -620,6 +629,11 @@ const app = createApp({
       this.loadFromServerListCache();
     }
 
+    // 监听窗口大小变化以更新移动端状态
+    window.addEventListener('resize', () => {
+      this.isMobile = window.innerWidth <= 768; // 保持与 CSS 媒体查询一致
+    });
+
     // 3. 异步认证与关键数据加载
     this.checkAuth().then(() => {
       if (this.isAuthenticated) {
@@ -988,11 +1002,7 @@ const app = createApp({
         if (this.flyManagedAccounts.length === 0) {
           this.loadFlyManagedAccounts();
         }
-        // 启动 Fly 自动刷新
-        if (!this.flyDataRefreshPaused) {
-          this.startFlyAutoRefresh();
-          this.loadFlyData(); // 立即触发一次
-        }
+
         // 停止其他自动刷新
         this.stopAutoRefresh();
         this.stopKoyebAutoRefresh();
@@ -1184,6 +1194,7 @@ const app = createApp({
 
     // ==================== 工具函数 ====================
     formatDateTime,
+    formatFileSize,
     formatRegion,
     renderMarkdown,
   }

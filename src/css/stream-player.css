@@ -13,13 +13,14 @@
     left: 0;
     right: 0;
     bottom: 0;
-    background: rgba(0, 0, 0, 0.95);
+    background: rgba(0, 0, 0, 0.92);
     z-index: 10000;
     display: flex;
     align-items: center;
     justify-content: center;
-    backdrop-filter: blur(10px);
-    animation: streamPlayerFadeIn 0.2s ease;
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    animation: streamPlayerFadeIn 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 @keyframes streamPlayerFadeIn {
@@ -43,6 +44,45 @@
     background: #000;
 }
 
+.stream-player-container.inside-tab {
+    width: fit-content;
+    /* 关键：始终适应内部视频宽度 */
+    min-width: 320px;
+    /* 最小保护宽度 */
+    height: auto;
+    max-width: min(1200px, 98vw);
+    max-height: calc(100vh - 120px);
+    background: #000;
+    border-radius: 16px;
+    overflow: hidden;
+    margin: 10px auto;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    display: flex;
+    flex-direction: column;
+}
+
+.stream-player-container.inside-tab .stream-player-header {
+    padding: 15px 20px;
+}
+
+.stream-player-container.inside-tab .stream-player-title {
+    font-size: 16px;
+    font-weight: 500;
+}
+
+@media (max-width: 768px) {
+    .stream-player-container.inside-tab {
+        width: fit-content;
+        max-width: 100%;
+        height: auto !important;
+        max-height: 75vh;
+        /* 提高限制，因为高度由比例决定 */
+        margin: 5px auto;
+        border-radius: 12px;
+    }
+}
+
 /* ==================== 视频区域 ==================== */
 
 .stream-player-video-wrapper {
@@ -55,6 +95,7 @@
 }
 
 .stream-player-video {
+    display: block;
     max-width: 100%;
     max-height: 100%;
     width: auto;
@@ -70,19 +111,29 @@
     top: 0;
     left: 0;
     right: 0;
-    padding: 20px 24px;
-    background: linear-gradient(to bottom, rgba(0, 0, 0, 0.8), transparent);
+    padding: 24px 28px;
+    background: linear-gradient(to bottom, rgba(0, 0, 0, 0.85) 0%, rgba(0, 0, 0, 0.4) 60%, transparent 100%);
     display: flex;
     align-items: center;
     justify-content: space-between;
     z-index: 10;
     opacity: 0;
-    transition: opacity 0.3s ease;
+    pointer-events: none;
+    /* 隐藏时不可交互，防止遮挡视频点击 */
+    transition: opacity 0.35s ease, visibility 0.35s;
 }
 
-.stream-player-container:hover .stream-player-header,
+/* 仅在支持 hover 的设备上使用 hover 触发位 */
+@media (hover: hover) {
+    .stream-player-container:hover .stream-player-header {
+        opacity: 1;
+        pointer-events: auto;
+    }
+}
+
 .stream-player-container.controls-visible .stream-player-header {
     opacity: 1;
+    pointer-events: auto;
 }
 
 .stream-player-title {
@@ -104,6 +155,32 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+/* 统一右上角图标颜色为白色系，适配暗色播放器 */
+.stream-player-header .header-actions {
+    display: flex;
+    gap: 10px;
+}
+
+.stream-player-header .btn-icon-refined {
+    background: rgba(255, 255, 255, 0.08) !important;
+    border: 1px solid rgba(255, 255, 255, 0.12) !important;
+    color: rgba(255, 255, 255, 0.85) !important;
+    backdrop-filter: blur(8px);
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.stream-player-header .btn-icon-refined:hover {
+    background: rgba(255, 255, 255, 0.18) !important;
+    color: #fff !important;
+    transform: translateY(-1px);
+    border-color: rgba(255, 255, 255, 0.3) !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.stream-player-header .btn-icon-refined:active {
+    transform: scale(0.95);
 }
 
 /* MKV 音频兼容性警告 */
@@ -135,22 +212,24 @@
 }
 
 .stream-player-close {
-    width: 40px;
-    height: 40px;
-    border-radius: 50%;
-    background: rgba(255, 255, 255, 0.1);
-    border: none;
-    color: #fff;
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.08);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    color: rgba(255, 255, 255, 0.9);
     font-size: 18px;
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: all 0.2s ease;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    backdrop-filter: blur(10px);
 }
 
 .stream-player-close:hover {
-    background: rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.15);
+    border-color: rgba(255, 255, 255, 0.2);
     transform: scale(1.05);
 }
 
@@ -161,16 +240,25 @@
     bottom: 0;
     left: 0;
     right: 0;
-    padding: 60px 24px 20px;
-    background: linear-gradient(to top, rgba(0, 0, 0, 0.9), transparent);
+    padding: 80px 28px 15px;
+    background: linear-gradient(to top, rgba(0, 0, 0, 0.9) 0%, rgba(0, 0, 0, 0.5) 50%, transparent 100%);
     z-index: 10;
     opacity: 0;
-    transition: opacity 0.3s ease;
+    pointer-events: none;
+    /* 隐藏时不可交互 */
+    transition: opacity 0.35s ease, visibility 0.35s;
 }
 
-.stream-player-container:hover .stream-player-controls,
+@media (hover: hover) {
+    .stream-player-container:hover .stream-player-controls {
+        opacity: 1;
+        pointer-events: auto;
+    }
+}
+
 .stream-player-container.controls-visible .stream-player-controls {
     opacity: 1;
+    pointer-events: auto;
 }
 
 /* 进度条 */
@@ -231,7 +319,7 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 16px;
+    gap: 6px;
 }
 
 .stream-player-controls-left,
@@ -251,46 +339,48 @@
 
 /* 控制按钮 */
 .stream-player-btn {
-    width: 40px;
-    height: 40px;
-    border-radius: 8px;
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
     background: transparent;
     border: none;
-    color: #fff;
+    color: rgba(255, 255, 255, 0.9);
     font-size: 16px;
     cursor: pointer;
     display: flex;
     align-items: center;
     justify-content: center;
-    transition: all 0.2s ease;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     position: relative;
 }
 
 .stream-player-btn:hover {
-    background: rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.12);
+    color: #fff;
 }
 
 .stream-player-btn:active {
-    transform: scale(0.95);
+    transform: scale(0.92);
 }
 
 /* MKV 转码按钮 */
 .stream-player-transcode-btn,
 .stream-player-download-hint {
     width: auto !important;
-    padding: 0 12px;
-    gap: 6px;
-    background: linear-gradient(135deg, rgba(251, 191, 36, 0.2), rgba(245, 158, 11, 0.2));
-    border: 1px solid rgba(251, 191, 36, 0.4);
+    padding: 0 14px;
+    gap: 8px;
+    background: linear-gradient(135deg, rgba(251, 191, 36, 0.15), rgba(245, 158, 11, 0.15));
+    border: 1px solid rgba(251, 191, 36, 0.3);
     color: #fbbf24;
     font-size: 12px;
     font-weight: 600;
+    border-radius: 10px;
 }
 
 .stream-player-transcode-btn:hover,
 .stream-player-download-hint:hover {
-    background: linear-gradient(135deg, rgba(251, 191, 36, 0.3), rgba(245, 158, 11, 0.3));
-    border-color: rgba(251, 191, 36, 0.6);
+    background: linear-gradient(135deg, rgba(251, 191, 36, 0.25), rgba(245, 158, 11, 0.25));
+    border-color: rgba(251, 191, 36, 0.5);
 }
 
 .stream-player-transcode-btn .transcode-label,
@@ -299,16 +389,18 @@
 }
 
 .stream-player-btn.large {
-    width: 56px;
-    height: 56px;
-    font-size: 24px;
+    width: 64px;
+    height: 64px;
+    font-size: 26px;
     background: rgba(255, 255, 255, 0.1);
     border-radius: 50%;
+    border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .stream-player-btn.large:hover {
-    background: rgba(255, 255, 255, 0.2);
-    transform: scale(1.05);
+    background: rgba(255, 255, 255, 0.18);
+    border-color: rgba(255, 255, 255, 0.15);
+    transform: scale(1.08);
 }
 
 /* 时间显示 */
@@ -327,18 +419,21 @@
 }
 
 .stream-player-volume-slider {
-    width: 80px;
+    width: 0;
     height: 4px;
     background: rgba(255, 255, 255, 0.2);
     border-radius: 2px;
     cursor: pointer;
     position: relative;
     opacity: 0;
-    transition: opacity 0.2s ease, width 0.2s ease;
+    transition: opacity 0.25s ease, width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    overflow: hidden;
 }
 
 .stream-player-volume:hover .stream-player-volume-slider {
     opacity: 1;
+    width: 100px;
+    margin-left: 8px;
 }
 
 .stream-player-volume-level {
@@ -416,21 +511,32 @@
     gap: 16px;
     color: #fff;
     z-index: 5;
+    background: transparent !important;
+    /* 强制背景透明，消除方框 */
 }
 
 .stream-player-spinner {
     width: 48px;
     height: 48px;
-    border: 3px solid rgba(255, 255, 255, 0.2);
+    border: 3px solid rgba(255, 255, 255, 0.1);
+    /* 调淡背景圆环 */
     border-top-color: var(--selfh-primary, #10b981);
     border-radius: 50%;
     animation: streamPlayerSpin 1s linear infinite;
+    box-shadow: none !important;
+    /* 消除阴影产生的方框感 */
 }
 
 @keyframes streamPlayerSpin {
     to {
         transform: rotate(360deg);
     }
+}
+
+/* 进度条拖动时禁用过渡，解决卡顿感 */
+.stream-player-container.dragging .stream-player-progress-played,
+.stream-player-container.dragging .stream-player-progress-thumb {
+    transition: none !important;
 }
 
 .stream-player-loading-text {
@@ -704,11 +810,13 @@
 
 @media (max-width: 768px) {
     .stream-player-header {
-        padding: 16px;
+        padding: 10px 14px;
+        /* 进一步缩小标题栏间距 */
     }
 
     .stream-player-controls {
-        padding: 40px 16px 16px;
+        padding: 30px 12px 12px;
+        /* 进一步缩小控制栏间距 */
     }
 
     .stream-player-btn {
@@ -723,8 +831,8 @@
         font-size: 20px;
     }
 
-    .stream-player-volume-slider {
-        display: none;
+    .stream-player-volume {
+        display: none !important;
     }
 
     .stream-player-speed-menu {
@@ -759,6 +867,7 @@
 .stream-player-container:fullscreen .stream-player-video {
     width: 100%;
     height: 100%;
+    object-fit: contain;
 }
 
 /* ==================== 无操作隐藏控制栏 ==================== */
@@ -816,4 +925,127 @@
 .stream-player-container:not(.controls-visible) .stream-player-controls {
     transform: translateY(20px);
     pointer-events: none;
+}
+
+/* ==================== 标签页集成专用样式 ==================== */
+
+.openlist-video-tab-view {
+    width: 100%;
+    min-height: calc(100vh - 120px);
+    background: #000;
+    display: flex;
+    align-items: center;
+    /* 垂直居中 */
+    justify-content: center;
+    /* 水平居中 */
+    padding: 20px;
+    box-sizing: border-box;
+}
+
+.openlist-video-tab-view .stream-player-container {
+    position: relative;
+    top: 0;
+    left: 0;
+}
+
+.openlist-video-tab-view .stream-player-header {
+    background: linear-gradient(to bottom, rgba(0, 0, 0, 0.9), transparent);
+}
+
+.openlist-video-tab-view .stream-player-controls {
+    background: linear-gradient(to top, rgba(0, 0, 0, 0.95), transparent);
+}
+
+/* 字体跟随全局及时间居中 */
+.stream-player-container,
+.stream-player-time,
+.stream-player-title,
+.stream-player-btn {
+    font-family: inherit;
+}
+
+.stream-player-controls-center {
+    flex: 1;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.stream-player-time {
+    font-variant-numeric: tabular-nums;
+    font-weight: 500;
+    font-size: 14px;
+    color: rgba(255, 255, 255, 0.9);
+}
+
+/* 限制布局大小与播放器一致 */
+.openlist-files-layout.video-mode-layout {
+    max-width: 1200px;
+    margin: 20px auto;
+    background: #000;
+    border-radius: 20px;
+    overflow: hidden;
+    box-shadow: 0 30px 60px rgba(0, 0, 0, 0.5);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* 兼容 :has 方案作为兜底 */
+.openlist-files-layout:has(.openlist-video-tab-view) {
+    max-width: 1200px;
+    margin: 20px auto;
+}
+
+.openlist-video-tab-view {
+    padding: 0;
+    min-height: unset;
+    /* 核心修改：高度跟随父容器，或者设为 100% 配合 flex */
+    width: 100%;
+    height: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.openlist-video-tab-view .stream-player-container.inside-tab {
+    margin: 0;
+    /* 核心修改：宽度自适应，高度自适应，最大不超过容器 */
+    width: 100%;
+    height: 100%;
+    max-width: 100%;
+    max-height: 100%;
+    /* 移除之前可能存在的强制比例 */
+}
+
+/* 强制视频元素在 Tab 视图中也保持 contain */
+.openlist-video-tab-view .stream-player-video-wrapper,
+.openlist-video-tab-view .stream-player-video {
+    width: 100%;
+    height: 100%;
+    max-height: 80vh;
+    object-fit: contain;
+}
+
+/* 全局深色沉浸模式：当视频激活时，强制所有背景变黑 */
+.video-active-mode,
+.video-active-mode .app-main,
+.video-active-mode .container {
+    background: #000 !important;
+    transition: background 0.3s ease;
+}
+
+/* 移动端特殊处理：移除多余的 padding 确保内容触达边缘 */
+@media (max-width: 768px) {
+    .video-active-mode .container {
+        padding: 0 !important;
+    }
+
+    .video-active-mode .openlist-files-layout.video-mode-layout {
+        margin: 0 !important;
+        border-radius: 0 !important;
+        border: none !important;
+        height: 100vh !important;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
 }

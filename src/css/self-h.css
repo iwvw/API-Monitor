@@ -602,6 +602,14 @@
         gap: 6px;
     }
 
+    .toolbar-right .btn-secondary span {
+        display: none;
+    }
+
+    .toolbar-right .btn-secondary i {
+        margin: 0;
+    }
+
     /* 搜索框手机端只显示图标 */
     /* 手机端搜索框展开时的样式覆盖 */
     .integrated-search.expanded {
@@ -638,6 +646,25 @@
     /* 账号选择器隐藏 */
     .account-pill {
         display: none;
+    }
+
+    /* 临时标签页：移动端隐藏文字，仅保留图标 */
+    .tab-btn.temp-tab span {
+        display: none;
+    }
+
+    .tab-btn.temp-tab {
+        padding: 10px 14px !important;
+        max-width: 44px !important;
+        min-width: 44px !important;
+        display: flex !important;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .tab-btn.temp-tab i {
+        margin: 0 !important;
+        font-size: 16px;
     }
 }
 

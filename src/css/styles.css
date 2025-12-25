@@ -518,6 +518,24 @@ body.modal-open {
 }
 
 /* Sidebar Components */
+.container.layout-top-capsule {
+  max-width: 100% !important;
+  /* padding: 0 !important; */
+  margin: 0 !important;
+}
+
+.container.layout-top-capsule .header {
+  padding: 10px 20px 0 20px;
+  max-width: 1300px;
+  margin: 0 auto 5px auto;
+}
+
+.container.layout-top-capsule>div[id^="template-"] {
+  max-width: 1300px;
+  margin: 0 auto;
+  padding: 0 8px 8px 8px;
+}
+
 .sidebar-logo {
   width: 32px;
   height: 32px;
@@ -2607,7 +2625,7 @@ body.modal-open {
 
 
   .app-main {
-    height: calc(100vh - 97px);
+    height: calc(100vh - 0px);
     margin-bottom: 20px;
   }
 

@@ -77,6 +77,7 @@ module.exports = defineConfig(({ mode }) => {
         },
         server: {
             port: 5173,
+            host: true,
             // 暂时禁用隔离头，以确保 FFmpeg 0.11.x 稳定运行在单线程模式
             // headers: {
             //     'Cross-Origin-Opener-Policy': 'same-origin',

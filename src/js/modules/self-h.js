@@ -181,7 +181,7 @@ export const selfHMethods = {
     selectOpenListAccount(account) {
         this.currentOpenListAccount = account;
         this.openListSubTab = 'files';
-        this._clearOpenListSearch(); // 切换账号或回到根目录时清空搜索
+        this.clearOpenListSearch(); // 切换账号或回到根目录时清空搜索
 
         // 保存当前账号 ID
         localStorage.setItem('openlist_last_account', account.id);
@@ -195,7 +195,7 @@ export const selfHMethods = {
     },
 
     // 辅助：清空搜索框内容
-    _clearOpenListSearch() {
+    clearOpenListSearch() {
         const searchInput = document.querySelector('.integrated-search input');
         if (searchInput) searchInput.value = '';
         store.openListSearchActive = false; // 重置搜索激活状态
@@ -207,7 +207,7 @@ export const selfHMethods = {
         if (!this.currentOpenListAccount) return;
 
         // 导航到新路径时强制清空搜索框（除非是搜索本身触发，但搜索不走此方法）
-        this._clearOpenListSearch();
+        this.clearOpenListSearch();
         store.openListSearchActive = false; // 确保关闭搜索状态
 
         // 1. 乐观更新路径
@@ -334,7 +334,7 @@ export const selfHMethods = {
         preview.style.height = initH + 'px';
 
         img.src = ''; // 清除上一张图
-        this._updatePreviewPos(clientX, clientY, initW, initH);
+        this.updatePreviewPos(clientX, clientY, initW, initH);
 
         img.onload = () => {
             const size = parseInt(store.openListPreviewSize) || 800;
@@ -357,7 +357,7 @@ export const selfHMethods = {
             preview.style.height = targetHeight + 'px';
 
             // 更新到最新位置（考虑加载期间鼠标可能移动了）
-            this._updatePreviewPos(this._lastMouseX || clientX, this._lastMouseY || clientY, targetWidth, targetHeight);
+            this.updatePreviewPos(this._lastMouseX || clientX, this._lastMouseY || clientY, targetWidth, targetHeight);
         };
 
         img.onerror = () => {
@@ -382,11 +382,11 @@ export const selfHMethods = {
         const width = parseFloat(preview.style.width) || 200;
         const height = parseFloat(preview.style.height) || 150;
 
-        this._updatePreviewPos(clientX, clientY, width, height);
+        this.updatePreviewPos(clientX, clientY, width, height);
     },
 
     // 内部定位核心 (x, y 为鼠标坐标)
-    _updatePreviewPos(x, y, width, height) {
+    updatePreviewPos(x, y, width, height) {
         const preview = document.getElementById('file-hover-preview');
         if (!preview) return;
 
@@ -477,7 +477,7 @@ export const selfHMethods = {
                 return;
             }
 
-            const newPath = this._getFilePath(file, store.openListPath);
+            const newPath = this.getFilePath(file, store.openListPath);
 
             // 搜索结果中的文件带有 parent 字段（完整父路径）
             if (file.parent) {
@@ -495,7 +495,7 @@ export const selfHMethods = {
         } else {
             // 检查是否为视频文件
             if (streamPlayer.isVideoFile(file.name)) {
-                this._playVideoFile(file, file.parent || store.openListPath);
+                this.playVideoFile(file, file.parent || store.openListPath);
             } else {
                 this.showOpenFileDetail(file, file.parent || store.openListPath);
             }
@@ -503,7 +503,7 @@ export const selfHMethods = {
     },
 
     // 辅助：获取文件相对于特定目录的完整路径
-    _getFilePath(file, baseDir = '/') {
+    getFilePath(file, baseDir = '/') {
         // 不再信任 file.path (因为它可能是相对于挂载点的路径)
         let name = file && typeof file.name === 'string' ? file.name : String((file && file.name) || '');
         name = name.replace(/^\//, ''); // 移除开头的 /
@@ -535,7 +535,7 @@ export const selfHMethods = {
                 baseDir = this.currentOpenListTempTab.path;
             }
 
-            const newPath = this._getFilePath(file, baseDir);
+            const newPath = this.getFilePath(file, baseDir);
             console.log('[OpenList] Middle click opening folder:', newPath);
             this.openTempTab(fileName, newPath);
         } else {
@@ -550,10 +550,18 @@ export const selfHMethods = {
 
     // 打开临时标签页
     openTempTab(name, path) {
+        // 查重：如果已经打开了同样路径的标签页，则直接选中
+        const existingTab = store.openListTempTabs.find(t => t.path === path && !t.isVideo);
+        if (existingTab) {
+            this.selectTempTab(existingTab.id);
+            return;
+        }
+
         const id = 'tab-' + Date.now() + Math.random().toString(36).substr(2, 4);
         const newTab = {
             id,
             name,
+            icon: 'fas fa-folder',
             path,
             files: [],
             loading: false
@@ -564,10 +572,19 @@ export const selfHMethods = {
         this.loadTempTabFiles(path, false, id);
     },
 
-    // 切换临时地标签
+    // 切换临时标签
     selectTempTab(id) {
+        // 不再在切换时主动销毁播放器，允许后台继续播放或保持状态
         store.openListActiveTempTabId = id;
         this.openListSubTab = 'temp';
+
+        // 如果新标签是视频标签页，需要等待 DOM 渲染后初始化播放器
+        const tab = store.openListTempTabs.find(t => t.id === id);
+        if (tab && tab.isVideo) {
+            this.$nextTick(() => {
+                this.initVideoPlayerInTab(tab);
+            });
+        }
     },
 
     // 关闭临时标签页
@@ -576,6 +593,11 @@ export const selfHMethods = {
         const index = store.openListTempTabs.findIndex(t => t.id === targetId);
         if (index === -1) return;
 
+        const tab = store.openListTempTabs[index];
+        if (tab.isVideo) {
+            streamPlayer.destroyPlayer();
+        }
+
         store.openListTempTabs.splice(index, 1);
 
         // 如果关闭的是当前选中的
@@ -583,7 +605,7 @@ export const selfHMethods = {
             if (store.openListTempTabs.length > 0) {
                 // 自动选中前一个或第一个
                 const nextTab = store.openListTempTabs[Math.max(0, index - 1)];
-                store.openListActiveTempTabId = nextTab.id;
+                this.selectTempTab(nextTab.id);
             } else {
                 store.openListActiveTempTabId = null;
                 this.openListSubTab = 'files';
@@ -591,24 +613,20 @@ export const selfHMethods = {
         }
     },
 
-    // 双击（双触）检测用于关闭标签页
-    _lastTapTime: 0,
-    _lastTapTabId: null,
-
     handleTabTap(tabId) {
         const now = Date.now();
         const doubleTapDelay = 300; // 300ms 内的两次点击视为双击
 
-        if (this._lastTapTabId === tabId && (now - this._lastTapTime) < doubleTapDelay) {
+        if (store.openListInteraction.lastTapTabId === tabId && (now - store.openListInteraction.lastTapTime) < doubleTapDelay) {
             // 双击检测到，关闭标签页
             this.closeOpenListTempTab(tabId);
-            this._lastTapTime = 0;
-            this._lastTapTabId = null;
+            store.openListInteraction.lastTapTime = 0;
+            store.openListInteraction.lastTapTabId = null;
         } else {
             // 第一次点击，选中标签页
             this.selectTempTab(tabId);
-            this._lastTapTime = now;
-            this._lastTapTabId = tabId;
+            store.openListInteraction.lastTapTime = now;
+            store.openListInteraction.lastTapTabId = tabId;
         }
     },
 
@@ -705,7 +723,7 @@ export const selfHMethods = {
 
         if (file.is_dir) {
             const fileName = typeof file.name === 'string' ? file.name : String(file.name || '');
-            const newPath = this._getFilePath(file, tab.path);
+            const newPath = this.getFilePath(file, tab.path);
             this.loadTempTabFiles(newPath);
         } else {
             this.showOpenFileDetail(file, tab.path);
@@ -736,7 +754,8 @@ export const selfHMethods = {
         const id = 'search-' + Date.now();
         const newTab = {
             id,
-            name: `🔍 ${kw}`,
+            name: kw, // 移除名字里的 emoji，改用 icon 属性
+            icon: 'fas fa-search',
             path: store.openListPath,
             isSearch: true,
             keywords: kw,
@@ -921,9 +940,10 @@ export const selfHMethods = {
         return null;
     },
 
-    // 播放视频文件
-    async _playVideoFile(file, baseDir = store.openListPath) {
-        const fullPath = this._getFilePath(file, baseDir);
+    // 播放视频文件 (在临时标签页中用播放器打开)
+    async playVideoFile(file, baseDir = store.openListPath) {
+        const fullPath = this.getFilePath(file, baseDir);
+        const fileName = typeof file.name === 'string' ? file.name : String(file.name || '');
 
         try {
             toast.info('正在获取视频链接...');
@@ -941,8 +961,8 @@ export const selfHMethods = {
 
             const data = await response.json();
             if (data.code === 200 && data.data.raw_url) {
-                // 调用播放器
-                this.openVideoPlayer(data.data.raw_url, file.name);
+                // 在临时标签页中打开播放器
+                this.openVideoTempTab(fileName, data.data.raw_url);
             } else {
                 toast.error('获取视频链接失败: ' + (data.message || '未知错误'));
             }
@@ -951,9 +971,412 @@ export const selfHMethods = {
         }
     },
 
+    // 打开视频播放临时标签页
+    openVideoTempTab(filename, videoUrl) {
+        // 查重：如果已经打开了同样文件名的视频（避免 URL 中的 sign 变化导致查重失效）
+        const existingTab = store.openListTempTabs.find(t => t.isVideo && t.filename === filename);
+        if (existingTab) {
+            // 如果 URL 变了（比如之前的过期了），更新它
+            if (existingTab.videoUrl !== videoUrl) {
+                existingTab.videoUrl = videoUrl;
+            }
+            this.selectTempTab(existingTab.id);
+            return;
+        }
+
+        const id = 'video-' + Date.now() + Math.random().toString(36).substr(2, 4);
+        const newTab = {
+            id,
+            name: filename, // 移除名字里的 emoji
+            icon: 'fas fa-play-circle',
+            isVideo: true,
+            videoUrl,
+            filename,
+            files: [],
+            loading: false
+        };
+        store.openListTempTabs.push(newTab);
+        this.selectTempTab(id);
+    },
+
+    // 在标签页中初始化播放器
+    async initVideoPlayerInTab(tab) {
+        const videoId = 'video-player-' + tab.id;
+        const videoElement = document.getElementById(videoId);
+        if (!videoElement) {
+            console.error('[SelfH] Video element not found:', videoId);
+            return;
+        }
+
+        // 查重：如果是同一个视频且已经在播放/加载，不重置状态也不重新 play
+        // 即使 store.streamPlayer.url 变了（因为它是单例），我们也通过 videoElement.src 来判断
+        const currentSrc = videoElement.getAttribute('src') || videoElement.src;
+        if (currentSrc && (currentSrc === tab.videoUrl || currentSrc.includes(tab.videoUrl))) {
+            console.log('[SelfH] Video element already has the correct src. Resyncing state.');
+            if (store.streamPlayer) {
+                store.streamPlayer.url = tab.videoUrl;
+                store.streamPlayer.filename = tab.filename;
+                store.streamPlayer.duration = videoElement.duration || 0;
+                store.streamPlayer.currentTime = videoElement.currentTime || 0;
+                store.streamPlayer.playing = !videoElement.paused;
+                store.streamPlayer.loading = videoElement.readyState < 3;
+            }
+            return;
+        }
+
+        // 重置播放器状态
+        if (store.streamPlayer) {
+            store.streamPlayer.duration = 0;
+            store.streamPlayer.currentTime = 0;
+            store.streamPlayer.playing = false;
+            store.streamPlayer.bufferedTime = 0;
+            store.streamPlayer.loading = true;
+        }
+
+        try {
+            // 先绑定基础事件，确保 metadata 等信息能被捕捉
+            this.bindInternalVideoEvents(videoElement);
+
+            const res = await streamPlayer.play({
+                url: tab.videoUrl,
+                filename: tab.filename,
+                videoElement: videoElement
+            });
+
+            if (res.success) {
+                // 绑定快捷键到整个播放器容器
+                const container = videoElement.closest('.stream-player-container');
+                if (container) {
+                    streamPlayer.bindKeyboardShortcuts(container);
+                }
+            }
+        } catch (e) {
+            console.error('[SelfH] Failed to init player:', e);
+        }
+    },
+
+    // 销毁视频播放器
+    destroyVideoPlayerInTab(tab) {
+        streamPlayer.destroyPlayer();
+    },
+
+    // 内部事件绑定（用于控制条交互等）
+    bindInternalVideoEvents(video) {
+        const syncMetadata = () => {
+            if (!video || !store.streamPlayer) return;
+            store.streamPlayer.duration = video.duration || 0;
+            store.streamPlayer.currentTime = video.currentTime || 0;
+        };
+
+        // 基础元数据绑定
+        video.onloadedmetadata = syncMetadata;
+
+        // 如果当前已经有元数据（比如切换回标签页时），手动同步一次
+        if (video.readyState >= 1) {
+            syncMetadata();
+        }
+
+        // 关键：如果已经可以播放，立即关闭加载图标
+        if (video.readyState >= 3) {
+            store.streamPlayer.loading = false;
+        }
+
+        video.onplay = () => { store.streamPlayer.playing = true; };
+        video.onplaying = () => { store.streamPlayer.loading = false; };
+        video.oncanplay = () => { store.streamPlayer.loading = false; };
+        video.onwaiting = () => { store.streamPlayer.loading = true; };
+        video.onpause = () => { store.streamPlayer.playing = false; };
+        video.ontimeupdate = () => {
+            store.streamPlayer.currentTime = video.currentTime;
+            // 兜底：如果播放了还在 loading，强制关闭
+            if (video.currentTime > 0 && store.streamPlayer.loading) {
+                store.streamPlayer.loading = false;
+            }
+        };
+        video.onvolumechange = () => {
+            if (!store.streamPlayer) return;
+            store.streamPlayer.volume = video.volume;
+            store.streamPlayer.muted = video.muted;
+        };
+        video.onprogress = () => {
+            if (!store.streamPlayer) return;
+            if (video.buffered.length > 0) {
+                store.streamPlayer.bufferedTime = video.buffered.end(video.buffered.length - 1);
+            }
+        };
+    },
+
+    // 视频控制处理 (对应 HTML 中的 @click 等)
+    handleVideoMouseMove() {
+        if (!store.streamPlayer) return;
+        if (store.streamPlayer.hideTimer) clearTimeout(store.streamPlayer.hideTimer);
+        store.streamPlayer.showControls = true;
+        // 只有正在播放时才自动隐藏
+        if (store.streamPlayer.playing) {
+            store.streamPlayer.hideTimer = setTimeout(() => {
+                if (store.streamPlayer) store.streamPlayer.showControls = false;
+            }, 3000);
+        }
+    },
+
+    handleVideoClick(e) {
+        if (!store.streamPlayer) return;
+
+        // 如果点击的是控制栏或进度条，由它们自己的事件处理
+        if (e.target.closest('.stream-player-controls')) return;
+
+        // 兼容触摸和鼠标坐标获取
+        const getX = () => {
+            if (e.touches && e.touches.length > 0) return e.touches[0].clientX;
+            if (e.changedTouches && e.changedTouches.length > 0) return e.changedTouches[0].clientX;
+            return e.clientX;
+        };
+
+        const now = Date.now();
+        const delay = 300;
+
+        // 处理双击
+        if (now - (store.streamPlayer.lastTapTime || 0) < delay) {
+            if (store.streamPlayer.tapTimer) {
+                clearTimeout(store.streamPlayer.tapTimer);
+                store.streamPlayer.tapTimer = null;
+            }
+            store.streamPlayer.lastTapTime = 0;
+
+            const rect = e.currentTarget.getBoundingClientRect();
+            const x = getX() - rect.left;
+            const width = rect.width;
+
+            if (x < width * 0.3) {
+                this.skipVideo(-10);
+                this._showVideoAnimation('seek', '-10s');
+            } else if (x > width * 0.7) {
+                this.skipVideo(10);
+                this._showVideoAnimation('seek', '+10s');
+            } else {
+                this.toggleVideoPlay();
+                this._showVideoAnimation(store.streamPlayer.playing ? 'play' : 'pause', store.streamPlayer.playing ? '播放' : '暂停');
+            }
+            return;
+        }
+
+        // 处理单击
+        store.streamPlayer.lastTapTime = now;
+        store.streamPlayer.tapTimer = setTimeout(() => {
+            if (!store.streamPlayer) return;
+            store.streamPlayer.showControls = !store.streamPlayer.showControls;
+            if (store.streamPlayer.showControls) {
+                this.handleVideoMouseMove();
+            }
+            store.streamPlayer.tapTimer = null;
+        }, delay);
+    },
+
+    _showVideoAnimation(type, text = '') {
+        if (!store.streamPlayer) return;
+        store.streamPlayer.animationType = type;
+        store.streamPlayer.animationText = text;
+
+        if (store.streamPlayer.animTimer) clearTimeout(store.streamPlayer.animTimer);
+        store.streamPlayer.animTimer = setTimeout(() => {
+            if (store.streamPlayer) store.streamPlayer.animationType = null;
+        }, 1000);
+    },
+
+    handleProgressMouseDown(e) {
+        const video = streamPlayer.state.videoElement;
+        if (!video || !store.streamPlayer.duration) return;
+
+        const isTouch = e.type.startsWith('touch');
+        const target = e.currentTarget;
+        const container = target.closest('.stream-player-container');
+
+        store.streamPlayer.isDragging = true;
+        if (container) container.classList.add('dragging');
+
+        const update = (ex) => {
+            const rect = target.getBoundingClientRect();
+            const clientX = (isTouch && ex.touches) ? ex.touches[0].clientX : (ex.clientX || (ex.changedTouches && ex.changedTouches[0].clientX));
+            const pos = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+            store.streamPlayer.dragTime = pos * store.streamPlayer.duration;
+        };
+
+        update(e);
+
+        if (isTouch) {
+            const onTouchMove = (te) => {
+                if (te.cancelable) te.preventDefault();
+                update(te);
+            };
+            const onTouchEnd = () => {
+                streamPlayer.seek(store.streamPlayer.dragTime);
+                store.streamPlayer.isDragging = false;
+                if (container) container.classList.remove('dragging');
+                document.removeEventListener('touchmove', onTouchMove);
+                document.removeEventListener('touchend', onTouchEnd);
+            };
+            document.addEventListener('touchmove', onTouchMove, { passive: false });
+            document.addEventListener('touchend', onTouchEnd);
+        } else {
+            const onMouseMove = (me) => update(me);
+            const onMouseUp = () => {
+                streamPlayer.seek(store.streamPlayer.dragTime);
+                store.streamPlayer.isDragging = false;
+                if (container) container.classList.remove('dragging');
+                document.removeEventListener('mousemove', onMouseMove);
+                document.removeEventListener('mouseup', onMouseUp);
+            };
+            document.addEventListener('mousemove', onMouseMove);
+            document.addEventListener('mouseup', onMouseUp);
+        }
+    },
+
+    handleVolumeMouseDown(e) {
+        const update = (ex) => {
+            const rect = e.currentTarget.getBoundingClientRect();
+            const vol = Math.max(0, Math.min(1, (ex.clientX - rect.left) / rect.width));
+            streamPlayer.setVolume(vol);
+        };
+        update(e);
+        const onMouseMove = (me) => update(me);
+        const onMouseUp = () => {
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('mouseup', onMouseUp);
+        };
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
+    },
+
+    // 视频控制代理方法
+    toggleVideoPlay() {
+        streamPlayer.togglePlay();
+    },
+
+    skipVideo(seconds) {
+        streamPlayer.skip(seconds);
+    },
+
+    toggleMute() {
+        if (streamPlayer.state.videoElement) {
+            streamPlayer.state.videoElement.muted = !streamPlayer.state.videoElement.muted;
+        }
+    },
+
+    openVideoInNewTab() {
+        const tab = this.currentOpenListTempTab;
+        if (tab && tab.videoUrl) {
+            window.open(tab.videoUrl, '_blank');
+        }
+    },
+
+    openExternalPlayer() {
+        const tab = this.currentOpenListTempTab;
+        if (!tab || !tab.videoUrl) return;
+
+        const ua = navigator.userAgent.toLowerCase();
+        const isMobile = /iphone|ipad|ipod|android/.test(ua);
+
+        if (isMobile) {
+            // 如果内部正在播放，先暂停
+            if (store.streamPlayer.playing) {
+                streamPlayer.togglePlay();
+            }
+            // 尝试唤起移动端播放器 (UC)
+            this.openInUCBrowser(tab.videoUrl);
+            toast.info('尝试唤起移动端播放器...');
+        } else {
+            // 如果内部正在播放，先暂停
+            if (store.streamPlayer.playing) {
+                streamPlayer.togglePlay();
+            }
+            // PC 端尝试调用 PotPlayer
+            const potUrl = `potplayer://${tab.videoUrl}`;
+            const a = document.createElement('a');
+            a.href = potUrl;
+            a.style.display = 'none';
+            document.body.appendChild(a);
+            a.click();
+            setTimeout(() => {
+                if (document.body.contains(a)) document.body.removeChild(a);
+            }, 100);
+            toast.info('尝试调用 PotPlayer... 如果没反应请确保已开启关联');
+        }
+    },
+
+    openInUCBrowser(url) {
+        // UC 浏览器在移动端的调用方式通常是 android intent 或者特殊的 schema
+        const ua = navigator.userAgent.toLowerCase();
+
+        if (/android/.test(ua)) {
+            // 根据用户提供的截图，优先尝试拉起 UC 浏览器国际版 (com.UCMobile.intl) 的视频播放组件
+            // Activity: com.UCMobile.main.UCMobile.alias.video
+            const ucIntlIntent = `intent:${url}#Intent;action=android.intent.action.VIEW;package=com.UCMobile.intl;component=com.UCMobile.intl/com.UCMobile.main.UCMobile.alias.video;S.ext_video_url=${url};S.browser_fallback_url=${url};end`;
+
+            // 备选方案：通用 VIEW（系统会让用户选择合适的 App，包括 UC 国内版或其他播放器）
+            const genericIntentUrl = `intent:${url}#Intent;action=android.intent.action.VIEW;S.ext_video_url=${url};S.browser_fallback_url=${url};end`;
+
+            // 优先执行精准唤起
+            window.location.href = ucIntlIntent;
+
+            // 如果精准唤起失败（1.5秒后页面还在前台），尝试弹窗选择
+            setTimeout(() => {
+                if (document.visibilityState === 'visible') {
+                    window.location.href = genericIntentUrl;
+                }
+            }, 1500);
+        } else if (/iphone|ipad|ipod/.test(ua)) {
+            // iOS 上的 UC 浏览器
+            const ucUrl = `ucbrowser://${url}`;
+            window.location.href = ucUrl;
+        } else {
+            // 兜底直接打开链接
+            window.open(url, '_blank');
+        }
+    },
+
+    getVolumeIcon() {
+        if (store.streamPlayer.muted || store.streamPlayer.volume === 0) return 'fa-volume-mute';
+        if (store.streamPlayer.volume < 0.5) return 'fa-volume-down';
+        return 'fa-volume-up';
+    },
+
+    formatVideoTime(seconds) {
+        return streamPlayer.formatTime(seconds);
+    },
+
+    getBufferedPercent() {
+        if (!store.streamPlayer || !store.streamPlayer.duration) return 0;
+        return (store.streamPlayer.bufferedTime / store.streamPlayer.duration) * 100;
+    },
+
+    getPlayedPercent() {
+        if (!store.streamPlayer || !store.streamPlayer.duration) return 0;
+        const time = store.streamPlayer.isDragging ? store.streamPlayer.dragTime : store.streamPlayer.currentTime;
+        return (time / store.streamPlayer.duration) * 100;
+    },
+
+    formatVideoTime(seconds) {
+        return streamPlayer.formatTime(seconds);
+    },
+
+    setVideoPlaybackRate(rate) {
+        streamPlayer.setPlaybackRate(rate);
+    },
+
+    toggleVideoPiP() {
+        streamPlayer.togglePictureInPicture();
+    },
+
+    toggleVideoFullscreen() {
+        const container = document.querySelector('.stream-player-container.inside-tab');
+        if (container) {
+            streamPlayer.toggleFullscreen(container);
+        }
+    },
+
     // 下载文件
     async downloadOpenListFile(file, baseDir = store.openListPath) {
-        const fullPath = this._getFilePath(file, baseDir);
+        const fullPath = this.getFilePath(file, baseDir);
         try {
             const response = await fetch(`/api/openlist/${this.currentOpenListAccount.id}/fs/get`, {
                 method: 'POST',
@@ -979,7 +1402,7 @@ export const selfHMethods = {
 
     // 显示文件详情
     async showOpenFileDetail(file, baseDir = store.openListPath) {
-        const fullPath = this._getFilePath(file, baseDir);
+        const fullPath = this.getFilePath(file, baseDir);
         try {
             const response = await fetch(`/api/openlist/${this.currentOpenListAccount.id}/fs/get`, {
                 method: 'POST',
@@ -1093,18 +1516,19 @@ export const selfHMethods = {
             y = window.innerHeight - menuHeight - 10;
         }
 
-        store.openListContextMenu = {
-            visible: true,
-            x,
-            y,
-            file,
-            baseDir
-        };
+        store.openListContextMenu.visible = true;
+        store.openListContextMenu.x = x;
+        store.openListContextMenu.y = y;
+        store.openListContextMenu.file = file;
+        store.openListContextMenu.baseDir = baseDir;
 
         // 添加点击外部关闭
+        if (!this.boundCloseContextMenu) {
+            this.boundCloseContextMenu = this.closeContextMenuOnClick.bind(this);
+        }
         setTimeout(() => {
-            document.addEventListener('click', this._closeContextMenuOnClick);
-            document.addEventListener('contextmenu', this._closeContextMenuOnClick);
+            document.addEventListener('click', this.boundCloseContextMenu);
+            document.addEventListener('contextmenu', this.boundCloseContextMenu);
         }, 10);
     },
 
@@ -1112,18 +1536,17 @@ export const selfHMethods = {
     hideFileContextMenu() {
         store.openListContextMenu.visible = false;
         store.openListContextMenu.file = null;
-        document.removeEventListener('click', this._closeContextMenuOnClick);
-        document.removeEventListener('contextmenu', this._closeContextMenuOnClick);
+        if (this.boundCloseContextMenu) {
+            document.removeEventListener('click', this.boundCloseContextMenu);
+            document.removeEventListener('contextmenu', this.boundCloseContextMenu);
+        }
     },
 
     // 点击外部关闭菜单
-    _closeContextMenuOnClick(e) {
+    closeContextMenuOnClick(e) {
         const menu = document.querySelector('.openlist-context-menu');
         if (menu && !menu.contains(e.target)) {
-            store.openListContextMenu.visible = false;
-            store.openListContextMenu.file = null;
-            document.removeEventListener('click', this._closeContextMenuOnClick);
-            document.removeEventListener('contextmenu', this._closeContextMenuOnClick);
+            this.hideFileContextMenu();
         }
     },
 
@@ -1141,7 +1564,7 @@ export const selfHMethods = {
             case 'open-new-tab':
                 if (file.is_dir) {
                     const fileName = typeof file.name === 'string' ? file.name : String(file.name || '');
-                    const newPath = this._getFilePath(file, baseDir);
+                    const newPath = this.getFilePath(file, baseDir);
                     this.openTempTab(fileName, newPath);
                 }
                 break;
@@ -1160,14 +1583,10 @@ export const selfHMethods = {
         }
     },
 
-    // 长按处理（移动端）
-    _longPressTimer: null,
-    _longPressTriggered: false,
-
     handleFileTouchStart(e, file, baseDir = store.openListPath) {
-        this._longPressTriggered = false;
-        this._longPressTimer = setTimeout(() => {
-            this._longPressTriggered = true;
+        store.openListInteraction.longPressTriggered = false;
+        store.openListInteraction.longPressTimer = setTimeout(() => {
+            store.openListInteraction.longPressTriggered = true;
             // 触发震动反馈
             if (navigator.vibrate) {
                 navigator.vibrate(30);
@@ -1177,23 +1596,39 @@ export const selfHMethods = {
     },
 
     handleFileTouchEnd(e) {
-        if (this._longPressTimer) {
-            clearTimeout(this._longPressTimer);
-            this._longPressTimer = null;
+        if (store.openListInteraction.longPressTimer) {
+            clearTimeout(store.openListInteraction.longPressTimer);
+            store.openListInteraction.longPressTimer = null;
         }
         // 如果长按已触发，阻止默认点击行为
-        if (this._longPressTriggered) {
+        if (store.openListInteraction.longPressTriggered) {
             e.preventDefault();
-            this._longPressTriggered = false;
+            store.openListInteraction.longPressTriggered = false;
         }
     },
 
     handleFileTouchMove() {
         // 移动则取消长按
-        if (this._longPressTimer) {
-            clearTimeout(this._longPressTimer);
-            this._longPressTimer = null;
+        if (store.openListInteraction.longPressTimer) {
+            clearTimeout(store.openListInteraction.longPressTimer);
+            store.openListInteraction.longPressTimer = null;
         }
+    },
+
+    // 格式化文件大小 (补足，防止主程序找不到)
+    formatFileSize(bytes) {
+        if (bytes === 0) return '0 B';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    },
+
+    // 格式化日期 (补足)
+    formatDateTime(dateStr) {
+        if (!dateStr) return '-';
+        const date = new Date(dateStr);
+        return date.toLocaleString();
     }
 };
 

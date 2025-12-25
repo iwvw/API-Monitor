@@ -42,10 +42,14 @@ if (!store.streamPlayer) {
             // 播放器 UI 交互
             showControls: true,
             controlsTimer: null,
+            hideTimer: null,
             isLongPressing: false,
             lastTapTime: 0,
             animationType: null,
             animationText: '',
+            bufferedTime: 0,
+            isDragging: false,
+            dragTime: 0,
 
             // 播放速度选项
             playbackRates: [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2]

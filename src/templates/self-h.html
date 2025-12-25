@@ -17,7 +17,7 @@
                 :class="{ active: openListSubTab === 'temp' && openListActiveTempTabId === tab.id }"
                 @click="handleTabTap(tab.id)" @auxclick.middle.stop="closeOpenListTempTab(tab.id)"
                 :title="tab.name + ' (双击关闭)'">
-                {{ tab.name }}
+                <i :class="tab.icon || 'fas fa-file'"></i> <span>{{ tab.name }}</span>
             </button>
         </div>
     </div>
@@ -218,8 +218,119 @@
         </div>
 
         <!-- 3. 临时标签页 -->
-        <div v-if="openListSubTab === 'temp' && currentOpenListTempTab" class="openlist-files-layout animate-fade-in">
-            <div class="openlist-main-view">
+        <div v-for="tab in openListTempTabs" :key="tab.id"
+            v-show="openListSubTab === 'temp' && tab.id === openListActiveTempTabId"
+            class="openlist-files-layout animate-fade-in" :class="{ 'video-mode-layout': tab.isVideo }">
+            <!-- 视频播放模式 -->
+            <div v-if="tab.isVideo" class="openlist-video-tab-view">
+                <div class="stream-player-container inside-tab"
+                    :class="{ 'controls-visible': streamPlayer.showControls || streamPlayer.loading }">
+                    <!-- 顶栏 (仅全屏或特殊需要时显示，这里我们可以保留或显示文件名) -->
+                    <div class="stream-player-header">
+                        <div class="stream-player-title">
+                            <i class="fas fa-film"></i>
+                            <span>{{ tab.name }}</span>
+                        </div>
+                        <div class="header-actions">
+                            <button class="btn btn-icon-refined" @click="openExternalPlayer"
+                                title="外部播放 (PC: PotPlayer / 手机: UC浏览器)">
+                                <i class="fas fa-play-circle"></i>
+                            </button>
+                            <button class="btn btn-icon-refined" @click="openVideoInNewTab" title="在浏览器新标签页打开">
+                                <i class="fas fa-external-link-alt"></i>
+                            </button>
+                            <button class="btn btn-icon-refined" @click="closeOpenListTempTab(tab.id)" title="关闭标签页">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- 视频核心区域 -->
+                    <div class="stream-player-video-wrapper" @mousemove="handleVideoMouseMove" @click="handleVideoClick"
+                        @touchstart.prevent="handleVideoClick">
+                        <video :id="'video-player-' + tab.id" class="stream-player-video" playsinline
+                            preload="auto"></video>
+
+                        <!-- 加载中 -->
+                        <div v-if="streamPlayer.loading" class="stream-player-loading">
+                            <div class="stream-player-spinner"></div>
+                        </div>
+
+                        <!-- 快捷操作提示 -->
+                        <div v-if="streamPlayer.animationType" class="stream-player-speed-tip">
+                            <div class="speed-tip-badge">
+                                <i v-if="streamPlayer.animationType === 'speed2x'" class="fas fa-bolt"></i>
+                                <i v-if="streamPlayer.animationType === 'seek'" class="fas fa-search"></i>
+                                {{ streamPlayer.animationType === 'speed2x' ? '2.0X 🚀' : streamPlayer.animationText }}
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 控制栏 -->
+                    <div class="stream-player-controls">
+                        <!-- 进度条 -->
+                        <div class="stream-player-progress" @mousedown="handleProgressMouseDown"
+                            @touchstart.prevent="handleProgressMouseDown">
+                            <div class="stream-player-progress-buffered" :style="{ width: getBufferedPercent() + '%' }">
+                            </div>
+                            <div class="stream-player-progress-played" :style="{ width: getPlayedPercent() + '%' }">
+                            </div>
+                            <div class="stream-player-progress-thumb" :style="{ left: getPlayedPercent() + '%' }"></div>
+                        </div>
+
+                        <div class="stream-player-controls-row">
+                            <div class="stream-player-controls-left">
+                                <button class="stream-player-btn" @click.stop="toggleVideoPlay">
+                                    <i class="fas" :class="streamPlayer.playing ? 'fa-pause' : 'fa-play'"></i>
+                                </button>
+                                <button class="stream-player-btn" @click.stop="skipVideo(-10)"><i
+                                        class="fas fa-backward"></i></button>
+                                <button class="stream-player-btn" @click.stop="skipVideo(10)"><i
+                                        class="fas fa-forward"></i></button>
+
+                                <div class="stream-player-volume">
+                                    <button class="stream-player-btn" @click.stop="toggleMute">
+                                        <i class="fas" :class="getVolumeIcon()"></i>
+                                    </button>
+                                    <div class="stream-player-volume-slider" @mousedown="handleVolumeMouseDown">
+                                        <div class="stream-player-volume-level"
+                                            :style="{ width: (streamPlayer.muted ? 0 : streamPlayer.volume * 100) + '%' }">
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="stream-player-controls-center">
+                                <div class="stream-player-time">
+                                    {{ formatVideoTime(streamPlayer.currentTime) }} / {{
+                                    formatVideoTime(streamPlayer.duration) }}
+                                </div>
+                            </div>
+
+                            <div class="stream-player-controls-right">
+                                <div class="stream-player-speed">
+                                    <button class="stream-player-btn">{{ streamPlayer.playbackRate }}x</button>
+                                    <div class="stream-player-speed-menu">
+                                        <div v-for="rate in streamPlayer.playbackRates" :key="rate"
+                                            class="stream-player-speed-option"
+                                            :class="{ active: streamPlayer.playbackRate === rate }"
+                                            @click.stop="setVideoPlaybackRate(rate)">
+                                            {{ rate }}x
+                                        </div>
+                                    </div>
+                                </div>
+                                <button class="stream-player-btn" @click.stop="toggleVideoPiP"><i
+                                        class="fas fa-external-link-square-alt"></i></button>
+                                <button class="stream-player-btn" @click.stop="toggleVideoFullscreen"><i
+                                        class="fas fa-expand"></i></button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 普通文件列表模式 -->
+            <div v-else class="openlist-main-view">
                 <div class="openlist-toolbar-standalone">
                     <div class="toolbar-left">
                         <div class="breadcrumb-fluid-container">
@@ -233,10 +344,11 @@
                         </div>
                     </div>
                     <div class="toolbar-right">
-                        <button class="btn btn-icon-refined"
-                            @click="loadTempTabFiles(currentOpenListTempTab.path, true)"><i
+                        <button class="btn btn-icon-refined" @click="loadTempTabFiles(tab.path, true)"><i
                                 class="fas fa-sync-alt"></i></button>
-                        <button class="btn btn-secondary btn-sm" @click="mergeToMainTab">合并到主列表</button>
+                        <button class="btn btn-secondary btn-sm" @click="mergeToMainTab">
+                            <i class="fas fa-layer-group"></i> <span>合并到主列表</span>
+                        </button>
                     </div>
                 </div>
                 <div class="openlist-list-container">
@@ -248,11 +360,10 @@
                                 <th class="col-time hide-on-mobile">修改时间</th>
                             </tr>
                         </thead>
-                        <tbody v-if="currentOpenListTempTab.files.length > 0">
-                            <tr v-for="file in currentOpenListTempTab.files" :key="file.name"
-                                @click="handleTempTabFile(file)"
-                                @contextmenu="showFileContextMenu($event, file, currentOpenListTempTab.path)"
-                                @touchstart="handleFileTouchStart($event, file, currentOpenListTempTab.path)"
+                        <tbody v-if="tab.files.length > 0">
+                            <tr v-for="file in tab.files" :key="file.name" @click="handleTempTabFile(file)"
+                                @contextmenu="showFileContextMenu($event, file, tab.path)"
+                                @touchstart="handleFileTouchStart($event, file, tab.path)"
                                 @touchend="handleFileTouchEnd($event)" @touchmove="handleFileTouchMove()"
                                 @auxclick.middle.stop="handleMiddleClickItem(file)">
                                 <td class="col-name">
@@ -267,7 +378,7 @@
                                 </td>
                             </tr>
                         </tbody>
-                        <tbody v-else-if="!currentOpenListTempTab.loading">
+                        <tbody v-else-if="!tab.loading">
                             <tr>
                                 <td colspan="3" style="text-align:center; padding: 20px;">目录为空</td>
                             </tr>

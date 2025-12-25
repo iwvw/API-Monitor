@@ -152,6 +152,13 @@ export const store = reactive({
         file: null,
         baseDir: '/'
     },
+    // 交互辅助状态 (原本放在 methods 中会导致 Vue 报错)
+    openListInteraction: {
+        lastTapTime: 0,
+        lastTapTabId: null,
+        longPressTimer: null,
+        longPressTriggered: false
+    },
 
     // 全局数据刷新控制
     serverList: [],
