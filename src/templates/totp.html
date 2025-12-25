@@ -73,7 +73,9 @@
 
                     <!-- 账号卡片 -->
                     <div class="totp-card" :style="{ '--card-accent': account.color || getIssuerColor(account.issuer) }"
-                        @click="copyTotpCode(account)">
+                        @click="copyTotpCode(account)" @touchstart="startTotpLongPress(account, $event)"
+                        @touchend="cancelTotpLongPress" @touchmove="cancelTotpLongPress"
+                        @contextmenu.prevent="showTotpContextMenu(account, $event)">
 
                         <!-- 操作按钮 (悬浮) -->
                         <div class="totp-card-actions" @click.stop>
@@ -129,6 +131,26 @@
                     </div>
                 </template>
             </div>
+
+            <!-- 移动端长按菜单 -->
+            <div v-if="totpContextMenu.visible" class="totp-context-menu"
+                :style="{ top: totpContextMenu.y + 'px', left: totpContextMenu.x + 'px' }" @click.stop>
+                <div class="totp-context-menu-header">
+                    <i :class="getIssuerIcon(totpContextMenu.account?.issuer)"
+                        :style="{ color: getIssuerColor(totpContextMenu.account?.issuer) }"></i>
+                    <span>{{ totpContextMenu.account?.issuer }}</span>
+                </div>
+                <button class="totp-context-menu-item" @click="handleTotpContextAction('copy')">
+                    <i class="fas fa-copy"></i> 复制验证码
+                </button>
+                <button class="totp-context-menu-item" @click="handleTotpContextAction('edit')">
+                    <i class="fas fa-pen"></i> 编辑
+                </button>
+                <button class="totp-context-menu-item danger" @click="handleTotpContextAction('delete')">
+                    <i class="fas fa-trash"></i> 删除
+                </button>
+            </div>
+            <div v-if="totpContextMenu.visible" class="totp-context-menu-backdrop" @click="closeTotpContextMenu"></div>
         </div>
     </div>
 

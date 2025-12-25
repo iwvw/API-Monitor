@@ -725,7 +725,7 @@
         border-radius: 0;
         border: none;
         border-bottom: 1px solid var(--border-color);
-        padding: 12px 16px;
+        padding: 7px;
         display: flex;
         flex-direction: row;
         align-items: center;
@@ -750,10 +750,10 @@
     }
 
     .totp-issuer-badge {
-        width: 28px;
-        height: 28px;
-        font-size: 12px;
-        border-radius: 6px;
+        width: 36px;
+        height: 36px;
+        font-size: 24px;
+        border-radius: 9px;
     }
 
     .totp-issuer-name {
@@ -892,4 +892,98 @@
         opacity: 1;
         transform: translateY(0);
     }
+}
+
+/* ==================== 长按上下文菜单 (移动端) ==================== */
+.totp-context-menu-backdrop {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.3);
+    z-index: 9998;
+    animation: fadeIn 0.15s ease-out;
+}
+
+.totp-context-menu {
+    position: fixed;
+    z-index: 9999;
+    min-width: 180px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 12px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+    overflow: hidden;
+    animation: contextMenuIn 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes contextMenuIn {
+    from {
+        opacity: 0;
+        transform: scale(0.9);
+    }
+
+    to {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+.totp-context-menu-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-color);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.totp-context-menu-header i {
+    font-size: 18px;
+}
+
+.totp-context-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    padding: 14px 16px;
+    background: none;
+    border: none;
+    font-size: 14px;
+    color: var(--text-primary);
+    cursor: pointer;
+    transition: background 0.15s;
+    text-align: left;
+}
+
+.totp-context-menu-item:hover {
+    background: var(--bg-secondary);
+}
+
+.totp-context-menu-item:active {
+    background: var(--bg-tertiary);
+}
+
+.totp-context-menu-item i {
+    width: 18px;
+    text-align: center;
+    color: var(--text-secondary);
+}
+
+.totp-context-menu-item.danger {
+    color: var(--danger-color);
+}
+
+.totp-context-menu-item.danger i {
+    color: var(--danger-color);
+}
+
+/* 分隔线 */
+.totp-context-menu-item+.totp-context-menu-item.danger {
+    border-top: 1px solid var(--border-color);
 }

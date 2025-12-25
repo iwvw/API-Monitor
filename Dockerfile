@@ -27,7 +27,7 @@ COPY . .
 # 设置 CDN 环境变量，启用 CDN 模式以减小打包体积
 ENV PATH=/app/node_modules/.bin:$PATH \
     VITE_USE_CDN=true \
-    VITE_CDN_PROVIDER=npmmirror
+    VITE_CDN_PROVIDER=jsdelivr
 RUN npm run build
 
 # 阶段 2: 构建 Go Agent 二进制 (Agent Builder)

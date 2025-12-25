@@ -227,8 +227,12 @@
   margin-bottom: 6px;
 }
 
+.form-group {
+  padding-bottom: 5px;
+}
+
 .form-input {
-  margin-bottom: 8px;
+  /* margin-bottom: 8px; */
   width: 100%;
   padding: 10px 12px;
   border: 1px solid var(--input-border);

@@ -672,6 +672,103 @@ export const totpMethods = {
         }
     },
 
+    // ==================== 长按菜单 (移动端) ====================
+
+    /**
+     * 开始长按计时
+     */
+    startTotpLongPress(account, event) {
+        // 清除之前的定时器
+        this.cancelTotpLongPress();
+
+        // 记录触摸位置
+        const touch = event.touches?.[0];
+        const x = touch?.clientX || event.clientX || 0;
+        const y = touch?.clientY || event.clientY || 0;
+
+        // 500ms 后触发长按菜单
+        this.totpLongPressTimer = setTimeout(() => {
+            // 触发震动反馈
+            if (window.navigator?.vibrate) {
+                window.navigator.vibrate(50);
+            }
+
+            // 阻止后续的 click 事件
+            event.preventDefault?.();
+
+            // 显示上下文菜单
+            this.showTotpContextMenu(account, { clientX: x, clientY: y });
+        }, 500);
+    },
+
+    /**
+     * 取消长按计时
+     */
+    cancelTotpLongPress() {
+        if (this.totpLongPressTimer) {
+            clearTimeout(this.totpLongPressTimer);
+            this.totpLongPressTimer = null;
+        }
+    },
+
+    /**
+     * 显示上下文菜单
+     */
+    showTotpContextMenu(account, event) {
+        this.cancelTotpLongPress();
+
+        // 计算菜单位置，确保不超出屏幕
+        const menuWidth = 180;
+        const menuHeight = 200;
+        let x = event.clientX || 0;
+        let y = event.clientY || 0;
+
+        // 边界检查
+        if (x + menuWidth > window.innerWidth) {
+            x = window.innerWidth - menuWidth - 10;
+        }
+        if (y + menuHeight > window.innerHeight) {
+            y = window.innerHeight - menuHeight - 10;
+        }
+
+        this.totpContextMenu = {
+            visible: true,
+            x: Math.max(10, x),
+            y: Math.max(10, y),
+            account: account
+        };
+    },
+
+    /**
+     * 关闭上下文菜单
+     */
+    closeTotpContextMenu() {
+        this.totpContextMenu.visible = false;
+        this.totpContextMenu.account = null;
+    },
+
+    /**
+     * 处理上下文菜单动作
+     */
+    handleTotpContextAction(action) {
+        const account = this.totpContextMenu.account;
+        this.closeTotpContextMenu();
+
+        if (!account) return;
+
+        switch (action) {
+            case 'copy':
+                this.copyTotpCode(account);
+                break;
+            case 'edit':
+                this.editTotpAccount(account);
+                break;
+            case 'delete':
+                this.deleteTotpAccount(account);
+                break;
+        }
+    },
+
 
     /**
      * 格式化验证码显示
@@ -1072,6 +1169,15 @@ export const totpData = {
     qrError: '',
     isScanning: false,
     html5QrCode: null,
+
+    // 长按菜单 (移动端)
+    totpContextMenu: {
+        visible: false,
+        x: 0,
+        y: 0,
+        account: null
+    },
+    totpLongPressTimer: null,
 
     // TOTP 设置 (从 store 获取响应式状态)
     get totpSettings() { return store.totpSettings; }
