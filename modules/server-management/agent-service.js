@@ -817,6 +817,7 @@ class AgentService {
      */
     generateInstallScript(serverId, serverUrl) {
         const agentKey = this.getAgentKey(serverId);
+        const $ = '$'; // 用于在模板字符串中输出 $
 
         return `#!/bin/bash
 # API Monitor Agent 自动安装/升级脚本 (Go 版)
@@ -837,8 +838,8 @@ INSTALL_DIR="/opt/api-monitor-agent"
 SERVICE_NAME="api-monitor-agent"
 
 # 检测系统架构
-ARCH=\\$(uname -m)
-case \\$ARCH in
+ARCH=${$}(uname -m)
+case ${$}ARCH in
     x86_64)
         BINARY_NAME="agent-linux-amd64"
         ;;
@@ -846,56 +847,56 @@ case \\$ARCH in
         BINARY_NAME="agent-linux-arm64"
         ;;
     *)
-        echo -e "\\${RED}错误: 不支持的架构 \\$ARCH\\${NC}"
+        echo -e "${$}{RED}错误: 不支持的架构 ${$}ARCH${$}{NC}"
         exit 1
         ;;
 esac
-BINARY_URL="\\${SERVER_URL}/agent/\\${BINARY_NAME}"
+BINARY_URL="${$}{SERVER_URL}/agent/${$}{BINARY_NAME}"
 
 # 1. 检查权限
-if [ "\\$EUID" -ne 0 ]; then 
-  echo -e "\\${RED}错误: 请使用 sudo 运行此脚本\\${NC}"
+if [ "${$}EUID" -ne 0 ]; then 
+  echo -e "${$}{RED}错误: 请使用 sudo 运行此脚本${$}{NC}"
   exit 1
 fi
 
 # 2. 检测是否为升级安装
 UPGRADE_MODE=false
-if [ -d "\\$INSTALL_DIR" ]; then
-    if [ -f "\\$INSTALL_DIR/agent-bin" ] || [ -f "\\$INSTALL_DIR/agent" ]; then
+if [ -d "${$}INSTALL_DIR" ]; then
+    if [ -f "${$}INSTALL_DIR/agent-bin" ] || [ -f "${$}INSTALL_DIR/agent" ]; then
         UPGRADE_MODE=true
-        echo -e "\\${CYAN}>>> 检测到已安装 Agent，将执行升级...\\${NC}"
+        echo -e "${$}{CYAN}>>> 检测到已安装 Agent，将执行升级...${$}{NC}"
     fi
 fi
 
 # 3. 停止现有服务
-if systemctl is-active --quiet \\$SERVICE_NAME 2>/dev/null; then
-    echo -e "\\${YELLOW}⏹ 停止现有服务...\\${NC}"
-    systemctl stop \\$SERVICE_NAME
+if systemctl is-active --quiet ${$}SERVICE_NAME 2>/dev/null; then
+    echo -e "${$}{YELLOW}⏹ 停止现有服务...${$}{NC}"
+    systemctl stop ${$}SERVICE_NAME
 fi
 
 # 4. 清理旧版文件 (Node.js Agent 残留)
-if [ "\\$UPGRADE_MODE" = true ]; then
-    echo -e "\\${YELLOW}🧹 清理旧版 Agent 文件...\\${NC}"
-    rm -f "\\$INSTALL_DIR/agent-bin" 2>/dev/null
-    rm -rf "\\$INSTALL_DIR/node_modules" 2>/dev/null
-    rm -f "\\$INSTALL_DIR/package.json" "\\$INSTALL_DIR/package-lock.json" 2>/dev/null
-    rm -f "\\$INSTALL_DIR/index.js" "\\$INSTALL_DIR/config.js" "\\$INSTALL_DIR/collector.js" 2>/dev/null
+if [ "${$}UPGRADE_MODE" = true ]; then
+    echo -e "${$}{YELLOW}🧹 清理旧版 Agent 文件...${$}{NC}"
+    rm -f "${$}INSTALL_DIR/agent-bin" 2>/dev/null
+    rm -rf "${$}INSTALL_DIR/node_modules" 2>/dev/null
+    rm -f "${$}INSTALL_DIR/package.json" "${$}INSTALL_DIR/package-lock.json" 2>/dev/null
+    rm -f "${$}INSTALL_DIR/index.js" "${$}INSTALL_DIR/config.js" "${$}INSTALL_DIR/collector.js" 2>/dev/null
 fi
 
 # 5. 创建/进入目录
-echo "📁 目录: \\$INSTALL_DIR"
-mkdir -p "\\$INSTALL_DIR"
-cd "\\$INSTALL_DIR"
+echo "📁 目录: ${$}INSTALL_DIR"
+mkdir -p "${$}INSTALL_DIR"
+cd "${$}INSTALL_DIR"
 
 # 6. 下载新版二进制文件
-echo -e "\\${YELLOW}📥 下载 Agent 二进制文件 (\\$BINARY_NAME)...\\${NC}"
-curl -L -f -s "\\$BINARY_URL" -o agent.new
-if [ \\$? -ne 0 ]; then
-    echo -e "\\${RED}❌ 错误: 无法从 \\$BINARY_URL 下载二进制文件。\\${NC}"
-    echo -e "\\${YELLOW}请确保主控端已完成构建。\\${NC}"
-    if [ "\\$UPGRADE_MODE" = true ] && [ -f "\\$INSTALL_DIR/agent" ]; then
-        echo -e "\\${YELLOW}尝试恢复旧版服务...\\${NC}"
-        systemctl start \\$SERVICE_NAME
+echo -e "${$}{YELLOW}📥 下载 Agent 二进制文件 (${$}BINARY_NAME)...${$}{NC}"
+curl -L -f -s "${$}BINARY_URL" -o agent.new
+if [ ${$}? -ne 0 ]; then
+    echo -e "${$}{RED}❌ 错误: 无法从 ${$}BINARY_URL 下载二进制文件。${$}{NC}"
+    echo -e "${$}{YELLOW}请确保主控端已完成构建。${$}{NC}"
+    if [ "${$}UPGRADE_MODE" = true ] && [ -f "${$}INSTALL_DIR/agent" ]; then
+        echo -e "${$}{YELLOW}尝试恢复旧版服务...${$}{NC}"
+        systemctl start ${$}SERVICE_NAME
     fi
     exit 1
 fi
@@ -905,28 +906,27 @@ mv agent.new agent
 chmod +x agent
 
 # 7. 生成/更新配置文件
-echo -e "\\${YELLOW}📝 生成配置文件...\\${NC}"
-if [ -f "config.json" ] && [ "\\$UPGRADE_MODE" = true ]; then
-    echo -e "\\${CYAN}   保留现有配置文件\\${NC}"
+echo -e "${$}{YELLOW}📝 生成配置文件...${$}{NC}"
+if [ -f "config.json" ] && [ "${$}UPGRADE_MODE" = true ]; then
+    echo -e "${$}{CYAN}   保留现有配置文件${$}{NC}"
 else
     cat > config.json << 'CONFIGEOF'
 {
-    "serverUrl": "\\$SERVER_URL",
-    "serverId": "\\$SERVER_ID",
-    "agentKey": "\\$AGENT_KEY",
+    "serverUrl": "__SERVER_URL__",
+    "serverId": "__SERVER_ID__",
+    "agentKey": "__AGENT_KEY__",
     "reportInterval": 1500,
     "reconnectDelay": 4000
 }
 CONFIGEOF
-    # 替换变量
-    sed -i "s|\\\\\\$SERVER_URL|\\$SERVER_URL|g" config.json
-    sed -i "s|\\\\\\$SERVER_ID|\\$SERVER_ID|g" config.json
-    sed -i "s|\\\\\\$AGENT_KEY|\\$AGENT_KEY|g" config.json
+    sed -i "s|__SERVER_URL__|${$}SERVER_URL|g" config.json
+    sed -i "s|__SERVER_ID__|${$}SERVER_ID|g" config.json
+    sed -i "s|__AGENT_KEY__|${$}AGENT_KEY|g" config.json
 fi
 
 # 8. 创建/更新 systemd 服务
-echo -e "\\${YELLOW}⚙️ 配置 systemd 服务...\\${NC}"
-cat > /etc/systemd/system/\\$SERVICE_NAME.service << SERVICEEOF
+echo -e "${$}{YELLOW}⚙️ 配置 systemd 服务...${$}{NC}"
+cat > /etc/systemd/system/${$}SERVICE_NAME.service << SERVICEEOF
 [Unit]
 Description=API Monitor Agent (Go)
 After=network.target
@@ -934,8 +934,8 @@ After=network.target
 [Service]
 Type=simple
 User=root
-WorkingDirectory=\\$INSTALL_DIR
-ExecStart=\\$INSTALL_DIR/agent
+WorkingDirectory=${$}INSTALL_DIR
+ExecStart=${$}INSTALL_DIR/agent
 Restart=always
 RestartSec=10
 
@@ -944,27 +944,27 @@ WantedBy=multi-user.target
 SERVICEEOF
 
 # 9. 启动服务
-echo -e "\\${YELLOW}🚀 启动服务...\\${NC}"
+echo -e "${$}{YELLOW}🚀 启动服务...${$}{NC}"
 systemctl daemon-reload
-systemctl enable \\$SERVICE_NAME
-systemctl restart \\$SERVICE_NAME
+systemctl enable ${$}SERVICE_NAME
+systemctl restart ${$}SERVICE_NAME
 
 # 10. 检查状态
 sleep 1
-if systemctl is-active --quiet \\$SERVICE_NAME; then
-    echo -e "\\${GREEN}================================================\\${NC}"
-    if [ "\\$UPGRADE_MODE" = true ]; then
-        echo -e "\\${GREEN}  ✅ API Monitor Agent 升级成功!\\${NC}"
+if systemctl is-active --quiet ${$}SERVICE_NAME; then
+    echo -e "${$}{GREEN}================================================${$}{NC}"
+    if [ "${$}UPGRADE_MODE" = true ]; then
+        echo -e "${$}{GREEN}  ✅ API Monitor Agent 升级成功!${$}{NC}"
     else
-        echo -e "\\${GREEN}  ✅ API Monitor Agent 安装成功!\\${NC}"
+        echo -e "${$}{GREEN}  ✅ API Monitor Agent 安装成功!${$}{NC}"
     fi
-    echo -e "\\${GREEN}  架构: \\$ARCH (\\$BINARY_NAME)\\${NC}"  
-    echo -e "\\${GREEN}  查看状态: systemctl status \\$SERVICE_NAME\\${NC}"
-    echo -e "\\${GREEN}  查看日志: journalctl -u \\$SERVICE_NAME -f\\${NC}"
-    echo -e "\\${GREEN}================================================\\${NC}"
+    echo -e "${$}{GREEN}  架构: ${$}ARCH (${$}BINARY_NAME)${$}{NC}"  
+    echo -e "${$}{GREEN}  查看状态: systemctl status ${$}SERVICE_NAME${$}{NC}"
+    echo -e "${$}{GREEN}  查看日志: journalctl -u ${$}SERVICE_NAME -f${$}{NC}"
+    echo -e "${$}{GREEN}================================================${$}{NC}"
 else
-    echo -e "\\${RED}❌ 服务启动失败，请检查日志:\\${NC}"
-    echo -e "\\${RED}   journalctl -u \\$SERVICE_NAME -n 20\\${NC}"
+    echo -e "${$}{RED}❌ 服务启动失败，请检查日志:${$}{NC}"
+    echo -e "${$}{RED}   journalctl -u ${$}SERVICE_NAME -n 20${$}{NC}"
     exit 1
 fi
 `;

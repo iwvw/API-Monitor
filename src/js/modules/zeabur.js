@@ -1142,7 +1142,7 @@ export const zeaburMethods = {
       this.logsRealTimeTimer = setInterval(async () => {
         if (document.visibilityState !== 'visible') return;
         await this.refreshLogs();
-      }, 5000); // 每5秒刷新一次
+      }, 2000); // 每2秒刷新一次
     }
   },
 
