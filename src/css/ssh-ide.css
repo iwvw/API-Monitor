@@ -26,7 +26,7 @@
     background: var(--bg-primary);
     border-radius: 12px;
     overflow: hidden;
-    border: 1px solid var(--border-color);
+    border: 2px solid #a6a6a6;
     position: relative;
 }
 
