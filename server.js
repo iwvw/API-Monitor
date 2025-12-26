@@ -131,6 +131,39 @@ app.use(fileUpload({
 // Fly.io module integrated - v4
 registerRoutes(app);
 
+// ==================== SPA Fallback 路由 ====================
+// 处理前端路由（如 /2fa, /totp, /hosts 等），返回 index.html 让前端路由器处理
+const spaRoutes = ['/2fa', '/totp', '/hosts', '/server', '/dns', '/paas', '/openai', '/antigravity', '/gemini-cli', '/gcli', '/self-h', '/selfh', '/compute', '/r2'];
+spaRoutes.forEach(route => {
+  app.get(route, (req, res) => {
+    const indexPath = fs.existsSync(path.join(__dirname, 'dist', 'index.html'))
+      ? path.join(__dirname, 'dist', 'index.html')
+      : path.join(__dirname, 'src', 'index.html');
+    res.sendFile(indexPath);
+  });
+});
+
+// 通用 SPA Fallback：处理所有非 API、非静态文件的 GET 请求
+// 确保即使某些路径遗漏也能正确返回 index.html
+app.get('*', (req, res, next) => {
+  // 跳过 API 和特殊路径
+  if (req.path.startsWith('/api') || req.path.startsWith('/v1') || req.path.startsWith('/ws') || req.path.startsWith('/health') || req.path.startsWith('/socket.io') || req.path.startsWith('/agent')) {
+    return next();
+  }
+
+  // 跳过静态资源请求 (带非 .html 扩展名的通常是静态文件)
+  const ext = path.extname(req.path);
+  if (ext && ext !== '.html') {
+    return next();
+  }
+
+  // 返回 index.html，让前端路由处理
+  const indexPath = fs.existsSync(path.join(__dirname, 'dist', 'index.html'))
+    ? path.join(__dirname, 'dist', 'index.html')
+    : path.join(__dirname, 'src', 'index.html');
+  res.sendFile(indexPath);
+});
+
 // 调试路由：捕获异常的 POST /accounts 请求
 app.post('/accounts', (req, res) => {
   logger.error('捕获到可疑的 POST /accounts 请求！');

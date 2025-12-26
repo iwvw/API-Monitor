@@ -19,6 +19,9 @@ const userSettings = require('../../src/services/userSettings');
 
 class AgentService {
     constructor() {
+        // 调试模式 (环境变量 DEBUG=agent 开启)
+        this.debug = process.env.DEBUG?.includes('agent');
+
         // 全局统一 Agent 密钥
         this.globalAgentKey = null;
         // 密钥存储路径
@@ -51,6 +54,15 @@ class AgentService {
     }
 
     /**
+     * 调试日志 (仅在 DEBUG=agent 时输出)
+     */
+    log(message) {
+        if (this.debug) {
+            console.log(`[AgentService] ${message}`);
+        }
+    }
+
+    /**
      * 加载或生成全局 Agent 密钥
      */
     loadOrGenerateGlobalKey() {
@@ -62,11 +74,11 @@ class AgentService {
 
             if (fs.existsSync(this.keyFilePath)) {
                 this.globalAgentKey = fs.readFileSync(this.keyFilePath, 'utf8').trim();
-                console.log('[AgentService] 已加载全局 Agent 密钥');
+                this.log('已加载全局 Agent 密钥');
             } else {
                 this.globalAgentKey = crypto.randomBytes(16).toString('hex');
                 fs.writeFileSync(this.keyFilePath, this.globalAgentKey);
-                console.log('[AgentService] 已生成新的全局 Agent 密钥');
+                this.log('已生成新的全局 Agent 密钥');
             }
         } catch (error) {
             console.error('[AgentService] 密钥管理失败:', error.message);
@@ -135,7 +147,7 @@ class AgentService {
         // 启动历史指标自动采集定时器
         this.startHistoryCollector();
 
-        console.log('[AgentService] Socket.IO 已初始化 (命名空间: /agent, /metrics)');
+        this.log('Socket.IO 已初始化 (命名空间: /agent, /metrics)');
     }
 
     /**
@@ -152,7 +164,7 @@ class AgentService {
         const intervalSec = config?.metrics_collect_interval || 300;
         const intervalMs = intervalSec * 1000;
 
-        console.log(`[AgentService] 历史指标自动采集已启动 (间隔: ${intervalSec}秒)`);
+        this.log(`历史指标自动采集已启动 (间隔: ${intervalSec}秒)`);
 
         // 立即执行一次采集
         this.collectHistoryMetrics();
@@ -208,8 +220,8 @@ class AgentService {
                 collected++;
             }
 
-            if (collected > 0) {
-                console.log(`[AgentService] 历史指标采集完成: ${collected} 台主机`);
+            if (collected > 0 && this.debug) {
+                this.log(`历史指标采集完成: ${collected} 台主机`);
             }
         } catch (error) {
             console.error('[AgentService] 历史指标采集失败:', error.message);
@@ -224,12 +236,12 @@ class AgentService {
         let serverId = null;
         let authenticated = false;
 
-        console.log(`[AgentService] Agent 连接中: ${socket.id}`);
+        this.log(`Agent 连接中: ${socket.id}`);
 
         // 设置认证超时 (10 秒内必须完成认证)
         const authTimeout = setTimeout(() => {
             if (!authenticated) {
-                console.log(`[AgentService] Agent 认证超时: ${socket.id}`);
+                console.warn(`[AgentService] Agent 认证超时: ${socket.id}`);
                 socket.emit(Events.DASHBOARD_AUTH_FAIL, { reason: 'Authentication timeout' });
                 socket.disconnect();
             }
@@ -241,7 +253,7 @@ class AgentService {
 
             // 验证密钥
             if (!data || data.key !== this.globalAgentKey) {
-                console.log(`[AgentService] Agent 认证失败: 无效密钥`);
+                console.warn('[AgentService] Agent 认证失败: 无效密钥');
                 socket.emit(Events.DASHBOARD_AUTH_FAIL, { reason: 'Invalid key' });
                 socket.disconnect();
                 return;
@@ -261,7 +273,7 @@ class AgentService {
             serverId = this.resolveServerId(requestedId, hostname);
 
             if (!serverId) {
-                console.log(`[AgentService] Agent 认证失败: 无法匹配主机 (id=${requestedId}, hostname=${hostname})`);
+                console.warn(`[AgentService] Agent 认证失败: 无法匹配主机 (id=${requestedId}, hostname=${hostname})`);
                 socket.emit(Events.DASHBOARD_AUTH_FAIL, {
                     reason: 'Server not found in dashboard. Please add the host first.',
                     requested_id: requestedId,
@@ -274,7 +286,7 @@ class AgentService {
             // 检查是否有旧连接，断开它
             const oldSocket = this.connections.get(serverId);
             if (oldSocket && oldSocket.id !== socket.id) {
-                console.log(`[AgentService] 断开旧连接: ${serverId}`);
+                this.log(`断开旧连接: ${serverId}`);
                 oldSocket.disconnect();
             }
 
@@ -296,7 +308,7 @@ class AgentService {
             // 广播上线状态给前端
             this.broadcastServerStatus(serverId, 'online');
 
-            console.log(`[AgentService] Agent 认证成功: ${serverId} (requested: ${requestedId}, hostname: ${hostname}, version: ${data.version || 'unknown'})`);
+            console.log(`[AgentService] Agent 上线: ${serverId}`);
         });
 
         // 2. 接收主机硬件信息
@@ -308,13 +320,13 @@ class AgentService {
                 received_at: Date.now()
             });
 
-            console.log(`[AgentService] 收到主机信息: ${serverId} (${hostInfo.platform} ${hostInfo.platform_version})`);
+            this.log(`收到主机信息: ${serverId} (${hostInfo.platform} ${hostInfo.platform_version})`);
         });
 
         // 3. 接收实时状态
         socket.on(Events.AGENT_STATE, (state) => {
             if (!authenticated) {
-                console.warn(`[AgentService] 收到未认证 Agent 的状态数据，忽略`);
+                console.warn('[AgentService] 收到未认证 Agent 的状态数据，忽略');
                 return;
             }
 
@@ -331,8 +343,7 @@ class AgentService {
                 timestamp
             });
 
-            // 重置心跳 - 在此行添加日志确认执行
-            console.log(`[AgentService] 收到状态上报: ${serverId} CPU=${state.cpu?.toFixed(1)}%`);
+            // 重置心跳 (高频操作，不打印日志)
             this.resetHeartbeat(serverId);
 
             // 转换为前端格式并广播
@@ -353,14 +364,14 @@ class AgentService {
         // 4. 接收任务结果
         socket.on(Events.AGENT_TASK_RESULT, (result) => {
             if (!authenticated) return;
-            console.log(`[AgentService] 任务结果: ${serverId} -> ${result.id} (${result.successful ? '成功' : '失败'})`);
+            this.log(`任务结果: ${serverId} -> ${result.id} (${result.successful ? '成功' : '失败'})`);
             // TODO: 处理任务结果 (日志记录、通知等)
         });
 
         // 5. 断开连接
         socket.on('disconnect', (reason) => {
             if (serverId) {
-                console.log(`[AgentService] Agent 断开: ${serverId} (${reason})`);
+                console.log(`[AgentService] Agent 离线: ${serverId}`);
                 this.connections.delete(serverId);
                 this.stopHeartbeat(serverId);
                 this.updateServerStatus(serverId, 'offline');
@@ -387,7 +398,7 @@ class AgentService {
     handleFrontendConnection(socket) {
         // 自动加入广播房间
         socket.join('metrics_room');
-        console.log(`[AgentService] 前端连接: ${socket.id}`);
+        this.log(`前端连接: ${socket.id}`);
 
         // 发送当前所有在线主机的最新状态
         const initialData = [];
@@ -414,7 +425,7 @@ class AgentService {
         }
 
         socket.on('disconnect', () => {
-            console.log(`[AgentService] 前端断开: ${socket.id}`);
+            this.log(`前端断开: ${socket.id}`);
         });
     }
 
@@ -426,7 +437,7 @@ class AgentService {
     startHeartbeat(serverId) {
         this.stopHeartbeat(serverId);
         this.heartbeatTimers.set(serverId, setTimeout(() => {
-            console.log(`[AgentService] 心跳超时: ${serverId}`);
+            console.warn(`[AgentService] 心跳超时: ${serverId}`);
             const socket = this.connections.get(serverId);
             if (socket) {
                 socket.disconnect();
@@ -520,7 +531,7 @@ class AgentService {
                     s.name?.toLowerCase() === nameToMatch.toLowerCase()
                 );
                 if (nameMatch) {
-                    console.log(`[AgentService] 按名称匹配: ${nameToMatch} -> ${nameMatch.id}`);
+                    this.log(`按名称匹配: ${nameToMatch} -> ${nameMatch.id}`);
                     return nameMatch.id;
                 }
             }
@@ -532,7 +543,7 @@ class AgentService {
                     s.host?.toLowerCase() === hostname.toLowerCase()
                 );
                 if (hostMatch) {
-                    console.log(`[AgentService] 按 host 匹配: ${hostname} -> ${hostMatch.id}`);
+                    this.log(`按 host 匹配: ${hostname} -> ${hostMatch.id}`);
                     return hostMatch.id;
                 }
             }
@@ -544,7 +555,7 @@ class AgentService {
                     nameToMatch.toLowerCase().includes(s.name?.toLowerCase())
                 );
                 if (partialMatch) {
-                    console.log(`[AgentService] 模糊名称匹配: ${nameToMatch} -> ${partialMatch.id}`);
+                    this.log(`模糊名称匹配: ${nameToMatch} -> ${partialMatch.id}`);
                     return partialMatch.id;
                 }
             }
@@ -578,7 +589,7 @@ class AgentService {
             timeout: task.timeout || 0
         });
 
-        console.log(`[AgentService] 任务已下发: ${serverId} -> ${task.type}`);
+        this.log(`任务已下发: ${serverId} -> ${task.type}`);
         return true;
     }
 
@@ -652,7 +663,7 @@ class AgentService {
                 timeout: task.timeout || 0
             });
 
-            console.log(`[AgentService] 同步任务已下发: ${serverId} -> ${task.type} (id: ${taskId})`);
+            this.log(`同步任务已下发: ${serverId} -> ${task.type} (id: ${taskId})`);
         });
     }
 
