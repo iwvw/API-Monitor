@@ -43,19 +43,22 @@
             background-color: var(--bg-color);
             color: var(--text-main);
             overflow: hidden;
+            scrollbar-width: none;
+        }
+
+        ::-webkit-scrollbar {
+            display: none;
         }
 
         /* 头部 */
         .header {
-            padding: 12px 16px;
+            padding: 16px;
+            /* Equal padding on all 4 sides */
             background-color: var(--header-bg);
             border-bottom: 1px solid var(--border-color);
             display: flex;
             align-items: center;
             justify-content: space-between;
-            position: sticky;
-            top: 0;
-            z-index: 10;
         }
 
         .header-title {
@@ -89,7 +92,7 @@
         }
 
         .content::-webkit-scrollbar {
-            width: 4px;
+            width: 5px;
         }
 
         .content::-webkit-scrollbar-track {
@@ -97,14 +100,107 @@
         }
 
         .content::-webkit-scrollbar-thumb {
-            background: var(--progress-bg);
+            background: rgba(0, 0, 0, 0.1);
             border-radius: 10px;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            .content::-webkit-scrollbar-thumb {
+                background: rgba(255, 255, 255, 0.15);
+            }
+        }
+
+        .content::-webkit-scrollbar-thumb:hover {
+            background: var(--accent-color);
         }
 
         .account-list {
             display: flex;
             flex-direction: column;
         }
+
+        .group-header {
+            padding: 8px 16px;
+            background-color: var(--border-color);
+            font-size: 10px;
+            font-weight: 700;
+            color: var(--text-sub);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            opacity: 0.8;
+            position: sticky;
+            top: 0;
+            z-index: 5;
+        }
+
+        .search-container {
+            padding: 16px;
+            /* Symmetrical padding */
+            background-color: var(--bg-color);
+            border-bottom: 1px solid var(--border-color);
+            position: relative;
+            /* For suggestions positioning */
+        }
+
+        .search-input {
+            width: 100%;
+            padding: 8px 12px;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            font-size: 13px;
+            outline: none;
+            transition: all 0.2s;
+            box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.02);
+        }
+
+        .search-input:focus {
+            border-color: var(--accent-color);
+            box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.1);
+        }
+
+        /* Custom Dropdown Suggestions */
+        .api-monitor-2fa-suggestions {
+            background-color: var(--bg-color);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+            z-index: 100;
+            max-height: 500px;
+            overflow-y: auto;
+            display: none;
+            scrollbar-width: none;
+            position: absolute;
+            top: 100%;
+            left: 16px;
+            right: 16px;
+            margin-top: 4px;
+        }
+
+        .api-monitor-2fa-suggestions::-webkit-scrollbar {
+            display: none;
+        }
+
+        .api-monitor-2fa-suggestion-item {
+            padding: 10px 16px;
+            font-size: 13px;
+            cursor: pointer;
+            transition: background 0.2s;
+            color: var(--text-main);
+        }
+
+        .api-monitor-2fa-suggestion-item:hover {
+            background-color: var(--item-hover);
+            color: var(--accent-color);
+        }
+
+        @media (prefers-color-scheme: dark) {
+            .api-monitor-2fa-suggestions {
+                box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+            }
+        }
+
 
         .account-item {
             display: flex;
@@ -210,9 +306,43 @@
         .loading,
         .empty,
         .error {
-            padding: 40px 20px;
+            padding: 60px 40px;
             text-align: center;
             color: var(--text-sub);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .error p {
+            font-size: 14px;
+            line-height: 1.5;
+            margin-bottom: 4px;
+        }
+
+        .retry-btn {
+            background-color: var(--accent-color);
+            color: white;
+            border: none;
+            padding: 10px 24px;
+            border-radius: 12px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2);
+            outline: none;
+        }
+
+        .retry-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(99, 102, 241, 0.3);
+            filter: brightness(1.1);
+        }
+
+        .retry-btn:active {
+            transform: translateY(0);
         }
 
         .spinner {
@@ -283,7 +413,7 @@
 <body>
     <div class="header">
         <div class="header-title">
-            <span style="font-size: 16px; color: var(--accent-color);">🛡️</span>
+            <span style="font-size: 16px;">🛡️</span>
             <h1>2FA 账号<span class="count" id="accountCount"></span></h1>
         </div>
         <div style="display: flex; gap: 8px;">
@@ -291,10 +421,16 @@
         </div>
     </div>
 
-    <div class="content" id="main">
+    <div class="search-container">
+        <input type="text" class="search-input" id="searchInput" placeholder="搜索厂商或账号..." autocomplete="off">
+        <div class="api-monitor-2fa-suggestions" id="issuerList"></div>
+    </div>
+
+
+    <div id="main" class="content">
         <div class="loading">
             <div class="spinner"></div>
-            <p>正在获取验证码...</p>
+            <p>正在同步数据...</p>
         </div>
     </div>
 

@@ -5,8 +5,13 @@
 const mainEl = document.getElementById('main');
 const accountCountEl = document.getElementById('accountCount');
 const toastEl = document.getElementById('toast');
+const searchInput = document.getElementById('searchInput');
+const datalist = document.getElementById('issuerList');
+
 let refreshInterval;
 let serverUrl = '';
+let allAccounts = [];
+let currentFilter = '';
 
 function showToast(message) {
     toastEl.textContent = message || '复制成功';
@@ -29,26 +34,53 @@ function formatCode(code) {
 }
 
 function renderAccounts(accounts) {
-    accountCountEl.textContent = `(${accounts.length})`;
-    if (accounts.length === 0) {
-        mainEl.innerHTML = '<div class="empty">📭 暂无 2FA 账号</div>';
+    const filtered = accounts.filter(acc => {
+        const term = currentFilter.toLowerCase();
+        return (acc.issuer || '').toLowerCase().includes(term) || (acc.account || '').toLowerCase().includes(term);
+    });
+
+    accountCountEl.textContent = `(${filtered.length})`;
+    if (filtered.length === 0) {
+        mainEl.innerHTML = `<div class="empty">📭 ${currentFilter ? '未找到相关账号' : '暂无 2FA 账号'}</div>`;
         return;
     }
 
-    mainEl.innerHTML = '<div class="account-list">' + accounts.map(acc => {
-        return `
-      <div class="account-item no-icon" data-id="${acc.id}" data-code="${acc.currentCode || ''}" title="点击复制验证码">
-        <div class="account-info">
-          <span class="issuer" style="font-weight: 600;">${acc.issuer || '未知服务'}</span>
-          <span class="account-name">${acc.account || ''}</span>
+    // 按厂商（Issuer）分组
+    const groups = {};
+    filtered.forEach(acc => {
+        const issuer = acc.issuer || '其他';
+        if (!groups[issuer]) groups[issuer] = [];
+        groups[issuer].push(acc);
+    });
+
+    // 排序厂商：按数量降序排列，数量一样则按名称排序
+    const sortedIssuers = Object.keys(groups).sort((a, b) => {
+        const countA = groups[a].length;
+        const countB = groups[b].length;
+        if (countB !== countA) return countB - countA;
+        return a.localeCompare(b);
+    });
+
+    let html = '<div class="account-list">';
+    sortedIssuers.forEach(issuer => {
+        html += `<div class="group-header">${issuer}</div>`;
+        html += groups[issuer].map(acc => {
+            return `
+        <div class="account-item no-icon" data-id="${acc.id}" data-code="${acc.currentCode || ''}" title="点击复制验证码">
+          <div class="account-info">
+            <span class="issuer" style="font-weight: 600;">${acc.account || '未命名'}</span>
+            <span class="account-name" style="font-size: 11px; opacity: 0.6;">${acc.issuer || '其他'}</span>
+          </div>
+          <div class="code-container">
+            <div class="code">${formatCode(acc.currentCode)}</div>
+            <div class="account-progress"><div class="progress-bar" id="progress-${acc.id}"></div></div>
+          </div>
         </div>
-        <div class="code-container">
-          <div class="code">${formatCode(acc.currentCode)}</div>
-          <div class="account-progress"><div class="progress-bar" id="progress-${acc.id}"></div></div>
-        </div>
-      </div>
-    `;
-    }).join('') + '</div>';
+      `;
+        }).join('');
+    });
+    html += '</div>';
+    mainEl.innerHTML = html;
 
     document.querySelectorAll('.account-item').forEach(item => {
         item.addEventListener('click', async () => {
@@ -89,10 +121,49 @@ async function loadAccounts(showLoading = true) {
             document.getElementById('goSettings')?.addEventListener('click', () => chrome.runtime.openOptionsPage());
             return;
         }
-        renderAccounts(response.data || []);
+        allAccounts = response.data || [];
+        updateSearchDatalist(allAccounts);
+        renderAccounts(allAccounts);
         if (showLoading) startTimer();
     });
 }
+
+function updateSearchDatalist(accounts) {
+    if (!datalist) return;
+    const issuers = [...new Set(accounts.map(acc => acc.issuer || '其他'))].sort((a, b) => {
+        const countA = accounts.filter(x => (x.issuer || '其他') === a).length;
+        const countB = accounts.filter(x => (x.issuer || '其他') === b).length;
+        return countB - countA;
+    });
+
+    datalist.innerHTML = issuers.map(iss => `<div class="api-monitor-2fa-suggestion-item">${iss}</div>`).join('');
+
+    datalist.querySelectorAll('.api-monitor-2fa-suggestion-item').forEach(item => {
+        item.onclick = (e) => {
+            e.stopPropagation();
+            searchInput.value = item.textContent;
+            currentFilter = item.textContent;
+            renderAccounts(allAccounts);
+            datalist.style.display = 'none';
+        }
+    });
+
+    searchInput.onfocus = () => { datalist.style.display = 'block'; };
+    searchInput.onclick = () => { datalist.style.display = 'block'; };
+
+    const hideDropdown = (e) => {
+        if (datalist && !datalist.contains(e.target) && e.target !== searchInput) {
+            datalist.style.display = 'none';
+        }
+    };
+    document.addEventListener('mousedown', hideDropdown);
+}
+
+searchInput.addEventListener('input', (e) => {
+    currentFilter = e.target.value;
+    renderAccounts(allAccounts);
+    if (datalist) datalist.style.display = 'none';
+});
 
 chrome.runtime.sendMessage({ type: 'GET_CONFIG' }, (config) => {
     if (config && config.serverUrl) serverUrl = config.serverUrl.endsWith('/') ? config.serverUrl.slice(0, -1) : config.serverUrl;

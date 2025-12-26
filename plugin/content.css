@@ -1,4 +1,4 @@
-/* API Monitor 2FA - Content Script Styles (Refined) */
+/* API Monitor 2FA - Premium Glassmorphic UI */
 
 .api-monitor-2fa-wrapper {
     position: relative;
@@ -9,174 +9,187 @@
 
 .api-monitor-2fa-btn {
     position: absolute;
-    right: 10px;
+    right: 12px;
     top: 50%;
     transform: translateY(-50%);
-    width: 24px;
-    height: 24px;
+    width: 26px;
+    height: 26px;
     border: none;
-    background: transparent;
+    background: rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(4px);
+    border-radius: 6px;
     cursor: pointer;
-    font-size: 16px;
-    padding: 0;
+    font-size: 14px;
     display: flex;
     align-items: center;
     justify-content: center;
-    opacity: 0.5;
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    opacity: 0.6;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     z-index: 10;
-    filter: grayscale(1);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
 }
 
 .api-monitor-2fa-btn:hover {
     opacity: 1;
-    transform: translateY(-50%) scale(1.15);
-    filter: grayscale(0);
+    background: rgba(255, 255, 255, 0.2);
+    transform: translateY(-50%) scale(1.1);
+    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
 }
 
 .api-monitor-2fa-picker {
     position: absolute;
     z-index: 2147483647;
-    background: #ffffff;
+    background: rgba(255, 255, 255, 0.9);
+    /* Glass effect */
+    backdrop-filter: blur(12px) saturate(180%);
+    -webkit-backdrop-filter: blur(12px) saturate(180%);
     color: #1f2937;
-    border: 1px solid #e5e7eb;
-    border-radius: 12px;
-    box-shadow: 0 12px 30px -4px rgba(0, 0, 0, 0.1), 0 4px 12px -2px rgba(0, 0, 0, 0.05);
-    max-height: 280px;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    border-radius: 10px;
+    /* Reduced from 16px */
+    box-shadow:
+        0 15px 35px -8px rgba(0, 0, 0, 0.12),
+        0 0 0 1px rgba(0, 0, 0, 0.04);
+    max-height: 300px;
     overflow-y: auto;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-    padding: 4px;
+    font-family: -apple-system, Inter, system-ui, sans-serif;
+    padding: 0;
+    /* Changed from 4px to accommodate search bar */
     margin-top: 6px;
-    animation: api-monitor-fade-in 0.2s cubic-bezier(0, 0, 0.2, 1);
+    animation: api-monitor-slide-up 0.25s cubic-bezier(0.16, 1, 0.3, 1);
     box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    scrollbar-width: none;
+    /* Hide for Firefox */
+}
+
+.api-monitor-2fa-picker::-webkit-scrollbar {
+    display: none;
+    /* Hide for Chrome */
+}
+
+
+.api-monitor-2fa-list-container {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px;
+    /* Uniform four-side padding */
+    scrollbar-width: none;
+}
+
+.api-monitor-2fa-list-container::-webkit-scrollbar {
+    display: none;
 }
 
 @media (prefers-color-scheme: dark) {
     .api-monitor-2fa-picker {
-        background: #111827;
+        background: rgba(24, 24, 27, 0.85);
+        border: 1px solid rgba(255, 255, 255, 0.12);
         color: #f3f4f6;
-        border-color: #374151;
-        box-shadow: 0 12px 30px -4px rgba(0, 0, 0, 0.3), 0 4px 12px -2px rgba(0, 0, 0, 0.2);
+        box-shadow:
+            0 15px 35px -8px rgba(0, 0, 0, 0.45),
+            0 0 0 1px rgba(255, 255, 255, 0.06);
     }
 }
 
-@keyframes api-monitor-fade-in {
+@keyframes api-monitor-slide-up {
     from {
         opacity: 0;
-        transform: translateY(-5px);
+        transform: translateY(10px) scale(0.95);
     }
 
     to {
         opacity: 1;
-        transform: translateY(0);
+        transform: translateY(0) scale(1);
     }
 }
 
-.api-monitor-2fa-picker .loading,
-.api-monitor-2fa-picker .error,
-.api-monitor-2fa-picker .empty {
-    padding: 24px 16px;
-    text-align: center;
-    color: #9ca3af;
-    font-size: 13px;
-}
 
 .api-monitor-2fa-picker .account-item {
-    display: flex;
-    align-items: center;
-    padding: 10px 12px;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-rows: 20px 16px;
+    /* Fixed row heights for stable alignment */
+    column-gap: 16px;
+    row-gap: 5px;
+    /* Increased from 4px */
+    padding: 12px 14px;
+    /* More padding for account items */
     cursor: pointer;
     border-radius: 8px;
-    transition: background 0.15s, transform 0.1s;
-    margin-bottom: 2px;
+    transition: all 0.2s ease;
+    margin-bottom: 8px;
+    /* Consistent gap between items */
+    border: 1px solid transparent;
+    align-items: center;
 }
 
 .api-monitor-2fa-picker .account-item:last-child {
     margin-bottom: 0;
+    /* Remove bottom margin for the last item to keep container padding equal */
 }
 
 .api-monitor-2fa-picker .account-item:hover {
-    background: #f3f4f6;
+    background: rgba(99, 102, 241, 0.08);
+    border-color: rgba(99, 102, 241, 0.2);
 }
 
 @media (prefers-color-scheme: dark) {
     .api-monitor-2fa-picker .account-item:hover {
-        background: #1f2937;
+        background: rgba(129, 140, 248, 0.12);
+        border-color: rgba(129, 140, 248, 0.2);
     }
-}
-
-.api-monitor-2fa-picker .account-item:active {
-    transform: scale(0.98);
-}
-
-.api-monitor-2fa-icon {
-    width: 32px;
-    height: 32px;
-    border-radius: 6px;
-    background: #f3f4f6;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin-right: 12px;
-    flex-shrink: 0;
-    overflow: hidden;
-}
-
-@media (prefers-color-scheme: dark) {
-    .api-monitor-2fa-icon {
-        background: #374151;
-    }
-}
-
-.api-monitor-2fa-icon img {
-    width: 100%;
-    height: 100%;
-    object-fit: cover;
-}
-
-.api-monitor-2fa-icon span {
-    font-size: 16px;
-    font-weight: 700;
-    text-transform: uppercase;
 }
 
 .api-monitor-2fa-info {
-    display: flex;
-    flex-direction: column;
-    gap: 1px;
-    min-width: 0;
-    flex: 1;
-}
-
-.api-monitor-2fa-issuer {
-    font-size: 13px;
-    font-weight: 600;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    display: contents;
+    /* Let children be grid items */
 }
 
 .api-monitor-2fa-account {
-    font-size: 11px;
-    color: #9ca3af;
+    grid-column: 1;
+    grid-row: 1;
+    font-size: 15px;
+    /* Increased size */
+    font-weight: 600;
+    line-height: 20px;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    align-self: center;
+}
+
+.api-monitor-2fa-issuer {
+    grid-column: 1;
+    grid-row: 2;
+    font-size: 11px;
+    opacity: 0.5;
+    font-weight: 500;
+    line-height: 16px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    align-self: center;
 }
 
 .api-monitor-2fa-code-wrapper {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    margin-left: 12px;
+    display: contents;
+    /* Let children be grid items */
 }
 
 .api-monitor-2fa-code {
-    font-family: 'SF Mono', 'JetBrains Mono', monospace;
-    font-size: 17px;
+    grid-column: 2;
+    grid-row: 1;
+    font-family: 'JetBrains Mono', 'Menlo', monospace;
+    font-size: 19px;
+    /* Slightly larger */
     font-weight: 700;
-    color: #6366f1;
+    color: #4f46e5;
     letter-spacing: 0.5px;
+    line-height: 20px;
+    text-align: right;
+    align-self: center;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -186,28 +199,56 @@
 }
 
 .api-monitor-2fa-progress-container {
-    width: 100%;
-    min-width: 60px;
-    height: 2px;
-    background: #e5e7eb;
+    grid-column: 2;
+    grid-row: 2;
+    width: 90px;
+    height: 4px;
+    /* Slightly thicker for better visibility */
+    background: rgba(0, 0, 0, 0.08);
     border-radius: 2px;
-    margin-top: 3px;
     overflow: hidden;
+    align-self: center;
+    justify-self: end;
+    /* Ensure right-alignment */
 }
 
 @media (prefers-color-scheme: dark) {
     .api-monitor-2fa-progress-container {
-        background: #374151;
+        background: rgba(255, 255, 255, 0.08);
     }
 }
 
 .api-monitor-2fa-progress-bar {
     height: 100%;
-    background: #6366f1;
+    background: linear-gradient(90deg, #6366f1, #8b5cf6);
     width: 0%;
     transition: width 1s linear;
 }
 
 .api-monitor-2fa-progress-bar.low {
-    background: #ef4444;
+    background: linear-gradient(90deg, #ef4444, #f87171);
+}
+
+/* Custom Slim Scrollbar for Premium Look */
+.api-monitor-2fa-list-container::-webkit-scrollbar {
+    width: 5px;
+}
+
+.api-monitor-2fa-list-container::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.api-monitor-2fa-list-container::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.1);
+    border-radius: 10px;
+}
+
+@media (prefers-color-scheme: dark) {
+    .api-monitor-2fa-list-container::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.15);
+    }
+}
+
+.api-monitor-2fa-list-container::-webkit-scrollbar-thumb:hover {
+    background: rgba(99, 102, 241, 0.4);
 }

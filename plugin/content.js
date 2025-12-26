@@ -4,6 +4,7 @@
 
 let serverUrl = '';
 let responseServerUrl = '';
+let allAccounts = [];
 
 function isContextValid() { return typeof chrome !== 'undefined' && chrome.runtime && !!chrome.runtime.id; }
 
@@ -40,50 +41,86 @@ function createFillButton(input) {
 async function showCodePicker(input) {
     if (!isContextValid()) { alert('扩展已更新，请刷新页面'); return; }
     document.querySelectorAll('.api-monitor-2fa-picker').forEach(el => el.remove());
+
     const picker = document.createElement('div');
     picker.className = 'api-monitor-2fa-picker';
-    picker.innerHTML = '<div class="loading">正在加载验证码...</div>';
+
+    picker.innerHTML = `
+    <div class="api-monitor-2fa-list-container" id="api-2fa-list">
+      <div class="loading">正在加载验证码...</div>
+    </div>
+  `;
 
     const rect = input.getBoundingClientRect();
-    picker.style.top = `${rect.bottom + window.scrollY + 6}px`;
+    picker.style.top = `${rect.bottom + window.scrollY + 8}px`; /* Increased offset from 6px to 8px */
     picker.style.left = `${rect.left + window.scrollX}px`;
     picker.style.width = `${rect.width}px`;
-    picker.style.minWidth = '220px';
+    picker.style.minWidth = '240px';
     document.body.appendChild(picker);
 
+    const listCont = picker.querySelector('#api-2fa-list');
+
     safeSendMessage({ type: 'GET_ACCOUNTS', domain: window.location.hostname }, (response) => {
-        if (!response || !response.success) { picker.innerHTML = `<div class="error">${response?.error || '获取失败'}</div>`; return; }
-        const accounts = response.matched?.length > 0 ? response.matched : response.data;
-        if (!accounts || accounts.length === 0) { picker.innerHTML = '<div class="empty">📭 暂无账号</div>'; return; }
-        renderPickerList(picker, accounts, input);
+        if (!response || !response.success) { listCont.innerHTML = `<div class="error">${response?.error || '获取失败'}</div>`; return; }
+        allAccounts = response.matched?.length > 0 ? response.matched : response.data;
+        if (!allAccounts || allAccounts.length === 0) { listCont.innerHTML = '<div class="empty">📭 暂无账号</div>'; return; }
+
+        renderPickerList(listCont, allAccounts, input);
     });
 
-    const closeHandler = (e) => { if (!picker.contains(e.target) && e.target !== input) { picker.remove(); document.removeEventListener('mousedown', closeHandler); } };
+    const closeHandler = (e) => {
+        if (!picker.contains(e.target) && e.target !== input) {
+            picker.remove();
+            document.removeEventListener('mousedown', closeHandler);
+        }
+    };
     setTimeout(() => document.addEventListener('mousedown', closeHandler), 10);
 }
 
-function renderPickerList(picker, accounts, input) {
-    picker.innerHTML = accounts.map(acc => {
-        return `
-      <div class="account-item no-icon" data-code="${acc.currentCode || ''}">
-        <div class="api-monitor-2fa-info" style="padding-left: 8px;">
-          <div class="api-monitor-2fa-issuer" style="font-weight: 600;">${acc.issuer || '未知'}</div>
-          <div class="api-monitor-2fa-account">${acc.account || ''}</div>
-        </div>
-        <div class="api-monitor-2fa-code-wrapper">
-          <div class="api-monitor-2fa-code">${formatCode(acc.currentCode)}</div>
-          <div class="api-monitor-2fa-progress-container"><div class="api-monitor-2fa-progress-bar" id="prog-${acc.id}"></div></div>
-        </div>
-      </div>`;
-    }).join('');
+function renderPickerList(container, accounts, input) {
+    const groups = {};
+    accounts.forEach(acc => {
+        const issuer = acc.issuer || '其他';
+        if (!groups[issuer]) groups[issuer] = [];
+        groups[issuer].push(acc);
+    });
 
-    picker.querySelectorAll('.account-item').forEach(item => {
+    const sortedIssuers = Object.keys(groups).sort((a, b) => {
+        const countA = groups[a].length;
+        const countB = groups[b].length;
+        if (countB !== countA) return countB - countA;
+        return a.localeCompare(b);
+    });
+
+    let html = '';
+    sortedIssuers.forEach(issuer => {
+        html += groups[issuer].map(acc => {
+            return `
+        <div class="account-item" data-code="${acc.currentCode || ''}">
+          <div class="api-monitor-2fa-info">
+            <div class="api-monitor-2fa-account">${acc.account || '未命名'}</div>
+            <div class="api-monitor-2fa-issuer">${acc.issuer || '其他'}</div>
+          </div>
+          <div class="api-monitor-2fa-code-wrapper">
+            <div class="api-monitor-2fa-code">${formatCode(acc.currentCode)}</div>
+            <div class="api-monitor-2fa-progress-container"><div class="api-monitor-2fa-progress-bar" id="prog-${acc.id}"></div></div>
+          </div>
+        </div>`;
+        }).join('');
+    });
+
+    container.innerHTML = html;
+
+    container.querySelectorAll('.account-item').forEach(item => {
         item.addEventListener('click', () => {
             if (item.dataset.code) {
+                input.dataset.justFilled = 'true';
                 input.value = item.dataset.code;
-                input.dispatchEvent(new Event('input', { bubbles: true })); input.dispatchEvent(new Event('change', { bubbles: true })); input.focus();
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+                input.dispatchEvent(new Event('change', { bubbles: true }));
+                input.focus();
             }
-            picker.remove();
+            document.querySelectorAll('.api-monitor-2fa-picker').forEach(p => p.remove());
         });
     });
     updateProgress(accounts);
@@ -114,6 +151,14 @@ function scanInputs() {
             input.dataset.apiMonitor2fa = 'true';
             const wrapper = document.createElement('div'); wrapper.className = 'api-monitor-2fa-wrapper';
             input.parentNode.insertBefore(wrapper, input); wrapper.appendChild(input); wrapper.appendChild(createFillButton(input));
+
+            input.addEventListener('focus', () => {
+                if (input.dataset.justFilled === 'true') {
+                    input.dataset.justFilled = 'false';
+                    return;
+                }
+                setTimeout(() => showCodePicker(input), 150);
+            });
         }
     });
 }
