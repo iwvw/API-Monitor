@@ -10,6 +10,7 @@ accounts.json
 # 敏感文件
 password.json
 sessions.json
+antigravity-accounts-*.json
 
 # 用户数据
 data/
