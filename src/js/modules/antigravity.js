@@ -758,8 +758,8 @@ export const antigravityMethods = {
                 const target = group.models.find(m => m.id === modelId);
                 if (target) {
                     foundModel = target;
-                    // Vue 3 响应式系统基于 Proxy，不再需要 $set
-                    if (target.enabled === undefined) target.enabled = true;
+                    // 如果属性不存在，Vue 2可能需要 $set，但通常加载后属性都在
+                    if (target.enabled === undefined) this.$set(target, 'enabled', true);
                     target.enabled = enabled;
                 }
             }
