@@ -737,3 +737,566 @@
     background: var(--border-color);
     margin: 6px 0;
 }
+
+/* ==================== 定时任务 (Cron) 界面样式 ==================== */
+
+/* 定时任务布局 */
+.cron-layout {
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+/* 定时任务卡片 */
+.cron-card {
+    background: var(--card-bg);
+    border-radius: 12px;
+    border: 1px solid var(--border-color);
+    overflow: hidden;
+    box-shadow: var(--card-shadow);
+}
+
+.cron-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 16px;
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.cron-card-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.cron-card-title i {
+    color: var(--selfh-primary);
+    font-size: 16px;
+}
+
+.cron-badge {
+    background: var(--selfh-primary);
+    color: white;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 10px;
+    min-width: 20px;
+    text-align: center;
+}
+
+.cron-card-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.cron-card-body {
+    padding: 0;
+}
+
+/* 日志容器限制高度 */
+.cron-logs-container {
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+/* 任务列表 */
+.cron-task-list {
+    display: flex;
+    flex-direction: column;
+}
+
+.cron-task-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border-color);
+    transition: background 0.15s;
+}
+
+.cron-task-item:last-child {
+    border-bottom: none;
+}
+
+.cron-task-item:hover {
+    background: rgba(6, 182, 212, 0.05);
+}
+
+.cron-task-item.disabled {
+    opacity: 0.6;
+}
+
+.cron-task-item.disabled .cron-task-name {
+    text-decoration: line-through;
+    opacity: 0.7;
+}
+
+/* 状态指示器 */
+.cron-task-status {
+    flex-shrink: 0;
+}
+
+.status-indicator {
+    display: block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--text-tertiary);
+}
+
+.status-indicator.active {
+    background: var(--success-color);
+    box-shadow: 0 0 8px rgba(34, 197, 94, 0.5);
+}
+
+.status-indicator.inactive {
+    background: var(--text-tertiary);
+}
+
+/* 任务信息 */
+.cron-task-main {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+}
+
+.cron-task-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.cron-task-name {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 4px;
+}
+
+.cron-task-meta {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-bottom: 4px;
+}
+
+.cron-task-meta span {
+    font-size: 12px;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.cron-task-meta i {
+    font-size: 10px;
+    opacity: 0.7;
+}
+
+.cron-schedule {
+    font-family: var(--font-mono);
+    background: var(--bg-tertiary);
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+
+.cron-task-command {
+    font-size: 12px;
+    color: var(--text-tertiary);
+    font-family: var(--font-mono);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 300px;
+}
+
+/* 任务额外信息 */
+.cron-task-extra {
+    flex-shrink: 0;
+    text-align: right;
+    min-width: 140px;
+}
+
+.cron-last-run {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 4px;
+}
+
+.cron-last-run i {
+    font-size: 10px;
+}
+
+/* 任务操作按钮 */
+.cron-task-actions {
+    display: flex;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+/* 空状态 */
+.cron-empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    padding: 48px 24px;
+    text-align: center;
+    color: var(--text-tertiary);
+}
+
+.cron-empty-state.compact {
+    padding: 32px 24px;
+}
+
+.cron-empty-state i {
+    font-size: 48px;
+    margin-bottom: 16px;
+    opacity: 0.3;
+}
+
+.cron-empty-state.compact i {
+    font-size: 32px;
+    margin-bottom: 12px;
+}
+
+.cron-empty-state p {
+    font-size: 14px;
+    margin-bottom: 16px;
+}
+
+.cron-empty-state.compact p {
+    margin-bottom: 0;
+}
+
+/* 日志列表 */
+.cron-log-list {
+    display: flex;
+    flex-direction: column;
+}
+
+.cron-log-item {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-color);
+    transition: background 0.15s;
+}
+
+.cron-log-item:last-child {
+    border-bottom: none;
+}
+
+.cron-log-item:hover {
+    background: rgba(6, 182, 212, 0.03);
+}
+
+/* 日志状态颜色 */
+.cron-log-item.status-success {
+    border-left: 3px solid var(--success-color);
+}
+
+.cron-log-item.status-failed {
+    border-left: 3px solid var(--danger-color);
+}
+
+.cron-log-item.status-running {
+    border-left: 3px solid var(--warning-color);
+}
+
+.cron-log-header {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px;
+    align-items: center;
+}
+
+.cron-log-time {
+    font-size: 12px;
+    color: var(--text-tertiary);
+    font-family: var(--font-mono);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.cron-log-time i {
+    font-size: 10px;
+}
+
+.cron-log-task {
+    font-size: 13px;
+    color: var(--text-primary);
+    font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.cron-log-task i {
+    font-size: 10px;
+    color: var(--text-secondary);
+}
+
+.cron-log-status {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 10px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.cron-log-status.bg-success {
+    background: rgba(34, 197, 94, 0.15);
+    color: var(--success-color);
+}
+
+.cron-log-status.bg-danger {
+    background: rgba(239, 68, 68, 0.15);
+    color: var(--danger-color);
+}
+
+.cron-log-status.bg-warning {
+    background: rgba(245, 158, 11, 0.15);
+    color: var(--warning-color);
+}
+
+.cron-log-duration {
+    font-size: 12px;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.cron-log-duration i {
+    font-size: 10px;
+}
+
+/* 日志输出 */
+.cron-log-output {
+    margin-top: 8px;
+}
+
+.cron-log-output summary {
+    font-size: 12px;
+    color: var(--text-secondary);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 8px;
+    border-radius: 4px;
+    transition: background 0.15s;
+}
+
+.cron-log-output summary:hover {
+    background: var(--bg-tertiary);
+}
+
+.cron-log-output summary i {
+    font-size: 10px;
+}
+
+.cron-log-output pre {
+    margin-top: 8px;
+    padding: 12px;
+    background: var(--bg-secondary);
+    border-radius: 6px;
+    font-size: 12px;
+    font-family: var(--font-mono);
+    color: var(--text-primary);
+    white-space: pre-wrap;
+    word-break: break-all;
+    max-height: 200px;
+    overflow-y: auto;
+}
+
+/* 模态框特定样式 */
+.cron-modal {
+    max-width: 520px;
+}
+
+.cron-modal .modal-title {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 16px;
+}
+
+.cron-modal .modal-title i {
+    color: var(--selfh-primary);
+}
+
+.cron-modal .modal-body {
+    padding: 20px;
+}
+
+.cron-modal .form-group {
+    margin-bottom: 16px;
+}
+
+.cron-modal .form-label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 8px;
+}
+
+.cron-modal .form-label i {
+    font-size: 12px;
+    color: var(--selfh-primary);
+}
+
+/* Cron 表达式输入 */
+.cron-schedule-input {
+    display: flex;
+    gap: 8px;
+}
+
+.cron-schedule-input .form-input {
+    flex: 1;
+}
+
+/* 任务类型选择器 */
+.cron-type-selector {
+    display: flex;
+    gap: 8px;
+}
+
+.cron-type-option {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 12px 16px;
+    background: var(--bg-tertiary);
+    border: 2px solid var(--border-color);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-secondary);
+}
+
+.cron-type-option input[type="radio"] {
+    display: none;
+}
+
+.cron-type-option i {
+    font-size: 16px;
+}
+
+.cron-type-option:hover {
+    border-color: var(--selfh-primary);
+    background: rgba(6, 182, 212, 0.05);
+}
+
+.cron-type-option.active {
+    border-color: var(--selfh-primary);
+    background: rgba(6, 182, 212, 0.1);
+    color: var(--selfh-primary);
+}
+
+/* 启用开关 */
+.cron-enable-toggle {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
+    padding: 8px 0;
+}
+
+.cron-enable-toggle input[type="checkbox"] {
+    display: none;
+}
+
+.toggle-switch {
+    width: 44px;
+    height: 24px;
+    background: var(--border-color);
+    border-radius: 12px;
+    position: relative;
+    transition: background 0.2s;
+}
+
+.toggle-switch::after {
+    content: '';
+    position: absolute;
+    width: 18px;
+    height: 18px;
+    background: white;
+    border-radius: 50%;
+    top: 3px;
+    left: 3px;
+    transition: transform 0.2s;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.cron-enable-toggle input:checked + .toggle-switch {
+    background: var(--selfh-primary);
+}
+
+.cron-enable-toggle input:checked + .toggle-switch::after {
+    transform: translateX(20px);
+}
+
+.toggle-label {
+    font-size: 14px;
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+/* 手机端适配 */
+@media (max-width: 768px) {
+    .cron-layout {
+        padding: 12px;
+        gap: 12px;
+    }
+
+    .cron-task-item {
+        flex-wrap: wrap;
+        gap: 8px;
+        padding: 12px;
+    }
+
+    .cron-task-main {
+        width: 100%;
+    }
+
+    .cron-task-extra {
+        width: 100%;
+        text-align: left;
+        min-width: 0;
+    }
+
+    .cron-task-actions {
+        width: 100%;
+        justify-content: flex-end;
+    }
+
+    .cron-task-command {
+        max-width: 100%;
+    }
+
+    .cron-log-header {
+        gap: 8px;
+    }
+
+    .cron-type-selector {
+        flex-direction: column;
+    }
+}

@@ -31,6 +31,7 @@ export const geminiCliMethods = {
             this.loadGeminiCliModelRedirects();
         } else if (tabName === 'accounts') {
             this.loadGeminiCliAccounts();
+            this.loadGeminiCliCheckHistory(); // 自动加载检测历史
         }
     },
 
@@ -46,11 +47,15 @@ export const geminiCliMethods = {
         // 后台加载账号列表
         this.loadGeminiCliAccounts();
 
+        // 后台加载检测历史
+        this.loadGeminiCliCheckHistory();
+
         // 启动账号列表自动刷新 (用于更新冷却倒计时)
         if (this.gcliAccountTimer) clearInterval(this.gcliAccountTimer);
         this.gcliAccountTimer = setInterval(() => {
             if (store.mainActiveTab === 'gemini-cli' && store.geminiCliCurrentTab === 'accounts') {
                 this.loadGeminiCliAccounts();
+                this.loadGeminiCliCheckHistory(); // 自动刷新检测历史
             }
         }, 10000);
     },
@@ -879,5 +884,127 @@ export const geminiCliMethods = {
         };
 
         input.click();
+    },
+
+    // 执行模型健康检测
+    async checkGeminiCliAccounts() {
+        store.geminiCliCheckLoading = true;
+        toast.info('正在检测模型健康状态...');
+        try {
+            const response = await fetch('/api/gemini-cli-api/accounts/check', {
+                method: 'POST',
+                headers: store.getAuthHeaders()
+            });
+            const data = await response.json();
+            if (response.ok) {
+                toast.success(`检测完成: ${data.checked} 正常, ${data.failed} 异常`);
+                await this.loadGeminiCliCheckHistory();
+            } else {
+                toast.error(data.error || '检测失败');
+            }
+        } catch (error) {
+            toast.error('检测请求失败: ' + error.message);
+        } finally {
+            store.geminiCliCheckLoading = false;
+        }
+    },
+
+    // 加载检测历史
+    async loadGeminiCliCheckHistory() {
+        try {
+            const response = await fetch('/api/gemini-cli-api/models/check-history', {
+                headers: store.getAuthHeaders()
+            });
+            const data = await response.json();
+            store.geminiCliCheckHistory = data;
+        } catch (error) {
+            console.error('加载检测历史失败:', error);
+        }
+    },
+
+    // 清空检测历史
+    async clearGeminiCliCheckHistory() {
+        const confirmed = await store.showConfirm({
+            title: '确认清空',
+            message: '确定要清空所有模型检测历史吗？',
+            icon: 'fa-trash',
+            confirmText: '清空',
+            confirmClass: 'btn-danger'
+        });
+
+        if (!confirmed) return;
+
+        try {
+            const response = await fetch('/api/gemini-cli-api/models/check-history', {
+                method: 'DELETE',
+                headers: store.getAuthHeaders()
+            });
+            if (response.ok) {
+                toast.success('检测历史已清空');
+                store.geminiCliCheckHistory = { models: [], times: [], matrix: {} };
+            }
+        } catch (error) {
+            toast.error('清空失败');
+        }
+    },
+
+    // 格式化检测时间（显示为 日-时-分-秒）
+    formatCheckTime(timestamp) {
+        if (!timestamp) return '-';
+        const date = new Date(timestamp * 1000);
+        const d = String(date.getDate()).padStart(2, '0');
+        const h = String(date.getHours()).padStart(2, '0');
+        const m = String(date.getMinutes()).padStart(2, '0');
+        const s = String(date.getSeconds()).padStart(2, '0');
+        return `${d}-${h}-${m}-${s}`;
+    },
+
+    // 格式化相对时间
+    formatRelativeTime(timestamp) {
+        if (!timestamp) return '-';
+        const now = Math.floor(Date.now() / 1000);
+        const diff = now - timestamp;
+
+        if (diff < 60) return '刚刚';
+        if (diff < 3600) return `${Math.floor(diff / 60)}分钟前`;
+        if (diff < 86400) return `${Math.floor(diff / 3600)}小时前`;
+        return `${Math.floor(diff / 86400)}天前`;
+    },
+
+    // 获取检测结果 CSS 类
+    getCheckResultClass(checkResult) {
+        if (!checkResult) return 'ag-status-unknown';
+        try {
+            const result = typeof checkResult === 'string' ? JSON.parse(checkResult) : checkResult;
+            return result.status === 'online' ? 'ag-status-online' : 'ag-status-error';
+        } catch (e) {
+            return 'ag-status-unknown';
+        }
+    },
+
+    // 获取检测结果图标
+    getCheckResultIcon(checkResult) {
+        if (!checkResult) return 'fa-question-circle';
+        try {
+            const result = typeof checkResult === 'string' ? JSON.parse(checkResult) : checkResult;
+            return result.status === 'online' ? 'fa-check-circle' : 'fa-times-circle';
+        } catch (e) {
+            return 'fa-question-circle';
+        }
+    },
+
+    // 格式化检测结果详情
+    formatCheckResult(checkResult) {
+        if (!checkResult) return '暂无检测记录';
+        try {
+            const result = typeof checkResult === 'string' ? JSON.parse(checkResult) : checkResult;
+            if (result.status === 'online') {
+                return `状态正常 (${result.passed || 0}/${result.modelsTested || 0} 模型通过)`;
+            } else {
+                return `状态异常: ${result.error || '未知错误'}`;
+            }
+        } catch (e) {
+            return '解析错误';
+        }
     }
 };

@@ -213,7 +213,7 @@ function stateToFrontendFormat(state, hostInfo = {}) {
 
     // GPU 显存
     const gpuMemUsed = safeNumber(state.gpu_mem_used);
-    const gpuMemTotal = safeNumber(hostInfo.gpu_mem_total) || 1;
+    const gpuMemTotal = safeNumber(hostInfo.gpu_mem_total || state.gpu_mem_total) || 1;
     const gpuMemPercent = gpuMemTotal > 0 ? Math.min(100, (gpuMemUsed / gpuMemTotal) * 100) : 0;
 
     // 计算百分比
@@ -227,7 +227,16 @@ function stateToFrontendFormat(state, hostInfo = {}) {
     return {
         cpu_usage: cpu.toFixed(1) + '%',
         load: `${load1.toFixed(2)} ${load5.toFixed(2)} ${load15.toFixed(2)}`,
-        cores: safeNumber(hostInfo.cores || hostInfo.Cores) || (hostInfo.cpu?.length || 1),
+        cores: (() => {
+            const explicit = safeNumber(hostInfo.cores || hostInfo.Cores);
+            if (explicit > 0) return explicit;
+            // 尝试从 CPU 描述字符串中解析核心数 (例如 "Intel ... 12 Core(s)")
+            if (hostInfo.cpu && hostInfo.cpu.length > 0) {
+                const match = hostInfo.cpu[0].match(/(\d+)\s*Core/i);
+                if (match) return parseInt(match[1]) || 1;
+            }
+            return 0;
+        })(),
         // 保持前端兼容的格式: "使用量/总量MB"
         mem: `${memUsedMB}/${memTotalMB}MB`,
         mem_usage: `${memUsedMB}/${memTotalMB}MB`,
@@ -248,9 +257,11 @@ function stateToFrontendFormat(state, hostInfo = {}) {
         docker: state.docker || { installed: false, running: 0, stopped: 0, containers: [] },
         gpu: safeNumber(state.gpu),
         gpu_usage: safeNumber(state.gpu).toFixed(1) + '%',
-        gpu_mem: `${formatBytes(gpuMemUsed)}/${formatBytes(gpuMemTotal)}`,
-        gpu_mem_used: gpuMemUsed, // 改回 Byte，保持与 Total 一致
-        gpu_mem_percent: gpuMemPercent,
+        // 当 GPU 显存总量无效 (<= 1024 bytes, 即没有真实数据) 时不显示
+        gpu_mem: gpuMemTotal > 1024 ? `${formatBytes(gpuMemUsed)}/${formatBytes(gpuMemTotal)}` : '',
+        gpu_mem_used: gpuMemUsed,
+        gpu_mem_total: gpuMemTotal,
+        gpu_mem_percent: gpuMemTotal > 1024 ? gpuMemPercent : 0,
         gpu_power: safeNumber(state.gpu_power).toFixed(0) + 'W',
         gpu_model: Array.isArray(hostInfo.gpu) && hostInfo.gpu.length > 0 ? hostInfo.gpu[0] : '',
         platform: hostInfo.platform || '',

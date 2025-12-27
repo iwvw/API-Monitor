@@ -341,7 +341,7 @@ class AgentService {
                 received_at: Date.now()
             });
 
-            this.log(`收到主机信息: ${serverId} (${hostInfo.platform} ${hostInfo.platform_version}), Cores: ${hostInfo.cores}, CPU List: ${JSON.stringify(hostInfo.cpu)}`);
+            this.log(`收到主机信息: ${serverId} (${hostInfo.platform} ${hostInfo.platform_version}), Cores: ${hostInfo.cores}, GPU: ${JSON.stringify(hostInfo.gpu)}, GPU Mem Total: ${hostInfo.gpu_mem_total}`);
         });
 
         // 3. 接收实时状态

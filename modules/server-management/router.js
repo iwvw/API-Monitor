@@ -578,18 +578,22 @@ router.post('/metrics/collect', async (req, res) => {
                 // 保存到历史记录
                 ServerMetricsHistory.create({
                     server_id: server.id,
-                    cpu_usage: parseFloat(metrics.cpu) || 0,
+                    cpu_usage: parseFloat(metrics.cpu_usage) || 0,
                     cpu_load: metrics.load || '',
-                    cpu_cores: metrics.cores || 0,
-                    mem_used: parseInt(metrics.mem?.split('/')[0]) || 0,
-                    mem_total: parseInt(metrics.mem?.split('/')[1]) || 0,
-                    mem_usage: metrics.mem_usage ? parseFloat(metrics.mem_usage.split('/')[0]) / parseFloat(metrics.mem_usage.split('/')[1].replace('MB', '')) * 100 : 0,
+                    cpu_cores: metrics.cores || 1,
+                    mem_used: metrics.mem_used || 0,
+                    mem_total: metrics.mem_total || 0,
+                    mem_usage: metrics.mem_percent || 0,
                     disk_used: metrics.disk_used || '',
                     disk_total: metrics.disk_total || '',
-                    disk_usage: parseFloat(metrics.disk_usage?.match(/\((\d+\.?\d*)%\)/)?.[1]) || 0,
+                    disk_usage: metrics.disk_percent || 0,
                     docker_installed: metrics.docker?.installed ? 1 : 0,
                     docker_running: metrics.docker?.running || 0,
                     docker_stopped: metrics.docker?.stopped || 0,
+                    gpu_usage: parseFloat(metrics.gpu_usage) || 0,
+                    gpu_mem_used: metrics.gpu_mem_used || 0,
+                    gpu_mem_total: metrics.gpu_mem_total || 0,
+                    gpu_power: parseFloat(metrics.gpu_power) || 0,
                     platform: metrics.platform || ''
                 });
                 collected.push(server.id);

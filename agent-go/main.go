@@ -83,16 +83,29 @@ func (a *AgentClient) Start() {
 	fmt.Printf("  Interval: %dms\n", a.config.ReportInterval)
 	fmt.Println("═══════════════════════════════════════════════")
 
-	// 预热数据采集
+	// 预热数据采集 (同步等待完成，确保 GPU 信息已获取)
 	log.Println("[Agent] 正在预热数据采集...")
+	
+	// 第一次采集：建立 CPU 使用率基准
+	a.collector.CollectState()
+	
+	// 等待 1 秒，让 CPU 采集有足够的时间间隔
+	time.Sleep(1 * time.Second)
+	
+	// 并行采集主机信息和第二次状态
+	var wg sync.WaitGroup
+	wg.Add(2)
 	go func() {
+		defer wg.Done()
 		a.collector.CollectHostInfo()
 		log.Println("[Agent] ✓ 主机信息预热完成")
 	}()
 	go func() {
-		a.collector.CollectState()
+		defer wg.Done()
+		a.collector.CollectState() // 第二次采集，此时 CPU 数据应该准确
 		log.Println("[Agent] ✓ 实时状态预热完成")
 	}()
+	wg.Wait() // 等待预热完成
 
 	// 连接服务器
 	a.connect()

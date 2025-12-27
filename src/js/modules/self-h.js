@@ -1615,6 +1615,351 @@ export const selfHMethods = {
         if (!dateStr) return '-';
         const date = new Date(dateStr);
         return date.toLocaleString();
+    },
+
+    // ==================== 定时任务 (Cron) ====================
+
+    async loadCronTasks() {
+        store.cronLoading = true;
+        try {
+            const res = await fetch('/api/cron/tasks');
+            const data = await res.json();
+            if (data.success) {
+                store.cronTasks = data.data;
+            } else {
+                toast.error('加载任务失败: ' + data.error);
+            }
+        } catch (e) {
+            toast.error('加载任务出错: ' + e.message);
+        } finally {
+            store.cronLoading = false;
+        }
+    },
+
+    openCronEditModal(task = null) {
+        if (task) {
+            store.cronEditingTask = JSON.parse(JSON.stringify(task)); // Deep copy
+            // 解析现有的 cron 表达式到简化设置
+            this.parseCronToSimple(store.cronEditingTask);
+        } else {
+            store.cronEditingTask = {
+                name: '',
+                schedule: '0 0 * * *',
+                command: '',
+                type: 'shell',
+                enabled: 1,
+                // 简化设置默认值
+                useCustom: false,
+                periodType: 'day',
+                weekday: '1',
+                dayOfMonth: 1,
+                hour: 0,
+                minute: 0,
+                nextRuns: []
+            };
+        }
+        // 自动预览
+        this.previewCronSchedule();
+    },
+
+    // 解析 Cron 表达式到简化设置
+    parseCronToSimple(task) {
+        if (!task.schedule) return;
+
+        const parts = task.schedule.split(' ');
+        if (parts.length !== 5) {
+            task.useCustom = true;
+            return;
+        }
+
+        const [minute, hour, dayOfMonth, month, weekday] = parts;
+
+        // 尝试识别简单模式
+        if (minute === '*' && hour === '*' && dayOfMonth === '*' && month === '*' && weekday === '*') {
+            task.periodType = 'minute';
+            task.useCustom = false;
+        } else if (hour === '*' && dayOfMonth === '*' && month === '*' && weekday === '*' && /^\d+$/.test(minute)) {
+            task.periodType = 'hour';
+            task.minute = parseInt(minute);
+            task.useCustom = false;
+        } else if (dayOfMonth === '*' && month === '*' && weekday === '*' && /^\d+$/.test(minute) && /^\d+$/.test(hour)) {
+            task.periodType = 'day';
+            task.minute = parseInt(minute);
+            task.hour = parseInt(hour);
+            task.useCustom = false;
+        } else if (dayOfMonth === '*' && month === '*' && /^\d+$/.test(weekday) && /^\d+$/.test(minute) && /^\d+$/.test(hour)) {
+            task.periodType = 'week';
+            task.minute = parseInt(minute);
+            task.hour = parseInt(hour);
+            task.weekday = weekday;
+            task.useCustom = false;
+        } else if (month === '*' && weekday === '*' && /^\d+$/.test(dayOfMonth) && /^\d+$/.test(minute) && /^\d+$/.test(hour)) {
+            task.periodType = 'month';
+            task.minute = parseInt(minute);
+            task.hour = parseInt(hour);
+            task.dayOfMonth = parseInt(dayOfMonth);
+            task.useCustom = false;
+        } else {
+            // 复杂表达式，使用自定义模式
+            task.useCustom = true;
+        }
+
+        // 设置默认值
+        if (task.minute === undefined) task.minute = 0;
+        if (task.hour === undefined) task.hour = 0;
+        if (task.weekday === undefined) task.weekday = '1';
+        if (task.dayOfMonth === undefined) task.dayOfMonth = 1;
+    },
+
+    // 根据简化设置更新 Cron 表达式
+    updateCronFromSimple() {
+        const task = store.cronEditingTask;
+        if (!task) return;
+
+        // 如果手动切换回自定义，不执行后续逻辑
+        if (task.useCustom) {
+            this.previewCronSchedule();
+            return;
+        }
+
+        const minute = task.minute !== undefined ? task.minute : 0;
+        const hour = task.hour !== undefined ? task.hour : 0;
+        const weekday = task.weekday || '1';
+        const dayOfMonth = task.dayOfMonth || 1;
+
+        switch (task.periodType) {
+            case 'minute':
+                task.schedule = '* * * * *';
+                break;
+            case 'hour':
+                task.schedule = `${minute} * * * *`;
+                break;
+            case 'day':
+                task.schedule = `${minute} ${hour} * * *`;
+                break;
+            case 'week':
+                task.schedule = `${minute} ${hour} * * ${weekday}`;
+                break;
+            case 'month':
+                task.schedule = `${minute} ${hour} ${dayOfMonth} * *`;
+                break;
+            default:
+                task.schedule = '0 0 * * *';
+        }
+
+        // 自动预览
+        this.previewCronSchedule();
+    },
+
+    // 预览未来 5 次执行时间
+    async previewCronSchedule() {
+        const task = store.cronEditingTask;
+        if (!task || !task.schedule) return;
+
+        // 防止频繁触发
+        if (this._previewTimer) clearTimeout(this._previewTimer);
+        this._previewTimer = setTimeout(() => {
+            try {
+                const nextRuns = [];
+                const cronParts = task.schedule.trim().split(/\s+/);
+                if (cronParts.length !== 5) {
+                    task.nextRuns = [];
+                    return;
+                }
+
+                const now = new Date();
+                let current = new Date(now);
+
+                for (let i = 0; i < 5; i++) {
+                    const next = this.getNextCronRun(task.schedule, current);
+                    if (next) {
+                        nextRuns.push(next.toLocaleString('zh-CN', {
+                            year: 'numeric',
+                            month: '2-digit',
+                            day: '2-digit',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                            hour12: false
+                        }));
+                        current = new Date(next.getTime() + 60000); // 寻找下一个分钟
+                    } else {
+                        break;
+                    }
+                }
+
+                task.nextRuns = nextRuns;
+            } catch (e) {
+                console.warn('Cron Preview Error:', e);
+                task.nextRuns = [];
+            }
+        }, 100);
+    },
+
+    // 计算下一次 Cron 执行时间（简单实现）
+    getNextCronRun(schedule, from) {
+        const [minute, hour, dayOfMonth, month, dayOfWeek] = schedule.split(' ');
+
+        let candidate = new Date(from);
+        candidate.setSeconds(0);
+        candidate.setMilliseconds(0);
+
+        // 最多尝试 366 天
+        for (let attempt = 0; attempt < 366 * 24 * 60; attempt++) {
+            candidate = new Date(candidate.getTime() + 60000);
+
+            if (!this.cronFieldMatch(minute, candidate.getMinutes())) continue;
+            if (!this.cronFieldMatch(hour, candidate.getHours())) continue;
+            if (!this.cronFieldMatch(dayOfMonth, candidate.getDate())) continue;
+            if (!this.cronFieldMatch(month, candidate.getMonth() + 1)) continue;
+            if (!this.cronFieldMatch(dayOfWeek, candidate.getDay())) continue;
+
+            return candidate;
+        }
+        return null;
+    },
+
+    // 检查 Cron 字段是否匹配
+    cronFieldMatch(field, value) {
+        if (field === '*') return true;
+
+        // 处理逗号分隔
+        if (field.includes(',')) {
+            return field.split(',').some(v => this.cronFieldMatch(v, value));
+        }
+
+        // 处理范围
+        if (field.includes('-')) {
+            const [start, end] = field.split('-').map(Number);
+            return value >= start && value <= end;
+        }
+
+        // 处理步进
+        if (field.includes('/')) {
+            const [base, step] = field.split('/');
+            const stepNum = parseInt(step);
+            if (base === '*') {
+                return value % stepNum === 0;
+            }
+            const baseNum = parseInt(base);
+            return (value - baseNum) % stepNum === 0 && value >= baseNum;
+        }
+
+        return parseInt(field) === value;
+    },
+
+    closeCronEditModal() {
+        store.cronEditingTask = null;
+    },
+
+    async saveCronTask() {
+        const task = store.cronEditingTask;
+        if (!task.name || !task.schedule || !task.command) {
+            return toast.error('请填写完整信息');
+        }
+
+        try {
+            const url = task.id ? `/api/cron/tasks/${task.id}` : '/api/cron/tasks';
+            const method = task.id ? 'PUT' : 'POST';
+
+            const res = await fetch(url, {
+                method: method,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(task)
+            });
+            const data = await res.json();
+
+            if (data.success) {
+                toast.success('保存成功');
+                this.closeCronEditModal();
+                this.loadCronTasks();
+            } else {
+                toast.error('保存失败: ' + data.error);
+            }
+        } catch (e) {
+            toast.error('请求失败: ' + e.message);
+        }
+    },
+
+    async deleteCronTask(task) {
+        if (!confirm(`确定要删除任务 "${task.name}" 吗？`)) return;
+
+        try {
+            const res = await fetch(`/api/cron/tasks/${task.id}`, { method: 'DELETE' });
+            const data = await res.json();
+            if (data.success) {
+                toast.success('已删除');
+                this.loadCronTasks();
+            } else {
+                toast.error('删除失败: ' + data.error);
+            }
+        } catch (e) {
+            toast.error('请求失败: ' + e.message);
+        }
+    },
+
+    async toggleCronTask(task) {
+        try {
+            const newStatus = task.enabled ? 0 : 1;
+            const res = await fetch(`/api/cron/tasks/${task.id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enabled: newStatus })
+            });
+            const data = await res.json();
+            if (data.success) {
+                task.enabled = newStatus;
+                toast.success(newStatus ? '任务已启用' : '任务已禁用');
+            } else {
+                toast.error('操作失败: ' + data.error);
+            }
+        } catch (e) {
+            toast.error('请求失败: ' + e.message);
+        }
+    },
+
+    async runCronTask(task) {
+        try {
+            toast.info('正在触发任务...');
+            const res = await fetch(`/api/cron/tasks/${task.id}/run`, { method: 'POST' });
+            const data = await res.json();
+            if (data.success) {
+                toast.success('任务已开始执行');
+                setTimeout(() => this.loadCronLogs(), 1000);
+            } else {
+                toast.error('执行失败: ' + data.error);
+            }
+        } catch (e) {
+            toast.error('请求失败: ' + e.message);
+        }
+    },
+
+    async loadCronLogs(taskId = null) {
+        const url = taskId ? `/api/cron/logs?task_id=${taskId}` : '/api/cron/logs';
+        try {
+            const res = await fetch(url);
+            const data = await res.json();
+            if (data.success) {
+                store.cronLogs = data.data;
+            }
+        } catch (e) {
+            console.error('Failed to load logs', e);
+        }
+    },
+
+    async clearCronLogs(days = 7) {
+        if (!confirm(`确定要清理 ${days} 天前的日志吗？`)) return;
+        try {
+            const res = await fetch(`/api/cron/logs?days=${days}`, { method: 'DELETE' });
+            const data = await res.json();
+            if (data.success) {
+                toast.success('日志已清理');
+                this.loadCronLogs();
+            } else {
+                toast.error('清理失败: ' + data.error);
+            }
+        } catch (e) {
+            toast.error('请求失败: ' + e.message);
+        }
     }
 };
 

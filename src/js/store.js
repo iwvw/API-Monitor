@@ -147,6 +147,13 @@ export const store = reactive({
     // Self-H (Self-Hosted) module state
     selfHCurrentTab: 'openlist',
     openListSubTab: 'overview',
+
+    // Cron Scheduler (Added)
+    cronTasks: [],
+    cronLogs: [],
+    cronEditingTask: null, // { id, name, schedule, command, type, enabled } or null
+    cronLoading: false,
+
     openListAccounts: [],
     openListStats: { onlineCount: 0 },
     currentOpenListAccount: null,
@@ -375,6 +382,8 @@ export const store = reactive({
     newRedirectSource: '',
     newRedirectTarget: '',
     agEditingRedirectSource: null,
+    antigravityCheckLoading: false, // 模型检测中
+    antigravityCheckHistory: { models: [], times: [], matrix: {} }, // 检测历史矩阵
 
     // Gemini CLI
     geminiCliAccounts: [],
@@ -408,6 +417,8 @@ export const store = reactive({
     geminiCliLogFilterAccount: '',
     geminiCliLogFilterModel: '',
     gcliLogDetailShowRaw: false, // 是否显示原始 JSON (Gemini CLI)
+    geminiCliCheckLoading: false, // 模型检测中
+    geminiCliCheckHistory: { models: [], times: [], matrix: {} }, // 检测历史矩阵
 
     // 统一日志查看器 (Log Viewer)
     logViewer: {

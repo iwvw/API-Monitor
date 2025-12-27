@@ -219,3 +219,41 @@
   font-size: 9px;
   margin-right: 2px;
 }
+
+/* 模型健康检测表格 */
+.model-check-table th,
+.model-check-table td {
+  padding: 8px 12px;
+  font-size: 12px;
+}
+
+.model-check-table th:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--bg-secondary);
+}
+
+.model-check-table td:first-child {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--card-bg);
+}
+
+.check-ok {
+  color: var(--success-color);
+  font-weight: bold;
+  font-size: 16px;
+}
+
+.check-error {
+  color: var(--error-color);
+  font-weight: bold;
+  font-size: 16px;
+}
+
+.check-none {
+  color: var(--text-tertiary);
+  font-size: 14px;
+}

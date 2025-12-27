@@ -12,6 +12,10 @@
                 @click="openListSubTab = 'settings'">
                 <i class="fas fa-cog"></i> 设置
             </button>
+            <button class="tab-btn" :class="{ active: openListSubTab === 'cron' }"
+                @click="openListSubTab = 'cron'; loadCronTasks(); loadCronLogs()">
+                <i class="fas fa-clock"></i> 定时任务
+            </button>
             <!-- 临时标签页列表 -->
             <button v-for="tab in openListTempTabs" :key="tab.id" class="tab-btn temp-tab"
                 :class="{ active: openListSubTab === 'temp' && openListActiveTempTabId === tab.id }"
@@ -217,7 +221,298 @@
             </div>
         </div>
 
-        <!-- 3. 临时标签页 -->
+        <!-- 3. 定时任务 -->
+        <div v-if="openListSubTab === 'cron'" class="cron-layout animate-fade-in">
+            <!-- 任务列表卡片 -->
+            <div class="cron-card">
+                <div class="cron-card-header">
+                    <div class="cron-card-title">
+                        <i class="fas fa-tasks"></i>
+                        <span>任务列表</span>
+                        <span class="cron-badge" v-if="cronTasks.length">{{ cronTasks.length }}</span>
+                    </div>
+                    <button class="btn btn-primary btn-sm" @click="openCronEditModal()">
+                        <i class="fas fa-plus"></i> 新建任务
+                    </button>
+                </div>
+                <div class="cron-card-body">
+                    <!-- 任务列表 -->
+                    <div v-if="cronTasks.length > 0" class="cron-task-list">
+                        <div v-for="task in cronTasks" :key="task.id" class="cron-task-item"
+                            :class="{ 'disabled': !task.enabled }">
+                            <div class="cron-task-main">
+                                <div class="cron-task-status">
+                                    <span class="status-indicator" :class="task.enabled ? 'active' : 'inactive'"></span>
+                                </div>
+                                <div class="cron-task-info">
+                                    <div class="cron-task-name">{{ task.name }}</div>
+                                    <div class="cron-task-meta">
+                                        <span class="cron-schedule"><i class="fas fa-clock"></i> {{ task.schedule
+                                            }}</span>
+                                        <span class="cron-type"><i
+                                                :class="task.type === 'http' ? 'fas fa-globe' : 'fas fa-terminal'"></i>
+                                            {{ task.type === 'http' ? 'HTTP' : 'Shell' }}</span>
+                                    </div>
+                                    <div class="cron-task-command" :title="task.command">{{ task.command }}</div>
+                                </div>
+                            </div>
+                            <div class="cron-task-extra">
+                                <div class="cron-last-run" v-if="task.last_run">
+                                    <i class="fas fa-history"></i> {{ formatDateTime(task.last_run * 1000) }}
+                                </div>
+                            </div>
+                            <div class="cron-task-actions">
+                                <button class="btn btn-icon-refined sm" @click="runCronTask(task)" title="立即运行">
+                                    <i class="fas fa-play"></i>
+                                </button>
+                                <button class="btn btn-icon-refined sm" @click="toggleCronTask(task)"
+                                    :title="task.enabled ? '禁用' : '启用'">
+                                    <i class="fas" :class="task.enabled ? 'fa-pause' : 'fa-check'"></i>
+                                </button>
+                                <button class="btn btn-icon-refined sm" @click="openCronEditModal(task)" title="编辑">
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                                <button class="btn btn-icon-refined sm text-danger" @click="deleteCronTask(task)"
+                                    title="删除">
+                                    <i class="fas fa-trash-alt"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- 空状态 -->
+                    <div v-else class="cron-empty-state">
+                        <i class="fas fa-calendar-check"></i>
+                        <p>暂无定时任务</p>
+                        <button class="btn btn-primary btn-sm" @click="openCronEditModal()">
+                            <i class="fas fa-plus"></i> 创建第一个任务
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 运行日志卡片 -->
+            <div class="cron-card">
+                <div class="cron-card-header">
+                    <div class="cron-card-title">
+                        <i class="fas fa-history"></i>
+                        <span>运行日志</span>
+                        <span class="cron-badge" v-if="cronLogs.length">{{ cronLogs.length }}</span>
+                    </div>
+                    <div class="cron-card-actions">
+                        <button class="btn btn-icon-refined sm" @click="loadCronLogs()" title="刷新">
+                            <i class="fas fa-sync-alt"></i>
+                        </button>
+                        <button class="btn btn-icon-refined sm text-danger" @click="clearCronLogs(7)" title="清理7天前日志">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="cron-card-body cron-logs-container">
+                    <!-- 日志列表 -->
+                    <div v-if="cronLogs.length > 0" class="cron-log-list">
+                        <div v-for="log in cronLogs" :key="log.id" class="cron-log-item"
+                            :class="'status-' + log.status">
+                            <div class="cron-log-header">
+                                <span class="cron-log-time"><i class="fas fa-clock"></i> {{
+                                    formatDateTime(log.start_time * 1000) }}</span>
+                                <span class="cron-log-task"><i class="fas fa-tag"></i> {{ log.task_name || log.task_id
+                                    }}</span>
+                                <span class="cron-log-status"
+                                    :class="'bg-' + (log.status === 'success' ? 'success' : (log.status === 'failed' ? 'danger' : 'warning'))">
+                                    <i
+                                        :class="log.status === 'success' ? 'fas fa-check' : (log.status === 'failed' ? 'fas fa-times' : 'fas fa-spinner fa-spin')"></i>
+                                    {{ log.status === 'success' ? '成功' : (log.status === 'failed' ? '失败' : '运行中') }}
+                                </span>
+                                <span class="cron-log-duration" v-if="log.duration"><i class="fas fa-stopwatch"></i> {{
+                                    log.duration }}s</span>
+                            </div>
+                            <details class="cron-log-output" v-if="log.output">
+                                <summary><i class="fas fa-terminal"></i> 查看输出</summary>
+                                <pre>{{ log.output }}</pre>
+                            </details>
+                        </div>
+                    </div>
+                    <!-- 空状态 -->
+                    <div v-else class="cron-empty-state compact">
+                        <i class="fas fa-inbox"></i>
+                        <p>暂无运行日志</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 编辑/新建任务模态框 -->
+            <Teleport to="body">
+                <div v-if="cronEditingTask" class="modal-overlay" @click.self="closeCronEditModal">
+                    <div class="modal cron-modal">
+                        <div class="modal-header">
+                            <h5 class="modal-title">
+                                <i :class="cronEditingTask.id ? 'fas fa-edit' : 'fas fa-plus-circle'"></i>
+                                {{ cronEditingTask.id ? '编辑任务' : '新建任务' }}
+                            </h5>
+                            <button type="button" class="modal-close" @click="closeCronEditModal">
+                                <i class="fas fa-times"></i>
+                            </button>
+                        </div>
+                        <div class="modal-body">
+                            <div class="form-group">
+                                <label class="form-label"><i class="fas fa-tag"></i> 任务名称</label>
+                                <input type="text" class="form-input" v-model="cronEditingTask.name"
+                                    placeholder="例如：每日备份">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label"><i class="fas fa-clock"></i> 执行周期</label>
+
+                                <!-- 简化设置 / 自定义 切换 -->
+                                <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 10px;">
+                                    <label
+                                        style="display: flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer;">
+                                        <input type="checkbox" v-model="cronEditingTask.useCustom">
+                                        <span>自定义 Cron 表达式</span>
+                                    </label>
+                                </div>
+
+                                <!-- 简化设置模式 -->
+                                <div v-if="!cronEditingTask.useCustom" class="cron-simple-builder">
+                                    <div
+                                        style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-bottom: 12px;">
+                                        <!-- 周期类型 -->
+                                        <select v-model="cronEditingTask.periodType" class="form-input"
+                                            style="width: 100px;" @change="updateCronFromSimple">
+                                            <option value="minute">每分钟</option>
+                                            <option value="hour">每小时</option>
+                                            <option value="day">每天</option>
+                                            <option value="week">每周</option>
+                                            <option value="month">每月</option>
+                                        </select>
+
+                                        <!-- 周几选择 (仅每周) -->
+                                        <select v-if="cronEditingTask.periodType === 'week'"
+                                            v-model="cronEditingTask.weekday" class="form-input" style="width: 80px;"
+                                            @change="updateCronFromSimple">
+                                            <option value="1">周一</option>
+                                            <option value="2">周二</option>
+                                            <option value="3">周三</option>
+                                            <option value="4">周四</option>
+                                            <option value="5">周五</option>
+                                            <option value="6">周六</option>
+                                            <option value="0">周日</option>
+                                        </select>
+
+                                        <!-- 日期选择 (仅每月) -->
+                                        <select v-if="cronEditingTask.periodType === 'month'"
+                                            v-model="cronEditingTask.dayOfMonth" class="form-input" style="width: 80px;"
+                                            @change="updateCronFromSimple">
+                                            <option v-for="d in 31" :key="d" :value="d">{{ d }}日</option>
+                                        </select>
+
+                                        <!-- 时间选择 (每天/每周/每月) -->
+                                        <template v-if="['day', 'week', 'month'].includes(cronEditingTask.periodType)">
+                                            <input type="number" v-model.number="cronEditingTask.hour" min="0" max="23"
+                                                class="form-input" style="width: 60px; text-align: center;"
+                                                @change="updateCronFromSimple">
+                                            <span style="font-size: 13px;">时</span>
+                                            <input type="number" v-model.number="cronEditingTask.minute" min="0"
+                                                max="59" class="form-input" style="width: 60px; text-align: center;"
+                                                @change="updateCronFromSimple">
+                                            <span style="font-size: 13px;">分</span>
+                                        </template>
+
+                                        <!-- 分钟选择 (每小时) -->
+                                        <template v-if="cronEditingTask.periodType === 'hour'">
+                                            <span style="font-size: 13px;">第</span>
+                                            <input type="number" v-model.number="cronEditingTask.minute" min="0"
+                                                max="59" class="form-input" style="width: 60px; text-align: center;"
+                                                @change="updateCronFromSimple">
+                                            <span style="font-size: 13px;">分钟</span>
+                                        </template>
+
+                                        <!-- 预览链接 -->
+                                        <a href="javascript:;" @click="previewCronSchedule"
+                                            style="color: var(--primary-color); font-size: 13px; text-decoration: none;">
+                                            <i class="fas fa-eye"></i> 预览
+                                        </a>
+                                    </div>
+
+                                    <!-- 生成的 Cron 表达式显示 -->
+                                    <div
+                                        style="font-size: 12px; color: var(--text-secondary); background: var(--bg-tertiary); padding: 6px 10px; border-radius: 6px;">
+                                        <i class="fas fa-info-circle"></i> 表达式: <code
+                                            style="font-family: var(--font-mono); color: var(--primary-color);">{{ cronEditingTask.schedule || '* * * * *' }}</code>
+                                    </div>
+                                </div>
+
+                                <!-- 自定义 Cron 表达式模式 -->
+                                <div v-else class="cron-schedule-input">
+                                    <input type="text" class="form-input font-mono" v-model="cronEditingTask.schedule"
+                                        placeholder="* * * * *">
+                                    <a href="https://crontab.guru/" target="_blank" class="btn btn-secondary btn-sm"
+                                        title="Crontab Guru">
+                                        <i class="fas fa-question-circle"></i>
+                                    </a>
+                                </div>
+                                <div class="form-help" v-if="cronEditingTask.useCustom">格式：分 时 日 月 周</div>
+
+                                <!-- 预览未来执行时间 -->
+                                <div v-if="cronEditingTask.nextRuns && cronEditingTask.nextRuns.length > 0"
+                                    style="margin-top: 12px;">
+                                    <div
+                                        style="font-size: 12px; font-weight: 600; margin-bottom: 6px; color: var(--text-secondary);">
+                                        <i class="fas fa-calendar-alt"></i> 近 5 次执行
+                                    </div>
+                                    <div style="display: flex; flex-direction: column; gap: 4px;">
+                                        <div v-for="(run, idx) in cronEditingTask.nextRuns" :key="idx"
+                                            style="font-size: 12px; padding: 4px 10px; background: rgba(var(--primary-rgb), 0.1); border-radius: 4px; color: var(--primary-color); border: 1px solid rgba(var(--primary-rgb), 0.2);">
+                                            {{ run }}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label"><i class="fas fa-cog"></i> 任务类型</label>
+                                <div class="cron-type-selector">
+                                    <label class="cron-type-option"
+                                        :class="{ active: cronEditingTask.type === 'shell' }">
+                                        <input type="radio" v-model="cronEditingTask.type" value="shell">
+                                        <i class="fas fa-terminal"></i>
+                                        <span>Shell 命令</span>
+                                    </label>
+                                    <label class="cron-type-option"
+                                        :class="{ active: cronEditingTask.type === 'http' }">
+                                        <input type="radio" v-model="cronEditingTask.type" value="http">
+                                        <i class="fas fa-globe"></i>
+                                        <span>HTTP 请求</span>
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">
+                                    <i :class="cronEditingTask.type === 'http' ? 'fas fa-link' : 'fas fa-code'"></i>
+                                    {{ cronEditingTask.type === 'http' ? 'URL 地址' : '命令内容' }}
+                                </label>
+                                <textarea class="form-input font-mono" v-model="cronEditingTask.command" rows="3"
+                                    :placeholder="cronEditingTask.type === 'http' ? 'https://example.com/api/cron' : 'echo hello'"></textarea>
+                            </div>
+                            <div class="form-group">
+                                <label class="cron-enable-toggle">
+                                    <input type="checkbox" v-model="cronEditingTask.enabled" :true-value="1"
+                                        :false-value="0">
+                                    <span class="toggle-switch"></span>
+                                    <span class="toggle-label">启用此任务</span>
+                                </label>
+                            </div>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" class="btn btn-secondary" @click="closeCronEditModal">取消</button>
+                            <button type="button" class="btn btn-primary" @click="saveCronTask">
+                                <i class="fas fa-check"></i> 保存
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </Teleport>
+        </div>
+
+        <!-- 4. 临时标签页 -->
         <div v-for="tab in openListTempTabs" :key="tab.id"
             v-show="openListSubTab === 'temp' && tab.id === openListActiveTempTabId"
             class="openlist-files-layout animate-fade-in" :class="{ 'video-mode-layout': tab.isVideo }">

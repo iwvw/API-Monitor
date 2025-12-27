@@ -456,3 +456,173 @@
     display: none;
   }
 }
+
+/* ==================== Cron Editor V2 Styles ==================== */
+.cron-simple-builder-v2 {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 16px;
+  margin-top: 8px;
+}
+
+.cron-builder-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.form-input-refined {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 8px 12px;
+  color: var(--text-primary);
+  font-size: 14px;
+  outline: none;
+  transition: all 0.2s;
+}
+
+.form-input-refined:focus {
+  border-color: var(--primary-color);
+  box-shadow: 0 0 0 2px rgba(var(--primary-rgb), 0.1);
+}
+
+.cron-input-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 0 10px;
+  height: 38px;
+}
+
+.cron-input-group input {
+  width: 45px;
+  border: none;
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 14px;
+  text-align: center;
+  padding: 0;
+  outline: none;
+}
+
+.cron-input-group span {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  user-select: none;
+}
+
+/* 隐去 number 输入框的箭头 */
+.cron-input-group input::-webkit-inner-spin-button,
+.cron-input-group input::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.cron-preview-wrapper {
+  position: relative;
+  margin-left: auto;
+}
+
+.cron-preview-trigger {
+  color: var(--primary-color);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 6px 12px;
+  border-radius: 6px;
+  background: rgba(var(--primary-rgb), 0.1);
+  transition: all 0.2s;
+}
+
+.cron-preview-trigger:hover {
+  background: rgba(var(--primary-rgb), 0.2);
+}
+
+.cron-preview-popover {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  right: 0;
+  width: 220px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+  z-index: 1000;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(10px);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+}
+
+.cron-preview-wrapper:hover .cron-preview-popover {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+.popover-header {
+  padding: 10px 15px;
+  background: var(--bg-tertiary);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.popover-body {
+  padding: 8px;
+}
+
+.run-item {
+  padding: 6px 10px;
+  font-size: 11px;
+  color: var(--primary-color);
+  background: rgba(var(--primary-rgb), 0.05);
+  border-radius: 6px;
+  margin-bottom: 4px;
+  font-family: var(--font-mono);
+}
+
+.run-item:last-child {
+  margin-bottom: 0;
+}
+
+.cron-expression-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--bg-tertiary);
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  border: 1px dashed var(--border-color);
+}
+
+.cron-expression-badge code {
+  color: var(--primary-color);
+  font-weight: 700;
+  font-family: var(--font-mono);
+}
+
+.cron-custom-input-v2 {
+  margin-top: 8px;
+}
+
+.form-help-refined {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin-top: 6px;
+}
+
+.form-help-refined code {
+  color: var(--text-secondary);
+}
