@@ -149,7 +149,29 @@ registerRoutes(app);
 
 // ==================== SPA Fallback 路由 ====================
 // 处理前端路由（如 /2fa, /totp, /hosts 等），返回 index.html 让前端路由器处理
-const spaRoutes = ['/2fa', '/totp', '/hosts', '/server', '/dns', '/paas', '/openai', '/antigravity', '/gemini-cli', '/gcli', '/self-h', '/selfh', '/compute', '/r2'];
+// 支持所有模块及其别名
+const spaRoutes = [
+  // TOTP 验证器
+  '/2fa', '/totp',
+  // 主机管理
+  '/hosts', '/server',
+  // DNS 管理
+  '/dns',
+  // Compute (Workers/Pages)
+  '/compute', '/workers', '/pages',
+  // R2 存储
+  '/r2',
+  // PaaS 平台
+  '/paas', '/zeabur', '/koyeb', '/fly',
+  // OpenAI
+  '/openai', '/api',
+  // Antigravity
+  '/antigravity', '/antig',
+  // Gemini CLI
+  '/gemini-cli', '/gcli', '/gemini',
+  // Self-Hosted
+  '/self-h', '/selfh', '/openlist'
+];
 spaRoutes.forEach(route => {
   app.get(route, (req, res) => {
     const indexPath = fs.existsSync(path.join(__dirname, 'dist', 'index.html'))
