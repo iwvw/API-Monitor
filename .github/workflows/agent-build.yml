@@ -84,7 +84,12 @@ jobs:
           CGO_ENABLED: 0
         run: |
           OUTPUT_NAME="agent-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.suffix }}"
-          go build -ldflags="-s -w -X main.VERSION=${{ steps.version.outputs.version }}" -o "../dist/${OUTPUT_NAME}"
+          # Windows 使用 -H windowsgui 隐藏控制台窗口
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            go build -ldflags="-s -w -H windowsgui -X main.VERSION=${{ steps.version.outputs.version }}" -o "../dist/${OUTPUT_NAME}"
+          else
+            go build -ldflags="-s -w -X main.VERSION=${{ steps.version.outputs.version }}" -o "../dist/${OUTPUT_NAME}"
+          fi
           echo "Built: ${OUTPUT_NAME}"
 
       # 上传构建产物

@@ -330,6 +330,14 @@ class AgentService {
             } else {
                 this.log(`Agent 重连: ${serverId}`);
             }
+
+            // 自动请求主机信息 (延迟 2 秒，确保 Agent 已准备好)
+            setTimeout(() => {
+                if (this.connections.has(serverId)) {
+                    this.requestHostInfo(serverId);
+                    this.log(`已自动请求主机信息: ${serverId}`);
+                }
+            }, 2000);
         });
 
         // 2. 接收主机硬件信息
