@@ -113,10 +113,93 @@ router.get('/search/hot', (req, res) => handleRequest('search_hot_detail', req, 
 // ===== 歌曲相关 =====
 
 /**
- * 获取歌曲播放地址
- * GET /api/music/song/url?id=xxx&level=exhigh
+ * 获取歌曲播放地址 (自动解锁)
+ * GET /api/music/song/url?id=xxx&level=exhigh&unblock=true
  */
-router.get('/song/url', (req, res) => handleRequest('song_url_v1', req, res));
+router.get('/song/url', async (req, res) => {
+    const api = loadNcmApi();
+    const { id, level = 'exhigh', unblock = 'true' } = req.query;
+
+    if (!id) {
+        return res.status(400).json({ code: 400, message: 'Missing song id' });
+    }
+
+    if (!api || typeof api.song_url_v1 !== 'function') {
+        return res.status(500).json({ code: 500, message: 'NCM API not available' });
+    }
+
+    try {
+        const query = {
+            id,
+            level,
+            cookie: parseCookies(req.headers.cookie)
+        };
+
+        // 调用官方接口
+        const result = await api.song_url_v1(query);
+        const song = result.body?.data?.[0];
+
+        // 检查是否需要解锁
+        const needUnblock = !song?.url ||
+            song.freeTrialInfo !== null ||
+            [1, 4].includes(song.fee);
+
+        // 自动尝试解锁
+        if (needUnblock && unblock !== 'false') {
+            console.log(`[Music] Song ${id} needs unblock, trying...`);
+
+            try {
+                const match = require('@unblockneteasemusic/server');
+                const sources = ['kugou', 'kuwo', 'migu', 'youtube'];
+                const unblocked = await match(Number(id), sources);
+
+                if (unblocked && unblocked.url) {
+                    console.log(`[Music] Song ${id} unblocked from ${unblocked.source}`);
+
+                    // 替换歌曲数据
+                    if (song) {
+                        song.url = unblocked.url;
+                        song.br = unblocked.br || 320000;
+                        song.size = unblocked.size || song.size;
+                        song.freeTrialInfo = null;
+                        song.source = unblocked.source;
+                    } else if (result.body?.data) {
+                        result.body.data[0] = {
+                            id: Number(id),
+                            url: unblocked.url,
+                            br: unblocked.br || 320000,
+                            size: unblocked.size || 0,
+                            md5: unblocked.md5 || null,
+                            code: 200,
+                            type: 'unblock',
+                            source: unblocked.source
+                        };
+                    }
+                }
+            } catch (unlockErr) {
+                console.warn(`[Music] Unblock failed for ${id}:`, unlockErr.message);
+            }
+        }
+
+        // 转发 Set-Cookie
+        if (result.cookie && Array.isArray(result.cookie)) {
+            res.set('Set-Cookie', result.cookie);
+        }
+
+        res.status(result.status || 200).json(result.body);
+    } catch (error) {
+        console.error('[Music] song/url error:', error);
+
+        if (error.status && error.body) {
+            return res.status(error.status).json(error.body);
+        }
+
+        res.status(500).json({
+            code: 500,
+            message: error.message || 'Internal server error'
+        });
+    }
+});
 
 /**
  * 获取歌曲详情
@@ -126,30 +209,28 @@ router.get('/song/detail', (req, res) => handleRequest('song_detail', req, res))
 
 /**
  * 使用解锁服务获取歌曲 URL
- * GET /api/music/song/url/unblock?id=xxx
+ * GET /api/music/song/url/unblock?id=xxx&source=kugou,kuwo,migu
  */
 router.get('/song/url/unblock', async (req, res) => {
-    const { id } = req.query;
+    const { id, source } = req.query;
 
     if (!id) {
         return res.status(400).json({ code: 400, message: 'Missing song id' });
     }
 
     try {
-        // 尝试加载 UnblockNeteaseMusic 的 match 函数
-        const matchPath = path.join(__dirname, '../../test/server/src/provider/match.js');
+        // 使用 npm 包 @unblockneteasemusic/server
+        const match = require('@unblockneteasemusic/server');
 
-        if (!fs.existsSync(matchPath)) {
-            return res.status(404).json({
-                code: 404,
-                message: 'Unblock service not available'
-            });
-        }
+        // 默认音源列表：酷狗、酷我、咪咕、YouTube
+        const sources = source ? source.split(',') : ['kugou', 'kuwo', 'migu', 'youtube'];
 
-        const match = require(matchPath);
-        const result = await match(Number(id));
+        console.log(`[Music] Unblock: trying to match song ${id} with sources:`, sources);
+
+        const result = await match(Number(id), sources);
 
         if (result && result.url) {
+            console.log(`[Music] Unblock: matched song ${id} from ${result.source}`);
             res.json({
                 code: 200,
                 data: {
@@ -168,7 +249,7 @@ router.get('/song/url/unblock', async (req, res) => {
             });
         }
     } catch (error) {
-        console.error('[Music] Unblock error:', error);
+        console.error('[Music] Unblock error:', error.message || error);
         res.status(500).json({
             code: 500,
             message: error.message || 'Unblock failed'
