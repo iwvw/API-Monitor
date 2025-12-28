@@ -150,7 +150,7 @@ router.get('/song/url', async (req, res) => {
 
             try {
                 const match = require('@unblockneteasemusic/server');
-                const sources = ['kugou', 'kuwo', 'migu', 'youtube'];
+                const sources = ['bodian', 'kugou', 'kuwo', 'migu'];  // bodian 优先
                 const unblocked = await match(Number(id), sources);
 
                 if (unblocked && unblocked.url) {
@@ -222,8 +222,8 @@ router.get('/song/url/unblock', async (req, res) => {
         // 使用 npm 包 @unblockneteasemusic/server
         const match = require('@unblockneteasemusic/server');
 
-        // 默认音源列表：酷狗、酷我、咪咕、YouTube
-        const sources = source ? source.split(',') : ['kugou', 'kuwo', 'migu', 'youtube'];
+        // 默认音源列表：波点优先，其次酷狗、酷我、咪咕
+        const sources = source ? source.split(',') : ['bodian', 'kugou', 'kuwo', 'migu'];
 
         console.log(`[Music] Unblock: trying to match song ${id} with sources:`, sources);
 
@@ -249,10 +249,11 @@ router.get('/song/url/unblock', async (req, res) => {
             });
         }
     } catch (error) {
-        console.error('[Music] Unblock error:', error.message || error);
+        const errMsg = error?.message || (typeof error === 'string' ? error : 'Unblock failed');
+        console.error('[Music] Unblock error:', errMsg);
         res.status(500).json({
             code: 500,
-            message: error.message || 'Unblock failed'
+            message: errMsg
         });
     }
 });
