@@ -1,0 +1,285 @@
+<div class="tab-content dashboard-content quick-fade-in theme-dashboard">
+    <!-- Header: Aligned and Balanced -->
+    <div class="dashboard-header">
+        <div class="header-left">
+            <h1>系统控制台</h1>
+            <p class="subtitle">System Overview & Status Monitor</p>
+        </div>
+        <div class="header-right">
+            <div class="last-update" v-if="dashboardLastUpdate">
+                <i class="fas fa-history"></i><span>{{ dashboardLastUpdate }}</span>
+            </div>
+            <button class="btn-refresh-all" @click="refreshDashboardData" :disabled="dashboardLoading">
+                <i class="fas" :class="dashboardLoading ? 'fa-spinner fa-spin' : 'fa-sync-alt'"></i>
+                <span>刷新数据</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Stats Grid: 4-Column Strict Layout -->
+    <div class="stats-overview-grid">
+        <!-- Server Status -->
+        <div class="overview-card server-card-0" @click="mainActiveTab = 'server'">
+            <i class="fas fa-server card-icon-large"></i>
+            <div class="card-top">
+                <div class="icon-box"><i class="fas fa-server"></i></div>
+                <span class="trend-badge"
+                    :class="dashboardStats.servers.online === dashboardStats.servers.total && dashboardStats.servers.total > 0 ? 'positive' : (dashboardStats.servers.total === 0 ? 'neutral' : 'negative')">
+                    {{ dashboardStats.servers.online }} / {{ dashboardStats.servers.total }} 在线
+                </span>
+            </div>
+            <div class="card-main-content">
+                <span class="card-label">主机监控</span>
+                <div class="card-value">
+                    {{ dashboardStats.servers.total }} <span class="card-unit">台服务器</span>
+                </div>
+            </div>
+            <div class="card-footer">
+                <span class="status-dot-text"
+                    :class="dashboardStats.servers.error > 0 ? 'status-text-danger' : (dashboardStats.servers.offline > 0 ? 'status-text-warning' : 'status-text-success')">
+                    <template v-if="dashboardStats.servers.error > 0">{{ dashboardStats.servers.error }} 台故障</template>
+                    <template v-else-if="dashboardStats.servers.offline > 0">{{ dashboardStats.servers.offline }}
+                        台离线</template>
+                    <template v-else>所有系统正常</template>
+                </span>
+                <i class="fas fa-arrow-right" style="opacity: 0.5;"></i>
+            </div>
+        </div>
+
+        <!-- API Stats -->
+        <div class="overview-card api-card" @click="mainActiveTab = 'antigravity'">
+            <i class="fas fa-project-diagram card-icon-large"></i>
+            <div class="card-top">
+                <div class="icon-box"><i class="fas fa-rocket"></i></div>
+                <span class="trend-badge neutral">API 网关</span>
+            </div>
+            <div class="card-main-content">
+                <span class="card-label">今日调用</span>
+                <div class="card-value">
+                    {{ (dashboardStats.antigravity.total_calls + dashboardStats.geminiCli.total_calls).toLocaleString()
+                    }}
+                    <span class="card-unit">次</span>
+                </div>
+            </div>
+            <div class="card-footer">
+                <span>Antigravity & Gemini</span>
+                <span
+                    :class="(dashboardStats.antigravity.total_calls + dashboardStats.geminiCli.total_calls) > 0 && ((dashboardStats.antigravity.success_calls + dashboardStats.geminiCli.success_calls) / (dashboardStats.antigravity.total_calls + dashboardStats.geminiCli.total_calls)) < 0.9 ? 'status-text-warning' : 'status-text-success'">
+                    {{ (dashboardStats.antigravity.total_calls + dashboardStats.geminiCli.total_calls) > 0 ?
+                    Math.round(((dashboardStats.antigravity.success_calls + dashboardStats.geminiCli.success_calls) /
+                    (dashboardStats.antigravity.total_calls + dashboardStats.geminiCli.total_calls)) * 1000) / 10 + '%'
+                    : '-' }} 成功率
+                </span>
+            </div>
+        </div>
+
+        <!-- Cloud/PaaS Stats -->
+        <div class="overview-card paas-card" @click="mainActiveTab = 'paas'">
+            <i class="fas fa-cloud card-icon-large"></i>
+            <div class="card-top">
+                <div class="icon-box"><i class="fas fa-cubes"></i></div>
+                <span class="trend-badge positive">PaaS</span>
+            </div>
+            <div class="card-main-content">
+                <span class="card-label">云应用实例</span>
+                <div class="card-value">
+                    {{ (dashboardStats.paas.zeabur.running + dashboardStats.paas.koyeb.running +
+                    dashboardStats.paas.fly.running) }}
+                    <span class="card-unit">/ {{ (dashboardStats.paas.zeabur.total + dashboardStats.paas.koyeb.total +
+                        dashboardStats.paas.fly.total) }} 运行中</span>
+                </div>
+            </div>
+            <div class="card-footer">
+                <span>Zeabur, Koyeb, Fly</span>
+                <i class="fas fa-arrow-right" style="opacity: 0.5;"></i>
+            </div>
+        </div>
+
+        <!-- DNS Stats -->
+        <div class="overview-card dns-card" @click="mainActiveTab = 'dns'">
+            <i class="fas fa-globe card-icon-large"></i>
+            <div class="card-top">
+                <div class="icon-box"><i class="fas fa-network-wired"></i></div>
+                <span class="trend-badge neutral">Cloudflare</span>
+            </div>
+            <div class="card-main-content">
+                <span class="card-label">域名解析</span>
+                <div class="card-value">
+                    {{ dashboardStats.dns.zones }} <span class="card-unit">个区域</span>
+                </div>
+            </div>
+            <div class="card-footer">
+                <span class="status-dot-text status-text-success">DNS 正常</span>
+                <i class="fas fa-arrow-right" style="opacity: 0.5;"></i>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Content Layout (2:1 Split) -->
+    <div class="dashboard-main-layout">
+        <!-- Left Column: Main Content -->
+        <div class="content-column">
+            <!-- Music Widget -->
+            <div class="music-widget-wrapper" v-if="musicCurrentSong" @click="mainActiveTab = 'music'">
+                <div class="music-bg-blur" :style="{ backgroundImage: 'url(' + musicCurrentSong.cover + ')' }"></div>
+
+                <div class="music-content-layer">
+                    <img :src="musicCurrentSong.cover + '?param=300y300'" class="music-cover-large">
+
+                    <div class="music-info-col">
+                        <div class="music-title">{{ musicCurrentSong.name }}</div>
+                        <div class="music-artist">{{ musicCurrentSong.artists }}</div>
+
+                        <div class="music-controls">
+                            <!-- Corrected function names -->
+                            <button class="btn-control-circle" @click.stop="playPrevious">
+                                <i class="fas fa-step-backward"></i>
+                            </button>
+                            <button class="btn-control-circle play" @click.stop="musicTogglePlay">
+                                <i :class="musicPlaying ? 'fas fa-pause' : 'fas fa-play'"></i>
+                            </button>
+                            <button class="btn-control-circle" @click.stop="playNext">
+                                <i class="fas fa-step-forward"></i>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="music-status-badge">
+                        <i class="fas fa-music"></i> 正在播放
+                    </div>
+                </div>
+            </div>
+
+            <!-- Empty Music State -->
+            <div class="music-widget-wrapper" v-else>
+                <div class="music-bg-blur"
+                    style="background-image: url('https://images.unsplash.com/photo-1470225620780-dba8ba36b745?w=600&q=80');">
+                </div>
+                <div class="music-content-layer" style="justify-content: center;">
+                    <div class="music-empty">
+                        <i class="fas fa-music icon-empty"></i>
+                        <p>Let music flow</p>
+                        <div style="display: flex; gap: 12px;">
+                            <button class="btn-music-action" @click.stop="musicPlayDailyRecommend">
+                                <i class="fas fa-calendar-alt"></i> 每日推荐
+                            </button>
+                            <button class="btn-music-action" @click.stop="musicPlayMyFavorites">
+                                <i class="fas fa-heart"></i> 我喜欢的
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- API Detail Stats -->
+            <div class="detail-card">
+                <div class="detail-header">
+                    <h3><i class="fas fa-chart-line"></i> API 调用概览</h3>
+                </div>
+                <div class="api-stats-row">
+                    <div class="api-stat-group" @click="mainActiveTab = 'antigravity'">
+                        <div class="api-stat-header">
+                            <span class="api-name">Antigravity API</span>
+                            <span class="api-detail-val">{{ dashboardStats.antigravity.success_calls }}</span>
+                        </div>
+                        <div style="font-size: 11px; color: var(--text-tertiary);">总调用 {{
+                            dashboardStats.antigravity.total_calls }} 次</div>
+                        <div class="api-progress-track">
+                            <div class="api-progress-bar" style="background: var(--ag-primary);"
+                                :style="{ width: (dashboardStats.antigravity.total_calls ? (dashboardStats.antigravity.success_calls/dashboardStats.antigravity.total_calls*100) : 100) + '%' }">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="api-stat-group" @click="mainActiveTab = 'gemini-cli'">
+                        <div class="api-stat-header">
+                            <span class="api-name">Gemini CLI</span>
+                            <span class="api-detail-val">{{ dashboardStats.geminiCli.success_calls }}</span>
+                        </div>
+                        <div style="font-size: 11px; color: var(--text-tertiary);">总调用 {{
+                            dashboardStats.geminiCli.total_calls }} 次</div>
+                        <div class="api-progress-track">
+                            <div class="api-progress-bar" style="background: var(--gemini-primary);"
+                                :style="{ width: (dashboardStats.geminiCli.total_calls ? (dashboardStats.geminiCli.success_calls/dashboardStats.geminiCli.total_calls*100) : 100) + '%' }">
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Column: Secondary Info -->
+        <div class="content-column">
+            <!-- PaaS List -->
+            <div class="detail-card">
+                <div class="detail-header">
+                    <h3><i class="fas fa-server"></i> 云服务</h3>
+                </div>
+                <div class="paas-list">
+                    <div class="paas-item">
+                        <div class="paas-info">
+                            <div class="paas-logo-box" style="color: #6366f1;"><i class="fas fa-project-diagram"></i>
+                            </div>
+                            <div class="paas-item-text">
+                                <h4>Zeabur</h4>
+                                <p>Serverless</p>
+                            </div>
+                        </div>
+                        <div class="paas-status-badge">
+                            <div class="status-dot-mini"
+                                :class="dashboardStats.paas.zeabur.running > 0 ? 'active' : ''"></div>
+                            {{ dashboardStats.paas.zeabur.running }}
+                        </div>
+                    </div>
+                    <div class="paas-item">
+                        <div class="paas-info">
+                            <div class="paas-logo-box" style="color: #ec4899;"><i class="fas fa-box"></i></div>
+                            <div class="paas-item-text">
+                                <h4>Koyeb</h4>
+                                <p>Edge Compute</p>
+                            </div>
+                        </div>
+                        <div class="paas-status-badge">
+                            <div class="status-dot-mini" :class="dashboardStats.paas.koyeb.running > 0 ? 'active' : ''">
+                            </div>
+                            {{ dashboardStats.paas.koyeb.running }}
+                        </div>
+                    </div>
+                    <div class="paas-item">
+                        <div class="paas-info">
+                            <div class="paas-logo-box" style="color: #8b5cf6;"><i class="fas fa-paper-plane"></i></div>
+                            <div class="paas-item-text">
+                                <h4>Fly.io</h4>
+                                <p>Global Machines</p>
+                            </div>
+                        </div>
+                        <div class="paas-status-badge">
+                            <div class="status-dot-mini" :class="dashboardStats.paas.fly.running > 0 ? 'active' : ''">
+                            </div>
+                            {{ dashboardStats.paas.fly.running }}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Quick Actions -->
+            <div class="quick-actions-grid">
+                <div class="action-card" @click="mainActiveTab = 'totp'" style="grid-column: span 2;">
+                    <i class="fas fa-shield-alt card-icon-large"></i>
+                    <div class="totp-content-wrapper">
+                        <div class="totp-left">
+                            <div class="action-icon"><i class="fas fa-shield-alt"></i></div>
+                            <div class="action-text">
+                                <h5>2FA 安全令牌</h5>
+                                <p>双重验证保护</p>
+                            </div>
+                        </div>
+                        <div class="totp-right">
+                            <span class="totp-count">{{ totpAccounts ? totpAccounts.length : 0 }}</span>
+                            <span class="totp-label">个令牌</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>

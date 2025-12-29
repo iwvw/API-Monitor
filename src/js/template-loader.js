@@ -10,6 +10,7 @@ const TemplateLoader = {
     // 模板映射关系 (filename -> selector)
     templateMap: {
         'auth.html': '#template-auth',
+        'dashboard.html': '#template-dashboard',
         'paas.html': '#template-paas',
         'dns.html': '#template-dns',
         'gemini-cli.html': '#template-gemini-cli',

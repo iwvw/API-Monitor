@@ -454,6 +454,37 @@ function clearModelCheckHistory() {
     }
 }
 
+/**
+ * 获取统计信息
+ */
+function getStats() {
+    try {
+        const db = dbService.getDatabase();
+        const stats = db.prepare(`
+            SELECT 
+                COUNT(*) as total_calls,
+                SUM(CASE WHEN status_code = 200 THEN 1 ELSE 0 END) as success_calls,
+                SUM(CASE WHEN status_code != 200 THEN 1 ELSE 0 END) as fail_calls
+            FROM gemini_cli_logs
+        `).get();
+
+        const accounts = getAccounts();
+        return {
+            total_calls: stats.total_calls || 0,
+            success_calls: stats.success_calls || 0,
+            fail_calls: stats.fail_calls || 0,
+            accounts: {
+                total: accounts.length,
+                online: accounts.filter(a => a.status === 'online').length,
+                enabled: accounts.filter(a => a.enable !== 0).length
+            }
+        };
+    } catch (e) {
+        console.error('❌ 获取 Gemini CLI 统计失败:', e.message);
+        return { total_calls: 0, success_calls: 0, fail_calls: 0, accounts: { total: 0, online: 0, enabled: 0 } };
+    }
+}
+
 module.exports = {
     getAccounts,
     addAccount,
@@ -475,7 +506,8 @@ module.exports = {
     removeModelRedirect,
     recordModelCheck,
     getModelCheckHistory,
-    clearModelCheckHistory
+    clearModelCheckHistory,
+    getStats
 };
 
 // 内存中的禁用模型缓存

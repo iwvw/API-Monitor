@@ -14,6 +14,12 @@ import { reactive } from 'vue';
  * @type {Object<string, {name: string, shortName: string, icon: string, description: string}>}
  */
 export const MODULE_CONFIG = {
+    'dashboard': {
+        name: '仪表盘',
+        shortName: 'Dash',
+        icon: 'fa-tachometer-alt',
+        description: '系统状态与数据概览'
+    },
     'openai': {
         name: 'OpenAI',
         shortName: 'OAI',
@@ -76,6 +82,12 @@ export const MODULE_CONFIG = {
  */
 export const MODULE_GROUPS = [
     {
+        id: 'overview',
+        name: '仪表盘',
+        icon: 'fa-tachometer-alt',
+        modules: ['dashboard']
+    },
+    {
         id: 'api-gateway',
         name: 'API 网关',
         icon: 'fa-bolt',
@@ -131,8 +143,9 @@ export const store = reactive({
     setPasswordError: '',
 
     // 导航与布局
-    mainActiveTab: 'openai',
+    mainActiveTab: 'dashboard',
     moduleVisibility: {
+        dashboard: true,
         openai: true,
         antigravity: true,
         'gemini-cli': true,
@@ -151,7 +164,7 @@ export const store = reactive({
         antigravity: '',
         'gemini-cli': ''
     },
-    moduleOrder: ['openai', 'antigravity', 'gemini-cli', 'paas', 'dns', 'self-h', 'server', 'totp', 'music'],
+    moduleOrder: ['dashboard', 'openai', 'antigravity', 'gemini-cli', 'paas', 'dns', 'self-h', 'server', 'totp', 'music'],
 
     // 界面设置
     opacity: 100,

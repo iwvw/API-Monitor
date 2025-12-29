@@ -578,6 +578,18 @@ router.delete('/models/redirects/:sourceModel', async (req, res) => {
 });
 
 /**
+ * 获取统计信息
+ */
+router.get('/stats', (req, res) => {
+    try {
+        const stats = storage.getStats();
+        res.json(stats);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+/**
  * 模型健康检测 - 对所有账号执行测试
  */
 router.post('/accounts/check', async (req, res) => {

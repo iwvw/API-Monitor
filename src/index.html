@@ -57,8 +57,16 @@
             ]">
               <!-- 分组式标签页导航 -->
               <div class="main-tabs main-tabs-grouped" v-if="visibleModulesCount > 1">
+                <!-- 首页按钮 (独立显示在最前) -->
+                <button v-if="moduleVisibility.dashboard" class="nav-group-btn single-module-btn"
+                  :class="{ 'active': mainActiveTab === 'dashboard' }" @click="handleGroupModuleClick('dashboard')">
+                  <i class="fas fa-tachometer-alt"></i>
+                  <span class="group-name">仪表盘</span>
+                </button>
+
                 <template v-for="group in moduleGroups" :key="group.id">
-                  <div v-if="getVisibleModulesInGroup(group.modules).length > 0" class="nav-group"
+                  <div v-if="group.id !== 'overview' && getVisibleModulesInGroup(group.modules).length > 0"
+                    class="nav-group"
                     :class="{ 'expanded': navGroupExpanded === group.id, 'has-active': isGroupActive(group.modules) }">
                     <!-- 分组按钮 -->
                     <button class="nav-group-btn" :class="{ 'active': isGroupActive(group.modules) }"
@@ -96,6 +104,7 @@
           </div>
 
           <!-- 模块模板占位符 (使用 v-show 实现持久化 DOM，解决切换卡顿) -->
+          <div id="template-dashboard" v-show="mainActiveTab === 'dashboard'"></div>
           <div id="template-paas" v-show="mainActiveTab === 'paas'"></div>
           <div id="template-dns" v-show="mainActiveTab === 'dns'"></div>
           <div id="template-openai" v-show="mainActiveTab === 'openai'"></div>

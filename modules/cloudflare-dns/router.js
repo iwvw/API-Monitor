@@ -224,8 +224,38 @@ router.get('/accounts/:id/zones', async (req, res) => {
       pagination: resultInfo
     });
   } catch (e) {
-    logger.error(`鑾峰彇鍩熷悕鍒楄〃澶辫触 (ID: ${req.params.id}):`, e.message);
+    logger.error(`获取域名列表失败 (ID: ${req.params.id}):`, e.message);
     res.status(500).json({ error: e.message });
+  }
+});
+
+/**
+ * 获取所有账号下的所有域名汇总 (用于仪表盘)
+ */
+router.get('/zones', async (req, res) => {
+  try {
+    const accounts = storage.getAccounts();
+    const allZones = [];
+
+    // 并发请求所有账号的域名
+    await Promise.all(accounts.map(async (account) => {
+      try {
+        const auth = account.email ? { email: account.email, key: account.apiToken } : account.apiToken;
+        const { zones } = await cfApi.listZones(auth);
+        if (zones && Array.isArray(zones)) {
+          allZones.push(...zones);
+        }
+      } catch (err) {
+        logger.error(`汇总账号 ${account.name} 域名失败:`, err.message);
+      }
+    }));
+
+    res.json({
+      success: true,
+      data: allZones
+    });
+  } catch (e) {
+    res.status(500).json({ success: false, error: e.message });
   }
 });
 

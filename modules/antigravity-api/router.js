@@ -1176,15 +1176,8 @@ router.post('/accounts/manual', async (req, res) => {
 // 获取统计信息
 router.get('/stats', (req, res) => {
     try {
-        const accounts = storage.getAccounts();
-        const tokens = storage.getTokens(); // 假设有 getTokens() 或直接读表
-        // 由于 storage.js 只有 getTokens(), 我们需要去 storage.js 确认有没有暴露
-        // 如果没有，我们暂且只统计 account
-        const total = accounts.length;
-        const enabled = accounts.filter(a => a.enable).length;
-        const online = accounts.filter(a => a.status === 'online').length;
-
-        res.json({ total, enabled, online, disabled: total - enabled });
+        const stats = storage.getStats();
+        res.json(stats);
     } catch (error) {
         res.status(500).json({ error: error.message });
     }

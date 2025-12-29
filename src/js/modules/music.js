@@ -127,6 +127,16 @@ function initAudioPlayer() {
     audioPlayer.addEventListener('waiting', () => store.musicBuffering = true);
     audioPlayer.addEventListener('playing', () => store.musicBuffering = false);
 
+    // 确保播放状态严格同步：监听原生 play/pause 事件
+    audioPlayer.addEventListener('play', () => {
+        store.musicPlaying = true;
+        if (typeof amllPlayer !== 'undefined' && amllPlayer) amllPlayer.resume();
+    });
+    audioPlayer.addEventListener('pause', () => {
+        store.musicPlaying = false;
+        if (typeof amllPlayer !== 'undefined' && amllPlayer) amllPlayer.pause();
+    });
+
     return audioPlayer;
 }
 
@@ -662,8 +672,171 @@ export const musicMethods = {
 
 
     /**
-     * 播放歌曲
+     * 一键开启音乐之旅 (用于首页快捷访问)
+     * 逻辑：如果未登录，引导登录；如果已登录，优先播放每日推荐，否则播放“我喜欢的音乐”
      */
+    async musicQuickStart() {
+        if (!store.musicUser) {
+            // 尝试检查一次状态
+            const loggedIn = await this.musicCheckLoginStatus();
+            if (!loggedIn) {
+                toast.info('请先登录网易云音乐');
+                store.mainActiveTab = 'music';
+                store.musicShowLoginModal = true;
+                return;
+            }
+        }
+
+        toast.info('正在为您准备音乐...');
+
+        try {
+            // 1. 优先尝试每日推荐
+            const dailySongs = await this.musicLoadDailyRecommend();
+            if (dailySongs && dailySongs.length > 0) {
+                this.musicPlayDailyFromIndex(0);
+                toast.success('为您播放：每日推荐歌曲');
+                return;
+            }
+
+            // 2. 如果每日推荐没拿到，加载用户歌单并播放“我喜欢的音乐”
+            if (store.musicMyPlaylists.length === 0) {
+                await this.musicLoadUserPlaylists();
+            }
+
+            const likedPlaylist = store.musicMyPlaylists.find(p => p.isSpecial || p.name.includes('我喜欢的音乐'));
+            if (likedPlaylist) {
+                await this.musicLoadPlaylistDetail(likedPlaylist.id);
+                // 等待一下详情加载（虽然 musicLoadPlaylistDetail 是 async 的）
+                if (store.musicCurrentPlaylistDetail && store.musicCurrentPlaylistDetail.tracks.length > 0) {
+                    this.musicPlayPlaylist(store.musicCurrentPlaylistDetail.tracks);
+                    toast.success('为您播放：我喜欢的音乐');
+                    return;
+                }
+            }
+
+            // 3. 兜底逻辑：跳转到音乐模块
+            store.mainActiveTab = 'music';
+            toast.info('请选择您想听的歌单');
+        } catch (error) {
+            console.error('[Music] Quick start error:', error);
+            store.mainActiveTab = 'music';
+        }
+    },
+
+    /**
+     * 播放每日推荐 (随机开始)
+     */
+    async musicPlayDailyRecommend() {
+        if (!store.musicUser) {
+            const loggedIn = await this.musicCheckLoginStatus();
+            if (!loggedIn) {
+                toast.info('请先登录网易云音乐');
+                store.mainActiveTab = 'music';
+                store.musicShowLoginModal = true;
+                return;
+            }
+        }
+
+        try {
+            toast.info('正在获取每日推荐...');
+            const dailySongs = await this.musicLoadDailyRecommend();
+            if (dailySongs && dailySongs.length > 0) {
+                // 简单随机打乱
+                const shuffled = [...dailySongs].sort(() => Math.random() - 0.5);
+                // 替换当前播放列表
+                store.musicPlaylist = shuffled;
+                store.musicCurrentPlaylistId = 'daily-recommend';
+                // 播放第一首
+                this.musicPlay(shuffled[Math.floor(Math.random() * shuffled.length)]);
+                toast.success('开始播放：每日推荐');
+            } else {
+                toast.warning('获取每日推荐失败');
+            }
+        } catch (error) {
+            console.error('Play daily recommend failed:', error);
+            toast.error('播放失败');
+        }
+    },
+
+    /**
+     * 播放我喜欢的音乐 (随机)
+     */
+    async musicPlayMyFavorites() {
+        if (!store.musicUser) {
+            const loggedIn = await this.musicCheckLoginStatus();
+            if (!loggedIn) {
+                toast.info('请先登录网易云音乐');
+                store.mainActiveTab = 'music';
+                store.musicShowLoginModal = true;
+                return;
+            }
+        }
+
+        try {
+            toast.info('正在获取收藏列表...');
+            if (store.musicMyPlaylists.length === 0) {
+                await this.musicLoadUserPlaylists();
+            }
+
+            const likedPlaylist = store.musicMyPlaylists.find(p => p.isSpecial || p.name.includes('我喜欢的音乐'));
+            if (likedPlaylist) {
+                await this.musicLoadPlaylistDetail(likedPlaylist.id);
+                if (store.musicCurrentPlaylistDetail && store.musicCurrentPlaylistDetail.tracks.length > 0) {
+                    const tracks = [...store.musicCurrentPlaylistDetail.tracks].sort(() => Math.random() - 0.5);
+                    this.musicPlayPlaylist(tracks);
+                    toast.success('开始随机播放：我喜欢的音乐');
+                } else {
+                    toast.warning('歌单为空');
+                }
+            } else {
+                toast.warning('未找到“我喜欢的音乐”歌单');
+            }
+        } catch (error) {
+            console.error('Play favorites failed:', error);
+            toast.error('播放失败');
+        }
+    },
+
+    /**
+     * 自动加载“我喜欢的音乐” (随机) 但不播放
+     */
+    async musicAutoLoadFavorites() {
+        // 如果已经有歌在列表里或者正在播放，就不再自动随机加载了
+        if (store.musicCurrentSong) return;
+
+        if (!store.musicUser) {
+            await this.musicCheckLoginStatus();
+        }
+
+        if (!store.musicUser) return;
+
+        try {
+            if (store.musicMyPlaylists.length === 0) {
+                await this.musicLoadUserPlaylists();
+            }
+
+            const likedPlaylist = store.musicMyPlaylists.find(p => p.isSpecial || p.name.includes('我喜欢的音乐'));
+            if (likedPlaylist) {
+                await this.musicLoadPlaylistDetail(likedPlaylist.id);
+                if (store.musicCurrentPlaylistDetail && store.musicCurrentPlaylistDetail.tracks.length > 0) {
+                    const tracks = [...store.musicCurrentPlaylistDetail.tracks].sort(() => Math.random() - 0.5);
+
+                    // 仅设置列表和第一首歌，不调用 play
+                    store.musicPlaylist = tracks;
+                    store.musicCurrentPlaylistId = likedPlaylist.id;
+                    store.musicCurrentSong = tracks[0];
+                    store.musicPlaying = false;
+
+                    // 关键修正：重置详情页显示状态，确保点击音乐模块时显示首页
+                    store.musicShowDetail = false;
+
+                    console.log('[Music] Auto loaded favorites (random) without playing');
+                }
+            }
+        } catch (error) {
+            console.warn('[Music] Auto load favorites failed:', error);
+        }
+    },
     async musicPlay(song) {
         if (!song) return;
 
@@ -728,13 +901,13 @@ export const musicMethods = {
         if (store.musicPlaying) {
             audioPlayer.pause();
             store.musicPlaying = false;
-            if (amllPlayer) amllPlayer.pause();
-            if (amllBgRender) amllBgRender.pause();
+            if (typeof amllPlayer !== 'undefined' && amllPlayer) amllPlayer.pause();
+            if (typeof amllBgRender !== 'undefined' && amllBgRender) amllBgRender.pause();
         } else {
             audioPlayer.play();
             store.musicPlaying = true;
-            if (amllPlayer) amllPlayer.resume();
-            if (amllBgRender) amllBgRender.resume();
+            if (typeof amllPlayer !== 'undefined' && amllPlayer) amllPlayer.resume();
+            if (typeof amllBgRender !== 'undefined' && amllBgRender) amllBgRender.resume();
         }
     },
 
@@ -944,7 +1117,7 @@ export const musicMethods = {
      * 获取每日推荐
      */
     async musicLoadDailyRecommend() {
-        if (store.musicDailyRecommend.length > 0) return; // 已有数据不再重复加载
+        if (store.musicDailyRecommend.length > 0) return store.musicDailyRecommend;
         store.musicRecommendLoading = true;
         try {
             const response = await fetch('/api/music/recommend/songs', {
@@ -963,14 +1136,15 @@ export const musicMethods = {
                 }));
 
                 store.musicDailyRecommend = songs;
-                // 只加载到列表，不自动播放
                 console.log('[Music] Daily recommend loaded:', songs.length, 'songs');
+                return songs;
             } else {
-                toast.warning('需要登录才能获取每日推荐');
+                console.warn('[Music] Daily recommend is empty or not logged in');
+                return null;
             }
         } catch (error) {
             console.error('[Music] Daily recommend error:', error);
-            toast.error('加载每日推荐失败');
+            return null;
         } finally {
             store.musicRecommendLoading = false;
         }
@@ -1519,6 +1693,12 @@ export const musicMethods = {
         try {
             const saved = localStorage.getItem('music_play_state');
             if (!saved) return;
+
+            // 如果当前在仪表盘页面，跳过恢复（优先使用“随机加载喜爱音乐”功能）
+            if (store.mainActiveTab === 'dashboard') {
+                console.log('[Music] Skip restore play state on dashboard to allow random favorites');
+                return;
+            }
 
             const state = JSON.parse(saved);
 

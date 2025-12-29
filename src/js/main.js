@@ -5,6 +5,7 @@
 
 // 导入样式
 import '../css/styles.css';
+import '../css/dashboard.css';
 import '../css/projects.css';
 import '../css/modals.css';
 import '../css/dns.css';
@@ -48,6 +49,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
 
 // 导入功能模块
+import { dashboardMethods } from './modules/dashboard.js';
 import { authMethods } from './modules/auth.js';
 import { zeaburMethods } from './modules/zeabur.js';
 import { renderMarkdown } from './modules/utils.js';
@@ -660,6 +662,11 @@ const app = createApp({
         this.loadSnippets();
         this.loadCredentials();
 
+        // 如果当前在仪表盘页，立即加载
+        if (this.mainActiveTab === 'dashboard') {
+          this.initDashboard();
+        }
+
         // 如果当前在主机页，立即加载
         if (this.mainActiveTab === 'server') {
           this.loadServerList();
@@ -857,6 +864,9 @@ const app = createApp({
         if (this.isAuthenticated) {
           this.$nextTick(() => {
             switch (newVal) {
+              case 'dashboard':
+                this.initDashboard();
+                break;
               case 'paas':
                 if (this.paasCurrentPlatform === 'zeabur') {
                   if (this.accounts.length === 0) {
@@ -966,6 +976,9 @@ const app = createApp({
         // 加载当前激活标签页的数据
         this.$nextTick(() => {
           switch (this.mainActiveTab) {
+            case 'dashboard':
+              this.initDashboard();
+              break;
             case 'paas':
               if (this.paasCurrentPlatform === 'zeabur') {
                 this.loadFromZeaburCache();
@@ -1215,6 +1228,7 @@ const app = createApp({
 
   methods: {
     // ==================== 功能模块 ====================
+    ...dashboardMethods,
     ...authMethods,
     ...zeaburMethods,
     ...paasMethods,
@@ -1264,7 +1278,7 @@ const app = createApp({
       const tabName = pathAliases[path] || path;
 
       // 直接使用 mainActiveTab 值作为路径
-      const validTabs = ['openai', 'antigravity', 'gemini-cli', 'paas', 'dns', 'self-h', 'server', 'totp', 'music'];
+      const validTabs = ['dashboard', 'openai', 'antigravity', 'gemini-cli', 'paas', 'dns', 'self-h', 'server', 'totp', 'music'];
 
       if (tabName && validTabs.includes(tabName)) {
         store.singlePageMode = true;
@@ -1282,7 +1296,8 @@ const app = createApp({
           'self-h': 'Self-Hosted',
           'server': '主机管理',
           'totp': '2FA 验证器',
-          'music': '音乐播放器'
+          'music': '音乐播放器',
+          'dashboard': '仪表盘'
         };
         document.title = `API Monitor - ${titles[tabName] || tabName}`;
       }
