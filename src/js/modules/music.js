@@ -70,11 +70,13 @@ function transformToAMLL(lyrics, translations = []) {
     return lyrics.map((line, index) => {
         const nextTime = lyrics[index + 1]?.time || (line.time + 5000);
 
-        // 让 endTime 紧贴下一行 startTime，避免 AMLL 识别出间奏（除非确实有很长的间奏）
-        const gap = nextTime - line.time;
+        // 让 endTime 紧贴下一行 startTime，避免 AMLL 识别出间奏
+        // 增加安全检测：确保 gap 至少为 10ms
+        const gap = Math.max(nextTime - line.time, 10);
         // 只有间隔超过 4.5秒 才真正结束当前行，否则紧贴下一行开始，利于平滑滚动
         const duration = Math.min(gap - 100, 8000);
-        const endTime = gap > 4500 ? (line.time + 4000) : (nextTime - 10);
+        // 确保 endTime 不早于 startTime
+        const endTime = gap > 4500 ? (line.time + 4000) : Math.max(line.time + 10, nextTime - 10);
 
         let trans = '';
         if (translations && translations.length) {
@@ -102,7 +104,9 @@ function transformToAMLL(lyrics, translations = []) {
             // 如果是英文等，按单词拆分
             const parts = text.split(/(\s+)/); // 保留空格
             const totalParts = parts.length;
-            const partDuration = duration / Math.max(totalParts, 1);
+            // 确保 duration 至少为 100ms，避免除零
+            const safeDuration = Math.max(duration, 100);
+            const partDuration = safeDuration / Math.max(totalParts, 1);
             words = parts.map((part, i) => ({
                 startTime: line.time + (i * partDuration),
                 endTime: line.time + ((i + 1) * partDuration),
@@ -162,12 +166,16 @@ function initAudioPlayer() {
 function handleTimeUpdate() {
     if (!audioPlayer) return;
     store.musicCurrentTime = audioPlayer.currentTime;
-    store.musicProgress = (audioPlayer.currentTime / audioPlayer.duration) * 100 || 0;
 
-    // 更新当前歌词行
+    // 如果正在拖动进度条，不要让自动更新覆盖拖动位置
+    if (!store.musicIsDragging) {
+        store.musicProgress = (audioPlayer.currentTime / audioPlayer.duration) * 100 || 0;
+    }
+
+    // 更新当前歌词行 (增加 500ms 提前量以抵消感官延迟)
     updateCurrentLyricLine();
 
-    // 如果全屏且 AMLL 存在，也在这里更新一次确保对齐
+    // 如果全屏且 AMLL 存在，也在这里更新一次确保对齐 (同步增加偏移)
     if (store.musicShowFullPlayer && amllPlayer) {
         amllPlayer.setCurrentTime(audioPlayer.currentTime * 1000);
     }
@@ -313,7 +321,8 @@ async function retryWithUnblock(songId) {
 function updateCurrentLyricLine() {
     if (!store.musicLyrics.length || !audioPlayer) return;
 
-    const currentTime = audioPlayer.currentTime * 1000;
+    // 增加 300ms 的视觉提前量，让歌词听起来更准
+    const currentTime = audioPlayer.currentTime * 1000 + 300;
 
     // 1. 查找当前行索引 (默认指向第一项，确保前奏时显示第一句)
     let activeIndex = 0;
@@ -442,12 +451,14 @@ function parseLyrics(lrcText) {
         if (!text) continue;
 
         for (const match of matches) {
-            const minutes = parseInt(match[1]);
-            const seconds = parseInt(match[2]);
-            const ms = parseInt(match[3].padEnd(3, '0'));
+            const minutes = parseInt(match[1]) || 0;
+            const seconds = parseInt(match[2]) || 0;
+            const ms = parseInt(match[3].padEnd(3, '0')) || 0;
             const time = minutes * 60 * 1000 + seconds * 1000 + ms;
 
-            lyrics.push({ time, text });
+            if (!isNaN(time)) {
+                lyrics.push({ time, text });
+            }
         }
     }
 
@@ -733,7 +744,8 @@ export const musicMethods = {
                 if (store.musicLyrics && store.musicLyrics.length > 0) {
                     amllPlayer.setLyricLines(transformToAMLL(store.musicLyrics, store.musicLyricsTranslation));
                 }
-                amllPlayer.setCurrentTime(audioPlayer ? audioPlayer.currentTime * 1000 : 0);
+                const offsetTime = audioPlayer ? (audioPlayer.currentTime * 1000 + 300) : 0;
+                amllPlayer.setCurrentTime(offsetTime);
 
                 if (store.musicPlaying) amllPlayer.resume();
                 else amllPlayer.pause();
@@ -1170,9 +1182,63 @@ export const musicMethods = {
         if (!audioPlayer || !store.musicDuration) return;
         const bar = event.currentTarget;
         const rect = bar.getBoundingClientRect();
-        const x = event.clientX - rect.left;
-        const percent = (x / rect.width) * 100;
+        const clientX = event.clientX || (event.touches ? event.touches[0].clientX : 0);
+        const x = clientX - rect.left;
+        const percent = Math.min(100, Math.max(0, (x / rect.width) * 100));
         this.musicSeek(percent);
+    },
+
+    /**
+     * 进度条拖动开始
+     */
+    musicStartDrag(event) {
+        if (!audioPlayer || !store.musicDuration) return;
+
+        const bar = document.querySelector('.bar-progress');
+        if (!bar) return;
+
+        // 缓存 Rect 避免拖动中触发 Layout Reflow
+        this._dragBarRect = bar.getBoundingClientRect();
+        store.musicIsDragging = true;
+        this.musicDoDrag(event);
+
+        const onMouseMove = (e) => {
+            if (this._dragFrame) cancelAnimationFrame(this._dragFrame);
+            this._dragFrame = requestAnimationFrame(() => this.musicDoDrag(e));
+        };
+
+        const onMouseUp = () => {
+            if (store.musicIsDragging) {
+                if (this._dragFrame) cancelAnimationFrame(this._dragFrame);
+                this.musicSeek(store.musicProgress);
+                store.musicIsDragging = false;
+                this._dragBarRect = null;
+            }
+            window.removeEventListener('mousemove', onMouseMove);
+            window.removeEventListener('mouseup', onMouseUp);
+            window.removeEventListener('touchmove', onMouseMove);
+            window.removeEventListener('touchend', onMouseUp);
+        };
+
+        window.addEventListener('mousemove', onMouseMove, { passive: true });
+        window.addEventListener('mouseup', onMouseUp);
+        window.addEventListener('touchmove', onMouseMove, { passive: false });
+        window.addEventListener('touchend', onMouseUp);
+    },
+
+    /**
+     * 进度条拖动中
+     */
+    musicDoDrag(event) {
+        if (!store.musicIsDragging || !this._dragBarRect) return;
+
+        const clientX = event.clientX !== undefined ? event.clientX : (event.touches ? event.touches[0].clientX : 0);
+        const x = clientX - this._dragBarRect.left;
+        const percent = Math.min(100, Math.max(0, (x / this._dragBarRect.width) * 100));
+
+        store.musicProgress = percent;
+
+        if (event.cancelable) event.preventDefault();
     },
 
     /**

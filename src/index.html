@@ -176,8 +176,8 @@
       <!-- 点击背景层 (点击除按钮外的区域展开) -->
       <div class="bar-click-layer" v-if="musicCurrentSong" @click="musicToggleFullPlayer()"></div>
 
-      <div class="bar-progress" @click="musicSeekByClick($event)" role="slider" :aria-valuenow="musicProgress"
-        aria-valuemin="0" aria-valuemax="100" aria-label="播放进度">
+      <div class="bar-progress" @mousedown="musicStartDrag($event)" @touchstart="musicStartDrag($event)" role="slider"
+        :aria-valuenow="musicProgress" aria-valuemin="0" aria-valuemax="100" aria-label="播放进度">
         <div class="bar-fill" :style="{ width: musicProgress + '%' }"></div>
       </div>
 

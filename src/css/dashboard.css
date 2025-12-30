@@ -598,12 +598,12 @@
 .lyric-line-sub {
     font-size: 11px;
     color: var(--text-secondary);
-    font-weight: 500;
+    font-weight: bold;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
     text-shadow: none;
-    opacity: 0.8;
+    opacity: 0.5;
 }
 
 .lyric-line-sub.next {

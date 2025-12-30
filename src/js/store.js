@@ -511,6 +511,7 @@ export const store = reactive({
     musicMuted: false,
     musicRepeatMode: 'none', // 'none', 'all', 'one'
     musicShuffleEnabled: false,
+    musicIsDragging: false, // 进度条拖动状态
     musicCurrentTime: 0,
     musicDuration: 0,
     musicProgress: 0,

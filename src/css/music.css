@@ -80,7 +80,7 @@
 }
 
 body.single-page-mode #template-music {
-    height: 100vh;
+    /* height: 100vh; */
 }
 
 /* --- Section Tabs (Grid 3-Column: Left | Center | Right) --- */
@@ -1347,7 +1347,7 @@ body.single-page-mode #template-music {
     overflow-x: hidden;
     padding-top: 10px;
     /* 顶部留白防止第一行被遮 */
-    padding-bottom: 830px;
+    padding-bottom: 900px;
     /* 底部留白给播放条 */
     margin-right: -10px;
     /* 滚动条不占用内容空间 */
@@ -1463,7 +1463,7 @@ body.single-page-mode #template-music {
     box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
     display: flex;
     flex-direction: column;
-    z-index: 3400;
+    z-index: 13400;
     /* 确保在歌词页之上 */
     overflow: hidden;
     animation: slideUp 0.3s ease;
@@ -2278,15 +2278,24 @@ body.single-page-mode #template-music {
 
 /* 翻译歌词 */
 .amll-lyric-player [class*="_lyricSubLine_"] {
-    opacity: 0.6;
-    font-size: 16px;
-    font-weight: 500;
+    opacity: 0.5;
+    font-size: 23px;
+    font-weight: bold;
     margin-top: 8px;
 }
 
-/* 间奏点样式 */
+/* 间奏点样式 - 显著放大 */
 .amll-lyric-player [class*="_interludeDots_"] {
-    margin-bottom: 32px;
+    margin-bottom: 300px;
+}
+
+/* 针对内部圆点进行加固有力显示 */
+.amll-lyric-player [class*="_interludeDots_"] span,
+.amll-lyric-player [class*="_interludeDot_"] {
+    width: 20px !important;
+    height: 20px !important;
+    background-color: var(--text-primary) !important;
+    box-shadow: 0 0 10px rgba(255, 255, 255, 0.3);
 }
 
 /* 备用简单渲染逻辑适配 */
