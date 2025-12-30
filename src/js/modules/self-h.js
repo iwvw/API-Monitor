@@ -499,7 +499,6 @@ export const selfHMethods = {
                 return;
             }
 
-            console.log('[OpenList] Resolved target path:', newPath);
             this.loadOpenListFiles(newPath);
         } else {
             // 检查是否为视频文件
@@ -965,12 +964,15 @@ export const selfHMethods = {
 
     // 打开图片预览弹窗
     async openImagePreview(file, baseDir = store.openListPath) {
+        if (!this.currentOpenListAccount) {
+            toast.error('未选择 OpenList 账号');
+            return;
+        }
+
         const fullPath = this.getFilePath(file, baseDir);
         const fileName = typeof file.name === 'string' ? file.name : String(file.name || '');
 
         try {
-            toast.info('正在获取图片...');
-
             const response = await fetch(`/api/openlist/${this.currentOpenListAccount.id}/fs/get`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -978,49 +980,30 @@ export const selfHMethods = {
             });
 
             if (!response.ok) {
-                toast.error(`获取图片链接失败 (${response.status})`);
+                toast.error(`获取文件信息失败 (${response.status})`);
                 return;
             }
 
             const data = await response.json();
-            console.log('[ImagePreview] API Response:', data);
-
             if (data.code === 200 && data.data.raw_url) {
+                // 回归原始稳定的 raw_url，确保跨域预览成功
                 const imageUrl = data.data.raw_url;
-                console.log('[ImagePreview] Image URL:', imageUrl);
 
-                // 先显示弹窗和 loading 状态
+                // 显示弹窗和 loading 状态
                 store.imagePreview = {
                     visible: true,
                     url: imageUrl,
                     filename: fileName,
+                    path: fullPath,
                     loading: true
                 };
 
-                // 绑定 ESC 键关闭
                 this._bindImagePreviewEscKey();
-
-                // 使用 Image 对象预加载图片
-                const img = new Image();
-                img.onload = () => {
-                    console.log('[ImagePreview] Image loaded successfully');
-                    if (store.imagePreview) {
-                        store.imagePreview.loading = false;
-                    }
-                };
-                img.onerror = (e) => {
-                    console.error('[ImagePreview] Image load failed:', e);
-                    if (store.imagePreview) {
-                        store.imagePreview.loading = false;
-                    }
-                    toast.error('图片加载失败，可能是跨域限制');
-                };
-                img.src = imageUrl;
             } else {
-                toast.error('获取图片链接失败: ' + (data.message || '未知错误'));
+                toast.error('获取文件链接失败: ' + (data.message || '未知错误'));
             }
         } catch (e) {
-            toast.error('获取图片失败: ' + e.message);
+            toast.error('请求失败: ' + e.message);
         }
     },
 
@@ -1043,6 +1026,7 @@ export const selfHMethods = {
     closeImagePreview() {
         if (store.imagePreview) {
             store.imagePreview.visible = false;
+            store.imagePreview.url = ''; // 清空 URL 停止浏览器可能的请求
         }
         // 移除 ESC 键监听
         if (_imagePreviewEscHandler) {
@@ -1051,10 +1035,57 @@ export const selfHMethods = {
         }
     },
 
+    // 在图片预览中下载 (解决 UUID 文件名问题)
+    async downloadImageInPreview() {
+        if (!store.imagePreview || !store.imagePreview.url) return;
+
+        const { url, filename } = store.imagePreview;
+        toast.info('准备下载...');
+
+        try {
+            // 使用 fetch 获取 blob
+            const response = await fetch(url);
+            const blob = await response.blob();
+
+            // 创建本地 URL
+            const blobUrl = window.URL.createObjectURL(blob);
+
+            // 创建链接并点击
+            const a = document.createElement('a');
+            a.href = blobUrl;
+            a.download = filename; // 此时 download 属性生效，因为是同源 blob
+            document.body.appendChild(a);
+            a.click();
+
+            // 清理
+            setTimeout(() => {
+                document.body.removeChild(a);
+                window.URL.revokeObjectURL(blobUrl);
+            }, 100);
+
+            toast.success('开始下载');
+        } catch (e) {
+            console.error('[ImagePreview] Download failed:', e);
+            // 失败了则尝试直接打开（兜底）
+            window.open(url, '_blank');
+            toast.warn('由于跨域限制，请在新窗口中另存为图片');
+        }
+    },
+
     // 图片加载完成
     onImagePreviewLoad() {
         if (store.imagePreview) {
             store.imagePreview.loading = false;
+            console.log('[ImagePreview] Image loaded successfully');
+        }
+    },
+
+    // 图片加载失败
+    onImagePreviewError() {
+        if (store.imagePreview) {
+            store.imagePreview.loading = false;
+            console.error('[ImagePreview] Image failed to load');
+            toast.error('图片加载失败，请重试');
         }
     },
 

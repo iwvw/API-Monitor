@@ -1646,6 +1646,11 @@
     display: block;
     user-select: none;
     -webkit-user-drag: none;
+    transition: opacity 0.3s ease;
+}
+
+.image-preview-img.loading {
+    opacity: 0;
 }
 
 /* 移动端适配 */

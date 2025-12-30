@@ -699,13 +699,13 @@
             <div class="image-preview-header">
                 <span class="image-preview-filename" :title="imagePreview.filename">{{ imagePreview.filename }}</span>
                 <div class="image-preview-actions">
-                    <a :href="imagePreview.url" target="_blank" class="btn btn-icon-refined sm" title="在新标签页打开">
+                    <a :href="imagePreview.url" target="_blank" class="btn btn-icon-refined sm" title="在新标签页打开"
+                        rel="noopener noreferrer">
                         <i class="fas fa-external-link-alt"></i>
                     </a>
-                    <a :href="imagePreview.url" :download="imagePreview.filename" class="btn btn-icon-refined sm"
-                        title="下载">
+                    <button @click="downloadImageInPreview" class="btn btn-icon-refined sm" title="下载到本地">
                         <i class="fas fa-download"></i>
-                    </a>
+                    </button>
                 </div>
             </div>
 
@@ -718,8 +718,8 @@
                 </div>
                 <!-- 图片 -->
                 <img v-show="!imagePreview.loading" :src="imagePreview.url" :alt="imagePreview.filename"
-                    class="image-preview-img" @load="onImagePreviewLoad" @error="onImagePreviewLoad"
-                    referrerpolicy="no-referrer" crossorigin="anonymous" draggable="false" />
+                    class="image-preview-img" @load="onImagePreviewLoad" @error="onImagePreviewError"
+                    referrerpolicy="no-referrer" draggable="false" />
             </div>
         </div>
     </div>
