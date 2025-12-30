@@ -2189,7 +2189,7 @@ body.single-page-mode #template-music {
 
 .amll-lyric-player {
     --amll-lp-color: var(--text-primary);
-    --amll-lp-font-size: 32px;
+    --amll-lp-font-size: 40px;
 
     width: 100%;
     height: 100%;

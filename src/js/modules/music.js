@@ -172,12 +172,12 @@ function handleTimeUpdate() {
         store.musicProgress = (audioPlayer.currentTime / audioPlayer.duration) * 100 || 0;
     }
 
-    // 更新当前歌词行 (增加 500ms 提前量以抵消感官延迟)
+    // 更新当前歌词行 (增加提前量以抵消感官延迟)
     updateCurrentLyricLine();
 
-    // 如果全屏且 AMLL 存在，也在这里更新一次确保对齐 (同步增加偏移)
+    // 如果全屏且 AMLL 存在，也在这里更新一次确保对齐 (同步增加提前量)
     if (store.musicShowFullPlayer && amllPlayer) {
-        amllPlayer.setCurrentTime(audioPlayer.currentTime * 1000);
+        amllPlayer.setCurrentTime(audioPlayer.currentTime * 1000 + 200);
     }
 
     // 每 5 秒保存一次播放状态到 localStorage
