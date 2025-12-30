@@ -380,8 +380,9 @@ router.get('/playlist/detail', async (req, res) => {
 
             logger.info('[Playlist] tracks empty, fetching song details for', result.body.playlist.trackIds.length, 'songs');
 
-            // 获取前 500 首歌的详情
-            const trackIds = result.body.playlist.trackIds.slice(0, 500).map(t => t.id);
+            // 获取前 500 首歌的详情 (支持通过 fetch_limit 参数控制，默认 500)
+            const fetchLimit = parseInt(req.query.fetch_limit) || 500;
+            const trackIds = result.body.playlist.trackIds.slice(0, fetchLimit).map(t => t.id);
 
             if (trackIds.length > 0 && api.song_detail) {
                 const songResult = await api.song_detail({

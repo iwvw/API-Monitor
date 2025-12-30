@@ -917,7 +917,7 @@ export const musicMethods = {
 
             const likedPlaylist = store.musicMyPlaylists.find(p => p.isSpecial || p.name.includes('我喜欢的音乐'));
             if (likedPlaylist) {
-                await this.musicLoadPlaylistDetail(likedPlaylist.id);
+                await this.musicLoadPlaylistDetail(likedPlaylist.id, 50);
                 if (store.musicCurrentPlaylistDetail && store.musicCurrentPlaylistDetail.tracks.length > 0) {
                     const tracks = [...store.musicCurrentPlaylistDetail.tracks].sort(() => Math.random() - 0.5);
 
@@ -1547,7 +1547,7 @@ export const musicMethods = {
     /**
      * 获取歌单详情
      */
-    async musicLoadPlaylistDetail(id) {
+    async musicLoadPlaylistDetail(id, limit) {
         // 立即显示详情页和骨架屏，提供即时反馈
         store.musicShowDetail = true;
         store.musicPlaylistDetailLoading = true;
@@ -1555,7 +1555,8 @@ export const musicMethods = {
         store.musicCurrentPlaylistDetail = null;
 
         try {
-            const response = await fetch(`/api/music/playlist/detail?id=${id}`);
+            const url = limit ? `/api/music/playlist/detail?id=${id}&fetch_limit=${limit}` : `/api/music/playlist/detail?id=${id}`;
+            const response = await fetch(url);
             const data = await response.json();
 
             if (data.playlist) {

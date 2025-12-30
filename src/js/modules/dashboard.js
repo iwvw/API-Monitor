@@ -59,8 +59,9 @@ export const dashboardMethods = {
             // 后台静默刷新（不显示 loading 状态）
             this.refreshDashboardDataSilent();
         } else {
-            // 无缓存时正常加载
-            await this.refreshDashboardData();
+            // 无缓存时也直接渲染页面（使用默认初始值），后台异步加载数据
+            // 不使用 await，让页面立即展示结构
+            this.refreshDashboardData();
         }
 
         // 音乐收藏异步加载（不阻塞仪表盘）
@@ -148,25 +149,33 @@ export const dashboardMethods = {
      * 优化：两个请求并行执行
      */
     async fetchApiSummary() {
-        try {
-            // 并行请求两个 API
-            const [agRes, gRes] = await Promise.all([
-                fetch('/api/antigravity/stats', { headers: store.getAuthHeaders() }),
-                fetch('/api/gemini-cli/stats', { headers: store.getAuthHeaders() })
-            ]);
-
-            if (agRes.ok) {
-                const agData = await agRes.json();
-                store.dashboardStats.antigravity = agData.data || agData;
+        const updateAntigravity = async () => {
+            try {
+                const res = await fetch('/api/antigravity/stats', { headers: store.getAuthHeaders() });
+                if (res.ok) {
+                    const data = await res.json();
+                    store.dashboardStats.antigravity = data.data || data;
+                }
+            } catch (e) {
+                console.error('[Dashboard] Antigravity stats failed:', e);
             }
+        };
 
-            if (gRes.ok) {
-                const gData = await gRes.json();
-                store.dashboardStats.geminiCli = gData.data || gData;
+        const updateGemini = async () => {
+            try {
+                const res = await fetch('/api/gemini-cli/stats', { headers: store.getAuthHeaders() });
+                if (res.ok) {
+                    const data = await res.json();
+                    store.dashboardStats.geminiCli = data.data || data;
+                }
+            } catch (e) {
+                console.error('[Dashboard] Gemini stats failed:', e);
             }
-        } catch (e) {
-            console.error('[Dashboard] Fetch API summary failed:', e);
-        }
+        };
+
+        // Fire both, don't wait for all to finish before updating individual stats
+        // But await the group to know when API section is fully done (for loading state)
+        await Promise.allSettled([updateAntigravity(), updateGemini()]);
     },
 
     /**
@@ -174,80 +183,90 @@ export const dashboardMethods = {
      * 优化：三个平台的请求完全并行
      */
     async fetchPaaSSummary() {
-        try {
-            // 并行请求所有 PaaS 平台
-            const [zRes, kRes, fRes] = await Promise.all([
-                fetch('/api/zeabur/projects', { headers: store.getAuthHeaders() }),
-                fetch('/api/koyeb/data', { headers: store.getAuthHeaders() }),
-                fetch('/api/fly/proxy/apps', { headers: store.getAuthHeaders() })
-            ]);
-
-            // Zeabur
-            if (zRes.ok) {
-                const zData = await zRes.json();
-                let appCount = 0;
-                let runningCount = 0;
-                if (Array.isArray(zData)) {
-                    zData.forEach(acc => {
-                        if (acc.projects) {
-                            acc.projects.forEach(p => {
-                                if (p.services) {
-                                    appCount += p.services.length;
-                                    runningCount += p.services.filter(s => s.status === 'RUNNING').length;
-                                }
-                            });
-                        }
-                    });
+        const updateZeabur = async () => {
+            try {
+                const res = await fetch('/api/zeabur/projects', { headers: store.getAuthHeaders() });
+                if (res.ok) {
+                    const data = await res.json();
+                    let appCount = 0;
+                    let runningCount = 0;
+                    if (Array.isArray(data)) {
+                        data.forEach(acc => {
+                            if (acc.projects) {
+                                acc.projects.forEach(p => {
+                                    if (p.services) {
+                                        appCount += p.services.length;
+                                        runningCount += p.services.filter(s => s.status === 'RUNNING').length;
+                                    }
+                                });
+                            }
+                        });
+                    }
+                    store.dashboardStats.paas.zeabur = { total: appCount, running: runningCount };
                 }
-                store.dashboardStats.paas.zeabur = { total: appCount, running: runningCount };
+            } catch (e) {
+                console.error('[Dashboard] Zeabur stats failed:', e);
             }
+        };
 
-            // Koyeb
-            if (kRes.ok) {
-                const kData = await kRes.json();
-                let appCount = 0;
-                let runningCount = 0;
-                if (kData.success && kData.accounts) {
-                    kData.accounts.forEach(acc => {
-                        if (acc.projects) {
-                            acc.projects.forEach(p => {
-                                if (p.services) {
-                                    p.services.forEach(s => {
-                                        appCount++;
-                                        if (s.status === 'HEALTHY' || s.status === 'RUNNING') {
-                                            runningCount++;
-                                        }
-                                    });
-                                }
-                            });
-                        }
-                    });
+        const updateKoyeb = async () => {
+            try {
+                const res = await fetch('/api/koyeb/data', { headers: store.getAuthHeaders() });
+                if (res.ok) {
+                    const data = await res.json();
+                    let appCount = 0;
+                    let runningCount = 0;
+                    if (data.success && data.accounts) {
+                        data.accounts.forEach(acc => {
+                            if (acc.projects) {
+                                acc.projects.forEach(p => {
+                                    if (p.services) {
+                                        p.services.forEach(s => {
+                                            appCount++;
+                                            if (s.status === 'HEALTHY' || s.status === 'RUNNING') {
+                                                runningCount++;
+                                            }
+                                        });
+                                    }
+                                });
+                            }
+                        });
+                    }
+                    store.dashboardStats.paas.koyeb = { total: appCount, running: runningCount };
                 }
-                store.dashboardStats.paas.koyeb = { total: appCount, running: runningCount };
+            } catch (e) {
+                console.error('[Dashboard] Koyeb stats failed:', e);
             }
+        };
 
-            // Fly.io
-            if (fRes.ok) {
-                const fData = await fRes.json();
-                let appCount = 0;
-                let runningCount = 0;
-                if (fData.success && fData.data) {
-                    fData.data.forEach(acc => {
-                        if (acc.apps) {
-                            acc.apps.forEach(app => {
-                                appCount++;
-                                if (app.status === 'deployed' || app.status === 'running') {
-                                    runningCount++;
-                                }
-                            });
-                        }
-                    });
+        const updateFly = async () => {
+            try {
+                const res = await fetch('/api/fly/proxy/apps', { headers: store.getAuthHeaders() });
+                if (res.ok) {
+                    const data = await res.json();
+                    let appCount = 0;
+                    let runningCount = 0;
+                    if (data.success && data.data) {
+                        data.data.forEach(acc => {
+                            if (acc.apps) {
+                                acc.apps.forEach(app => {
+                                    appCount++;
+                                    if (app.status === 'deployed' || app.status === 'running') {
+                                        runningCount++;
+                                    }
+                                });
+                            }
+                        });
+                    }
+                    store.dashboardStats.paas.fly = { total: appCount, running: runningCount };
                 }
-                store.dashboardStats.paas.fly = { total: appCount, running: runningCount };
+            } catch (e) {
+                console.error('[Dashboard] Fly.io stats failed:', e);
             }
-        } catch (e) {
-            console.error('[Dashboard] Fetch PaaS summary failed:', e);
-        }
+        };
+
+        // Parallel execution with independent cache/store updates
+        await Promise.allSettled([updateZeabur(), updateKoyeb(), updateFly()]);
     },
 
     /**
