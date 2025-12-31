@@ -1,6 +1,6 @@
-import { defineConfig } from 'vitest/config';
+const { defineConfig } = require('vitest/config');
 
-export default defineConfig({
+module.exports = defineConfig({
     test: {
         // 测试环境
         environment: 'node',
@@ -20,7 +20,7 @@ export default defineConfig({
                 'node_modules/**',
                 'dist/**',
                 'test/**',
-                'src/js/**',  // 前端代码需要不同的测试环境
+                'src/js/**', // 前端代码需要不同的测试环境
                 'public/**',
                 '*.config.js',
             ],

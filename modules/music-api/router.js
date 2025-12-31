@@ -10,6 +10,7 @@ const path = require('path');
 const { Readable } = require('stream');
 const { createLogger } = require('../../src/utils/logger');
 const dbService = require('../../src/db/database');
+const { secureEncrypt, secureDecrypt } = require('../../src/utils/secure-storage');
 
 // UnblockNeteaseMusic 模块（可选依赖，解锁灰色歌曲）
 let unblockmatch = null;
@@ -50,7 +51,7 @@ function loadStoredCookie() {
     const db = dbService.getDatabase();
     const row = db.prepare('SELECT value FROM music_settings WHERE key = ?').get('cookie');
     if (row && row.value) {
-      storedCookie = row.value;
+      storedCookie = secureDecrypt(row.value);
       logger.info('Loaded stored cookie from database, length:', storedCookie.length);
     } else {
       logger.info('No cookie found in database');
@@ -67,15 +68,16 @@ function loadStoredCookie() {
 function saveCookie(cookieString) {
   try {
     const db = dbService.getDatabase();
+    const encryptedCookie = secureEncrypt(cookieString);
     db.prepare(
       `
             INSERT INTO music_settings (key, value, updated_at) 
             VALUES ('cookie', ?, CURRENT_TIMESTAMP)
             ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP
         `
-    ).run(cookieString);
+    ).run(encryptedCookie);
     storedCookie = cookieString;
-    logger.success('Cookie saved to database');
+    logger.success('Cookie saved to database (encrypted)');
   } catch (error) {
     logger.error('Failed to save cookie to database:', error.message);
   }

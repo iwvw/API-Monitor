@@ -38,7 +38,8 @@
     "socket.io-client": "^4.8.3",
     "ssh2": "^1.17.0",
     "uuid": "^13.0.0",
-    "ws": "^8.18.3"
+    "ws": "^8.18.3",
+    "zod": "^4.2.1"
   },
   "devDependencies": {
     "@applemusic-like-lyrics/core": "^0.2.0",

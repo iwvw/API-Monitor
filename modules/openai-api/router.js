@@ -6,6 +6,8 @@ const express = require('express');
 const router = express.Router();
 const storage = require('./storage');
 const openaiApi = require('./openai-api');
+const { proxyLimiter } = require('../../src/middleware/rateLimit');
+const { validate, chatCompletionSchema } = require('../../src/middleware/validation');
 
 // ==================== 端点管理 ====================
 
@@ -287,13 +289,14 @@ router.post('/endpoints/:id/test', async (req, res) => {
  * 单个模型健康检查
  * 使用流式 API，接收首个 chunk 即判定成功
  */
-router.post('/endpoints/:id/health-check', async (req, res) => {
+router.post('/endpoints/:id/health-check', async (req, res, next) => {
   try {
     const { id } = req.params;
     const { model, timeout } = req.body;
 
     if (!model) {
-      return res.status(400).json({ error: '模型名称必填' });
+      const { BadRequestError } = require('../../src/middleware/errorHandler');
+      throw new BadRequestError('模型名称必填');
     }
 
     const endpoint = storage.getEndpointById(id);
@@ -314,7 +317,7 @@ router.post('/endpoints/:id/health-check', async (req, res) => {
 
     res.json(result);
   } catch (e) {
-    res.status(500).json({ error: e.message });
+    next(e);
   }
 });
 
@@ -509,76 +512,80 @@ router.post('/import', (req, res) => {
 /**
  * OpenAI 兼容的对话接口 (代理转发)
  */
-router.post(['/', '/v1/chat/completions', '/chat/completions'], async (req, res) => {
-  const startTime = Date.now();
-  try {
-    const { model, stream } = req.body;
-    const endpoints = storage
-      .getEndpoints()
-      .filter(ep => ep.status === 'valid' && (ep.enabled === true || ep.enabled === 1));
+router.post(
+  ['/', '/v1/chat/completions', '/chat/completions'],
+  proxyLimiter,
+  validate({ body: chatCompletionSchema }),
+  async (req, res, next) => {
+    const startTime = Date.now();
+    try {
+      const { model, stream } = req.body;
+      const endpoints = storage
+        .getEndpoints()
+        .filter(ep => ep.status === 'valid' && (ep.enabled === true || ep.enabled === 1));
 
-    if (endpoints.length === 0) {
-      return res
-        .status(503)
-        .json({
-          error: { message: 'No valid OpenAI endpoints available', type: 'service_unavailable' },
-        });
-    }
-
-    // 找到拥有该模型的端点
-    const eligibleEndpoints = endpoints.filter(ep => ep.models && ep.models.includes(model));
-    const targetEndpoints = eligibleEndpoints.length > 0 ? eligibleEndpoints : endpoints;
-
-    // 负载均衡：随机选择一个端点
-    const endpoint = targetEndpoints[Math.floor(Math.random() * targetEndpoints.length)];
-
-    // 构建请求
-    const axios = require('axios');
-    const config = {
-      method: 'post',
-      url: `${endpoint.baseUrl.replace(/\/+$/, '')}/chat/completions`,
-      headers: {
-        Authorization: `Bearer ${endpoint.apiKey}`,
-        'Content-Type': 'application/json',
-        Accept: stream ? 'text/event-stream' : 'application/json',
-      },
-      data: req.body,
-      responseType: stream ? 'stream' : 'json',
-      timeout: 60000,
-    };
-
-    const response = await axios(config);
-
-    if (stream) {
-      res.setHeader('Content-Type', 'text/event-stream');
-      res.setHeader('Cache-Control', 'no-cache');
-      res.setHeader('Connection', 'keep-alive');
-      response.data.pipe(res);
-    } else {
-      res.status(response.status).json(response.data);
-    }
-
-    // 记录使用情况
-    storage.touchEndpoint(endpoint.id);
-  } catch (e) {
-    console.error('OpenAI Proxy Error:', e.message);
-
-    // 严格隔离 Axios 错误对象，仅提取必要数据
-    const responseStatus = e.response && e.response.status ? e.response.status : 500;
-    let responseData = { error: { message: e.message, type: 'proxy_error' } };
-
-    if (e.response && e.response.data) {
-      // 深度克隆数据以断开任何潜在的引用链
-      try {
-        responseData = JSON.parse(JSON.stringify(e.response.data));
-      } catch (parseErr) {
-        responseData = { error: { message: String(e.response.data), type: 'api_error' } };
+      if (endpoints.length === 0) {
+        return res
+          .status(503)
+          .json({
+            error: { message: 'No valid OpenAI endpoints available', type: 'service_unavailable' },
+          });
       }
-    }
 
-    res.status(responseStatus).json(responseData);
-  }
-});
+      // 找到拥有该模型的端点
+      const eligibleEndpoints = endpoints.filter(ep => ep.models && ep.models.includes(model));
+      const targetEndpoints = eligibleEndpoints.length > 0 ? eligibleEndpoints : endpoints;
+
+      // 负载均衡：随机选择一个端点
+      const endpoint = targetEndpoints[Math.floor(Math.random() * targetEndpoints.length)];
+
+      // 构建请求
+      const axios = require('axios');
+      const config = {
+        method: 'post',
+        url: `${endpoint.baseUrl.replace(/\/+$/, '')}/chat/completions`,
+        headers: {
+          Authorization: `Bearer ${endpoint.apiKey}`,
+          'Content-Type': 'application/json',
+          Accept: stream ? 'text/event-stream' : 'application/json',
+        },
+        data: req.body,
+        responseType: stream ? 'stream' : 'json',
+        timeout: 60000,
+      };
+
+      const response = await axios(config);
+
+      if (stream) {
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive');
+        response.data.pipe(res);
+      } else {
+        res.status(response.status).json(response.data);
+      }
+
+      // 记录使用情况
+      storage.touchEndpoint(endpoint.id);
+    } catch (e) {
+      console.error('OpenAI Proxy Error:', e.message);
+
+      // 严格隔离 Axios 错误对象，仅提取必要数据
+      const responseStatus = e.response && e.response.status ? e.response.status : 500;
+      let responseData = { error: { message: e.message, type: 'proxy_error' } };
+
+      if (e.response && e.response.data) {
+        // 深度克隆数据以断开任何潜在的引用链
+        try {
+          responseData = JSON.parse(JSON.stringify(e.response.data));
+        } catch (parseErr) {
+          responseData = { error: { message: String(e.response.data), type: 'api_error' } };
+        }
+      }
+
+      res.status(responseStatus).json(responseData);
+    }
+  });
 
 /**
  * OpenAI 兼容的模型列表接口

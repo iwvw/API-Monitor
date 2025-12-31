@@ -1,4 +1,5 @@
 const BaseModel = require('../../src/db/models/BaseModel');
+const { accountSecure } = require('../../src/utils/secure-storage');
 
 /**
  * OpenAI API 端点模型
@@ -15,8 +16,8 @@ class OpenAIEndpoint extends BaseModel {
     const data = {
       id: endpointData.id || `oai_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       name: endpointData.name,
-      base_url: endpointData.baseUrl || endpointData.base_url,
-      api_key: endpointData.apiKey || endpointData.api_key,
+      baseUrl: endpointData.baseUrl || endpointData.base_url,
+      api_key: accountSecure.secureEncrypt(endpointData.apiKey || endpointData.api_key),
       status: endpointData.status || 'unknown',
       enabled: endpointData.enabled !== undefined ? (endpointData.enabled ? 1 : 0) : 1,
       models: endpointData.models
@@ -50,8 +51,11 @@ class OpenAIEndpoint extends BaseModel {
       delete data.baseUrl;
     }
     if (data.apiKey) {
-      data.api_key = data.apiKey;
+      data.api_key = accountSecure.secureEncrypt(data.apiKey);
       delete data.apiKey;
+    }
+    if (data.api_key) {
+      data.api_key = accountSecure.secureEncrypt(data.api_key);
     }
     if (data.enabled !== undefined) {
       data.enabled = data.enabled ? 1 : 0;
@@ -73,8 +77,13 @@ class OpenAIEndpoint extends BaseModel {
    */
   getEndpoint(id) {
     const endpoint = this.findById(id);
-    if (endpoint && endpoint.models) {
-      endpoint.models = JSON.parse(endpoint.models);
+    if (endpoint) {
+      if (endpoint.models) {
+        endpoint.models = JSON.parse(endpoint.models);
+      }
+      if (endpoint.api_key) {
+        endpoint.api_key = accountSecure.secureDecrypt(endpoint.api_key);
+      }
     }
     return endpoint;
   }
@@ -86,6 +95,7 @@ class OpenAIEndpoint extends BaseModel {
     const endpoints = this.findAll();
     return endpoints.map(endpoint => ({
       ...endpoint,
+      api_key: accountSecure.secureDecrypt(endpoint.api_key),
       models: endpoint.models ? JSON.parse(endpoint.models) : [],
     }));
   }

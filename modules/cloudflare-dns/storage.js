@@ -8,6 +8,7 @@
 
 const { CloudflareAccount, CloudflareDnsTemplate } = require('../../src/db/models');
 const dbService = require('../../src/db/database');
+const { accountSecure } = require('../../src/utils/secure-storage');
 
 // 初始化数据库
 dbService.initialize();
@@ -24,7 +25,7 @@ function getAccounts() {
     return accounts.map(acc => ({
       id: acc.id,
       name: acc.name,
-      apiToken: acc.api_token,
+      apiToken: accountSecure.secureDecrypt(acc.api_token),
       email: acc.email || '',
       createdAt: acc.created_at,
       lastUsed: acc.last_used,
@@ -51,7 +52,7 @@ function saveAccounts(accounts) {
         CloudflareAccount.createAccount({
           id: account.id,
           name: account.name,
-          apiToken: account.apiToken,
+          apiToken: accountSecure.secureEncrypt(account.apiToken),
           email: account.email || '',
           createdAt: account.createdAt,
           lastUsed: account.lastUsed,
@@ -82,7 +83,10 @@ function addAccount(account) {
     lastUsed: null,
   };
 
-  CloudflareAccount.createAccount(newAccount);
+  CloudflareAccount.createAccount({
+    ...newAccount,
+    apiToken: accountSecure.secureEncrypt(newAccount.apiToken),
+  });
   return newAccount;
 }
 
@@ -96,7 +100,7 @@ function updateAccount(id, updates) {
 
     const updateData = {};
     if (updates.name) updateData.name = updates.name;
-    if (updates.apiToken) updateData.api_token = updates.apiToken;
+    if (updates.apiToken) updateData.api_token = accountSecure.secureEncrypt(updates.apiToken);
     if (updates.email !== undefined) updateData.email = updates.email;
 
     CloudflareAccount.updateAccount(id, updateData);
@@ -140,7 +144,7 @@ function getAccountById(id) {
     return {
       id: account.id,
       name: account.name,
-      apiToken: account.api_token,
+      apiToken: accountSecure.secureDecrypt(account.api_token),
       email: account.email,
       createdAt: account.created_at,
       lastUsed: account.last_used,

@@ -23,8 +23,11 @@ const { createLogger } = require('./src/utils/logger');
 const logger = createLogger('Server');
 
 // 导入中间件
-const corsMiddleware = require('./src/middleware/cors');
+const { configureHelmet, apiSecurityHeaders, corsConfig } = require('./src/middleware/security');
+const { generalLimiter } = require('./src/middleware/rateLimit');
+const { errorHandler } = require('./src/middleware/errorHandler');
 const loggerMiddleware = require('./src/middleware/logger');
+const cors = require('cors');
 
 // 导入服务
 const { loadSessions } = require('./src/services/session');
@@ -115,9 +118,14 @@ try {
   logger.warn('加载日志配置失败，使用默认值 10 MB:', err.message);
 }
 
-// 应用中间件
+// 应用安全中间件
+app.use(configureHelmet());
+app.use(generalLimiter); // 通用访问限制
+
+// 应用基础中间件
 app.use(loggerMiddleware);
-app.use(corsMiddleware);
+app.use(cors(corsConfig()));
+app.use('/api', apiSecurityHeaders); // 为 API 端点设置额外安全头
 app.use(express.json({ limit: '50mb' }));
 // 静态文件服务
 // 1. 优先服务 dist (生产构建内容)
@@ -151,6 +159,9 @@ if (fs.existsSync(agentDir)) {
 // 注册所有路由
 // Fly.io module integrated - v4
 registerRoutes(app);
+
+// 统一错误处理 (放在所有路由之后)
+app.use(errorHandler);
 
 // ==================== SPA Fallback 路由 ====================
 // 处理前端路由，返回 index.html 让前端路由器处理

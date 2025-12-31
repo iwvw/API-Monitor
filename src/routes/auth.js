@@ -13,6 +13,10 @@ const {
   isDemoMode,
 } = require('../services/config');
 
+// 导入安全中间件
+const { authLimiter } = require('../middleware/rateLimit');
+const { validate, loginSchema, changePasswordSchema } = require('../middleware/validation');
+
 const logger = createLogger('Auth');
 
 /**
@@ -29,7 +33,7 @@ router.get('/check-password', (req, res) => {
 /**
  * 登录：创建 session
  */
-router.post('/login', (req, res) => {
+router.post('/login', authLimiter, validate({ body: loginSchema }), (req, res) => {
   const { password } = req.body;
   const savedPassword = loadAdminPassword();
 
@@ -125,7 +129,7 @@ router.post('/verify-password', (req, res) => {
 });
 
 // 修改密码
-router.post('/change-password', (req, res) => {
+router.post('/change-password', validate({ body: changePasswordSchema }), (req, res) => {
   const { oldPassword, newPassword } = req.body;
 
   if (isDemoMode()) {
