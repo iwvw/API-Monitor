@@ -51,3 +51,4 @@ backup/
 .agent/
 .agent/workflows/
 .agent/workflows/optimization-plan.md
+optimization-plan.md
