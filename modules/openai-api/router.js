@@ -45,14 +45,14 @@ router.post('/endpoints', async (req, res) => {
         storage.updateEndpoint(endpoint.id, {
           status: 'valid',
           models: modelsResult.models || [],
-          lastChecked: new Date().toISOString()
+          lastChecked: new Date().toISOString(),
         });
         endpoint.status = 'valid';
         endpoint.models = modelsResult.models || [];
       } else {
         storage.updateEndpoint(endpoint.id, {
           status: 'invalid',
-          lastChecked: new Date().toISOString()
+          lastChecked: new Date().toISOString(),
         });
         endpoint.status = 'invalid';
       }
@@ -64,7 +64,7 @@ router.post('/endpoints', async (req, res) => {
     res.json({
       success: true,
       endpoint,
-      verification
+      verification,
     });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -93,16 +93,22 @@ router.put('/endpoints/:id', async (req, res) => {
       if (verification.valid) {
         const modelsResult = await openaiApi.listModels(testUrl, testKey);
         storage.updateEndpoint(id, {
-          name, baseUrl, apiKey, notes,
+          name,
+          baseUrl,
+          apiKey,
+          notes,
           status: 'valid',
           models: modelsResult.models || [],
-          lastChecked: new Date().toISOString()
+          lastChecked: new Date().toISOString(),
         });
       } else {
         storage.updateEndpoint(id, {
-          name, baseUrl, apiKey, notes,
+          name,
+          baseUrl,
+          apiKey,
+          notes,
           status: 'invalid',
-          lastChecked: new Date().toISOString()
+          lastChecked: new Date().toISOString(),
         });
       }
     } else {
@@ -169,13 +175,13 @@ router.post('/endpoints/:id/verify', async (req, res) => {
     storage.updateEndpoint(id, {
       status: status.status,
       models: status.models || [],
-      lastChecked: status.checkedAt
+      lastChecked: status.checkedAt,
     });
 
     // 添加 valid 属性方便前端判断
     res.json({
       ...status,
-      valid: status.status === 'valid'
+      valid: status.status === 'valid',
     });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -200,7 +206,7 @@ router.get('/endpoints/:id/models', async (req, res) => {
     if (result.success) {
       storage.updateEndpoint(id, {
         models: result.models,
-        lastChecked: new Date().toISOString()
+        lastChecked: new Date().toISOString(),
       });
     }
 
@@ -225,20 +231,20 @@ router.post(['/endpoints/refresh', '/endpoints/refresh-all'], async (req, res) =
         storage.updateEndpoint(endpoint.id, {
           status: status.status,
           models: status.models || [],
-          lastChecked: status.checkedAt
+          lastChecked: status.checkedAt,
         });
         results.push({
           id: endpoint.id,
           name: endpoint.name,
           success: status.status === 'valid',
-          modelsCount: status.models?.length || 0
+          modelsCount: status.models?.length || 0,
         });
       } catch (e) {
         results.push({
           id: endpoint.id,
           name: endpoint.name,
           success: false,
-          error: e.message
+          error: e.message,
         });
       }
     }
@@ -330,7 +336,7 @@ router.post('/endpoints/:id/health-check-all', async (req, res) => {
       return res.json({
         success: true,
         totalModels: 0,
-        message: '该端点没有模型可供检测'
+        message: '该端点没有模型可供检测',
       });
     }
 
@@ -350,12 +356,12 @@ router.post('/endpoints/:id/health-check-all', async (req, res) => {
     // 更新端点的整体健康状态
     storage.updateEndpoint(id, {
       healthStatus: summary.overallStatus,
-      lastHealthCheck: summary.checkedAt
+      lastHealthCheck: summary.checkedAt,
     });
 
     res.json({
       success: true,
-      ...summary
+      ...summary,
     });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -379,7 +385,7 @@ router.get('/endpoints/:id/health', (req, res) => {
       endpointId: id,
       healthStatus: endpoint.healthStatus || 'unknown',
       lastHealthCheck: endpoint.lastHealthCheck || null,
-      models: healthData
+      models: healthData,
     });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -402,7 +408,7 @@ router.post('/health-check-all', async (req, res) => {
           endpointId: endpoint.id,
           name: endpoint.name,
           totalModels: 0,
-          skipped: true
+          skipped: true,
         });
         continue;
       }
@@ -421,19 +427,19 @@ router.post('/health-check-all', async (req, res) => {
         }
         storage.updateEndpoint(endpoint.id, {
           healthStatus: summary.overallStatus,
-          lastHealthCheck: summary.checkedAt
+          lastHealthCheck: summary.checkedAt,
         });
 
         results.push({
           endpointId: endpoint.id,
           name: endpoint.name,
-          ...summary
+          ...summary,
         });
       } catch (e) {
         results.push({
           endpointId: endpoint.id,
           name: endpoint.name,
-          error: e.message
+          error: e.message,
         });
       }
     }
@@ -441,7 +447,7 @@ router.post('/health-check-all', async (req, res) => {
     res.json({
       success: true,
       checkedAt: new Date().toISOString(),
-      endpoints: results
+      endpoints: results,
     });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -459,7 +465,7 @@ router.get('/export', (req, res) => {
     res.json({
       success: true,
       endpoints: endpoints,
-      exportedAt: new Date().toISOString()
+      exportedAt: new Date().toISOString(),
     });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -488,7 +494,7 @@ router.post('/import', (req, res) => {
         success: true,
         imported: result.importedCount,
         skipped: result.skippedCount,
-        total: result.total
+        total: result.total,
       });
     }
   } catch (e) {
@@ -507,10 +513,16 @@ router.post(['/', '/v1/chat/completions', '/chat/completions'], async (req, res)
   const startTime = Date.now();
   try {
     const { model, stream } = req.body;
-    const endpoints = storage.getEndpoints().filter(ep => ep.status === 'valid' && (ep.enabled === true || ep.enabled === 1));
+    const endpoints = storage
+      .getEndpoints()
+      .filter(ep => ep.status === 'valid' && (ep.enabled === true || ep.enabled === 1));
 
     if (endpoints.length === 0) {
-      return res.status(503).json({ error: { message: 'No valid OpenAI endpoints available', type: 'service_unavailable' } });
+      return res
+        .status(503)
+        .json({
+          error: { message: 'No valid OpenAI endpoints available', type: 'service_unavailable' },
+        });
     }
 
     // 找到拥有该模型的端点
@@ -526,13 +538,13 @@ router.post(['/', '/v1/chat/completions', '/chat/completions'], async (req, res)
       method: 'post',
       url: `${endpoint.baseUrl.replace(/\/+$/, '')}/chat/completions`,
       headers: {
-        'Authorization': `Bearer ${endpoint.apiKey}`,
+        Authorization: `Bearer ${endpoint.apiKey}`,
         'Content-Type': 'application/json',
-        'Accept': stream ? 'text/event-stream' : 'application/json'
+        Accept: stream ? 'text/event-stream' : 'application/json',
       },
       data: req.body,
       responseType: stream ? 'stream' : 'json',
-      timeout: 60000
+      timeout: 60000,
     };
 
     const response = await axios(config);
@@ -550,11 +562,11 @@ router.post(['/', '/v1/chat/completions', '/chat/completions'], async (req, res)
     storage.touchEndpoint(endpoint.id);
   } catch (e) {
     console.error('OpenAI Proxy Error:', e.message);
-    
+
     // 严格隔离 Axios 错误对象，仅提取必要数据
-    const responseStatus = (e.response && e.response.status) ? e.response.status : 500;
+    const responseStatus = e.response && e.response.status ? e.response.status : 500;
     let responseData = { error: { message: e.message, type: 'proxy_error' } };
-    
+
     if (e.response && e.response.data) {
       // 深度克隆数据以断开任何潜在的引用链
       try {
@@ -563,7 +575,7 @@ router.post(['/', '/v1/chat/completions', '/chat/completions'], async (req, res)
         responseData = { error: { message: String(e.response.data), type: 'api_error' } };
       }
     }
-    
+
     res.status(responseStatus).json(responseData);
   }
 });
@@ -573,9 +585,11 @@ router.post(['/', '/v1/chat/completions', '/chat/completions'], async (req, res)
  */
 router.get(['/v1/models', '/models'], async (req, res) => {
   try {
-    const endpoints = storage.getEndpoints().filter(ep => ep.status === 'valid' && (ep.enabled === true || ep.enabled === 1));
+    const endpoints = storage
+      .getEndpoints()
+      .filter(ep => ep.status === 'valid' && (ep.enabled === true || ep.enabled === 1));
     const allModels = new Set();
-    
+
     endpoints.forEach(ep => {
       if (ep.models) {
         ep.models.forEach(m => allModels.add(m));
@@ -586,7 +600,7 @@ router.get(['/v1/models', '/models'], async (req, res) => {
       id,
       object: 'model',
       created: Math.floor(Date.now() / 1000),
-      owned_by: 'openai'
+      owned_by: 'openai',
     }));
 
     res.json({ object: 'list', data: modelList });

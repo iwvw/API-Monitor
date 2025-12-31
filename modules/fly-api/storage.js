@@ -19,7 +19,7 @@ const storage = {
       INSERT INTO fly_accounts (id, name, api_token, email, organization_id, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `);
-    
+
     stmt.run(
       id,
       accountData.name,
@@ -29,7 +29,7 @@ const storage = {
       now,
       now
     );
-    
+
     return this.getAccount(id);
   },
 
@@ -46,7 +46,7 @@ const storage = {
     const db = dbService.getDatabase();
     const updates = [];
     const values = [];
-    
+
     if (data.name) {
       updates.push('name = ?');
       values.push(data.name);
@@ -63,14 +63,14 @@ const storage = {
       updates.push('organization_id = ?');
       values.push(data.organization_id);
     }
-    
+
     updates.push('updated_at = ?');
     values.push(Date.now());
     values.push(id);
-    
+
     const stmt = db.prepare(`UPDATE fly_accounts SET ${updates.join(', ')} WHERE id = ?`);
     stmt.run(...values);
-    
+
     return this.getAccount(id);
   },
 
@@ -80,7 +80,7 @@ const storage = {
     const stmt = db.prepare('DELETE FROM fly_accounts WHERE id = ?');
     stmt.run(id);
     return true;
-  }
+  },
 };
 
 module.exports = storage;

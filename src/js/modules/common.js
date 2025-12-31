@@ -11,205 +11,218 @@ import { MODULE_CONFIG } from '../store.js';
  * 通用工具方法集合
  */
 export const commonMethods = {
-    // ==================== 全局初始化 ====================
+  // ==================== 全局初始化 ====================
 
-    initGlobalTooltipEngine() {
-        // 避免重复初始化
-        if (document.querySelector('.system-tooltip')) return;
+  initGlobalTooltipEngine() {
+    // 避免重复初始化
+    if (document.querySelector('.system-tooltip')) return;
 
-        const tooltipEl = document.createElement('div');
-        tooltipEl.className = 'system-tooltip';
-        document.body.appendChild(tooltipEl);
+    const tooltipEl = document.createElement('div');
+    tooltipEl.className = 'system-tooltip';
+    document.body.appendChild(tooltipEl);
 
-        window.addEventListener('mouseover', (e) => {
-            const trigger = e.target.closest('[data-tooltip]');
-            if (trigger) {
-                const text = trigger.getAttribute('data-tooltip');
-                if (!text) return;
+    window.addEventListener('mouseover', e => {
+      const trigger = e.target.closest('[data-tooltip]');
+      if (trigger) {
+        const text = trigger.getAttribute('data-tooltip');
+        if (!text) return;
 
-                tooltipEl.textContent = text;
-                tooltipEl.classList.add('visible');
+        tooltipEl.textContent = text;
+        tooltipEl.classList.add('visible');
 
-                const rect = trigger.getBoundingClientRect();
-                const tooltipRect = tooltipEl.getBoundingClientRect();
+        const rect = trigger.getBoundingClientRect();
+        const tooltipRect = tooltipEl.getBoundingClientRect();
 
-                // 居中对齐触发器顶部
-                let top = rect.top - tooltipRect.height - 10;
-                let left = rect.left + (rect.width / 2) - (tooltipRect.width / 2);
+        // 居中对齐触发器顶部
+        let top = rect.top - tooltipRect.height - 10;
+        let left = rect.left + rect.width / 2 - tooltipRect.width / 2;
 
-                // 边缘检测
-                if (left < 10) left = 10;
-                if (left + tooltipRect.width > window.innerWidth - 10) {
-                    left = window.innerWidth - tooltipRect.width - 10;
-                }
-                if (top < 10) top = rect.bottom + 10;
+        // 边缘检测
+        if (left < 10) left = 10;
+        if (left + tooltipRect.width > window.innerWidth - 10) {
+          left = window.innerWidth - tooltipRect.width - 10;
+        }
+        if (top < 10) top = rect.bottom + 10;
 
-                tooltipEl.style.top = `${top}px`;
-                tooltipEl.style.left = `${left}px`;
-            }
-        });
+        tooltipEl.style.top = `${top}px`;
+        tooltipEl.style.left = `${left}px`;
+      }
+    });
 
-        window.addEventListener('mouseout', (e) => {
-            if (e.target.closest('[data-tooltip]')) {
-                tooltipEl.classList.remove('visible');
-            }
-        });
-    },
+    window.addEventListener('mouseout', e => {
+      if (e.target.closest('[data-tooltip]')) {
+        tooltipEl.classList.remove('visible');
+      }
+    });
+  },
 
-    initGlobalImageProxy() {
-        window.addEventListener('click', (e) => {
-            const target = e.target;
-            if (target.tagName === 'IMG' && (target.classList.contains('msg-inline-image') || target.closest('.chat-history-compact'))) {
-                const link = target.closest('a');
-                if (link) e.preventDefault();
-                this.openImagePreview(target.src);
-            }
-        }, true);
-    },
+  initGlobalImageProxy() {
+    window.addEventListener(
+      'click',
+      e => {
+        const target = e.target;
+        if (
+          target.tagName === 'IMG' &&
+          (target.classList.contains('msg-inline-image') || target.closest('.chat-history-compact'))
+        ) {
+          const link = target.closest('a');
+          if (link) e.preventDefault();
+          this.openImagePreview(target.src);
+        }
+      },
+      true
+    );
+  },
 
-    initGlobalKeyListeners() {
-        window.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') {
-                // 优先关闭最活跃的模态层
-                if (this.showImagePreviewModal) {
-                    this.showImagePreviewModal = false;
-                } else if (this.showSettingsModal) {
-                    this.showSettingsModal = false;
-                } else if (this.isAnyModalOpen) {
-                    this.showServerModal = false;
-                    this.showCredentialModal = false;
-                    this.showImportServerModal = false;
-                }
-            }
-        });
-    },
+  initGlobalKeyListeners() {
+    window.addEventListener('keydown', e => {
+      if (e.key === 'Escape') {
+        // 优先关闭最活跃的模态层
+        if (this.showImagePreviewModal) {
+          this.showImagePreviewModal = false;
+        } else if (this.showSettingsModal) {
+          this.showSettingsModal = false;
+        } else if (this.isAnyModalOpen) {
+          this.showServerModal = false;
+          this.showCredentialModal = false;
+          this.showImportServerModal = false;
+        }
+      }
+    });
+  },
 
-    initMobileGestures() {
-        // 为移动端所有可交互元素添加震动反馈
-        window.addEventListener('click', (e) => {
-            if (window.innerWidth > 768) return;
-            if (!navigator.vibrate || !this.vibrationEnabled) return;
+  initMobileGestures() {
+    // 为移动端所有可交互元素添加震动反馈
+    window.addEventListener(
+      'click',
+      e => {
+        if (window.innerWidth > 768) return;
+        if (!navigator.vibrate || !this.vibrationEnabled) return;
 
-            // 全面的可交互元素选择器
-            const interactiveSelectors = [
-                // 基础交互元素
-                'button',
-                'a[href]',
-                'a.btn',
-                '[role="button"]',
-                '[tabindex]:not([tabindex="-1"])',
+        // 全面的可交互元素选择器
+        const interactiveSelectors = [
+          // 基础交互元素
+          'button',
+          'a[href]',
+          'a.btn',
+          '[role="button"]',
+          '[tabindex]:not([tabindex="-1"])',
 
-                // 表单控件
-                'input[type="checkbox"]',
-                'input[type="radio"]',
-                'input[type="file"]',
-                'input[type="color"]',
-                'select',
-                '.toggle-switch',
-                '.switch-slider',
-                '.custom-checkbox',
-                '.custom-radio',
+          // 表单控件
+          'input[type="checkbox"]',
+          'input[type="radio"]',
+          'input[type="file"]',
+          'input[type="color"]',
+          'select',
+          '.toggle-switch',
+          '.switch-slider',
+          '.custom-checkbox',
+          '.custom-radio',
 
-                // 标签页和导航
-                '.tab-btn',
-                '.main-tab',
-                '.sub-tab',
-                '.sectab-btn',
-                '.nav-item',
-                '.nav-link',
-                '.bottom-nav-item',
-                '.sidebar-item',
-                '.menu-item',
+          // 标签页和导航
+          '.tab-btn',
+          '.main-tab',
+          '.sub-tab',
+          '.sectab-btn',
+          '.nav-item',
+          '.nav-link',
+          '.bottom-nav-item',
+          '.sidebar-item',
+          '.menu-item',
 
-                // 卡片和列表项
-                '.clickable',
-                '.card-clickable',
-                '.list-item',
-                '.list-item-clickable',
-                '.project-card',
-                '.service-card',
-                '.server-card',
-                '.server-card-header',
-                '.account-card',
-                '.host-card',
-                '.dns-zone-item',
-                '.totp-card',
-                '.feature-card',
-                '.ssh-quick-item',
-                '.credential-item',
-                '.snippet-item',
+          // 卡片和列表项
+          '.clickable',
+          '.card-clickable',
+          '.list-item',
+          '.list-item-clickable',
+          '.project-card',
+          '.service-card',
+          '.server-card',
+          '.server-card-header',
+          '.account-card',
+          '.host-card',
+          '.dns-zone-item',
+          '.totp-card',
+          '.feature-card',
+          '.ssh-quick-item',
+          '.credential-item',
+          '.snippet-item',
 
-                // 按钮变体
-                '.btn-icon',
-                '.btn-icon-refined',
-                '.btn-ghost',
-                '.btn-primary',
-                '.btn-secondary',
-                '.btn-danger',
-                '.btn-outline',
-                '.icon-btn',
-                '.action-btn',
-                '.close-btn',
+          // 按钮变体
+          '.btn-icon',
+          '.btn-icon-refined',
+          '.btn-ghost',
+          '.btn-primary',
+          '.btn-secondary',
+          '.btn-danger',
+          '.btn-outline',
+          '.icon-btn',
+          '.action-btn',
+          '.close-btn',
 
-                // 状态指示器和标签
-                '.stat-pill',
-                '.chip-btn',
-                '.tag',
-                '.badge-clickable',
-                '.status-indicator',
+          // 状态指示器和标签
+          '.stat-pill',
+          '.chip-btn',
+          '.tag',
+          '.badge-clickable',
+          '.status-indicator',
 
-                // 下拉菜单和弹出层
-                '.dropdown-item',
-                '.dropdown-trigger',
-                '.select-option',
-                '.context-menu-item',
-                '.popover-trigger',
+          // 下拉菜单和弹出层
+          '.dropdown-item',
+          '.dropdown-trigger',
+          '.select-option',
+          '.context-menu-item',
+          '.popover-trigger',
 
-                // 模态框操作
-                '.modal-close',
-                '.modal-action',
-                '.dialog-btn',
+          // 模态框操作
+          '.modal-close',
+          '.modal-action',
+          '.dialog-btn',
 
-                // 折叠/展开
-                '.accordion-header',
-                '.collapsible-header',
-                '.expandable-trigger',
+          // 折叠/展开
+          '.accordion-header',
+          '.collapsible-header',
+          '.expandable-trigger',
 
-                // 播放器控件
-                '.player-btn',
-                '.playback-control',
-                '.volume-control',
+          // 播放器控件
+          '.player-btn',
+          '.playback-control',
+          '.volume-control',
 
-                // TOTP 特定
-                '.totp-code-display',
-                '.totp-copy-btn',
+          // TOTP 特定
+          '.totp-code-display',
+          '.totp-copy-btn',
 
-                // 其他自定义可点击元素
-                '[data-action]'
-            ].join(', ');
+          // 其他自定义可点击元素
+          '[data-action]',
+        ].join(', ');
 
-            const target = e.target.closest(interactiveSelectors);
+        const target = e.target.closest(interactiveSelectors);
 
-            if (target) {
-                // 根据元素类型调整震动强度（增强版）
-                const isHeavyAction = target.matches('.btn-danger, .modal-close, [data-action="delete"], [data-action="remove"]');
-                const isLightAction = target.matches('.tab-btn, .nav-item, .chip-btn, .tag');
+        if (target) {
+          // 根据元素类型调整震动强度（增强版）
+          const isHeavyAction = target.matches(
+            '.btn-danger, .modal-close, [data-action="delete"], [data-action="remove"]'
+          );
+          const isLightAction = target.matches('.tab-btn, .nav-item, .chip-btn, .tag');
 
-                if (isHeavyAction) {
-                    navigator.vibrate(50); // 强反馈用于重要/危险操作
-                } else if (isLightAction) {
-                    navigator.vibrate(25); // 中等反馈用于导航类操作
-                } else {
-                    navigator.vibrate(35); // 标准反馈
-                }
-            }
-        }, true);
+          if (isHeavyAction) {
+            navigator.vibrate(50); // 强反馈用于重要/危险操作
+          } else if (isLightAction) {
+            navigator.vibrate(25); // 中等反馈用于导航类操作
+          } else {
+            navigator.vibrate(35); // 标准反馈
+          }
+        }
+      },
+      true
+    );
 
-        // 禁用滑动切换标签页功能
-        console.log('[System] Mobile interaction feedback initialized, swipe navigation disabled');
-        return;
+    // 禁用滑动切换标签页功能
+    console.log('[System] Mobile interaction feedback initialized, swipe navigation disabled');
+    return;
 
-        /*
+    /*
         let touchStartX = null;
         let touchStartY = null;
         const swipeThreshold = 80;
@@ -267,371 +280,389 @@ export const commonMethods = {
             }
         }, { passive: true });
         */
-    },
+  },
 
-    // ==================== 图片预览 ====================
+  // ==================== 图片预览 ====================
 
-    openImagePreview(url) {
-        if (!url) return;
-        this.previewImageUrl = url;
-        this.showImagePreviewModal = true;
-    },
+  openImagePreview(url) {
+    if (!url) return;
+    this.previewImageUrl = url;
+    this.showImagePreviewModal = true;
+  },
 
-    // ==================== 设置 ====================
+  // ==================== 设置 ====================
 
-    openSettingsTab(tabName) {
-        this.settingsCurrentTab = tabName;
-        this.showSettingsModal = true;
-    },
+  openSettingsTab(tabName) {
+    this.settingsCurrentTab = tabName;
+    this.showSettingsModal = true;
+  },
 
-    // ==================== 终端工具 ====================
+  // ==================== 终端工具 ====================
 
-    safeTerminalFit(session) {
-        if (!session || !session.fit || !session.terminal) return;
+  safeTerminalFit(session) {
+    if (!session || !session.fit || !session.terminal) return;
 
-        // 防止同一帧内重复执行
-        if (session._fitting) return;
-        session._fitting = true;
+    // 防止同一帧内重复执行
+    if (session._fitting) return;
+    session._fitting = true;
 
-        window.requestAnimationFrame(() => {
-            session._fitting = false;
-            const terminal = session.terminal;
-            const fit = session.fit;
+    window.requestAnimationFrame(() => {
+      session._fitting = false;
+      const terminal = session.terminal;
+      const fit = session.fit;
 
-            // 如果终端尚未挂载或不可见，跳过
-            if (!terminal.element || terminal.element.offsetWidth === 0 || terminal.element.offsetHeight === 0) {
-                return;
-            }
+      // 如果终端尚未挂载或不可见，跳过
+      if (
+        !terminal.element ||
+        terminal.element.offsetWidth === 0 ||
+        terminal.element.offsetHeight === 0
+      ) {
+        return;
+      }
 
-            try {
-                const oldCols = terminal.cols;
-                const oldRows = terminal.rows;
+      try {
+        const oldCols = terminal.cols;
+        const oldRows = terminal.rows;
 
-                fit.fit();
+        fit.fit();
 
-                // 仅在尺寸确实发生变化或初次渲染时刷新
-                if (terminal.cols !== oldCols || terminal.rows !== oldRows || !session._initialFitDone) {
-                    session._initialFitDone = true;
-                    if (terminal.buffer && terminal.buffer.active) {
-                        terminal.refresh(0, terminal.rows - 1);
-                    }
-                }
-
-                // 只有当尺寸真正发生变化且 WebSocket 开启时才通知后端
-                if ((terminal.cols !== oldCols || terminal.rows !== oldRows) && session.ws && session.ws.readyState === WebSocket.OPEN) {
-                    session.ws.send(JSON.stringify({
-                        type: 'resize',
-                        cols: terminal.cols,
-                        rows: terminal.rows
-                    }));
-                }
-            } catch (e) {
-                if (!(e instanceof TypeError && (e.message.includes('scrollBarWidth') || e.message.includes('undefined')))) {
-                    console.warn('终端自适应调整失败:', e);
-                }
-            }
-        });
-    },
-
-    // ==================== 登出 ====================
-
-    async logout() {
-        this.isAuthenticated = false;
-        this.loginPassword = '';
-        localStorage.removeItem('admin_password');
-        localStorage.removeItem('password_time');
-
-        // 重置所有模块数据
-        this.accounts = [];
-        this.managedAccounts = [];
-        this.dnsAccounts = [];
-        this.dnsZones = [];
-        this.serverList = [];
-        this.koyebAccounts = [];
-        this.koyebManagedAccounts = [];
-        this.openaiEndpoints = [];
-        this.antigravityAccounts = [];
-        this.geminiCliAccounts = [];
-        this.flyAccounts = [];
-        this.flyManagedAccounts = [];
-
-        try {
-            await fetch('/api/logout', { method: 'POST' });
-        } catch (e) {
-            console.warn('Logout API failed', e);
-        }
-        this.showGlobalToast('已退出登录', 'info');
-        this.showLoginModal = true;
-    },
-
-    // ==================== 剪贴板 ====================
-
-    async copyToClipboard(text) {
-        if (!text) return;
-        try {
-            await navigator.clipboard.writeText(text);
-            this.showGlobalToast('已成功复制到剪贴板', 'success');
-        } catch (err) {
-            console.error('无法复制文本: ', err);
-            // 回退方案
-            try {
-                const textArea = document.createElement("textarea");
-                textArea.value = text;
-                document.body.appendChild(textArea);
-                textArea.select();
-                document.execCommand('copy');
-                document.body.removeChild(textArea);
-                this.showGlobalToast('已成功复制到剪贴板', 'success');
-            } catch (copyErr) {
-                this.showGlobalToast('复制失败，请手动选择复制', 'error');
-            }
-        }
-    },
-
-    // ==================== 格式化函数 ====================
-
-    formatDateTime(date) {
-        if (!date) return '-';
-        return formatDateTime(date);
-    },
-
-    formatRemainingTime(ms) {
-        if (ms <= 0) return '0s';
-        const seconds = Math.floor((ms / 1000) % 60);
-        const minutes = Math.floor((ms / (1000 * 60)) % 60);
-        const hours = Math.floor((ms / (1000 * 60 * 60)));
-
-        let res = '';
-        if (hours > 0) res += hours + 'h';
-        if (minutes > 0) res += minutes + 'm';
-        if (seconds > 0 || res === '') res += seconds + 's';
-        return res;
-    },
-
-    formatFileSize(bytes) {
-        return formatFileSize(bytes);
-    },
-
-    formatHost(host) {
-        if (!host) return '';
-        const mode = this.serverIpDisplayMode || 'normal';
-
-        if (mode === 'normal') return host;
-        if (mode === 'hidden') return '****';
-
-        if (mode === 'masked') {
-            // 打码模式 (masked): 1.2.3.4 -> 1.2.*.*
-            const ipv4Regex = /^(\d{1,3}\.){3}\d{1,3}$/;
-            if (ipv4Regex.test(host)) {
-                const parts = host.split('.');
-                return `${parts[0]}.${parts[1]}.*.*`;
-            }
-
-            // 域名或其他: example.com -> ex****.com
-            const parts = host.split('.');
-            if (parts.length >= 2) {
-                const main = parts[0];
-                const tld = parts[parts.length - 1];
-                if (main.length > 2) {
-                    return main.substring(0, 2) + '****.' + tld;
-                }
-            }
-            return host.length > 4 ? host.substring(0, 2) + '****' : '****';
+        // 仅在尺寸确实发生变化或初次渲染时刷新
+        if (terminal.cols !== oldCols || terminal.rows !== oldRows || !session._initialFitDone) {
+          session._initialFitDone = true;
+          if (terminal.buffer && terminal.buffer.active) {
+            terminal.refresh(0, terminal.rows - 1);
+          }
         }
 
-        return host;
-    },
-
-    /**
-     * 格式化网速为紧凑格式
-     * 例如: "1.5 MB/s" -> "1.5M", "10 KB/s" -> "10K", "0 B/s" -> "0B"
-     */
-    formatSpeedCompact(speed) {
-        if (!speed) return '0B';
-        // 移除 "/s" 后缀，移除空格，保留数字和单位字母
-        return speed
-            .replace(/\/s$/i, '')      // 移除 /s
-            .replace(/\s+/g, '')       // 移除空格
-            .replace(/(\d+\.?\d*)([KMGT]?)B?/i, '$1$2'); // 简化单位
-    },
-
-    /**
-     * 解析网速为数字和单位分离的对象
-     * 例如: "1.5 MB/s" -> { num: "1.5", unit: "M" }
-     */
-    parseSpeed(speed) {
-        if (!speed) return { num: '0', unit: 'B' };
-        const cleaned = speed.replace(/\/s$/i, '').replace(/\s+/g, '');
-        const match = cleaned.match(/^(\d+\.?\d*)([KMGT]?)B?$/i);
-        if (match) {
-            return { num: match[1], unit: match[2] ? match[2].toUpperCase() : 'B' };
+        // 只有当尺寸真正发生变化且 WebSocket 开启时才通知后端
+        if (
+          (terminal.cols !== oldCols || terminal.rows !== oldRows) &&
+          session.ws &&
+          session.ws.readyState === WebSocket.OPEN
+        ) {
+          session.ws.send(
+            JSON.stringify({
+              type: 'resize',
+              cols: terminal.cols,
+              rows: terminal.rows,
+            })
+          );
         }
-        return { num: '0', unit: 'B' };
-    },
-
-    getModuleName(id, short = false) {
-        const config = MODULE_CONFIG[id];
-        if (!config) return id;
-        return short ? config.shortName : config.name;
-    },
-
-    getModuleIcon(id) {
-        const config = MODULE_CONFIG[id];
-        return config ? config.icon : 'fa-cube';
-    },
-
-    // ==================== Toast 系统 ====================
-
-    showGlobalToast(message, type = 'success', duration = 3000, isManual = false) {
-        // 用户主动触发的 info 提示（如"正在导出..."）应该显示
-        // 只有自动化过程中的 info 提示才会被过滤
-        const effectiveIsManual = type === 'info' ? true : isManual;
-        toast[type](message, { duration, isManual: effectiveIsManual });
-    },
-
-    showDnsToast(message, type = 'success') {
-        toast[type](message);
-    },
-
-    showOpenaiToast(message, type = 'success') {
-        toast[type](message);
-    },
-
-    // ==================== 模态框工具 ====================
-
-    focusModalOverlay(selector = '.modal-overlay') {
-        const overlay = document.querySelector(selector);
-        if (overlay) {
-            overlay.focus();
+      } catch (e) {
+        if (
+          !(
+            e instanceof TypeError &&
+            (e.message.includes('scrollBarWidth') || e.message.includes('undefined'))
+          )
+        ) {
+          console.warn('终端自适应调整失败:', e);
         }
-    },
+      }
+    });
+  },
 
-    showAlert(message, title = '提示', icon = 'fa-info-circle') {
-        return new Promise((resolve) => {
-            this.customDialog = {
-                show: true,
-                title: title,
-                message: message,
-                icon: icon,
-                confirmText: '确定',
-                cancelText: '',
-                confirmClass: 'btn-primary',
-                onConfirm: () => {
-                    this.customDialog.show = false;
-                    resolve(true);
-                },
-                onCancel: null
-            };
-        });
-    },
+  // ==================== 登出 ====================
 
-    showConfirm(options) {
-        return new Promise((resolve) => {
-            this.customDialog = {
-                show: true,
-                title: options.title || '确认',
-                message: options.message || '',
-                icon: options.icon || 'fa-question-circle',
-                confirmText: options.confirmText || '确定',
-                cancelText: options.cancelText || '取消',
-                confirmClass: options.confirmClass || 'btn-primary',
-                onConfirm: () => {
-                    this.customDialog.show = false;
-                    resolve(true);
-                },
-                onCancel: () => {
-                    this.customDialog.show = false;
-                    resolve(false);
-                }
-            };
-        });
-    },
+  async logout() {
+    this.isAuthenticated = false;
+    this.loginPassword = '';
+    localStorage.removeItem('admin_password');
+    localStorage.removeItem('password_time');
 
-    showPrompt(options) {
-        return new Promise((resolve) => {
-            this.customDialog = {
-                show: true,
-                title: options.title || '输入',
-                message: options.message || '',
-                icon: options.icon || 'fa-edit',
-                confirmText: options.confirmText || '确定',
-                cancelText: options.cancelText || '取消',
-                confirmClass: options.confirmClass || 'btn-primary',
-                isPrompt: true,
-                promptValue: '',
-                placeholder: options.placeholder || '',
-                onConfirm: () => {
-                    const value = this.customDialog.promptValue;
-                    this.customDialog.show = false;
-                    resolve(value);
-                },
-                onCancel: () => {
-                    this.customDialog.show = false;
-                    resolve(null);
-                }
-            };
-        });
-    },
+    // 重置所有模块数据
+    this.accounts = [];
+    this.managedAccounts = [];
+    this.dnsAccounts = [];
+    this.dnsZones = [];
+    this.serverList = [];
+    this.koyebAccounts = [];
+    this.koyebManagedAccounts = [];
+    this.openaiEndpoints = [];
+    this.antigravityAccounts = [];
+    this.geminiCliAccounts = [];
+    this.flyAccounts = [];
+    this.flyManagedAccounts = [];
 
-    // ==================== 其他工具 ====================
+    try {
+      await fetch('/api/logout', { method: 'POST' });
+    } catch (e) {
+      console.warn('Logout API failed', e);
+    }
+    this.showGlobalToast('已退出登录', 'info');
+    this.showLoginModal = true;
+  },
 
-    maskEmail(email) {
-        if (!email || !email.includes('@')) return email;
-        const [local, domain] = email.split('@');
-        if (local.length <= 14) return email;
-        const masked = local.substring(0, 2) + '*'.repeat(local.length - 4) + local.substring(local.length - 2);
-        return masked + '@' + domain;
-    },
+  // ==================== 剪贴板 ====================
 
-    updateBrowserThemeColor() {
-        this.$nextTick(() => {
-            const bgColor = getComputedStyle(document.documentElement).getPropertyValue('--bg-primary').trim();
+  async copyToClipboard(text) {
+    if (!text) return;
+    try {
+      await navigator.clipboard.writeText(text);
+      this.showGlobalToast('已成功复制到剪贴板', 'success');
+    } catch (err) {
+      console.error('无法复制文本: ', err);
+      // 回退方案
+      try {
+        const textArea = document.createElement('textarea');
+        textArea.value = text;
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+        this.showGlobalToast('已成功复制到剪贴板', 'success');
+      } catch (copyErr) {
+        this.showGlobalToast('复制失败，请手动选择复制', 'error');
+      }
+    }
+  },
 
-            if (bgColor) {
-                this._setMetaThemeColor(bgColor);
-            } else {
-                this._setMetaThemeColor('#f4f6f8');
-            }
-        });
-    },
+  // ==================== 格式化函数 ====================
 
-    _setMetaThemeColor(color) {
-        let metaThemeColor = document.querySelector('meta[name="theme-color"]');
-        if (!metaThemeColor) {
-            metaThemeColor = document.createElement('meta');
-            metaThemeColor.setAttribute('name', 'theme-color');
-            document.head.appendChild(metaThemeColor);
+  formatDateTime(date) {
+    if (!date) return '-';
+    return formatDateTime(date);
+  },
+
+  formatRemainingTime(ms) {
+    if (ms <= 0) return '0s';
+    const seconds = Math.floor((ms / 1000) % 60);
+    const minutes = Math.floor((ms / (1000 * 60)) % 60);
+    const hours = Math.floor(ms / (1000 * 60 * 60));
+
+    let res = '';
+    if (hours > 0) res += hours + 'h';
+    if (minutes > 0) res += minutes + 'm';
+    if (seconds > 0 || res === '') res += seconds + 's';
+    return res;
+  },
+
+  formatFileSize(bytes) {
+    return formatFileSize(bytes);
+  },
+
+  formatHost(host) {
+    if (!host) return '';
+    const mode = this.serverIpDisplayMode || 'normal';
+
+    if (mode === 'normal') return host;
+    if (mode === 'hidden') return '****';
+
+    if (mode === 'masked') {
+      // 打码模式 (masked): 1.2.3.4 -> 1.2.*.*
+      const ipv4Regex = /^(\d{1,3}\.){3}\d{1,3}$/;
+      if (ipv4Regex.test(host)) {
+        const parts = host.split('.');
+        return `${parts[0]}.${parts[1]}.*.*`;
+      }
+
+      // 域名或其他: example.com -> ex****.com
+      const parts = host.split('.');
+      if (parts.length >= 2) {
+        const main = parts[0];
+        const tld = parts[parts.length - 1];
+        if (main.length > 2) {
+          return main.substring(0, 2) + '****.' + tld;
         }
-        metaThemeColor.setAttribute('content', color);
-    },
+      }
+      return host.length > 4 ? host.substring(0, 2) + '****' : '****';
+    }
 
-    // ==================== 日志工具 ====================
+    return host;
+  },
 
-    getLogIcon(level) {
-        const icons = {
-            'INFO': 'fa-info-circle',
-            'WARN': 'fa-exclamation-triangle',
-            'ERROR': 'fa-times-circle',
-            'DEBUG': 'fa-bug',
-            'SUCCESS': 'fa-check-circle'
-        };
-        return icons[level?.toUpperCase()] || 'fa-circle';
-    },
+  /**
+   * 格式化网速为紧凑格式
+   * 例如: "1.5 MB/s" -> "1.5M", "10 KB/s" -> "10K", "0 B/s" -> "0B"
+   */
+  formatSpeedCompact(speed) {
+    if (!speed) return '0B';
+    // 移除 "/s" 后缀，移除空格，保留数字和单位字母
+    return speed
+      .replace(/\/s$/i, '') // 移除 /s
+      .replace(/\s+/g, '') // 移除空格
+      .replace(/(\d+\.?\d*)([KMGT]?)B?/i, '$1$2'); // 简化单位
+  },
 
-    formatMessage(msg) {
-        if (!msg) return '';
-        // 简易 ANSI 颜色转换
-        return msg
-            .replace(/\x1b\[\d+m/g, '')
-            .replace(/\[32m/g, '<span class="log-success">')
-            .replace(/\[31m/g, '<span class="log-error">')
-            .replace(/\[33m/g, '<span class="log-warning">')
-            .replace(/\[0m/g, '</span>');
-    },
+  /**
+   * 解析网速为数字和单位分离的对象
+   * 例如: "1.5 MB/s" -> { num: "1.5", unit: "M" }
+   */
+  parseSpeed(speed) {
+    if (!speed) return { num: '0', unit: 'B' };
+    const cleaned = speed.replace(/\/s$/i, '').replace(/\s+/g, '');
+    const match = cleaned.match(/^(\d+\.?\d*)([KMGT]?)B?$/i);
+    if (match) {
+      return { num: match[1], unit: match[2] ? match[2].toUpperCase() : 'B' };
+    }
+    return { num: '0', unit: 'B' };
+  },
 
-    // 通用打码函数
-    maskAddress,
+  getModuleName(id, short = false) {
+    const config = MODULE_CONFIG[id];
+    if (!config) return id;
+    return short ? config.shortName : config.name;
+  },
 
-    // Markdown 渲染 (re-export)
-    formatRegion
+  getModuleIcon(id) {
+    const config = MODULE_CONFIG[id];
+    return config ? config.icon : 'fa-cube';
+  },
+
+  // ==================== Toast 系统 ====================
+
+  showGlobalToast(message, type = 'success', duration = 3000, isManual = false) {
+    // 用户主动触发的 info 提示（如"正在导出..."）应该显示
+    // 只有自动化过程中的 info 提示才会被过滤
+    const effectiveIsManual = type === 'info' ? true : isManual;
+    toast[type](message, { duration, isManual: effectiveIsManual });
+  },
+
+  showDnsToast(message, type = 'success') {
+    toast[type](message);
+  },
+
+  showOpenaiToast(message, type = 'success') {
+    toast[type](message);
+  },
+
+  // ==================== 模态框工具 ====================
+
+  focusModalOverlay(selector = '.modal-overlay') {
+    const overlay = document.querySelector(selector);
+    if (overlay) {
+      overlay.focus();
+    }
+  },
+
+  showAlert(message, title = '提示', icon = 'fa-info-circle') {
+    return new Promise(resolve => {
+      this.customDialog = {
+        show: true,
+        title: title,
+        message: message,
+        icon: icon,
+        confirmText: '确定',
+        cancelText: '',
+        confirmClass: 'btn-primary',
+        onConfirm: () => {
+          this.customDialog.show = false;
+          resolve(true);
+        },
+        onCancel: null,
+      };
+    });
+  },
+
+  showConfirm(options) {
+    return new Promise(resolve => {
+      this.customDialog = {
+        show: true,
+        title: options.title || '确认',
+        message: options.message || '',
+        icon: options.icon || 'fa-question-circle',
+        confirmText: options.confirmText || '确定',
+        cancelText: options.cancelText || '取消',
+        confirmClass: options.confirmClass || 'btn-primary',
+        onConfirm: () => {
+          this.customDialog.show = false;
+          resolve(true);
+        },
+        onCancel: () => {
+          this.customDialog.show = false;
+          resolve(false);
+        },
+      };
+    });
+  },
+
+  showPrompt(options) {
+    return new Promise(resolve => {
+      this.customDialog = {
+        show: true,
+        title: options.title || '输入',
+        message: options.message || '',
+        icon: options.icon || 'fa-edit',
+        confirmText: options.confirmText || '确定',
+        cancelText: options.cancelText || '取消',
+        confirmClass: options.confirmClass || 'btn-primary',
+        isPrompt: true,
+        promptValue: '',
+        placeholder: options.placeholder || '',
+        onConfirm: () => {
+          const value = this.customDialog.promptValue;
+          this.customDialog.show = false;
+          resolve(value);
+        },
+        onCancel: () => {
+          this.customDialog.show = false;
+          resolve(null);
+        },
+      };
+    });
+  },
+
+  // ==================== 其他工具 ====================
+
+  maskEmail(email) {
+    if (!email || !email.includes('@')) return email;
+    const [local, domain] = email.split('@');
+    if (local.length <= 14) return email;
+    const masked =
+      local.substring(0, 2) + '*'.repeat(local.length - 4) + local.substring(local.length - 2);
+    return masked + '@' + domain;
+  },
+
+  updateBrowserThemeColor() {
+    this.$nextTick(() => {
+      const bgColor = getComputedStyle(document.documentElement)
+        .getPropertyValue('--bg-primary')
+        .trim();
+
+      if (bgColor) {
+        this._setMetaThemeColor(bgColor);
+      } else {
+        this._setMetaThemeColor('#f4f6f8');
+      }
+    });
+  },
+
+  _setMetaThemeColor(color) {
+    let metaThemeColor = document.querySelector('meta[name="theme-color"]');
+    if (!metaThemeColor) {
+      metaThemeColor = document.createElement('meta');
+      metaThemeColor.setAttribute('name', 'theme-color');
+      document.head.appendChild(metaThemeColor);
+    }
+    metaThemeColor.setAttribute('content', color);
+  },
+
+  // ==================== 日志工具 ====================
+
+  getLogIcon(level) {
+    const icons = {
+      INFO: 'fa-info-circle',
+      WARN: 'fa-exclamation-triangle',
+      ERROR: 'fa-times-circle',
+      DEBUG: 'fa-bug',
+      SUCCESS: 'fa-check-circle',
+    };
+    return icons[level?.toUpperCase()] || 'fa-circle';
+  },
+
+  formatMessage(msg) {
+    if (!msg) return '';
+    // 简易 ANSI 颜色转换
+    return msg
+      .replace(/\x1b\[\d+m/g, '')
+      .replace(/\[32m/g, '<span class="log-success">')
+      .replace(/\[31m/g, '<span class="log-error">')
+      .replace(/\[33m/g, '<span class="log-warning">')
+      .replace(/\[0m/g, '</span>');
+  },
+
+  // 通用打码函数
+  maskAddress,
+
+  // Markdown 渲染 (re-export)
+  formatRegion,
 };

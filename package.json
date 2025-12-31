@@ -9,7 +9,11 @@
     "dev:client": "vite",
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write \"src/**/*.{js,css,html}\" \"modules/**/*.js\" \"server.js\" \"*.config.js\"",
+    "format:check": "prettier --check \"src/**/*.{js,css,html}\" \"modules/**/*.js\""
   },
   "dependencies": {
     "@neteasecloudmusicapienhanced/api": "^4.29.20",
@@ -34,6 +38,7 @@
   "devDependencies": {
     "@applemusic-like-lyrics/core": "^0.2.0",
     "@applemusic-like-lyrics/lyric": "^0.3.0",
+    "@eslint/js": "^9.39.2",
     "@fortawesome/fontawesome-free": "^7.1.0",
     "@pixi/app": "^7.4.2",
     "@pixi/core": "^7.4.2",
@@ -51,6 +56,8 @@
     "concurrently": "^9.2.1",
     "deep-freeze": "^0.0.1",
     "dompurify": "^3.3.1",
+    "eslint": "^9.39.2",
+    "eslint-config-prettier": "^10.1.8",
     "flv.js": "^1.6.2",
     "gl-matrix": "^4.0.0-beta.2",
     "hls.js": "^1.6.15",
@@ -58,6 +65,7 @@
     "nodemon": "^3.0.1",
     "pixi-filters": "^5.3.0",
     "plyr": "^3.8.3",
+    "prettier": "^3.7.4",
     "vite": "^7.3.0",
     "vite-plugin-html": "^3.2.2",
     "vue": "^3.5.26"

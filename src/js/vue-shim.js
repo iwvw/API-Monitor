@@ -9,7 +9,9 @@
 const Vue = window.Vue;
 
 if (!Vue) {
-    console.error('[Vue Shim] Vue is not loaded! Make sure the Vue CDN script is loaded before this module.');
+  console.error(
+    '[Vue Shim] Vue is not loaded! Make sure the Vue CDN script is loaded before this module.'
+  );
 }
 
 // 导出 Vue 3 常用 API

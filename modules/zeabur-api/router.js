@@ -23,43 +23,49 @@ router.post('/temp-accounts', async (req, res) => {
 
     logger.info(`获取账号信息 (${accounts.length}个)`);
 
-    const results = await Promise.all(accounts.map(async (account) => {
-      try {
-        const { user, projects, aihub, serviceCosts } = await zeaburApi.fetchAccountData(account.token);
+    const results = await Promise.all(
+      accounts.map(async account => {
+        try {
+          const { user, projects, aihub, serviceCosts } = await zeaburApi.fetchAccountData(
+            account.token
+          );
 
-        let usageData = { totalUsage: 0, freeQuotaRemaining: 5, freeQuotaLimit: 5 };
-        if (user._id) {
-          try {
-            usageData = await zeaburApi.fetchUsageData(account.token, user._id, projects);
-            logger.groupItem(`${account.name}: 用量 $${usageData.totalUsage.toFixed(2)}, 剩余 $${usageData.freeQuotaRemaining.toFixed(2)}`);
-          } catch (e) {
-            logger.warn(`${account.name}: 获取用量失败 - ${e.message}`);
+          let usageData = { totalUsage: 0, freeQuotaRemaining: 5, freeQuotaLimit: 5 };
+          if (user._id) {
+            try {
+              usageData = await zeaburApi.fetchUsageData(account.token, user._id, projects);
+              logger.groupItem(
+                `${account.name}: 用量 $${usageData.totalUsage.toFixed(2)}, 剩余 $${usageData.freeQuotaRemaining.toFixed(2)}`
+              );
+            } catch (e) {
+              logger.warn(`${account.name}: 获取用量失败 - ${e.message}`);
+            }
           }
+
+          const creditInCents = Math.round(usageData.freeQuotaRemaining * 100);
+
+          return {
+            name: account.name,
+            success: true,
+            data: {
+              ...user,
+              credit: creditInCents,
+              totalUsage: usageData.totalUsage,
+              totalCost: usageData.totalUsage,
+              freeQuotaLimit: usageData.freeQuotaLimit,
+            },
+            aihub: aihub,
+          };
+        } catch (error) {
+          logger.error(`${account.name}: ${error.message}`);
+          return {
+            name: account.name,
+            success: false,
+            error: error.message,
+          };
         }
-
-        const creditInCents = Math.round(usageData.freeQuotaRemaining * 100);
-
-        return {
-          name: account.name,
-          success: true,
-          data: {
-            ...user,
-            credit: creditInCents,
-            totalUsage: usageData.totalUsage,
-            totalCost: usageData.totalUsage,
-            freeQuotaLimit: usageData.freeQuotaLimit
-          },
-          aihub: aihub
-        };
-      } catch (error) {
-        logger.error(`${account.name}: ${error.message}`);
-        return {
-          name: account.name,
-          success: false,
-          error: error.message
-        };
-      }
-    }));
+      })
+    );
 
     logger.success(`返回 ${results.length} 个账号信息`);
     res.json(results);
@@ -82,58 +88,60 @@ router.post('/temp-projects', async (req, res) => {
       return res.status(400).json({ error: '无效的账号列表' });
     }
 
-    const results = await Promise.all(accounts.map(async (account) => {
-      try {
-        
-        const { user, projects } = await zeaburApi.fetchAccountData(account.token);
+    const results = await Promise.all(
+      accounts.map(async account => {
+        try {
+          const { user, projects } = await zeaburApi.fetchAccountData(account.token);
 
-        let projectCosts = {};
-        if (user._id) {
-          try {
-            const usageData = await zeaburApi.fetchUsageData(account.token, user._id, projects);
-            projectCosts = usageData.projectCosts;
-          } catch (e) {
-            logger.warn(`${account.name}: 获取用量失败 - ${e.message}`);
+          let projectCosts = {};
+          if (user._id) {
+            try {
+              const usageData = await zeaburApi.fetchUsageData(account.token, user._id, projects);
+              projectCosts = usageData.projectCosts;
+            } catch (e) {
+              logger.warn(`${account.name}: 获取用量失败 - ${e.message}`);
+            }
           }
-        }
 
-        logger.groupItem(`${account.name}: ${projects.length} 个项目`);
+          logger.groupItem(`${account.name}: ${projects.length} 个项目`);
 
-        const projectsWithCost = projects.map(project => {
-          const pid = project && (project._id || project.id || (project._id && project._id.$oid)) || '';
-          let rawCost = 0;
-          if (pid && projectCosts[pid] !== undefined) rawCost = projectCosts[pid];
-          else if (project && projectCosts[project.id] !== undefined) rawCost = projectCosts[project.id];
-          else rawCost = 0;
+          const projectsWithCost = projects.map(project => {
+            const pid =
+              (project && (project._id || project.id || (project._id && project._id.$oid))) || '';
+            let rawCost = 0;
+            if (pid && projectCosts[pid] !== undefined) rawCost = projectCosts[pid];
+            else if (project && projectCosts[project.id] !== undefined)
+              rawCost = projectCosts[project.id];
+            else rawCost = 0;
 
-          const cost = Number(rawCost) || 0;
-          
+            const cost = Number(rawCost) || 0;
+
+            return {
+              _id: project._id || project.id || pid,
+              name: project.name || '',
+              region: project.region?.name || 'Unknown',
+              environments: project.environments || [],
+              services: project.services || [],
+              cost: cost,
+              hasCostData: cost > 0,
+            };
+          });
 
           return {
-            _id: project._id || project.id || pid,
-            name: project.name || '',
-            region: project.region?.name || 'Unknown',
-            environments: project.environments || [],
-            services: project.services || [],
-            cost: cost,
-            hasCostData: cost > 0
+            name: account.name,
+            success: true,
+            projects: projectsWithCost,
           };
-        });
-
-        return {
-          name: account.name,
-          success: true,
-          projects: projectsWithCost
-        };
-      } catch (error) {
-        logger.error(`${account.name}: ${error.message}`);
-        return {
-          name: account.name,
-          success: false,
-          error: error.message
-        };
-      }
-    }));
+        } catch (error) {
+          logger.error(`${account.name}: ${error.message}`);
+          return {
+            name: account.name,
+            success: false,
+            error: error.message,
+          };
+        }
+      })
+    );
 
     logger.success(`返回 ${results.length} 个账号的项目信息`);
     res.json(results);
@@ -174,10 +182,10 @@ router.post('/validate-account', async (req, res) => {
           ...user,
           credit: creditInCents,
           totalUsage: usageData.totalUsage,
-          freeQuotaLimit: usageData.freeQuotaLimit
+          freeQuotaLimit: usageData.freeQuotaLimit,
         },
         accountName,
-        apiToken
+        apiToken,
       });
     } else {
       res.status(400).json({ error: 'API Token 无效或没有权限' });
@@ -195,7 +203,9 @@ router.get('/server-accounts', async (req, res) => {
   const envAccounts = storage.getEnvAccounts();
 
   const allAccounts = [...envAccounts, ...serverAccounts];
-  logger.info(`加载 ${allAccounts.length} 个账号 (环境: ${envAccounts.length}, 主机: ${serverAccounts.length})`);
+  logger.info(
+    `加载 ${allAccounts.length} 个账号 (环境: ${envAccounts.length}, 主机: ${serverAccounts.length})`
+  );
   res.json(allAccounts);
 });
 
@@ -246,7 +256,9 @@ router.get('/accounts', async (req, res) => {
 
   for (const account of accounts) {
     try {
-      const { user, projects, aihub, serviceCosts } = await zeaburApi.fetchAccountData(account.token);
+      const { user, projects, aihub, serviceCosts } = await zeaburApi.fetchAccountData(
+        account.token
+      );
 
       let usageData = { totalUsage: 0, freeQuotaRemaining: 5, freeQuotaLimit: 5 };
       if (user._id) {
@@ -268,16 +280,16 @@ router.get('/accounts', async (req, res) => {
           credit: creditInCents,
           totalUsage: usageData.totalUsage,
           totalCost: totalCost,
-          freeQuotaLimit: usageData.freeQuotaLimit
+          freeQuotaLimit: usageData.freeQuotaLimit,
         },
-        aihub: aihub
+        aihub: aihub,
       });
     } catch (error) {
       logger.error(`${account.name}: ${error.message}`);
       data.push({
         name: account.name,
         success: false,
-        error: error.message
+        error: error.message,
       });
     }
   }
@@ -291,46 +303,50 @@ router.get('/accounts', async (req, res) => {
 router.get('/projects', async (req, res) => {
   try {
     const serverAccounts = storage.loadServerAccounts();
-    const results = await Promise.all(serverAccounts.map(async (account) => {
-      try {
-        const { user, projects } = await zeaburApi.fetchAccountData(account.token);
+    const results = await Promise.all(
+      serverAccounts.map(async account => {
+        try {
+          const { user, projects } = await zeaburApi.fetchAccountData(account.token);
 
-        let projectCosts = {};
-        if (user._id) {
-          try {
-            const usageData = await zeaburApi.fetchUsageData(account.token, user._id, projects);
-            projectCosts = usageData.projectCosts;
-          } catch (e) {
-            logger.warn(`${account.name}: 获取用量失败 - ${e.message}`);
+          let projectCosts = {};
+          if (user._id) {
+            try {
+              const usageData = await zeaburApi.fetchUsageData(account.token, user._id, projects);
+              projectCosts = usageData.projectCosts;
+            } catch (e) {
+              logger.warn(`${account.name}: 获取用量失败 - ${e.message}`);
+            }
           }
+
+          const projectsWithCost = projects.map(project => {
+            const pid =
+              (project && (project._id || project.id || (project._id && project._id.$oid))) || '';
+            let rawCost = 0;
+            if (pid && projectCosts[pid] !== undefined) rawCost = projectCosts[pid];
+            else if (project && projectCosts[project.id] !== undefined)
+              rawCost = projectCosts[project.id];
+            else rawCost = 0;
+
+            const cost = Number(rawCost) || 0;
+
+            return {
+              _id: project._id || project.id || pid,
+              name: project.name || '',
+              region: project.region?.name || 'Unknown',
+              environments: project.environments || [],
+              services: project.services || [],
+              cost: cost,
+              hasCostData: cost > 0,
+            };
+          });
+
+          return { name: account.name, success: true, projects: projectsWithCost };
+        } catch (error) {
+          logger.error(`${account.name}: ${error.message}`);
+          return { name: account.name, success: false, error: error.message };
         }
-
-        const projectsWithCost = projects.map(project => {
-          const pid = project && (project._id || project.id || (project._id && project._id.$oid)) || '';
-          let rawCost = 0;
-          if (pid && projectCosts[pid] !== undefined) rawCost = projectCosts[pid];
-          else if (project && projectCosts[project.id] !== undefined) rawCost = projectCosts[project.id];
-          else rawCost = 0;
-
-          const cost = Number(rawCost) || 0;
-
-          return {
-            _id: project._id || project.id || pid,
-            name: project.name || '',
-            region: project.region?.name || 'Unknown',
-            environments: project.environments || [],
-            services: project.services || [],
-            cost: cost,
-            hasCostData: cost > 0
-          };
-        });
-
-        return { name: account.name, success: true, projects: projectsWithCost };
-      } catch (error) {
-        logger.error(`${account.name}: ${error.message}`);
-        return { name: account.name, success: false, error: error.message };
-      }
-    }));
+      })
+    );
 
     res.json(results);
   } catch (error) {
@@ -420,13 +436,15 @@ router.post('/service/logs', async (req, res) => {
 
       const logs = sortedLogs.slice(-limit);
 
-      console.log(`📋 获取服务日志: serviceId=${serviceId.slice(0, 8)}..., 返回 ${logs.length}/${result.data.runtimeLogs.length} 条`);
+      console.log(
+        `📋 获取服务日志: serviceId=${serviceId.slice(0, 8)}..., 返回 ${logs.length}/${result.data.runtimeLogs.length} 条`
+      );
 
       res.json({
         success: true,
         logs,
         count: logs.length,
-        totalCount: result.data.runtimeLogs.length
+        totalCount: result.data.runtimeLogs.length,
       });
     } else {
       console.log(`❌ 获取日志失败: serviceId=${serviceId.slice(0, 8)}...`);
@@ -485,7 +503,7 @@ router.post('/project/delete', async (req, res) => {
     const mutation = `mutation { deleteProject(_id: "${projectId}") }`;
     logger.info(`执行删除项目 mutation: ${mutation}`);
     const result = await zeaburApi.queryZeabur(token, mutation);
-    logger.info(`删除项目响应:`, JSON.stringify(result, null, 2));
+    logger.info('删除项目响应:', JSON.stringify(result, null, 2));
 
     if (result.data?.deleteProject === true) {
       logger.success(`项目已删除: ${projectId.slice(0, 8)}...`);
@@ -518,7 +536,7 @@ router.post('/service/delete', async (req, res) => {
     const mutation = `mutation { deleteService(_id: "${serviceId}") }`;
     logger.info(`执行删除服务 mutation: ${mutation}`);
     const result = await zeaburApi.queryZeabur(token, mutation);
-    logger.info(`删除服务响应:`, JSON.stringify(result, null, 2));
+    logger.info('删除服务响应:', JSON.stringify(result, null, 2));
 
     if (result.data?.deleteService === true) {
       logger.success(`服务已删除: ${serviceId.slice(0, 8)}...`);
@@ -596,7 +614,7 @@ router.post('/domain/generate', async (req, res) => {
       res.json({
         success: true,
         message: '域名已生成',
-        domain: result.data.generateDomain
+        domain: result.data.generateDomain,
       });
     } else if (result.errors) {
       logger.error(`生成域名失败: ${serviceId.slice(0, 8)}...`, result);
@@ -638,7 +656,7 @@ router.post('/domain/add', async (req, res) => {
       res.json({
         success: true,
         message: '域名已添加',
-        domainInfo: result.data.addDomain
+        domainInfo: result.data.addDomain,
       });
     } else if (result.errors) {
       logger.error('Zeabur GraphQL 错误详情:', JSON.stringify(result.errors, null, 2));

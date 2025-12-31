@@ -24,5 +24,5 @@ function parseCookies(req) {
 }
 
 module.exports = {
-  parseCookies
+  parseCookies,
 };

@@ -1,273 +1,273 @@
 /* ==================== R2 存储管理样式 ==================== */
 
 .r2-container {
-    padding: 2px;
+  padding: 2px;
 }
 
 /* 存储桶卡片列表 */
 .r2-buckets-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-    gap: 16px;
-    margin-bottom: 24px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
 }
 
 .r2-bucket-card {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-color);
-    border-radius: 12px;
-    padding: 16px;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    cursor: pointer;
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    position: relative;
-    overflow: hidden;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 16px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  position: relative;
+  overflow: hidden;
 }
 
 .r2-bucket-card:hover {
-    transform: translateY(-4px);
-    border-color: var(--cf-color);
-    box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
+  transform: translateY(-4px);
+  border-color: var(--cf-color);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
 }
 
 .r2-bucket-card.active {
-    border-color: var(--cf-color);
-    background: rgba(243, 128, 32, 0.05);
+  border-color: var(--cf-color);
+  background: rgba(243, 128, 32, 0.05);
 }
 
 .r2-bucket-icon {
-    width: 40px;
-    height: 40px;
-    background: rgba(243, 128, 32, 0.1);
-    border-radius: 10px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--cf-color);
-    font-size: 20px;
+  width: 40px;
+  height: 40px;
+  background: rgba(243, 128, 32, 0.1);
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--cf-color);
+  font-size: 20px;
 }
 
 .r2-bucket-info {
-    flex: 1;
+  flex: 1;
 }
 
 .r2-bucket-name {
-    font-size: 16px;
-    font-weight: 600;
-    color: var(--text-primary);
-    margin-bottom: 4px;
-    word-break: break-all;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+  word-break: break-all;
 }
 
 .r2-bucket-date {
-    font-size: 12px;
-    color: var(--text-secondary);
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 
 .r2-bucket-actions {
-    display: flex;
-    gap: 8px;
-    margin-top: 4px;
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
 }
 
 /* 对象浏览器布局 */
 .r2-browser {
-    background: var(--bg-primary);
-    border: 1px solid var(--border-color);
-    border-radius: 12px;
-    overflow: hidden;
-    margin-top: 16px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  overflow: hidden;
+  margin-top: 16px;
 }
 
 .r2-browser-header {
-    background: var(--bg-secondary);
-    padding: 12px 16px;
-    border-bottom: 1px solid var(--border-color);
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
+  background: var(--bg-secondary);
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 .r2-breadcrumb {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 14px;
-    color: var(--text-secondary);
-    flex-wrap: wrap;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--text-secondary);
+  flex-wrap: wrap;
 }
 
 .r2-breadcrumb-item {
-    cursor: pointer;
-    transition: color 0.2s;
-    display: flex;
-    align-items: center;
-    gap: 4px;
+  cursor: pointer;
+  transition: color 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
 .r2-breadcrumb-item:hover {
-    color: var(--cf-color);
+  color: var(--cf-color);
 }
 
 .r2-breadcrumb-separator {
-    opacity: 0.5;
+  opacity: 0.5;
 }
 
 .r2-browser-actions {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
 }
 
 /* 搜索框 */
 .r2-search-container {
-    position: relative;
-    max-width: 300px;
-    width: 100%;
+  position: relative;
+  max-width: 300px;
+  width: 100%;
 }
 
 .r2-search-input {
-    width: 100%;
-    padding: 8px 12px 8px 36px;
-    background: var(--bg-primary);
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
-    font-size: 14px;
-    color: var(--text-primary);
-    transition: all 0.2s;
+  width: 100%;
+  padding: 8px 12px 8px 36px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  font-size: 14px;
+  color: var(--text-primary);
+  transition: all 0.2s;
 }
 
 .r2-search-input:focus {
-    border-color: var(--cf-color);
-    box-shadow: 0 0 0 2px rgba(243, 128, 32, 0.1);
-    outline: none;
+  border-color: var(--cf-color);
+  box-shadow: 0 0 0 2px rgba(243, 128, 32, 0.1);
+  outline: none;
 }
 
 .r2-search-icon {
-    position: absolute;
-    left: 12px;
-    top: 50%;
-    transform: translateY(-50%);
-    color: var(--text-secondary);
-    pointer-events: none;
+  position: absolute;
+  left: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-secondary);
+  pointer-events: none;
 }
 
 /* 对象列表表格 */
 .r2-table {
-    width: 100%;
-    border-collapse: collapse;
+  width: 100%;
+  border-collapse: collapse;
 }
 
 .r2-table th {
-    text-align: left;
-    padding: 12px 16px;
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--text-secondary);
-    background: var(--bg-tertiary);
-    border-bottom: 1px solid var(--border-color);
-    white-space: nowrap;
+  text-align: left;
+  padding: 12px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-color);
+  white-space: nowrap;
 }
 
 .r2-table td {
-    padding: 12px 16px;
-    border-bottom: 1px solid var(--border-color);
-    font-size: 14px;
-    color: var(--text-primary);
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-color);
+  font-size: 14px;
+  color: var(--text-primary);
 }
 
 .r2-table tr:hover {
-    background: rgba(0, 0, 0, 0.02);
+  background: rgba(0, 0, 0, 0.02);
 }
 
 .r2-table tr.r2-row-selected {
-    background: rgba(243, 128, 32, 0.08);
+  background: rgba(243, 128, 32, 0.08);
 }
 
 .r2-table tr.r2-row-selected:hover {
-    background: rgba(243, 128, 32, 0.12);
+  background: rgba(243, 128, 32, 0.12);
 }
 
 .r2-object-name-cell {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
 }
 
 .r2-object-icon {
-    font-size: 18px;
-    width: 24px;
-    text-align: center;
+  font-size: 18px;
+  width: 24px;
+  text-align: center;
 }
 
 .r2-icon-folder {
-    color: #fcc331;
+  color: #fcc331;
 }
 
 .r2-icon-file {
-    color: var(--text-secondary);
+  color: var(--text-secondary);
 }
 
 .r2-icon-image {
-    color: #4CAF50;
+  color: #4caf50;
 }
 
 .r2-icon-code {
-    color: #2196F3;
+  color: #2196f3;
 }
 
 .r2-icon-archive {
-    color: #FF5722;
+  color: #ff5722;
 }
 
 .r2-object-size {
-    color: var(--text-secondary);
-    font-family: var(--font-mono);
-    font-size: 13px;
-    white-space: nowrap;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  white-space: nowrap;
 }
 
 .r2-object-date {
-    color: var(--text-secondary);
-    font-size: 13px;
-    white-space: nowrap;
+  color: var(--text-secondary);
+  font-size: 13px;
+  white-space: nowrap;
 }
 
 /* 空状态 */
 .r2-empty {
-    padding: 60px 20px;
-    text-align: center;
-    color: var(--text-secondary);
+  padding: 60px 20px;
+  text-align: center;
+  color: var(--text-secondary);
 }
 
 .r2-empty i {
-    font-size: 48px;
-    margin-bottom: 16px;
-    opacity: 0.3;
+  font-size: 48px;
+  margin-bottom: 16px;
+  opacity: 0.3;
 }
 
 /* 上传浮层 */
 .r2-upload-area {
-    border: 2px dashed var(--border-color);
-    border-radius: 12px;
-    padding: 30px;
-    text-align: center;
-    background: rgba(0, 0, 0, 0.02);
-    transition: all 0.2s;
-    cursor: pointer;
+  border: 2px dashed var(--border-color);
+  border-radius: 12px;
+  padding: 30px;
+  text-align: center;
+  background: rgba(0, 0, 0, 0.02);
+  transition: all 0.2s;
+  cursor: pointer;
 }
 
 .r2-upload-area:hover {
-    border-color: var(--cf-color);
-    background: rgba(243, 128, 32, 0.03);
+  border-color: var(--cf-color);
+  background: rgba(243, 128, 32, 0.03);
 }
 
 .r2-upload-area.dragging {
-    border-color: var(--cf-color);
-    background: rgba(243, 128, 32, 0.08);
+  border-color: var(--cf-color);
+  background: rgba(243, 128, 32, 0.08);
 }

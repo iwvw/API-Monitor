@@ -43,7 +43,9 @@
   /* 强制裁切圆角，解决部分浏览器背景色溢出问题 */
   -webkit-mask-image: -webkit-radial-gradient(white, black);
   border: 1px solid var(--border-color);
-  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), opacity 0.3s ease;
+  transition:
+    transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1),
+    opacity 0.3s ease;
 }
 
 /* 大尺寸模态框 */
@@ -89,7 +91,7 @@
   text-align: center;
 }
 
-.permissions-cell input[type="checkbox"] {
+.permissions-cell input[type='checkbox'] {
   width: 18px;
   height: 18px;
   cursor: pointer;
@@ -180,8 +182,8 @@
 }
 
 /* 兜底：如果不在 header 内，则保持绝对定位但位置优化 */
-.modal>.modal-close:only-child,
-.modal>.close-btn {
+.modal > .modal-close:only-child,
+.modal > .close-btn {
   position: absolute !important;
   top: 10px;
   right: 10px;
@@ -240,7 +242,10 @@
   font-size: 14px;
   background-color: var(--bg-secondary);
   color: var(--text-primary);
-  transition: border-color 0.2s, background-color 0.2s, box-shadow 0.2s;
+  transition:
+    border-color 0.2s,
+    background-color 0.2s,
+    box-shadow 0.2s;
 }
 
 .form-input:focus {
@@ -258,7 +263,10 @@
   font-size: 13px;
   background-color: var(--bg-secondary);
   color: var(--text-primary);
-  transition: border-color 0.2s, background-color 0.2s, box-shadow 0.2s;
+  transition:
+    border-color 0.2s,
+    background-color 0.2s,
+    box-shadow 0.2s;
 }
 
 .form-input-sm:focus {
@@ -275,7 +283,9 @@
   font-size: 14px;
   background-color: var(--bg-secondary);
   color: var(--text-primary);
-  transition: border-color 0.2s, box-shadow 0.2s;
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s;
   resize: none;
   min-height: 120px;
 }
@@ -377,7 +387,9 @@
   border-radius: 10px;
   padding: 10px;
   border: 1px solid var(--border-color);
-  transition: transform 0.3s, box-shadow 0.3s;
+  transition:
+    transform 0.3s,
+    box-shadow 0.3s;
   height: 100%;
   display: flex;
   justify-content: space-between;

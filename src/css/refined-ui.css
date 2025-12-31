@@ -1,170 +1,174 @@
 /* ==================== Antigravity Modern Loader V3.1 (Core Mode) ==================== */
 
 :root {
-    --loader-size: 48px;
-    --loader-color-primary: var(--primary-color);
-    --loader-color-secondary: rgba(var(--primary-rgb), 0.4);
+  --loader-size: 48px;
+  --loader-color-primary: var(--primary-color);
+  --loader-color-secondary: rgba(var(--primary-rgb), 0.4);
 }
 
 /* 全屏/板块遮罩 */
 .ag-loader-overlay {
-    position: absolute;
-    inset: 0;
-    background: rgba(var(--bg-primary-rgb), 0.6);
-    backdrop-filter: blur(10px) saturate(180%);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    z-index: 999;
-    animation: ag-fade-in 0.3s ease-out;
+  position: absolute;
+  inset: 0;
+  background: rgba(var(--bg-primary-rgb), 0.6);
+  backdrop-filter: blur(10px) saturate(180%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  z-index: 999;
+  animation: ag-fade-in 0.3s ease-out;
 }
 
 /* 核心旋涡加载器 */
 .ag-modern-loader {
-    position: relative;
-    width: var(--loader-size);
-    height: var(--loader-size);
-    display: flex;
-    align-items: center;
-    justify-content: center;
+  position: relative;
+  width: var(--loader-size);
+  height: var(--loader-size);
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 /* 紧致双旋轨 */
 .ag-loader-inner {
-    position: absolute;
-    inset: 0;
-    border-radius: 50%;
-    border: 2px solid transparent;
-    border-top-color: var(--loader-color-primary);
-    border-right-color: var(--loader-color-primary);
-    animation: ag-spin 0.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  border-top-color: var(--loader-color-primary);
+  border-right-color: var(--loader-color-primary);
+  animation: ag-spin 0.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
 
 .ag-loader-inner-sub {
-    position: absolute;
-    inset: 8px;
-    border-radius: 50%;
-    border: 1.5px solid transparent;
-    border-bottom-color: var(--loader-color-secondary);
-    border-left-color: var(--loader-color-secondary);
-    animation: ag-spin-reverse 1.2s linear infinite;
-    opacity: 0.6;
+  position: absolute;
+  inset: 8px;
+  border-radius: 50%;
+  border: 1.5px solid transparent;
+  border-bottom-color: var(--loader-color-secondary);
+  border-left-color: var(--loader-color-secondary);
+  animation: ag-spin-reverse 1.2s linear infinite;
+  opacity: 0.6;
 }
 
 /* 强效中心核心 */
 .ag-loader-core {
-    width: 8px;
-    height: 8px;
-    background: var(--loader-color-primary);
-    border-radius: 50%;
-    box-shadow: 0 0 12px var(--loader-color-primary);
-    animation: ag-pulse 1s ease-in-out infinite;
+  width: 8px;
+  height: 8px;
+  background: var(--loader-color-primary);
+  border-radius: 50%;
+  box-shadow: 0 0 12px var(--loader-color-primary);
+  animation: ag-pulse 1s ease-in-out infinite;
 }
 
 /* 文本光泽 */
 .ag-loader-text {
-    margin-top: 20px;
-    font-size: 10px;
-    font-weight: 800;
-    color: var(--text-primary);
-    letter-spacing: 1.5px;
-    text-transform: uppercase;
-    background: linear-gradient(90deg, var(--text-tertiary), var(--text-primary), var(--text-tertiary));
-    background-size: 200% auto;
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    animation: ag-text-shine 2s linear infinite;
-    opacity: 0.8;
+  margin-top: 20px;
+  font-size: 10px;
+  font-weight: 800;
+  color: var(--text-primary);
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  background: linear-gradient(
+    90deg,
+    var(--text-tertiary),
+    var(--text-primary),
+    var(--text-tertiary)
+  );
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: ag-text-shine 2s linear infinite;
+  opacity: 0.8;
 }
 
 /* 关键帧 */
 @keyframes ag-spin {
-    to {
-        transform: rotate(360deg);
-    }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 @keyframes ag-spin-reverse {
-    to {
-        transform: rotate(-360deg);
-    }
+  to {
+    transform: rotate(-360deg);
+  }
 }
 
 @keyframes ag-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    filter: brightness(1);
+  }
 
-    0%,
-    100% {
-        transform: scale(1);
-        filter: brightness(1);
-    }
-
-    50% {
-        transform: scale(1.4);
-        filter: brightness(1.2);
-    }
+  50% {
+    transform: scale(1.4);
+    filter: brightness(1.2);
+  }
 }
 
 @keyframes ag-text-shine {
-    to {
-        background-position: 200% center;
-    }
+  to {
+    background-position: 200% center;
+  }
 }
 
 @keyframes ag-fade-in {
-    from {
-        opacity: 0;
-    }
+  from {
+    opacity: 0;
+  }
 
-    to {
-        opacity: 1;
-    }
+  to {
+    opacity: 1;
+  }
 }
 
 /* 紧凑型加载器 */
 .ag-spinner-mini {
-    width: 18px;
-    height: 18px;
-    border: 2px solid rgba(var(--primary-rgb), 0.1);
-    border-top-color: var(--primary-color);
-    border-radius: 50%;
-    animation: ag-spin 0.6s linear infinite;
+  width: 18px;
+  height: 18px;
+  border: 2px solid rgba(var(--primary-rgb), 0.1);
+  border-top-color: var(--primary-color);
+  border-radius: 50%;
+  animation: ag-spin 0.6s linear infinite;
 }
 
 /* Refined Icon Button */
 .btn-icon-refined {
-    background: transparent;
-    border: 1px solid transparent;
-    border-radius: 8px;
-    color: var(--text-secondary);
-    width: 32px;
-    height: 32px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--text-secondary);
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .btn-icon-refined:hover {
-    background: var(--bg-tertiary);
-    color: var(--primary-color);
-    border-color: var(--border-color);
+  background: var(--bg-tertiary);
+  color: var(--primary-color);
+  border-color: var(--border-color);
 }
 
 .btn-icon-refined:active {
-    transform: scale(0.95);
+  transform: scale(0.95);
 }
 
 .btn-icon-refined.sm {
-    width: 33px;
-    height: 33px;
-    font-size: 16px;
-    border-radius: 9px;
+  width: 33px;
+  height: 33px;
+  font-size: 16px;
+  border-radius: 9px;
 }
 
 .btn-icon-refined.danger:hover {
-    color: #ef4444;
-    background: rgba(239, 68, 68, 0.1);
-    border-color: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.2);
 }

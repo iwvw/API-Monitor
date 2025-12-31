@@ -65,13 +65,15 @@ function registerRoutes(app) {
       success: true,
       message: 'Agent 推送接口运行中',
       method: 'POST',
-      tip: '请使用 POST 请求并携带正确的 Header (X-Server-ID, X-Agent-Key) 推送指标数据'
+      tip: '请使用 POST 请求并携带正确的 Header (X-Server-ID, X-Agent-Key) 推送指标数据',
     });
   });
 
   // Agent 路由根路径说明
   agentPublicRouter.get('/', (req, res) => {
-    const stats = agentService.getConnectionStats ? agentService.getConnectionStats() : { online: 0 };
+    const stats = agentService.getConnectionStats
+      ? agentService.getConnectionStats()
+      : { online: 0 };
     const protocol = req.protocol;
     const host = req.get('host');
     const baseUrl = `${protocol}://${host}`;
@@ -89,20 +91,20 @@ function registerRoutes(app) {
           method: 'POST',
           url: `${baseUrl}/api/server/agent/quick-install`,
           body: '{ "name": "服务器名称" }',
-          description: '需要认证，返回 JSON 格式的安装命令'
-        }
+          description: '需要认证，返回 JSON 格式的安装命令',
+        },
       },
       endpoints: [
         { path: '/push', method: 'POST', description: '数据推送 (HTTP 兼容)' },
         { path: '/install/:serverId', method: 'GET', description: '安装脚本下载' },
         { path: '/quick-install/:name', method: 'GET', description: '一键安装脚本 (自动创建主机)' },
         { path: '/quick-install', method: 'POST', description: '快速安装 API (需要认证)' },
-        { path: '/status', method: 'GET', description: 'Socket.IO 连接统计' }
+        { path: '/status', method: 'GET', description: 'Socket.IO 连接统计' },
       ],
       socketio: {
         namespace: '/agent',
-        events: ['agent:connect', 'agent:state', 'agent:host_info']
-      }
+        events: ['agent:connect', 'agent:state', 'agent:host_info'],
+      },
     });
   });
 
@@ -117,8 +119,8 @@ function registerRoutes(app) {
           ...stats,
           onlineAgents,
           protocol: 'socket.io',
-          version: '2.0.0'
-        }
+          version: '2.0.0',
+        },
       });
     } catch (error) {
       res.status(500).json({ success: false, error: error.message });
@@ -178,7 +180,7 @@ function registerRoutes(app) {
   /**
    * POST /api/server/agent/quick-install
    * Body: { name: "服务器名称" }
-   * 
+   *
    * 创建一个新的主机记录并返回一键安装命令
    */
   agentPublicRouter.post('/quick-install', requireAuth, (req, res) => {
@@ -188,7 +190,7 @@ function registerRoutes(app) {
       if (!name || typeof name !== 'string' || name.trim().length === 0) {
         return res.status(400).json({
           success: false,
-          error: '请提供有效的服务器名称'
+          error: '请提供有效的服务器名称',
         });
       }
 
@@ -208,15 +210,15 @@ function registerRoutes(app) {
         // 创建新的主机记录 (Agent 模式不需要 SSH 凭据)
         server = serverStorage.create({
           name: serverName,
-          host: '',  // Agent 连接后由主机信息自动填充
+          host: '', // Agent 连接后由主机信息自动填充
           port: 22,
-          username: 'agent',  // 占位符，Agent 模式不需要真正的 SSH 用户
+          username: 'agent', // 占位符，Agent 模式不需要真正的 SSH 用户
           password: '',
-          auth_type: 'password',  // 数据库约束只允许 password/key
+          auth_type: 'password', // 数据库约束只允许 password/key
           status: 'offline',
-          monitor_mode: 'agent',  // 通过此字段标记为 Agent 模式
-          tags: ['agent-auto'],  // 自动标记
-          notes: `通过快速安装 API 创建于 ${new Date().toLocaleString('zh-CN')}`
+          monitor_mode: 'agent', // 通过此字段标记为 Agent 模式
+          tags: ['agent-auto'], // 自动标记
+          notes: `通过快速安装 API 创建于 ${new Date().toLocaleString('zh-CN')}`,
         });
         isNew = true;
         logger.info(`[Quick Install] 已创建新主机: ${serverName} (ID: ${server.id})`);
@@ -243,12 +245,12 @@ function registerRoutes(app) {
             command: `API_MONITOR_SERVER=${serverUrl} API_MONITOR_SERVER_ID=${server.id} API_MONITOR_KEY=${agentKey} node index.js`,
             serverUrl,
             serverId: server.id,
-            agentKey
+            agentKey,
           },
           message: isNew
             ? `已创建新主机 "${serverName}"，请在目标服务器执行安装命令`
-            : `主机 "${serverName}" 已存在，请在目标服务器执行安装命令`
-        }
+            : `主机 "${serverName}" 已存在，请在目标服务器执行安装命令`,
+        },
       });
     } catch (error) {
       logger.error('[Quick Install] 错误:', error.message);
@@ -258,7 +260,7 @@ function registerRoutes(app) {
 
   /**
    * GET /api/server/agent/quick-install/:name
-   * 
+   *
    * 直接返回安装脚本 (可通过 curl | bash 直接执行)
    * 自动创建主机记录（如果不存在）
    */
@@ -282,11 +284,11 @@ function registerRoutes(app) {
           port: 22,
           username: 'agent',
           password: '',
-          auth_type: 'password',  // 数据库约束只允许 password/key
+          auth_type: 'password', // 数据库约束只允许 password/key
           status: 'offline',
-          monitor_mode: 'agent',  // 通过此字段标记为 Agent 模式
+          monitor_mode: 'agent', // 通过此字段标记为 Agent 模式
           tags: ['agent-auto'],
-          notes: `通过一键安装创建于 ${new Date().toLocaleString('zh-CN')}`
+          notes: `通过一键安装创建于 ${new Date().toLocaleString('zh-CN')}`,
         });
         console.log(`[Quick Install] 自动创建主机: ${serverName} (ID: ${server.id})`);
       }
@@ -326,8 +328,8 @@ function registerRoutes(app) {
           installCommand: `curl -fsSL ${installUrl} | sudo bash`,
           winInstallCommand: `powershell -c "irm ${serverUrl}/api/server/agent/install/win/${serverId} | iex"`,
           apiUrl: serverUrl,
-          agentKey: agentService.getAgentKey(serverId)
-        }
+          agentKey: agentService.getAgentKey(serverId),
+        },
       });
     } catch (error) {
       res.status(500).json({ success: false, error: error.message });
@@ -361,7 +363,12 @@ function registerRoutes(app) {
       const script = agentService.generateInstallScript(serverId, serverUrl);
 
       // 120秒超时，下载+安装需要时间
-      const result = await sshService.executeCommand(serverId, server, `cat << 'EOF' > /tmp/agent_install.sh\n${script}\nEOF\nsudo bash /tmp/agent_install.sh`, 120000);
+      const result = await sshService.executeCommand(
+        serverId,
+        server,
+        `cat << 'EOF' > /tmp/agent_install.sh\n${script}\nEOF\nsudo bash /tmp/agent_install.sh`,
+        120000
+      );
 
       logger.info(`[Auto-Install] 执行结果: success=${result.success}, code=${result.code}`);
       if (result.stdout) logger.info(`[Auto-Install] stdout: ${result.stdout.substring(0, 500)}`);
@@ -376,7 +383,7 @@ function registerRoutes(app) {
           error: '安装执行失败',
           details: result.stderr || result.error,
           stdout: result.stdout,
-          code: result.code
+          code: result.code,
         });
       }
     } catch (error) {
@@ -395,12 +402,18 @@ function registerRoutes(app) {
       if (!server) return res.status(404).json({ success: false, error: '主机不存在' });
 
       const script = agentService.generateUninstallScript();
-      const result = await sshService.executeCommand(serverId, server, `cat << 'EOF' > /tmp/agent_uninstall.sh\n${script}\nEOF\nsudo bash /tmp/agent_uninstall.sh`);
+      const result = await sshService.executeCommand(
+        serverId,
+        server,
+        `cat << 'EOF' > /tmp/agent_uninstall.sh\n${script}\nEOF\nsudo bash /tmp/agent_uninstall.sh`
+      );
 
       if (result.success) {
         res.json({ success: true, message: 'Agent 卸载命令已执行' });
       } else {
-        res.status(500).json({ success: false, error: '卸载执行失败', details: result.stderr || result.error });
+        res
+          .status(500)
+          .json({ success: false, error: '卸载执行失败', details: result.stderr || result.error });
       }
     } catch (error) {
       res.status(500).json({ success: false, error: error.message });
@@ -423,11 +436,12 @@ function registerRoutes(app) {
     'openlist-api': '/api/openlist',
     'server-management': '/api/server',
     'antigravity-api': '/api/antigravity',
-    'gemini-cli-api': '/api/gemini-cli'
+    'gemini-cli-api': '/api/gemini-cli',
   };
 
   if (fs.existsSync(modulesDir)) {
-    const modules = fs.readdirSync(modulesDir, { withFileTypes: true })
+    const modules = fs
+      .readdirSync(modulesDir, { withFileTypes: true })
       .filter(dirent => dirent.isDirectory() && !dirent.name.startsWith('_'))
       .map(dirent => dirent.name);
 
@@ -468,5 +482,5 @@ function registerRoutes(app) {
 }
 
 module.exports = {
-  registerRoutes
+  registerRoutes,
 };

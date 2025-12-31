@@ -1,46 +1,46 @@
 /* 展开式搜索框样式 */
 .search-box-expandable {
-    display: flex;
-    align-items: center;
-    position: relative;
-    /* transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1); */
+  display: flex;
+  align-items: center;
+  position: relative;
+  /* transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1); */
 }
 
 .search-box-expandable .search-input-field {
-    width: 200px;
-    height: 32px;
-    background: var(--bg-primary);
-    border: 1px solid var(--border-color);
-    border-radius: 6px;
-    padding: 0 10px;
-    font-size: 13px;
-    color: var(--text-primary);
-    outline: none;
-    margin-right: 8px;
-    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+  width: 200px;
+  height: 32px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  padding: 0 10px;
+  font-size: 13px;
+  color: var(--text-primary);
+  outline: none;
+  margin-right: 8px;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
 }
 
 .search-box-expandable .search-input-field:focus {
-    border-color: var(--selfh-primary);
-    box-shadow: 0 0 0 2px rgba(6, 182, 212, 0.15);
+  border-color: var(--selfh-primary);
+  box-shadow: 0 0 0 2px rgba(6, 182, 212, 0.15);
 }
 
 .animate-slide-left {
-    animation: slideLeft 0.2s ease-out forwards;
+  animation: slideLeft 0.2s ease-out forwards;
 }
 
 @keyframes slideLeft {
-    from {
-        opacity: 0;
-        transform: translateX(10px);
-        width: 0;
-        padding: 0;
-    }
+  from {
+    opacity: 0;
+    transform: translateX(10px);
+    width: 0;
+    padding: 0;
+  }
 
-    to {
-        opacity: 1;
-        transform: translateX(0);
-        width: 200px;
-        padding: 0 10px;
-    }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+    width: 200px;
+    padding: 0 10px;
+  }
 }

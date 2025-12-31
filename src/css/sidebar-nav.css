@@ -191,7 +191,8 @@
     border-radius: 3px 3px 0 0;
   }
 
-  .tab-label, .sidebar-footer {
+  .tab-label,
+  .sidebar-footer {
     display: none !important;
   }
 }

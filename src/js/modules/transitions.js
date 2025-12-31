@@ -66,7 +66,7 @@ export const transitionsMethods = {
     window.scrollTo({
       top: 0,
       left: 0,
-      behavior: 'smooth'
+      behavior: 'smooth',
     });
   },
 
@@ -144,5 +144,5 @@ export const transitionsMethods = {
       item.classList.remove('stagger-item');
       item.style.animationDelay = '';
     });
-  }
+  },
 };

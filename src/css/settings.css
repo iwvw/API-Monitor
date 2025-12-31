@@ -44,7 +44,9 @@
 /* Vue 动画定义 */
 .settings-fade-enter-active,
 .settings-fade-leave-active {
-  transition: opacity 0.25s ease, transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  transition:
+    opacity 0.25s ease,
+    transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 /* 进场：轻微缩放并淡入，移除模糊以提升性能 */
@@ -128,7 +130,7 @@
 }
 
 /* Enable pointer events for the sidebar itself */
-.settings-modal-wrapper>.settings-sidebar {
+.settings-modal-wrapper > .settings-sidebar {
   pointer-events: auto;
 }
 
@@ -745,7 +747,6 @@
   border: 1px solid rgba(139, 92, 246, 0.2);
 }
 
-
 .code-font {
   font-family: var(--font-mono);
   font-size: 13px;
@@ -787,7 +788,7 @@ input::-webkit-inner-spin-button {
 }
 
 /* Firefox */
-input[type=number] {
+input[type='number'] {
   -moz-appearance: textfield;
 }
 

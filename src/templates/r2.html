@@ -1,232 +1,300 @@
 <div id="r2-module" v-if="dnsCurrentTab === 'r2'" class="r2-container quick-fade-in">
-    <!-- 1. 存储桶列表视图 -->
-    <div v-if="!r2SelectedBucketName" class="buckets-view">
-        <div class="panel-header" style="margin-bottom: 20px;">
-            <div class="panel-title">
-                <i class="fas fa-archive" style="margin-right: 8px; color: var(--cf-color);"></i>
-                R2 存储桶
-            </div>
-            <div class="panel-actions">
-                <button @click="showR2CreateBucketModal = true" class="btn btn-primary btn-sm">
-                    <i class="fas fa-plus"></i> 创建存储桶
-                </button>
-            </div>
-        </div>
-
-        <!-- 加载中 -->
-        <div v-if="r2LoadingBuckets" class="loading-state">
-            <i class="fas fa-circle-notch fa-spin"></i>
-            <span>正在加载 R2 存储桶...</span>
-        </div>
-
-        <!-- 存储桶网格 -->
-        <div v-else-if="r2Buckets.length > 0" class="r2-buckets-grid">
-            <div v-for="bucket in r2Buckets" :key="bucket.name" @click="selectBucket(bucket.name)"
-                class="r2-bucket-card" style="position: relative;">
-                <!-- 右上角删除按钮 -->
-                <button @click.stop="deleteBucket(bucket.name)" class="btn btn-icon btn-sm btn-text-danger"
-                    title="删除存储桶" style="position: absolute; top: 8px; right: 8px; opacity: 0.6;">
-                    <i class="fas fa-trash"></i>
-                </button>
-                <div class="r2-bucket-icon">
-                    <i class="fas fa-database"></i>
-                </div>
-                <div class="r2-bucket-info">
-                    <div class="r2-bucket-name">{{ bucket.name }}</div>
-                    <div class="r2-bucket-date">创建于: {{ formatDate(bucket.creation_date) }}</div>
-                </div>
-            </div>
-        </div>
-
-        <!-- 空状态 -->
-        <div v-else class="r2-empty">
-            <i class="fas fa-archive"></i>
-            <p>暂无存储桶，点击上方按钮创建一个吧</p>
-        </div>
+  <!-- 1. 存储桶列表视图 -->
+  <div v-if="!r2SelectedBucketName" class="buckets-view">
+    <div class="panel-header" style="margin-bottom: 20px">
+      <div class="panel-title">
+        <i class="fas fa-archive" style="margin-right: 8px; color: var(--cf-color)"></i>
+        R2 存储桶
+      </div>
+      <div class="panel-actions">
+        <button @click="showR2CreateBucketModal = true" class="btn btn-primary btn-sm">
+          <i class="fas fa-plus"></i> 创建存储桶
+        </button>
+      </div>
     </div>
 
-    <!-- 2. 对象浏览器视图 -->
-    <div v-else class="browser-view">
-        <div class="panel-header" style="margin-bottom: 20px;">
-            <div class="panel-title" @click="r2SelectedBucketName = null" style="cursor: pointer;">
-                <i class="fas fa-chevron-left" style="margin-right: 12px; font-size: 14px; opacity: 0.6;"></i>
-                <i class="fas fa-database" style="margin-right: 8px; color: var(--cf-color);"></i>
-                {{ r2SelectedBucketName }}
-            </div>
-            <div class="panel-actions">
-                <button @click="loadObjects" class="btn btn-secondary btn-sm" :disabled="r2LoadingObjects">
-                    <i class="fas fa-sync" :class="{'fa-spin': r2LoadingObjects}"></i> 刷新
-                </button>
-            </div>
-        </div>
-
-        <div class="r2-browser">
-            <div class="r2-browser-header">
-                <!-- 面包屑导航 -->
-                <div class="r2-breadcrumb">
-                    <div class="r2-breadcrumb-item" @click="navigateTo(-1)">
-                        <i class="fas fa-home"></i> 根目录
-                    </div>
-                    <template v-for="(part, index) in r2CurrentPrefix.split('/').filter(p => p !== '')">
-                        <span class="r2-breadcrumb-separator">/</span>
-                        <div class="r2-breadcrumb-item" @click="navigateTo(index)">
-                            {{ part }}
-                        </div>
-                    </template>
-                </div>
-
-                <div class="r2-browser-actions">
-                    <div class="r2-search-container">
-                        <i class="fas fa-search r2-search-icon"></i>
-                        <input type="text" v-model="r2SearchText" placeholder="搜索对象..." class="r2-search-input">
-                    </div>
-                    <!-- 批量删除按钮 -->
-                    <button v-if="r2SelectedObjects.length > 0" @click="batchDeleteR2Objects"
-                        class="btn btn-danger btn-sm" style="margin-left: 12px;">
-                        <i class="fas fa-trash"></i> 删除 ({{ r2SelectedObjects.length }})
-                    </button>
-                </div>
-            </div>
-
-            <!-- 加载状态 -->
-            <div v-if="r2LoadingObjects" class="loading-state" style="padding: 40px;">
-                <i class="fas fa-circle-notch fa-spin"></i>
-                <span>正在加载对象...</span>
-            </div>
-
-            <!-- 对象列表 -->
-            <table v-else class="r2-table">
-                <thead>
-                    <tr>
-                        <th style="width: 40px;">
-                            <input type="checkbox"
-                                :checked="r2SelectedObjects.length > 0 && r2SelectedObjects.length === r2Objects.filter(o => !o.isFolder).length"
-                                @change="toggleSelectAllR2Objects($event.target.checked)" title="全选">
-                        </th>
-                        <th>名称</th>
-                        <th>大小</th>
-                        <th>修改日期</th>
-                        <th style="width: 80px;">操作</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <!-- 返回上一级 (如果不在根目录) -->
-                    <tr v-if="r2CurrentPrefix" @click="navigateBack" style="cursor: pointer;">
-                        <td></td>
-                        <td>
-                            <div class="r2-object-name-cell">
-                                <i class="fas fa-level-up-alt r2-object-icon" style="color: var(--text-secondary);"></i>
-                                <span>..</span>
-                            </div>
-                        </td>
-                        <td>-</td>
-                        <td>-</td>
-                        <td></td>
-                    </tr>
-
-                    <!-- 过滤后的列表 -->
-                    <tr v-for="obj in r2Objects.filter(o => !r2SearchText || o.name.toLowerCase().includes(r2SearchText.toLowerCase()))"
-                        :key="obj.key" :class="{'r2-row-selected': r2SelectedObjects.includes(obj.key)}">
-                        <td @click.stop>
-                            <input v-if="!obj.isFolder" type="checkbox" :checked="r2SelectedObjects.includes(obj.key)"
-                                @change="toggleR2ObjectSelection(obj.key, $event.target.checked)">
-                        </td>
-                        <td @click="obj.isFolder ? enterFolder(obj.key) : null"
-                            :style="obj.isFolder ? 'cursor: pointer;' : ''">
-                            <div class="r2-object-name-cell">
-                                <i :class="getFileIcon(obj)" class="r2-object-icon"></i>
-                                <span>{{ obj.name }}</span>
-                            </div>
-                        </td>
-                        <td class="r2-object-size">{{ obj.isFolder ? '-' : formatSize(obj.size) }}</td>
-                        <td class="r2-object-date">{{ obj.isFolder ? '-' : formatDate(obj.last_modified) }}</td>
-                        <td>
-                            <div v-if="!obj.isFolder" class="r2-row-actions" style="display: flex; gap: 4px;">
-                                <button @click="downloadR2Object(obj)" class="btn btn-icon btn-sm" title="下载文件">
-                                    <i class="fas fa-download"></i>
-                                </button>
-                                <button @click="deleteR2Object(obj.key)" class="btn btn-icon btn-sm btn-text-danger"
-                                    title="删除文件">
-                                    <i class="fas fa-trash"></i>
-                                </button>
-                            </div>
-                        </td>
-                    </tr>
-
-                    <!-- 无匹配结果 -->
-                    <tr v-if="r2Objects.length === 0">
-                        <td colspan="5" class="r2-empty" style="padding: 40px;">
-                            <i class="fas fa-folder-open"></i>
-                            <p>此文件夹为空</p>
-                        </td>
-                    </tr>
-                </tbody>
-            </table>
-        </div>
+    <!-- 加载中 -->
+    <div v-if="r2LoadingBuckets" class="loading-state">
+      <i class="fas fa-circle-notch fa-spin"></i>
+      <span>正在加载 R2 存储桶...</span>
     </div>
 
-    <!-- 创建存储桶弹窗 -->
-    <div v-if="showR2CreateBucketModal" class="modal-backdrop" @click.self="showR2CreateBucketModal = false">
-        <div class="modal-content quick-fade-in" style="max-width: 400px;">
-            <div class="modal-header">
-                <div class="modal-title">创建新存储桶</div>
-                <button @click="showR2CreateBucketModal = false" class="btn-close">&times;</button>
-            </div>
-            <div class="modal-body">
-                <div class="form-group">
-                    <label>存储桶名称</label>
-                    <input type="text" v-model="newR2BucketName" placeholder="例如: my-assets" class="input-control"
-                        autofocus>
-                    <p class="form-help">名称必须是全局唯一的，且仅包含小写字母、数字和连字符</p>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button @click="showR2CreateBucketModal = false" class="btn btn-secondary">取消</button>
-                <button @click="createBucket(newR2BucketName).then(ok => ok && (showR2CreateBucketModal=false))"
-                    class="btn btn-primary" :disabled="!newR2BucketName">
-                    确认创建
-                </button>
-            </div>
+    <!-- 存储桶网格 -->
+    <div v-else-if="r2Buckets.length > 0" class="r2-buckets-grid">
+      <div
+        v-for="bucket in r2Buckets"
+        :key="bucket.name"
+        @click="selectBucket(bucket.name)"
+        class="r2-bucket-card"
+        style="position: relative"
+      >
+        <!-- 右上角删除按钮 -->
+        <button
+          @click.stop="deleteBucket(bucket.name)"
+          class="btn btn-icon btn-sm btn-text-danger"
+          title="删除存储桶"
+          style="position: absolute; top: 8px; right: 8px; opacity: 0.6"
+        >
+          <i class="fas fa-trash"></i>
+        </button>
+        <div class="r2-bucket-icon">
+          <i class="fas fa-database"></i>
         </div>
+        <div class="r2-bucket-info">
+          <div class="r2-bucket-name">{{ bucket.name }}</div>
+          <div class="r2-bucket-date">创建于: {{ formatDate(bucket.creation_date) }}</div>
+        </div>
+      </div>
     </div>
 
-    <!-- R2 自定义域名输入弹窗 -->
-    <div v-if="showR2DomainModal" class="modal-overlay" @click.self="cancelR2DomainInput">
-        <div class="modal quick-fade-in" style="max-width: 480px;">
-            <div class="modal-header">
-                <div class="modal-title">
-                    <i class="fas fa-link" style="margin-right: 8px; color: var(--cf-color);"></i>
-                    配置公开访问域名
-                </div>
-                <button @click="cancelR2DomainInput" class="modal-close"><i class="fas fa-times"></i></button>
-            </div>
-            <div class="modal-body">
-                <div class="form-group">
-                    <label class="form-label">存储桶</label>
-                    <div
-                        style="background: var(--bg-tertiary); padding: 10px 14px; border-radius: 8px; font-family: var(--font-mono); font-size: 13px;">
-                        {{ r2SelectedBucketName }}
-                    </div>
-                </div>
-                <div class="form-group">
-                    <label class="form-label">公开访问域名</label>
-                    <input type="text" v-model="r2CustomDomainInput" placeholder="https://pub-xxxx.r2.dev"
-                        class="form-input" @keyup.enter="confirmR2DomainInput" autofocus>
-                    <p class="form-help" style="margin-top: 8px;">
-                        <i class="fas fa-info-circle"></i> 支持的格式：
-                    </p>
-                    <ul class="form-help" style="margin: 4px 0 0 20px; font-size: 12px; opacity: 0.8;">
-                        <li><code>https://pub-xxxx.r2.dev</code> - R2 自动生成的公开域名</li>
-                        <li><code>https://cdn.example.com</code> - 自定义域名</li>
-                    </ul>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button @click="cancelR2DomainInput" class="btn btn-secondary">取消</button>
-                <button @click="confirmR2DomainInput" class="btn btn-primary" :disabled="!r2CustomDomainInput">
-                    <i class="fas fa-save"></i> 保存并下载
-                </button>
-            </div>
-        </div>
+    <!-- 空状态 -->
+    <div v-else class="r2-empty">
+      <i class="fas fa-archive"></i>
+      <p>暂无存储桶，点击上方按钮创建一个吧</p>
     </div>
+  </div>
+
+  <!-- 2. 对象浏览器视图 -->
+  <div v-else class="browser-view">
+    <div class="panel-header" style="margin-bottom: 20px">
+      <div class="panel-title" @click="r2SelectedBucketName = null" style="cursor: pointer">
+        <i
+          class="fas fa-chevron-left"
+          style="margin-right: 12px; font-size: 14px; opacity: 0.6"
+        ></i>
+        <i class="fas fa-database" style="margin-right: 8px; color: var(--cf-color)"></i>
+        {{ r2SelectedBucketName }}
+      </div>
+      <div class="panel-actions">
+        <button @click="loadObjects" class="btn btn-secondary btn-sm" :disabled="r2LoadingObjects">
+          <i class="fas fa-sync" :class="{'fa-spin': r2LoadingObjects}"></i> 刷新
+        </button>
+      </div>
+    </div>
+
+    <div class="r2-browser">
+      <div class="r2-browser-header">
+        <!-- 面包屑导航 -->
+        <div class="r2-breadcrumb">
+          <div class="r2-breadcrumb-item" @click="navigateTo(-1)">
+            <i class="fas fa-home"></i> 根目录
+          </div>
+          <template v-for="(part, index) in r2CurrentPrefix.split('/').filter(p => p !== '')">
+            <span class="r2-breadcrumb-separator">/</span>
+            <div class="r2-breadcrumb-item" @click="navigateTo(index)">{{ part }}</div>
+          </template>
+        </div>
+
+        <div class="r2-browser-actions">
+          <div class="r2-search-container">
+            <i class="fas fa-search r2-search-icon"></i>
+            <input
+              type="text"
+              v-model="r2SearchText"
+              placeholder="搜索对象..."
+              class="r2-search-input"
+            />
+          </div>
+          <!-- 批量删除按钮 -->
+          <button
+            v-if="r2SelectedObjects.length > 0"
+            @click="batchDeleteR2Objects"
+            class="btn btn-danger btn-sm"
+            style="margin-left: 12px"
+          >
+            <i class="fas fa-trash"></i> 删除 ({{ r2SelectedObjects.length }})
+          </button>
+        </div>
+      </div>
+
+      <!-- 加载状态 -->
+      <div v-if="r2LoadingObjects" class="loading-state" style="padding: 40px">
+        <i class="fas fa-circle-notch fa-spin"></i>
+        <span>正在加载对象...</span>
+      </div>
+
+      <!-- 对象列表 -->
+      <table v-else class="r2-table">
+        <thead>
+          <tr>
+            <th style="width: 40px">
+              <input
+                type="checkbox"
+                :checked="r2SelectedObjects.length > 0 && r2SelectedObjects.length === r2Objects.filter(o => !o.isFolder).length"
+                @change="toggleSelectAllR2Objects($event.target.checked)"
+                title="全选"
+              />
+            </th>
+            <th>名称</th>
+            <th>大小</th>
+            <th>修改日期</th>
+            <th style="width: 80px">操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          <!-- 返回上一级 (如果不在根目录) -->
+          <tr v-if="r2CurrentPrefix" @click="navigateBack" style="cursor: pointer">
+            <td></td>
+            <td>
+              <div class="r2-object-name-cell">
+                <i
+                  class="fas fa-level-up-alt r2-object-icon"
+                  style="color: var(--text-secondary)"
+                ></i>
+                <span>..</span>
+              </div>
+            </td>
+            <td>-</td>
+            <td>-</td>
+            <td></td>
+          </tr>
+
+          <!-- 过滤后的列表 -->
+          <tr
+            v-for="obj in r2Objects.filter(o => !r2SearchText || o.name.toLowerCase().includes(r2SearchText.toLowerCase()))"
+            :key="obj.key"
+            :class="{'r2-row-selected': r2SelectedObjects.includes(obj.key)}"
+          >
+            <td @click.stop>
+              <input
+                v-if="!obj.isFolder"
+                type="checkbox"
+                :checked="r2SelectedObjects.includes(obj.key)"
+                @change="toggleR2ObjectSelection(obj.key, $event.target.checked)"
+              />
+            </td>
+            <td
+              @click="obj.isFolder ? enterFolder(obj.key) : null"
+              :style="obj.isFolder ? 'cursor: pointer;' : ''"
+            >
+              <div class="r2-object-name-cell">
+                <i :class="getFileIcon(obj)" class="r2-object-icon"></i>
+                <span>{{ obj.name }}</span>
+              </div>
+            </td>
+            <td class="r2-object-size">{{ obj.isFolder ? '-' : formatSize(obj.size) }}</td>
+            <td class="r2-object-date">{{ obj.isFolder ? '-' : formatDate(obj.last_modified) }}</td>
+            <td>
+              <div v-if="!obj.isFolder" class="r2-row-actions" style="display: flex; gap: 4px">
+                <button @click="downloadR2Object(obj)" class="btn btn-icon btn-sm" title="下载文件">
+                  <i class="fas fa-download"></i>
+                </button>
+                <button
+                  @click="deleteR2Object(obj.key)"
+                  class="btn btn-icon btn-sm btn-text-danger"
+                  title="删除文件"
+                >
+                  <i class="fas fa-trash"></i>
+                </button>
+              </div>
+            </td>
+          </tr>
+
+          <!-- 无匹配结果 -->
+          <tr v-if="r2Objects.length === 0">
+            <td colspan="5" class="r2-empty" style="padding: 40px">
+              <i class="fas fa-folder-open"></i>
+              <p>此文件夹为空</p>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- 创建存储桶弹窗 -->
+  <div
+    v-if="showR2CreateBucketModal"
+    class="modal-backdrop"
+    @click.self="showR2CreateBucketModal = false"
+  >
+    <div class="modal-content quick-fade-in" style="max-width: 400px">
+      <div class="modal-header">
+        <div class="modal-title">创建新存储桶</div>
+        <button @click="showR2CreateBucketModal = false" class="btn-close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>存储桶名称</label>
+          <input
+            type="text"
+            v-model="newR2BucketName"
+            placeholder="例如: my-assets"
+            class="input-control"
+            autofocus
+          />
+          <p class="form-help">名称必须是全局唯一的，且仅包含小写字母、数字和连字符</p>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button @click="showR2CreateBucketModal = false" class="btn btn-secondary">取消</button>
+        <button
+          @click="createBucket(newR2BucketName).then(ok => ok && (showR2CreateBucketModal=false))"
+          class="btn btn-primary"
+          :disabled="!newR2BucketName"
+        >
+          确认创建
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- R2 自定义域名输入弹窗 -->
+  <div v-if="showR2DomainModal" class="modal-overlay" @click.self="cancelR2DomainInput">
+    <div class="modal quick-fade-in" style="max-width: 480px">
+      <div class="modal-header">
+        <div class="modal-title">
+          <i class="fas fa-link" style="margin-right: 8px; color: var(--cf-color)"></i>
+          配置公开访问域名
+        </div>
+        <button @click="cancelR2DomainInput" class="modal-close">
+          <i class="fas fa-times"></i>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">存储桶</label>
+          <div
+            style="
+              background: var(--bg-tertiary);
+              padding: 10px 14px;
+              border-radius: 8px;
+              font-family: var(--font-mono);
+              font-size: 13px;
+            "
+          >
+            {{ r2SelectedBucketName }}
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">公开访问域名</label>
+          <input
+            type="text"
+            v-model="r2CustomDomainInput"
+            placeholder="https://pub-xxxx.r2.dev"
+            class="form-input"
+            @keyup.enter="confirmR2DomainInput"
+            autofocus
+          />
+          <p class="form-help" style="margin-top: 8px">
+            <i class="fas fa-info-circle"></i> 支持的格式：
+          </p>
+          <ul class="form-help" style="margin: 4px 0 0 20px; font-size: 12px; opacity: 0.8">
+            <li><code>https://pub-xxxx.r2.dev</code> - R2 自动生成的公开域名</li>
+            <li><code>https://cdn.example.com</code> - 自定义域名</li>
+          </ul>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button @click="cancelR2DomainInput" class="btn btn-secondary">取消</button>
+        <button
+          @click="confirmR2DomainInput"
+          class="btn btn-primary"
+          :disabled="!r2CustomDomainInput"
+        >
+          <i class="fas fa-save"></i> 保存并下载
+        </button>
+      </div>
+    </div>
+  </div>
 </div>

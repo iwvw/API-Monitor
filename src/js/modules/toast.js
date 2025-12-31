@@ -13,45 +13,45 @@
  */
 
 class ToastManager {
-    constructor() {
-        this.toasts = new Map(); // 存储所有活动的toast
-        this.idCounter = 0; // toast ID计数器
-        this.containers = new Map(); // 不同位置的容器
-        this.maxToasts = 3; // 最多同时显示的toast数量
-        this.defaultOptions = {
-            type: 'info', // success | error | warning | info
-            position: 'bottom-right', // top-right | top-left | bottom-right | bottom-left | top-center | bottom-center
-            duration: 3000, // 显示时长(毫秒), 0表示不自动关闭
-            closable: true, // 是否显示关闭按钮
-            progress: true, // 是否显示进度条
-            pauseOnHover: true, // 鼠标悬停时暂停自动关闭
-            title: '', // 标题
-            message: '', // 消息内容
-            icon: null, // 自定义图标
-            onClick: null, // 点击回调
-            onClose: null, // 关闭回调
-            isManual: false, // 是否为手动点击触发 (默认为 false，不显示自动提示)
-        };
+  constructor() {
+    this.toasts = new Map(); // 存储所有活动的toast
+    this.idCounter = 0; // toast ID计数器
+    this.containers = new Map(); // 不同位置的容器
+    this.maxToasts = 3; // 最多同时显示的toast数量
+    this.defaultOptions = {
+      type: 'info', // success | error | warning | info
+      position: 'bottom-right', // top-right | top-left | bottom-right | bottom-left | top-center | bottom-center
+      duration: 3000, // 显示时长(毫秒), 0表示不自动关闭
+      closable: true, // 是否显示关闭按钮
+      progress: true, // 是否显示进度条
+      pauseOnHover: true, // 鼠标悬停时暂停自动关闭
+      title: '', // 标题
+      message: '', // 消息内容
+      icon: null, // 自定义图标
+      onClick: null, // 点击回调
+      onClose: null, // 关闭回调
+      isManual: false, // 是否为手动点击触发 (默认为 false，不显示自动提示)
+    };
 
-        // 默认图标映射
-        this.iconMap = {
-            success: 'fas fa-check-circle',
-            error: 'fas fa-times-circle',
-            warning: 'fas fa-exclamation-triangle',
-            info: 'fas fa-info-circle',
-        };
+    // 默认图标映射
+    this.iconMap = {
+      success: 'fas fa-check-circle',
+      error: 'fas fa-times-circle',
+      warning: 'fas fa-exclamation-triangle',
+      info: 'fas fa-info-circle',
+    };
 
-        // 初始化样式
-        this.injectStyles();
-    }
+    // 初始化样式
+    this.injectStyles();
+  }
 
-    /**
-     * 注入CSS样式
-     */
-    injectStyles() {
-        if (document.getElementById('toast-manager-styles')) return;
+  /**
+   * 注入CSS样式
+   */
+  injectStyles() {
+    if (document.getElementById('toast-manager-styles')) return;
 
-        const styles = `
+    const styles = `
             /* ============ Toast 容器 ============ */
             .toast-manager-container {
                 position: fixed;
@@ -326,328 +326,328 @@ class ToastManager {
             }
         `;
 
-        const styleElement = document.createElement('style');
-        styleElement.id = 'toast-manager-styles';
-        styleElement.textContent = styles;
-        document.head.appendChild(styleElement);
+    const styleElement = document.createElement('style');
+    styleElement.id = 'toast-manager-styles';
+    styleElement.textContent = styles;
+    document.head.appendChild(styleElement);
+  }
+
+  /**
+   * 获取或创建指定位置的容器
+   */
+  getContainer(position) {
+    if (!this.containers.has(position)) {
+      const container = document.createElement('div');
+      container.className = `toast-manager-container ${position}`;
+      document.body.appendChild(container);
+      this.containers.set(position, container);
+    }
+    return this.containers.get(position);
+  }
+
+  /**
+   * 显示Toast
+   */
+  show(options) {
+    const config = { ...this.defaultOptions, ...options };
+
+    // 核心过滤器:
+    // - 错误提示 (type: 'error') 始终显示
+    // - 成功提示 (type: 'success') 始终显示
+    // - 警告提示 (type: 'warning') 始终显示
+    // - 信息提示 (type: 'info') 只有手动触发 (isManual: true) 才显示
+    if (config.type === 'info' && !config.isManual) {
+      // info 类型的自动提示将被拦截，不在界面弹出
+      return null;
     }
 
-    /**
-     * 获取或创建指定位置的容器
-     */
-    getContainer(position) {
-        if (!this.containers.has(position)) {
-            const container = document.createElement('div');
-            container.className = `toast-manager-container ${position}`;
-            document.body.appendChild(container);
-            this.containers.set(position, container);
-        }
-        return this.containers.get(position);
+    // 去重逻辑：检查是否有相同类型和内容的 toast 正在显示
+    const duplicateKey = `${config.type}:${config.message}`;
+    for (const [existingId, existingToast] of this.toasts) {
+      const existingKey = `${existingToast.config.type}:${existingToast.config.message}`;
+      if (existingKey === duplicateKey) {
+        // 相同的 toast 已存在，跳过显示
+        return existingId;
+      }
     }
 
-    /**
-     * 显示Toast
-     */
-    show(options) {
-        const config = { ...this.defaultOptions, ...options };
+    // 检查是否超过最大数量,如果超过则移除最旧的toast
+    const positionToasts = Array.from(this.toasts.values()).filter(
+      t => t.config.position === config.position
+    );
 
-        // 核心过滤器: 
-        // - 错误提示 (type: 'error') 始终显示
-        // - 成功提示 (type: 'success') 始终显示
-        // - 警告提示 (type: 'warning') 始终显示
-        // - 信息提示 (type: 'info') 只有手动触发 (isManual: true) 才显示
-        if (config.type === 'info' && !config.isManual) {
-            // info 类型的自动提示将被拦截，不在界面弹出
-            return null;
-        }
-
-        // 去重逻辑：检查是否有相同类型和内容的 toast 正在显示
-        const duplicateKey = `${config.type}:${config.message}`;
-        for (const [existingId, existingToast] of this.toasts) {
-            const existingKey = `${existingToast.config.type}:${existingToast.config.message}`;
-            if (existingKey === duplicateKey) {
-                // 相同的 toast 已存在，跳过显示
-                return existingId;
-            }
-        }
-
-        // 检查是否超过最大数量,如果超过则移除最旧的toast
-        const positionToasts = Array.from(this.toasts.values())
-            .filter(t => t.config.position === config.position);
-
-        if (positionToasts.length >= this.maxToasts) {
-            // 移除最旧的toast
-            const oldestToast = positionToasts[0];
-            if (oldestToast) {
-                this.remove(Array.from(this.toasts.entries())
-                    .find(([_, t]) => t === oldestToast)?.[0]);
-            }
-        }
-
-        const id = ++this.idCounter;
-
-        // 创建toast元素
-        const toast = this.createToastElement(id, config);
-        const container = this.getContainer(config.position);
-
-        // 添加到容器
-        if (config.position.includes('bottom')) {
-            container.appendChild(toast);
-        } else {
-            container.insertBefore(toast, container.firstChild);
-        }
-
-        // 设置定时器
-        const timer = this.setupTimer(id, toast, config);
-
-        // 保存toast信息
-        this.toasts.set(id, {
-            element: toast,
-            config,
-            timer,
-            startTime: Date.now(),
-            remainingTime: config.duration,
-        });
-
-        return id;
+    if (positionToasts.length >= this.maxToasts) {
+      // 移除最旧的toast
+      const oldestToast = positionToasts[0];
+      if (oldestToast) {
+        this.remove(Array.from(this.toasts.entries()).find(([_, t]) => t === oldestToast)?.[0]);
+      }
     }
 
-    /**
-     * 创建Toast元素
-     */
-    createToastElement(id, config) {
-        const toast = document.createElement('div');
-        toast.className = `toast-manager-item ${config.type}`;
-        toast.dataset.toastId = id;
+    const id = ++this.idCounter;
 
-        // 内容容器
-        const content = document.createElement('div');
-        content.className = 'toast-manager-content';
+    // 创建toast元素
+    const toast = this.createToastElement(id, config);
+    const container = this.getContainer(config.position);
 
-        // 图标
-        const icon = document.createElement('div');
-        icon.className = 'toast-manager-icon';
-        const iconClass = config.icon || this.iconMap[config.type];
-        icon.innerHTML = `<i class="${iconClass}"></i>`;
-        content.appendChild(icon);
-
-        // 文本内容
-        const textContainer = document.createElement('div');
-        textContainer.className = 'toast-manager-text';
-
-        if (config.title) {
-            const title = document.createElement('div');
-            title.className = 'toast-manager-title';
-            title.textContent = config.title;
-            textContainer.appendChild(title);
-        }
-
-        if (config.message) {
-            const message = document.createElement('div');
-            message.className = 'toast-manager-message';
-            message.textContent = config.message;
-            textContainer.appendChild(message);
-        }
-
-        content.appendChild(textContainer);
-        toast.appendChild(content);
-
-        // 关闭按钮
-        if (config.closable) {
-            const closeBtn = document.createElement('button');
-            closeBtn.className = 'toast-manager-close';
-            closeBtn.innerHTML = '<i class="fas fa-times"></i>';
-            closeBtn.onclick = (e) => {
-                e.stopPropagation();
-                this.remove(id);
-            };
-            toast.appendChild(closeBtn);
-        }
-
-        // 进度条
-        if (config.progress && config.duration > 0) {
-            const progress = document.createElement('div');
-            progress.className = 'toast-manager-progress';
-            progress.style.width = '100%';
-            progress.style.transitionDuration = `${config.duration}ms`;
-            toast.appendChild(progress);
-
-            // 触发进度条动画
-            requestAnimationFrame(() => {
-                progress.style.width = '0%';
-            });
-        }
-
-        // 鼠标悬停暂停
-        if (config.pauseOnHover && config.duration > 0) {
-            toast.addEventListener('mouseenter', () => {
-                this.pause(id);
-            });
-            toast.addEventListener('mouseleave', () => {
-                this.resume(id);
-            });
-        }
-
-        // 点击事件
-        if (config.onClick) {
-            toast.style.cursor = 'pointer';
-            toast.addEventListener('click', () => {
-                config.onClick(id);
-            });
-        }
-
-        return toast;
+    // 添加到容器
+    if (config.position.includes('bottom')) {
+      container.appendChild(toast);
+    } else {
+      container.insertBefore(toast, container.firstChild);
     }
 
-    /**
-     * 设置自动关闭定时器
-     */
-    setupTimer(id, toast, config) {
-        if (config.duration <= 0) return null;
+    // 设置定时器
+    const timer = this.setupTimer(id, toast, config);
 
-        return setTimeout(() => {
-            this.remove(id);
-        }, config.duration);
+    // 保存toast信息
+    this.toasts.set(id, {
+      element: toast,
+      config,
+      timer,
+      startTime: Date.now(),
+      remainingTime: config.duration,
+    });
+
+    return id;
+  }
+
+  /**
+   * 创建Toast元素
+   */
+  createToastElement(id, config) {
+    const toast = document.createElement('div');
+    toast.className = `toast-manager-item ${config.type}`;
+    toast.dataset.toastId = id;
+
+    // 内容容器
+    const content = document.createElement('div');
+    content.className = 'toast-manager-content';
+
+    // 图标
+    const icon = document.createElement('div');
+    icon.className = 'toast-manager-icon';
+    const iconClass = config.icon || this.iconMap[config.type];
+    icon.innerHTML = `<i class="${iconClass}"></i>`;
+    content.appendChild(icon);
+
+    // 文本内容
+    const textContainer = document.createElement('div');
+    textContainer.className = 'toast-manager-text';
+
+    if (config.title) {
+      const title = document.createElement('div');
+      title.className = 'toast-manager-title';
+      title.textContent = config.title;
+      textContainer.appendChild(title);
     }
 
-    /**
-     * 暂停自动关闭
-     */
-    pause(id) {
-        const toastData = this.toasts.get(id);
-        if (!toastData || !toastData.timer) return;
-
-        clearTimeout(toastData.timer);
-        toastData.remainingTime = toastData.config.duration - (Date.now() - toastData.startTime);
-        toastData.element.classList.add('paused');
-
-        // 暂停进度条
-        const progress = toastData.element.querySelector('.toast-manager-progress');
-        if (progress) {
-            const currentWidth = progress.getBoundingClientRect().width;
-            const totalWidth = progress.parentElement.getBoundingClientRect().width;
-            progress.style.transitionDuration = '0s';
-            progress.style.width = `${(currentWidth / totalWidth) * 100}%`;
-        }
+    if (config.message) {
+      const message = document.createElement('div');
+      message.className = 'toast-manager-message';
+      message.textContent = config.message;
+      textContainer.appendChild(message);
     }
 
-    /**
-     * 恢复自动关闭
-     */
-    resume(id) {
-        const toastData = this.toasts.get(id);
-        if (!toastData) return;
+    content.appendChild(textContainer);
+    toast.appendChild(content);
 
-        toastData.element.classList.remove('paused');
-
-        if (toastData.config.duration > 0) {
-            toastData.startTime = Date.now();
-            toastData.timer = setTimeout(() => {
-                this.remove(id);
-            }, toastData.remainingTime);
-
-            // 恢复进度条
-            const progress = toastData.element.querySelector('.toast-manager-progress');
-            if (progress) {
-                progress.style.transitionDuration = `${toastData.remainingTime}ms`;
-                progress.style.width = '0%';
-            }
-        }
+    // 关闭按钮
+    if (config.closable) {
+      const closeBtn = document.createElement('button');
+      closeBtn.className = 'toast-manager-close';
+      closeBtn.innerHTML = '<i class="fas fa-times"></i>';
+      closeBtn.onclick = e => {
+        e.stopPropagation();
+        this.remove(id);
+      };
+      toast.appendChild(closeBtn);
     }
 
-    /**
-     * 移除Toast
-     */
-    remove(id) {
-        const toastData = this.toasts.get(id);
-        if (!toastData) return;
+    // 进度条
+    if (config.progress && config.duration > 0) {
+      const progress = document.createElement('div');
+      progress.className = 'toast-manager-progress';
+      progress.style.width = '100%';
+      progress.style.transitionDuration = `${config.duration}ms`;
+      toast.appendChild(progress);
 
-        const { element, timer, config } = toastData;
-
-        // 清除定时器
-        if (timer) {
-            clearTimeout(timer);
-        }
-
-        // 添加移除动画
-        element.classList.add('removing');
-
-        // 动画结束后移除元素
-        setTimeout(() => {
-            if (element.parentNode) {
-                element.parentNode.removeChild(element);
-            }
-
-            // 清理数据
-            this.toasts.delete(id);
-
-            // 调用关闭回调
-            if (config.onClose) {
-                config.onClose(id);
-            }
-
-            // 如果容器为空,移除容器
-            const container = this.containers.get(config.position);
-            if (container && container.children.length === 0) {
-                container.remove();
-                this.containers.delete(config.position);
-            }
-        }, 300);
+      // 触发进度条动画
+      requestAnimationFrame(() => {
+        progress.style.width = '0%';
+      });
     }
 
-    /**
-     * 移除所有Toast
-     */
-    removeAll() {
-        this.toasts.forEach((_, id) => {
-            this.remove(id);
-        });
+    // 鼠标悬停暂停
+    if (config.pauseOnHover && config.duration > 0) {
+      toast.addEventListener('mouseenter', () => {
+        this.pause(id);
+      });
+      toast.addEventListener('mouseleave', () => {
+        this.resume(id);
+      });
     }
 
-    /**
-     * 快捷方法 - 成功提示 (始终显示)
-     */
-    success(message, options = {}) {
-        return this.show({
-            type: 'success',
-            message,
-            ...options,
-        });
+    // 点击事件
+    if (config.onClick) {
+      toast.style.cursor = 'pointer';
+      toast.addEventListener('click', () => {
+        config.onClick(id);
+      });
     }
 
-    /**
-     * 快捷方法 - 错误提示 (始终显示)
-     */
-    error(message, options = {}) {
-        return this.show({
-            type: 'error',
-            message,
-            duration: 4000, // 错误提示默认显示更久
-            ...options,
-        });
+    return toast;
+  }
+
+  /**
+   * 设置自动关闭定时器
+   */
+  setupTimer(id, toast, config) {
+    if (config.duration <= 0) return null;
+
+    return setTimeout(() => {
+      this.remove(id);
+    }, config.duration);
+  }
+
+  /**
+   * 暂停自动关闭
+   */
+  pause(id) {
+    const toastData = this.toasts.get(id);
+    if (!toastData || !toastData.timer) return;
+
+    clearTimeout(toastData.timer);
+    toastData.remainingTime = toastData.config.duration - (Date.now() - toastData.startTime);
+    toastData.element.classList.add('paused');
+
+    // 暂停进度条
+    const progress = toastData.element.querySelector('.toast-manager-progress');
+    if (progress) {
+      const currentWidth = progress.getBoundingClientRect().width;
+      const totalWidth = progress.parentElement.getBoundingClientRect().width;
+      progress.style.transitionDuration = '0s';
+      progress.style.width = `${(currentWidth / totalWidth) * 100}%`;
+    }
+  }
+
+  /**
+   * 恢复自动关闭
+   */
+  resume(id) {
+    const toastData = this.toasts.get(id);
+    if (!toastData) return;
+
+    toastData.element.classList.remove('paused');
+
+    if (toastData.config.duration > 0) {
+      toastData.startTime = Date.now();
+      toastData.timer = setTimeout(() => {
+        this.remove(id);
+      }, toastData.remainingTime);
+
+      // 恢复进度条
+      const progress = toastData.element.querySelector('.toast-manager-progress');
+      if (progress) {
+        progress.style.transitionDuration = `${toastData.remainingTime}ms`;
+        progress.style.width = '0%';
+      }
+    }
+  }
+
+  /**
+   * 移除Toast
+   */
+  remove(id) {
+    const toastData = this.toasts.get(id);
+    if (!toastData) return;
+
+    const { element, timer, config } = toastData;
+
+    // 清除定时器
+    if (timer) {
+      clearTimeout(timer);
     }
 
-    /**
-     * 快捷方法 - 警告提示 (始终显示)
-     */
-    warning(message, options = {}) {
-        return this.show({
-            type: 'warning',
-            message,
-            ...options,
-        });
-    }
+    // 添加移除动画
+    element.classList.add('removing');
 
-    /**
-     * 快捷方法 - 信息提示 (默认不显示，需设置 isManual: true)
-     */
-    info(message, options = {}) {
-        return this.show({
-            type: 'info',
-            message,
-            ...options,
-        });
-    }
+    // 动画结束后移除元素
+    setTimeout(() => {
+      if (element.parentNode) {
+        element.parentNode.removeChild(element);
+      }
+
+      // 清理数据
+      this.toasts.delete(id);
+
+      // 调用关闭回调
+      if (config.onClose) {
+        config.onClose(id);
+      }
+
+      // 如果容器为空,移除容器
+      const container = this.containers.get(config.position);
+      if (container && container.children.length === 0) {
+        container.remove();
+        this.containers.delete(config.position);
+      }
+    }, 300);
+  }
+
+  /**
+   * 移除所有Toast
+   */
+  removeAll() {
+    this.toasts.forEach((_, id) => {
+      this.remove(id);
+    });
+  }
+
+  /**
+   * 快捷方法 - 成功提示 (始终显示)
+   */
+  success(message, options = {}) {
+    return this.show({
+      type: 'success',
+      message,
+      ...options,
+    });
+  }
+
+  /**
+   * 快捷方法 - 错误提示 (始终显示)
+   */
+  error(message, options = {}) {
+    return this.show({
+      type: 'error',
+      message,
+      duration: 4000, // 错误提示默认显示更久
+      ...options,
+    });
+  }
+
+  /**
+   * 快捷方法 - 警告提示 (始终显示)
+   */
+  warning(message, options = {}) {
+    return this.show({
+      type: 'warning',
+      message,
+      ...options,
+    });
+  }
+
+  /**
+   * 快捷方法 - 信息提示 (默认不显示，需设置 isManual: true)
+   */
+  info(message, options = {}) {
+    return this.show({
+      type: 'info',
+      message,
+      ...options,
+    });
+  }
 }
 
 // 创建全局单例
@@ -657,16 +657,16 @@ const toastManager = new ToastManager();
 export default toastManager;
 
 export const toast = {
-    show: (options) => toastManager.show(options),
-    success: (message, options) => toastManager.success(message, options),
-    error: (message, options) => toastManager.error(message, options),
-    warning: (message, options) => toastManager.warning(message, options),
-    info: (message, options) => toastManager.info(message, options),
-    remove: (id) => toastManager.remove(id),
-    removeAll: () => toastManager.removeAll(),
+  show: options => toastManager.show(options),
+  success: (message, options) => toastManager.success(message, options),
+  error: (message, options) => toastManager.error(message, options),
+  warning: (message, options) => toastManager.warning(message, options),
+  info: (message, options) => toastManager.info(message, options),
+  remove: id => toastManager.remove(id),
+  removeAll: () => toastManager.removeAll(),
 };
 
 // 兼容旧的showToast函数
 export function showToast(message, type = 'info') {
-    return toastManager[type](message);
+  return toastManager[type](message);
 }

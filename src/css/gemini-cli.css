@@ -55,7 +55,6 @@
   background: var(--bg-secondary);
 }
 
-
 .model-matrix-table td {
   vertical-align: middle;
   height: 50px;
@@ -169,14 +168,14 @@
 
 /* Gemini OAuth Button */
 .btn-gemini {
-  background: linear-gradient(135deg, #4285f4 0%, #00BFA5 100%);
+  background: linear-gradient(135deg, #4285f4 0%, #00bfa5 100%);
   color: white;
   border: none;
   transition: all 0.3s;
 }
 
 .btn-gemini:hover {
-  background: linear-gradient(135deg, #3367d6 0%, #00897B 100%);
+  background: linear-gradient(135deg, #3367d6 0%, #00897b 100%);
   filter: brightness(1.1);
 }
 

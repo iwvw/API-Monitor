@@ -15,16 +15,16 @@ async function queryZeabur(token, query) {
       path: '/graphql',
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${token}`,
+        Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
-        'Content-Length': data.length
+        'Content-Length': data.length,
       },
-      timeout: 10000
+      timeout: 10000,
     };
 
-    const req = https.request(options, (res) => {
+    const req = https.request(options, res => {
       let body = '';
-      res.on('data', (chunk) => body += chunk);
+      res.on('data', chunk => (body += chunk));
       res.on('end', () => {
         try {
           resolve(JSON.parse(body));
@@ -118,7 +118,7 @@ async function fetchAccountData(token) {
     queryZeabur(token, userQuery),
     queryZeabur(token, projectsQuery),
     queryZeabur(token, aihubQuery),
-    queryZeabur(token, serviceCostsQuery)
+    queryZeabur(token, serviceCostsQuery),
   ]);
 
   const user = userData?.data?.me || {};
@@ -145,14 +145,14 @@ function mapZeaburRegion(region) {
   const lowerRegion = region.toLowerCase();
 
   const regionMap = {
-    'silicon': '硅谷',
-    'jakarta': '雅加达',
+    silicon: '硅谷',
+    jakarta: '雅加达',
     'hong kong': '香港',
-    'tokyo': '东京',
-    'singapore': '新加坡',
-    'frankfurt': '法兰克福',
-    'london': '伦敦',
-    'sydney': '悉尼'
+    tokyo: '东京',
+    singapore: '新加坡',
+    frankfurt: '法兰克福',
+    london: '伦敦',
+    sydney: '悉尼',
   };
 
   for (const [key, value] of Object.entries(regionMap)) {
@@ -182,7 +182,7 @@ async function fetchUsageData(token, userID, projects = []) {
       groupByEntity: 'PROJECT',
       groupByTime: 'DAY',
       groupByType: 'ALL',
-      userID: userID
+      userID: userID,
     },
     query: `query GetHeaderMonthlyUsage($from: String!, $to: String!, $groupByEntity: GroupByEntity, $groupByTime: GroupByTime, $groupByType: GroupByType, $userID: ObjectID!) {
       usages(
@@ -203,7 +203,7 @@ async function fetchUsageData(token, userID, projects = []) {
         }
         __typename
       }
-    }`
+    }`,
   };
 
   return new Promise((resolve, reject) => {
@@ -213,16 +213,16 @@ async function fetchUsageData(token, userID, projects = []) {
       path: '/graphql',
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${token}`,
+        Authorization: `Bearer ${token}`,
         'Content-Type': 'application/json',
-        'Content-Length': Buffer.byteLength(data)
+        'Content-Length': Buffer.byteLength(data),
       },
-      timeout: 10000
+      timeout: 10000,
     };
 
-    const req = https.request(options, (res) => {
+    const req = https.request(options, res => {
       let body = '';
-      res.on('data', (chunk) => body += chunk);
+      res.on('data', chunk => (body += chunk));
       res.on('end', () => {
         try {
           const result = JSON.parse(body);
@@ -241,14 +241,19 @@ async function fetchUsageData(token, userID, projects = []) {
           // 调试日志：输出原始用量数据
           if (process.env.DEBUG_ZEABUR === 'true') {
             console.log('[Zeabur Debug] Raw usages:', JSON.stringify(usages, null, 2));
-            console.log('[Zeabur Debug] totalUsage:', totalUsage, 'freeQuotaRemaining:', 5 - totalUsage);
+            console.log(
+              '[Zeabur Debug] totalUsage:',
+              totalUsage,
+              'freeQuotaRemaining:',
+              5 - totalUsage
+            );
           }
 
           resolve({
             projectCosts,
             totalUsage,
             freeQuotaRemaining: 5 - totalUsage,
-            freeQuotaLimit: 5
+            freeQuotaLimit: 5,
           });
         } catch (e) {
           reject(new Error('Invalid JSON response'));
@@ -269,5 +274,5 @@ async function fetchUsageData(token, userID, projects = []) {
 module.exports = {
   queryZeabur,
   fetchAccountData,
-  fetchUsageData
+  fetchUsageData,
 };

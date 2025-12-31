@@ -23,7 +23,7 @@ function loadSessions() {
     if (cleaned > 0) {
       logger.info(`清理了 ${cleaned} 个过期或无效会_话`);
     }
-    
+
     const sessions = Session.getActiveSessions();
     logger.info(`已从数据库加载 ${sessions.length} 个活跃会话`);
   } catch (err) {
@@ -59,7 +59,7 @@ function createSession(password) {
   Session.createSession({
     session_id: sid,
     password: password,
-    expires_at: expiresAt.toISOString()
+    expires_at: expiresAt.toISOString(),
   });
 
   logger.info(`创建新会话: ${sid.substring(0, 8)}...`);
@@ -91,7 +91,7 @@ function getSession(req) {
     sid: session.session_id,
     password: session.password,
     createdAt: session.created_at,
-    lastAccessedAt: session.last_accessed_at
+    lastAccessedAt: session.last_accessed_at,
   };
 }
 
@@ -114,7 +114,7 @@ function getSessionById(sessionId) {
     sid: session.session_id,
     password: session.password,
     createdAt: session.created_at,
-    lastAccessedAt: session.last_accessed_at
+    lastAccessedAt: session.last_accessed_at,
   };
 }
 
@@ -143,5 +143,5 @@ module.exports = {
   createSession,
   getSession,
   getSessionById,
-  destroySession
+  destroySession,
 };

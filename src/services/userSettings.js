@@ -23,20 +23,28 @@ function loadUserSettings() {
       server: true,
       'self-h': false,
       antigravity: true,
-      'gemini-cli': true
+      'gemini-cli': true,
     };
 
     const channelEnabled = settings.channel_enabled || {
       antigravity: true,
-      'gemini-cli': true
+      'gemini-cli': true,
     };
 
     const channelModelPrefix = settings.channel_model_prefix || {
       antigravity: '',
-      'gemini-cli': ''
+      'gemini-cli': '',
     };
 
-    const order = settings.module_order || ['openai', 'antigravity', 'gemini-cli', 'paas', 'dns', 'self-h', 'server'];
+    const order = settings.module_order || [
+      'openai',
+      'antigravity',
+      'gemini-cli',
+      'paas',
+      'dns',
+      'self-h',
+      'server',
+    ];
 
     // 确保 gemini-cli 和 self-h 在现有设置中
     if (!('gemini-cli' in visibility)) {
@@ -70,10 +78,11 @@ function loadUserSettings() {
       moduleOrder: order,
       load_balancing_strategy: settings.load_balancing_strategy || 'random',
       serverIpDisplayMode: settings.server_ip_display_mode || 'normal',
-      vibrationEnabled: settings.vibration_enabled !== undefined ? Boolean(settings.vibration_enabled) : true,
+      vibrationEnabled:
+        settings.vibration_enabled !== undefined ? Boolean(settings.vibration_enabled) : true,
       navLayout: settings.main_tabs_layout || 'top',
       totpSettings: settings.totp_settings || {},
-      agentDownloadUrl: settings.agent_download_url || ''
+      agentDownloadUrl: settings.agent_download_url || '',
     };
   } catch (error) {
     console.error('加载用户设置失败:', error);
@@ -90,19 +99,49 @@ function saveUserSettings(settings) {
     // 注意：必须检查 undefined，因为空字符串 "" 是有效值，不能用 || 运算符覆盖
     const dbSettings = {
       custom_css: settings.customCss !== undefined ? settings.customCss : settings.custom_css,
-      zeabur_refresh_interval: settings.zeaburRefreshInterval !== undefined ? settings.zeaburRefreshInterval : settings.zeabur_refresh_interval,
-      koyeb_refresh_interval: settings.koyebRefreshInterval !== undefined ? settings.koyebRefreshInterval : settings.koyeb_refresh_interval,
-      fly_refresh_interval: settings.flyRefreshInterval !== undefined ? settings.flyRefreshInterval : settings.fly_refresh_interval,
-      module_visibility: settings.moduleVisibility !== undefined ? settings.moduleVisibility : settings.module_visibility,
-      channel_enabled: settings.channelEnabled !== undefined ? settings.channelEnabled : settings.channel_enabled,
-      channel_model_prefix: settings.channelModelPrefix !== undefined ? settings.channelModelPrefix : settings.channel_model_prefix,
-      module_order: settings.moduleOrder !== undefined ? settings.moduleOrder : settings.module_order,
-      load_balancing_strategy: settings.load_balancing_strategy || settings.load_balancing_strategy_form,
-      server_ip_display_mode: settings.serverIpDisplayMode !== undefined ? settings.serverIpDisplayMode : settings.server_ip_display_mode,
-      vibration_enabled: settings.vibrationEnabled !== undefined ? (settings.vibrationEnabled ? 1 : 0) : settings.vibration_enabled,
+      zeabur_refresh_interval:
+        settings.zeaburRefreshInterval !== undefined
+          ? settings.zeaburRefreshInterval
+          : settings.zeabur_refresh_interval,
+      koyeb_refresh_interval:
+        settings.koyebRefreshInterval !== undefined
+          ? settings.koyebRefreshInterval
+          : settings.koyeb_refresh_interval,
+      fly_refresh_interval:
+        settings.flyRefreshInterval !== undefined
+          ? settings.flyRefreshInterval
+          : settings.fly_refresh_interval,
+      module_visibility:
+        settings.moduleVisibility !== undefined
+          ? settings.moduleVisibility
+          : settings.module_visibility,
+      channel_enabled:
+        settings.channelEnabled !== undefined ? settings.channelEnabled : settings.channel_enabled,
+      channel_model_prefix:
+        settings.channelModelPrefix !== undefined
+          ? settings.channelModelPrefix
+          : settings.channel_model_prefix,
+      module_order:
+        settings.moduleOrder !== undefined ? settings.moduleOrder : settings.module_order,
+      load_balancing_strategy:
+        settings.load_balancing_strategy || settings.load_balancing_strategy_form,
+      server_ip_display_mode:
+        settings.serverIpDisplayMode !== undefined
+          ? settings.serverIpDisplayMode
+          : settings.server_ip_display_mode,
+      vibration_enabled:
+        settings.vibrationEnabled !== undefined
+          ? settings.vibrationEnabled
+            ? 1
+            : 0
+          : settings.vibration_enabled,
       main_tabs_layout: settings.navLayout || settings.mainTabsLayout || settings.main_tabs_layout,
-      totp_settings: settings.totpSettings !== undefined ? settings.totpSettings : settings.totp_settings,
-      agent_download_url: settings.agentDownloadUrl !== undefined ? settings.agentDownloadUrl : settings.agent_download_url
+      totp_settings:
+        settings.totpSettings !== undefined ? settings.totpSettings : settings.totp_settings,
+      agent_download_url:
+        settings.agentDownloadUrl !== undefined
+          ? settings.agentDownloadUrl
+          : settings.agent_download_url,
     };
 
     // 直接交给 Model 层处理，Model 层会自动处理 JSON 序列化和数据库列更新
@@ -128,15 +167,15 @@ function getDefaultSettings() {
       server: true,
       'self-h': false,
       antigravity: true,
-      'gemini-cli': true
+      'gemini-cli': true,
     },
     channelEnabled: {
       antigravity: true,
-      'gemini-cli': true
+      'gemini-cli': true,
     },
     channelModelPrefix: {
       antigravity: '',
-      'gemini-cli': ''
+      'gemini-cli': '',
     },
     moduleOrder: ['openai', 'antigravity', 'gemini-cli', 'paas', 'dns', 'self-h', 'server'],
     load_balancing_strategy: 'random',
@@ -151,8 +190,8 @@ function getDefaultSettings() {
       maskAccount: false,
       autoSave: true,
       lockInputMode: false,
-      defaultInputMode: 'code'
-    }
+      defaultInputMode: 'code',
+    },
   };
 }
 
@@ -163,7 +202,7 @@ function updateUserSettings(partialSettings) {
   const currentSettings = loadUserSettings();
   const updatedSettings = {
     ...currentSettings,
-    ...partialSettings
+    ...partialSettings,
   };
   return saveUserSettings(updatedSettings);
 }
@@ -172,5 +211,5 @@ module.exports = {
   loadUserSettings,
   saveUserSettings,
   updateUserSettings,
-  getDefaultSettings
+  getDefaultSettings,
 };

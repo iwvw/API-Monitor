@@ -32,7 +32,7 @@ const {
   loadAdminPassword,
   isPasswordSavedToFile,
   loadServerAccounts,
-  getEnvAccounts
+  getEnvAccounts,
 } = require('./src/services/config');
 
 // 导入路由
@@ -67,29 +67,31 @@ server.on('upgrade', (request, socket, head) => {
 
   // Socket.IO 或 Vite HMR 自动处理其命名空间的升级请求，这里直接跳过
   // 增加对 /metrics 和 /agent 的放行，因为它们可能是 Socket.IO 的入口路径
-  if (pathname.startsWith('/socket.io') ||
+  if (
+    pathname.startsWith('/socket.io') ||
     pathname.includes('socket.io') ||
     pathname === '/' ||
     pathname === '/metrics' ||
-    pathname === '/agent') {
+    pathname === '/agent'
+  ) {
     return;
   }
 
   logger.info(`[WS Upgrade] 路径: ${pathname} (来自 ${socket.remoteAddress})`);
 
   if (pathname === '/ws/logs') {
-    logWss.handleUpgrade(request, socket, head, (ws) => {
-      logger.info(`[WS Upgrade] 日志 握手完成`);
+    logWss.handleUpgrade(request, socket, head, ws => {
+      logger.info('[WS Upgrade] 日志 握手完成');
       logWss.emit('connection', ws, request);
     });
   } else if (pathname === '/ws/metrics') {
-    metricsWss.handleUpgrade(request, socket, head, (ws) => {
-      logger.info(`[WS Upgrade] Metrics 握手完成`);
+    metricsWss.handleUpgrade(request, socket, head, ws => {
+      logger.info('[WS Upgrade] Metrics 握手完成');
       metricsWss.emit('connection', ws, request);
     });
   } else if (pathname === '/ws/ssh') {
-    sshWss.handleUpgrade(request, socket, head, (ws) => {
-      logger.info(`[WS Upgrade] SSH 握手完成`);
+    sshWss.handleUpgrade(request, socket, head, ws => {
+      logger.info('[WS Upgrade] SSH 握手完成');
       sshWss.emit('connection', ws, request);
     });
   } else {
@@ -105,7 +107,8 @@ server.on('upgrade', (request, socket, head) => {
 try {
   const { SystemConfig } = require('./src/db/models');
   const { updateLogConfig } = require('./src/utils/logger');
-  const savedLogFileSizeMB = parseInt(SystemConfig.getConfigValue('log_file_max_size_mb', 10)) || 10;
+  const savedLogFileSizeMB =
+    parseInt(SystemConfig.getConfigValue('log_file_max_size_mb', 10)) || 10;
   updateLogConfig({ maxFileSizeMB: savedLogFileSizeMB });
   logger.info(`日志文件配置已加载: 最大 ${savedLogFileSizeMB} MB`);
 } catch (err) {
@@ -128,11 +131,13 @@ app.use(express.static('src'));
 
 // 文件上传中间件
 const fileUpload = require('express-fileupload');
-app.use(fileUpload({
-  limits: { fileSize: 100 * 1024 * 1024 }, // 100MB 限制
-  abortOnLimit: true,
-  createParentPath: true
-}));
+app.use(
+  fileUpload({
+    limits: { fileSize: 100 * 1024 * 1024 }, // 100MB 限制
+    abortOnLimit: true,
+    createParentPath: true,
+  })
+);
 
 // Agent 二进制文件静态服务
 // 开发模式: public/agent, 生产模式: dist/agent
@@ -150,7 +155,16 @@ registerRoutes(app);
 // ==================== SPA Fallback 路由 ====================
 // 处理前端路由，返回 index.html 让前端路由器处理
 // 路径直接使用 mainActiveTab 值
-const spaRoutes = ['/openai', '/antigravity', '/gemini-cli', '/paas', '/dns', '/self-h', '/server', '/totp'];
+const spaRoutes = [
+  '/openai',
+  '/antigravity',
+  '/gemini-cli',
+  '/paas',
+  '/dns',
+  '/self-h',
+  '/server',
+  '/totp',
+];
 spaRoutes.forEach(route => {
   app.get(route, (req, res) => {
     const indexPath = fs.existsSync(path.join(__dirname, 'dist', 'index.html'))
@@ -164,7 +178,14 @@ spaRoutes.forEach(route => {
 // 确保即使某些路径遗漏也能正确返回 index.html
 app.get('*', (req, res, next) => {
   // 跳过 API 和特殊路径
-  if (req.path.startsWith('/api') || req.path.startsWith('/v1') || req.path.startsWith('/ws') || req.path.startsWith('/health') || req.path.startsWith('/socket.io') || req.path.startsWith('/agent')) {
+  if (
+    req.path.startsWith('/api') ||
+    req.path.startsWith('/v1') ||
+    req.path.startsWith('/ws') ||
+    req.path.startsWith('/health') ||
+    req.path.startsWith('/socket.io') ||
+    req.path.startsWith('/agent')
+  ) {
     return next();
   }
 
@@ -205,7 +226,6 @@ app.get('/logo.svg', (req, res) => {
   }
   return res.sendStatus(404);
 });
-
 
 // 加载持久化 session
 loadSessions();
@@ -252,7 +272,9 @@ server.listen(PORT, '0.0.0.0', () => {
 
       // Cloudflare DNS 模块
       if (cfAccounts > 0 || cfZones > 0 || cfRecords > 0 || cfTemplates > 0) {
-        logger.groupItem(`Cloudflare DNS: ${cfAccounts} 个账号, ${cfZones} 个域名, ${cfRecords} 条记录, ${cfTemplates} 个模板`);
+        logger.groupItem(
+          `Cloudflare DNS: ${cfAccounts} 个账号, ${cfZones} 个域名, ${cfRecords} 条记录, ${cfTemplates} 个模板`
+        );
       }
 
       // OpenAI 模块
@@ -290,8 +312,6 @@ server.listen(PORT, '0.0.0.0', () => {
   } catch (error) {
     logger.warn('主机监控服务启动失败:', error.message);
   }
-
-
 
   // 启动自动日志清理任务 (每 12 小时执行一次)
   const AUTO_CLEANUP_INTERVAL = 12 * 60 * 60 * 1000;

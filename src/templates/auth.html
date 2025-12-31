@@ -19,13 +19,25 @@
     <div class="auth-body">
       <div class="auth-input-group">
         <i class="fas fa-key input-icon"></i>
-        <input v-model="setPassword" type="password" class="auth-input" placeholder="设置新密码 (6位以上)"
-          autocomplete="new-password" @keyup.enter="setAdminPassword" />
+        <input
+          v-model="setPassword"
+          type="password"
+          class="auth-input"
+          placeholder="设置新密码 (6位以上)"
+          autocomplete="new-password"
+          @keyup.enter="setAdminPassword"
+        />
       </div>
       <div class="auth-input-group">
         <i class="fas fa-check-double input-icon"></i>
-        <input v-model="setPasswordConfirm" type="password" class="auth-input" placeholder="再次确认密码"
-          autocomplete="new-password" @keyup.enter="setAdminPassword" />
+        <input
+          v-model="setPasswordConfirm"
+          type="password"
+          class="auth-input"
+          placeholder="再次确认密码"
+          autocomplete="new-password"
+          @keyup.enter="setAdminPassword"
+        />
       </div>
       <div v-if="setPasswordError" class="auth-error-msg">
         <i class="fas fa-info-circle"></i> {{ setPasswordError }}
@@ -53,8 +65,15 @@
     <div class="auth-body">
       <div v-if="!isDemoMode" class="auth-input-group">
         <i class="fas fa-lock input-icon"></i>
-        <input v-model="loginPassword" type="password" class="auth-input" placeholder="请输入管理员密码"
-          autocomplete="current-password" autofocus @keyup.enter="verifyPassword" />
+        <input
+          v-model="loginPassword"
+          type="password"
+          class="auth-input"
+          placeholder="请输入管理员密码"
+          autocomplete="current-password"
+          autofocus
+          @keyup.enter="verifyPassword"
+        />
       </div>
       <div v-if="loginError" class="auth-error-msg">
         <i class="fas fa-exclamation-triangle"></i> {{ loginError }}

@@ -9,14 +9,16 @@
   overflow: visible;
 }
 
-
 .project-card {
   box-shadow: var(--card-shadow);
   background-color: var(--card-bg);
   border-radius: 10px;
   padding: 8px;
   border: 1px solid var(--border-color);
-  transition: transform 0.3s, box-shadow 0.3s, z-index 0s;
+  transition:
+    transform 0.3s,
+    box-shadow 0.3s,
+    z-index 0s;
   height: 100%;
   display: flex;
   flex-direction: column;
@@ -220,12 +222,20 @@
 
 /* Mini Card Variants */
 .region-card {
-  background: linear-gradient(135deg, rgba(var(--zeabur-secondary-rgb), 0.1), rgba(var(--zeabur-secondary-rgb), 0.05));
+  background: linear-gradient(
+    135deg,
+    rgba(var(--zeabur-secondary-rgb), 0.1),
+    rgba(var(--zeabur-secondary-rgb), 0.05)
+  );
   border-color: rgba(var(--zeabur-secondary-rgb), 0.25);
 }
 
 .region-card:hover {
-  background: linear-gradient(135deg, rgba(var(--zeabur-secondary-rgb), 0.15), rgba(var(--zeabur-secondary-rgb), 0.1));
+  background: linear-gradient(
+    135deg,
+    rgba(var(--zeabur-secondary-rgb), 0.15),
+    rgba(var(--zeabur-secondary-rgb), 0.1)
+  );
   border-color: var(--zeabur-primary);
 }
 
@@ -711,29 +721,20 @@
 /* Zeabur 子标签页 */
 
 .zeabur-sec-tab .tab-btn.active {
-
   background: var(--zeabur-primary) !important;
-
 }
-
-
 
 /* --- Compact Statistics Styling --- */
 
 .stats-compact {
-
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)) !important;
 
   gap: 12px !important;
 
   margin-bottom: 16px !important;
-
 }
 
-
-
 .stats-compact .stat-card {
-
   padding: 10px 14px !important;
 
   justify-content: flex-start !important;
@@ -745,13 +746,9 @@
   border: 1px solid var(--border-color) !important;
 
   background: var(--card-bg) !important;
-
 }
 
-
-
 .stats-compact .stat-icon-wrapper {
-
   width: 36px;
 
   height: 36px;
@@ -771,10 +768,7 @@
   color: var(--zeabur-primary);
 
   flex-shrink: 0;
-
 }
-
-
 
 .stats-compact .stat-card:nth-child(2) .stat-icon-wrapper {
   background: rgba(139, 92, 246, 0.1);
@@ -796,22 +790,15 @@
   color: #f97316;
 }
 
-
-
 .stats-compact .stat-content {
-
   display: flex;
 
   flex-direction: column;
 
   gap: 2px;
-
 }
 
-
-
 .stats-compact .stat-value {
-
   font-size: 16px !important;
 
   font-weight: 700 !important;
@@ -819,13 +806,9 @@
   color: var(--text-primary) !important;
 
   line-height: 1.2;
-
 }
 
-
-
 .stats-compact .stat-label {
-
   font-size: 11px !important;
 
   color: var(--text-tertiary) !important;
@@ -835,7 +818,6 @@
   text-transform: uppercase;
 
   letter-spacing: 0.5px;
-
 }
 
 /* ====== PaaS 模块样式 ====== */

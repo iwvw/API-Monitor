@@ -6,100 +6,100 @@
    - 确保在大屏下不会贴边
 */
 .dashboard-content {
-    padding: 0px;
-    /* 统一四周内边距 */
-    width: 100%;
-    margin: 0 auto;
-    font-family: var(--font-main, 'Inter', system-ui, sans-serif);
-    color: var(--text-primary);
-    box-sizing: border-box;
-    user-select: none;
-    -webkit-user-select: none;
+  padding: 0px;
+  /* 统一四周内边距 */
+  width: 100%;
+  margin: 0 auto;
+  font-family: var(--font-main, 'Inter', system-ui, sans-serif);
+  color: var(--text-primary);
+  box-sizing: border-box;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 /* =========================================
    Header Section
    ========================================= */
 .dashboard-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-end;
-    margin-bottom: 24px;
-    /* 与 Grid Gap 保持一致 */
-    padding-bottom: 4px;
-    /* 微调视觉重心 */
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  margin-bottom: 24px;
+  /* 与 Grid Gap 保持一致 */
+  padding-bottom: 4px;
+  /* 微调视觉重心 */
 }
 
 .header-left {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    /* 标题与副标题间距 */
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  /* 标题与副标题间距 */
 }
 
 .dashboard-header h1 {
-    font-size: 26px;
-    font-weight: 800;
-    margin: 0;
-    line-height: 1.2;
-    letter-spacing: -0.5px;
-    background: linear-gradient(135deg, var(--text-primary) 30%, var(--primary-color) 100%);
-    background-clip: text;
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
+  font-size: 26px;
+  font-weight: 800;
+  margin: 0;
+  line-height: 1.2;
+  letter-spacing: -0.5px;
+  background: linear-gradient(135deg, var(--text-primary) 30%, var(--primary-color) 100%);
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 
 .dashboard-header .subtitle {
-    color: var(--text-secondary);
-    font-size: 13px;
-    font-weight: 500;
-    margin-top: 4px;
-    /* Ensure spacing */
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  margin-top: 4px;
+  /* Ensure spacing */
 }
 
 .header-right {
-    display: flex;
-    align-items: center;
-    gap: 12px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 .last-update {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 0 16px;
-    background: var(--bg-secondary);
-    border-radius: 20px;
-    /* 圆角增加 */
-    font-size: 12px;
-    color: var(--text-tertiary);
-    font-family: var(--font-mono);
-    border: 1px solid var(--border-color);
-    height: 38px;
-    /* 增加高度 */
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 16px;
+  background: var(--bg-secondary);
+  border-radius: 20px;
+  /* 圆角增加 */
+  font-size: 12px;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  border: 1px solid var(--border-color);
+  height: 38px;
+  /* 增加高度 */
 }
 
 .btn-refresh-all {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    height: 38px;
-    padding: 0 24px;
-    border-radius: 20px;
-    font-size: 13px;
-    font-weight: 600;
-    cursor: pointer;
-    border: 1px solid transparent;
-    background: var(--primary-color);
-    color: #fff;
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-    box-shadow: 0 4px 10px rgba(var(--primary-rgb), 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 38px;
+  padding: 0 24px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid transparent;
+  background: var(--primary-color);
+  color: #fff;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 4px 10px rgba(var(--primary-rgb), 0.2);
 }
 
 .btn-refresh-all:hover:not(:disabled) {
-    /* transform: translateY(-2px); */
-    box-shadow: 0 6px 16px rgba(var(--primary-rgb), 0.3);
+  /* transform: translateY(-2px); */
+  box-shadow: 0 6px 16px rgba(var(--primary-rgb), 0.3);
 }
 
 /* =========================================
@@ -107,33 +107,33 @@
    严格统一的间距系统
    ========================================= */
 :root {
-    --dashboard-grid-gap: 24px;
-    /* 全局网格间距变量 */
-    --card-padding: 24px;
-    /* 全局卡片内边距变量 */
-    --card-radius: 16px;
-    /* 全局卡片圆角 */
+  --dashboard-grid-gap: 24px;
+  /* 全局网格间距变量 */
+  --card-padding: 24px;
+  /* 全局卡片内边距变量 */
+  --card-radius: 16px;
+  /* 全局卡片圆角 */
 }
 
 .stats-overview-grid {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: var(--dashboard-grid-gap);
-    margin-bottom: var(--dashboard-grid-gap);
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--dashboard-grid-gap);
+  margin-bottom: var(--dashboard-grid-gap);
 }
 
 .dashboard-main-layout {
-    display: grid;
-    grid-template-columns: 2fr 1fr;
-    /* 2:1 比例 */
-    gap: var(--dashboard-grid-gap);
-    align-items: start;
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  /* 2:1 比例 */
+  gap: var(--dashboard-grid-gap);
+  align-items: start;
 }
 
 .content-column {
-    display: flex;
-    flex-direction: column;
-    gap: var(--dashboard-grid-gap);
+  display: flex;
+  flex-direction: column;
+  gap: var(--dashboard-grid-gap);
 }
 
 /* =========================================
@@ -142,1122 +142,1134 @@
 .overview-card,
 .detail-card,
 .music-widget-wrapper {
-    background: var(--card-bg);
-    border-radius: 20px;
-    padding: var(--card-padding);
-    border: 1px solid var(--border-color);
-    box-shadow: var(--card-shadow);
-    transition: all 0.3s ease;
-    position: relative;
-    overflow: hidden;
-    box-sizing: border-box;
-    /* 确保 padding 不撑大尺寸 */
+  background: var(--card-bg);
+  border-radius: 20px;
+  padding: var(--card-padding);
+  border: 1px solid var(--border-color);
+  box-shadow: var(--card-shadow);
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+  box-sizing: border-box;
+  /* 确保 padding 不撑大尺寸 */
 }
 
 /* Overview Card Special */
 .overview-card {
-    /* height: 160px; */
-    /* 稍微增高以容纳 padding */
-    display: flex;
-    flex-direction: column;
-    justify-content: space-between;
-    cursor: pointer;
+  /* height: 160px; */
+  /* 稍微增高以容纳 padding */
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  cursor: pointer;
 }
 
 .overview-card:hover {
-    /* transform: translateY(-4px); */
-    border-color: var(--primary-color);
-    box-shadow: var(--card-hover-shadow);
+  /* transform: translateY(-4px); */
+  border-color: var(--primary-color);
+  box-shadow: var(--card-hover-shadow);
 }
 
 /* Card Elements */
 .card-top {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    /* 顶部对齐 */
-    position: relative;
-    z-index: 1;
-    margin-bottom: 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  /* 顶部对齐 */
+  position: relative;
+  z-index: 1;
+  margin-bottom: 12px;
 }
 
 .icon-box {
-    width: 42px;
-    height: 42px;
-    border-radius: 12px;
-    background: var(--bg-secondary);
-    color: var(--text-secondary);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 18px;
-    border: 1px solid rgba(0, 0, 0, 0.03);
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  border: 1px solid rgba(0, 0, 0, 0.03);
 }
 
 /* Theme Colors */
 .server-card .icon-box,
 .server-card-0 .icon-box {
-    background: rgba(59, 130, 246, 0.1);
-    color: #3b82f6;
+  background: rgba(59, 130, 246, 0.1);
+  color: #3b82f6;
 }
 
 .api-card .icon-box {
-    background: rgba(244, 63, 94, 0.1);
-    color: #f43f5e;
+  background: rgba(244, 63, 94, 0.1);
+  color: #f43f5e;
 }
 
 .paas-card .icon-box {
-    background: rgba(139, 92, 246, 0.1);
-    color: #8b5cf6;
+  background: rgba(139, 92, 246, 0.1);
+  color: #8b5cf6;
 }
 
 .dns-card .icon-box {
-    background: rgba(245, 158, 11, 0.1);
-    color: #f59e0b;
+  background: rgba(245, 158, 11, 0.1);
+  color: #f59e0b;
 }
 
 .trend-badge {
-    padding: 4px 10px;
-    border-radius: 20px;
-    font-weight: 700;
-    font-size: 11px;
-    line-height: 1;
-    height: 22px;
-    /* 固定高度 */
-    display: inline-flex;
-    align-items: center;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-weight: 700;
+  font-size: 11px;
+  line-height: 1;
+  height: 22px;
+  /* 固定高度 */
+  display: inline-flex;
+  align-items: center;
 }
 
 .trend-badge.positive {
-    background: rgba(16, 185, 129, 0.1);
-    color: #10b981;
+  background: rgba(16, 185, 129, 0.1);
+  color: #10b981;
 }
 
 .trend-badge.negative {
-    background: rgba(239, 68, 68, 0.1);
-    color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
 }
 
 .trend-badge.neutral {
-    background: rgba(107, 114, 128, 0.1);
-    color: var(--text-secondary);
+  background: rgba(107, 114, 128, 0.1);
+  color: var(--text-secondary);
 }
 
 .card-main-content {
-    position: relative;
-    z-index: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .card-label {
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--text-tertiary);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 .card-value {
-    font-size: 26px;
-    font-weight: 800;
-    color: var(--text-primary);
-    line-height: 1;
-    font-family: var(--font-mono);
-    letter-spacing: -0.5px;
-    display: flex;
-    align-items: baseline;
-    gap: 6px;
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--text-primary);
+  line-height: 1;
+  font-family: var(--font-mono);
+  letter-spacing: -0.5px;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
 }
 
 .card-unit {
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--text-tertiary);
-    transform: translateY(-2px);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  transform: translateY(-2px);
 }
 
 .card-footer {
-    position: relative;
-    z-index: 1;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    font-size: 12px;
-    color: var(--text-tertiary);
-    padding-top: 14px;
-    margin-top: auto;
-    /* 推到底部 */
-    border-top: 1px solid rgba(0, 0, 0, 0.04);
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  padding-top: 14px;
+  margin-top: auto;
+  /* 推到底部 */
+  border-top: 1px solid rgba(0, 0, 0, 0.04);
 }
 
 .status-dot-text {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
 }
 
 .status-dot-text::before {
-    content: '';
-    display: block;
-    width: 6px;
-    height: 6px;
-    border-radius: 50%;
-    background: currentColor;
+  content: '';
+  display: block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
 }
 
 .status-text-success {
-    color: var(--success-color);
+  color: var(--success-color);
 }
 
 .status-text-warning {
-    color: var(--warning-color);
+  color: var(--warning-color);
 }
 
 .status-text-danger {
-    color: var(--danger-color);
+  color: var(--danger-color);
 }
 
 .status-text-neutral {
-    color: var(--text-tertiary);
+  color: var(--text-tertiary);
 }
 
 .card-icon-large {
-    position: absolute;
-    right: -20px;
-    bottom: -20px;
-    font-size: 140px;
-    opacity: 0.06;
-    color: var(--text-primary);
-    pointer-events: none;
-    z-index: 0;
-    transform: rotate(-10deg);
-    transition: all 0.5s ease;
+  position: absolute;
+  right: -20px;
+  bottom: -20px;
+  font-size: 140px;
+  opacity: 0.06;
+  color: var(--text-primary);
+  pointer-events: none;
+  z-index: 0;
+  transform: rotate(-10deg);
+  transition: all 0.5s ease;
 }
 
 .overview-card:hover .card-icon-large {
-    opacity: 0.12;
-    transform: scale(1.1) rotate(-5deg);
+  opacity: 0.12;
+  transform: scale(1.1) rotate(-5deg);
 }
 
 /* Card Specific Background Icon Colors */
 .server-card-0 .card-icon-large {
-    color: #3b82f6;
+  color: #3b82f6;
 }
 
 .api-card .card-icon-large {
-    color: #f43f5e;
+  color: #f43f5e;
 }
 
 .paas-card .card-icon-large {
-    color: #8b5cf6;
+  color: #8b5cf6;
 }
 
 .dns-card .card-icon-large {
-    color: #f59e0b;
+  color: #f59e0b;
 }
 
 /* =========================================
    Detail Card Specifics
    ========================================= */
 .detail-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 20px;
-    padding-bottom: 16px;
-    border-bottom: 1px solid var(--border-color);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--border-color);
 }
 
 .detail-header h3 {
-    margin: 0;
-    font-size: 16px;
-    font-weight: 700;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    color: var(--text-primary);
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--text-primary);
 }
 
 .detail-header h3 i {
-    color: var(--primary-color);
-    font-size: 18px;
-    opacity: 0.9;
+  color: var(--primary-color);
+  font-size: 18px;
+  opacity: 0.9;
 }
 
 /* Music Widget override */
 .music-widget-wrapper {
-    padding: 0;
-    height: 220px;
-    overflow: hidden;
-    border: 1px solid var(--border-color);
-    box-shadow: var(--card-shadow);
-    cursor: default;
-    /* 移除容器指针 */
+  padding: 0;
+  height: 220px;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  box-shadow: var(--card-shadow);
+  cursor: default;
+  /* 移除容器指针 */
 }
 
 .music-bg-blur {
-    display: none;
+  display: none;
 }
 
 .music-content-layer {
-    padding: var(--card-padding);
-    padding-left: 30px;
-    height: 100%;
-    box-sizing: border-box;
-    display: flex;
-    align-items: center;
-    gap: 24px;
-    position: relative;
-    z-index: 1;
-    background: transparent;
+  padding: var(--card-padding);
+  padding-left: 30px;
+  height: 100%;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  position: relative;
+  z-index: 1;
+  background: transparent;
 }
 
 .music-cover-large {
-    width: 160px;
-    height: 160px;
-    border-radius: 12px;
-    object-fit: cover;
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
-    cursor: pointer;
-    transition: transform 0.3s ease, box-shadow 0.3s ease;
+  width: 160px;
+  height: 160px;
+  border-radius: 12px;
+  object-fit: cover;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+  cursor: pointer;
+  transition:
+    transform 0.3s ease,
+    box-shadow 0.3s ease;
 }
 
 .music-cover-large:hover {
-    transform: scale(1.05);
-    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+  transform: scale(1.05);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
 }
 
 .music-info-col {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    gap: 8px;
-    color: var(--text-primary);
-    min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 8px;
+  color: var(--text-primary);
+  min-width: 0;
 }
 
 .music-title {
-    font-size: 22px;
-    font-weight: 800;
-    letter-spacing: -0.5px;
-    text-shadow: none;
-    cursor: pointer;
-    width: fit-content;
-    transition: color 0.2s ease;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+  text-shadow: none;
+  cursor: pointer;
+  width: fit-content;
+  transition: color 0.2s ease;
 }
 
 .music-title:hover {
-    color: var(--primary-color);
+  color: var(--primary-color);
 }
 
 .music-artist {
-    font-size: 14px;
-    color: var(--text-secondary);
-    margin-bottom: 20px;
-    font-weight: 500;
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin-bottom: 20px;
+  font-weight: 500;
 }
 
 .music-controls {
-    display: flex;
-    align-items: center;
-    gap: 20px;
+  display: flex;
+  align-items: center;
+  gap: 20px;
 }
 
 .btn-control-circle {
-    width: 42px;
-    height: 42px;
-    border-radius: 50%;
-    border: 1px solid var(--border-color);
-    background: var(--bg-tertiary);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--text-primary);
-    cursor: pointer;
-    transition: transform 0.2s;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  border: 1px solid var(--border-color);
+  background: var(--bg-tertiary);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-primary);
+  cursor: pointer;
+  transition: transform 0.2s;
 }
 
 .btn-control-circle:hover {
-    background: var(--bg-secondary);
-    transform: scale(1.1);
+  background: var(--bg-secondary);
+  transform: scale(1.1);
 }
 
 .btn-control-circle.play {
-    width: 58px;
-    height: 58px;
-    background: var(--text-primary);
-    color: var(--bg-primary);
-    font-size: 22px;
-    border: none;
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+  width: 58px;
+  height: 58px;
+  background: var(--text-primary);
+  color: var(--bg-primary);
+  font-size: 22px;
+  border: none;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
 }
 
 /* 播放状态时，控制按钮和状态容器渐隐，避免与歌词重叠 */
 .music-widget-wrapper .music-controls,
 .music-widget-wrapper .music-status-container {
-    transition: opacity 0.5s ease, transform 0.3s ease;
+  transition:
+    opacity 0.5s ease,
+    transform 0.3s ease;
 }
 
 /* 当播放按钮显示暂停图标时（fa-pause），表示正在播放，触发渐隐 */
 .music-widget-wrapper:has(.btn-control-circle.play .fa-pause) .music-controls,
 .music-widget-wrapper:has(.btn-control-circle.play .fa-pause) .music-status-container {
-    opacity: 0;
-    pointer-events: none;
-    transform: translateY(-5px);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-5px);
 }
 
 /* 鼠标悬停在卡片上时，恢复显示控制按钮和状态 */
 .music-widget-wrapper:hover .music-controls,
 .music-widget-wrapper:hover .music-status-container {
-    opacity: 1 !important;
-    pointer-events: auto !important;
-    transform: translateY(0) !important;
+  opacity: 1 !important;
+  pointer-events: auto !important;
+  transform: translateY(0) !important;
 }
 
 .music-status-badge {
-    position: absolute;
-    top: 24px;
-    right: 24px;
-    padding: 6px 12px;
-    background: rgba(var(--primary-rgb), 0.15);
-    backdrop-filter: blur(8px);
-    border: 1px solid rgba(var(--primary-rgb), 0.3);
-    border-radius: 8px;
-    color: var(--primary-color);
-    font-size: 11px;
-    font-weight: 700;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    z-index: 2;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
+  position: absolute;
+  top: 24px;
+  right: 24px;
+  padding: 6px 12px;
+  background: rgba(var(--primary-rgb), 0.15);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(var(--primary-rgb), 0.3);
+  border-radius: 8px;
+  color: var(--primary-color);
+  font-size: 11px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  z-index: 2;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 /* Mini Lyrics Styling */
 .music-mini-lyric {
-    position: absolute;
-    bottom: 30px;
-    right: 24px;
-    text-align: right;
-    display: flex;
-    flex-direction: column;
-    max-width: 70%;
-    height: 100px;
-    pointer-events: none;
-    z-index: 2;
-    overflow: hidden;
-    /* 调整遮罩比例，确保中间清晰区域更靠下，不遮挡顶部徽章 */
-    -webkit-mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%);
-    mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%);
+  position: absolute;
+  bottom: 30px;
+  right: 24px;
+  text-align: right;
+  display: flex;
+  flex-direction: column;
+  max-width: 70%;
+  height: 100px;
+  pointer-events: none;
+  z-index: 2;
+  overflow: hidden;
+  /* 调整遮罩比例，确保中间清晰区域更靠下，不遮挡顶部徽章 */
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    transparent 0%,
+    black 15%,
+    black 85%,
+    transparent 100%
+  );
+  mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%);
 }
 
 .lyric-content {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    justify-content: center;
-    position: relative;
-    width: 100%;
-    height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  justify-content: center;
+  position: relative;
+  width: 100%;
+  height: 100%;
 }
 
 .lyric-row {
-    display: flex;
-    flex-direction: column;
-    align-items: flex-end;
-    width: 100%;
-    height: 56px;
-    /* 进一步增加高度，确保文字和翻译都能完全放下 */
-    justify-content: center;
-    transition: all 0.8s cubic-bezier(0.2, 0, 0, 1);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  width: 100%;
+  height: 56px;
+  /* 进一步增加高度，确保文字和翻译都能完全放下 */
+  justify-content: center;
+  transition: all 0.8s cubic-bezier(0.2, 0, 0, 1);
 }
 
 .lyric-row.next {
-    opacity: 0.2;
-    filter: blur(0.8px);
-    /* 仿 AMLL 景深效果 */
+  opacity: 0.2;
+  filter: blur(0.8px);
+  /* 仿 AMLL 景深效果 */
 }
 
 .lyric-line-main {
-    font-size: 22px;
-    font-weight: 800;
-    line-height: 1.4;
-    /* 增加行间距 */
-    padding: 2px 0;
-    /* 给背景裁剪留出垂直余量 */
-    white-space: nowrap;
-    overflow: visible;
-    /* 防止边缘截断 */
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1.4;
+  /* 增加行间距 */
+  padding: 2px 0;
+  /* 给背景裁剪留出垂直余量 */
+  white-space: nowrap;
+  overflow: visible;
+  /* 防止边缘截断 */
 
-    /* Karaoke Effect: Base + Fill */
-    color: transparent;
-    background: linear-gradient(to right,
-            var(--primary-color) 0%,
-            var(--primary-color) var(--progress, 0%),
-            rgba(180, 180, 180, 0.85) var(--progress, 0%),
-            rgba(180, 180, 180, 0.85) 100%);
-    -webkit-background-clip: text;
-    background-clip: text;
+  /* Karaoke Effect: Base + Fill */
+  color: transparent;
+  background: linear-gradient(
+    to right,
+    var(--primary-color) 0%,
+    var(--primary-color) var(--progress, 0%),
+    rgba(180, 180, 180, 0.85) var(--progress, 0%),
+    rgba(180, 180, 180, 0.85) 100%
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
 
-    text-shadow: none;
-    transition: none;
+  text-shadow: none;
+  transition: none;
 }
 
 .lyric-line-main.next {
-    font-size: 16px;
-    font-weight: 600;
-    color: var(--text-secondary);
-    background: none;
-    -webkit-background-clip: initial;
-    background-clip: initial;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: none;
+  -webkit-background-clip: initial;
+  background-clip: initial;
 }
 
 .lyric-line-sub {
-    font-size: 15px;
-    color: var(--text-secondary);
-    font-weight: bold;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    text-shadow: none;
-    opacity: 0.5;
+  font-size: 15px;
+  color: var(--text-secondary);
+  font-weight: bold;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-shadow: none;
+  opacity: 0.5;
 }
 
 .lyric-line-sub.next {
-    display: none;
+  display: none;
 }
 
 /* Roll Animation (AMLL Style) */
 .lyric-roll-enter-active,
 .lyric-roll-leave-active {
-    transition: all 0.8s cubic-bezier(0.2, 0, 0, 1);
+  transition: all 0.8s cubic-bezier(0.2, 0, 0, 1);
 }
 
 .lyric-roll-move {
-    transition: transform 0.8s cubic-bezier(0.2, 0, 0, 1);
+  transition: transform 0.8s cubic-bezier(0.2, 0, 0, 1);
 }
 
 .lyric-roll-enter-from {
-    opacity: 0;
-    transform: translateY(40px);
+  opacity: 0;
+  transform: translateY(40px);
 }
 
 .lyric-roll-leave-to {
-    opacity: 0;
-    transform: translateY(-40px);
+  opacity: 0;
+  transform: translateY(-40px);
 }
 
 .lyric-roll-leave-active {
-    position: absolute !important;
-    right: 0;
-    top: 50%;
-    transform: translateY(-50%) translateY(-30px);
-    /* 减小偏移量，匹配新的高度 */
+  position: absolute !important;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%) translateY(-30px);
+  /* 减小偏移量，匹配新的高度 */
 }
-
-
 
 /* API Stats Row */
 .api-stats-row {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 20px;
-    /* 内部间距略小于外部 */
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  /* 内部间距略小于外部 */
 }
 
 .api-stat-group {
-    background: var(--bg-secondary);
-    border-radius: 12px;
-    padding: 20px;
-    border: 1px solid var(--border-color);
-    cursor: pointer;
-    transition: all 0.2s ease;
+  background: var(--bg-secondary);
+  border-radius: 12px;
+  padding: 20px;
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: all 0.2s ease;
 }
 
 .api-stat-group:hover {
-    background: var(--bg-tertiary);
-    border-color: var(--primary-color);
-    /* transform: translateY(-2px); */
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+  background: var(--bg-tertiary);
+  border-color: var(--primary-color);
+  /* transform: translateY(-2px); */
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
 }
 
 .api-stat-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
 }
 
 .api-name {
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
 }
 
 .api-detail-val {
-    font-size: 20px;
-    font-weight: 800;
-    font-family: var(--font-mono);
+  font-size: 20px;
+  font-weight: 800;
+  font-family: var(--font-mono);
 }
 
 .api-progress-track {
-    height: 8px;
-    /* 稍粗 */
-    background: var(--bg-tertiary);
-    border-radius: 4px;
-    margin-top: 16px;
-    overflow: hidden;
+  height: 8px;
+  /* 稍粗 */
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+  margin-top: 16px;
+  overflow: hidden;
 }
 
 .api-progress-bar {
-    height: 100%;
-    border-radius: 4px;
-    transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 /* PaaS List - Strict vertical metrics */
 .paas-list {
-    display: flex;
-    flex-direction: column;
-    gap: 17px;
+  display: flex;
+  flex-direction: column;
+  gap: 17px;
 }
 
 .paas-item {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 10px;
-    background: var(--bg-secondary);
-    border-radius: 12px;
-    border: 1px solid transparent;
-    transition: all 0.2s;
-    cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px;
+  background: var(--bg-secondary);
+  border-radius: 12px;
+  border: 1px solid transparent;
+  transition: all 0.2s;
+  cursor: pointer;
 }
 
 .paas-item:hover {
-    background: var(--bg-tertiary);
-    /* transform: translateX(4px); */
+  background: var(--bg-tertiary);
+  /* transform: translateX(4px); */
 }
 
 .paas-info {
-    display: flex;
-    align-items: center;
-    gap: 16px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
 }
 
 .paas-logo-box {
-    width: 42px;
-    /* 统一 42px */
-    height: 42px;
-    /* 统一 42px */
-    border-radius: 12px;
-    /* 统一 12px */
-    background: #fff;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 18px;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
-    border: 1px solid rgba(0, 0, 0, 0.03);
-    /* 增加边框一致性 */
+  width: 42px;
+  /* 统一 42px */
+  height: 42px;
+  /* 统一 42px */
+  border-radius: 12px;
+  /* 统一 12px */
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  border: 1px solid rgba(0, 0, 0, 0.03);
+  /* 增加边框一致性 */
 }
 
 .paas-item-text {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .paas-item-text h4 {
-    margin: 0;
-    font-size: 14px;
-    font-weight: 600;
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
 }
 
 .paas-item-text p {
-    margin: 0;
-    font-size: 11px;
-    color: var(--text-tertiary);
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-tertiary);
 }
 
 .paas-status-badge {
-    padding: 4px 10px;
-    background: rgba(0, 0, 0, 0.03);
-    border-radius: 8px;
-    font-size: 12px;
-    font-weight: 600;
-    display: flex;
-    align-items: center;
-    gap: 8px;
+  padding: 4px 10px;
+  background: rgba(0, 0, 0, 0.03);
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .status-dot-mini {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    background-color: var(--text-tertiary);
-    opacity: 0.5;
-    transition: all 0.3s;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: var(--text-tertiary);
+  opacity: 0.5;
+  transition: all 0.3s;
 }
 
 .status-dot-mini.active {
-    background-color: var(--success-color);
-    opacity: 1;
-    box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2);
+  background-color: var(--success-color);
+  opacity: 1;
+  box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2);
 }
 
 /* Quick Actions - 2 Columns on Right */
 .quick-actions-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 16px;
-    /* 右侧小卡片间距 */
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  /* 右侧小卡片间距 */
 }
 
 .action-card {
-    background: var(--card-bg);
-    border: 1px solid var(--border-color);
-    border-radius: 20px;
-    padding: 24px 30px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 12px;
-    /* height: 120px; Removed fixed height for flexibility */
-    cursor: pointer;
-    transition: all 0.3s ease;
-    text-align: center;
-    position: relative;
-    overflow: hidden;
-    box-shadow: var(--card-shadow);
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 20px;
+  padding: 24px 30px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  /* height: 120px; Removed fixed height for flexibility */
+  cursor: pointer;
+  transition: all 0.3s ease;
+  text-align: center;
+  position: relative;
+  overflow: hidden;
+  box-shadow: var(--card-shadow);
 }
 
 .action-card:hover {
-    /* background: var(--bg-tertiary); Remove bg change to keep consistent */
-    border-color: var(--primary-color);
-    box-shadow: var(--card-hover-shadow);
+  /* background: var(--bg-tertiary); Remove bg change to keep consistent */
+  border-color: var(--primary-color);
+  box-shadow: var(--card-hover-shadow);
 }
 
 /* 2FA Card Internal Layout */
 .totp-content-wrapper {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    width: 100%;
-    position: relative;
-    z-index: 1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  position: relative;
+  z-index: 1;
 }
 
 .totp-left {
-    display: flex;
-    align-items: center;
-    gap: 15px;
-    text-align: left;
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  text-align: left;
 }
 
 .totp-right {
-    text-align: right;
-    line-height: 1;
+  text-align: right;
+  line-height: 1;
 }
 
 .totp-count {
-    font-size: 32px;
-    font-weight: 800;
-    color: var(--primary-color);
-    font-family: var(--font-mono);
+  font-size: 32px;
+  font-weight: 800;
+  color: var(--primary-color);
+  font-family: var(--font-mono);
 }
 
 .totp-label {
-    font-size: 12px;
-    color: var(--text-tertiary);
-    margin-top: 4px;
-    display: block;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  margin-top: 4px;
+  display: block;
 }
 
 .action-icon {
-    width: 42px;
-    /* 统一 42px */
-    height: 42px;
-    /* 统一 42px */
-    border-radius: 12px;
-    /* 统一 12px */
-    background: rgba(var(--primary-rgb), 0.1);
-    color: var(--primary-color);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 18px;
-    border: 1px solid rgba(0, 0, 0, 0.03);
+  width: 42px;
+  /* 统一 42px */
+  height: 42px;
+  /* 统一 42px */
+  border-radius: 12px;
+  /* 统一 12px */
+  background: rgba(var(--primary-rgb), 0.1);
+  color: var(--primary-color);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  border: 1px solid rgba(0, 0, 0, 0.03);
 }
 
 .action-text h5 {
-    margin: 0;
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--text-primary);
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
 }
 
 .action-text p {
-    margin: 4px 0 0 0;
-    font-size: 11px;
-    color: var(--text-tertiary);
+  margin: 4px 0 0 0;
+  font-size: 11px;
+  color: var(--text-tertiary);
 }
 
 /* Music Empty State */
 .music-empty {
-    width: 100%;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    gap: 16px;
-    color: rgba(255, 255, 255, 0.7);
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  color: rgba(255, 255, 255, 0.7);
 }
 
 .music-empty i.icon-empty {
-    font-size: 48px;
-    opacity: 0.6;
+  font-size: 48px;
+  opacity: 0.6;
 }
 
 .btn-music-action {
-    margin-top: 8px;
-    padding: 8px 24px;
-    background: rgba(255, 255, 255, 0.15);
-    border: 1px solid rgba(255, 255, 255, 0.3);
-    border-radius: 20px;
-    color: #fff;
-    cursor: pointer;
-    transition: background 0.2s;
+  margin-top: 8px;
+  padding: 8px 24px;
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 20px;
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.2s;
 }
 
 .btn-music-action:hover {
-    background: rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.25);
 }
 
 /* 2FA Dashboard Card - ensures alignment with PaaS list */
 .totp-dashboard-card {
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 
 .totp-dashboard-card .paas-list {
-    margin: 0;
+  margin: 0;
 }
 
 .totp-dashboard-card .paas-item {
-    margin: 0;
+  margin: 0;
 }
 
 .totp-dashboard-card:hover {
-    border-color: var(--primary-color);
-    box-shadow: var(--card-hover-shadow);
+  border-color: var(--primary-color);
+  box-shadow: var(--card-hover-shadow);
 }
 
 /* Media Queries */
 @media (max-width: 1200px) {
-    .stats-overview-grid {
-        grid-template-columns: repeat(2, 1fr);
-    }
+  .stats-overview-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
 
-    .dashboard-main-layout {
-        grid-template-columns: 1fr;
-    }
+  .dashboard-main-layout {
+    grid-template-columns: 1fr;
+  }
 
-    .quick-actions-grid {
-        grid-template-columns: repeat(4, 1fr);
-    }
+  .quick-actions-grid {
+    grid-template-columns: repeat(4, 1fr);
+  }
 }
 
 @media (max-width: 768px) {
-    .dashboard-content {
-        padding: 12px;
-    }
+  .dashboard-content {
+    padding: 12px;
+  }
 
-    .dashboard-header {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: 12px;
-        margin-bottom: 16px;
-    }
+  .dashboard-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
 
-    .header-right {
-        width: 100%;
-        justify-content: space-between;
-    }
+  .header-right {
+    width: 100%;
+    justify-content: space-between;
+  }
 
-    .btn-refresh-all {
-        padding: 0 14px;
-        height: 34px;
-        flex-shrink: 0;
-    }
+  .btn-refresh-all {
+    padding: 0 14px;
+    height: 34px;
+    flex-shrink: 0;
+  }
 
-    .stats-overview-grid {
-        grid-template-columns: 1fr;
-        gap: 10px;
-    }
+  .stats-overview-grid {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
 
-    .overview-card,
-    .detail-card {
-        padding: 14px;
-        border-radius: 14px;
-    }
+  .overview-card,
+  .detail-card {
+    padding: 14px;
+    border-radius: 14px;
+  }
 
-    .api-stats-row {
-        grid-template-columns: 1fr;
-        gap: 10px;
-    }
+  .api-stats-row {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
 
-    .api-stat-group {
-        padding: 14px;
-    }
+  .api-stat-group {
+    padding: 14px;
+  }
 
-    .music-content-layer {
-        flex-direction: row;
-        justify-content: space-between;
-        padding: 16px;
-        gap: 16px;
-    }
+  .music-content-layer {
+    flex-direction: row;
+    justify-content: space-between;
+    padding: 16px;
+    gap: 16px;
+  }
 
-    .music-cover-large {
-        width: 80px;
-        height: 80px;
-        flex-shrink: 0;
-    }
+  .music-cover-large {
+    width: 80px;
+    height: 80px;
+    flex-shrink: 0;
+  }
 
-    .music-info-col {
-        align-items: flex-end;
-        text-align: right;
-        flex: 1;
-        min-width: 0;
-    }
+  .music-info-col {
+    align-items: flex-end;
+    text-align: right;
+    flex: 1;
+    min-width: 0;
+  }
 
-    .music-title {
-        font-size: 16px;
-    }
+  .music-title {
+    font-size: 16px;
+  }
 
-    .music-artist {
-        font-size: 12px;
-        margin-bottom: 8px;
-    }
+  .music-artist {
+    font-size: 12px;
+    margin-bottom: 8px;
+  }
 
-    .music-controls {
-        justify-content: flex-end;
-        gap: 12px;
-    }
+  .music-controls {
+    justify-content: flex-end;
+    gap: 12px;
+  }
 
-    .btn-control-circle {
-        width: 32px;
-        height: 32px;
-        font-size: 12px;
-    }
+  .btn-control-circle {
+    width: 32px;
+    height: 32px;
+    font-size: 12px;
+  }
 
-    .btn-control-circle.play {
-        width: 40px;
-        height: 40px;
-        font-size: 16px;
-    }
+  .btn-control-circle.play {
+    width: 40px;
+    height: 40px;
+    font-size: 16px;
+  }
 
-    .music-status-badge {
-        display: none;
-    }
+  .music-status-badge {
+    display: none;
+  }
 
-    .music-widget-wrapper {
-        height: auto;
-        min-height: 110px;
-    }
+  .music-widget-wrapper {
+    height: auto;
+    min-height: 110px;
+  }
 
-    .music-mini-lyric {
-        display: none;
-    }
+  .music-mini-lyric {
+    display: none;
+  }
 
-    .quick-actions-grid {
-        grid-template-columns: repeat(2, 1fr);
-    }
+  .quick-actions-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
 }
 
 /* =========================================
    Music Widget Skeleton (Loading State)
    ========================================= */
 .music-skeleton-wrapper {
-    cursor: default;
+  cursor: default;
 }
 
 .music-skeleton-content {
-    display: flex;
-    align-items: center;
-    gap: 24px;
-    padding: 0 30px;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 0 30px;
 }
 
 .music-skeleton-cover {
-    width: 160px;
-    height: 160px;
-    border-radius: 12px;
-    flex-shrink: 0;
+  width: 160px;
+  height: 160px;
+  border-radius: 12px;
+  flex-shrink: 0;
 }
 
 .music-skeleton-info {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 
 .music-skeleton-title {
-    height: 24px;
-    width: 70%;
-    border-radius: 6px;
+  height: 24px;
+  width: 70%;
+  border-radius: 6px;
 }
 
 .music-skeleton-artist {
-    height: 16px;
-    width: 40%;
-    border-radius: 6px;
+  height: 16px;
+  width: 40%;
+  border-radius: 6px;
 }
 
 /* Skeleton shimmer animation - using global definition */
 .music-skeleton-wrapper .skeleton {
-    background: linear-gradient(90deg,
-            rgba(255, 255, 255, 0.05) 25%,
-            rgba(255, 255, 255, 0.12) 50%,
-            rgba(255, 255, 255, 0.05) 75%);
-    background-size: 200% 100%;
-    animation: music-skeleton-shimmer 1.8s ease-in-out infinite;
+  background: linear-gradient(
+    90deg,
+    rgba(255, 255, 255, 0.05) 25%,
+    rgba(255, 255, 255, 0.12) 50%,
+    rgba(255, 255, 255, 0.05) 75%
+  );
+  background-size: 200% 100%;
+  animation: music-skeleton-shimmer 1.8s ease-in-out infinite;
 }
 
 @keyframes music-skeleton-shimmer {
-    0% {
-        background-position: 200% 0;
-    }
+  0% {
+    background-position: 200% 0;
+  }
 
-    100% {
-        background-position: -200% 0;
-    }
+  100% {
+    background-position: -200% 0;
+  }
 }
 
 @media (max-width: 768px) {
-    .music-skeleton-content {
-        padding: 0 16px;
-        gap: 16px;
-    }
+  .music-skeleton-content {
+    padding: 0 16px;
+    gap: 16px;
+  }
 
-    .music-skeleton-cover {
-        width: 80px;
-        height: 80px;
-    }
+  .music-skeleton-cover {
+    width: 80px;
+    height: 80px;
+  }
 
-    .music-skeleton-title {
-        height: 18px;
-    }
+  .music-skeleton-title {
+    height: 18px;
+  }
 
-    .music-skeleton-artist {
-        height: 14px;
-    }
+  .music-skeleton-artist {
+    height: 14px;
+  }
 }
 
 /* Music Status Container (Top Right) */
 .music-status-container {
-    position: absolute;
-    top: 24px;
-    right: 24px;
-    z-index: 20;
-    display: flex;
-    align-items: center;
-    gap: 12px;
+  position: absolute;
+  top: 24px;
+  right: 24px;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 /* Now Playing Badge (Image Style) */
 .music-playing-badge {
-    height: 28px;
-    padding: 0 14px;
-    border-radius: 8px;
-    /* Slightly rounded rect */
-    background: #eef2ff;
-    /* Light indigo bg */
-    color: #6366f1;
-    /* Indigo text */
-    border: 1px solid rgba(99, 102, 241, 0.2);
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    font-size: 12px;
-    font-weight: 600;
-    box-shadow: 0 2px 6px rgba(99, 102, 241, 0.1);
-    user-select: none;
+  height: 28px;
+  padding: 0 14px;
+  border-radius: 8px;
+  /* Slightly rounded rect */
+  background: #eef2ff;
+  /* Light indigo bg */
+  color: #6366f1;
+  /* Indigo text */
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  box-shadow: 0 2px 6px rgba(99, 102, 241, 0.1);
+  user-select: none;
 }
 
 /* Swap Button (Next to Badge) */
 /* Swap Button (Same Style as Badge) */
 .music-swap-btn {
-    height: 28px;
-    padding: 0 14px;
-    border-radius: 8px;
+  height: 28px;
+  padding: 0 14px;
+  border-radius: 8px;
 
-    /* Match Playing Badge */
-    background: #eef2ff;
-    color: #6366f1;
-    border: 1px solid rgba(99, 102, 241, 0.2);
-    box-shadow: 0 2px 6px rgba(99, 102, 241, 0.1);
+  /* Match Playing Badge */
+  background: #eef2ff;
+  color: #6366f1;
+  border: 1px solid rgba(99, 102, 241, 0.2);
+  box-shadow: 0 2px 6px rgba(99, 102, 241, 0.1);
 
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
 
-    font-size: 12px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.2s ease;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
 
-    /* Always visible */
-    opacity: 1;
-    transform: none;
+  /* Always visible */
+  opacity: 1;
+  transform: none;
 }
 
 .music-swap-btn:hover {
-    background: #e0e7ff;
-    /* Slightly darker indigo */
-    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2);
-    transform: translateY(-1px);
+  background: #e0e7ff;
+  /* Slightly darker indigo */
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2);
+  transform: translateY(-1px);
 }
 
 .music-swap-btn:active {
-    transform: translateY(0);
-    background: #dbeafe;
+  transform: translateY(0);
+  background: #dbeafe;
 }
 
 .music-swap-btn i {
-    transition: transform 0.4s ease;
-    font-size: 11px;
+  transition: transform 0.4s ease;
+  font-size: 11px;
 }
 
 .music-swap-btn:active i {
-    transform: rotate(180deg);
+  transform: rotate(180deg);
 }
 
 /* Mobile Adaptation */
 @media (max-width: 768px) {
-    .music-swap-btn {
-        /* Keep consistent */
-    }
+  .music-swap-btn {
+    /* Keep consistent */
+  }
 }
 
 .music-swap-btn:active i {
-    transform: rotate(180deg);
+  transform: rotate(180deg);
 }
 
 /* 适配移动端 */
 @media (max-width: 768px) {
-    .music-swap-btn {
-        opacity: 0.9;
-        transform: translateY(0);
-        background: rgba(0, 0, 0, 0.2);
-    }
+  .music-swap-btn {
+    opacity: 0.9;
+    transform: translateY(0);
+    background: rgba(0, 0, 0, 0.2);
+  }
 }

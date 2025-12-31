@@ -84,8 +84,6 @@ import { formatDateTime, formatFileSize, maskAddress, formatRegion } from './mod
 import { store, MODULE_GROUPS } from './store.js';
 import { computed } from 'vue';
 
-
-
 // 创建并配置 Vue 应用
 const app = createApp({
   setup() {
@@ -108,7 +106,7 @@ const app = createApp({
       openListTempPathParts,
       sortedOpenListFiles,
       isSelfHVideoActive,
-      moduleGroups: MODULE_GROUPS  // 模块分组配置
+      moduleGroups: MODULE_GROUPS, // 模块分组配置
     };
   },
   data() {
@@ -118,7 +116,7 @@ const app = createApp({
       newAccount: {
         name: '',
         token: '',
-        balance: ''
+        balance: '',
       },
       addingAccount: false,
       addAccountError: '',
@@ -170,7 +168,14 @@ const app = createApp({
       dnsTemplates: [],
       showDnsTemplateModal: false,
       dnsEditingTemplate: null,
-      dnsTemplateForm: { name: '', type: 'A', content: '', ttl: 1, proxied: false, description: '' },
+      dnsTemplateForm: {
+        name: '',
+        type: 'A',
+        content: '',
+        ttl: 1,
+        proxied: false,
+        description: '',
+      },
       dnsTemplateFormError: '',
       dnsSavingTemplate: false,
 
@@ -184,7 +189,7 @@ const app = createApp({
       workers: [],
       workersLoading: false,
       workersSubdomain: null,
-      workersCfAccountId: null,  // Cloudflare 账号 ID，用于生成编辑器链接
+      workersCfAccountId: null, // Cloudflare 账号 ID，用于生成编辑器链接
       selectedWorker: null,
       workerEditorContent: '',
       showNewWorkerModal: false,
@@ -221,7 +226,6 @@ const app = createApp({
       workerDomainsLoading: false,
       newWorkerDomain: '',
 
-
       // OpenAI API 管理相关
       openaiEditingEndpoint: null,
       openaiEndpointForm: { name: '', baseUrl: '', apiKey: '', notes: '' },
@@ -241,7 +245,7 @@ const app = createApp({
         email: '',
         password: '',
         panelUser: 'admin',
-        panelPassword: ''
+        panelPassword: '',
       },
       antigravityAccountFormError: '',
       antigravityAccountFormSuccess: '',
@@ -251,7 +255,7 @@ const app = createApp({
         accessToken: '',
         refreshToken: '',
         projectId: '',
-        expiresIn: 3599
+        expiresIn: 3599,
       },
       antigravityManualFormError: '',
       // Antigravity API 相关
@@ -264,7 +268,7 @@ const app = createApp({
       agSettingsForm: {
         API_KEY: '',
         PROXY: '',
-        load_balancing_strategy: 'random'
+        load_balancing_strategy: 'random',
       },
       showAgApiKey: false,
       antigravityModelRedirects: [],
@@ -281,14 +285,13 @@ const app = createApp({
         client_id: '',
         client_secret: '',
         refresh_token: '',
-        project_id: ''
+        project_id: '',
       },
       geminiCliAccountFormError: '',
       geminiCliEditingAccount: null,
       // geminiCliLogDetail: null, // Moved to store
       // showGeminiCliLogDetailModal: false, // Moved to store
       geminiCliSettingsForm: {},
-
 
       // 主机管理相关
       expandedDockerPanels: new Set(),
@@ -307,7 +310,7 @@ const app = createApp({
         privateKey: '',
         passphrase: '',
         tagsInput: '',
-        description: ''
+        description: '',
       },
       showImportServerModal: false,
       importModalSaving: false,
@@ -320,7 +323,7 @@ const app = createApp({
       credForm: {
         name: '',
         username: '',
-        password: ''
+        password: '',
       },
       credError: '',
 
@@ -337,17 +340,17 @@ const app = createApp({
       // 服务器当前标签页
       serverCurrentTab: 'list',
       activeSSHSessionId: null, // 当前激活的 SSH 会话 ID
-      visibleSessionIds: [],    // 分屏显示的会话 ID 列表
-      sshViewLayout: 'single',  // 'single', 'split-h', 'split-v'
-      sshSplitSide: '',         // 分屏偏向 ('left', 'right')
-      sshGroupState: null,      // 分屏组状态快照 { ids: [], layout: '', side: '' }
-      sshSyncEnabled: false,    // 是否开启多屏同步操作
-      draggedSessionId: null,   // 正在拖拽的会话 ID
-      dropTargetId: null,       // 正在悬停的目标容器 ID
-      dropHint: '',             // 拖拽位置提示 ('left', 'right', 'top', 'bottom', 'center')
+      visibleSessionIds: [], // 分屏显示的会话 ID 列表
+      sshViewLayout: 'single', // 'single', 'split-h', 'split-v'
+      sshSplitSide: '', // 分屏偏向 ('left', 'right')
+      sshGroupState: null, // 分屏组状态快照 { ids: [], layout: '', side: '' }
+      sshSyncEnabled: false, // 是否开启多屏同步操作
+      draggedSessionId: null, // 正在拖拽的会话 ID
+      dropTargetId: null, // 正在悬停的目标容器 ID
+      dropHint: '', // 拖拽位置提示 ('left', 'right', 'top', 'bottom', 'center')
       sshIdeFullscreen: false, // SSH 屏幕全屏模式
       sshWindowFullscreen: false, // SSH 窗口全屏模式
-      showSSHQuickMenu: false,    // SSH 快速连接下拉菜单
+      showSSHQuickMenu: false, // SSH 快速连接下拉菜单
       showSnippetsSidebar: false, // 代码片段侧边栏显隐
 
       // 代码片段相关
@@ -360,7 +363,7 @@ const app = createApp({
         title: '',
         content: '',
         category: 'common',
-        description: ''
+        description: '',
       },
 
       // SSH 终端相关
@@ -385,7 +388,7 @@ const app = createApp({
       monitorLogsLoading: false,
       logFilter: {
         serverId: '',
-        status: ''
+        status: '',
       },
       logPage: 1,
       logPageSize: 50,
@@ -395,12 +398,12 @@ const app = createApp({
       metricsHistoryLoading: false,
       metricsHistoryTotal: 0,
       metricsHistoryFilter: {
-        serverId: ''
+        serverId: '',
       },
       metricsHistoryPagination: {
         page: 1,
         pageSize: 50,
-        totalPages: 0
+        totalPages: 0,
       },
       metricsHistoryTimeRange: '1h', // '1h', '6h', '24h', '7d', 'all'
       metricsCollectorStatus: null,
@@ -427,7 +430,7 @@ const app = createApp({
         days: 0,
         count: 0,
         dbSizeMB: 0,
-        logFileSizeMB: 10  // 日志文件最大大小(MB)
+        logFileSizeMB: 10, // 日志文件最大大小(MB)
       },
       logSettingsSaving: false,
       logLimitsEnforcing: false,
@@ -445,7 +448,7 @@ const app = createApp({
       cdnProvider: typeof __CDN_PROVIDER__ !== 'undefined' ? __CDN_PROVIDER__ : 'npmmirror',
 
       // TOTP 2FA 验证器模块
-      ...totpData
+      ...totpData,
     };
   },
 
@@ -465,7 +468,7 @@ const app = createApp({
       const groupData = this.sshGroupState;
 
       // 如果没有快照，且物理上也只有 1 个或没有，则显示散乱标签
-      if (!groupData && (this.visibleSessionIds.length <= 1)) {
+      if (!groupData && this.visibleSessionIds.length <= 1) {
         return this.sshSessions;
       }
 
@@ -483,7 +486,7 @@ const app = createApp({
         name: `(${splitIds.length})分屏`,
         // 激活条件：当前 active session 属于组内成员
         active: splitIds.includes(this.activeSSHSessionId),
-        sessions: this.sshSessions.filter(s => splitIds.includes(s.id))
+        sessions: this.sshSessions.filter(s => splitIds.includes(s.id)),
       };
 
       this.sshSessions.forEach(session => {
@@ -602,7 +605,8 @@ const app = createApp({
      * 判断当前是否有任何模态框打开
      */
     isAnyModalOpen() {
-      return this.showSettingsModal ||
+      return (
+        this.showSettingsModal ||
         this.logViewer.visible ||
         this.showAddZeaburAccountModal ||
         this.showAddKoyebAccountModal ||
@@ -632,11 +636,12 @@ const app = createApp({
         this.showAddZoneModal ||
         this.showTotpModal ||
         this.showTotpImportModal ||
-        (this.customDialog && this.customDialog.show);
+        (this.customDialog && this.customDialog.show)
+      );
     },
 
     // TOTP 验证器模块计算属性
-    ...totpComputed
+    ...totpComputed,
   },
 
   async mounted() {
@@ -714,7 +719,6 @@ const app = createApp({
   },
 
   watch: {
-
     // 监听图表区域展开状态，展开时渲染图表
     showMetricsCharts(newVal) {
       if (newVal) {
@@ -732,10 +736,6 @@ const app = createApp({
         document.body.classList.remove('modal-open');
       }
     },
-
-
-
-
 
     'monitorConfig.interval'(newVal) {
       console.log('主机刷新间隔变更为:', newVal, '秒，重启轮询');
@@ -810,7 +810,7 @@ const app = createApp({
           });
         }
       },
-      immediate: true
+      immediate: true,
     },
 
     showSettingsModal(newVal) {
@@ -971,7 +971,7 @@ const app = createApp({
           }
         }
       },
-      immediate: true
+      immediate: true,
     },
 
     // 认证成功后加载当前标签页数据
@@ -1199,7 +1199,6 @@ const app = createApp({
       this.updateOpacity();
     },
 
-
     showAddSessionSelectModal(newVal) {
       if (newVal) {
         this.$nextTick(() => this.focusModalOverlay());
@@ -1214,12 +1213,14 @@ const app = createApp({
           this.searchOpenListFiles(store.openListSearchText);
         } else if (this.openListSubTab === 'temp' && this.currentOpenListTempTab?.isSearch) {
           // 如果在临时搜索标签页，刷新该标签页
-          this.loadTempTabFiles(this.currentOpenListTempTab.path, false, this.currentOpenListTempTab.id);
+          this.loadTempTabFiles(
+            this.currentOpenListTempTab.path,
+            false,
+            this.currentOpenListTempTab.id
+          );
         }
       }
     },
-
-
   },
 
   beforeUnmount() {
@@ -1284,15 +1285,26 @@ const app = createApp({
 
       // 路径别名映射
       const pathAliases = {
-        'hosts': 'server',
-        '2fa': 'totp'
+        hosts: 'server',
+        '2fa': 'totp',
       };
 
       // 将路径转为实际的 tab 名称
       const tabName = pathAliases[path] || path;
 
       // 直接使用 mainActiveTab 值作为路径
-      const validTabs = ['dashboard', 'openai', 'antigravity', 'gemini-cli', 'paas', 'dns', 'self-h', 'server', 'totp', 'music'];
+      const validTabs = [
+        'dashboard',
+        'openai',
+        'antigravity',
+        'gemini-cli',
+        'paas',
+        'dns',
+        'self-h',
+        'server',
+        'totp',
+        'music',
+      ];
 
       if (tabName && validTabs.includes(tabName)) {
         store.singlePageMode = true;
@@ -1302,16 +1314,16 @@ const app = createApp({
 
         // 更新页面标题
         const titles = {
-          'openai': 'OpenAI API',
-          'antigravity': 'Antigravity',
+          openai: 'OpenAI API',
+          antigravity: 'Antigravity',
           'gemini-cli': 'Gemini CLI',
-          'paas': 'PaaS 监控',
-          'dns': 'DNS 管理',
+          paas: 'PaaS 监控',
+          dns: 'DNS 管理',
           'self-h': 'Self-Hosted',
-          'server': '主机管理',
-          'totp': '2FA 验证器',
-          'music': '音乐播放器',
-          'dashboard': '仪表盘'
+          server: '主机管理',
+          totp: '2FA 验证器',
+          music: '音乐播放器',
+          dashboard: '仪表盘',
         };
         document.title = `API Monitor - ${titles[tabName] || tabName}`;
       }
@@ -1384,8 +1396,8 @@ const app = createApp({
       this.handleTabSwitch(module);
       // 点击后关闭下拉菜单
       this.navGroupExpanded = null;
-    }
-  }
+    },
+  },
 });
 
 // ==================== 应用初始化 ====================

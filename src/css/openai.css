@@ -2,227 +2,225 @@
 
 /* Models Container & Grid - Matches Zeabur Projects/Services layout */
 .openai-models-container {
-    padding: 0 4px 6px 4px;
-    /* Tight padding to match Zeabur expansion */
-    max-height: 2000px;
-    opacity: 1;
-    transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
-    overflow: hidden;
+  padding: 0 4px 6px 4px;
+  /* Tight padding to match Zeabur expansion */
+  max-height: 2000px;
+  opacity: 1;
+  transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+  overflow: hidden;
 }
 
 .openai-models-container.collapsed {
-    max-height: 0;
-    opacity: 0;
-    padding-bottom: 0;
+  max-height: 0;
+  opacity: 0;
+  padding-bottom: 0;
 }
 
 .models-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
-    /* More compact columns */
-    gap: 6px;
-    padding: 6px 6px 0px 6px;
-    border-radius: 8px;
-    /* Removed background/border to match Zeabur's clean look */
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  /* More compact columns */
+  gap: 6px;
+  padding: 6px 6px 0px 6px;
+  border-radius: 8px;
+  /* Removed background/border to match Zeabur's clean look */
 }
 
 /* Improved Model Tag Styling */
 .model-tag-item {
-    background: linear-gradient(135deg, rgba(16, 163, 127, 0.08) 0%, rgba(16, 163, 127, 0.02) 100%);
-    border: 1px solid rgba(16, 163, 127, 0.15);
-    border-radius: 10px;
-    padding: 6px 10px;
-    font-size: 12px;
-    font-family: var(--font-mono);
-    color: var(--text-primary);
-    display: flex;
-    justify-content: flex-start;
-    gap: 8px;
-    cursor: pointer;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    font-weight: 500;
-    position: relative;
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
-    flex-direction: row;
+  background: linear-gradient(135deg, rgba(16, 163, 127, 0.08) 0%, rgba(16, 163, 127, 0.02) 100%);
+  border: 1px solid rgba(16, 163, 127, 0.15);
+  border-radius: 10px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+  display: flex;
+  justify-content: flex-start;
+  gap: 8px;
+  cursor: pointer;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
+  position: relative;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+  flex-direction: row;
 }
 
 .model-tag-item:hover {
-    /* background: linear-gradient(135deg, rgba(16, 163, 127, 0.15) 0%, rgba(16, 163, 127, 0.05) 100%); */
-    border: 1px solid rgba(16, 163, 127, 0.25);
-    color: #10a37f;
-    /* transform: translateY(-2px); */
-    /* box-shadow: 0 4px 12px rgba(16, 163, 127, 0.15); */
-    z-index: 1;
+  /* background: linear-gradient(135deg, rgba(16, 163, 127, 0.15) 0%, rgba(16, 163, 127, 0.05) 100%); */
+  border: 1px solid rgba(16, 163, 127, 0.25);
+  color: #10a37f;
+  /* transform: translateY(-2px); */
+  /* box-shadow: 0 4px 12px rgba(16, 163, 127, 0.15); */
+  z-index: 1;
 }
 
 .model-tag-item:active {
-    transition: all 0.1s ease-out;
-    /* background: linear-gradient(135deg, rgba(16, 163, 127, 0.15) 0%, rgba(16, 163, 127, 0.05) 100%); */
-    border: 1px solid rgba(16, 163, 127, 0.4);
-    /* box-shadow: 0 4px 12px rgba(16, 163, 127, 0.15); */
-    transform: scale(0.98);
+  transition: all 0.1s ease-out;
+  /* background: linear-gradient(135deg, rgba(16, 163, 127, 0.15) 0%, rgba(16, 163, 127, 0.05) 100%); */
+  border: 1px solid rgba(16, 163, 127, 0.4);
+  /* box-shadow: 0 4px 12px rgba(16, 163, 127, 0.15); */
+  transform: scale(0.98);
 }
 
 .model-tag-item::before {
-    /* content: '\f1b2'; */
-    font-family: 'Font Awesome 6 Free';
-    font-weight: 900;
-    font-size: 11px;
-    color: #10a37f;
-    opacity: 0.8;
-    transition: transform 0.3s ease;
-    display: inline-block;
-    margin-right: 2px;
+  /* content: '\f1b2'; */
+  font-family: 'Font Awesome 6 Free';
+  font-weight: 900;
+  font-size: 11px;
+  color: #10a37f;
+  opacity: 0.8;
+  transition: transform 0.3s ease;
+  display: inline-block;
+  margin-right: 2px;
 }
 
 .model-tag-item:hover::before {
-    transform: scale(1.1);
+  transform: scale(1.1);
 }
 
 /* Icon on the right like Zeabur status if preferred, but keep it consistent for now */
 
 .empty-models {
-    padding: 16px;
-    text-align: center;
-    color: var(--text-tertiary);
-    background: rgba(0, 0, 0, 0.02);
-    border-radius: 6px;
-    border: 1px dashed var(--border-color);
-    font-size: 12px;
+  padding: 16px;
+  text-align: center;
+  color: var(--text-tertiary);
+  background: rgba(0, 0, 0, 0.02);
+  border-radius: 6px;
+  border: 1px dashed var(--border-color);
+  font-size: 12px;
 }
-
 
 /* Animations */
 .quick-fade-in {
-    animation: openaiFadeIn 0.3s ease-out;
+  animation: openaiFadeIn 0.3s ease-out;
 }
 
 /* Model Count Badge (matches Zeabur's compact 28px icon style) */
 .openai-tab-content .zeabur-balance-panel {
-    display: flex;
-    align-items: center;
-    background: var(--bg-secondary);
-    padding: 4px 6px;
-    margin: 4px 0;
-    border-radius: 10px;
-    border: 1px solid var(--border-color);
-    transition: all 0.25s ease;
+  display: flex;
+  align-items: center;
+  background: var(--bg-secondary);
+  padding: 4px 6px;
+  margin: 4px 0;
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+  transition: all 0.25s ease;
 }
 
 .openai-tab-content .zeabur-balance-panel:hover {
-    background: rgba(16, 163, 127, 0.05);
-    border-color: rgba(16, 163, 127, 0.3);
+  background: rgba(16, 163, 127, 0.05);
+  border-color: rgba(16, 163, 127, 0.3);
 }
 
 .openai-tab-content .zeabur-balance-panel:active {
-    transform: translateY(0);
+  transform: translateY(0);
 }
 
 .openai-tab-content .zeabur-balance-item {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 3px 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 8px;
 }
 
 .openai-tab-content .zeabur-balance-icon {
-    width: 28px;
-    height: 28px;
-    border-radius: 7px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 13px;
-    background: rgba(16, 163, 127, 0.15);
-    color: #10a37f;
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  background: rgba(16, 163, 127, 0.15);
+  color: #10a37f;
 }
 
 .openai-tab-content .zeabur-balance-icon.refreshing {
-    animation: openaiPulse 0.6s ease-in-out infinite;
+  animation: openaiPulse 0.6s ease-in-out infinite;
 }
 
 @keyframes openaiPulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
 
-    0%,
-    100% {
-        transform: scale(1);
-    }
-
-    50% {
-        transform: scale(1.15);
-    }
+  50% {
+    transform: scale(1.15);
+  }
 }
 
 .openai-tab-content .zeabur-balance-info {
-    display: flex;
-    flex-direction: column;
-    min-width: 40px;
+  display: flex;
+  flex-direction: column;
+  min-width: 40px;
 }
 
 .openai-tab-content .zeabur-balance-label {
-    font-size: 10px;
-    color: var(--text-tertiary);
-    font-weight: 600;
-    text-transform: uppercase;
-    line-height: 1;
+  font-size: 10px;
+  color: var(--text-tertiary);
+  font-weight: 600;
+  text-transform: uppercase;
+  line-height: 1;
 }
 
 .openai-tab-content .zeabur-balance-value {
-    font-size: 14px;
-    font-weight: 700;
-    color: #10a37f;
-    line-height: 1.2;
+  font-size: 14px;
+  font-weight: 700;
+  color: #10a37f;
+  line-height: 1.2;
 }
 
 /* OpenAI 模块二级标签页样式 */
 .openai-sec-tabs {
-    /* 继承全局 .sec-tabs 布局 */
+  /* 继承全局 .sec-tabs 布局 */
 }
 
 .theme-openai .tab-btn.active {
-    background: linear-gradient(135deg, var(--openai-primary), var(--openai-dark)) !important;
-    color: white !important;
-    box-shadow: 0 2px 8px rgba(16, 163, 127, 0.3);
+  background: linear-gradient(135deg, var(--openai-primary), var(--openai-dark)) !important;
+  color: white !important;
+  box-shadow: 0 2px 8px rgba(16, 163, 127, 0.3);
 }
 
 @keyframes openaiFadeIn {
-    from {
-        opacity: 0;
-        transform: translateY(5px);
-    }
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
 
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /* 移动端适配 */
 @media (max-width: 768px) {
-    .openai-management-actions span {
-        display: none !important;
-    }
+  .openai-management-actions span {
+    display: none !important;
+  }
 
-    .openai-management-actions .btn {
-        width: 36px !important;
-        height: 36px !important;
-        padding: 0 !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        border-radius: 10px !important;
-    }
+  .openai-management-actions .btn {
+    width: 36px !important;
+    height: 36px !important;
+    padding: 0 !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    border-radius: 10px !important;
+  }
 
-    .openai-management-actions .btn i {
-        margin: 0 !important;
-        font-size: 14px !important;
-    }
+  .openai-management-actions .btn i {
+    margin: 0 !important;
+    font-size: 14px !important;
+  }
 
-    .openai-management-actions {
-        flex-wrap: wrap !important;
-        justify-content: flex-end !important;
-    }
+  .openai-management-actions {
+    flex-wrap: wrap !important;
+    justify-content: flex-end !important;
+  }
 }

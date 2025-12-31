@@ -20,7 +20,7 @@ export const openaiMethods = {
           store.openaiEndpoints = data.endpoints.map(ep => ({
             ...ep,
             showKey: false,
-            refreshing: false
+            refreshing: false,
           }));
           return true;
         }
@@ -34,10 +34,13 @@ export const openaiMethods = {
   // 保存端点数据到本地缓存
   saveToOpenaiCache(endpoints) {
     try {
-      localStorage.setItem(OPENAI_CACHE_KEY, JSON.stringify({
-        endpoints,
-        timestamp: Date.now()
-      }));
+      localStorage.setItem(
+        OPENAI_CACHE_KEY,
+        JSON.stringify({
+          endpoints,
+          timestamp: Date.now(),
+        })
+      );
     } catch (e) {
       console.warn('保存 OpenAI 缓存失败:', e);
     }
@@ -62,7 +65,7 @@ export const openaiMethods = {
     try {
       // 1. 加载端点列表（用于账号管理展示）
       const epResponse = await fetch('/api/openai/endpoints', {
-        headers: store.getAuthHeaders()
+        headers: store.getAuthHeaders(),
       });
       const epData = await epResponse.json();
       if (Array.isArray(epData)) {
@@ -72,7 +75,7 @@ export const openaiMethods = {
         store.openaiEndpoints = epData.map(ep => ({
           ...ep,
           showKey: false,
-          refreshing: false
+          refreshing: false,
         }));
 
         // 保存到本地缓存
@@ -81,7 +84,7 @@ export const openaiMethods = {
 
       // 2. 从聚合接口加载全渠道模型列表 (HChat 使用)
       const modelsResponse = await fetch('/v1/models', {
-        headers: store.getAuthHeaders()
+        headers: store.getAuthHeaders(),
       });
       const modelsData = await modelsResponse.json();
 
@@ -95,7 +98,10 @@ export const openaiMethods = {
 
         // 智能初始化模型
         if (store.openaiAllModels.length > 0) {
-          if (!store.openaiChatModel || !store.openaiAllModels.find(m => m.id === store.openaiChatModel)) {
+          if (
+            !store.openaiChatModel ||
+            !store.openaiAllModels.find(m => m.id === store.openaiChatModel)
+          ) {
             store.openaiChatModel = store.openaiAllModels[0].id;
           }
         }
@@ -110,7 +116,6 @@ export const openaiMethods = {
       if (!silent) store.openaiLoading = false;
     }
   },
-
 
   // 移除旧的本地过滤方法，改用聚合数据
   updateOpenaiAllModels(explicitRefresh = false) {
@@ -129,7 +134,7 @@ export const openaiMethods = {
     // 添加用户消息
     store.openaiChatMessages.push({
       role: 'user',
-      content: userContent
+      content: userContent,
     });
 
     this.scrollToBottom();
@@ -139,7 +144,7 @@ export const openaiMethods = {
     try {
       const messages = [
         { role: 'system', content: store.openaiChatSystemPrompt },
-        ...store.openaiChatMessages
+        ...store.openaiChatMessages,
       ];
 
       // 显式指定完整路径，防止丢失前缀
@@ -147,14 +152,14 @@ export const openaiMethods = {
         method: 'POST',
         headers: {
           ...store.getAuthHeaders(),
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           model: store.openaiChatModel,
           messages: messages,
           stream: true,
-          ...store.openaiChatSettings
-        })
+          ...store.openaiChatSettings,
+        }),
       });
 
       if (!response.ok) {
@@ -172,7 +177,7 @@ export const openaiMethods = {
       // 处理流式响应
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
-      let assistantMsg = { role: 'assistant', content: '', reasoning: '' };
+      const assistantMsg = { role: 'assistant', content: '', reasoning: '' };
       store.openaiChatMessages.push(assistantMsg);
 
       while (true) {
@@ -213,12 +218,13 @@ export const openaiMethods = {
       console.error('AI 对话失败:', error);
 
       // 核心修复：确保 error 是字符串，防止显示 [object Object]
-      const displayError = error.message || (typeof error === 'string' ? error : JSON.stringify(error));
+      const displayError =
+        error.message || (typeof error === 'string' ? error : JSON.stringify(error));
 
       this.showOpenaiToast('对话失败: ' + displayError, 'error');
       store.openaiChatMessages.push({
         role: 'assistant', // 改为 assistant 角色以保持 UI 一致
-        content: '❌ **错误**: ' + displayError
+        content: '❌ **错误**: ' + displayError,
       });
     } finally {
       store.openaiChatLoading = false;
@@ -242,7 +248,7 @@ export const openaiMethods = {
         el.scrollTop = el.scrollHeight;
       }
       // 触发代码高亮
-      document.querySelectorAll('pre code').forEach((block) => {
+      document.querySelectorAll('pre code').forEach(block => {
         if (!block.dataset.highlighted) {
           hljs.highlightElement(block);
           block.dataset.highlighted = 'true';
@@ -264,7 +270,7 @@ export const openaiMethods = {
       name: endpoint.name || '',
       baseUrl: endpoint.baseUrl || '',
       apiKey: endpoint.apiKey || '',
-      notes: endpoint.notes || ''
+      notes: endpoint.notes || '',
     };
     this.openaiEndpointFormError = '';
     this.showOpenaiEndpointModal = true;
@@ -287,7 +293,7 @@ export const openaiMethods = {
       const response = await fetch(url, {
         method: this.openaiEditingEndpoint ? 'PUT' : 'POST',
         headers: store.getAuthHeaders(),
-        body: JSON.stringify(this.openaiEndpointForm)
+        body: JSON.stringify(this.openaiEndpointForm),
       });
 
       const data = await response.json();
@@ -305,7 +311,7 @@ export const openaiMethods = {
         }
         this.showOpenaiEndpointModal = false;
         await this.loadOpenaiEndpoints(); // 加载端点列表
-        this.updateOpenaiAllModels();    // 立即更新 HChat 可用模型列表
+        this.updateOpenaiAllModels(); // 立即更新 HChat 可用模型列表
       } else {
         this.openaiEndpointFormError = data.error || '保存失败';
       }
@@ -322,7 +328,7 @@ export const openaiMethods = {
       message: `确定要删除端点 "${endpoint.name || endpoint.baseUrl}" 吗？`,
       icon: 'fa-trash',
       confirmText: '删除',
-      confirmClass: 'btn-danger'
+      confirmClass: 'btn-danger',
     });
 
     if (!confirmed) return;
@@ -330,7 +336,7 @@ export const openaiMethods = {
     try {
       const response = await fetch(`/api/openai/endpoints/${endpoint.id}`, {
         method: 'DELETE',
-        headers: store.getAuthHeaders()
+        headers: store.getAuthHeaders(),
       });
 
       const data = await response.json();
@@ -350,7 +356,7 @@ export const openaiMethods = {
       toast.info('正在验证...');
       const response = await fetch(`/api/openai/endpoints/${endpoint.id}/verify`, {
         method: 'POST',
-        headers: store.getAuthHeaders()
+        headers: store.getAuthHeaders(),
       });
 
       const data = await response.json();
@@ -372,7 +378,7 @@ export const openaiMethods = {
     try {
       const response = await fetch(`/api/openai/endpoints/${endpoint.id}/verify`, {
         method: 'POST',
-        headers: store.getAuthHeaders()
+        headers: store.getAuthHeaders(),
       });
 
       const data = await response.json();
@@ -397,9 +403,9 @@ export const openaiMethods = {
         method: 'POST',
         headers: {
           ...store.getAuthHeaders(),
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ enabled: endpoint.enabled })
+        body: JSON.stringify({ enabled: endpoint.enabled }),
       });
 
       const data = await response.json();
@@ -423,7 +429,7 @@ export const openaiMethods = {
     try {
       const response = await fetch('/api/openai/endpoints/refresh', {
         method: 'POST',
-        headers: store.getAuthHeaders()
+        headers: store.getAuthHeaders(),
       });
 
       const data = await response.json();
@@ -467,7 +473,7 @@ export const openaiMethods = {
       const response = await fetch('/api/openai/batch-add', {
         method: 'POST',
         headers: store.getAuthHeaders(),
-        body: JSON.stringify(endpoints ? { endpoints } : { text: this.openaiBatchText })
+        body: JSON.stringify(endpoints ? { endpoints } : { text: this.openaiBatchText }),
       });
 
       const data = await response.json();
@@ -543,8 +549,8 @@ export const openaiMethods = {
           name: ep.name,
           baseUrl: ep.baseUrl,
           apiKey: ep.apiKey,
-          notes: ep.notes
-        }))
+          notes: ep.notes,
+        })),
       };
 
       const dataStr = JSON.stringify(exportData, null, 2);
@@ -571,7 +577,7 @@ export const openaiMethods = {
       message: '导入端点将添加到现有端点列表中，是否继续？',
       icon: 'fa-exclamation-triangle',
       confirmText: '确定导入',
-      confirmClass: 'btn-primary'
+      confirmClass: 'btn-primary',
     });
 
     if (!confirmed) return;
@@ -579,12 +585,12 @@ export const openaiMethods = {
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.json';
-    input.onchange = async (event) => {
+    input.onchange = async event => {
       const file = event.target.files[0];
       if (!file) return;
 
       const reader = new FileReader();
-      reader.onload = async (e) => {
+      reader.onload = async e => {
         try {
           const importedData = JSON.parse(e.target.result);
 
@@ -598,7 +604,7 @@ export const openaiMethods = {
           const response = await fetch('/api/openai/import', {
             method: 'POST',
             headers: store.getAuthHeaders(),
-            body: JSON.stringify({ endpoints: importedData.endpoints })
+            body: JSON.stringify({ endpoints: importedData.endpoints }),
           });
 
           const data = await response.json();
@@ -619,5 +625,5 @@ export const openaiMethods = {
       reader.readAsText(file);
     };
     input.click();
-  }
+  },
 };

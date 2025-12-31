@@ -27,7 +27,7 @@ function getAccounts() {
       apiToken: acc.api_token,
       email: acc.email || '',
       createdAt: acc.created_at,
-      lastUsed: acc.last_used
+      lastUsed: acc.last_used,
     }));
   } catch (e) {
     console.error('❌ 读取 CF 账号失败:', e.message);
@@ -54,7 +54,7 @@ function saveAccounts(accounts) {
           apiToken: account.apiToken,
           email: account.email || '',
           createdAt: account.createdAt,
-          lastUsed: account.lastUsed
+          lastUsed: account.lastUsed,
         });
       });
     });
@@ -79,7 +79,7 @@ function addAccount(account) {
     apiToken: account.apiToken,
     email: account.email || '',
     createdAt: new Date().toISOString(),
-    lastUsed: null
+    lastUsed: null,
   };
 
   CloudflareAccount.createAccount(newAccount);
@@ -109,7 +109,7 @@ function updateAccount(id, updates) {
       apiToken: updated.api_token,
       email: updated.email,
       createdAt: updated.created_at,
-      lastUsed: updated.last_used
+      lastUsed: updated.last_used,
     };
   } catch (e) {
     console.error('❌ 更新 CF 账号失败:', e.message);
@@ -143,7 +143,7 @@ function getAccountById(id) {
       apiToken: account.api_token,
       email: account.email,
       createdAt: account.created_at,
-      lastUsed: account.last_used
+      lastUsed: account.last_used,
     };
   } catch (e) {
     console.error('❌ 获取 CF 账号失败:', e.message);
@@ -177,7 +177,7 @@ function getTemplates() {
       description: tpl.description || '',
       records: tpl.records, // 已经被解析为数组
       createdAt: tpl.created_at,
-      updatedAt: tpl.updated_at
+      updatedAt: tpl.updated_at,
     }));
   } catch (e) {
     console.error('❌ 读取 DNS 模板失败:', e.message);
@@ -203,7 +203,7 @@ function saveTemplates(templates) {
           name: template.name,
           description: template.description || '',
           records: template.records,
-          created_at: template.createdAt
+          created_at: template.createdAt,
         });
       });
     });
@@ -227,7 +227,7 @@ function addTemplate(template) {
     name: template.name,
     description: template.description || '',
     records: template.records || [],
-    createdAt: new Date().toISOString()
+    createdAt: new Date().toISOString(),
   };
 
   CloudflareDnsTemplate.createTemplate(newTemplate);
@@ -257,7 +257,7 @@ function updateTemplate(id, updates) {
       description: updated.description,
       records: updated.records,
       createdAt: updated.created_at,
-      updatedAt: updated.updated_at
+      updatedAt: updated.updated_at,
     };
   } catch (e) {
     console.error('❌ 更新 DNS 模板失败:', e.message);
@@ -292,5 +292,5 @@ module.exports = {
   saveTemplates,
   addTemplate,
   updateTemplate,
-  deleteTemplate
+  deleteTemplate,
 };

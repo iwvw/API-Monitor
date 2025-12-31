@@ -38,7 +38,7 @@ function loadServerAccounts() {
       balance: acc.balance,
       cost: acc.cost,
       createdAt: acc.created_at,
-      updatedAt: acc.updated_at
+      updatedAt: acc.updated_at,
     }));
   } catch (e) {
     console.error('❌ 读取账号失败:', e.message);
@@ -70,7 +70,7 @@ function saveServerAccounts(accounts) {
           username: account.username,
           balance: account.balance || 0,
           cost: account.cost || 0,
-          created_at: account.createdAt || new Date().toISOString()
+          created_at: account.createdAt || new Date().toISOString(),
         });
       });
     });
@@ -134,10 +134,13 @@ function getEnvAccounts() {
 
   try {
     // 格式: "账号1名称:token1,账号2名称:token2"
-    return accountsEnv.split(',').map(item => {
-      const [name, token] = item.split(':');
-      return { name: name.trim(), token: token.trim() };
-    }).filter(acc => acc.name && acc.token);
+    return accountsEnv
+      .split(',')
+      .map(item => {
+        const [name, token] = item.split(':');
+        return { name: name.trim(), token: token.trim() };
+      })
+      .filter(acc => acc.name && acc.token);
   } catch (e) {
     console.error('❌ 解析环境变量 ACCOUNTS 失败:', e.message);
     return [];
@@ -162,5 +165,5 @@ module.exports = {
   saveAdminPassword,
   getEnvAccounts,
   ensureConfigDir,
-  isDemoMode
+  isDemoMode,
 };

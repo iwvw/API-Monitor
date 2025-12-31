@@ -10,7 +10,7 @@ export const settingsMethods = {
   async loadModuleSettings() {
     try {
       const response = await fetch('/api/settings', {
-        headers: store.getAuthHeaders()
+        headers: store.getAuthHeaders(),
       });
 
       // 顺便加载数据库统计信息
@@ -32,7 +32,11 @@ export const settingsMethods = {
           if (settings.zeaburRefreshInterval) {
             this.zeaburRefreshInterval = settings.zeaburRefreshInterval;
             this.zeaburRefreshIntervalSec = settings.zeaburRefreshInterval / 1000;
-            if (this.mainActiveTab === 'paas' && this.paasCurrentPlatform === 'zeabur' && !this.dataRefreshPaused) {
+            if (
+              this.mainActiveTab === 'paas' &&
+              this.paasCurrentPlatform === 'zeabur' &&
+              !this.dataRefreshPaused
+            ) {
               this.startAutoRefresh();
             }
           }
@@ -46,7 +50,18 @@ export const settingsMethods = {
           }
 
           // 应用模块设置
-          const validModules = ['dashboard', 'openai', 'antigravity', 'gemini-cli', 'paas', 'dns', 'self-h', 'server', 'totp', 'music'];
+          const validModules = [
+            'dashboard',
+            'openai',
+            'antigravity',
+            'gemini-cli',
+            'paas',
+            'dns',
+            'self-h',
+            'server',
+            'totp',
+            'music',
+          ];
           if (settings.moduleVisibility) {
             const filtered = {};
             validModules.forEach(m => {
@@ -65,13 +80,16 @@ export const settingsMethods = {
 
           if (settings.channelEnabled) this.channelEnabled = settings.channelEnabled;
           if (settings.channelModelPrefix) this.channelModelPrefix = settings.channelModelPrefix;
-          if (settings.load_balancing_strategy) this.agSettingsForm.load_balancing_strategy = settings.load_balancing_strategy;
+          if (settings.load_balancing_strategy)
+            this.agSettingsForm.load_balancing_strategy = settings.load_balancing_strategy;
           if (settings.serverIpDisplayMode) this.serverIpDisplayMode = settings.serverIpDisplayMode;
-          if (settings.vibrationEnabled !== undefined) this.vibrationEnabled = settings.vibrationEnabled;
+          if (settings.vibrationEnabled !== undefined)
+            this.vibrationEnabled = settings.vibrationEnabled;
 
           if (settings.totpSettings) Object.assign(store.totpSettings, settings.totpSettings);
           if (settings.navLayout) store.navLayout = settings.navLayout;
-          if (settings.agentDownloadUrl !== undefined) store.agentDownloadUrl = settings.agentDownloadUrl;
+          if (settings.agentDownloadUrl !== undefined)
+            store.agentDownloadUrl = settings.agentDownloadUrl;
 
           this.activateFirstVisibleModule();
           return true;
@@ -166,7 +184,7 @@ export const settingsMethods = {
       const response = await fetch('/api/auth/change-password', {
         method: 'POST',
         headers: store.getAuthHeaders(),
-        body: JSON.stringify({ password: this.newPassword })
+        body: JSON.stringify({ password: this.newPassword }),
       });
       const result = await response.json();
       if (result.success) {
@@ -191,7 +209,7 @@ export const settingsMethods = {
       const proxy = this.agSettingsForm.PROXY;
       const isMaskedKey = apiKey && /^\.+$/.test(apiKey);
 
-      const payload = { 'PROXY': proxy || '' };
+      const payload = { PROXY: proxy || '' };
       if (!isMaskedKey && apiKey !== undefined) {
         payload.API_KEY = apiKey;
       }
@@ -200,12 +218,12 @@ export const settingsMethods = {
       await fetch('/api/antigravity/settings', {
         method: 'POST',
         headers: store.getAuthHeaders(),
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
       });
       await fetch('/api/gemini-cli/settings', {
         method: 'POST',
         headers: store.getAuthHeaders(),
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
       });
 
       // 2. 保存其余全局选项
@@ -234,13 +252,13 @@ export const settingsMethods = {
         vibrationEnabled: this.vibrationEnabled,
         navLayout: store.navLayout,
         totpSettings: store.totpSettings,
-        agentDownloadUrl: store.agentDownloadUrl
+        agentDownloadUrl: store.agentDownloadUrl,
       };
 
       const response = await fetch('/api/settings', {
         method: 'POST',
         headers: store.getAuthHeaders(),
-        body: JSON.stringify(settings)
+        body: JSON.stringify(settings),
       });
       return response.ok;
     } catch (error) {
@@ -264,24 +282,32 @@ export const settingsMethods = {
       message: '这将删除所有历史日志记录，此操作不可逆。确认继续？',
       icon: 'fa-trash-alt',
       confirmText: '确认清空',
-      confirmClass: 'btn-danger'
+      confirmClass: 'btn-danger',
     });
     if (!confirmed) return;
     try {
       await fetch('/api/settings/clear-logs', { method: 'POST', headers: store.getAuthHeaders() });
       this.fetchDbStats();
       this.showGlobalToast('日志已清空', 'success');
-    } catch (e) { this.showGlobalToast('清空失败', 'error'); }
+    } catch (e) {
+      this.showGlobalToast('清空失败', 'error');
+    }
   },
 
   async handleVacuumDb() {
     this.vacuuming = true;
     try {
-      await fetch('/api/settings/vacuum-database', { method: 'POST', headers: store.getAuthHeaders() });
+      await fetch('/api/settings/vacuum-database', {
+        method: 'POST',
+        headers: store.getAuthHeaders(),
+      });
       this.fetchDbStats();
       this.showGlobalToast('数据库已压缩', 'success');
-    } catch (e) { this.showGlobalToast('压缩失败', 'error'); }
-    finally { this.vacuuming = false; }
+    } catch (e) {
+      this.showGlobalToast('压缩失败', 'error');
+    } finally {
+      this.vacuuming = false;
+    }
   },
 
   async saveLogSettings() {
@@ -289,37 +315,46 @@ export const settingsMethods = {
       await fetch('/api/settings/log-settings', {
         method: 'POST',
         headers: store.getAuthHeaders(),
-        body: JSON.stringify(this.logSettings)
+        body: JSON.stringify(this.logSettings),
       });
       this.showGlobalToast('自动清理配置已保存', 'success');
-    } catch (e) { }
+    } catch (e) {}
   },
 
   async enforceLogLimits() {
     this.logLimitsEnforcing = true;
     try {
-      await fetch('/api/settings/enforce-log-limits', { method: 'POST', headers: store.getAuthHeaders() });
+      await fetch('/api/settings/enforce-log-limits', {
+        method: 'POST',
+        headers: store.getAuthHeaders(),
+      });
       this.fetchDbStats();
       this.showGlobalToast('清理执行成功', 'success');
-    } catch (e) { }
-    finally { this.logLimitsEnforcing = false; }
+    } catch (e) {
+    } finally {
+      this.logLimitsEnforcing = false;
+    }
   },
 
   // 加载统计信息
   async fetchDbStats() {
     try {
-      const response = await fetch('/api/settings/database-stats', { headers: store.getAuthHeaders() });
+      const response = await fetch('/api/settings/database-stats', {
+        headers: store.getAuthHeaders(),
+      });
       const result = await response.json();
       if (result.success) this.dbStats = result.data;
-    } catch (e) { }
+    } catch (e) {}
   },
 
   async fetchLogSettings() {
     try {
-      const response = await fetch('/api/settings/log-settings', { headers: store.getAuthHeaders() });
+      const response = await fetch('/api/settings/log-settings', {
+        headers: store.getAuthHeaders(),
+      });
       const result = await response.json();
       if (result.success) this.logSettings = result.data;
-    } catch (e) { }
+    } catch (e) {}
   },
 
   // 导数逻辑
@@ -331,7 +366,7 @@ export const settingsMethods = {
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.db';
-    input.onchange = async (e) => {
+    input.onchange = async e => {
       const file = e.target.files[0];
       if (!file) return;
 
@@ -342,7 +377,7 @@ export const settingsMethods = {
         const response = await fetch('/api/settings/import-database', {
           method: 'POST',
           headers: { 'x-admin-password': store.loginPassword },
-          body: formData
+          body: formData,
         });
         const result = await response.json();
         if (result.success) {
@@ -351,7 +386,9 @@ export const settingsMethods = {
         } else {
           alert('导入失败: ' + result.msg);
         }
-      } catch (err) { alert('导入出错'); }
+      } catch (err) {
+        alert('导入出错');
+      }
     };
     input.click();
   },
@@ -371,7 +408,7 @@ export const settingsMethods = {
     this.applyCustomCss();
     await this.saveUserSettingsToServer();
     this.customCssSuccess = '样式已保存';
-    setTimeout(() => this.customCssSuccess = '', 3000);
+    setTimeout(() => (this.customCssSuccess = ''), 3000);
   },
 
   resetCustomCss() {
@@ -393,12 +430,24 @@ export const settingsMethods = {
   },
 
   // Helper 方法补全 (从 html 中引用到的)
-  getModuleIcon(m) { return store.getModuleIcon ? store.getModuleIcon(m) : 'fa-cube'; },
-  getModuleName(m) { return store.getModuleName ? store.getModuleName(m) : m; },
-  formatFileSize(s) { return s > 1024 * 1024 ? (s / (1024 * 1024)).toFixed(2) + 'MB' : (s / 1024).toFixed(2) + 'KB'; },
-  getLogIcon(l) { return l === 'ERROR' ? 'fa-exclamation-circle' : 'fa-info-circle'; },
-  formatMessage(m) { return m; },
+  getModuleIcon(m) {
+    return store.getModuleIcon ? store.getModuleIcon(m) : 'fa-cube';
+  },
+  getModuleName(m) {
+    return store.getModuleName ? store.getModuleName(m) : m;
+  },
+  formatFileSize(s) {
+    return s > 1024 * 1024 ? (s / (1024 * 1024)).toFixed(2) + 'MB' : (s / 1024).toFixed(2) + 'KB';
+  },
+  getLogIcon(l) {
+    return l === 'ERROR' ? 'fa-exclamation-circle' : 'fa-info-circle';
+  },
+  formatMessage(m) {
+    return m;
+  },
 
   // 如果 main.js 引用了 saveSettings 作为别名
-  saveSettings() { return this.saveUserSettingsToServer(); }
+  saveSettings() {
+    return this.saveUserSettingsToServer();
+  },
 };

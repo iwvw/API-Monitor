@@ -19,10 +19,10 @@ async function koyebRequest(token, path, method = 'GET', body = null) {
       path: `/v1${path}`,
       method: method,
       headers: {
-        'Authorization': `Bearer ${cleanToken}`,
-        'Content-Type': 'application/json'
+        Authorization: `Bearer ${cleanToken}`,
+        'Content-Type': 'application/json',
       },
-      timeout: 15000
+      timeout: 15000,
     };
 
     if (body) {
@@ -30,9 +30,9 @@ async function koyebRequest(token, path, method = 'GET', body = null) {
       options.headers['Content-Length'] = Buffer.byteLength(data);
     }
 
-    const req = https.request(options, (res) => {
+    const req = https.request(options, res => {
       let responseBody = '';
-      res.on('data', (chunk) => responseBody += chunk);
+      res.on('data', chunk => (responseBody += chunk));
       res.on('end', () => {
         try {
           const parsed = JSON.parse(responseBody);
@@ -96,121 +96,133 @@ async function fetchAccountData(token) {
         id: organization.id,
         name: organization.name,
         email: organization.email || '', // 某些组织对象可能不含 email
-        avatar_url: organization.avatar_url
+        avatar_url: organization.avatar_url,
       };
     } else if (!profile) {
       profile = { id: 'unknown', name: 'Koyeb User', email: '' };
     }
 
     // 获取每个应用的服�?
-    const appsWithServices = await Promise.all(apps.map(async (app) => {
-      try {
-        const servicesResponse = await koyebRequest(token, `/services?app_id=${app.id}`);
-        const services = servicesResponse.services || [];
+    const appsWithServices = await Promise.all(
+      apps.map(async app => {
+        try {
+          const servicesResponse = await koyebRequest(token, `/services?app_id=${app.id}`);
+          const services = servicesResponse.services || [];
 
-        // 获取每个服务的部署信�?
-        const servicesWithDetails = await Promise.all(services.map(async (service) => {
-          try {
-            // 获取最新部�?
-            const deploymentsResponse = await koyebRequest(token, `/deployments?service_id=${service.id}&limit=1`);
-            const deployments = deploymentsResponse.deployments || [];
-            const latestDeployment = deployments[0] || null;
+          // 获取每个服务的部署信�?
+          const servicesWithDetails = await Promise.all(
+            services.map(async service => {
+              try {
+                // 获取最新部�?
+                const deploymentsResponse = await koyebRequest(
+                  token,
+                  `/deployments?service_id=${service.id}&limit=1`
+                );
+                const deployments = deploymentsResponse.deployments || [];
+                const latestDeployment = deployments[0] || null;
 
-            // 获取服务域名
-            const domains = [];
-            if (service.active_deployment) {
-              // Koyeb 自动生成的域�?
-              if (app.name && service.name) {
-                domains.push({
-                  domain: `${app.name}-${service.name}.koyeb.app`,
-                  isGenerated: true
-                });
+                // 获取服务域名
+                const domains = [];
+                if (service.active_deployment) {
+                  // Koyeb 自动生成的域�?
+                  if (app.name && service.name) {
+                    domains.push({
+                      domain: `${app.name}-${service.name}.koyeb.app`,
+                      isGenerated: true,
+                    });
+                  }
+                }
+                // 自定义域�?
+                if (service.domains) {
+                  service.domains.forEach(d => {
+                    domains.push({
+                      domain: d.name || d,
+                      isGenerated: false,
+                    });
+                  });
+                }
+
+                return {
+                  _id: service.id,
+                  name: service.name,
+                  status: mapKoyebStatus(service.status || service.state),
+                  type: service.type || 'web',
+                  resourceLimit: {
+                    cpu: extractCpuFromInstance(service.definition?.instance_types?.[0]?.type),
+                    memory: extractMemoryFromInstance(
+                      service.definition?.instance_types?.[0]?.type
+                    ),
+                  },
+                  domains: domains,
+                  latestDeployment: latestDeployment,
+                  messages: service.messages || [],
+                  createdAt: service.created_at,
+                  updatedAt: service.updated_at,
+                };
+              } catch (e) {
+                console.warn(`获取服务 ${service.name} 详情失败:`, e.message);
+                return {
+                  _id: service.id,
+                  name: service.name,
+                  status: mapKoyebStatus(service.status || service.state),
+                  type: service.type || 'web',
+                  resourceLimit: { cpu: 0, memory: 0 },
+                  domains: [],
+                  error: e.message,
+                };
               }
-            }
-            // 自定义域�?
-            if (service.domains) {
-              service.domains.forEach(d => {
-                domains.push({
-                  domain: d.name || d,
-                  isGenerated: false
-                });
-              });
-            }
+            })
+          );
 
-            return {
-              _id: service.id,
-              name: service.name,
-              status: mapKoyebStatus(service.status || service.state),
-              type: service.type || 'web',
-              resourceLimit: {
-                cpu: extractCpuFromInstance(service.definition?.instance_types?.[0]?.type),
-                memory: extractMemoryFromInstance(service.definition?.instance_types?.[0]?.type)
-              },
-              domains: domains,
-              latestDeployment: latestDeployment,
-              messages: service.messages || [],
-              createdAt: service.created_at,
-              updatedAt: service.updated_at
-            };
-          } catch (e) {
-            console.warn(`获取服务 ${service.name} 详情失败:`, e.message);
-            return {
-              _id: service.id,
-              name: service.name,
-              status: mapKoyebStatus(service.status || service.state),
-              type: service.type || 'web',
-              resourceLimit: { cpu: 0, memory: 0 },
-              domains: [],
-              error: e.message
-            };
-          }
-        }));
-
-        // 尝试从服务实例中获取地区
-        let appRegion = 'unknown';
-        if (servicesWithDetails.length > 0) {
-          const firstService = services[0];
-          try {
-            // 获取第一个服务的实例来确定地�?
-            const instancesResponse = await koyebRequest(token, `/instances?service_id=${firstService.id}&limit=1`);
-            const instances = instancesResponse.instances || [];
-            if (instances.length > 0) {
-              appRegion = instances[0].region || 'unknown';
+          // 尝试从服务实例中获取地区
+          let appRegion = 'unknown';
+          if (servicesWithDetails.length > 0) {
+            const firstService = services[0];
+            try {
+              // 获取第一个服务的实例来确定地�?
+              const instancesResponse = await koyebRequest(
+                token,
+                `/instances?service_id=${firstService.id}&limit=1`
+              );
+              const instances = instancesResponse.instances || [];
+              if (instances.length > 0) {
+                appRegion = instances[0].region || 'unknown';
+              }
+            } catch (e) {
+              console.warn(`获取应用 ${app.name} 地区失败:`, e.message);
             }
-          } catch (e) {
-            console.warn(`获取应用 ${app.name} 地区失败:`, e.message);
           }
+
+          return {
+            _id: app.id,
+            name: app.name,
+            region: mapKoyebRegion(appRegion), // 从实例中获取的地�?
+            services: servicesWithDetails,
+            createdAt: app.created_at,
+            updatedAt: app.updated_at,
+          };
+        } catch (e) {
+          console.warn(`获取应用 ${app.name} 服务失败:`, e.message);
+          return {
+            _id: app.id,
+            name: app.name,
+            region: 'unknown',
+            services: [],
+            error: e.message,
+          };
         }
-
-        return {
-          _id: app.id,
-          name: app.name,
-          region: mapKoyebRegion(appRegion),  // 从实例中获取的地�?
-          services: servicesWithDetails,
-          createdAt: app.created_at,
-          updatedAt: app.updated_at
-        };
-      } catch (e) {
-        console.warn(`获取应用 ${app.name} 服务失败:`, e.message);
-        return {
-          _id: app.id,
-          name: app.name,
-          region: 'unknown',
-          services: [],
-          error: e.message
-        };
-      }
-    }));
+      })
+    );
 
     return {
       user: {
         _id: profile.id || organization?.id,
         username: profile.name || organization?.name || 'Unknown',
-        email: profile.email || organization?.email || ''
+        email: profile.email || organization?.email || '',
       },
       organization: organization,
       projects: appsWithServices,
-      balance: organization?.remaining_credits || 0 // Koyeb 使用 credits
+      balance: organization?.remaining_credits || 0, // Koyeb 使用 credits
     };
   } catch (error) {
     throw error;
@@ -223,13 +235,19 @@ async function fetchAccountData(token) {
 async function fetchServiceLogs(token, serviceId, limit = 100) {
   try {
     // 使用 streams/logs/query 接口，默认为 runtime 日志
-    const response = await koyebRequest(token, `/streams/logs/query?service_id=${serviceId}&type=runtime&limit=${limit}`);
+    const response = await koyebRequest(
+      token,
+      `/streams/logs/query?service_id=${serviceId}&type=runtime&limit=${limit}`
+    );
     return response.result || [];
   } catch (error) {
     console.warn(`获取服务日志失败 (尝试旧接�?: ${error.message}`);
     try {
       // 备选方案：尝试旧的 /logs 接口
-      const response = await koyebRequest(token, `/logs?service_id=${serviceId}&limit=${limit}&order=desc`);
+      const response = await koyebRequest(
+        token,
+        `/logs?service_id=${serviceId}&limit=${limit}&order=desc`
+      );
       return response.logs || [];
     } catch (e) {
       throw error;
@@ -313,7 +331,6 @@ async function restartService(token, serviceId) {
   }
 }
 
-
 /**
  * 重新部署服务
  */
@@ -365,7 +382,14 @@ async function fetchServiceInstances(token, serviceId) {
 /**
  * 获取服务指标
  */
-async function fetchServiceMetrics(token, serviceId, instanceId = null, metricName = 'CPU_TOTAL_PERCENT', start = null, end = null) {
+async function fetchServiceMetrics(
+  token,
+  serviceId,
+  instanceId = null,
+  metricName = 'CPU_TOTAL_PERCENT',
+  start = null,
+  end = null
+) {
   try {
     let path = `/streams/metrics?name=${metricName}`;
     if (instanceId) {
@@ -412,16 +436,16 @@ async function fetchOrganizationUsage(token, startTime = null, endTime = null) {
  */
 function mapKoyebStatus(status) {
   const statusMap = {
-    'STARTING': 'STARTING',
-    'HEALTHY': 'RUNNING',
-    'UNHEALTHY': 'ERROR',
-    'STOPPING': 'STOPPING',
-    'STOPPED': 'SUSPENDED',
-    'PAUSING': 'STOPPING',
-    'PAUSED': 'SUSPENDED',
-    'RESUMING': 'STARTING',
-    'ERRORED': 'ERROR',
-    'DELETING': 'DELETING'
+    STARTING: 'STARTING',
+    HEALTHY: 'RUNNING',
+    UNHEALTHY: 'ERROR',
+    STOPPING: 'STOPPING',
+    STOPPED: 'SUSPENDED',
+    PAUSING: 'STOPPING',
+    PAUSED: 'SUSPENDED',
+    RESUMING: 'STARTING',
+    ERRORED: 'ERROR',
+    DELETING: 'DELETING',
   };
   return statusMap[status?.toUpperCase()] || status || 'UNKNOWN';
 }
@@ -436,22 +460,22 @@ function mapKoyebRegion(region) {
   console.log(`[Koyeb] Mapping region: "${region}"`);
 
   const regionMap = {
-    'was': '华盛顿',
-    'fra': '法兰克福',
-    'par': '巴黎',
-    'sin': '新加坡',
-    'tok': '东京',
-    'sfo': '旧金山',
+    was: '华盛顿',
+    fra: '法兰克福',
+    par: '巴黎',
+    sin: '新加坡',
+    tok: '东京',
+    sfo: '旧金山',
     'silicon valley': '硅谷',
     'united states': '美国',
-    'germany': '德国',
-    'france': '法国',
-    'singapore': '新加坡',
-    'japan': '日本',
-    'washington': '华盛顿',
-    'frankfurt': '法兰克福',
-    'paris': '巴黎',
-    'tokyo': '东京'
+    germany: '德国',
+    france: '法国',
+    singapore: '新加坡',
+    japan: '日本',
+    washington: '华盛顿',
+    frankfurt: '法兰克福',
+    paris: '巴黎',
+    tokyo: '东京',
   };
 
   const lowerRegion = region.toLowerCase();
@@ -470,7 +494,6 @@ function mapKoyebRegion(region) {
   return region;
 }
 
-
 /**
  * 从实例类型提�?CPU 配置 (毫核)
  */
@@ -478,13 +501,13 @@ function extractCpuFromInstance(instanceType) {
   if (!instanceType) return 0;
   // Koyeb 实例类型示例: nano, micro, small, medium, large, xlarge
   const cpuMap = {
-    'free': 100,
-    'nano': 100,
-    'micro': 250,
-    'small': 500,
-    'medium': 1000,
-    'large': 2000,
-    'xlarge': 4000
+    free: 100,
+    nano: 100,
+    micro: 250,
+    small: 500,
+    medium: 1000,
+    large: 2000,
+    xlarge: 4000,
   };
   return cpuMap[instanceType?.toLowerCase()] || 0;
 }
@@ -495,13 +518,13 @@ function extractCpuFromInstance(instanceType) {
 function extractMemoryFromInstance(instanceType) {
   if (!instanceType) return 0;
   const memoryMap = {
-    'free': 256,
-    'nano': 256,
-    'micro': 512,
-    'small': 1024,
-    'medium': 2048,
-    'large': 4096,
-    'xlarge': 8192
+    free: 256,
+    nano: 256,
+    micro: 512,
+    small: 1024,
+    medium: 2048,
+    large: 4096,
+    xlarge: 8192,
   };
   return memoryMap[instanceType?.toLowerCase()] || 0;
 }
@@ -519,6 +542,5 @@ module.exports = {
   fetchServiceMetrics,
   fetchOrganizationUsage,
   renameApp,
-  renameService
+  renameService,
 };
-

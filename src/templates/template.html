@@ -1,45 +1,45 @@
 <!-- 模板模块 UI -->
 <template id="{{module_name}}-template">
-    <div class="module-container {{module_name}}-module">
-        <!-- 头部工具栏 -->
-        <div class="module-header">
-            <div class="title-area">
-                <i class="fas fa-cube"></i>
-                <h2>{{module_title}}</h2>
-            </div>
-            <div class="actions">
-                <button class="btn btn-primary" @click="fetch{{ModuleName}}Data" :disabled="refreshing">
-                    <i class="fas fa-sync-alt" :class="{'fa-spin': refreshing}"></i> 刷新
-                </button>
-                <button class="btn btn-success" @click="showAddModal = true">
-                    <i class="fas fa-plus"></i> 添加账号
-                </button>
-            </div>
-        </div>
-
-        <!-- 数据列表/卡片 -->
-        <div class="module-content">
-            <div v-if="loading" class="loading-state">
-                <i class="fas fa-spinner fa-spin"></i> 加载中...
-            </div>
-            
-            <div v-else-if="accounts.length === 0" class="empty-state">
-                <i class="fas fa-folder-open"></i>
-                <p>暂无数据，请先添加账号</p>
-            </div>
-
-            <div v-else class="data-grid">
-                <!-- 循环展示数据 -->
-                <div v-for="account in accounts" :key="account.id" class="data-card">
-                    <div class="card-header">
-                        <h3>{{ account.name }}</h3>
-                        <span class="status-badge" :class="account.status">{{ account.status }}</span>
-                    </div>
-                    <div class="card-body">
-                        <!-- 账号明细 -->
-                    </div>
-                </div>
-            </div>
-        </div>
+  <div class="module-container {{module_name}}-module">
+    <!-- 头部工具栏 -->
+    <div class="module-header">
+      <div class="title-area">
+        <i class="fas fa-cube"></i>
+        <h2>{{module_title}}</h2>
+      </div>
+      <div class="actions">
+        <button class="btn btn-primary" @click="fetch{{ModuleName}}Data" :disabled="refreshing">
+          <i class="fas fa-sync-alt" :class="{'fa-spin': refreshing}"></i> 刷新
+        </button>
+        <button class="btn btn-success" @click="showAddModal = true">
+          <i class="fas fa-plus"></i> 添加账号
+        </button>
+      </div>
     </div>
+
+    <!-- 数据列表/卡片 -->
+    <div class="module-content">
+      <div v-if="loading" class="loading-state">
+        <i class="fas fa-spinner fa-spin"></i> 加载中...
+      </div>
+
+      <div v-else-if="accounts.length === 0" class="empty-state">
+        <i class="fas fa-folder-open"></i>
+        <p>暂无数据，请先添加账号</p>
+      </div>
+
+      <div v-else class="data-grid">
+        <!-- 循环展示数据 -->
+        <div v-for="account in accounts" :key="account.id" class="data-card">
+          <div class="card-header">
+            <h3>{{ account.name }}</h3>
+            <span class="status-badge" :class="account.status">{{ account.status }}</span>
+          </div>
+          <div class="card-body">
+            <!-- 账号明细 -->
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
 </template>

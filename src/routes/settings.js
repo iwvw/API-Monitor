@@ -9,7 +9,7 @@ const fs = require('fs');
 const {
   loadUserSettings,
   saveUserSettings,
-  updateUserSettings
+  updateUserSettings,
 } = require('../services/userSettings');
 const dbService = require('../db/database');
 const { SystemConfig, OperationLog } = require('../db/models');
@@ -26,7 +26,7 @@ router.get('/operation-logs', (req, res) => {
     const logs = OperationLog.getLogs(null, 100);
     res.json({
       success: true,
-      data: logs
+      data: logs,
     });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
@@ -48,17 +48,22 @@ router.get('/sys-logs', (req, res) => {
         const content = fs.readFileSync(LOG_FILE, 'utf8');
         const lines = content.trim().split('\n').slice(-50);
         buffer = lines.map(line => {
-          try { return JSON.parse(line); }
-          catch (e) { return { message: line, level: 'INFO', timestamp: new Date().toISOString() }; }
+          try {
+            return JSON.parse(line);
+          } catch (e) {
+            return { message: line, level: 'INFO', timestamp: new Date().toISOString() };
+          }
         });
       }
     }
 
     const formattedLogs = (buffer || []).map(entry => ({
-      time: entry.timestamp ? new Date(entry.timestamp).toLocaleTimeString('zh-CN', { hour12: false }) : '00:00:00',
+      time: entry.timestamp
+        ? new Date(entry.timestamp).toLocaleTimeString('zh-CN', { hour12: false })
+        : '00:00:00',
       level: entry.level || 'INFO',
       module: entry.module || 'core',
-      message: entry.message + (entry.data ? ` [DATA]` : '')
+      message: entry.message + (entry.data ? ' [DATA]' : ''),
     }));
 
     // 获取详细日志文件信息
@@ -68,7 +73,7 @@ router.get('/sys-logs', (req, res) => {
       success: true,
       data: formattedLogs,
       fileSize: `${fileInfo.sizeMB} MB`,
-      fileInfo: fileInfo
+      fileInfo: fileInfo,
     });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
@@ -94,7 +99,7 @@ router.get('/app-log-file', (req, res) => {
     res.json({
       success: true,
       data: lastLines,
-      size: (fs.statSync(logPath).size / 1024).toFixed(2) + ' KB'
+      size: (fs.statSync(logPath).size / 1024).toFixed(2) + ' KB',
     });
   } catch (error) {
     logger.error('读取日志文件失败:', error.message);
@@ -111,12 +116,12 @@ router.get('/', (req, res) => {
     const settings = loadUserSettings();
     res.json({
       success: true,
-      data: settings
+      data: settings,
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
 });
@@ -135,18 +140,18 @@ router.post('/', (req, res) => {
     if (result.success) {
       res.json({
         success: true,
-        message: '设置已保存'
+        message: '设置已保存',
       });
     } else {
       res.status(500).json({
         success: false,
-        error: result.error
+        error: result.error,
       });
     }
   } catch (error) {
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
 });
@@ -163,18 +168,18 @@ router.patch('/', (req, res) => {
     if (result.success) {
       res.json({
         success: true,
-        message: '设置已更新'
+        message: '设置已更新',
       });
     } else {
       res.status(500).json({
         success: false,
-        error: result.error
+        error: result.error,
       });
     }
   } catch (error) {
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
 });
@@ -202,7 +207,7 @@ router.get('/export-database', async (req, res) => {
     await dbService.backup(backupPath);
 
     // 发送文件
-    res.download(backupPath, backupFileName, (err) => {
+    res.download(backupPath, backupFileName, err => {
       // 下载完成后删除临时文件
       if (fs.existsSync(backupPath)) {
         fs.unlinkSync(backupPath);
@@ -218,7 +223,7 @@ router.get('/export-database', async (req, res) => {
     logger.error('数据库导出失败', error.message);
     res.status(500).json({
       success: false,
-      error: '数据库导出失败: ' + error.message
+      error: '数据库导出失败: ' + error.message,
     });
   }
 });
@@ -235,7 +240,7 @@ router.post('/import-database', async (req, res) => {
     if (!req.files || !req.files.database) {
       return res.status(400).json({
         success: false,
-        error: '未找到上传的数据库文件'
+        error: '未找到上传的数据库文件',
       });
     }
 
@@ -245,7 +250,7 @@ router.post('/import-database', async (req, res) => {
     if (!uploadedFile.name.endsWith('.db')) {
       return res.status(400).json({
         success: false,
-        error: '无效的文件类型，请上传 .db 文件'
+        error: '无效的文件类型，请上传 .db 文件',
       });
     }
 
@@ -286,7 +291,7 @@ router.post('/import-database', async (req, res) => {
     res.json({
       success: true,
       message: '数据库导入成功，原数据库已备份',
-      backupPath: currentBackupPath
+      backupPath: currentBackupPath,
     });
   } catch (error) {
     logger.error('数据库导入失败', error.message);
@@ -300,7 +305,7 @@ router.post('/import-database', async (req, res) => {
 
     res.status(500).json({
       success: false,
-      error: '数据库导入失败: ' + error.message
+      error: '数据库导入失败: ' + error.message,
     });
   }
 });
@@ -314,13 +319,13 @@ router.get('/database-stats', (req, res) => {
     const stats = dbService.getStats();
     res.json({
       success: true,
-      data: stats
+      data: stats,
     });
   } catch (error) {
     logger.error('获取数据库统计失败', error.message);
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
 });
@@ -335,13 +340,13 @@ router.post('/vacuum-database', async (req, res) => {
     dbService.vacuum();
     res.json({
       success: true,
-      message: '数据库压缩整理完成'
+      message: '数据库压缩整理完成',
     });
   } catch (error) {
     logger.error('数据库压缩请求失败', error.message);
     res.status(500).json({
       success: false,
-      error: '数据库压缩失败: ' + error.message
+      error: '数据库压缩失败: ' + error.message,
     });
   }
 });
@@ -357,13 +362,13 @@ router.post('/clear-logs', async (req, res) => {
     res.json({
       success: true,
       message: `日志清理完成，共移除 ${count} 条记录`,
-      count
+      count,
     });
   } catch (error) {
     logger.error('日志清理请求失败', error.message);
     res.status(500).json({
       success: false,
-      error: '日志清理失败: ' + error.message
+      error: '日志清理失败: ' + error.message,
     });
   }
 });
@@ -412,10 +417,10 @@ router.get('/log-settings', (req, res) => {
         days: parseInt(days) || 0,
         count: parseInt(count) || 0,
         dbSizeMB: parseInt(dbSizeMB) || 0,
-        logFileSizeMB: parseInt(logFileSizeMB) || 10
+        logFileSizeMB: parseInt(logFileSizeMB) || 10,
       },
       logConfig: logConfig,
-      fileInfo: fileInfo
+      fileInfo: fileInfo,
     });
   } catch (error) {
     logger.error('获取日志设置失败', error.message);
@@ -446,7 +451,7 @@ router.post('/log-settings', (req, res) => {
     res.json({
       success: true,
       message: '日志设置已保存',
-      fileInfo: getLogFileInfo()
+      fileInfo: getLogFileInfo(),
     });
   } catch (error) {
     logger.error('保存日志设置失败', error.message);
@@ -472,13 +477,13 @@ router.post('/enforce-log-limits', async (req, res) => {
     const result = dbService.enforceLogLimits({
       days: parseInt(days),
       count: parseInt(count),
-      dbSizeMB: parseInt(dbSizeMB)
+      dbSizeMB: parseInt(dbSizeMB),
     });
 
     res.json({
       success: true,
       message: `日志清理完成，共移除 ${result.deleted} 条记录`,
-      data: result
+      data: result,
     });
   } catch (error) {
     logger.error('强制日志清理失败', error.message);

@@ -2,452 +2,452 @@
 
 /* 顶部导航栏容器 - Logo 左侧，导航居中 */
 .top-nav-bar {
-    position: relative;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 12px 0;
-    /* margin-bottom: 16px; */
-    min-height: 56px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 0;
+  /* margin-bottom: 16px; */
+  min-height: 56px;
 }
 
 /* Logo 区域 - 绝对定位在左侧 */
 .nav-brand {
-    position: absolute;
-    left: 0;
-    top: 50%;
-    transform: translateY(-50%);
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    flex-shrink: 0;
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
 }
 
 .nav-logo {
-    width: 32px;
-    height: 32px;
+  width: 32px;
+  height: 32px;
 }
 
 .nav-title {
-    font-size: 18px;
-    font-weight: 800;
-    letter-spacing: -0.5px;
-    color: var(--text-primary);
-    cursor: default;
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+  color: var(--text-primary);
+  cursor: default;
 }
 
 /* 主导航容器 - 居中显示 */
 .top-nav-bar .main-nav-container {
-    display: flex;
-    justify-content: center;
+  display: flex;
+  justify-content: center;
 }
 
 /* 分组导航容器 */
 .main-tabs-grouped {
-    display: flex;
-    gap: 8px;
-    align-items: center;
-    justify-content: center;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  justify-content: center;
 }
 
 /* 分组容器 */
 .nav-group {
-    position: relative;
+  position: relative;
 }
 
 /* 分组按钮 */
 .nav-group-btn {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 10px 16px;
-    border: none;
-    background: transparent;
-    color: var(--text-secondary);
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-    border-radius: 12px;
-    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-    white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: 12px;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  white-space: nowrap;
 }
 
 .nav-group-btn i:first-child {
-    font-size: 15px;
-    width: 18px;
-    text-align: center;
+  font-size: 15px;
+  width: 18px;
+  text-align: center;
 }
 
 .nav-group-btn .group-arrow {
-    font-size: 10px;
-    opacity: 0.5;
-    transition: transform 0.25s ease;
-    margin-left: 2px;
+  font-size: 10px;
+  opacity: 0.5;
+  transition: transform 0.25s ease;
+  margin-left: 2px;
 }
 
 .nav-group.expanded .nav-group-btn .group-arrow {
-    transform: rotate(180deg);
+  transform: rotate(180deg);
 }
 
 .nav-group-btn:hover {
-    color: var(--text-primary);
-    background: rgba(var(--primary-rgb), 0.08);
+  color: var(--text-primary);
+  background: rgba(var(--primary-rgb), 0.08);
 }
 
 .nav-group-btn.active {
-    color: var(--current-primary, var(--primary-color));
-    background: rgba(var(--current-rgb, var(--primary-rgb)), 0.12);
+  color: var(--current-primary, var(--primary-color));
+  background: rgba(var(--current-rgb, var(--primary-rgb)), 0.12);
 }
 
 /* 导航栏设置按钮（PC 端样式） */
 .nav-settings-btn {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 10px 16px;
-    border: none;
-    background: transparent;
-    color: var(--text-secondary);
-    font-size: 14px;
-    font-weight: 600;
-    cursor: pointer;
-    border-radius: 12px;
-    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-    white-space: nowrap;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: 12px;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  white-space: nowrap;
 }
 
 .nav-settings-btn i {
-    font-size: 15px;
-    width: 18px;
-    text-align: center;
+  font-size: 15px;
+  width: 18px;
+  text-align: center;
 }
 
 .nav-settings-btn:hover {
-    color: var(--text-primary);
-    background: rgba(var(--primary-rgb), 0.08);
+  color: var(--text-primary);
+  background: rgba(var(--primary-rgb), 0.08);
 }
 
 .nav-settings-btn.active {
-    color: var(--primary-color);
-    background: rgba(var(--primary-rgb), 0.12);
+  color: var(--primary-color);
+  background: rgba(var(--primary-rgb), 0.12);
 }
 
 .nav-settings-btn.active i {
-    animation: settings-spin 0.6s ease;
+  animation: settings-spin 0.6s ease;
 }
 
 @keyframes settings-spin {
-    from {
-        transform: rotate(0deg);
-    }
+  from {
+    transform: rotate(0deg);
+  }
 
-    to {
-        transform: rotate(180deg);
-    }
+  to {
+    transform: rotate(180deg);
+  }
 }
 
 /* 下拉菜单 */
 .nav-group-dropdown {
-    position: absolute;
-    top: calc(100% + 8px);
-    left: 50%;
-    transform: translateX(-50%);
-    min-width: 160px;
-    background: var(--bg-primary);
-    backdrop-filter: blur(24px) saturate(200%);
-    -webkit-backdrop-filter: blur(24px) saturate(200%);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 14px;
-    padding: 6px;
-    box-shadow:
-        0 8px 30px rgba(0, 0, 0, 0.25),
-        0 4px 10px rgba(0, 0, 0, 0.1),
-        inset 0 1px 0 rgba(255, 255, 255, 0.05);
-    z-index: 1001;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 160px;
+  background: var(--bg-primary);
+  backdrop-filter: blur(24px) saturate(200%);
+  -webkit-backdrop-filter: blur(24px) saturate(200%);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 14px;
+  padding: 6px;
+  box-shadow:
+    0 8px 30px rgba(0, 0, 0, 0.25),
+    0 4px 10px rgba(0, 0, 0, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  z-index: 1001;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
 /* 下拉菜单项 */
 .nav-group-dropdown .dropdown-item {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 10px 14px;
-    border: none;
-    background: transparent;
-    color: var(--text-secondary);
-    font-size: 13px;
-    font-weight: 500;
-    cursor: pointer;
-    border-radius: 10px;
-    transition: all 0.2s ease;
-    text-align: left;
-    width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border-radius: 10px;
+  transition: all 0.2s ease;
+  text-align: left;
+  width: 100%;
 }
 
 .nav-group-dropdown .dropdown-item i {
-    width: 18px;
-    text-align: center;
-    font-size: 14px;
+  width: 18px;
+  text-align: center;
+  font-size: 14px;
 }
 
 .nav-group-dropdown .dropdown-item:hover {
-    background: rgba(var(--primary-rgb), 0.1);
-    color: var(--text-primary);
+  background: rgba(var(--primary-rgb), 0.1);
+  color: var(--text-primary);
 }
 
 .nav-group-dropdown .dropdown-item.active {
-    background: rgba(var(--current-rgb, var(--primary-rgb)), 0.15);
-    color: var(--current-primary, var(--primary-color));
+  background: rgba(var(--current-rgb, var(--primary-rgb)), 0.15);
+  color: var(--current-primary, var(--primary-color));
 }
 
 /* 各模块特色颜色 */
 .nav-group-dropdown .dropdown-item.openai-tab.active {
-    color: var(--openai-primary);
-    background: rgba(var(--openai-rgb), 0.12);
+  color: var(--openai-primary);
+  background: rgba(var(--openai-rgb), 0.12);
 }
 
 .nav-group-dropdown .dropdown-item.antigravity-tab.active {
-    color: var(--ag-primary);
-    background: rgba(var(--ag-rgb), 0.12);
+  color: var(--ag-primary);
+  background: rgba(var(--ag-rgb), 0.12);
 }
 
 .nav-group-dropdown .dropdown-item.gemini-cli-tab.active {
-    color: var(--gemini-primary);
-    background: rgba(var(--gemini-rgb), 0.12);
+  color: var(--gemini-primary);
+  background: rgba(var(--gemini-rgb), 0.12);
 }
 
 .nav-group-dropdown .dropdown-item.paas-tab.active {
-    color: var(--paas-primary);
-    background: rgba(var(--paas-rgb), 0.12);
+  color: var(--paas-primary);
+  background: rgba(var(--paas-rgb), 0.12);
 }
 
 .nav-group-dropdown .dropdown-item.dns-tab.active {
-    color: var(--cf-primary);
-    background: rgba(var(--cf-rgb), 0.12);
+  color: var(--cf-primary);
+  background: rgba(var(--cf-rgb), 0.12);
 }
 
 .nav-group-dropdown .dropdown-item.server-tab.active {
-    color: var(--server-primary);
-    background: rgba(var(--server-rgb), 0.12);
+  color: var(--server-primary);
+  background: rgba(var(--server-rgb), 0.12);
 }
 
 .nav-group-dropdown .dropdown-item.self-h-tab.active {
-    color: var(--selfh-primary);
-    background: rgba(var(--selfh-rgb), 0.12);
+  color: var(--selfh-primary);
+  background: rgba(var(--selfh-rgb), 0.12);
 }
 
 .nav-group-dropdown .dropdown-item.totp-tab.active {
-    color: var(--totp-primary);
-    background: rgba(var(--totp-rgb), 0.12);
+  color: var(--totp-primary);
+  background: rgba(var(--totp-rgb), 0.12);
 }
 
 .nav-group-dropdown .dropdown-item.music-tab.active {
-    color: #f43f5e;
-    background: rgba(244, 63, 94, 0.12);
+  color: #f43f5e;
+  background: rgba(244, 63, 94, 0.12);
 }
 
 /* 下拉菜单动画 */
 .dropdown-fade-enter-active,
 .dropdown-fade-leave-active {
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .dropdown-fade-enter-from,
 .dropdown-fade-leave-to {
-    opacity: 0;
-    transform: translateX(-50%) translateY(-8px);
+  opacity: 0;
+  transform: translateX(-50%) translateY(-8px);
 }
 
 /* ==================== 胶囊模式适配 ==================== */
 
 @media (min-width: 769px) {
-    .nav-capsule .main-tabs-grouped {
-        background: rgba(var(--bg-secondary-rgb), 0.65);
-        backdrop-filter: blur(16px) saturate(150%);
-        -webkit-backdrop-filter: blur(16px) saturate(150%);
-        border: 1px solid var(--border-color);
-        border-radius: 100px;
-        padding: 6px 12px;
-        gap: 4px;
-        box-shadow: var(--card-shadow);
-        height: 56px;
-    }
+  .nav-capsule .main-tabs-grouped {
+    background: rgba(var(--bg-secondary-rgb), 0.65);
+    backdrop-filter: blur(16px) saturate(150%);
+    -webkit-backdrop-filter: blur(16px) saturate(150%);
+    border: 1px solid var(--border-color);
+    border-radius: 100px;
+    padding: 6px 12px;
+    gap: 4px;
+    box-shadow: var(--card-shadow);
+    height: 56px;
+  }
 
-    .nav-capsule .nav-group-btn {
-        padding: 8px 14px;
-        border-radius: 50px;
-        height: 42px;
-    }
+  .nav-capsule .nav-group-btn {
+    padding: 8px 14px;
+    border-radius: 50px;
+    height: 42px;
+  }
 
-    .nav-capsule .nav-group-btn .group-name {
-        display: inline;
-    }
+  .nav-capsule .nav-group-btn .group-name {
+    display: inline;
+  }
 
-    .nav-capsule .nav-group-dropdown {
-        bottom: calc(100% + 12px);
-        top: auto;
-    }
+  .nav-capsule .nav-group-dropdown {
+    bottom: calc(100% + 12px);
+    top: auto;
+  }
 
-    /* 底部导航时下拉菜单向上弹出 */
-    .nav-bottom-fixed .nav-group-dropdown {
-        bottom: calc(100% + 12px);
-        top: auto;
-    }
+  /* 底部导航时下拉菜单向上弹出 */
+  .nav-bottom-fixed .nav-group-dropdown {
+    bottom: calc(100% + 12px);
+    top: auto;
+  }
 
-    .nav-bottom-fixed .dropdown-fade-enter-from,
-    .nav-bottom-fixed .dropdown-fade-leave-to {
-        transform: translateX(-50%) translateY(8px);
-    }
+  .nav-bottom-fixed .dropdown-fade-enter-from,
+  .nav-bottom-fixed .dropdown-fade-leave-to {
+    transform: translateX(-50%) translateY(8px);
+  }
 }
 
 /* ==================== 移动端适配 ==================== */
 
 .mobile-only {
-    display: none !important;
+  display: none !important;
 }
 
 @media (max-width: 768px) {
-    .mobile-only {
-        display: flex !important;
+  .mobile-only {
+    display: flex !important;
+  }
+
+  .pc-only {
+    display: none !important;
+  }
+
+  /* 移动端隐藏顶部导航栏的 Logo 区域 */
+  .top-nav-bar {
+    display: unset !important;
+    padding: 0;
+    margin-bottom: 0;
+  }
+
+  .top-nav-bar .nav-brand {
+    display: none !important;
+  }
+
+  /* 导航容器在移动端变为固定底栏 */
+  .top-nav-bar .main-nav-container {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 1000;
+  }
+
+  /* 底栏容器样式 - 使用 flex 均分 */
+  .main-tabs-grouped {
+    width: 100%;
+    display: flex !important;
+    justify-content: stretch !important;
+    padding: 0 !important;
+    gap: 0 !important;
+  }
+
+  /* 分组容器 - 等宽 */
+  .nav-group {
+    flex: 1 !important;
+    display: flex !important;
+  }
+
+  /* 分组按钮移动端样式 - 撑满父容器 */
+  .nav-group-btn {
+    flex: 1 !important;
+    width: 100% !important;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 8px 4px;
+    font-size: 10px;
+    min-width: 0;
+    height: 56px;
+    border-radius: 0 !important;
+  }
+
+  .nav-group-btn i:first-child {
+    font-size: 20px;
+  }
+
+  .nav-group-btn .group-name {
+    font-size: 10px;
+    font-weight: 500;
+  }
+
+  .nav-group-btn .group-arrow {
+    display: none;
+  }
+
+  /* 底栏设置按钮 - 与分组按钮样式统一 */
+  .nav-settings-btn {
+    flex: 1 !important;
+    display: flex !important;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    padding: 8px 4px;
+    min-width: 0;
+    height: 56px;
+    border: none;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 10px;
+    font-weight: 500;
+    cursor: pointer;
+    border-radius: 0 !important;
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .nav-settings-btn i {
+    font-size: 20px;
+  }
+
+  .nav-settings-btn .group-name {
+    font-size: 10px;
+  }
+
+  .nav-settings-btn:hover,
+  .nav-settings-btn:active {
+    color: var(--text-primary);
+    background: rgba(var(--primary-rgb), 0.08);
+  }
+
+  .nav-settings-btn.active {
+    color: var(--primary-color);
+    background: rgba(var(--primary-rgb), 0.12);
+  }
+
+  .nav-settings-btn.active i {
+    animation: spin-once 0.5s ease;
+  }
+
+  @keyframes spin-once {
+    from {
+      transform: rotate(0deg);
     }
 
-    .pc-only {
-        display: none !important;
+    to {
+      transform: rotate(180deg);
     }
+  }
 
-    /* 移动端隐藏顶部导航栏的 Logo 区域 */
-    .top-nav-bar {
-        display: unset !important;
-        padding: 0;
-        margin-bottom: 0;
-    }
+  /* 下拉菜单移动端定位 - 适配贴边底栏 */
+  .nav-group-dropdown {
+    position: fixed;
+    bottom: calc(56px + env(safe-area-inset-bottom, 0) + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    width: calc(100% - 24px);
+    max-width: 300px;
+    top: auto;
+  }
 
-    .top-nav-bar .nav-brand {
-        display: none !important;
-    }
-
-    /* 导航容器在移动端变为固定底栏 */
-    .top-nav-bar .main-nav-container {
-        position: fixed;
-        bottom: 0;
-        left: 0;
-        right: 0;
-        z-index: 1000;
-    }
-
-    /* 底栏容器样式 - 使用 flex 均分 */
-    .main-tabs-grouped {
-        width: 100%;
-        display: flex !important;
-        justify-content: stretch !important;
-        padding: 0 !important;
-        gap: 0 !important;
-    }
-
-    /* 分组容器 - 等宽 */
-    .nav-group {
-        flex: 1 !important;
-        display: flex !important;
-    }
-
-    /* 分组按钮移动端样式 - 撑满父容器 */
-    .nav-group-btn {
-        flex: 1 !important;
-        width: 100% !important;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        gap: 4px;
-        padding: 8px 4px;
-        font-size: 10px;
-        min-width: 0;
-        height: 56px;
-        border-radius: 0 !important;
-    }
-
-    .nav-group-btn i:first-child {
-        font-size: 20px;
-    }
-
-    .nav-group-btn .group-name {
-        font-size: 10px;
-        font-weight: 500;
-    }
-
-    .nav-group-btn .group-arrow {
-        display: none;
-    }
-
-    /* 底栏设置按钮 - 与分组按钮样式统一 */
-    .nav-settings-btn {
-        flex: 1 !important;
-        display: flex !important;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        gap: 4px;
-        padding: 8px 4px;
-        min-width: 0;
-        height: 56px;
-        border: none;
-        background: transparent;
-        color: var(--text-secondary);
-        font-size: 10px;
-        font-weight: 500;
-        cursor: pointer;
-        border-radius: 0 !important;
-        transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
-    }
-
-    .nav-settings-btn i {
-        font-size: 20px;
-    }
-
-    .nav-settings-btn .group-name {
-        font-size: 10px;
-    }
-
-    .nav-settings-btn:hover,
-    .nav-settings-btn:active {
-        color: var(--text-primary);
-        background: rgba(var(--primary-rgb), 0.08);
-    }
-
-    .nav-settings-btn.active {
-        color: var(--primary-color);
-        background: rgba(var(--primary-rgb), 0.12);
-    }
-
-    .nav-settings-btn.active i {
-        animation: spin-once 0.5s ease;
-    }
-
-    @keyframes spin-once {
-        from {
-            transform: rotate(0deg);
-        }
-
-        to {
-            transform: rotate(180deg);
-        }
-    }
-
-    /* 下拉菜单移动端定位 - 适配贴边底栏 */
-    .nav-group-dropdown {
-        position: fixed;
-        bottom: calc(56px + env(safe-area-inset-bottom, 0) + 8px);
-        left: 50%;
-        transform: translateX(-50%);
-        width: calc(100% - 24px);
-        max-width: 300px;
-        top: auto;
-    }
-
-    .dropdown-fade-enter-from,
-    .dropdown-fade-leave-to {
-        transform: translateX(-50%) translateY(20px);
-    }
+  .dropdown-fade-enter-from,
+  .dropdown-fade-leave-to {
+    transform: translateX(-50%) translateY(20px);
+  }
 }

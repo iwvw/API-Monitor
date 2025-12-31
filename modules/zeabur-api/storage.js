@@ -27,7 +27,7 @@ function loadServerAccounts() {
       projects: [], // 项目数据需要单独查询
       createdAt: acc.created_at,
       updatedAt: acc.updated_at,
-      lastSyncedAt: acc.last_synced_at
+      lastSyncedAt: acc.last_synced_at,
     }));
   } catch (e) {
     console.error('❌ 读取账号失败:', e.message);
@@ -58,7 +58,7 @@ function saveServerAccounts(accounts) {
           balance: account.balance || 0,
           cost: account.cost || 0,
           created_at: account.createdAt || new Date().toISOString(),
-          last_synced_at: account.lastSyncedAt || null
+          last_synced_at: account.lastSyncedAt || null,
         });
       });
     });
@@ -80,10 +80,13 @@ function getEnvAccounts() {
 
   try {
     // 格式: "账号1名称:token1,账号2名称:token2"
-    return accountsEnv.split(',').map(item => {
-      const [name, token] = item.split(':');
-      return { name: name.trim(), token: token.trim() };
-    }).filter(acc => acc.name && acc.token);
+    return accountsEnv
+      .split(',')
+      .map(item => {
+        const [name, token] = item.split(':');
+        return { name: name.trim(), token: token.trim() };
+      })
+      .filter(acc => acc.name && acc.token);
   } catch (e) {
     console.error('❌ 解析环境变量 ACCOUNTS 失败:', e.message);
     return [];
@@ -93,5 +96,5 @@ function getEnvAccounts() {
 module.exports = {
   loadServerAccounts,
   saveServerAccounts,
-  getEnvAccounts
+  getEnvAccounts,
 };

@@ -10,7 +10,7 @@ const {
   loadAdminPassword,
   isPasswordSavedToFile,
   saveAdminPassword,
-  isDemoMode
+  isDemoMode,
 } = require('../services/config');
 
 const logger = createLogger('Auth');
@@ -22,7 +22,7 @@ router.get('/check-password', (req, res) => {
   const savedPassword = loadAdminPassword();
   res.json({
     hasPassword: !!savedPassword,
-    isDemoMode: isDemoMode()
+    isDemoMode: isDemoMode(),
   });
 });
 
@@ -50,7 +50,7 @@ router.post('/login', (req, res) => {
     httpOnly: true,
     sameSite: 'lax',
     path: '/',
-    maxAge: 24 * 60 * 60 * 1000 // 24小时（毫秒）
+    maxAge: 24 * 60 * 60 * 1000, // 24小时（毫秒）
   };
 
   logger.info(`用户登录成功 sid=${sid.substring(0, 8)}...`);

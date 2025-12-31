@@ -19,7 +19,7 @@ const router = express.Router();
 router.get('/recent', requireAuth, (req, res) => {
   res.json({
     success: true,
-    data: getBuffer()
+    data: getBuffer(),
   });
 });
 
@@ -34,13 +34,16 @@ router.get('/full', requireAuth, (req, res) => {
 
   try {
     const content = fs.readFileSync(logFile, 'utf8');
-    const logs = content.trim().split('\n').map(line => {
-      try {
-        return JSON.parse(line);
-      } catch (e) {
-        return { message: line, level: 'INFO', timestamp: new Date().toISOString() };
-      }
-    });
+    const logs = content
+      .trim()
+      .split('\n')
+      .map(line => {
+        try {
+          return JSON.parse(line);
+        } catch (e) {
+          return { message: line, level: 'INFO', timestamp: new Date().toISOString() };
+        }
+      });
     res.json({ success: true, data: logs });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -54,7 +57,7 @@ router.get('/full', requireAuth, (req, res) => {
 function init(server) {
   const wss = new WebSocketServer({
     noServer: true,
-    perMessageDeflate: false
+    perMessageDeflate: false,
   });
 
   handleConnection(wss);
@@ -73,22 +76,26 @@ function handleConnection(wss) {
     // 发送当前缓冲区中的日志
     try {
       const buffer = getBuffer();
-      ws.send(JSON.stringify({
-        type: 'init',
-        data: buffer
-      }));
+      ws.send(
+        JSON.stringify({
+          type: 'init',
+          data: buffer,
+        })
+      );
     } catch (err) {
       logger.error('发送初始日志失败:', err.message);
     }
 
     // 监听新日志
-    const logHandler = (logEntry) => {
+    const logHandler = logEntry => {
       if (ws.readyState === ws.OPEN) {
         try {
-          ws.send(JSON.stringify({
-            type: 'log',
-            data: logEntry
-          }));
+          ws.send(
+            JSON.stringify({
+              type: 'log',
+              data: logEntry,
+            })
+          );
         } catch (err) {
           // 发送失败，忽略
         }
@@ -102,13 +109,13 @@ function handleConnection(wss) {
       logEmitter.off('log', logHandler);
     });
 
-    ws.on('error', (error) => {
+    ws.on('error', error => {
       logger.error('WebSocket 错误:', error.message);
       logEmitter.off('log', logHandler);
     });
   });
 
-  wss.on('error', (error) => {
+  wss.on('error', error => {
     logger.error('WebSocket 服务器错误:', error.message);
   });
 
@@ -118,5 +125,5 @@ function handleConnection(wss) {
 module.exports = {
   router,
   init,
-  handleConnection
+  handleConnection,
 };

@@ -28,11 +28,11 @@ function getEndpoints() {
       apiKey: ep.api_key,
       notes: '', // 旧版本有 notes 字段，新版本没有，保持兼容
       status: ep.status,
-      enabled: (ep.enabled == 1 || ep.enabled === true || ep.enabled === '1'),
+      enabled: ep.enabled == 1 || ep.enabled === true || ep.enabled === '1',
       models: ep.models || [],
       createdAt: ep.created_at,
       lastUsed: ep.last_used,
-      lastChecked: ep.last_checked
+      lastChecked: ep.last_checked,
     }));
   } catch (e) {
     console.error('❌ 读取 OpenAI 端点失败:', e.message);
@@ -66,11 +66,11 @@ function saveEndpoints(endpoints) {
           baseUrl: endpoint.baseUrl,
           apiKey: endpoint.apiKey,
           status: endpoint.status || 'unknown',
-          enabled: endpoint.enabled === undefined ? 1 : (endpoint.enabled ? 1 : 0),
+          enabled: endpoint.enabled === undefined ? 1 : endpoint.enabled ? 1 : 0,
           models: endpoint.models || [],
           createdAt: endpoint.createdAt,
           lastUsed: endpoint.lastUsed,
-          lastChecked: endpoint.lastChecked
+          lastChecked: endpoint.lastChecked,
         });
       });
     });
@@ -100,7 +100,7 @@ function addEndpoint(endpoint) {
     lastChecked: null,
     status: 'unknown',
     enabled: 1,
-    models: []
+    models: [],
   };
 
   OpenAIEndpoint.createEndpoint(newEndpoint);
@@ -136,11 +136,11 @@ function updateEndpoint(id, updates) {
       apiKey: updated.api_key,
       notes: '',
       status: updated.status,
-      enabled: (updated.enabled == 1 || updated.enabled === true || updated.enabled === '1'),
+      enabled: updated.enabled == 1 || updated.enabled === true || updated.enabled === '1',
       models: updated.models,
       createdAt: updated.created_at,
       lastUsed: updated.last_used,
-      lastChecked: updated.last_checked
+      lastChecked: updated.last_checked,
     };
   } catch (e) {
     console.error('❌ 更新 OpenAI 端点失败:', e.message);
@@ -175,11 +175,11 @@ function getEndpointById(id) {
       apiKey: endpoint.api_key,
       notes: '',
       status: endpoint.status,
-      enabled: (endpoint.enabled == 1 || endpoint.enabled === true || endpoint.enabled === '1'),
+      enabled: endpoint.enabled == 1 || endpoint.enabled === true || endpoint.enabled === '1',
       models: endpoint.models,
       createdAt: endpoint.created_at,
       lastUsed: endpoint.last_used,
-      lastChecked: endpoint.last_checked
+      lastChecked: endpoint.last_checked,
     };
   } catch (e) {
     console.error('❌ 获取 OpenAI 端点失败:', e.message);
@@ -204,15 +204,13 @@ function touchEndpoint(id) {
  * @param {boolean} overwrite - 是否覆盖现有数据
  */
 function importEndpoints(endpointsData, overwrite = false) {
-  let endpoints = overwrite ? [] : getEndpoints();
+  const endpoints = overwrite ? [] : getEndpoints();
   let importedCount = 0;
   let skippedCount = 0;
 
   for (const data of endpointsData) {
     // 检查是否已存在相同的端点（通过 baseUrl 和 apiKey 判断）
-    const exists = endpoints.some(e =>
-      e.baseUrl === data.baseUrl && e.apiKey === data.apiKey
-    );
+    const exists = endpoints.some(e => e.baseUrl === data.baseUrl && e.apiKey === data.apiKey);
 
     if (exists && !overwrite) {
       skippedCount++;
@@ -231,7 +229,7 @@ function importEndpoints(endpointsData, overwrite = false) {
       lastChecked: null,
       status: 'unknown',
       enabled: data.enabled !== undefined ? (data.enabled ? 1 : 0) : 1,
-      models: []
+      models: [],
     };
 
     OpenAIEndpoint.createEndpoint(newEndpoint);
@@ -267,7 +265,7 @@ function getHealthData() {
           status: history.status,
           latency: history.response_time,
           error: history.error_message,
-          checkedAt: history.checked_at
+          checkedAt: history.checked_at,
         };
       }
     });
@@ -291,7 +289,7 @@ function saveHealthData(healthData) {
         status: data.status,
         response_time: data.latency,
         error_message: data.error,
-        checked_at: data.checkedAt || new Date().toISOString()
+        checked_at: data.checkedAt || new Date().toISOString(),
       });
     });
     return true;
@@ -315,7 +313,7 @@ function updateModelHealth(endpointId, model, healthResult) {
       status: healthResult.status,
       response_time: healthResult.latency,
       error_message: healthResult.error || null,
-      checked_at: healthResult.checkedAt || new Date().toISOString()
+      checked_at: healthResult.checkedAt || new Date().toISOString(),
     });
 
     // 更新端点状态
@@ -325,7 +323,7 @@ function updateModelHealth(endpointId, model, healthResult) {
       status: healthResult.status,
       latency: healthResult.latency,
       error: healthResult.error || null,
-      checkedAt: healthResult.checkedAt
+      checkedAt: healthResult.checkedAt,
     };
   } catch (e) {
     console.error('❌ 更新模型健康状态失败:', e.message);
@@ -345,7 +343,7 @@ function getEndpointHealth(endpointId) {
       status: latest.status,
       latency: latest.response_time,
       error: latest.error_message,
-      checkedAt: latest.checked_at
+      checkedAt: latest.checked_at,
     };
   } catch (e) {
     console.error('❌ 获取端点健康状态失败:', e.message);
@@ -403,5 +401,5 @@ module.exports = {
   getEndpointHealth,
   getModelHealth,
   clearEndpointHealth,
-  clearAllHealthData
+  clearAllHealthData,
 };

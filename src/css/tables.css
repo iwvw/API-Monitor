@@ -38,7 +38,7 @@
   font-size: 12px;
 }
 
-.panel-header .btn i+span,
+.panel-header .btn i + span,
 .panel-header .btn i:not(:last-child) {
   margin-right: 4px;
 }
@@ -117,7 +117,7 @@
   vertical-align: middle;
 }
 
-.data-table td.actions>div,
+.data-table td.actions > div,
 .data-table td .flex-cell {
   display: inline-flex !important;
   align-items: center;
@@ -208,7 +208,7 @@
   text-align: center !important;
 }
 
-.data-table td.actions>div {
+.data-table td.actions > div {
   width: 100%;
   justify-content: center;
 }
@@ -255,7 +255,7 @@
   vertical-align: middle;
 }
 
-.openai-table td.actions>*:not(:last-child) {
+.openai-table td.actions > *:not(:last-child) {
   margin-right: 6px;
 }
 

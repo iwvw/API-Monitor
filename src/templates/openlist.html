@@ -1,199 +1,225 @@
 <div id="openlist-module" class="module-container">
-    <div class="module-header">
-        <div class="header-info">
-            <h1><i class="bi bi-folder2-open"></i> OpenList</h1>
-            <p class="text-muted">多存储列表管理与文件浏览</p>
+  <div class="module-header">
+    <div class="header-info">
+      <h1><i class="bi bi-folder2-open"></i> OpenList</h1>
+      <p class="text-muted">多存储列表管理与文件浏览</p>
+    </div>
+    <div class="header-actions">
+      <button id="openlist-refresh-btn" class="btn btn-outline-primary btn-sm">
+        <i class="bi bi-arrow-clockwise"></i> 刷新
+      </button>
+      <button id="openlist-accounts-btn" class="btn btn-primary btn-sm">
+        <i class="bi bi-person-badge"></i> 账号管理
+      </button>
+    </div>
+  </div>
+
+  <!-- 账号选择与面包屑 -->
+  <div class="openlist-nav-bar mb-3">
+    <div class="row g-2 align-items-center">
+      <div class="col-auto">
+        <select
+          id="openlist-account-select"
+          class="form-select form-select-sm"
+          style="min-width: 150px"
+        >
+          <option value="">选择账号...</option>
+        </select>
+      </div>
+      <div class="col">
+        <nav aria-label="breadcrumb">
+          <ol id="openlist-breadcrumb" class="breadcrumb mb-0 py-1">
+            <li class="breadcrumb-item active">根目录</li>
+          </ol>
+        </nav>
+      </div>
+      <div class="col-auto">
+        <div class="input-group input-group-sm">
+          <input
+            type="text"
+            id="openlist-search-input"
+            class="form-control"
+            placeholder="搜索文件..."
+          />
+          <button id="openlist-search-btn" class="btn btn-outline-secondary">
+            <i class="bi bi-search"></i>
+          </button>
         </div>
-        <div class="header-actions">
-            <button id="openlist-refresh-btn" class="btn btn-outline-primary btn-sm">
-                <i class="bi bi-arrow-clockwise"></i> 刷新
-            </button>
-            <button id="openlist-accounts-btn" class="btn btn-primary btn-sm">
-                <i class="bi bi-person-badge"></i> 账号管理
-            </button>
+      </div>
+    </div>
+  </div>
+
+  <div class="row">
+    <!-- 主内容区：文件列表 -->
+    <div class="col-lg-9">
+      <div class="card shadow-sm mb-4">
+        <div class="card-header bg-white d-flex justify-content-between align-items-center py-2">
+          <span class="fw-bold" id="openlist-current-path-title">文件列表</span>
+          <div class="view-options">
+            <div class="btn-group btn-group-sm">
+              <button class="btn btn-outline-secondary active" id="view-list-btn">
+                <i class="bi bi-list-ul"></i>
+              </button>
+              <button class="btn btn-outline-secondary" id="view-grid-btn">
+                <i class="bi bi-grid-3x3-gap"></i>
+              </button>
+            </div>
+          </div>
         </div>
+        <div class="card-body p-0">
+          <div id="openlist-file-container" class="file-list-view">
+            <!-- 文件列表将通过 JS 动态渲染 -->
+            <div class="text-center py-5 text-muted">
+              <i class="bi bi-inbox fs-1 d-block mb-2"></i>
+              请先选择一个 OpenList 账号
+            </div>
+          </div>
+        </div>
+        <div class="card-footer bg-white py-2 d-flex justify-content-between align-items-center">
+          <small id="openlist-status-info" class="text-muted">共 0 个项目</small>
+          <nav id="openlist-pagination" aria-label="Page navigation" class="d-none">
+            <ul class="pagination pagination-sm mb-0">
+              <!-- 分页逻辑 -->
+            </ul>
+          </nav>
+        </div>
+      </div>
+
+      <!-- README 内容显示 (如果有) -->
+      <div id="openlist-readme-container" class="card shadow-sm d-none">
+        <div class="card-header bg-light py-2"><i class="bi bi-book"></i> README</div>
+        <div class="card-body markdown-body" id="openlist-readme-content">
+          <!-- 内容将由 JS 渲染 -->
+        </div>
+      </div>
     </div>
 
-    <!-- 账号选择与面包屑 -->
-    <div class="openlist-nav-bar mb-3">
-        <div class="row g-2 align-items-center">
-            <div class="col-auto">
-                <select id="openlist-account-select" class="form-select form-select-sm" style="min-width: 150px;">
-                    <option value="">选择账号...</option>
-                </select>
+    <!-- 侧边栏：状态与管理 -->
+    <div class="col-lg-3">
+      <div id="openlist-account-info-card" class="card shadow-sm mb-4 d-none">
+        <div class="card-header bg-white fw-bold">当前账号信息</div>
+        <div class="card-body py-3">
+          <div class="d-flex align-items-center mb-3">
+            <div class="avatar-circle me-3">
+              <i class="bi bi-person-circle fs-3"></i>
             </div>
-            <div class="col">
-                <nav aria-label="breadcrumb">
-                    <ol id="openlist-breadcrumb" class="breadcrumb mb-0 py-1">
-                        <li class="breadcrumb-item active">根目录</li>
-                    </ol>
-                </nav>
+            <div>
+              <div id="acc-username" class="fw-bold">-</div>
+              <div id="acc-role" class="badge bg-secondary">-</div>
             </div>
-            <div class="col-auto">
-                <div class="input-group input-group-sm">
-                    <input type="text" id="openlist-search-input" class="form-control" placeholder="搜索文件...">
-                    <button id="openlist-search-btn" class="btn btn-outline-secondary"><i
-                            class="bi bi-search"></i></button>
-                </div>
-            </div>
+          </div>
+          <ul class="list-group list-group-flush small">
+            <li class="list-group-item d-flex justify-content-between px-0">
+              <span class="text-muted">基准路径</span>
+              <span id="acc-base-path">-</span>
+            </li>
+            <li class="list-group-item d-flex justify-content-between px-0">
+              <span class="text-muted">权限码</span>
+              <span id="acc-permission">-</span>
+            </li>
+          </ul>
         </div>
+      </div>
+
+      <div id="openlist-admin-storages-card" class="card shadow-sm d-none">
+        <div class="card-header bg-white fw-bold">存储挂载状态</div>
+        <div class="card-body p-0">
+          <div class="list-group list-group-flush small" id="openlist-storages-list">
+            <!-- 存储列表 -->
+          </div>
+        </div>
+      </div>
     </div>
-
-    <div class="row">
-        <!-- 主内容区：文件列表 -->
-        <div class="col-lg-9">
-            <div class="card shadow-sm mb-4">
-                <div class="card-header bg-white d-flex justify-content-between align-items-center py-2">
-                    <span class="fw-bold" id="openlist-current-path-title">文件列表</span>
-                    <div class="view-options">
-                        <div class="btn-group btn-group-sm">
-                            <button class="btn btn-outline-secondary active" id="view-list-btn"><i
-                                    class="bi bi-list-ul"></i></button>
-                            <button class="btn btn-outline-secondary" id="view-grid-btn"><i
-                                    class="bi bi-grid-3x3-gap"></i></button>
-                        </div>
-                    </div>
-                </div>
-                <div class="card-body p-0">
-                    <div id="openlist-file-container" class="file-list-view">
-                        <!-- 文件列表将通过 JS 动态渲染 -->
-                        <div class="text-center py-5 text-muted">
-                            <i class="bi bi-inbox fs-1 d-block mb-2"></i>
-                            请先选择一个 OpenList 账号
-                        </div>
-                    </div>
-                </div>
-                <div class="card-footer bg-white py-2 d-flex justify-content-between align-items-center">
-                    <small id="openlist-status-info" class="text-muted">共 0 个项目</small>
-                    <nav id="openlist-pagination" aria-label="Page navigation" class="d-none">
-                        <ul class="pagination pagination-sm mb-0">
-                            <!-- 分页逻辑 -->
-                        </ul>
-                    </nav>
-                </div>
-            </div>
-
-            <!-- README 内容显示 (如果有) -->
-            <div id="openlist-readme-container" class="card shadow-sm d-none">
-                <div class="card-header bg-light py-2">
-                    <i class="bi bi-book"></i> README
-                </div>
-                <div class="card-body markdown-body" id="openlist-readme-content">
-                    <!-- 内容将由 JS 渲染 -->
-                </div>
-            </div>
-        </div>
-
-        <!-- 侧边栏：状态与管理 -->
-        <div class="col-lg-3">
-            <div id="openlist-account-info-card" class="card shadow-sm mb-4 d-none">
-                <div class="card-header bg-white fw-bold">当前账号信息</div>
-                <div class="card-body py-3">
-                    <div class="d-flex align-items-center mb-3">
-                        <div class="avatar-circle me-3">
-                            <i class="bi bi-person-circle fs-3"></i>
-                        </div>
-                        <div>
-                            <div id="acc-username" class="fw-bold">-</div>
-                            <div id="acc-role" class="badge bg-secondary">-</div>
-                        </div>
-                    </div>
-                    <ul class="list-group list-group-flush small">
-                        <li class="list-group-item d-flex justify-content-between px-0">
-                            <span class="text-muted">基准路径</span>
-                            <span id="acc-base-path">-</span>
-                        </li>
-                        <li class="list-group-item d-flex justify-content-between px-0">
-                            <span class="text-muted">权限码</span>
-                            <span id="acc-permission">-</span>
-                        </li>
-                    </ul>
-                </div>
-            </div>
-
-            <div id="openlist-admin-storages-card" class="card shadow-sm d-none">
-                <div class="card-header bg-white fw-bold">存储挂载状态</div>
-                <div class="card-body p-0">
-                    <div class="list-group list-group-flush small" id="openlist-storages-list">
-                        <!-- 存储列表 -->
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
+  </div>
 </div>
 
 <!-- 账号管理模态框 -->
 <div class="modal fade" id="openlist-accounts-modal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title">OpenList 账号管理</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <div class="table-responsive">
-                    <table class="table table-hover align-middle">
-                        <thead>
-                            <tr>
-                                <th>名称</th>
-                                <th>API 地址</th>
-                                <th>状态</th>
-                                <th class="text-end">操作</th>
-                            </tr>
-                        </thead>
-                        <tbody id="openlist-accounts-table-body">
-                            <!-- 账号列表 -->
-                        </tbody>
-                    </table>
-                </div>
-                <hr>
-                <h6>添加新账号</h6>
-                <form id="openlist-add-account-form" class="row g-2">
-                    <div class="col-md-3">
-                        <input type="text" name="name" class="form-control form-control-sm" placeholder="账号别名" required>
-                    </div>
-                    <div class="col-md-4">
-                        <input type="url" name="api_url" class="form-control form-control-sm"
-                            placeholder="API 地址 (https://...)" required>
-                    </div>
-                    <div class="col-md-3">
-                        <input type="password" name="api_token" class="form-control form-control-sm"
-                            placeholder="API Token" required>
-                    </div>
-                    <div class="col-md-2">
-                        <button type="submit" class="btn btn-primary btn-sm w-100">添加</button>
-                    </div>
-                </form>
-            </div>
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">OpenList 账号管理</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="table-responsive">
+          <table class="table table-hover align-middle">
+            <thead>
+              <tr>
+                <th>名称</th>
+                <th>API 地址</th>
+                <th>状态</th>
+                <th class="text-end">操作</th>
+              </tr>
+            </thead>
+            <tbody id="openlist-accounts-table-body">
+              <!-- 账号列表 -->
+            </tbody>
+          </table>
         </div>
+        <hr />
+        <h6>添加新账号</h6>
+        <form id="openlist-add-account-form" class="row g-2">
+          <div class="col-md-3">
+            <input
+              type="text"
+              name="name"
+              class="form-control form-control-sm"
+              placeholder="账号别名"
+              required
+            />
+          </div>
+          <div class="col-md-4">
+            <input
+              type="url"
+              name="api_url"
+              class="form-control form-control-sm"
+              placeholder="API 地址 (https://...)"
+              required
+            />
+          </div>
+          <div class="col-md-3">
+            <input
+              type="password"
+              name="api_token"
+              class="form-control form-control-sm"
+              placeholder="API Token"
+              required
+            />
+          </div>
+          <div class="col-md-2">
+            <button type="submit" class="btn btn-primary btn-sm w-100">添加</button>
+          </div>
+        </form>
+      </div>
     </div>
+  </div>
 </div>
 
 <!-- 文件详情/预览模态框 -->
 <div class="modal fade" id="openlist-file-modal" tabindex="-1">
-    <div class="modal-dialog modal-lg">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h5 class="modal-title" id="file-modal-title">文件详情</h5>
-                <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-            </div>
-            <div class="modal-body">
-                <div id="file-preview-area" class="text-center mb-3">
-                    <!-- 预览逻辑 -->
-                </div>
-                <div class="table-responsive">
-                    <table class="table table-sm">
-                        <tbody id="file-info-table">
-                            <!-- 文件详情 -->
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
-                <a id="file-download-link" href="#" target="_blank" class="btn btn-primary">下载文件</a>
-            </div>
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="file-modal-title">文件详情</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div id="file-preview-area" class="text-center mb-3">
+          <!-- 预览逻辑 -->
         </div>
+        <div class="table-responsive">
+          <table class="table table-sm">
+            <tbody id="file-info-table">
+              <!-- 文件详情 -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+        <a id="file-download-link" href="#" target="_blank" class="btn btn-primary">下载文件</a>
+      </div>
     </div>
+  </div>
 </div>

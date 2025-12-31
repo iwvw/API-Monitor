@@ -8,9 +8,14 @@ const cors = require('cors');
  * CORS 配置
  */
 const corsOptions = {
-  origin: function(origin, callback) {
+  origin: function (origin, callback) {
     // 开发环境：允许所有本地源
-    if (!origin || origin.includes('localhost') || origin.includes('127.0.0.1') || origin.includes('0.0.0.0')) {
+    if (
+      !origin ||
+      origin.includes('localhost') ||
+      origin.includes('127.0.0.1') ||
+      origin.includes('0.0.0.0')
+    ) {
       return callback(null, true);
     }
     // 生产环境：可在此限制
@@ -19,7 +24,7 @@ const corsOptions = {
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'x-admin-password', 'x-session-id'],
-  exposedHeaders: ['Set-Cookie']
+  exposedHeaders: ['Set-Cookie'],
 };
 
 module.exports = cors(corsOptions);

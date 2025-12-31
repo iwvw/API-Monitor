@@ -13,7 +13,7 @@ const { AsyncLocalStorage } = require('async_hooks');
 const asyncLocalStorage = new AsyncLocalStorage();
 
 // 日志事件发射器，用于实时推送
-class LogEmitter extends EventEmitter { }
+class LogEmitter extends EventEmitter {}
 const logEmitter = new LogEmitter();
 
 // 日志缓存，用于新连接获取历史日志 (挂载到全局以防多模块加载副本)
@@ -26,7 +26,7 @@ const logBuffer = global.__LOG_BUFFER__;
 // 日志配置 (挂载到全局以便运行时修改)
 if (!global.__LOG_CONFIG__) {
   global.__LOG_CONFIG__ = {
-    maxFileSizeMB: 10  // 默认 10MB
+    maxFileSizeMB: 10, // 默认 10MB
   };
 }
 const logConfig = global.__LOG_CONFIG__;
@@ -72,12 +72,25 @@ function getLogFileInfo() {
         maxSizeMB: logConfig.maxFileSizeMB,
         usagePercent: ((stats.size / (logConfig.maxFileSizeMB * 1024 * 1024)) * 100).toFixed(1),
         modifiedAt: stats.mtime.toISOString(),
-        path: LOG_FILE
+        path: LOG_FILE,
       };
     }
-    return { size: 0, sizeMB: '0.00', maxSizeMB: logConfig.maxFileSizeMB, usagePercent: '0.0', path: LOG_FILE };
+    return {
+      size: 0,
+      sizeMB: '0.00',
+      maxSizeMB: logConfig.maxFileSizeMB,
+      usagePercent: '0.0',
+      path: LOG_FILE,
+    };
   } catch (e) {
-    return { size: 0, sizeMB: '0.00', maxSizeMB: logConfig.maxFileSizeMB, usagePercent: '0.0', path: LOG_FILE, error: e.message };
+    return {
+      size: 0,
+      sizeMB: '0.00',
+      maxSizeMB: logConfig.maxFileSizeMB,
+      usagePercent: '0.0',
+      path: LOG_FILE,
+      error: e.message,
+    };
   }
 }
 
@@ -106,11 +119,13 @@ function checkSizeAndRotation() {
       const stats = fs.statSync(LOG_FILE);
       const maxSize = logConfig.maxFileSizeMB * 1024 * 1024;
       if (maxSize > 0 && stats.size > maxSize) {
-        console.log(`Log file (${(stats.size / (1024 * 1024)).toFixed(2)}MB) exceeds limit (${logConfig.maxFileSizeMB}MB), auto-clearing...`);
+        console.log(
+          `Log file (${(stats.size / (1024 * 1024)).toFixed(2)}MB) exceeds limit (${logConfig.maxFileSizeMB}MB), auto-clearing...`
+        );
         clearLogFile();
       }
     }
-  } catch (e) { }
+  } catch (e) {}
 }
 
 // 日志级别
@@ -120,7 +135,7 @@ const LOG_LEVELS = {
   WARN: 2,
   ERROR: 3,
   FATAL: 4,
-  SILENT: 5
+  SILENT: 5,
 };
 
 // 当前日志级别（从环境变量读取，默认为INFO）
@@ -149,7 +164,10 @@ function maskSensitiveInfo(data) {
 
   if (typeof data === 'string') {
     // 基础字符串脱敏
-    return data.replace(/(token|password|key|secret|api_key|apiToken)(["']?\s*[:=]\s*["']?)([^"'\s&,]+)/gi, '$1$2******');
+    return data.replace(
+      /(token|password|key|secret|api_key|apiToken)(["']?\s*[:=]\s*["']?)([^"'\s&,]+)/gi,
+      '$1$2******'
+    );
   }
 
   if (typeof data === 'object' && data !== null) {
@@ -159,7 +177,8 @@ function maskSensitiveInfo(data) {
       for (const key in data) {
         if (Object.prototype.hasOwnProperty.call(data, key)) {
           const lowerKey = key.toLowerCase();
-          const isSensitive = lowerKey.includes('token') ||
+          const isSensitive =
+            lowerKey.includes('token') ||
             lowerKey.includes('password') ||
             lowerKey.includes('key') ||
             lowerKey.includes('secret') ||
@@ -210,7 +229,7 @@ function log(level, module, message, data) {
     traceId,
     module: module || 'core',
     message: maskedMessage,
-    data: maskedData
+    data: maskedData,
   };
 
   // 3. 内存缓冲区更新
@@ -228,50 +247,52 @@ function log(level, module, message, data) {
 }
 
 function getModuleColor(module) {
-  if (!useColor) return (t) => t;
+  if (!useColor) return t => t;
   const mod = (module || 'core').toLowerCase();
-  
+
   // 语义化配色映射
-  if (mod.includes('servermoni')) return chalk.green;      // 监控 - 绿色
-  if (mod.includes('ssh')) return chalk.white.bold;        // SSH - 粗体白
+  if (mod.includes('servermoni')) return chalk.green; // 监控 - 绿色
+  if (mod.includes('ssh')) return chalk.white.bold; // SSH - 粗体白
   if (mod.includes('zeabur') || mod.includes('paas')) return chalk.cyan; // PaaS - 青色
-  if (mod.includes('antigravit')) return chalk.magenta;    // Antigravity - 品红
-  if (mod.includes('gemini')) return chalk.blueBright;     // Gemini - 亮蓝
-  if (mod.includes('openai')) return chalk.greenBright;    // OpenAI - 亮绿
+  if (mod.includes('antigravit')) return chalk.magenta; // Antigravity - 品红
+  if (mod.includes('gemini')) return chalk.blueBright; // Gemini - 亮蓝
+  if (mod.includes('openai')) return chalk.greenBright; // OpenAI - 亮绿
   if (mod.includes('dns') || mod.includes('cloudflar')) return chalk.orange || chalk.yellow; // DNS - 橙/黄
-  if (mod.includes('auth')) return chalk.redBright;        // 认证 - 亮红
+  if (mod.includes('auth')) return chalk.redBright; // 认证 - 亮红
   if (mod.includes('database') || mod.includes('db')) return chalk.yellow; // 数据库 - 黄色
-  if (mod.includes('http')) return chalk.blue;             // HTTP - 蓝色
-  if (mod.includes('log')) return chalk.magentaBright;     // 日志服务 - 亮紫
-  if (mod.includes('session')) return chalk.gray;          // 会话 - 灰色
-  
+  if (mod.includes('http')) return chalk.blue; // HTTP - 蓝色
+  if (mod.includes('log')) return chalk.magentaBright; // 日志服务 - 亮紫
+  if (mod.includes('session')) return chalk.gray; // 会话 - 灰色
+
   return chalk.cyanBright; // 默认颜色
 }
 
 function renderTerminal(level, module, timestamp, traceId, message, data) {
   const levelColors = {
-    'DEBUG': useColor ? chalk.gray : (t) => t,
-    'INFO': useColor ? chalk.blue : (t) => t,
-    'WARN': useColor ? chalk.yellow : (t) => t,
-    'ERROR': useColor ? chalk.red : (t) => t,
-    'FATAL': useColor ? chalk.bgRed.white.bold : (t) => t
+    DEBUG: useColor ? chalk.gray : t => t,
+    INFO: useColor ? chalk.blue : t => t,
+    WARN: useColor ? chalk.yellow : t => t,
+    ERROR: useColor ? chalk.red : t => t,
+    FATAL: useColor ? chalk.bgRed.white.bold : t => t,
   };
 
-  const colorFn = levelColors[level] || ((t) => t);
+  const colorFn = levelColors[level] || (t => t);
   const displayTime = formatDisplayTimestamp(timestamp);
 
   // 固定宽度定义，确保完美对齐
-  const COL_SYSTEM = 4;   // [0]
-  const COL_TIME = 13;    // HH:mm:ss.SSS
-  const COL_LEVEL = 6;    // ERROR
-  const COL_MODULE = 13;  // [ModuleName]
+  const COL_SYSTEM = 4; // [0]
+  const COL_TIME = 13; // HH:mm:ss.SSS
+  const COL_LEVEL = 6; // ERROR
+  const COL_MODULE = 13; // [ModuleName]
 
   // 1. 系统 ID (默认为 [0])
   const sysStr = useColor ? chalk.gray('[0]'.padEnd(COL_SYSTEM)) : '[0]'.padEnd(COL_SYSTEM);
-  
+
   // 2. 时间戳
-  const timeStr = useColor ? chalk.gray(displayTime.padEnd(COL_TIME)) : displayTime.padEnd(COL_TIME);
-  
+  const timeStr = useColor
+    ? chalk.gray(displayTime.padEnd(COL_TIME))
+    : displayTime.padEnd(COL_TIME);
+
   // 3. 级别
   const levelStr = colorFn(level.padEnd(COL_LEVEL));
 
@@ -289,7 +310,10 @@ function renderTerminal(level, module, timestamp, traceId, message, data) {
     const indent = ' '.repeat(COL_SYSTEM + COL_TIME + COL_LEVEL + COL_MODULE + 4);
     if (typeof data === 'object') {
       try {
-        const json = JSON.stringify(data, null, 2).split('\n').map(line => indent + line).join('\n');
+        const json = JSON.stringify(data, null, 2)
+          .split('\n')
+          .map(line => indent + line)
+          .join('\n');
         console.log(colorFn(json));
       } catch (e) {
         console.log(colorFn(indent + '[Complex Data]'));
@@ -316,7 +340,7 @@ function createLogger(moduleName) {
       log('INFO', moduleName, msg, data);
     },
 
-    start: (message) => {
+    start: message => {
       const msg = useColor ? chalk.cyan('▶ ' + message) : '▶ ' + message;
       log('INFO', moduleName, msg);
     },
@@ -327,7 +351,7 @@ function createLogger(moduleName) {
     },
 
     // 恢复这些方法以兼容现有代码，防止报错
-    group: (title) => {
+    group: title => {
       const msg = useColor ? chalk.bold(title) : title;
       log('INFO', moduleName, msg);
     },
@@ -335,7 +359,7 @@ function createLogger(moduleName) {
     groupItem: (message, data) => {
       const msg = '  • ' + message;
       log('INFO', moduleName, msg, data);
-    }
+    },
   };
 }
 
@@ -353,6 +377,5 @@ module.exports = {
   // 新增日志配置管理
   getLogConfig,
   updateLogConfig,
-  getLogFileInfo
+  getLogFileInfo,
 };
-

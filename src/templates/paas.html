@@ -3,36 +3,55 @@
   <!-- PaaS 子标签页 -->
   <div class="sec-tabs paas-sec-tabs">
     <div class="paas-tabs-scroll-wrapper">
-      <button class="tab-btn" :class="{ active: paasCurrentTab === 'zeabur' }"
-        @click="paasCurrentTab = 'zeabur'; paasCurrentPlatform = 'zeabur'">
+      <button
+        class="tab-btn"
+        :class="{ active: paasCurrentTab === 'zeabur' }"
+        @click="paasCurrentTab = 'zeabur'; paasCurrentPlatform = 'zeabur'"
+      >
         <i class="fas fa-rocket"></i> Zeabur
       </button>
-      <button class="tab-btn" :class="{ active: paasCurrentTab === 'koyeb' }"
-        @click="paasCurrentTab = 'koyeb'; paasCurrentPlatform = 'koyeb'">
+      <button
+        class="tab-btn"
+        :class="{ active: paasCurrentTab === 'koyeb' }"
+        @click="paasCurrentTab = 'koyeb'; paasCurrentPlatform = 'koyeb'"
+      >
         <i class="fas fa-cube"></i> Koyeb
       </button>
-      <button class="tab-btn" :class="{ active: paasCurrentTab === 'fly' }"
-        @click="paasCurrentTab = 'fly'; paasCurrentPlatform = 'fly'">
+      <button
+        class="tab-btn"
+        :class="{ active: paasCurrentTab === 'fly' }"
+        @click="paasCurrentTab = 'fly'; paasCurrentPlatform = 'fly'"
+      >
         <i class="fas fa-paper-plane"></i> Fly.io
       </button>
-      <button class="tab-btn" :class="{ active: paasCurrentTab === 'accounts' }" @click="paasCurrentTab = 'accounts'">
+      <button
+        class="tab-btn"
+        :class="{ active: paasCurrentTab === 'accounts' }"
+        @click="paasCurrentTab = 'accounts'"
+      >
         <i class="fas fa-users"></i> 账号管理
       </button>
-      <button class="tab-btn" :class="{ active: paasCurrentTab === 'settings' }" @click="paasCurrentTab = 'settings'">
+      <button
+        class="tab-btn"
+        :class="{ active: paasCurrentTab === 'settings' }"
+        @click="paasCurrentTab = 'settings'"
+      >
         <i class="fas fa-cog"></i> 模块配置
       </button>
     </div>
 
     <!-- 弹性占位符 -->
     <div class="paas-tabs-spacer"></div>
-
   </div>
 
   <!-- ========== Zeabur 服务监控 ========== -->
   <div v-if="paasCurrentTab === 'zeabur'" class="sub-tab-content quick-fade-in">
     <div v-if="accounts.length > 0" class="stats-grid">
       <div class="stat-card">
-        <div class="stat-icon-wrapper" style="background: rgba(var(--primary-rgb), 0.1); color: var(--primary-color);">
+        <div
+          class="stat-icon-wrapper"
+          style="background: rgba(var(--primary-rgb), 0.1); color: var(--primary-color)"
+        >
           <i class="fas fa-user-circle"></i>
         </div>
         <div class="stat-content">
@@ -41,7 +60,10 @@
         </div>
       </div>
       <div class="stat-card">
-        <div class="stat-icon-wrapper" style="background: rgba(var(--primary-rgb), 0.1); color: var(--primary-color);">
+        <div
+          class="stat-icon-wrapper"
+          style="background: rgba(var(--primary-rgb), 0.1); color: var(--primary-color)"
+        >
           <i class="fas fa-cube"></i>
         </div>
         <div class="stat-content">
@@ -50,7 +72,7 @@
         </div>
       </div>
       <div class="stat-card">
-        <div class="stat-icon-wrapper" style="background: rgba(16, 185, 129, 0.1); color: #10b981;">
+        <div class="stat-icon-wrapper" style="background: rgba(16, 185, 129, 0.1); color: #10b981">
           <i class="fas fa-play-circle"></i>
         </div>
         <div class="stat-content">
@@ -59,7 +81,7 @@
         </div>
       </div>
       <div class="stat-card">
-        <div class="stat-icon-wrapper" style="background: rgba(245, 158, 11, 0.1); color: #f59e0b;">
+        <div class="stat-icon-wrapper" style="background: rgba(245, 158, 11, 0.1); color: #f59e0b">
           <i class="fas fa-dollar-sign"></i>
         </div>
         <div class="stat-content">
@@ -69,29 +91,42 @@
       </div>
     </div>
 
-    <div v-if="loading && accounts.length === 0" class="loading">
-      ⚡ 正在加载数据...
-    </div>
+    <div v-if="loading && accounts.length === 0" class="loading">⚡ 正在加载数据...</div>
 
     <div v-else>
-      <div v-for="account in accounts" :key="account.name" class="account-card"
-        :class="{ 'expanded': isAccountExpanded(account.name) }" style="margin-bottom: 12px;">
+      <div
+        v-for="account in accounts"
+        :key="account.name"
+        class="account-card"
+        :class="{ 'expanded': isAccountExpanded(account.name) }"
+        style="margin-bottom: 12px"
+      >
         <div class="account-header" @click="toggleAccount(account.name)">
           <div class="account-info">
-            <i class="fas fa-chevron-right toggle-icon"
-              :style="{ transform: isAccountExpanded(account.name) ? 'rotate(90deg)' : 'rotate(0deg)' }"></i>
+            <i
+              class="fas fa-chevron-right toggle-icon"
+              :style="{ transform: isAccountExpanded(account.name) ? 'rotate(90deg)' : 'rotate(0deg)' }"
+            ></i>
             <div class="zeabur-account-avatar">
               <span class="avatar-letter">{{ account.name.charAt(0).toUpperCase() }}</span>
             </div>
             <div class="zeabur-account-details">
-              <div class="zeabur-account-name" v-if="!account.isEditingName"
-                @dblclick.stop="startEditAccountName(account)">
+              <div
+                class="zeabur-account-name"
+                v-if="!account.isEditingName"
+                @dblclick.stop="startEditAccountName(account)"
+              >
                 {{ account.name }}
               </div>
               <div v-else class="account-name-edit" @click.stop>
-                <input v-model="account.editingName" @keyup.enter="saveAccountName(account)"
-                  @keyup.esc="cancelEditAccountName(account)" @blur="saveAccountName(account)" class="edit-input"
-                  ref="accountNameInput" />
+                <input
+                  v-model="account.editingName"
+                  @keyup.enter="saveAccountName(account)"
+                  @keyup.esc="cancelEditAccountName(account)"
+                  @blur="saveAccountName(account)"
+                  class="edit-input"
+                  ref="accountNameInput"
+                />
               </div>
               <div v-if="account.data" class="zeabur-account-email">
                 <i class="fas fa-envelope"></i>
@@ -104,9 +139,13 @@
               <div class="zeabur-balance-icon"><i class="fas fa-coins"></i></div>
               <div class="zeabur-balance-info">
                 <span class="zeabur-balance-label">余额</span>
-                <span class="zeabur-balance-value"
-                  :class="account.data?.credit ? getBalanceClass(account.data.credit) : ''">
-                  <span v-if="account.data?.credit">${{ (account.data.credit / 100).toFixed(2) }}</span>
+                <span
+                  class="zeabur-balance-value"
+                  :class="account.data?.credit ? getBalanceClass(account.data.credit) : ''"
+                >
+                  <span v-if="account.data?.credit"
+                    >${{ (account.data.credit / 100).toFixed(2) }}</span
+                  >
                   <span v-else>-</span>
                 </span>
               </div>
@@ -116,7 +155,8 @@
               <div class="zeabur-balance-info">
                 <span class="zeabur-balance-label">AI Hub</span>
                 <span class="zeabur-balance-value">
-                  {{ account.aihub && account.aihub.balance ? '$' + (account.aihub.balance / 100000).toFixed(2) : '无' }}
+                  {{ account.aihub && account.aihub.balance ? '$' + (account.aihub.balance /
+                  100000).toFixed(2) : '无' }}
                 </span>
               </div>
             </div>
@@ -124,20 +164,38 @@
         </div>
 
         <div class="account-card-body">
-          <div v-if="account.projects" class="projects-grid" :class="{ 'collapsed': !isAccountExpanded(account.name) }">
+          <div
+            v-if="account.projects"
+            class="projects-grid"
+            :class="{ 'collapsed': !isAccountExpanded(account.name) }"
+          >
             <div v-for="project in account.projects" :key="project._id" class="project-card">
               <div class="project-header">
                 <div class="project-name-wrapper">
                   <span class="project-name-icon">📦</span>
-                  <span v-if="!project.isEditing" class="project-name-text zeabur-project-name-text"
-                    @dblclick.stop="startEditProjectName(project)">{{ project.name }}</span>
-                  <input v-else v-model="project.editingName" @keyup.enter="saveProjectName(account, project)"
-                    @keyup.esc="cancelEditProjectName(project)" @blur="saveProjectName(account, project)"
-                    class="project-name-input" />
+                  <span
+                    v-if="!project.isEditing"
+                    class="project-name-text zeabur-project-name-text"
+                    @dblclick.stop="startEditProjectName(project)"
+                    >{{ project.name }}</span
+                  >
+                  <input
+                    v-else
+                    v-model="project.editingName"
+                    @keyup.enter="saveProjectName(account, project)"
+                    @keyup.esc="cancelEditProjectName(project)"
+                    @blur="saveProjectName(account, project)"
+                    class="project-name-input"
+                  />
                 </div>
                 <div class="project-actions">
-                  <button v-if="!project.isEditing" @click="deleteProject(account, project)"
-                    class="project-delete-btn"><i class="fas fa-trash"></i></button>
+                  <button
+                    v-if="!project.isEditing"
+                    @click="deleteProject(account, project)"
+                    class="project-delete-btn"
+                  >
+                    <i class="fas fa-trash"></i>
+                  </button>
                 </div>
               </div>
               <div class="project-mini-cards">
@@ -151,45 +209,84 @@
                 </div>
               </div>
               <div class="services-container">
-                <div v-for="service in project.services" :key="service._id" class="service-item"
-                  :class="'status-' + service.status.toLowerCase()">
+                <div
+                  v-for="service in project.services"
+                  :key="service._id"
+                  class="service-item"
+                  :class="'status-' + service.status.toLowerCase()"
+                >
                   <div class="service-header">
                     <div class="service-name-container">
-                      <span v-if="!service.isEditing" class="service-name zeabur-service-name"
-                        @dblclick.stop="startEditServiceName(service)">{{ service.name }}</span>
-                      <input v-else v-model="service.editingName"
+                      <span
+                        v-if="!service.isEditing"
+                        class="service-name zeabur-service-name"
+                        @dblclick.stop="startEditServiceName(service)"
+                        >{{ service.name }}</span
+                      >
+                      <input
+                        v-else
+                        v-model="service.editingName"
                         @keyup.enter="saveServiceName(account, project, service)"
-                        @keyup.esc="cancelEditServiceName(service)" @blur="saveServiceName(account, project, service)"
-                        class="service-name-input" />
+                        @keyup.esc="cancelEditServiceName(service)"
+                        @blur="saveServiceName(account, project, service)"
+                        class="service-name-input"
+                      />
                     </div>
                     <div :class="['service-status', 'status-' + service.status.toLowerCase()]">
-                      {{ service.status === 'RUNNING' ? '运行中' : service.status === 'SUSPENDED' ? '已暂停' : service.status
-                      }}
+                      {{ service.status === 'RUNNING' ? '运行中' : service.status === 'SUSPENDED' ?
+                      '已暂停' : service.status }}
                     </div>
                   </div>
                   <div class="service-actions">
-                    <button v-if="service.status === 'RUNNING'" @click="pauseService(account, project, service)"
-                      class="service-btn btn-pause" title="暂停"><i class="fas fa-pause"></i></button>
-                    <button @click="restartService(account, project, service)" class="service-btn btn-restart"
-                      title="重启"><i class="fas fa-redo"></i></button>
-                    <button @click="showServiceLogs(account, project, service)" class="service-btn btn-logs"
-                      title="日志"><i class="fas fa-file-alt"></i></button>
-                    <button @click="deleteService(account, project, service)" class="service-btn btn-delete"
-                      title="删除"><i class="fas fa-trash"></i></button>
+                    <button
+                      v-if="service.status === 'RUNNING'"
+                      @click="pauseService(account, project, service)"
+                      class="service-btn btn-pause"
+                      title="暂停"
+                    >
+                      <i class="fas fa-pause"></i>
+                    </button>
+                    <button
+                      @click="restartService(account, project, service)"
+                      class="service-btn btn-restart"
+                      title="重启"
+                    >
+                      <i class="fas fa-redo"></i>
+                    </button>
+                    <button
+                      @click="showServiceLogs(account, project, service)"
+                      class="service-btn btn-logs"
+                      title="日志"
+                    >
+                      <i class="fas fa-file-alt"></i>
+                    </button>
+                    <button
+                      @click="deleteService(account, project, service)"
+                      class="service-btn btn-delete"
+                      title="删除"
+                    >
+                      <i class="fas fa-trash"></i>
+                    </button>
                   </div>
                 </div>
               </div>
               <div class="domains-container">
                 <!-- 已有域名列表 -->
-                <div v-for="domainInfo in getProjectDomains(project)" :key="domainInfo.domain"
-                  class="domain-item-wrapper">
+                <div
+                  v-for="domainInfo in getProjectDomains(project)"
+                  :key="domainInfo.domain"
+                  class="domain-item-wrapper"
+                >
                   <div class="domain-link-group">
                     <a :href="'https://' + domainInfo.domain" target="_blank" class="domain-link">
                       <i class="fas fa-globe"></i>
                       <span>{{ domainInfo.domain }}</span>
                     </a>
-                    <button class="domain-op-btn edit" @click.stop="editDomain(account, project, domainInfo)"
-                      title="管理域名">
+                    <button
+                      class="domain-op-btn edit"
+                      @click.stop="editDomain(account, project, domainInfo)"
+                      title="管理域名"
+                    >
                       <i class="fas fa-edit"></i>
                     </button>
                   </div>
@@ -216,66 +313,124 @@
       <div class="info-card-title">💡 Koyeb 监控</div>
       <div class="info-card-content">数据每30秒自动刷新</div>
     </div>
-    <div v-if="koyebLoading && koyebAccounts.length === 0" class="loading">⚡ 正在加载 Koyeb 数据...</div>
+    <div v-if="koyebLoading && koyebAccounts.length === 0" class="loading">
+      ⚡ 正在加载 Koyeb 数据...
+    </div>
     <div v-else>
-      <div v-for="account in koyebAccounts" :key="account.name" class="account-card koyeb-account-card"
-        :class="{ 'expanded': isKoyebAccountExpanded(account.name) }" style="margin-bottom: 12px;">
+      <div
+        v-for="account in koyebAccounts"
+        :key="account.name"
+        class="account-card koyeb-account-card"
+        :class="{ 'expanded': isKoyebAccountExpanded(account.name) }"
+        style="margin-bottom: 12px"
+      >
         <div class="account-header koyeb-account-header" @click="toggleKoyebAccount(account.name)">
           <div class="account-info">
-            <i class="fas fa-chevron-right toggle-icon koyeb-toggle"
-              :style="{ transform: isKoyebAccountExpanded(account.name) ? 'rotate(90deg)' : 'rotate(0deg)' }"></i>
-            <div class="zeabur-account-avatar koyeb-account-avatar"
-              style="background: linear-gradient(135deg, #4f46e5, #7c3aed); margin: 0px;">
+            <i
+              class="fas fa-chevron-right toggle-icon koyeb-toggle"
+              :style="{ transform: isKoyebAccountExpanded(account.name) ? 'rotate(90deg)' : 'rotate(0deg)' }"
+            ></i>
+            <div
+              class="zeabur-account-avatar koyeb-account-avatar"
+              style="background: linear-gradient(135deg, #4f46e5, #7c3aed); margin: 0px"
+            >
               <span class="avatar-letter">{{ account.name.charAt(0).toUpperCase() }}</span>
             </div>
             <div class="zeabur-account-details">
               <div class="zeabur-account-name">{{ account.name }}</div>
-              <div v-if="account.data" class="zeabur-account-email"><i class="fas fa-envelope"></i> {{
-                account.data.email || '-' }}</div>
+              <div v-if="account.data" class="zeabur-account-email">
+                <i class="fas fa-envelope"></i> {{ account.data.email || '-' }}
+              </div>
             </div>
           </div>
         </div>
         <div class="account-card-body">
-          <div v-if="account.projects" class="projects-grid koyeb-projects-grid"
-            :class="{ 'collapsed': !isKoyebAccountExpanded(account.name), 'single-app': account.projects.length === 1 }">
-            <div v-for="app in account.projects" :key="app._id" class="project-card koyeb-project-card">
+          <div
+            v-if="account.projects"
+            class="projects-grid koyeb-projects-grid"
+            :class="{ 'collapsed': !isKoyebAccountExpanded(account.name), 'single-app': account.projects.length === 1 }"
+          >
+            <div
+              v-for="app in account.projects"
+              :key="app._id"
+              class="project-card koyeb-project-card"
+            >
               <div class="project-header koyeb-project-header">
                 <div class="project-name-wrapper koyeb-project-name-wrapper">
                   <span class="project-name-icon koyeb-project-name-icon">📦</span>
-                  <span v-if="!app.isEditing" class="project-name-text koyeb-project-name-text"
-                    @dblclick.stop="startEditKoyebAppName(app)">{{ app.name }}</span>
-                  <input v-else v-model="app.editingName" @keyup.enter="renameKoyebApp(account, app)"
-                    @keyup.esc="cancelEditKoyebAppName(app)" @blur="renameKoyebApp(account, app)"
-                    class="project-name-input" />
+                  <span
+                    v-if="!app.isEditing"
+                    class="project-name-text koyeb-project-name-text"
+                    @dblclick.stop="startEditKoyebAppName(app)"
+                    >{{ app.name }}</span
+                  >
+                  <input
+                    v-else
+                    v-model="app.editingName"
+                    @keyup.enter="renameKoyebApp(account, app)"
+                    @keyup.esc="cancelEditKoyebAppName(app)"
+                    @blur="renameKoyebApp(account, app)"
+                    class="project-name-input"
+                  />
                 </div>
               </div>
               <div class="services-container">
-                <div v-for="service in app.services" :key="service._id"
-                  :class="['service-item', 'koyeb-service-item', getKoyebStatusClass(service.status)]">
+                <div
+                  v-for="service in app.services"
+                  :key="service._id"
+                  :class="['service-item', 'koyeb-service-item', getKoyebStatusClass(service.status)]"
+                >
                   <div class="service-header">
                     <div class="service-name-container">
-                      <span v-if="!service.isEditing" class="service-name koyeb-service-name"
-                        @dblclick.stop="startEditKoyebServiceName(service)">{{ service.name }}</span>
-                      <input v-else v-model="service.editingName"
+                      <span
+                        v-if="!service.isEditing"
+                        class="service-name koyeb-service-name"
+                        @dblclick.stop="startEditKoyebServiceName(service)"
+                        >{{ service.name }}</span
+                      >
+                      <input
+                        v-else
+                        v-model="service.editingName"
                         @keyup.enter="renameKoyebService(account, app, service)"
                         @keyup.esc="cancelEditKoyebServiceName(service)"
-                        @blur="renameKoyebService(account, app, service)" class="service-name-input" />
+                        @blur="renameKoyebService(account, app, service)"
+                        class="service-name-input"
+                      />
                     </div>
-                    <div :class="['service-status', getKoyebStatusClass(service.status)]">{{
-                      getKoyebStatusText(service.status) }}</div>
+                    <div :class="['service-status', getKoyebStatusClass(service.status)]">
+                      {{ getKoyebStatusText(service.status) }}
+                    </div>
                   </div>
                   <div class="service-actions">
-                    <button @click="restartKoyebService(account, app, service)"
-                      class="service-btn btn-restart koyeb-btn"><i class="fas fa-redo"></i></button>
-                    <button @click="redeployKoyebService(account, app, service)"
+                    <button
+                      @click="restartKoyebService(account, app, service)"
                       class="service-btn btn-restart koyeb-btn"
-                      style="background-color: rgba(79, 70, 229, 0.2); color: #4f46e5;"><i
-                        class="fas fa-rocket"></i></button>
-                    <button @click="fetchKoyebServiceInstances(account, service)" class="service-btn koyeb-btn"
-                      style="background-color: rgba(139, 92, 246, 0.2); color: #8b5cf6;"><i class="fas"
-                        :class="service.loadingInstances ? 'fa-spinner fa-spin' : 'fa-server'"></i></button>
-                    <button @click="showKoyebServiceLogs(account, app, service)" class="service-btn btn-logs"><i
-                        class="fas fa-file-alt"></i></button>
+                    >
+                      <i class="fas fa-redo"></i>
+                    </button>
+                    <button
+                      @click="redeployKoyebService(account, app, service)"
+                      class="service-btn btn-restart koyeb-btn"
+                      style="background-color: rgba(79, 70, 229, 0.2); color: #4f46e5"
+                    >
+                      <i class="fas fa-rocket"></i>
+                    </button>
+                    <button
+                      @click="fetchKoyebServiceInstances(account, service)"
+                      class="service-btn koyeb-btn"
+                      style="background-color: rgba(139, 92, 246, 0.2); color: #8b5cf6"
+                    >
+                      <i
+                        class="fas"
+                        :class="service.loadingInstances ? 'fa-spinner fa-spin' : 'fa-server'"
+                      ></i>
+                    </button>
+                    <button
+                      @click="showKoyebServiceLogs(account, app, service)"
+                      class="service-btn btn-logs"
+                    >
+                      <i class="fas fa-file-alt"></i>
+                    </button>
                   </div>
                 </div>
               </div>
@@ -292,14 +447,23 @@
       <div class="info-card-title">💡 Fly.io 监控</div>
       <div class="info-card-content">数据每30秒自动刷新</div>
     </div>
-    <div v-if="flyLoading && flyAccounts.length === 0" class="loading">⚡ 正在加载 Fly.io 数据...</div>
+    <div v-if="flyLoading && flyAccounts.length === 0" class="loading">
+      ⚡ 正在加载 Fly.io 数据...
+    </div>
     <div v-else>
-      <div v-for="account in flyAccounts" :key="account.id" class="account-card fly-account-card"
-        :class="{ 'expanded': isFlyAccountExpanded(account.name) }" style="margin-bottom: 12px;">
+      <div
+        v-for="account in flyAccounts"
+        :key="account.id"
+        class="account-card fly-account-card"
+        :class="{ 'expanded': isFlyAccountExpanded(account.name) }"
+        style="margin-bottom: 12px"
+      >
         <div class="account-header fly-account-header" @click="toggleFlyAccount(account.name)">
           <div class="account-info">
-            <i class="fas fa-chevron-right toggle-icon fly-toggle"
-              :style="{ transform: isFlyAccountExpanded(account.name) ? 'rotate(90deg)' : 'rotate(0deg)' }"></i>
+            <i
+              class="fas fa-chevron-right toggle-icon fly-toggle"
+              :style="{ transform: isFlyAccountExpanded(account.name) ? 'rotate(90deg)' : 'rotate(0deg)' }"
+            ></i>
             <div class="zeabur-account-avatar fly-account-avatar">
               <span class="avatar-letter">{{ (account.name || 'F').charAt(0).toUpperCase() }}</span>
             </div>
@@ -308,91 +472,171 @@
             </div>
           </div>
           <!-- 新建应用按钮 -->
-          <button class="create-project-btn fly-btn" @click.stop="createFlyApp(account)"
-            style="padding: 4px 10px; font-size: 11px;">
+          <button
+            class="create-project-btn fly-btn"
+            @click.stop="createFlyApp(account)"
+            style="padding: 4px 10px; font-size: 11px"
+          >
             <i class="fas fa-plus"></i> 新建应用
           </button>
         </div>
         <div class="account-card-body">
-          <div v-if="account.projects" class="projects-grid fly-projects-grid"
-            :class="{ 'collapsed': !isFlyAccountExpanded(account.name), 'single-app': account.projects.length === 1 }">
-            <div v-for="app in account.projects" :key="app.id" class="project-card fly-project-card">
+          <div
+            v-if="account.projects"
+            class="projects-grid fly-projects-grid"
+            :class="{ 'collapsed': !isFlyAccountExpanded(account.name), 'single-app': account.projects.length === 1 }"
+          >
+            <div
+              v-for="app in account.projects"
+              :key="app.id"
+              class="project-card fly-project-card"
+            >
               <div class="project-header fly-project-header">
                 <div class="project-name-wrapper fly-project-name-wrapper">
                   <span class="project-name-icon">✈️</span>
-                  <span v-if="!app.isEditing" class="project-name-text fly-project-name-text"
-                    @dblclick.stop="startEditFlyAppName(app)">{{ app.name }}</span>
-                  <input v-else v-model="app.editingName" @keyup.enter="saveFlyAppName(account, app)"
-                    @keyup.esc="cancelEditFlyAppName(app)" @blur="saveFlyAppName(account, app)"
-                    class="project-name-input" ref="flyAppNameInput" @click.stop />
+                  <span
+                    v-if="!app.isEditing"
+                    class="project-name-text fly-project-name-text"
+                    @dblclick.stop="startEditFlyAppName(app)"
+                    >{{ app.name }}</span
+                  >
+                  <input
+                    v-else
+                    v-model="app.editingName"
+                    @keyup.enter="saveFlyAppName(account, app)"
+                    @keyup.esc="cancelEditFlyAppName(app)"
+                    @blur="saveFlyAppName(account, app)"
+                    class="project-name-input"
+                    ref="flyAppNameInput"
+                    @click.stop
+                  />
                 </div>
                 <div class="project-actions">
-                  <button v-if="!app.isEditing" @click.stop="deleteFlyApp(account, app)" class="project-delete-btn"><i
-                      class="fas fa-trash"></i></button>
+                  <button
+                    v-if="!app.isEditing"
+                    @click.stop="deleteFlyApp(account, app)"
+                    class="project-delete-btn"
+                  >
+                    <i class="fas fa-trash"></i>
+                  </button>
                 </div>
               </div>
               <div class="services-container">
                 <div class="service-item fly-service-item" :class="getFlyStatusClass(app.status)">
                   <div class="service-header">
                     <div class="service-name-container">
-                      <span class="service-name fly-service-name">{{ app.hostname || app.name }}</span>
+                      <span class="service-name fly-service-name"
+                        >{{ app.hostname || app.name }}</span
+                      >
                     </div>
-                    <div :class="['service-status', getFlyStatusClass(app.status)]">{{ getFlyStatusText(app.status) }}
+                    <div :class="['service-status', getFlyStatusClass(app.status)]">
+                      {{ getFlyStatusText(app.status) }}
                     </div>
                   </div>
                   <div class="service-actions">
-                    <button @click="restartFlyApp(account, app)" class="service-btn btn-restart fly-btn">
+                    <button
+                      @click="restartFlyApp(account, app)"
+                      class="service-btn btn-restart fly-btn"
+                    >
                       <i class="fas fa-redo"></i>
                     </button>
-                    <button @click="redeployFlyApp(account, app)" class="service-btn btn-restart fly-btn"
-                      style="background-color: rgba(139, 92, 246, 0.2); color: #8b5cf6;">
+                    <button
+                      @click="redeployFlyApp(account, app)"
+                      class="service-btn btn-restart fly-btn"
+                      style="background-color: rgba(139, 92, 246, 0.2); color: #8b5cf6"
+                    >
                       <i class="fas fa-rocket"></i>
                     </button>
-                    <button @click="fetchFlyMachines(account, app)" class="service-btn fly-btn"
-                      style="background-color: rgba(139, 92, 246, 0.2); color: #8b5cf6;">
-                      <i class="fas" :class="app.loadingMachines ? 'fa-spinner fa-spin' : 'fa-server'"></i>
+                    <button
+                      @click="fetchFlyMachines(account, app)"
+                      class="service-btn fly-btn"
+                      style="background-color: rgba(139, 92, 246, 0.2); color: #8b5cf6"
+                    >
+                      <i
+                        class="fas"
+                        :class="app.loadingMachines ? 'fa-spinner fa-spin' : 'fa-server'"
+                      ></i>
                     </button>
-                    <button @click="showFlyAppLogs(account, app)" class="service-btn btn-logs fly-btn">
+                    <button
+                      @click="showFlyAppLogs(account, app)"
+                      class="service-btn btn-logs fly-btn"
+                    >
                       <i class="fas fa-file-alt"></i>
                     </button>
-                    <button @click="viewFlyConfig(account, app)" class="service-btn fly-btn"
-                      style="background-color: rgba(71, 85, 105, 0.1); color: #475569;">
+                    <button
+                      @click="viewFlyConfig(account, app)"
+                      class="service-btn fly-btn"
+                      style="background-color: rgba(71, 85, 105, 0.1); color: #475569"
+                    >
                       <i class="fas fa-code"></i>
                     </button>
                   </div>
-                  <div v-if="app.showMachines && app.machines && app.machines.length > 0"
-                    class="instances-container fly-instances-container quick-fade-in">
+                  <div
+                    v-if="app.showMachines && app.machines && app.machines.length > 0"
+                    class="instances-container fly-instances-container quick-fade-in"
+                  >
                     <div class="instances-title fly-instances-title">
                       <span>运 ({{ app.machines.length }})</span>
-                      <span style="cursor: pointer;" @click="app.showMachines = false">×</span>
+                      <span style="cursor: pointer" @click="app.showMachines = false">×</span>
                     </div>
-                    <div v-for="machine in app.machines" :key="machine.id" class="instance-item fly-instance-item">
-                      <span class="instance-id fly-instance-id">{{ machine.id.substring(0, 8) }}...</span>
-                      <div style="display: flex; gap: 8px; align-items: center;">
-                        <span class="instance-region fly-instance-region" style="font-size: 10px;">{{
-                          formatRegion(machine.region) }}</span>
-                        <span :class="['ag-status-badge', getFlyStatusClass(machine.state)]"
-                          style="padding: 1px 6px; font-size: 9px;">{{ machine.state }}</span>
+                    <div
+                      v-for="machine in app.machines"
+                      :key="machine.id"
+                      class="instance-item fly-instance-item"
+                    >
+                      <span class="instance-id fly-instance-id"
+                        >{{ machine.id.substring(0, 8) }}...</span
+                      >
+                      <div style="display: flex; gap: 8px; align-items: center">
+                        <span class="instance-region fly-instance-region" style="font-size: 10px"
+                          >{{ formatRegion(machine.region) }}</span
+                        >
+                        <span
+                          :class="['ag-status-badge', getFlyStatusClass(machine.state)]"
+                          style="padding: 1px 6px; font-size: 9px"
+                          >{{ machine.state }}</span
+                        >
                       </div>
                     </div>
                   </div>
                 </div>
               </div>
-              <div v-if="app.hostname || (app.domains && app.domains.length > 0)" class="domains-container">
-                <a v-if="app.hostname" :href="'https://' + app.hostname" target="_blank"
-                  class="domain-link fly-domain-link">
+              <div
+                v-if="app.hostname || (app.domains && app.domains.length > 0)"
+                class="domains-container"
+              >
+                <a
+                  v-if="app.hostname"
+                  :href="'https://' + app.hostname"
+                  target="_blank"
+                  class="domain-link fly-domain-link"
+                >
                   <i class="fas fa-globe"></i>
                   <span>{{ app.hostname }}</span>
-                  <span class="domain-badge" style="font-size: 8px; background: #666;">默认</span>
+                  <span class="domain-badge" style="font-size: 8px; background: #666">默认</span>
                 </a>
-                <a v-for="domainInfo in app.domains" :key="domainInfo.domain" :href="'https://' + domainInfo.domain"
-                  target="_blank" class="domain-link fly-domain-link" :title="'状态: ' + domainInfo.status">
+                <a
+                  v-for="domainInfo in app.domains"
+                  :key="domainInfo.domain"
+                  :href="'https://' + domainInfo.domain"
+                  target="_blank"
+                  class="domain-link fly-domain-link"
+                  :title="'状态: ' + domainInfo.status"
+                >
                   <i class="fas fa-link"></i>
                   <span>{{ domainInfo.domain }}</span>
-                  <span v-if="domainInfo.isVerified" class="domain-badge"
-                    style="font-size: 8px; background: var(--success-color);">已就绪</span>
-                  <span v-else class="domain-badge" style="font-size: 8px; background: var(--warning-color);">{{
-                    domainInfo.status === 'Ready' ? '已就绪' : '配置中' }}</span>
+                  <span
+                    v-if="domainInfo.isVerified"
+                    class="domain-badge"
+                    style="font-size: 8px; background: var(--success-color)"
+                    >已就绪</span
+                  >
+                  <span
+                    v-else
+                    class="domain-badge"
+                    style="font-size: 8px; background: var(--warning-color)"
+                    >{{ domainInfo.status === 'Ready' ? '已就绪' : '配置中' }}</span
+                  >
                 </a>
               </div>
             </div>
@@ -407,15 +651,23 @@
     <!-- Zeabur 账号管理 -->
     <div class="panel">
       <div class="panel-header">
-        <div class="panel-title"><i class="fas fa-users"
-            style="margin-right: 8px; color: var(--zeabur-primary);"></i>Zeabur 账号管理</div>
-        <div style="display: flex; gap: 8px;">
-          <button class="btn btn-success paas-control-btn" @click="showAddZeaburAccountModal = true"><i
-              class="fas fa-plus"></i> 添加</button>
-          <button class="btn btn-secondary paas-control-btn" @click="exportAllAccounts"><i class="fas fa-upload"></i>
-            导出</button>
-          <button class="btn btn-secondary paas-control-btn" @click="importAllAccounts"><i class="fas fa-download"></i>
-            导入</button>
+        <div class="panel-title">
+          <i class="fas fa-users" style="margin-right: 8px; color: var(--zeabur-primary)"></i>Zeabur
+          账号管理
+        </div>
+        <div style="display: flex; gap: 8px">
+          <button
+            class="btn btn-success paas-control-btn"
+            @click="showAddZeaburAccountModal = true"
+          >
+            <i class="fas fa-plus"></i> 添加
+          </button>
+          <button class="btn btn-secondary paas-control-btn" @click="exportAllAccounts">
+            <i class="fas fa-upload"></i> 导出
+          </button>
+          <button class="btn btn-secondary paas-control-btn" @click="importAllAccounts">
+            <i class="fas fa-download"></i> 导入
+          </button>
         </div>
       </div>
       <div class="table-container">
@@ -424,26 +676,35 @@
             <tr>
               <th>备注名称</th>
               <th>账号邮箱</th>
-              <th class="text-center" style="width: 120px;">余额</th>
-              <th class="text-center" style="width: 100px;">状态</th>
-              <th class="text-center" style="width: 120px;">操作</th>
+              <th class="text-center" style="width: 120px">余额</th>
+              <th class="text-center" style="width: 100px">状态</th>
+              <th class="text-center" style="width: 120px">操作</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="(account, index) in managedAccounts" :key="'local-' + index">
               <td><strong>{{ account.name }}</strong></td>
-              <td><span style="font-size: 13px; color: var(--text-secondary);">{{ account.email || '-' }}</span></td>
+              <td>
+                <span style="font-size: 13px; color: var(--text-secondary)"
+                  >{{ account.email || '-' }}</span
+                >
+              </td>
               <td class="text-center">
-                <span style="font-weight: 600; color: var(--info-color);">${{ (account.balance || 0).toFixed(2)
-                  }}</span>
+                <span style="font-weight: 600; color: var(--info-color)"
+                  >${{ (account.balance || 0).toFixed(2) }}</span
+                >
               </td>
               <td class="text-center">
                 <span class="ag-status-badge ag-status-online">正常</span>
               </td>
               <td class="actions text-center">
                 <div class="flex-cell">
-                  <button class="btn btn-icon-refined" @click="removeAccount(index)" title="删除账号"
-                    style="color: var(--danger-color);">
+                  <button
+                    class="btn btn-icon-refined"
+                    @click="removeAccount(index)"
+                    title="删除账号"
+                    style="color: var(--danger-color)"
+                  >
                     <i class="fas fa-trash"></i>
                   </button>
                 </div>
@@ -455,33 +716,64 @@
 
       <!-- Zeabur 批量导入 -->
       <div
-        style="margin-top: 10px; padding: 15px; background: var(--bg-tertiary); border-radius: 12px; border: 1px dashed var(--border-color);">
-        <div style="font-size: 13px; font-weight: 600; margin-bottom: 10px; color: var(--text-secondary);">
+        style="
+          margin-top: 10px;
+          padding: 15px;
+          background: var(--bg-tertiary);
+          border-radius: 12px;
+          border: 1px dashed var(--border-color);
+        "
+      >
+        <div
+          style="
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 10px;
+            color: var(--text-secondary);
+          "
+        >
           批量添加 Zeabur 账号 (格式: 备注,Sk-Token)
         </div>
-        <textarea v-model="batchAccounts" class="form-textarea" placeholder="我的账号1,sk-xxxx...
-我的账号2,sk-yyyy..." style="min-height: 80px; font-size: 12px; font-family: var(--font-mono);"></textarea>
-        <div v-if="batchAddError" class="form-error" style="margin-top: 8px;">{{ batchAddError }}</div>
-        <div v-if="batchAddSuccess" class="form-success" style="margin-top: 8px;">{{ batchAddSuccess }}</div>
-        <button class="btn btn-primary btn-sm" @click="batchAddAccounts" :disabled="addingAccount"
-          style="width: 100%; margin-top: 12px;">
+        <textarea
+          v-model="batchAccounts"
+          class="form-textarea"
+          placeholder="我的账号1,sk-xxxx...
+我的账号2,sk-yyyy..."
+          style="min-height: 80px; font-size: 12px; font-family: var(--font-mono)"
+        ></textarea>
+        <div v-if="batchAddError" class="form-error" style="margin-top: 8px">
+          {{ batchAddError }}
+        </div>
+        <div v-if="batchAddSuccess" class="form-success" style="margin-top: 8px">
+          {{ batchAddSuccess }}
+        </div>
+        <button
+          class="btn btn-primary btn-sm"
+          @click="batchAddAccounts"
+          :disabled="addingAccount"
+          style="width: 100%; margin-top: 12px"
+        >
           <i class="fas fa-layer-group"></i> 批量验证并添加
         </button>
       </div>
     </div>
 
     <!-- Koyeb 账号管理 -->
-    <div class="panel" style="margin-top: 24px;">
+    <div class="panel" style="margin-top: 24px">
       <div class="panel-header">
-        <div class="panel-title"><i class="fas fa-users" style="margin-right: 8px; color: #4f46e5;"></i>Koyeb 账号管理</div>
-        <div style="display: flex; gap: 8px;">
-          <button class="btn btn-success paas-control-btn" @click="showAddKoyebAccountModal=true"><i
-              class="fas fa-plus"></i> 添加</button>
-          <button class="btn btn-secondary paas-control-btn" @click="exportKoyebAccounts"><i class="fas fa-upload"></i>
-            导出</button>
-          <button class="btn btn-secondary paas-control-btn" @click="importKoyebAccounts"><i
-              class="fas fa-download"></i>
-            导入</button>
+        <div class="panel-title">
+          <i class="fas fa-users" style="margin-right: 8px; color: #4f46e5"></i>Koyeb 账号管理
+        </div>
+        <div style="display: flex; gap: 8px">
+          <button class="btn btn-success paas-control-btn" @click="showAddKoyebAccountModal=true">
+            <i class="fas fa-plus"></i> 添加
+          </button>
+          <button class="btn btn-secondary paas-control-btn" @click="exportKoyebAccounts">
+            <i class="fas fa-upload"></i> 导出
+          </button>
+          <button class="btn btn-secondary paas-control-btn" @click="importKoyebAccounts">
+            <i class="fas fa-download"></i> 导入
+          </button>
         </div>
       </div>
       <div class="table-container">
@@ -490,25 +782,35 @@
             <tr>
               <th>备注名称</th>
               <th>账号邮箱</th>
-              <th class="text-center" style="width: 120px;">余额</th>
-              <th class="text-center" style="width: 100px;">状态</th>
-              <th class="text-center" style="width: 120px;">操作</th>
+              <th class="text-center" style="width: 120px">余额</th>
+              <th class="text-center" style="width: 100px">状态</th>
+              <th class="text-center" style="width: 120px">操作</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="account in koyebManagedAccounts" :key="account.id">
               <td><strong>{{ account.name }}</strong></td>
-              <td><span style="font-size: 13px; color: var(--text-secondary);">{{ account.email || '-' }}</span></td>
+              <td>
+                <span style="font-size: 13px; color: var(--text-secondary)"
+                  >{{ account.email || '-' }}</span
+                >
+              </td>
               <td class="text-center">
-                <span style="font-weight: 600; color: #4f46e5;">${{ (account.balance || 0).toFixed(2) }}</span>
+                <span style="font-weight: 600; color: #4f46e5"
+                  >${{ (account.balance || 0).toFixed(2) }}</span
+                >
               </td>
               <td class="text-center">
                 <span class="ag-status-badge ag-status-online">正常</span>
               </td>
               <td class="actions text-center">
                 <div class="flex-cell">
-                  <button class="btn btn-icon-refined" @click="removeKoyebAccount(account.id)" title="删除账号"
-                    style="color: var(--danger-color);">
+                  <button
+                    class="btn btn-icon-refined"
+                    @click="removeKoyebAccount(account.id)"
+                    title="删除账号"
+                    style="color: var(--danger-color)"
+                  >
                     <i class="fas fa-trash"></i>
                   </button>
                 </div>
@@ -520,33 +822,64 @@
 
       <!-- Koyeb 批量导入 -->
       <div
-        style="margin-top: 10px; padding: 15px; background: var(--bg-tertiary); border-radius: 12px; border: 1px dashed var(--border-color);">
-        <div style="font-size: 13px; font-weight: 600; margin-bottom: 10px; color: var(--text-secondary);">
+        style="
+          margin-top: 10px;
+          padding: 15px;
+          background: var(--bg-tertiary);
+          border-radius: 12px;
+          border: 1px dashed var(--border-color);
+        "
+      >
+        <div
+          style="
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 10px;
+            color: var(--text-secondary);
+          "
+        >
           批量添加 Koyeb 账号 (格式: 备注,koyeb_xxxx...)
         </div>
-        <textarea v-model="koyebBatchAccounts" class="form-textarea" placeholder="我的Koyeb1,koyeb_xxxx...
-我的Koyeb2,koyeb_yyyy..." style="min-height: 80px; font-size: 12px; font-family: var(--font-mono);"></textarea>
-        <div v-if="koyebBatchAddError" class="form-error" style="margin-top: 8px;">{{ koyebBatchAddError }}</div>
-        <div v-if="koyebBatchAddSuccess" class="form-success" style="margin-top: 8px;">{{ koyebBatchAddSuccess }}</div>
-        <button class="btn btn-primary btn-sm" @click="batchAddKoyebAccounts" :disabled="koyebAddingAccount"
-          style="width: 100%; margin-top: 12px;">
+        <textarea
+          v-model="koyebBatchAccounts"
+          class="form-textarea"
+          placeholder="我的Koyeb1,koyeb_xxxx...
+我的Koyeb2,koyeb_yyyy..."
+          style="min-height: 80px; font-size: 12px; font-family: var(--font-mono)"
+        ></textarea>
+        <div v-if="koyebBatchAddError" class="form-error" style="margin-top: 8px">
+          {{ koyebBatchAddError }}
+        </div>
+        <div v-if="koyebBatchAddSuccess" class="form-success" style="margin-top: 8px">
+          {{ koyebBatchAddSuccess }}
+        </div>
+        <button
+          class="btn btn-primary btn-sm"
+          @click="batchAddKoyebAccounts"
+          :disabled="koyebAddingAccount"
+          style="width: 100%; margin-top: 12px"
+        >
           <i class="fas fa-layer-group"></i> 批量验证并添加
         </button>
       </div>
     </div>
 
     <!-- Fly.io 账号管理 -->
-    <div class="panel" style="margin-top: 24px;">
+    <div class="panel" style="margin-top: 24px">
       <div class="panel-header">
-        <div class="panel-title"><i class="fas fa-users" style="margin-right: 8px; color: #8b5cf6;"></i>Fly.io 账号管理
+        <div class="panel-title">
+          <i class="fas fa-users" style="margin-right: 8px; color: #8b5cf6"></i>Fly.io 账号管理
         </div>
-        <div style="display: flex; gap: 8px;">
-          <button class="btn btn-success paas-control-btn" @click="showAddFlyAccountModal=true"><i
-              class="fas fa-plus"></i> 添加</button>
-          <button class="btn btn-secondary paas-control-btn" @click="exportFlyAccounts"><i class="fas fa-upload"></i>
-            导出</button>
-          <button class="btn btn-secondary paas-control-btn" @click="importFlyAccounts"><i class="fas fa-download"></i>
-            导入</button>
+        <div style="display: flex; gap: 8px">
+          <button class="btn btn-success paas-control-btn" @click="showAddFlyAccountModal=true">
+            <i class="fas fa-plus"></i> 添加
+          </button>
+          <button class="btn btn-secondary paas-control-btn" @click="exportFlyAccounts">
+            <i class="fas fa-upload"></i> 导出
+          </button>
+          <button class="btn btn-secondary paas-control-btn" @click="importFlyAccounts">
+            <i class="fas fa-download"></i> 导入
+          </button>
         </div>
       </div>
       <div class="table-container">
@@ -555,21 +888,29 @@
             <tr>
               <th>备注名称</th>
               <th>账号邮箱</th>
-              <th class="text-center" style="width: 100px;">状态</th>
-              <th class="text-center" style="width: 120px;">操作</th>
+              <th class="text-center" style="width: 100px">状态</th>
+              <th class="text-center" style="width: 120px">操作</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="account in flyManagedAccounts" :key="account.id">
               <td><strong>{{ account.name }}</strong></td>
-              <td><span style="font-size: 13px; color: var(--text-secondary);">{{ account.email || '-' }}</span></td>
+              <td>
+                <span style="font-size: 13px; color: var(--text-secondary)"
+                  >{{ account.email || '-' }}</span
+                >
+              </td>
               <td class="text-center">
                 <span class="ag-status-badge ag-status-online">正常</span>
               </td>
               <td class="actions text-center">
                 <div class="flex-cell">
-                  <button class="btn btn-icon-refined" @click="removeFlyAccount(account.id, account.name)" title="删除账号"
-                    style="color: var(--danger-color);">
+                  <button
+                    class="btn btn-icon-refined"
+                    @click="removeFlyAccount(account.id, account.name)"
+                    title="删除账号"
+                    style="color: var(--danger-color)"
+                  >
                     <i class="fas fa-trash"></i>
                   </button>
                 </div>
@@ -581,16 +922,43 @@
 
       <!-- Fly.io 批量导入 -->
       <div
-        style="margin-top: 10px; padding: 15px; background: var(--bg-tertiary); border-radius: 12px; border: 1px dashed var(--border-color);">
-        <div style="font-size: 13px; font-weight: 600; margin-bottom: 10px; color: var(--text-secondary);">
+        style="
+          margin-top: 10px;
+          padding: 15px;
+          background: var(--bg-tertiary);
+          border-radius: 12px;
+          border: 1px dashed var(--border-color);
+        "
+      >
+        <div
+          style="
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 10px;
+            color: var(--text-secondary);
+          "
+        >
           批量添加 Fly.io 账号 (格式: 备注,Fly-Token)
         </div>
-        <textarea v-model="flyBatchAccounts" class="form-textarea" placeholder="我的Fly1,flyv1_xxxx...
-我的Fly2,flyv1_yyyy..." style="min-height: 80px; font-size: 12px; font-family: var(--font-mono);"></textarea>
-        <div v-if="flyBatchAddError" class="form-error" style="margin-top: 8px;">{{ flyBatchAddError }}</div>
-        <div v-if="flyBatchAddSuccess" class="form-success" style="margin-top: 8px;">{{ flyBatchAddSuccess }}</div>
-        <button class="btn btn-primary btn-sm" @click="batchAddFlyAccounts" :disabled="flyAddingAccount"
-          style="width: 100%; margin-top: 12px;">
+        <textarea
+          v-model="flyBatchAccounts"
+          class="form-textarea"
+          placeholder="我的Fly1,flyv1_xxxx...
+我的Fly2,flyv1_yyyy..."
+          style="min-height: 80px; font-size: 12px; font-family: var(--font-mono)"
+        ></textarea>
+        <div v-if="flyBatchAddError" class="form-error" style="margin-top: 8px">
+          {{ flyBatchAddError }}
+        </div>
+        <div v-if="flyBatchAddSuccess" class="form-success" style="margin-top: 8px">
+          {{ flyBatchAddSuccess }}
+        </div>
+        <button
+          class="btn btn-primary btn-sm"
+          @click="batchAddFlyAccounts"
+          :disabled="flyAddingAccount"
+          style="width: 100%; margin-top: 12px"
+        >
           <i class="fas fa-layer-group"></i> 批量验证并添加
         </button>
       </div>
@@ -601,25 +969,42 @@
   <div v-if="paasCurrentTab === 'settings'" class="sub-tab-content quick-fade-in">
     <div class="panel">
       <div class="panel-header">
-        <div style="display: flex; gap: 8px;">
-          <button class="btn btn-primary" @click="saveZeaburSettings"><i class="fas fa-save"></i> 保存配置</button>
+        <div style="display: flex; gap: 8px">
+          <button class="btn btn-primary" @click="saveZeaburSettings">
+            <i class="fas fa-save"></i> 保存配置
+          </button>
         </div>
       </div>
-      <div style="padding: 15px;">
-        <div class="form-group" style="margin-bottom: 16px;">
+      <div style="padding: 15px">
+        <div class="form-group" style="margin-bottom: 16px">
           <label class="form-label">Zeabur 自动刷新间隔 (秒)</label>
-          <input type="number" v-model="zeaburRefreshIntervalSec" class="form-input" min="5"
-            @change="zeaburRefreshInterval = zeaburRefreshIntervalSec * 1000" />
+          <input
+            type="number"
+            v-model="zeaburRefreshIntervalSec"
+            class="form-input"
+            min="5"
+            @change="zeaburRefreshInterval = zeaburRefreshIntervalSec * 1000"
+          />
         </div>
-        <div class="form-group" style="margin-bottom: 16px;">
+        <div class="form-group" style="margin-bottom: 16px">
           <label class="form-label">Koyeb 自动刷新间隔 (秒)</label>
-          <input type="number" v-model="koyebRefreshIntervalSec" class="form-input" min="5"
-            @change="koyebRefreshInterval = koyebRefreshIntervalSec * 1000" />
+          <input
+            type="number"
+            v-model="koyebRefreshIntervalSec"
+            class="form-input"
+            min="5"
+            @change="koyebRefreshInterval = koyebRefreshIntervalSec * 1000"
+          />
         </div>
         <div class="form-group">
           <label class="form-label">Fly.io 自动刷新间隔 (秒)</label>
-          <input type="number" v-model="flyRefreshIntervalSec" class="form-input" min="5"
-            @change="flyRefreshInterval = flyRefreshIntervalSec * 1000" />
+          <input
+            type="number"
+            v-model="flyRefreshIntervalSec"
+            class="form-input"
+            min="5"
+            @change="flyRefreshInterval = flyRefreshIntervalSec * 1000"
+          />
         </div>
       </div>
     </div>

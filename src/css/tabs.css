@@ -22,7 +22,6 @@
   align-items: center;
   gap: 8px;
   position: relative;
-
 }
 
 .main-tab:hover {
@@ -132,7 +131,6 @@
   .main-tab span {
     display: none;
   }
-
 }
 
 /* ==================== 侧边栏布局模式 ==================== */
@@ -224,8 +222,6 @@
   color: #f43f5e !important;
 }
 
-
-
 /* Tooltip 提示 - 侧边栏模式 */
 .main-tabs-sidebar .sidebar-tab::after {
   content: attr(data-tooltip);
@@ -287,7 +283,7 @@
   background: rgba(var(--primary-rgb), 0.1);
 }
 
-.layout-option.active>div:first-child {
+.layout-option.active > div:first-child {
   color: var(--primary-color) !important;
 }
 
@@ -303,7 +299,6 @@
 
 /* 仅在非移动端（宽度 > 768px）时生效 */
 @media (min-width: 769px) {
-
   /* 底部固定定位容器 (bottom & bottom-normal) */
   .nav-bottom-fixed {
     position: fixed !important;
@@ -426,8 +421,6 @@
   .nav-layout-top-capsule .header {
     display: none !important;
   }
-
-
 
   /* 底部普通样式 (bottom-normal) - 保持原有 tab 样式但固定在底部 */
   .nav-bottom-fixed:not(.nav-capsule) .main-tabs {

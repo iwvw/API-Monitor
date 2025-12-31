@@ -6,7 +6,6 @@
 import { store } from '../store.js';
 import { toast } from './toast.js';
 
-
 export const systemLogsMethods = {
   // 打开统一的系统日志查看器
   openSystemLogViewer() {
@@ -18,7 +17,7 @@ export const systemLogsMethods = {
       fetcher: async () => {
         // 获取最近的日志快照
         const response = await fetch('/api/settings/sys-logs', {
-          headers: this.getAuthHeaders()
+          headers: this.getAuthHeaders(),
         });
         const result = await response.json();
         if (result.success) {
@@ -35,7 +34,7 @@ export const systemLogsMethods = {
                 timestamp: l.timestamp || Date.now(),
                 level: l.level || 'INFO',
                 module: l.module || 'core',
-                message: String(msg || JSON.stringify(l))
+                message: String(msg || JSON.stringify(l)),
               };
             }
             // 如果是字符串，尝试解析
@@ -44,15 +43,15 @@ export const systemLogsMethods = {
             return {
               timestamp: Date.now(),
               level: match ? match[1] : 'INFO',
-              message: match ? match[2] : str
+              message: match ? match[2] : str,
             };
           });
         }
         return [];
       },
-      streamer: (appendLog) => {
+      streamer: appendLog => {
         // 连接 WebSocket 并将消息转发给 viewer
-        this.initLogWs((log) => {
+        this.initLogWs(log => {
           // 确保 message 是字符串
           let msg = log.message;
           if (typeof msg === 'object' && msg !== null) {
@@ -62,13 +61,13 @@ export const systemLogsMethods = {
             timestamp: log.timestamp || Date.now(),
             level: log.level || 'INFO',
             module: log.module || 'core',
-            message: String(msg || '')
+            message: String(msg || ''),
           });
         });
       },
       cleaner: () => {
         this.closeLogWs();
-      }
+      },
     });
   },
 
@@ -81,26 +80,28 @@ export const systemLogsMethods = {
       fullscreen: true,
       fetcher: async () => {
         const response = await fetch('/api/settings/app-log-file', {
-          headers: this.getAuthHeaders()
+          headers: this.getAuthHeaders(),
         });
         const result = await response.json();
         if (result.success && result.data) {
           // 原始文件内容通常是大段文本，按行分割处理
           const lines = result.data.split('\n');
-          return lines.map((line, index) => {
-            if (!line.trim()) return null;
-            // 尝试解析常见日志格式，如果无法解析则作为纯文本
-            const match = line.match(/^\[(.*?)\] (.*)/);
-            return {
-              id: `raw-${index}`,
-              timestamp: Date.now(), // 文件日志可能无统一时间戳格式，暂用当前或尝试解析
-              level: match ? match[1] : 'INFO',
-              message: line
-            };
-          }).filter(l => l);
+          return lines
+            .map((line, index) => {
+              if (!line.trim()) return null;
+              // 尝试解析常见日志格式，如果无法解析则作为纯文本
+              const match = line.match(/^\[(.*?)\] (.*)/);
+              return {
+                id: `raw-${index}`,
+                timestamp: Date.now(), // 文件日志可能无统一时间戳格式，暂用当前或尝试解析
+                level: match ? match[1] : 'INFO',
+                message: line,
+              };
+            })
+            .filter(l => l);
         }
         return [];
-      }
+      },
     });
   },
 
@@ -117,15 +118,17 @@ export const systemLogsMethods = {
       // 但为了稳健性，我们让它同时支持更新 store.systemLogs 和 执行回调
 
       const oldOnMessage = this.logWs.onmessage;
-      this.logWs.onmessage = (event) => {
+      this.logWs.onmessage = event => {
         const message = JSON.parse(event.data);
 
         // 1. 始终更新 Store 中的 systemLogs (供设置页面小窗口使用)
-        const formatEntry = (entry) => ({
-          time: entry.timestamp ? new Date(entry.timestamp).toLocaleTimeString('zh-CN', { hour12: false }) : '00:00:00',
+        const formatEntry = entry => ({
+          time: entry.timestamp
+            ? new Date(entry.timestamp).toLocaleTimeString('zh-CN', { hour12: false })
+            : '00:00:00',
           level: entry.level || 'INFO',
           module: entry.module || 'core',
-          message: entry.message + (entry.data ? ` [DATA]` : '')
+          message: entry.message + (entry.data ? ' [DATA]' : ''),
         });
 
         if (message.type === 'init') {
@@ -133,7 +136,8 @@ export const systemLogsMethods = {
           this.scrollToBottom();
         } else if (message.type === 'log') {
           this.systemLogs.push(formatEntry(message.data));
-          if (this.systemLogs.length > 200) { // 小窗口保留少一点
+          if (this.systemLogs.length > 200) {
+            // 小窗口保留少一点
             this.systemLogs.shift();
           }
           this.scrollToBottom();
@@ -166,15 +170,17 @@ export const systemLogsMethods = {
       console.log('✅ 系统日志 WebSocket 已连接');
     };
 
-    this.logWs.onmessage = (event) => {
+    this.logWs.onmessage = event => {
       const message = JSON.parse(event.data);
 
       // 1. 更新 Store (设置页面小窗口)
-      const formatEntry = (entry) => ({
-        time: entry.timestamp ? new Date(entry.timestamp).toLocaleTimeString('zh-CN', { hour12: false }) : '00:00:00',
+      const formatEntry = entry => ({
+        time: entry.timestamp
+          ? new Date(entry.timestamp).toLocaleTimeString('zh-CN', { hour12: false })
+          : '00:00:00',
         level: entry.level || 'INFO',
         module: entry.module || 'core',
-        message: entry.message + (entry.data ? ` [DATA]` : '')
+        message: entry.message + (entry.data ? ' [DATA]' : ''),
       });
 
       if (message.type === 'init') {
@@ -200,7 +206,7 @@ export const systemLogsMethods = {
       console.log('❌ 系统日志 WebSocket 已断开');
     };
 
-    this.logWs.onerror = (err) => {
+    this.logWs.onerror = err => {
       console.error('WebSocket Error:', err);
     };
   },
@@ -248,8 +254,11 @@ export const systemLogsMethods = {
 
   formatLogTime(timestamp) {
     const date = new Date(timestamp);
-    return date.toLocaleTimeString('zh-CN', { hour12: false }) + '.' +
-      String(date.getMilliseconds()).padStart(3, '0');
+    return (
+      date.toLocaleTimeString('zh-CN', { hour12: false }) +
+      '.' +
+      String(date.getMilliseconds()).padStart(3, '0')
+    );
   },
 
   formatLogData(data) {
@@ -264,7 +273,7 @@ export const systemLogsMethods = {
       message: '这将永久删除 app.log 文件内容并清空当前视图，建议操作前先下载备份。',
       icon: 'fa-trash-alt',
       confirmText: '确定物理清空',
-      confirmClass: 'btn-danger'
+      confirmClass: 'btn-danger',
     });
 
     if (!confirmed) return;
@@ -272,7 +281,7 @@ export const systemLogsMethods = {
     try {
       const response = await fetch('/api/settings/clear-app-logs', {
         method: 'POST',
-        headers: this.getAuthHeaders()
+        headers: this.getAuthHeaders(),
       });
       const result = await response.json();
       if (result.success) {
@@ -292,5 +301,5 @@ export const systemLogsMethods = {
 
   clearDisplayLogs() {
     this.systemLogs = [];
-  }
+  },
 };

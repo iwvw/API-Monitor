@@ -16,9 +16,12 @@ async function loadMonaco() {
 
   return new Promise((resolve, reject) => {
     const loaderScript = document.createElement('script');
-    loaderScript.src = 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/loader.min.js';
+    loaderScript.src =
+      'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/loader.min.js';
     loaderScript.onload = () => {
-      window.require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs' } });
+      window.require.config({
+        paths: { vs: 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs' },
+      });
       window.require(['vs/editor/editor.main'], () => {
         resolve();
       });
@@ -42,7 +45,7 @@ export const dnsMethods = {
           store.dnsAccounts = data.accounts.map(acc => ({
             ...acc,
             showToken: false,
-            apiToken: null
+            apiToken: null,
           }));
           // 如果没有选中账号且有账号列表，自动选择第一个
           if (!store.dnsSelectedAccountId && store.dnsAccounts.length > 0) {
@@ -62,10 +65,13 @@ export const dnsMethods = {
   // 保存账号数据到本地缓存
   saveToDnsAccountsCache(accounts) {
     try {
-      localStorage.setItem(DNS_ACCOUNTS_CACHE_KEY, JSON.stringify({
-        accounts,
-        timestamp: Date.now()
-      }));
+      localStorage.setItem(
+        DNS_ACCOUNTS_CACHE_KEY,
+        JSON.stringify({
+          accounts,
+          timestamp: Date.now(),
+        })
+      );
     } catch (e) {
       console.warn('保存 DNS 账号缓存失败:', e);
     }
@@ -103,7 +109,7 @@ export const dnsMethods = {
   async loadDnsAccounts(silent = false) {
     try {
       const response = await fetch('/api/cf-dns/accounts', {
-        headers: store.getAuthHeaders()
+        headers: store.getAuthHeaders(),
       });
       const data = await response.json();
       // API 直接返回账号数组
@@ -112,7 +118,7 @@ export const dnsMethods = {
         store.dnsAccounts = data.map(acc => ({
           ...acc,
           showToken: false,
-          apiToken: null
+          apiToken: null,
         }));
 
         // 保存到本地缓存
@@ -139,7 +145,7 @@ export const dnsMethods = {
       } else {
         // 显示 token - 从主机获取
         const response = await fetch(`/api/cf-dns/accounts/${account.id}/token`, {
-          headers: store.getAuthHeaders()
+          headers: store.getAuthHeaders(),
         });
         const data = await response.json();
         if (data.success && data.apiToken) {
@@ -171,7 +177,7 @@ export const dnsMethods = {
     this.dnsEditAccountForm = {
       name: account.name,
       apiToken: '', // 不显示原 Token
-      email: account.email || ''
+      email: account.email || '',
     };
     this.dnsEditAccountFormError = '';
     this.dnsEditAccountFormSuccess = '';
@@ -184,7 +190,7 @@ export const dnsMethods = {
       message: `确定要删除账号 "${account.name}" 吗？`,
       icon: 'fa-trash',
       confirmText: '删除',
-      confirmClass: 'btn-danger'
+      confirmClass: 'btn-danger',
     });
 
     if (!confirmed) return;
@@ -192,7 +198,7 @@ export const dnsMethods = {
     try {
       const response = await fetch(`/api/cf-dns/accounts/${account.id}`, {
         method: 'DELETE',
-        headers: store.getAuthHeaders()
+        headers: store.getAuthHeaders(),
       });
 
       const data = await response.json();
@@ -240,7 +246,7 @@ export const dnsMethods = {
 
     try {
       const response = await fetch(`/api/cf-dns/accounts/${store.dnsSelectedAccountId}/zones`, {
-        headers: store.getAuthHeaders()
+        headers: store.getAuthHeaders(),
       });
 
       const data = await response.json();
@@ -249,7 +255,10 @@ export const dnsMethods = {
         store.dnsZones = data.zones;
         // 保存到缓存
         try {
-          localStorage.setItem(cacheKey, JSON.stringify({ zones: data.zones, timestamp: Date.now() }));
+          localStorage.setItem(
+            cacheKey,
+            JSON.stringify({ zones: data.zones, timestamp: Date.now() })
+          );
         } catch (e) {
           console.warn('[DNS] 缓存保存失败:', e);
         }
@@ -268,7 +277,14 @@ export const dnsMethods = {
     store.dnsSelectedZoneName = zone.name;
     // 兼容两种命名方式: nameServers (驼峰) 和 name_servers (下划线)
     store.dnsSelectedZoneNameServers = zone.nameServers || zone.name_servers || [];
-    console.log('[DNS] 已选择域名:', zone.name, '| NS记录数量:', store.dnsSelectedZoneNameServers.length, '| NS数据:', store.dnsSelectedZoneNameServers);
+    console.log(
+      '[DNS] 已选择域名:',
+      zone.name,
+      '| NS记录数量:',
+      store.dnsSelectedZoneNameServers.length,
+      '| NS数据:',
+      store.dnsSelectedZoneNameServers
+    );
     // 保存选中的 zone 到缓存以便下次恢复
     if (store.dnsSelectedAccountId) {
       try {
@@ -300,7 +316,7 @@ export const dnsMethods = {
       message: `确定要清除域名 "${store.dnsSelectedZoneName}" 的所有缓存吗？此操作将清空CDN缓存，可能会短暂影响性能。`,
       icon: 'fa-broom',
       confirmText: '清除缓存',
-      confirmClass: 'btn-warning'
+      confirmClass: 'btn-warning',
     });
 
     if (!confirmed) return;
@@ -313,7 +329,7 @@ export const dnsMethods = {
         {
           method: 'POST',
           headers: store.getAuthHeaders(),
-          body: JSON.stringify({ purge_everything: true })
+          body: JSON.stringify({ purge_everything: true }),
         }
       );
 
@@ -368,10 +384,10 @@ export const dnsMethods = {
     if (!store.dnsSelectedAccountId || !store.dnsSelectedZoneId) return;
 
     const modeNames = {
-      'off': 'Off (关闭)',
-      'flexible': 'Flexible (灵活)',
-      'full': 'Full (完全)',
-      'strict': 'Full (strict)'
+      off: 'Off (关闭)',
+      flexible: 'Flexible (灵活)',
+      full: 'Full (完全)',
+      strict: 'Full (strict)',
     };
 
     const confirmed = await store.showConfirm({
@@ -379,7 +395,7 @@ export const dnsMethods = {
       message: `确定要将SSL模式修改为 "${modeNames[mode]}" 吗？\n\n修改后可能需要几分钟生效。`,
       icon: 'fa-lock',
       confirmText: '确认修改',
-      confirmClass: 'btn-primary'
+      confirmClass: 'btn-primary',
     });
 
     if (!confirmed) return;
@@ -392,7 +408,7 @@ export const dnsMethods = {
         {
           method: 'PATCH',
           headers: store.getAuthHeaders(),
-          body: JSON.stringify({ mode })
+          body: JSON.stringify({ mode }),
         }
       );
 
@@ -424,7 +440,7 @@ export const dnsMethods = {
       console.log('[DNS] 开始加载Analytics:', {
         accountId: store.dnsSelectedAccountId,
         zoneId: store.dnsSelectedZoneId,
-        timeRange
+        timeRange,
       });
 
       const response = await fetch(
@@ -524,7 +540,7 @@ export const dnsMethods = {
       content: record.content,
       ttl: record.ttl,
       proxied: record.proxied || false,
-      priority: record.priority || 10
+      priority: record.priority || 10,
     };
     this.dnsRecordFormError = '';
     this.showDnsRecordModal = true;
@@ -547,7 +563,7 @@ export const dnsMethods = {
       const response = await fetch(url, {
         method: this.dnsEditingRecord ? 'PUT' : 'POST',
         headers: store.getAuthHeaders(),
-        body: JSON.stringify(this.dnsRecordForm)
+        body: JSON.stringify(this.dnsRecordForm),
       });
 
       const data = await response.json();
@@ -572,7 +588,7 @@ export const dnsMethods = {
       message: `确定要删除记录 "${record.name}" 吗？`,
       icon: 'fa-trash',
       confirmText: '删除',
-      confirmClass: 'btn-danger'
+      confirmClass: 'btn-danger',
     });
 
     if (!confirmed) return;
@@ -582,7 +598,7 @@ export const dnsMethods = {
         `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/zones/${store.dnsSelectedZoneId}/records/${record.id}`,
         {
           method: 'DELETE',
-          headers: store.getAuthHeaders()
+          headers: store.getAuthHeaders(),
         }
       );
 
@@ -625,7 +641,7 @@ export const dnsMethods = {
       message: `确定要删除选中的 ${store.dnsSelectedRecords.length} 条 DNS 记录吗？此操作不可恢复！`,
       icon: 'fa-exclamation-triangle',
       confirmText: '删除',
-      confirmClass: 'btn-danger'
+      confirmClass: 'btn-danger',
     });
 
     if (!confirmed) return;
@@ -643,7 +659,7 @@ export const dnsMethods = {
           `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/zones/${store.dnsSelectedZoneId}/records/${recordId}`,
           {
             method: 'DELETE',
-            headers: store.getAuthHeaders()
+            headers: store.getAuthHeaders(),
           }
         );
 
@@ -690,8 +706,8 @@ export const dnsMethods = {
           body: JSON.stringify({
             type: this.dnsQuickSwitchType,
             name: this.dnsQuickSwitchName,
-            newContent: this.dnsQuickSwitchContent
-          })
+            newContent: this.dnsQuickSwitchContent,
+          }),
         }
       );
 
@@ -715,7 +731,7 @@ export const dnsMethods = {
   async loadDnsTemplates() {
     try {
       const response = await fetch('/api/cf-dns/templates', {
-        headers: store.getAuthHeaders()
+        headers: store.getAuthHeaders(),
       });
       const data = await response.json();
       // API 直接返回模板数组
@@ -731,7 +747,14 @@ export const dnsMethods = {
 
   openAddDnsTemplateModal() {
     this.dnsEditingTemplate = null;
-    this.dnsTemplateForm = { name: '', type: 'A', content: '', ttl: 1, proxied: false, description: '' };
+    this.dnsTemplateForm = {
+      name: '',
+      type: 'A',
+      content: '',
+      ttl: 1,
+      proxied: false,
+      description: '',
+    };
     this.dnsTemplateFormError = '';
     this.showDnsTemplateModal = true;
   },
@@ -760,7 +783,7 @@ export const dnsMethods = {
       const response = await fetch(url, {
         method: this.dnsEditingTemplate ? 'PUT' : 'POST',
         headers: store.getAuthHeaders(),
-        body: JSON.stringify(this.dnsTemplateForm)
+        body: JSON.stringify(this.dnsTemplateForm),
       });
 
       const data = await response.json();
@@ -785,7 +808,7 @@ export const dnsMethods = {
       message: `确定要删除模板 "${template.name}" 吗？`,
       icon: 'fa-trash',
       confirmText: '删除',
-      confirmClass: 'btn-danger'
+      confirmClass: 'btn-danger',
     });
 
     if (!confirmed) return;
@@ -793,7 +816,7 @@ export const dnsMethods = {
     try {
       const response = await fetch(`/api/cf-dns/templates/${template.id}`, {
         method: 'DELETE',
-        headers: store.getAuthHeaders()
+        headers: store.getAuthHeaders(),
       });
 
       const data = await response.json();
@@ -823,7 +846,7 @@ export const dnsMethods = {
       const response = await fetch('/api/cf-dns/accounts', {
         method: 'POST',
         headers: store.getAuthHeaders(),
-        body: JSON.stringify(this.dnsAccountForm)
+        body: JSON.stringify(this.dnsAccountForm),
       });
 
       const data = await response.json();
@@ -848,7 +871,7 @@ export const dnsMethods = {
     try {
       const response = await fetch(`/api/cf-dns/accounts/${account.id}/verify`, {
         method: 'POST',
-        headers: store.getAuthHeaders()
+        headers: store.getAuthHeaders(),
       });
 
       const data = await response.json();
@@ -876,7 +899,7 @@ export const dnsMethods = {
     try {
       const updateData = {
         name: this.dnsEditAccountForm.name,
-        email: this.dnsEditAccountForm.email
+        email: this.dnsEditAccountForm.email,
       };
 
       // 如果填写了新的 Token，则包含在更新数据中
@@ -887,7 +910,7 @@ export const dnsMethods = {
       const response = await fetch(`/api/cf-dns/accounts/${this.dnsEditingAccount.id}`, {
         method: 'PUT',
         headers: store.getAuthHeaders(),
-        body: JSON.stringify(updateData)
+        body: JSON.stringify(updateData),
       });
 
       const data = await response.json();
@@ -977,8 +1000,8 @@ export const dnsMethods = {
             name: record.editingName.trim(),
             content: record.content,
             ttl: record.ttl,
-            proxied: record.proxied || false
-          })
+            proxied: record.proxied || false,
+          }),
         }
       );
 
@@ -1051,8 +1074,8 @@ export const dnsMethods = {
             name: this.formatDnsRecordName(record.name),
             content: record.editingContent.trim(),
             ttl: record.ttl,
-            proxied: record.proxied || false
-          })
+            proxied: record.proxied || false,
+          }),
         }
       );
 
@@ -1094,8 +1117,8 @@ export const dnsMethods = {
           content: record.content,
           ttl: record.ttl,
           proxied: record.proxied || false,
-          priority: record.priority
-        }))
+          priority: record.priority,
+        })),
       };
 
       const dataStr = JSON.stringify(exportData, null, 2);
@@ -1127,7 +1150,7 @@ export const dnsMethods = {
       message: '导入 DNS 记录将添加到当前域名中，是否继续？',
       icon: 'fa-exclamation-triangle',
       confirmText: '确定导入',
-      confirmClass: 'btn-primary'
+      confirmClass: 'btn-primary',
     });
 
     if (!confirmed) return;
@@ -1135,12 +1158,12 @@ export const dnsMethods = {
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.json';
-    input.onchange = async (event) => {
+    input.onchange = async event => {
       const file = event.target.files[0];
       if (!file) return;
 
       const reader = new FileReader();
-      reader.onload = async (e) => {
+      reader.onload = async e => {
         try {
           const importedData = JSON.parse(e.target.result);
 
@@ -1156,7 +1179,7 @@ export const dnsMethods = {
             message: `将导入 ${importedData.records.length} 条 DNS 记录到域名 ${this.dnsSelectedZoneName}，确定继续吗？`,
             icon: 'fa-info-circle',
             confirmText: '开始导入',
-            confirmClass: 'btn-primary'
+            confirmClass: 'btn-primary',
           });
 
           if (!confirm2) return;
@@ -1174,7 +1197,7 @@ export const dnsMethods = {
                 {
                   method: 'POST',
                   headers: this.getAuthHeaders(),
-                  body: JSON.stringify(record)
+                  body: JSON.stringify(record),
                 }
               );
 
@@ -1196,7 +1219,10 @@ export const dnsMethods = {
           if (failedCount === 0) {
             this.showDnsToast(`✅ 成功导入 ${successCount} 条记录`, 'success');
           } else {
-            this.showDnsToast(`⚠️ 导入完成：成功 ${successCount} 条，失败 ${failedCount} 条`, 'error');
+            this.showDnsToast(
+              `⚠️ 导入完成：成功 ${successCount} 条，失败 ${failedCount} 条`,
+              'error'
+            );
           }
         } catch (error) {
           this.showDnsToast('导入失败: ' + error.message, 'error');
@@ -1217,7 +1243,7 @@ export const dnsMethods = {
 
       // 从主机获取包含 API Token 的完整账号数据
       const response = await fetch('/api/cf-dns/accounts/export', {
-        headers: this.getAuthHeaders()
+        headers: this.getAuthHeaders(),
       });
 
       const data = await response.json();
@@ -1229,7 +1255,7 @@ export const dnsMethods = {
       const exportData = {
         version: '1.0',
         exportTime: new Date().toISOString(),
-        accounts: data.accounts
+        accounts: data.accounts,
       };
 
       const dataStr = JSON.stringify(exportData, null, 2);
@@ -1256,7 +1282,7 @@ export const dnsMethods = {
       message: '导入 DNS 账号将添加到现有账号列表中，是否继续？',
       icon: 'fa-exclamation-triangle',
       confirmText: '确定导入',
-      confirmClass: 'btn-primary'
+      confirmClass: 'btn-primary',
     });
 
     if (!confirmed) return;
@@ -1264,12 +1290,12 @@ export const dnsMethods = {
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.json';
-    input.onchange = async (event) => {
+    input.onchange = async event => {
       const file = event.target.files[0];
       if (!file) return;
 
       const reader = new FileReader();
-      reader.onload = async (e) => {
+      reader.onload = async e => {
         try {
           const importedData = JSON.parse(e.target.result);
 
@@ -1285,7 +1311,7 @@ export const dnsMethods = {
             message: `将导入 ${importedData.accounts.length} 个 DNS 账号，确定继续吗？`,
             icon: 'fa-info-circle',
             confirmText: '开始导入',
-            confirmClass: 'btn-primary'
+            confirmClass: 'btn-primary',
           });
 
           if (!confirm2) return;
@@ -1309,7 +1335,7 @@ export const dnsMethods = {
               const response = await fetch('/api/cf-dns/accounts', {
                 method: 'POST',
                 headers: this.getAuthHeaders(),
-                body: JSON.stringify(account)
+                body: JSON.stringify(account),
               });
 
               const data = await response.json();
@@ -1363,15 +1389,14 @@ export const dnsMethods = {
 
     try {
       const response = await fetch(`/api/cf-dns/accounts/${store.dnsSelectedAccountId}/workers`, {
-        headers: store.getAuthHeaders()
+        headers: store.getAuthHeaders(),
       });
       const data = await response.json();
 
       if (response.ok) {
         this.workers = data.workers || [];
         this.workersSubdomain = data.subdomain || null;
-        this.workersCfAccountId = data.cfAccountId || null;  // 保存 CF 账号 ID
-
+        this.workersCfAccountId = data.cfAccountId || null; // 保存 CF 账号 ID
       } else {
         toast.error(data.error || '加载 Workers 失败');
       }
@@ -1381,7 +1406,6 @@ export const dnsMethods = {
       this.workersLoading = false;
     }
   },
-
 
   /**
    * 格式化 Worker 日期
@@ -1394,10 +1418,9 @@ export const dnsMethods = {
       month: '2-digit',
       day: '2-digit',
       hour: '2-digit',
-      minute: '2-digit'
+      minute: '2-digit',
     });
   },
-
 
   async deleteWorker(scriptName) {
     const confirmed = await store.showConfirm({
@@ -1405,7 +1428,7 @@ export const dnsMethods = {
       message: `确定要删除 Worker "${scriptName}" 吗？此操作不可恢复。`,
       icon: 'fa-trash',
       confirmText: '删除',
-      confirmClass: 'btn-danger'
+      confirmClass: 'btn-danger',
     });
 
     if (!confirmed) return;
@@ -1415,7 +1438,7 @@ export const dnsMethods = {
         `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/workers/${encodeURIComponent(scriptName)}`,
         {
           method: 'DELETE',
-          headers: store.getAuthHeaders()
+          headers: store.getAuthHeaders(),
         }
       );
       const data = await response.json();
@@ -1523,7 +1546,7 @@ export default {
             automaticLayout: true,
             minimap: { enabled: true },
             fontSize: 13,
-            scrollBeyondLastLine: false
+            scrollBeyondLastLine: false,
           });
         }
       } catch (e) {
@@ -1532,9 +1555,6 @@ export default {
       }
     });
   },
-
-
-
 
   /**
    * 打开编辑 Worker 模态框
@@ -1547,9 +1567,12 @@ export default {
 
     try {
       // 获取脚本内容
-      const response = await fetch(`/api/cf-dns/accounts/${store.dnsSelectedAccountId}/workers/${encodeURIComponent(worker.name)}`, {
-        headers: store.getAuthHeaders()
-      });
+      const response = await fetch(
+        `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/workers/${encodeURIComponent(worker.name)}`,
+        {
+          headers: store.getAuthHeaders(),
+        }
+      );
       const data = await response.json();
 
       if (response.ok && data.success) {
@@ -1566,7 +1589,11 @@ export default {
               if (container) {
                 // 清理旧实例
                 if (monacoEditorInstance) {
-                  try { monacoEditorInstance.dispose(); } catch (e) { console.warn('Dispose error:', e); }
+                  try {
+                    monacoEditorInstance.dispose();
+                  } catch (e) {
+                    console.warn('Dispose error:', e);
+                  }
                   monacoEditorInstance = null;
                 }
 
@@ -1582,7 +1609,7 @@ export default {
                     minimap: { enabled: true },
                     fontSize: 13,
                     scrollBeyondLastLine: false,
-                    readOnly: false
+                    readOnly: false,
                   });
                 } catch (createError) {
                   console.error('Create editor error:', createError);
@@ -1599,7 +1626,6 @@ export default {
             };
 
             initEditor();
-
           } catch (e) {
             console.error('Monaco Editor 加载失败:', e);
             toast.error('编辑器资源加载失败');
@@ -1647,9 +1673,9 @@ export default {
           method: 'PUT',
           headers: {
             ...store.getAuthHeaders(),
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
           },
-          body: JSON.stringify({ script })
+          body: JSON.stringify({ script }),
         }
       );
       const data = await response.json();
@@ -1660,9 +1686,10 @@ export default {
         await this.loadWorkers();
         // 自动打开 Cloudflare 编辑器
         if (this.workersCfAccountId) {
-          this.openExternalLink(`https://dash.cloudflare.com/${this.workersCfAccountId}/workers/services/edit/${name}/production`);
+          this.openExternalLink(
+            `https://dash.cloudflare.com/${this.workersCfAccountId}/workers/services/edit/${name}/production`
+          );
         }
-
       } else {
         toast.error(data.error || '创建失败');
       }
@@ -1689,7 +1716,7 @@ export default {
 
     try {
       const response = await fetch(`/api/cf-dns/accounts/${store.dnsSelectedAccountId}/pages`, {
-        headers: store.getAuthHeaders()
+        headers: store.getAuthHeaders(),
       });
       const data = await response.json();
 
@@ -1714,7 +1741,7 @@ export default {
       message: `确定要删除 Pages 项目 "${project.name}" 吗？此操作不可恢复，所有部署和自定义域名都将被删除。`,
       icon: 'fa-trash',
       confirmText: '删除',
-      confirmClass: 'btn-danger'
+      confirmClass: 'btn-danger',
     });
 
     if (!confirmed) return;
@@ -1724,7 +1751,7 @@ export default {
         `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/pages/${encodeURIComponent(project.name)}`,
         {
           method: 'DELETE',
-          headers: store.getAuthHeaders()
+          headers: store.getAuthHeaders(),
         }
       );
 
@@ -1787,7 +1814,7 @@ export default {
       active: '活跃',
       canceled: '已取消',
       queued: '排队中',
-      building: '构建中'
+      building: '构建中',
     };
     return map[status] || status;
   },
@@ -1856,7 +1883,7 @@ export default {
       message: `确定要删除路由 "${route.pattern}" 吗？`,
       icon: 'fa-trash',
       confirmText: '删除',
-      confirmClass: 'btn-danger'
+      confirmClass: 'btn-danger',
     });
 
     if (!confirmed) return;
@@ -1866,7 +1893,7 @@ export default {
         `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/zones/${store.dnsSelectedZoneId}/workers/routes/${route.id}`,
         {
           method: 'DELETE',
-          headers: store.getAuthHeaders()
+          headers: store.getAuthHeaders(),
         }
       );
 
@@ -1908,8 +1935,8 @@ export default {
           headers: store.getAuthHeaders(),
           body: JSON.stringify({
             pattern: pattern,
-            script: script || undefined  // 空字符串时不传
-          })
+            script: script || undefined, // 空字符串时不传
+          }),
         }
       );
       const data = await response.json();
@@ -1985,7 +2012,7 @@ export default {
         {
           method: 'POST',
           headers: store.getAuthHeaders(),
-          body: JSON.stringify({ domain })
+          body: JSON.stringify({ domain }),
         }
       );
       const data = await response.json();
@@ -2012,7 +2039,7 @@ export default {
       message: `确定要删除域名 "${domain.name}" 吗？`,
       icon: 'fa-trash',
       confirmText: '删除',
-      confirmClass: 'btn-danger'
+      confirmClass: 'btn-danger',
     });
 
     if (!confirmed) return;
@@ -2022,7 +2049,7 @@ export default {
         `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/pages/${encodeURIComponent(this.selectedPagesProjectForDomains.name)}/domains/${encodeURIComponent(domain.name)}`,
         {
           method: 'DELETE',
-          headers: store.getAuthHeaders()
+          headers: store.getAuthHeaders(),
         }
       );
 
@@ -2046,7 +2073,7 @@ export default {
       active: '已激活',
       pending: '待验证',
       initializing: '初始化中',
-      error: '错误'
+      error: '错误',
     };
     return map[status] || status;
   },
@@ -2117,7 +2144,7 @@ export default {
         {
           method: 'POST',
           headers: store.getAuthHeaders(),
-          body: JSON.stringify({ hostname })
+          body: JSON.stringify({ hostname }),
         }
       );
       const data = await response.json();
@@ -2144,7 +2171,7 @@ export default {
       message: `确定要删除域名 "${domain.hostname}" 吗？`,
       icon: 'fa-trash',
       confirmText: '删除',
-      confirmClass: 'btn-danger'
+      confirmClass: 'btn-danger',
     });
 
     if (!confirmed) return;
@@ -2154,7 +2181,7 @@ export default {
         `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/workers/${encodeURIComponent(this.selectedWorkerForDomains.name)}/domains/${domain.id}`,
         {
           method: 'DELETE',
-          headers: store.getAuthHeaders()
+          headers: store.getAuthHeaders(),
         }
       );
 
@@ -2178,7 +2205,7 @@ export default {
   openAddZoneModal() {
     this.zoneForm = {
       name: '',
-      jumpStart: false
+      jumpStart: false,
     };
     this.zoneFormError = '';
     this.showAddZoneModal = true;
@@ -2208,12 +2235,12 @@ export default {
         method: 'POST',
         headers: {
           ...store.getAuthHeaders(),
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
         },
         body: JSON.stringify({
           name,
-          jumpStart: this.zoneForm.jumpStart
-        })
+          jumpStart: this.zoneForm.jumpStart,
+        }),
       });
 
       const data = await response.json();
@@ -2256,7 +2283,7 @@ export default {
       message: `确定要从 Cloudflare 删除域名 "${selectedZone.name}" 吗?\n\n⚠️ 此操作不可恢复,将删除该域名下的所有 DNS 记录、Workers 路由等配置!`,
       icon: 'fa-exclamation-triangle',
       confirmText: '确认删除',
-      confirmClass: 'btn-danger'
+      confirmClass: 'btn-danger',
     });
 
     if (!confirmed) return;
@@ -2266,7 +2293,7 @@ export default {
         `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/zones/${store.dnsSelectedZoneId}`,
         {
           method: 'DELETE',
-          headers: store.getAuthHeaders()
+          headers: store.getAuthHeaders(),
         }
       );
 
@@ -2292,12 +2319,11 @@ export default {
    */
   formatSslMode(mode) {
     const modes = {
-      'off': '关闭',
-      'flexible': '灵活',
-      'full': '完全',
-      'strict': '严格'
+      off: '关闭',
+      flexible: '灵活',
+      full: '完全',
+      strict: '严格',
     };
     return modes[mode] || mode || '加载中...';
-  }
+  },
 };
-

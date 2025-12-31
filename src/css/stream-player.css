@@ -8,94 +8,94 @@
 /* ==================== Plyr 播放器自定义样式 ==================== */
 
 .plyr-player-wrapper {
-    position: relative;
-    width: 100%;
-    max-width: 1200px;
-    margin: 0 auto;
-    background: #000;
-    border-radius: 16px;
-    overflow: hidden;
-    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
+  position: relative;
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  background: #000;
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
 }
 
 .plyr-player-toolbar {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 12px 16px;
-    background: linear-gradient(to bottom, rgba(0, 0, 0, 0.8), transparent);
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    z-index: 10;
-    opacity: 0;
-    transition: opacity 0.3s ease;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 16px;
+  background: linear-gradient(to bottom, rgba(0, 0, 0, 0.8), transparent);
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 10;
+  opacity: 0;
+  transition: opacity 0.3s ease;
 }
 
 .plyr-player-wrapper:hover .plyr-player-toolbar {
-    opacity: 1;
+  opacity: 1;
 }
 
 .plyr-toolbar-title {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    color: #fff;
-    font-size: 14px;
-    font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 500;
 }
 
 .plyr-toolbar-title i {
-    opacity: 0.8;
+  opacity: 0.8;
 }
 
 .plyr-toolbar-title span {
-    max-width: 300px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  max-width: 300px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .plyr-toolbar-actions {
-    display: flex;
-    gap: 8px;
+  display: flex;
+  gap: 8px;
 }
 
 .plyr-toolbar-actions .btn {
-    background: rgba(255, 255, 255, 0.1);
-    border: none;
-    color: #fff;
-    width: 32px;
-    height: 32px;
-    padding: 0;
-    border-radius: 8px;
-    transition: all 0.2s ease;
+  background: rgba(255, 255, 255, 0.1);
+  border: none;
+  color: #fff;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 8px;
+  transition: all 0.2s ease;
 }
 
 .plyr-toolbar-actions .btn:hover {
-    background: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.2);
 }
 
 .plyr-video {
-    width: 100%;
-    display: block;
+  width: 100%;
+  display: block;
 }
 
 /* ==================== Plyr 主题定制 ==================== */
 .plyr {
-    /* 主色调 */
-    --plyr-color-main: #06b6d4;
+  /* 主色调 */
+  --plyr-color-main: #06b6d4;
 
-    /* 进度条与缓存条变量 - 确保使用标准变量并设置合理的对比度 */
-    --plyr-range-fill-background: #06b6d4;
-    --plyr-range-track-background: rgba(255, 255, 255, 0.2);
-    --plyr-video-progress-buffered-background: rgba(255, 255, 255, 0.35);
+  /* 进度条与缓存条变量 - 确保使用标准变量并设置合理的对比度 */
+  --plyr-range-fill-background: #06b6d4;
+  --plyr-range-track-background: rgba(255, 255, 255, 0.2);
+  --plyr-video-progress-buffered-background: rgba(255, 255, 255, 0.35);
 }
 
 /* 控制栏背景 - 使用简单渐变确保文字可见 */
 .plyr__controls {
-    background: linear-gradient(to top, rgba(0, 0, 0, 0.7), transparent) !important;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.7), transparent) !important;
 }
 
 /* 交互优化：手型光标 */
@@ -103,985 +103,987 @@
 .plyr__progress,
 .plyr__progress__container,
 .plyr__volume,
-.plyr input[type="range"] {
-    cursor: pointer !important;
+.plyr input[type='range'] {
+  cursor: pointer !important;
 }
 
 /* 移除所有自定义的 inherit 规则，让 Plyr 恢复原生的 hover 颜色切换逻辑 */
 .plyr__control:focus,
 .plyr__control:focus-visible {
-    outline: none !important;
-    box-shadow: none !important;
+  outline: none !important;
+  box-shadow: none !important;
 }
 
 /* 大播放按钮 */
 .plyr__control--overlaid {
-    background: rgba(6, 182, 212, 0.8) !important;
+  background: rgba(6, 182, 212, 0.8) !important;
 }
 
 .plyr__control--overlaid:hover {
-    background: rgba(6, 182, 212, 1) !important;
+  background: rgba(6, 182, 212, 1) !important;
 }
 
 /* 缓存进度条显示优化 */
 .plyr__progress__buffer {
-    border-radius: 100px !important;
+  border-radius: 100px !important;
 }
-
 
 /* Tooltip */
 .plyr__tooltip {
-    background: rgba(15, 23, 42, 0.95) !important;
-    border: 1px solid rgba(255, 255, 255, 0.1) !important;
-    border-radius: 8px !important;
-    font-weight: 500 !important;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3) !important;
+  background: rgba(15, 23, 42, 0.95) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 8px !important;
+  font-weight: 500 !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3) !important;
 }
 
 /* 全屏时隐藏自定义工具栏 */
 .plyr--fullscreen-active .plyr-player-toolbar {
-    display: none;
+  display: none;
 }
 
 /* 全屏时控制栏圆角移除 */
 .plyr--fullscreen-active .plyr__controls {
-    border-radius: 0 !important;
+  border-radius: 0 !important;
 }
 
 /* openlist 视频容器适配 */
 .openlist-video-tab-view .plyr-player-wrapper {
-    max-width: 100%;
-    max-height: calc(100vh - 200px);
-    border-radius: 16px;
-    border: 1px solid rgba(255, 255, 255, 0.1);
+  max-width: 100%;
+  max-height: calc(100vh - 200px);
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .openlist-video-tab-view .plyr {
-    border-radius: 16px;
-    overflow: hidden;
+  border-radius: 16px;
+  overflow: hidden;
 }
 
 /* 加载状态 */
 .plyr--loading .plyr__control--overlaid {
-    animation: plyr-pulse 1.5s ease-in-out infinite;
+  animation: plyr-pulse 1.5s ease-in-out infinite;
 }
 
 @keyframes plyr-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
 
-    0%,
-    100% {
-        opacity: 1;
-        transform: scale(1);
-    }
-
-    50% {
-        opacity: 0.7;
-        transform: scale(0.95);
-    }
+  50% {
+    opacity: 0.7;
+    transform: scale(0.95);
+  }
 }
 
 /* 移动端适配 */
 @media (max-width: 768px) {
-    .plyr-player-wrapper {
-        border-radius: 0;
-    }
+  .plyr-player-wrapper {
+    border-radius: 0;
+  }
 
-    .plyr-player-toolbar {
-        padding: 8px 12px;
-    }
+  .plyr-player-toolbar {
+    padding: 8px 12px;
+  }
 
-    .plyr-toolbar-title span {
-        max-width: 150px;
-        font-size: 12px;
-    }
+  .plyr-toolbar-title span {
+    max-width: 150px;
+    font-size: 12px;
+  }
 
-    .plyr__controls {
-        padding: 30px 8px 8px !important;
-    }
+  .plyr__controls {
+    padding: 30px 8px 8px !important;
+  }
 
-    .plyr__control--overlaid {
-        padding: 18px !important;
-    }
+  .plyr__control--overlaid {
+    padding: 18px !important;
+  }
 }
-
 
 /* ==================== 播放器模态框 ==================== */
 
 .stream-player-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 0, 0, 0.92);
-    z-index: 10000;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    backdrop-filter: blur(20px) saturate(180%);
-    -webkit-backdrop-filter: blur(20px) saturate(180%);
-    animation: streamPlayerFadeIn 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.92);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  animation: streamPlayerFadeIn 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 @keyframes streamPlayerFadeIn {
-    from {
-        opacity: 0;
-    }
+  from {
+    opacity: 0;
+  }
 
-    to {
-        opacity: 1;
-    }
+  to {
+    opacity: 1;
+  }
 }
 
-
-
 .stream-player-container {
-    position: relative;
-    width: 100%;
-    height: 100%;
-    max-width: 100vw;
-    max-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    background: #000;
+  position: relative;
+  width: 100%;
+  height: 100%;
+  max-width: 100vw;
+  max-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background: #000;
 }
 
 .stream-player-container.inside-tab {
-    width: fit-content;
-    /* 关键：始终适应内部视频宽度 */
-    min-width: 320px;
-    /* 最小保护宽度 */
-    height: auto;
-    max-width: min(1200px, 98vw);
-    max-height: calc(100vh - 120px);
-    background: #000;
-    border-radius: 16px;
-    overflow: hidden;
-    margin: 10px auto;
-    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    display: flex;
-    flex-direction: column;
+  width: fit-content;
+  /* 关键：始终适应内部视频宽度 */
+  min-width: 320px;
+  /* 最小保护宽度 */
+  height: auto;
+  max-width: min(1200px, 98vw);
+  max-height: calc(100vh - 120px);
+  background: #000;
+  border-radius: 16px;
+  overflow: hidden;
+  margin: 10px auto;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  display: flex;
+  flex-direction: column;
 }
 
 .stream-player-container.inside-tab .stream-player-header {
-    padding: 15px 20px;
+  padding: 15px 20px;
 }
 
 .stream-player-container.inside-tab .stream-player-title {
-    font-size: 16px;
-    font-weight: 500;
+  font-size: 16px;
+  font-weight: 500;
 }
 
 @media (max-width: 768px) {
-    .stream-player-container.inside-tab {
-        width: fit-content;
-        max-width: 100%;
-        height: auto !important;
-        max-height: 75vh;
-        /* 提高限制，因为高度由比例决定 */
-        margin: 5px auto;
-        border-radius: 12px;
-    }
+  .stream-player-container.inside-tab {
+    width: fit-content;
+    max-width: 100%;
+    height: auto !important;
+    max-height: 75vh;
+    /* 提高限制，因为高度由比例决定 */
+    margin: 5px auto;
+    border-radius: 12px;
+  }
 }
-
-
-
-
-
-
 
 /* ==================== 视频区域 ==================== */
 
 .stream-player-video-wrapper {
-    border-radius: 18px;
-    flex: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    overflow: hidden;
-    position: relative;
+  border-radius: 18px;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  position: relative;
 }
 
 .stream-player-video {
-    display: block;
-    max-width: 100%;
-    max-height: 100%;
-    width: auto;
-    height: auto;
-    object-fit: contain;
-    outline: none;
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  outline: none;
 }
 
 /* ==================== 顶部信息栏 ==================== */
 
 .stream-player-header {
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    padding: 24px 28px;
-    background: linear-gradient(to bottom, rgba(0, 0, 0, 0.85) 0%, rgba(0, 0, 0, 0.4) 60%, transparent 100%);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    z-index: 10;
-    opacity: 0;
-    pointer-events: none;
-    /* 隐藏时不可交互，防止遮挡视频点击 */
-    transition: opacity 0.35s ease, visibility 0.35s;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  padding: 24px 28px;
+  background: linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0.85) 0%,
+    rgba(0, 0, 0, 0.4) 60%,
+    transparent 100%
+  );
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  z-index: 10;
+  opacity: 0;
+  pointer-events: none;
+  /* 隐藏时不可交互，防止遮挡视频点击 */
+  transition:
+    opacity 0.35s ease,
+    visibility 0.35s;
 }
 
 /* 控制栏只通过 controls-visible 类控制显示，避免 hover 覆盖手动隐藏 */
 .stream-player-container.controls-visible .stream-player-header {
-    opacity: 1;
-    pointer-events: auto;
+  opacity: 1;
+  pointer-events: auto;
 }
 
 .stream-player-title {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    color: #fff;
-    font-size: 15px;
-    font-weight: 500;
-    max-width: 60%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 500;
+  max-width: 60%;
 }
 
 .stream-player-title i {
-    font-size: 18px;
-    opacity: 0.8;
+  font-size: 18px;
+  opacity: 0.8;
 }
 
 .stream-player-title span {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* 统一右上角图标颜色为白色系，适配暗色播放器 */
 .stream-player-header .header-actions {
-    display: flex;
-    gap: 10px;
+  display: flex;
+  gap: 10px;
 }
 
 .stream-player-header .btn-icon-refined {
-    background: rgba(255, 255, 255, 0.08) !important;
-    border: 1px solid rgba(255, 255, 255, 0.12) !important;
-    color: rgba(255, 255, 255, 0.85) !important;
-    backdrop-filter: blur(8px);
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  background: rgba(255, 255, 255, 0.08) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  color: rgba(255, 255, 255, 0.85) !important;
+  backdrop-filter: blur(8px);
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .stream-player-header .btn-icon-refined:hover {
-    background: rgba(255, 255, 255, 0.18) !important;
-    color: #fff !important;
-    transform: translateY(-1px);
-    border-color: rgba(255, 255, 255, 0.3) !important;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  background: rgba(255, 255, 255, 0.18) !important;
+  color: #fff !important;
+  transform: translateY(-1px);
+  border-color: rgba(255, 255, 255, 0.3) !important;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
 .stream-player-header .btn-icon-refined:active {
-    transform: scale(0.95);
+  transform: scale(0.95);
 }
 
 /* MKV 音频兼容性警告 */
 .stream-player-audio-hint {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 22px;
-    height: 22px;
-    background: rgba(251, 191, 36, 0.2);
-    border-radius: 50%;
-    color: #fbbf24;
-    font-size: 11px;
-    cursor: help;
-    flex-shrink: 0;
-    animation: audioHintPulse 2s ease-in-out infinite;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  background: rgba(251, 191, 36, 0.2);
+  border-radius: 50%;
+  color: #fbbf24;
+  font-size: 11px;
+  cursor: help;
+  flex-shrink: 0;
+  animation: audioHintPulse 2s ease-in-out infinite;
 }
 
 @keyframes audioHintPulse {
+  0%,
+  100% {
+    opacity: 0.7;
+  }
 
-    0%,
-    100% {
-        opacity: 0.7;
-    }
-
-    50% {
-        opacity: 1;
-    }
+  50% {
+    opacity: 1;
+  }
 }
 
-
-
 .stream-player-close {
-    width: 44px;
-    height: 44px;
-    border-radius: 12px;
-    background: rgba(255, 255, 255, 0.08);
-    border: 1px solid rgba(255, 255, 255, 0.1);
-    color: rgba(255, 255, 255, 0.9);
-    font-size: 18px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-    backdrop-filter: blur(10px);
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 18px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  backdrop-filter: blur(10px);
 }
 
 .stream-player-close:hover {
-    background: rgba(255, 255, 255, 0.15);
-    border-color: rgba(255, 255, 255, 0.2);
-    transform: scale(1.05);
+  background: rgba(255, 255, 255, 0.15);
+  border-color: rgba(255, 255, 255, 0.2);
+  transform: scale(1.05);
 }
 
 /* ==================== 控制栏 ==================== */
 
 .stream-player-controls {
-    position: absolute;
-    bottom: 0;
-    left: 0;
-    right: 0;
-    padding: 80px 28px 15px;
-    background: linear-gradient(to top, rgba(0, 0, 0, 0.9) 0%, rgba(0, 0, 0, 0.5) 50%, transparent 100%);
-    z-index: 10;
-    opacity: 0;
-    pointer-events: none;
-    /* 隐藏时不可交互 */
-    transition: opacity 0.35s ease, visibility 0.35s;
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 80px 28px 15px;
+  background: linear-gradient(
+    to top,
+    rgba(0, 0, 0, 0.9) 0%,
+    rgba(0, 0, 0, 0.5) 50%,
+    transparent 100%
+  );
+  z-index: 10;
+  opacity: 0;
+  pointer-events: none;
+  /* 隐藏时不可交互 */
+  transition:
+    opacity 0.35s ease,
+    visibility 0.35s;
 }
 
 /* 控制栏只通过 controls-visible 类控制显示 */
 .stream-player-container.controls-visible .stream-player-controls {
-    opacity: 1;
-    pointer-events: auto;
+  opacity: 1;
+  pointer-events: auto;
 }
 
 /* 进度条 */
 .stream-player-progress {
-    position: relative;
-    height: 5px;
-    background: rgba(255, 255, 255, 0.2);
-    border-radius: 3px;
-    cursor: pointer;
-    margin-bottom: 16px;
-    transition: height 0.2s ease;
+  position: relative;
+  height: 5px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+  cursor: pointer;
+  margin-bottom: 16px;
+  transition: height 0.2s ease;
 }
 
 .stream-player-progress:hover {
-    height: 7px;
+  height: 7px;
 }
 
 .stream-player-progress-buffered {
-    position: absolute;
-    top: 0;
-    left: 0;
-    height: 100%;
-    background: rgba(255, 255, 255, 0.3);
-    border-radius: 3px;
-    pointer-events: none;
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 3px;
+  pointer-events: none;
 }
 
 .stream-player-progress-played {
-    position: absolute;
-    top: 0;
-    left: 0;
-    height: 100%;
-    background: var(--selfh-primary, #10b981);
-    border-radius: 3px;
-    pointer-events: none;
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  background: var(--selfh-primary, #10b981);
+  border-radius: 3px;
+  pointer-events: none;
 }
 
 .stream-player-progress-thumb {
-    position: absolute;
-    top: 50%;
-    width: 14px;
-    height: 14px;
-    background: #fff;
-    border-radius: 50%;
-    transform: translate(-50%, -50%);
-    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
-    opacity: 0.8;
-    transition: opacity 0.2s ease, transform 0.15s ease;
-    pointer-events: none;
+  position: absolute;
+  top: 50%;
+  width: 14px;
+  height: 14px;
+  background: #fff;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+  opacity: 0.8;
+  transition:
+    opacity 0.2s ease,
+    transform 0.15s ease;
+  pointer-events: none;
 }
 
 .stream-player-progress:hover .stream-player-progress-thumb,
 .stream-player-container.dragging .stream-player-progress-thumb {
-    opacity: 1;
+  opacity: 1;
 }
 
 /* 拖动时滑块放大效果 */
 .stream-player-container.dragging .stream-player-progress-thumb {
-    transform: translate(-50%, -50%) scale(1.3);
-    box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.2), 0 2px 8px rgba(0, 0, 0, 0.4);
+  transform: translate(-50%, -50%) scale(1.3);
+  box-shadow:
+    0 0 0 4px rgba(255, 255, 255, 0.2),
+    0 2px 8px rgba(0, 0, 0, 0.4);
 }
 
 /* 拖动时禁用进度条过渡，确保跟手流畅 */
 .stream-player-container.dragging .stream-player-progress-played {
-    transition: none !important;
+  transition: none !important;
 }
 
 /* 控制按钮行 */
 .stream-player-controls-row {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
 }
 
 .stream-player-controls-left,
 .stream-player-controls-right {
-    display: flex;
-    align-items: center;
-    gap: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .stream-player-controls-center {
-    flex: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 16px;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
 }
 
 /* 控制按钮 */
 .stream-player-btn {
-    width: 44px;
-    height: 44px;
-    border-radius: 12px;
-    background: transparent;
-    border: none;
-    color: rgba(255, 255, 255, 0.9);
-    font-size: 16px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-    position: relative;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: transparent;
+  border: none;
+  color: rgba(255, 255, 255, 0.9);
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
 }
 
 .stream-player-btn:hover {
-    background: rgba(255, 255, 255, 0.12);
-    color: #fff;
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
 }
 
 .stream-player-btn:active {
-    transform: scale(0.92);
+  transform: scale(0.92);
 }
 
 /* MKV 转码按钮 */
 .stream-player-transcode-btn,
 .stream-player-download-hint {
-    width: auto !important;
-    padding: 0 14px;
-    gap: 8px;
-    background: linear-gradient(135deg, rgba(251, 191, 36, 0.15), rgba(245, 158, 11, 0.15));
-    border: 1px solid rgba(251, 191, 36, 0.3);
-    color: #fbbf24;
-    font-size: 12px;
-    font-weight: 600;
-    border-radius: 10px;
+  width: auto !important;
+  padding: 0 14px;
+  gap: 8px;
+  background: linear-gradient(135deg, rgba(251, 191, 36, 0.15), rgba(245, 158, 11, 0.15));
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  color: #fbbf24;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 10px;
 }
 
 .stream-player-transcode-btn:hover,
 .stream-player-download-hint:hover {
-    background: linear-gradient(135deg, rgba(251, 191, 36, 0.25), rgba(245, 158, 11, 0.25));
-    border-color: rgba(251, 191, 36, 0.5);
+  background: linear-gradient(135deg, rgba(251, 191, 36, 0.25), rgba(245, 158, 11, 0.25));
+  border-color: rgba(251, 191, 36, 0.5);
 }
 
 .stream-player-transcode-btn .transcode-label,
 .stream-player-download-hint .download-label {
-    font-size: 11px;
+  font-size: 11px;
 }
 
 .stream-player-btn.large {
-    width: 64px;
-    height: 64px;
-    font-size: 26px;
-    background: rgba(255, 255, 255, 0.1);
-    border-radius: 50%;
-    border: 1px solid rgba(255, 255, 255, 0.08);
+  width: 64px;
+  height: 64px;
+  font-size: 26px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .stream-player-btn.large:hover {
-    background: rgba(255, 255, 255, 0.18);
-    border-color: rgba(255, 255, 255, 0.15);
-    transform: scale(1.08);
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.15);
+  transform: scale(1.08);
 }
 
 /* 时间显示 */
 .stream-player-time {
-    color: rgba(255, 255, 255, 0.8);
-    font-size: 13px;
-    font-family: var(--font-mono, monospace);
-    white-space: nowrap;
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 13px;
+  font-family: var(--font-mono, monospace);
+  white-space: nowrap;
 }
 
 /* 音量控制 */
 .stream-player-volume {
-    display: flex;
-    align-items: center;
-    gap: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .stream-player-volume-slider {
-    width: 0;
-    height: 4px;
-    background: rgba(255, 255, 255, 0.2);
-    border-radius: 2px;
-    cursor: pointer;
-    position: relative;
-    opacity: 0;
-    transition: opacity 0.25s ease, width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    overflow: hidden;
+  width: 0;
+  height: 4px;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 2px;
+  cursor: pointer;
+  position: relative;
+  opacity: 0;
+  transition:
+    opacity 0.25s ease,
+    width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
 }
 
 .stream-player-volume:hover .stream-player-volume-slider {
-    opacity: 1;
-    width: 100px;
-    margin-left: 8px;
+  opacity: 1;
+  width: 100px;
+  margin-left: 8px;
 }
 
 .stream-player-volume-level {
-    position: absolute;
-    top: 0;
-    left: 0;
-    height: 100%;
-    background: #fff;
-    border-radius: 2px;
-    pointer-events: none;
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  background: #fff;
+  border-radius: 2px;
+  pointer-events: none;
 }
 
 /* 速度选择器 */
 .stream-player-speed {
-    position: relative;
+  position: relative;
 }
 
 .stream-player-speed-value {
-    min-width: 44px;
-    text-align: center;
-    font-size: 12px;
-    font-weight: 600;
+  min-width: 44px;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .stream-player-speed-menu {
-    position: absolute;
-    bottom: 100%;
-    left: 50%;
-    transform: translateX(-50%);
-    background: rgba(30, 30, 30, 0.95);
-    border-radius: 8px;
-    padding: 8px 0;
-    margin-bottom: 8px;
-    min-width: 100px;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
-    display: none;
-    backdrop-filter: blur(10px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(30, 30, 30, 0.95);
+  border-radius: 8px;
+  padding: 8px 0;
+  margin-bottom: 8px;
+  min-width: 100px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+  display: none;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .stream-player-speed:hover .stream-player-speed-menu,
 .stream-player-speed-menu:hover {
-    display: block;
+  display: block;
 }
 
 .stream-player-speed-option {
-    padding: 8px 16px;
-    color: rgba(255, 255, 255, 0.8);
-    font-size: 13px;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    text-align: center;
+  padding: 8px 16px;
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: center;
 }
 
 .stream-player-speed-option:hover {
-    background: rgba(255, 255, 255, 0.1);
-    color: #fff;
+  background: rgba(255, 255, 255, 0.1);
+  color: #fff;
 }
 
 .stream-player-speed-option.active {
-    color: var(--selfh-primary, #10b981);
-    font-weight: 600;
+  color: var(--selfh-primary, #10b981);
+  font-weight: 600;
 }
 
 /* ==================== 加载状态 ==================== */
 
 .stream-player-loading {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 16px;
-    color: #fff;
-    z-index: 5;
-    background: transparent !important;
-    /* 强制背景透明，消除方框 */
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  color: #fff;
+  z-index: 5;
+  background: transparent !important;
+  /* 强制背景透明，消除方框 */
 }
 
 .stream-player-spinner {
-    width: 48px;
-    height: 48px;
-    border: 3px solid rgba(255, 255, 255, 0.1);
-    /* 调淡背景圆环 */
-    border-top-color: var(--selfh-primary, #10b981);
-    border-radius: 50%;
-    animation: streamPlayerSpin 1s linear infinite;
-    box-shadow: none !important;
-    /* 消除阴影产生的方框感 */
+  width: 48px;
+  height: 48px;
+  border: 3px solid rgba(255, 255, 255, 0.1);
+  /* 调淡背景圆环 */
+  border-top-color: var(--selfh-primary, #10b981);
+  border-radius: 50%;
+  animation: streamPlayerSpin 1s linear infinite;
+  box-shadow: none !important;
+  /* 消除阴影产生的方框感 */
 }
 
 @keyframes streamPlayerSpin {
-    to {
-        transform: rotate(360deg);
-    }
+  to {
+    transform: rotate(360deg);
+  }
 }
-
-
 
 /* 进度条拖动时禁用过渡，解决卡顿感 */
 .stream-player-container.dragging .stream-player-progress-played,
 .stream-player-container.dragging .stream-player-progress-thumb {
-    transition: none !important;
+  transition: none !important;
 }
 
 .stream-player-loading-text {
-    font-size: 14px;
-    opacity: 0.8;
+  font-size: 14px;
+  opacity: 0.8;
 }
 
 /* ==================== 不支持格式提示 ==================== */
 
 .stream-player-unsupported {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 0, 0, 0.9);
-    z-index: 10001;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    backdrop-filter: blur(10px);
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.9);
+  z-index: 10001;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(10px);
 }
 
 .stream-player-unsupported-dialog {
-    background: var(--bg-primary, #1a1a2e);
-    border-radius: 16px;
-    padding: 32px;
-    max-width: 420px;
-    width: 90%;
-    text-align: center;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--bg-primary, #1a1a2e);
+  border-radius: 16px;
+  padding: 32px;
+  max-width: 420px;
+  width: 90%;
+  text-align: center;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .stream-player-unsupported-icon {
-    width: 64px;
-    height: 64px;
-    background: linear-gradient(135deg, rgba(251, 191, 36, 0.2), rgba(245, 158, 11, 0.2));
-    border-radius: 50%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin: 0 auto 20px;
-    font-size: 28px;
-    color: #f59e0b;
+  width: 64px;
+  height: 64px;
+  background: linear-gradient(135deg, rgba(251, 191, 36, 0.2), rgba(245, 158, 11, 0.2));
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 20px;
+  font-size: 28px;
+  color: #f59e0b;
 }
 
 .stream-player-unsupported-title {
-    font-size: 18px;
-    font-weight: 600;
-    color: var(--text-primary, #fff);
-    margin-bottom: 8px;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary, #fff);
+  margin-bottom: 8px;
 }
 
 .stream-player-unsupported-message {
-    font-size: 14px;
-    color: var(--text-secondary, rgba(255, 255, 255, 0.7));
-    margin-bottom: 24px;
-    line-height: 1.6;
+  font-size: 14px;
+  color: var(--text-secondary, rgba(255, 255, 255, 0.7));
+  margin-bottom: 24px;
+  line-height: 1.6;
 }
 
 .stream-player-unsupported-format {
-    display: inline-block;
-    background: rgba(251, 191, 36, 0.15);
-    color: #f59e0b;
-    padding: 4px 12px;
-    border-radius: 6px;
-    font-weight: 600;
-    font-size: 13px;
-    margin-bottom: 16px;
+  display: inline-block;
+  background: rgba(251, 191, 36, 0.15);
+  color: #f59e0b;
+  padding: 4px 12px;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 13px;
+  margin-bottom: 16px;
 }
 
 .stream-player-unsupported-actions {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 .stream-player-action-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 10px;
-    padding: 14px 20px;
-    border-radius: 10px;
-    font-size: 14px;
-    font-weight: 500;
-    cursor: pointer;
-    border: none;
-    transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 14px 20px;
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  border: none;
+  transition: all 0.2s ease;
 }
 
 .stream-player-action-btn.primary {
-    background: linear-gradient(135deg, var(--selfh-primary, #10b981), #059669);
-    color: #fff;
+  background: linear-gradient(135deg, var(--selfh-primary, #10b981), #059669);
+  color: #fff;
 }
 
 .stream-player-action-btn.primary:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 16px rgba(16, 185, 129, 0.4);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 16px rgba(16, 185, 129, 0.4);
 }
 
 .stream-player-action-btn.secondary {
-    background: rgba(255, 255, 255, 0.1);
-    color: var(--text-primary, #fff);
-    border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary, #fff);
+  border: 1px solid rgba(255, 255, 255, 0.15);
 }
 
 .stream-player-action-btn.secondary:hover {
-    background: rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.15);
 }
 
 .stream-player-action-btn.tertiary {
-    background: transparent;
-    color: var(--text-secondary, rgba(255, 255, 255, 0.6));
+  background: transparent;
+  color: var(--text-secondary, rgba(255, 255, 255, 0.6));
 }
 
 .stream-player-action-btn.tertiary:hover {
-    color: var(--text-primary, #fff);
+  color: var(--text-primary, #fff);
 }
 
 .stream-player-action-hint {
-    font-size: 11px;
-    color: var(--text-tertiary, rgba(255, 255, 255, 0.5));
-    margin-left: 4px;
+  font-size: 11px;
+  color: var(--text-tertiary, rgba(255, 255, 255, 0.5));
+  margin-left: 4px;
 }
 
 /* ==================== 转码进度 ==================== */
 
 .stream-player-transcode {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 0, 0, 0.95);
-    z-index: 10001;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.95);
+  z-index: 10001;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .stream-player-transcode-dialog {
-    background: var(--bg-primary, #1a1a2e);
-    border-radius: 16px;
-    padding: 40px;
-    max-width: 400px;
-    width: 90%;
-    text-align: center;
-    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  background: var(--bg-primary, #1a1a2e);
+  border-radius: 16px;
+  padding: 40px;
+  max-width: 400px;
+  width: 90%;
+  text-align: center;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
 }
 
 .stream-player-transcode-icon {
-    width: 80px;
-    height: 80px;
-    margin: 0 auto 24px;
-    position: relative;
+  width: 80px;
+  height: 80px;
+  margin: 0 auto 24px;
+  position: relative;
 }
 
 .stream-player-transcode-ring {
-    width: 100%;
-    height: 100%;
-    border: 4px solid rgba(255, 255, 255, 0.1);
-    border-radius: 50%;
-    position: absolute;
+  width: 100%;
+  height: 100%;
+  border: 4px solid rgba(255, 255, 255, 0.1);
+  border-radius: 50%;
+  position: absolute;
 }
 
 .stream-player-transcode-progress-ring {
-    width: 100%;
-    height: 100%;
-    border: 4px solid transparent;
-    border-top-color: var(--selfh-primary, #10b981);
-    border-radius: 50%;
-    position: absolute;
-    animation: streamPlayerSpin 1.5s linear infinite;
+  width: 100%;
+  height: 100%;
+  border: 4px solid transparent;
+  border-top-color: var(--selfh-primary, #10b981);
+  border-radius: 50%;
+  position: absolute;
+  animation: streamPlayerSpin 1.5s linear infinite;
 }
 
 .stream-player-transcode-percent {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    font-size: 18px;
-    font-weight: 700;
-    color: var(--selfh-primary, #10b981);
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--selfh-primary, #10b981);
 }
 
 .stream-player-transcode-title {
-    font-size: 18px;
-    font-weight: 600;
-    color: var(--text-primary, #fff);
-    margin-bottom: 8px;
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--text-primary, #fff);
+  margin-bottom: 8px;
 }
 
 .stream-player-transcode-status {
-    font-size: 14px;
-    color: var(--text-secondary, rgba(255, 255, 255, 0.7));
-    margin-bottom: 24px;
+  font-size: 14px;
+  color: var(--text-secondary, rgba(255, 255, 255, 0.7));
+  margin-bottom: 24px;
 }
 
 .stream-player-transcode-bar {
-    width: 100%;
-    height: 6px;
-    background: rgba(255, 255, 255, 0.1);
-    border-radius: 3px;
-    overflow: hidden;
-    margin-bottom: 20px;
+  width: 100%;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+  overflow: hidden;
+  margin-bottom: 20px;
 }
 
 .stream-player-transcode-bar-fill {
-    height: 100%;
-    background: linear-gradient(90deg, var(--selfh-primary, #10b981), #34d399);
-    border-radius: 3px;
-    transition: width 0.3s ease;
+  height: 100%;
+  background: linear-gradient(90deg, var(--selfh-primary, #10b981), #34d399);
+  border-radius: 3px;
+  transition: width 0.3s ease;
 }
 
 .stream-player-transcode-cancel {
-    padding: 10px 24px;
-    background: transparent;
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    border-radius: 8px;
-    color: var(--text-secondary, rgba(255, 255, 255, 0.7));
-    font-size: 14px;
-    cursor: pointer;
-    transition: all 0.2s ease;
+  padding: 10px 24px;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 8px;
+  color: var(--text-secondary, rgba(255, 255, 255, 0.7));
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s ease;
 }
 
 .stream-player-transcode-cancel:hover {
-    background: rgba(255, 255, 255, 0.1);
-    color: var(--text-primary, #fff);
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary, #fff);
 }
 
 /* ==================== 快捷键提示 ==================== */
 
 .stream-player-shortcuts-hint {
-    position: absolute;
-    bottom: 100px;
-    left: 50%;
-    transform: translateX(-50%);
-    background: rgba(0, 0, 0, 0.8);
-    border-radius: 8px;
-    padding: 12px 20px;
-    display: flex;
-    gap: 24px;
-    opacity: 0;
-    transition: opacity 0.3s ease;
-    pointer-events: none;
+  position: absolute;
+  bottom: 100px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(0, 0, 0, 0.8);
+  border-radius: 8px;
+  padding: 12px 20px;
+  display: flex;
+  gap: 24px;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
 }
 
 .stream-player-container.show-shortcuts .stream-player-shortcuts-hint {
-    opacity: 1;
+  opacity: 1;
 }
 
 .stream-player-shortcut {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    color: rgba(255, 255, 255, 0.7);
-    font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 12px;
 }
 
 .stream-player-shortcut kbd {
-    background: rgba(255, 255, 255, 0.15);
-    padding: 2px 8px;
-    border-radius: 4px;
-    font-family: var(--font-mono, monospace);
-    font-size: 11px;
+  background: rgba(255, 255, 255, 0.15);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-family: var(--font-mono, monospace);
+  font-size: 11px;
 }
 
 /* ==================== 移动端适配 ==================== */
 
 @media (max-width: 768px) {
-    .stream-player-header {
-        padding: 10px 14px;
-        /* 进一步缩小标题栏间距 */
-    }
+  .stream-player-header {
+    padding: 10px 14px;
+    /* 进一步缩小标题栏间距 */
+  }
 
-    .stream-player-controls {
-        padding: 30px 12px 12px;
-        /* 进一步缩小控制栏间距 */
-    }
+  .stream-player-controls {
+    padding: 30px 12px 12px;
+    /* 进一步缩小控制栏间距 */
+  }
 
-    .stream-player-btn {
-        width: 36px;
-        height: 36px;
-        font-size: 14px;
-    }
+  .stream-player-btn {
+    width: 36px;
+    height: 36px;
+    font-size: 14px;
+  }
 
-    .stream-player-btn.large {
-        width: 48px;
-        height: 48px;
-        font-size: 20px;
-    }
+  .stream-player-btn.large {
+    width: 48px;
+    height: 48px;
+    font-size: 20px;
+  }
 
-    .stream-player-volume {
-        display: none !important;
-    }
+  .stream-player-volume {
+    display: none !important;
+  }
 
-    .stream-player-speed-menu {
-        right: 0;
-        left: auto;
-        transform: none;
-    }
+  .stream-player-speed-menu {
+    right: 0;
+    left: auto;
+    transform: none;
+  }
 
-    .stream-player-unsupported-dialog,
-    .stream-player-transcode-dialog {
-        padding: 24px;
-        margin: 16px;
-    }
+  .stream-player-unsupported-dialog,
+  .stream-player-transcode-dialog {
+    padding: 24px;
+    margin: 16px;
+  }
 
-    .stream-player-unsupported-actions {
-        gap: 10px;
-    }
+  .stream-player-unsupported-actions {
+    gap: 10px;
+  }
 
-    .stream-player-action-btn {
-        padding: 12px 16px;
-        font-size: 13px;
-    }
+  .stream-player-action-btn {
+    padding: 12px 16px;
+    font-size: 13px;
+  }
 }
-
-
 
 /* ==================== 全屏模式 ==================== */
 
 .stream-player-container:fullscreen {
-    width: 100vw;
-    height: 100vh;
+  width: 100vw;
+  height: 100vh;
 }
 
 .stream-player-container:fullscreen .stream-player-video {
-    width: 100%;
-    height: 100%;
-    object-fit: contain;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
 /* ==================== 无操作隐藏控制栏 ==================== */
@@ -1089,87 +1091,87 @@
 /* ==================== 高级交互视觉反馈 ==================== */
 
 .stream-player-speed-tip {
-    position: absolute;
-    top: 60px;
-    left: 50%;
-    transform: translateX(-50%);
-    z-index: 100;
-    pointer-events: none;
-    animation: speedTipFade In 0.3s ease;
+  position: absolute;
+  top: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
+  pointer-events: none;
+  animation: speedTipFade In 0.3s ease;
 }
 
 .speed-tip-badge {
-    background: rgba(0, 0, 0, 0.6);
-    backdrop-filter: blur(8px);
-    color: var(--selfh-primary, #10b981);
-    padding: 8px 16px;
-    border-radius: 20px;
-    font-size: 14px;
-    font-weight: 700;
-    border: 1px solid rgba(16, 185, 129, 0.3);
-    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
-    display: flex;
-    align-items: center;
-    gap: 8px;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(8px);
+  color: var(--selfh-primary, #10b981);
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-size: 14px;
+  font-weight: 700;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 @keyframes speedTipFade {
-    from {
-        opacity: 0;
-        transform: translate(-50%, -10px);
-    }
+  from {
+    opacity: 0;
+    transform: translate(-50%, -10px);
+  }
 
-    to {
-        opacity: 1;
-        transform: translate(-50%, 0);
-    }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
 }
-
-
 
 /* 控制栏显隐过渡优化 */
 .stream-player-container .stream-player-header,
 .stream-player-container .stream-player-controls {
-    transition: opacity 0.4s cubic-bezier(0.4, 0, 0.2, 1), transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+  transition:
+    opacity 0.4s cubic-bezier(0.4, 0, 0.2, 1),
+    transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .stream-player-container:not(.controls-visible) .stream-player-header {
-    transform: translateY(-20px);
-    pointer-events: none;
+  transform: translateY(-20px);
+  pointer-events: none;
 }
 
 .stream-player-container:not(.controls-visible) .stream-player-controls {
-    transform: translateY(20px);
-    pointer-events: none;
+  transform: translateY(20px);
+  pointer-events: none;
 }
 
 /* ==================== 标签页集成专用样式 ==================== */
 
 .openlist-video-tab-view {
-    width: 100%;
-    min-height: calc(100vh - 120px);
-    background: #000;
-    display: flex;
-    align-items: center;
-    /* 垂直居中 */
-    justify-content: center;
-    /* 水平居中 */
-    padding: 20px;
-    box-sizing: border-box;
+  width: 100%;
+  min-height: calc(100vh - 120px);
+  background: #000;
+  display: flex;
+  align-items: center;
+  /* 垂直居中 */
+  justify-content: center;
+  /* 水平居中 */
+  padding: 20px;
+  box-sizing: border-box;
 }
 
 .openlist-video-tab-view .stream-player-container {
-    position: relative;
-    top: 0;
-    left: 0;
+  position: relative;
+  top: 0;
+  left: 0;
 }
 
 .openlist-video-tab-view .stream-player-header {
-    background: linear-gradient(to bottom, rgba(0, 0, 0, 0.9), transparent);
+  background: linear-gradient(to bottom, rgba(0, 0, 0, 0.9), transparent);
 }
 
 .openlist-video-tab-view .stream-player-controls {
-    background: linear-gradient(to top, rgba(0, 0, 0, 0.95), transparent);
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.95), transparent);
 }
 
 /* 字体跟随全局及时间居中 */
@@ -1177,140 +1179,140 @@
 .stream-player-time,
 .stream-player-title,
 .stream-player-btn {
-    font-family: inherit;
+  font-family: inherit;
 }
 
 .stream-player-controls-center {
-    flex: 1;
-    display: flex;
-    justify-content: center;
-    align-items: center;
+  flex: 1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
 }
 
 .stream-player-time {
-    font-variant-numeric: tabular-nums;
-    font-weight: 500;
-    font-size: 14px;
-    color: rgba(255, 255, 255, 0.9);
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.9);
 }
 
 /* 限制布局大小与播放器一致 */
 .openlist-files-layout.video-mode-layout {
-    max-width: 1200px;
-    margin: 20px auto;
-    background: #000;
-    border-radius: 20px;
-    overflow: hidden;
-    box-shadow: 0 30px 60px rgba(0, 0, 0, 0.5);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+  max-width: 1200px;
+  margin: 20px auto;
+  background: #000;
+  border-radius: 20px;
+  overflow: hidden;
+  box-shadow: 0 30px 60px rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 /* 兼容 :has 方案作为兜底 */
 .openlist-files-layout:has(.openlist-video-tab-view) {
-    max-width: 1200px;
-    margin: 20px auto;
+  max-width: 1200px;
+  margin: 20px auto;
 }
 
 .openlist-video-tab-view {
-    padding: 0;
-    min-height: unset;
-    width: 100%;
-    /* 使用 vh 单位确保有明确的高度约束 */
-    height: auto;
-    max-height: calc(100vh - 180px);
-    display: flex;
-    justify-content: center;
-    align-items: center;
+  padding: 0;
+  min-height: unset;
+  width: 100%;
+  /* 使用 vh 单位确保有明确的高度约束 */
+  height: auto;
+  max-height: calc(100vh - 180px);
+  display: flex;
+  justify-content: center;
+  align-items: center;
 }
 
 .openlist-video-tab-view .stream-player-container.inside-tab {
-    margin: 0;
-    /* 使用 auto 让容器适应视频比例 */
-    width: auto;
-    height: auto;
-    max-width: 100%;
-    max-height: calc(100vh - 180px);
+  margin: 0;
+  /* 使用 auto 让容器适应视频比例 */
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: calc(100vh - 180px);
 }
 
 /* 强制视频元素在 Tab 视图中也保持 contain */
 .openlist-video-tab-view .stream-player-video-wrapper {
-    width: auto;
-    height: auto;
-    max-width: 100%;
-    max-height: calc(100vh - 250px);
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: calc(100vh - 250px);
 }
 
 .openlist-video-tab-view .stream-player-video {
-    width: auto;
-    height: auto;
-    max-width: 100%;
-    max-height: calc(100vh - 250px);
-    object-fit: contain;
+  width: auto;
+  height: auto;
+  max-width: 100%;
+  max-height: calc(100vh - 250px);
+  object-fit: contain;
 }
 
 /* 全局深色沉浸模式：当视频激活时，强制所有背景变黑 */
 .video-active-mode,
 .video-active-mode .app-main,
 .video-active-mode .container {
-    background: #000 !important;
-    transition: background 0.3s ease;
+  background: #000 !important;
+  transition: background 0.3s ease;
 }
 
 /* 移动端特殊处理：移除多余的 padding 确保内容触达边缘 */
 @media (max-width: 768px) {
-    .video-active-mode .container {
-        padding: 0 !important;
-    }
+  .video-active-mode .container {
+    padding: 0 !important;
+  }
 
-    .video-active-mode .openlist-files-layout.video-mode-layout {
-        margin: 0 !important;
-        border-radius: 0 !important;
-        border: none !important;
-        height: 100vh !important;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-    }
+  .video-active-mode .openlist-files-layout.video-mode-layout {
+    margin: 0 !important;
+    border-radius: 0 !important;
+    border: none !important;
+    height: 100vh !important;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
 }
 
 /* 全屏模式下的强制样式重置 - 解决 inside-tab 类导致的尺寸限制 */
 .stream-player-container:fullscreen,
 .stream-player-container:-webkit-full-screen,
 .stream-player-container:-moz-full-screen {
-    width: 100vw !important;
-    height: 100vh !important;
-    max-width: none !important;
-    max-height: none !important;
-    min-width: 0 !important;
-    margin: 0 !important;
-    border-radius: 0 !important;
-    border: none !important;
-    box-shadow: none !important;
-    background: #000 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  max-width: none !important;
+  max-height: none !important;
+  min-width: 0 !important;
+  margin: 0 !important;
+  border-radius: 0 !important;
+  border: none !important;
+  box-shadow: none !important;
+  background: #000 !important;
 }
 
 .stream-player-container:fullscreen .stream-player-video-wrapper,
 .stream-player-container:-webkit-full-screen .stream-player-video-wrapper,
 .stream-player-container:-moz-full-screen .stream-player-video-wrapper {
-    border-radius: 0 !important;
-    width: 100% !important;
-    height: 100% !important;
-    padding: 0 !important;
-    margin: 0 !important;
+  border-radius: 0 !important;
+  width: 100% !important;
+  height: 100% !important;
+  padding: 0 !important;
+  margin: 0 !important;
 }
 
 .stream-player-container:fullscreen .stream-player-video,
 .stream-player-container:-webkit-full-screen .stream-player-video,
 .stream-player-container:-moz-full-screen .stream-player-video {
-    width: 100% !important;
-    height: 100% !important;
-    max-width: none !important;
-    max-height: none !important;
-    object-fit: contain !important;
-    position: absolute !important;
-    top: 0 !important;
-    left: 0 !important;
-    right: 0 !important;
-    bottom: 0 !important;
-    margin: auto !important;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
+  max-height: none !important;
+  object-fit: contain !important;
+  position: absolute !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  margin: auto !important;
 }

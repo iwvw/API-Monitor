@@ -15,7 +15,7 @@ export const flyMethods = {
 
       history.unshift({
         timestamp: Date.now(),
-        accounts: data
+        accounts: data,
       });
 
       if (history.length > 4) {
@@ -23,7 +23,7 @@ export const flyMethods = {
       }
 
       localStorage.setItem(cacheKey, JSON.stringify(history));
-    } catch (e) { }
+    } catch (e) {}
   },
 
   // 从本地缓存加载
@@ -38,7 +38,7 @@ export const flyMethods = {
           return true;
         }
       }
-    } catch (e) { }
+    } catch (e) {}
     return false;
   },
 
@@ -46,11 +46,11 @@ export const flyMethods = {
   async loadFlyManagedAccounts() {
     try {
       const response = await fetch('/api/fly/accounts', {
-        headers: store.getAuthHeaders()
+        headers: store.getAuthHeaders(),
       });
 
-      const contentType = response.headers.get("content-type");
-      if (!contentType || !contentType.includes("application/json")) {
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
         console.error('Fly.io 账号请求返回了非 JSON 内容:', await response.text());
         return;
       }
@@ -79,11 +79,11 @@ export const flyMethods = {
 
     try {
       const response = await fetch('/api/fly/proxy/apps', {
-        headers: store.getAuthHeaders()
+        headers: store.getAuthHeaders(),
       });
 
-      const contentType = response.headers.get("content-type");
-      if (!contentType || !contentType.includes("application/json")) {
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
         throw new Error('服务器返回了无效的数据格式 (HTML)');
       }
 
@@ -104,17 +104,17 @@ export const flyMethods = {
             hostname: app.hostname,
             machines: app.machines?.nodes || [],
             ips: (app.ipAddresses?.nodes || []).map(ip => ({
-                address: ip.address,
-                type: ip.type
+              address: ip.address,
+              type: ip.type,
             })),
             domains: (app.certificates?.nodes || []).map(cert => ({
               domain: cert.hostname,
               status: cert.clientStatus,
-              isVerified: cert.clientStatus === 'Ready'
+              isVerified: cert.clientStatus === 'Ready',
             })),
-            services: [] // Fly apps are essentially services themselves
+            services: [], // Fly apps are essentially services themselves
           })),
-          error: acc.error
+          error: acc.error,
         }));
 
         store.flyAccounts = formattedAccounts;
@@ -154,12 +154,12 @@ export const flyMethods = {
         headers: store.getAuthHeaders(),
         body: JSON.stringify({
           name: store.newFlyAccount.name,
-          api_token: store.newFlyAccount.token
-        })
+          api_token: store.newFlyAccount.token,
+        }),
       });
 
-      const contentType = response.headers.get("content-type");
-      if (!contentType || !contentType.includes("application/json")) {
+      const contentType = response.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
         throw new Error('服务器返回了无效的数据格式 (HTML)');
       }
 
@@ -192,7 +192,7 @@ export const flyMethods = {
       message: `确定要删除 Fly.io 账号 "${name}" 吗？`,
       icon: 'fa-exclamation-triangle',
       confirmText: '删除',
-      confirmClass: 'btn-danger'
+      confirmClass: 'btn-danger',
     });
 
     if (!confirmed) return;
@@ -200,7 +200,7 @@ export const flyMethods = {
     try {
       const response = await fetch(`/api/fly/accounts/${id}`, {
         method: 'DELETE',
-        headers: store.getAuthHeaders()
+        headers: store.getAuthHeaders(),
       });
 
       const result = await response.json();
@@ -272,166 +272,166 @@ export const flyMethods = {
     }
   },
 
-    isFlyAccountExpanded(accountName) {
-        if (store.flyExpandedAccounts[accountName] === undefined) {
-            return window.innerWidth > 768; // 手机端默认折叠
-        }
-        return store.flyExpandedAccounts[accountName];
-    },
+  isFlyAccountExpanded(accountName) {
+    if (store.flyExpandedAccounts[accountName] === undefined) {
+      return window.innerWidth > 768; // 手机端默认折叠
+    }
+    return store.flyExpandedAccounts[accountName];
+  },
 
-    // 重启应用
-    async restartFlyApp(account, app) {
-      // ... existing logic
-    },
-  
-    // 重新部署应用 (触发新 Release)
-    async redeployFlyApp(account, app) {
-      const confirmed = await store.showConfirm({
-        title: '确认重新部署',
-        message: `确定要为 Fly.io 应用 "${app.name}" 触发一次新部署吗？这将创建一个新的发布版本。`,
-        icon: 'fa-rocket',
-        confirmText: '确定部署',
-        confirmClass: 'btn-primary'
+  // 重启应用
+  async restartFlyApp(account, app) {
+    // ... existing logic
+  },
+
+  // 重新部署应用 (触发新 Release)
+  async redeployFlyApp(account, app) {
+    const confirmed = await store.showConfirm({
+      title: '确认重新部署',
+      message: `确定要为 Fly.io 应用 "${app.name}" 触发一次新部署吗？这将创建一个新的发布版本。`,
+      icon: 'fa-rocket',
+      confirmText: '确定部署',
+      confirmClass: 'btn-primary',
+    });
+
+    if (!confirmed) return;
+
+    try {
+      const response = await fetch(`/api/fly/apps/${app.name}/redeploy`, {
+        method: 'POST',
+        headers: store.getAuthHeaders(),
+        body: JSON.stringify({ accountId: account.id }),
       });
-  
-      if (!confirmed) return;
-  
-      try {
-        const response = await fetch(`/api/fly/apps/${app.name}/redeploy`, {
-          method: 'POST',
-          headers: store.getAuthHeaders(),
-          body: JSON.stringify({ accountId: account.id })
-        });
-  
-        const result = await response.json();
-        if (result.success) {
-          toast.success('重新部署已开始');
-          this.loadFlyData();
-        } else {
-          toast.error('部署失败: ' + result.error);
+
+      const result = await response.json();
+      if (result.success) {
+        toast.success('重新部署已开始');
+        this.loadFlyData();
+      } else {
+        toast.error('部署失败: ' + result.error);
+      }
+    } catch (error) {
+      toast.error('操作失败: ' + error.message);
+    }
+  },
+
+  // 开始重命名应用
+  startEditFlyAppName(app) {
+    app.editingName = app.name;
+    app.isEditing = true;
+    this.$nextTick(() => {
+      const inputs = this.$refs.flyAppNameInput;
+      if (inputs) {
+        const input = Array.isArray(inputs) ? inputs.find(el => el) : inputs;
+        if (input) {
+          input.focus();
+          input.select();
         }
-      } catch (error) {
-        toast.error('操作失败: ' + error.message);
       }
-    },
+    });
+  },
 
-    // 开始重命名应用
-    startEditFlyAppName(app) {
-      app.editingName = app.name;
-      app.isEditing = true;
-      this.$nextTick(() => {
-          const inputs = this.$refs.flyAppNameInput;
-          if (inputs) {
-              const input = Array.isArray(inputs) ? inputs.find(el => el) : inputs;
-              if (input) {
-                  input.focus();
-                  input.select();
-              }
-          }
-      });
-    },
-
-    // 提交重命名
-    async saveFlyAppName(account, app) {
-      const newName = app.editingName?.trim();
-      if (!newName || newName === app.name) {
-          app.isEditing = false;
-          return;
-      }
-
-      try {
-        const response = await fetch(`/api/fly/apps/${app.name}/rename`, {
-          method: 'POST',
-          headers: store.getAuthHeaders(),
-          body: JSON.stringify({ 
-              accountId: account.id,
-              newName: newName 
-          })
-        });
-
-        const result = await response.json();
-        if (result.success) {
-          toast.success('应用已成功重命名');
-          app.name = newName;
-          app.isEditing = false;
-          this.loadFlyData();
-        } else {
-          toast.error('重命名失败: ' + result.error);
-        }
-      } catch (error) {
-        toast.error('操作失败: ' + error.message);
-      }
-    },
-
-    // 取消重命名
-    cancelEditFlyAppName(app) {
+  // 提交重命名
+  async saveFlyAppName(account, app) {
+    const newName = app.editingName?.trim();
+    if (!newName || newName === app.name) {
       app.isEditing = false;
-      app.editingName = '';
-    },
+      return;
+    }
 
-    // 删除应用
-    async deleteFlyApp(account, app) {
-      const confirmed = await store.showConfirm({
-        title: '⚠️ 确认删除应用',
-        message: `确定要永久删除 Fly.io 应用 "${app.name}" 吗？此操作不可恢复，且会销毁所有底层 Machine。`,
-        icon: 'fa-trash-alt',
-        confirmText: '永久删除',
-        confirmClass: 'btn-danger'
+    try {
+      const response = await fetch(`/api/fly/apps/${app.name}/rename`, {
+        method: 'POST',
+        headers: store.getAuthHeaders(),
+        body: JSON.stringify({
+          accountId: account.id,
+          newName: newName,
+        }),
       });
 
-      if (!confirmed) return;
-
-      try {
-        const response = await fetch(`/api/fly/apps/${app.name}`, {
-          method: 'DELETE',
-          headers: store.getAuthHeaders(),
-          body: JSON.stringify({ accountId: account.id })
-        });
-
-        const result = await response.json();
-        if (result.success) {
-          toast.success('应用已成功删除');
-          this.loadFlyData();
-        } else {
-          toast.error('删除失败: ' + result.error);
-        }
-      } catch (error) {
-        toast.error('操作失败: ' + error.message);
+      const result = await response.json();
+      if (result.success) {
+        toast.success('应用已成功重命名');
+        app.name = newName;
+        app.isEditing = false;
+        this.loadFlyData();
+      } else {
+        toast.error('重命名失败: ' + result.error);
       }
-    },
+    } catch (error) {
+      toast.error('操作失败: ' + error.message);
+    }
+  },
 
-    // 创建应用
-    async createFlyApp(account) {
-      const name = await store.showPrompt({
-          title: '创建新应用',
-          message: '请输入新应用的名称 (留空则由系统随机生成)：',
-          placeholder: '例如: my-new-api',
-          icon: 'fa-plus-circle'
+  // 取消重命名
+  cancelEditFlyAppName(app) {
+    app.isEditing = false;
+    app.editingName = '';
+  },
+
+  // 删除应用
+  async deleteFlyApp(account, app) {
+    const confirmed = await store.showConfirm({
+      title: '⚠️ 确认删除应用',
+      message: `确定要永久删除 Fly.io 应用 "${app.name}" 吗？此操作不可恢复，且会销毁所有底层 Machine。`,
+      icon: 'fa-trash-alt',
+      confirmText: '永久删除',
+      confirmClass: 'btn-danger',
+    });
+
+    if (!confirmed) return;
+
+    try {
+      const response = await fetch(`/api/fly/apps/${app.name}`, {
+        method: 'DELETE',
+        headers: store.getAuthHeaders(),
+        body: JSON.stringify({ accountId: account.id }),
       });
 
-      if (name === null) return; // 取消操作
-
-      try {
-        const response = await fetch('/api/fly/apps', {
-          method: 'POST',
-          headers: store.getAuthHeaders(),
-          body: JSON.stringify({ 
-              accountId: account.id,
-              name: name.trim() || undefined 
-          })
-        });
-
-        const result = await response.json();
-        if (result.success) {
-          toast.success(`应用 ${result.data.name} 已创建`);
-          this.loadFlyData();
-        } else {
-          toast.error('创建失败: ' + result.error);
-        }
-      } catch (error) {
-        toast.error('操作失败: ' + error.message);
+      const result = await response.json();
+      if (result.success) {
+        toast.success('应用已成功删除');
+        this.loadFlyData();
+      } else {
+        toast.error('删除失败: ' + result.error);
       }
-    },
+    } catch (error) {
+      toast.error('操作失败: ' + error.message);
+    }
+  },
+
+  // 创建应用
+  async createFlyApp(account) {
+    const name = await store.showPrompt({
+      title: '创建新应用',
+      message: '请输入新应用的名称 (留空则由系统随机生成)：',
+      placeholder: '例如: my-new-api',
+      icon: 'fa-plus-circle',
+    });
+
+    if (name === null) return; // 取消操作
+
+    try {
+      const response = await fetch('/api/fly/apps', {
+        method: 'POST',
+        headers: store.getAuthHeaders(),
+        body: JSON.stringify({
+          accountId: account.id,
+          name: name.trim() || undefined,
+        }),
+      });
+
+      const result = await response.json();
+      if (result.success) {
+        toast.success(`应用 ${result.data.name} 已创建`);
+        this.loadFlyData();
+      } else {
+        toast.error('创建失败: ' + result.error);
+      }
+    } catch (error) {
+      toast.error('操作失败: ' + error.message);
+    }
+  },
   // 获取实例详情
   async fetchFlyMachines(account, app) {
     if (app.showMachines) {
@@ -444,7 +444,7 @@ export const flyMethods = {
 
     try {
       const response = await fetch(`/api/fly/apps/${app.name}/machines?accountId=${account.id}`, {
-        headers: store.getAuthHeaders()
+        headers: store.getAuthHeaders(),
       });
       const result = await response.json();
 
@@ -467,22 +467,22 @@ export const flyMethods = {
       fetcher: async () => {
         try {
           const response = await fetch(`/api/fly/apps/${app.name}/events?accountId=${account.id}`, {
-            headers: store.getAuthHeaders()
+            headers: store.getAuthHeaders(),
           });
           const result = await response.json();
 
           if (result.success && result.data.length > 0) {
             return result.data.map(e => ({
               timestamp: e.timestamp,
-              message: `[${e.region}] ${e.message}`
+              message: `[${e.region}] ${e.message}`,
             }));
           }
 
-          return [{ timestamp: Date.now(), message: "暂无系统事件日志。" }];
+          return [{ timestamp: Date.now(), message: '暂无系统事件日志。' }];
         } catch (e) {
-          return [{ timestamp: Date.now(), message: "获取事件失败: " + e.message }];
+          return [{ timestamp: Date.now(), message: '获取事件失败: ' + e.message }];
         }
-      }
+      },
     });
   },
 
@@ -499,7 +499,7 @@ export const flyMethods = {
         version: '1.0',
         platform: 'fly',
         exportTime: now.toISOString(),
-        accounts: store.flyManagedAccounts
+        accounts: store.flyManagedAccounts,
       };
 
       const dataStr = JSON.stringify(exportData, null, 2);
@@ -526,7 +526,7 @@ export const flyMethods = {
       message: '导入账号将覆盖当前 Fly.io 账号配置，是否继续？',
       icon: 'fa-exclamation-triangle',
       confirmText: '确定导入',
-      confirmClass: 'btn-warning'
+      confirmClass: 'btn-warning',
     });
 
     if (!confirmed) return;
@@ -534,12 +534,12 @@ export const flyMethods = {
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.json';
-    input.onchange = async (event) => {
+    input.onchange = async event => {
       const file = event.target.files[0];
       if (!file) return;
 
       const reader = new FileReader();
-      reader.onload = async (e) => {
+      reader.onload = async e => {
         try {
           const importedData = JSON.parse(e.target.result);
 
@@ -550,17 +550,17 @@ export const flyMethods = {
 
           // 逐个添加账号以进行验证
           for (const acc of importedData.accounts) {
-              await fetch('/api/fly/accounts', {
-                  method: 'POST',
-                  headers: store.getAuthHeaders(),
-                  body: JSON.stringify({
-                      name: acc.name,
-                      api_token: acc.api_token || acc.token // 兼容不同字段名
-                  })
-              });
+            await fetch('/api/fly/accounts', {
+              method: 'POST',
+              headers: store.getAuthHeaders(),
+              body: JSON.stringify({
+                name: acc.name,
+                api_token: acc.api_token || acc.token, // 兼容不同字段名
+              }),
+            });
           }
 
-          toast.success(`Fly.io 账号导入完成`);
+          toast.success('Fly.io 账号导入完成');
           await this.loadFlyManagedAccounts();
           this.loadFlyData();
         } catch (error) {
@@ -575,32 +575,32 @@ export const flyMethods = {
   // 查看配置
   async viewFlyConfig(account, app) {
     this.openLogViewer({
-        title: `应用配置: ${app.name}`,
-        subtitle: `Fly.io / ${account.name}`,
-        source: 'fly',
-        fetcher: async () => {
-          try {
-            const response = await fetch(`/api/fly/apps/${app.name}/config?accountId=${account.id}`, {
-              headers: store.getAuthHeaders()
-            });
-            const result = await response.json();
-            
-            if (result.success) {
-                // 将 JSON 配置格式化为易读的字符串显示在日志查看器中
-                const configStr = JSON.stringify(result.data, null, 2);
-                return [
-                    { timestamp: Date.now(), message: `--- 当前激活配置 (JSON 格式) ---` },
-                    ...configStr.split('\n').map(line => ({
-                        timestamp: Date.now(),
-                        message: line
-                    }))
-                ];
-            }
-            throw new Error(result.error);
-          } catch (e) {
-            return [{ timestamp: Date.now(), message: "获取配置失败: " + e.message }];
+      title: `应用配置: ${app.name}`,
+      subtitle: `Fly.io / ${account.name}`,
+      source: 'fly',
+      fetcher: async () => {
+        try {
+          const response = await fetch(`/api/fly/apps/${app.name}/config?accountId=${account.id}`, {
+            headers: store.getAuthHeaders(),
+          });
+          const result = await response.json();
+
+          if (result.success) {
+            // 将 JSON 配置格式化为易读的字符串显示在日志查看器中
+            const configStr = JSON.stringify(result.data, null, 2);
+            return [
+              { timestamp: Date.now(), message: '--- 当前激活配置 (JSON 格式) ---' },
+              ...configStr.split('\n').map(line => ({
+                timestamp: Date.now(),
+                message: line,
+              })),
+            ];
           }
+          throw new Error(result.error);
+        } catch (e) {
+          return [{ timestamp: Date.now(), message: '获取配置失败: ' + e.message }];
         }
+      },
     });
   },
 
@@ -615,85 +615,13 @@ export const flyMethods = {
 
   getFlyStatusText(status) {
     const map = {
-      'deployed': '已部署',
-      'running': '运行中',
-      'suspended': '已暂停',
-      'dead': '已停止',
-      'pending': '部署中'
+      deployed: '已部署',
+      running: '运行中',
+      suspended: '已暂停',
+      dead: '已停止',
+      pending: '部署中',
     };
     return map[status?.toLowerCase()] || status;
-  },
-
-  // 导出所有 Fly.io 账号
-  async exportFlyAccounts() {
-    try {
-      const response = await fetch('/api/fly/accounts/export', {
-        headers: store.getAuthHeaders()
-      });
-      const result = await response.json();
-
-      if (!result.success) throw new Error(result.error);
-
-      const accounts = result.accounts || [];
-      if (accounts.length === 0) {
-        toast.warn('没有可导出的账号');
-        return;
-      }
-
-      // 格式：名称:Token
-      const content = accounts.map(acc => `${acc.name}:${acc.api_token}`).join('\n');
-      const blob = new Blob([content], { type: 'text/plain' });
-      const url = URL.createObjectURL(blob);
-
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `fly_accounts_${new Date().toISOString().split('T')[0]}.txt`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-
-      toast.success(`已导出 ${accounts.length} 个 Fly.io 账号`);
-    } catch (error) {
-      console.error('导出失败:', error);
-      toast.error('导出失败: ' + error.message);
-    }
-  },
-
-  // 导入 Fly.io 账号
-  async importFlyAccounts() {
-    const input = document.createElement('input');
-    input.type = 'file';
-    input.accept = '.txt';
-
-    input.onchange = (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        const content = event.target.result;
-        if (!content.trim()) {
-          toast.warn('文件内容为空');
-          return;
-        }
-
-        // 填充到批量添加文本框
-        store.flyBatchAccounts = content;
-
-        // 自动跳转到批量添加面板
-        this.$nextTick(() => {
-          const batchPanel = document.querySelector('.fly-batch-panel');
-          if (batchPanel) {
-            batchPanel.scrollIntoView({ behavior: 'smooth' });
-          }
-          toast.info('文件已加载到 Fly.io 批量添加区域，请查看并点击“批量添加”');
-        });
-      };
-      reader.readAsText(file);
-    };
-
-    input.click();
   },
 
   // 批量添加 Fly.io 账号
@@ -729,7 +657,7 @@ export const flyMethods = {
 
     store.flyAddingAccount = true;
     let successCount = 0;
-    let errors = [];
+    const errors = [];
 
     for (const acc of accounts) {
       try {
@@ -738,8 +666,8 @@ export const flyMethods = {
           headers: store.getAuthHeaders(),
           body: JSON.stringify({
             name: acc.name,
-            api_token: acc.token
-          })
+            api_token: acc.token,
+          }),
         });
 
         const result = await response.json();
@@ -766,5 +694,5 @@ export const flyMethods = {
       console.error('部分账号添加失败:', errors);
       toast.error(`${errors.length} 个账号添加失败，请查看控制台`);
     }
-  }
+  },
 };

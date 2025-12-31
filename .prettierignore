@@ -1,0 +1,20 @@
+# 构建产物
+dist/
+node_modules/
+
+# 数据文件
+data/
+*.db
+*.sqlite
+
+# 二进制和资源
+*.min.js
+*.min.css
+public/
+
+# Go 项目
+agent-go/
+
+# 临时文件
+tmp/
+*.log

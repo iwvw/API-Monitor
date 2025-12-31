@@ -7,115 +7,115 @@
  */
 
 :root {
-    --fly-primary: #8b5cf6;
-    --fly-primary-rgb: 139, 92, 246;
-    --fly-secondary: #d946ef;
+  --fly-primary: #8b5cf6;
+  --fly-primary-rgb: 139, 92, 246;
+  --fly-secondary: #d946ef;
 }
 
 /* 双击编辑样式预览 - 应用名称 (对齐 Zeabur/Koyeb) */
 .paas-sec-tab .fly-project-name-text {
-    cursor: text;
-    user-select: none;
-    transition: all 0.2s ease;
-    padding: 2px 4px;
-    border-radius: 4px;
+  cursor: text;
+  user-select: none;
+  transition: all 0.2s ease;
+  padding: 2px 4px;
+  border-radius: 4px;
 }
 
 .paas-sec-tab .fly-project-name-text:hover {
-    background: rgba(var(--fly-primary-rgb), 0.08);
-    box-shadow: 0 0 0 1px rgba(var(--fly-primary-rgb), 0.2);
+  background: rgba(var(--fly-primary-rgb), 0.08);
+  box-shadow: 0 0 0 1px rgba(var(--fly-primary-rgb), 0.2);
 }
 
 /* 双击编辑样式预览 - 服务名称 */
 .paas-sec-tab .fly-service-name {
-    cursor: text;
-    user-select: none;
-    transition: all 0.2s ease;
-    padding: 2px 4px;
-    border-radius: 4px;
+  cursor: text;
+  user-select: none;
+  transition: all 0.2s ease;
+  padding: 2px 4px;
+  border-radius: 4px;
 }
 
 .paas-sec-tab .fly-service-name:hover {
-    background: rgba(var(--fly-primary-rgb), 0.08);
-    box-shadow: 0 0 0 1px rgba(var(--fly-primary-rgb), 0.2);
+  background: rgba(var(--fly-primary-rgb), 0.08);
+  box-shadow: 0 0 0 1px rgba(var(--fly-primary-rgb), 0.2);
 }
 
 /* 单应用模式 - 铺满一行 (对齐 Koyeb) */
 .paas-sec-tab .fly-projects-grid.single-app {
-    display: block;
+  display: block;
 }
 
 .paas-sec-tab .fly-projects-grid.single-app .fly-project-card {
-    width: 100%;
-    max-width: 100%;
+  width: 100%;
+  max-width: 100%;
 }
 
 /* ========== Fly.io 专属视觉定制 (对齐其它模块) ========== */
 
 /* Account Card */
 .fly-account-card {
-    border-color: rgba(var(--fly-primary-rgb), 0.15);
+  border-color: rgba(var(--fly-primary-rgb), 0.15);
 }
 
 /* 账号卡片展开状态的 Header 渐变 */
 .fly-account-card.expanded .fly-account-header {
-    background: linear-gradient(to right, rgba(var(--fly-primary-rgb), 0.05), transparent);
+  background: linear-gradient(to right, rgba(var(--fly-primary-rgb), 0.05), transparent);
 }
 
 /* 账号头像渐变 */
 .fly-account-avatar {
-    background: linear-gradient(135deg, var(--fly-primary) 0%, var(--fly-secondary) 100%);
-    box-shadow: 0 3px 10px rgba(var(--fly-primary-rgb), 0.25);
+  background: linear-gradient(135deg, var(--fly-primary) 0%, var(--fly-secondary) 100%);
+  box-shadow: 0 3px 10px rgba(var(--fly-primary-rgb), 0.25);
 }
 
 /* 展开切换按钮颜色 */
 .fly-toggle {
-    background: rgba(var(--fly-primary-rgb), 0.08);
-    color: var(--fly-primary);
+  background: rgba(var(--fly-primary-rgb), 0.08);
+  color: var(--fly-primary);
 }
 
 .fly-toggle.expanded {
-    background: rgba(var(--fly-primary-rgb), 0.15);
+  background: rgba(var(--fly-primary-rgb), 0.15);
 }
 
 /* 项目卡片 Hover 高亮 */
 .fly-project-card:hover {
-    border-color: rgba(var(--fly-primary-rgb), 0.3);
+  border-color: rgba(var(--fly-primary-rgb), 0.3);
 }
 
 /* 项目头部渐变 */
 .fly-project-header {
-    background: linear-gradient(to right, rgba(var(--fly-primary-rgb), 0.03), transparent);
+  background: linear-gradient(to right, rgba(var(--fly-primary-rgb), 0.03), transparent);
 }
 
 /* 状态徽章映射修正 */
 .fly-service-item.running {
-    background-color: rgba(16, 185, 129, 0.1);
-    border-color: rgba(16, 185, 129, 0.2);
+  background-color: rgba(16, 185, 129, 0.1);
+  border-color: rgba(16, 185, 129, 0.2);
 }
 
 .fly-service-item.stopped {
-    background-color: rgba(239, 68, 68, 0.1);
-    border-color: rgba(239, 68, 68, 0.2);
+  background-color: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.2);
 }
 
 /* 按钮颜色对齐 */
 .fly-btn {
-    background-color: rgba(var(--fly-primary-rgb), 0.1);
-    color: var(--fly-primary);
+  background-color: rgba(var(--fly-primary-rgb), 0.1);
+  color: var(--fly-primary);
 }
 
 .fly-btn:hover {
-    background-color: rgba(var(--fly-primary-rgb), 0.2);
-    border-color: var(--fly-primary);
+  background-color: rgba(var(--fly-primary-rgb), 0.2);
+  border-color: var(--fly-primary);
 }
 
 /* 域名链接颜色 */
 .fly-domain-link {
-    color: var(--fly-primary);
+  color: var(--fly-primary);
 }
 
 .fly-domain-link:hover {
-    border-color: var(--fly-primary);
-    background-color: var(--bg-tertiary);
+  border-color: var(--fly-primary);
+  background-color: var(--bg-tertiary);
 }

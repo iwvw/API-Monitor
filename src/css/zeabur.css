@@ -8,32 +8,32 @@
 
 /* 双击编辑样式 - 项目名称 */
 .paas-sec-tab .zeabur-project-name-text {
-    cursor: text;
-    user-select: none;
-    transition: all 0.2s ease;
-    padding: 2px 4px;
-    border-radius: 4px;
+  cursor: text;
+  user-select: none;
+  transition: all 0.2s ease;
+  padding: 2px 4px;
+  border-radius: 4px;
 }
 
 .paas-sec-tab .zeabur-project-name-text:hover {
-    background: rgba(99, 102, 241, 0.08);
-    box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.2);
+  background: rgba(99, 102, 241, 0.08);
+  box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.2);
 }
 
 /* 双击编辑样式 - 服务名称 */
 .paas-sec-tab .zeabur-service-name {
-    cursor: text;
-    user-select: none;
-    transition: all 0.2s ease;
-    padding: 2px 4px;
-    border-radius: 4px;
+  cursor: text;
+  user-select: none;
+  transition: all 0.2s ease;
+  padding: 2px 4px;
+  border-radius: 4px;
 }
 
 .paas-sec-tab .zeabur-service-name:hover {
-    background: rgba(99, 102, 241, 0.08);
-    box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.2);
+  background: rgba(99, 102, 241, 0.08);
+  box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.2);
 }
-/* ˫���༭��ʽ - �˺����� */
+/* ˫���༭��ʽ - �˺����� */
 .paas-sec-tab .zeabur-editable-name {
   cursor: text;
   user-select: none;

@@ -12,7 +12,7 @@ router.get('/', (req, res) => {
   res.json({
     ok: true,
     timestamp: new Date().toISOString(),
-    origin: req.headers.origin
+    origin: req.headers.origin,
   });
 });
 

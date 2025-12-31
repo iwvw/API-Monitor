@@ -288,26 +288,27 @@
   grid-template-rows: 0fr;
   opacity: 0;
   overflow: hidden;
-  transition: grid-template-rows 0.4s cubic-bezier(0.25, 1, 0.5, 1),
+  transition:
+    grid-template-rows 0.4s cubic-bezier(0.25, 1, 0.5, 1),
     opacity 0.3s ease-out;
   will-change: grid-template-rows, opacity;
   transform: translateZ(0);
   /* 开启硬件加速 */
 }
 
-.server-card.expanded>.server-card-body {
+.server-card.expanded > .server-card-body {
   padding: 0px 0px 10px 0px;
   grid-template-rows: 1fr;
   opacity: 1;
   overflow: visible;
 }
 
-.server-card.expanded>.server-card-body>div {
+.server-card.expanded > .server-card-body > div {
   overflow: visible;
 }
 
 /* 内部包装器，确保 Grid 转换生效 */
-.server-card-body>div {
+.server-card-body > div {
   min-height: 0;
   overflow: hidden;
 }
@@ -319,7 +320,8 @@
   opacity: 0;
   margin: 0;
   padding: 0;
-  transition: grid-template-rows 0.5s cubic-bezier(0.25, 1, 0.5, 1),
+  transition:
+    grid-template-rows 0.5s cubic-bezier(0.25, 1, 0.5, 1),
     opacity 0.4s ease,
     margin-top 0.4s cubic-bezier(0.25, 1, 0.5, 1),
     padding 0.4s cubic-bezier(0.25, 1, 0.5, 1);
@@ -329,12 +331,12 @@
   backface-visibility: hidden;
 }
 
-.account-card-body>* {
+.account-card-body > * {
   min-height: 0;
   overflow: hidden;
 }
 
-.account-card.expanded>.account-card-body {
+.account-card.expanded > .account-card-body {
   grid-template-rows: 1fr;
   opacity: 1;
   padding-top: 8px;
@@ -342,7 +344,7 @@
   padding-bottom: 5px;
 }
 
-.account-card.expanded>.account-card-body>* {
+.account-card.expanded > .account-card-body > * {
   overflow: visible;
 }
 
@@ -391,7 +393,7 @@
 /* Koyeb 模块箭头 */
 .koyeb-toggle-icon,
 .koyeb-toggle,
-[v-if*="koyeb"] .toggle-icon {
+[v-if*='koyeb'] .toggle-icon {
   background: rgba(79, 70, 229, 0.12) !important;
   color: #7c3aed !important;
 }
@@ -542,7 +544,7 @@
   animation-delay: 0.25s;
 }
 
-.stagger-item:nth-child(n+6) {
+.stagger-item:nth-child(n + 6) {
   animation-delay: 0.3s;
 }
 
@@ -565,7 +567,6 @@
 
 /* 减少动画以提升性能（可选） */
 @media (prefers-reduced-motion: reduce) {
-
   *,
   *::before,
   *::after {

@@ -1,6 +1,6 @@
 /**
  * Cloudflare API 集成模块
- * 
+ *
  * 使用 Cloudflare API v4
  * 文档: https://developers.cloudflare.com/api
  */
@@ -16,7 +16,7 @@ const CF_API_BASE = 'api.cloudflare.com';
 function cfRequest(auth, method, path, body = null) {
   return new Promise((resolve, reject) => {
     const headers = {
-      'Accept': 'application/json'
+      Accept: 'application/json',
     };
 
     // 只有在有 body 时才设置 Content-Type
@@ -47,16 +47,16 @@ function cfRequest(auth, method, path, body = null) {
       path: fullPath,
       method: method,
       headers: headers,
-      timeout: 15000
+      timeout: 15000,
     };
 
     // 调试日志
     // console.log(`[CF-API] REQUEST: ${method} ${fullPath}`);
 
     try {
-      const req = https.request(options, (res) => {
+      const req = https.request(options, res => {
         let data = '';
-        res.on('data', chunk => data += chunk);
+        res.on('data', chunk => (data += chunk));
         res.on('end', () => {
           try {
             const json = JSON.parse(data);
@@ -64,7 +64,8 @@ function cfRequest(auth, method, path, body = null) {
               resolve(json);
             } else {
               const errors = json.errors || [];
-              let errorMsg = errors.map(e => e.message).join(', ') || json.message || 'Unknown error';
+              let errorMsg =
+                errors.map(e => e.message).join(', ') || json.message || 'Unknown error';
 
               // 如果是 400 错误且有特定的错误信息
               if (res.statusCode === 400 && data.includes('invalid_request_headers')) {
@@ -116,21 +117,22 @@ async function verifyToken(auth) {
   try {
     // 对于 Global API Key，使用 /user 端点验证
     // 对于 API Token，使用 /user/tokens/verify 端点
-    const endpoint = (typeof auth === 'object' && auth.email)
-      ? '/user'  // Global API Key
-      : '/user/tokens/verify';  // API Token
+    const endpoint =
+      typeof auth === 'object' && auth.email
+        ? '/user' // Global API Key
+        : '/user/tokens/verify'; // API Token
 
     const result = await cfRequest(auth, 'GET', endpoint);
 
     return {
       valid: true,
       status: result.result?.status || 'active',
-      expiresOn: result.result?.expires_on
+      expiresOn: result.result?.expires_on,
     };
   } catch (e) {
     return {
       valid: false,
-      error: e.message
+      error: e.message,
     };
   }
 }
@@ -147,7 +149,7 @@ async function getUserInfo(apiToken) {
 
 /**
  * 获取所有 Zone（域名）
- * @param {string} apiToken 
+ * @param {string} apiToken
  * @param {Object} options - { page, per_page, name, status }
  */
 async function listZones(apiToken, options = {}) {
@@ -163,7 +165,7 @@ async function listZones(apiToken, options = {}) {
   const result = await cfRequest(apiToken, 'GET', path);
   return {
     zones: result.result,
-    resultInfo: result.result_info
+    resultInfo: result.result_info,
   };
 }
 
@@ -185,7 +187,7 @@ async function createZone(apiToken, name, options = {}) {
   const body = {
     name,
     jump_start: options.jump_start !== undefined ? options.jump_start : false,
-    type: options.type || 'full' // full, partial, secondary
+    type: options.type || 'full', // full, partial, secondary
   };
 
   // 如果提供了账号 ID
@@ -211,8 +213,8 @@ async function deleteZone(apiToken, zoneId) {
 
 /**
  * 获取 Zone 的所有 DNS 记录
- * @param {string} apiToken 
- * @param {string} zoneId 
+ * @param {string} apiToken
+ * @param {string} zoneId
  * @param {Object} options - { type, name, content, page, per_page }
  */
 async function listDnsRecords(apiToken, zoneId, options = {}) {
@@ -229,7 +231,7 @@ async function listDnsRecords(apiToken, zoneId, options = {}) {
   const result = await cfRequest(apiToken, 'GET', path);
   return {
     records: result.result,
-    resultInfo: result.result_info
+    resultInfo: result.result_info,
   };
 }
 
@@ -243,8 +245,8 @@ async function getDnsRecord(apiToken, zoneId, recordId) {
 
 /**
  * 创建 DNS 记录
- * @param {string} apiToken 
- * @param {string} zoneId 
+ * @param {string} apiToken
+ * @param {string} zoneId
  * @param {Object} record - { type, name, content, ttl?, priority?, proxied? }
  */
 async function createDnsRecord(apiToken, zoneId, record) {
@@ -253,7 +255,7 @@ async function createDnsRecord(apiToken, zoneId, record) {
     name: record.name,
     content: record.content,
     ttl: record.ttl || 1,
-    proxied: record.proxied !== undefined ? record.proxied : true
+    proxied: record.proxied !== undefined ? record.proxied : true,
   };
 
   // MX 和 SRV 记录需要 priority
@@ -277,7 +279,12 @@ async function updateDnsRecord(apiToken, zoneId, recordId, record) {
   if (record.proxied !== undefined) body.proxied = record.proxied;
   if (record.priority !== undefined) body.priority = record.priority;
 
-  const result = await cfRequest(apiToken, 'PATCH', `/zones/${zoneId}/dns_records/${recordId}`, body);
+  const result = await cfRequest(
+    apiToken,
+    'PATCH',
+    `/zones/${zoneId}/dns_records/${recordId}`,
+    body
+  );
   return result.result;
 }
 
@@ -291,8 +298,8 @@ async function deleteDnsRecord(apiToken, zoneId, recordId) {
 
 /**
  * 批量创建 DNS 记录
- * @param {string} apiToken 
- * @param {string} zoneId 
+ * @param {string} apiToken
+ * @param {string} zoneId
  * @param {Array} records - 记录数组
  */
 async function batchCreateDnsRecords(apiToken, zoneId, records) {
@@ -326,7 +333,7 @@ async function switchDnsContent(apiToken, zoneId, type, name, newContent) {
   const updated = [];
   for (const record of records) {
     const result = await updateDnsRecord(apiToken, zoneId, record.id, {
-      content: newContent
+      content: newContent,
     });
     updated.push(result);
   }
@@ -342,7 +349,6 @@ async function exportDnsRecords(apiToken, zoneId) {
   return result.result;
 }
 
-
 /**
  * 清除 Zone 的缓存
  * @param {string} apiToken
@@ -350,9 +356,13 @@ async function exportDnsRecords(apiToken, zoneId) {
  * @param {Object} options - { purge_everything: true } 或 { files: [...] } 或 { tags: [...] }
  */
 async function purgeCache(apiToken, zoneId, options = {}) {
-  const body = options.purge_everything ? { purge_everything: true } :
-    (options.files ? { files: options.files } :
-      (options.tags ? { tags: options.tags } : { purge_everything: true }));
+  const body = options.purge_everything
+    ? { purge_everything: true }
+    : options.files
+      ? { files: options.files }
+      : options.tags
+        ? { tags: options.tags }
+        : { purge_everything: true };
 
   console.log('[CF-API] 清除缓存请求:', { zoneId, body });
 
@@ -441,7 +451,7 @@ async function getZoneAnalytics(auth, zoneId, options = {}) {
 
     const params = new URLSearchParams({
       since,
-      until
+      until,
     });
 
     const result = await cfRequest(
@@ -467,7 +477,7 @@ async function getSimpleAnalytics(auth, zoneId, timeRange = '24h') {
   const limits = {
     '24h': 24,
     '7d': 168,
-    '30d': 720
+    '30d': 720,
   };
 
   const limit = limits[timeRange] || 24;
@@ -497,12 +507,7 @@ async function getSimpleAnalytics(auth, zoneId, timeRange = '24h') {
       }
     }`;
 
-    const result = await cfRequest(
-      auth,
-      'POST',
-      `/graphql`,
-      { query }
-    );
+    const result = await cfRequest(auth, 'POST', '/graphql', { query });
 
     console.log('[CF-API] GraphQL Analytics原始数据:', result);
 
@@ -514,7 +519,7 @@ async function getSimpleAnalytics(auth, zoneId, timeRange = '24h') {
     let totalCached = 0;
     let totalThreats = 0;
     let totalPageViews = 0;
-    let uniquesSet = new Set();
+    const uniquesSet = new Set();
 
     groups.forEach(group => {
       const sum = group.sum || {};
@@ -538,7 +543,7 @@ async function getSimpleAnalytics(auth, zoneId, timeRange = '24h') {
       pageViews: totalPageViews,
       uniques: uniquesSet.size > 0 ? Math.max(...uniquesSet) : 0,
       cacheHitRate: cacheHitRate,
-      timeseries: []
+      timeseries: [],
     };
   } catch (e) {
     console.error('[CF-API] 获取Analytics失败:', e.message);
@@ -550,7 +555,7 @@ async function getSimpleAnalytics(auth, zoneId, timeRange = '24h') {
       pageViews: 0,
       uniques: 0,
       cacheHitRate: 0,
-      timeseries: []
+      timeseries: [],
     };
   }
 }
@@ -603,7 +608,8 @@ function validateDnsRecord(record) {
 
   // AAAA 记录需要有效的 IPv6
   if (record.type === 'AAAA') {
-    const ipv6Regex = /^([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$|^::$|^([0-9a-fA-F]{1,4}:)*::([0-9a-fA-F]{1,4}:)*[0-9a-fA-F]{1,4}$/;
+    const ipv6Regex =
+      /^([0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}$|^::$|^([0-9a-fA-F]{1,4}:)*::([0-9a-fA-F]{1,4}:)*[0-9a-fA-F]{1,4}$/;
     if (!ipv6Regex.test(record.content)) {
       errors.push('Invalid IPv6 address');
     }
@@ -616,7 +622,7 @@ function validateDnsRecord(record) {
 
   return {
     valid: errors.length === 0,
-    errors
+    errors,
   };
 }
 
@@ -653,7 +659,7 @@ async function getWorkerScript(apiToken, accountId, scriptName) {
   // 获取脚本代码
   return new Promise((resolve, reject) => {
     const headers = {
-      'Accept': 'application/javascript'  // 请求纯 JavaScript 格式
+      Accept: 'application/javascript', // 请求纯 JavaScript 格式
     };
 
     // 认证处理
@@ -668,12 +674,12 @@ async function getWorkerScript(apiToken, accountId, scriptName) {
       hostname: CF_API_BASE,
       path: `/client/v4/accounts/${accountId}/workers/scripts/${scriptName}`,
       method: 'GET',
-      headers: headers
+      headers: headers,
     };
 
-    const req = https.request(options, (res) => {
+    const req = https.request(options, res => {
       let data = '';
-      res.on('data', chunk => data += chunk);
+      res.on('data', chunk => (data += chunk));
       res.on('end', () => {
         // 检查是否是错误响应 (JSON)
         if (res.statusCode !== 200) {
@@ -700,8 +706,10 @@ async function getWorkerScript(apiToken, accountId, scriptName) {
 
             for (const part of parts) {
               // 找到包含 JavaScript 的部分
-              if (part.includes('application/javascript') ||
-                (part.includes('filename=') && part.includes('.js'))) {
+              if (
+                part.includes('application/javascript') ||
+                (part.includes('filename=') && part.includes('.js'))
+              ) {
                 // 提取实际内容（跳过 headers）
                 const contentStart = part.indexOf('\r\n\r\n');
                 if (contentStart !== -1) {
@@ -720,7 +728,7 @@ async function getWorkerScript(apiToken, accountId, scriptName) {
         resolve({
           name: scriptName,
           script: scriptContent,
-          meta: null
+          meta: null,
         });
       });
     });
@@ -729,7 +737,6 @@ async function getWorkerScript(apiToken, accountId, scriptName) {
     req.end();
   });
 }
-
 
 /**
  * 创建或更新 Worker 脚本
@@ -744,7 +751,8 @@ async function putWorkerScript(apiToken, accountId, scriptName, scriptContent, m
     const boundary = '----CloudflareWorkerBoundary' + Date.now();
 
     // 检测是否是 ES Module 格式
-    const isEsModule = scriptContent.includes('export default') ||
+    const isEsModule =
+      scriptContent.includes('export default') ||
       scriptContent.includes('export {') ||
       scriptContent.includes('export async');
 
@@ -754,7 +762,7 @@ async function putWorkerScript(apiToken, accountId, scriptName, scriptContent, m
     // 元数据部分
     const meta = {
       bindings: metadata.bindings || [],
-      compatibility_date: metadata.compatibility_date || new Date().toISOString().split('T')[0]
+      compatibility_date: metadata.compatibility_date || new Date().toISOString().split('T')[0],
     };
 
     // 根据模块类型设置不同的配置
@@ -783,7 +791,7 @@ async function putWorkerScript(apiToken, accountId, scriptName, scriptContent, m
 
     const headers = {
       'Content-Type': `multipart/form-data; boundary=${boundary}`,
-      'Content-Length': Buffer.byteLength(body)
+      'Content-Length': Buffer.byteLength(body),
     };
 
     // 认证处理
@@ -798,12 +806,12 @@ async function putWorkerScript(apiToken, accountId, scriptName, scriptContent, m
       hostname: CF_API_BASE,
       path: `/client/v4/accounts/${accountId}/workers/scripts/${scriptName}`,
       method: 'PUT',
-      headers: headers
+      headers: headers,
     };
 
-    const req = https.request(options, (res) => {
+    const req = https.request(options, res => {
       let data = '';
-      res.on('data', chunk => data += chunk);
+      res.on('data', chunk => (data += chunk));
       res.on('end', () => {
         try {
           const json = JSON.parse(data);
@@ -814,7 +822,6 @@ async function putWorkerScript(apiToken, accountId, scriptName, scriptContent, m
             reject(new Error(errors.map(e => e.message).join(', ') || 'Unknown error'));
           }
         } catch (e) {
-
           reject(new Error('Invalid response'));
         }
       });
@@ -889,7 +896,12 @@ async function createWorkerRoute(apiToken, zoneId, pattern, scriptName) {
  */
 async function updateWorkerRoute(apiToken, zoneId, routeId, pattern, scriptName) {
   const body = { pattern, script: scriptName };
-  const result = await cfRequest(apiToken, 'PUT', `/zones/${zoneId}/workers/routes/${routeId}`, body);
+  const result = await cfRequest(
+    apiToken,
+    'PUT',
+    `/zones/${zoneId}/workers/routes/${routeId}`,
+    body
+  );
   return result.result;
 }
 
@@ -909,7 +921,8 @@ async function getWorkerAnalytics(apiToken, accountId, scriptName, since = null)
   if (since) params.append('since', since);
 
   const query = params.toString();
-  const path = `/accounts/${accountId}/workers/scripts/${scriptName}/analytics` + (query ? `?${query}` : '');
+  const path =
+    `/accounts/${accountId}/workers/scripts/${scriptName}/analytics` + (query ? `?${query}` : '');
 
   try {
     const result = await cfRequest(apiToken, 'GET', path);
@@ -948,12 +961,18 @@ async function listWorkerDomains(apiToken, accountId, scriptName) {
  * @param {string} hostname
  * @param {string} environment - 环境，默认 production
  */
-async function addWorkerDomain(apiToken, accountId, scriptName, hostname, environment = 'production') {
+async function addWorkerDomain(
+  apiToken,
+  accountId,
+  scriptName,
+  hostname,
+  environment = 'production'
+) {
   const body = {
     hostname,
     service: scriptName,
     environment,
-    zone_id: null // 将由 API 自动查找
+    zone_id: null, // 将由 API 自动查找
   };
 
   // 首先需要找到域名对应的 zone_id
@@ -996,7 +1015,6 @@ async function deleteWorkerDomain(apiToken, accountId, domainId) {
   return true;
 }
 
-
 // ==================== Pages 管理 ====================
 
 /**
@@ -1016,7 +1034,11 @@ async function listPagesProjects(apiToken, accountId) {
  * @param {string} projectName
  */
 async function getPagesProject(apiToken, accountId, projectName) {
-  const result = await cfRequest(apiToken, 'GET', `/accounts/${accountId}/pages/projects/${projectName}`);
+  const result = await cfRequest(
+    apiToken,
+    'GET',
+    `/accounts/${accountId}/pages/projects/${projectName}`
+  );
   return result.result;
 }
 
@@ -1027,7 +1049,11 @@ async function getPagesProject(apiToken, accountId, projectName) {
  * @param {string} projectName
  */
 async function listPagesDeployments(apiToken, accountId, projectName) {
-  const result = await cfRequest(apiToken, 'GET', `/accounts/${accountId}/pages/projects/${projectName}/deployments?per_page=20`);
+  const result = await cfRequest(
+    apiToken,
+    'GET',
+    `/accounts/${accountId}/pages/projects/${projectName}/deployments?per_page=20`
+  );
   return result.result || [];
 }
 
@@ -1039,7 +1065,11 @@ async function listPagesDeployments(apiToken, accountId, projectName) {
  * @param {string} deploymentId
  */
 async function deletePagesDeployment(apiToken, accountId, projectName, deploymentId) {
-  return await cfRequest(apiToken, 'DELETE', `/accounts/${accountId}/pages/projects/${projectName}/deployments/${deploymentId}`);
+  return await cfRequest(
+    apiToken,
+    'DELETE',
+    `/accounts/${accountId}/pages/projects/${projectName}/deployments/${deploymentId}`
+  );
 }
 
 /**
@@ -1049,7 +1079,11 @@ async function deletePagesDeployment(apiToken, accountId, projectName, deploymen
  * @param {string} projectName
  */
 async function retryPagesDeployment(apiToken, accountId, projectName, deploymentId) {
-  return await cfRequest(apiToken, 'POST', `/accounts/${accountId}/pages/projects/${projectName}/deployments/${deploymentId}/retry`);
+  return await cfRequest(
+    apiToken,
+    'POST',
+    `/accounts/${accountId}/pages/projects/${projectName}/deployments/${deploymentId}/retry`
+  );
 }
 
 /**
@@ -1059,7 +1093,11 @@ async function retryPagesDeployment(apiToken, accountId, projectName, deployment
  * @param {string} projectName
  */
 async function listPagesDomains(apiToken, accountId, projectName) {
-  const result = await cfRequest(apiToken, 'GET', `/accounts/${accountId}/pages/projects/${projectName}/domains`);
+  const result = await cfRequest(
+    apiToken,
+    'GET',
+    `/accounts/${accountId}/pages/projects/${projectName}/domains`
+  );
   return result.result || [];
 }
 
@@ -1071,7 +1109,12 @@ async function listPagesDomains(apiToken, accountId, projectName) {
  * @param {string} domain
  */
 async function addPagesDomain(apiToken, accountId, projectName, domain) {
-  return await cfRequest(apiToken, 'POST', `/accounts/${accountId}/pages/projects/${projectName}/domains`, { name: domain });
+  return await cfRequest(
+    apiToken,
+    'POST',
+    `/accounts/${accountId}/pages/projects/${projectName}/domains`,
+    { name: domain }
+  );
 }
 
 /**
@@ -1082,7 +1125,11 @@ async function addPagesDomain(apiToken, accountId, projectName, domain) {
  * @param {string} domain
  */
 async function deletePagesDomain(apiToken, accountId, projectName, domain) {
-  return await cfRequest(apiToken, 'DELETE', `/accounts/${accountId}/pages/projects/${projectName}/domains/${domain}`);
+  return await cfRequest(
+    apiToken,
+    'DELETE',
+    `/accounts/${accountId}/pages/projects/${projectName}/domains/${domain}`
+  );
 }
 
 /**
@@ -1092,7 +1139,11 @@ async function deletePagesDomain(apiToken, accountId, projectName, domain) {
  * @param {string} projectName
  */
 async function deletePagesProject(apiToken, accountId, projectName) {
-  return await cfRequest(apiToken, 'DELETE', `/accounts/${accountId}/pages/projects/${projectName}`);
+  return await cfRequest(
+    apiToken,
+    'DELETE',
+    `/accounts/${accountId}/pages/projects/${projectName}`
+  );
 }
 
 // ==================== R2 存储管理 ====================
@@ -1180,7 +1231,7 @@ async function listR2Objects(auth, accountId, bucketName, options = {}) {
     return {
       objects: result.result || [],
       delimited_prefixes: result.result_info?.delimited || [],
-      cursor: result.result_info?.cursor || null
+      cursor: result.result_info?.cursor || null,
     };
   } catch (e) {
     console.error('[CF-API] 列出 R2 对象失败:', e.message);
@@ -1193,7 +1244,11 @@ async function listR2Objects(auth, accountId, bucketName, options = {}) {
  */
 async function deleteR2Object(auth, accountId, bucketName, objectKey) {
   try {
-    await cfRequest(auth, 'DELETE', `/accounts/${accountId}/r2/buckets/${bucketName}/objects/${encodeURIComponent(objectKey)}`);
+    await cfRequest(
+      auth,
+      'DELETE',
+      `/accounts/${accountId}/r2/buckets/${bucketName}/objects/${encodeURIComponent(objectKey)}`
+    );
     return true;
   } catch (e) {
     console.error('[CF-API] 删除 R2 对象失败:', e.message);
@@ -1221,7 +1276,7 @@ module.exports = {
   batchCreateDnsRecords,
   switchDnsContent,
   exportDnsRecords,
-  purgeCache,  // 缓存管理
+  purgeCache, // 缓存管理
 
   // SSL/TLS 管理
   getSslSettings,
@@ -1254,7 +1309,6 @@ module.exports = {
   addWorkerDomain,
   deleteWorkerDomain,
 
-
   // Pages 管理
   listPagesProjects,
   getPagesProject,
@@ -1272,5 +1326,5 @@ module.exports = {
   createR2Bucket,
   deleteR2Bucket,
   listR2Objects,
-  deleteR2Object
+  deleteR2Object,
 };

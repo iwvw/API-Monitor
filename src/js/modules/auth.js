@@ -23,7 +23,7 @@ export const authMethods = {
       const setResponse = await fetch('/api/set-password', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password: this.setPassword })
+        body: JSON.stringify({ password: this.setPassword }),
       });
 
       const setResult = await setResponse.json();
@@ -37,7 +37,7 @@ export const authMethods = {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ password: this.setPassword }),
-        credentials: 'include' // 确保 cookie 被发送和接收
+        credentials: 'include', // 确保 cookie 被发送和接收
       });
 
       const loginResult = await loginResponse.json();
@@ -94,7 +94,7 @@ export const authMethods = {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ password: this.loginPassword }),
-        credentials: 'include' // 确保 cookie 被发送和接收
+        credentials: 'include', // 确保 cookie 被发送和接收
       });
 
       const result = await response.json();
@@ -168,8 +168,8 @@ export const authMethods = {
         headers: this.getAuthHeaders(),
         body: JSON.stringify({
           oldPassword: this.loginPassword,
-          newPassword: this.newPassword
-        })
+          newPassword: this.newPassword,
+        }),
       });
 
       const result = await response.json();
@@ -197,7 +197,7 @@ export const authMethods = {
   getAuthHeaders() {
     return {
       'Content-Type': 'application/json',
-      'x-admin-password': this.loginPassword
+      'x-admin-password': this.loginPassword,
     };
   },
 
@@ -214,7 +214,7 @@ export const authMethods = {
         // 演示模式：如果未登录，则自动尝试登录
         const savedTime = localStorage.getItem('password_time');
         const now = Date.now();
-        const isValidSession = savedTime && (now - parseInt(savedTime) < 4 * 24 * 60 * 60 * 1000);
+        const isValidSession = savedTime && now - parseInt(savedTime) < 4 * 24 * 60 * 60 * 1000;
 
         if (!isValidSession) {
           this.loginPassword = ''; // 演示模式登录不需要真实密码
@@ -259,7 +259,6 @@ export const authMethods = {
       // 未登录或凭据过期
       this.showLoginModal = true;
       return false;
-
     } catch (e) {
       console.error('Auth check error:', e);
       this.showLoginModal = true;
@@ -267,5 +266,5 @@ export const authMethods = {
     } finally {
       this.isCheckingAuth = false;
     }
-  }
+  },
 };

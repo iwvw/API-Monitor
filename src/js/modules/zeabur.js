@@ -15,7 +15,7 @@ export const zeaburMethods = {
       // 添加新快照到开头
       history.unshift({
         timestamp: Date.now(),
-        accounts: data
+        accounts: data,
       });
 
       // 仅保留最近 4 个
@@ -41,7 +41,7 @@ export const zeaburMethods = {
           return true;
         }
       }
-    } catch (e) { }
+    } catch (e) {}
     return false;
   },
 
@@ -49,7 +49,7 @@ export const zeaburMethods = {
     try {
       // 从主机加载账号
       const response = await fetch('/api/zeabur/server-accounts', {
-        headers: store.getAuthHeaders()
+        headers: store.getAuthHeaders(),
       });
       const accounts = await response.json();
       if (accounts && accounts.length > 0) {
@@ -57,7 +57,7 @@ export const zeaburMethods = {
         // 余额会在 fetchData -> /temp-accounts 请求时由后端自动获取
         // 不再在这里单独刷新，避免并行请求导致数据不一致
       }
-    } catch (error) { }
+    } catch (error) {}
   },
 
   async refreshManagedAccountsBalance() {
@@ -69,8 +69,8 @@ export const zeaburMethods = {
           headers: store.getAuthHeaders(),
           body: JSON.stringify({
             accountName: account.name,
-            apiToken: account.token
-          })
+            apiToken: account.token,
+          }),
         });
 
         if (response.ok) {
@@ -82,21 +82,21 @@ export const zeaburMethods = {
             username: data.userData.username || account.username,
             balance: data.userData.credit ? data.userData.credit / 100 : 0,
             status: 'active',
-            lastValidated: Date.now()
+            lastValidated: Date.now(),
           };
         } else {
           // 如果验证失败，标记为无效
           store.managedAccounts[i] = {
             ...account,
             status: 'invalid',
-            lastValidated: Date.now()
+            lastValidated: Date.now(),
           };
         }
       } catch (error) {
         // 保持原有状态
         store.managedAccounts[i] = {
           ...account,
-          status: account.status || 'unknown'
+          status: account.status || 'unknown',
         };
       }
     });
@@ -114,9 +114,9 @@ export const zeaburMethods = {
       const response = await fetch('/api/zeabur/server-accounts', {
         method: 'POST',
         headers: store.getAuthHeaders(),
-        body: JSON.stringify({ accounts: store.managedAccounts })
+        body: JSON.stringify({ accounts: store.managedAccounts }),
       });
-    } catch (error) { }
+    } catch (error) {}
   },
 
   loadProjectCosts() {
@@ -169,7 +169,7 @@ export const zeaburMethods = {
       setTimeout(() => {
         this.fetchData();
       }, 100);
-    } catch (e) { }
+    } catch (e) {}
   },
 
   stopAutoRefresh() {
@@ -204,23 +204,23 @@ export const zeaburMethods = {
         // 清除账号中的手动余额，让主机使用 API 真实数据
         const accountsWithoutManualBalance = store.managedAccounts.map(acc => ({
           ...acc,
-          balance: null // 不发送手动余额
+          balance: null, // 不发送手动余额
         }));
 
         const [accountsRes, projectsRes] = await Promise.all([
           fetch('/api/zeabur/temp-accounts', {
             method: 'POST',
             headers: store.getAuthHeaders(),
-            body: JSON.stringify({ accounts: accountsWithoutManualBalance })
+            body: JSON.stringify({ accounts: accountsWithoutManualBalance }),
           }).then(r => r.json()),
           fetch('/api/zeabur/temp-projects', {
             method: 'POST',
             headers: store.getAuthHeaders(),
             body: JSON.stringify({
               accounts: accountsWithoutManualBalance,
-              projectCosts: {} // 不发送手动费用，让主机尝试从 API 获取
-            })
-          }).then(r => r.json())
+              projectCosts: {}, // 不发送手动费用，让主机尝试从 API 获取
+            }),
+          }).then(r => r.json()),
         ]);
 
         // 使用Vue.set或直接重新赋值确保响应式更新
@@ -230,7 +230,7 @@ export const zeaburMethods = {
             const projectData = projectsRes[index];
             return {
               ...account,
-              projects: projectData.projects || []
+              projects: projectData.projects || [],
             };
           });
           store.accounts = accountsData;
@@ -241,7 +241,7 @@ export const zeaburMethods = {
         // 否则使用主机配置的账号
         const [accountsRes, projectsRes] = await Promise.all([
           fetch('/api/zeabur/accounts', { headers: store.getAuthHeaders() }).then(r => r.json()),
-          fetch('/api/zeabur/projects', { headers: store.getAuthHeaders() }).then(r => r.json())
+          fetch('/api/zeabur/projects', { headers: store.getAuthHeaders() }).then(r => r.json()),
         ]);
 
         // 使用Vue.set或直接重新赋值确保响应式更新
@@ -251,7 +251,7 @@ export const zeaburMethods = {
             const projectData = projectsRes[index];
             return {
               ...account,
-              projects: projectData.projects || []
+              projects: projectData.projects || [],
             };
           });
           store.accounts = accountsData;
@@ -297,8 +297,8 @@ export const zeaburMethods = {
         headers: store.getAuthHeaders(),
         body: JSON.stringify({
           accountName: this.newAccount.name,
-          apiToken: this.newAccount.token
-        })
+          apiToken: this.newAccount.token,
+        }),
       });
 
       const data = await response.json();
@@ -319,7 +319,7 @@ export const zeaburMethods = {
           email: data.userData.email || data.userData.username,
           username: data.userData.username,
           balance: data.userData.credit ? data.userData.credit / 100 : 0,
-          status: 'active'
+          status: 'active',
         });
 
         // 保存到主机
@@ -401,7 +401,7 @@ export const zeaburMethods = {
 
     this.addingAccount = true;
     let successCount = 0;
-    let failedAccounts = [];
+    const failedAccounts = [];
 
     // 逐个验证并添加
     for (const account of accounts) {
@@ -411,8 +411,8 @@ export const zeaburMethods = {
           headers: store.getAuthHeaders(),
           body: JSON.stringify({
             accountName: account.name,
-            apiToken: account.token
-          })
+            apiToken: account.token,
+          }),
         });
 
         const data = await response.json();
@@ -427,7 +427,7 @@ export const zeaburMethods = {
               email: data.userData.email || data.userData.username,
               username: data.userData.username,
               balance: data.userData.credit ? data.userData.credit / 100 : 0,
-              status: 'active'
+              status: 'active',
             });
             successCount++;
           } else {
@@ -475,35 +475,37 @@ export const zeaburMethods = {
       return;
     }
     const lines = this.batchAccounts.split('\n');
-    this.maskedBatchAccounts = lines.map(line => {
-      // 尝试匹配括号格式：名称(token) 或 名称（token）
-      const bracketMatch = line.match(/^(.+?)[（(](.+?)[）)]$/);
-      if (bracketMatch) {
-        const name = bracketMatch[1];
-        const bracket = line.includes('（') ? '（' : '(';
-        const closeBracket = line.includes('）') ? '）' : ')';
-        const maskedToken = bracketMatch[2].replace(/./g, '●');
-        return name + bracket + maskedToken + closeBracket;
-      }
+    this.maskedBatchAccounts = lines
+      .map(line => {
+        // 尝试匹配括号格式：名称(token) 或 名称（token）
+        const bracketMatch = line.match(/^(.+?)[（(](.+?)[）)]$/);
+        if (bracketMatch) {
+          const name = bracketMatch[1];
+          const bracket = line.includes('（') ? '（' : '(';
+          const closeBracket = line.includes('）') ? '）' : ')';
+          const maskedToken = bracketMatch[2].replace(/./g, '●');
+          return name + bracket + maskedToken + closeBracket;
+        }
 
-      // 冒号格式
-      let separatorIndex = -1;
-      let separator = '';
+        // 冒号格式
+        let separatorIndex = -1;
+        let separator = '';
 
-      if (line.includes(':')) {
-        separatorIndex = line.indexOf(':');
-        separator = ':';
-      } else if (line.includes('：')) {
-        separatorIndex = line.indexOf('：');
-        separator = '：';
-      }
+        if (line.includes(':')) {
+          separatorIndex = line.indexOf(':');
+          separator = ':';
+        } else if (line.includes('：')) {
+          separatorIndex = line.indexOf('：');
+          separator = '：';
+        }
 
-      if (separatorIndex === -1) return line;
+        if (separatorIndex === -1) return line;
 
-      const name = line.substring(0, separatorIndex);
-      const token = line.substring(separatorIndex + 1);
-      return name + separator + token.replace(/./g, '●');
-    }).join('\n');
+        const name = line.substring(0, separatorIndex);
+        const token = line.substring(separatorIndex + 1);
+        return name + separator + token.replace(/./g, '●');
+      })
+      .join('\n');
   },
 
   getProjectDomains(project) {
@@ -518,7 +520,7 @@ export const zeaburMethods = {
                 isGenerated: d.isGenerated || false,
                 serviceId: service._id,
                 serviceName: service.name,
-                environmentId: d.environmentID
+                environmentId: d.environmentID,
               });
             }
           });
@@ -542,7 +544,8 @@ export const zeaburMethods = {
     }
 
     // 获取环境 ID (必填)
-    const environmentId = project.environments && project.environments[0] ? project.environments[0]._id : null;
+    const environmentId =
+      project.environments && project.environments[0] ? project.environments[0]._id : null;
     if (!environmentId) {
       toast.error('找不到项目环境 ID');
       return;
@@ -557,7 +560,7 @@ export const zeaburMethods = {
       message: `项目 "${project.name}" 当前未绑定域名。\n您可以选择生成一个带前缀的免费域名，或添加您已有的自定义域名。`,
       icon: 'fa-globe',
       confirmText: '生成免费域名',
-      cancelText: '添加自定义域名'
+      cancelText: '添加自定义域名',
     });
 
     if (choice) {
@@ -565,7 +568,7 @@ export const zeaburMethods = {
         title: '生成免费域名',
         message: '请输入您心仪的域名子域前缀：',
         placeholder: '例如: my-awesome-app',
-        icon: 'fa-wand-magic-sparkles'
+        icon: 'fa-wand-magic-sparkles',
       });
 
       if (prefixInput && prefixInput.trim()) {
@@ -577,12 +580,12 @@ export const zeaburMethods = {
           method: 'POST',
           headers: this.getAuthHeaders(),
           body: JSON.stringify({
-            token: (store.managedAccounts.find(acc => acc.name === account.name))?.token,
+            token: store.managedAccounts.find(acc => acc.name === account.name)?.token,
             serviceId: service._id,
             domain: targetDomain,
             isGenerated: true,
-            environmentId: environmentId
-          })
+            environmentId: environmentId,
+          }),
         });
         const result = await addRes.json();
         if (result.success) {
@@ -625,7 +628,7 @@ export const zeaburMethods = {
         icon: 'fa-wand-magic-sparkles',
         promptValue: currentPrefix,
         deleteText: '删除该域名',
-        confirmText: '更新前缀'
+        confirmText: '更新前缀',
       });
     } else {
       // 自定义域名
@@ -636,7 +639,7 @@ export const zeaburMethods = {
         icon: 'fa-edit',
         promptValue: domainInfo.domain,
         deleteText: '删除该域名',
-        confirmText: '保存修改'
+        confirmText: '保存修改',
       });
     }
 
@@ -649,7 +652,7 @@ export const zeaburMethods = {
         message: `确定要永久删除域名 "${domainInfo.domain}" 吗？`,
         icon: 'fa-trash-alt',
         confirmText: '确认删除',
-        confirmClass: 'btn-danger'
+        confirmClass: 'btn-danger',
       });
       if (confirmed) {
         await this.deleteDomain(account, project, service, domainInfo.domain);
@@ -675,8 +678,8 @@ export const zeaburMethods = {
           token: accountData.token,
           serviceId: service._id,
           domain: domainInfo.domain,
-          environmentId: domainInfo.environmentId
-        })
+          environmentId: domainInfo.environmentId,
+        }),
       });
 
       if (!delRes.ok) {
@@ -694,8 +697,8 @@ export const zeaburMethods = {
           serviceId: service._id,
           domain: trimmedDomain,
           isGenerated: domainInfo.isGenerated,
-          environmentId: domainInfo.environmentId
-        })
+          environmentId: domainInfo.environmentId,
+        }),
       });
 
       const addResult = await addRes.json();
@@ -741,7 +744,9 @@ export const zeaburMethods = {
             }
           }
         }
-      } catch (e) { console.error(e); }
+      } catch (e) {
+        console.error(e);
+      }
     });
   },
 
@@ -769,7 +774,11 @@ export const zeaburMethods = {
     try {
       const accountData = store.managedAccounts.find(acc => acc.name === account.name);
       if (!accountData || !accountData.token) {
-        await store.showAlert('无法获取账号 token，请重新添加账号', '错误', 'fa-exclamation-circle');
+        await store.showAlert(
+          '无法获取账号 token，请重新添加账号',
+          '错误',
+          'fa-exclamation-circle'
+        );
         return;
       }
 
@@ -779,8 +788,8 @@ export const zeaburMethods = {
         body: JSON.stringify({
           token: accountData.token,
           projectId: project._id,
-          newName: project.editingName.trim()
-        })
+          newName: project.editingName.trim(),
+        }),
       });
 
       const result = await response.json();
@@ -789,7 +798,11 @@ export const zeaburMethods = {
         this.cancelEditProjectName(project);
         await store.showAlert('项目名称已更新', '成功', 'fa-check-circle');
       } else {
-        await store.showAlert('更新失败: ' + (result.error || '未知错误'), '错误', 'fa-exclamation-circle');
+        await store.showAlert(
+          '更新失败: ' + (result.error || '未知错误'),
+          '错误',
+          'fa-exclamation-circle'
+        );
       }
     } catch (error) {
       await store.showAlert('操作失败: ' + error.message, '错误', 'fa-exclamation-circle');
@@ -802,7 +815,7 @@ export const zeaburMethods = {
       message: `确定要删除项目 "${project.name}" 吗？此操作不可恢复！`,
       icon: 'fa-exclamation-triangle',
       confirmText: '删除',
-      confirmClass: 'btn-danger'
+      confirmClass: 'btn-danger',
     });
 
     if (!confirmed) return;
@@ -810,7 +823,11 @@ export const zeaburMethods = {
     try {
       const accountData = store.managedAccounts.find(acc => acc.name === account.name);
       if (!accountData || !accountData.token) {
-        await store.showAlert('无法获取账号 token，请重新添加账号', '错误', 'fa-exclamation-circle');
+        await store.showAlert(
+          '无法获取账号 token，请重新添加账号',
+          '错误',
+          'fa-exclamation-circle'
+        );
         return;
       }
 
@@ -819,8 +836,8 @@ export const zeaburMethods = {
         headers: store.getAuthHeaders(),
         body: JSON.stringify({
           token: accountData.token,
-          projectId: project._id
-        })
+          projectId: project._id,
+        }),
       });
 
       const result = await response.json();
@@ -828,7 +845,11 @@ export const zeaburMethods = {
         toast.success('项目已删除');
         await this.fetchData();
       } else {
-        await store.showAlert('删除失败: ' + (result.error || '未知错误'), '错误', 'fa-exclamation-circle');
+        await store.showAlert(
+          '删除失败: ' + (result.error || '未知错误'),
+          '错误',
+          'fa-exclamation-circle'
+        );
       }
     } catch (error) {
       await store.showAlert('操作失败: ' + error.message, '错误', 'fa-exclamation-circle');
@@ -841,7 +862,7 @@ export const zeaburMethods = {
       message: `确定要删除服务 "${service.name}" 吗？此操作不可恢复！`,
       icon: 'fa-exclamation-triangle',
       confirmText: '删除',
-      confirmClass: 'btn-danger'
+      confirmClass: 'btn-danger',
     });
 
     if (!confirmed) return;
@@ -858,8 +879,8 @@ export const zeaburMethods = {
         headers: this.getAuthHeaders(),
         body: JSON.stringify({
           token: accountData.token,
-          serviceId: service._id
-        })
+          serviceId: service._id,
+        }),
       });
 
       const result = await response.json();
@@ -868,7 +889,11 @@ export const zeaburMethods = {
         await this.fetchData();
       } else {
         console.error('删除服务失败:', result);
-        await this.showAlert('删除失败: ' + (result.error || '未知错误'), '错误', 'fa-exclamation-circle');
+        await this.showAlert(
+          '删除失败: ' + (result.error || '未知错误'),
+          '错误',
+          'fa-exclamation-circle'
+        );
       }
     } catch (error) {
       console.error('删除服务异常:', error);
@@ -921,8 +946,8 @@ export const zeaburMethods = {
         body: JSON.stringify({
           token: accountData.token,
           serviceId: service._id,
-          newName: service.editingName.trim()
-        })
+          newName: service.editingName.trim(),
+        }),
       });
 
       const result = await response.json();
@@ -931,7 +956,11 @@ export const zeaburMethods = {
         this.cancelEditServiceName(service);
         await this.showAlert('服务名称已更新', '成功', 'fa-check-circle');
       } else {
-        await this.showAlert('更新失败: ' + (result.error || '未知错误'), '错误', 'fa-exclamation-circle');
+        await this.showAlert(
+          '更新失败: ' + (result.error || '未知错误'),
+          '错误',
+          'fa-exclamation-circle'
+        );
       }
     } catch (error) {
       await this.showAlert('操作失败: ' + error.message, '错误', 'fa-exclamation-circle');
@@ -1026,7 +1055,7 @@ export const zeaburMethods = {
       };
 
       // 滚动条位置转换为内容滚动位置
-      const thumbPositionToScroll = (thumbLeftPercent) => {
+      const thumbPositionToScroll = thumbLeftPercent => {
         const contentWidth = logsText.scrollWidth;
         const viewportWidth = logsText.clientWidth;
         const maxScroll = contentWidth - viewportWidth;
@@ -1043,7 +1072,7 @@ export const zeaburMethods = {
       logsText.addEventListener('scroll', updateScrollbar);
 
       // 滑块拖拽开始
-      thumb.addEventListener('mousedown', (e) => {
+      thumb.addEventListener('mousedown', e => {
         isDragging = true;
         dragStartX = e.clientX;
         dragStartThumbLeft = parseFloat(thumb.style.left) || 0;
@@ -1053,7 +1082,7 @@ export const zeaburMethods = {
       });
 
       // 拖拽中
-      document.addEventListener('mousemove', (e) => {
+      document.addEventListener('mousemove', e => {
         if (!isDragging) return;
 
         const scrollbarRect = scrollbar.getBoundingClientRect();
@@ -1066,7 +1095,13 @@ export const zeaburMethods = {
         // 计算鼠标移动距离对应的滑块移动距离
         const deltaX = e.clientX - dragStartX;
         const deltaThumbPercent = (deltaX / scrollbarWidth) * 100;
-        const newThumbLeft = Math.max(0, Math.min(dragStartThumbLeft + deltaThumbPercent, 100 - (thumbWidth / scrollbarWidth * 100)));
+        const newThumbLeft = Math.max(
+          0,
+          Math.min(
+            dragStartThumbLeft + deltaThumbPercent,
+            100 - (thumbWidth / scrollbarWidth) * 100
+          )
+        );
 
         // 设置滑块位置并滚动内容
         thumb.style.left = newThumbLeft + '%';
@@ -1083,7 +1118,7 @@ export const zeaburMethods = {
       });
 
       // 点击滚动条区域跳转
-      scrollbar.addEventListener('click', (e) => {
+      scrollbar.addEventListener('click', e => {
         if (e.target === thumb) return;
 
         const scrollbarRect = scrollbar.getBoundingClientRect();
@@ -1092,7 +1127,10 @@ export const zeaburMethods = {
         const thumbWidth = thumb.clientWidth;
 
         // 计算目标滑块位置（让滑块中心对齐到点击位置）
-        const targetThumbLeftPx = Math.max(0, Math.min(clickX - thumbWidth / 2, scrollbarWidth - thumbWidth));
+        const targetThumbLeftPx = Math.max(
+          0,
+          Math.min(clickX - thumbWidth / 2, scrollbarWidth - thumbWidth)
+        );
         const targetThumbLeftPercent = (targetThumbLeftPx / scrollbarWidth) * 100;
 
         // 设置滑块位置并滚动内容
@@ -1138,7 +1176,13 @@ export const zeaburMethods = {
       clearInterval(this.logsRealTimeTimer);
     }
 
-    if (this.logsRealTime && this.showLogsModal && this.logsCurrentAccount && this.logsCurrentProject && this.logsCurrentService) {
+    if (
+      this.logsRealTime &&
+      this.showLogsModal &&
+      this.logsCurrentAccount &&
+      this.logsCurrentProject &&
+      this.logsCurrentService
+    ) {
       this.logsRealTimeTimer = setInterval(async () => {
         if (document.visibilityState !== 'visible') return;
         await this.refreshLogs();
@@ -1157,10 +1201,15 @@ export const zeaburMethods = {
     if (!this.logsCurrentAccount || !this.logsCurrentProject || !this.logsCurrentService) return;
 
     try {
-      const environmentId = this.logsCurrentProject.environments && this.logsCurrentProject.environments[0] ? this.logsCurrentProject.environments[0]._id : null;
+      const environmentId =
+        this.logsCurrentProject.environments && this.logsCurrentProject.environments[0]
+          ? this.logsCurrentProject.environments[0]._id
+          : null;
       if (!environmentId) return;
 
-      const accountData = this.managedAccounts.find(acc => acc.name === this.logsCurrentAccount.name);
+      const accountData = this.managedAccounts.find(
+        acc => acc.name === this.logsCurrentAccount.name
+      );
       if (!accountData || !accountData.token) return;
 
       const response = await fetch('/api/zeabur/service/logs', {
@@ -1171,16 +1220,21 @@ export const zeaburMethods = {
           serviceId: this.logsCurrentService._id,
           environmentId: environmentId,
           projectId: this.logsCurrentProject._id,
-          limit: 200
-        })
+          limit: 200,
+        }),
       });
 
       const result = await response.json();
       if (result.success && result.logs) {
-        const newLogs = result.logs.map(log => '[' + new Date(log.timestamp).toLocaleString('zh-CN') + '] ' + log.message).join('\n');
+        const newLogs = result.logs
+          .map(log => '[' + new Date(log.timestamp).toLocaleString('zh-CN') + '] ' + log.message)
+          .join('\n');
 
         // 如果是自动滚动状态，保持在底部
-        const wasAtBottom = this.$refs.logsText && (this.$refs.logsText.scrollHeight - this.$refs.logsText.scrollTop <= this.$refs.logsText.clientHeight + 10);
+        const wasAtBottom =
+          this.$refs.logsText &&
+          this.$refs.logsText.scrollHeight - this.$refs.logsText.scrollTop <=
+            this.$refs.logsText.clientHeight + 10;
 
         this.logsContent = newLogs;
         this.logsModalInfo.count = result.count;
@@ -1250,7 +1304,7 @@ export const zeaburMethods = {
       message: '确定要清除所有缓存数据吗？这将删除所有本地保存的账号、余额和费用数据。',
       icon: 'fa-exclamation-triangle',
       confirmText: '确定清除',
-      confirmClass: 'btn-danger'
+      confirmClass: 'btn-danger',
     });
 
     if (confirmed) {
@@ -1272,13 +1326,14 @@ export const zeaburMethods = {
       message: `确定要暂停服务"${service.name}"吗？`,
       icon: 'fa-pause-circle',
       confirmText: '确定暂停',
-      confirmClass: 'btn-warning'
+      confirmClass: 'btn-warning',
     });
 
     if (!confirmed) return;
 
     try {
-      const environmentId = project.environments && project.environments[0] ? project.environments[0]._id : null;
+      const environmentId =
+        project.environments && project.environments[0] ? project.environments[0]._id : null;
       if (!environmentId) {
         this.showGlobalToast('无法获取环境 ID，请刷新页面后重试', 'error');
         return;
@@ -1296,8 +1351,8 @@ export const zeaburMethods = {
         body: JSON.stringify({
           token: accountData.token,
           serviceId: service._id,
-          environmentId: environmentId
-        })
+          environmentId: environmentId,
+        }),
       });
 
       const result = await response.json();
@@ -1320,13 +1375,14 @@ export const zeaburMethods = {
       message: `确定要${action}服务"${service.name}"吗？`,
       icon: 'fa-redo',
       confirmText: `确定${action}`,
-      confirmClass: 'btn-primary'
+      confirmClass: 'btn-primary',
     });
 
     if (!confirmed) return;
 
     try {
-      const environmentId = project.environments && project.environments[0] ? project.environments[0]._id : null;
+      const environmentId =
+        project.environments && project.environments[0] ? project.environments[0]._id : null;
       if (!environmentId) {
         this.showGlobalToast('无法获取环境 ID，请刷新页面后重试', 'error');
         return;
@@ -1344,8 +1400,8 @@ export const zeaburMethods = {
         body: JSON.stringify({
           token: accountData.token,
           serviceId: service._id,
-          environmentId: environmentId
-        })
+          environmentId: environmentId,
+        }),
       });
 
       const result = await response.json();
@@ -1362,7 +1418,8 @@ export const zeaburMethods = {
 
   // 查看服务日志
   async showServiceLogs(account, project, service) {
-    const environmentId = project.environments && project.environments[0] ? project.environments[0]._id : null;
+    const environmentId =
+      project.environments && project.environments[0] ? project.environments[0]._id : null;
     const accountData = this.managedAccounts.find(acc => acc.name === account.name);
 
     if (!environmentId || !accountData || !accountData.token) {
@@ -1383,20 +1440,20 @@ export const zeaburMethods = {
             serviceId: service._id,
             environmentId: environmentId,
             projectId: project._id,
-            limit: 200
-          })
+            limit: 200,
+          }),
         });
         const result = await response.json();
         if (result.success) {
           return result.logs.map(l => ({
             timestamp: new Date(l.timestamp).getTime(),
-            message: l.message
+            message: l.message,
           }));
         } else {
           throw new Error(result.error || '获取失败');
         }
       },
-      streamer: (appendLog) => {
+      streamer: appendLog => {
         // Zeabur 实时日志轮询 (1秒间隔)
         let lastTimestamp = 0;
         this._zeaburLogTimer = setInterval(async () => {
@@ -1411,8 +1468,8 @@ export const zeaburMethods = {
                 serviceId: service._id,
                 environmentId: environmentId,
                 projectId: project._id,
-                limit: 200
-              })
+                limit: 200,
+              }),
             });
             const result = await response.json();
             if (result.success && result.logs && result.logs.length > 0) {
@@ -1425,7 +1482,7 @@ export const zeaburMethods = {
                   id: l.timestamp + Math.random().toString(36).substr(2, 9),
                   timestamp: new Date(l.timestamp).getTime(),
                   level: 'INFO',
-                  message: l.message
+                  message: l.message,
                 }));
                 // 直接替换日志数组
                 store.logViewer.logs.splice(0, store.logViewer.logs.length, ...newLogs);
@@ -1447,7 +1504,7 @@ export const zeaburMethods = {
           clearInterval(this._zeaburLogTimer);
           this._zeaburLogTimer = null;
         }
-      }
+      },
     });
   },
 
@@ -1483,7 +1540,7 @@ export const zeaburMethods = {
         provider: 'zeabur',
         exportTime: now.toISOString(),
         exportTimeLocal: now.toLocaleString('zh-CN', { hour12: false }),
-        accounts: this.managedAccounts
+        accounts: this.managedAccounts,
       };
 
       // 生成本地时间格式的文件名：YYYY-MM-DD_HH-MM-SS
@@ -1519,7 +1576,7 @@ export const zeaburMethods = {
       message: '导入 Zeabur 账号将覆盖当前所有账号配置，是否继续？',
       icon: 'fa-exclamation-triangle',
       confirmText: '确定导入',
-      confirmClass: 'btn-warning'
+      confirmClass: 'btn-warning',
     });
 
     if (!confirmed) return;
@@ -1527,12 +1584,12 @@ export const zeaburMethods = {
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.json';
-    input.onchange = async (event) => {
+    input.onchange = async event => {
       const file = event.target.files[0];
       if (!file) return;
 
       const reader = new FileReader();
-      reader.onload = async (e) => {
+      reader.onload = async e => {
         try {
           const importedData = JSON.parse(e.target.result);
 
@@ -1546,7 +1603,10 @@ export const zeaburMethods = {
           this.managedAccounts = importedData.accounts;
           await this.saveManagedAccounts();
 
-          this.showGlobalToast(`成功导入 ${importedData.accounts.length} 个 Zeabur 账号`, 'success');
+          this.showGlobalToast(
+            `成功导入 ${importedData.accounts.length} 个 Zeabur 账号`,
+            'success'
+          );
           await this.fetchData();
         } catch (error) {
           this.showGlobalToast('导入失败: ' + error.message, 'error');
@@ -1567,7 +1627,7 @@ export const zeaburMethods = {
       message: `确定要删除账号 "${account.name}" 吗？此操作不可恢复。`,
       icon: 'fa-exclamation-triangle',
       confirmText: '确定删除',
-      confirmClass: 'btn-danger'
+      confirmClass: 'btn-danger',
     });
 
     if (!confirmed) return;
@@ -1595,7 +1655,7 @@ export const zeaburMethods = {
       message: `确定要为服务 "${service.name}" 生成免费的 Zeabur 域名吗？`,
       icon: 'fa-globe',
       confirmText: '生成',
-      confirmClass: 'btn-primary'
+      confirmClass: 'btn-primary',
     });
 
     if (!confirmed) return;
@@ -1612,8 +1672,8 @@ export const zeaburMethods = {
         headers: this.getAuthHeaders(),
         body: JSON.stringify({
           token: accountData.token,
-          serviceId: service._id
-        })
+          serviceId: service._id,
+        }),
       });
 
       const result = await response.json();
@@ -1622,7 +1682,11 @@ export const zeaburMethods = {
         await this.fetchData();
       } else {
         console.error('生成域名失败:', result);
-        await this.showAlert('生成失败: ' + (result.error || '未知错误'), '错误', 'fa-exclamation-circle');
+        await this.showAlert(
+          '生成失败: ' + (result.error || '未知错误'),
+          '错误',
+          'fa-exclamation-circle'
+        );
       }
     } catch (error) {
       console.error('生成域名异常:', error);
@@ -1636,7 +1700,7 @@ export const zeaburMethods = {
       title: '添加自定义域名',
       message: '请输入您的域名：',
       placeholder: '例如：www.example.com',
-      icon: 'fa-globe'
+      icon: 'fa-globe',
     });
 
     if (!domain || !domain.trim()) return;
@@ -1649,7 +1713,8 @@ export const zeaburMethods = {
       }
 
       // 获取环境 ID
-      const environmentId = project.environments && project.environments[0] ? project.environments[0]._id : null;
+      const environmentId =
+        project.environments && project.environments[0] ? project.environments[0]._id : null;
 
       const response = await fetch('/api/zeabur/domain/add', {
         method: 'POST',
@@ -1658,8 +1723,8 @@ export const zeaburMethods = {
           token: accountData.token,
           serviceId: service._id,
           domain: domain.trim(),
-          environmentId: environmentId
-        })
+          environmentId: environmentId,
+        }),
       });
 
       const result = await response.json();
@@ -1670,7 +1735,11 @@ export const zeaburMethods = {
         await this.fetchData();
       } else {
         console.error('添加域名失败:', result);
-        await this.showAlert('添加失败: ' + (result.error || '未知错误'), '错误', 'fa-exclamation-circle');
+        await this.showAlert(
+          '添加失败: ' + (result.error || '未知错误'),
+          '错误',
+          'fa-exclamation-circle'
+        );
       }
     } catch (error) {
       console.error('添加域名异常:', error);
@@ -1685,7 +1754,7 @@ export const zeaburMethods = {
       message: `确定要删除域名 "${domain}" 吗？`,
       icon: 'fa-exclamation-triangle',
       confirmText: '删除',
-      confirmClass: 'btn-danger'
+      confirmClass: 'btn-danger',
     });
 
     if (!confirmed) return;
@@ -1703,8 +1772,8 @@ export const zeaburMethods = {
         body: JSON.stringify({
           token: accountData.token,
           serviceId: service._id,
-          domain: domain
-        })
+          domain: domain,
+        }),
       });
 
       const result = await response.json();
@@ -1713,11 +1782,15 @@ export const zeaburMethods = {
         await this.fetchData();
       } else {
         console.error('删除域名失败:', result);
-        await this.showAlert('删除失败: ' + (result.error || '未知错误'), '错误', 'fa-exclamation-circle');
+        await this.showAlert(
+          '删除失败: ' + (result.error || '未知错误'),
+          '错误',
+          'fa-exclamation-circle'
+        );
       }
     } catch (error) {
       console.error('删除域名异常:', error);
       await this.showAlert('操作失败: ' + error.message, '错误', 'fa-exclamation-circle');
     }
-  }
+  },
 };
