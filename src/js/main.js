@@ -135,6 +135,28 @@ const app = createApp({
         get: () => authStore.showSetPasswordModal,
         set: v => (authStore.showSetPasswordModal = v),
       }),
+      // 认证模块：登录/设置密码相关状态
+      isDemoMode: computed(() => authStore.isDemoMode),
+      loginPassword: computed({
+        get: () => authStore.loginPassword,
+        set: v => (authStore.loginPassword = v),
+      }),
+      loginError: computed({
+        get: () => authStore.loginError,
+        set: v => (authStore.loginError = v),
+      }),
+      setPassword: computed({
+        get: () => authStore.setPassword,
+        set: v => (authStore.setPassword = v),
+      }),
+      setPasswordConfirm: computed({
+        get: () => authStore.setPasswordConfirm,
+        set: v => (authStore.setPasswordConfirm = v),
+      }),
+      setPasswordError: computed({
+        get: () => authStore.setPasswordError,
+        set: v => (authStore.setPasswordError = v),
+      }),
       mainActiveTab: computed({
         get: () => appStore.mainActiveTab,
         set: v => (appStore.mainActiveTab = v),

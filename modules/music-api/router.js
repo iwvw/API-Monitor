@@ -512,6 +512,16 @@ router.get('/audio/proxy', async (req, res) => {
     // 记录代理请求
     logger.info(`[Proxy] Streaming audio from: ${new URL(targetUrl).hostname}`);
   } catch (error) {
+    // 检查是否已经开始发送响应，避免 ERR_HTTP_HEADERS_SENT
+    if (res.headersSent) {
+      // 流已部分发送，只记录日志，不发送错误响应
+      // Premature close 通常是客户端提前断开连接，属于正常情况
+      if (error.message !== 'Premature close') {
+        logger.warn('[Proxy] Stream error (response already sent):', error.message);
+      }
+      return;
+    }
+
     logger.error('[Proxy] Error:', error.message);
     res.status(500).json({
       code: 500,
