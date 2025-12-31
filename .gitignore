@@ -48,3 +48,6 @@ tmp/
 test/tmp/
 coverage/
 backup/
+.agent/
+.agent/workflows/
+.agent/workflows/optimization-plan.md
