@@ -88,12 +88,18 @@ import { formatDateTime, formatFileSize, maskAddress, formatRegion } from './mod
 import { store, MODULE_GROUPS } from './store.js';
 import { computed } from 'vue';
 
+// 导入 Composables
+import { useResponsive } from './composables/index.js';
+
 // 创建并配置 Vue 应用
 const app = createApp({
   setup() {
     const authStore = useAuthStore();
     const appStore = useAppStore();
     const serverStore = useServerStore();
+
+    // 响应式布局 (使用 Composable)
+    const responsive = useResponsive();
 
     // 自定义计算属性
     const openListPathParts = computed(() => selfHComputed.openListPathParts(store));
@@ -113,24 +119,29 @@ const app = createApp({
       authStore,
       appStore,
       serverStore,
+      // 响应式布局 (来自 Composable)
+      isMobile: responsive.isMobile,
+      isTablet: responsive.isTablet,
+      isDesktop: responsive.isDesktop,
+      windowWidth: responsive.windowWidth,
       // 手动挑选常用状态（兼容 index.html 现有引用，避免全量解构导致的 $ 属性冲突）
       isAuthenticated: computed(() => authStore.isAuthenticated),
       isCheckingAuth: computed(() => authStore.isCheckingAuth),
       showLoginModal: computed({
         get: () => authStore.showLoginModal,
-        set: (v) => authStore.showLoginModal = v
+        set: v => (authStore.showLoginModal = v),
       }),
       showSetPasswordModal: computed({
         get: () => authStore.showSetPasswordModal,
-        set: (v) => authStore.showSetPasswordModal = v
+        set: v => (authStore.showSetPasswordModal = v),
       }),
       mainActiveTab: computed({
         get: () => appStore.mainActiveTab,
-        set: (v) => appStore.mainActiveTab = v
+        set: v => (appStore.mainActiveTab = v),
       }),
       opacity: computed({
         get: () => appStore.opacity,
-        set: (v) => appStore.opacity = v
+        set: v => (appStore.opacity = v),
       }),
 
       openListPathParts,
@@ -172,8 +183,7 @@ const app = createApp({
       previousMainTab: null,
       tabSwitchDebounce: null,
 
-      // 响应式状态
-      isMobile: window.innerWidth <= 768,
+      // 响应式状态 - isMobile 现在由 useResponsive composable 在 setup 中管理
       location: window.location,
 
       // DNS 管理相关 - 表单状态
@@ -690,10 +700,7 @@ const app = createApp({
       this.loadFromServerListCache();
     }
 
-    // 监听窗口大小变化以更新移动端状态
-    window.addEventListener('resize', () => {
-      this.isMobile = window.innerWidth <= 768; // 保持与 CSS 媒体查询一致
-    });
+    // 注: 窗口大小监听现在由 useResponsive composable 自动管理
 
     // 3. 异步认证与关键数据加载
     this.authStore.checkAuth().then(() => {
