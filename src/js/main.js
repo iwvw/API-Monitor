@@ -7,36 +7,46 @@
 import './modules/logger.js';
 
 // 导入样式
+// 核心样式 (Critical CSS) - 首屏渲染必须
 import '../css/styles.css';
 import '../css/dashboard.css';
-import '../css/projects.css';
 import '../css/modals.css';
-import '../css/dns.css';
-import '../css/tables.css';
-import '../css/tabs.css';
-import '../css/settings.css';
-import '../css/logs.css';
-import '../css/transitions.css';
-import '../css/server.css';
-import '../css/ssh-ide.css'; // SSH IDE 终端样式
-import '../css/antigravity.css';
-import '../css/gemini-cli.css';
-import '../css/openai.css';
-import '../css/self-h.css';
 import '../css/login.css';
 import '../css/sidebar-nav.css';
-import '../css/zeabur.css'; // Zeabur 样式
-import '../css/koyeb.css'; // Koyeb 样式
-import '../css/fly.css'; // Fly.io 样式
-import '../css/r2.css'; // R2 存储样式
-import '../css/chat.css'; // 聊天界面样式
-import '../css/template.css'; // 模块模板通用样式
-import '../css/refined-ui.css'; // 精选组件样式
-import '../css/stream-player.css'; // 流媒体播放器样式
-import '../css/totp.css'; // 2FA 验证器样式
-import '../css/music.css'; // 音乐播放器样式
-import '../css/nav-grouped.css'; // 分组导航样式
-import '../css/refined-mobile.css'; // 移动端适配 (必须最后加载)
+import '../css/transitions.css';
+import '../css/refined-ui.css';
+import '../css/nav-grouped.css';
+import '../css/refined-mobile.css'; // 移动端适配
+
+// 懒加载样式 (Lazy Load CSS) - 非首屏模块
+async function loadLazyCSS() {
+  console.log('[System] Loading lazy CSS resources...');
+  const styles = [
+    import('../css/projects.css'),
+    import('../css/dns.css'),
+    import('../css/tables.css'),
+    import('../css/tabs.css'),
+    import('../css/settings.css'),
+    import('../css/logs.css'),
+    import('../css/server.css'),
+    import('../css/ssh-ide.css'),
+    import('../css/antigravity.css'),
+    import('../css/gemini-cli.css'),
+    import('../css/openai.css'),
+    import('../css/self-h.css'),
+    import('../css/zeabur.css'),
+    import('../css/koyeb.css'),
+    import('../css/fly.css'),
+    import('../css/r2.css'),
+    import('../css/chat.css'),
+    import('../css/template.css'),
+    import('../css/stream-player.css'),
+    import('../css/totp.css'),
+    import('../css/music.css'),
+  ];
+  await Promise.all(styles);
+  console.log('[System] Lazy CSS loaded');
+}
 
 // 导入模板加载器
 import './template-loader.js';
@@ -1477,7 +1487,7 @@ async function initApp() {
   const startTime = Date.now();
 
   try {
-    // 1. 加载所有模块模板
+    // 1. 加载所有模块模板 (必须在 Vue 挂载前加载，否则 Vue 无法编译其中的指令)
     if (window.TemplateLoader) {
       await window.TemplateLoader.loadAll();
     } else {
@@ -1488,6 +1498,13 @@ async function initApp() {
     app.use(pinia);
     app.mount('#app');
 
+    // 移除加载屏 (FCP 优化)
+    const loader = document.getElementById('app-loading');
+    if (loader) {
+      loader.style.opacity = '0';
+      setTimeout(() => loader.remove(), 300);
+    }
+
     // 3. 启动全局时间更新定时器 (每秒触发一次，用于倒计时)
     const appStore = useAppStore();
     setInterval(() => {
@@ -1497,6 +1514,12 @@ async function initApp() {
 
     const elapsed = Date.now() - startTime;
     console.log(`[App] Initialized and mounted in ${elapsed}ms`);
+
+    // 4. 延迟加载非核心资源 (样式)
+    requestAnimationFrame(() => {
+      // 懒加载其余样式
+      loadLazyCSS();
+    });
   } catch (error) {
     console.error('[App] Critical failure during initialization:', error);
     // 即使模板加载失败，也尝试挂载 Vue 以显示基础界面或错误状态

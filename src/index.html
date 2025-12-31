@@ -30,6 +30,72 @@
       }
     </style>
 
+    <!-- 应用加载屏 (优化 FCP) -->
+    <div
+      id="app-loading"
+      style="
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: #0d1117;
+        z-index: 99999;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        transition: opacity 0.3s ease-out;
+      "
+    >
+      <img
+        src="/logo.svg"
+        alt="Loading..."
+        style="
+          width: 64px;
+          height: 64px;
+          margin-bottom: 16px;
+          animation: pulse 2s infinite ease-in-out;
+        "
+      />
+      <div
+        style="
+          font-family:
+            -apple-system,
+            BlinkMacSystemFont,
+            Segoe UI,
+            Roboto,
+            Helvetica,
+            Arial,
+            sans-serif;
+          color: #58a6ff;
+          font-size: 14px;
+          letter-spacing: 1px;
+          font-weight: 500;
+        "
+      >
+        API MONITOR
+      </div>
+      <style>
+        @keyframes pulse {
+          0% {
+            opacity: 0.6;
+            transform: scale(0.95);
+          }
+
+          50% {
+            opacity: 1;
+            transform: scale(1);
+          }
+
+          100% {
+            opacity: 0.6;
+            transform: scale(0.95);
+          }
+        }
+      </style>
+    </div>
+
     <div id="app" v-cloak>
       <!-- 认证模块 -->
       <div id="template-auth"></div>

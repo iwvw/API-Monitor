@@ -75,12 +75,12 @@
         <template v-if="musicUser">
           <div class="user-pill-wrapper" style="position: relative">
             <div class="user-pill" @click="musicShowUserDropdown = !musicShowUserDropdown">
-              <img :src="musicUser.avatarUrl" :alt="musicUser.nickname + '的头像'" />
+              <img loading="lazy" :src="musicUser.avatarUrl" :alt="musicUser.nickname + '的头像'" />
             </div>
             <!-- User Dropdown -->
             <div v-if="musicShowUserDropdown" class="music-user-dropdown">
               <div class="dropdown-header">
-                <img :src="musicUser.avatarUrl" class="dropdown-avatar" />
+                <img loading="lazy" :src="musicUser.avatarUrl" class="dropdown-avatar" />
                 <span class="dropdown-name">{{ musicUser.nickname }}</span>
               </div>
               <div class="dropdown-stats">
@@ -117,7 +117,7 @@
         class="music-page-home sub-tab-content quick-fade-in"
       >
         <div class="library-header">
-          <img v-if="musicUser" :src="musicUser.avatarUrl" class="header-avatar" />
+          <img loading="lazy" v-if="musicUser" :src="musicUser.avatarUrl" class="header-avatar" />
           <div class="header-text">
             <h1>{{ musicUser ? musicUser.nickname : '欢迎使用音乐' }}</h1>
           </div>
@@ -153,6 +153,7 @@
             >
               <div class="quick-cover">
                 <img
+                  loading="lazy"
                   :src="(musicMyPlaylists[0].cover || 'https://p2.music.126.net/6y-UleORITEDbvrOLV0Q8A==/5639395138885805.jpg') + '?param=200y200'"
                   @error="$event.target.src='https://p2.music.126.net/6y-UleORITEDbvrOLV0Q8A==/5639395138885805.jpg?param=200y200'"
                 />
@@ -193,6 +194,7 @@
             >
               <div class="wall-cover">
                 <img
+                  loading="lazy"
                   :src="(song.cover || 'https://p2.music.126.net/6y-UleORITEDbvrOLV0Q8A==/5639395138885805.jpg') + '?param=300y300'"
                   @error="$event.target.src='https://p2.music.126.net/6y-UleORITEDbvrOLV0Q8A==/5639395138885805.jpg?param=300y300'"
                 />
@@ -252,6 +254,7 @@
           >
             <div class="wall-cover">
               <img
+                loading="lazy"
                 :src="(pl.cover || 'https://p2.music.126.net/6y-UleORITEDbvrOLV0Q8A==/5639395138885805.jpg') + '?param=300y300'"
                 :alt="pl.name + ' 歌单封面'"
                 @error="$event.target.src='https://p2.music.126.net/6y-UleORITEDbvrOLV0Q8A==/5639395138885805.jpg?param=300y300'"
@@ -301,6 +304,7 @@
               >
                 <div class="wall-cover">
                   <img
+                    loading="lazy"
                     :src="(pl.cover || 'https://p2.music.126.net/6y-UleORITEDbvrOLV0Q8A==/5639395138885805.jpg') + '?param=300y300'"
                     @error="$event.target.src='https://p2.music.126.net/6y-UleORITEDbvrOLV0Q8A==/5639395138885805.jpg?param=300y300'"
                   />
@@ -324,6 +328,7 @@
               >
                 <div class="wall-cover">
                   <img
+                    loading="lazy"
                     :src="(pl.cover || 'https://p2.music.126.net/6y-UleORITEDbvrOLV0Q8A==/5639395138885805.jpg') + '?param=300y300'"
                     @error="$event.target.src='https://p2.music.126.net/6y-UleORITEDbvrOLV0Q8A==/5639395138885805.jpg?param=300y300'"
                   />
@@ -396,6 +401,7 @@
             >
               <img
                 class="music-song-cover"
+                loading="lazy"
                 :src="(song.cover || 'https://p2.music.126.net/6y-UleORITEDbvrOLV0Q8A==/5639395138885805.jpg') + '?param=100y100'"
                 @error="$event.target.src='https://p2.music.126.net/6y-UleORITEDbvrOLV0Q8A==/5639395138885805.jpg?param=100y100'"
               />
@@ -432,6 +438,7 @@
             >
               <div class="wall-cover">
                 <img
+                  loading="lazy"
                   :src="(playlist.cover || 'https://p2.music.126.net/6y-UleORITEDbvrOLV0Q8A==/5639395138885805.jpg') + '?param=300y300'"
                   @error="$event.target.src='https://p2.music.126.net/6y-UleORITEDbvrOLV0Q8A==/5639395138885805.jpg?param=300y300'"
                 />
@@ -468,6 +475,7 @@
             >
               <div class="wall-cover" style="border-radius: 50%">
                 <img
+                  loading="lazy"
                   :src="(artist.cover || 'https://p2.music.126.net/6y-UleORITEDbvrOLV0Q8A==/5639395138885805.jpg') + '?param=300y300'"
                   style="border-radius: 50%"
                   @error="$event.target.src='https://p2.music.126.net/6y-UleORITEDbvrOLV0Q8A==/5639395138885805.jpg?param=300y300'"
@@ -532,6 +540,7 @@
         <div v-else class="music-detail-content">
           <div class="music-detail-info">
             <img
+              loading="lazy"
               :src="musicCurrentPlaylistDetail.cover + '?param=400y400'"
               class="music-detail-cover"
               :alt="musicCurrentPlaylistDetail.name + ' 封面'"

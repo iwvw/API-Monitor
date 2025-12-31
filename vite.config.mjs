@@ -32,10 +32,13 @@ export default defineConfig(({ mode }) => {
             title: 'API Monitor',
             // 注入 CDN 资源
             cdnScriptTags: cdnData.js
-              .map(item => `<script src="${item.url}"></script>`)
+              .map(item => `<script src="${item.url}" defer crossorigin="anonymous"></script>`)
               .join('\n    '),
             cdnStyleTags: cdnData.css
-              .map(url => `<link rel="stylesheet" href="${url}">`)
+              .map(
+                url =>
+                  `<link rel="stylesheet" href="${url}" media="print" onload="this.media='all'; this.onload=null;">`
+              )
               .join('\n    '),
           },
         },
@@ -59,7 +62,7 @@ export default defineConfig(({ mode }) => {
         output: {
           globals: globals,
           // 代码分割策略
-          manualChunks: (id) => {
+          manualChunks: id => {
             // 注意：已经在 externalDeps 中的包（CDN 引用的包）不能在此处分包
             if (id.includes('node_modules')) {
               // 终端组件
@@ -67,7 +70,12 @@ export default defineConfig(({ mode }) => {
                 return 'vendor-xterm';
               }
               // 播放器与多媒体
-              if (id.includes('artplayer') || id.includes('flv.js') || id.includes('hls.js') || id.includes('plyr')) {
+              if (
+                id.includes('artplayer') ||
+                id.includes('flv.js') ||
+                id.includes('hls.js') ||
+                id.includes('plyr')
+              ) {
                 return 'vendor-media';
               }
               // Pixi 渲染引擎
@@ -75,13 +83,19 @@ export default defineConfig(({ mode }) => {
                 return 'vendor-pixi';
               }
               // 其他大型工具库 (且不在 CDN 中的)
-              if (id.includes('axios') || id.includes('marked') || id.includes('dompurify') || id.includes('uuid') || id.includes('vue')) {
+              if (
+                id.includes('axios') ||
+                id.includes('marked') ||
+                id.includes('dompurify') ||
+                id.includes('uuid') ||
+                id.includes('vue')
+              ) {
                 // 如果启用了 CDN 且 vue/axios 在 external 中，Vite 会自动忽略它们
                 // 这里我们显式将非 CDN 的大库打包
                 return 'vendor-utils';
               }
             }
-          }
+          },
         },
       },
       terserOptions: {
@@ -95,7 +109,7 @@ export default defineConfig(({ mode }) => {
       alias: {
         '@': path.resolve(__dirname, './src'),
         // 关键：确保支持在 HTML 中直接写模板 (Runtime Compilation)
-        'vue': 'vue/dist/vue.esm-bundler.js',
+        vue: 'vue/dist/vue.esm-bundler.js',
       },
     },
     define: {
