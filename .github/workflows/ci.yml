@@ -22,14 +22,17 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node-version }}
-          cache: 'npm'
+          cache: "npm"
 
       - name: Install dependencies
         run: npm ci --legacy-peer-deps
 
       - name: Run ESLint
         run: npm run lint
-        continue-on-error: true  # 暂时允许 lint 失败
+        continue-on-error: true # 暂时允许 lint 失败
+
+      - name: Run Tests
+        run: npm run test
 
       - name: Build
         run: npm run build

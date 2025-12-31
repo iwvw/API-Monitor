@@ -13,7 +13,10 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write \"src/**/*.{js,css,html}\" \"modules/**/*.js\" \"server.js\" \"*.config.js\"",
-    "format:check": "prettier --check \"src/**/*.{js,css,html}\" \"modules/**/*.js\""
+    "format:check": "prettier --check \"src/**/*.{js,css,html}\" \"modules/**/*.js\"",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@neteasecloudmusicapienhanced/api": "^4.29.20",
@@ -48,6 +51,7 @@
     "@pixi/sprite": "^7.4.2",
     "@pixi/ticker": "^7.4.2",
     "@ungap/structured-clone": "^1.3.0",
+    "@vitest/coverage-v8": "^4.0.16",
     "@xterm/addon-fit": "^0.10.0",
     "@xterm/addon-web-links": "^0.11.0",
     "@xterm/xterm": "^5.5.0",
@@ -68,6 +72,7 @@
     "prettier": "^3.7.4",
     "vite": "^7.3.0",
     "vite-plugin-html": "^3.2.2",
+    "vitest": "^4.0.16",
     "vue": "^3.5.26"
   },
   "overrides": {

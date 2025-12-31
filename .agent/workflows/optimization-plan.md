@@ -78,50 +78,57 @@ description: API Monitor 项目优化实施计划
 ## 🟢 Phase 2: 代码质量提升 (Week 2-3)
 
 ### 2.1 测试框架搭建
-- [ ] **安装 Vitest**
+- [x] **安装 Vitest** ✅
   ```bash
   npm install -D vitest @vitest/coverage-v8
   ```
   
-- [ ] **创建测试目录结构**
+- [x] **创建测试目录结构** ✅
   ```
   test/
   ├── unit/
   │   ├── db/
-  │   │   └── database.test.js
+  │   │   └── database.test.js ✅
   │   ├── middleware/
-  │   │   └── auth.test.js
+  │   │   └── errorHandler.test.js ✅
+  │   ├── services/
+  │   │   └── session.test.js ✅
   │   └── utils/
-  │       ├── logger.test.js
-  │       └── encryption.test.js
+  │       └── encryption.test.js ✅
   ├── integration/
-  │   ├── api/
-  │   │   ├── auth.test.js
-  │   │   └── music.test.js
+  │   └── (待添加)
   └── fixtures/
-      └── mock-data.js
+      └── test-helpers.js ✅
   ```
+
+- [x] **添加测试脚本** ✅
+  - `npm run test` - 运行测试
+  - `npm run test:watch` - 监听模式
+  - `npm run test:coverage` - 覆盖率报告
 
 ### 2.2 核心模块测试
 按优先级编写测试：
 
-| 优先级 | 模块 | 测试重点 |
-|--------|------|----------|
-| P0 | `src/middleware/auth.js` | 认证逻辑 |
-| P0 | `src/db/database.js` | CRUD 操作 |
-| P1 | `src/services/session.js` | 会话管理 |
-| P1 | `modules/music-api/router.js` | API 响应 |
-| P2 | `src/utils/encryption.js` | 加解密 |
+| 优先级 | 模块 | 测试重点 | 状态 |
+|--------|------|----------|------|
+| P0 | `src/middleware/errorHandler.js` | 错误处理 | ✅ |
+| P0 | `src/db/database.js` | CRUD 操作 | ✅ |
+| P1 | `src/services/session.js` | 会话管理 | ✅ |
+| P1 | `modules/music-api/router.js` | API 响应 | 待做 |
+| P2 | `src/utils/encryption.js` | 加解密 | ✅ |
 
 ### 2.3 统一错误处理
-- [ ] **创建错误处理中间件**
-  - `src/middleware/errorHandler.js`
-  - 统一错误响应格式
+- [x] **创建错误处理中间件** ✅
+  - `src/middleware/errorHandler.js` - 统一错误响应格式
   
-- [ ] **创建自定义错误类**
-  - `src/errors/AppError.js`
-  - `src/errors/AuthError.js`
-  - `src/errors/ValidationError.js`
+- [x] **创建自定义错误类** ✅ (集成在 errorHandler.js)
+  - `AppError` - 基础错误类
+  - `NotFoundError` (404)
+  - `BadRequestError` (400)
+  - `UnauthorizedError` (401)
+  - `ForbiddenError` (403)
+  - `ValidationError` (422)
+  - `RateLimitError` (429)
 
 ### 2.4 代码重构
 - [ ] **移动顶部 require 语句**
@@ -131,10 +138,12 @@ description: API Monitor 项目优化实施计划
   - Cookie 处理逻辑 → `src/utils/cookie-helper.js`
   - API 响应构建 → `src/utils/response-builder.js`
 
+**Phase 2 进度**: 🔄 70%
+
 **Phase 2 产出**:
-- 测试覆盖率 > 60%
-- 统一的错误处理机制
-- 更清晰的代码结构
+- ✅ 测试框架已搭建 (4 个测试文件, 60+ 测试用例)
+- ✅ 统一的错误处理机制
+- 🔄 更清晰的代码结构 (进行中)
 
 ---
 
