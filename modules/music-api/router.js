@@ -100,13 +100,62 @@ function getEffectiveCookie(reqCookieHeader) {
 loadNcmApi();
 loadStoredCookie();
 
+// 已知不支持 HTTPS 的 CDN 域名列表
+const HTTP_ONLY_DOMAINS = [
+    'sycdn.kuwo.cn',     // 酷我音乐 CDN
+    'er.sycdn.kuwo.cn',
+    'other.web.rh01.sycdn.kuwo.cn',
+    'kuwo.cn'            // 酷我其他域名
+];
+
+/**
+ * 检查 URL 是否属于只支持 HTTP 的域名
+ */
+function isHttpOnlyDomain(url) {
+    if (!url || typeof url !== 'string') return false;
+    try {
+        const hostname = new URL(url).hostname;
+        return HTTP_ONLY_DOMAINS.some(domain => hostname.includes(domain));
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * 将音频 URL 转换为代理 URL (用于不支持 HTTPS 的 CDN)
+ * @param {string} url - 原始 URL
+ * @param {object} req - Express 请求对象 (可选，用于构建完整代理 URL)
+ * @returns {string} 代理 URL 或 HTTPS URL
+ */
+function getProxyUrl(url, req) {
+    if (!url || typeof url !== 'string') return url;
+
+    // 如果是不支持 HTTPS 的域名，使用代理
+    if (isHttpOnlyDomain(url)) {
+        // 构建代理 URL: /api/music/audio/proxy?url=xxx
+        const encodedUrl = encodeURIComponent(url);
+        return `/api/music/audio/proxy?url=${encodedUrl}`;
+    }
+
+    // 否则尝试使用 HTTPS
+    return url.replace(/^http:\/\//i, 'https://');
+}
+
 /**
  * 确保 URL 使用 HTTPS (避免混合内容问题)
+ * 对于不支持 HTTPS 的 CDN，返回代理 URL
  * @param {string} url - 原始 URL
- * @returns {string} HTTPS URL
+ * @returns {string} HTTPS URL 或代理 URL
  */
 function ensureHttps(url) {
     if (!url || typeof url !== 'string') return url;
+
+    // 对于不支持 HTTPS 的域名，使用代理
+    if (isHttpOnlyDomain(url)) {
+        const encodedUrl = encodeURIComponent(url);
+        return `/api/music/audio/proxy?url=${encodedUrl}`;
+    }
+
     // 将 http:// 替换为 https://
     return url.replace(/^http:\/\//i, 'https://');
 }
@@ -359,6 +408,129 @@ router.get('/song/url/unblock', async (req, res) => {
         res.status(500).json({
             code: 500,
             message: errMsg
+        });
+    }
+});
+
+// ==================== 音频代理 API ====================
+
+/**
+ * 音频流代理 - 用于转发不支持 HTTPS 的 CDN 资源
+ * 解决浏览器混合内容 (Mixed Content) 阻止 HTTP 音频的问题
+ */
+router.get('/audio/proxy', async (req, res) => {
+    const { url } = req.query;
+
+    if (!url) {
+        return res.status(400).json({ code: 400, message: 'Missing url parameter' });
+    }
+
+    let targetUrl;
+    try {
+        targetUrl = decodeURIComponent(url);
+        // 验证是否为有效 URL
+        new URL(targetUrl);
+    } catch (e) {
+        return res.status(400).json({ code: 400, message: 'Invalid url parameter' });
+    }
+
+    // 安全检查：只允许代理音频相关域名
+    const allowedDomains = [
+        'kuwo.cn',
+        'kugou.com',
+        'qq.com',
+        'music.163.com',
+        'netease.com'
+    ];
+
+    try {
+        const urlObj = new URL(targetUrl);
+        const isAllowed = allowedDomains.some(domain => urlObj.hostname.includes(domain));
+        if (!isAllowed) {
+            logger.warn(`[Proxy] Blocked request to unauthorized domain: ${urlObj.hostname}`);
+            return res.status(403).json({ code: 403, message: 'Domain not allowed' });
+        }
+    } catch {
+        return res.status(400).json({ code: 400, message: 'Invalid url' });
+    }
+
+    try {
+        // 透传 Range 请求头以支持进度拖动
+        const headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': '*/*',
+            'Accept-Encoding': 'identity', // 避免压缩, 保持原始流
+        };
+
+        if (req.headers.range) {
+            headers['Range'] = req.headers.range;
+        }
+
+        // 使用 fetch 转发请求
+        const response = await fetch(targetUrl, {
+            method: 'GET',
+            headers,
+            redirect: 'follow'
+        });
+
+        if (!response.ok && response.status !== 206) {
+            logger.error(`[Proxy] Upstream error: ${response.status}`);
+            return res.status(response.status).json({
+                code: response.status,
+                message: `Upstream error: ${response.statusText}`
+            });
+        }
+
+        // 转发响应头
+        const contentType = response.headers.get('content-type') || 'audio/mpeg';
+        const contentLength = response.headers.get('content-length');
+        const contentRange = response.headers.get('content-range');
+        const acceptRanges = response.headers.get('accept-ranges');
+
+        res.status(response.status);
+        res.set('Content-Type', contentType);
+        res.set('Accept-Ranges', acceptRanges || 'bytes');
+        res.set('Access-Control-Allow-Origin', '*');
+        res.set('Cache-Control', 'public, max-age=3600');
+
+        if (contentLength) {
+            res.set('Content-Length', contentLength);
+        }
+        if (contentRange) {
+            res.set('Content-Range', contentRange);
+        }
+
+        // 流式转发响应体
+        const reader = response.body.getReader();
+
+        const stream = new ReadableStream({
+            async start(controller) {
+                try {
+                    while (true) {
+                        const { done, value } = await reader.read();
+                        if (done) break;
+                        controller.enqueue(value);
+                    }
+                    controller.close();
+                } catch (err) {
+                    controller.error(err);
+                }
+            }
+        });
+
+        // 将 ReadableStream 转换为 Node.js 可读流并 pipe 到响应
+        const { Readable } = require('stream');
+        const nodeStream = Readable.fromWeb(stream);
+        nodeStream.pipe(res);
+
+        // 记录代理请求
+        logger.info(`[Proxy] Streaming audio from: ${new URL(targetUrl).hostname}`);
+
+    } catch (error) {
+        logger.error('[Proxy] Error:', error.message);
+        res.status(500).json({
+            code: 500,
+            message: `Proxy error: ${error.message}`
         });
     }
 });
