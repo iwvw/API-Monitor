@@ -9,6 +9,7 @@
 
 /* 标签页内容的基础样式 */
 .tab-content {
+  padding-bottom: 50px;
   animation-duration: 0.4s;
   animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
   animation-fill-mode: both;
@@ -296,19 +297,19 @@
   /* 开启硬件加速 */
 }
 
-.server-card.expanded > .server-card-body {
+.server-card.expanded>.server-card-body {
   padding: 0px 0px 10px 0px;
   grid-template-rows: 1fr;
   opacity: 1;
   overflow: visible;
 }
 
-.server-card.expanded > .server-card-body > div {
+.server-card.expanded>.server-card-body>div {
   overflow: visible;
 }
 
 /* 内部包装器，确保 Grid 转换生效 */
-.server-card-body > div {
+.server-card-body>div {
   min-height: 0;
   overflow: hidden;
 }
@@ -331,12 +332,12 @@
   backface-visibility: hidden;
 }
 
-.account-card-body > * {
+.account-card-body>* {
   min-height: 0;
   overflow: hidden;
 }
 
-.account-card.expanded > .account-card-body {
+.account-card.expanded>.account-card-body {
   grid-template-rows: 1fr;
   opacity: 1;
   padding-top: 8px;
@@ -344,7 +345,7 @@
   padding-bottom: 5px;
 }
 
-.account-card.expanded > .account-card-body > * {
+.account-card.expanded>.account-card-body>* {
   overflow: visible;
 }
 
@@ -572,6 +573,7 @@
 
 /* 减少动画以提升性能（可选） */
 @media (prefers-reduced-motion: reduce) {
+
   *,
   *::before,
   *::after {

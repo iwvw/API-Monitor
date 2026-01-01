@@ -546,6 +546,8 @@ export const store = reactive({
   musicUnblockUrl: '', // 解锁服务地址，空则使用内置
   musicQuality: 'exhigh', // 'standard', 'higher', 'exhigh', 'lossless'
   musicAutoPlay: true,
+  mfpLyricsMode: false,
+  mfpPlaylistMode: false,
 
   // 登录相关
   musicUser: null, // { userId, nickname, avatarUrl, vipType }
@@ -562,6 +564,48 @@ export const store = reactive({
   musicShowDetail: false, // 显示歌单详情页
   musicPlaylistVisibleCount: 50, // 歌单懒加载：当前可见的歌曲数量
   musicShowUserDropdown: false, // 显示用户下拉菜单
+
+  // 流媒体播放器 (Stream Player)
+  streamPlayer: {
+    visible: false,
+    loading: false,
+    playing: false,
+    currentTime: 0,
+    duration: 0,
+    buffered: 0,
+    volume: 1,
+    muted: false,
+    playbackRate: 1,
+    fullscreen: false,
+    filename: '',
+    url: '',
+
+    // 音频警告
+    audioWarning: false,
+    audioWarningMessage: '',
+
+    // 不支持格式对话框
+    showUnsupportedDialog: false,
+    unsupportedFormat: '',
+    unsupportedUrl: '',
+    unsupportedFilename: '',
+
+    // 播放器 UI 交互
+    showControls: true,
+    controlsTimer: null,
+    hideTimer: null,
+    isLongPressing: false,
+    lastTapTime: 0,
+    animationType: null,
+    animationText: '',
+    bufferedTime: 0,
+    isDragging: false,
+    dragTime: 0,
+    webFullscreen: false,
+
+    // 播放速度选项
+    playbackRates: [0.5, 0.75, 1, 1.25, 1.5, 1.75, 2],
+  },
 
   // 统一日志查看器 (Log Viewer)
   logViewer: {

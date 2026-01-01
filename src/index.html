@@ -1,88 +1,85 @@
 <!doctype html>
 <html lang="zh-CN">
-  <head>
-    <!-- 立即检测单页模式，在任何渲染之前生效 -->
-    <script>
-      (function () {
-        var match = location.pathname.match(/^\/s\/([^/]+)/i);
-        if (match) {
-          document.documentElement.classList.add('single-page-mode');
-          // 动态设置 PWA manifest
-          var link = document.createElement('link');
-          link.rel = 'manifest';
-          link.href = '/pwa/' + match[1] + '/manifest.json';
-          document.head.appendChild(link);
-          // 设置 Apple Touch Icon
-          var appleIcon = document.createElement('link');
-          appleIcon.rel = 'apple-touch-icon';
-          appleIcon.href = '/pwa/icons/' + match[1] + '-512.png';
-          document.head.appendChild(appleIcon);
-        } else {
-          // 默认 manifest
-          var link = document.createElement('link');
-          link.rel = 'manifest';
-          link.href = '/pwa/manifest.json';
-          document.head.appendChild(link);
-        }
-      })();
-    </script>
-    <meta charset="UTF-8" />
-    <meta
-      name="viewport"
-      content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no, viewport-fit=cover"
-    />
-    <title>API Monitor</title>
-    <link rel="icon" type="image/svg+xml" href="/logo.svg" />
-    <link rel="shortcut icon" href="/logo.svg" />
-    <link rel="apple-touch-icon" href="/pwa/icons/default-512.png" />
-    <meta name="theme-color" content="#0d1117" />
-    <meta name="apple-mobile-web-app-capable" content="yes" />
-    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <meta name="mobile-web-app-capable" content="yes" />
 
-    <!-- CDN 样式 (由 Vite 注入) -->
-    <%- cdnStyleTags %>
+<head>
+  <!-- 立即检测单页模式，在任何渲染之前生效 -->
+  <script>
+    (function () {
+      var match = location.pathname.match(/^\/s\/([^/]+)/i);
+      if (match) {
+        document.documentElement.classList.add('single-page-mode');
+        // 动态设置 PWA manifest
+        var link = document.createElement('link');
+        link.rel = 'manifest';
+        link.href = '/pwa/' + match[1] + '/manifest.json';
+        document.head.appendChild(link);
+        // 设置 Apple Touch Icon
+        var appleIcon = document.createElement('link');
+        appleIcon.rel = 'apple-touch-icon';
+        appleIcon.href = '/pwa/icons/' + match[1] + '-512.png';
+        document.head.appendChild(appleIcon);
+      } else {
+        // 默认 manifest
+        var link = document.createElement('link');
+        link.rel = 'manifest';
+        link.href = '/pwa/manifest.json';
+        document.head.appendChild(link);
+      }
+    })();
+  </script>
+  <meta charset="UTF-8" />
+  <meta name="viewport"
+    content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <title>API Monitor</title>
+  <link rel="icon" type="image/svg+xml" href="/logo.svg" />
+  <link rel="shortcut icon" href="/logo.svg" />
+  <link rel="apple-touch-icon" href="/pwa/icons/default-512.png" />
+  <meta name="theme-color" content="#0d1117" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="mobile-web-app-capable" content="yes" />
+
+  <!-- CDN 样式 (由 Vite 注入) -->
+  <%- cdnStyleTags %>
 
     <!-- CDN 脚本 - 必须在 head 中先加载核心库 (由 Vite 注入) -->
     <%- cdnScriptTags %>
 
-    <!-- Template Loader imported in main.js -->
-    <link rel="stylesheet" href="css/refined-mobile.css" />
+      <!-- Template Loader imported in main.js -->
+      <link rel="stylesheet" href="css/refined-mobile.css" />
 
-    <style>
-      [v-cloak] {
-        display: none !important;
-      }
+      <style>
+        [v-cloak] {
+          display: none !important;
+        }
 
-      /* 应用未就绪时隐藏，防止样式闪烁 */
-      .app-wrapper:not(.app-reveal) {
-        visibility: hidden !important;
-      }
+        /* 应用未就绪时隐藏，防止样式闪烁 */
+        .app-wrapper:not(.app-reveal) {
+          visibility: hidden !important;
+        }
 
-      /* 单页模式关键样式 - 使用 html 选择器确保最早生效 */
-      html.single-page-mode .header,
-      html.single-page-mode .top-nav-bar,
-      html.single-page-mode .nav-brand,
-      html.single-page-mode .main-nav-container,
-      html.single-page-mode .main-tabs,
-      html.single-page-mode .main-tabs-grouped,
-      html.single-page-mode .nav-group,
-      html.single-page-mode .nav-group-btn,
-      html.single-page-mode .nav-settings-btn {
-        display: none !important;
-        visibility: hidden !important;
-      }
-    </style>
-  </head>
+        /* 单页模式关键样式 - 使用 html 选择器确保最早生效 */
+        html.single-page-mode .header,
+        html.single-page-mode .top-nav-bar,
+        html.single-page-mode .nav-brand,
+        html.single-page-mode .main-nav-container,
+        html.single-page-mode .main-tabs,
+        html.single-page-mode .main-tabs-grouped,
+        html.single-page-mode .nav-group,
+        html.single-page-mode .nav-group-btn,
+        html.single-page-mode .nav-settings-btn {
+          display: none !important;
+          visibility: hidden !important;
+        }
+      </style>
+</head>
 
-  <body ontouchstart="">
-    <!-- 自定义 CSS -->
-    <style id="custom-css"></style>
+<body ontouchstart="">
+  <!-- 自定义 CSS -->
+  <style id="custom-css"></style>
 
-    <!-- 应用加载屏 (优化 FCP，支持深浅主题) -->
-    <div
-      id="app-loading"
-      style="
+  <!-- 应用加载屏 (优化 FCP，支持深浅主题) -->
+  <div id="app-loading" style="
         position: fixed;
         top: 0;
         left: 0;
@@ -95,484 +92,144 @@
         align-items: center;
         transition: opacity 0.3s ease-out;
         background: #0d1117;
-      "
-    >
-      <img
-        src="/logo.svg"
-        alt="Loading..."
-        style="
+      ">
+    <img src="/logo.svg" alt="Loading..." style="
           width: 64px;
           height: 64px;
           margin-bottom: 40px;
           animation: pulse 2s infinite ease-in-out;
-        "
-      />
-      <div
-        id="loading-progress-track"
-        style="width: 160px; height: 3px; border-radius: 4px; overflow: hidden"
-      >
-        <div
-          id="loading-progress-bar"
-          style="
+        " />
+    <div id="loading-progress-track" style="width: 160px; height: 3px; border-radius: 4px; overflow: hidden">
+      <div id="loading-progress-bar" style="
             width: 30%;
             height: 100%;
             border-radius: 4px;
             animation: progress-indeterminate 1.5s infinite ease-in-out;
-          "
-        ></div>
-      </div>
-      <style>
-        @keyframes pulse {
-          0% {
-            opacity: 0.6;
-            transform: scale(0.95);
-          }
-
-          50% {
-            opacity: 1;
-            transform: scale(1);
-          }
-
-          100% {
-            opacity: 0.6;
-            transform: scale(0.95);
-          }
-        }
-
-        @keyframes progress-indeterminate {
-          0% {
-            transform: translateX(-150%);
-          }
-
-          50% {
-            transform: translateX(180%);
-          }
-
-          100% {
-            transform: translateX(400%);
-          }
-        }
-      </style>
-      <script>
-        // 立即执行的主题检测脚本
-        (function () {
-          var isDark =
-            window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
-          var loader = document.getElementById('app-loading');
-          var track = document.getElementById('loading-progress-track');
-          var bar = document.getElementById('loading-progress-bar');
-
-          function applyTheme(dark) {
-            if (loader) {
-              loader.style.background = dark ? '#0d1117' : '#f6f8fa';
-            }
-            if (track) {
-              track.style.background = dark ? 'rgba(88, 166, 255, 0.1)' : 'rgba(31, 111, 235, 0.1)';
-            }
-            if (bar) {
-              bar.style.background = dark ? '#58a6ff' : '#1f6feb';
-            }
-          }
-
-          applyTheme(isDark);
-
-          // 监听系统主题变化
-          if (window.matchMedia) {
-            window
-              .matchMedia('(prefers-color-scheme: dark)')
-              .addEventListener('change', function (e) {
-                applyTheme(e.matches);
-              });
-          }
-        })();
-      </script>
+          "></div>
     </div>
+    <style>
+      @keyframes pulse {
+        0% {
+          opacity: 0.6;
+          transform: scale(0.95);
+        }
 
-    <div id="app" v-cloak>
-      <!-- 认证模块 -->
-      <div id="template-auth"></div>
-      <div id="template-welcome"></div>
+        50% {
+          opacity: 1;
+          transform: scale(1);
+        }
 
-      <!-- 主界面布局 -->
-      <div
-        v-if="isAuthenticated"
-        class="app-wrapper no-sidebar nav-layout-top"
-        :class="[{ 'settings-active-context': showSettingsModal, 'app-reveal': appRevealed, 'app-ready': appReady }, 'nav-layout-' + navLayout]"
-      >
-        <!-- 主内容区 -->
-        <main class="app-main">
-          <div v-if="isAuthenticated" class="container layout-top" :class="'layout-' + navLayout">
-            <!-- 顶部导航栏 (移动端：CSS会自动转为底部导航；PC端：仅顶部布局显示) -->
-            <div
-              class="top-nav-bar"
-              v-if="!singlePageMode && (!isSelfHVideoActive || !isMobile) && (isMobile || (navLayout !== 'bottom' && navLayout !== 'bottom-normal'))"
-            >
-              <!-- Logo 区域 (CSS 会在移动端隐藏) -->
-              <div class="nav-brand">
-                <img src="./logo.svg" class="nav-logo" alt="Logo" />
-                <span class="nav-title">API Monitor</span>
-              </div>
+        100% {
+          opacity: 0.6;
+          transform: scale(0.95);
+        }
+      }
 
-              <!-- 主导航容器 -->
-              <div
-                class="main-nav-container"
-                :class="[
+      @keyframes progress-indeterminate {
+        0% {
+          transform: translateX(-150%);
+        }
+
+        50% {
+          transform: translateX(180%);
+        }
+
+        100% {
+          transform: translateX(400%);
+        }
+      }
+    </style>
+    <script>
+      // 立即执行的主题检测脚本
+      (function () {
+        var isDark =
+          window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+        var loader = document.getElementById('app-loading');
+        var track = document.getElementById('loading-progress-track');
+        var bar = document.getElementById('loading-progress-bar');
+
+        function applyTheme(dark) {
+          if (loader) {
+            loader.style.background = dark ? '#0d1117' : '#f6f8fa';
+          }
+          if (track) {
+            track.style.background = dark ? 'rgba(88, 166, 255, 0.1)' : 'rgba(31, 111, 235, 0.1)';
+          }
+          if (bar) {
+            bar.style.background = dark ? '#58a6ff' : '#1f6feb';
+          }
+        }
+
+        applyTheme(isDark);
+
+        // 监听系统主题变化
+        if (window.matchMedia) {
+          window
+            .matchMedia('(prefers-color-scheme: dark)')
+            .addEventListener('change', function (e) {
+              applyTheme(e.matches);
+            });
+        }
+      })();
+    </script>
+  </div>
+
+  <div id="app" v-cloak>
+    <!-- 认证模块 -->
+    <div id="template-auth"></div>
+    <div id="template-welcome"></div>
+
+    <!-- 主界面布局 -->
+    <div v-if="isAuthenticated" class="app-wrapper no-sidebar nav-layout-top"
+      :class="[{ 'settings-active-context': showSettingsModal, 'app-reveal': appRevealed, 'app-ready': appReady }, 'nav-layout-' + navLayout]">
+      <!-- 主内容区 -->
+      <main class="app-main">
+        <div v-if="isAuthenticated" class="container layout-top" :class="'layout-' + navLayout">
+          <!-- 顶部导航栏 (移动端：CSS会自动转为底部导航；PC端：仅顶部布局显示) -->
+          <div class="top-nav-bar"
+            v-if="!singlePageMode && (!isSelfHVideoActive || !isMobile) && (isMobile || (navLayout !== 'bottom' && navLayout !== 'bottom-normal'))">
+            <!-- Logo 区域 (CSS 会在移动端隐藏) -->
+            <div class="nav-brand">
+              <img src="./logo.svg" class="nav-logo" alt="Logo" />
+              <span class="nav-title">API Monitor</span>
+            </div>
+
+            <!-- 主导航容器 -->
+            <div class="main-nav-container" :class="[
               {'nav-bottom-fixed': navLayout === 'bottom' || navLayout === 'bottom-normal'},
               {'nav-capsule': navLayout === 'bottom' || navLayout === 'top-capsule'},
               'theme-' + (mainActiveTab === 'self-h' ? 'self-h' : mainActiveTab === 'gemini-cli' ? 'gemini-cli' : mainActiveTab === 'dns' ? 'cf-dns' : mainActiveTab)
-            ]"
-              >
-                <!-- 分组式标签页导航 -->
-                <div class="main-tabs main-tabs-grouped" v-if="visibleModulesCount > 1">
-                  <!-- 首页按钮 (独立显示在最前) -->
-                  <button
-                    v-if="moduleVisibility.dashboard"
-                    class="nav-group-btn single-module-btn"
-                    :class="{ 'active': mainActiveTab === 'dashboard' }"
-                    @click="handleGroupModuleClick('dashboard')"
-                  >
-                    <i class="fas fa-tachometer-alt"></i>
-                    <span class="group-name">仪表盘</span>
-                  </button>
-
-                  <template v-for="group in moduleGroups" :key="group.id">
-                    <div
-                      v-if="group.id !== 'overview' && getVisibleModulesInGroup(group.modules).length > 0"
-                      class="nav-group"
-                      :class="{ 'expanded': navGroupExpanded === group.id, 'has-active': isGroupActive(group.modules) }"
-                    >
-                      <!-- 分组按钮 -->
-                      <button
-                        class="nav-group-btn"
-                        :class="{ 'active': isGroupActive(group.modules) }"
-                        @click="toggleNavGroup(group.id)"
-                        @mouseenter="handleGroupHover(group.id)"
-                        @mouseleave="handleGroupLeave"
-                      >
-                        <i class="fas" :class="group.icon"></i>
-                        <span class="group-name">{{ group.name }}</span>
-                        <i class="fas fa-chevron-down group-arrow"></i>
-                      </button>
-                      <!-- 下拉菜单 -->
-                      <transition name="dropdown-fade">
-                        <div
-                          v-show="navGroupExpanded === group.id"
-                          class="nav-group-dropdown"
-                          @mouseenter="cancelGroupLeave"
-                          @mouseleave="handleGroupLeave"
-                        >
-                          <button
-                            v-for="module in getVisibleModulesInGroup(group.modules)"
-                            :key="module"
-                            class="dropdown-item"
-                            :class="[
-                                { 'active': mainActiveTab === module },
-                                module + '-tab'
-                              ]"
-                            @click="handleGroupModuleClick(module)"
-                          >
-                            <i class="fas" :class="getModuleIcon(module)"></i>
-                            <span>{{ getModuleName(module) }}</span>
-                          </button>
-                        </div>
-                      </transition>
-                    </div>
-                  </template>
-
-                  <!-- 导航栏设置按钮（全平台） -->
-                  <button
-                    class="nav-settings-btn"
-                    :class="{ active: showSettingsModal }"
-                    @click="showSettingsModal = !showSettingsModal"
-                    title="系统设置"
-                  >
-                    <i class="fas fa-cog"></i>
-                    <span class="group-name">设置</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            <!-- 迷你播放器 (移动端 Apple Music 风格) -->
-            <!-- 单页模式下只在音乐页面和首页显示 -->
-            <div
-              v-if="isMobile && musicCurrentSong && !musicShowFullPlayer && (!singlePageMode || mainActiveTab === 'music' || mainActiveTab === 'dashboard')"
-              class="mini-player"
-              @click="musicShowFullPlayer = true"
-            >
-              <img
-                :src="musicCurrentSong.cover + '?param=100y100'"
-                class="mini-player-cover"
-                alt="cover"
-                width="40"
-                height="40"
-              />
-              <div class="mini-player-info">
-                <div class="mini-player-title">{{ musicCurrentSong.name }}</div>
-                <div class="mini-player-artist">{{ musicCurrentSong.artists }}</div>
-              </div>
-              <div class="mini-player-controls">
-                <button class="mini-player-btn" @click.stop="musicTogglePlay">
-                  <i :class="musicPlaying ? 'fas fa-pause' : 'fas fa-play'"></i>
-                </button>
-                <button class="mini-player-btn" @click.stop="playNext">
-                  <i class="fas fa-forward"></i>
-                </button>
-              </div>
-            </div>
-
-            <!-- 移动端全屏播放器 (Apple Music 风格) -->
-            <transition name="mobile-player-slide">
-              <div
-                v-if="isMobile && musicShowFullPlayer && musicCurrentSong"
-                class="mobile-full-player"
-                :class="{ 'mfp-playlist-active': mfpPlaylistMode }"
-              >
-                <!-- 背景模糊层 -->
-                <div
-                  class="mfp-bg"
-                  :style="{ backgroundImage: 'url(' + musicCurrentSong.cover + ')' }"
-                ></div>
-
-                <!-- 主内容 -->
-                <div class="mfp-content">
-                  <!-- 单一封面：通过 transform 实现大小/位置切换 -->
-                  <div
-                    class="mfp-cover-container"
-                    :class="{ 'compact': mfpLyricsMode || mfpPlaylistMode }"
-                  >
-                    <transition name="mfp-cover-slide" mode="out-in">
-                      <img
-                        :src="musicCurrentSong.cover + '?param=600y600'"
-                        class="mfp-cover"
-                        alt="cover"
-                        :key="musicCurrentSong.id"
-                        draggable="false"
-                        @dragstart.prevent
-                        @contextmenu.prevent
-                        @click="if(mfpLyricsMode || mfpPlaylistMode) { mfpLyricsMode = false; mfpPlaylistMode = false; } else { mfpLyricsMode = true; mfpMountLyrics(); }"
-                      />
-                    </transition>
-                  </div>
-
-                  <!-- 歌曲信息：大模式居中，小模式在封面右侧 -->
-                  <div
-                    class="mfp-info-container"
-                    :class="{ 'compact': mfpLyricsMode || mfpPlaylistMode }"
-                  >
-                    <div class="mfp-title">{{ musicCurrentSong.name }}</div>
-                    <div class="mfp-artist">{{ musicCurrentSong.artists }}</div>
-                  </div>
-
-                  <!-- 歌词区域（歌词模式时显示） -->
-                  <transition name="mfp-fade">
-                    <div class="mfp-lyrics-area" v-show="mfpLyricsMode">
-                      <div class="mfp-lyrics-container" ref="mfpLyricsContainer">
-                        <div
-                          v-for="(line, index) in musicLyrics"
-                          :key="index"
-                          class="mfp-lyric-line"
-                          :class="{ 'active': musicCurrentLyricIndex === index }"
-                          @click="musicSeekToLyric(line.time)"
-                        >
-                          <div class="mfp-line-text">
-                            <template v-if="musicCurrentLyricIndex === index">
-                              <span
-                                v-for="(char, cIdx) in musicSplitLyricText(line.text)"
-                                :key="cIdx"
-                                class="mfp-char"
-                                :class="{ 'active': (cIdx / musicSplitLyricText(line.text).length) * 100 <= musicCurrentLyricPercent }"
-                              >
-                                {{ char }}
-                              </span>
-                            </template>
-                            <template v-else> {{ line.text }} </template>
-                          </div>
-                          <div v-if="line.trans" class="mfp-line-trans">{{ line.trans }}</div>
-                        </div>
-                        <!-- 底部留白，确保最后一句能滚到中间 -->
-                        <div class="mfp-lyric-padding"></div>
-                      </div>
-                    </div>
-                  </transition>
-
-                  <!-- 嵌入式歌单区域（歌单模式时显示） -->
-                  <transition name="mfp-fade">
-                    <div class="mfp-playlist-area" v-show="mfpPlaylistMode">
-                      <div class="mfp-playlist-container">
-                        <div class="mfp-playlist-header">待播清单</div>
-                        <div class="mfp-playlist-list">
-                          <div
-                            v-for="(song, index) in musicPlaylist"
-                            :key="index"
-                            class="mfp-playlist-item"
-                            :class="{ 'active': musicCurrentSong && song.id === musicCurrentSong.id }"
-                            @click="musicPlay(song)"
-                          >
-                            <img :src="song.cover + '?param=100y100'" class="mfp-pi-cover" />
-                            <div class="mfp-pi-info">
-                              <div class="mfp-pi-title">{{ song.name }}</div>
-                              <div class="mfp-pi-artist">{{ song.artists }}</div>
-                            </div>
-                            <div
-                              v-if="musicCurrentSong && song.id === musicCurrentSong.id"
-                              class="mfp-pi-playing"
-                            >
-                              <i class="fas fa-volume-up"></i>
-                            </div>
-                          </div>
-                        </div>
-                        <div class="mfp-lyric-padding"></div>
-                      </div>
-                    </div>
-                  </transition>
-
-                  <!-- 底部固定区域 -->
-                  <div class="mfp-bottom-fixed">
-                    <!-- 进度条 -->
-                    <transition name="mfp-fade">
-                      <div class="mfp-progress-wrapper" v-show="!mfpLyricsMode && !mfpPlaylistMode">
-                        <div
-                          class="mfp-progress-track"
-                          @mousedown="musicStartDrag($event)"
-                          @touchstart.prevent="musicStartDrag($event)"
-                        >
-                          <div
-                            class="mfp-progress-fill"
-                            :style="{ width: musicProgress + '%' }"
-                          ></div>
-                        </div>
-                        <div class="mfp-time">
-                          <span
-                            >{{ Math.floor(musicCurrentTime / 60) }}:{{
-                            String(Math.floor(musicCurrentTime % 60)).padStart(2, '0') }}</span
-                          >
-                          <span
-                            >-{{ Math.floor((musicDuration - musicCurrentTime) / 60) }}:{{
-                            String(Math.floor((musicDuration - musicCurrentTime) % 60)).padStart(2,
-                            '0') }}</span
-                          >
-                        </div>
-                      </div>
-                    </transition>
-
-                    <!-- 控制按钮 -->
-                    <div class="mfp-controls">
-                      <!-- 左侧：随机/顺序 切换 -->
-                      <button
-                        class="mfp-btn mfp-mode-btn active"
-                        @click="musicToggleShuffleAndOrder"
-                        title="播放模式"
-                      >
-                        <i v-if="musicShuffleEnabled" class="fas fa-random"></i>
-                        <i v-else class="fas fa-long-arrow-alt-right"></i>
-                      </button>
-
-                      <button class="mfp-btn" @click="playPrevious">
-                        <i class="fas fa-backward"></i>
-                      </button>
-                      <button class="mfp-btn mfp-play-btn" @click="musicTogglePlay">
-                        <i :class="musicPlaying ? 'fas fa-pause' : 'fas fa-play'"></i>
-                      </button>
-                      <button class="mfp-btn" @click="playNext">
-                        <i class="fas fa-forward"></i>
-                      </button>
-
-                      <!-- 右侧：列表循环/单曲循环 切换 -->
-                      <button
-                        class="mfp-btn mfp-mode-btn active"
-                        @click="musicToggleRepeatModes"
-                        title="循环模式"
-                      >
-                        <i
-                          v-if="musicRepeatMode === 'one'"
-                          class="fas fa-redo-alt mfp-repeat-one"
-                        ></i>
-                        <i v-else class="fas fa-redo"></i>
-                      </button>
-                    </div>
-
-                    <!-- 底部功能按钮 -->
-                    <div class="mfp-bottom-actions">
-                      <button
-                        class="mfp-action-btn"
-                        :class="{ 'active': mfpLyricsMode }"
-                        @click.stop="mfpLyricsMode = !mfpLyricsMode; mfpPlaylistMode = false; if(mfpLyricsMode) mfpMountLyrics()"
-                        title="歌词"
-                      >
-                        <i class="fas fa-comment-dots"></i>
-                      </button>
-                      <button
-                        class="mfp-action-btn"
-                        @click="musicShowFullPlayer = false"
-                        title="收起"
-                      >
-                        <i class="fas fa-chevron-down"></i>
-                      </button>
-                      <button
-                        class="mfp-action-btn"
-                        :class="{ 'active': mfpPlaylistMode }"
-                        @click.stop="if(!mfpPlaylistMode) { mfpPlaylistMode = true; mfpLyricsMode = false; mfpScrollToCurrentSong(); } else { mfpPlaylistMode = false; }"
-                        title="播放列表"
-                      >
-                        <i class="fas fa-list"></i>
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </transition>
-
-            <!-- 底部导航容器 (仅底部布局时显示) -->
-            <div
-              v-if="!singlePageMode && (!isSelfHVideoActive || !isMobile) && (navLayout === 'bottom' || navLayout === 'bottom-normal')"
-              class="main-nav-container nav-bottom-fixed"
-              :class="[
-              {'nav-capsule': navLayout === 'bottom'},
-              'theme-' + (mainActiveTab === 'self-h' ? 'self-h' : mainActiveTab === 'gemini-cli' ? 'gemini-cli' : mainActiveTab === 'dns' ? 'cf-dns' : mainActiveTab)
-            ]"
-            >
+            ]">
+              <!-- 分组式标签页导航 -->
               <div class="main-tabs main-tabs-grouped" v-if="visibleModulesCount > 1">
-                <button
-                  v-if="moduleVisibility.dashboard"
-                  class="nav-group-btn single-module-btn"
-                  :class="{ 'active': mainActiveTab === 'dashboard' }"
-                  @click="handleGroupModuleClick('dashboard')"
-                >
+                <!-- 首页按钮 (独立显示在最前) -->
+                <button v-if="moduleVisibility.dashboard" class="nav-group-btn single-module-btn"
+                  :class="{ 'active': mainActiveTab === 'dashboard' }" @click="handleGroupModuleClick('dashboard')">
                   <i class="fas fa-tachometer-alt"></i>
                   <span class="group-name">仪表盘</span>
                 </button>
+
                 <template v-for="group in moduleGroups" :key="group.id">
-                  <div
-                    v-if="group.id !== 'overview' && getVisibleModulesInGroup(group.modules).length > 0"
+                  <div v-if="group.id !== 'overview' && getVisibleModulesInGroup(group.modules).length > 0"
                     class="nav-group"
-                    :class="{ 'expanded': navGroupExpanded === group.id, 'has-active': isGroupActive(group.modules) }"
-                  >
-                    <button
-                      class="nav-group-btn"
-                      :class="{ 'active': isGroupActive(group.modules) }"
-                      @click="toggleNavGroup(group.id)"
-                      @mouseenter="handleGroupHover(group.id)"
-                      @mouseleave="handleGroupLeave"
-                    >
+                    :class="{ 'expanded': navGroupExpanded === group.id, 'has-active': isGroupActive(group.modules) }">
+                    <!-- 分组按钮 -->
+                    <button class="nav-group-btn" :class="{ 'active': isGroupActive(group.modules) }"
+                      @click="toggleNavGroup(group.id)" @mouseenter="handleGroupHover(group.id)"
+                      @mouseleave="handleGroupLeave">
                       <i class="fas" :class="group.icon"></i>
                       <span class="group-name">{{ group.name }}</span>
                       <i class="fas fa-chevron-down group-arrow"></i>
                     </button>
+                    <!-- 下拉菜单 -->
                     <transition name="dropdown-fade">
-                      <div
-                        v-show="navGroupExpanded === group.id"
-                        class="nav-group-dropdown"
-                        @mouseenter="cancelGroupLeave"
-                        @mouseleave="handleGroupLeave"
-                      >
-                        <button
-                          v-for="module in getVisibleModulesInGroup(group.modules)"
-                          :key="module"
-                          class="dropdown-item"
-                          :class="[{ 'active': mainActiveTab === module }, module + '-tab']"
-                          @click="handleGroupModuleClick(module)"
-                        >
+                      <div v-show="navGroupExpanded === group.id" class="nav-group-dropdown"
+                        @mouseenter="cancelGroupLeave" @mouseleave="handleGroupLeave">
+                        <button v-for="module in getVisibleModulesInGroup(group.modules)" :key="module"
+                          class="dropdown-item" :class="[
+                                { 'active': mainActiveTab === module },
+                                module + '-tab'
+                              ]" @click="handleGroupModuleClick(module)">
                           <i class="fas" :class="getModuleIcon(module)"></i>
                           <span>{{ getModuleName(module) }}</span>
                         </button>
@@ -580,376 +237,462 @@
                     </transition>
                   </div>
                 </template>
-                <button
-                  class="nav-settings-btn"
-                  :class="{ active: showSettingsModal }"
-                  @click="showSettingsModal = !showSettingsModal"
-                  title="系统设置"
-                >
+
+                <!-- 导航栏设置按钮（全平台） -->
+                <button class="nav-settings-btn" :class="{ active: showSettingsModal }"
+                  @click="showSettingsModal = !showSettingsModal" title="系统设置">
                   <i class="fas fa-cog"></i>
                   <span class="group-name">设置</span>
                 </button>
               </div>
             </div>
-
-            <!-- 模块模板占位符 (使用 v-show 实现持久化 DOM，解决切换卡顿) -->
-            <div id="template-dashboard" v-show="mainActiveTab === 'dashboard'"></div>
-            <div id="template-paas" v-show="mainActiveTab === 'paas'"></div>
-            <div id="template-dns" v-show="mainActiveTab === 'dns'"></div>
-            <div id="template-openai" v-show="mainActiveTab === 'openai'"></div>
-            <div id="template-antigravity" v-show="mainActiveTab === 'antigravity'"></div>
-            <div id="template-gemini-cli" v-show="mainActiveTab === 'gemini-cli'"></div>
-            <div id="template-server" v-show="mainActiveTab === 'server'"></div>
-            <div id="template-self-h" v-show="mainActiveTab === 'self-h'"></div>
-            <div id="template-totp" v-show="mainActiveTab === 'totp'"></div>
-            <div id="template-music" v-show="mainActiveTab === 'music'"></div>
           </div>
 
-          <!-- 未登录占位符 -->
-          <div v-else class="guest-placeholder">
-            <i class="fas fa-lock"></i>
-            <p>请登录以访问控制台</p>
-            <button class="btn btn-primary mt-3" @click="showLoginModal = true">立即登录</button>
+          <!-- 迷你播放器 (移动端 Apple Music 风格) -->
+          <!-- 单页模式下只在音乐页面和首页显示 -->
+          <div
+            v-if="isMobile && musicCurrentSong && !musicShowFullPlayer && (mainActiveTab === 'music' || mainActiveTab === 'dashboard')"
+            class="mini-player" @click="musicShowFullPlayer = true">
+            <img :src="musicCurrentSong.cover + '?param=100y100'" class="mini-player-cover" alt="cover" width="40"
+              height="40" />
+            <div class="mini-player-info">
+              <div class="mini-player-title">{{ musicCurrentSong.name }}</div>
+              <div class="mini-player-artist">{{ musicCurrentSong.artists }}</div>
+            </div>
+            <div class="mini-player-controls">
+              <button class="mini-player-btn" @click.stop="musicTogglePlay">
+                <i :class="musicPlaying ? 'fas fa-pause' : 'fas fa-play'"></i>
+              </button>
+              <button class="mini-player-btn" @click.stop="playNext">
+                <i class="fas fa-forward"></i>
+              </button>
+            </div>
           </div>
-        </main>
-      </div>
 
-      <!-- 全局音乐播放栏 -->
-      <div
-        v-if="mainActiveTab === 'music'"
-        class="music-bottom-bar"
-        :class="{ 'expanded': musicShowFullPlayer }"
-      >
-        <!-- 点击背景层 (点击除按钮外的区域展开) -->
-        <div class="bar-click-layer" v-if="musicCurrentSong" @click="musicToggleFullPlayer()"></div>
+          <!-- 移动端全屏播放器 (Apple Music 风格) -->
+          <transition name="mobile-player-slide">
+            <div v-if="isMobile && musicShowFullPlayer && musicCurrentSong" class="mobile-full-player"
+              :class="{ 'mfp-playlist-active': mfpPlaylistMode }">
+              <!-- 背景模糊层 -->
+              <div class="mfp-bg" :style="{ backgroundImage: 'url(' + musicCurrentSong.cover + ')' }"></div>
 
-        <div
-          class="bar-progress"
-          @mousedown="musicStartDrag($event)"
-          @touchstart="musicStartDrag($event)"
-          role="slider"
-          :aria-valuenow="musicProgress"
-          aria-valuemin="0"
-          aria-valuemax="100"
-          aria-label="播放进度"
-        >
-          <div class="bar-fill" :style="{ width: musicProgress + '%' }"></div>
-        </div>
+              <!-- 主内容 -->
+              <div class="mfp-content">
+                <!-- 单一封面：通过 transform 实现大小/位置切换 -->
+                <div class="mfp-cover-container" :class="{ 'compact': mfpLyricsMode || mfpPlaylistMode }">
+                  <transition name="mfp-cover-slide" mode="out-in">
+                    <img :src="musicCurrentSong.cover + '?param=600y600'" class="mfp-cover" alt="cover"
+                      :key="musicCurrentSong.id" draggable="false" @dragstart.prevent @contextmenu.prevent
+                      @click="if(mfpLyricsMode || mfpPlaylistMode) { mfpLyricsMode = false; mfpPlaylistMode = false; } else { mfpLyricsMode = true; mfpMountLyrics(); }" />
+                  </transition>
+                </div>
 
-        <div class="bar-left">
-          <!-- 收起状态：显示封面和歌曲信息 -->
-          <transition name="bar-left-fade">
-            <div
-              class="bar-left-content"
-              v-if="!musicShowFullPlayer"
-              key="cover"
-              @click="musicCurrentSong && musicToggleFullPlayer()"
-            >
-              <template v-if="musicCurrentSong">
-                <div class="bar-cover-wrapper">
-                  <img
-                    :src="musicCurrentSong.cover + '?param=100y100'"
-                    class="bar-cover"
-                    :alt="musicCurrentSong.name + ' 封面'"
-                    width="52"
-                    height="52"
-                  />
-                  <div class="bar-cover-hover">
-                    <i class="fas fa-chevron-up"></i>
+                <!-- 歌曲信息：大模式居中，小模式在封面右侧 -->
+                <div class="mfp-info-container" :class="{ 'compact': mfpLyricsMode || mfpPlaylistMode }">
+                  <div class="mfp-title">{{ musicCurrentSong.name }}</div>
+                  <div class="mfp-artist">{{ musicCurrentSong.artists }}</div>
+                </div>
+
+                <!-- 歌词区域（歌词模式时显示） -->
+                <transition name="mfp-fade">
+                  <div class="mfp-lyrics-area" v-show="mfpLyricsMode">
+                    <div class="mfp-lyrics-container" ref="mfpLyricsContainer">
+                      <div v-for="(line, index) in musicLyrics" :key="index" class="mfp-lyric-line"
+                        :class="{ 'active': musicCurrentLyricIndex === index }" @click="musicSeekToLyric(line.time)">
+                        <div class="mfp-line-text">
+                          <template v-if="musicCurrentLyricIndex === index">
+                            <span v-for="(char, cIdx) in musicSplitLyricText(line.text)" :key="cIdx" class="mfp-char"
+                              :class="{ 'active': (cIdx / musicSplitLyricText(line.text).length) * 100 <= musicCurrentLyricPercent }">
+                              {{ char }}
+                            </span>
+                          </template>
+                          <template v-else> {{ line.text }} </template>
+                        </div>
+                        <div v-if="line.trans" class="mfp-line-trans">{{ line.trans }}</div>
+                      </div>
+                      <!-- 底部留白，确保最后一句能滚到中间 -->
+                      <div class="mfp-lyric-padding"></div>
+                    </div>
+                  </div>
+                </transition>
+
+                <!-- 嵌入式歌单区域（歌单模式时显示） -->
+                <transition name="mfp-fade">
+                  <div class="mfp-playlist-area" v-show="mfpPlaylistMode">
+                    <div class="mfp-playlist-container">
+                      <div class="mfp-playlist-header">待播清单</div>
+                      <div class="mfp-playlist-list">
+                        <div v-for="(song, index) in musicPlaylist" :key="index" class="mfp-playlist-item"
+                          :class="{ 'active': musicCurrentSong && song.id === musicCurrentSong.id }"
+                          @click="musicPlay(song)">
+                          <img :src="song.cover + '?param=100y100'" class="mfp-pi-cover" />
+                          <div class="mfp-pi-info">
+                            <div class="mfp-pi-title">{{ song.name }}</div>
+                            <div class="mfp-pi-artist">{{ song.artists }}</div>
+                          </div>
+                          <div v-if="musicCurrentSong && song.id === musicCurrentSong.id" class="mfp-pi-playing">
+                            <i class="fas fa-volume-up"></i>
+                          </div>
+                        </div>
+                      </div>
+                      <div class="mfp-lyric-padding"></div>
+                    </div>
+                  </div>
+                </transition>
+
+                <!-- 底部固定区域 -->
+                <div class="mfp-bottom-fixed">
+                  <!-- 进度条 -->
+                  <transition name="mfp-fade">
+                    <div class="mfp-progress-wrapper">
+                      <div class="mfp-progress-track" @mousedown="musicStartDrag($event)"
+                        @touchstart.prevent="musicStartDrag($event)">
+                        <div class="mfp-progress-fill" :style="{ width: musicProgress + '%' }"></div>
+                      </div>
+                      <div class="mfp-time">
+                        <span>{{ Math.floor(musicCurrentTime / 60) }}:{{
+                          String(Math.floor(musicCurrentTime % 60)).padStart(2, '0') }}</span>
+                        <span>-{{ Math.floor((musicDuration - musicCurrentTime) / 60) }}:{{
+                          String(Math.floor((musicDuration - musicCurrentTime) % 60)).padStart(2,
+                          '0') }}</span>
+                      </div>
+                    </div>
+                  </transition>
+
+                  <!-- 控制按钮 -->
+                  <div class="mfp-controls">
+                    <!-- 左侧：随机/顺序 切换 -->
+                    <button class="mfp-btn mfp-mode-btn active" @click="musicToggleShuffleAndOrder" title="播放模式">
+                      <i v-if="musicShuffleEnabled" class="fas fa-random"></i>
+                      <i v-else class="fas fa-long-arrow-alt-right"></i>
+                    </button>
+
+                    <button class="mfp-btn" @click="playPrevious">
+                      <i class="fas fa-backward"></i>
+                    </button>
+                    <button class="mfp-btn mfp-play-btn" @click="musicTogglePlay">
+                      <i :class="musicPlaying ? 'fas fa-pause' : 'fas fa-play'"></i>
+                    </button>
+                    <button class="mfp-btn" @click="playNext">
+                      <i class="fas fa-forward"></i>
+                    </button>
+
+                    <!-- 右侧：列表循环/单曲循环 切换 -->
+                    <button class="mfp-btn mfp-mode-btn active" @click="musicToggleRepeatModes" title="循环模式">
+                      <i v-if="musicRepeatMode === 'one'" class="fas fa-redo-alt mfp-repeat-one"></i>
+                      <i v-else class="fas fa-redo"></i>
+                    </button>
+                  </div>
+
+                  <!-- 底部功能按钮 -->
+                  <div class="mfp-bottom-actions">
+                    <button class="mfp-action-btn" :class="{ 'active': mfpLyricsMode }"
+                      @click.stop="mfpLyricsMode = !mfpLyricsMode; mfpPlaylistMode = false; if(mfpLyricsMode) mfpMountLyrics()"
+                      title="歌词">
+                      <i class="fas fa-comment-dots"></i>
+                    </button>
+                    <button class="mfp-action-btn" @click="musicShowFullPlayer = false" title="收起">
+                      <i class="fas fa-chevron-down"></i>
+                    </button>
+                    <button class="mfp-action-btn" :class="{ 'active': mfpPlaylistMode }"
+                      @click.stop="if(!mfpPlaylistMode) { mfpPlaylistMode = true; mfpLyricsMode = false; mfpScrollToCurrentSong(); } else { mfpPlaylistMode = false; }"
+                      title="播放列表">
+                      <i class="fas fa-list"></i>
+                    </button>
                   </div>
                 </div>
-                <div class="bar-info">
-                  <div
-                    class="bar-title"
-                    :class="{ 'scrolling': musicCurrentSong && musicCurrentSong.name && musicCurrentSong.name.length > 20 }"
-                  >
-                    <span
-                      >{{ musicCurrentSong.name }}{{ musicCurrentSong.name.length > 20 ? '　　　' +
-                      musicCurrentSong.name : '' }}</span
-                    >
-                  </div>
-                  <div class="bar-artist">{{ musicCurrentSong.artists }}</div>
+              </div>
+            </div>
+          </transition>
+
+          <!-- 底部导航容器 (仅底部布局时显示) -->
+          <div
+            v-if="!singlePageMode && (!isSelfHVideoActive || !isMobile) && (navLayout === 'bottom' || navLayout === 'bottom-normal')"
+            class="main-nav-container nav-bottom-fixed" :class="[
+              {'nav-capsule': navLayout === 'bottom'},
+              'theme-' + (mainActiveTab === 'self-h' ? 'self-h' : mainActiveTab === 'gemini-cli' ? 'gemini-cli' : mainActiveTab === 'dns' ? 'cf-dns' : mainActiveTab)
+            ]">
+            <div class="main-tabs main-tabs-grouped" v-if="visibleModulesCount > 1">
+              <button v-if="moduleVisibility.dashboard" class="nav-group-btn single-module-btn"
+                :class="{ 'active': mainActiveTab === 'dashboard' }" @click="handleGroupModuleClick('dashboard')">
+                <i class="fas fa-tachometer-alt"></i>
+                <span class="group-name">仪表盘</span>
+              </button>
+              <template v-for="group in moduleGroups" :key="group.id">
+                <div v-if="group.id !== 'overview' && getVisibleModulesInGroup(group.modules).length > 0"
+                  class="nav-group"
+                  :class="{ 'expanded': navGroupExpanded === group.id, 'has-active': isGroupActive(group.modules) }">
+                  <button class="nav-group-btn" :class="{ 'active': isGroupActive(group.modules) }"
+                    @click="toggleNavGroup(group.id)" @mouseenter="handleGroupHover(group.id)"
+                    @mouseleave="handleGroupLeave">
+                    <i class="fas" :class="group.icon"></i>
+                    <span class="group-name">{{ group.name }}</span>
+                    <i class="fas fa-chevron-down group-arrow"></i>
+                  </button>
+                  <transition name="dropdown-fade">
+                    <div v-show="navGroupExpanded === group.id" class="nav-group-dropdown"
+                      @mouseenter="cancelGroupLeave" @mouseleave="handleGroupLeave">
+                      <button v-for="module in getVisibleModulesInGroup(group.modules)" :key="module"
+                        class="dropdown-item" :class="[{ 'active': mainActiveTab === module }, module + '-tab']"
+                        @click="handleGroupModuleClick(module)">
+                        <i class="fas" :class="getModuleIcon(module)"></i>
+                        <span>{{ getModuleName(module) }}</span>
+                      </button>
+                    </div>
+                  </transition>
                 </div>
               </template>
-              <template v-else>
-                <div class="bar-cover-wrapper">
-                  <div
-                    class="bar-cover"
-                    style="
+              <button class="nav-settings-btn" :class="{ active: showSettingsModal }"
+                @click="showSettingsModal = !showSettingsModal" title="系统设置">
+                <i class="fas fa-cog"></i>
+                <span class="group-name">设置</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- 模块模板占位符 (使用 v-show 实现持久化 DOM，解决切换卡顿) -->
+          <div id="template-dashboard" v-show="mainActiveTab === 'dashboard'"></div>
+          <div id="template-paas" v-show="mainActiveTab === 'paas'"></div>
+          <div id="template-dns" v-show="mainActiveTab === 'dns'"></div>
+          <div id="template-openai" v-show="mainActiveTab === 'openai'"></div>
+          <div id="template-antigravity" v-show="mainActiveTab === 'antigravity'"></div>
+          <div id="template-gemini-cli" v-show="mainActiveTab === 'gemini-cli'"></div>
+          <div id="template-server" v-show="mainActiveTab === 'server'"></div>
+          <div id="template-self-h" v-show="mainActiveTab === 'self-h'"></div>
+          <div id="template-totp" v-show="mainActiveTab === 'totp'"></div>
+          <div id="template-music" v-show="mainActiveTab === 'music'"></div>
+        </div>
+
+        <!-- 未登录占位符 -->
+        <div v-else class="guest-placeholder">
+          <i class="fas fa-lock"></i>
+          <p>请登录以访问控制台</p>
+          <button class="btn btn-primary mt-3" @click="showLoginModal = true">立即登录</button>
+        </div>
+      </main>
+    </div>
+
+    <!-- 全局音乐播放栏 -->
+    <div v-if="mainActiveTab === 'music'" class="music-bottom-bar" :class="{ 'expanded': musicShowFullPlayer }">
+      <!-- 点击背景层 (点击除按钮外的区域展开) -->
+      <div class="bar-click-layer" v-if="musicCurrentSong" @click="musicToggleFullPlayer()"></div>
+
+      <div class="bar-progress" @mousedown="musicStartDrag($event)" @touchstart="musicStartDrag($event)" role="slider"
+        :aria-valuenow="musicProgress" aria-valuemin="0" aria-valuemax="100" aria-label="播放进度">
+        <div class="bar-fill" :style="{ width: musicProgress + '%' }"></div>
+      </div>
+
+      <div class="bar-left">
+        <!-- 收起状态：显示封面和歌曲信息 -->
+        <transition name="bar-left-fade">
+          <div class="bar-left-content" v-if="!musicShowFullPlayer" key="cover"
+            @click="musicCurrentSong && musicToggleFullPlayer()">
+            <template v-if="musicCurrentSong">
+              <div class="bar-cover-wrapper">
+                <img :src="musicCurrentSong.cover + '?param=100y100'" class="bar-cover"
+                  :alt="musicCurrentSong.name + ' 封面'" width="52" height="52" />
+                <div class="bar-cover-hover">
+                  <i class="fas fa-chevron-up"></i>
+                </div>
+              </div>
+              <div class="bar-info">
+                <div class="bar-title"
+                  :class="{ 'scrolling': musicCurrentSong && musicCurrentSong.name && musicCurrentSong.name.length > 20 }">
+                  <span>{{ musicCurrentSong.name }}{{ musicCurrentSong.name.length > 20 ? '　　　' +
+                    musicCurrentSong.name : '' }}</span>
+                </div>
+                <div class="bar-artist">{{ musicCurrentSong.artists }}</div>
+              </div>
+            </template>
+            <template v-else>
+              <div class="bar-cover-wrapper">
+                <div class="bar-cover" style="
                       display: flex;
                       align-items: center;
                       justify-content: center;
                       background: var(--bg-tertiary);
-                    "
-                  >
-                    <i class="fas fa-music" style="opacity: 0.2"></i>
-                  </div>
+                    ">
+                  <i class="fas fa-music" style="opacity: 0.2"></i>
                 </div>
-                <div class="bar-info">
-                  <div class="bar-title" style="opacity: 0.5">未在播放</div>
-                  <div class="bar-artist" style="opacity: 0.3">选择歌曲开始享受音乐</div>
-                </div>
-              </template>
-            </div>
-          </transition>
-          <!-- 展开状态：显示收起按钮 -->
-          <transition name="bar-left-fade">
-            <div
-              class="bar-left-content bar-collapse-btn"
-              v-if="musicShowFullPlayer"
-              key="collapse"
-              @click="musicToggleFullPlayer()"
-            >
-              <div class="bar-cover-wrapper collapse-btn-wrapper">
-                <i class="fas fa-chevron-down"></i>
               </div>
               <div class="bar-info">
-                <!-- <div class="bar-title">收起歌词</div> -->
+                <div class="bar-title" style="opacity: 0.5">未在播放</div>
+                <div class="bar-artist" style="opacity: 0.3">选择歌曲开始享受音乐</div>
               </div>
-            </div>
-          </transition>
-        </div>
-
-        <div class="bar-center">
-          <button
-            class="ctrl-btn"
-            @click="musicToggleShuffle"
-            aria-label="随机播放"
-            :aria-pressed="musicShuffleEnabled"
-            :disabled="!musicCurrentSong"
-            :style="{ color: musicShuffleEnabled ? 'var(--primary-color)' : '', opacity: !musicCurrentSong ? 0.3 : 1 }"
-          >
-            <i class="fas fa-random" aria-hidden="true"></i>
-          </button>
-          <button
-            class="ctrl-btn"
-            @click="playPrevious"
-            aria-label="上一首"
-            :disabled="!musicCurrentSong"
-            :style="{ opacity: !musicCurrentSong ? 0.3 : 1 }"
-          >
-            <i class="fas fa-step-backward" aria-hidden="true"></i>
-          </button>
-          <button
-            class="ctrl-btn play"
-            @click="musicTogglePlay"
-            :aria-label="musicPlaying ? '暂停' : '播放'"
-            :disabled="!musicCurrentSong"
-            :style="{ opacity: !musicCurrentSong ? 0.5 : 1 }"
-          >
-            <i
-              :class="musicPlaying ? 'fas fa-pause' : 'fas fa-play'"
-              style="margin-left: 2px"
-              aria-hidden="true"
-            ></i>
-          </button>
-          <button
-            class="ctrl-btn"
-            @click="playNext"
-            aria-label="下一首"
-            :disabled="!musicCurrentSong"
-            :style="{ opacity: !musicCurrentSong ? 0.3 : 1 }"
-          >
-            <i class="fas fa-step-forward" aria-hidden="true"></i>
-          </button>
-          <button
-            class="ctrl-btn repeat-btn"
-            @click="musicToggleRepeat"
-            aria-label="循环模式"
-            :disabled="!musicCurrentSong"
-            :aria-pressed="musicRepeatMode !== 'none'"
-            :class="{ 'mode-one': musicRepeatMode === 'one', 'mode-all': musicRepeatMode === 'all' }"
-            :style="{ color: musicRepeatMode !== 'none' ? 'var(--primary-color)' : '', opacity: !musicCurrentSong ? 0.3 : 1 }"
-          >
-            <i class="fas fa-redo" aria-hidden="true"></i>
-            <span v-if="musicRepeatMode === 'one'" class="repeat-badge">1</span>
-          </button>
-        </div>
-
-        <div class="bar-right">
-          <div
-            class="time-text"
-            aria-live="off"
-            :style="{ opacity: !musicCurrentSong ? 0.3 : 0.6 }"
-          >
-            {{ formatMusicSeconds(musicCurrentTime) }} / {{ formatMusicSeconds(musicDuration) }}
+            </template>
           </div>
-          <button
-            class="icon-btn-sm"
-            @click="musicShowPlaylistDrawer = !musicShowPlaylistDrawer"
-            aria-label="播放队列"
-            :aria-expanded="musicShowPlaylistDrawer"
-            :style="{ color: musicShowPlaylistDrawer ? 'var(--primary-color)' : '' }"
-          >
-            <i class="fas fa-list-ul" aria-hidden="true"></i>
+        </transition>
+        <!-- 展开状态：显示收起按钮 -->
+        <transition name="bar-left-fade">
+          <div class="bar-left-content bar-collapse-btn" v-if="musicShowFullPlayer" key="collapse"
+            @click="musicToggleFullPlayer()">
+            <div class="bar-cover-wrapper collapse-btn-wrapper">
+              <i class="fas fa-chevron-down"></i>
+            </div>
+            <div class="bar-info">
+              <!-- <div class="bar-title">收起歌词</div> -->
+            </div>
+          </div>
+        </transition>
+      </div>
+
+      <div class="bar-center">
+        <button class="ctrl-btn" @click="musicToggleShuffle" aria-label="随机播放" :aria-pressed="musicShuffleEnabled"
+          :disabled="!musicCurrentSong"
+          :style="{ color: musicShuffleEnabled ? 'var(--primary-color)' : '', opacity: !musicCurrentSong ? 0.3 : 1 }">
+          <i class="fas fa-random" aria-hidden="true"></i>
+        </button>
+        <button class="ctrl-btn" @click="playPrevious" aria-label="上一首" :disabled="!musicCurrentSong"
+          :style="{ opacity: !musicCurrentSong ? 0.3 : 1 }">
+          <i class="fas fa-step-backward" aria-hidden="true"></i>
+        </button>
+        <button class="ctrl-btn play" @click="musicTogglePlay" :aria-label="musicPlaying ? '暂停' : '播放'"
+          :disabled="!musicCurrentSong" :style="{ opacity: !musicCurrentSong ? 0.5 : 1 }">
+          <i :class="musicPlaying ? 'fas fa-pause' : 'fas fa-play'" style="margin-left: 2px" aria-hidden="true"></i>
+        </button>
+        <button class="ctrl-btn" @click="playNext" aria-label="下一首" :disabled="!musicCurrentSong"
+          :style="{ opacity: !musicCurrentSong ? 0.3 : 1 }">
+          <i class="fas fa-step-forward" aria-hidden="true"></i>
+        </button>
+        <button class="ctrl-btn repeat-btn" @click="musicToggleRepeat" aria-label="循环模式" :disabled="!musicCurrentSong"
+          :aria-pressed="musicRepeatMode !== 'none'"
+          :class="{ 'mode-one': musicRepeatMode === 'one', 'mode-all': musicRepeatMode === 'all' }"
+          :style="{ color: musicRepeatMode !== 'none' ? 'var(--primary-color)' : '', opacity: !musicCurrentSong ? 0.3 : 1 }">
+          <i class="fas fa-redo" aria-hidden="true"></i>
+          <span v-if="musicRepeatMode === 'one'" class="repeat-badge">1</span>
+        </button>
+      </div>
+
+      <div class="bar-right">
+        <div class="time-text" aria-live="off" :style="{ opacity: !musicCurrentSong ? 0.3 : 0.6 }">
+          {{ formatMusicSeconds(musicCurrentTime) }} / {{ formatMusicSeconds(musicDuration) }}
+        </div>
+        <button class="icon-btn-sm" @click="musicShowPlaylistDrawer = !musicShowPlaylistDrawer" aria-label="播放队列"
+          :aria-expanded="musicShowPlaylistDrawer"
+          :style="{ color: musicShowPlaylistDrawer ? 'var(--primary-color)' : '' }">
+          <i class="fas fa-list-ul" aria-hidden="true"></i>
+        </button>
+        <div class="music-volume-control" :class="{ disabled: !musicCurrentSong }">
+          <button class="icon-btn-sm" @click="musicToggleMute" :aria-label="musicMuted ? '取消静音' : '静音'"
+            :aria-pressed="musicMuted" :disabled="!musicCurrentSong" :style="{ opacity: !musicCurrentSong ? 0.3 : 1 }">
+            <i :class="musicMuted ? 'fas fa-volume-mute' : (musicVolume < 50 ? 'fas fa-volume-down' : 'fas fa-volume-up')"
+              aria-hidden="true"></i>
           </button>
-          <div class="music-volume-control" :class="{ disabled: !musicCurrentSong }">
-            <button
-              class="icon-btn-sm"
-              @click="musicToggleMute"
-              :aria-label="musicMuted ? '取消静音' : '静音'"
-              :aria-pressed="musicMuted"
-              :disabled="!musicCurrentSong"
-              :style="{ opacity: !musicCurrentSong ? 0.3 : 1 }"
-            >
-              <i
-                :class="musicMuted ? 'fas fa-volume-mute' : (musicVolume < 50 ? 'fas fa-volume-down' : 'fas fa-volume-up')"
-                aria-hidden="true"
-              ></i>
+          <div class="volume-slider-wrapper">
+            <input type="range" class="volume-slider" min="0" max="100" :value="musicVolume"
+              @input="musicSetVolume($event.target.value)" :disabled="!musicCurrentSong" aria-label="音量调节" />
+            <div class="volume-slider-fill" :style="{ width: (musicMuted ? 0 : musicVolume) + '%' }"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 播放队列抽屉 (全局) -->
+    <transition name="drawer-slide" @after-enter="scrollToCurrentSong">
+      <div class="music-playlist-drawer" v-if="musicShowPlaylistDrawer" role="dialog" aria-label="播放队列">
+        <div class="playlist-header">
+          <span>播放队列</span>
+          <span class="playlist-count">{{ musicPlaylist.length }} 首</span>
+        </div>
+        <div ref="playlistDrawerContent" class="playlist-content">
+          <div class="playlist-item" v-for="(song, index) in musicPlaylist" :key="song.id"
+            :ref="musicCurrentSong && song.id === musicCurrentSong.id ? 'currentPlayingSong' : undefined"
+            :class="{ active: musicCurrentSong && song.id === musicCurrentSong.id }" @click="musicPlay(song)"
+            tabindex="0" @keyup.enter="musicPlay(song)">
+            <div v-if="musicCurrentSong && song.id === musicCurrentSong.id && musicPlaying"
+              class="playlist-item-icon playing">
+              <i class="fas fa-volume-up" aria-hidden="true"></i>
+            </div>
+            <div v-else class="playlist-item-icon index">{{ index + 1 }}</div>
+
+            <div class="song-name">{{ song.name }}</div>
+            <div class="song-artist">{{ song.artists }}</div>
+          </div>
+          <div v-if="musicPlaylist.length === 0" class="empty-state-mini">队列为空</div>
+        </div>
+      </div>
+    </transition>
+
+    <!-- Music Login Modal (网易云登录 - 全局) -->
+    <div v-if="musicShowLoginModal" class="music-login-modal" style="z-index: 20000">
+      <div class="music-login-content">
+        <h2>网易云音乐登录</h2>
+        <div class="qr-container">
+          <img v-if="musicQrImg" :src="musicQrImg" class="qr-image" />
+          <div v-else-if="musicQrExpired" class="qr-expired" @click="musicGenerateLoginQr">
+            <i class="fas fa-redo"></i>
+            <p>二维码已过期，点击刷新</p>
+          </div>
+          <div v-else class="qr-loading">
+            <i class="fas fa-spinner fa-spin"></i>
+          </div>
+        </div>
+        <p class="login-status">{{ musicLoginStatusText }}</p>
+        <button class="btn btn-secondary" @click="musicShowLoginModal = false">关闭</button>
+      </div>
+    </div>
+
+    <div v-if="musicShowUserDropdown" class="dropdown-backdrop" style="z-index: 15000"
+      @click="musicShowUserDropdown = false"></div>
+
+    <!-- Full Screen Player (SPlayer Style - 仅桌面端) -->
+    <transition name="full-player-fade">
+      <div v-if="!isMobile && musicShowFullPlayer && musicCurrentSong" class="music-full-player"
+        :class="{ 'playing': musicPlaying }" style="z-index: 11000" @click="musicShowFullPlayer = false">
+        <!-- Top Header (简化版) -->
+        <!-- Top Header (简化版) -->
+        <div class="full-player-header">
+          <div class="header-spacer"></div>
+          <div class="header-right" @click.stop>
+            <button class="header-btn" title="歌词模式">
+              <i class="fas fa-quote-left"></i>
             </button>
-            <div class="volume-slider-wrapper">
-              <input
-                type="range"
-                class="volume-slider"
-                min="0"
-                max="100"
-                :value="musicVolume"
-                @input="musicSetVolume($event.target.value)"
-                :disabled="!musicCurrentSong"
-                aria-label="音量调节"
-              />
-              <div
-                class="volume-slider-fill"
-                :style="{ width: (musicMuted ? 0 : musicVolume) + '%' }"
-              ></div>
+            <button class="header-btn" title="全屏" @click="toggleFullScreen">
+              <i class="fas fa-expand"></i>
+            </button>
+          </div>
+        </div>
+
+        <div class="full-player-body">
+          <!-- Left: Album Art & Info -->
+          <div class="full-player-left">
+            <div class="full-player-cover-container" @click.stop>
+              <img :src="musicCurrentSong.cover + '?param=1000y1000'" class="full-player-cover"
+                :alt="musicCurrentSong.name" />
+            </div>
+            <div class="full-player-info" @click.stop>
+              <h1 class="full-player-title">{{ musicCurrentSong.name }}</h1>
+              <div class="full-player-meta-row">
+                <i class="fas fa-user-circle"></i>
+                <span class="full-player-artist">{{ musicCurrentSong.artists }}</span>
+              </div>
+              <div class="full-player-meta-row" v-if="musicCurrentSong.album">
+                <i class="fas fa-compact-disc"></i>
+                <span class="full-player-album">{{ musicCurrentSong.album }}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Right: Lyrics -->
+          <div class="full-player-right">
+            <div ref="lyricsContainer" class="full-lyrics-container" @click.stop>
+              <!-- AMLL will be injected here, fallback to simple lyrics if not available -->
+              <div v-if="musicLyrics.length === 0" class="lyric-empty">
+                <i class="fas fa-music"></i>
+                <p>暂无歌词</p>
+              </div>
             </div>
           </div>
         </div>
       </div>
+    </transition>
 
-      <!-- 播放队列抽屉 (全局) -->
-      <transition name="drawer-slide" @after-enter="scrollToCurrentSong">
-        <div
-          class="music-playlist-drawer"
-          v-if="musicShowPlaylistDrawer"
-          role="dialog"
-          aria-label="播放队列"
-        >
-          <div class="playlist-header">
-            <span>播放队列</span>
-            <span class="playlist-count">{{ musicPlaylist.length }} 首</span>
-          </div>
-          <div ref="playlistDrawerContent" class="playlist-content">
-            <div
-              class="playlist-item"
-              v-for="(song, index) in musicPlaylist"
-              :key="song.id"
-              :ref="musicCurrentSong && song.id === musicCurrentSong.id ? 'currentPlayingSong' : undefined"
-              :class="{ active: musicCurrentSong && song.id === musicCurrentSong.id }"
-              @click="musicPlay(song)"
-              tabindex="0"
-              @keyup.enter="musicPlay(song)"
-            >
-              <div
-                v-if="musicCurrentSong && song.id === musicCurrentSong.id && musicPlaying"
-                class="playlist-item-icon playing"
-              >
-                <i class="fas fa-volume-up" aria-hidden="true"></i>
-              </div>
-              <div v-else class="playlist-item-icon index">{{ index + 1 }}</div>
+    <!-- 全局组件占位符 -->
+    <div id="template-settings"></div>
+    <div id="template-modals"></div>
 
-              <div class="song-name">{{ song.name }}</div>
-              <div class="song-artist">{{ song.artists }}</div>
-            </div>
-            <div v-if="musicPlaylist.length === 0" class="empty-state-mini">队列为空</div>
-          </div>
-        </div>
-      </transition>
-
-      <!-- Music Login Modal (网易云登录 - 全局) -->
-      <div v-if="musicShowLoginModal" class="music-login-modal" style="z-index: 20000">
-        <div class="music-login-content">
-          <h2>网易云音乐登录</h2>
-          <div class="qr-container">
-            <img v-if="musicQrImg" :src="musicQrImg" class="qr-image" />
-            <div v-else-if="musicQrExpired" class="qr-expired" @click="musicGenerateLoginQr">
-              <i class="fas fa-redo"></i>
-              <p>二维码已过期，点击刷新</p>
-            </div>
-            <div v-else class="qr-loading">
-              <i class="fas fa-spinner fa-spin"></i>
-            </div>
-          </div>
-          <p class="login-status">{{ musicLoginStatusText }}</p>
-          <button class="btn btn-secondary" @click="musicShowLoginModal = false">关闭</button>
-        </div>
-      </div>
-
-      <div
-        v-if="musicShowUserDropdown"
-        class="dropdown-backdrop"
-        style="z-index: 15000"
-        @click="musicShowUserDropdown = false"
-      ></div>
-
-      <!-- Full Screen Player (SPlayer Style - 仅桌面端) -->
-      <transition name="full-player-fade">
-        <div
-          v-if="!isMobile && musicShowFullPlayer && musicCurrentSong"
-          class="music-full-player"
-          :class="{ 'playing': musicPlaying }"
-          style="z-index: 11000"
-          @click="musicShowFullPlayer = false"
-        >
-          <!-- Top Header (简化版) -->
-          <!-- Top Header (简化版) -->
-          <div class="full-player-header">
-            <div class="header-spacer"></div>
-            <div class="header-right" @click.stop>
-              <button class="header-btn" title="歌词模式">
-                <i class="fas fa-quote-left"></i>
-              </button>
-              <button class="header-btn" title="全屏" @click="toggleFullScreen">
-                <i class="fas fa-expand"></i>
-              </button>
-            </div>
-          </div>
-
-          <div class="full-player-body">
-            <!-- Left: Album Art & Info -->
-            <div class="full-player-left">
-              <div class="full-player-cover-container" @click.stop>
-                <img
-                  :src="musicCurrentSong.cover + '?param=1000y1000'"
-                  class="full-player-cover"
-                  :alt="musicCurrentSong.name"
-                />
-              </div>
-              <div class="full-player-info" @click.stop>
-                <h1 class="full-player-title">{{ musicCurrentSong.name }}</h1>
-                <div class="full-player-meta-row">
-                  <i class="fas fa-user-circle"></i>
-                  <span class="full-player-artist">{{ musicCurrentSong.artists }}</span>
-                </div>
-                <div class="full-player-meta-row" v-if="musicCurrentSong.album">
-                  <i class="fas fa-compact-disc"></i>
-                  <span class="full-player-album">{{ musicCurrentSong.album }}</span>
-                </div>
-              </div>
-            </div>
-
-            <!-- Right: Lyrics -->
-            <div class="full-player-right">
-              <div ref="lyricsContainer" class="full-lyrics-container" @click.stop>
-                <!-- AMLL will be injected here, fallback to simple lyrics if not available -->
-                <div v-if="musicLyrics.length === 0" class="lyric-empty">
-                  <i class="fas fa-music"></i>
-                  <p>暂无歌词</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </transition>
-
-      <!-- 全局组件占位符 -->
-      <div id="template-settings"></div>
-      <div id="template-modals"></div>
-
-      <!-- 全局 SSH 终端保活仓库 (不受 v-if 销毁影响) -->
-      <div
-        id="ssh-terminal-warehouse"
-        style="
+    <!-- 全局 SSH 终端保活仓库 (不受 v-if 销毁影响) -->
+    <div id="ssh-terminal-warehouse" style="
           visibility: hidden !important;
           position: absolute !important;
           left: -9999px !important;
@@ -958,29 +701,29 @@
           height: 100px;
           overflow: hidden;
           pointer-events: none;
-        "
-      >
-        <!-- 这里将动态存放所有 SSH 会话的原生 DOM 节点 -->
-      </div>
+        ">
+      <!-- 这里将动态存放所有 SSH 会话的原生 DOM 节点 -->
     </div>
+  </div>
 
-    <!-- 模块化 JavaScript -->
-    <script type="module" src="/js/main.js"></script>
+  <!-- 模块化 JavaScript -->
+  <script type="module" src="/js/main.js"></script>
 
-    <!-- Service Worker 注册 -->
-    <script>
-      if ('serviceWorker' in navigator) {
-        window.addEventListener('load', function () {
-          navigator.serviceWorker
-            .register('/sw.js', { scope: '/' })
-            .then(function (registration) {
-              console.log('[PWA] Service Worker registered:', registration.scope);
-            })
-            .catch(function (error) {
-              console.warn('[PWA] Service Worker registration failed:', error);
-            });
-        });
-      }
-    </script>
-  </body>
+  <!-- Service Worker 注册 -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', function () {
+        navigator.serviceWorker
+          .register('/sw.js', { scope: '/' })
+          .then(function (registration) {
+            console.log('[PWA] Service Worker registered:', registration.scope);
+          })
+          .catch(function (error) {
+            console.warn('[PWA] Service Worker registration failed:', error);
+          });
+      });
+    }
+  </script>
+</body>
+
 </html>

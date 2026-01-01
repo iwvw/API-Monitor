@@ -123,6 +123,11 @@ export default defineConfig(({ mode }) => {
     server: {
       host: true, // 监听所有网络接口，允许手机访问
       port: 5173,
+      hmr: {
+        protocol: 'ws',
+        host: 'localhost',
+        port: 5173,
+      },
       // SPA 历史回退：所有非静态资源路由都返回 index.html
       // 显式排除 PWA 路径，防止其拦截本应由后端处理的动态 Manifest 路由
       historyApiFallback: {

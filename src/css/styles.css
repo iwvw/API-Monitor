@@ -34,7 +34,7 @@ body {
   transition:
     background-color 0.3s,
     color 0.3s;
-  overflow: hidden;
+  overflow: auto;
   /* 核心修复：禁止 body 层级的滚动，由 app-main 接管 */
 }
 
@@ -353,11 +353,9 @@ pre,
   }
 
   .theme-server .tab-btn.active {
-    background: linear-gradient(
-      135deg,
-      var(--server-primary),
-      var(--server-primary-dark)
-    ) !important;
+    background: linear-gradient(135deg,
+        var(--server-primary),
+        var(--server-primary-dark)) !important;
     box-shadow: 0 2px 8px rgba(71, 85, 105, 0.3);
   }
 
@@ -436,7 +434,9 @@ pre,
 
   /* 颜色 */
   --primary-color: #6366f1;
-  --primary-rgb: 99, 102, 241;
+  --primary-rgb: 99,
+  102,
+  241;
   --primary-dark: #4f46e5;
   --primary-light: #818cf8;
   --secondary-color: #f97316;
@@ -453,23 +453,31 @@ pre,
 
   /* Zeabur 模块主题色 */
   --zeabur-primary: #6366f1;
-  --zeabur-primary-rgb: 99, 102, 241;
+  --zeabur-primary-rgb: 99,
+  102,
+  241;
   --zeabur-primary-hover: #4f46e5;
   --zeabur-secondary: #8b5cf6;
-  --zeabur-secondary-rgb: 139, 92, 246;
+  --zeabur-secondary-rgb: 139,
+  92,
+  246;
 
   /* Light theme */
   --bg-primary: #f4f6f8;
   --bg-secondary: #f9fafb;
-  --bg-secondary-rgb: 249, 250, 251;
+  --bg-secondary-rgb: 249,
+  250,
+  251;
   --bg-tertiary: #f3f4f6;
   --text-primary: #4e4e4e;
   --text-secondary: #4b5563;
   --text-tertiary: #6b7280;
   --border-color: #dedede;
   --card-bg: #ffffff;
-  --card-shadow: 5px 5px 8px -5px rgba(0, 0, 0, 0.1), 0 7px 7px -7px rgba(0, 0, 0, 0.04);
-  --card-hover-shadow: 5px 5px 6px 0px rgb(0 0 0 / 0%), 4px 4px 5px 0px rgb(0 0 0 / 9%);
+  --card-shadow: 5px 5px 8px -5px rgba(0, 0, 0, 0.1),
+  0 7px 7px -7px rgba(0, 0, 0, 0.04);
+  --card-hover-shadow: 5px 5px 6px 0px rgb(0 0 0 / 0%),
+  4px 4px 5px 0px rgb(0 0 0 / 9%);
   --modal-overlay: rgba(0, 0, 0, 0.5);
   --input-bg: transparent;
   --input-border: #d1d5db;
@@ -600,7 +608,7 @@ body.modal-open {
   margin: 0 auto 5px auto;
 }
 
-.container.layout-top-capsule > div[id^='template-'] {
+.container.layout-top-capsule>div[id^='template-'] {
   max-width: 1300px;
   margin: 0 auto;
   padding: 0 8px 8px 8px;
@@ -1423,21 +1431,17 @@ body.modal-open {
 }
 
 .ai-balance-card {
-  background: linear-gradient(
-    135deg,
-    rgba(var(--zeabur-primary-rgb), 0.1),
-    rgba(var(--zeabur-secondary-rgb), 0.1)
-  );
+  background: linear-gradient(135deg,
+      rgba(var(--zeabur-primary-rgb), 0.1),
+      rgba(var(--zeabur-secondary-rgb), 0.1));
   border-color: rgba(var(--zeabur-primary-rgb), 0.3);
 }
 
 .ai-balance-card:hover {
   border-color: var(--primary-color);
-  background: linear-gradient(
-    135deg,
-    rgba(var(--zeabur-primary-rgb), 0.15),
-    rgba(var(--zeabur-secondary-rgb), 0.15)
-  );
+  background: linear-gradient(135deg,
+      rgba(var(--zeabur-primary-rgb), 0.15),
+      rgba(var(--zeabur-secondary-rgb), 0.15));
 }
 
 .balance-icon {
@@ -1465,11 +1469,9 @@ body.modal-open {
   display: flex;
   align-items: center;
   gap: 0;
-  background: linear-gradient(
-    135deg,
-    rgba(var(--zeabur-primary-rgb), 0.08) 0%,
-    rgba(var(--zeabur-secondary-rgb), 0.05) 100%
-  );
+  background: linear-gradient(135deg,
+      rgba(var(--zeabur-primary-rgb), 0.08) 0%,
+      rgba(var(--zeabur-secondary-rgb), 0.05) 100%);
   border: 1px solid rgba(var(--zeabur-primary-rgb), 0.15);
   border-radius: 12px;
   padding: 8px 6px;
@@ -1480,11 +1482,9 @@ body.modal-open {
 
 .zeabur-balance-panel:hover {
   border-color: rgba(var(--zeabur-primary-rgb), 0.35);
-  background: linear-gradient(
-    135deg,
-    rgba(var(--zeabur-primary-rgb), 0.12) 0%,
-    rgba(var(--zeabur-secondary-rgb), 0.08) 100%
-  );
+  background: linear-gradient(135deg,
+      rgba(var(--zeabur-primary-rgb), 0.12) 0%,
+      rgba(var(--zeabur-secondary-rgb), 0.08) 100%);
 }
 
 .zeabur-balance-item {
@@ -1497,12 +1497,10 @@ body.modal-open {
 .zeabur-balance-divider {
   width: 1px;
   height: 28px;
-  background: linear-gradient(
-    180deg,
-    transparent 0%,
-    rgba(var(--zeabur-primary-rgb), 0.3) 50%,
-    transparent 100%
-  );
+  background: linear-gradient(180deg,
+      transparent 0%,
+      rgba(var(--zeabur-primary-rgb), 0.3) 50%,
+      transparent 100%);
 }
 
 .zeabur-balance-icon {
@@ -1523,11 +1521,9 @@ body.modal-open {
 }
 
 .zeabur-aihub .zeabur-balance-icon {
-  background: linear-gradient(
-    135deg,
-    rgba(var(--zeabur-primary-rgb), 0.2) 0%,
-    rgba(var(--zeabur-secondary-rgb), 0.15) 100%
-  );
+  background: linear-gradient(135deg,
+      rgba(var(--zeabur-primary-rgb), 0.2) 0%,
+      rgba(var(--zeabur-secondary-rgb), 0.15) 100%);
   color: var(--zeabur-primary);
 }
 
@@ -2338,11 +2334,9 @@ body.modal-open {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(
-    135deg,
-    var(--bg-primary) 0%,
-    rgba(var(--bg-secondary-rgb), 0.95) 100%
-  );
+  background: linear-gradient(135deg,
+      var(--bg-primary) 0%,
+      rgba(var(--bg-secondary-rgb), 0.95) 100%);
   z-index: 10000;
   transition: opacity 0.5s ease;
 }
@@ -2416,6 +2410,7 @@ body.modal-open {
 }
 
 @keyframes text-breathe {
+
   0%,
   100% {
     opacity: 0.6;
@@ -2537,6 +2532,7 @@ body.modal-open {
 }
 
 @media (max-width: 768px) {
+
   /* 移动端主框架使用动态视口高度 */
   .app-wrapper {
     flex-direction: column-reverse;
@@ -2750,7 +2746,7 @@ body.modal-open {
     gap: 10px;
   }
 
-  .header > div:last-child {
+  .header>div:last-child {
     position: static;
     transform: none;
   }
@@ -2760,7 +2756,7 @@ body.modal-open {
     gap: 12px;
   }
 
-  .controls > div:first-child {
+  .controls>div:first-child {
     display: flex;
     flex-wrap: wrap;
     gap: 8px;
@@ -2779,7 +2775,7 @@ body.modal-open {
     /* padding-right: 100px; */
   }
 
-  .account-header > div:last-child {
+  .account-header>div:last-child {
     right: 8px;
     top: 8px;
   }
@@ -2812,7 +2808,7 @@ body.modal-open {
     gap: 10px;
   }
 
-  .controls > div:first-child {
+  .controls>div:first-child {
     flex-direction: column;
     gap: 8px;
   }
@@ -2937,6 +2933,7 @@ body.modal-open {
 /* 固定的刷新控制按钮已被移除 */
 
 @media (max-width: 768px) {
+
   /* 移动端覆盖：在手机上恢复靠左和全宽 */
   .paas-sec-tabs {
     align-items: stretch;

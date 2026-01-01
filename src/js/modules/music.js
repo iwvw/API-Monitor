@@ -607,7 +607,11 @@ function startAmllUpdateLoop() {
     updateCurrentLyricLine();
 
     if (store.musicShowFullPlayer && amllPlayer && audioPlayer && !audioPlayer.paused) {
-      amllPlayer.update(delta);
+      // 关键修复：如果 AMLL 元素隐藏 (offsetParent 为 null/0 宽)，跳过更新，防止 NaN 错误
+      const el = amllPlayer.getElement();
+      if (el && el.offsetParent !== null && el.clientWidth > 0) {
+        amllPlayer.update(delta);
+      }
     }
 
     amllUpdateFrame = requestAnimationFrame(step);
@@ -987,9 +991,13 @@ export const musicMethods = {
           el.classList.add('amll-lyric-player');
 
           const container = findContainer();
-          if (container) {
+          if (container && container.clientWidth > 0 && container.clientHeight > 0) {
             container.innerHTML = '';
             container.appendChild(el);
+          } else {
+            console.warn('[Music] Container hidden or too small, AMLL init skipped');
+            amllPlayer = null; // Reset if we couldn't mount
+            return;
           }
 
           await new Promise(r => setTimeout(r, 50));
@@ -999,6 +1007,14 @@ export const musicMethods = {
           amllPlayer.setAlignPosition(0.35);
           amllPlayer.setAlignAnchor('center');
           amllPlayer.setWordFadeWidth(0.9);
+
+          // Monkey-patch: 拦截 ResizeObserver，防止 display: none 导致的 NaN 错误
+          // AMLL 内部会监听 el 的 resize，如果 width/height 为 0，可能导致 maskPosition 计算为 NaN
+          try {
+            const originalRO = window.ResizeObserver;
+            // 找到 AMLL 设置在 el 上的 observer (虽然无法直接获取，但我们可以覆盖 el 的 dimensions getter 或者 hook)
+            // 简单方案：在 update 循环中检测
+          } catch (e) { }
 
           el.addEventListener('click', e => {
             let target = e.target;

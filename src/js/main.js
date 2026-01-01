@@ -46,7 +46,7 @@ async function loadLazyCSS() {
     import('../css/fly.css'),
     import('../css/r2.css'),
     import('../css/chat.css'),
-    import('../css/template.css'),
+    // import('../css/template.css'), // Template file, exclude from build
     import('../css/stream-player.css'),
     import('plyr/dist/plyr.css'),
     import('../css/totp.css'),
@@ -127,8 +127,29 @@ const app = createApp({
     });
 
     // 将 store 的所有属性转换为 refs，这样在模板中可以直接使用且保持响应式
+    console.log('[App] Initializing setup, checking store.streamPlayer:', !!store.streamPlayer);
+
+    // 如果 store.streamPlayer 没定义（罕见情况，静态定义应生效），补全它以防崩溃
+    if (!store.streamPlayer) {
+      console.warn('[App] streamPlayer not found in store, applying emergency fallback');
+      store.streamPlayer = { visible: false, loading: false, playing: false };
+    }
+
+    const storeRefs = toRefs(store);
+
     return {
-      ...toRefs(store),
+      store, // 导出原始 store 对象
+      ...storeRefs,
+      // 显式导出常用状态，确保始终存在
+      streamPlayer: store.streamPlayer,
+      mfpLyricsMode: computed({
+        get: () => store.mfpLyricsMode,
+        set: (v) => store.mfpLyricsMode = v
+      }),
+      mfpPlaylistMode: computed({
+        get: () => store.mfpPlaylistMode,
+        set: (v) => store.mfpPlaylistMode = v
+      }),
       // Pinia Stores
       authStore,
       appStore,
@@ -1547,7 +1568,7 @@ async function initApp() {
 
     // 2. 挂载 Vue 应用
     app.use(pinia);
-    app.mount('#app');
+    window.vueApp = app.mount('#app');
 
     // 3. 启动全局时间更新定时器 (每秒触发一次，用于倒计时)
     const appStore = useAppStore();

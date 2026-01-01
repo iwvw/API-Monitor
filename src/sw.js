@@ -65,11 +65,13 @@ self.addEventListener('fetch', event => {
     event.respondWith(
       fetch(request)
         .then(response => {
-          // 克隆响应并缓存
-          const responseClone = response.clone();
-          caches.open(CACHE_NAME).then(cache => {
-            cache.put(request, responseClone);
-          });
+          // 仅缓存 GET 请求 (排除 206 Partial Content)
+          if (request.method === 'GET' && response.status === 200) {
+            const responseClone = response.clone();
+            caches.open(CACHE_NAME).then(cache => {
+              cache.put(request, responseClone);
+            });
+          }
           return response;
         })
         .catch(() => {
@@ -80,27 +82,21 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // 静态资源：Cache First
+  // 静态资源：Network First (为了更好地配合开发环境和 PWA 更新)
   event.respondWith(
-    caches.match(request).then(cachedResponse => {
-      if (cachedResponse) {
-        // 后台更新缓存
-        fetch(request).then(response => {
-          caches.open(STATIC_CACHE).then(cache => {
-            cache.put(request, response);
-          });
-        });
-        return cachedResponse;
-      }
-      return fetch(request).then(response => {
+    fetch(request)
+      .then(response => {
         // 缓存新资源
         const responseClone = response.clone();
         caches.open(STATIC_CACHE).then(cache => {
           cache.put(request, responseClone);
         });
         return response;
-      });
-    })
+      })
+      .catch(() => {
+        // 网络失败时使用缓存
+        return caches.match(request);
+      })
   );
 });
 

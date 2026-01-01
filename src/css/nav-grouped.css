@@ -322,7 +322,7 @@
   .top-nav-bar {
     display: unset !important;
     padding: 0;
-    margin-bottom: 0;
+    margin-bottom: -65px;
   }
 
   .top-nav-bar .nav-brand {

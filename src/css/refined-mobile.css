@@ -33,18 +33,13 @@ html.single-page-mode .container {
 
 /* 单页模式下迷你播放器沉底（因为底部导航栏已隐藏） */
 html.single-page-mode .mini-player {
-  bottom: calc(5px + env(safe-area-inset-bottom, 0)) !important;
-}
-
-/* 单页模式下有迷你播放器时调整容器底部间距 */
-html.single-page-mode:has(.mini-player) .container {
-  padding-bottom: calc(70px + env(safe-area-inset-bottom, 0)) !important;
+  bottom: calc(10px + env(safe-area-inset-bottom, 0)) !important;
 }
 
 /* 单页模式下移除 sec-tabs 的顶部边距 */
 html.single-page-mode .sec-tabs,
 html.single-page-mode [class*='-sec-tabs'] {
-  margin-top: 8px !important;
+  margin-top: 0px !important;
 }
 
 @media (max-width: 768px) {
@@ -60,17 +55,18 @@ html.single-page-mode [class*='-sec-tabs'] {
   .app-wrapper,
   .app-main {
     height: 100% !important;
-    overflow: hidden !important;
+    overflow-y: auto !important;
     margin: 0 !important;
     padding: 0 !important;
+    -webkit-overflow-scrolling: touch !important;
   }
 
   /* 确保容器填满并处理 Flex 布局 */
   .container {
-    height: 100% !important;
+    min-height: 100% !important;
     display: flex !important;
     flex-direction: column !important;
-    overflow: hidden !important;
+    overflow: visible !important;
     box-sizing: border-box !important;
   }
 
@@ -162,18 +158,19 @@ html.single-page-mode [class*='-sec-tabs'] {
   /* --- Apple Music 风格迷你播放器 --- */
   .mini-player {
     position: fixed !important;
-    bottom: calc(60px + env(safe-area-inset-bottom, 0)) !important;
-    left: 5px !important;
-    right: 5px !important;
+    bottom: calc(66px + env(safe-area-inset-bottom, 0)) !important;
+    left: 12px !important;
+    right: 12px !important;
     z-index: 999 !important;
-    height: 56px !important;
-    background: var(--card-bg) !important;
-    border-radius: 12px !important;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15) !important;
+    height: 60px !important;
+    background: var(--bg-secondary) !important;
+    backdrop-filter: none !important;
+    border-radius: 14px !important;
+    box-shadow: 0 0px 32px rgba(0, 0, 0, 0.1) !important;
     display: flex !important;
     align-items: center !important;
     padding: 8px 12px 8px 8px !important;
-    gap: 10px !important;
+    gap: 12px !important;
     cursor: pointer !important;
     overflow: hidden !important;
     border: 1px solid var(--border-color) !important;
@@ -248,13 +245,8 @@ html.single-page-mode [class*='-sec-tabs'] {
     background: var(--border-color) !important;
   }
 
-  /* 有迷你播放器时调整内容区域底部间距 */
-  body:has(.mini-player) .container {
-    padding-bottom: calc(70px + env(safe-area-inset-bottom, 0) + 20px) !important;
-  }
-
   /* 移动端隐藏音乐模块的桌面端底部播放栏 */
-  #app > .music-bottom-bar,
+  #app>.music-bottom-bar,
   .music-bottom-bar {
     display: none !important;
     visibility: hidden !important;
@@ -318,6 +310,11 @@ html.single-page-mode [class*='-sec-tabs'] {
   .wall-sub {
     font-size: 10px !important;
     margin-top: 2px !important;
+  }
+
+  .quick-grid-home {
+    gap: 16px !important;
+    margin-bottom: 20px !important;
   }
 
   /* 移动端歌单详情页紧凑左右布局 */
@@ -530,7 +527,7 @@ html.single-page-mode [class*='-sec-tabs'] {
   /* 歌曲信息容器 */
   .mfp-info-container {
     position: absolute !important;
-    top: calc(50% + 110px) !important;
+    top: calc(50% + 80px) !important;
     /* 增加与封面的距离，防止在长屏上太靠上 */
     left: 24px !important;
     right: 24px !important;
@@ -579,24 +576,20 @@ html.single-page-mode [class*='-sec-tabs'] {
     top: calc(env(safe-area-inset-top, 0) + 100px) !important;
     left: 0px !important;
     right: 0px !important;
-    bottom: 220px !important;
+    bottom: 240px !important;
     overflow: hidden !important;
     z-index: 5 !important;
     /* 上下模糊过渡遮罩 */
-    -webkit-mask-image: linear-gradient(
-      to bottom,
-      transparent 0%,
-      black 20%,
-      black 80%,
-      transparent 100%
-    ) !important;
-    mask-image: linear-gradient(
-      to bottom,
-      transparent 0%,
-      black 20%,
-      black 80%,
-      transparent 100%
-    ) !important;
+    -webkit-mask-image: linear-gradient(to bottom,
+        transparent 0%,
+        black 20%,
+        black 80%,
+        transparent 100%) !important;
+    mask-image: linear-gradient(to bottom,
+        transparent 0%,
+        black 20%,
+        black 80%,
+        transparent 100%) !important;
   }
 
   .mfp-lyrics-container {
@@ -612,20 +605,16 @@ html.single-page-mode [class*='-sec-tabs'] {
     /* iOS/Safari 丝滑滚动关键 */
     overscroll-behavior-y: contain !important;
     /* 上下渐变淡出 */
-    -webkit-mask-image: linear-gradient(
-      to bottom,
-      transparent 0%,
-      black 20%,
-      black 80%,
-      transparent 100%
-    ) !important;
-    mask-image: linear-gradient(
-      to bottom,
-      transparent 0%,
-      black 20%,
-      black 80%,
-      transparent 100%
-    ) !important;
+    -webkit-mask-image: linear-gradient(to bottom,
+        transparent 0%,
+        black 20%,
+        black 80%,
+        transparent 100%) !important;
+    mask-image: linear-gradient(to bottom,
+        transparent 0%,
+        black 20%,
+        black 80%,
+        transparent 100%) !important;
   }
 
   .mfp-lyrics-container::-webkit-scrollbar {
@@ -734,25 +723,21 @@ html.single-page-mode [class*='-sec-tabs'] {
     top: calc(env(safe-area-inset-top, 0) + 120px) !important;
     left: 0 !important;
     right: 0 !important;
-    bottom: 80px !important;
+    bottom: 240px !important;
     /* 增加底部空间 */
     z-index: 6 !important;
     overflow: hidden !important;
     /* 上下模糊过渡遮罩 - 与歌词保持一致 */
-    -webkit-mask-image: linear-gradient(
-      to bottom,
-      transparent 0%,
-      black 10%,
-      black 90%,
-      transparent 100%
-    ) !important;
-    mask-image: linear-gradient(
-      to bottom,
-      transparent 0%,
-      black 10%,
-      black 90%,
-      transparent 100%
-    ) !important;
+    -webkit-mask-image: linear-gradient(to bottom,
+        transparent 0%,
+        black 10%,
+        black 90%,
+        transparent 100%) !important;
+    mask-image: linear-gradient(to bottom,
+        transparent 0%,
+        black 10%,
+        black 90%,
+        transparent 100%) !important;
   }
 
   .mfp-playlist-container {
@@ -845,11 +830,11 @@ html.single-page-mode [class*='-sec-tabs'] {
   .mfp-time {
     display: flex !important;
     justify-content: space-between !important;
-    font-size: 11px !important;
-    opacity: 0.6 !important;
+    font-size: 12px !important;
+    font-weight: 600 !important;
+    opacity: 0.7 !important;
     margin-top: 10px !important;
     /* 增加与进度条的间距 */
-    font-family: monospace !important;
     letter-spacing: 0.5px !important;
   }
 
@@ -860,18 +845,17 @@ html.single-page-mode [class*='-sec-tabs'] {
       opacity 0.3s ease !important;
   }
 
-  /* 当歌单模式开启时，主控制区淡出并稍稍下移 */
   .mfp-playlist-active .mfp-controls,
   .mfp-playlist-active .mfp-progress-wrapper {
-    opacity: 0 !important;
-    visibility: hidden !important;
-    transform: translateY(20px) !important;
-    pointer-events: none !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+    transform: translateY(0) !important;
+    pointer-events: auto !important;
   }
 
-  /* 为了让歌单区域占满屏幕，调整其在激活时的底部距离 */
+  /* 为了让歌单区域占满屏幕，调整其在激活时的底部距离 - 现在保持与歌词一致以容纳控制台 */
   .mfp-playlist-active .mfp-playlist-area {
-    bottom: 60px !important;
+    bottom: 240px !important;
   }
 
   /* 歌词按钮激活状态 */
@@ -975,9 +959,11 @@ html.single-page-mode [class*='-sec-tabs'] {
   .mfp-time {
     display: flex !important;
     justify-content: space-between !important;
-    font-size: 11px !important;
-    color: rgba(255, 255, 255, 0.5) !important;
+    font-size: 12px !important;
+    font-weight: 600 !important;
+    color: rgba(255, 255, 255, 0.7) !important;
     margin-top: 8px !important;
+    letter-spacing: 0.5px !important;
   }
 
   .mfp-controls {
@@ -1332,7 +1318,7 @@ html.single-page-mode [class*='-sec-tabs'] {
   }
 
   /* 关键修复：重置包装层并允许溢出 */
-  .sec-tabs > div,
+  .sec-tabs>div,
   .server-tabs-scroll-wrapper,
   .paas-tabs-scroll-wrapper {
     padding: 0 !important;
@@ -1642,6 +1628,22 @@ html.single-page-mode [class*='-sec-tabs'] {
     min-width: 100% !important;
   }
 
+  /* 调整手机端设置项密度 */
+  .settings-group {
+    padding: 12px !important;
+    margin-bottom: 12px !important;
+  }
+
+  /* 显式显示手机端专用的振动开关（防止被 pc-only 逻辑误伤） */
+  .mobile-vibration-group {
+    display: block !important;
+    margin-bottom: 16px !important;
+    background: var(--bg-tertiary) !important;
+    padding: 12px !important;
+    border-radius: 12px !important;
+    border: 1px solid var(--border-color) !important;
+  }
+
   /* 隐藏仅 PC 可见的元素 (如导航布局设置) */
   .pc-only {
     display: none !important;
@@ -1680,7 +1682,7 @@ html.single-page-mode [class*='-sec-tabs'] {
     opacity: 0;
   }
 }
-/* ÿ���Ƽ���������Ż� */
+
 .playlist-wall-scroll {
   display: flex !important;
   overflow-x: auto !important;
@@ -1699,14 +1701,4 @@ html.single-page-mode [class*='-sec-tabs'] {
 .playlist-card {
   flex: 0 0 calc(35vw + 20px) !important;
   scroll-snap-align: start !important;
-}
-
-/* ���㲥����΢�� */
-.mini-player {
-  bottom: calc(env(safe-area-inset-bottom, 0) + 12px) !important;
-  margin: 0 12px !important;
-  width: calc(100% - 24px) !important;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4) !important;
-  backdrop-filter: blur(20px) saturate(1.8) !important;
-  border: 1px solid rgba(255, 255, 255, 0.1) !important;
 }

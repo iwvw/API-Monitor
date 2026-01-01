@@ -5,7 +5,7 @@
 
 import { toast } from './toast.js';
 import { formatDateTime, formatFileSize, maskAddress, formatRegion } from './utils.js';
-import { MODULE_CONFIG } from '../store.js';
+import { store, MODULE_CONFIG } from '../store.js';
 
 /**
  * 通用工具方法集合
@@ -93,134 +93,50 @@ export const commonMethods = {
 
   initMobileGestures() {
     // 为移动端所有可交互元素添加震动反馈
-    window.addEventListener(
-      'click',
-      e => {
-        if (window.innerWidth > 768) return;
-        if (!navigator.vibrate || !this.vibrationEnabled) return;
+    let lastVibrateTime = 0;
 
-        // 全面的可交互元素选择器
-        const interactiveSelectors = [
-          // 基础交互元素
-          'button',
-          'a[href]',
-          'a.btn',
-          '[role="button"]',
-          '[tabindex]:not([tabindex="-1"])',
+    // 全局交互反馈处理函数
+    const handleInteraction = e => {
+      // 严重防抖：防止 touchstart 和 click 同时触发导致的双倍震动或震动失效
+      const now = Date.now();
+      if (now - lastVibrateTime < 150) return;
 
-          // 表单控件
-          'input[type="checkbox"]',
-          'input[type="radio"]',
-          'input[type="file"]',
-          'input[type="color"]',
-          'select',
-          '.toggle-switch',
-          '.switch-slider',
-          '.custom-checkbox',
-          '.custom-radio',
+      if (window.innerWidth > 900) return;
 
-          // 标签页和导航
-          '.tab-btn',
-          '.main-tab',
-          '.sub-tab',
-          '.sectab-btn',
-          '.nav-item',
-          '.nav-link',
-          '.bottom-nav-item',
-          '.sidebar-item',
-          '.menu-item',
+      // 检查振动可用性
+      const isVibrateAvailable = window.navigator && window.navigator.vibrate;
+      // 检查开关：优先从 store 获取，默认开启
+      const isVibrateEnabled = store.vibrationEnabled !== false;
 
-          // 卡片和列表项
-          '.clickable',
-          '.card-clickable',
-          '.list-item',
-          '.list-item-clickable',
-          '.project-card',
-          '.service-card',
-          '.server-card',
-          '.server-card-header',
-          '.account-card',
-          '.host-card',
-          '.dns-zone-item',
-          '.totp-card',
-          '.feature-card',
-          '.ssh-quick-item',
-          '.credential-item',
-          '.snippet-item',
+      if (!isVibrateAvailable || !isVibrateEnabled) return;
 
-          // 按钮变体
-          '.btn-icon',
-          '.btn-icon-refined',
-          '.btn-ghost',
-          '.btn-primary',
-          '.btn-secondary',
-          '.btn-danger',
-          '.btn-outline',
-          '.icon-btn',
-          '.action-btn',
-          '.close-btn',
+      // 更新最后一次触发时间
+      lastVibrateTime = now;
 
-          // 状态指示器和标签
-          '.stat-pill',
-          '.chip-btn',
-          '.tag',
-          '.badge-clickable',
-          '.status-indicator',
+      // 震动分级逻辑
+      // 这里的 target 用于判断震动强度，不用于过滤点击
+      const target = e.target;
 
-          // 下拉菜单和弹出层
-          '.dropdown-item',
-          '.dropdown-trigger',
-          '.select-option',
-          '.context-menu-item',
-          '.popover-trigger',
+      const isHeavy = target.closest(
+        '.btn-danger, .modal-close, [data-action="delete"], [data-action="remove"]'
+      );
+      const isLight = target.closest(
+        '.tab-btn, .nav-item, .chip-btn, .tag, .mfp-lyric-line, .paas-tab, .mini-player-item'
+      );
 
-          // 模态框操作
-          '.modal-close',
-          '.modal-action',
-          '.dialog-btn',
+      if (isHeavy) {
+        window.navigator.vibrate(50);
+      } else if (isLight) {
+        window.navigator.vibrate(20);
+      } else {
+        window.navigator.vibrate(30);
+      }
+    };
 
-          // 折叠/展开
-          '.accordion-header',
-          '.collapsible-header',
-          '.expandable-trigger',
+    // 仅监听 click，确保点击行为的一致性，避免滑动时触发震动
+    window.addEventListener('click', handleInteraction, { capture: true });
 
-          // 播放器控件
-          '.player-btn',
-          '.playback-control',
-          '.volume-control',
-
-          // TOTP 特定
-          '.totp-code-display',
-          '.totp-copy-btn',
-
-          // 其他自定义可点击元素
-          '[data-action]',
-        ].join(', ');
-
-        const target = e.target.closest(interactiveSelectors);
-
-        if (target) {
-          // 根据元素类型调整震动强度（增强版）
-          const isHeavyAction = target.matches(
-            '.btn-danger, .modal-close, [data-action="delete"], [data-action="remove"]'
-          );
-          const isLightAction = target.matches('.tab-btn, .nav-item, .chip-btn, .tag');
-
-          if (isHeavyAction) {
-            navigator.vibrate(50); // 强反馈用于重要/危险操作
-          } else if (isLightAction) {
-            navigator.vibrate(25); // 中等反馈用于导航类操作
-          } else {
-            navigator.vibrate(35); // 标准反馈
-          }
-        }
-      },
-      true
-    );
-
-    // 禁用滑动切换标签页功能
-    console.log('[System] Mobile interaction feedback initialized, swipe navigation disabled');
-    return;
+    console.log('[System] Mobile interaction feedback (click) initialized');
 
     /*
         let touchStartX = null;

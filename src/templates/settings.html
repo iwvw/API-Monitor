@@ -1,12 +1,6 @@
 <transition name="settings-fade">
-  <div
-    v-if="showSettingsModal"
-    class="settings-modal-wrapper"
-    :class="{'show-settings-active': showSettingsModal}"
-    @keydown.esc="handleSettingsEsc"
-    tabindex="-1"
-    @click.self="showSettingsModal = false"
-  >
+  <div v-if="showSettingsModal" class="settings-modal-wrapper" :class="{'show-settings-active': showSettingsModal}"
+    @keydown.esc="handleSettingsEsc" tabindex="-1" @click.self="showSettingsModal = false">
     <div class="settings-sidebar">
       <!-- 侧边栏头部 -->
       <div class="settings-sidebar-header">
@@ -23,46 +17,28 @@
       <div class="settings-container">
         <!-- settings-sidebar-left: Navigation -->
         <div class="settings-nav">
-          <button
-            class="settings-nav-item"
-            :class="{ active: settingsCurrentTab === 'general' }"
-            @click="settingsCurrentTab = 'general'"
-          >
+          <button class="settings-nav-item" :class="{ active: settingsCurrentTab === 'general' }"
+            @click="settingsCurrentTab = 'general'">
             <i class="fas fa-cog"></i> <span>通用设置</span>
           </button>
-          <button
-            class="settings-nav-item"
-            :class="{ active: settingsCurrentTab === 'api' }"
-            @click="settingsCurrentTab = 'api'"
-          >
+          <button class="settings-nav-item" :class="{ active: settingsCurrentTab === 'api' }"
+            @click="settingsCurrentTab = 'api'">
             <i class="fas fa-globe"></i> <span>全局 API</span>
           </button>
-          <button
-            class="settings-nav-item"
-            :class="{ active: settingsCurrentTab === 'database' }"
-            @click="settingsCurrentTab = 'database'"
-          >
+          <button class="settings-nav-item" :class="{ active: settingsCurrentTab === 'database' }"
+            @click="settingsCurrentTab = 'database'">
             <i class="fas fa-database"></i> <span>数据库</span>
           </button>
-          <button
-            class="settings-nav-item"
-            :class="{ active: settingsCurrentTab === 'logs' }"
-            @click="settingsCurrentTab = 'logs'"
-          >
+          <button class="settings-nav-item" :class="{ active: settingsCurrentTab === 'logs' }"
+            @click="settingsCurrentTab = 'logs'">
             <i class="fas fa-terminal"></i> <span>系统日志</span>
           </button>
-          <button
-            class="settings-nav-item"
-            :class="{ active: settingsCurrentTab === 'appearance' }"
-            @click="settingsCurrentTab = 'appearance'"
-          >
+          <button class="settings-nav-item" :class="{ active: settingsCurrentTab === 'appearance' }"
+            @click="settingsCurrentTab = 'appearance'">
             <i class="fas fa-palette"></i> <span>界面外观</span>
           </button>
-          <button
-            class="settings-nav-item"
-            :class="{ active: settingsCurrentTab === 'about' }"
-            @click="settingsCurrentTab = 'about'"
-          >
+          <button class="settings-nav-item" :class="{ active: settingsCurrentTab === 'about' }"
+            @click="settingsCurrentTab = 'about'">
             <i class="fas fa-info-circle"></i> <span>关于系统</span>
           </button>
         </div>
@@ -74,57 +50,32 @@
             <div class="settings-group">
               <div class="settings-group-title">
                 账户安全
-                <span
-                  v-if="isDemoMode"
-                  class="badge badge-warning"
-                  style="font-size: 10px; margin-left: 8px"
-                  >演示模式</span
-                >
+                <span v-if="isDemoMode" class="badge badge-warning"
+                  style="font-size: 10px; margin-left: 8px">演示模式</span>
               </div>
-              <div
-                v-if="isDemoMode"
-                class="settings-description"
-                style="color: var(--warning-color); font-weight: 500"
-              >
+              <div v-if="isDemoMode" class="settings-description" style="color: var(--warning-color); font-weight: 500">
                 <i class="fas fa-exclamation-triangle"></i> 演示模式下禁止修改管理员密码。
               </div>
               <div class="form-group">
                 <label class="form-label">新密码</label>
-                <input
-                  v-model="newPassword"
-                  type="password"
-                  class="form-input"
-                  placeholder="输入新密码（至少6位）"
-                  :disabled="isDemoMode"
-                />
+                <input v-model="newPassword" type="password" class="form-input" placeholder="输入新密码（至少6位）"
+                  :disabled="isDemoMode" />
               </div>
               <div class="form-group">
                 <label class="form-label">确认密码</label>
-                <input
-                  v-model="confirmPassword"
-                  type="password"
-                  class="form-input"
-                  placeholder="确认新密码"
-                  :disabled="isDemoMode"
-                />
+                <input v-model="confirmPassword" type="password" class="form-input" placeholder="确认新密码"
+                  :disabled="isDemoMode" />
               </div>
               <div v-if="passwordError" class="form-error">{{ passwordError }}</div>
               <div v-if="passwordSuccess" class="form-success">{{ passwordSuccess }}</div>
-              <button
-                class="btn btn-primary"
-                @click="changePassword"
-                style="width: 100%; margin-top: 8px"
-                :disabled="isDemoMode"
-              >
+              <button class="btn btn-primary" @click="changePassword" style="width: 100%; margin-top: 8px"
+                :disabled="isDemoMode">
                 <i class="fas fa-key"></i> 修改密码
               </button>
             </div>
 
             <div class="settings-grid-layout">
-              <div
-                class="settings-group"
-                style="margin-bottom: 0; display: flex; flex-direction: column"
-              >
+              <div class="settings-group" style="margin-bottom: 0; display: flex; flex-direction: column">
                 <div class="settings-group-title">数据备份 & 恢复</div>
                 <div class="settings-description">
                   导出包含所有模块配置和数据的.db文件，以便迁移或备份。
@@ -139,10 +90,7 @@
                 </div>
               </div>
 
-              <div
-                class="settings-group"
-                style="margin-bottom: 0; display: flex; flex-direction: column"
-              >
+              <div class="settings-group" style="margin-bottom: 0; display: flex; flex-direction: column">
                 <div class="settings-group-title">隐私与安全显示</div>
                 <div class="settings-description">
                   控制主机地址、API 端点地址等敏感信息的显示方式。
@@ -151,28 +99,19 @@
                 <div class="form-group" style="margin-top: auto; padding-top: 12px">
                   <label class="form-label" style="font-size: 13px">地址显示模式</label>
                   <div style="display: flex; gap: 8px">
-                    <button
-                      class="btn btn-sm"
+                    <button class="btn btn-sm"
                       :class="serverIpDisplayMode === 'normal' ? 'btn-primary' : 'btn-secondary'"
-                      @click="serverIpDisplayMode = 'normal'"
-                      style="flex: 1; height: 32px; font-size: 12px"
-                    >
+                      @click="serverIpDisplayMode = 'normal'" style="flex: 1; height: 32px; font-size: 12px">
                       明文
                     </button>
-                    <button
-                      class="btn btn-sm"
+                    <button class="btn btn-sm"
                       :class="serverIpDisplayMode === 'masked' ? 'btn-primary' : 'btn-secondary'"
-                      @click="serverIpDisplayMode = 'masked'"
-                      style="flex: 1; height: 32px; font-size: 12px"
-                    >
+                      @click="serverIpDisplayMode = 'masked'" style="flex: 1; height: 32px; font-size: 12px">
                       打码
                     </button>
-                    <button
-                      class="btn btn-sm"
+                    <button class="btn btn-sm"
                       :class="serverIpDisplayMode === 'hidden' ? 'btn-primary' : 'btn-secondary'"
-                      @click="serverIpDisplayMode = 'hidden'"
-                      style="flex: 1; height: 32px; font-size: 12px"
-                    >
+                      @click="serverIpDisplayMode = 'hidden'" style="flex: 1; height: 32px; font-size: 12px">
                       隐藏
                     </button>
                   </div>
@@ -191,30 +130,19 @@
               <div class="form-group" style="margin-top: 12px">
                 <label class="form-label" style="font-size: 13px">下载来源</label>
                 <div style="display: flex; gap: 8px; margin-bottom: 12px">
-                  <button
-                    class="btn btn-sm"
-                    :class="!agentDownloadUrl ? 'btn-primary' : 'btn-secondary'"
-                    @click="agentDownloadUrl = ''"
-                    style="flex: 1; height: 36px; font-size: 12px"
-                  >
+                  <button class="btn btn-sm" :class="!agentDownloadUrl ? 'btn-primary' : 'btn-secondary'"
+                    @click="agentDownloadUrl = ''" style="flex: 1; height: 36px; font-size: 12px">
                     <i class="fas fa-server" style="margin-right: 4px"></i> 使用主控端
                   </button>
-                  <button
-                    class="btn btn-sm"
-                    :class="agentDownloadUrl ? 'btn-primary' : 'btn-secondary'"
+                  <button class="btn btn-sm" :class="agentDownloadUrl ? 'btn-primary' : 'btn-secondary'"
                     @click="agentDownloadUrl = agentDownloadUrl || 'https://'"
-                    style="flex: 1; height: 36px; font-size: 12px"
-                  >
+                    style="flex: 1; height: 36px; font-size: 12px">
                     <i class="fas fa-cloud" style="margin-right: 4px"></i> 自定义 CDN
                   </button>
                 </div>
                 <div v-if="agentDownloadUrl !== undefined && agentDownloadUrl !== ''">
-                  <input
-                    type="text"
-                    v-model="agentDownloadUrl"
-                    class="form-input"
-                    placeholder="例如: https://github.com/user/repo/releases/download/v1.0"
-                  />
+                  <input type="text" v-model="agentDownloadUrl" class="form-input"
+                    placeholder="例如: https://github.com/user/repo/releases/download/v1.0" />
                   <div class="form-help" style="font-size: 11px; margin-top: 4px">
                     Agent 将从此地址下载对应架构的二进制文件 (如 agent-linux-amd64)
                   </div>
@@ -235,12 +163,7 @@
                 <label class="form-label">全局 API 访问密钥 (API_KEY)</label>
                 <div class="input-with-icon">
                   <i class="fas fa-key"></i>
-                  <input
-                    type="password"
-                    v-model="agSettingsForm.API_KEY"
-                    class="form-input"
-                    placeholder="留空则无需认证"
-                  />
+                  <input type="password" v-model="agSettingsForm.API_KEY" class="form-input" placeholder="留空则无需认证" />
                 </div>
                 <div class="form-help">用于 v1/chat/completions 等接口的身份验证</div>
               </div>
@@ -249,12 +172,8 @@
                 <label class="form-label">全局 HTTP 代理地址 (PROXY)</label>
                 <div class="input-with-icon">
                   <i class="fas fa-globe"></i>
-                  <input
-                    type="text"
-                    v-model="agSettingsForm.PROXY"
-                    class="form-input"
-                    placeholder="例如: http://127.0.0.1:7890"
-                  />
+                  <input type="text" v-model="agSettingsForm.PROXY" class="form-input"
+                    placeholder="例如: http://127.0.0.1:7890" />
                 </div>
                 <div class="form-help">如果服务器无法直连 Google API，请配置代理</div>
               </div>
@@ -273,22 +192,17 @@
 
               <div class="form-group" style="margin-top: 16px">
                 <label class="form-label">渠道模块开关</label>
-                <div
-                  style="
+                <div style="
                     display: flex;
                     gap: 24px;
                     padding: 10px;
                     background: var(--bg-tertiary);
                     border-radius: 8px;
-                  "
-                >
+                  ">
                   <div style="display: flex; align-items: center; gap: 10px">
                     <label class="switch">
-                      <input
-                        type="checkbox"
-                        :checked="channelEnabled && channelEnabled['antigravity']"
-                        @change="toggleChannelEnabled('antigravity')"
-                      />
+                      <input type="checkbox" :checked="channelEnabled && channelEnabled['antigravity']"
+                        @change="toggleChannelEnabled('antigravity')" />
                       <span class="slider round"></span>
                     </label>
                     <span style="font-size: 13px; font-weight: 500">Antigravity</span>
@@ -296,11 +210,8 @@
 
                   <div style="display: flex; align-items: center; gap: 10px">
                     <label class="switch">
-                      <input
-                        type="checkbox"
-                        :checked="channelEnabled && channelEnabled['gemini-cli']"
-                        @change="toggleChannelEnabled('gemini-cli')"
-                      />
+                      <input type="checkbox" :checked="channelEnabled && channelEnabled['gemini-cli']"
+                        @change="toggleChannelEnabled('gemini-cli')" />
                       <span class="slider round"></span>
                     </label>
                     <span style="font-size: 13px; font-weight: 500">Gemini CLI</span>
@@ -309,58 +220,36 @@
               </div>
 
               <div class="form-group" style="margin-top: 16px">
-                <label class="form-label" style="font-size: 14px; font-weight: 600"
-                  >模型前缀配置 (Model Prefix)</label
-                >
+                <label class="form-label" style="font-size: 14px; font-weight: 600">模型前缀配置 (Model Prefix)</label>
                 <div class="form-help" style="margin-bottom: 12px; font-size: 13px; opacity: 0.8">
                   为每个渠道的模型添加前缀，避免名称冲突 (例如 "ag/" 或 "gcli/")
                 </div>
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px">
                   <div class="form-group" style="margin-bottom: 0">
-                    <label
-                      class="form-label"
-                      style="
+                    <label class="form-label" style="
                         font-size: 12px;
                         color: var(--text-secondary);
                         margin-bottom: 4px;
                         font-weight: 500;
-                      "
-                      >Antigravity 前缀</label
-                    >
-                    <input
-                      type="text"
-                      class="form-input"
-                      v-model="channelModelPrefix['antigravity']"
-                      placeholder="例如: ag/"
-                    />
+                      ">Antigravity 前缀</label>
+                    <input type="text" class="form-input" v-model="channelModelPrefix['antigravity']"
+                      placeholder="例如: ag/" />
                   </div>
                   <div class="form-group" style="margin-bottom: 0">
-                    <label
-                      class="form-label"
-                      style="
+                    <label class="form-label" style="
                         font-size: 12px;
                         color: var(--text-secondary);
                         margin-bottom: 4px;
                         font-weight: 500;
-                      "
-                      >Gemini CLI 前缀</label
-                    >
-                    <input
-                      type="text"
-                      class="form-input"
-                      v-model="channelModelPrefix['gemini-cli']"
-                      placeholder="例如: gcli/"
-                    />
+                      ">Gemini CLI 前缀</label>
+                    <input type="text" class="form-input" v-model="channelModelPrefix['gemini-cli']"
+                      placeholder="例如: gcli/" />
                   </div>
                 </div>
               </div>
 
-              <button
-                class="btn btn-primary"
-                @click="saveGlobalApiSettings"
-                :disabled="antigravitySaving"
-                style="width: 100%; margin-top: 12px; height: 42px; font-weight: 600"
-              >
+              <button class="btn btn-primary" @click="saveGlobalApiSettings" :disabled="antigravitySaving"
+                style="width: 100%; margin-top: 12px; height: 42px; font-weight: 600">
                 <i class="fas" :class="antigravitySaving ? 'fa-spinner fa-spin' : 'fa-save'"></i>
                 同步并应用配置
               </button>
@@ -371,17 +260,11 @@
           <div v-if="settingsCurrentTab === 'database'" class="settings-tab-content fade-in">
             <div class="settings-grid-layout">
               <!-- 左侧：存储状态 -->
-              <div
-                class="settings-group"
-                style="margin-bottom: 0; display: flex; flex-direction: column"
-              >
+              <div class="settings-group" style="margin-bottom: 0; display: flex; flex-direction: column">
                 <div class="settings-group-title" style="font-size: 16px; margin-bottom: 12px">
                   <i class="fas fa-database" style="color: var(--primary-color)"></i> 存储状态
                 </div>
-                <div
-                  class="db-stats-card"
-                  style="margin-bottom: 15px; padding: 10px; gap: 15px; flex: 1"
-                >
+                <div class="db-stats-card" style="margin-bottom: 15px; padding: 10px; gap: 15px; flex: 1">
                   <div class="db-stat-item">
                     <div class="db-stat-label" style="font-size: 10px">数据库大小</div>
                     <div style="display: flex; align-items: baseline; gap: 6px">
@@ -400,18 +283,10 @@
                   </div>
                 </div>
                 <div style="display: flex; gap: 10px; margin-top: auto">
-                  <button
-                    class="btn btn-danger btn-sm"
-                    @click="handleClearLogs"
-                    style="flex: 1; height: 36px"
-                  >
+                  <button class="btn btn-danger btn-sm" @click="handleClearLogs" style="flex: 1; height: 36px">
                     <i class="fas fa-trash-alt"></i> 清空日志
                   </button>
-                  <button
-                    class="btn btn-secondary btn-sm"
-                    @click="handleVacuumDb"
-                    style="flex: 1; height: 36px"
-                  >
+                  <button class="btn btn-secondary btn-sm" @click="handleVacuumDb" style="flex: 1; height: 36px">
                     <i class="fas fa-compress-arrows-alt"></i> 压缩存储
                   </button>
                 </div>
@@ -430,15 +305,8 @@
                   <div class="form-group" style="margin-bottom: 0">
                     <label class="form-label" style="font-size: 12px">日志保留天数</label>
                     <div class="input-with-suffix">
-                      <input
-                        v-model.number="logSettings.days"
-                        type="number"
-                        class="form-input"
-                        min="0"
-                        placeholder="0"
-                        @change="saveLogSettings"
-                        style="height: 32px; font-size: 13px"
-                      />
+                      <input v-model.number="logSettings.days" type="number" class="form-input" min="0" placeholder="0"
+                        @change="saveLogSettings" style="height: 32px; font-size: 13px" />
                       <span class="input-suffix">天</span>
                     </div>
                   </div>
@@ -446,16 +314,8 @@
                   <div class="form-group" style="margin-bottom: 0">
                     <label class="form-label" style="font-size: 12px">单表最大记录数</label>
                     <div class="input-with-suffix">
-                      <input
-                        v-model.number="logSettings.count"
-                        type="number"
-                        class="form-input"
-                        min="0"
-                        step="1000"
-                        placeholder="0"
-                        @change="saveLogSettings"
-                        style="height: 32px; font-size: 13px"
-                      />
+                      <input v-model.number="logSettings.count" type="number" class="form-input" min="0" step="1000"
+                        placeholder="0" @change="saveLogSettings" style="height: 32px; font-size: 13px" />
                       <span class="input-suffix">条</span>
                     </div>
                   </div>
@@ -463,30 +323,16 @@
                   <div class="form-group" style="margin-bottom: 0">
                     <label class="form-label" style="font-size: 12px">数据库最大体积</label>
                     <div class="input-with-suffix">
-                      <input
-                        v-model.number="logSettings.dbSizeMB"
-                        type="number"
-                        class="form-input"
-                        min="0"
-                        placeholder="0"
-                        @change="saveLogSettings"
-                        style="height: 32px; font-size: 13px"
-                      />
+                      <input v-model.number="logSettings.dbSizeMB" type="number" class="form-input" min="0"
+                        placeholder="0" @change="saveLogSettings" style="height: 32px; font-size: 13px" />
                       <span class="input-suffix">MB</span>
                     </div>
                   </div>
                 </div>
 
-                <button
-                  class="btn btn-primary btn-sm"
-                  style="width: 100%; margin-top: 15px; height: 36px"
-                  @click="enforceLogLimits"
-                  :disabled="logLimitsEnforcing"
-                >
-                  <i
-                    class="fas"
-                    :class="logLimitsEnforcing ? 'fa-spinner fa-spin' : 'fa-magic'"
-                  ></i>
+                <button class="btn btn-primary btn-sm" style="width: 100%; margin-top: 15px; height: 36px"
+                  @click="enforceLogLimits" :disabled="logLimitsEnforcing">
+                  <i class="fas" :class="logLimitsEnforcing ? 'fa-spinner fa-spin' : 'fa-magic'"></i>
                   {{ logLimitsEnforcing ? '执行中...' : '立即执行清理' }}
                 </button>
               </div>
@@ -494,77 +340,48 @@
           </div>
 
           <!-- ==================== Logs Tab ==================== -->
-          <div
-            v-if="settingsCurrentTab === 'logs'"
-            class="settings-tab-content fade-in"
-            style="display: flex; flex-direction: column; height: 100%"
-          >
-            <div
-              class="settings-group"
-              style="
+          <div v-if="settingsCurrentTab === 'logs'" class="settings-tab-content fade-in"
+            style="display: flex; flex-direction: column; height: 100%">
+            <div class="settings-group" style="
                 display: flex;
                 flex-direction: column;
                 flex: 1;
                 min-height: 0;
                 padding: 15px;
                 margin-bottom: 0;
-              "
-            >
-              <div
-                style="
+              ">
+              <div style="
                   display: flex;
                   justify-content: space-between;
                   align-items: center;
                   margin-bottom: 10px;
-                "
-              >
+                ">
                 <div style="display: flex; align-items: center; gap: 10px">
                   <span style="font-size: 15px; font-weight: 700; color: var(--text-primary)">
-                    <i
-                      class="fas fa-terminal"
-                      style="margin-right: 4px; color: var(--primary-color)"
-                    ></i
-                    >实时运行日志
+                    <i class="fas fa-terminal" style="margin-right: 4px; color: var(--primary-color)"></i>实时运行日志
                   </span>
-                  <span
-                    v-if="logFileSize"
-                    style="
+                  <span v-if="logFileSize" style="
                       font-size: 10px;
                       opacity: 0.5;
                       font-family: var(--font-mono);
                       background: var(--bg-tertiary);
                       padding: 1px 6px;
                       border-radius: 4px;
-                    "
-                  >
+                    ">
                     {{ logFileSize }}
                   </span>
                 </div>
-                <button
-                  class="btn btn-xs"
-                  :class="logWsConnected ? 'btn-success' : 'btn-secondary'"
-                  @click="toggleLogStream"
-                  style="height: 24px; padding: 0 10px; font-size: 11px"
-                >
-                  <i
-                    class="fas"
-                    :class="logWsConnecting ? 'fa-spinner fa-spin' : (logWsConnected ? 'fa-link' : 'fa-link-slash')"
-                  ></i>
+                <button class="btn btn-xs" :class="logWsConnected ? 'btn-success' : 'btn-secondary'"
+                  @click="toggleLogStream" style="height: 24px; padding: 0 10px; font-size: 11px">
+                  <i class="fas"
+                    :class="logWsConnecting ? 'fa-spinner fa-spin' : (logWsConnected ? 'fa-link' : 'fa-link-slash')"></i>
                   {{ logWsConnecting ? '连接中' : (logWsConnected ? '已开启' : '连接') }}
                 </button>
               </div>
 
-              <div
-                class="log-stream-container"
-                ref="settingsLogStream"
-                style="margin-bottom: 10px; border-radius: 6px"
-              >
-                <div
-                  v-for="(log, index) in systemLogs"
-                  :key="index"
-                  class="log-item"
-                  style="margin-bottom: 4px; padding-bottom: 4px"
-                >
+              <div class="log-stream-container" ref="settingsLogStream" style="margin-bottom: 10px; border-radius: 6px">
+                <div v-for="(log, index) in systemLogs" :key="index" class="log-item"
+                  style="margin-bottom: 4px; padding-bottom: 4px">
                   <div class="log-line log-line-header">
                     <span class="log-time">{{ log.time }}</span>
                     <span class="log-level" :class="'log-' + (log.level || '').toLowerCase()">
@@ -572,18 +389,13 @@
                     </span>
                   </div>
                   <div class="log-line log-line-content">
-                    <span
-                      class="log-module"
-                      :class="'module-' + (log.module || 'core').toLowerCase()"
-                      >[{{ log.module }}]</span
-                    >
+                    <span class="log-module" :class="'module-' + (log.module || 'core').toLowerCase()">[{{ log.module
+                      }}]</span>
                     <span class="log-msg" v-html="formatMessage(log.message)"></span>
                   </div>
                 </div>
-                <div
-                  v-if="systemLogs.length === 0"
-                  style="opacity: 0.3; text-align: center; padding: 20px; font-size: 11px"
-                >
+                <div v-if="systemLogs.length === 0"
+                  style="opacity: 0.3; text-align: center; padding: 20px; font-size: 11px">
                   等待日志输入...
                 </div>
               </div>
@@ -607,100 +419,71 @@
           <div v-if="settingsCurrentTab === 'appearance'" class="settings-tab-content fade-in">
             <div class="settings-grid-layout">
               <!-- 左侧：功能模块管理 -->
-              <div
-                class="settings-group"
-                style="margin-bottom: 0; display: flex; flex-direction: column"
-              >
-                <div
-                  class="settings-group-title"
-                  style="display: flex; justify-content: space-between; align-items: center"
-                >
-                  <span
-                    ><i
-                      class="fas fa-cubes"
-                      style="margin-right: 8px; color: var(--primary-color)"
-                    ></i
-                    >功能模块管理</span
-                  >
+              <div class="settings-group" style="margin-bottom: 0; display: flex; flex-direction: column">
+                <div class="settings-group-title"
+                  style="display: flex; justify-content: space-between; align-items: center">
+                  <span><i class="fas fa-cubes" style="margin-right: 8px; color: var(--primary-color)"></i>功能模块管理</span>
                   <div style="display: flex; gap: 8px">
-                    <button
-                      class="btn btn-xs btn-secondary"
-                      @click="setAllModulesVisibility(true)"
-                      title="显示所有模块"
-                    >
+                    <button class="btn btn-xs btn-secondary" @click="setAllModulesVisibility(true)" title="显示所有模块">
                       <i class="fas fa-eye"></i>
                     </button>
-                    <button
-                      class="btn btn-xs btn-secondary"
-                      @click="setAllModulesVisibility(false)"
-                      title="隐藏大部分模块"
-                    >
+                    <button class="btn btn-xs btn-secondary" @click="setAllModulesVisibility(false)" title="隐藏大部分模块">
                       <i class="fas fa-eye-slash"></i>
                     </button>
                   </div>
                 </div>
                 <div class="settings-description">拖拽调整顺序，点击图标切换可见性。</div>
-                <div
-                  class="modules-list"
-                  style="flex: 1; overflow-y: auto; max-height: 400px; padding-right: 4px"
-                >
-                  <div
-                    v-for="(module, index) in moduleOrder"
-                    :key="module"
-                    class="draggable-module-item"
-                    draggable="true"
-                    @dragstart="handleDragStart($event, index)"
-                    @dragend="handleDragEnd"
-                    @dragover.prevent="handleDragOver($event, index)"
-                    @drop="handleDrop($event, index)"
-                    @touchstart="handleTouchStart($event, index)"
-                    @touchmove="handleTouchMove($event, index)"
-                    @touchend="handleTouchEnd($event, index)"
-                  >
+                <div class="modules-list" style="flex: 1; overflow-y: auto; max-height: 400px; padding-right: 4px">
+                  <div v-for="(module, index) in moduleOrder" :key="module" class="draggable-module-item"
+                    draggable="true" @dragstart="handleDragStart($event, index)" @dragend="handleDragEnd"
+                    @dragover.prevent="handleDragOver($event, index)" @drop="handleDrop($event, index)"
+                    @touchstart="handleTouchStart($event, index)" @touchmove="handleTouchMove($event, index)"
+                    @touchend="handleTouchEnd($event, index)">
                     <div style="display: flex; align-items: center; gap: 8px; flex: 1">
-                      <i
-                        class="fas fa-grip-vertical drag-handle"
-                        style="font-size: 10px; opacity: 0.4"
-                      ></i>
-                      <i
-                        class="draggable-module-icon fas"
-                        :class="getModuleIcon(module)"
-                        style="font-size: 14px; width: 16px; text-align: center"
-                      ></i>
-                      <span class="draggable-module-name" style="font-size: 13px"
-                        >{{ getModuleName(module) }}</span
-                      >
+                      <i class="fas fa-grip-vertical drag-handle" style="font-size: 10px; opacity: 0.4"></i>
+                      <i class="draggable-module-icon fas" :class="getModuleIcon(module)"
+                        style="font-size: 14px; width: 16px; text-align: center"></i>
+                      <span class="draggable-module-name" style="font-size: 13px">{{ getModuleName(module) }}</span>
                     </div>
-                    <button
-                      class="btn btn-xs btn-icon"
+                    <button class="btn btn-xs btn-icon"
                       :class="moduleVisibility[module] ? 'text-success' : 'text-muted'"
-                      @click.stop="toggleModuleVisibility(module)"
-                    >
-                      <i
-                        class="fas"
-                        :class="moduleVisibility[module] ? 'fa-eye' : 'fa-eye-slash'"
-                        style="font-size: 12px"
-                      ></i>
+                      @click.stop="toggleModuleVisibility(module)">
+                      <i class="fas" :class="moduleVisibility[module] ? 'fa-eye' : 'fa-eye-slash'"
+                        style="font-size: 12px"></i>
                     </button>
                   </div>
                 </div>
-                <button
-                  class="btn btn-primary btn-sm"
-                  style="
+                <button class="btn btn-primary btn-sm" style="
                     width: 100%;
                     margin-top: 16px;
                     height: 36px;
                     font-size: 13px;
                     font-weight: 600;
-                  "
-                  @click="saveSettings"
-                >
+                  " @click="saveSettings">
                   <i class="fas fa-save"></i> 应用排序与可见性
                 </button>
               </div>
 
               <!-- 右侧列：组合多个独立功能卡片 -->
               <div style="display: flex; flex-direction: column; gap: 20px">
+                <!-- 移动端专用振动开关 -->
+                <div class="mobile-vibration-group" style="display: none;">
+                  <div style="display: flex; align-items: center; justify-content: space-between">
+                    <div>
+                      <div style="font-size: 14px; font-weight: 600; color: var(--text-primary)">
+                        触感反馈 (震动)
+                      </div>
+                      <div style="font-size: 11px; color: var(--text-tertiary); margin-top: 2px">
+                        点击交互元素提供震动反馈
+                      </div>
+                    </div>
+                    <label class="switch">
+                      <input type="checkbox" v-model="vibrationEnabled" @change="saveUserSettingsToServer" />
+                      <span class="slider round"></span>
+                    </label>
+                  </div>
+                </div>
+
                 <!-- 界面布局卡片 (手机端隐藏，PC端可选) -->
                 <div class="settings-group pc-only" style="margin-bottom: 0; flex: 1">
                   <div class="settings-group-title">
@@ -708,14 +491,11 @@
                   </div>
 
                   <!-- 震动反馈开关 (移动端) -->
-                  <div
-                    class="form-group"
-                    style="
+                  <div class="form-group" style="
                       margin-bottom: 20px;
                       padding-bottom: 12px;
                       border-bottom: 1px dashed var(--border-color);
-                    "
-                  >
+                    ">
                     <div style="display: flex; align-items: center; justify-content: space-between">
                       <div>
                         <div style="font-size: 14px; font-weight: 600; color: var(--text-primary)">
@@ -726,11 +506,7 @@
                         </div>
                       </div>
                       <label class="switch">
-                        <input
-                          type="checkbox"
-                          v-model="vibrationEnabled"
-                          @change="saveUserSettingsToServer"
-                        />
+                        <input type="checkbox" v-model="vibrationEnabled" @change="saveUserSettingsToServer" />
                         <span class="slider round"></span>
                       </label>
                     </div>
@@ -738,32 +514,20 @@
 
                   <div class="settings-description">选择主功能模块导航栏的显示位置。</div>
                   <div class="form-group" style="margin-top: 16px">
-                    <label class="form-label" style="font-size: 13px; font-weight: 600"
-                      >导航栏显示位置</label
-                    >
+                    <label class="form-label" style="font-size: 13px; font-weight: 600">导航栏显示位置</label>
                     <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px">
-                      <button
-                        class="btn btn-sm"
-                        :class="navLayout === 'top' ? 'btn-primary' : 'btn-secondary'"
-                        @click="navLayout = 'top'; saveUserSettingsToServer()"
-                        style="height: 40px; font-size: 12px"
-                      >
+                      <button class="btn btn-sm" :class="navLayout === 'top' ? 'btn-primary' : 'btn-secondary'"
+                        @click="navLayout = 'top'; saveUserSettingsToServer()" style="height: 40px; font-size: 12px">
                         <i class="fas fa-grip-lines" style="margin-right: 4px"></i> 顶部
                       </button>
-                      <button
-                        class="btn btn-sm"
+                      <button class="btn btn-sm"
                         :class="navLayout === 'bottom-normal' ? 'btn-primary' : 'btn-secondary'"
                         @click="navLayout = 'bottom-normal'; saveUserSettingsToServer()"
-                        style="height: 40px; font-size: 12px"
-                      >
+                        style="height: 40px; font-size: 12px">
                         <i class="fas fa-grip-lines" style="margin-right: 4px"></i> 底部
                       </button>
-                      <button
-                        class="btn btn-sm"
-                        :class="navLayout === 'bottom' ? 'btn-primary' : 'btn-secondary'"
-                        @click="navLayout = 'bottom'; saveUserSettingsToServer()"
-                        style="height: 40px; font-size: 12px"
-                      >
+                      <button class="btn btn-sm" :class="navLayout === 'bottom' ? 'btn-primary' : 'btn-secondary'"
+                        @click="navLayout = 'bottom'; saveUserSettingsToServer()" style="height: 40px; font-size: 12px">
                         <i class="fas fa-capsules" style="margin-right: 4px"></i> 胶囊
                       </button>
                     </div>
@@ -776,65 +540,49 @@
                     <i class="fas fa-bolt" style="color: #f59e0b"></i> CDN 加速状态
                   </div>
                   <div class="settings-description">静态资源加速服务当前运行状态。</div>
-                  <div
-                    style="
+                  <div style="
                       background: var(--bg-tertiary);
                       border-radius: 12px;
                       padding: 10px;
                       margin-top: 12px;
                       border: 1px solid var(--border-color);
-                    "
-                  >
-                    <div
-                      style="
+                    ">
+                    <div style="
                         display: flex;
                         align-items: center;
                         justify-content: space-between;
                         margin-bottom: 12px;
-                      "
-                    >
+                      ">
                       <span style="font-size: 13px; color: var(--text-secondary)">服务状态</span>
-                      <span
-                        v-if="cdnEnabled"
-                        class="status-badge"
-                        style="
+                      <span v-if="cdnEnabled" class="status-badge" style="
                           background: rgba(16, 185, 129, 0.15);
                           color: #10b981;
                           font-size: 11px;
                           padding: 2px 8px;
                           border-radius: 6px;
-                        "
-                      >
+                        ">
                         <i class="fas fa-check-circle" style="margin-right: 4px"></i> 已启用
                       </span>
-                      <span
-                        v-else
-                        class="status-badge"
-                        style="
+                      <span v-else class="status-badge" style="
                           background: rgba(107, 114, 128, 0.15);
                           color: #6b7280;
                           font-size: 11px;
                           padding: 2px 8px;
                           border-radius: 6px;
-                        "
-                      >
+                        ">
                         <i class="fas fa-times-circle" style="margin-right: 4px"></i> 已禁用
                       </span>
                     </div>
-                    <div
-                      v-if="cdnEnabled"
-                      style="
+                    <div v-if="cdnEnabled" style="
                         display: flex;
                         align-items: center;
                         justify-content: space-between;
                         padding-top: 10px;
                         border-top: 1px dashed var(--border-color);
-                      "
-                    >
+                      ">
                       <span style="font-size: 13px; color: var(--text-secondary)">加速节点</span>
-                      <span style="font-size: 13px; font-weight: 700; color: var(--primary-color)"
-                        >{{ cdnProvider }}</span
-                      >
+                      <span style="font-size: 13px; font-weight: 700; color: var(--primary-color)">{{ cdnProvider
+                        }}</span>
                     </div>
                   </div>
                 </div>
@@ -846,12 +594,8 @@
               <div class="settings-group-title" style="font-size: 16px">
                 <i class="fas fa-paint-brush"></i> 自定义样式 (CSS)
               </div>
-              <textarea
-                v-model="customCss"
-                class="form-textarea code-font"
-                placeholder="/* 在此处输入 CSS 代码 */"
-                style="min-height: 80px"
-              ></textarea>
+              <textarea v-model="customCss" class="form-textarea code-font" placeholder="/* 在此处输入 CSS 代码 */"
+                style="min-height: 80px"></textarea>
               <div v-if="customCssError" class="form-error" style="margin-top: 8px">
                 {{ customCssError }}
               </div>
@@ -874,125 +618,90 @@
           <div v-if="settingsCurrentTab === 'about'" class="settings-tab-content fade-in">
             <div class="settings-group" style="text-align: center">
               <div class="about-logo">
-                <img
-                  src="./logo.svg"
-                  alt="Logo"
-                  style="width: 100%; height: 100%; object-fit: contain"
-                />
+                <img src="./logo.svg" alt="Logo" style="width: 100%; height: 100%; object-fit: contain" />
               </div>
-              <div
-                style="
+              <div style="
                   font-size: 24px;
                   font-weight: 800;
                   color: var(--text-primary);
                   margin-bottom: 8px;
-                "
-              >
+                ">
                 API Monitor
               </div>
               <div style="font-size: 14px; color: var(--text-tertiary); margin-bottom: 24px">
                 Version β
               </div>
 
-              <div
-                style="
+              <div style="
                   display: grid;
                   grid-template-columns: repeat(2, 1fr);
                   gap: 12px;
                   max-width: 400px;
                   margin: 0 auto;
                   text-align: left;
-                "
-              >
-                <div
-                  style="
+                ">
+                <div style="
                     background: var(--bg-secondary);
                     padding: 10px;
                     border-radius: 12px;
                     border: 1px solid var(--border-color);
-                  "
-                >
-                  <div
-                    style="font-size: 11px; color: var(--text-tertiary); text-transform: uppercase"
-                  >
+                  ">
+                  <div style="font-size: 11px; color: var(--text-tertiary); text-transform: uppercase">
                     核心架构
                   </div>
                   <div style="font-weight: 600; margin-top: 4px">DEBUG Engine</div>
                 </div>
-                <div
-                  style="
+                <div style="
                     background: var(--bg-secondary);
                     padding: 10px;
                     border-radius: 12px;
                     border: 1px solid var(--border-color);
-                  "
-                >
-                  <div
-                    style="font-size: 11px; color: var(--text-tertiary); text-transform: uppercase"
-                  >
+                  ">
+                  <div style="font-size: 11px; color: var(--text-tertiary); text-transform: uppercase">
                     AI 适配层
                   </div>
                   <div style="font-weight: 600; margin-top: 4px">CloudCode Protocol</div>
                 </div>
-                <div
-                  style="
+                <div style="
                     background: var(--bg-secondary);
                     padding: 10px;
                     border-radius: 12px;
                     border: 1px solid var(--border-color);
-                  "
-                >
-                  <div
-                    style="font-size: 11px; color: var(--text-tertiary); text-transform: uppercase"
-                  >
+                  ">
+                  <div style="font-size: 11px; color: var(--text-tertiary); text-transform: uppercase">
                     运行环境
                   </div>
                   <div style="font-weight: 600; margin-top: 4px">node js</div>
                 </div>
-                <div
-                  style="
+                <div style="
                     background: var(--bg-secondary);
                     padding: 10px;
                     border-radius: 12px;
                     border: 1px solid var(--border-color);
-                  "
-                >
-                  <div
-                    style="font-size: 11px; color: var(--text-tertiary); text-transform: uppercase"
-                  >
+                  ">
+                  <div style="font-size: 11px; color: var(--text-tertiary); text-transform: uppercase">
                     项目主页
                   </div>
                   <div style="font-weight: 600; margin-top: 4px">
-                    <a
-                      href="https://github.com/iwvw/API-Monitor"
-                      target="_blank"
-                      style="color: var(--primary-color); text-decoration: none"
-                    >
+                    <a href="https://github.com/iwvw/API-Monitor" target="_blank"
+                      style="color: var(--primary-color); text-decoration: none">
                       <i class="fab fa-github"></i> API-Monitor
                     </a>
                   </div>
                 </div>
               </div>
 
-              <div
-                style="
+              <div style="
                   margin-top: 32px;
                   border-top: 1px solid var(--border-color);
                   padding-top: 24px;
-                "
-              >
+                ">
                 <p style="font-size: 13px; color: var(--text-secondary); line-height: 1.6">
                   专业的 API 监控与分发管理系统，<br />
                   旨在为 AI 应用提供极致的稳定性与性能。<br />
-                  <span style="font-size: 11px; opacity: 0.6; margin-top: 8px; display: block"
-                    >Powered by
-                    <a
-                      href="https://github.com/iwvw/API-Monitor"
-                      target="_blank"
-                      style="color: inherit"
-                      >API-Monitor</a
-                    ></span
-                  >
+                  <span style="font-size: 11px; opacity: 0.6; margin-top: 8px; display: block">Powered by
+                    <a href="https://github.com/iwvw/API-Monitor" target="_blank"
+                      style="color: inherit">API-Monitor</a></span>
                 </p>
               </div>
             </div>
