@@ -507,11 +507,14 @@ async function retryWithUnblock(songId) {
 function updateCurrentLyricLine() {
   if (!store.musicLyrics.length || !audioPlayer) return;
 
-  // 增加 300ms 的视觉提前量，让歌词听起来更准
-  const currentTime = audioPlayer.currentTime * 1000 + 300;
+  // 动态视觉提前量：播放前 0.5s 不提前，防止首句歌词在还没响时就亮起
+  const currentTime =
+    audioPlayer.currentTime > 0.5
+      ? audioPlayer.currentTime * 1000 + 150
+      : audioPlayer.currentTime * 1000;
 
-  // 1. 查找当前行索引 (默认指向第一项，确保前奏时显示第一句)
-  let activeIndex = 0;
+  // 1. 查找当前行索引
+  let activeIndex = -1;
   for (let i = 0; i < store.musicLyrics.length; i++) {
     if (store.musicLyrics[i].time <= currentTime) {
       activeIndex = i;
@@ -520,18 +523,29 @@ function updateCurrentLyricLine() {
     }
   }
 
-  if (store.musicLyrics.length > 0) {
-    // 计算百分比
+  if (activeIndex >= 0 && store.musicLyrics.length > 0) {
     const currentLine = store.musicLyrics[activeIndex];
     const nextLine = store.musicLyrics[activeIndex + 1];
     const nextTime = nextLine ? nextLine.time : currentLine.time + 5000;
-    const duration = nextTime - currentLine.time;
+
+    const textLen = currentLine.text?.length || 1;
+    const gap = nextTime - currentLine.time;
+    const estimatedDuration = Math.min(gap * 0.85, textLen * 280, 5000);
+
     const elapsed = currentTime - currentLine.time;
 
-    if (duration > 0 && duration < 8000) {
-      store.musicCurrentLyricPercent = Math.min(100, Math.max(0, (elapsed / duration) * 100));
+    if (elapsed >= 0 && estimatedDuration > 0) {
+      // 纯音乐直接亮起，不走百分比进度
+      if (currentLine.text?.includes('纯音乐') || currentLine.text?.includes('Instrumental')) {
+        store.musicCurrentLyricPercent = 100;
+      } else {
+        store.musicCurrentLyricPercent = Math.min(
+          100,
+          Math.max(0, (elapsed / estimatedDuration) * 100)
+        );
+      }
     } else {
-      store.musicCurrentLyricPercent = 100;
+      store.musicCurrentLyricPercent = 0;
     }
 
     if (store.musicCurrentLyricIndex !== activeIndex) {
@@ -566,8 +580,9 @@ function updateCurrentLyricLine() {
         store.musicCurrentLyricTranslation = '';
       }
 
-      if (store.musicShowFullPlayer && !amllPlayer) {
-        scrollToCurrentLyric();
+      // 当打开了桌面端全屏（且没加载 AMLL）或者打开了移动端歌词模式时，触发原生滚动
+      if (store.mfpLyricsMode || (store.musicShowFullPlayer && !amllPlayer)) {
+        requestAnimationFrame(() => scrollToCurrentLyric());
       }
     }
   }
@@ -604,23 +619,27 @@ function startAmllUpdateLoop() {
  * 滚动歌词到中心位置
  */
 function scrollToCurrentLyric() {
-  // 延迟执行以确保 DOM 已更新
-  setTimeout(() => {
-    const container = document.querySelector('.full-lyrics-container');
-    if (!container) return;
+  const container =
+    document.querySelector('.mfp-lyrics-container') ||
+    document.querySelector('.full-lyrics-container');
+  if (!container) return;
 
-    const activeLine = container.querySelector('.lyric-line.active');
-    if (activeLine) {
-      const containerHeight = container.offsetHeight;
-      const lineOffset = activeLine.offsetTop;
-      const lineHeight = activeLine.offsetHeight;
+  const activeLine = container.querySelector('.lyric-line.active, .mfp-lyric-line.active');
+  if (activeLine) {
+    const containerHeight = container.offsetHeight;
+    const lineOffset = activeLine.offsetTop;
+    const lineHeight = activeLine.offsetHeight;
 
-      container.scrollTo({
-        top: lineOffset - containerHeight / 2 + lineHeight / 2,
-        behavior: 'smooth',
-      });
-    }
-  }, 10);
+    // 计算目标位置：让当前行处于容器约 35% 处，视觉更舒适
+    const targetScroll = lineOffset - containerHeight * 0.35 + lineHeight / 2;
+
+    // 使用 behavior: 'smooth' 配合合理的 CSS transition 可实现丝滑滚动
+    // 如果原生 behavior 依然不够丝滑，考虑改为手动步进动画，但目前先优化对齐位置
+    container.scrollTo({
+      top: targetScroll,
+      behavior: 'smooth',
+    });
+  }
 }
 
 /**
@@ -655,16 +674,61 @@ function parseLyrics(lrcText) {
 }
 
 /**
+ * 拆分歌词文本（用于逐字动画）
+ */
+function musicSplitLyricText(text) {
+  if (!text) return [];
+  // 如果是“纯音乐”字样，不拆分，直接返回全称以禁用逐字效果
+  if (text.includes('纯音乐') || text.includes('Instrumental')) {
+    return [text];
+  }
+  const isCJK = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff66-\uff9f]/.test(text);
+  if (isCJK) return text.split('');
+  return text.split(/(\s+)/).filter(s => s.length > 0);
+}
+
+/**
  * 音乐模块方法
  */
 export const musicMethods = {
+  musicSplitLyricText,
   /**
    * 获取可见的歌单曲目
    */
   getVisiblePlaylistTracks() {
     const detail = store.musicCurrentPlaylistDetail;
     if (!detail || !detail.tracks) return [];
-    return detail.tracks.slice(0, store.musicPlaylistVisibleCount || 50);
+
+    const ITEM_HEIGHT = 68;
+    const BUFFER = 8; // Buffer count
+    const scrollTop = store.musicVirtualScrollTop;
+    const containerHeight = store.musicPlaylistContainerHeight || 600;
+    const totalTracks = detail.tracks.length;
+
+    let start = Math.floor(scrollTop / ITEM_HEIGHT) - BUFFER;
+    start = Math.max(0, start);
+    let end = Math.floor((scrollTop + containerHeight) / ITEM_HEIGHT) + BUFFER;
+    end = Math.min(totalTracks, end);
+
+    // 存储当前的startIndex以便计算索引显示
+    store.musicVirtualStartIndex = start;
+
+    return detail.tracks.slice(start, end);
+  },
+
+  getPlaylistTotalHeight() {
+    const detail = store.musicCurrentPlaylistDetail;
+    if (!detail || !detail.tracks) return 0;
+    return detail.tracks.length * 68;
+  },
+
+  getPlaylistTranslateY() {
+    const ITEM_HEIGHT = 68;
+    const BUFFER = 8;
+    const scrollTop = store.musicVirtualScrollTop;
+    let start = Math.floor(scrollTop / ITEM_HEIGHT) - BUFFER;
+    start = Math.max(0, start);
+    return start * ITEM_HEIGHT;
   },
 
   /**
@@ -681,9 +745,13 @@ export const musicMethods = {
    */
   handlePlaylistScroll(event) {
     const el = event.target;
-    // 距离底部不足 200px 时加载更多
-    if (el.scrollHeight - el.scrollTop - el.clientHeight < 200) {
-      this.loadMorePlaylistTracks();
+    store.musicVirtualScrollTop = el.scrollTop;
+    // Update container height if changed significantly (throttle)
+    if (
+      el.clientHeight > 0 &&
+      Math.abs(store.musicPlaylistContainerHeight - el.clientHeight) > 10
+    ) {
+      store.musicPlaylistContainerHeight = el.clientHeight;
     }
   },
 
@@ -706,11 +774,43 @@ export const musicMethods = {
    * 重置懒加载状态（在打开新歌单时调用）
    */
   resetPlaylistLazyLoad() {
-    store.musicPlaylistVisibleCount = 50;
+    store.musicVirtualScrollTop = 0;
+    store.musicPlaylistVisibleCount = 50; // Keep for compatibility if needed elsewhere
+  },
+
+  getVirtualStartIndex() {
+    return store.musicVirtualStartIndex || 0;
   },
 
   /**
-   * 滚动到当前播放的歌曲
+   * 滚动到当前播放的歌曲 (移动端全屏播放器嵌入列表)
+   */
+  mfpScrollToCurrentSong() {
+    this.$nextTick(() => {
+      // 延迟执行确保DOM完全渲染
+      setTimeout(() => {
+        const container = document.querySelector('.mfp-playlist-container');
+        const activeItem = container?.querySelector('.mfp-playlist-item.active');
+        if (container && activeItem) {
+          // 使用 scrollTop 而非 scrollIntoView，避免影响父容器
+          const containerRect = container.getBoundingClientRect();
+          const itemRect = activeItem.getBoundingClientRect();
+          const targetScroll =
+            container.scrollTop +
+            (itemRect.top - containerRect.top) -
+            containerRect.height / 2 +
+            itemRect.height / 2;
+          container.scrollTo({
+            top: Math.max(0, targetScroll),
+            behavior: 'smooth',
+          });
+        }
+      }, 150);
+    });
+  },
+
+  /**
+   * 滚动到当前播放的歌曲 (通用抽屉)
    */
   scrollToCurrentSong() {
     this.$nextTick(() => {
@@ -861,15 +961,19 @@ export const musicMethods = {
       this.musicLoadLyrics(store.musicCurrentSong.id);
     }
 
-    // 递归查找容器的助手函数
+    // 递归查找容器的助手函数（支持桌面端和移动端）
     const findContainer = () => {
+      // 移动端优先查找 mfp-lyrics-container
+      const mfpContainer = document.querySelector('.mfp-lyrics-container');
+      if (mfpContainer) return mfpContainer;
+      // 桌面端使用 full-lyrics-container
       return document.querySelector('.full-lyrics-container');
     };
 
     // 延迟初始化 AMLL，确保容器已渲染
     setTimeout(async () => {
-      // 初始化歌词播放器
-      if (!amllPlayer) {
+      // 仅在 PC 端或模拟器大屏模式下初始化 AMLL
+      if (!amllPlayer && window.innerWidth >= 768) {
         try {
           const amllCore = await import('@applemusic-like-lyrics/core');
           const { LyricPlayer } = amllCore;
@@ -920,9 +1024,9 @@ export const musicMethods = {
       // 无论是否刚初始化，都要启动更新循环
       startAmllUpdateLoop();
 
-      // 每次打开都确保 AMLL 元素在容器中
+      // 每次打开都确保 AMLL 元素在容器中（仅限 PC 端）
       const container = findContainer();
-      if (amllPlayer && container) {
+      if (amllPlayer && container && window.innerWidth >= 768) {
         const el = amllPlayer.getElement();
         if (!container.contains(el)) {
           container.innerHTML = '';
@@ -951,6 +1055,22 @@ export const musicMethods = {
         }, 300);
       }
     }, 300);
+  },
+
+  /**
+   * 移动端歌词模式准备 (不再使用 AMLL)
+   */
+  async mfpMountLyrics() {
+    // 检查是否需要下载歌词
+    if (store.musicCurrentSong && (!store.musicLyrics || store.musicLyrics.length === 0)) {
+      this.musicLoadLyrics(store.musicCurrentSong.id);
+    }
+
+    // 开启同步循环即可，原生 Vue 会处理渲染
+    startAmllUpdateLoop();
+
+    // 立即执行一次滚动对齐
+    setTimeout(() => scrollToCurrentLyric(), 100);
   },
 
   /**
@@ -1265,6 +1385,10 @@ export const musicMethods = {
     store.musicLyrics = [];
     store.musicLyricsTranslation = [];
 
+    // 切歌时立即重置滚动条位置，防止歌词从奇怪的位置滑上来
+    const container = document.querySelector('.mfp-lyrics-container');
+    if (container) container.scrollTop = 0;
+
     // 添加到播放列表（如果不存在）
     if (!store.musicPlaylist.find(s => s.id === song.id)) {
       store.musicPlaylist.push(song);
@@ -1448,7 +1572,8 @@ export const musicMethods = {
   musicStartDrag(event) {
     if (!audioPlayer || !store.musicDuration) return;
 
-    const bar = document.querySelector('.bar-progress');
+    // 使用 currentTarget 获取触发的进度条元素，支持多个不同的进度条
+    const bar = event.currentTarget || document.querySelector('.bar-progress');
     if (!bar) return;
 
     // 缓存 Rect 避免拖动中触发 Layout Reflow
@@ -1544,23 +1669,27 @@ export const musicMethods = {
   },
 
   /**
-   * 切换循环模式
+   * 切换顺序播放/随机播放 (左侧按钮)
    */
-  musicToggleRepeat() {
-    const modes = ['none', 'all', 'one'];
-    const currentIndex = modes.indexOf(store.musicRepeatMode);
-    store.musicRepeatMode = modes[(currentIndex + 1) % modes.length];
-
-    const modeNames = { none: '顺序播放', all: '列表循环', one: '单曲循环' };
-    toast.info(modeNames[store.musicRepeatMode]);
+  musicToggleShuffleAndOrder() {
+    store.musicShuffleEnabled = !store.musicShuffleEnabled;
+    if (store.musicShuffleEnabled) {
+      toast.info('随机播放已开启');
+    } else {
+      toast.info('顺序播放');
+    }
+    savePlayState(); // 强制保存状态
   },
 
   /**
-   * 切换随机播放
+   * 切换列表循环/单曲循环 (右侧按钮)
    */
-  musicToggleShuffle() {
-    store.musicShuffleEnabled = !store.musicShuffleEnabled;
-    toast.info(store.musicShuffleEnabled ? '随机播放已开启' : '随机播放已关闭');
+  musicToggleRepeatModes() {
+    // 强制在 all 和 one 之间切换
+    store.musicRepeatMode = store.musicRepeatMode === 'one' ? 'all' : 'one';
+    const names = { all: '列表循环', one: '单曲循环' };
+    toast.info(names[store.musicRepeatMode]);
+    savePlayState(); // 强制保存状态
   },
 
   /**
@@ -1577,15 +1706,26 @@ export const musicMethods = {
       const lrcText = data.lrc?.lyric || '';
       const tlyricText = data.tlyric?.lyric || ''; // 翻译歌词
 
-      store.musicLyrics = parseLyrics(lrcText);
-      store.musicLyricsTranslation = parseLyrics(tlyricText);
-      store.musicCurrentLyricIndex = -1; // 保持 -1，由更新循环或下方手动调用同步第一句
+      const rawLyrics = parseLyrics(lrcText);
+      const rawTrans = parseLyrics(tlyricText);
+
+      // 合并原文与翻译，供手机端原生渲染
+      store.musicLyrics = rawLyrics.map(line => {
+        const trans = rawTrans.find(t => Math.abs(t.time - line.time) < 1000);
+        return {
+          ...line,
+          trans: trans ? trans.text : '',
+        };
+      });
+
+      store.musicLyricsTranslation = rawTrans;
+      store.musicCurrentLyricIndex = -1;
 
       // 加载完立即同步一次文字，确保瞬时显示
       updateCurrentLyricLine();
 
-      // 同步到底层 AMLL 播放器
-      if (amllPlayer) {
+      // PC 端继续同步到 AMLL 播放器
+      if (amllPlayer && window.innerWidth >= 768) {
         amllPlayer.setLyricLines(transformToAMLL(store.musicLyrics, store.musicLyricsTranslation));
       }
     } catch (error) {
@@ -1918,8 +2058,14 @@ export const musicMethods = {
             duration: song.dt || 0,
           })),
         };
-        // 重置懒加载状态
+        // 重置虚拟列表状态
+        store.musicVirtualScrollTop = 0;
         store.musicPlaylistVisibleCount = 50;
+
+        // 确保 Vue DOM 更新后初始化 ResizeObserver，使虚拟列表高度自适应
+        this.$nextTick(() => {
+          this.initPlaylistResizeObserver();
+        });
       }
     } catch (error) {
       console.error('[Music] Playlist detail error:', error);
@@ -1928,6 +2074,35 @@ export const musicMethods = {
     } finally {
       store.musicPlaylistDetailLoading = false;
     }
+  },
+
+  /**
+   * 初始化歌单列表的 ResizeObserver
+   */
+  initPlaylistResizeObserver() {
+    const el = this.$refs.musicSongList;
+    if (!el) return;
+
+    // 立即更新一次高度
+    if (el.clientHeight > 0) {
+      store.musicPlaylistContainerHeight = el.clientHeight;
+    }
+
+    // 防止重复创建
+    if (this._playlistResizeObserver) {
+      this._playlistResizeObserver.disconnect();
+    }
+
+    // 创建观察器，当容器大小变化（如窗口调整、flex布局自适应）时更新高度
+    this._playlistResizeObserver = new ResizeObserver(entries => {
+      for (const entry of entries) {
+        if (entry.contentRect.height > 0) {
+          store.musicPlaylistContainerHeight = entry.contentRect.height;
+        }
+      }
+    });
+
+    this._playlistResizeObserver.observe(el);
   },
 
   /**
@@ -2342,6 +2517,31 @@ export const musicMethods = {
     } catch (e) {
       console.warn('[Music] Failed to restore play state:', e);
     }
+  },
+
+  /**
+   * 切换随机播放
+   */
+  musicToggleShuffle() {
+    store.musicShuffleEnabled = !store.musicShuffleEnabled;
+    toast.info(store.musicShuffleEnabled ? '随机播放' : '顺序播放');
+  },
+
+  /**
+   * 切换循环模式 (off -> all -> one)
+   */
+  musicToggleRepeat() {
+    const modes = ['off', 'all', 'one'];
+    const current = store.musicRepeatMode || 'off';
+    const nextIndex = (modes.indexOf(current) + 1) % modes.length;
+    store.musicRepeatMode = modes[nextIndex];
+
+    const messages = {
+      off: '不循环',
+      all: '列表循环',
+      one: '单曲循环',
+    };
+    toast.info(messages[store.musicRepeatMode]);
   },
 };
 

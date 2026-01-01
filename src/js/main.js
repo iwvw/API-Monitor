@@ -99,7 +99,7 @@ import { musicMethods } from './modules/music.js';
 import { formatDateTime, formatFileSize, maskAddress, formatRegion } from './modules/utils.js';
 
 // 导入全局状态
-import { store, MODULE_GROUPS } from './store.js';
+import { store, MODULE_CONFIG, MODULE_GROUPS } from './store.js';
 import { computed } from 'vue';
 
 // 导入 Composables
@@ -1396,54 +1396,63 @@ const app = createApp({
 
     /**
      * 检测单页模式 - 通过 URL 路径直接访问特定模块
-     * 支持路径: /2FA, /totp, /hosts, /server, /dns, /paas, /openai, /antigravity, /gemini-cli, /self-h
+     * 支持格式: /s/模块名 (使用 MODULE_CONFIG 中的 name 或 shortName)
+     * 例如: /s/AntiG, /s/2FA, /s/Hosts, /s/OpenAI
      */
     detectSinglePageMode() {
-      const path = window.location.pathname.toLowerCase().replace(/^\//, '');
+      const pathname = window.location.pathname;
+      console.log('[SinglePageMode] 检测路径:', pathname);
 
-      // 路径别名映射
-      const pathAliases = {
-        hosts: 'server',
-        '2fa': 'totp',
-      };
+      // 优先检测 /s/:module 格式 (单页模式专用路由)
+      const singlePageMatch = pathname.match(/^\/s\/([^/]+)/i);
+      if (!singlePageMatch) {
+        console.log('[SinglePageMode] 非单页模式路径');
+        return;
+      }
 
-      // 将路径转为实际的 tab 名称
-      const tabName = pathAliases[path] || path;
+      const rawModuleName = singlePageMatch[1];
+      console.log('[SinglePageMode] 匹配到模块名:', rawModuleName);
 
-      // 直接使用 mainActiveTab 值作为路径
-      const validTabs = [
-        'dashboard',
-        'openai',
-        'antigravity',
-        'gemini-cli',
-        'paas',
-        'dns',
-        'self-h',
-        'server',
-        'totp',
-        'music',
-      ];
+      // 从 MODULE_CONFIG 构建名称到模块 ID 的映射
+      // 支持 name、shortName 和模块 ID 本身（不区分大小写）
+      const nameToModuleId = {};
+      for (const [moduleId, config] of Object.entries(MODULE_CONFIG)) {
+        // 模块 ID 本身
+        nameToModuleId[moduleId.toLowerCase()] = moduleId;
+        // name 属性
+        if (config.name) {
+          nameToModuleId[config.name.toLowerCase()] = moduleId;
+        }
+        // shortName 属性
+        if (config.shortName) {
+          nameToModuleId[config.shortName.toLowerCase()] = moduleId;
+        }
+      }
 
-      if (tabName && validTabs.includes(tabName)) {
-        store.singlePageMode = true;
-        store.mainActiveTab = tabName;
+      console.log('[SinglePageMode] 可用映射:', Object.keys(nameToModuleId));
+
+      // 匹配模块
+      const moduleName = rawModuleName.toLowerCase();
+      const moduleId = nameToModuleId[moduleName];
+
+      if (moduleId) {
+        // 使用 this 访问响应式状态确保 Vue 能感知变化
+        this.singlePageMode = true;
+        this.mainActiveTab = moduleId;
+        // 添加到 html 和 body，确保与 head 中的脚本一致
+        document.documentElement.classList.add('single-page-mode');
         document.body.classList.add('single-page-mode');
-        console.log(`[SinglePageMode] 已激活: /${path} -> ${tabName}`);
 
-        // 更新页面标题
-        const titles = {
-          openai: 'OpenAI API',
-          antigravity: 'Antigravity',
-          'gemini-cli': 'Gemini CLI',
-          paas: 'PaaS 监控',
-          dns: 'DNS 管理',
-          'self-h': 'Self-Hosted',
-          server: '主机管理',
-          totp: '2FA 验证器',
-          music: '音乐播放器',
-          dashboard: '仪表盘',
-        };
-        document.title = `API Monitor - ${titles[tabName] || tabName}`;
+        // 获取模块配置用于标题
+        const config = MODULE_CONFIG[moduleId];
+        const title = config ? config.name : moduleId;
+        document.title = `API Monitor - ${title}`;
+
+        console.log(`[SinglePageMode] ✅ 已激活单页模式: /s/${rawModuleName} -> ${moduleId}`);
+        console.log('[SinglePageMode] mainActiveTab =', this.mainActiveTab);
+        console.log('[SinglePageMode] singlePageMode =', this.singlePageMode);
+      } else {
+        console.warn(`[SinglePageMode] ❌ 未找到模块: ${rawModuleName}`);
       }
     },
 

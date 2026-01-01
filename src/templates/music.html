@@ -75,12 +75,24 @@
         <template v-if="musicUser">
           <div class="user-pill-wrapper" style="position: relative">
             <div class="user-pill" @click="musicShowUserDropdown = !musicShowUserDropdown">
-              <img loading="lazy" :src="musicUser.avatarUrl" :alt="musicUser.nickname + '的头像'" />
+              <img
+                loading="lazy"
+                :src="musicUser.avatarUrl"
+                :alt="musicUser.nickname + '的头像'"
+                width="32"
+                height="32"
+              />
             </div>
             <!-- User Dropdown -->
             <div v-if="musicShowUserDropdown" class="music-user-dropdown">
               <div class="dropdown-header">
-                <img loading="lazy" :src="musicUser.avatarUrl" class="dropdown-avatar" />
+                <img
+                  loading="lazy"
+                  :src="musicUser.avatarUrl"
+                  class="dropdown-avatar"
+                  width="36"
+                  height="36"
+                />
                 <span class="dropdown-name">{{ musicUser.nickname }}</span>
               </div>
               <div class="dropdown-stats">
@@ -117,7 +129,14 @@
         class="music-page-home sub-tab-content quick-fade-in"
       >
         <div class="library-header">
-          <img loading="lazy" v-if="musicUser" :src="musicUser.avatarUrl" class="header-avatar" />
+          <img
+            loading="lazy"
+            v-if="musicUser"
+            :src="musicUser.avatarUrl"
+            class="header-avatar"
+            width="48"
+            height="48"
+          />
           <div class="header-text">
             <h1>{{ musicUser ? musicUser.nickname : '欢迎使用音乐' }}</h1>
           </div>
@@ -199,7 +218,7 @@
                   @error="$event.target.src='https://p2.music.126.net/6y-UleORITEDbvrOLV0Q8A==/5639395138885805.jpg?param=300y300'"
                 />
                 <div class="wall-play-overlay"><i class="fas fa-play"></i></div>
-                <div class="play-count"><i class="fas fa-music"></i> {{ index + 1 }}</div>
+                <!-- <div class="play-count"><i class="fas fa-music"></i> {{ index + 1 }}</div> -->
               </div>
               <div class="wall-title">{{ song.name }}</div>
               <div class="wall-sub">{{ song.artists }}</div>
@@ -560,27 +579,34 @@
 
           <div ref="musicSongList" class="music-song-list" @scroll="handlePlaylistScroll">
             <div
-              v-for="(song, index) in (musicCurrentPlaylistDetail.tracks || []).slice(0, musicPlaylistVisibleCount)"
-              :key="song.id"
-              :class="{ playing: musicCurrentSong && song.id === musicCurrentSong.id }"
-              class="music-song-item"
-              tabindex="0"
-              @click="musicPlay(song)"
-              @keyup.enter="musicPlay(song)"
+              :style="{ height: getPlaylistTotalHeight() + 'px', position: 'relative', width: '100%' }"
             >
-              <div class="music-song-index">{{ index + 1 }}</div>
-              <div class="music-song-info">
-                <div class="music-song-name">{{ song.name }}</div>
-                <div class="music-song-artist">{{ song.artists }} - {{ song.album }}</div>
+              <div
+                :style="{ transform: 'translateY(' + getPlaylistTranslateY() + 'px)', width: '100%' }"
+              >
+                <div
+                  v-for="(song, index) in getVisiblePlaylistTracks()"
+                  :key="song.id"
+                  :class="{ playing: musicCurrentSong && song.id === musicCurrentSong.id }"
+                  class="music-song-item"
+                  tabindex="0"
+                  @click="musicPlay(song)"
+                  @keyup.enter="musicPlay(song)"
+                >
+                  <img
+                    class="music-song-cover"
+                    loading="lazy"
+                    :src="(song.cover || 'https://p2.music.126.net/6y-UleORITEDbvrOLV0Q8A==/5639395138885805.jpg') + '?param=100y100'"
+                    @error="$event.target.src='https://p2.music.126.net/6y-UleORITEDbvrOLV0Q8A==/5639395138885805.jpg?param=100y100'"
+                    :alt="song.name"
+                  />
+                  <div class="music-song-info">
+                    <div class="music-song-name">{{ song.name }}</div>
+                    <div class="music-song-artist">{{ song.artists }} - {{ song.album }}</div>
+                  </div>
+                  <div class="song-duration">{{ formatMusicTime(song.duration) }}</div>
+                </div>
               </div>
-              <div class="song-duration">{{ formatMusicTime(song.duration) }}</div>
-            </div>
-            <!-- 加载更多指示器 -->
-            <div
-              v-if="musicPlaylistVisibleCount < (musicCurrentPlaylistDetail.tracks || []).length"
-              class="music-load-more"
-            >
-              <i class="fas fa-spinner fa-spin"></i> 滚动加载更多...
             </div>
           </div>
         </div>

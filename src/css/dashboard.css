@@ -21,6 +21,7 @@
    Header Section
    ========================================= */
 .dashboard-header {
+  padding-bottom: 10px;
   display: flex;
   justify-content: space-between;
   align-items: flex-end;
@@ -1279,22 +1280,368 @@
   transform: rotate(180deg);
 }
 
-/* Mobile Adaptation */
+/* =========================================
+   Mobile Adaptation (Full Optimization)
+   ========================================= */
 @media (max-width: 768px) {
+  /* --- Root Variables Override --- */
+  :root {
+    --dashboard-grid-gap: 8px;
+    --card-padding: 10px;
+    --card-radius: 12px;
+  }
+
+  /* --- Header: Stack Layout --- */
+  .dashboard-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    margin-bottom: 16px;
+    padding-bottom: 0;
+  }
+
+  .header-left {
+    text-align: left;
+  }
+
+  .dashboard-header h1 {
+    font-size: 20px;
+  }
+
+  .dashboard-header .subtitle {
+    font-size: 11px;
+    margin-top: 2px;
+  }
+
+  .header-right {
+    justify-content: space-between;
+    width: 100%;
+  }
+
+  .last-update {
+    flex: 1;
+    justify-content: center;
+    height: 36px;
+    font-size: 11px;
+    padding: 0 12px;
+  }
+
+  .btn-refresh-all {
+    height: 36px;
+    padding: 0 14px;
+    font-size: 12px;
+    border-radius: 18px;
+  }
+
+  .btn-refresh-all span {
+    display: none;
+    /* 只显示图标 */
+  }
+
+  /* --- Stats Grid: 2 Columns --- */
+  .stats-overview-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: var(--dashboard-grid-gap);
+    margin-bottom: var(--dashboard-grid-gap);
+  }
+
+  /* --- Overview Cards: Redesigned Mobile Layout --- */
+  .overview-card {
+    padding: 10px 12px !important;
+    border-radius: 12px !important;
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    gap: 10px !important;
+    position: relative !important;
+  }
+
+  /* Icon 放左侧 */
+  .card-top {
+    position: static !important;
+    margin: 0 !important;
+    order: -1 !important;
+    flex-shrink: 0 !important;
+  }
+
+  /* Badge 叠加在右上角 */
+  .trend-badge {
+    position: absolute !important;
+    top: 6px !important;
+    right: 8px !important;
+    font-size: 8px !important;
+    padding: 2px 6px !important;
+    height: auto !important;
+  }
+
+  .icon-box {
+    width: 32px !important;
+    height: 32px !important;
+    border-radius: 8px !important;
+    font-size: 14px !important;
+  }
+
+  /* 主内容区域 */
+  .card-main-content {
+    flex: 1 !important;
+    min-width: 0 !important;
+    gap: 2px !important;
+  }
+
+  .card-label {
+    font-size: 10px !important;
+  }
+
+  .card-value {
+    font-size: 18px !important;
+    gap: 3px !important;
+    line-height: 1.1 !important;
+  }
+
+  .card-unit {
+    font-size: 9px !important;
+  }
+
+  /* Footer 隐藏或简化 */
+  .card-footer {
+    display: none !important;
+  }
+
+  .card-icon-large {
+    display: none !important;
+  }
+
+  /* --- Main Layout: Single Column --- */
+  .dashboard-main-layout {
+    grid-template-columns: 1fr !important;
+    gap: var(--dashboard-grid-gap) !important;
+  }
+
+  /* --- Detail Cards: Ultra Compact --- */
+  .detail-card {
+    padding: 12px;
+    border-radius: 12px;
+  }
+
+  .detail-header {
+    margin-bottom: 10px;
+    padding-bottom: 8px;
+  }
+
+  .detail-header h3 {
+    font-size: 13px;
+    gap: 6px;
+  }
+
+  .detail-header h3 i {
+    font-size: 13px;
+  }
+
+  /* --- Music Widget: 移动端隐藏（使用迷你播放器代替） --- */
+  .music-widget-wrapper {
+    display: none !important;
+  }
+
+  .music-content-layer {
+    padding: 10px 12px !important;
+    gap: 10px !important;
+    padding-left: 12px !important;
+  }
+
+  .music-cover-large {
+    width: 70px !important;
+    height: 70px !important;
+    border-radius: 8px !important;
+    flex-shrink: 0 !important;
+  }
+
+  .music-info-col {
+    gap: 4px !important;
+    min-width: 0 !important;
+  }
+
+  .music-title {
+    font-size: 14px !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+  }
+
+  .music-artist {
+    font-size: 11px !important;
+    margin-bottom: 6px !important;
+  }
+
+  .music-controls {
+    gap: 8px !important;
+  }
+
+  .btn-control-circle {
+    width: 28px !important;
+    height: 28px !important;
+    font-size: 11px !important;
+  }
+
+  .btn-control-circle.play {
+    width: 36px !important;
+    height: 36px !important;
+    font-size: 14px !important;
+  }
+
+  /* 移动端始终显示控制按钮 */
+  .music-widget-wrapper .music-controls,
+  .music-widget-wrapper .music-status-container {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(0);
+  }
+
+  .music-status-container {
+    top: 6px !important;
+    right: 8px !important;
+    gap: 4px !important;
+  }
+
+  .music-playing-badge,
   .music-swap-btn {
-    /* Keep consistent */
+    height: 18px !important;
+    padding: 0 6px !important;
+    font-size: 8px !important;
+    border-radius: 4px !important;
+  }
+
+  .music-swap-btn i {
+    font-size: 8px !important;
+  }
+
+  .music-mini-lyric {
+    display: none !important;
+  }
+
+  /* --- API Stats: Ultra Compact --- */
+  .api-stats-row {
+    grid-template-columns: repeat(2, 1fr);
+    /* 保持2列 */
+    gap: 8px;
+  }
+
+  .api-stat-group {
+    padding: 10px;
+    border-radius: 8px;
+  }
+
+  .api-stat-header {
+    margin-bottom: 4px;
+  }
+
+  .api-name {
+    font-size: 11px;
+  }
+
+  .api-detail-val {
+    font-size: 15px;
+  }
+
+  .api-stat-group > div:nth-child(2) {
+    font-size: 10px !important;
+    /* 总调用次数 */
+  }
+
+  .api-progress-track {
+    height: 4px;
+    margin-top: 6px;
+  }
+
+  /* --- PaaS List: 2x2 Grid --- */
+  .paas-list {
+    display: grid !important;
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 8px !important;
+  }
+
+  .paas-item {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    justify-content: space-between !important;
+    padding: 10px !important;
+    border-radius: 10px !important;
+    background: var(--bg-secondary) !important;
+  }
+
+  .paas-info {
+    display: flex !important;
+    align-items: center !important;
+    gap: 8px !important;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .paas-logo-box {
+    width: 28px !important;
+    height: 28px !important;
+    min-width: 28px !important;
+    border-radius: 8px !important;
+    font-size: 12px !important;
+  }
+
+  .paas-item-text {
+    min-width: 0;
+    flex: 1;
+  }
+
+  .paas-item-text h4 {
+    font-size: 11px !important;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .paas-item-text p {
+    font-size: 9px !important;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .paas-status-badge {
+    font-size: 11px !important;
+    padding: 2px 6px !important;
+    gap: 4px !important;
+    flex-shrink: 0;
+  }
+
+  .status-dot-mini {
+    width: 5px !important;
+    height: 5px !important;
   }
 }
 
-.music-swap-btn:active i {
-  transform: rotate(180deg);
-}
+/* --- Extra Small Screens (< 360px) --- */
+@media (max-width: 360px) {
+  .stats-overview-grid {
+    grid-template-columns: 1fr;
+    /* 单列 */
+  }
 
-/* 适配移动端 */
-@media (max-width: 768px) {
-  .music-swap-btn {
-    opacity: 0.9;
-    transform: translateY(0);
-    background: rgba(0, 0, 0, 0.2);
+  .dashboard-header h1 {
+    font-size: 18px;
+  }
+
+  .card-value {
+    font-size: 18px;
+  }
+
+  .music-widget-wrapper {
+    height: 120px;
+  }
+
+  .music-cover-large {
+    width: 80px;
+    height: 80px;
+  }
+
+  .music-title {
+    font-size: 14px;
   }
 }

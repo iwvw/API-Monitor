@@ -2,25 +2,48 @@
 
 /* ============================================================
    单页模式 (Single Page Mode) - 全面隐藏导航元素
+   访问路径: /s/模块名 (例如 /s/totp, /s/dns)
+   使用 html 选择器确保检测脚本在 head 中执行后立即生效
    ============================================================ */
-body.single-page-mode .header,
-body.single-page-mode .main-nav-container,
-body.single-page-mode .main-tabs,
-body.single-page-mode .main-tabs-sidebar,
-body.single-page-mode .btn-settings-toggle,
-body.single-page-mode .btn-settings-pc-bottom {
+
+/* 隐藏所有导航相关元素 */
+html.single-page-mode .header,
+html.single-page-mode .top-nav-bar,
+html.single-page-mode .nav-brand,
+html.single-page-mode .main-nav-container,
+html.single-page-mode .main-tabs,
+html.single-page-mode .main-tabs-grouped,
+html.single-page-mode .main-tabs-sidebar,
+html.single-page-mode .nav-group,
+html.single-page-mode .nav-group-btn,
+html.single-page-mode .nav-settings-btn,
+html.single-page-mode .btn-settings-toggle,
+html.single-page-mode .btn-settings-pc-bottom {
   display: none !important;
   visibility: hidden !important;
+  height: 0 !important;
+  overflow: hidden !important;
 }
 
 /* 单页模式下容器无需底部边距（底部导航已隐藏） */
-body.single-page-mode .container {
+html.single-page-mode .container {
   padding-bottom: 12px !important;
+  padding-top: 12px !important;
+}
+
+/* 单页模式下迷你播放器沉底（因为底部导航栏已隐藏） */
+html.single-page-mode .mini-player {
+  bottom: calc(5px + env(safe-area-inset-bottom, 0)) !important;
+}
+
+/* 单页模式下有迷你播放器时调整容器底部间距 */
+html.single-page-mode:has(.mini-player) .container {
+  padding-bottom: calc(70px + env(safe-area-inset-bottom, 0)) !important;
 }
 
 /* 单页模式下移除 sec-tabs 的顶部边距 */
-body.single-page-mode .sec-tabs,
-body.single-page-mode [class*='-sec-tabs'] {
+html.single-page-mode .sec-tabs,
+html.single-page-mode [class*='-sec-tabs'] {
   margin-top: 8px !important;
 }
 
@@ -30,30 +53,1055 @@ body.single-page-mode [class*='-sec-tabs'] {
     display: none;
   }
 
-  /* --- 主标签栏底部导航 - 贴边全宽式 --- */
+  /* --- 核心布局修复：强制全屏高度 --- */
+  html,
+  body,
+  #app,
+  .app-wrapper,
+  .app-main {
+    height: 100% !important;
+    overflow: hidden !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* 确保容器填满并处理 Flex 布局 */
+  .container {
+    height: 100% !important;
+    display: flex !important;
+    flex-direction: column !important;
+    overflow: hidden !important;
+    box-sizing: border-box !important;
+  }
+
+  /* 音乐模块强制撑满 */
+  .music-module {
+    height: 100% !important;
+    display: flex !important;
+    flex-direction: column !important;
+    overflow: hidden !important;
+  }
+
+  /* 确保详情页父容器也撑满 */
+  .music-playlist-detail-page {
+    flex: 1 !important;
+    height: 100% !important;
+    display: flex !important;
+    flex-direction: column !important;
+    overflow: hidden !important;
+  }
+
+  /* 修正内容区域高度 */
+  .music-detail-content {
+    flex: 1 !important;
+    height: auto !important;
+    /* 覆盖原来的 height: 0 */
+    min-height: 0 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    /* 移动端改为上下布局 */
+    overflow: hidden !important;
+  }
+
+  /* 左侧信息区（封面等）不再固定宽度，而是自适应 */
+  .music-detail-info {
+    width: 100% !important;
+    flex-shrink: 0 !important;
+    padding-bottom: 0 !important;
+  }
+
+  /* 歌曲列表区域撑满剩余空间 */
+  .music-song-list {
+    flex: 1 !important;
+    height: 100% !important;
+    width: 100% !important;
+    overflow-y: auto !important;
+    padding-bottom: 120px !important;
+    /* 保持底部留白 */
+  }
+
+  /* --- 主标签栏底部导航 - 跨浏览器一致性 --- */
   .main-tabs {
     position: fixed !important;
     bottom: 0 !important;
     left: 0 !important;
     right: 0 !important;
     z-index: 1000 !important;
+
+    /* 
+     * 背景策略：使用不透明背景，避免透出黑边
+     * 如需毛玻璃效果，可改为半透明但需确保底部有内容填充
+     */
     background: var(--bg-primary) !important;
-    backdrop-filter: blur(20px) saturate(180%) !important;
-    -webkit-backdrop-filter: blur(20px) saturate(180%) !important;
+
+    /* 边框 */
     border: none !important;
     border-top: 1px solid var(--border-color) !important;
     border-radius: 0 !important;
+
+    /* 
+     * 安全区域适配：
+     * constant() - iOS 11.0-11.2
+     * env() - iOS 11.2+ 及现代浏览器
+     */
     padding: 0 !important;
+    padding-bottom: constant(safe-area-inset-bottom) !important;
     padding-bottom: env(safe-area-inset-bottom, 0) !important;
+
     margin: 0 !important;
     gap: 0 !important;
     justify-content: space-around !important;
-    box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.1) !important;
+    box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.08) !important;
     min-height: 56px !important;
     height: auto !important;
     display: flex !important;
     flex-wrap: nowrap !important;
     align-items: stretch !important;
+  }
+
+  /* --- Apple Music 风格迷你播放器 --- */
+  .mini-player {
+    position: fixed !important;
+    bottom: calc(60px + env(safe-area-inset-bottom, 0)) !important;
+    left: 5px !important;
+    right: 5px !important;
+    z-index: 999 !important;
+    height: 56px !important;
+    background: var(--card-bg) !important;
+    border-radius: 12px !important;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15) !important;
+    display: flex !important;
+    align-items: center !important;
+    padding: 8px 12px 8px 8px !important;
+    gap: 10px !important;
+    cursor: pointer !important;
+    overflow: hidden !important;
+    border: 1px solid var(--border-color) !important;
+  }
+
+  .mini-player-cover {
+    width: 40px !important;
+    height: 40px !important;
+    border-radius: 6px !important;
+    object-fit: cover !important;
+    flex-shrink: 0 !important;
+  }
+
+  .mini-player-info {
+    flex: 1 !important;
+    min-width: 0 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 2px !important;
+  }
+
+  .mini-player-title {
+    font-size: 13px !important;
+    font-weight: 600 !important;
+    color: var(--text-primary) !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+  }
+
+  .mini-player-artist {
+    font-size: 11px !important;
+    color: var(--text-tertiary) !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+  }
+
+  .mini-player-controls {
+    display: flex !important;
+    align-items: center !important;
+    gap: 4px !important;
+    flex-shrink: 0 !important;
+  }
+
+  .mini-player-btn {
+    width: 36px !important;
+    height: 36px !important;
+    border: none !important;
+    background: transparent !important;
+    color: var(--text-primary) !important;
+    font-size: 16px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    cursor: pointer !important;
+    border-radius: 50% !important;
+    transition: background 0.2s !important;
+  }
+
+  .mini-player-btn:active {
+    background: var(--bg-tertiary) !important;
+  }
+
+  /* 进度条 */
+  .mini-player-progress {
+    position: absolute !important;
+    bottom: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    height: 2px !important;
+    background: var(--border-color) !important;
+  }
+
+  /* 有迷你播放器时调整内容区域底部间距 */
+  body:has(.mini-player) .container {
+    padding-bottom: calc(70px + env(safe-area-inset-bottom, 0) + 20px) !important;
+  }
+
+  /* 移动端隐藏音乐模块的桌面端底部播放栏 */
+  #app > .music-bottom-bar,
+  .music-bottom-bar {
+    display: none !important;
+    visibility: hidden !important;
+    height: 0 !important;
+    overflow: hidden !important;
+  }
+
+  /* 移动端每日推荐歌曲卡片紧凑样式 */
+  .music-main-content {
+    padding: 16px !important;
+    /* padding-bottom: 20px !important; */
+    width: 100% !important;
+    box-sizing: border-box !important;
+  }
+
+  /* 调整顶部 Tab 栏的间距以对齐内容 */
+  .music-sec-tabs {
+    padding: 16px !important;
+    margin-top: 8px !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+  }
+
+  .playlist-wall {
+    display: grid !important;
+    grid-template-columns: repeat(3, 1fr) !important;
+    gap: 10px !important;
+  }
+
+  /* 修复 grid 子项溢出问题 */
+  .wall-item {
+    min-width: 0 !important;
+    width: 100% !important;
+  }
+
+  /* 强制 1:1 封面 */
+  .wall-cover {
+    border-radius: 8px !important;
+    width: 100% !important;
+    padding-bottom: 100% !important;
+    /* 1:1 Aspect Ratio */
+    height: 0 !important;
+    position: relative !important;
+    overflow: hidden !important;
+  }
+
+  .wall-cover img {
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
+    object-fit: cover !important;
+  }
+
+  .wall-title {
+    font-size: 12px !important;
+    margin-top: 6px !important;
+  }
+
+  .wall-sub {
+    font-size: 10px !important;
+    margin-top: 2px !important;
+  }
+
+  /* 移动端歌单详情页紧凑左右布局 */
+  .music-detail-info {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: center !important;
+    gap: 16px !important;
+    text-align: left !important;
+    padding: 0px 0px 12px 0px !important;
+  }
+
+  .music-detail-cover {
+    width: 110px !important;
+    height: 110px !important;
+    margin-bottom: 0 !important;
+    flex-shrink: 0 !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15) !important;
+  }
+
+  .music-detail-meta {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    justify-content: center !important;
+    text-align: left !important;
+    flex: 1 !important;
+    min-width: 0 !important;
+  }
+
+  .music-detail-name {
+    font-size: 17px !important;
+    margin-bottom: 6px !important;
+    text-align: left !important;
+    line-height: 1.3 !important;
+  }
+
+  .music-detail-creator {
+    margin-bottom: 10px !important;
+    /* 增加间距 */
+    text-align: left !important;
+    font-size: 13px !important;
+  }
+
+  .music-detail-desc {
+    display: none !important;
+    /* 移动端隐藏描述以节省空间 */
+  }
+
+  /* 调整详情页播放全部按钮 */
+  .music-detail-meta .btn-primary {
+    padding: 6px 16px !important;
+    font-size: 13px !important;
+    width: auto !important;
+    border-radius: 20px !important;
+  }
+
+  .play-count {
+    font-size: 9px !important;
+    padding: 1px 4px !important;
+    top: 4px !important;
+    right: 4px !important;
+  }
+
+  /* === Apple Music 风格移动端全屏播放器 === */
+  .mobile-full-player {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    z-index: 10000 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    overflow: hidden !important;
+    background: #1a1a2e !important;
+    /* 深色备用背景 */
+  }
+
+  .mfp-bg {
+    position: absolute !important;
+    top: -50% !important;
+    left: -50% !important;
+    width: 200% !important;
+    height: 200% !important;
+    background-color: #1a1a2e !important;
+    background-size: cover !important;
+    background-position: center !important;
+    filter: blur(80px) brightness(0.5) saturate(1.3) !important;
+    z-index: 0 !important;
+    /* 移除对 background-image 的直接过渡，改用 will-change 优化渲染 */
+    transition: opacity 0.8s ease !important;
+    will-change: opacity, filter;
+  }
+
+  .mfp-close {
+    position: absolute !important;
+    top: calc(env(safe-area-inset-top, 0) + 12px) !important;
+    left: 16px !important;
+    z-index: 10 !important;
+    width: 32px !important;
+    height: 32px !important;
+    border: none !important;
+    background: rgba(255, 255, 255, 0.15) !important;
+    color: rgba(255, 255, 255, 0.9) !important;
+    font-size: 14px !important;
+    border-radius: 50% !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    cursor: pointer !important;
+    backdrop-filter: blur(10px) !important;
+  }
+
+  .mfp-content {
+    position: relative !important;
+    z-index: 1 !important;
+    flex: 1 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    padding: 0 24px !important;
+    padding-top: calc(env(safe-area-inset-top, 0) + 60px) !important;
+    padding-bottom: calc(env(safe-area-inset-bottom, 0) + 24px) !important;
+    color: #fff !important;
+  }
+
+  .mfp-cover-wrapper {
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+    padding: 16px 0 !important;
+  }
+
+  .mfp-cover {
+    width: 100vw !important;
+    max-width: 550px !important;
+    aspect-ratio: 1 !important;
+    border-radius: 12px !important;
+    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6) !important;
+    object-fit: cover !important;
+    /* 优化过渡属性，明确指定，利用硬件加速 */
+    transition:
+      width 0.45s cubic-bezier(0.2, 0.8, 0.2, 1),
+      border-radius 0.45s ease,
+      box-shadow 0.45s ease,
+      transform 0.45s cubic-bezier(0.2, 0.8, 0.2, 1) !important;
+    will-change: transform, width, border-radius;
+  }
+
+  /* 暂停状态收缩 */
+  .mfp-cover {
+    transform: scale(0.9) !important;
+  }
+
+  /* 播放时封面恢复正常大小 */
+  .mfp-cover-wrapper.playing .mfp-cover {
+    transform: scale(1) !important;
+    box-shadow: 0 32px 100px rgba(0, 0, 0, 0.7) !important;
+  }
+
+  /* 禁止选中和复制 */
+  .mobile-full-player {
+    user-select: none !important;
+    -webkit-user-select: none !important;
+    -webkit-touch-callout: none !important;
+  }
+
+  /* 封面容器 - 使用 transform 实现平滑过渡 */
+  .mfp-cover-container {
+    position: absolute !important;
+    top: calc(50% - 160px) !important;
+    left: 50% !important;
+    transform: translate(-50%, -50%) !important;
+    z-index: 10 !important;
+    /* 采用 Apple Music 风格的流畅曲线 */
+    transition:
+      top 0.6s cubic-bezier(0.19, 1, 0.22, 1),
+      left 0.6s cubic-bezier(0.19, 1, 0.22, 1),
+      transform 0.6s cubic-bezier(0.19, 1, 0.22, 1) !important;
+    will-change: top, left, transform;
+  }
+
+  /* 封面容器 - 歌词模式（左上角小尺寸） */
+  .mfp-cover-container.compact {
+    top: calc(env(safe-area-inset-top, 0) + 48px) !important;
+    left: 52px !important;
+    transform: translate(-50%, -50%) scale(0.14) !important;
+  }
+
+  .mfp-cover {
+    width: 100vw !important;
+    max-width: 550px !important;
+    aspect-ratio: 1 !important;
+    border-radius: 12px !important;
+    box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6) !important;
+    object-fit: cover !important;
+    cursor: pointer !important;
+    transition:
+      border-radius 0.4s ease,
+      box-shadow 0.4s ease !important;
+  }
+
+  /* 封面 - 歌词模式小尺寸样式调整 */
+  .mfp-cover-container.compact .mfp-cover {
+    border-radius: 60px !important;
+    /* 缩小后看起来圆角适中 */
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4) !important;
+  }
+
+  /* 歌曲信息容器 */
+  .mfp-info-container {
+    position: absolute !important;
+    top: calc(50% + 80px) !important;
+    left: 24px !important;
+    right: 24px !important;
+    text-align: left !important;
+    z-index: 10 !important;
+    /* 为信息切换设置相同的弹性曲线 */
+    transition:
+      top 0.6s cubic-bezier(0.19, 1, 0.22, 1),
+      left 0.6s cubic-bezier(0.19, 1, 0.22, 1),
+      right 0.6s cubic-bezier(0.19, 1, 0.22, 1),
+      opacity 0.4s ease !important;
+    will-change: top, left, right, opacity;
+  }
+
+  /* 歌曲信息 - 歌词模式（封面右侧） */
+  .mfp-info-container.compact {
+    top: calc(env(safe-area-inset-top, 0) + 24px) !important;
+    left: 100px !important;
+    right: 24px !important;
+  }
+
+  .mfp-info-container.compact .mfp-title {
+    font-size: 15px !important;
+  }
+
+  .mfp-info-container.compact .mfp-artist {
+    font-size: 13px !important;
+  }
+
+  /* 淡入淡出动画 */
+  .mfp-fade-enter-active,
+  .mfp-fade-leave-active {
+    transition: opacity 0.3s ease !important;
+  }
+
+  .mfp-fade-enter-from,
+  .mfp-fade-leave-to {
+    opacity: 0 !important;
+  }
+
+  /* 歌词区域 */
+  .mfp-lyrics-area {
+    position: absolute !important;
+    top: calc(env(safe-area-inset-top, 0) + 100px) !important;
+    left: 0px !important;
+    right: 0px !important;
+    bottom: 220px !important;
+    overflow: hidden !important;
+    z-index: 5 !important;
+    /* 上下模糊过渡遮罩 */
+    -webkit-mask-image: linear-gradient(
+      to bottom,
+      transparent 0%,
+      black 20%,
+      black 80%,
+      transparent 100%
+    ) !important;
+    mask-image: linear-gradient(
+      to bottom,
+      transparent 0%,
+      black 20%,
+      black 80%,
+      transparent 100%
+    ) !important;
+  }
+
+  .mfp-lyrics-container {
+    width: 100% !important;
+    height: 100% !important;
+    overflow-y: auto !important;
+    scrollbar-width: none !important;
+    -ms-overflow-style: none !important;
+    padding: 35vh 32px 15vh 32px !important;
+    scroll-behavior: smooth !important;
+    box-sizing: border-box !important;
+    -webkit-overflow-scrolling: touch !important;
+    /* iOS/Safari 丝滑滚动关键 */
+    overscroll-behavior-y: contain !important;
+    /* 上下渐变淡出 */
+    -webkit-mask-image: linear-gradient(
+      to bottom,
+      transparent 0%,
+      black 20%,
+      black 80%,
+      transparent 100%
+    ) !important;
+    mask-image: linear-gradient(
+      to bottom,
+      transparent 0%,
+      black 20%,
+      black 80%,
+      transparent 100%
+    ) !important;
+  }
+
+  .mfp-lyrics-container::-webkit-scrollbar {
+    display: none !important;
+  }
+
+  /* 单行容器 */
+  .mfp-lyric-line {
+    padding: 10px 0 !important;
+    min-height: 35px !important;
+    transition: all 0.4s cubic-bezier(0.33, 1, 0.68, 1) !important;
+    cursor: pointer !important;
+    transform-origin: left center !important;
+    opacity: 0.25 !important;
+    filter: blur(1.5px) !important;
+    width: 100% !important;
+    text-align: left !important;
+  }
+
+  /* 高亮行 */
+  .mfp-lyric-line.active {
+    opacity: 1 !important;
+    transform: scale(1.02) !important;
+    filter: blur(0) !important;
+  }
+
+  /* 原文 */
+  .mfp-line-text {
+    font-size: 24px !important;
+    font-weight: 700 !important;
+    line-height: 1.5 !important;
+    /* 增加行高 */
+    color: rgba(255, 255, 255, 0.35) !important;
+    transition: all 0.4s ease !important;
+  }
+
+  /* 逐字/词特效容器 */
+  .mfp-char {
+    display: inline-block !important;
+    vertical-align: baseline !important;
+    margin: 0 !important;
+    padding: 0 1px !important;
+    /* 颜色/阴影采用 1s 长过渡，模糊字词边界 */
+    transition:
+      color 1s ease-in-out,
+      text-shadow 1s ease-in-out !important;
+    white-space: pre-wrap !important;
+    will-change: transform, color, text-shadow;
+  }
+
+  /* 波浪起伏动画：缓慢跃起 2px 后落回原位，循环进行 */
+  @keyframes mfp-lyric-wave {
+    0% {
+      transform: translateY(0);
+    }
+
+    50% {
+      transform: translateY(-2px);
+    }
+
+    100% {
+      transform: translateY(0);
+    }
+  }
+
+  /* 逐字状态：激活时轻微起伏一次，随后保持静止 */
+  .mfp-char.active {
+    color: #ffffff !important;
+    /* 仅执行单次动画，跳动后立即回位并保持，彻底消除持续波动感 */
+    animation: mfp-lyric-wave 0.8s ease-out forwards !important;
+    text-shadow:
+      0 0 15px rgba(255, 255, 255, 0.4),
+      0 0 30px rgba(255, 255, 255, 0.1) !important;
+    filter: brightness(1.1) !important;
+  }
+
+  /* 翻译 */
+  .mfp-line-trans {
+    font-size: 15px !important;
+    font-weight: 500 !important;
+    margin-top: 5px !important;
+    /* 缩小翻译与原文的间距 */
+    color: rgba(255, 255, 255, 0.25) !important;
+    line-height: 1.4 !important;
+    overflow-wrap: break-word !important;
+    word-break: break-word !important;
+    transition: all 0.4s ease !important;
+  }
+
+  .mfp-lyric-line.active .mfp-line-text {
+    font-size: 24px !important;
+  }
+
+  .mfp-lyric-line.active .mfp-line-trans {
+    color: rgba(255, 255, 255, 0.8) !important;
+  }
+
+  /* 底部留白 */
+  .mfp-lyric-padding {
+    height: 35vh !important;
+  }
+
+  /* --- 嵌入式歌单区域 --- */
+  .mfp-playlist-area {
+    position: absolute !important;
+    top: calc(env(safe-area-inset-top, 0) + 120px) !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 80px !important;
+    /* 增加底部空间 */
+    z-index: 6 !important;
+    overflow: hidden !important;
+    /* 上下模糊过渡遮罩 - 与歌词保持一致 */
+    -webkit-mask-image: linear-gradient(
+      to bottom,
+      transparent 0%,
+      black 10%,
+      black 90%,
+      transparent 100%
+    ) !important;
+    mask-image: linear-gradient(
+      to bottom,
+      transparent 0%,
+      black 10%,
+      black 90%,
+      transparent 100%
+    ) !important;
+  }
+
+  .mfp-playlist-container {
+    height: 100% !important;
+    overflow-y: auto !important;
+    -webkit-overflow-scrolling: touch !important;
+    padding: 20px 24px 100px 24px !important;
+    /* 增加底部 padding 确保最后几项能露出 */
+    scrollbar-width: none !important;
+  }
+
+  .mfp-playlist-container::-webkit-scrollbar {
+    display: none !important;
+  }
+
+  .mfp-playlist-header {
+    font-size: 18px !important;
+    font-weight: 700 !important;
+    color: #fff !important;
+    margin-bottom: 20px !important;
+    padding-top: 10px !important;
+    opacity: 0.9 !important;
+  }
+
+  .mfp-playlist-list {
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 12px !important;
+  }
+
+  .mfp-playlist-item {
+    display: flex !important;
+    align-items: center !important;
+    gap: 12px !important;
+    padding: 8px !important;
+    border-radius: 10px !important;
+    background: rgba(255, 255, 255, 0.05) !important;
+    transition: all 0.3s ease !important;
+    cursor: pointer !important;
+  }
+
+  .mfp-playlist-item.active {
+    background: rgba(255, 255, 255, 0.15) !important;
+  }
+
+  .mfp-pi-cover {
+    width: 44px !important;
+    height: 44px !important;
+    border-radius: 6px !important;
+    object-fit: cover !important;
+  }
+
+  .mfp-pi-info {
+    flex: 1 !important;
+    min-width: 0 !important;
+  }
+
+  .mfp-pi-title {
+    font-size: 15px !important;
+    font-weight: 600 !important;
+    color: #fff !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+  }
+
+  .mfp-pi-artist {
+    font-size: 13px !important;
+    color: rgba(255, 255, 255, 0.5) !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    margin-top: 2px !important;
+  }
+
+  .mfp-pi-playing {
+    color: #fff !important;
+    font-size: 14px !important;
+    padding-right: 8px !important;
+    text-shadow: 0 0 10px rgba(255, 255, 255, 0.8) !important;
+  }
+
+  /* 调整进度条在歌单模式下的显示 */
+  .mfp-progress-wrapper {
+    transition: all 0.4s cubic-bezier(0.32, 0.72, 0, 1) !important;
+  }
+
+  /* 歌单模式下隐藏控件逻辑 */
+  body:has(.mobile-full-player) .mfp-bottom-fixed {
+    transition:
+      transform 0.4s cubic-bezier(0.32, 0.72, 0, 1),
+      opacity 0.3s ease !important;
+  }
+
+  /* 当歌单模式开启时，主控制区淡出并稍稍下移 */
+  .mfp-playlist-active .mfp-controls,
+  .mfp-playlist-active .mfp-progress-wrapper {
+    opacity: 0 !important;
+    visibility: hidden !important;
+    transform: translateY(20px) !important;
+    pointer-events: none !important;
+  }
+
+  /* 为了让歌单区域占满屏幕，调整其在激活时的底部距离 */
+  .mfp-playlist-active .mfp-playlist-area {
+    bottom: 60px !important;
+  }
+
+  /* 歌词按钮激活状态 */
+  .mfp-action-btn.active {
+    color: #fff !important;
+  }
+
+  .mfp-action-btn.active i {
+    text-shadow: 0 0 16px rgba(255, 255, 255, 0.8) !important;
+  }
+
+  .mfp-song-info {
+    text-align: left !important;
+    margin-bottom: 16px !important;
+    padding: 0 4px !important;
+  }
+
+  .mfp-title {
+    font-size: 26px !important;
+    font-weight: 700 !important;
+    margin-bottom: 4px !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    transition: font-size 0.5s cubic-bezier(0.32, 0.72, 0, 1) !important;
+  }
+
+  .mfp-artist {
+    font-size: 18px !important;
+    color: rgba(255, 255, 255, 0.6) !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    transition: font-size 0.5s cubic-bezier(0.32, 0.72, 0, 1) !important;
+  }
+
+  /* 底部固定区域 */
+  .mfp-bottom-fixed {
+    position: absolute !important;
+    left: 24px !important;
+    right: 24px !important;
+    bottom: calc(env(safe-area-inset-bottom, 0) + 24px) !important;
+    z-index: 30 !important;
+  }
+
+  .mfp-progress-wrapper {
+    margin-bottom: 20px !important;
+  }
+
+  .mfp-progress-track {
+    position: relative !important;
+    height: 28px !important;
+    /* 大触摸区域 */
+    display: flex !important;
+    align-items: center !important;
+    cursor: pointer !important;
+    touch-action: none !important;
+    /* 禁止默认触摸行为，确保拖动 */
+  }
+
+  .mfp-progress-track::before {
+    content: '' !important;
+    position: absolute !important;
+    left: 0 !important;
+    right: 0 !important;
+    height: 4px !important;
+    background: rgba(255, 255, 255, 0.3) !important;
+    border-radius: 2px !important;
+    transition:
+      height 0.15s ease,
+      box-shadow 0.15s ease !important;
+  }
+
+  /* Hover 辉光变粗效果 */
+  .mfp-progress-track:hover::before,
+  .mfp-progress-track:active::before {
+    height: 6px !important;
+    box-shadow: 0 0 10px rgba(255, 255, 255, 0.35) !important;
+  }
+
+  .mfp-progress-fill {
+    position: absolute !important;
+    left: 0 !important;
+    height: 4px !important;
+    background: rgba(255, 255, 255, 0.95) !important;
+    border-radius: 2px !important;
+    pointer-events: none !important;
+    transition: height 0.15s ease !important;
+  }
+
+  .mfp-progress-track:hover .mfp-progress-fill,
+  .mfp-progress-track:active .mfp-progress-fill {
+    height: 6px !important;
+  }
+
+  /* 隐藏手柄 */
+  .mfp-progress-thumb {
+    display: none !important;
+  }
+
+  .mfp-time {
+    display: flex !important;
+    justify-content: space-between !important;
+    font-size: 11px !important;
+    color: rgba(255, 255, 255, 0.5) !important;
+    margin-top: 8px !important;
+  }
+
+  .mfp-controls {
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+    gap: 24px !important;
+    /* 缩小间距以容纳 5 个按钮 */
+    margin-bottom: 32px !important;
+  }
+
+  .mfp-btn {
+    width: 56px !important;
+    height: 56px !important;
+    border: none !important;
+    background: transparent !important;
+    color: #fff !important;
+    font-size: 28px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    cursor: pointer !important;
+    border-radius: 50% !important;
+    transition:
+      transform 0.15s ease,
+      background 0.15s ease,
+      opacity 0.15s ease !important;
+  }
+
+  /* 移动端只用 active，避免 hover 粘滞 */
+  .mfp-btn:active {
+    transform: scale(0.9) !important;
+    background: rgba(255, 255, 255, 0.08) !important;
+  }
+
+  .mfp-btn:active i {
+    text-shadow:
+      0 0 24px rgba(255, 255, 255, 1),
+      0 0 48px rgba(255, 255, 255, 0.5) !important;
+  }
+
+  .mfp-btn.mfp-play-btn {
+    width: 72px !important;
+    height: 72px !important;
+    font-size: 36px !important;
+  }
+
+  .mfp-btn.mfp-play-btn:active {
+    transform: scale(0.85) !important;
+  }
+
+  /* 模式按钮（循环/随机）特殊样式 */
+  .mfp-mode-btn {
+    font-size: 18px !important;
+    opacity: 0.4 !important;
+    transition: all 0.3s ease !important;
+  }
+
+  .mfp-mode-btn.active {
+    opacity: 0.9 !important;
+    color: #fff !important;
+  }
+
+  .mfp-mode-btn.active i {
+    text-shadow: 0 0 15px rgba(255, 255, 255, 0.8) !important;
+  }
+
+  /* 单曲循环数字 1 样式 */
+  .mfp-repeat-one {
+    position: relative !important;
+  }
+
+  .mfp-repeat-one::after {
+    content: '1' !important;
+    position: absolute !important;
+    top: 50% !important;
+    left: 50% !important;
+    transform: translate(-50%, -50%) !important;
+    font-size: 9px !important;
+    font-weight: 600 !important;
+    font-family: 'Inter', sans-serif !important;
+    color: #fff !important;
+  }
+
+  .mfp-bottom-actions {
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: center !important;
+    padding: 0 32px 12px 32px !important;
+    max-width: 500px !important;
+    margin: 0 auto !important;
+  }
+
+  .mfp-action-btn {
+    width: 48px !important;
+    height: 48px !important;
+    border: none !important;
+    background: transparent !important;
+    color: rgba(255, 255, 255, 0.7) !important;
+    font-size: 20px !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    cursor: pointer !important;
+    border-radius: 50% !important;
+    transition: all 0.2s cubic-bezier(0.32, 0.72, 0, 1) !important;
+  }
+
+  /* 移动端统一按压效果 */
+  .mfp-action-btn:active {
+    transform: scale(0.8) !important;
+    background: rgba(255, 255, 255, 0.1) !important;
+    color: #fff !important;
+  }
+
+  /* 统一图标阴影，增加触控按钮的精致感 */
+  .mfp-action-btn:active i {
+    text-shadow: 0 0 20px rgba(255, 255, 255, 1) !important;
+  }
+
+  /* 动画 */
+  .mobile-player-slide-enter-active,
+  .mobile-player-slide-leave-active {
+    transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  }
+
+  .mobile-player-slide-enter-from,
+  .mobile-player-slide-leave-to {
+    transform: translateY(100%) !important;
+  }
+
+  /* 封面切歌渐隐动画 */
+  img.mfp-cover-slide-enter-active,
+  img.mfp-cover-slide-leave-active {
+    transition: opacity 0.2s ease !important;
+  }
+
+  img.mfp-cover-slide-enter-from,
+  img.mfp-cover-slide-leave-to {
+    opacity: 0 !important;
   }
 
   /* 分组按钮贴边样式 */

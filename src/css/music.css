@@ -50,7 +50,7 @@
   flex: 1;
   min-height: 0;
   height: 100%;
-  padding-bottom: 120px;
+  /* padding-bottom: 120px; */
   /* 为固定的音乐栏留出空间 */
   transition:
     transform 0.6s cubic-bezier(0.25, 1, 0.5, 1),
@@ -78,10 +78,6 @@
   min-height: 0;
   /* height: calc(100vh - 85px); */
   /* Account for header and padding */
-}
-
-body.single-page-mode #template-music {
-  /* height: 100vh; */
 }
 
 /* --- Section Tabs (Grid 3-Column: Left | Center | Right) --- */
@@ -1287,11 +1283,11 @@ body.single-page-mode #template-music {
 
 /* 详情内容区：左右两栏布局 */
 .music-detail-content {
-  padding: 20px 40px;
+  padding: 16px;
   padding-bottom: 0;
   /* 底部不需要 padding */
   display: flex;
-  gap: 40px;
+  /* gap: 40px; */
   flex: 1;
   min-height: 0;
   height: 0;
@@ -1352,17 +1348,20 @@ body.single-page-mode #template-music {
   min-height: 0;
   height: 0;
   /* Force flex-based height calculation */
+  /* Force flex-based height calculation */
   /* 重要：flex 子项可收缩 */
+  flex-grow: 1;
+  height: 100%;
   overflow-y: auto !important;
   /* Force scrollbar */
   overflow-x: hidden;
   padding-top: 10px;
   /* 顶部留白防止第一行被遮 */
-  padding-bottom: 900px;
+  padding-bottom: 120px;
   /* 底部留白给播放条 */
-  margin-right: -10px;
+  /* margin-right: -10px; */
   /* 滚动条不占用内容空间 */
-  padding-right: 10px;
+  /* padding-right: 10px; */
 }
 
 /* 自定义滚动条 */
@@ -1399,9 +1398,13 @@ body.single-page-mode #template-music {
 .music-song-item {
   display: flex;
   align-items: center;
-  padding: 12px 16px;
+  padding: 12px 12px;
   border-radius: 8px;
   cursor: pointer;
+  height: 68px;
+  /* Fixed height for virtual scrolling */
+  box-sizing: border-box;
+  overflow: hidden;
   transition:
     background ease-in-out 0.15s,
     transform ease-in-out 0.1s;
