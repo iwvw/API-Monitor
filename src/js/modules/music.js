@@ -725,8 +725,8 @@ const lyricScrollState = {
 };
 
 // Spring configuration (tuned for smooth, elegant scroll)
-const SPRING_TENSION = 0.08;   // 增加张力，提高响应速度
-const SPRING_FRICTION = 0.78;  // 降低摩擦力，让滑动更流畅
+const SPRING_TENSION = 0.01;   // 增加张力，提高响应速度
+const SPRING_FRICTION = 0.7;  // 降低摩擦力，让滑动更流畅
 
 
 let lastScrollTime = 0;
@@ -802,9 +802,15 @@ function scrollToCurrentLyric() {
 
     // Initialize state if significant drift (e.g. manual scroll)
     const dist = Math.abs(container.scrollTop - lyricScrollState.currentTop);
-    if (dist > 100) {
+
+    // 关键修正：只有当 container.scrollTop 不为 0 时才相信漂移检测
+    // 或者当 currentTop 远离 0 时。如果 currentTop 是 0，说明我们刚重置过，此时不应回弹。
+    if (dist > 100 && (container.scrollTop > 10 || lyricScrollState.currentTop > 10)) {
       lyricScrollState.currentTop = container.scrollTop;
       lyricScrollState.velocity = 0; // Reset momentum on manual intervention
+    } else if (dist > 0 && lyricScrollState.currentTop === 0 && container.scrollTop > 0) {
+      // 刚切歌，DOM 还没归零的情况，强行归零 DOM
+      container.scrollTop = 0;
     }
 
     if (!lyricScrollState.isAnimating) {
@@ -1621,9 +1627,20 @@ export const musicMethods = {
     store.musicLyrics = [];
     store.musicLyricsTranslation = [];
 
-    // 切歌时立即重置滚动条位置，防止歌词从奇怪的位置滑上来
+    // 切歌时立即重置滚动条位置和动画状态，防止歌词从奇怪的位置滑上来
     const container = document.querySelector('.mfp-lyrics-container');
-    if (container) container.scrollTop = 0;
+    if (container) {
+      container.scrollTop = 0;
+    }
+    // 重置弹簧动画状态，确保从顶部开始，且显式停止当前动画
+    lyricScrollState.currentTop = 0;
+    lyricScrollState.targetTop = 0;
+    lyricScrollState.velocity = 0;
+    lyricScrollState.isAnimating = false;
+    lastScrollTime = 0; // 重置平滑滚动的时间参考点
+
+    store.musicNextLyricText = ''; // 清空下一句预览
+    store.musicNextLyricTranslation = '';
 
     // 添加到播放列表（如果不存在）
     if (!store.musicPlaylist.find(s => s.id === song.id)) {
