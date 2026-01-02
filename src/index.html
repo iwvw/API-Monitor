@@ -631,7 +631,6 @@
     <div v-if="musicShowUserDropdown" class="dropdown-backdrop" style="z-index: 15000"
       @click="musicShowUserDropdown = false"></div>
 
-    <!-- Full Screen Player (SPlayer Style - 仅桌面端) -->
     <transition name="full-player-fade">
       <div v-if="!isMobile && musicShowFullPlayer && musicCurrentSong" class="music-full-player"
         :class="{ 'playing': musicPlaying }" style="z-index: 11000" @click="musicShowFullPlayer = false">

@@ -685,7 +685,7 @@
   justify-content: center;
 }
 
-.empty-state > i {
+.empty-state>i {
   /* 只针对直接子元素图标，即大装饰图标 */
   font-size: 64px;
   margin-bottom: 20px;
@@ -1009,20 +1009,16 @@
   cursor: pointer;
   position: relative;
   display: block;
-  mask-image: linear-gradient(
-    to right,
-    transparent,
-    black 8px,
-    black calc(100% - 8px),
-    transparent
-  );
-  -webkit-mask-image: linear-gradient(
-    to right,
-    transparent,
-    black 8px,
-    black calc(100% - 8px),
-    transparent
-  );
+  mask-image: linear-gradient(to right,
+      transparent,
+      black 8px,
+      black calc(100% - 8px),
+      transparent);
+  -webkit-mask-image: linear-gradient(to right,
+      transparent,
+      black 8px,
+      black calc(100% - 8px),
+      transparent);
 }
 
 .bar-title span {
@@ -1818,12 +1814,10 @@
 
 /* 骨架屏样式 */
 .skeleton {
-  background: linear-gradient(
-    90deg,
-    var(--bg-tertiary) 25%,
-    var(--bg-secondary) 50%,
-    var(--bg-tertiary) 75%
-  );
+  background: linear-gradient(90deg,
+      var(--bg-tertiary) 25%,
+      var(--bg-secondary) 50%,
+      var(--bg-tertiary) 75%);
   background-size: 200% 100%;
   animation: skeleton-shimmer 1.5s infinite;
   border-radius: 8px;
@@ -1990,6 +1984,7 @@
 }
 
 @media (prefers-color-scheme: light) {
+
   .music-full-player,
   .music-bottom-bar {
     background: rgba(255, 255, 255, 0.88) !important;
@@ -2186,31 +2181,26 @@
   overflow: hidden;
 }
 
-/* SPlayer 风格歌词容器 */
 .full-lyrics-container {
   position: relative;
   width: 100%;
   height: 100%;
   overflow: hidden;
   /* 渐变遮罩：上下边缘淡出 */
-  mask: linear-gradient(
-    180deg,
-    hsla(0, 0%, 100%, 0) 0,
-    hsla(0, 0%, 100%, 0.6) 5%,
-    #fff 10%,
-    #fff 75%,
-    hsla(0, 0%, 100%, 0.6) 85%,
-    hsla(0, 0%, 100%, 0)
-  );
-  -webkit-mask: linear-gradient(
-    180deg,
-    hsla(0, 0%, 100%, 0) 0,
-    hsla(0, 0%, 100%, 0.6) 5%,
-    #fff 10%,
-    #fff 75%,
-    hsla(0, 0%, 100%, 0.6) 85%,
-    hsla(0, 0%, 100%, 0)
-  );
+  mask: linear-gradient(180deg,
+      hsla(0, 0%, 100%, 0) 0,
+      hsla(0, 0%, 100%, 0.6) 5%,
+      #fff 10%,
+      #fff 75%,
+      hsla(0, 0%, 100%, 0.6) 85%,
+      hsla(0, 0%, 100%, 0));
+  -webkit-mask: linear-gradient(180deg,
+      hsla(0, 0%, 100%, 0) 0,
+      hsla(0, 0%, 100%, 0.6) 5%,
+      #fff 10%,
+      #fff 75%,
+      hsla(0, 0%, 100%, 0.6) 85%,
+      hsla(0, 0%, 100%, 0));
   /* 限定混合模式只作用于歌词区域 */
   isolation: isolate;
 }
@@ -2263,7 +2253,6 @@
   -webkit-font-smoothing: antialiased;
 }
 
-/* 匹配 AMLL 各种可能的高亮类名 - 同步 SPlayer 算法 */
 .amll-lyric-player [class*='_lyricLine_'][class*='active'],
 .amll-lyric-player [class*='_lyricLine_'][class*='current'] {
   /* 使用加法混合模式，使高亮行在背景上显得更亮、更透 */
@@ -2280,6 +2269,7 @@
 
 /* 兼容性降级 */
 @supports not (mix-blend-mode: plus-lighter) {
+
   .amll-lyric-player [class*='_lyricLine_'][class*='active'],
   .amll-lyric-player [class*='_lyricLine_'][class*='current'] {
     color: #ffffff !important;
@@ -2294,6 +2284,7 @@
 
 /* 适配浅色模式的高亮逻辑 */
 @media (prefers-color-scheme: light) {
+
   .amll-lyric-player [class*='_lyricLine_'][class*='active'],
   .amll-lyric-player [class*='_lyricLine_'][class*='current'] {
     mix-blend-mode: normal !important;
@@ -2569,6 +2560,7 @@
 
 /* ==================== 移动端适配 ==================== */
 @media (max-width: 768px) {
+
   /* 标签栏简化 */
   .music-sec-tabs {
     display: flex !important;
@@ -2732,7 +2724,7 @@
     padding: 40px 20px;
   }
 
-  .empty-state > i {
+  .empty-state>i {
     font-size: 48px;
   }
 }

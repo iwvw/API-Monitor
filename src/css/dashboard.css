@@ -614,7 +614,6 @@
 .lyric-row.next {
   opacity: 0.2;
   filter: blur(0.8px);
-  /* 仿 AMLL 景深效果 */
 }
 
 .lyric-line-main {
