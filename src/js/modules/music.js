@@ -22,6 +22,11 @@ let amllUpdateFrame = null;
 // Media Session 相关变量
 let mediaSessionInitialized = false;
 
+// 预加载相关变量
+let preloadedNextSong = null; // 预加载的下一首歌曲信息
+let preloadedAudioUrl = null; // 预加载的音频 URL
+let preloadedAudio = null; // 预加载的 Audio 对象 (用于缓存音频数据)
+
 /**
  * 确保 URL 为 HTTPS，避免 Mixed Content 错误
  */
@@ -35,6 +40,92 @@ function ensureHttps(url) {
     return 'https:' + url;
   }
   return url;
+}
+
+/**
+ * 预加载下一首歌曲的音频和封面
+ * 在当前歌曲开始播放后调用，提前获取下一首的资源
+ */
+async function preloadNextSong() {
+  if (store.musicPlaylist.length <= 1) return;
+
+  // 计算下一首的索引
+  let nextIndex;
+  if (store.musicShuffleEnabled) {
+    // 随机模式下无法预知下一首，跳过预加载
+    return;
+  } else {
+    nextIndex = store.musicCurrentIndex + 1;
+    if (nextIndex >= store.musicPlaylist.length) nextIndex = 0;
+  }
+
+  const nextSong = store.musicPlaylist[nextIndex];
+  if (!nextSong) return;
+
+  // 如果已经预加载过这首歌，跳过
+  if (preloadedNextSong && preloadedNextSong.id === nextSong.id && preloadedAudioUrl) {
+    console.log('[Music] Next song already preloaded:', nextSong.name);
+    return;
+  }
+
+  console.log('[Music] Preloading next song:', nextSong.name);
+
+  try {
+    // 1. 预加载封面图片
+    if (nextSong.cover) {
+      const coverUrl = ensureHttps(nextSong.cover) + '?param=600y600';
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.src = coverUrl;
+      // 不需要等待，浏览器会自动缓存
+    }
+
+    // 2. 预获取音频 URL
+    const response = await fetch(`/api/music/song/url?id=${nextSong.id}&level=exhigh`);
+    const data = await response.json();
+    const songData = data.data?.[0];
+
+    if (songData?.url) {
+      preloadedNextSong = nextSong;
+      preloadedAudioUrl = songData.url;
+
+      // 3. 预加载音频数据 (使用隐藏的 Audio 对象)
+      if (preloadedAudio) {
+        preloadedAudio.src = '';
+        preloadedAudio = null;
+      }
+      preloadedAudio = new Audio();
+      preloadedAudio.preload = 'auto';
+      preloadedAudio.volume = 0; // 静音
+      preloadedAudio.src = preloadedAudioUrl;
+      // 加载但不播放，触发浏览器缓存
+      preloadedAudio.load();
+
+      console.log('[Music] Next song preloaded successfully:', nextSong.name);
+    }
+  } catch (error) {
+    console.warn('[Music] Preload next song failed:', error);
+    // 预加载失败不影响主流程
+  }
+}
+
+/**
+ * 获取预加载的音频 URL（如果匹配当前要播放的歌曲）
+ */
+function getPreloadedUrl(songId) {
+  if (preloadedNextSong && preloadedNextSong.id === songId && preloadedAudioUrl) {
+    console.log('[Music] Using preloaded URL for song:', preloadedNextSong.name);
+    const url = preloadedAudioUrl;
+    // 清除预加载缓存
+    preloadedNextSong = null;
+    preloadedAudioUrl = null;
+    if (preloadedAudio) {
+      preloadedAudio.src = '';
+      preloadedAudio = null;
+    }
+    return url;
+  }
+  return null;
 }
 
 /**
@@ -1550,21 +1641,28 @@ export const musicMethods = {
     this.musicLoadLyrics(song.id);
 
     try {
-      // 获取播放地址
-      console.log('[Music] Fetching URL for song:', song.id);
-      const response = await fetch(`/api/music/song/url?id=${song.id}&level=exhigh`);
-      const data = await response.json();
+      // 优先尝试使用预加载的 URL
+      let audioUrl = getPreloadedUrl(song.id);
 
-      const songData = data.data?.[0];
-      console.log(
-        '[Music] URL response:',
-        songData?.url ? 'Got URL' : 'No URL',
-        'source:',
-        songData?.source || 'official'
-      );
+      if (!audioUrl) {
+        // 没有预加载，正常获取播放地址
+        console.log('[Music] Fetching URL for song:', song.id);
+        const response = await fetch(`/api/music/song/url?id=${song.id}&level=exhigh`);
+        const data = await response.json();
 
-      if (songData?.url) {
-        audioPlayer.src = songData.url;
+        const songData = data.data?.[0];
+        console.log(
+          '[Music] URL response:',
+          songData?.url ? 'Got URL' : 'No URL',
+          'source:',
+          songData?.source || 'official'
+        );
+
+        audioUrl = songData?.url;
+      }
+
+      if (audioUrl) {
+        audioPlayer.src = audioUrl;
         await audioPlayer.play();
         store.musicPlaying = true;
         store.musicBuffering = false;
@@ -1574,6 +1672,9 @@ export const musicMethods = {
         if (!song.cover) {
           this.musicLoadSongDetail(song.id);
         }
+
+        // 播放成功后，预加载下一首歌曲
+        setTimeout(() => preloadNextSong(), 1000);
       } else {
         // 尝试解锁
         console.log('[Music] No URL from official API, trying unblock...');

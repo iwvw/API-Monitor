@@ -442,6 +442,11 @@
   transition:
     transform 0.3s ease,
     box-shadow 0.3s ease;
+  /* 防止拖动和选择 */
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-user-drag: none;
+  pointer-events: auto;
 }
 
 .music-cover-large:hover {

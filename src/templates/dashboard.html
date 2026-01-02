@@ -132,7 +132,7 @@
 
         <div class="music-content-layer">
           <img :src="musicCurrentSong.cover + '?param=300y300'" class="music-cover-large"
-            @click.stop="musicOpenFullPlayer()" />
+            @click.stop="musicOpenFullPlayer()" draggable="false" @dragstart.prevent @contextmenu.prevent />
 
           <div class="music-info-col">
             <div class="music-title" @click.stop="mainActiveTab = 'music'">
