@@ -254,7 +254,7 @@
           <h3><i class="fas fa-server"></i> 云服务</h3>
         </div>
         <div class="paas-list">
-          <div class="paas-item">
+          <div class="paas-item" @click="mainActiveTab = 'paas'; switchPaasPlatform('zeabur')">
             <div class="paas-info">
               <div class="paas-logo-box" style="color: #6366f1">
                 <i class="fas fa-project-diagram"></i>
@@ -269,7 +269,7 @@
               {{ dashboardStats.paas.zeabur.running }}
             </div>
           </div>
-          <div class="paas-item">
+          <div class="paas-item" @click="mainActiveTab = 'paas'; switchPaasPlatform('koyeb')">
             <div class="paas-info">
               <div class="paas-logo-box" style="color: #ec4899"><i class="fas fa-box"></i></div>
               <div class="paas-item-text">
@@ -282,7 +282,7 @@
               {{ dashboardStats.paas.koyeb.running }}
             </div>
           </div>
-          <div class="paas-item">
+          <div class="paas-item" @click="mainActiveTab = 'paas'; switchPaasPlatform('fly')">
             <div class="paas-info">
               <div class="paas-logo-box" style="color: #8b5cf6">
                 <i class="fas fa-paper-plane"></i>

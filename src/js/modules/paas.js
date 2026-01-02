@@ -13,9 +13,9 @@ export const paasMethods = {
    * 切换 PaaS 子平台
    */
   switchPaasPlatform(platform) {
-    if (this.paasCurrentPlatform === platform) return;
-
     this.paasCurrentPlatform = platform;
+    this.paasCurrentTab = platform; // 确保同步切换子标签页
+
 
     // 切换平台时加载对应数据
     this.$nextTick(() => {

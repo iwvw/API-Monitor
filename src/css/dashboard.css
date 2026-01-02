@@ -1562,7 +1562,21 @@
     padding: 10px !important;
     border-radius: 10px !important;
     background: var(--bg-secondary) !important;
+    cursor: pointer !important;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
   }
+
+  .paas-item:hover {
+    background: var(--bg-tertiary) !important;
+    border-color: rgba(255, 255, 255, 0.1) !important;
+  }
+
+
+  .paas-item:active {
+    background: var(--bg-tertiary) !important;
+    transform: scale(0.97) !important;
+  }
+
 
   .paas-info {
     display: flex !important;

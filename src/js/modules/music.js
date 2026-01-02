@@ -634,10 +634,11 @@ const lyricScrollState = {
 };
 
 // Spring configuration (tuned for smooth, elegant scroll)
-const SPRING_TENSION = 0.02;   // Force pulling towards target (lower = slower)
-const SPRING_FRICTION = 0.85;  // Resistance (lower = less bounce)
+const SPRING_TENSION = 0.045;  // 略微提高张力，增加响应速度
+const SPRING_FRICTION = 0.82;  // 略微降低摩擦力，让滑动更顺滑
 
-function lyricSmoothScrollLoop() {
+let lastScrollTime = 0;
+function lyricSmoothScrollLoop(timestamp) {
   const container =
     document.querySelector('.mfp-lyrics-container') ||
     document.querySelector('.full-lyrics-container');
@@ -647,26 +648,35 @@ function lyricSmoothScrollLoop() {
     return;
   }
 
+  // 计算 Delta Time 权重，防止帧率波动导致动画变慢
+  if (!lastScrollTime) lastScrollTime = timestamp;
+  const deltaTime = (timestamp - lastScrollTime) / 16.67; // 归一化到 60fps
+  lastScrollTime = timestamp;
+
+  // 限制 deltaTime 异常值（如切屏后返回）
+  const dt = Math.min(deltaTime, 3);
+
   // physics step
   const distance = lyricScrollState.targetTop - lyricScrollState.currentTop;
   const force = distance * SPRING_TENSION;
 
-  // Apply force and friction to velocity
-  lyricScrollState.velocity += force;
-  lyricScrollState.velocity *= SPRING_FRICTION;
+  // Apply force and friction
+  lyricScrollState.velocity += force * dt;
+  lyricScrollState.velocity *= Math.pow(SPRING_FRICTION, dt);
 
   // Update position
-  lyricScrollState.currentTop += lyricScrollState.velocity;
+  lyricScrollState.currentTop += lyricScrollState.velocity * dt;
 
   // Apply to DOM
   container.scrollTop = lyricScrollState.currentTop;
 
-  // Stop condition: visual position close enough AND velocity is negligible
-  if (Math.abs(distance) < 0.5 && Math.abs(lyricScrollState.velocity) < 0.1) {
-    lyricScrollState.currentTop = lyricScrollState.targetTop;
+  // Stop condition: 现在的判定更严格一点，确保完全静止
+  if (Math.abs(distance) < 0.2 && Math.abs(lyricScrollState.velocity) < 0.05) {
     container.scrollTop = lyricScrollState.targetTop;
-    lyricScrollState.isAnimating = false;
+    lyricScrollState.currentTop = lyricScrollState.targetTop;
     lyricScrollState.velocity = 0;
+    lyricScrollState.isAnimating = false;
+    lastScrollTime = 0;
     return;
   }
 
@@ -707,8 +717,10 @@ function scrollToCurrentLyric() {
 
     if (!lyricScrollState.isAnimating) {
       lyricScrollState.isAnimating = true;
-      lyricSmoothScrollLoop();
+      lastScrollTime = 0; // 重置时间差起点，防止首帧跳变
+      requestAnimationFrame(lyricSmoothScrollLoop);
     }
+
   }
 }
 
