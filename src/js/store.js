@@ -290,6 +290,8 @@ export const store = reactive({
   agentInstallLog: '', // 安装日志输出
   agentInstallResult: null, // 'success' | 'error' | null
   agentInstallOS: 'linux', // 'linux' | 'windows'
+  agentInstallProtocol: window.location.protocol.replace(':', ''), // 默认为当前页面协议 (http 或 https)
+  agentInstallHostType: 'domain', // 'domain' | 'ip'
 
   // 批量 Agent 部署
   showBatchAgentModal: false,
@@ -302,6 +304,7 @@ export const store = reactive({
   upgradeProgress: 0,
   upgrading: false,
   forceUpgrade: false,
+  upgradeFallbackSsh: false, // 是否使用 SSH 覆盖安装作为保底策略
 
   // 快速部署模式
   serverAddMode: 'ssh', // 'ssh' | 'agent'

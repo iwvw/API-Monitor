@@ -1619,13 +1619,57 @@ export const hostMethods = {
   },
 
   /**
+   * 动态生成 Agent 安装命令
+   * 支持协议 (http/https) 和 地址类型 (domain/ip) 切换
+   */
+  getDynamicInstallCommand(osType) {
+    if (!this.agentModalData) return '';
+
+    const { agentKey, serverId } = this.agentModalData;
+    const protocol = this.agentInstallProtocol || 'https';
+
+    // 确定主机名
+    let host = window.location.host; // 默认使用当前页面的域名/端口
+    if (this.agentInstallHostType === 'ip') {
+      // 尝试从 apiUrl 中提取 IP
+      if (this.agentModalData.apiUrl) {
+        try {
+          const urlObj = new URL(this.agentModalData.apiUrl);
+          host = urlObj.host; // 这通常就是主控端的地址
+
+          // 如果 host 是域名，且用户强制要 IP，这里其实还是域名。
+          // 真正的解决方法是后端在 apiUrl 中就返回可以直接用的地址。
+          // 不过通常 window.location.host 如果是 IP 访问的就是 IP。
+        } catch (e) { }
+      }
+    }
+
+    const baseUrl = `${protocol}://${host}/api/server/agent/install`;
+
+    if (osType === 'linux') {
+      return `curl -fsSL ${baseUrl}/linux/${serverId}/${agentKey} | bash`;
+    } else {
+      return `powershell -c "irm ${baseUrl}/win/${serverId}/${agentKey} | iex"`;
+    }
+  },
+
+  /**
+   * 获取当前配置的基础 API 路径 (用于手动安装教程)
+   */
+  getBaseApiUrl() {
+    const protocol = this.agentInstallProtocol || 'https';
+    let host = window.location.host;
+    if (this.agentInstallHostType === 'ip' && this.agentModalData?.apiUrl) {
+      try { host = new URL(this.agentModalData.apiUrl).host; } catch (e) { }
+    }
+    return `${protocol}://${host}`;
+  },
+
+  /**
    * 复制安装命令到剪贴板
    */
   async copyAgentCommand() {
-    const command =
-      this.agentInstallOS === 'linux'
-        ? this.agentModalData?.installCommand
-        : this.agentModalData?.winInstallCommand;
+    const command = this.getDynamicInstallCommand(this.agentInstallOS);
 
     if (!command) return;
 

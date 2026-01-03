@@ -182,8 +182,8 @@
 }
 
 /* 兜底：如果不在 header 内，则保持绝对定位但位置优化 */
-.modal > .modal-close:only-child,
-.modal > .close-btn {
+.modal>.modal-close:only-child,
+.modal>.close-btn {
   position: absolute !important;
   top: 10px;
   right: 10px;
@@ -643,4 +643,36 @@
 
 .mini-view-toggle:active {
   transform: scale(0.95);
+}
+
+/* 迷你药片式选择器 */
+.pill-group-mini {
+  display: inline-flex;
+  background: var(--bg-tertiary);
+  padding: 3px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+}
+
+.pill-group-mini button {
+  background: transparent;
+  color: var(--text-secondary);
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 11px;
+  border: none;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.pill-group-mini button.active {
+  background: var(--server-primary);
+  color: white;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.pill-group-mini button:not(.active):hover {
+  background: rgba(var(--primary-rgb), 0.05);
+  color: var(--server-primary);
 }
