@@ -51,7 +51,7 @@ function configureHelmet(options = {}) {
                     objectSrc: ["'none'"],
                     frameAncestors: ["'self'"],
                     formAction: ["'self'"],
-                    upgradeInsecureRequests: [],
+                    // upgradeInsecureRequests: [], // 移除：如果没有 HTTPS 不能启用此指令
                 },
             },
 
@@ -76,14 +76,9 @@ function configureHelmet(options = {}) {
         // 隐藏 X-Powered-By
         hidePoweredBy: true,
 
-        // HSTS (仅生产环境)
-        hsts: isDev
-            ? false
-            : {
-                maxAge: 31536000, // 1 年
-                includeSubDomains: true,
-                preload: true,
-            },
+        // HSTS (仅在配置 HTTPS 时启用)
+        // 注意：如果服务器没有 HTTPS，启用 HSTS 会导致浏览器缓存强制 HTTPS 访问
+        hsts: false,
 
         // IE 无嗅探
         ieNoOpen: true,

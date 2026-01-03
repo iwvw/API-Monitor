@@ -405,6 +405,10 @@ pre,
     height: 40px;
     filter: drop-shadow(0 0 0px var(--current-primary));
     animation: ag-logo-breath 2.5s ease-in-out infinite;
+    /* 禁止选中和拖动 */
+    user-select: none;
+    -webkit-user-drag: none;
+    pointer-events: none;
   }
 
   /* 加载遮罩层 */
