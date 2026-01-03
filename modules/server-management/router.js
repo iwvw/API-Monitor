@@ -513,6 +513,73 @@ router.post('/docker/check-update', async (req, res) => {
   }
 });
 
+/**
+ * Docker 容器一键更新
+ * POST /docker/container/update
+ * { serverId, containerId, containerName, image? }
+ */
+router.post('/docker/container/update', async (req, res) => {
+  try {
+    const { serverId, containerId, containerName, image } = req.body;
+
+    if (!serverId || !containerId || !containerName) {
+      return res.status(400).json({ success: false, error: '缺少必要参数' });
+    }
+
+    if (!agentService.isOnline(serverId)) {
+      return res.status(400).json({ success: false, error: '主机不在线' });
+    }
+
+    // 容器更新是异步任务，只返回任务ID
+    const taskId = await agentService.sendTask(serverId, {
+      type: DockerTaskTypes.DOCKER_UPDATE_CONTAINER,
+      data: JSON.stringify({ container_id: containerId, container_name: containerName, image }),
+      timeout: 300,
+    });
+
+    res.json({
+      success: true,
+      message: '容器更新任务已启动',
+      data: { taskId },
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * Docker 容器重命名
+ * POST /docker/container/rename
+ * { serverId, containerId, newName }
+ */
+router.post('/docker/container/rename', async (req, res) => {
+  try {
+    const { serverId, containerId, newName } = req.body;
+
+    if (!serverId || !containerId || !newName) {
+      return res.status(400).json({ success: false, error: '缺少必要参数' });
+    }
+
+    if (!agentService.isOnline(serverId)) {
+      return res.status(400).json({ success: false, error: '主机不在线' });
+    }
+
+    const result = await agentService.sendTaskAndWait(serverId, {
+      type: DockerTaskTypes.DOCKER_RENAME_CONTAINER,
+      data: JSON.stringify({ container_id: containerId, new_name: newName }),
+      timeout: 30,
+    }, 30000);
+
+    if (result.successful) {
+      res.json({ success: true, message: result.data });
+    } else {
+      res.status(400).json({ success: false, error: result.data });
+    }
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // ==================== Docker 镜像管理 ====================
 
 /**

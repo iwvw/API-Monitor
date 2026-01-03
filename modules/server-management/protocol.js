@@ -52,6 +52,9 @@ const TaskTypes = {
   DOCKER_COMPOSE_LIST: 21, // Docker Compose 项目列表
   DOCKER_COMPOSE_ACTION: 22, // Docker Compose 操作 (up/down/restart)
   DOCKER_CREATE_CONTAINER: 23, // 创建新容器
+  DOCKER_UPDATE_CONTAINER: 24, // 容器一键更新
+  DOCKER_RENAME_CONTAINER: 25, // 容器重命名
+  DOCKER_TASK_PROGRESS: 26, // 查询任务进度
 };
 
 // ==================== 数据结构 ====================

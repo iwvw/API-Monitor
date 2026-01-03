@@ -70,7 +70,20 @@ type AgentClient struct {
 	stopChan      chan struct{}
 	mu            sync.Mutex
 	reconnecting  bool
-	ptySessions   map[string]IPty // taskId -> IPty
+	ptySessions   map[string]IPty      // taskId -> IPty
+	taskProgress  map[string]*TaskProgress // taskId -> 进度
+	progressMu    sync.RWMutex
+}
+
+// TaskProgress 任务进度
+type TaskProgress struct {
+	TaskID     string `json:"task_id"`
+	Name       string `json:"name"`       // 任务名称
+	Percentage int    `json:"percentage"` // 进度百分比 0-100
+	Message    string `json:"message"`    // 当前步骤
+	DetailMsg  string `json:"detail_msg"` // 详细信息
+	IsDone     bool   `json:"is_done"`    // 是否完成
+	IsError    bool   `json:"is_error"`   // 是否出错
 }
 
 // IPty PTY 接口实现抽象
@@ -87,10 +100,11 @@ type PTYResizeData struct {
 // NewAgentClient 创建新的 Agent 客户端
 func NewAgentClient(config *Config) *AgentClient {
 	return &AgentClient{
-		config:    config,
-		collector: NewCollector(),
-		stopChan:  make(chan struct{}),
-		ptySessions: make(map[string]IPty),
+		config:       config,
+		collector:    NewCollector(),
+		stopChan:     make(chan struct{}),
+		ptySessions:  make(map[string]IPty),
+		taskProgress: make(map[string]*TaskProgress),
 	}
 }
 
@@ -638,6 +652,27 @@ func (a *AgentClient) handleTask(id string, taskType int, data string, timeout i
 			result["successful"] = true
 			result["data"] = output
 		}
+	case 24: // DOCKER_UPDATE_CONTAINER - 容器一键更新
+		go a.handleDockerContainerUpdate(id, data)
+		result["successful"] = true
+		result["data"] = "容器更新任务已启动"
+		return // 异步任务，通过进度事件反馈
+	case 25: // DOCKER_RENAME_CONTAINER - 容器重命名
+		output, err := a.handleDockerRenameContainer(data)
+		if err != nil {
+			result["data"] = err.Error()
+		} else {
+			result["successful"] = true
+			result["data"] = output
+		}
+	case 26: // DOCKER_TASK_PROGRESS - 查询任务进度
+		output, err := a.getTaskProgress(data)
+		if err != nil {
+			result["data"] = err.Error()
+		} else {
+			result["successful"] = true
+			result["data"] = output
+		}
 	case 5: // UPGRADE
 		go a.handleUpgrade(id)
 		result["successful"] = true
@@ -991,53 +1026,130 @@ func parseImageName(image string) (registry, repo, tag string) {
 }
 
 // getRemoteDigest 从 Registry 获取远程镜像的 Digest
+// 参考 dockerCopilot 实现
 func getRemoteDigest(registry, repo, tag string) (string, error) {
-	// 目前只支持 Docker Hub
+	// Docker Hub 加速器列表 (当直连失败时尝试)
+	accelerators := []string{
+		"registry-1.docker.io", // 原始地址优先
+		"docker.m.daocloud.io",
+		"docker.1panel.live",
+		"hub.rat.dev",
+	}
+
+	// 非 Docker Hub 暂不支持
 	if registry != "registry-1.docker.io" && registry != "docker.io" {
-		return "", fmt.Errorf("暂不支持的 Registry: %s (MVP 仅支持 Docker Hub)", registry)
+		return "", fmt.Errorf("暂不支持的 Registry: %s", registry)
 	}
 
-	// 1. 获取匿名 Token
-	tokenURL := fmt.Sprintf("https://auth.docker.io/token?service=registry.docker.io&scope=repository:%s:pull", repo)
-	tokenResp, err := http.Get(tokenURL)
+	var lastErr error
+	for _, host := range accelerators {
+		digest, err := tryGetDigestFromHost(host, repo, tag)
+		if err == nil && digest != "" {
+			return digest, nil
+		}
+		lastErr = err
+		log.Printf("[Docker] 尝试 %s 失败: %v, 切换下一个", host, err)
+	}
+
+	return "", fmt.Errorf("所有镜像源均失败: %v", lastErr)
+}
+
+// tryGetDigestFromHost 从指定 host 获取 digest
+func tryGetDigestFromHost(host, repo, tag string) (string, error) {
+	client := &http.Client{
+		Timeout: 15 * time.Second,
+		Transport: &http.Transport{
+			TLSHandshakeTimeout: 10 * time.Second,
+		},
+	}
+
+	// 1. 先获取 challenge
+	challengeURL := fmt.Sprintf("https://%s/v2/", host)
+	challengeReq, _ := http.NewRequest("GET", challengeURL, nil)
+	challengeResp, err := client.Do(challengeReq)
 	if err != nil {
-		return "", fmt.Errorf("获取 Token 失败: %v", err)
+		return "", fmt.Errorf("challenge 请求失败: %v", err)
 	}
-	defer tokenResp.Body.Close()
+	defer challengeResp.Body.Close()
 
-	var tokenData struct {
-		Token string `json:"token"`
+	// 2. 解析 WWW-Authenticate header 获取 token URL
+	wwwAuth := challengeResp.Header.Get("WWW-Authenticate")
+	token := ""
+	if strings.HasPrefix(strings.ToLower(wwwAuth), "bearer") {
+		token, err = getBearerToken(wwwAuth, repo, client)
+		if err != nil {
+			return "", fmt.Errorf("获取 token 失败: %v", err)
+		}
 	}
-	if err := json.NewDecoder(tokenResp.Body).Decode(&tokenData); err != nil {
-		return "", fmt.Errorf("解析 Token 失败: %v", err)
+
+	// 3. 使用 HEAD 请求获取 manifest digest
+	manifestURL := fmt.Sprintf("https://%s/v2/%s/manifests/%s", host, repo, tag)
+	req, _ := http.NewRequest("HEAD", manifestURL, nil)
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
 	}
+	// 参考 dockerCopilot 的 Accept headers
+	req.Header.Add("Accept", "application/vnd.docker.distribution.manifest.v2+json")
+	req.Header.Add("Accept", "application/vnd.docker.distribution.manifest.list.v2+json")
+	req.Header.Add("Accept", "application/vnd.docker.distribution.manifest.v1+json")
+	req.Header.Add("Accept", "application/vnd.oci.image.index.v1+json")
 
-	// 2. 获取 Manifest
-	manifestURL := fmt.Sprintf("https://registry-1.docker.io/v2/%s/manifests/%s", repo, tag)
-	req, _ := http.NewRequest("GET", manifestURL, nil)
-	req.Header.Set("Authorization", "Bearer "+tokenData.Token)
-	// Accept multi-arch manifest first, fallback to v2
-	req.Header.Set("Accept", "application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json")
-
-	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("获取 Manifest 失败: %v", err)
+		return "", fmt.Errorf("manifest 请求失败: %v", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("Registry 返回错误 %d: %s", resp.StatusCode, string(body))
+		return "", fmt.Errorf("registry 返回 %d", resp.StatusCode)
 	}
 
-	// Docker-Content-Digest header 包含镜像的 Digest
 	digest := resp.Header.Get("Docker-Content-Digest")
 	if digest == "" {
 		return "", fmt.Errorf("响应中未包含 Docker-Content-Digest")
 	}
 
 	return digest, nil
+}
+
+// getBearerToken 从 WWW-Authenticate 解析并获取 bearer token
+func getBearerToken(wwwAuth, repo string, client *http.Client) (string, error) {
+	// 解析格式: Bearer realm="xxx",service="xxx",scope="xxx"
+	raw := strings.TrimPrefix(strings.ToLower(wwwAuth), "bearer ")
+	params := make(map[string]string)
+	
+	for _, part := range strings.Split(raw, ",") {
+		part = strings.TrimSpace(part)
+		if idx := strings.Index(part, "="); idx != -1 {
+			key := strings.TrimSpace(part[:idx])
+			val := strings.Trim(strings.TrimSpace(part[idx+1:]), `"`)
+			params[key] = val
+		}
+	}
+
+	realm := params["realm"]
+	service := params["service"]
+	if realm == "" {
+		return "", fmt.Errorf("无法解析 realm")
+	}
+
+	// 构建 token URL
+	tokenURL := fmt.Sprintf("%s?service=%s&scope=repository:%s:pull", realm, service, repo)
+	
+	resp, err := client.Get(tokenURL)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	var tokenResp struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&tokenResp); err != nil {
+		return "", err
+	}
+
+	return tokenResp.Token, nil
 }
 
 // ==================== Docker 镜像管理 ====================
@@ -1874,4 +1986,285 @@ func printUsage() {
 	fmt.Println("  api-monitor-agent start             # 启动服务")
 	fmt.Println("  api-monitor-agent -b                # 后台模式运行 (隐藏窗口)")
 	fmt.Println("  api-monitor-agent -s https://xxx -id abc -k key123")
+}
+
+// ==================== 容器一键更新与进度跟踪 ====================
+
+// DockerContainerUpdateRequest 容器更新请求
+type DockerContainerUpdateRequest struct {
+	ContainerID   string `json:"container_id"`
+	ContainerName string `json:"container_name"`
+	Image         string `json:"image"` // 新镜像 (可选，不填则用原镜像)
+}
+
+// DockerRenameRequest 容器重命名请求
+type DockerRenameRequest struct {
+	ContainerID string `json:"container_id"`
+	NewName     string `json:"new_name"`
+}
+
+// updateProgress 更新任务进度
+func (a *AgentClient) updateProgress(taskID string, progress *TaskProgress) {
+	a.progressMu.Lock()
+	a.taskProgress[taskID] = progress
+	a.progressMu.Unlock()
+
+	// 通过 WebSocket 发送进度事件
+	a.emit("agent:task_progress", progress)
+}
+
+// getTaskProgress 获取任务进度
+func (a *AgentClient) getTaskProgress(data string) (string, error) {
+	var req struct {
+		TaskID string `json:"task_id"`
+	}
+	if err := json.Unmarshal([]byte(data), &req); err != nil {
+		return "", err
+	}
+
+	a.progressMu.RLock()
+	progress, exists := a.taskProgress[req.TaskID]
+	a.progressMu.RUnlock()
+
+	if !exists {
+		return "", fmt.Errorf("任务不存在: %s", req.TaskID)
+	}
+
+	result, _ := json.Marshal(progress)
+	return string(result), nil
+}
+
+// handleDockerRenameContainer 处理容器重命名
+func (a *AgentClient) handleDockerRenameContainer(data string) (string, error) {
+	var req DockerRenameRequest
+	if err := json.Unmarshal([]byte(data), &req); err != nil {
+		return "", fmt.Errorf("解析请求失败: %v", err)
+	}
+
+	if req.ContainerID == "" || req.NewName == "" {
+		return "", fmt.Errorf("缺少必要参数")
+	}
+
+	cmd := exec.Command("docker", "rename", req.ContainerID, req.NewName)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("重命名失败: %s - %v", string(output), err)
+	}
+
+	return fmt.Sprintf("容器已重命名为: %s", req.NewName), nil
+}
+
+// handleDockerContainerUpdate 处理容器一键更新 (异步)
+func (a *AgentClient) handleDockerContainerUpdate(taskID string, data string) {
+	var req DockerContainerUpdateRequest
+	if err := json.Unmarshal([]byte(data), &req); err != nil {
+		a.sendTaskError(taskID, "解析请求失败: "+err.Error())
+		return
+	}
+
+	progress := &TaskProgress{
+		TaskID:     taskID,
+		Name:       "更新容器: " + req.ContainerName,
+		Percentage: 0,
+		Message:    "正在准备...",
+	}
+	a.updateProgress(taskID, progress)
+
+	// 1. 获取容器当前配置
+	progress.Percentage = 5
+	progress.Message = "获取容器配置..."
+	a.updateProgress(taskID, progress)
+
+	inspectCmd := exec.Command("docker", "inspect", "--format", "{{json .}}", req.ContainerID)
+	inspectOutput, err := inspectCmd.Output()
+	if err != nil {
+		a.finishWithError(taskID, progress, "获取容器配置失败: "+err.Error())
+		return
+	}
+
+	var containerInfo map[string]interface{}
+	if err := json.Unmarshal(inspectOutput, &containerInfo); err != nil {
+		a.finishWithError(taskID, progress, "解析容器配置失败: "+err.Error())
+		return
+	}
+
+	// 获取镜像名
+	imageName := req.Image
+	if imageName == "" {
+		if config, ok := containerInfo["Config"].(map[string]interface{}); ok {
+			if img, ok := config["Image"].(string); ok {
+				imageName = img
+			}
+		}
+	}
+	if imageName == "" {
+		a.finishWithError(taskID, progress, "无法确定镜像名称")
+		return
+	}
+
+	// 2. 拉取新镜像
+	progress.Percentage = 10
+	progress.Message = "正在拉取镜像: " + imageName
+	a.updateProgress(taskID, progress)
+
+	pullCmd := exec.Command("docker", "pull", imageName)
+	pullOutput, err := pullCmd.CombinedOutput()
+	if err != nil {
+		a.finishWithError(taskID, progress, "拉取镜像失败: "+string(pullOutput))
+		return
+	}
+
+	progress.Percentage = 40
+	progress.Message = "镜像拉取完成"
+	progress.DetailMsg = string(pullOutput)
+	a.updateProgress(taskID, progress)
+
+	// 3. 停止旧容器
+	progress.Percentage = 50
+	progress.Message = "正在停止容器..."
+	a.updateProgress(taskID, progress)
+
+	stopCmd := exec.Command("docker", "stop", req.ContainerID)
+	if _, err := stopCmd.CombinedOutput(); err != nil {
+		a.finishWithError(taskID, progress, "停止容器失败: "+err.Error())
+		return
+	}
+
+	// 4. 重命名旧容器
+	progress.Percentage = 60
+	progress.Message = "正在备份旧容器..."
+	a.updateProgress(taskID, progress)
+
+	backupName := req.ContainerName + "-backup-" + time.Now().Format("20060102-150405")
+	renameCmd := exec.Command("docker", "rename", req.ContainerID, backupName)
+	if _, err := renameCmd.CombinedOutput(); err != nil {
+		a.finishWithError(taskID, progress, "备份容器失败: "+err.Error())
+		return
+	}
+
+	// 5. 使用 docker run 创建新容器 (简化版，复用旧配置)
+	progress.Percentage = 70
+	progress.Message = "正在创建新容器..."
+	a.updateProgress(taskID, progress)
+
+	// 构建 docker run 命令
+	runArgs := a.buildDockerRunArgs(containerInfo, imageName, req.ContainerName)
+	runCmd := exec.Command("docker", runArgs...)
+	runOutput, err := runCmd.CombinedOutput()
+	if err != nil {
+		// 创建失败，恢复旧容器
+		exec.Command("docker", "rename", backupName, req.ContainerName).Run()
+		exec.Command("docker", "start", req.ContainerName).Run()
+		a.finishWithError(taskID, progress, "创建新容器失败: "+string(runOutput))
+		return
+	}
+
+	// 6. 删除旧容器
+	progress.Percentage = 90
+	progress.Message = "正在清理旧容器..."
+	a.updateProgress(taskID, progress)
+
+	exec.Command("docker", "rm", backupName).Run()
+
+	// 完成
+	progress.Percentage = 100
+	progress.Message = "更新完成"
+	progress.DetailMsg = "容器已成功更新到最新版本"
+	progress.IsDone = true
+	a.updateProgress(taskID, progress)
+
+	// 发送最终结果
+	a.emit(EventAgentTaskResult, map[string]interface{}{
+		"id":         taskID,
+		"successful": true,
+		"data":       "容器更新完成",
+	})
+}
+
+// buildDockerRunArgs 从容器配置构建 docker run 参数
+func (a *AgentClient) buildDockerRunArgs(containerInfo map[string]interface{}, imageName, containerName string) []string {
+	args := []string{"run", "-d", "--name", containerName}
+
+	// 获取 HostConfig
+	hostConfig, _ := containerInfo["HostConfig"].(map[string]interface{})
+	config, _ := containerInfo["Config"].(map[string]interface{})
+
+	// 端口映射
+	if portBindings, ok := hostConfig["PortBindings"].(map[string]interface{}); ok {
+		for containerPort, bindings := range portBindings {
+			if bindList, ok := bindings.([]interface{}); ok && len(bindList) > 0 {
+				if bind, ok := bindList[0].(map[string]interface{}); ok {
+					hostPort := bind["HostPort"].(string)
+					args = append(args, "-p", hostPort+":"+strings.Split(containerPort, "/")[0])
+				}
+			}
+		}
+	}
+
+	// 卷挂载
+	if mounts, ok := containerInfo["Mounts"].([]interface{}); ok {
+		for _, m := range mounts {
+			if mount, ok := m.(map[string]interface{}); ok {
+				source := mount["Source"].(string)
+				dest := mount["Destination"].(string)
+				args = append(args, "-v", source+":"+dest)
+			}
+		}
+	}
+
+	// 环境变量
+	if env, ok := config["Env"].([]interface{}); ok {
+		for _, e := range env {
+			if envStr, ok := e.(string); ok {
+				// 过滤掉一些自动生成的环境变量
+				if !strings.HasPrefix(envStr, "PATH=") && !strings.HasPrefix(envStr, "HOME=") {
+					args = append(args, "-e", envStr)
+				}
+			}
+		}
+	}
+
+	// 网络模式
+	if networkMode, ok := hostConfig["NetworkMode"].(string); ok && networkMode != "default" && networkMode != "bridge" {
+		args = append(args, "--network", networkMode)
+	}
+
+	// 重启策略
+	if restartPolicy, ok := hostConfig["RestartPolicy"].(map[string]interface{}); ok {
+		if name, ok := restartPolicy["Name"].(string); ok && name != "" && name != "no" {
+			args = append(args, "--restart", name)
+		}
+	}
+
+	// 特权模式
+	if privileged, ok := hostConfig["Privileged"].(bool); ok && privileged {
+		args = append(args, "--privileged")
+	}
+
+	args = append(args, imageName)
+	return args
+}
+
+// finishWithError 完成任务并标记错误
+func (a *AgentClient) finishWithError(taskID string, progress *TaskProgress, errMsg string) {
+	progress.Message = "失败: " + errMsg
+	progress.DetailMsg = errMsg
+	progress.IsDone = true
+	progress.IsError = true
+	a.updateProgress(taskID, progress)
+
+	a.emit(EventAgentTaskResult, map[string]interface{}{
+		"id":         taskID,
+		"successful": false,
+		"data":       errMsg,
+	})
+}
+
+// sendTaskError 发送任务错误
+func (a *AgentClient) sendTaskError(taskID string, errMsg string) {
+	a.emit(EventAgentTaskResult, map[string]interface{}{
+		"id":         taskID,
+		"successful": false,
+		"data":       errMsg,
+	})
 }

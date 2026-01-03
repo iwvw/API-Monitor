@@ -983,6 +983,17 @@ export const hostMethods = {
   },
 
   /**
+   * 切换容器操作菜单
+   */
+  toggleContainerMenu(containerId) {
+    if (this.containerMenuOpen === containerId) {
+      this.containerMenuOpen = null;
+    } else {
+      this.containerMenuOpen = containerId;
+    }
+  },
+
+  /**
    * 加载 Docker 概览数据
    * 从所有在线主机中提取 Docker 信息
    */
@@ -1061,6 +1072,74 @@ export const hostMethods = {
       }
     } finally {
       this.dockerUpdateChecking = false;
+    }
+  },
+
+  /**
+   * 容器一键更新
+   */
+  async updateDockerContainer(serverId, containerId, containerName, image = '') {
+    // 确认操作
+    const confirmed = await this.showConfirmDialog({
+      title: '确认更新容器',
+      message: `确定要更新容器 "${containerName}" 吗？\n\n此操作将：\n1. 拉取最新镜像\n2. 停止并备份旧容器\n3. 使用相同配置创建新容器\n4. 删除旧容器备份`,
+      confirmText: '确认更新',
+      confirmClass: 'btn-warning',
+    });
+
+    if (!confirmed) return;
+
+    this.showGlobalToast('容器更新任务已启动...', 'info');
+
+    try {
+      const response = await fetch('/api/server/docker/container/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ serverId, containerId, containerName, image }),
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        this.showGlobalToast('更新任务已提交，请等待完成', 'success');
+        // 后续可以通过 WebSocket 接收进度更新
+      } else {
+        this.showGlobalToast('启动更新任务失败: ' + data.error, 'error');
+      }
+    } catch (error) {
+      this.showGlobalToast('请求失败: ' + error.message, 'error');
+    }
+  },
+
+  /**
+   * 容器重命名
+   */
+  async renameDockerContainer(serverId, containerId, currentName) {
+    const newName = await this.showPromptDialog({
+      title: '重命名容器',
+      message: `请输入新的容器名称:`,
+      placeholder: currentName,
+      defaultValue: currentName,
+    });
+
+    if (!newName || newName === currentName) return;
+
+    try {
+      const response = await fetch('/api/server/docker/container/rename', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ serverId, containerId, newName }),
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        this.showGlobalToast('容器已重命名为: ' + newName, 'success');
+        // 刷新容器列表
+        this.loadDockerOverview();
+      } else {
+        this.showGlobalToast('重命名失败: ' + data.error, 'error');
+      }
+    } catch (error) {
+      this.showGlobalToast('请求失败: ' + error.message, 'error');
     }
   },
 
