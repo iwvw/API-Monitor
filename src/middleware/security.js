@@ -51,7 +51,7 @@ function configureHelmet(options = {}) {
                     objectSrc: ["'none'"],
                     frameAncestors: ["'self'"],
                     formAction: ["'self'"],
-                    // upgradeInsecureRequests: [], // 移除：如果没有 HTTPS 不能启用此指令
+                    upgradeInsecureRequests: null, // 显式禁用：防止浏览器将请求强制升级为 HTTPS (导致 net::ERR_SSL_PROTOCOL_ERROR)
                 },
             },
 
@@ -78,8 +78,8 @@ function configureHelmet(options = {}) {
         hidePoweredBy: true,
 
         // HSTS (仅在配置 HTTPS 时启用)
-        // 注意：如果服务器没有 HTTPS，启用 HSTS 会导致浏览器缓存强制 HTTPS 访问
-        hsts: false,
+        // 使用 maxAge: 0 强制清除浏览器可能缓存的 HSTS 策略
+        hsts: { maxAge: 0 },
 
         // IE 无嗅探
         ieNoOpen: true,
