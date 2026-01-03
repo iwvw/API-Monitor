@@ -1480,7 +1480,7 @@
             </div>
 
             <!-- 卡片内容 (展开后显示) -->
-            <div class="server-card-body">
+            <div v-show="expandedDockerHosts.includes(dockerServer.id)" class="server-card-body">
               <div class="modern-grid-list"
                 style="padding: 16px; border-top: 1px solid var(--border-color); background: var(--bg-primary);">
                 <!-- 容器列表 -->
@@ -1514,12 +1514,14 @@
                   <div class="item-actions">
                     <button class="action-btn-circle" :class="container.status.includes('Up') ? 'danger' : 'success'"
                       @click="handleDockerAction(dockerServer.id, container.id, container.status.includes('Up') ? 'stop' : 'start')"
-                      :title="container.status.includes('Up') ? '停止' : '启动'">
-                      <i class="fas" :class="container.status.includes('Up') ? 'fa-stop' : 'fa-play'"></i>
+                      :disabled="container.actionPending" :title="container.status.includes('Up') ? '停止' : '启动'">
+                      <i class="fas"
+                        :class="container.actionPending ? 'fa-spinner fa-spin' : (container.status.includes('Up') ? 'fa-stop' : 'fa-play')"></i>
                     </button>
                     <button class="action-btn-circle"
-                      @click="handleDockerAction(dockerServer.id, container.id, 'restart')" title="重启">
-                      <i class="fas fa-redo"></i>
+                      @click="handleDockerAction(dockerServer.id, container.id, 'restart')"
+                      :disabled="container.actionPending" title="重启">
+                      <i class="fas" :class="container.actionPending ? 'fa-spinner fa-spin' : 'fa-redo'"></i>
                     </button>
                     <button class="action-btn-circle"
                       @click="openDockerLogs(dockerServer.id, container.id, container.name)" title="日志">

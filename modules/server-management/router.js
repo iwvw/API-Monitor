@@ -1004,16 +1004,17 @@ router.put('/monitor/config', (req, res) => {
 // ==================== 历史指标接口 ====================
 
 /**
- * 获取历史指标记录
+ * 获取历史指标记录（带后端降采样）
  */
 router.get('/metrics/history', (req, res) => {
   try {
-    const { serverId, startTime, endTime, page = 1, pageSize = 50 } = req.query;
+    const { serverId, startTime, endTime, page = 1, pageSize = 500, maxPointsPerServer = 100 } = req.query;
 
-    const limit = Math.min(parseInt(pageSize) || 50, 10000);
+    const limit = Math.min(parseInt(pageSize) || 500, 10000);
     const offset = ((parseInt(page) || 1) - 1) * limit;
+    const maxPoints = Math.min(parseInt(maxPointsPerServer) || 100, 200);
 
-    const records = ServerMetricsHistory.getHistory({
+    let records = ServerMetricsHistory.getHistory({
       serverId: serverId || null,
       startTime: startTime || null,
       endTime: endTime || null,
@@ -1026,6 +1027,40 @@ router.get('/metrics/history', (req, res) => {
       startTime: startTime || null,
       endTime: endTime || null,
     });
+
+    // 后端降采样：按主机分组，每个主机最多保留 maxPoints 个数据点
+    if (records.length > 0) {
+      const groupedByServer = {};
+
+      // 按主机分组
+      for (const record of records) {
+        const sid = record.server_id;
+        if (!groupedByServer[sid]) {
+          groupedByServer[sid] = [];
+        }
+        groupedByServer[sid].push(record);
+      }
+
+      // 对每个主机进行降采样
+      const sampledRecords = [];
+      for (const sid of Object.keys(groupedByServer)) {
+        const serverRecords = groupedByServer[sid];
+
+        if (serverRecords.length <= maxPoints) {
+          // 数据量不多，直接保留
+          sampledRecords.push(...serverRecords);
+        } else {
+          // 需要降采样：均匀选取数据点
+          const step = serverRecords.length / maxPoints;
+          for (let i = 0; i < maxPoints; i++) {
+            const index = Math.floor(i * step);
+            sampledRecords.push(serverRecords[index]);
+          }
+        }
+      }
+
+      records = sampledRecords;
+    }
 
     res.json({
       success: true,

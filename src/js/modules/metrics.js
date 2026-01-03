@@ -623,10 +623,10 @@ export const metricsMethods = {
 
       console.log('[History] 查询时间范围:', this.metricsHistoryTimeRange, '起始时间:', startTime);
 
-      // 移除分页逻辑，一次性加载所有数据
+      // 性能优化：限制单次加载数量，避免数据量过大导致页面卡顿
       const params = new URLSearchParams({
-        page: 1, // 始终第一页
-        pageSize: 10000, // 足够大的页容量以获取该时间段内所有数据
+        page: 1,
+        pageSize: 500, // 限制加载数量，配合前端降采样确保图表流畅
       });
 
       if (this.metricsHistoryFilter.serverId) {

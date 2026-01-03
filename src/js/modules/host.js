@@ -1573,7 +1573,13 @@ export const hostMethods = {
 
   async handleDockerAction(serverId, containerId, action) {
     const server = this.serverList.find(s => s.id === serverId);
-    if (server) server.loading = true;
+
+    // 找到目标容器并设置 loading 状态
+    const dockerServer = this.dockerOverviewServers.find(s => s.id === serverId);
+    const container = dockerServer?.containers?.find(c => c.id === containerId);
+    if (container) {
+      container.actionPending = true;
+    }
 
     try {
       const response = await fetch('/api/server/docker/action', {
@@ -1587,15 +1593,11 @@ export const hostMethods = {
 
         // 立即更新本地状态（乐观更新）
         if (this.currentTab === 'docker') {
-          const dockerServer = this.dockerOverviewServers.find(s => s.id === serverId);
-          if (dockerServer?.containers) {
-            const container = dockerServer.containers.find(c => c.id === containerId);
-            if (container) {
-              // 根据操作类型预测新状态
-              if (action === 'start') container.status = 'Up Just now';
-              else if (action === 'stop') container.status = 'Exited';
-              else if (action === 'restart') container.status = 'Up Just now';
-            }
+          if (container) {
+            // 根据操作类型预测新状态
+            if (action === 'start') container.status = 'Up Just now';
+            else if (action === 'stop') container.status = 'Exited';
+            else if (action === 'restart') container.status = 'Up Just now';
           }
         }
 
@@ -1613,6 +1615,7 @@ export const hostMethods = {
       this.showGlobalToast('Docker 操作异常: ' + error.message, 'error');
     } finally {
       if (server) server.loading = false;
+      if (container) container.actionPending = false;
     }
   },
 
