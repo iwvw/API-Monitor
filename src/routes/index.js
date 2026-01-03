@@ -355,7 +355,22 @@ function registerRoutes(app) {
 
       if (!server) return res.status(404).json({ success: false, error: '主机不存在' });
 
-      logger.info(`[Auto-Install] 开始安装 Agent: ${server.name} (${serverId})`);
+      // 策略更新：如果 Agent 在线，优先发送升级指令
+      if (agentService.isAgentOnline(serverId)) {
+        logger.info(`[Auto-Install] 检测到 Agent 在线: ${server.name}，发送升级指令`);
+        const sent = agentService.sendUpgradeTask(serverId);
+        if (sent) {
+          return res.json({
+            success: true,
+            message: 'Agent 升级指令已下发（后台执行）',
+            output: '正在通过现有的 Agent 连接执行版本更新...'
+          });
+        }
+        logger.warn(`[Auto-Install] Agent 升级指令发送失败，回退到 SSH 模式`);
+      }
+
+      // 如果 Agent 不在线或发送失败，尝试 SSH 安装
+      logger.info(`[Auto-Install] 开始安装 Agent (SSH): ${server.name} (${serverId})`);
 
       const protocol = req.protocol;
       const host = req.get('host');
@@ -372,7 +387,11 @@ function registerRoutes(app) {
 
       logger.info(`[Auto-Install] 执行结果: success=${result.success}, code=${result.code}`);
       if (result.stdout) logger.info(`[Auto-Install] stdout: ${result.stdout.substring(0, 500)}`);
-      if (result.stderr) logger.warn(`[Auto-Install] stderr: ${result.stderr.substring(0, 500)}`);
+
+      const errorDetails = result.error || result.stderr || '未知错误';
+      if (!result.success) {
+        logger.warn(`[Auto-Install] 失败详情: ${errorDetails}`);
+      }
 
       if (result.success) {
         serverStorage.updateStatus(serverId, { status: 'online' });
@@ -381,8 +400,8 @@ function registerRoutes(app) {
         res.status(500).json({
           success: false,
           error: '安装执行失败',
-          details: result.stderr || result.error,
-          stdout: result.stdout,
+          details: errorDetails,
+          output: result.stdout,
           code: result.code,
         });
       }
@@ -401,22 +420,43 @@ function registerRoutes(app) {
 
       if (!server) return res.status(404).json({ success: false, error: '主机不存在' });
 
-      const script = agentService.generateUninstallScript();
-      const result = await sshService.executeCommand(
-        serverId,
-        server,
-        `cat << 'EOF' > /tmp/agent_uninstall.sh\n${script}\nEOF\nsudo bash /tmp/agent_uninstall.sh`
-      );
+      logger.info(`[Uninstall] 开始卸载 Agent (SSH): ${server.name} (${serverId})`);
 
-      if (result.success) {
-        res.json({ success: true, message: 'Agent 卸载命令已执行' });
-      } else {
-        res
-          .status(500)
-          .json({ success: false, error: '卸载执行失败', details: result.stderr || result.error });
+      const script = agentService.generateUninstallScript();
+
+      try {
+        const result = await sshService.executeCommand(
+          serverId,
+          server,
+          `cat << 'EOF' > /tmp/agent_uninstall.sh\n${script}\nEOF\nsudo bash /tmp/agent_uninstall.sh`
+        );
+
+        logger.info(`[Uninstall] SSH 执行结果: success=${result.success}`);
+
+        if (result.success) {
+          res.json({ success: true, message: 'Agent 卸载命令已执行' });
+        } else {
+          const errDetail = result.stderr || result.error || '未知错误';
+          logger.warn(`[Uninstall] 执行失败详情: ${errDetail}`);
+          res.status(500).json({ success: false, error: '卸载执行失败', details: errDetail });
+        }
+      } catch (sshErr) {
+        logger.error(`[Uninstall] SSH 调用异常: ${sshErr.message}`, sshErr);
+        res.status(500).json({ success: false, error: `SSH 调用异常: ${sshErr.message}` });
       }
     } catch (error) {
+      logger.error(`[Uninstall] 路由异常: ${error.message}`, error);
       res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // 获取 Agent 连接详情 (用于精确判定上线状态)
+  agentPublicRouter.get('/connection-info/:serverId', requireAuth, (req, res) => {
+    const info = agentService.getAgentConnectionInfo(req.params.serverId);
+    if (info) {
+      res.json({ success: true, status: 'online', ...info });
+    } else {
+      res.json({ success: true, status: 'offline' });
     }
   });
 

@@ -296,6 +296,13 @@ export const store = reactive({
   selectedBatchServers: [],
   batchInstallResults: [],
 
+  // Agent 升级相关
+  showUpgradeModal: false,
+  upgradeLog: '',
+  upgradeProgress: 0,
+  upgrading: false,
+  forceUpgrade: false,
+
   // 快速部署模式
   serverAddMode: 'ssh', // 'ssh' | 'agent'
   quickDeployName: '', // 快速部署输入的服务器名称

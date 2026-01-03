@@ -1407,6 +1407,14 @@
           </div>
 
           <div class="server-management-actions" style="display: flex; gap: 8px">
+            <!-- 一键升级 Agent 按钮 -->
+            <button class="btn btn-primary btn-sm" @click="showOneKeyUpgradeModal" title="升级所有 Agent" style="
+                background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+                border: none;
+                box-shadow: 0 4px 10px rgba(16, 185, 129, 0.3);
+              ">
+              <i class="fas fa-cloud-upload-alt" style="margin-right: 6px"></i>升级 Agent
+            </button>
             <button class="btn btn-success btn-sm" @click="openAddServerModal" title="添加主机">
               <i class="fas fa-plus"></i> <span>添加主机</span>
             </button>
@@ -2059,7 +2067,83 @@ Web服务器,192.168.1.100,22,root,password123
         </div>
       </div>
     </div>
-  </transition>
+
+</div>
+</div>
+</div>
+</transition>
+
+<!-- Upgrade Confirm Modal (Moved outside transition for correct layering) -->
+<div v-if="showUpgradeModal" class="modal-overlay" style="z-index: 2000020; position: fixed; top: 0; left: 0;">
+  <div class="modal" style="max-width: 500px">
+    <div class="modal-header">
+      <div class="modal-title">
+        <i class="fas fa-cloud-upload-alt" style="color: var(--server-primary); margin-right: 8px"></i>
+        升级 Agent
+      </div>
+      <button class="modal-close" @click="closeUpgradeModal">
+        <i class="fas fa-times"></i>
+      </button>
+    </div>
+    <div class="modal-body">
+      <p style="
+              margin-bottom: 20px;
+              color: var(--text-secondary);
+              font-size: 13px;
+              line-height: 1.5;
+            ">
+        将向已连接 Agent 的在线服务器发送升级指令。Agent 收到指令后会尝试自动下载最新版本并重启升级。为了安全起见，升级操作通过后台任务执行。
+      </p>
+
+      <!-- 升级日志 -->
+      <div v-if="upgradeLog" class="terminal-log" style="
+              background: #1e1e1e;
+              color: #a9b7c6;
+              padding: 12px;
+              border-radius: 8px;
+              font-family: 'Consolas', monospace;
+              font-size: 12px;
+              height: 200px;
+              overflow-y: auto;
+              margin-bottom: 16px;
+              white-space: pre-wrap;
+              display: block;
+            " ref="upgradeLogRef">{{ upgradeLog }}</div>
+
+      <div v-if="upgradeProgress" style="margin-bottom: 16px">
+        <div class="progress-bar-refined">
+          <div class="progress-fill" :style="{ width: upgradeProgress + '%' }"></div>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer" v-if="!upgrading">
+      <label style="
+              display: flex;
+              align-items: center;
+              gap: 8px;
+              font-size: 12px;
+              color: var(--text-secondary);
+              margin-right: auto;
+            ">
+        <input type="checkbox" v-model="forceUpgrade" /> 强制覆盖旧版本
+      </label>
+      <button class="btn btn-secondary" @click="closeUpgradeModal">关闭</button>
+      <button class="btn btn-primary" @click="performOneKeyUpgrade" style="
+              background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+              border: none;
+            ">
+        <i class="fas fa-upload" style="margin-right: 6px"></i>开始升级
+      </button>
+    </div>
+    <!-- 升级中状态 -->
+    <div class="modal-footer" v-else>
+      <div style="margin-right: auto; font-size: 12px; color: var(--server-primary)">
+        <i class="fas fa-spinner fa-spin"></i> 任务执行中...
+      </div>
+      <button class="btn btn-secondary" @click="closeUpgradeModal">后台运行</button>
+    </div>
+  </div>
+</div>
 
 </div>
 <!-- ==================== 主机管理部分结束 ==================== -->

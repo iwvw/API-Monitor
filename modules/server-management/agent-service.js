@@ -117,6 +117,45 @@ class AgentService extends EventEmitter {
     return this.connections.size;
   }
 
+  /**
+   * 检查 Agent 是否在线
+   */
+  isAgentOnline(serverId) {
+    return this.connections.has(serverId);
+  }
+
+  /**
+   * 向 Agent 发送升级任务
+   */
+  sendUpgradeTask(serverId) {
+    if (!this.isAgentOnline(serverId)) return false;
+
+    return this.sendTask(serverId, {
+      type: TaskTypes.UPGRADE || 5, // 确保 TaskTypes.UPGRADE 存在，否则使用魔数 5
+      data: '', // 升级任务不需要额外数据，Agent 会自动构造 URL
+      timeout: 300, // 5分钟超时
+    });
+  }
+
+  /**
+   * 获取 Agent 连接详细信息 (用于精确判定上线时间)
+   */
+  getAgentConnectionInfo(serverId) {
+    const socket = this.connections.get(serverId);
+    if (!socket) return null;
+
+    // 尝试获取版本号
+    const hostInfo = this.hostInfoCache.get(serverId);
+    const version = hostInfo ? hostInfo.agent_version : null;
+
+    return {
+      serverId,
+      connectedAt: socket._connectedAt || 0,
+      version,
+      socketId: socket.id,
+    };
+  }
+
   // ==================== Socket.IO 服务 ====================
 
   /**
@@ -353,6 +392,7 @@ class AgentService extends EventEmitter {
 
       // 注册新连接
       authenticated = true;
+      socket._connectedAt = Date.now();
       this.connections.set(serverId, socket);
       this.startHeartbeat(serverId);
 

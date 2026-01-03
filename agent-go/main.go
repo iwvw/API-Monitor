@@ -542,6 +542,10 @@ func (a *AgentClient) handleTask(id string, taskType int, data string, timeout i
 			result["successful"] = true
 			result["data"] = output
 		}
+	case 5: // UPGRADE
+		go a.handleUpgrade(id)
+		result["successful"] = true
+		result["data"] = "正在通过后台进程执行升级..."
 	case TaskTypePtyStart: // 启动 PTY
 		go a.handlePTYTask(id, data)
 		return // PTY 任务是长连接，不立刻返回结果
@@ -732,6 +736,39 @@ func (a *AgentClient) handleDockerUpdate(req DockerActionRequest) (string, error
 	exec.Command("docker", "rm", backupName).Run()
 
 	return fmt.Sprintf("容器 %s 更新成功", containerName), nil
+}
+
+// handleUpgrade 执行 Agent 自我升级
+func (a *AgentClient) handleUpgrade(taskId string) {
+	// 稍微延迟，确保 Ack 消息先发送出去
+	time.Sleep(1 * time.Second)
+
+	log.Printf("[Upgrade] 开始执行升级流程...")
+
+	var cmd *exec.Cmd
+
+	if runtime.GOOS == "windows" {
+		// Windows: 使用 PowerShell 下载并执行脚本
+		installUrl := fmt.Sprintf("%s/api/server/agent/install/win/%s", a.config.ServerURL, a.config.ServerID)
+		psCommand := fmt.Sprintf("irm %s | iex", installUrl)
+		
+		// 使用 Start-Process 启动一个独立的 PowerShell 窗口执行升级，确保不会因为 Agent 停止而被杀掉
+		// 注意：服务中运行已经有 System 权限，不需要 (也不能) 使用 RunAs，否则 Session 0 会失败
+		cmd = exec.Command("powershell", "-Command", "Start-Process", "powershell", "-ArgumentList", fmt.Sprintf("'-NoProfile -ExecutionPolicy Bypass -Command \"%s\"'", psCommand), "-WindowStyle", "Hidden")
+	} else {
+		// Linux/MacOS: 使用 curl | bash
+		installUrl := fmt.Sprintf("%s/api/server/agent/install/%s", a.config.ServerURL, a.config.ServerID)
+		shellCommand := fmt.Sprintf("curl -fsSL %s | sudo bash", installUrl)
+		
+		// 使用 nohup 后台执行
+		cmd = exec.Command("sh", "-c", fmt.Sprintf("nohup sh -c '%s' > /tmp/agent_upgrade.log 2>&1 &", shellCommand))
+	}
+
+	if err := cmd.Start(); err != nil {
+		log.Printf("[Upgrade] 启动升级进程失败: %v", err)
+	} else {
+		log.Printf("[Upgrade] 升级进程已启动，Agent 即将重启...")
+	}
 }
 
 // handlePTYTask 处理 PTY 任务
