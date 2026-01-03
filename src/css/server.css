@@ -3755,3 +3755,48 @@
   transform: rotate(180deg);
   transition: all 0.3s ease;
 }
+
+/* ==================== Docker 容器更新状态标记 ==================== */
+.update-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+}
+
+.update-badge i {
+  font-size: 9px;
+}
+
+.update-badge.update-available {
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(16, 185, 129, 0.08));
+  color: #10b981;
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  animation: update-pulse 2s infinite;
+}
+
+.update-badge.update-latest {
+  background: rgba(59, 130, 246, 0.1);
+  color: #3b82f6;
+  border: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+.update-badge.update-error {
+  background: rgba(245, 158, 11, 0.1);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.2);
+}
+
+@keyframes update-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(16, 185, 129, 0);
+  }
+}

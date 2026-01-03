@@ -542,6 +542,78 @@ func (a *AgentClient) handleTask(id string, taskType int, data string, timeout i
 			result["successful"] = true
 			result["data"] = output
 		}
+	case 11: // DOCKER_CHECK_UPDATE
+		output, err := a.handleDockerCheckUpdate(data)
+		if err != nil {
+			result["data"] = err.Error()
+		} else {
+			result["successful"] = true
+			result["data"] = output
+		}
+	case 13: // DOCKER_IMAGES - 镜像列表
+		output, err := a.handleDockerImages(data)
+		if err != nil {
+			result["data"] = err.Error()
+		} else {
+			result["successful"] = true
+			result["data"] = output
+		}
+	case 14: // DOCKER_IMAGE_ACTION - 镜像操作
+		output, err := a.handleDockerImageAction(data)
+		if err != nil {
+			result["data"] = err.Error()
+		} else {
+			result["successful"] = true
+			result["data"] = output
+		}
+	case 15: // DOCKER_NETWORKS - 网络列表
+		output, err := a.handleDockerNetworks(data)
+		if err != nil {
+			result["data"] = err.Error()
+		} else {
+			result["successful"] = true
+			result["data"] = output
+		}
+	case 16: // DOCKER_NETWORK_ACTION - 网络操作
+		output, err := a.handleDockerNetworkAction(data)
+		if err != nil {
+			result["data"] = err.Error()
+		} else {
+			result["successful"] = true
+			result["data"] = output
+		}
+	case 17: // DOCKER_VOLUMES - Volume 列表
+		output, err := a.handleDockerVolumes(data)
+		if err != nil {
+			result["data"] = err.Error()
+		} else {
+			result["successful"] = true
+			result["data"] = output
+		}
+	case 18: // DOCKER_VOLUME_ACTION - Volume 操作
+		output, err := a.handleDockerVolumeAction(data)
+		if err != nil {
+			result["data"] = err.Error()
+		} else {
+			result["successful"] = true
+			result["data"] = output
+		}
+	case 19: // DOCKER_LOGS - 容器日志
+		output, err := a.handleDockerLogs(data)
+		if err != nil {
+			result["data"] = err.Error()
+		} else {
+			result["successful"] = true
+			result["data"] = output
+		}
+	case 20: // DOCKER_STATS - 容器资源统计
+		output, err := a.handleDockerStats(data)
+		if err != nil {
+			result["data"] = err.Error()
+		} else {
+			result["successful"] = true
+			result["data"] = output
+		}
 	case 5: // UPGRADE
 		go a.handleUpgrade(id)
 		result["successful"] = true
@@ -736,6 +808,601 @@ func (a *AgentClient) handleDockerUpdate(req DockerActionRequest) (string, error
 	exec.Command("docker", "rm", backupName).Run()
 
 	return fmt.Sprintf("容器 %s 更新成功", containerName), nil
+}
+
+// DockerCheckUpdateRequest 检查更新请求
+type DockerCheckUpdateRequest struct {
+	ContainerID string `json:"container_id"` // 容器 ID 或名称，留空则检查所有容器
+}
+
+// DockerImageUpdateStatus 镜像更新状态
+type DockerImageUpdateStatus struct {
+	ContainerID   string `json:"container_id"`
+	ContainerName string `json:"container_name"`
+	Image         string `json:"image"`
+	CurrentDigest string `json:"current_digest"`
+	LatestDigest  string `json:"latest_digest"`
+	HasUpdate     bool   `json:"has_update"`
+	Error         string `json:"error,omitempty"`
+}
+
+// handleDockerCheckUpdate 处理 Docker 镜像更新检测
+func (a *AgentClient) handleDockerCheckUpdate(data string) (string, error) {
+	var req DockerCheckUpdateRequest
+	if data != "" {
+		json.Unmarshal([]byte(data), &req)
+	}
+
+	var containers []string
+
+	if req.ContainerID != "" {
+		// 检查指定容器
+		containers = []string{req.ContainerID}
+	} else {
+		// 获取所有运行中的容器
+		cmd := exec.Command("docker", "ps", "-q")
+		output, err := cmd.Output()
+		if err != nil {
+			return "", fmt.Errorf("获取容器列表失败: %v", err)
+		}
+		lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+		for _, line := range lines {
+			if line != "" {
+				containers = append(containers, line)
+			}
+		}
+	}
+
+	if len(containers) == 0 {
+		return "[]", nil
+	}
+
+	var results []DockerImageUpdateStatus
+
+	for _, containerID := range containers {
+		status := a.checkContainerImageUpdate(containerID)
+		results = append(results, status)
+	}
+
+	jsonResult, _ := json.Marshal(results)
+	return string(jsonResult), nil
+}
+
+// checkContainerImageUpdate 检查单个容器的镜像更新
+func (a *AgentClient) checkContainerImageUpdate(containerID string) DockerImageUpdateStatus {
+	status := DockerImageUpdateStatus{
+		ContainerID: containerID,
+	}
+
+	// 1. 获取容器信息
+	inspectCmd := exec.Command("docker", "inspect", "--format",
+		"{{.Name}}|{{.Config.Image}}|{{index .RepoDigests 0}}",
+		containerID)
+	output, err := inspectCmd.Output()
+	if err != nil {
+		status.Error = fmt.Sprintf("获取容器信息失败: %v", err)
+		return status
+	}
+
+	parts := strings.SplitN(strings.TrimSpace(string(output)), "|", 3)
+	if len(parts) < 2 {
+		status.Error = "解析容器信息失败"
+		return status
+	}
+
+	status.ContainerName = strings.TrimPrefix(parts[0], "/")
+	status.Image = parts[1]
+
+	// 2. 获取本地镜像的 Digest
+	localDigest := ""
+	if len(parts) >= 3 && parts[2] != "" && parts[2] != "<no value>" {
+		// 从 RepoDigests 提取 digest (格式: image@sha256:xxx)
+		if idx := strings.Index(parts[2], "@"); idx != -1 {
+			localDigest = parts[2][idx+1:]
+		}
+	}
+
+	// 如果 RepoDigests 为空，尝试从镜像 inspect 获取
+	if localDigest == "" {
+		imgInspect := exec.Command("docker", "image", "inspect", "--format",
+			"{{index .RepoDigests 0}}", status.Image)
+		imgOutput, err := imgInspect.Output()
+		if err == nil && strings.TrimSpace(string(imgOutput)) != "" && strings.TrimSpace(string(imgOutput)) != "<no value>" {
+			if idx := strings.Index(string(imgOutput), "@"); idx != -1 {
+				localDigest = strings.TrimSpace(string(imgOutput)[idx+1:])
+			}
+		}
+	}
+
+	status.CurrentDigest = localDigest
+
+	// 3. 解析镜像名获取 registry、repo、tag
+	registry, repo, tag := parseImageName(status.Image)
+
+	// 4. 获取远程 Digest
+	remoteDigest, err := getRemoteDigest(registry, repo, tag)
+	if err != nil {
+		status.Error = fmt.Sprintf("获取远程镜像信息失败: %v", err)
+		return status
+	}
+
+	status.LatestDigest = remoteDigest
+	status.HasUpdate = localDigest != "" && remoteDigest != "" && localDigest != remoteDigest
+
+	return status
+}
+
+// parseImageName 解析镜像名称为 registry、repo、tag
+func parseImageName(image string) (registry, repo, tag string) {
+	// 默认值
+	registry = "registry-1.docker.io"
+	tag = "latest"
+
+	// 移除可能的 digest 后缀
+	if idx := strings.Index(image, "@"); idx != -1 {
+		image = image[:idx]
+	}
+
+	// 分离 tag
+	if idx := strings.LastIndex(image, ":"); idx != -1 {
+		// 检查是否是端口号 (例如 localhost:5000/image)
+		slashIdx := strings.LastIndex(image, "/")
+		if idx > slashIdx {
+			tag = image[idx+1:]
+			image = image[:idx]
+		}
+	}
+
+	// 判断是否包含 registry
+	parts := strings.Split(image, "/")
+	if len(parts) == 1 {
+		// 例如 "nginx" -> "library/nginx"
+		repo = "library/" + parts[0]
+	} else if len(parts) == 2 {
+		// 检查第一部分是否是 registry (包含 . 或 :)
+		if strings.Contains(parts[0], ".") || strings.Contains(parts[0], ":") {
+			registry = parts[0]
+			repo = parts[1]
+		} else {
+			// 例如 "user/image" -> "user/image"
+			repo = image
+		}
+	} else if len(parts) >= 3 {
+		// 例如 "ghcr.io/user/image"
+		registry = parts[0]
+		repo = strings.Join(parts[1:], "/")
+	}
+
+	return registry, repo, tag
+}
+
+// getRemoteDigest 从 Registry 获取远程镜像的 Digest
+func getRemoteDigest(registry, repo, tag string) (string, error) {
+	// 目前只支持 Docker Hub
+	if registry != "registry-1.docker.io" && registry != "docker.io" {
+		return "", fmt.Errorf("暂不支持的 Registry: %s (MVP 仅支持 Docker Hub)", registry)
+	}
+
+	// 1. 获取匿名 Token
+	tokenURL := fmt.Sprintf("https://auth.docker.io/token?service=registry.docker.io&scope=repository:%s:pull", repo)
+	tokenResp, err := http.Get(tokenURL)
+	if err != nil {
+		return "", fmt.Errorf("获取 Token 失败: %v", err)
+	}
+	defer tokenResp.Body.Close()
+
+	var tokenData struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(tokenResp.Body).Decode(&tokenData); err != nil {
+		return "", fmt.Errorf("解析 Token 失败: %v", err)
+	}
+
+	// 2. 获取 Manifest
+	manifestURL := fmt.Sprintf("https://registry-1.docker.io/v2/%s/manifests/%s", repo, tag)
+	req, _ := http.NewRequest("GET", manifestURL, nil)
+	req.Header.Set("Authorization", "Bearer "+tokenData.Token)
+	// Accept multi-arch manifest first, fallback to v2
+	req.Header.Set("Accept", "application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json")
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("获取 Manifest 失败: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(resp.Body)
+		return "", fmt.Errorf("Registry 返回错误 %d: %s", resp.StatusCode, string(body))
+	}
+
+	// Docker-Content-Digest header 包含镜像的 Digest
+	digest := resp.Header.Get("Docker-Content-Digest")
+	if digest == "" {
+		return "", fmt.Errorf("响应中未包含 Docker-Content-Digest")
+	}
+
+	return digest, nil
+}
+
+// ==================== Docker 镜像管理 ====================
+
+// DockerImage 镜像信息
+type DockerImage struct {
+	ID         string `json:"id"`
+	Repository string `json:"repository"`
+	Tag        string `json:"tag"`
+	Size       string `json:"size"`
+	Created    string `json:"created"`
+}
+
+// handleDockerImages 列出 Docker 镜像
+func (a *AgentClient) handleDockerImages(data string) (string, error) {
+	cmd := exec.Command("docker", "images", "--format", "{{.ID}}|{{.Repository}}|{{.Tag}}|{{.Size}}|{{.CreatedSince}}")
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("获取镜像列表失败: %v", err)
+	}
+
+	var images []DockerImage
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "|", 5)
+		if len(parts) >= 5 {
+			images = append(images, DockerImage{
+				ID:         parts[0],
+				Repository: parts[1],
+				Tag:        parts[2],
+				Size:       parts[3],
+				Created:    parts[4],
+			})
+		}
+	}
+
+	jsonResult, _ := json.Marshal(images)
+	return string(jsonResult), nil
+}
+
+// DockerImageActionRequest 镜像操作请求
+type DockerImageActionRequest struct {
+	Action string `json:"action"` // pull, remove, prune
+	Image  string `json:"image"`  // 镜像名 (pull/remove 时使用)
+}
+
+// handleDockerImageAction 镜像操作
+func (a *AgentClient) handleDockerImageAction(data string) (string, error) {
+	var req DockerImageActionRequest
+	if err := json.Unmarshal([]byte(data), &req); err != nil {
+		return "", fmt.Errorf("解析请求失败: %v", err)
+	}
+
+	var cmd *exec.Cmd
+	var actionDesc string
+
+	switch req.Action {
+	case "pull":
+		if req.Image == "" {
+			return "", fmt.Errorf("缺少镜像名")
+		}
+		cmd = exec.Command("docker", "pull", req.Image)
+		actionDesc = "拉取镜像"
+	case "remove":
+		if req.Image == "" {
+			return "", fmt.Errorf("缺少镜像 ID")
+		}
+		cmd = exec.Command("docker", "rmi", req.Image)
+		actionDesc = "删除镜像"
+	case "prune":
+		cmd = exec.Command("docker", "image", "prune", "-f")
+		actionDesc = "清理未使用镜像"
+	default:
+		return "", fmt.Errorf("不支持的操作: %s", req.Action)
+	}
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("%s失败: %s", actionDesc, string(output))
+	}
+
+	return fmt.Sprintf("%s成功\n%s", actionDesc, string(output)), nil
+}
+
+// ==================== Docker 网络管理 ====================
+
+// DockerNetwork 网络信息
+type DockerNetwork struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Driver  string `json:"driver"`
+	Scope   string `json:"scope"`
+	Subnet  string `json:"subnet"`
+	Gateway string `json:"gateway"`
+}
+
+// handleDockerNetworks 列出 Docker 网络
+func (a *AgentClient) handleDockerNetworks(data string) (string, error) {
+	cmd := exec.Command("docker", "network", "ls", "--format", "{{.ID}}|{{.Name}}|{{.Driver}}|{{.Scope}}")
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("获取网络列表失败: %v", err)
+	}
+
+	var networks []DockerNetwork
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "|", 4)
+		if len(parts) >= 4 {
+			network := DockerNetwork{
+				ID:     parts[0],
+				Name:   parts[1],
+				Driver: parts[2],
+				Scope:  parts[3],
+			}
+
+			// 获取网络详情 (子网和网关)
+			inspectCmd := exec.Command("docker", "network", "inspect", parts[0], "--format", "{{range .IPAM.Config}}{{.Subnet}}|{{.Gateway}}{{end}}")
+			inspectOut, _ := inspectCmd.Output()
+			if inspectParts := strings.SplitN(strings.TrimSpace(string(inspectOut)), "|", 2); len(inspectParts) >= 2 {
+				network.Subnet = inspectParts[0]
+				network.Gateway = inspectParts[1]
+			}
+
+			networks = append(networks, network)
+		}
+	}
+
+	jsonResult, _ := json.Marshal(networks)
+	return string(jsonResult), nil
+}
+
+// DockerNetworkActionRequest 网络操作请求
+type DockerNetworkActionRequest struct {
+	Action  string `json:"action"`  // create, remove, connect, disconnect
+	Name    string `json:"name"`    // 网络名
+	Driver  string `json:"driver"`  // 驱动 (bridge, host, overlay)
+	Subnet  string `json:"subnet"`  // 子网 (可选)
+	Gateway string `json:"gateway"` // 网关 (可选)
+	Container string `json:"container"` // 容器 ID (connect/disconnect 时使用)
+}
+
+// handleDockerNetworkAction 网络操作
+func (a *AgentClient) handleDockerNetworkAction(data string) (string, error) {
+	var req DockerNetworkActionRequest
+	if err := json.Unmarshal([]byte(data), &req); err != nil {
+		return "", fmt.Errorf("解析请求失败: %v", err)
+	}
+
+	var cmd *exec.Cmd
+	var actionDesc string
+
+	switch req.Action {
+	case "create":
+		if req.Name == "" {
+			return "", fmt.Errorf("缺少网络名")
+		}
+		args := []string{"network", "create"}
+		if req.Driver != "" {
+			args = append(args, "--driver", req.Driver)
+		}
+		if req.Subnet != "" {
+			args = append(args, "--subnet", req.Subnet)
+		}
+		if req.Gateway != "" {
+			args = append(args, "--gateway", req.Gateway)
+		}
+		args = append(args, req.Name)
+		cmd = exec.Command("docker", args...)
+		actionDesc = "创建网络"
+	case "remove":
+		if req.Name == "" {
+			return "", fmt.Errorf("缺少网络名")
+		}
+		cmd = exec.Command("docker", "network", "rm", req.Name)
+		actionDesc = "删除网络"
+	case "connect":
+		if req.Name == "" || req.Container == "" {
+			return "", fmt.Errorf("缺少网络名或容器 ID")
+		}
+		cmd = exec.Command("docker", "network", "connect", req.Name, req.Container)
+		actionDesc = "连接容器到网络"
+	case "disconnect":
+		if req.Name == "" || req.Container == "" {
+			return "", fmt.Errorf("缺少网络名或容器 ID")
+		}
+		cmd = exec.Command("docker", "network", "disconnect", req.Name, req.Container)
+		actionDesc = "断开容器与网络"
+	default:
+		return "", fmt.Errorf("不支持的操作: %s", req.Action)
+	}
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("%s失败: %s", actionDesc, string(output))
+	}
+
+	return fmt.Sprintf("%s成功", actionDesc), nil
+}
+
+// ==================== Docker Volume 管理 ====================
+
+// DockerVolume Volume 信息
+type DockerVolume struct {
+	Name       string `json:"name"`
+	Driver     string `json:"driver"`
+	Mountpoint string `json:"mountpoint"`
+	Size       string `json:"size"`
+}
+
+// handleDockerVolumes 列出 Docker Volumes
+func (a *AgentClient) handleDockerVolumes(data string) (string, error) {
+	cmd := exec.Command("docker", "volume", "ls", "--format", "{{.Name}}|{{.Driver}}|{{.Mountpoint}}")
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("获取 Volume 列表失败: %v", err)
+	}
+
+	var volumes []DockerVolume
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "|", 3)
+		if len(parts) >= 3 {
+			volumes = append(volumes, DockerVolume{
+				Name:       parts[0],
+				Driver:     parts[1],
+				Mountpoint: parts[2],
+			})
+		}
+	}
+
+	jsonResult, _ := json.Marshal(volumes)
+	return string(jsonResult), nil
+}
+
+// DockerVolumeActionRequest Volume 操作请求
+type DockerVolumeActionRequest struct {
+	Action string `json:"action"` // create, remove, prune
+	Name   string `json:"name"`   // Volume 名
+	Driver string `json:"driver"` // 驱动 (可选)
+}
+
+// handleDockerVolumeAction Volume 操作
+func (a *AgentClient) handleDockerVolumeAction(data string) (string, error) {
+	var req DockerVolumeActionRequest
+	if err := json.Unmarshal([]byte(data), &req); err != nil {
+		return "", fmt.Errorf("解析请求失败: %v", err)
+	}
+
+	var cmd *exec.Cmd
+	var actionDesc string
+
+	switch req.Action {
+	case "create":
+		if req.Name == "" {
+			return "", fmt.Errorf("缺少 Volume 名")
+		}
+		args := []string{"volume", "create"}
+		if req.Driver != "" {
+			args = append(args, "--driver", req.Driver)
+		}
+		args = append(args, req.Name)
+		cmd = exec.Command("docker", args...)
+		actionDesc = "创建 Volume"
+	case "remove":
+		if req.Name == "" {
+			return "", fmt.Errorf("缺少 Volume 名")
+		}
+		cmd = exec.Command("docker", "volume", "rm", req.Name)
+		actionDesc = "删除 Volume"
+	case "prune":
+		cmd = exec.Command("docker", "volume", "prune", "-f")
+		actionDesc = "清理未使用 Volume"
+	default:
+		return "", fmt.Errorf("不支持的操作: %s", req.Action)
+	}
+
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("%s失败: %s", actionDesc, string(output))
+	}
+
+	return fmt.Sprintf("%s成功\n%s", actionDesc, string(output)), nil
+}
+
+// ==================== Docker 日志 ====================
+
+// DockerLogsRequest 日志请求
+type DockerLogsRequest struct {
+	ContainerID string `json:"container_id"`
+	Tail        int    `json:"tail"` // 获取最后 N 行, 默认 100
+	Since       string `json:"since"` // 时间过滤, 如 "1h", "30m"
+}
+
+// handleDockerLogs 获取容器日志
+func (a *AgentClient) handleDockerLogs(data string) (string, error) {
+	var req DockerLogsRequest
+	if err := json.Unmarshal([]byte(data), &req); err != nil {
+		return "", fmt.Errorf("解析请求失败: %v", err)
+	}
+
+	if req.ContainerID == "" {
+		return "", fmt.Errorf("缺少容器 ID")
+	}
+
+	args := []string{"logs"}
+	if req.Tail > 0 {
+		args = append(args, "--tail", fmt.Sprintf("%d", req.Tail))
+	} else {
+		args = append(args, "--tail", "100") // 默认 100 行
+	}
+	if req.Since != "" {
+		args = append(args, "--since", req.Since)
+	}
+	args = append(args, req.ContainerID)
+
+	cmd := exec.Command("docker", args...)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("获取日志失败: %s", string(output))
+	}
+
+	return string(output), nil
+}
+
+// ==================== Docker 资源统计 ====================
+
+// DockerContainerStats 容器资源统计
+type DockerContainerStats struct {
+	ContainerID string  `json:"container_id"`
+	Name        string  `json:"name"`
+	CPUPercent  string  `json:"cpu_percent"`
+	MemUsage    string  `json:"mem_usage"`
+	MemPercent  string  `json:"mem_percent"`
+	NetIO       string  `json:"net_io"`
+	BlockIO     string  `json:"block_io"`
+}
+
+// handleDockerStats 获取容器资源统计
+func (a *AgentClient) handleDockerStats(data string) (string, error) {
+	// 获取所有运行中容器的资源统计 (非阻塞模式)
+	cmd := exec.Command("docker", "stats", "--no-stream", "--format",
+		"{{.ID}}|{{.Name}}|{{.CPUPerc}}|{{.MemUsage}}|{{.MemPerc}}|{{.NetIO}}|{{.BlockIO}}")
+	output, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("获取资源统计失败: %v", err)
+	}
+
+	var stats []DockerContainerStats
+	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
+	for _, line := range lines {
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "|", 7)
+		if len(parts) >= 7 {
+			stats = append(stats, DockerContainerStats{
+				ContainerID: parts[0],
+				Name:        parts[1],
+				CPUPercent:  parts[2],
+				MemUsage:    parts[3],
+				MemPercent:  parts[4],
+				NetIO:       parts[5],
+				BlockIO:     parts[6],
+			})
+		}
+	}
+
+	jsonResult, _ := json.Marshal(stats)
+	return string(jsonResult), nil
 }
 
 // handleUpgrade 执行 Agent 自我升级

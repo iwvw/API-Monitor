@@ -860,47 +860,93 @@ export const hostMethods = {
 
   // ==================== Docker 相关 ====================
 
-  async checkContainerUpdate(server, container) {
-    if (container.checkingUpdate) return;
+  /**
+   * 检查所有容器的镜像更新状态
+   * @param {string} serverId - 服务器 ID
+   */
+  async checkDockerUpdates(serverId) {
+    if (this.dockerUpdateChecking) return;
 
-    container.checkingUpdate = true;
-    this.$forceUpdate();
+    this.dockerUpdateChecking = true;
+    this.dockerUpdateResults = [];
 
     try {
       const response = await fetch('/api/server/docker/check-update', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          serverId: server.id,
-          imageName: container.image,
-        }),
+        body: JSON.stringify({ serverId }),
       });
 
       const data = await response.json();
 
-      if (data.success) {
-        container.updateAvailable = data.data.updateAvailable;
+      if (data.success && Array.isArray(data.data)) {
+        this.dockerUpdateResults = data.data;
 
-        if (data.data.updateAvailable) {
-          this.showGlobalToast(`容器 ${container.name} 有新版本可用`, 'success');
+        const updatesAvailable = data.data.filter(r => r.has_update).length;
+        const errors = data.data.filter(r => r.error).length;
+
+        if (updatesAvailable > 0) {
+          this.showGlobalToast(`发现 ${updatesAvailable} 个容器有更新可用`, 'success');
+        } else if (errors > 0) {
+          this.showGlobalToast(`检测完成，${errors} 个容器检测失败 (可能是私有镜像)`, 'warning');
         } else {
-          this.showGlobalToast(`容器 ${container.name} 已是最新`, 'info');
+          this.showGlobalToast('所有容器镜像均为最新', 'info');
         }
       } else {
-        this.showGlobalToast('检测失败: ' + (data.error || data.message), 'error');
+        this.showGlobalToast('检测失败: ' + (data.error || '未知错误'), 'error');
       }
     } catch (error) {
       console.error('检测更新失败:', error);
-      this.showGlobalToast('检测请求失败', 'error');
+      this.showGlobalToast('检测请求失败: ' + error.message, 'error');
     } finally {
-      container.checkingUpdate = false;
-      this.$forceUpdate();
+      this.dockerUpdateChecking = false;
     }
+  },
+
+  /**
+   * 获取容器的更新状态
+   * @param {string} containerId - 容器 ID
+   * @returns {'has_update' | 'latest' | 'error' | null}
+   */
+  getContainerUpdateStatus(containerId) {
+    if (!this.dockerUpdateResults || this.dockerUpdateResults.length === 0) {
+      return null;
+    }
+
+    // containerId 可能是短 ID，需要模糊匹配
+    const result = this.dockerUpdateResults.find(r =>
+      r.container_id === containerId ||
+      r.container_id?.startsWith(containerId) ||
+      containerId?.startsWith(r.container_id)
+    );
+
+    if (!result) return null;
+    if (result.error) return 'error';
+    if (result.has_update) return 'has_update';
+    return 'latest';
+  },
+
+  /**
+   * 获取容器更新检测的错误信息
+   * @param {string} containerId - 容器 ID
+   * @returns {string}
+   */
+  getContainerUpdateError(containerId) {
+    if (!this.dockerUpdateResults) return '';
+
+    const result = this.dockerUpdateResults.find(r =>
+      r.container_id === containerId ||
+      r.container_id?.startsWith(containerId) ||
+      containerId?.startsWith(r.container_id)
+    );
+
+    return result?.error || '';
   },
 
   showDockerContainersModal(server, dockerData) {
     this.dockerModalServer = server;
     this.dockerModalData = dockerData;
+    this.dockerUpdateResults = []; // 清空之前的检测结果
     this.showDockerModal = true;
   },
 
@@ -908,6 +954,89 @@ export const hostMethods = {
     this.showDockerModal = false;
     this.dockerModalServer = null;
     this.dockerModalData = null;
+    this.dockerUpdateResults = [];
+  },
+
+  /**
+   * 加载 Docker 概览数据
+   * 从所有在线主机中提取 Docker 信息
+   */
+  loadDockerOverview() {
+    this.dockerOverviewLoading = true;
+    this.dockerUpdateResults = []; // 清除上次检测结果
+
+    try {
+      // 从 serverList 中提取所有有 Docker 数据的主机
+      const dockerServers = [];
+
+      for (const server of this.serverList) {
+        if (server.status !== 'online') continue;
+        if (!server.info?.docker?.installed) continue;
+
+        dockerServers.push({
+          id: server.id,
+          name: server.name,
+          host: server.host,
+          containers: server.info.docker.containers || [],
+        });
+      }
+
+      this.dockerOverviewServers = dockerServers;
+    } finally {
+      this.dockerOverviewLoading = false;
+    }
+  },
+
+  /**
+   * 批量检查所有主机的 Docker 更新
+   */
+  async checkAllDockerUpdates() {
+    if (this.dockerUpdateChecking) return;
+    if (this.dockerOverviewServers.length === 0) {
+      this.showGlobalToast('没有可检测的 Docker 主机', 'warning');
+      return;
+    }
+
+    this.dockerUpdateChecking = true;
+    this.dockerUpdateResults = [];
+
+    let totalUpdates = 0;
+    let totalErrors = 0;
+
+    try {
+      // 逐个检测每台主机
+      for (const dockerServer of this.dockerOverviewServers) {
+        try {
+          const response = await fetch('/api/server/docker/check-update', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ serverId: dockerServer.id }),
+          });
+
+          const data = await response.json();
+
+          if (data.success && Array.isArray(data.data)) {
+            // 合并结果
+            this.dockerUpdateResults = [...this.dockerUpdateResults, ...data.data];
+            totalUpdates += data.data.filter(r => r.has_update).length;
+            totalErrors += data.data.filter(r => r.error).length;
+          }
+        } catch (e) {
+          console.error(`检测主机 ${dockerServer.name} 失败:`, e);
+          totalErrors++;
+        }
+      }
+
+      if (totalUpdates > 0) {
+        this.showGlobalToast(`发现 ${totalUpdates} 个容器有更新可用`, 'success');
+      } else if (totalErrors > 0) {
+        this.showGlobalToast(`检测完成，${totalErrors} 个容器检测失败`, 'warning');
+      } else {
+        this.showGlobalToast('所有容器镜像均为最新', 'info');
+      }
+    } finally {
+      this.dockerUpdateChecking = false;
+    }
   },
 
   getRunningContainers(containers) {

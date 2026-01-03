@@ -60,7 +60,7 @@ const metricsWss = metricsService.init(server);
 const sshService = require('./modules/server-management/ssh-service');
 const sshWss = sshService.init(server);
 
-// 初始化 Agent Socket.IO 服务 (Nezha 风格实时连接)
+// 初始化 Agent Socket.IO 服务
 const agentService = require('./modules/server-management/agent-service');
 agentService.initSocketIO(server);
 

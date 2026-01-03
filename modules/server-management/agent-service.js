@@ -1,6 +1,5 @@
 /**
  * Agent 服务 - 基于 Socket.IO 的实时连接管理器
- * 参考 Nezha 0.20.13 架构设计
  */
 
 const crypto = require('crypto');

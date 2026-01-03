@@ -10,6 +10,10 @@
         @click="serverCurrentTab = 'history'; loadMetricsHistory()">
         <i class="fas fa-chart-line"></i> 历史记录
       </button>
+      <button class="tab-btn" :class="{ active: serverCurrentTab === 'docker' }"
+        @click="serverCurrentTab = 'docker'; loadDockerOverview()">
+        <i class="fab fa-docker"></i> Docker
+      </button>
       <button class="tab-btn" :class="{ active: serverCurrentTab === 'management' }"
         @click="serverCurrentTab = 'management'">
         <i class="fas fa-cog"></i> 后台管理
@@ -1332,6 +1336,221 @@
         </div>
 
         <!-- 分页 -->
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== Docker 管理标签页 ==================== -->
+  <div v-show="serverCurrentTab === 'docker'" class="sub-tab-content quick-fade-in">
+    <div class="panel">
+      <div class="panel-header" style="
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          flex-wrap: wrap;
+          gap: 12px;
+          margin-bottom: 16px;
+          padding-bottom: 12px;
+          border-bottom: 1px solid var(--border-color);
+        ">
+        <div style="display: flex; align-items: center; gap: 12px">
+          <i class="fab fa-docker" style="font-size: 24px; color: #2496ED"></i>
+          <div>
+            <h3 style="margin: 0; font-size: 18px; font-weight: 700">Docker 管理</h3>
+          </div>
+        </div>
+        <div style="display: flex; gap: 8px">
+          <button class="btn btn-secondary btn-sm" @click="loadDockerOverview" :disabled="dockerOverviewLoading">
+            <i class="fas" :class="dockerOverviewLoading ? 'fa-spinner fa-spin' : 'fa-sync-alt'"></i>
+            刷新
+          </button>
+          <button class="btn btn-primary btn-sm" @click="checkAllDockerUpdates" :disabled="dockerUpdateChecking">
+            <i class="fas" :class="dockerUpdateChecking ? 'fa-spinner fa-spin' : 'fa-cloud-download-alt'"></i>
+            {{ dockerUpdateChecking ? '检查中...' : '全部检查更新' }}
+          </button>
+        </div>
+      </div>
+
+      <!-- 加载状态 -->
+      <div v-if="dockerOverviewLoading && dockerOverviewServers.length === 0" class="loading-overlay-elegant"
+        style="padding: 60px">
+        <div class="ag-spinner-elegant ag-spinner-elegant-sm"></div>
+        <p style="margin-top: 16px; color: var(--text-secondary)">正在加载 Docker 信息...</p>
+      </div>
+
+      <!-- 无 Docker 主机 -->
+      <div v-else-if="dockerOverviewServers.length === 0" style="
+          text-align: center;
+          padding: 60px 20px;
+          color: var(--text-tertiary);
+        ">
+        <i class="fab fa-docker" style="font-size: 48px; opacity: 0.3; margin-bottom: 16px"></i>
+        <h4 style="margin: 0 0 8px 0; color: var(--text-secondary)">暂无 Docker 主机</h4>
+        <p style="margin: 0; font-size: 13px">在线主机中未检测到安装 Docker 的主机</p>
+      </div>
+
+      <!-- Docker 主机卡片列表 -->
+      <div v-else class="docker-overview-grid" style="
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(400px, 1fr));
+          gap: 16px;
+        ">
+        <div v-for="dockerServer in dockerOverviewServers" :key="dockerServer.id" class="docker-host-card" style="
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            overflow: hidden;
+          ">
+          <!-- 主机头部 -->
+          <div style="
+              padding: 16px;
+              background: linear-gradient(135deg, rgba(36, 150, 237, 0.08), rgba(36, 150, 237, 0.02));
+              border-bottom: 1px solid var(--border-color);
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+            ">
+            <div style="display: flex; align-items: center; gap: 12px">
+              <div style="
+                  width: 40px;
+                  height: 40px;
+                  border-radius: 10px;
+                  background: linear-gradient(135deg, #2496ED, #1a7bc4);
+                  display: flex;
+                  align-items: center;
+                  justify-content: center;
+                  color: white;
+                  font-size: 18px;
+                ">
+                <i class="fab fa-docker"></i>
+              </div>
+              <div>
+                <div style="font-weight: 700; font-size: 15px; color: var(--text-primary)">
+                  {{ dockerServer.name }}
+                </div>
+                <div style="font-size: 11px; color: var(--text-tertiary); font-family: var(--font-mono)">
+                  {{ dockerServer.containers?.length || 0 }} 个容器
+                </div>
+              </div>
+            </div>
+            <div style="display: flex; gap: 6px">
+              <button class="btn-icon-refined" @click="checkDockerUpdates(dockerServer.id)"
+                :disabled="dockerUpdateChecking" title="检查更新" style="width: 32px; height: 32px">
+                <i class="fas" :class="dockerUpdateChecking ? 'fa-spinner fa-spin' : 'fa-sync-alt'"
+                  style="font-size: 12px"></i>
+              </button>
+            </div>
+          </div>
+
+          <!-- 容器统计 -->
+          <div style="display: flex; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--border-color)">
+            <div style="
+                flex: 1;
+                text-align: center;
+                padding: 8px;
+                background: rgba(16, 185, 129, 0.08);
+                border-radius: 8px;
+              ">
+              <div style="font-size: 20px; font-weight: 800; color: #10b981">
+                {{ getRunningContainers(dockerServer.containers) }}
+              </div>
+              <div style="font-size: 10px; color: var(--text-tertiary); text-transform: uppercase">运行中</div>
+            </div>
+            <div style="
+                flex: 1;
+                text-align: center;
+                padding: 8px;
+                background: rgba(245, 158, 11, 0.08);
+                border-radius: 8px;
+              ">
+              <div style="font-size: 20px; font-weight: 800; color: #f59e0b">
+                {{ getPausedContainers(dockerServer.containers) }}
+              </div>
+              <div style="font-size: 10px; color: var(--text-tertiary); text-transform: uppercase">已暂停</div>
+            </div>
+            <div style="
+                flex: 1;
+                text-align: center;
+                padding: 8px;
+                background: rgba(239, 68, 68, 0.08);
+                border-radius: 8px;
+              ">
+              <div style="font-size: 20px; font-weight: 800; color: #ef4444">
+                {{ getStoppedContainers(dockerServer.containers) }}
+              </div>
+              <div style="font-size: 10px; color: var(--text-tertiary); text-transform: uppercase">已停止</div>
+            </div>
+          </div>
+
+          <!-- 容器列表 -->
+          <div style="max-height: 300px; overflow-y: auto">
+            <div v-for="container in dockerServer.containers" :key="container.id" style="
+                padding: 12px 16px;
+                border-bottom: 1px solid var(--border-color);
+                display: flex;
+                justify-content: space-between;
+                align-items: center;
+                gap: 12px;
+              ">
+              <div style="flex: 1; min-width: 0">
+                <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px">
+                  <span style="font-weight: 600; font-size: 13px; color: var(--text-primary)">
+                    {{ container.name }}
+                  </span>
+                  <!-- 更新状态标记 -->
+                  <span v-if="getContainerUpdateStatus(container.id) === 'has_update'"
+                    class="update-badge update-available">
+                    <i class="fas fa-arrow-up"></i> 可更新
+                  </span>
+                  <span v-else-if="getContainerUpdateStatus(container.id) === 'latest'"
+                    class="update-badge update-latest">
+                    <i class="fas fa-check"></i> 最新
+                  </span>
+                  <span v-else-if="getContainerUpdateStatus(container.id) === 'error'" class="update-badge update-error"
+                    :title="getContainerUpdateError(container.id)">
+                    <i class="fas fa-exclamation-triangle"></i>
+                  </span>
+                </div>
+                <div style="font-size: 11px; color: var(--text-tertiary); font-family: var(--font-mono)">
+                  {{ container.image }}
+                </div>
+              </div>
+              <div style="display: flex; align-items: center; gap: 8px">
+                <span
+                  :class="['docker-status-badge', container.status.includes('Up') ? 'status-running' : 'status-exited']">
+                  {{ container.status }}
+                </span>
+                <div style="display: flex; gap: 4px">
+                  <button v-if="container.status.includes('Up')" class="btn btn-xs btn-secondary"
+                    @click="handleDockerAction(dockerServer.id, container.id, 'stop')" title="停止">
+                    <i class="fas fa-stop"></i>
+                  </button>
+                  <button v-else class="btn btn-xs btn-success"
+                    @click="handleDockerAction(dockerServer.id, container.id, 'start')" title="启动">
+                    <i class="fas fa-play"></i>
+                  </button>
+                  <button class="btn btn-xs btn-secondary"
+                    @click="handleDockerAction(dockerServer.id, container.id, 'restart')" title="重启">
+                    <i class="fas fa-redo"></i>
+                  </button>
+                  <button v-if="getContainerUpdateStatus(container.id) === 'has_update'" class="btn btn-xs btn-primary"
+                    @click="handleDockerAction(dockerServer.id, container.id, 'update')" title="更新镜像">
+                    <i class="fas fa-cloud-download-alt"></i>
+                  </button>
+                </div>
+              </div>
+            </div>
+            <div v-if="!dockerServer.containers || dockerServer.containers.length === 0" style="
+                padding: 24px;
+                text-align: center;
+                color: var(--text-tertiary);
+                font-size: 13px;
+              ">
+              <i class="fas fa-inbox" style="font-size: 24px; opacity: 0.3; margin-bottom: 8px"></i>
+              <p style="margin: 0">该主机暂无容器</p>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </div>

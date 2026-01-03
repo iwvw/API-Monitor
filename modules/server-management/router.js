@@ -14,6 +14,7 @@ const monitorService = require('./monitor-service');
 const agentService = require('./agent-service');
 const sshService = require('./ssh-service');
 const { ServerMonitorConfig, ServerMetricsHistory } = require('./models');
+const { TaskTypes: DockerTaskTypes } = require('./protocol');
 
 // ==================== 主机凭据接口 ====================
 
@@ -445,6 +446,295 @@ router.post('/docker/action', async (req, res) => {
         success: false,
         error: result.data || `${action} 操作失败`,
       });
+    }
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * Docker 镜像更新检测
+ * POST /docker/check-update
+ * { serverId, containerId?: string }
+ * 
+ * 检查指定容器（或所有运行中的容器）的镜像是否有更新可用
+ * 目前仅支持 Docker Hub 公开镜像
+ */
+router.post('/docker/check-update', async (req, res) => {
+  try {
+    const { serverId, containerId } = req.body;
+
+    if (!serverId) {
+      return res.status(400).json({ success: false, error: '缺少服务器 ID' });
+    }
+
+    // 检查主机是否在线
+    if (!agentService.isOnline(serverId)) {
+      return res.status(400).json({ success: false, error: '主机不在线' });
+    }
+
+    // 构建任务数据
+    const taskData = JSON.stringify({
+      container_id: containerId || '',
+    });
+
+    // 发送任务并等待结果 (检查更新可能需要网络请求，给 3 分钟超时)
+    const result = await agentService.sendTaskAndWait(
+      serverId,
+      {
+        type: DockerTaskTypes.DOCKER_CHECK_UPDATE,
+        data: taskData,
+        timeout: 180,
+      },
+      180000
+    );
+
+    if (result.successful) {
+      // 解析 Agent 返回的 JSON 数据
+      let updateStatus = [];
+      try {
+        updateStatus = JSON.parse(result.data);
+      } catch (e) {
+        updateStatus = result.data;
+      }
+
+      res.json({
+        success: true,
+        message: '检查完成',
+        data: updateStatus,
+      });
+    } else {
+      res.status(400).json({
+        success: false,
+        error: result.data || '检查更新失败',
+      });
+    }
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ==================== Docker 镜像管理 ====================
+
+/**
+ * 获取 Docker 镜像列表
+ * POST /docker/images
+ */
+router.post('/docker/images', async (req, res) => {
+  try {
+    const { serverId } = req.body;
+    if (!serverId) return res.status(400).json({ success: false, error: '缺少服务器 ID' });
+    if (!agentService.isOnline(serverId)) return res.status(400).json({ success: false, error: '主机不在线' });
+
+    const result = await agentService.sendTaskAndWait(serverId, {
+      type: DockerTaskTypes.DOCKER_IMAGES,
+      data: '',
+      timeout: 30,
+    }, 30000);
+
+    if (result.successful) {
+      res.json({ success: true, data: JSON.parse(result.data) });
+    } else {
+      res.status(400).json({ success: false, error: result.data });
+    }
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * Docker 镜像操作 (pull/remove/prune)
+ * POST /docker/image/action
+ */
+router.post('/docker/image/action', async (req, res) => {
+  try {
+    const { serverId, action, image } = req.body;
+    if (!serverId || !action) return res.status(400).json({ success: false, error: '缺少参数' });
+    if (!agentService.isOnline(serverId)) return res.status(400).json({ success: false, error: '主机不在线' });
+
+    const taskData = JSON.stringify({ action, image });
+    const timeout = action === 'pull' ? 300 : 60; // 拉取镜像可能需要较长时间
+
+    const result = await agentService.sendTaskAndWait(serverId, {
+      type: DockerTaskTypes.DOCKER_IMAGE_ACTION,
+      data: taskData,
+      timeout,
+    }, timeout * 1000);
+
+    if (result.successful) {
+      res.json({ success: true, message: result.data });
+    } else {
+      res.status(400).json({ success: false, error: result.data });
+    }
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ==================== Docker 网络管理 ====================
+
+/**
+ * 获取 Docker 网络列表
+ * POST /docker/networks
+ */
+router.post('/docker/networks', async (req, res) => {
+  try {
+    const { serverId } = req.body;
+    if (!serverId) return res.status(400).json({ success: false, error: '缺少服务器 ID' });
+    if (!agentService.isOnline(serverId)) return res.status(400).json({ success: false, error: '主机不在线' });
+
+    const result = await agentService.sendTaskAndWait(serverId, {
+      type: DockerTaskTypes.DOCKER_NETWORKS,
+      data: '',
+      timeout: 30,
+    }, 30000);
+
+    if (result.successful) {
+      res.json({ success: true, data: JSON.parse(result.data) });
+    } else {
+      res.status(400).json({ success: false, error: result.data });
+    }
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * Docker 网络操作 (create/remove/connect/disconnect)
+ * POST /docker/network/action
+ */
+router.post('/docker/network/action', async (req, res) => {
+  try {
+    const { serverId, action, name, driver, subnet, gateway, container } = req.body;
+    if (!serverId || !action) return res.status(400).json({ success: false, error: '缺少参数' });
+    if (!agentService.isOnline(serverId)) return res.status(400).json({ success: false, error: '主机不在线' });
+
+    const taskData = JSON.stringify({ action, name, driver, subnet, gateway, container });
+
+    const result = await agentService.sendTaskAndWait(serverId, {
+      type: DockerTaskTypes.DOCKER_NETWORK_ACTION,
+      data: taskData,
+      timeout: 30,
+    }, 30000);
+
+    if (result.successful) {
+      res.json({ success: true, message: result.data });
+    } else {
+      res.status(400).json({ success: false, error: result.data });
+    }
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ==================== Docker Volume 管理 ====================
+
+/**
+ * 获取 Docker Volume 列表
+ * POST /docker/volumes
+ */
+router.post('/docker/volumes', async (req, res) => {
+  try {
+    const { serverId } = req.body;
+    if (!serverId) return res.status(400).json({ success: false, error: '缺少服务器 ID' });
+    if (!agentService.isOnline(serverId)) return res.status(400).json({ success: false, error: '主机不在线' });
+
+    const result = await agentService.sendTaskAndWait(serverId, {
+      type: DockerTaskTypes.DOCKER_VOLUMES,
+      data: '',
+      timeout: 30,
+    }, 30000);
+
+    if (result.successful) {
+      res.json({ success: true, data: JSON.parse(result.data) });
+    } else {
+      res.status(400).json({ success: false, error: result.data });
+    }
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * Docker Volume 操作 (create/remove/prune)
+ * POST /docker/volume/action
+ */
+router.post('/docker/volume/action', async (req, res) => {
+  try {
+    const { serverId, action, name, driver } = req.body;
+    if (!serverId || !action) return res.status(400).json({ success: false, error: '缺少参数' });
+    if (!agentService.isOnline(serverId)) return res.status(400).json({ success: false, error: '主机不在线' });
+
+    const taskData = JSON.stringify({ action, name, driver });
+
+    const result = await agentService.sendTaskAndWait(serverId, {
+      type: DockerTaskTypes.DOCKER_VOLUME_ACTION,
+      data: taskData,
+      timeout: 30,
+    }, 30000);
+
+    if (result.successful) {
+      res.json({ success: true, message: result.data });
+    } else {
+      res.status(400).json({ success: false, error: result.data });
+    }
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ==================== Docker 日志 ====================
+
+/**
+ * 获取容器日志
+ * POST /docker/logs
+ */
+router.post('/docker/logs', async (req, res) => {
+  try {
+    const { serverId, containerId, tail, since } = req.body;
+    if (!serverId || !containerId) return res.status(400).json({ success: false, error: '缺少参数' });
+    if (!agentService.isOnline(serverId)) return res.status(400).json({ success: false, error: '主机不在线' });
+
+    const taskData = JSON.stringify({ container_id: containerId, tail: tail || 100, since });
+
+    const result = await agentService.sendTaskAndWait(serverId, {
+      type: DockerTaskTypes.DOCKER_LOGS,
+      data: taskData,
+      timeout: 30,
+    }, 30000);
+
+    if (result.successful) {
+      res.json({ success: true, data: result.data });
+    } else {
+      res.status(400).json({ success: false, error: result.data });
+    }
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ==================== Docker 资源统计 ====================
+
+/**
+ * 获取容器资源统计
+ * POST /docker/stats
+ */
+router.post('/docker/stats', async (req, res) => {
+  try {
+    const { serverId } = req.body;
+    if (!serverId) return res.status(400).json({ success: false, error: '缺少服务器 ID' });
+    if (!agentService.isOnline(serverId)) return res.status(400).json({ success: false, error: '主机不在线' });
+
+    const result = await agentService.sendTaskAndWait(serverId, {
+      type: DockerTaskTypes.DOCKER_STATS,
+      data: '',
+      timeout: 30,
+    }, 30000);
+
+    if (result.successful) {
+      res.json({ success: true, data: JSON.parse(result.data) });
+    } else {
+      res.status(400).json({ success: false, error: result.data });
     }
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });

@@ -299,12 +299,27 @@ export const metricsMethods = {
         if (info.docker.runningCount !== running) info.docker.runningCount = running;
         if (info.docker.stoppedCount !== stopped) info.docker.stoppedCount = stopped;
 
-        // 只有当容器数量变化时才更新列表，避免频繁触发 Vue 重渲染
+        // 比较容器列表：数量变化或任一容器状态变化时更新
         const newContainers = Array.isArray(metrics.docker.containers)
           ? metrics.docker.containers
           : [];
-        const currentLen = info.docker.containers?.length || 0;
-        if (newContainers.length !== currentLen) {
+        const currentContainers = info.docker.containers || [];
+
+        // 检测是否需要更新：数量不同 或 任一容器状态不同
+        let shouldUpdate = newContainers.length !== currentContainers.length;
+        if (!shouldUpdate && newContainers.length > 0) {
+          // 数量相同时，比较每个容器的状态
+          for (let i = 0; i < newContainers.length; i++) {
+            const newC = newContainers[i];
+            const oldC = currentContainers.find(c => c.id === newC.id);
+            if (!oldC || oldC.status !== newC.status) {
+              shouldUpdate = true;
+              break;
+            }
+          }
+        }
+
+        if (shouldUpdate) {
           info.docker.containers = newContainers;
         }
       }
@@ -455,19 +470,19 @@ export const metricsMethods = {
       const info = server.info
         ? { ...server.info }
         : {
-            cpu: { Load: '-', Usage: '0%', Cores: '-' },
-            memory: { Used: '-', Total: '-', Usage: '0%' },
-            disk: [{ device: '/', used: '-', total: '-', usage: '0%' }],
-            network: {
-              connections: 0,
-              rx_speed: '0 B/s',
-              tx_speed: '0 B/s',
-              rx_total: '-',
-              tx_total: '-',
-            },
-            system: {},
-            docker: { installed: false, containers: [] },
-          };
+          cpu: { Load: '-', Usage: '0%', Cores: '-' },
+          memory: { Used: '-', Total: '-', Usage: '0%' },
+          disk: [{ device: '/', used: '-', total: '-', usage: '0%' }],
+          network: {
+            connections: 0,
+            rx_speed: '0 B/s',
+            tx_speed: '0 B/s',
+            rx_total: '-',
+            tx_total: '-',
+          },
+          system: {},
+          docker: { installed: false, containers: [] },
+        };
 
       try {
         // 2. 更新 CPU 数据

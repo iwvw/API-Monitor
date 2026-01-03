@@ -429,6 +429,10 @@ const app = createApp({
       showDockerModal: false,
       dockerModalServer: null,
       dockerModalData: null,
+      dockerUpdateChecking: false,  // 是否正在检查更新
+      dockerUpdateResults: [],       // 更新检测结果列表
+      dockerOverviewServers: [],     // Docker 标签页的主机列表
+      dockerOverviewLoading: false,  // Docker 概览加载状态
       showAddCredentialModal: false,
       credForm: {
         name: '',

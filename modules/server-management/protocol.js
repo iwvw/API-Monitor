@@ -1,6 +1,5 @@
 /**
  * Agent-Dashboard 通信协议定义
- * 基于 Nezha 0.20.13 架构设计
  */
 
 // ==================== 事件类型 ====================
@@ -42,12 +41,19 @@ const TaskTypes = {
   DOCKER_ACTION: 10, // Docker 容器操作
   DOCKER_CHECK_UPDATE: 11, // Docker 检查更新
   PTY_START: 12, // 启动 PTY 终端
+  DOCKER_IMAGES: 13, // Docker 镜像列表
+  DOCKER_IMAGE_ACTION: 14, // Docker 镜像操作 (pull/remove/prune)
+  DOCKER_NETWORKS: 15, // Docker 网络列表
+  DOCKER_NETWORK_ACTION: 16, // Docker 网络操作
+  DOCKER_VOLUMES: 17, // Docker Volume 列表
+  DOCKER_VOLUME_ACTION: 18, // Docker Volume 操作
+  DOCKER_LOGS: 19, // Docker 容器日志
+  DOCKER_STATS: 20, // Docker 容器资源统计
 };
 
 // ==================== 数据结构 ====================
 
 /**
- * 主机硬件信息 (对应 Nezha Host)
  * @typedef {Object} HostInfo
  */
 const HostInfoSchema = {
@@ -67,7 +73,6 @@ const HostInfoSchema = {
 };
 
 /**
- * 实时状态 (对应 Nezha State)
  * @typedef {Object} HostState
  */
 const HostStateSchema = {

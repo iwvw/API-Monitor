@@ -1189,18 +1189,61 @@
   <div class="modal-container glass-panel modal-lg" style="border-radius: 20px">
     <div class="modal-header">
       <div class="modal-title">
-        云容器管理 - {{ dockerModalServer ? dockerModalServer.name : '' }}
+        🐳 容器管理 - {{ dockerModalServer ? dockerModalServer.name : '' }}
       </div>
-      <button class="close-btn" @click="showDockerModal = false">×</button>
+      <div style="display: flex; gap: 8px; align-items: center;">
+        <button class="btn btn-sm btn-secondary" @click="checkDockerUpdates(dockerModalServer?.id)"
+          :disabled="dockerUpdateChecking" title="检查所有容器的镜像更新">
+          <i class="fas" :class="dockerUpdateChecking ? 'fa-spinner fa-spin' : 'fa-sync-alt'"></i>
+          {{ dockerUpdateChecking ? '检查中...' : '检查更新' }}
+        </button>
+        <button class="close-btn" @click="showDockerModal = false">×</button>
+      </div>
     </div>
     <div class="modal-body">
+      <!-- 更新检测提示 -->
+      <div v-if="dockerUpdateResults.length > 0" class="docker-update-summary" style="
+        margin-bottom: 16px;
+        padding: 12px 16px;
+        background: linear-gradient(135deg, rgba(16, 185, 129, 0.1), rgba(59, 130, 246, 0.1));
+        border-radius: 12px;
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      ">
+        <i class="fas fa-info-circle" style="color: #3b82f6; font-size: 18px;"></i>
+        <div style="flex: 1;">
+          <span style="font-weight: 600; color: var(--text-primary);">
+            检测完成：{{ dockerUpdateResults.filter(r => r.has_update).length }} 个容器有更新可用
+          </span>
+          <span style="color: var(--text-secondary); font-size: 12px; margin-left: 8px;">
+            (仅支持 Docker Hub 公开镜像)
+          </span>
+        </div>
+      </div>
+
       <div v-if="dockerModalData && dockerModalData.containers" class="docker-container-list">
         <div v-for="container in dockerModalData.containers" :key="container.id" class="docker-container-card"
           :class="{ 'running': container.status.includes('Up') }">
           <div class="docker-container-info">
             <div class="docker-container-header-row">
-              <div>
-                <div style="font-weight: 700; font-size: 14px">{{ container.name }}</div>
+              <div style="flex: 1;">
+                <div style="font-weight: 700; font-size: 14px; display: flex; align-items: center; gap: 8px;">
+                  {{ container.name }}
+                  <!-- 更新状态标记 -->
+                  <span v-if="getContainerUpdateStatus(container.id) === 'has_update'" 
+                    class="update-badge update-available" title="有新版本可用">
+                    <i class="fas fa-arrow-up"></i> 可更新
+                  </span>
+                  <span v-else-if="getContainerUpdateStatus(container.id) === 'latest'" 
+                    class="update-badge update-latest" title="已是最新版本">
+                    <i class="fas fa-check"></i> 最新
+                  </span>
+                  <span v-else-if="getContainerUpdateStatus(container.id) === 'error'" 
+                    class="update-badge update-error" :title="getContainerUpdateError(container.id)">
+                    <i class="fas fa-exclamation-triangle"></i> 检测失败
+                  </span>
+                </div>
                 <div class="docker-container-image">{{ container.image }}</div>
               </div>
               <span class="docker-status-badge"
@@ -1208,7 +1251,7 @@
                 {{ container.status }}
               </span>
             </div>
-            <div class="docker-container-ports">端口: {{ container.ports }}</div>
+            <div class="docker-container-ports" v-if="container.ports">端口: {{ container.ports }}</div>
             <div class="docker-container-actions">
               <button v-if="container.status.includes('Up')" class="btn btn-sm btn-secondary"
                 @click="handleDockerAction(dockerModalServer.id, container.id, 'stop')" title="停止">
@@ -1221,6 +1264,13 @@
               <button class="btn btn-sm btn-secondary"
                 @click="handleDockerAction(dockerModalServer.id, container.id, 'restart')" title="重启">
                 <i class="fas fa-redo"></i>
+              </button>
+              <!-- 更新按钮 -->
+              <button v-if="getContainerUpdateStatus(container.id) === 'has_update'" 
+                class="btn btn-sm btn-primary"
+                @click="handleDockerAction(dockerModalServer.id, container.id, 'update')" 
+                title="拉取最新镜像并重建容器">
+                <i class="fas fa-cloud-download-alt"></i> 更新
               </button>
             </div>
           </div>
