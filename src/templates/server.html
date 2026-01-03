@@ -2090,7 +2090,17 @@ Web服务器,192.168.1.100,22,root,password123
               color: var(--text-secondary);
               margin-right: auto;
             ">
-        <input type="checkbox" v-model="forceUpgrade" /> 强制覆盖旧版本
+        <input type="checkbox" v-model="forceUpgrade" /> 强制覆盖
+      </label>
+      <label style="
+              display: flex;
+              align-items: center;
+              gap: 8px;
+              font-size: 12px;
+              color: var(--text-secondary);
+              margin-right: 15px;
+            " title="如果指令升级失败，自动尝试通过 SSH 重新安装">
+        <input type="checkbox" v-model="upgradeFallbackSsh" /> SSH 保底
       </label>
       <button class="btn btn-secondary" @click="closeUpgradeModal">关闭</button>
       <button class="btn btn-primary" @click="performOneKeyUpgrade" style="

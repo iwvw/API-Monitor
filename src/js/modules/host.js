@@ -1814,8 +1814,9 @@ export const hostMethods = {
     }
 
     this.upgrading = false; // 发送结束，但监控继续
-    this.upgradeLog += `\n🎉 指令下发完成: 成功 ${successCount} 台，失败 ${failCount} 台。\n`;
-    this.upgradeLog += `⏳ 正在验证 Agent 重启状态 (等待连接重置，限时 90秒)...\n`;
+    const useSshFallback = this.upgradeFallbackSsh;
+    this.upgradeLog += `\n🎉 指令下发完成: 成功 ${successCount} 台，失败 ${failCount} 台。${useSshFallback ? ' (策略: 开启 SSH 保底)' : ''}\n`;
+    this.upgradeLog += `⏳ 正在验证 Agent 重启状态 (等待连接重置，限时 30秒)...\n`;
 
     // 3. 监控重启状态 (等待 New ConnectedAt > Old ConnectedAt)
     const monitorStartTime = Date.now();
@@ -1833,9 +1834,45 @@ export const hostMethods = {
       const timeElapsed = Date.now() - monitorStartTime;
       this.upgradeProgress = 50 + Math.min(50, Math.round((timeElapsed / 60000) * 50));
 
-      if (timeElapsed > 90000) { // 90秒超时
+      if (timeElapsed > 30000) { // 30秒超时
         clearInterval(checkInterval);
-        this.upgradeLog += `\n⚠️ 监控超时。部分 Agent 可能仍在重启或升级失败（未检测到重新连接），请手动检查。\n`;
+        this.upgradeLog += `\n⚠️ 监控超时。部分 Agent 未能按时上线。\n`;
+
+        // 保底策略逻辑
+        if (useSshFallback) {
+          const timeoutServers = [];
+          for (const [id, status] of monitorMap.entries()) {
+            if (status === 'pending' || status === 'error') {
+              timeoutServers.push(targetServers.find(s => s.id === id));
+            }
+          }
+
+          if (timeoutServers.length > 0) {
+            this.upgradeLog += `🛡️ 触发保底策略：尝试通过 SSH 对 ${timeoutServers.length} 台主机执行强制覆盖安装...\n`;
+            for (const s of timeoutServers) {
+              this.upgradeLog += `   🚀 [${s.name}] 开始 SSH 覆盖安装... `;
+              try {
+                const res = await fetch(`/api/server/agent/auto-install/${s.id}`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ force_ssh: true }) // 显式请求 SSH 覆盖
+                });
+                const data = await res.json();
+                if (data.success) {
+                  this.upgradeLog += '✅ 指令成功下发 (SSH)\n';
+                } else {
+                  this.upgradeLog += `❌ 失败: ${data.error}\n`;
+                }
+              } catch (e) {
+                this.upgradeLog += `❌ 网络错误: ${e.message}\n`;
+              }
+            }
+            this.upgradeLog += `\n💡 保底任务执行完毕，请稍后在列表查看状态。\n`;
+          }
+        } else {
+          this.upgradeLog += `\n💡 请检查网络或尝试手动使用 SSH 重新部署。\n`;
+        }
+
         this.upgradeProgress = 100;
         return;
       }
@@ -1856,26 +1893,15 @@ export const hostMethods = {
 
           if (data.status === 'online') {
             // 关键判断：必须是新的连接 (连接时间 > 初始记录时间)
-            // 或者：如果初始是离线(0)，只要在线就算成功
             if (oldConnectedAt === 0 || data.connectedAt > oldConnectedAt) {
               const serverName = targetServers.find(s => s.id === id)?.name;
               this.upgradeLog += `   ✅ [${serverName}] 已重新上线 (v${data.version || '?'})\n`;
               monitorMap.set(id, 'ok');
               onlineCount++;
             } else {
-              // 调试信息：每 10 次循环(约20秒)打印一次等待原因，避免刷屏
-              if (!monitorMap.has(`${id}_log_count`)) monitorMap.set(`${id}_log_count`, 0);
-              const count = monitorMap.get(`${id}_log_count`) + 1;
-              monitorMap.set(`${id}_log_count`, count);
-
-              if (count % 10 === 0) {
-                const serverName = targetServers.find(s => s.id === id)?.name;
-                this.upgradeLog += `   ⏳ [${serverName}] 等待重连 (当前连接时间: ${new Date(data.connectedAt).toLocaleTimeString()}, 基准: ${new Date(oldConnectedAt).toLocaleTimeString()})\n`;
-              }
               allDone = false;
             }
           } else {
-            // 离线中，等待
             allDone = false;
           }
         } catch (e) {
