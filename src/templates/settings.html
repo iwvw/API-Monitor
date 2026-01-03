@@ -129,9 +129,9 @@
               </div>
               <div class="form-group" style="margin-top: 12px">
                 <input type="text" v-model="publicApiUrl" class="form-input"
-                  placeholder="例如: https://monitor.example.com (留空则自动检测)" />
+                  placeholder="例如: https://monitor.example.com (需包含协议和端口，无需 /api 后缀)" />
                 <div class="form-help" style="font-size: 11px; margin-top: 4px">
-                  Agent 将使用此地址连接到主控端。请确保此地址在公网可访问。
+                  主控端的基础访问地址。Agent 将基于此地址拼接 API 路径 (如 /api/server/...)。
                 </div>
               </div>
             </div>
@@ -142,7 +142,7 @@
                 <i class="fas fa-download" style="color: var(--primary-color)"></i> Agent 下载地址
               </div>
               <div class="settings-description">
-                配置 Agent 二进制文件的下载地址。默认使用主控端自身提供的文件。
+                配置 Agent 二进制文件的下载目录。默认使用主控端自身提供的文件 (/agent)。
               </div>
               <div class="form-group" style="margin-top: 12px">
                 <label class="form-label" style="font-size: 13px">下载来源</label>
@@ -159,9 +159,10 @@
                 </div>
                 <div v-if="agentDownloadUrl !== undefined && agentDownloadUrl !== ''">
                   <input type="text" v-model="agentDownloadUrl" class="form-input"
-                    placeholder="例如: https://github.com/user/repo/releases/download/v1.0" />
+                    placeholder="例如: https://cdn.example.com/v1 或 http://IP:3000/agent (无需文件名)" />
                   <div class="form-help" style="font-size: 11px; margin-top: 4px">
-                    Agent 将从此地址下载对应架构的二进制文件 (如 agent-linux-amd64)
+                    请填写**目录**地址。Agent 会自动拼接文件名 (如 .../agent-linux-amd64)。<br>
+                    如果您使用主控端地址，通常是 http://IP:3000/agent
                   </div>
                 </div>
               </div>

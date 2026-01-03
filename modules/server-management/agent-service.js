@@ -1150,10 +1150,16 @@ sed -i "s|__SERVER_ID__|${$}SERVER_ID|g" config.json
 sed -i "s|__AGENT_KEY__|${$}AGENT_KEY|g" config.json
 echo -e "${$}{CYAN}   配置已更新: ${$}SERVER_URL${$}{NC}"
 
-# 8. 创建/更新 systemd 服务
-echo -e "${$}{YELLOW}⚙️ 配置 systemd 服务...${$}{NC}"
-if [ "${$}INSTALL_MODE" = "system" ]; then
-    cat > /etc/systemd/system/${$}SERVICE_NAME.service << SERVICEEOF
+# 8. 检测 Systemd 可用性 & 配置服务
+HAS_SYSTEMD=false
+if command -v systemctl >/dev/null 2>&1 && systemctl --version >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
+    HAS_SYSTEMD=true
+fi
+
+if [ "${$}HAS_SYSTEMD" = true ]; then
+    echo -e "${$}{YELLOW}⚙️ 配置 systemd 服务...${$}{NC}"
+    if [ "${$}INSTALL_MODE" = "system" ]; then
+        cat > /etc/systemd/system/${$}SERVICE_NAME.service << SERVICEEOF
 [Unit]
 Description=API Monitor Agent (Go)
 After=network.target
@@ -1169,11 +1175,11 @@ RestartSec=10
 [Install]
 WantedBy=multi-user.target
 SERVICEEOF
-    systemctl daemon-reload
-    systemctl enable ${$}SERVICE_NAME
-    systemctl restart ${$}SERVICE_NAME
-else
-    cat > "${$}USER_SERVICE_DIR/${$}SERVICE_NAME.service" << SERVICEEOF
+        systemctl daemon-reload
+        systemctl enable ${$}SERVICE_NAME
+        systemctl restart ${$}SERVICE_NAME
+    else
+        cat > "${$}USER_SERVICE_DIR/${$}SERVICE_NAME.service" << SERVICEEOF
 [Unit]
 Description=API Monitor Agent (User Mode)
 After=network-online.target
@@ -1188,43 +1194,79 @@ RestartSec=10
 [Install]
 WantedBy=default.target
 SERVICEEOF
-    # 尝试启用 lingering
-    loginctl enable-linger ${$}USER 2>/dev/null || echo -e "${$}{YELLOW}⚠️ lingering 需管理员: loginctl enable-linger ${$}USER${$}{NC}"
-    systemctl --user daemon-reload
-    systemctl --user enable ${$}SERVICE_NAME
-    systemctl --user restart ${$}SERVICE_NAME
-fi
-
-# 9. 启动服务
-echo -e "${$}{YELLOW}🚀 启动服务...${$}{NC}"
-
-# 10. 检查状态
-sleep 1
-if [ "${$}INSTALL_MODE" = "system" ]; then
-    SERVICE_STATUS=${$}(systemctl is-active ${$}SERVICE_NAME 2>/dev/null)
+        # 尝试启用 lingering
+        loginctl enable-linger ${$}USER 2>/dev/null || echo -e "${$}{YELLOW}⚠️ lingering 需管理员: loginctl enable-linger ${$}USER${$}{NC}"
+        systemctl --user daemon-reload
+        systemctl --user enable ${$}SERVICE_NAME
+        systemctl --user restart ${$}SERVICE_NAME
+    fi
 else
-    SERVICE_STATUS=${$}(systemctl --user is-active ${$}SERVICE_NAME 2>/dev/null)
+    # 8b. 无 Systemd 环境 (如 Colab, Docker)
+    echo -e "${$}{YELLOW}⚙️ 无 Systemd 环境，使用后台进程运行...${$}{NC}"
+    # 尝试停止旧进程
+    pkill -f "${$}INSTALL_DIR/agent" || true
+    
+    # 后台运行
+    nohup "${$}INSTALL_DIR/agent" > "${$}INSTALL_DIR/agent.log" 2>&1 &
+    
+    # 保存 PID
+    echo $! > "${$}INSTALL_DIR/agent.pid"
+    echo -e "${$}{CYAN}   PID: $(cat "${$}INSTALL_DIR/agent.pid")${$}{NC}"
 fi
 
-if [ "${$}SERVICE_STATUS" = "active" ]; then
+# 9. 启动/状态检查
+echo -e "${$}{YELLOW}🚀 正在启动...${$}{NC}"
+sleep 1
+
+IS_RUNNING=false
+
+if [ "${$}HAS_SYSTEMD" = true ]; then
+    if [ "${$}INSTALL_MODE" = "system" ]; then
+        SERVICE_STATUS=${$}(systemctl is-active ${$}SERVICE_NAME 2>/dev/null)
+    else
+        SERVICE_STATUS=${$}(systemctl --user is-active ${$}SERVICE_NAME 2>/dev/null)
+    fi
+    if [ "${$}SERVICE_STATUS" = "active" ]; then
+        IS_RUNNING=true
+    fi
+else
+    # 检查进程是否存在
+    if pgrep -f "${$}INSTALL_DIR/agent" > /dev/null; then
+        IS_RUNNING=true
+    fi
+fi
+
+if [ "${$}IS_RUNNING" = true ]; then
     echo -e "${$}{GREEN}================================================${$}{NC}"
     echo -e "${$}{GREEN}  ✅ API Monitor Agent 安装成功!${$}{NC}"
     echo -e "${$}{GREEN}  模式: ${$}INSTALL_MODE${$}{NC}"
     echo -e "${$}{GREEN}  架构: ${$}ARCH (${$}BINARY_NAME)${$}{NC}"
-    if [ "${$}INSTALL_MODE" = "system" ]; then
-        echo -e "${$}{GREEN}  状态: systemctl status ${$}SERVICE_NAME${$}{NC}"
-        echo -e "${$}{GREEN}  日志: journalctl -u ${$}SERVICE_NAME -f${$}{NC}"
+    
+    if [ "${$}HAS_SYSTEMD" = true ]; then
+        if [ "${$}INSTALL_MODE" = "system" ]; then
+            echo -e "${$}{GREEN}  状态: systemctl status ${$}SERVICE_NAME${$}{NC}"
+            echo -e "${$}{GREEN}  日志: journalctl -u ${$}SERVICE_NAME -f${$}{NC}"
+        else
+            echo -e "${$}{GREEN}  状态: systemctl --user status ${$}SERVICE_NAME${$}{NC}"
+            echo -e "${$}{GREEN}  日志: journalctl --user -u ${$}SERVICE_NAME -f${$}{NC}"
+        fi
     else
-        echo -e "${$}{GREEN}  状态: systemctl --user status ${$}SERVICE_NAME${$}{NC}"
-        echo -e "${$}{GREEN}  日志: journalctl --user -u ${$}SERVICE_NAME -f${$}{NC}"
+        echo -e "${$}{GREEN}  运行方式: 后台进程 (nohup)${$}{NC}"
+        echo -e "${$}{GREEN}  日志文件: ${$}INSTALL_DIR/agent.log${$}{NC}"
+        echo -e "${$}{GREEN}  停止命令: pkill -f ${$}INSTALL_DIR/agent${$}{NC}"
+        echo -e "${$}{YELLOW}  ⚠️ 注意: 非 Systemd 环境重启后需重新运行${$}{NC}"
     fi
     echo -e "${$}{GREEN}================================================${$}{NC}"
 else
     echo -e "${$}{RED}❌ 服务启动失败${$}{NC}"
-    if [ "${$}INSTALL_MODE" = "system" ]; then
-        echo -e "${$}{RED}   journalctl -u ${$}SERVICE_NAME -n 20${$}{NC}"
+    if [ "${$}HAS_SYSTEMD" = true ]; then
+        if [ "${$}INSTALL_MODE" = "system" ]; then
+            echo -e "${$}{RED}   journalctl -u ${$}SERVICE_NAME -n 20${$}{NC}"
+        else
+            echo -e "${$}{RED}   journalctl --user -u ${$}SERVICE_NAME -n 20${$}{NC}"
+        fi
     else
-        echo -e "${$}{RED}   journalctl --user -u ${$}SERVICE_NAME -n 20${$}{NC}"
+        echo -e "${$}{RED}   请查看日志: cat ${$}INSTALL_DIR/agent.log${$}{NC}"
     fi
     exit 1
 fi

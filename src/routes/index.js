@@ -7,6 +7,8 @@ const path = require('path');
 const fs = require('fs');
 const { requireAuth } = require('../middleware/auth');
 
+const { loadUserSettings } = require('../services/userSettings');
+
 // 导入核心路由模块
 const authRouter = require('./auth');
 const healthRouter = require('./health');
@@ -160,9 +162,18 @@ function registerRoutes(app) {
         return res.status(404).send('# Error: Server not found');
       }
 
-      const protocol = req.protocol;
-      const host = req.get('host');
-      const serverUrl = `${protocol}://${host}`;
+      const settings = loadUserSettings();
+      let serverUrl = settings.publicApiUrl;
+
+      if (!serverUrl || serverUrl.trim() === '') {
+        serverUrl = process.env.API_PUBLIC_URL;
+      }
+
+      if (!serverUrl || serverUrl.trim() === '') {
+        const protocol = req.protocol;
+        const host = req.get('host');
+        serverUrl = `${protocol}://${host}`;
+      }
 
       const script = agentService.generateWinInstallScript(serverId, serverUrl);
 
@@ -190,9 +201,15 @@ function registerRoutes(app) {
         return res.status(401).send('# Error: Invalid Agent Key');
       }
 
-      // 修正: 确保 serverUrl 使用正确协议 (优先使用 API_PUBLIC_URL，否则根据请求头)
-      let serverUrl = process.env.API_PUBLIC_URL;
-      if (!serverUrl) {
+      // 修正: 确保 serverUrl 使用正确协议 (优先使用 用户设置 > API_PUBLIC_URL > 请求检测)
+      const settings = loadUserSettings();
+      let serverUrl = settings.publicApiUrl;
+
+      if (!serverUrl || serverUrl.trim() === '') {
+        serverUrl = process.env.API_PUBLIC_URL;
+      }
+
+      if (!serverUrl || serverUrl.trim() === '') {
         const protocol = req.protocol;
         const host = req.get('host');
         serverUrl = `${protocol}://${host}`;
@@ -223,9 +240,15 @@ function registerRoutes(app) {
         return res.status(401).send('# Error: Invalid Agent Key');
       }
 
-      // 修正: 确保 serverUrl 使用正确协议
-      let serverUrl = process.env.API_PUBLIC_URL;
-      if (!serverUrl) {
+      // 修正: 确保 serverUrl 使用正确协议 (优先使用 用户设置 > API_PUBLIC_URL > 请求检测)
+      const settings = loadUserSettings();
+      let serverUrl = settings.publicApiUrl;
+
+      if (!serverUrl || serverUrl.trim() === '') {
+        serverUrl = process.env.API_PUBLIC_URL;
+      }
+
+      if (!serverUrl || serverUrl.trim() === '') {
         const protocol = req.protocol;
         const host = req.get('host');
         serverUrl = `${protocol}://${host}`;
@@ -291,12 +314,24 @@ function registerRoutes(app) {
         logger.info(`[Quick Install] 已创建新主机: ${serverName} (ID: ${server.id})`);
       }
 
-      // 生成安装命令
-      const protocol = req.protocol;
-      const host = req.get('host');
-      const serverUrl = `${protocol}://${host}`;
-      const installUrl = `${serverUrl}/api/server/agent/install/${server.id}`;
+      // 生成安装命令 (优先使用 用户设置 > API_PUBLIC_URL > 请求检测)
+      const settings = loadUserSettings();
+      let serverUrl = settings.publicApiUrl;
+
+      if (!serverUrl || serverUrl.trim() === '') {
+        serverUrl = process.env.API_PUBLIC_URL;
+      }
+
+      if (!serverUrl || serverUrl.trim() === '') {
+        const protocol = req.protocol;
+        const host = req.get('host');
+        serverUrl = `${protocol}://${host}`;
+      }
+
       const agentKey = agentService.getAgentKey(server.id);
+
+      const linuxInstallUrl = `${serverUrl}/api/server/agent/install/linux/${server.id}/${agentKey}`;
+      const winInstallUrl = `${serverUrl}/api/server/agent/install/win/${server.id}/${agentKey}`;
 
       res.json({
         success: true,
@@ -304,8 +339,8 @@ function registerRoutes(app) {
           serverId: server.id,
           serverName: server.name,
           isNew,
-          installCommand: `curl -fsSL "${installUrl}" | sudo bash`,
-          winInstallCommand: `powershell -c "irm ${serverUrl}/api/server/agent/install/win/${server.id} | iex"`,
+          installCommand: `curl -fsSL "${linuxInstallUrl}" | sudo bash`,
+          winInstallCommand: `powershell -c "irm ${winInstallUrl} | iex"`,
           apiUrl: serverUrl,
           // 也提供环境变量方式安装（适用于 Docker 等场景）
           envInstall: {
