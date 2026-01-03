@@ -1039,6 +1039,241 @@ export const hostMethods = {
     }
   },
 
+  /**
+   * 根据当前选中的子标签加载对应资源
+   */
+  loadDockerResources() {
+    switch (this.dockerSubTab) {
+      case 'images': this.loadDockerImages(); break;
+      case 'networks': this.loadDockerNetworks(); break;
+      case 'volumes': this.loadDockerVolumes(); break;
+      case 'stats': this.loadDockerStats(); break;
+      default: this.loadDockerOverview();
+    }
+  },
+
+  /**
+   * 加载 Docker 镜像列表
+   */
+  async loadDockerImages() {
+    if (!this.dockerSelectedServer) return;
+    this.dockerResourceLoading = true;
+    this.dockerImages = [];
+
+    try {
+      const response = await fetch('/api/server/docker/images', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ serverId: this.dockerSelectedServer }),
+      });
+      const data = await response.json();
+      if (data.success) {
+        this.dockerImages = data.data || [];
+      } else {
+        this.showGlobalToast('加载镜像失败: ' + data.error, 'error');
+      }
+    } catch (e) {
+      this.showGlobalToast('加载镜像失败: ' + e.message, 'error');
+    } finally {
+      this.dockerResourceLoading = false;
+    }
+  },
+
+  /**
+   * Docker 镜像操作
+   */
+  async handleDockerImageAction(action, image = '') {
+    if (!this.dockerSelectedServer) return;
+
+    try {
+      const response = await fetch('/api/server/docker/image/action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ serverId: this.dockerSelectedServer, action, image }),
+      });
+      const data = await response.json();
+      if (data.success) {
+        this.showGlobalToast(data.message || '操作成功', 'success');
+        this.loadDockerImages(); // 刷新列表
+      } else {
+        this.showGlobalToast('操作失败: ' + data.error, 'error');
+      }
+    } catch (e) {
+      this.showGlobalToast('操作失败: ' + e.message, 'error');
+    }
+  },
+
+  /**
+   * 加载 Docker 网络列表
+   */
+  async loadDockerNetworks() {
+    if (!this.dockerSelectedServer) return;
+    this.dockerResourceLoading = true;
+    this.dockerNetworks = [];
+
+    try {
+      const response = await fetch('/api/server/docker/networks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ serverId: this.dockerSelectedServer }),
+      });
+      const data = await response.json();
+      if (data.success) {
+        this.dockerNetworks = data.data || [];
+      } else {
+        this.showGlobalToast('加载网络失败: ' + data.error, 'error');
+      }
+    } catch (e) {
+      this.showGlobalToast('加载网络失败: ' + e.message, 'error');
+    } finally {
+      this.dockerResourceLoading = false;
+    }
+  },
+
+  /**
+   * Docker 网络操作
+   */
+  async handleDockerNetworkAction(action, name = '') {
+    if (!this.dockerSelectedServer) return;
+
+    try {
+      const response = await fetch('/api/server/docker/network/action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ serverId: this.dockerSelectedServer, action, name }),
+      });
+      const data = await response.json();
+      if (data.success) {
+        this.showGlobalToast(data.message || '操作成功', 'success');
+        this.loadDockerNetworks();
+      } else {
+        this.showGlobalToast('操作失败: ' + data.error, 'error');
+      }
+    } catch (e) {
+      this.showGlobalToast('操作失败: ' + e.message, 'error');
+    }
+  },
+
+  /**
+   * 加载 Docker Volume 列表
+   */
+  async loadDockerVolumes() {
+    if (!this.dockerSelectedServer) return;
+    this.dockerResourceLoading = true;
+    this.dockerVolumes = [];
+
+    try {
+      const response = await fetch('/api/server/docker/volumes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ serverId: this.dockerSelectedServer }),
+      });
+      const data = await response.json();
+      if (data.success) {
+        this.dockerVolumes = data.data || [];
+      } else {
+        this.showGlobalToast('加载 Volume 失败: ' + data.error, 'error');
+      }
+    } catch (e) {
+      this.showGlobalToast('加载 Volume 失败: ' + e.message, 'error');
+    } finally {
+      this.dockerResourceLoading = false;
+    }
+  },
+
+  /**
+   * Docker Volume 操作
+   */
+  async handleDockerVolumeAction(action, name = '') {
+    if (!this.dockerSelectedServer) return;
+
+    try {
+      const response = await fetch('/api/server/docker/volume/action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ serverId: this.dockerSelectedServer, action, name }),
+      });
+      const data = await response.json();
+      if (data.success) {
+        this.showGlobalToast(data.message || '操作成功', 'success');
+        this.loadDockerVolumes();
+      } else {
+        this.showGlobalToast('操作失败: ' + data.error, 'error');
+      }
+    } catch (e) {
+      this.showGlobalToast('操作失败: ' + e.message, 'error');
+    }
+  },
+
+  /**
+   * 加载容器资源统计
+   */
+  async loadDockerStats() {
+    if (!this.dockerSelectedServer) return;
+    this.dockerResourceLoading = true;
+    this.dockerStats = [];
+
+    try {
+      const response = await fetch('/api/server/docker/stats', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ serverId: this.dockerSelectedServer }),
+      });
+      const data = await response.json();
+      if (data.success) {
+        this.dockerStats = data.data || [];
+      } else {
+        this.showGlobalToast('加载统计失败: ' + data.error, 'error');
+      }
+    } catch (e) {
+      this.showGlobalToast('加载统计失败: ' + e.message, 'error');
+    } finally {
+      this.dockerResourceLoading = false;
+    }
+  },
+
+  /**
+   * 打开容器日志弹窗
+   */
+  openDockerLogs(serverId, containerId, containerName) {
+    this.dockerLogsServerId = serverId;
+    this.dockerLogsContainerId = containerId;
+    this.dockerLogsContainerName = containerName;
+    this.dockerLogsContent = '';
+    this.showDockerLogsModal = true;
+    this.refreshDockerLogs();
+  },
+
+  /**
+   * 刷新容器日志
+   */
+  async refreshDockerLogs() {
+    if (!this.dockerLogsServerId || !this.dockerLogsContainerId) return;
+    this.dockerLogsLoading = true;
+
+    try {
+      const response = await fetch('/api/server/docker/logs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          serverId: this.dockerLogsServerId,
+          containerId: this.dockerLogsContainerId,
+          tail: this.dockerLogsTail,
+        }),
+      });
+      const data = await response.json();
+      if (data.success) {
+        this.dockerLogsContent = data.data || '(空日志)';
+      } else {
+        this.dockerLogsContent = '加载失败: ' + data.error;
+      }
+    } catch (e) {
+      this.dockerLogsContent = '加载失败: ' + e.message;
+    } finally {
+      this.dockerLogsLoading = false;
+    }
+  },
+
   getRunningContainers(containers) {
     if (!containers || !Array.isArray(containers)) return 0;
     return containers.filter(c => {

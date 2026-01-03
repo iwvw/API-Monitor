@@ -433,6 +433,20 @@ const app = createApp({
       dockerUpdateResults: [],       // 更新检测结果列表
       dockerOverviewServers: [],     // Docker 标签页的主机列表
       dockerOverviewLoading: false,  // Docker 概览加载状态
+      dockerSubTab: 'containers',    // Docker 子标签页
+      dockerSelectedServer: '',      // 当前选中的主机 ID
+      dockerResourceLoading: false,  // 资源加载状态
+      dockerImages: [],              // 镜像列表
+      dockerNetworks: [],            // 网络列表
+      dockerVolumes: [],             // Volume 列表
+      dockerStats: [],               // 容器资源统计
+      showDockerLogsModal: false,    // 日志弹窗
+      dockerLogsServerId: '',        // 日志目标服务器
+      dockerLogsContainerId: '',     // 日志目标容器
+      dockerLogsContainerName: '',   // 日志目标容器名
+      dockerLogsTail: 100,           // 日志行数
+      dockerLogsContent: '',         // 日志内容
+      dockerLogsLoading: false,      // 日志加载状态
       showAddCredentialModal: false,
       credForm: {
         name: '',
