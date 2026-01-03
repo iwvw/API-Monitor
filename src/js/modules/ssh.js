@@ -213,6 +213,7 @@ export const sshMethods = {
         JSON.stringify({
           type: 'connect',
           serverId: session.server.id,
+          protocol: session.type, // 修复：重连时必须携带协议类型 (agent/ssh)
           cols: session.terminal.cols,
           rows: session.terminal.rows,
         })

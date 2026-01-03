@@ -2030,43 +2030,8 @@ Web服务器,192.168.1.100,22,root,password123
     </div>
   </div>
 
-  <!-- 代码片段编辑模态框 -->
-  <transition name="modal-fade">
-    <div v-if="showSnippetModal" class="modal-overlay" @click.self="showSnippetModal = false">
-      <div class="modal modal-sm">
-        <div class="modal-header">
-          <div class="modal-title">{{ snippetForm.id ? '编辑代码片段' : '添加代码片段' }}</div>
-          <button class="close-btn" @click="showSnippetModal = false">
-            <i class="fas fa-times"></i>
-          </button>
-        </div>
-        <div class="modal-body">
-          <div class="form-group">
-            <label>标题</label>
-            <input v-model="snippetForm.title" class="form-input" placeholder="例如：更新系统" />
-          </div>
-          <div class="form-group">
-            <label>内容 (指令)</label>
-            <textarea v-model="snippetForm.content" class="form-textarea code-font" style="min-height: 120px"
-              placeholder="apt update && apt upgrade -y"></textarea>
-            <small style="color: var(--text-tertiary)">提示：指令会自动追加回车键发送</small>
-          </div>
-          <div class="form-row">
-            <div class="form-group flex-1">
-              <label>分类</label>
-              <input v-model="snippetForm.category" class="form-input" placeholder="common" />
-            </div>
-          </div>
-          <div v-if="snippetError" class="form-error">{{ snippetError }}</div>
-        </div>
-        <div class="modal-footer">
-          <button class="btn btn-secondary" @click="showSnippetModal = false">取消</button>
-          <button class="btn btn-primary" @click="saveSnippet" :disabled="snippetSaving">
-            {{ snippetSaving ? '保存中...' : '保存' }}
-          </button>
-        </div>
-      </div>
-    </div>
+  <!-- 代码片段编辑模态框 (Moved to end) -->
+
 
 </div>
 </div>
@@ -2147,3 +2112,41 @@ Web服务器,192.168.1.100,22,root,password123
 
 </div>
 <!-- ==================== 主机管理部分结束 ==================== -->
+
+<!-- 代码片段编辑模态框 (Moved) -->
+<div v-if="showSnippetModal" class="modal-overlay" style="z-index: 2000030; position: fixed; top: 0; left: 0;"
+  @click.self="showSnippetModal = false">
+  <div class="modal modal-sm">
+    <div class="modal-header">
+      <div class="modal-title">{{ snippetForm.id ? '编辑代码片段' : '添加代码片段' }}</div>
+      <button class="modal-close" @click="showSnippetModal = false">
+        <i class="fas fa-times"></i>
+      </button>
+    </div>
+    <div class="modal-body">
+      <div class="form-group">
+        <label>标题</label>
+        <input v-model="snippetForm.title" class="form-input" placeholder="例如：更新系统" />
+      </div>
+      <div class="form-group">
+        <label>内容 (指令)</label>
+        <textarea v-model="snippetForm.content" class="form-textarea code-font" style="min-height: 120px"
+          placeholder="apt update && apt upgrade -y"></textarea>
+        <small style="color: var(--text-tertiary)">提示：指令会自动追加回车键发送</small>
+      </div>
+      <div class="form-row">
+        <div class="form-group flex-1">
+          <label>分类</label>
+          <input v-model="snippetForm.category" class="form-input" placeholder="common" />
+        </div>
+      </div>
+      <div v-if="snippetError" class="form-error">{{ snippetError }}</div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" @click="showSnippetModal = false">取消</button>
+      <button class="btn btn-primary" @click="saveSnippet" :disabled="snippetSaving">
+        {{ snippetSaving ? '保存中...' : '保存' }}
+      </button>
+    </div>
+  </div>
+</div>
