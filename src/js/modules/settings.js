@@ -61,6 +61,7 @@ export const settingsMethods = {
             'server',
             'totp',
             'music',
+            'uptime',
           ];
           if (settings.moduleVisibility) {
             const filtered = {};

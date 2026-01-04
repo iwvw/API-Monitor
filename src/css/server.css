@@ -1,9 +1,7 @@
-﻿/* ==================== 杩涘害鏉?==================== */
-.server-list-container {
+﻿.server-list-container {
   overflow: visible;
 }
 
-/* ==================== 椤堕儴鎺у埗鏍?==================== */
 .controls-bar {
   display: flex;
   flex-direction: column;
@@ -26,7 +24,6 @@
   flex-wrap: wrap;
 }
 
-/* ==================== 缁熻鑳跺泭 ==================== */
 .stats-pills {
   display: flex;
   gap: 8px;
@@ -135,7 +132,6 @@
   box-shadow: 0 8px 16px -4px rgba(239, 68, 68, 0.3);
 }
 
-/* ==================== 鎼滅储妗?==================== */
 .search-box {
   position: relative;
   flex: 1;
@@ -546,7 +542,6 @@
   color: #ef4444;
 }
 
-/* ==================== 纾佽创鍗曢€夋寜閽粍 ==================== */
 .radio-tile-group {
   display: flex;
   gap: 12px;
@@ -612,7 +607,6 @@
   box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.2);
 }
 
-/* ==================== 涓绘満鎿嶄綔鎸夐挳 ==================== */
 .server-actions-bar {
   display: flex;
   gap: 10px;
@@ -626,7 +620,6 @@
   margin-top: 15px;
 }
 
-/* ==================== 绌虹姸鎬?==================== */
 .server-empty-state {
   text-align: center;
   padding: 60px 20px;
@@ -650,7 +643,6 @@
   margin-bottom: 20px;
 }
 
-/* ==================== 鍔犺浇鐘舵€?==================== */
 .server-loading {
   text-align: center;
   padding: 40px 20px;
@@ -672,7 +664,6 @@
   }
 }
 
-/* ==================== 鏍囩 ==================== */
 .server-tags {
   display: flex;
   gap: 6px;
@@ -689,7 +680,6 @@
   font-weight: 500;
 }
 
-/* ==================== 瀵煎叆棰勮鍒楄〃 ==================== */
 .import-preview-list {
   max-height: 300px;
   overflow-y: auto;
@@ -723,7 +713,6 @@
   color: var(--text-primary);
 }
 
-/* ==================== Docker 妯℃€佹鏍峰紡 ==================== */
 .docker-modal-content {
   padding: 0;
 }
@@ -1145,7 +1134,6 @@
   text-decoration: underline;
 }
 
-/* ==================== 瀹瑰櫒铏氭嫙鍖栫嫭鍗犲尯鍩熸牱寮?==================== */
 .docker-section {
   /* margin-top: 1px; */
   background: linear-gradient(135deg, rgba(0, 150, 215, 0.03), rgba(0, 212, 170, 0.02));
@@ -1485,7 +1473,6 @@
   font-family: var(--font-mono);
 }
 
-/* ==================== 鍚庡彴绠＄悊椤甸潰鏍峰紡 ==================== */
 /* 澶嶇敤 account-card 椋庢牸 */
 .server-management-container {
   padding: 20px;
@@ -1624,7 +1611,6 @@
   color: var(--text-secondary);
 }
 
-/* ==================== SSH 缁堢鏍峰紡澧炲己 ==================== */
 .ssh-terminal-modal {
   max-width: 1100px;
 }
@@ -1801,7 +1787,6 @@
   background: #ef4444;
 }
 
-/* ==================== 鍝嶅簲寮忚璁?==================== */
 @media (max-width: 768px) {
   .server-list-header {
     flex-direction: column;
@@ -2222,7 +2207,6 @@
   }
 }
 
-/* ==================== 涓绘満缂栬緫妯℃€佹鏍峰紡 ==================== */
 .server-modal {
   max-width: 640px;
   padding: 0;
@@ -2505,7 +2489,6 @@
   transform: none;
 }
 
-/* ==================== 现代化文件上传 (Drop Zone) ==================== */
 .file-drop-zone {
   position: relative;
   width: 100%;
@@ -2636,7 +2619,6 @@
   }
 }
 
-/* ==================== SSH 蹇€熻繛鎺ヤ笅鎷夎彍鍗曞姩鐢?==================== */
 /* 涓嬫媺鑿滃崟灞曞紑鍔ㄧ敾 */
 .dropdown-fade-enter-active {
   animation: dropdownSlideIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
@@ -2680,7 +2662,6 @@
   opacity: 0;
 }
 
-/* ==================== SSH 快速连接按钮样式 ==================== */
 .ssh-quick-connect-btn {
   display: inline-flex;
   align-items: center;
@@ -2873,7 +2854,6 @@
   opacity: 0.2;
 }
 
-/* ==================== 快速连接响应式适配 ==================== */
 @media (max-width: 768px) {
   .ssh-quick-connect-btn {
     min-width: 44px !important;
@@ -3214,7 +3194,6 @@
   color: white;
 }
 
-/* ==================== 鎸変富鏈哄垎绫荤殑鍘嗗彶璁板綍 ==================== */
 
 .metrics-history-grouped {
   display: flex;
@@ -3388,7 +3367,6 @@
   }
 }
 
-/* ==================== 采集器状态栏 (美化版) ==================== */
 .collector-status-bar {
   transition: all 0.3s ease;
 }
@@ -3408,7 +3386,6 @@
   color: #ef4444;
 }
 
-/* ==================== 骨架屏样式 ==================== */
 .skeleton-container {
   padding: 0px 10px;
 }
@@ -3559,7 +3536,6 @@
   animation-delay: 0.45s;
 }
 
-/* ==================== 实时 Metrics 样式 ==================== */
 .server-quick-info {
   display: flex;
   gap: 8px;
@@ -3706,7 +3682,6 @@
   }
 }
 
-/* ==================== 翻转卡片 ==================== */
 .flip-card {
   background-color: transparent;
 }
@@ -3756,7 +3731,6 @@
   transition: all 0.3s ease;
 }
 
-/* ==================== Docker 容器更新状态标记 ==================== */
 .update-badge {
   display: inline-flex;
   align-items: center;
@@ -3804,7 +3778,6 @@
   }
 }
 
-/* ==================== Docker 管理页面样式 ==================== */
 
 /* Docker 页面头部 */
 .docker-page-header {
@@ -4072,7 +4045,7 @@
   box-shadow: 0 8px 24px rgba(36, 150, 237, 0.08);
   transform: translateY(-2px);
 }
-/* ==================== 现代 Docker 管理样式 ==================== */
+
 .modern-grid-list {
   display: flex;
   flex-direction: column;
@@ -4088,12 +4061,12 @@
   border: 1px solid var(--border-color);
   border-radius: 12px;
   transition: all 0.2s ease;
-  box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02);
 }
 
 .modern-grid-item:hover {
   transform: translateY(-2px);
-  box-shadow: 0 8px 16px rgba(0,0,0,0.06);
+  box-shadow: 0 8px 16px rgba(0, 0, 0, 0.06);
   border-color: var(--ag-primary, #4f46e5);
 }
 
@@ -4218,7 +4191,7 @@
   background: white;
   color: var(--ag-primary);
   border-color: var(--ag-primary);
-  box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
   transform: translateY(-1px);
 }
 
@@ -4239,7 +4212,6 @@
 }
 
 
-/* ==================== 现代 Tab 样式 ==================== */
 .modern-tabs {
   display: inline-flex;
   gap: 4px;
@@ -4266,13 +4238,13 @@
 
 .modern-tab-btn:hover {
   color: var(--text-primary);
-  background: rgba(255,255,255,0.4);
+  background: rgba(255, 255, 255, 0.4);
 }
 
 .modern-tab-btn.active {
   background: var(--card-bg);
   color: var(--ag-primary);
-  box-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
   font-weight: 600;
 }
 
@@ -4284,4 +4256,3 @@
 .modern-tab-btn.active i {
   opacity: 1;
 }
-

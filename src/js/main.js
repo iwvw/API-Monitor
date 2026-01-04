@@ -51,7 +51,7 @@ async function loadLazyCSS() {
     import('plyr/dist/plyr.css'),
     import('../css/totp.css'),
     import('../css/music.css'),
-    import('../css/ai-chat.css'),
+    import('../css/uptime.css'),
   ];
   await Promise.all(styles);
   console.log('[System] Lazy CSS loaded');
@@ -98,7 +98,7 @@ import { toast } from './modules/toast.js';
 import { streamPlayerMethods } from './modules/stream-player-ui.js';
 import { totpMethods, totpComputed, totpData } from './modules/totp.js';
 import { musicMethods } from './modules/music.js';
-import { aiChatMethods, aiChatData, aiChatComputed } from './modules/ai-chat.js';
+import { uptimeData, uptimeMethods, uptimeComputed } from './modules/uptime.js';
 import { formatDateTime, formatFileSize, maskAddress, formatRegion } from './modules/utils.js';
 
 // 导入全局状态
@@ -596,8 +596,8 @@ const app = createApp({
       // TOTP 2FA 验证器模块
       ...totpData,
 
-      // AI Chat 模块
-      ...aiChatData,
+      // Uptime 监测模块
+      ...uptimeData,
     };
   },
 
@@ -1466,7 +1466,7 @@ const app = createApp({
     ...streamPlayerMethods,
     ...totpMethods,
     ...musicMethods,
-    ...aiChatMethods,
+    ...uptimeMethods,
 
     // ==================== 工具函数 ====================
     formatDateTime,

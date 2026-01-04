@@ -11,9 +11,6 @@
   overflow: hidden;
 }
 
-/* 移除对其他 tab 的侵入性样式重置 */
-/* .sub-tab-content > div:not(.openlist-files-layout) { padding: 15px 12px; } - REMOVED */
-
 .openlist-main-view {
   flex: 1;
   display: flex;
@@ -404,12 +401,10 @@
 
 .shimmer-row {
   height: 48px;
-  background: linear-gradient(
-    90deg,
-    var(--bg-secondary) 25%,
-    var(--bg-tertiary) 50%,
-    var(--bg-secondary) 75%
-  );
+  background: linear-gradient(90deg,
+      var(--bg-secondary) 25%,
+      var(--bg-tertiary) 50%,
+      var(--bg-secondary) 75%);
   background-size: 200% 100%;
   animation: ag-shimmer 1.5s infinite;
   border-radius: 8px;
@@ -477,12 +472,10 @@
 .file-hover-preview.loading {
   min-width: 200px;
   min-height: 150px;
-  background: linear-gradient(
-    90deg,
-    var(--bg-secondary) 25%,
-    var(--bg-tertiary) 50%,
-    var(--bg-secondary) 75%
-  );
+  background: linear-gradient(90deg,
+      var(--bg-secondary) 25%,
+      var(--bg-tertiary) 50%,
+      var(--bg-secondary) 75%);
   background-size: 200% 100%;
   animation: ag-shimmer 1.5s infinite;
 }
@@ -513,6 +506,7 @@
 
 /* ==================== 手机端适配 ==================== */
 @media (max-width: 768px) {
+
   /* 隐藏修改时间列 */
   .self-h-tab-content .col-time.hide-on-mobile {
     display: none !important;
@@ -1262,11 +1256,11 @@
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
 }
 
-.cron-enable-toggle input:checked + .toggle-switch {
+.cron-enable-toggle input:checked+.toggle-switch {
   background: var(--selfh-primary);
 }
 
-.cron-enable-toggle input:checked + .toggle-switch::after {
+.cron-enable-toggle input:checked+.toggle-switch::after {
   transform: translateX(20px);
 }
 

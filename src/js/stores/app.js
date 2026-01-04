@@ -15,13 +15,13 @@ export const MODULE_CONFIG = {
     server: { name: 'Hosts', shortName: 'Hosts', icon: 'fa-hdd', description: '终端与服务器监控' },
     totp: { name: '2FA', shortName: '2FA', icon: 'fa-shield-alt', description: 'TOTP 验证器' },
     music: { name: 'Music', shortName: 'Music', icon: 'fa-music', description: '网易云音乐播放器' },
-    'ai-chat': { name: 'AI Chat', shortName: 'Chat', icon: 'fa-comments', description: 'AI 智能对话助手' },
+    uptime: { name: 'Uptime', shortName: 'Uptime', icon: 'fa-heartbeat', description: '站点与服务可用性监测' },
 };
 
 export const MODULE_GROUPS = [
     { id: 'overview', name: '仪表盘', icon: 'fa-tachometer-alt', modules: ['dashboard'] },
-    { id: 'api-gateway', name: 'API 网关', icon: 'fa-bolt', modules: ['openai', 'antigravity', 'gemini-cli', 'ai-chat'] },
-    { id: 'infrastructure', name: '基础设施', icon: 'fa-cubes', modules: ['paas', 'dns', 'server'] },
+    { id: 'api-gateway', name: 'API 网关', icon: 'fa-bolt', modules: ['openai', 'antigravity', 'gemini-cli'] },
+    { id: 'infrastructure', name: '基础设施', icon: 'fa-cubes', modules: ['paas', 'dns', 'server', 'uptime'] },
     { id: 'toolbox', name: '工具箱', icon: 'fa-toolbox', modules: ['self-h', 'totp', 'music'] },
 ];
 
@@ -40,10 +40,10 @@ export const useAppStore = defineStore('app', {
             server: true,
             totp: true,
             music: false,
-            'ai-chat': true,
+            uptime: true,
         },
         moduleOrder: [
-            'dashboard', 'openai', 'antigravity', 'gemini-cli', 'paas', 'dns', 'self-h', 'server', 'totp', 'music', 'ai-chat'
+            'dashboard', 'openai', 'antigravity', 'gemini-cli', 'paas', 'dns', 'self-h', 'server', 'totp', 'music', 'uptime'
         ],
         // 界面设置
         opacity: 100,
