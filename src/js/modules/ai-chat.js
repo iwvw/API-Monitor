@@ -2,16 +2,15 @@
  * AI Chat 模块 - 前端业务逻辑
  */
 
-// Markdown 渲染器导入 (使用 CDN marked)
-const marked = window.marked || { parse: text => text };
+// Markdown 渲染器导入 (使用 npm 包)
+import { marked } from 'marked';
 
-// 配置 marked (如果可用)
-if (window.marked && window.marked.setOptions) {
-    marked.setOptions({
-        breaks: true,
-        gfm: true,
-    });
-}
+// 配置 marked
+marked.setOptions({
+    breaks: true,
+    gfm: true,
+});
+
 
 /**
  * AI Chat 模块数据
