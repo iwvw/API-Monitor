@@ -2,6 +2,7 @@
  * 路由汇总
  */
 
+// Aliyun routes reloaded
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
@@ -796,6 +797,7 @@ function registerRoutes(app) {
     'koyeb-api': '/api/koyeb',
     'cloudflare-api': '/api/cloudflare',
     'flyio-api': '/api/flyio',
+    'aliyun-api': '/api/aliyun',
     'openai-api': '/api/openai',
     'openlist-api': '/api/openlist',
     'server-api': '/api/server',

@@ -103,6 +103,7 @@ import { streamPlayerMethods } from './modules/stream-player-ui.js';
 import { totpMethods, totpComputed, totpData } from './modules/totp.js';
 import { musicMethods } from './modules/music.js';
 import { uptimeData, uptimeMethods, uptimeComputed } from './modules/uptime.js';
+import { aliyunMethods } from './modules/aliyun.js';
 import { formatDateTime, formatFileSize, maskAddress, formatRegion } from './modules/utils.js';
 
 // 导入全局状态
@@ -1306,6 +1307,13 @@ const app = createApp({
               case 'uptime':
                 this.initUptimeModule();
                 break;
+              case 'aliyun':
+                if (this.aliyunSwitchTo) {
+                  this.aliyunSwitchTo();
+                } else {
+                  this.aliyunLoadAccounts();
+                }
+                break;
             }
           });
         }
@@ -1644,6 +1652,7 @@ const app = createApp({
     ...totpMethods,
     ...musicMethods,
     ...uptimeMethods,
+    ...aliyunMethods,
 
     // ==================== 工具函数 ====================
     formatDateTime,

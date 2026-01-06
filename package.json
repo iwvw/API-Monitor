@@ -19,6 +19,7 @@
     "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
+    "@alicloud/pop-core": "^1.8.0",
     "@neteasecloudmusicapienhanced/api": "^4.29.20",
     "@unblockneteasemusic/server": "^0.28.0",
     "axios": "^1.13.2",

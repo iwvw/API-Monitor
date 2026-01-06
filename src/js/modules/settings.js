@@ -57,6 +57,7 @@ export const settingsMethods = {
             'gemini-cli',
             'paas',
             'dns',
+            'aliyun',
             'self-h',
             'server',
             'totp',

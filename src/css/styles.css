@@ -130,6 +130,11 @@ pre,
     -webkit-overflow-scrolling: touch;
   }
 
+  .aliyun-sec-tabs {
+    position: relative;
+    /* border-bottom: 2px solid rgba(255, 106, 0, 0.1); */
+  }
+
   /* 单页模式下移除分割线和标题栏 */
   body.single-page-mode .sec-tabs,
   body.single-page-mode [class*='-sec-tabs'] {
@@ -302,6 +307,31 @@ pre,
     --current-primary: #10b981;
     --current-dark: #059669;
     --current-rgb: 16, 185, 129;
+  }
+
+  .theme-aliyun {
+    --current-primary: #ff6a00;
+    --current-dark: #e55c00;
+    --current-rgb: 255, 106, 0;
+  }
+
+  .theme-aliyun .tab-btn:hover:not(.active) {
+    border-color: #ff6a00 !important;
+  }
+
+  .theme-aliyun .tab-btn.active {
+    background: linear-gradient(135deg, #ff6a00, #e55c00) !important;
+    box-shadow: 0 2px 8px rgba(255, 106, 0, 0.3);
+  }
+
+  .theme-aliyun .zone-card.active {
+    border-color: #ff6a00 !important;
+    background: rgba(255, 106, 0, 0.05);
+    box-shadow: 0 2px 8px rgba(255, 106, 0, 0.1);
+  }
+
+  .theme-aliyun .zone-card.active i {
+    color: #ff6a00 !important;
   }
 
   /* 应用动态颜色到通用组件 */
@@ -921,10 +951,6 @@ body.modal-open {
   color: white;
 }
 
-.btn-primary:hover:not(:disabled) {
-  /* 仅颜色亮度变化 */
-}
-
 .btn-secondary {
   background: var(--bg-tertiary);
   border-color: var(--border-color);
@@ -986,10 +1012,6 @@ body.modal-open {
   padding: 0 28px;
   font-size: 16px;
   border-radius: 14px;
-}
-
-.btn-md {
-  /* 默认尺寸，无需在此定义 */
 }
 
 .btn-sm {
@@ -1319,10 +1341,6 @@ body.modal-open {
   display: flex;
   flex-direction: column;
   width: 100%;
-}
-
-.account-header:active {
-  /* transform: scale(0.995); */
 }
 
 /* account-header 横向滚动条样式 */
@@ -2857,10 +2875,6 @@ body.modal-open {
 
   .stats-grid {
     grid-template-columns: repeat(2, 1fr);
-  }
-
-  .account-header {
-    /* padding-right: 100px; */
   }
 
   .account-header>div:last-child {

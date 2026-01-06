@@ -49,6 +49,12 @@ export const MODULE_CONFIG = {
     icon: 'fa-globe',
     description: 'Cloudflare DNS / Workers / Pages 管理',
   },
+  aliyun: {
+    name: '阿里云',
+    shortName: 'Aliyun',
+    icon: 'fa-cloud',
+    description: '阿里云 DNS / ECS 管理',
+  },
   'self-h': {
     name: 'SelfH',
     shortName: 'Self-H',
@@ -102,7 +108,7 @@ export const MODULE_GROUPS = [
     id: 'infrastructure',
     name: '基础设施',
     icon: 'fa-cubes',
-    modules: ['paas', 'dns', 'server', 'uptime'],
+    modules: ['paas', 'dns', 'aliyun', 'server', 'uptime'],
   },
   {
     id: 'toolbox',
@@ -155,6 +161,7 @@ export const store = reactive({
     'gemini-cli': true,
     paas: true,
     dns: true,
+    aliyun: true,
     'self-h': true,
     server: true,
     totp: true,
@@ -176,6 +183,7 @@ export const store = reactive({
     'gemini-cli',
     'paas',
     'dns',
+    'aliyun',
     'self-h',
     'server',
     'totp',
@@ -394,6 +402,51 @@ export const store = reactive({
   dnsSelectedRecords: [],
   dnsSearchText: '',
   isEditingWorker: false, // 是否正在编辑现有 Worker
+
+  // Aliyun
+  aliyunAccounts: [],
+  aliyunDomains: [],
+  aliyunInstances: [],
+  aliyunActiveSubTab: 'dns',
+  aliyunSelectedAccountId: null,
+  aliyunSelectedAccount: null,
+  aliyunSelectedDomain: null,
+  aliyunRecords: [],
+  aliyunLoadingDomains: false,
+  aliyunLoadingRecords: false,
+  aliyunLoadingInstances: false,
+  aliyunSwasInstances: [],
+  aliyunLoadingSwas: false,
+  showAliyunAccountModal: false,
+  showAliyunRecordsDrawer: false,
+  showAliyunRecordModal: false,
+  aliyunAccountForm: {
+    name: '',
+    accessKeyId: '',
+    accessKeySecret: '',
+    regionId: 'cn-hangzhou',
+    description: ''
+  },
+  aliyunRecordForm: {
+    rr: '',
+    type: 'A',
+    value: '',
+    ttl: 600,
+    priority: 10,
+    line: 'default'
+  },
+  aliyunEditingRecordId: null,
+  showAliyunAddDomainModal: false,
+  aliyunAddDomainName: '',
+  aliyunAddDomainResult: null,
+  showAliyunFirewallDrawer: false,
+  showAliyunMetricsDrawer: false,
+  aliyunFirewallRules: [],
+  aliyunLoadingFirewall: false,
+  aliyunSelectedInstance: null,
+  aliyunMetrics: {}, // instanceId -> metrics
+  showAliyunAddFirewallModal: false,
+  aliyunFirewallForm: { protocol: 'TCP', port: '', remark: '' },
 
   // R2 存储
   r2Buckets: [],
