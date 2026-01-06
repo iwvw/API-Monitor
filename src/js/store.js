@@ -44,7 +44,7 @@ export const MODULE_CONFIG = {
     description: 'Zeabur / Koyeb / Fly.io 平台监控',
   },
   dns: {
-    name: 'DNS',
+    name: 'Cloudflare',
     shortName: 'CF',
     icon: 'fa-globe',
     description: 'Cloudflare DNS / Workers / Pages 管理',

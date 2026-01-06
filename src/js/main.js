@@ -26,7 +26,7 @@ async function loadLazyCSS() {
   console.log('[System] Loading lazy CSS resources...');
   const styles = [
     import('../css/projects.css'),
-    import('../css/dns.css'),
+    import('../css/cloudflare.css'),
     import('../css/tables.css'),
     import('../css/tabs.css'),
     import('../css/settings.css'),
@@ -82,7 +82,7 @@ import { paasMethods } from './modules/paas.js';
 import { koyebMethods } from './modules/koyeb.js';
 import { flyMethods } from './modules/fly.js';
 import { selfHMethods, selfHComputed } from './modules/self-h.js';
-import { dnsMethods } from './modules/dns.js';
+import { cloudflareMethods } from './modules/cloudflare.js';
 import { r2Methods } from './modules/r2.js';
 import { openaiMethods } from './modules/openai.js';
 import { antigravityMethods } from './modules/antigravity.js';
@@ -1599,7 +1599,7 @@ const app = createApp({
     ...koyebMethods,
     ...flyMethods,
     ...selfHMethods,
-    ...dnsMethods,
+    ...cloudflareMethods,
     ...r2Methods,
     ...openaiMethods,
     ...antigravityMethods,

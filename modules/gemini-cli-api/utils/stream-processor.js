@@ -1,6 +1,6 @@
 const { Readable } = require('stream');
 const { createLogger } = require('../../../src/utils/logger');
-const logger = createLogger('Gemini-Stream');
+const logger = createLogger('GCLI-Stream');
 
 class StreamProcessor {
   constructor(client) {

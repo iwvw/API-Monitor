@@ -8,7 +8,7 @@ const {
   CloudflareDnsTemplate,
   CloudflareZone,
   CloudflareDnsRecord,
-} = require('../../../modules/cloudflare-dns/models');
+} = require('../../../modules/cloudflare-api/models');
 const { OpenAIEndpoint, OpenAIHealthHistory } = require('../../../modules/openai-api/models');
 const { SystemConfig, Session, UserSettings, OperationLog } = require('./System');
 const {
@@ -17,7 +17,7 @@ const {
   ServerMonitorConfig,
   ServerCredential,
   ServerSnippet,
-} = require('../../../modules/server-management/models');
+} = require('../../../modules/server-api/models');
 
 module.exports = {
   // Zeabur 模块

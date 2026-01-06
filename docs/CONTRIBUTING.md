@@ -56,6 +56,7 @@ npm run format
 ```
 
 **类型 (type)**:
+
 - `feat`: 新功能
 - `fix`: 修复 bug
 - `docs`: 文档更新
@@ -66,6 +67,7 @@ npm run format
 - `chore`: 构建/工具变更
 
 **示例**:
+
 ```
 feat(music): 添加歌词同步功能
 
@@ -107,7 +109,7 @@ api-monitor/
 │   └── utils/         # 工具函数
 ├── modules/           # 功能模块
 │   ├── music-api/     # 音乐 API
-│   ├── cloudflare-dns/# DNS 管理
+│   ├── cloudflare-api/# DNS 管理
 │   └── ...
 ├── agent-go/          # Go Agent 源码
 └── test/              # 测试文件

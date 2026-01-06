@@ -9,7 +9,7 @@ const https = require('https');
 const storage = require('./storage');
 const { createLogger } = require('../../src/utils/logger');
 
-const logger = createLogger('UptimeService');
+const logger = createLogger('Uptime');
 
 // 全局定时器映射: monitorId -> IntervalID
 const intervals = {};

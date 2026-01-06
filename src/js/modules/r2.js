@@ -15,7 +15,7 @@ export const r2Methods = {
     store.r2LoadingBuckets = true;
     try {
       const response = await fetch(
-        `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/r2/buckets`,
+        `/api/cloudflare/accounts/${store.dnsSelectedAccountId}/r2/buckets`,
         {
           headers: store.getAuthHeaders(),
         }
@@ -57,7 +57,7 @@ export const r2Methods = {
     store.r2SelectedObjects = []; // 清空选择
     try {
       // 使用 delimiter='/' 来实现文件夹模拟
-      let url = `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/r2/buckets/${store.r2SelectedBucketName}/objects?delimiter=/`;
+      let url = `/api/cloudflare/accounts/${store.dnsSelectedAccountId}/r2/buckets/${store.r2SelectedBucketName}/objects?delimiter=/`;
       if (store.r2CurrentPrefix) {
         url += `&prefix=${encodeURIComponent(store.r2CurrentPrefix)}`;
       }
@@ -146,7 +146,7 @@ export const r2Methods = {
     if (!name) return;
     try {
       const response = await fetch(
-        `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/r2/buckets`,
+        `/api/cloudflare/accounts/${store.dnsSelectedAccountId}/r2/buckets`,
         {
           method: 'POST',
           headers: {
@@ -188,7 +188,7 @@ export const r2Methods = {
 
     try {
       const response = await fetch(
-        `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/r2/buckets/${bucketName}`,
+        `/api/cloudflare/accounts/${store.dnsSelectedAccountId}/r2/buckets/${bucketName}`,
         {
           method: 'DELETE',
           headers: store.getAuthHeaders(),
@@ -226,7 +226,7 @@ export const r2Methods = {
 
     try {
       const response = await fetch(
-        `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/r2/buckets/${store.r2SelectedBucketName}/objects/${encodeURIComponent(objectKey)}`,
+        `/api/cloudflare/accounts/${store.dnsSelectedAccountId}/r2/buckets/${store.r2SelectedBucketName}/objects/${encodeURIComponent(objectKey)}`,
         {
           method: 'DELETE',
           headers: store.getAuthHeaders(),
@@ -361,7 +361,7 @@ export const r2Methods = {
     for (const key of [...store.r2SelectedObjects]) {
       try {
         const response = await fetch(
-          `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/r2/buckets/${store.r2SelectedBucketName}/objects/${encodeURIComponent(key)}`,
+          `/api/cloudflare/accounts/${store.dnsSelectedAccountId}/r2/buckets/${store.r2SelectedBucketName}/objects/${encodeURIComponent(key)}`,
           {
             method: 'DELETE',
             headers: store.getAuthHeaders(),

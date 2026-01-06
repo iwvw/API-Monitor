@@ -130,8 +130,8 @@ function sendMetricsUpdate(ws) {
  */
 function collectMetrics() {
   try {
-    const agentService = require('../../modules/server-management/agent-service');
-    const { serverStorage } = require('../../modules/server-management/storage');
+    const agentService = require('../../modules/server-api/agent-service');
+    const { serverStorage } = require('../../modules/server-api/storage');
 
     const servers = serverStorage.getAll();
     const metricsData = [];

@@ -109,8 +109,8 @@ api-monitor/
 │   ├── services/          # 业务服务
 │   └── utils/             # 工具函数
 ├── modules/               # 可插拔业务模块
-│   ├── server-management/ # 服务器/SSH/Docker
-│   ├── cloudflare-dns/    # Cloudflare DNS
+│   ├── server-api/        # 服务器/SSH/Docker
+│   ├── cloudflare-api/    # Cloudflare DNS
 │   ├── antigravity-api/   # Antigravity Agent
 │   ├── music-api/         # 网易云音乐代理
 │   └── ...                # 更多模块

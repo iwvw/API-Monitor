@@ -34,7 +34,7 @@ async function loadMonaco() {
 // 缓存 key 常量（定义在模块级别，避免 Vue 警告）
 const DNS_ACCOUNTS_CACHE_KEY = 'dns_accounts_cache';
 
-export const dnsMethods = {
+export const cloudflareMethods = {
   // 从本地缓存加载账号数据（立即显示）
   loadFromDnsAccountsCache() {
     try {
@@ -108,7 +108,7 @@ export const dnsMethods = {
    */
   async loadDnsAccounts(silent = false) {
     try {
-      const response = await fetch('/api/cf-dns/accounts', {
+      const response = await fetch('/api/cloudflare/accounts', {
         headers: store.getAuthHeaders(),
       });
       const data = await response.json();
@@ -144,7 +144,7 @@ export const dnsMethods = {
         account.apiToken = null;
       } else {
         // 显示 token - 从主机获取
-        const response = await fetch(`/api/cf-dns/accounts/${account.id}/token`, {
+        const response = await fetch(`/api/cloudflare/accounts/${account.id}/token`, {
           headers: store.getAuthHeaders(),
         });
         const data = await response.json();
@@ -196,7 +196,7 @@ export const dnsMethods = {
     if (!confirmed) return;
 
     try {
-      const response = await fetch(`/api/cf-dns/accounts/${account.id}`, {
+      const response = await fetch(`/api/cloudflare/accounts/${account.id}`, {
         method: 'DELETE',
         headers: store.getAuthHeaders(),
       });
@@ -245,7 +245,7 @@ export const dnsMethods = {
     store.dnsLoadingZones = true;
 
     try {
-      const response = await fetch(`/api/cf-dns/accounts/${store.dnsSelectedAccountId}/zones`, {
+      const response = await fetch(`/api/cloudflare/accounts/${store.dnsSelectedAccountId}/zones`, {
         headers: store.getAuthHeaders(),
       });
 
@@ -325,7 +325,7 @@ export const dnsMethods = {
 
     try {
       const response = await fetch(
-        `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/zones/${store.dnsSelectedZoneId}/purge`,
+        `/api/cloudflare/accounts/${store.dnsSelectedAccountId}/zones/${store.dnsSelectedZoneId}/purge`,
         {
           method: 'POST',
           headers: store.getAuthHeaders(),
@@ -358,7 +358,7 @@ export const dnsMethods = {
 
     try {
       const response = await fetch(
-        `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/zones/${store.dnsSelectedZoneId}/ssl`,
+        `/api/cloudflare/accounts/${store.dnsSelectedAccountId}/zones/${store.dnsSelectedZoneId}/ssl`,
         { headers: store.getAuthHeaders() }
       );
 
@@ -404,7 +404,7 @@ export const dnsMethods = {
 
     try {
       const response = await fetch(
-        `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/zones/${store.dnsSelectedZoneId}/ssl`,
+        `/api/cloudflare/accounts/${store.dnsSelectedAccountId}/zones/${store.dnsSelectedZoneId}/ssl`,
         {
           method: 'PATCH',
           headers: store.getAuthHeaders(),
@@ -444,7 +444,7 @@ export const dnsMethods = {
       });
 
       const response = await fetch(
-        `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/zones/${store.dnsSelectedZoneId}/analytics?timeRange=${timeRange}`,
+        `/api/cloudflare/accounts/${store.dnsSelectedAccountId}/zones/${store.dnsSelectedZoneId}/analytics?timeRange=${timeRange}`,
         { headers: store.getAuthHeaders() }
       );
 
@@ -506,7 +506,7 @@ export const dnsMethods = {
 
     try {
       const response = await fetch(
-        `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/zones/${store.dnsSelectedZoneId}/records`,
+        `/api/cloudflare/accounts/${store.dnsSelectedAccountId}/zones/${store.dnsSelectedZoneId}/records`,
         { headers: store.getAuthHeaders() }
       );
 
@@ -557,8 +557,8 @@ export const dnsMethods = {
 
     try {
       const url = this.dnsEditingRecord
-        ? `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/zones/${store.dnsSelectedZoneId}/records/${this.dnsEditingRecord.id}`
-        : `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/zones/${store.dnsSelectedZoneId}/records`;
+        ? `/api/cloudflare/accounts/${store.dnsSelectedAccountId}/zones/${store.dnsSelectedZoneId}/records/${this.dnsEditingRecord.id}`
+        : `/api/cloudflare/accounts/${store.dnsSelectedAccountId}/zones/${store.dnsSelectedZoneId}/records`;
 
       const response = await fetch(url, {
         method: this.dnsEditingRecord ? 'PUT' : 'POST',
@@ -595,7 +595,7 @@ export const dnsMethods = {
 
     try {
       const response = await fetch(
-        `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/zones/${store.dnsSelectedZoneId}/records/${record.id}`,
+        `/api/cloudflare/accounts/${store.dnsSelectedAccountId}/zones/${store.dnsSelectedZoneId}/records/${record.id}`,
         {
           method: 'DELETE',
           headers: store.getAuthHeaders(),
@@ -656,7 +656,7 @@ export const dnsMethods = {
     for (const recordId of store.dnsSelectedRecords) {
       try {
         const response = await fetch(
-          `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/zones/${store.dnsSelectedZoneId}/records/${recordId}`,
+          `/api/cloudflare/accounts/${store.dnsSelectedAccountId}/zones/${store.dnsSelectedZoneId}/records/${recordId}`,
           {
             method: 'DELETE',
             headers: store.getAuthHeaders(),
@@ -699,7 +699,7 @@ export const dnsMethods = {
     try {
       // 使用正确的 API 端点 /switch
       const response = await fetch(
-        `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/zones/${store.dnsSelectedZoneId}/switch`,
+        `/api/cloudflare/accounts/${store.dnsSelectedAccountId}/zones/${store.dnsSelectedZoneId}/switch`,
         {
           method: 'POST',
           headers: store.getAuthHeaders(),
@@ -730,7 +730,7 @@ export const dnsMethods = {
 
   async loadDnsTemplates() {
     try {
-      const response = await fetch('/api/cf-dns/templates', {
+      const response = await fetch('/api/cloudflare/templates', {
         headers: store.getAuthHeaders(),
       });
       const data = await response.json();
@@ -777,8 +777,8 @@ export const dnsMethods = {
 
     try {
       const url = this.dnsEditingTemplate
-        ? `/api/cf-dns/templates/${this.dnsEditingTemplate.id}`
-        : '/api/cf-dns/templates';
+        ? `/api/cloudflare/templates/${this.dnsEditingTemplate.id}`
+        : '/api/cloudflare/templates';
 
       const response = await fetch(url, {
         method: this.dnsEditingTemplate ? 'PUT' : 'POST',
@@ -814,7 +814,7 @@ export const dnsMethods = {
     if (!confirmed) return;
 
     try {
-      const response = await fetch(`/api/cf-dns/templates/${template.id}`, {
+      const response = await fetch(`/api/cloudflare/templates/${template.id}`, {
         method: 'DELETE',
         headers: store.getAuthHeaders(),
       });
@@ -843,7 +843,7 @@ export const dnsMethods = {
     this.dnsAccountFormSuccess = '';
 
     try {
-      const response = await fetch('/api/cf-dns/accounts', {
+      const response = await fetch('/api/cloudflare/accounts', {
         method: 'POST',
         headers: store.getAuthHeaders(),
         body: JSON.stringify(this.dnsAccountForm),
@@ -869,7 +869,7 @@ export const dnsMethods = {
 
   async verifyDnsAccount(account) {
     try {
-      const response = await fetch(`/api/cf-dns/accounts/${account.id}/verify`, {
+      const response = await fetch(`/api/cloudflare/accounts/${account.id}/verify`, {
         method: 'POST',
         headers: store.getAuthHeaders(),
       });
@@ -907,7 +907,7 @@ export const dnsMethods = {
         updateData.apiToken = this.dnsEditAccountForm.apiToken;
       }
 
-      const response = await fetch(`/api/cf-dns/accounts/${this.dnsEditingAccount.id}`, {
+      const response = await fetch(`/api/cloudflare/accounts/${this.dnsEditingAccount.id}`, {
         method: 'PUT',
         headers: store.getAuthHeaders(),
         body: JSON.stringify(updateData),
@@ -991,7 +991,7 @@ export const dnsMethods = {
 
     try {
       const response = await fetch(
-        `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/zones/${store.dnsSelectedZoneId}/records/${record.id}`,
+        `/api/cloudflare/accounts/${store.dnsSelectedAccountId}/zones/${store.dnsSelectedZoneId}/records/${record.id}`,
         {
           method: 'PUT',
           headers: store.getAuthHeaders(),
@@ -1065,7 +1065,7 @@ export const dnsMethods = {
 
     try {
       const response = await fetch(
-        `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/zones/${store.dnsSelectedZoneId}/records/${record.id}`,
+        `/api/cloudflare/accounts/${store.dnsSelectedAccountId}/zones/${store.dnsSelectedZoneId}/records/${record.id}`,
         {
           method: 'PUT',
           headers: store.getAuthHeaders(),
@@ -1193,7 +1193,7 @@ export const dnsMethods = {
           for (const record of importedData.records) {
             try {
               const response = await fetch(
-                `/api/cf-dns/accounts/${this.dnsSelectedAccountId}/zones/${this.dnsSelectedZoneId}/records`,
+                `/api/cloudflare/accounts/${this.dnsSelectedAccountId}/zones/${this.dnsSelectedZoneId}/records`,
                 {
                   method: 'POST',
                   headers: this.getAuthHeaders(),
@@ -1242,7 +1242,7 @@ export const dnsMethods = {
       }
 
       // 从主机获取包含 API Token 的完整账号数据
-      const response = await fetch('/api/cf-dns/accounts/export', {
+      const response = await fetch('/api/cloudflare/accounts/export', {
         headers: this.getAuthHeaders(),
       });
 
@@ -1332,7 +1332,7 @@ export const dnsMethods = {
                 continue;
               }
 
-              const response = await fetch('/api/cf-dns/accounts', {
+              const response = await fetch('/api/cloudflare/accounts', {
                 method: 'POST',
                 headers: this.getAuthHeaders(),
                 body: JSON.stringify(account),
@@ -1388,7 +1388,7 @@ export const dnsMethods = {
     }
 
     try {
-      const response = await fetch(`/api/cf-dns/accounts/${store.dnsSelectedAccountId}/workers`, {
+      const response = await fetch(`/api/cloudflare/accounts/${store.dnsSelectedAccountId}/workers`, {
         headers: store.getAuthHeaders(),
       });
       const data = await response.json();
@@ -1435,7 +1435,7 @@ export const dnsMethods = {
 
     try {
       const response = await fetch(
-        `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/workers/${encodeURIComponent(scriptName)}`,
+        `/api/cloudflare/accounts/${store.dnsSelectedAccountId}/workers/${encodeURIComponent(scriptName)}`,
         {
           method: 'DELETE',
           headers: store.getAuthHeaders(),
@@ -1568,7 +1568,7 @@ export default {
     try {
       // 获取脚本内容
       const response = await fetch(
-        `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/workers/${encodeURIComponent(worker.name)}`,
+        `/api/cloudflare/accounts/${store.dnsSelectedAccountId}/workers/${encodeURIComponent(worker.name)}`,
         {
           headers: store.getAuthHeaders(),
         }
@@ -1668,7 +1668,7 @@ export default {
 
     try {
       const response = await fetch(
-        `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/workers/${encodeURIComponent(name)}`,
+        `/api/cloudflare/accounts/${store.dnsSelectedAccountId}/workers/${encodeURIComponent(name)}`,
         {
           method: 'PUT',
           headers: {
@@ -1715,7 +1715,7 @@ export default {
     }
 
     try {
-      const response = await fetch(`/api/cf-dns/accounts/${store.dnsSelectedAccountId}/pages`, {
+      const response = await fetch(`/api/cloudflare/accounts/${store.dnsSelectedAccountId}/pages`, {
         headers: store.getAuthHeaders(),
       });
       const data = await response.json();
@@ -1748,7 +1748,7 @@ export default {
 
     try {
       const response = await fetch(
-        `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/pages/${encodeURIComponent(project.name)}`,
+        `/api/cloudflare/accounts/${store.dnsSelectedAccountId}/pages/${encodeURIComponent(project.name)}`,
         {
           method: 'DELETE',
           headers: store.getAuthHeaders(),
@@ -1778,7 +1778,7 @@ export default {
 
     try {
       const response = await fetch(
-        `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/pages/${encodeURIComponent(project.name)}/deployments`,
+        `/api/cloudflare/accounts/${store.dnsSelectedAccountId}/pages/${encodeURIComponent(project.name)}/deployments`,
         { headers: store.getAuthHeaders() }
       );
       const data = await response.json();
@@ -1848,7 +1848,7 @@ export default {
 
     try {
       const response = await fetch(
-        `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/zones/${store.dnsSelectedZoneId}/workers/routes`,
+        `/api/cloudflare/accounts/${store.dnsSelectedAccountId}/zones/${store.dnsSelectedZoneId}/workers/routes`,
         { headers: store.getAuthHeaders() }
       );
       const data = await response.json();
@@ -1890,7 +1890,7 @@ export default {
 
     try {
       const response = await fetch(
-        `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/zones/${store.dnsSelectedZoneId}/workers/routes/${route.id}`,
+        `/api/cloudflare/accounts/${store.dnsSelectedAccountId}/zones/${store.dnsSelectedZoneId}/workers/routes/${route.id}`,
         {
           method: 'DELETE',
           headers: store.getAuthHeaders(),
@@ -1929,7 +1929,7 @@ export default {
 
     try {
       const response = await fetch(
-        `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/zones/${store.dnsSelectedZoneId}/workers/routes`,
+        `/api/cloudflare/accounts/${store.dnsSelectedAccountId}/zones/${store.dnsSelectedZoneId}/workers/routes`,
         {
           method: 'POST',
           headers: store.getAuthHeaders(),
@@ -1969,7 +1969,7 @@ export default {
 
     try {
       const response = await fetch(
-        `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/pages/${encodeURIComponent(project.name)}/domains`,
+        `/api/cloudflare/accounts/${store.dnsSelectedAccountId}/pages/${encodeURIComponent(project.name)}/domains`,
         { headers: store.getAuthHeaders() }
       );
       const data = await response.json();
@@ -2008,7 +2008,7 @@ export default {
 
     try {
       const response = await fetch(
-        `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/pages/${encodeURIComponent(this.selectedPagesProjectForDomains.name)}/domains`,
+        `/api/cloudflare/accounts/${store.dnsSelectedAccountId}/pages/${encodeURIComponent(this.selectedPagesProjectForDomains.name)}/domains`,
         {
           method: 'POST',
           headers: store.getAuthHeaders(),
@@ -2046,7 +2046,7 @@ export default {
 
     try {
       const response = await fetch(
-        `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/pages/${encodeURIComponent(this.selectedPagesProjectForDomains.name)}/domains/${encodeURIComponent(domain.name)}`,
+        `/api/cloudflare/accounts/${store.dnsSelectedAccountId}/pages/${encodeURIComponent(this.selectedPagesProjectForDomains.name)}/domains/${encodeURIComponent(domain.name)}`,
         {
           method: 'DELETE',
           headers: store.getAuthHeaders(),
@@ -2101,7 +2101,7 @@ export default {
 
     try {
       const response = await fetch(
-        `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/workers/${encodeURIComponent(worker.name)}/domains`,
+        `/api/cloudflare/accounts/${store.dnsSelectedAccountId}/workers/${encodeURIComponent(worker.name)}/domains`,
         { headers: store.getAuthHeaders() }
       );
       const data = await response.json();
@@ -2140,7 +2140,7 @@ export default {
 
     try {
       const response = await fetch(
-        `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/workers/${encodeURIComponent(this.selectedWorkerForDomains.name)}/domains`,
+        `/api/cloudflare/accounts/${store.dnsSelectedAccountId}/workers/${encodeURIComponent(this.selectedWorkerForDomains.name)}/domains`,
         {
           method: 'POST',
           headers: store.getAuthHeaders(),
@@ -2178,7 +2178,7 @@ export default {
 
     try {
       const response = await fetch(
-        `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/workers/${encodeURIComponent(this.selectedWorkerForDomains.name)}/domains/${domain.id}`,
+        `/api/cloudflare/accounts/${store.dnsSelectedAccountId}/workers/${encodeURIComponent(this.selectedWorkerForDomains.name)}/domains/${domain.id}`,
         {
           method: 'DELETE',
           headers: store.getAuthHeaders(),
@@ -2231,7 +2231,7 @@ export default {
     this.zoneFormError = '';
 
     try {
-      const response = await fetch(`/api/cf-dns/accounts/${store.dnsSelectedAccountId}/zones`, {
+      const response = await fetch(`/api/cloudflare/accounts/${store.dnsSelectedAccountId}/zones`, {
         method: 'POST',
         headers: {
           ...store.getAuthHeaders(),
@@ -2290,7 +2290,7 @@ export default {
 
     try {
       const response = await fetch(
-        `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/zones/${store.dnsSelectedZoneId}`,
+        `/api/cloudflare/accounts/${store.dnsSelectedAccountId}/zones/${store.dnsSelectedZoneId}`,
         {
           method: 'DELETE',
           headers: store.getAuthHeaders(),
@@ -2344,7 +2344,7 @@ export default {
     }
 
     try {
-      const response = await fetch(`/api/cf-dns/accounts/${store.dnsSelectedAccountId}/tunnels`, {
+      const response = await fetch(`/api/cloudflare/accounts/${store.dnsSelectedAccountId}/tunnels`, {
         headers: store.getAuthHeaders(),
       });
       const data = await response.json();
@@ -2388,7 +2388,7 @@ export default {
     store.tunnelSaving = true;
 
     try {
-      const response = await fetch(`/api/cf-dns/accounts/${store.dnsSelectedAccountId}/tunnels`, {
+      const response = await fetch(`/api/cloudflare/accounts/${store.dnsSelectedAccountId}/tunnels`, {
         method: 'POST',
         headers: {
           ...store.getAuthHeaders(),
@@ -2428,7 +2428,7 @@ export default {
 
     try {
       const response = await fetch(
-        `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/tunnels/${tunnel.id}`,
+        `/api/cloudflare/accounts/${store.dnsSelectedAccountId}/tunnels/${tunnel.id}`,
         {
           method: 'DELETE',
           headers: store.getAuthHeaders(),
@@ -2453,7 +2453,7 @@ export default {
   async getTunnelToken(tunnel) {
     try {
       const response = await fetch(
-        `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/tunnels/${tunnel.id}/token`,
+        `/api/cloudflare/accounts/${store.dnsSelectedAccountId}/tunnels/${tunnel.id}/token`,
         { headers: store.getAuthHeaders() }
       );
       const data = await response.json();
@@ -2515,7 +2515,7 @@ export default {
 
     try {
       const response = await fetch(
-        `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/tunnels/${tunnel.id}/configuration`,
+        `/api/cloudflare/accounts/${store.dnsSelectedAccountId}/tunnels/${tunnel.id}/configuration`,
         { headers: store.getAuthHeaders() }
       );
       const data = await response.json();
@@ -2588,7 +2588,7 @@ export default {
 
     try {
       const response = await fetch(
-        `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/tunnels/${store.selectedTunnelForConfig.id}/configuration`,
+        `/api/cloudflare/accounts/${store.dnsSelectedAccountId}/tunnels/${store.selectedTunnelForConfig.id}/configuration`,
         {
           method: 'PUT',
           headers: {
@@ -2640,7 +2640,7 @@ export default {
 
       // 否则调用 API 获取
       const response = await fetch(
-        `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/tunnels/${tunnel.id}/connections`,
+        `/api/cloudflare/accounts/${store.dnsSelectedAccountId}/tunnels/${tunnel.id}/connections`,
         { headers: store.getAuthHeaders() }
       );
       const data = await response.json();
@@ -2691,7 +2691,7 @@ export default {
 
     try {
       const response = await fetch(
-        `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/tunnels/${tunnel.id}/connections`,
+        `/api/cloudflare/accounts/${store.dnsSelectedAccountId}/tunnels/${tunnel.id}/connections`,
         {
           method: 'DELETE',
           headers: store.getAuthHeaders(),

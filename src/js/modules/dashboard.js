@@ -255,7 +255,7 @@ export const dashboardMethods = {
 
     const updateFly = async () => {
       try {
-        const res = await fetch('/api/fly/proxy/apps', { headers: store.getAuthHeaders() });
+        const res = await fetch('/api/flyio/proxy/apps', { headers: store.getAuthHeaders() });
         if (res.ok) {
           const data = await res.json();
           let appCount = 0;
@@ -288,7 +288,7 @@ export const dashboardMethods = {
    */
   async fetchDnsSummary() {
     try {
-      const res = await fetch('/api/cf-dns/zones', { headers: store.getAuthHeaders() });
+      const res = await fetch('/api/cloudflare/zones', { headers: store.getAuthHeaders() });
       if (res.ok) {
         const data = await res.json();
         if (data.success && Array.isArray(data.data)) {
@@ -332,7 +332,7 @@ export const dashboardMethods = {
               }
             } else {
               // 无心跳数据，暂时视为未知，计入 up 避免误报
-              up++; 
+              up++;
             }
           }
         });

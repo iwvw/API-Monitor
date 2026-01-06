@@ -7,7 +7,7 @@ const cron = require('node-cron');
 const { ServerAccount, ServerMonitorLog, ServerMonitorConfig } = require('./models');
 const { createLogger } = require('../../src/utils/logger');
 
-const logger = createLogger('ServerMonitor');
+const logger = createLogger('Monitor');
 
 class MonitorService {
   constructor() {

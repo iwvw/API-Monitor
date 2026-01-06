@@ -255,8 +255,8 @@ function registerRoutes(app) {
 
   // 3. Agent 公开接口 (不需要认证，必须在 /api/server 模块之前挂载)
   const agentPublicRouter = express.Router();
-  const agentService = require('../../modules/server-management/agent-service');
-  const { serverStorage } = require('../../modules/server-management/storage');
+  const agentService = require('../../modules/server-api/agent-service');
+  const { serverStorage } = require('../../modules/server-api/storage');
 
   // Agent 数据推送 (由远程 Agent 调用)
   agentPublicRouter.post('/push', (req, res) => {
@@ -674,7 +674,7 @@ function registerRoutes(app) {
     try {
       const { serverId } = req.params;
       const server = serverStorage.getById(serverId);
-      const sshService = require('../../modules/server-management/ssh-service');
+      const sshService = require('../../modules/server-api/ssh-service');
 
       if (!server) return res.status(404).json({ success: false, error: '主机不存在' });
 
@@ -740,7 +740,7 @@ function registerRoutes(app) {
     try {
       const { serverId } = req.params;
       const server = serverStorage.getById(serverId);
-      const sshService = require('../../modules/server-management/ssh-service');
+      const sshService = require('../../modules/server-api/ssh-service');
 
       if (!server) return res.status(404).json({ success: false, error: '主机不存在' });
 
@@ -794,14 +794,18 @@ function registerRoutes(app) {
   const moduleRouteMap = {
     'zeabur-api': '/api/zeabur',
     'koyeb-api': '/api/koyeb',
-    'cloudflare-dns': '/api/cf-dns',
-    'fly-api': '/api/fly',
+    'cloudflare-api': '/api/cloudflare',
+    'flyio-api': '/api/flyio',
     'openai-api': '/api/openai',
     'openlist-api': '/api/openlist',
-    'server-management': '/api/server',
+    'server-api': '/api/server',
     'antigravity-api': '/api/antigravity',
     'gemini-cli-api': '/api/gemini-cli',
     'ai-chat-api': '/api/ai-chat',
+    'totp-api': '/api/totp',
+    'uptime-api': '/api/uptime',
+    'cron-api': '/api/cron',
+    // music-api 在下方单独挂载（无需认证）
   };
 
   if (fs.existsSync(modulesDir)) {

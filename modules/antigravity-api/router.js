@@ -7,7 +7,7 @@ const axios = require('axios');
 const crypto = require('crypto');
 const fs = require('fs');
 const { createLogger } = require('../../src/utils/logger');
-const logger = createLogger('AntiG-Service');
+const logger = createLogger('AntiG');
 const { requireAuth } = require('../../src/middleware/auth');
 const { getSession, getSessionById } = require('../../src/services/session');
 

@@ -32,7 +32,7 @@ const workersModule = {
 
     this.workersLoading = true;
     try {
-      const response = await fetch(`/api/cf-dns/accounts/${store.dnsSelectedAccountId}/workers`, {
+      const response = await fetch(`/api/cloudflare/accounts/${store.dnsSelectedAccountId}/workers`, {
         headers: store.getAuthHeaders(),
       });
       const data = await response.json();
@@ -63,7 +63,7 @@ const workersModule = {
 
     try {
       const response = await fetch(
-        `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/workers/${encodeURIComponent(scriptName)}`,
+        `/api/cloudflare/accounts/${store.dnsSelectedAccountId}/workers/${encodeURIComponent(scriptName)}`,
         { headers: store.getAuthHeaders() }
       );
       const data = await response.json();
@@ -91,7 +91,7 @@ const workersModule = {
 
     try {
       const response = await fetch(
-        `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/workers/${encodeURIComponent(scriptName)}`,
+        `/api/cloudflare/accounts/${store.dnsSelectedAccountId}/workers/${encodeURIComponent(scriptName)}`,
         {
           method: 'PUT',
           headers: {
@@ -133,7 +133,7 @@ const workersModule = {
 
     try {
       const response = await fetch(
-        `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/workers/${encodeURIComponent(scriptName)}`,
+        `/api/cloudflare/accounts/${store.dnsSelectedAccountId}/workers/${encodeURIComponent(scriptName)}`,
         {
           method: 'DELETE',
           headers: store.getAuthHeaders(),
@@ -220,7 +220,7 @@ const workersModule = {
 
     try {
       const response = await fetch(
-        `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/zones/${zoneId}/workers/routes`,
+        `/api/cloudflare/accounts/${store.dnsSelectedAccountId}/zones/${zoneId}/workers/routes`,
         { headers: store.getAuthHeaders() }
       );
       const data = await response.json();
@@ -241,7 +241,7 @@ const workersModule = {
 
     try {
       const response = await fetch(
-        `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/zones/${zoneId}/workers/routes`,
+        `/api/cloudflare/accounts/${store.dnsSelectedAccountId}/zones/${zoneId}/workers/routes`,
         {
           method: 'POST',
           headers: {
@@ -275,7 +275,7 @@ const workersModule = {
 
     try {
       const response = await fetch(
-        `/api/cf-dns/accounts/${store.dnsSelectedAccountId}/zones/${zoneId}/workers/routes/${routeId}`,
+        `/api/cloudflare/accounts/${store.dnsSelectedAccountId}/zones/${zoneId}/workers/routes/${routeId}`,
         {
           method: 'DELETE',
           headers: store.getAuthHeaders(),

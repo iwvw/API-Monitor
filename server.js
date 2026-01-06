@@ -8,8 +8,20 @@ const http = require('http');
 const { createLogger, logger: globalLogger } = require('./src/utils/logger');
 const logger = createLogger('Server');
 
-// 打印简易启动标识 (Logo 移至 logger 记录)
-logger.info('>>> Gravity Engineering System v0.1.2 <<<');
+// 打印 Logo
+console.log(`\x1b[36m
+  ______   _______   ______         ______    ______         __ 
+ /      \\ /       \\ /      |       /      \\  /      \\       /  |
+/$$$$$$  |$$$$$$$  |$$$$$$/       /$$$$$$  |/$$$$$$  |      $$ |
+$$ |__$$ |$$ |__$$ |  $$ |        $$ | _$$/ $$ |  $$ |      $$ |
+$$    $$ |$$    $$/   $$ |        $$ |/    |$$ |  $$ |      $$ |
+$$$$$$$$ |$$$$$$$/    $$ |        $$ |$$$$ |$$ |  $$ |      $$/ 
+$$ |  $$ |$$ |       _$$ |_       $$ \\__$$ |$$ \\__$$ |       __ 
+$$ |  $$ |$$ |      / $$   |      $$    $$/ $$    $$/       /  |
+$$/   $$/ $$/       $$$$$$/        $$$$$$/   $$$$$$/        $$/ 
+\x1b[0m\x1b[33m
+>>> Gravity Engineering System v0.1.2 <<<\x1b[0m
+`);
 
 // 导入中间件
 const { configureHelmet, apiSecurityHeaders, corsConfig } = require('./src/middleware/security');
@@ -46,11 +58,11 @@ const PORT = process.env.PORT || 3000;
 // 初始化 WebSocket 服务
 const logWss = logService.init(server);
 const metricsWss = metricsService.init(server);
-const sshService = require('./modules/server-management/ssh-service');
+const sshService = require('./modules/server-api/ssh-service');
 const sshWss = sshService.init(server);
 
 // 初始化 Agent Socket.IO 服务
-const agentService = require('./modules/server-management/agent-service');
+const agentService = require('./modules/server-api/agent-service');
 agentService.initSocketIO(server);
 
 // 统一处理 WebSocket 升级请求
@@ -386,7 +398,7 @@ server.listen(PORT, '0.0.0.0', () => {
 
   // 启动主机监控服务
   try {
-    const monitorService = require('./modules/server-management/monitor-service');
+    const monitorService = require('./modules/server-api/monitor-service');
     monitorService.start();
   } catch (error) {
     logger.warn('主机监控服务启动失败:', error.message);
@@ -396,7 +408,7 @@ server.listen(PORT, '0.0.0.0', () => {
   try {
     const uptimeService = require('./modules/uptime-api/monitor-service');
     // 注入 Socket.IO (复用 AgentService 的 IO 实例)
-    const agentService = require('./modules/server-management/agent-service');
+    const agentService = require('./modules/server-api/agent-service');
     if (agentService.io) {
       uptimeService.setIO(agentService.io);
     }
