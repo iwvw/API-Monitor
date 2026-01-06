@@ -1,28 +1,21 @@
-﻿/* ==================== SSH 缁堢 - VS Code 椋庢牸鍒嗗睆璁捐 ==================== */
-
-/* 缁堢瀛愰〉闈㈠鍣?*/
-.ssh-terminal-sub-page {
+﻿.ssh-terminal-sub-page {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: flex-start;
   height: calc(100vh - 180px);
-  /* 固定高度 */
   min-height: 300px;
-  /* 最小高度保证可见 */
   padding: 0;
   background: transparent;
   overflow: hidden;
 }
 
-/* 涓诲鍣?*/
 .ssh-ide-layout {
   display: flex;
   flex-direction: column;
   width: 100%;
   max-width: 1400px;
   height: 100%;
-  /* 填满父容器高度 */
   background: var(--bg-primary);
   border-radius: 12px;
   overflow: hidden;
@@ -42,7 +35,6 @@
   border: none;
 }
 
-/* ==================== 椤堕儴宸ュ叿鏍?==================== */
 .ssh-top-bar {
   display: flex;
   justify-content: space-between;
@@ -57,7 +49,6 @@
   z-index: 200;
 }
 
-/* 浼氳瘽鏍囩瀹瑰櫒 */
 .ssh-session-tabs {
   display: flex;
   align-items: center;
@@ -72,7 +63,6 @@
   display: none;
 }
 
-/* 浼氳瘽鏍囩 - 涓庢搷浣滄寜閽鏍肩粺涓€ */
 .ssh-session-tab {
   display: flex;
   align-items: center;
@@ -102,7 +92,6 @@
   border-color: var(--border-color);
 }
 
-/* 宸插垎灞忔爣璇?*/
 .ssh-session-tab.is-split::after {
   content: '';
   width: 6px;
@@ -113,7 +102,6 @@
   flex-shrink: 0;
 }
 
-/* 鑱氬悎缁勬爣绛?*/
 .ssh-session-tab.is-group {
   background: rgba(var(--primary-rgb), 0.08);
   border: 1px dashed rgba(var(--primary-rgb), 0.4);
@@ -132,7 +120,6 @@
   white-space: nowrap;
 }
 
-/* 鎿嶄綔鎸夐挳鍖?*/
 .ssh-header-actions {
   display: flex;
   align-items: center;
@@ -141,7 +128,6 @@
   z-index: 300;
 }
 
-/* 蹇€熻繛鎺ヤ笅鎷夎彍鍗曞畾浣?*/
 .ssh-header-actions .ssh-quick-connect-wrapper {
   position: relative;
 }
@@ -156,7 +142,6 @@
   z-index: 99999;
 }
 
-/* 鎿嶄綔鎸夐挳 */
 .ssh-icon-btn {
   display: flex;
   align-items: center;
@@ -187,7 +172,6 @@
   color: #ef4444;
 }
 
-/* ==================== 缁堢涓诲鍣?==================== */
 .ssh-main-container {
   display: flex;
   flex: 1;
@@ -198,7 +182,6 @@
   background: var(--bg-primary);
 }
 
-/* 缁堢鍖呰鍣?- 鏍稿績甯冨眬 */
 .ssh-terminal-wrapper {
   flex: 1;
   height: 100%;
@@ -209,21 +192,18 @@
   flex-direction: column;
 }
 
-/* ==================== 1px 宸ヤ笟妗嗘灦甯冨眬 ==================== */
 
-/* 鍗曞睆妯″紡 */
 .ssh-terminal-wrapper.layout-single {
   display: block !important;
 }
 
-.ssh-terminal-wrapper.layout-single > .ssh-terminal-instance {
+.ssh-terminal-wrapper.layout-single>.ssh-terminal-instance {
   position: absolute;
   inset: 0;
   border: none;
   margin: 0;
 }
 
-/* 姘村钩鍒嗗睆 (宸﹀彸) */
 .ssh-terminal-wrapper.layout-split-h {
   display: grid !important;
   grid-template-columns: 1fr 1fr;
@@ -231,7 +211,6 @@
   gap: 0;
 }
 
-/* 鍨傜洿鍒嗗睆 (涓婁笅) */
 .ssh-terminal-wrapper.layout-split-v {
   display: grid !important;
   grid-template-columns: 1fr;
@@ -239,7 +218,6 @@
   gap: 0;
 }
 
-/* 缃戞牸甯冨眬 (3-9 灞? */
 .ssh-terminal-wrapper.layout-grid {
   display: grid !important;
   grid-template-columns: 1fr 1fr;
@@ -247,7 +225,6 @@
   gap: 0;
 }
 
-/* 绾靛悜涓夊垎灞?*/
 .ssh-terminal-wrapper.layout-grid-v {
   display: grid !important;
   grid-template-columns: 1fr;
@@ -255,19 +232,16 @@
   gap: 0;
 }
 
-/* 鏍规嵁绐楁牸鏁伴噺璋冩暣缃戞牸 */
 .ssh-terminal-wrapper.layout-grid[data-pane-count='3'] {
   grid-template-columns: 1fr 1fr;
   grid-template-rows: 1fr 1fr;
 }
 
-.ssh-terminal-wrapper.layout-grid[data-pane-count='3'][data-split-side='right']
-  > .ssh-terminal-instance:first-child {
+.ssh-terminal-wrapper.layout-grid[data-pane-count='3'][data-split-side='right']>.ssh-terminal-instance:first-child {
   grid-row: span 2;
 }
 
-.ssh-terminal-wrapper.layout-grid[data-pane-count='3'][data-split-side='left']
-  > .ssh-terminal-instance:last-child {
+.ssh-terminal-wrapper.layout-grid[data-pane-count='3'][data-split-side='left']>.ssh-terminal-instance:last-child {
   grid-row: span 2;
 }
 
@@ -284,22 +258,16 @@
   grid-template-rows: repeat(3, 1fr);
 }
 
-/* ==================== 缁堢瀹炰緥 - 1px 鐙珛妗嗘灦 ==================== */
 .ssh-terminal-instance {
   display: flex;
   flex-direction: column;
   flex: 1;
-  /* 填充可用空间 */
   background: var(--bg-primary);
   position: relative;
   min-height: 150px;
-  /* 确保最小可见高度 */
   min-width: 200px;
   overflow: hidden;
-  /* 防止内容溢出 */
-  /* 1px 宸ヤ笟妗嗘灦 */
   border: 1px solid var(--border-color);
-  /* 杈规閲嶅彔娑堥櫎 */
   margin-right: -1px;
   margin-bottom: -1px;
 }
@@ -314,7 +282,6 @@
   border-color: var(--primary-color);
 }
 
-/* ==================== 绐楁牸鏍囬鏍?- 鎷栨嫿鎶婃墜 ==================== */
 .ssh-instance-header {
   height: 28px;
   min-height: 28px;
@@ -381,12 +348,10 @@
   color: #ef4444;
 }
 
-/* ==================== 缁堢鍐呭鍖?- 鍐呭祵鑷€傚簲 ==================== */
 .ssh-slot {
   flex: 1;
   width: 100%;
   height: 100%;
-  /* 填充父容器 */
   overflow: hidden;
   display: flex;
   flex-direction: column;
@@ -401,7 +366,6 @@ div[id^='ssh-terminal-'] {
   flex-direction: column !important;
 }
 
-/* xterm 内嵌适配 */
 .terminal.xterm {
   height: 100% !important;
   padding: 4px 0 0 6px !important;
@@ -410,14 +374,12 @@ div[id^='ssh-terminal-'] {
 .xterm-viewport {
   background-color: var(--bg-primary) !important;
   overflow-y: auto !important;
-  /* 确保可滚动 */
 }
 
 .xterm-screen {
   padding: 0 !important;
 }
 
-/* ==================== 鎷栨嫿鎰熷簲绯荤粺 ==================== */
 .instance-drop-overlay {
   position: absolute;
   inset: 0;
@@ -431,12 +393,10 @@ div[id^='ssh-terminal-'] {
   pointer-events: auto;
 }
 
-/* 鎷栨嫿鍖哄煙 */
 .drop-zone {
   position: absolute;
   pointer-events: auto;
   z-index: 101;
-  /* debug: background: rgba(255,0,0,0.1); */
 }
 
 .drop-zone.pos-top {
@@ -474,7 +434,6 @@ div[id^='ssh-terminal-'] {
   right: 30%;
 }
 
-/* 鎷栨嫿棰勮鎸囩ず鍣?*/
 .instance-drop-indicator {
   position: absolute;
   background: rgba(var(--primary-rgb), 0.15);
@@ -524,7 +483,6 @@ div[id^='ssh-terminal-'] {
   background: rgba(var(--primary-rgb), 0.1);
 }
 
-/* 鍏ㄥ眬鎷栨嫿鎻愮ず */
 .global-drop-hint {
   position: absolute;
   z-index: 1000;
@@ -539,7 +497,6 @@ div[id^='ssh-terminal-'] {
   display: block;
 }
 
-/* ==================== 浠ｇ爜鐗囨渚ц竟鏍?==================== */
 .ssh-snippets-sidebar {
   width: 220px;
   background: var(--bg-secondary);
@@ -603,7 +560,6 @@ div[id^='ssh-terminal-'] {
   display: flex;
 }
 
-/* ==================== 閫氱敤鎸夐挳 ==================== */
 .mini-btn-primary {
   background: transparent;
   color: var(--primary-color);
@@ -621,7 +577,6 @@ div[id^='ssh-terminal-'] {
   border-color: var(--primary-color);
 }
 
-/* ==================== 鍝嶅簲寮?==================== */
 @media (max-width: 768px) {
   .ssh-top-bar {
     padding: 0 8px;
@@ -646,7 +601,6 @@ div[id^='ssh-terminal-'] {
   }
 }
 
-/* ==================== 涓绘満璇︽儏鏍峰紡 ==================== */
 .server-details-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
@@ -710,7 +664,6 @@ div[id^='ssh-terminal-'] {
   background: var(--danger-color);
 }
 
-/* Docker 鍒楄〃 */
 .docker-containers-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));

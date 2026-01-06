@@ -4,11 +4,11 @@
 
 ## 特性
 
-- 🚀 **高性能**: Go 语言编写，单二进制部署，资源占用低
-- 📊 **实时监控**: CPU、内存、磁盘、网络流量实时采集
-- 🔗 **Socket.IO**: 与 Dashboard 实时通信
-- 🔄 **自动重连**: 断线自动重连，稳定可靠
-- 🐧 **跨平台**: 支持 Linux、Windows、macOS
+- **高性能**: Go 语言编写，单二进制部署，资源占用低
+- **实时监控**: CPU、内存、磁盘、网络流量实时采集
+- **Socket.IO**: 与 Dashboard 实时通信
+- **自动重连**: 断线自动重连，稳定可靠
+- **跨平台**: 支持 Linux、Windows、macOS
 
 ## 构建
 
@@ -46,7 +46,7 @@ GOOS=windows GOARCH=amd64 go build -o agent-windows-amd64.exe
 
 | 参数 | 说明 | 默认值 |
 |------|------|--------|
-| `-s, --server` | Dashboard 地址 | http://localhost:3000 |
+| `-s, --server` | Dashboard 地址 | <http://localhost:3000> |
 | `--id` | 主机 ID (必需) | - |
 | `-k` | Agent 密钥 (必需) | - |
 | `-i` | 上报间隔 (毫秒) | 1500 |
@@ -99,6 +99,6 @@ GOOS=windows GOARCH=amd64 go build -o agent-windows-amd64.exe
 - [gorilla/websocket](https://github.com/gorilla/websocket) - WebSocket 客户端
 - [shirou/gopsutil](https://github.com/shirou/gopsutil) - 系统信息采集
 
-## License
+## 许可证
 
 MIT

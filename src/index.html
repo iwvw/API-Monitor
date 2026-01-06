@@ -2,7 +2,6 @@
 <html lang="zh-CN">
 
 <head>
-  <!-- 立即检测单页模式，在任何渲染之前生效 -->
   <script>
     (function () {
       var match = location.pathname.match(/^\/s\/([^/]+)/i);
@@ -23,20 +22,12 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="mobile-web-app-capable" content="yes" />
 
-  <!-- CDN 样式 (由 Vite 注入，使用配置的 CDN 提供商) -->
   <%- cdnStyleTags %>
-
-    <!-- CDN 脚本 - 必须在 head 中先加载核心库 (由 Vite 注入) -->
     <%- cdnScriptTags %>
 
-      <!-- Template Loader imported in main.js -->
       <link rel="stylesheet" href="css/refined-mobile.css" />
 
       <style>
-        /* ========== 关键内联样式 (Critical CSS) ========== */
-        /* 这些样式在任何外部 CSS 加载之前就生效，防止 FOUC */
-
-        /* 基础颜色变量 (深色模式优先) */
         :root {
           --bg-primary: #111827;
           --bg-secondary: #1f2937;
@@ -53,7 +44,6 @@
           }
         }
 
-        /* 基础重置 */
         *,
         *::before,
         *::after {
@@ -75,17 +65,14 @@
           -webkit-font-smoothing: antialiased;
         }
 
-        /* Vue 未编译模板隐藏 */
         [v-cloak] {
           display: none !important;
         }
 
-        /* 应用未就绪时隐藏，防止样式闪烁 */
         .app-wrapper:not(.app-reveal) {
           visibility: hidden !important;
         }
 
-        /* 单页模式关键样式 - 使用 html 选择器确保最早生效 */
         html.single-page-mode .header,
         html.single-page-mode .top-nav-bar,
         html.single-page-mode .nav-brand,
