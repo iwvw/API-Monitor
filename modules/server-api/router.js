@@ -354,6 +354,7 @@ router.post('/ping-all', async (req, res) => {
 
 /**
  * 获取服务器详细信息 (极速缓存优化)
+ * 优先使用 Agent，如无 Agent 则通过 SSH 获取基础状态
  */
 router.post('/info', async (req, res) => {
   try {
@@ -363,18 +364,104 @@ router.post('/info', async (req, res) => {
     const server = serverStorage.getById(serverId);
     if (!server) return res.status(404).json({ success: false, error: '服务器不存在' });
 
-    // 纯 Agent 模式：直接返回内存中的最新指标作为服务器详情
+    // 尝试获取 Agent 指标
     const metrics = agentService.getMetrics(serverId);
-    if (!metrics) {
-      return res
-        .status(404)
-        .json({ success: false, error: 'Agent 指标尚未就绪，请确保 Agent 已启动并在线' });
+    if (metrics) {
+      return res.json({
+        success: true,
+        ...metrics,
+        is_agent: true,
+      });
     }
+
+    // 无 Agent 数据，尝试通过 SSH 获取基础状态
+    const sshService = require('./ssh-service');
+
+    // 增强版命令，包含 1秒网速采样
+    const infoCommand = `
+      IFACE=$(ip route get 8.8.8.8 2>/dev/null | grep dev | awk '{print $5}' || echo "eth0")
+      read r1 t1 < <(cat /proc/net/dev | grep "$IFACE" | awk '{print $2, $10}' || echo "0 0")
+      sleep 1
+      read r2 t2 < <(cat /proc/net/dev | grep "$IFACE" | awk '{print $2, $10}' || echo "0 0")
+      
+      echo "===SYSTEM==="
+      uname -s 2>/dev/null || echo "Unknown"
+      echo "===UPTIME==="
+      cat /proc/uptime 2>/dev/null | cut -d' ' -f1 || echo "0"
+      echo "===CPU==="
+      grep -c ^processor /proc/cpuinfo 2>/dev/null || echo "1"
+      echo "===LOAD==="
+      cat /proc/loadavg 2>/dev/null | cut -d' ' -f1-3 || echo "0 0 0"
+      echo "===CPU_USAGE==="
+      top -bn1 2>/dev/null | grep "Cpu(s)" | awk '{print $2}' | cut -d'%' -f1 | head -1 || echo "0"
+      echo "===MEMORY==="
+      free -b 2>/dev/null | grep Mem | awk '{printf "%.0f %.0f", $3, $2}' || echo "0 0"
+      echo "===DISK==="
+      df -B1 / 2>/dev/null | tail -1 | awk '{printf "%.0f %.0f %s", $3, $2, $5}' || echo "0 0 0%"
+      echo "===NET==="
+      echo "$(( r2-r1 )) $(( t2-t1 ))"
+    `.trim();
+
+    const result = await sshService.executeCommand(serverId, server, infoCommand, 15000);
+
+    if (!result.success) {
+      return res.status(500).json({
+        success: false,
+        error: 'SSH 连接失败: ' + (result.error || result.stderr || '未知错误'),
+        is_agent: false,
+      });
+    }
+
+    const output = result.stdout || '';
+    const parseSection = (name) => {
+      const regex = new RegExp(`===\\s*${name}\\s*===\\s*([\\s\\S]*?)(?====|$)`, 'i');
+      const match = output.match(regex);
+      return match ? match[1].trim() : '';
+    };
+
+    const platform = parseSection('SYSTEM') || 'Linux';
+    const uptimeSeconds = parseFloat(parseSection('UPTIME')) || 0;
+    const cores = parseInt(parseSection('CPU')) || 1;
+    const load = parseSection('LOAD') || '0 0 0';
+    const cpuRate = parseFloat(parseSection('CPU_USAGE')) || 0;
+
+    const memStr = parseSection('MEMORY').split(/\s+/);
+    const mUsed = parseInt(memStr[0]) || 0;
+    const mTotal = parseInt(memStr[1]) || 1;
+
+    const diskStr = parseSection('DISK').split(/\s+/);
+    const dUsed = parseInt(diskStr[0]) || 0;
+    const dTotal = parseInt(diskStr[1]) || 1;
+    const dPerc = diskStr[2] || '0%';
+
+    const netStr = parseSection('NET').split(/\s+/);
+    const rb = parseInt(netStr[0]) || 0;
+    const tb = parseInt(netStr[1]) || 0;
+
+    const fmt = (b) => {
+      if (b <= 0) return '0 B';
+      const k = 1024;
+      const ss = ['B', 'KB', 'MB', 'GB', 'TB'];
+      const i = Math.floor(Math.log(b) / Math.log(k));
+      return parseFloat((b / Math.pow(k, i)).toFixed(1)) + ' ' + ss[i];
+    };
 
     res.json({
       success: true,
-      ...metrics,
-      is_agent: true,
+      platform,
+      uptime: Math.floor(uptimeSeconds),
+      cores,
+      load,
+      cpu_usage: cpuRate.toFixed(1) + '%',
+      mem: `${fmt(mUsed)} / ${fmt(mTotal)}`,
+      mem_percent: Math.round((mUsed / mTotal) * 100),
+      disk: `${fmt(dUsed)} / ${fmt(dTotal)} (${dPerc})`,
+      network: {
+        down: fmt(rb) + '/s',
+        up: fmt(tb) + '/s'
+      },
+      is_agent: false,
+      source: 'ssh',
     });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
@@ -1386,6 +1473,251 @@ router.post('/task/refresh/:serverId', (req, res) => {
       success: result,
       message: result ? '已请求主机上报信息' : '请求失败',
     });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ==================== SFTP 文件管理 ====================
+
+const sftpService = require('./sftp-service');
+// 使用项目已有的 express-fileupload，不需要额外配置
+
+/**
+ * 列出目录内容
+ * POST /sftp/list
+ * { serverId, path }
+ */
+router.post('/sftp/list', async (req, res) => {
+  try {
+    const { serverId, path = '/' } = req.body;
+    if (!serverId) return res.status(400).json({ success: false, error: '缺少服务器 ID' });
+
+    const files = await sftpService.listDirectory(serverId, path);
+    res.json({ success: true, data: files, path });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * 获取文件/目录信息
+ * POST /sftp/stat
+ * { serverId, path }
+ */
+router.post('/sftp/stat', async (req, res) => {
+  try {
+    const { serverId, path } = req.body;
+    if (!serverId || !path) return res.status(400).json({ success: false, error: '缺少参数' });
+
+    const stats = await sftpService.stat(serverId, path);
+    res.json({ success: true, data: stats });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * 读取文件内容
+ * POST /sftp/read
+ * { serverId, path, maxSize? }
+ */
+router.post('/sftp/read', async (req, res) => {
+  try {
+    const { serverId, path, maxSize } = req.body;
+    if (!serverId || !path) return res.status(400).json({ success: false, error: '缺少参数' });
+
+    const content = await sftpService.readFile(serverId, path, maxSize);
+    res.json({ success: true, data: content });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * 写入文件内容
+ * POST /sftp/write
+ * { serverId, path, content }
+ */
+router.post('/sftp/write', async (req, res) => {
+  try {
+    const { serverId, path, content } = req.body;
+    if (!serverId || !path) return res.status(400).json({ success: false, error: '缺少参数' });
+
+    await sftpService.writeFile(serverId, path, content || '');
+    res.json({ success: true, message: '文件保存成功' });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * 创建目录
+ * POST /sftp/mkdir
+ * { serverId, path }
+ */
+router.post('/sftp/mkdir', async (req, res) => {
+  try {
+    const { serverId, path } = req.body;
+    if (!serverId || !path) return res.status(400).json({ success: false, error: '缺少参数' });
+
+    await sftpService.mkdir(serverId, path);
+    res.json({ success: true, message: '目录创建成功' });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * 删除文件
+ * POST /sftp/delete
+ * { serverId, path }
+ */
+router.post('/sftp/delete', async (req, res) => {
+  try {
+    const { serverId, path } = req.body;
+    if (!serverId || !path) return res.status(400).json({ success: false, error: '缺少参数' });
+
+    await sftpService.deleteFile(serverId, path);
+    res.json({ success: true, message: '文件删除成功' });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * 删除目录
+ * POST /sftp/rmdir
+ * { serverId, path, recursive? }
+ */
+router.post('/sftp/rmdir', async (req, res) => {
+  try {
+    const { serverId, path, recursive } = req.body;
+    if (!serverId || !path) return res.status(400).json({ success: false, error: '缺少参数' });
+
+    if (recursive) {
+      await sftpService.rmdirRecursive(serverId, path);
+    } else {
+      await sftpService.rmdir(serverId, path);
+    }
+    res.json({ success: true, message: '目录删除成功' });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * 重命名/移动
+ * POST /sftp/rename
+ * { serverId, oldPath, newPath }
+ */
+router.post('/sftp/rename', async (req, res) => {
+  try {
+    const { serverId, oldPath, newPath } = req.body;
+    if (!serverId || !oldPath || !newPath) return res.status(400).json({ success: false, error: '缺少参数' });
+
+    await sftpService.rename(serverId, oldPath, newPath);
+    res.json({ success: true, message: '重命名成功' });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * 修改权限
+ * POST /sftp/chmod
+ * { serverId, path, mode }
+ */
+router.post('/sftp/chmod', async (req, res) => {
+  try {
+    const { serverId, path, mode } = req.body;
+    if (!serverId || !path || mode === undefined) return res.status(400).json({ success: false, error: '缺少参数' });
+
+    await sftpService.chmod(serverId, path, parseInt(mode, 8));
+    res.json({ success: true, message: '权限修改成功' });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * 下载文件
+ * GET /sftp/download/:serverId?path=xxx
+ */
+router.get('/sftp/download/:serverId', async (req, res) => {
+  try {
+    const { serverId } = req.params;
+    const { path: remotePath } = req.query;
+
+    if (!serverId || !remotePath) {
+      return res.status(400).json({ success: false, error: '缺少参数' });
+    }
+
+    const { stream, size, filename, conn } = await sftpService.downloadStream(serverId, remotePath);
+
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
+    res.setHeader('Content-Length', size);
+    res.setHeader('Content-Type', 'application/octet-stream');
+
+    stream.pipe(res);
+
+    stream.on('error', err => {
+      console.error('Download stream error:', err);
+      conn.end();
+      if (!res.headersSent) {
+        res.status(500).json({ success: false, error: err.message });
+      }
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * 上传文件
+ * POST /sftp/upload
+ * FormData: serverId, path, file
+ * 使用 express-fileupload（在 server.js 中全局配置）
+ */
+router.post('/sftp/upload', async (req, res) => {
+  try {
+    const { serverId, path: remotePath } = req.body;
+
+    // express-fileupload 将文件放在 req.files 中
+    if (!req.files || !req.files.file) {
+      return res.status(400).json({ success: false, error: '未找到上传的文件' });
+    }
+
+    const file = req.files.file;
+    // relativePath 是文件在原文件夹中的相对路径（用于文件夹上传）
+    const { relativePath } = req.body;
+
+    if (!serverId || !remotePath) {
+      return res.status(400).json({ success: false, error: '缺少 serverId 或 path 参数' });
+    }
+
+    // 构建完整的远程文件路径
+    let fullPath;
+    if (relativePath) {
+      // 文件夹上传：使用相对路径
+      fullPath = remotePath.endsWith('/')
+        ? remotePath + relativePath
+        : remotePath + '/' + relativePath;
+
+      // 确保父目录存在
+      const parentDir = require('path').posix.dirname(fullPath);
+      if (parentDir !== remotePath && parentDir !== '/') {
+        await sftpService.mkdirRecursive(serverId, parentDir);
+      }
+    } else {
+      // 普通文件上传
+      fullPath = remotePath.endsWith('/')
+        ? remotePath + file.name
+        : remotePath + '/' + file.name;
+    }
+
+    await sftpService.uploadFile(serverId, fullPath, file.data);
+    res.json({ success: true, message: '上传成功', path: fullPath });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }

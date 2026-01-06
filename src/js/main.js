@@ -95,6 +95,8 @@ import { hostMethods } from './modules/host.js';
 import { metricsMethods } from './modules/metrics.js';
 import { snippetsMethods } from './modules/snippets.js';
 import { sshMethods } from './modules/ssh.js';
+import { sftpMethods } from './modules/sftp.js';
+import { serverStatusMethods } from './modules/server-status.js';
 import { commonMethods } from './modules/common.js';
 import { toast } from './modules/toast.js';
 import { streamPlayerMethods } from './modules/stream-player-ui.js';
@@ -513,6 +515,27 @@ const app = createApp({
         category: 'common',
         description: '',
       },
+
+      // SFTP 文件管理相关
+      showSftpSidebar: false, // 文件管理侧边栏显隐
+      sftpServerId: null, // 当前 SFTP 连接的服务器 ID
+      sftpCurrentPath: '/', // 当前目录路径
+      sftpFiles: [], // 当前目录文件列表
+      sftpBreadcrumbs: [], // 路径导航
+      sftpLoading: false, // 加载状态
+      sftpError: '', // 错误信息
+      sftpEditLoading: false, // 文件编辑加载状态
+      sftpSaving: false, // 文件保存状态
+      sftpUploading: false, // 文件上传状态
+      showSftpEditorModal: false, // 文件编辑器弹窗
+      sftpEditFile: null, // 当前编辑的文件 { path, name, content, originalContent }
+
+      // 服务器状态侧栏
+      showServerStatusSidebar: false, // 服务器状态侧边栏显隐
+      serverStatusData: null, // 当前服务器状态数据
+      serverStatusLoading: false, // 加载状态
+      serverStatusError: '', // 错误信息
+
 
       // 终端相关
       showSSHTerminalModal: false,
@@ -1614,6 +1637,8 @@ const app = createApp({
     ...metricsMethods,
     ...snippetsMethods,
     ...sshMethods,
+    ...sftpMethods,
+    ...serverStatusMethods,
     ...commonMethods,
     ...streamPlayerMethods,
     ...totpMethods,

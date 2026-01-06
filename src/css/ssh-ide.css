@@ -679,3 +679,396 @@ div[id^='ssh-terminal-'] {
   display: flex;
   gap: 6px;
 }
+
+/* ==================== SFTP 文件管理器样式 ==================== */
+
+.ssh-sftp-sidebar {
+  width: 280px;
+  background: var(--bg-secondary);
+  border-left: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+
+.sftp-header {
+  height: 29px;
+  padding: 0 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid var(--border-color);
+  font-weight: 600;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.sftp-header-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sftp-header-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.sftp-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px;
+  background: var(--bg-tertiary);
+}
+
+.sftp-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--border-color);
+  font-size: 11px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+
+.sftp-breadcrumb::-webkit-scrollbar {
+  display: none;
+}
+
+.sftp-crumb {
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+
+.sftp-crumb:hover {
+  background: var(--bg-tertiary);
+  color: var(--primary-color);
+}
+
+.sftp-crumb-separator {
+  color: var(--text-tertiary);
+  opacity: 0.5;
+  flex-shrink: 0;
+}
+
+.sftp-file-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.sftp-file-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+  border: 1px solid transparent;
+}
+
+.sftp-file-item:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--border-color);
+}
+
+.sftp-file-item.selected {
+  background: rgba(var(--primary-rgb), 0.08);
+  border-color: rgba(var(--primary-rgb), 0.3);
+}
+
+.sftp-file-icon {
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.sftp-file-info {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.sftp-file-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sftp-file-meta {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  display: flex;
+  gap: 8px;
+  margin-top: 1px;
+}
+
+.sftp-file-actions {
+  display: none;
+  gap: 2px;
+}
+
+.sftp-file-item:hover .sftp-file-actions {
+  display: flex;
+}
+
+.sftp-action-btn {
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  font-size: 10px;
+  transition: all 0.15s;
+}
+
+.sftp-action-btn:hover {
+  background: var(--bg-secondary);
+  color: var(--primary-color);
+}
+
+.sftp-action-btn.danger:hover {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.sftp-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  text-align: center;
+}
+
+.sftp-empty i {
+  font-size: 32px;
+  margin-bottom: 12px;
+  opacity: 0.3;
+}
+
+.sftp-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  color: var(--text-tertiary);
+}
+
+/* 隐藏的文件上传输入框 */
+.sftp-upload-input {
+  display: none;
+}
+
+/* 文件编辑器弹窗 */
+.sftp-editor-content {
+  width: 100%;
+  min-height: 400px;
+  max-height: 60vh;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.5;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 12px;
+  resize: vertical;
+  color: var(--text-primary);
+}
+
+.sftp-editor-content:focus {
+  outline: none;
+  border-color: var(--primary-color);
+}
+
+/* ==================== 服务器状态侧栏 ==================== */
+.ssh-status-sidebar {
+  width: 240px;
+  height: 100%;
+  background: var(--bg-secondary);
+  border-left: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  z-index: 50;
+  overflow: hidden;
+}
+
+.ssh-terminal-wrapper {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* 侧边栏过渡动画 */
+.slide-right-enter-active,
+.slide-right-leave-active,
+.slide-left-enter-active,
+.slide-left-leave-active {
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.slide-right-enter-from,
+.slide-right-leave-to {
+  transform: translateX(100%);
+  opacity: 0;
+}
+
+.slide-left-enter-from,
+.slide-left-leave-to {
+  transform: translateX(-100%);
+  opacity: 0;
+}
+
+.status-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.status-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.status-section {
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+  padding: 10px;
+}
+
+.status-section-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.status-section-title i {
+  font-size: 12px;
+  color: var(--primary-color);
+}
+
+.status-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0;
+}
+
+.status-label {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.status-value {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+}
+
+/* 进度条 */
+.status-progress {
+  height: 4px;
+  background: var(--bg-primary);
+  border-radius: 2px;
+  overflow: hidden;
+  margin: 4px 0;
+}
+
+.status-progress-bar {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+/* Docker 容器列表 */
+.docker-container-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.docker-container-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  background: var(--bg-primary);
+  border-radius: 4px;
+}
+
+.docker-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.docker-container-name {
+  font-size: 10px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono);
+}
+
+/* 数据来源标识 */
+.status-source-badge {
+  font-size: 9px;
+  padding: 2px 6px;
+  border-radius: 8px;
+  font-weight: 500;
+  margin-left: 6px;
+}
+
+.badge-agent {
+  background: linear-gradient(135deg, #22c55e, #16a34a);
+  color: white;
+}
+
+.badge-ssh {
+  background: linear-gradient(135deg, #3b82f6, #2563eb);
+  color: white;
+}
+
+/* 响应式 */
+@media (max-width: 768px) {
+
+  .ssh-sftp-sidebar,
+  .ssh-status-sidebar {
+    width: 200px;
+  }
+
+  .sftp-file-meta {
+    display: none;
+  }
+}
