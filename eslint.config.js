@@ -160,7 +160,7 @@ module.exports = [
       'plugin/**', // 浏览器扩展使用特殊 API
       'src/js/modules/template.js', // 模板文件
       'src/*_snippet*.js', // 代码片段
-      'modules/cloudflare-dns/router_utf8.js', // 备份文件
+
     ],
   },
 ];

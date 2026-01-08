@@ -11,18 +11,21 @@ export const MODULE_CONFIG = {
     'gemini-cli': { name: 'GCLI', shortName: 'GCLI', icon: 'fa-terminal', description: 'Gemini CLI API 代理服务' },
     paas: { name: 'PaaS', shortName: 'PaaS', icon: 'fa-cloud', description: 'Zeabur / Koyeb / Fly.io 平台监控' },
     dns: { name: 'DNS', shortName: 'CF', icon: 'fa-globe', description: 'Cloudflare DNS / Workers / Pages 管理' },
+    aliyun: { name: '阿里云', shortName: 'Aliyun', icon: 'fa-cloud', description: '阿里云 DNS / ECS 管理' },
+    tencent: { name: '腾讯云', shortName: 'Tencent', icon: 'fa-cloud', description: '腾讯云 DNS / CVM 管理' },
     'self-h': { name: 'SelfH', shortName: 'Self-H', icon: 'fa-server', description: '自建服务管理' },
     server: { name: 'Hosts', shortName: 'Hosts', icon: 'fa-hdd', description: '终端与服务器监控' },
     totp: { name: '2FA', shortName: '2FA', icon: 'fa-shield-alt', description: 'TOTP 验证器' },
     music: { name: 'Music', shortName: 'Music', icon: 'fa-music', description: '网易云音乐播放器' },
     uptime: { name: 'Uptime', shortName: 'Uptime', icon: 'fa-heartbeat', description: '站点与服务可用性监测' },
+    notification: { name: '通知', shortName: 'Alerts', icon: 'fa-bell', description: '通知渠道与告警规则管理' },
 };
 
 export const MODULE_GROUPS = [
     { id: 'overview', name: '仪表盘', icon: 'fa-tachometer-alt', modules: ['dashboard'] },
     { id: 'api-gateway', name: 'API 网关', icon: 'fa-bolt', modules: ['openai', 'antigravity', 'gemini-cli'] },
-    { id: 'infrastructure', name: '基础设施', icon: 'fa-cubes', modules: ['paas', 'dns', 'server', 'uptime'] },
-    { id: 'toolbox', name: '工具箱', icon: 'fa-toolbox', modules: ['self-h', 'totp', 'music'] },
+    { id: 'infrastructure', name: '基础设施', icon: 'fa-cubes', modules: ['paas', 'dns', 'aliyun', 'tencent', 'server'] },
+    { id: 'toolbox', name: '工具箱', icon: 'fa-toolbox', modules: ['self-h', 'totp', 'music', 'uptime', 'notification'] },
 ];
 
 export const useAppStore = defineStore('app', {
@@ -36,14 +39,17 @@ export const useAppStore = defineStore('app', {
             'gemini-cli': true,
             paas: true,
             dns: true,
+            aliyun: true,
+            tencent: true,
             'self-h': true,
             server: true,
             totp: true,
-            music: false,
+            music: true,
             uptime: true,
+            notification: true,
         },
         moduleOrder: [
-            'dashboard', 'openai', 'antigravity', 'gemini-cli', 'paas', 'dns', 'self-h', 'server', 'totp', 'music', 'uptime'
+            'dashboard', 'openai', 'antigravity', 'gemini-cli', 'paas', 'dns', 'aliyun', 'tencent', 'self-h', 'server', 'totp', 'music', 'uptime', 'notification'
         ],
         // 界面设置
         opacity: 100,

@@ -58,13 +58,13 @@ api-monitor/
 │   ├── services/          # 业务服务
 │   └── utils/             # 工具函数
 ├── modules/               # 可插拔业务模块 (13个)
-│   ├── server-management/ # 服务器/SSH/Docker
-│   ├── cloudflare-dns/    # Cloudflare DNS
+│   ├── server-api/        # 服务器/SSH/Docker
+│   ├── cloudflare-api/    # Cloudflare DNS
 │   ├── antigravity-api/   # Antigravity Agent
 │   ├── gemini-cli-api/    # Gemini CLI
 │   ├── zeabur-api/        # Zeabur PaaS
 │   ├── koyeb-api/         # Koyeb PaaS
-│   ├── fly-api/           # Fly.io
+│   ├── flyio-api/         # Fly.io
 │   ├── music-api/         # 网易云音乐代理
 │   ├── totp-api/          # 2FA 管理
 │   └── ...

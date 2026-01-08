@@ -45,7 +45,7 @@ export const flyMethods = {
   // 加载 Fly.io 账号列表（用于管理）
   async loadFlyManagedAccounts() {
     try {
-      const response = await fetch('/api/fly/accounts', {
+      const response = await fetch('/api/flyio/accounts', {
         headers: store.getAuthHeaders(),
       });
 
@@ -78,7 +78,7 @@ export const flyMethods = {
     store.flyRefreshProgress = 100;
 
     try {
-      const response = await fetch('/api/fly/proxy/apps', {
+      const response = await fetch('/api/flyio/proxy/apps', {
         headers: store.getAuthHeaders(),
       });
 
@@ -149,7 +149,7 @@ export const flyMethods = {
     store.flyAddingAccount = true;
 
     try {
-      const response = await fetch('/api/fly/accounts', {
+      const response = await fetch('/api/flyio/accounts', {
         method: 'POST',
         headers: store.getAuthHeaders(),
         body: JSON.stringify({
@@ -198,7 +198,7 @@ export const flyMethods = {
     if (!confirmed) return;
 
     try {
-      const response = await fetch(`/api/fly/accounts/${id}`, {
+      const response = await fetch(`/api/flyio/accounts/${id}`, {
         method: 'DELETE',
         headers: store.getAuthHeaders(),
       });
@@ -297,7 +297,7 @@ export const flyMethods = {
     if (!confirmed) return;
 
     try {
-      const response = await fetch(`/api/fly/apps/${app.name}/redeploy`, {
+      const response = await fetch(`/api/flyio/apps/${app.name}/redeploy`, {
         method: 'POST',
         headers: store.getAuthHeaders(),
         body: JSON.stringify({ accountId: account.id }),
@@ -340,7 +340,7 @@ export const flyMethods = {
     }
 
     try {
-      const response = await fetch(`/api/fly/apps/${app.name}/rename`, {
+      const response = await fetch(`/api/flyio/apps/${app.name}/rename`, {
         method: 'POST',
         headers: store.getAuthHeaders(),
         body: JSON.stringify({
@@ -382,7 +382,7 @@ export const flyMethods = {
     if (!confirmed) return;
 
     try {
-      const response = await fetch(`/api/fly/apps/${app.name}`, {
+      const response = await fetch(`/api/flyio/apps/${app.name}`, {
         method: 'DELETE',
         headers: store.getAuthHeaders(),
         body: JSON.stringify({ accountId: account.id }),
@@ -412,7 +412,7 @@ export const flyMethods = {
     if (name === null) return; // 取消操作
 
     try {
-      const response = await fetch('/api/fly/apps', {
+      const response = await fetch('/api/flyio/apps', {
         method: 'POST',
         headers: store.getAuthHeaders(),
         body: JSON.stringify({
@@ -443,7 +443,7 @@ export const flyMethods = {
     app.showMachines = true;
 
     try {
-      const response = await fetch(`/api/fly/apps/${app.name}/machines?accountId=${account.id}`, {
+      const response = await fetch(`/api/flyio/apps/${app.name}/machines?accountId=${account.id}`, {
         headers: store.getAuthHeaders(),
       });
       const result = await response.json();
@@ -466,7 +466,7 @@ export const flyMethods = {
       source: 'fly',
       fetcher: async () => {
         try {
-          const response = await fetch(`/api/fly/apps/${app.name}/events?accountId=${account.id}`, {
+          const response = await fetch(`/api/flyio/apps/${app.name}/events?accountId=${account.id}`, {
             headers: store.getAuthHeaders(),
           });
           const result = await response.json();
@@ -550,7 +550,7 @@ export const flyMethods = {
 
           // 逐个添加账号以进行验证
           for (const acc of importedData.accounts) {
-            await fetch('/api/fly/accounts', {
+            await fetch('/api/flyio/accounts', {
               method: 'POST',
               headers: store.getAuthHeaders(),
               body: JSON.stringify({
@@ -580,7 +580,7 @@ export const flyMethods = {
       source: 'fly',
       fetcher: async () => {
         try {
-          const response = await fetch(`/api/fly/apps/${app.name}/config?accountId=${account.id}`, {
+          const response = await fetch(`/api/flyio/apps/${app.name}/config?accountId=${account.id}`, {
             headers: store.getAuthHeaders(),
           });
           const result = await response.json();
@@ -661,7 +661,7 @@ export const flyMethods = {
 
     for (const acc of accounts) {
       try {
-        const response = await fetch('/api/fly/accounts', {
+        const response = await fetch('/api/flyio/accounts', {
           method: 'POST',
           headers: store.getAuthHeaders(),
           body: JSON.stringify({

@@ -44,10 +44,16 @@ export const MODULE_CONFIG = {
     description: 'Zeabur / Koyeb / Fly.io 平台监控',
   },
   dns: {
-    name: 'DNS',
+    name: 'Cloudflare',
     shortName: 'CF',
     icon: 'fa-globe',
     description: 'Cloudflare DNS / Workers / Pages 管理',
+  },
+  aliyun: {
+    name: '阿里云',
+    shortName: 'Aliyun',
+    icon: 'fa-cloud',
+    description: '阿里云 DNS / ECS 管理',
   },
   'self-h': {
     name: 'SelfH',
@@ -79,6 +85,12 @@ export const MODULE_CONFIG = {
     icon: 'fa-heartbeat',
     description: '站点与服务可用性监测',
   },
+  notification: {
+    name: '通知',
+    shortName: 'Alerts',
+    icon: 'fa-bell',
+    description: '通知渠道与告警规则管理',
+  },
 };
 
 /**
@@ -96,19 +108,19 @@ export const MODULE_GROUPS = [
     id: 'api-gateway',
     name: 'API 网关',
     icon: 'fa-bolt',
-    modules: ['openai', 'antigravity', 'gemini-cli', 'ai-chat'],
+    modules: ['openai', 'antigravity', 'gemini-cli'],
   },
   {
     id: 'infrastructure',
     name: '基础设施',
     icon: 'fa-cubes',
-    modules: ['paas', 'dns', 'server', 'uptime'],
+    modules: ['paas', 'dns', 'aliyun', 'server'],
   },
   {
     id: 'toolbox',
     name: '工具箱',
     icon: 'fa-toolbox',
-    modules: ['self-h', 'totp', 'music'],
+    modules: ['self-h', 'totp', 'music', 'uptime', 'notification'],
   },
 ];
 
@@ -155,11 +167,13 @@ export const store = reactive({
     'gemini-cli': true,
     paas: true,
     dns: true,
+    aliyun: true,
     'self-h': true,
     server: true,
     totp: true,
     music: false, // 音乐模块默认隐藏
     uptime: true,
+    notification: true,
   },
   channelEnabled: {
     antigravity: true,
@@ -176,11 +190,13 @@ export const store = reactive({
     'gemini-cli',
     'paas',
     'dns',
+    'aliyun',
     'self-h',
     'server',
     'totp',
     'music',
     'uptime',
+    'notification',
   ],
 
   // 界面设置
@@ -394,6 +410,86 @@ export const store = reactive({
   dnsSelectedRecords: [],
   dnsSearchText: '',
   isEditingWorker: false, // 是否正在编辑现有 Worker
+
+  // Aliyun
+  aliyunAccounts: [],
+  aliyunDomains: [],
+  aliyunInstances: [],
+  aliyunActiveSubTab: 'dns',
+  aliyunSelectedAccountId: null,
+  aliyunSelectedAccount: null,
+  aliyunSelectedDomain: null,
+  aliyunRecords: [],
+  aliyunLoadingDomains: false,
+  aliyunLoadingRecords: false,
+  aliyunLoadingInstances: false,
+  aliyunSwasInstances: [],
+  aliyunLoadingSwas: false,
+  showAliyunAccountModal: false,
+  showAliyunRecordsDrawer: false,
+  showAliyunRecordModal: false,
+  aliyunAccountForm: {
+    name: '',
+    accessKeyId: '',
+    accessKeySecret: '',
+    regionId: 'cn-hangzhou',
+    description: ''
+  },
+  aliyunRecordForm: {
+    rr: '',
+    type: 'A',
+    value: '',
+    ttl: 600,
+    priority: 10,
+    line: 'default'
+  },
+  aliyunEditingRecordId: null,
+  showAliyunAddDomainModal: false,
+  aliyunAddDomainName: '',
+  aliyunAddDomainResult: null,
+  showAliyunFirewallDrawer: false,
+  showAliyunMetricsDrawer: false,
+  aliyunFirewallRules: [],
+  aliyunLoadingFirewall: false,
+  aliyunSelectedInstance: null,
+  aliyunMetrics: {}, // instanceId -> metrics
+  showAliyunAddFirewallModal: false,
+  aliyunFirewallForm: { protocol: 'TCP', port: '', remark: '' },
+
+  // Tencent
+  tencentAccounts: [],
+  tencentDomains: [],
+  tencentCvmInstances: [],
+  tencentLighthouseInstances: [],
+  tencentActiveSubTab: 'dns',
+  tencentSelectedAccountId: null,
+  tencentSelectedDomain: null,
+  tencentRecords: [],
+  tencentLoadingDomains: false,
+  tencentLoadingRecords: false,
+  tencentLoadingCvm: false,
+  tencentLoadingLighthouse: false,
+  showTencentAccountModal: false,
+  showTencentRecordModal: false,
+  showTencentAddDomainModal: false,
+  tencentAccountForm: {
+    id: null,
+    name: '',
+    secretId: '',
+    secretKey: '',
+    regionId: 'ap-guangzhou',
+    description: ''
+  },
+  tencentRecordForm: {
+    subDomain: '',
+    recordType: 'A',
+    value: '',
+    recordLine: '默认',
+    ttl: 600,
+    mx: 10
+  },
+  tencentEditingRecordId: null,
+  tencentAddDomainName: '',
 
   // R2 存储
   r2Buckets: [],

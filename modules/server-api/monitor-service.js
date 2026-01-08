@@ -7,7 +7,7 @@ const cron = require('node-cron');
 const { ServerAccount, ServerMonitorLog, ServerMonitorConfig } = require('./models');
 const { createLogger } = require('../../src/utils/logger');
 
-const logger = createLogger('ServerMonitor');
+const logger = createLogger('Monitor');
 
 class MonitorService {
   constructor() {
@@ -87,6 +87,9 @@ class MonitorService {
     const agentService = require('./agent-service');
     const agentStatus = agentService.getStatus(server.id);
     const agentMetrics = agentService.getMetrics(server.id);
+
+    // 状态记录逻辑
+    const oldStatus = server.status;
 
     try {
       // 1. 先用 TCP ping 测量网络延迟

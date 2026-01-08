@@ -1,0 +1,904 @@
+<div class="tab-content aliyun-tab-content theme-aliyun" :class="getTabAnimationClass('aliyun')">
+    <!-- 阿里云子标签页 -->
+    <div class="sec-tabs aliyun-sec-tabs" style="justify-content: center; padding-right: 10px;">
+        <div style="display: flex; gap: 6px; flex: 1; justify-content: center;">
+            <button class="tab-btn" :class="{ active: store.aliyunActiveSubTab === 'dns' }"
+                @click="store.aliyunActiveSubTab = 'dns'; aliyunSwitchTo()">
+                <i class="fas fa-globe"></i> 云解析 DNS
+            </button>
+            <button class="tab-btn" :class="{ active: store.aliyunActiveSubTab === 'ecs' }"
+                @click="store.aliyunActiveSubTab = 'ecs'; aliyunSwitchTo()">
+                <i class="fas fa-server"></i> 云服务器 ECS
+            </button>
+            <button class="tab-btn" :class="{ active: store.aliyunActiveSubTab === 'swas' }"
+                @click="store.aliyunActiveSubTab = 'swas'; aliyunSwitchTo()">
+                <i class="fas fa-cube"></i> 轻量服务器
+            </button>
+            <button class="tab-btn" :class="{ active: store.aliyunActiveSubTab === 'accounts' }"
+                @click="store.aliyunActiveSubTab = 'accounts'">
+                <i class="fas fa-users"></i> 账号管理
+            </button>
+        </div>
+    </div>
+
+    <!-- 账号选择区 (仅展示账号数量 > 1 时) -->
+    <div style="margin-bottom: 16px" v-if="store.aliyunAccounts.length > 1 && store.aliyunActiveSubTab !== 'accounts'">
+        <div class="zones-grid">
+            <div v-for="acc in store.aliyunAccounts" :key="acc.id" class="zone-card"
+                :class="{ active: store.aliyunSelectedAccountId === acc.id }" @click="aliyunSelectAccount(acc)">
+                <div style="flex: 1">
+                    <div class="zone-name">
+                        <i class="fas fa-cloud" style="margin-right: 6px; color: var(--aliyun-color, #ff6a00)"></i>
+                        {{ acc.name }}
+                    </div>
+                    <div class="zone-status" style="font-size: 11px">{{ acc.region_id || 'cn-hangzhou' }}</div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px">
+                    <i v-if="store.aliyunSelectedAccountId === acc.id" class="fas fa-check-circle"
+                        style="color: var(--aliyun-color, #ff6a00)"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- DNS 面板 -->
+    <div v-if="store.aliyunActiveSubTab === 'dns'" class="sub-tab-content quick-fade-in">
+        <div class="panel-header" v-if="store.aliyunSelectedAccountId"
+            style="margin-bottom: 16px; display: flex; justify-content: flex-end; gap: 8px;">
+            <button class="btn btn-secondary btn-sm" @click="aliyunRefreshData" title="刷新数据">
+                <i class="fas fa-sync-alt" :class="{ 'fa-spin': store.aliyunLoadingDomains }"></i> 刷新
+            </button>
+            <button class="btn btn-primary btn-sm" @click="aliyunOpenAddDomainModal">
+                <i class="fas fa-plus"></i> 添加域名
+            </button>
+        </div>
+
+        <div v-if="store.aliyunLoadingDomains" class="loading">
+            <div class="spinner"></div>
+            <div style="margin-top: 12px">加载域名列表...</div>
+        </div>
+
+        <div v-else-if="store.aliyunDomains.length > 0">
+            <!-- 域名网格 -->
+            <div class="zones-grid" style="margin-bottom: 24px;">
+                <div v-for="domain in store.aliyunDomains" :key="domain.DomainId || domain.DomainName" class="zone-card"
+                    :class="{ active: store.aliyunSelectedDomain?.DomainName === domain.DomainName }"
+                    @click="aliyunSelectDomain(domain)">
+                    <div style="flex: 1">
+                        <div class="zone-name" style="display: flex; align-items: center; justify-content: flex-start;">
+                            <span>{{ domain.DomainName }}</span>
+                            <a :href="'https://dns.console.aliyun.com/#/dns/setting/' + domain.DomainName"
+                                target="_blank" class="btn-icon-refined" @click.stop title="在阿里云后台查看">
+                                <i class="fas fa-external-link-alt" style="font-size: 12px"></i>
+                            </a>
+                        </div>
+                        <div class="zone-status">Alibaba Cloud DNS</div>
+                    </div>
+                    <i class="fas fa-chevron-right" style="color: var(--text-tertiary)"></i>
+                </div>
+            </div>
+
+            <!-- 解析记录面板 (选中域名后显示) -->
+            <div v-if="store.aliyunSelectedDomain" class="panel quick-fade-in" style="margin-top: 24px;">
+                <div class="panel-header">
+                    <div class="panel-title">
+                        <i class="fas fa-list-alt" style="margin-right: 8px; color: var(--aliyun-color, #ff6a00)"></i>
+                        {{ store.aliyunSelectedDomain?.DomainName }} - 解析记录
+                    </div>
+                    <div style="display: flex; gap: 8px; align-items: center">
+                        <button class="btn btn-success btn-sm" @click="aliyunOpenAddRecordModal">
+                            <i class="fas fa-plus"></i> 添加
+                        </button>
+                        <button class="btn btn-danger btn-sm"
+                            @click="aliyunDeleteDomain(store.aliyunSelectedDomain.DomainName)" title="删除此域名">
+                            <i class="fas fa-trash"></i> 删除
+                        </button>
+                        <button class="btn btn-secondary btn-sm" @click="store.aliyunSelectedDomain = null" title="关闭">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="table-container">
+                    <div v-if="store.aliyunLoadingRecords" class="loading" style="padding: 40px">
+                        <div class="spinner"></div>
+                        <div style="margin-top: 12px">加载记录中...</div>
+                    </div>
+                    <table v-else class="data-table">
+                        <thead>
+                            <tr>
+                                <th>主机记录</th>
+                                <th style="width: 80px">类型</th>
+                                <th>记录值</th>
+                                <th style="width: 80px">TTL</th>
+                                <th style="width: 80px">状态</th>
+                                <th style="width: 100px" class="text-center">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr v-for="record in store.aliyunRecords" :key="record.RecordId">
+                                <td><span style="font-weight: 600">{{ record.RR }}</span></td>
+                                <td><span class="record-type" :class="record.Type">{{ record.Type }}</span></td>
+                                <td>
+                                    <div class="content-truncate"
+                                        style="font-family: var(--font-mono); font-size: 12px">
+                                        {{ record.Value }}
+                                    </div>
+                                </td>
+                                <td><span class="ttl-badge">{{ record.TTL }}</span></td>
+                                <td>
+                                    <button @click="aliyunToggleRecordStatus(record)" class="btn btn-xs"
+                                        :class="record.Status === 'ENABLE' ? 'btn-success' : 'btn-secondary'">
+                                        {{ record.Status === 'ENABLE' ? '启用' : '暂停' }}
+                                    </button>
+                                </td>
+                                <td class="actions text-center">
+                                    <div class="flex-cell">
+                                        <button class="btn btn-icon-refined" @click="aliyunEditRecord(record)"
+                                            title="编辑">
+                                            <i class="fas fa-edit"></i>
+                                        </button>
+                                        <button class="btn btn-icon-refined"
+                                            @click="aliyunDeleteRecord(record.RecordId)" title="删除"
+                                            style="color: var(--danger-color)">
+                                            <i class="fas fa-trash"></i>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    <div v-if="store.aliyunRecords.length === 0 && !store.aliyunLoadingRecords" class="empty-state"
+                        style="padding: 40px">
+                        暂无解析记录
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div v-else class="empty-state">
+            <i class="fas fa-globe" style="font-size: 48px; margin-bottom: 16px"></i>
+            <div v-if="store.aliyunSelectedAccountId">该账号下暂无域名</div>
+            <div v-else>
+                请先添加阿里云账号
+                <button class="btn btn-primary" style="margin-top: 16px" @click="aliyunOpenAddAccountModal">
+                    <i class="fas fa-plus"></i> 添加 AccessKey
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ECS 实例面板 -->
+    <div v-if="store.aliyunActiveSubTab === 'ecs'" class="sub-tab-content quick-fade-in">
+        <div class="panel-header" v-if="store.aliyunSelectedAccountId"
+            style="margin-bottom: 16px; display: flex; justify-content: flex-end;">
+            <button class="btn btn-secondary btn-sm" @click="aliyunRefreshData" title="刷新数据">
+                <i class="fas fa-sync-alt" :class="{ 'fa-spin': store.aliyunLoadingInstances }"></i> 刷新数据
+            </button>
+        </div>
+
+        <div v-if="store.aliyunLoadingInstances" class="loading">
+            <div class="spinner"></div>
+            <div style="margin-top: 12px">加载实例列表...</div>
+        </div>
+
+        <div v-else-if="store.aliyunInstances.length > 0" class="panel">
+            <div class="table-container">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 8%" class="text-center">状态</th>
+                            <th style="width: 22%">实例名称</th>
+                            <th style="width: 18%">公网 IP</th>
+                            <th style="width: 15%">配置</th>
+                            <th style="width: 12%">地域</th>
+                            <th style="width: 15%" class="text-center">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr v-for="instance in store.aliyunInstances" :key="instance.InstanceId">
+                            <td class="text-center">
+                                <div class="flex-cell">
+                                    <span class="status-dot"
+                                        :class="instance.Status === 'Running' ? 'status-online' : 'status-offline'"></span>
+                                </div>
+                            </td>
+                            <td>
+                                <div style="font-weight: 600; line-height: 1.4">{{ instance.InstanceName ||
+                                    instance.InstanceId }}</div>
+                                <div
+                                    style="font-size: 11px; color: var(--text-tertiary); font-family: var(--font-mono); margin-top: 4px; display: flex; align-items: center; gap: 4px">
+                                    {{ instance.InstanceId }}
+                                    <i class="far fa-copy" style="cursor: pointer"
+                                        @click="copyToClipboard(instance.InstanceId)" title="复制 ID"></i>
+                                </div>
+                            </td>
+                            <td>
+                                <div style="display: flex; align-items: center; gap: 6px">
+                                    <code class="code-sm" v-if="instance.PublicIpAddress?.IpAddress?.[0]">
+                                        {{ instance.PublicIpAddress.IpAddress[0] }}
+                                    </code>
+                                    <span v-else style="color: var(--text-tertiary)">无公网 IP</span>
+                                    <i v-if="instance.PublicIpAddress?.IpAddress?.[0]" class="far fa-copy"
+                                        style="cursor: pointer; font-size: 11px; color: var(--text-tertiary)"
+                                        @click="copyToClipboard(instance.PublicIpAddress.IpAddress[0])"
+                                        title="复制 IP"></i>
+                                </div>
+                            </td>
+                            <td>
+                                <div style="font-size: 12px">
+                                    <i class="fas fa-microchip"
+                                        style="margin-right: 4px; color: var(--text-tertiary)"></i>
+                                    {{ instance.InstanceTypeFriendly || (instance.Cpu + '核 / ' +
+                                    (instance.Memory /
+                                    1024).toFixed(0) + 'GB') }}
+                                </div>
+                            </td>
+                            <td>
+                                <div style="font-size: 11px">
+                                    {{ instance.RegionName || instance.RegionId }}
+                                </div>
+                            </td>
+                            <td class="actions text-center">
+                                <div class="flex-cell" style="gap: 4px">
+                                    <button v-if="instance.Status === 'Stopped'" class="btn btn-icon-refined"
+                                        @click="aliyunControlInstance(instance, 'start')" title="启动实例"
+                                        style="color: var(--success-color)">
+                                        <i class="fas fa-play"></i>
+                                    </button>
+                                    <button v-if="instance.Status === 'Running'" class="btn btn-icon-refined"
+                                        @click="aliyunControlInstance(instance, 'stop')" title="停止实例"
+                                        style="color: var(--danger-color)">
+                                        <i class="fas fa-stop"></i>
+                                    </button>
+                                    <button v-if="instance.Status === 'Running'" class="btn btn-icon-refined"
+                                        @click="aliyunControlInstance(instance, 'reboot')" title="重启实例"
+                                        style="color: var(--warning-color)">
+                                        <i class="fas fa-redo"></i>
+                                    </button>
+                                    <button class="btn btn-icon-refined" @click="aliyunLoadMetrics(instance, 'ECS')"
+                                        title="监控预览">
+                                        <i class="fas fa-chart-line" style="color: var(--primary-color)"></i>
+                                    </button>
+                                    <a :href="'https://workbench.aliyun.com/connect/ecs/' + instance.InstanceId + '?regionId=' + instance.RegionId"
+                                        target="_blank" class="btn btn-icon-refined" title="远程连接 (Workbench)">
+                                        <i class="fas fa-terminal" style="color: var(--text-secondary)"></i>
+                                    </a>
+                                    <a :href="'https://ecs.console.aliyun.com/#/server/' + instance.InstanceId + '/detail?regionId=' + instance.RegionId"
+                                        target="_blank" class="btn btn-icon-refined" title="控制台详情">
+                                        <i class="fas fa-external-link-alt"></i>
+                                    </a>
+                                </div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div v-else class="empty-state">
+            <i class="fas fa-server" style="font-size: 48px; margin-bottom: 16px"></i>
+            <div v-if="store.aliyunSelectedAccountId">该账号下暂无 ECS 实例</div>
+            <div v-else>请先选择或添加阿里云账号</div>
+        </div>
+    </div>
+
+    <!-- 轻量应用服务器面板 -->
+    <div v-if="store.aliyunActiveSubTab === 'swas'" class="sub-tab-content quick-fade-in">
+        <div class="panel-header" v-if="store.aliyunSelectedAccountId"
+            style="margin-bottom: 16px; display: flex; justify-content: flex-end;">
+            <button class="btn btn-secondary btn-sm" @click="aliyunRefreshData" title="刷新数据">
+                <i class="fas fa-sync-alt" :class="{ 'fa-spin': store.aliyunLoadingSwas }"></i> 刷新数据
+            </button>
+        </div>
+
+        <div v-if="store.aliyunLoadingSwas" class="loading">
+            <div class="spinner"></div>
+            <div style="margin-top: 12px">加载轻量服务器列表...</div>
+        </div>
+
+        <div v-else-if="store.aliyunSwasInstances.length > 0" class="panel">
+            <div class="table-container">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 8%" class="text-center">状态</th>
+                            <th style="width: 22%">实例名称</th>
+                            <th style="width: 18%">公网 IP</th>
+                            <th style="width: 15%">配置</th>
+                            <th style="width: 10%">地域</th>
+                            <th style="width: 15%">到期时间</th>
+                            <th style="width: 15%" class="text-center">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr v-for="instance in store.aliyunSwasInstances" :key="instance.InstanceId">
+                            <td class="text-center">
+                                <div class="flex-cell">
+                                    <span class="status-dot"
+                                        :class="instance.Status === 'Running' ? 'status-online' : 'status-offline'"></span>
+                                </div>
+                            </td>
+                            <td>
+                                <div style="font-weight: 600; line-height: 1.4">{{ instance.InstanceName ||
+                                    instance.InstanceId }}</div>
+                                <div
+                                    style="font-size: 11px; color: var(--text-tertiary); font-family: var(--font-mono); margin-top: 4px; display: flex; align-items: center; gap: 4px">
+                                    {{ instance.InstanceId }}
+                                    <i class="far fa-copy" style="cursor: pointer"
+                                        @click="copyToClipboard(instance.InstanceId)" title="复制 ID"></i>
+                                </div>
+                            </td>
+                            <td>
+                                <div style="display: flex; align-items: center; gap: 6px">
+                                    <code class="code-sm" v-if="instance.PublicIpAddress">
+                                        {{ instance.PublicIpAddress }}
+                                    </code>
+                                    <span v-else style="color: var(--text-tertiary)">无公网 IP</span>
+                                    <i v-if="instance.PublicIpAddress" class="far fa-copy"
+                                        style="cursor: pointer; font-size: 11px; color: var(--text-tertiary)"
+                                        @click="copyToClipboard(instance.PublicIpAddress)" title="复制 IP"></i>
+                                </div>
+                            </td>
+                            <td>
+                                <div style="font-size: 12px">
+                                    <i class="fas fa-microchip"
+                                        style="margin-right: 4px; color: var(--text-tertiary)"></i>
+                                    {{ (instance.InstanceTypeFriendly || instance.PlanId ||
+                                    '轻量套餐').replace('swas.',
+                                    '').replace('.linux', '') }}
+                                </div>
+                            </td>
+                            <td>
+                                <div style="font-size: 11px">
+                                    {{ instance.RegionName || instance.RegionId }}
+                                </div>
+                            </td>
+                            <td>
+                                <div class="log-time">{{ instance.ExpiredTime?.split('T')[0] || '-' }}</div>
+                            </td>
+                            <td class="actions text-center">
+                                <div class="flex-cell" style="gap: 4px">
+                                    <button v-if="instance.Status === 'Stopped'" class="btn btn-icon-refined"
+                                        @click="aliyunControlSwasInstance(instance, 'start')" title="启动实例"
+                                        style="color: var(--success-color)">
+                                        <i class="fas fa-play"></i>
+                                    </button>
+                                    <button v-if="instance.Status === 'Running'" class="btn btn-icon-refined"
+                                        @click="aliyunControlSwasInstance(instance, 'stop')" title="停止实例"
+                                        style="color: var(--danger-color)">
+                                        <i class="fas fa-stop"></i>
+                                    </button>
+                                    <button v-if="instance.Status === 'Running'" class="btn btn-icon-refined"
+                                        @click="aliyunControlSwasInstance(instance, 'reboot')" title="重启实例"
+                                        style="color: var(--warning-color)">
+                                        <i class="fas fa-redo"></i>
+                                    </button>
+                                    <button class="btn btn-icon-refined" @click="aliyunLoadMetrics(instance, 'SWAS')"
+                                        title="监控预览">
+                                        <i class="fas fa-chart-line" style="color: var(--primary-color)"></i>
+                                    </button>
+                                    <button class="btn btn-icon-refined" @click="aliyunLoadFirewall(instance)"
+                                        title="防火墙管理">
+                                        <i class="fas fa-shield-alt" style="color: var(--primary-color)"></i>
+                                    </button>
+                                    <a :href="'https://swasnext.console.aliyun.com/servers/' + instance.RegionId + '/' + instance.InstanceId + '/connect'"
+                                        target="_blank" class="btn btn-icon-refined" title="远程连接 (Workbench)">
+                                        <i class="fas fa-terminal" style="color: var(--text-secondary)"></i>
+                                    </a>
+                                    <a :href="'https://swasnext.console.aliyun.com/servers/' + instance.RegionId + '/' + instance.InstanceId"
+                                        target="_blank" class="btn btn-icon-refined" title="控制台详情">
+                                        <i class="fas fa-external-link-alt"></i>
+                                    </a>
+                                </div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div v-else class="empty-state">
+            <i class="fas fa-cube" style="font-size: 48px; margin-bottom: 16px"></i>
+            <div v-if="store.aliyunSelectedAccountId">该账号下暂无轻量应用服务器</div>
+            <div v-else>请先选择或添加阿里云账号</div>
+        </div>
+    </div>
+
+    <!-- 账号管理标签页 -->
+    <div v-if="store.aliyunActiveSubTab === 'accounts'" class="sub-tab-content quick-fade-in">
+        <div class="panel">
+            <div class="panel-header">
+                <div class="panel-title">
+                    <i class="fas fa-users" style="margin-right: 8px; color: var(--aliyun-color, #ff6a00)"></i>
+                    阿里云账号管理
+                </div>
+                <div style="display: flex; gap: 8px">
+                    <button class="btn btn-success" style="padding: 6px 12px" @click="aliyunOpenAddAccountModal">
+                        <i class="fas fa-plus"></i> 添加账号
+                    </button>
+                </div>
+            </div>
+
+            <div class="table-container">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>名称</th>
+                            <th>AccessKey ID</th>
+                            <th>区域</th>
+                            <th class="text-center">添加时间</th>
+                            <th style="width: 120px" class="text-center">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr v-for="acc in store.aliyunAccounts" :key="acc.id">
+                            <td>
+                                <div style="display: flex; align-items: center; gap: 8px">
+                                    <i class="fas fa-cloud"
+                                        style="font-size: 12px; color: var(--aliyun-color, #ff6a00); opacity: 0.7"></i>
+                                    <strong>{{ acc.name }}</strong>
+                                </div>
+                            </td>
+                            <td>
+                                <code class="code-sm">{{ acc.access_key_id || '-' }}</code>
+                            </td>
+                            <td>{{ acc.region_id || 'cn-hangzhou' }}</td>
+                            <td class="text-center">
+                                <div class="flex-cell">
+                                    <div class="log-time">{{ formatDateTime(acc.created_at) }}</div>
+                                </div>
+                            </td>
+                            <td class="actions text-center">
+                                <div class="flex-cell">
+                                    <button class="btn btn-icon-refined" @click="aliyunEditAccount(acc)" title="编辑账号">
+                                        <i class="fas fa-edit"></i>
+                                    </button>
+                                    <button class="btn btn-icon-refined" @click="aliyunDeleteAccount(acc)" title="删除账号"
+                                        style="color: var(--danger-color)">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+                <div v-if="store.aliyunAccounts.length === 0" class="empty-state">
+                    <i class="fas fa-key" style="font-size: 48px; margin-bottom: 16px"></i>
+                    <div>暂无账号，请添加阿里云 AccessKey</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 添加/编辑账号模态框 -->
+<transition name="modal-fade">
+    <div v-if="store.showAliyunAccountModal" class="modal-overlay" @click.self="store.showAliyunAccountModal = false">
+        <div class="modal" style="max-width: 450px">
+            <div class="modal-header">
+                <div class="modal-title">
+                    <i class="fas fa-cloud" style="color: var(--aliyun-color, #ff6a00)"></i>
+                    {{ store.aliyunAccountForm.id ? '编辑' : '添加' }}阿里云账号
+                </div>
+                <button class="modal-close" @click="store.showAliyunAccountModal = false">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">账号备注 *</label>
+                    <input v-model="store.aliyunAccountForm.name" type="text" class="form-input" placeholder="我的阿里云账号">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">
+                        AccessKey ID {{ store.aliyunAccountForm.id ? '(留空保持不变)' : '*' }}
+                    </label>
+                    <input v-model="store.aliyunAccountForm.accessKeyId" type="text" class="form-input code-font"
+                        :placeholder="store.aliyunAccountForm.id ? '留空保持现有 AccessKey' : 'LTAI5t...'">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">
+                        AccessKey Secret {{ store.aliyunAccountForm.id ? '(留空保持不变)' : '*' }}
+                    </label>
+                    <input v-model="store.aliyunAccountForm.accessKeySecret" type="password"
+                        class="form-input code-font"
+                        :placeholder="store.aliyunAccountForm.id ? '留空保持现有 Secret' : '••••••••'">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">默认 Region</label>
+                    <input v-model="store.aliyunAccountForm.regionId" type="text" class="form-input code-font"
+                        placeholder="cn-hangzhou">
+                    <div class="form-help">留空默认使用 cn-hangzhou</div>
+                </div>
+            </div>
+
+            <div class="modal-footer">
+                <button class="btn btn-secondary" @click="store.showAliyunAccountModal = false">取消</button>
+                <button class="btn btn-primary" @click="aliyunSubmitAccount">
+                    <i class="fas fa-save"></i> 保存
+                </button>
+            </div>
+        </div>
+    </div>
+</transition>
+
+
+
+<!-- 添加/编辑记录模态框 -->
+<transition name="modal-fade">
+    <div v-if="store.showAliyunRecordModal" class="modal-overlay" @click.self="store.showAliyunRecordModal = false">
+        <div class="modal" style="max-width: 500px">
+            <div class="modal-header">
+                <div class="modal-title">
+                    {{ store.aliyunEditingRecordId ? '编辑' : '添加' }}解析记录
+                </div>
+                <button class="modal-close" @click="store.showAliyunRecordModal = false">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+
+            <div class="modal-body">
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px">
+                    <div class="form-group">
+                        <label class="form-label">记录类型</label>
+                        <select v-model="store.aliyunRecordForm.type" class="form-input">
+                            <option value="A">A - IPv4 地址</option>
+                            <option value="CNAME">CNAME - 别名</option>
+                            <option value="AAAA">AAAA - IPv6 地址</option>
+                            <option value="TXT">TXT - 文本</option>
+                            <option value="MX">MX - 邮件交换</option>
+                            <option value="NS">NS - 名称服务器</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label class="form-label">TTL (秒)</label>
+                        <input v-model.number="store.aliyunRecordForm.ttl" type="number" class="form-input"
+                            placeholder="600">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">主机记录 (RR)</label>
+                    <div style="display: flex; align-items: center">
+                        <input v-model="store.aliyunRecordForm.rr" type="text" class="form-input" placeholder="@ 或 www"
+                            style="border-radius: 8px 0 0 8px">
+                        <div
+                            style="background: var(--bg-tertiary); border: 1px solid var(--input-border); border-left: none; padding: 8px 12px; border-radius: 0 8px 8px 0; color: var(--text-secondary); font-size: 13px">
+                            .{{ store.aliyunSelectedDomain?.DomainName }}
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">记录值</label>
+                    <input v-model="store.aliyunRecordForm.value" type="text" class="form-input code-font"
+                        placeholder="IP 地址或域名">
+                </div>
+            </div>
+
+            <div class="modal-footer">
+                <button class="btn btn-secondary" @click="store.showAliyunRecordModal = false">取消</button>
+                <button class="btn btn-primary" @click="aliyunSubmitRecord">
+                    <i class="fas fa-save"></i> 保存
+                </button>
+            </div>
+        </div>
+    </div>
+</transition>
+
+<!-- 添加域名模态框 -->
+<transition name="modal-fade">
+    <div v-if="store.showAliyunAddDomainModal" class="modal-overlay"
+        @click.self="store.showAliyunAddDomainModal = false">
+        <div class="modal">
+            <div class="modal-header">
+                <div class="modal-title">添加域名</div>
+                <button class="modal-close" @click="store.showAliyunAddDomainModal = false">&times;</button>
+            </div>
+
+            <div class="modal-body">
+                <div v-if="!store.aliyunAddDomainResult">
+                    <div class="form-group">
+                        <label class="form-label">域名</label>
+                        <input v-model="store.aliyunAddDomainName" type="text" class="form-input"
+                            placeholder="例如: example.com" @keyup.enter="aliyunSubmitAddDomain">
+                        <div class="form-help">
+                            注意：如果您添加的是子域名，阿里云可能需要您先验证主域名或添加 TXT 记录。
+                        </div>
+                    </div>
+                </div>
+                <!-- 成功状态 -->
+                <div v-else class="text-center" style="padding: 10px 0;">
+                    <div style="color: var(--success-color); font-size: 3.5rem; margin-bottom: 16px;">
+                        <i class="fas fa-check-circle"></i>
+                    </div>
+                    <div style="font-size: 1.25rem; font-weight: 700; margin-bottom: 8px; color: var(--text-primary);">
+                        {{ store.aliyunAddDomainResult.AlreadyExists ? '域名已存在' : '域名已成功添加' }}
+                    </div>
+                    <p class="text-secondary" style="margin-bottom: 20px;">请前往您的域名注册商，将 DNS 服务器修改为：</p>
+
+                    <div
+                        style="background: var(--bg-secondary); border: 1px solid var(--border-color); padding: 16px; border-radius: 12px; font-family: var(--font-mono); margin-bottom: 15px; text-align: left;">
+                        <div v-for="(ns, index) in store.aliyunAddDomainResult.DnsServers" :key="ns"
+                            style="display: flex; align-items: center; gap: 10px; padding: 6px 0;"
+                            :style="{ borderBottom: index < store.aliyunAddDomainResult.DnsServers.length - 1 ? '1px dashed var(--border-color)' : 'none' }">
+                            <i class="fas fa-server"
+                                style="font-size: 12px; color: var(--primary-color); opacity: 0.7;"></i>
+                            <span style="color: var(--primary-color); font-weight: 600;">{{ ns }}</span>
+                        </div>
+                    </div>
+                    <div class="text-tertiary" style="font-size: 11px;">
+                        * 修改后可能需要几分钟到 48 小时生效
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal-footer">
+                <div v-if="!store.aliyunAddDomainResult"
+                    style="display: flex; gap: 8px; justify-content: flex-end; width: 100%;">
+                    <button class="btn btn-secondary" @click="store.showAliyunAddDomainModal = false">取消</button>
+                    <button class="btn btn-primary" @click="aliyunSubmitAddDomain"
+                        :disabled="!store.aliyunAddDomainName || store.aliyunLoadingDomains">
+                        <i class="fas" :class="store.aliyunLoadingDomains ? 'fa-spinner fa-spin' : 'fa-plus'"></i> 确认添加
+                    </button>
+                </div>
+                <div v-else style="display: flex; justify-content: flex-end; width: 100%;">
+                    <button class="btn btn-primary" @click="store.showAliyunAddDomainModal = false">完成</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</transition>
+
+<!-- 防火墙管理模态框 -->
+<transition name="modal-fade">
+    <div v-if="store.showAliyunFirewallDrawer" class="modal-overlay"
+        @click.self="store.showAliyunFirewallDrawer = false">
+        <div class="modal" style="width: 600px; max-width: 95vw;">
+            <div class="modal-header">
+                <div class="modal-title">
+                    <i class="fas fa-shield-alt" style="margin-right: 8px"></i>
+                    {{ store.aliyunSelectedInstance?.InstanceName }} 防火墙规则
+                </div>
+                <button class="modal-close" @click="store.showAliyunFirewallDrawer = false">&times;</button>
+            </div>
+
+            <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
+                <div v-if="store.aliyunLoadingFirewall" class="loading" style="padding: 40px 0">
+                    <div class="spinner"></div>
+                </div>
+                <div v-else>
+                    <div style="margin-bottom: 16px; display: flex; justify-content: flex-end;">
+                        <button class="btn btn-primary btn-sm" @click="store.showAliyunAddFirewallModal = true">
+                            <i class="fas fa-plus"></i> 添加规则
+                        </button>
+                    </div>
+
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>协议</th>
+                                    <th>端口</th>
+                                    <th>备注</th>
+                                    <th class="text-center">操作</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="rule in store.aliyunFirewallRules" :key="rule.RuleId">
+                                    <td>{{ rule.RuleProtocol }}</td>
+                                    <td><code class="code-sm">{{ rule.Port }}</code></td>
+                                    <td><span class="text-tertiary" style="font-size: 11px">{{ rule.Remark ||
+                                            '-'
+                                            }}</span>
+                                    </td>
+                                    <td class="text-center">
+                                        <button class="btn btn-icon-refined"
+                                            @click="aliyunDeleteFirewallRule(rule.RuleId)" title="删除">
+                                            <i class="fas fa-trash-alt" style="color: var(--danger-color)"></i>
+                                        </button>
+                                    </td>
+                                </tr>
+                                <tr v-if="store.aliyunFirewallRules.length === 0">
+                                    <td colspan="4" class="text-center text-tertiary" style="padding: 40px 0">
+                                        暂无防火墙规则
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" @click="store.showAliyunFirewallDrawer = false">关闭</button>
+            </div>
+        </div>
+    </div>
+</transition>
+
+<!-- 添加防火墙规则模态框 -->
+<transition name="modal-fade">
+    <div v-if="store.showAliyunAddFirewallModal" class="modal-overlay"
+        @click.self="store.showAliyunAddFirewallModal = false">
+        <div class="modal" style="width: 400px">
+            <div class="modal-header">
+                <div class="modal-title">添加防火墙规则</div>
+                <button class="modal-close" @click="store.showAliyunAddFirewallModal = false">&times;</button>
+            </div>
+
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">协议</label>
+                    <select v-model="store.aliyunFirewallForm.protocol" class="form-input">
+                        <option value="TCP">TCP</option>
+                        <option value="UDP">UDP</option>
+                        <option value="TCP+UDP">TCP+UDP</option>
+                        <option value="ICMP">ICMP</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">端口</label>
+                    <input v-model="store.aliyunFirewallForm.port" type="text" class="form-input"
+                        placeholder="例如: 80, 443, 1-65535">
+                </div>
+                <div class="form-group">
+                    <label class="form-label">备注</label>
+                    <input v-model="store.aliyunFirewallForm.remark" type="text" class="form-input" placeholder="可选备注">
+                </div>
+            </div>
+
+            <div class="modal-footer">
+                <button class="btn btn-secondary" @click="store.showAliyunAddFirewallModal = false">取消</button>
+                <button class="btn btn-primary" @click="aliyunSubmitFirewallRule">确认添加</button>
+            </div>
+        </div>
+    </div>
+</transition>
+
+<!-- 监控数据模态框 -->
+<transition name="modal-fade">
+    <div v-if="store.showAliyunMetricsDrawer" class="modal-overlay" @click.self="store.showAliyunMetricsDrawer = false">
+        <div class="modal" style="width: 500px; max-width: 95vw;">
+            <div class="modal-header">
+                <div class="modal-title">
+                    <i class="fas fa-chart-line" style="margin-right: 8px"></i>
+                    {{ store.aliyunSelectedInstance?.InstanceName || '实例监控' }}
+                </div>
+                <button class="modal-close" @click="store.showAliyunMetricsDrawer = false">&times;</button>
+            </div>
+
+            <div class="modal-body" style="max-height: 75vh; overflow-y: auto;">
+                <div v-if="!store.aliyunMetrics[store.aliyunSelectedInstance?.InstanceId]" class="loading"
+                    style="padding: 40px 0">
+                    <div class="spinner"></div>
+                    <div style="margin-top: 12px">获取监控数据...</div>
+                </div>
+                <div v-else>
+                    <div class="metrics-card"
+                        style="background: var(--bg-secondary); border-radius: 12px; padding: 20px; border: 1px solid var(--border-color);">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 20px;">
+                            <div style="font-weight: 600; color: var(--text-secondary)">CPU 使用率 (1小时)</div>
+                            <div style="color: var(--primary-color); font-weight: bold; font-size: 1.25rem;">
+                                {{
+                                store.aliyunMetrics[store.aliyunSelectedInstance?.InstanceId]?.slice(-1)[0]?.Average?.toFixed(1)
+                                }}%
+                            </div>
+                        </div>
+
+                        <!-- 简易进度条图表 -->
+                        <div
+                            style="display: flex; align-items: flex-end; gap: 4px; height: 120px; padding: 10px 0; border-bottom: 1px solid var(--border-color); margin-bottom: 25px;">
+                            <div v-for="point in store.aliyunMetrics[store.aliyunSelectedInstance?.InstanceId]"
+                                :key="point.timestamp" class="metric-bar" :style="{ 
+                                    height: Math.max(5, point.Average) + '%', 
+                                    flex: 1, 
+                                    background: point.Average > 80 ? 'var(--danger-color)' : (point.Average > 50 ? 'var(--warning-color)' : 'var(--success-color)'),
+                                    borderRadius: '2px',
+                                    opacity: 0.8
+                                }"
+                                :title="new Date(point.timestamp).toLocaleTimeString() + ': ' + point.Average.toFixed(1) + '%'">
+                            </div>
+                        </div>
+
+                        <div class="table-container" style="max-height: 350px; overflow-y: auto;">
+                            <table class="data-table" style="font-size: 13px;">
+                                <thead>
+                                    <tr>
+                                        <th>时间 (最近)</th>
+                                        <th class="text-right">负载 %</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr v-for="point in [...store.aliyunMetrics[store.aliyunSelectedInstance?.InstanceId]].reverse().slice(0, 15)"
+                                        :key="point.timestamp">
+                                        <td>{{ new Date(point.timestamp).toLocaleTimeString([], {hour:
+                                            '2-digit',
+                                            minute:'2-digit'}) }}</td>
+                                        <td class="text-right">
+                                            <span
+                                                :style="{ color: point.Average > 80 ? 'var(--danger-color)' : (point.Average > 50 ? 'var(--warning-color)' : 'var(--success-color)') }">
+                                                {{ point.Average.toFixed(2) }}%
+                                            </span>
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" @click="store.showAliyunMetricsDrawer = false">关闭</button>
+            </div>
+        </div>
+    </div>
+</transition>
+
+<!-- 添加/编辑解析记录模态框 -->
+<transition name="modal-fade">
+    <div v-if="store.showAliyunRecordModal" class="modal-overlay" @click.self="store.showAliyunRecordModal = false">
+        <div class="modal" style="width: 500px">
+            <div class="modal-header">
+                <div class="modal-title">
+                    <i class="fas fa-edit" style="margin-right: 8px"></i>
+                    {{ store.aliyunEditingRecordId ? '编辑解析记录' : '添加解析记录' }}
+                </div>
+                <button class="modal-close" @click="store.showAliyunRecordModal = false">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-row">
+                    <div class="form-group flex-1">
+                        <label class="form-label">主机记录</label>
+                        <input v-model="store.aliyunRecordForm.rr" type="text" class="form-input code-font"
+                            placeholder="如: www, @, *">
+                    </div>
+                    <div class="form-group" style="width: 120px;">
+                        <label class="form-label">记录类型</label>
+                        <select v-model="store.aliyunRecordForm.type" class="form-input code-font">
+                            <option value="A">A</option>
+                            <option value="AAAA">AAAA</option>
+                            <option value="CNAME">CNAME</option>
+                            <option value="TXT">TXT</option>
+                            <option value="MX">MX</option>
+                            <option value="NS">NS</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">记录值</label>
+                    <input v-model="store.aliyunRecordForm.value" type="text" class="form-input code-font"
+                        placeholder="IP 地址、域名或文本内容">
+                </div>
+                <div class="form-row">
+                    <div class="form-group flex-1">
+                        <label class="form-label">TTL</label>
+                        <select v-model="store.aliyunRecordForm.ttl" class="form-input code-font">
+                            <option :value="600">10 分钟 (默认)</option>
+                            <option :value="60">1 分钟</option>
+                            <option :value="120">2 分钟</option>
+                            <option :value="1800">30 分钟</option>
+                            <option :value="3600">1 小时</option>
+                            <option :value="86400">24 小时</option>
+                        </select>
+                    </div>
+                    <div v-if="store.aliyunRecordForm.type === 'MX'" class="form-group" style="width: 120px;">
+                        <label class="form-label">优先级</label>
+                        <input v-model="store.aliyunRecordForm.priority" type="number" class="form-input code-font"
+                            min="1" max="50">
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" @click="store.showAliyunRecordModal = false">取消</button>
+                <button class="btn btn-primary" @click="aliyunSubmitRecord">
+                    <i class="fas fa-save"></i> 确定
+                </button>
+            </div>
+        </div>
+    </div>
+</transition>

@@ -415,6 +415,9 @@ class AgentService extends EventEmitter {
         resolved_id: serverId, // 告知 Agent 实际使用的 ID
       });
 
+      // 触发上线通知
+      this.triggerOnlineAlert(serverId);
+
       // 广播上线状态给前端
       this.broadcastServerStatus(serverId, 'online');
 
@@ -535,6 +538,7 @@ class AgentService extends EventEmitter {
         this.stopHeartbeat(serverId);
         this.updateServerStatus(serverId, 'offline');
         this.broadcastServerStatus(serverId, 'offline');
+        this.triggerOfflineAlert(serverId); // Ensure offline alert is triggered
 
         // 更新兼容缓存
         const status = this.legacyStatus.get(serverId);
@@ -633,6 +637,58 @@ class AgentService extends EventEmitter {
     this.connections.delete(serverId);
     this.updateServerStatus(serverId, 'offline');
     this.broadcastServerStatus(serverId, 'offline');
+
+    // 触发离线告警
+    this.triggerOfflineAlert(serverId);
+  }
+
+  /**
+   * 触发主机离线告警
+   */
+  triggerOfflineAlert(serverId) {
+    try {
+      const server = serverStorage.getById(serverId);
+      if (!server) return;
+
+      const notificationService = require('../notification-api/service');
+      const hostInfo = this.hostInfoCache.get(serverId);
+
+      notificationService.trigger('server', 'offline', {
+        serverId: serverId,
+        serverName: server.name,
+        host: server.host,
+        lastSeen: hostInfo?.received_at || Date.now(),
+        hostname: hostInfo?.hostname
+      });
+
+      logger.warn(`[主机告警] ${server.name} (${server.host}) 离线`);
+    } catch (error) {
+      logger.error(`触发离线告警失败: ${error.message}`);
+    }
+  }
+
+  /**
+   * 触发主机上线通知
+   */
+  triggerOnlineAlert(serverId) {
+    try {
+      const server = serverStorage.getById(serverId);
+      if (!server) return;
+
+      const notificationService = require('../notification-api/service');
+      const hostInfo = this.hostInfoCache.get(serverId);
+
+      notificationService.trigger('server', 'online', {
+        serverId: serverId,
+        serverName: server.name,
+        host: server.host,
+        hostname: hostInfo?.hostname
+      });
+
+      logger.info(`[主机通知] ${server.name} (${server.host}) 已上线`);
+    } catch (error) {
+      logger.error(`触发上线通知失败: ${error.message}`);
+    }
   }
 
   // ==================== 广播方法 ====================
@@ -1011,12 +1067,83 @@ class AgentService extends EventEmitter {
       version: metrics.agent_version || 'http-legacy',
     });
 
+    // 检查资源告警
+    this.checkResourceAlerts(serverId, processedMetrics);
+
     // 广播给前端
     this.broadcastMetrics(serverId, processedMetrics);
 
     console.log(`[AgentService] HTTP 推送: ${serverId} -> CPU: ${processedMetrics.cpu_usage}`);
 
     return processedMetrics;
+  }
+
+  /**
+   * 检查资源告警
+   */
+  checkResourceAlerts(serverId, metrics) {
+    try {
+      const server = serverStorage.getById(serverId);
+      if (!server) return;
+
+      const notificationService = require('../notification-api/service');
+
+      // CPU 告警阈值 (80%)
+      if (metrics.cpu > 80) {
+        notificationService.trigger('server', 'cpu_high', {
+          serverId: serverId,
+          serverName: server.name,
+          host: server.host,
+          cpu_usage: metrics.cpu,
+          threshold: 80
+        });
+        logger.warn(`[资源告警] ${server.name} CPU 使用率: ${metrics.cpu}%`);
+      }
+
+      // 内存告警阈值 (85%)
+      if (metrics.mem) {
+        const memMatch = metrics.mem.match(/(\d+)\/(\d+)/);
+        if (memMatch) {
+          const memUsed = parseInt(memMatch[1]);
+          const memTotal = parseInt(memMatch[2]);
+          const memPercent = (memUsed / memTotal) * 100;
+
+          if (memPercent > 85) {
+            notificationService.trigger('server', 'memory_high', {
+              serverId: serverId,
+              serverName: server.name,
+              host: server.host,
+              mem_percent: memPercent.toFixed(2),
+              mem_used: memUsed,
+              mem_total: memTotal,
+              threshold: 85
+            });
+            logger.warn(`[资源告警] ${server.name} 内存使用率: ${memPercent.toFixed(2)}%`);
+          }
+        }
+      }
+
+      // 磁盘告警阈值 (90%)
+      if (metrics.disk) {
+        const diskMatch = metrics.disk.match(/([.\d]+)%/);
+        if (diskMatch) {
+          const diskPercent = parseFloat(diskMatch[1]);
+          if (diskPercent > 90) {
+            notificationService.trigger('server', 'disk_high', {
+              serverId: serverId,
+              serverName: server.name,
+              host: server.host,
+              disk_usage: metrics.disk,
+              disk_percent: diskPercent,
+              threshold: 90
+            });
+            logger.warn(`[资源告警] ${server.name} 磁盘使用率: ${diskPercent}%`);
+          }
+        }
+      }
+    } catch (error) {
+      logger.error(`检查资源告警失败: ${error.message}`);
+    }
   }
 
   // ==================== 安装脚本生成 ====================

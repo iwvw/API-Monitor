@@ -7,7 +7,7 @@ const router = express.Router();
 const storage = require('./storage');
 const axios = require('axios');
 const { createLogger } = require('../../src/utils/logger');
-const logger = createLogger('Fly.io');
+const logger = createLogger('Fly');
 
 logger.info('Module Loaded');
 

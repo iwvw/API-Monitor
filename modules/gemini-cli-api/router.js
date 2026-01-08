@@ -6,7 +6,7 @@ const client = require('./gemini-client');
 const StreamProcessor = require('./utils/stream-processor');
 const { requireAuth } = require('../../src/middleware/auth');
 const { createLogger } = require('../../src/utils/logger');
-const logger = createLogger('GCLI-Service');
+const logger = createLogger('GCLI');
 
 const streamProcessor = new StreamProcessor(client);
 

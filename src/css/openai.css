@@ -2838,6 +2838,7 @@
   background: rgba(16, 163, 127, 0.08) !important;
 }
 
+/* 
 .fa-cat {
   color: #ff9ff3;
 }
@@ -2897,7 +2898,7 @@
 
 .fa-book {
   color: #eccc68;
-}
+} */
 
 .persona-modal-overlay {
   z-index: 2100000;

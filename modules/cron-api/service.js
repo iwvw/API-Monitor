@@ -3,7 +3,7 @@ const { exec } = require('child_process');
 const { CronTask, CronLog } = require('./models');
 const axios = require('axios');
 const { createLogger } = require('../../src/utils/logger');
-const logger = createLogger('CronService');
+const logger = createLogger('Cron');
 
 class CronService {
   constructor() {

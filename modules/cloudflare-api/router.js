@@ -8,7 +8,7 @@ const storage = require('./storage');
 const cfApi = require('./cloudflare-api');
 const { createLogger } = require('../../src/utils/logger');
 
-const logger = createLogger('CF-DNS');
+const logger = createLogger('Cloudflare');
 
 // ==================== 璐﹀彿绠＄悊 ====================
 

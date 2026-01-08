@@ -152,6 +152,14 @@ class UptimeStorage {
     }
 
     /**
+     * 获取最后一次心跳
+     */
+    getLastHeartbeat(monitorId) {
+        const history = this.getHistory(monitorId, 1);
+        return history.length > 0 ? history[0] : null;
+    }
+
+    /**
      * 获取历史数据
      */
     getHistory(monitorId, limit = 50) {

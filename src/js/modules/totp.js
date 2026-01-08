@@ -4,6 +4,7 @@
  */
 
 import { store } from '../store.js';
+import jsQR from 'jsqr';
 
 /**
  * TOTP 模块方法集合
@@ -510,7 +511,7 @@ export const totpMethods = {
       const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
       // 使用 jsQR 解析
-      const code = window.jsQR(imageData.data, imageData.width, imageData.height);
+      const code = jsQR(imageData.data, imageData.width, imageData.height);
 
       if (code) {
         const uri = code.data;

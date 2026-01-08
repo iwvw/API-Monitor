@@ -9,7 +9,7 @@ const openaiApi = require('./openai-api');
 const { proxyLimiter } = require('../../src/middleware/rateLimit');
 const { validate, chatCompletionSchema } = require('../../src/middleware/validation');
 const { createLogger } = require('../../src/utils/logger');
-const logger = createLogger('OpenAI-Service');
+const logger = createLogger('OpenAI');
 
 // ==================== 端点管理 ====================
 

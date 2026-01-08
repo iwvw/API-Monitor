@@ -9,7 +9,7 @@ const https = require('https');
 const storage = require('./storage');
 const { createLogger } = require('../../src/utils/logger');
 
-const logger = createLogger('UptimeService');
+const logger = createLogger('Uptime');
 
 // 全局定时器映射: monitorId -> IntervalID
 const intervals = {};
@@ -81,6 +81,9 @@ class UptimeService {
         let msg = '';
         let ping = 0;
 
+        // 获取上一次的心跳状态
+        const oldBeat = storage.getLastHeartbeat(monitor.id);
+
         try {
             if (monitor.type === 'http') {
                 await this.checkHttp(monitor);
@@ -129,9 +132,54 @@ class UptimeService {
         // 保存
         storage.saveHeartbeat(monitor.id, beat);
 
+        // 触发通知逻辑
+        // 1. 如果当前处于宕机状态 (status === 0)，即使之前也是宕机，也需要触发（通知模块会处理抑制逻辑）
+        // 2. 如果状态发生了变化 (从 0 变 1 或 从 1 变 0)
+        // 3. 初始状态 (之前无记录) 且当前为宕机
+        const statusChanged = oldBeat && oldBeat.status !== beat.status;
+        const isCurrentlyDown = beat.status === 0;
+        const isFirstDown = !oldBeat && beat.status === 0;
+
+        if (isCurrentlyDown || statusChanged || isFirstDown) {
+            this.triggerNotification(monitor, beat, oldBeat);
+        }
+
         // 通过 Socket.IO 推送
         if (io) {
             io.emit('uptime:heartbeat', { monitorId: monitor.id, beat });
+        }
+    }
+
+    /**
+     * 触发通知
+     */
+    triggerNotification(monitor, newBeat, oldBeat) {
+        try {
+            const notificationService = require('../notification-api/service');
+
+            if (newBeat.status === 0) {
+                // 宕机
+                notificationService.trigger('uptime', 'down', {
+                    monitorId: monitor.id,
+                    monitorName: monitor.name,
+                    url: monitor.url || `${monitor.hostname}:${monitor.port}`,
+                    error: newBeat.msg,
+                    type: monitor.type
+                });
+                logger.warn(`[监控告警] ${monitor.name} 宕机 - ${newBeat.msg}`);
+            } else if (oldBeat && oldBeat.status === 0 && newBeat.status === 1) {
+                // 恢复
+                notificationService.trigger('uptime', 'up', {
+                    monitorId: monitor.id,
+                    monitorName: monitor.name,
+                    url: monitor.url || `${monitor.hostname}:${monitor.port}`,
+                    ping: newBeat.ping,
+                    type: monitor.type
+                });
+                logger.info(`[监控恢复] ${monitor.name} 已恢复 - 响应时间: ${newBeat.ping}ms`);
+            }
+        } catch (error) {
+            logger.error(`触发通知失败: ${error.message}`);
         }
     }
 

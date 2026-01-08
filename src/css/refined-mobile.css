@@ -1275,6 +1275,7 @@ html.single-page-mode [class*='-sec-tabs'] {
   }
 
   .panel-header {
+    padding-bottom: 3px;
     flex-direction: column !important;
     align-items: stretch !important;
     gap: 12px !important;

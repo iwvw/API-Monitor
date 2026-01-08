@@ -90,7 +90,7 @@
 
 .totp-card {
   background: var(--card-bg);
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--card-accent, var(--totp-primary));
   border-radius: 10px;
   padding: 12px 12px 6px 12px;
   cursor: pointer;
@@ -501,7 +501,7 @@
 }
 
 .totp-modal .modal-body {
-  padding: 15px;
+  padding: 12px;
   /* 增大全局内边距，提升呼吸感 */
 }
 
@@ -540,7 +540,7 @@
 }
 
 /* 主题色输入框样式 */
-.totp-modal .totp-advanced-content > .form-group {
+.totp-modal .totp-advanced-content>.form-group {
   margin-top: 12px;
 }
 
@@ -617,11 +617,11 @@
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
 }
 
-.toggle-checkbox:checked + .toggle-switch {
+.toggle-checkbox:checked+.toggle-switch {
   background: var(--totp-primary);
 }
 
-.toggle-checkbox:checked + .toggle-switch::after {
+.toggle-checkbox:checked+.toggle-switch::after {
   left: 20px;
 }
 
@@ -718,6 +718,7 @@
 
 /* ==================== 响应式 - 手机端列表布局 ==================== */
 @media (max-width: 768px) {
+
   /* 列表布局 */
   .totp-cards-grid {
     display: flex;
@@ -822,7 +823,7 @@
     gap: 8px;
   }
 
-  .totp-tab-content .panel-header > div:last-child {
+  .totp-tab-content .panel-header>div:last-child {
     flex-wrap: wrap;
     width: 100%;
   }
@@ -991,6 +992,6 @@
 }
 
 /* 分隔线 */
-.totp-context-menu-item + .totp-context-menu-item.danger {
+.totp-context-menu-item+.totp-context-menu-item.danger {
   border-top: 1px solid var(--border-color);
 }

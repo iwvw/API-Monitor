@@ -17,7 +17,7 @@ accounts.json
 password.json
 sessions.json
 antigravity-accounts-*.json
-
+docs/MODULE_NAMING.md
 # ====================
 # 用户数据 & 数据库
 # ====================

@@ -280,6 +280,40 @@
             </label>
           </div>
 
+          <!-- 告警通知 Section -->
+          <div class="col-span-12 uptime-form-section-title" style="margin-top: 10px;">
+            <i class="fas fa-bell"></i> 告警通知
+          </div>
+
+          <div class="col-span-12 form-group-modern">
+            <label class="form-label-modern">通知渠道 <span
+                style="color: var(--text-tertiary); font-weight: 400;">(故障时接收通知)</span></label>
+            <div class="checkbox-group"
+              style="display: flex; flex-wrap: wrap; gap: 16px; padding: 12px; background: var(--bg-secondary); border-radius: 8px; border: 1px solid var(--border-color);">
+              <template v-for="channel in notificationChannels" :key="channel.id">
+                <label v-if="channel && (channel.enabled === true || channel.enabled === 1)" class="form-switch"
+                  style="margin: 0;">
+                  <input type="checkbox" :value="channel.id" v-model="uptimeForm.notificationChannels">
+                  <span class="switch-track">
+                    <span class="switch-knob"></span>
+                  </span>
+                  <span class="switch-label" style="display: flex; align-items: center; gap: 6px;">
+                    <i :class="channel.type === 'email' ? 'fas fa-envelope' : 'fab fa-telegram'"
+                      style="opacity: 0.7;"></i>
+                    {{ channel.name }}
+                  </span>
+                </label>
+              </template>
+              <span
+                v-if="!notificationChannels || notificationChannels.filter(c => c.enabled === true || c.enabled === 1).length === 0"
+                style="color: var(--text-tertiary); font-size: 13px;">
+                <i class="fas fa-info-circle"></i> 暂无可用通知渠道，请先在 <a href="#"
+                  @click.prevent="mainActiveTab = 'notification'" style="color: var(--primary-color);">工具箱 → 通知渠道</a>
+                中添加
+              </span>
+            </div>
+          </div>
+
           <!-- Tags: Span 12 or remaining -->
           <div class="col-span-12 form-group-modern">
             <label class="form-label-modern">标签 (Tags)</label>

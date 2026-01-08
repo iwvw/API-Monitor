@@ -57,11 +57,14 @@ export const settingsMethods = {
             'gemini-cli',
             'paas',
             'dns',
+            'aliyun',
+            'tencent',
             'self-h',
             'server',
             'totp',
             'music',
             'uptime',
+            'notification',
           ];
           if (settings.moduleVisibility) {
             const filtered = {};

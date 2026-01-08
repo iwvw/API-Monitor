@@ -517,6 +517,7 @@ func (a *AgentClient) heartbeat() {
 	// Socket.IO 中只有服务端发送 ping (2)，客户端只需响应 pong (3)
 	// 我们在 handleMessage 中已经处理了 ping 响应
 	// 这个 goroutine 只是为了监听 stopChan
+	// 这下应该不会错了(应该
 	<-a.stopChan
 }
 

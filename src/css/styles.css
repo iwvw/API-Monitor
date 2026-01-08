@@ -99,6 +99,9 @@ pre,
   --totp-primary: #8b5cf6;
   --totp-dark: #7c3aed;
 
+  --notification-primary: #f59e0b;
+  --notification-dark: #d97706;
+
   /* 常用功能色映射 (核心驱动) */
   --primary-color: var(--paas-primary);
   --primary-dark: var(--paas-dark);
@@ -107,6 +110,135 @@ pre,
   --warning-color: #f59e0b;
   --danger-color: #ef4444;
   --info-color: #3b82f6;
+
+  /* --- 现代化表单系统 (Modern Form System) --- */
+  .form-group-modern {
+    margin-bottom: 16px;
+  }
+
+  .form-label-modern {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    margin-bottom: 6px;
+    letter-spacing: 0.5px;
+  }
+
+  .form-input-modern,
+  .form-select-modern,
+  .form-textarea-modern {
+    width: 100%;
+    padding: 10px 14px;
+    border-radius: 10px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 13px;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    font-family: inherit;
+    outline: none;
+    min-height: 40px;
+  }
+
+  .form-input-modern:focus,
+  .form-select-modern:focus,
+  .form-textarea-modern:focus {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.1);
+    background-color: var(--bg-secondary);
+  }
+
+  .form-input-modern::placeholder {
+    color: var(--text-tertiary);
+    opacity: 0.5;
+  }
+
+  /* 现代化选择框自定义箭头 */
+  .form-select-modern {
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%239ca3af'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 14px center;
+    background-size: 16px;
+    padding-right: 40px;
+    cursor: pointer;
+    line-height: normal;
+  }
+
+  .form-select-modern:focus,
+  .form-select-modern:active {
+    background-position: right 14px center !important;
+  }
+
+  /* --- 开关组件 (Modern Switch) --- */
+  .ag-switch-container {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
+  }
+
+  .ag-switch {
+    position: relative;
+    display: inline-block;
+    width: 42px;
+    height: 22px;
+    flex-shrink: 0;
+  }
+
+  .ag-switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+  }
+
+  .ag-switch-slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: var(--bg-tertiary);
+    transition: .3s;
+    border-radius: 34px;
+    border: 1px solid var(--border-color);
+  }
+
+  .ag-switch-slider:before {
+    position: absolute;
+    content: "";
+    height: 16px;
+    width: 16px;
+    left: 3px;
+    bottom: 2px;
+    background-color: white;
+    transition: .3s;
+    border-radius: 50%;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15);
+  }
+
+  .ag-switch input:checked+.ag-switch-slider {
+    background-color: var(--success-color);
+    border-color: var(--success-dark);
+  }
+
+  .ag-switch input:checked+.ag-switch-slider:before {
+    transform: translateX(18px);
+  }
+
+  .ag-switch input:focus+.ag-switch-slider {
+    box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.1);
+  }
+
+  .ag-switch-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-secondary);
+  }
 
   /* --- 通用组件样式 --- */
 
@@ -128,6 +260,11 @@ pre,
     scrollbar-width: none;
     /* 隐藏滚动条 (Firefox) */
     -webkit-overflow-scrolling: touch;
+  }
+
+  .aliyun-sec-tabs {
+    position: relative;
+    /* border-bottom: 2px solid rgba(255, 106, 0, 0.1); */
   }
 
   /* 单页模式下移除分割线和标题栏 */
@@ -239,7 +376,8 @@ pre,
   .theme-paas,
   .theme-totp,
   .theme-music,
-  .theme-uptime {
+  .theme-uptime,
+  .theme-notification {
     --current-primary: var(--primary-color);
     --current-dark: var(--primary-dark);
   }
@@ -302,6 +440,65 @@ pre,
     --current-primary: #10b981;
     --current-dark: #059669;
     --current-rgb: 16, 185, 129;
+  }
+
+  .theme-notification {
+    --current-primary: var(--notification-primary);
+    --current-dark: var(--notification-dark);
+    --current-rgb: 245, 158, 11;
+  }
+
+  .theme-aliyun {
+    --current-primary: #ff6a00;
+    --current-dark: #e55c00;
+    --current-rgb: 255, 106, 0;
+  }
+
+  .theme-tencent {
+    --current-primary: #0052d9;
+    --current-dark: #003db3;
+    --current-rgb: 0, 82, 217;
+  }
+
+  /* 通用输入框图标样式 */
+  .input-with-icon {
+    position: relative;
+    display: flex;
+    align-items: center;
+    width: 100%;
+  }
+
+  .input-with-icon i {
+    position: absolute;
+    left: 12px;
+    color: var(--text-tertiary);
+    font-size: 14px;
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  .input-with-icon .form-input {
+    padding-left: 36px !important;
+    width: 100%;
+  }
+
+  .theme-aliyun .tab-btn:hover:not(.active) {
+    border-color: #ff6a00 !important;
+  }
+
+  .theme-aliyun .tab-btn.active {
+    background: linear-gradient(135deg, #ff6a00, #e55c00) !important;
+    box-shadow: 0 2px 8px rgba(255, 106, 0, 0.3);
+  }
+
+  .theme-aliyun .zone-card.active {
+    border-color: #ff6a00 !important;
+    background: rgba(255, 106, 0, 0.05);
+    box-shadow: 0 2px 8px rgba(255, 106, 0, 0.1);
+  }
+
+  .theme-aliyun .zone-card.active i {
+    color: #ff6a00 !important;
   }
 
   /* 应用动态颜色到通用组件 */
@@ -382,6 +579,11 @@ pre,
   .theme-uptime .tab-btn.active {
     background: linear-gradient(135deg, #10b981, #059669) !important;
     box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+  }
+
+  .theme-notification .tab-btn.active {
+    background: linear-gradient(135deg, var(--notification-primary), var(--notification-dark)) !important;
+    box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3);
   }
 
   /* ========================================
@@ -540,6 +742,36 @@ pre,
     --sidebar-bg: #1f2937;
     --sidebar-border: #374151;
   }
+}
+
+/* 手动深色模式支持 (与媒体查询保持同步) */
+[data-theme='dark'] {
+  --bg-primary: #111827;
+  --bg-secondary: #1f2937;
+  --bg-secondary-rgb: 31, 41, 55;
+  --bg-tertiary: #374151;
+  --text-primary: #f9fafb;
+  --text-secondary: #d1d5db;
+  --text-tertiary: #9ca3af;
+  --border-color: #374151;
+  --card-bg: #1f2937;
+  --card-shadow: 2px 2px 2px 0px rgba(0, 0, 0, 0.3), 2px 2px 2px 0px rgba(0, 0, 0, 0.2);
+  --card-hover-shadow: 5px 5px 6px 0px rgba(0, 0, 0, 0.3), 4px 4px 5px 0px rgba(0, 0, 0, 0.2);
+  --modal-overlay: rgba(0, 0, 0, 0.7);
+  --input-bg: transparent;
+  --input-border: #4b5563;
+  --input-focus-border: #6366f1;
+  --button-primary-bg: #6366f1;
+  --button-primary-hover: #4f46e5;
+  --button-secondary-bg: #374151;
+  --button-secondary-hover: #004346;
+  --status-running: #10b981;
+  --status-stopped: #ef4444;
+  --status-suspended: #f59e0b;
+  --status-deploying: #8b5cf6;
+  --status-paused: #6b7280;
+  --sidebar-bg: #1f2937;
+  --sidebar-border: #374151;
 }
 
 body.modal-open {
@@ -921,10 +1153,6 @@ body.modal-open {
   color: white;
 }
 
-.btn-primary:hover:not(:disabled) {
-  /* 仅颜色亮度变化 */
-}
-
 .btn-secondary {
   background: var(--bg-tertiary);
   border-color: var(--border-color);
@@ -986,10 +1214,6 @@ body.modal-open {
   padding: 0 28px;
   font-size: 16px;
   border-radius: 14px;
-}
-
-.btn-md {
-  /* 默认尺寸，无需在此定义 */
 }
 
 .btn-sm {
@@ -1319,10 +1543,6 @@ body.modal-open {
   display: flex;
   flex-direction: column;
   width: 100%;
-}
-
-.account-header:active {
-  /* transform: scale(0.995); */
 }
 
 /* account-header 横向滚动条样式 */
@@ -2857,10 +3077,6 @@ body.modal-open {
 
   .stats-grid {
     grid-template-columns: repeat(2, 1fr);
-  }
-
-  .account-header {
-    /* padding-right: 100px; */
   }
 
   .account-header>div:last-child {

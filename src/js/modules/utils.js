@@ -366,6 +366,20 @@ export function formatRegion(region) {
     sfo: '金山',
     nyc: '纽约',
     tor: '多伦多',
+    // 阿里云/腾讯云常见区域适配
+    'cn-hangzhou': '杭州',
+    'cn-shanghai': '上海',
+    'cn-beijing': '北京',
+    'cn-guangzhou': '广州',
+    'cn-shenzhen': '深圳',
+    'cn-hongkong': '香港',
+    'ap-guangzhou': '广州',
+    'ap-shanghai': '上海',
+    'ap-beijing': '北京',
+    'ap-hongkong': '香港',
+    'ap-singapore': '新加坡',
+    'ap-nanjing': '南京',
+    'ap-chengdu': '成都',
   };
 
   // 模糊匹配逻辑

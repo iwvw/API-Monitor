@@ -1,0 +1,388 @@
+/* ==================== 通知管理模块样式 ==================== */
+/* 该文件仅包含通知模块特有的样式，通用组件请使用 styles.css 中的全局样式 */
+
+/* 容器与布局 */
+.notification-tab-content {
+  transform: none !important;
+  position: static !important;
+}
+
+.notification-container {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+/* 工具栏 */
+.notification-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+/* 筛选栏 */
+.notification-filter-bar {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+/* 空状态 */
+.notification-empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--text-secondary);
+}
+
+.notification-empty-state i {
+  font-size: 48px;
+  opacity: 0.5;
+  margin-bottom: 16px;
+}
+
+.notification-empty-state h3 {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 12px 0 6px;
+  color: var(--text-primary);
+}
+
+.notification-empty-state p {
+  font-size: 14px;
+  margin-bottom: 24px;
+}
+
+/* ==================== 渠道列表 ==================== */
+.notification-channel-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+  gap: 16px;
+}
+
+.notification-channel-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 16px;
+  transition: all 0.2s ease;
+}
+
+.notification-channel-card:hover {
+  border-color: var(--primary-color);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.channel-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.channel-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+.channel-icon.email {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.channel-icon.telegram {
+  background: linear-gradient(135deg, #0088cc 0%, #005f8c 100%);
+  color: white;
+}
+
+.channel-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.channel-name {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.channel-type {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.channel-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.channel-status {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.status-badge.enabled {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+}
+
+/* 品牌化主题覆盖 */
+.theme-notification .notification-channel-card:hover,
+.theme-notification .notification-rule-card:hover {
+  border-color: var(--notification-primary);
+  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.15);
+}
+
+.theme-notification .btn-primary {
+  background: var(--notification-primary);
+  border-color: var(--notification-dark);
+  color: white;
+}
+
+.theme-notification .btn-primary:hover {
+  background: var(--notification-dark);
+  box-shadow: 0 4px 12px rgba(245, 158, 11, 0.2);
+}
+
+.theme-notification .form-select-modern {
+  min-width: 130px;
+}
+
+/* ==================== 规则列表 ==================== */
+.notification-rule-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.notification-rule-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 10px;
+  padding: 16px;
+  transition: all 0.2s ease;
+}
+
+.notification-rule-card:hover {
+  border-color: var(--primary-color);
+}
+
+.rule-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.rule-severity {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.rule-severity.critical {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+.rule-severity.warning {
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+}
+
+.rule-severity.info {
+  background: rgba(59, 130, 246, 0.15);
+  color: #3b82f6;
+}
+
+.rule-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.rule-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+}
+
+.rule-meta {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.rule-meta .meta-badge {
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.rule-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.rule-config {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-color);
+}
+
+.rule-config .config-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.rule-config .config-item i {
+  font-size: 12px;
+  opacity: 0.7;
+}
+
+/* ==================== 历史列表 ==================== */
+.notification-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.notification-history-item {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 14px;
+  display: flex;
+  gap: 12px;
+  transition: all 0.2s ease;
+}
+
+.notification-history-item:hover {
+  border-color: var(--primary-color);
+}
+
+.history-status {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: 16px;
+}
+
+.history-status.sent {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+}
+
+.history-status.failed {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+.history-status.pending {
+  background: rgba(245, 158, 11, 0.15);
+  color: #f59e0b;
+}
+
+.history-content {
+  flex: 1;
+  min-width: 0;
+}
+
+.history-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.history-message {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 8px;
+  line-height: 1.5;
+}
+
+.history-meta {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 12px;
+}
+
+.history-meta .meta-time {
+  color: var(--text-tertiary);
+  margin-top: 6px;
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.history-meta .meta-error {
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.history-meta .meta-retry {
+  color: #f59e0b;
+}
+
+/* 继承全局 .modal-overlay 定义，仅在需要时进行微调 */
+.notification-modal-overlay {}
+
+/* ==================== 响应式 ==================== */
+@media (max-width: 768px) {
+  .notification-container {
+    padding: 12px;
+  }
+
+  .notification-channel-list {
+    grid-template-columns: 1fr;
+  }
+
+  .notification-toolbar {
+    flex-wrap: wrap;
+  }
+
+  .notification-toolbar h3 {
+    width: 100%;
+    margin-bottom: 12px;
+  }
+}

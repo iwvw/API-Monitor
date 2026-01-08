@@ -235,6 +235,11 @@ export const sshMethods = {
             session.connected = true;
             session.terminal.writeln(`\x1b[1;32m${msg.message}\x1b[0m`);
             session.terminal.writeln('');
+
+            // 如果当前是单屏布局，默认打开服务器状态侧栏
+            if (this.sshViewLayout === 'single' && !this.showServerStatusSidebar) {
+              this.toggleServerStatusSidebar();
+            }
             break;
           case 'output':
             session.terminal.write(msg.data);

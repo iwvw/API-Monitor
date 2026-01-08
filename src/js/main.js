@@ -26,7 +26,7 @@ async function loadLazyCSS() {
   console.log('[System] Loading lazy CSS resources...');
   const styles = [
     import('../css/projects.css'),
-    import('../css/dns.css'),
+    import('../css/cloudflare.css'),
     import('../css/tables.css'),
     import('../css/tabs.css'),
     import('../css/settings.css'),
@@ -52,6 +52,7 @@ async function loadLazyCSS() {
     import('../css/totp.css'),
     import('../css/music.css'),
     import('../css/uptime.css'),
+    import('../css/notification.css'),
   ];
   await Promise.all(styles);
   console.log('[System] Lazy CSS loaded');
@@ -82,7 +83,7 @@ import { paasMethods } from './modules/paas.js';
 import { koyebMethods } from './modules/koyeb.js';
 import { flyMethods } from './modules/fly.js';
 import { selfHMethods, selfHComputed } from './modules/self-h.js';
-import { dnsMethods } from './modules/dns.js';
+import { cloudflareMethods } from './modules/cloudflare.js';
 import { r2Methods } from './modules/r2.js';
 import { openaiMethods } from './modules/openai.js';
 import { antigravityMethods } from './modules/antigravity.js';
@@ -95,12 +96,17 @@ import { hostMethods } from './modules/host.js';
 import { metricsMethods } from './modules/metrics.js';
 import { snippetsMethods } from './modules/snippets.js';
 import { sshMethods } from './modules/ssh.js';
+import { sftpMethods } from './modules/sftp.js';
+import { serverStatusMethods } from './modules/server-status.js';
 import { commonMethods } from './modules/common.js';
 import { toast } from './modules/toast.js';
 import { streamPlayerMethods } from './modules/stream-player-ui.js';
 import { totpMethods, totpComputed, totpData } from './modules/totp.js';
 import { musicMethods } from './modules/music.js';
 import { uptimeData, uptimeMethods, uptimeComputed } from './modules/uptime.js';
+import { aliyunMethods } from './modules/aliyun.js';
+import { tencentMethods } from './modules/tencent.js';
+import { notificationData, notificationMethods } from './modules/notification.js';
 import { formatDateTime, formatFileSize, maskAddress, formatRegion } from './modules/utils.js';
 
 // 导入全局状态
@@ -514,6 +520,27 @@ const app = createApp({
         description: '',
       },
 
+      // SFTP 文件管理相关
+      showSftpSidebar: false, // 文件管理侧边栏显隐
+      sftpServerId: null, // 当前 SFTP 连接的服务器 ID
+      sftpCurrentPath: '/', // 当前目录路径
+      sftpFiles: [], // 当前目录文件列表
+      sftpBreadcrumbs: [], // 路径导航
+      sftpLoading: false, // 加载状态
+      sftpError: '', // 错误信息
+      sftpEditLoading: false, // 文件编辑加载状态
+      sftpSaving: false, // 文件保存状态
+      sftpUploading: false, // 文件上传状态
+      showSftpEditorModal: false, // 文件编辑器弹窗
+      sftpEditFile: null, // 当前编辑的文件 { path, name, content, originalContent }
+
+      // 服务器状态侧栏
+      showServerStatusSidebar: false, // 服务器状态侧边栏显隐
+      serverStatusData: null, // 当前服务器状态数据
+      serverStatusLoading: false, // 加载状态
+      serverStatusError: '', // 错误信息
+
+
       // 终端相关
       showSSHTerminalModal: false,
       sshTerminalServer: null,
@@ -600,6 +627,9 @@ const app = createApp({
 
       // Uptime 监测模块
       ...uptimeData,
+
+      // 通知管理模块
+      ...notificationData,
     };
   },
 
@@ -1283,6 +1313,23 @@ const app = createApp({
               case 'uptime':
                 this.initUptimeModule();
                 break;
+              case 'notification':
+                this.initNotificationModule();
+                break;
+              case 'aliyun':
+                if (this.aliyunSwitchTo) {
+                  this.aliyunSwitchTo();
+                } else {
+                  this.aliyunLoadAccounts();
+                }
+                break;
+              case 'tencent':
+                if (this.tencentSwitchTo) {
+                  this.tencentSwitchTo();
+                } else {
+                  this.tencentLoadAccounts();
+                }
+                break;
             }
           });
         }
@@ -1352,6 +1399,12 @@ const app = createApp({
               this.loadFromOpenaiCache();
               this.loadOpenaiEndpoints(true);
               break;
+            case 'aliyun':
+              this.aliyunLoadAccounts();
+              break;
+            case 'tencent':
+              this.tencentLoadAccounts();
+              break;
             case 'self-h':
               this.loadOpenListAccounts();
               break;
@@ -1376,6 +1429,9 @@ const app = createApp({
             case 'uptime':
               this.initUptimeModule();
               // Hook for auto-refresh if needed, but socket handles it
+              break;
+            case 'notification':
+              this.initNotificationModule();
               break;
           }
         });
@@ -1599,7 +1655,7 @@ const app = createApp({
     ...koyebMethods,
     ...flyMethods,
     ...selfHMethods,
-    ...dnsMethods,
+    ...cloudflareMethods,
     ...r2Methods,
     ...openaiMethods,
     ...antigravityMethods,
@@ -1614,11 +1670,16 @@ const app = createApp({
     ...metricsMethods,
     ...snippetsMethods,
     ...sshMethods,
+    ...sftpMethods,
+    ...serverStatusMethods,
     ...commonMethods,
     ...streamPlayerMethods,
     ...totpMethods,
     ...musicMethods,
     ...uptimeMethods,
+    ...aliyunMethods,
+    ...tencentMethods,
+    ...notificationMethods,
 
     // ==================== 工具函数 ====================
     formatDateTime,

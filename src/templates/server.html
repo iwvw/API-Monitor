@@ -2370,9 +2370,17 @@ Web服务器,192.168.1.100,22,root,password123
             :class="{ 'active-primary': sshSyncEnabled }" :title="sshSyncEnabled ? '关闭同步操作' : '开启多屏同步操作'">
             <i class="fas fa-broadcast-tower"></i>
           </button>
+          <button class="ssh-icon-btn" @click="toggleSftpSidebar" :class="{ 'active-primary': showSftpSidebar }"
+            title="文件管理">
+            <i class="fas fa-folder-open"></i>
+          </button>
           <button class="ssh-icon-btn" @click="showSnippetsSidebar = !showSnippetsSidebar"
             :class="{ 'active-primary': showSnippetsSidebar }" title="代码片段">
             <i class="fas fa-code"></i>
+          </button>
+          <button class="ssh-icon-btn" @click="toggleServerStatusSidebar"
+            :class="{ 'active-primary': showServerStatusSidebar }" title="服务器状态">
+            <i class="fas fa-chart-line"></i>
           </button>
           <button class="ssh-icon-btn" @click="reconnectSSHSession(activeSSHSessionId)" v-if="currentSSHSession"
             title="重新连接">
@@ -2399,6 +2407,7 @@ Web服务器,192.168.1.100,22,root,password123
 
       <!-- 终端主区域 (包含侧边栏) -->
       <div class="ssh-main-container" v-if="sshSessions.length > 0">
+
         <!-- 终端网格区域 (核心修复：使用 Vue 绑定属性确保状态持久) -->
         <div class="ssh-terminal-wrapper" :class="['layout-' + sshViewLayout, { 'dragging-active': draggedSessionId }]"
           :data-pane-count="visibleSessionIds.length" :data-split-side="sshSplitSide"
@@ -2453,6 +2462,8 @@ Web服务器,192.168.1.100,22,root,password123
           </div>
         </div>
 
+
+
         <!-- 代码片段侧边栏 -->
         <transition name="slide-right">
           <div class="ssh-snippets-sidebar" v-if="showSnippetsSidebar">
@@ -2487,6 +2498,297 @@ Web服务器,192.168.1.100,22,root,password123
             </div>
           </div>
         </transition>
+
+        <!-- SFTP 文件管理侧边栏 -->
+        <transition name="slide-right">
+          <div class="ssh-sftp-sidebar" v-if="showSftpSidebar">
+            <!-- 标题栏 -->
+            <div class="sftp-header">
+              <span class="sftp-header-title">
+                <i class="fas fa-folder-open"></i> 文件管理
+              </span>
+              <div class="sftp-header-actions">
+                <button class="mini-btn-primary" @click="refreshSftpDirectory" title="刷新">
+                  <i class="fas fa-sync-alt" :class="{ 'fa-spin': sftpLoading }"></i>
+                </button>
+              </div>
+            </div>
+
+            <!-- 工具栏 -->
+            <div class="sftp-toolbar">
+              <button class="sftp-action-btn" @click="goUpDirectory" title="上级目录" :disabled="sftpCurrentPath === '/'">
+                <i class="fas fa-level-up-alt"></i>
+              </button>
+              <button class="sftp-action-btn" @click="createDirectory" title="新建文件夹">
+                <i class="fas fa-folder-plus"></i>
+              </button>
+              <button class="sftp-action-btn" @click="createFile" title="新建文件">
+                <i class="fas fa-file-medical"></i>
+              </button>
+              <button class="sftp-action-btn" @click="triggerUpload" title="上传文件" :disabled="sftpUploading">
+                <i class="fas" :class="sftpUploading ? 'fa-spinner fa-spin' : 'fa-file-upload'"></i>
+              </button>
+              <button class="sftp-action-btn" @click="triggerFolderUpload" title="上传文件夹" :disabled="sftpUploading">
+                <i class="fas" :class="sftpUploading ? 'fa-spinner fa-spin' : 'fa-folder-plus'"></i>
+              </button>
+              <input type="file" id="sftp-upload-input" class="sftp-upload-input" multiple
+                @change="uploadFiles($event)">
+              <input type="file" id="sftp-folder-upload-input" class="sftp-upload-input" webkitdirectory directory
+                multiple @change="uploadFolder($event)">
+            </div>
+
+            <!-- 路径导航 -->
+            <div class="sftp-breadcrumb">
+              <template v-for="(crumb, idx) in sftpBreadcrumbs" :key="crumb.path">
+                <span class="sftp-crumb" @click="navigateToPath(crumb.path)">{{ crumb.name }}</span>
+                <span v-if="idx < sftpBreadcrumbs.length - 1" class="sftp-crumb-separator">/</span>
+              </template>
+            </div>
+
+            <!-- 文件列表 -->
+            <div class="sftp-file-list">
+              <!-- 加载中 -->
+              <div v-if="sftpLoading" class="sftp-loading">
+                <i class="fas fa-spinner fa-spin"></i>
+              </div>
+
+              <!-- 错误信息 -->
+              <div v-else-if="sftpError" class="sftp-empty">
+                <i class="fas fa-exclamation-triangle" style="color: #ef4444"></i>
+                <div>{{ sftpError }}</div>
+                <button class="mini-btn-primary" style="margin-top: 12px" @click="refreshSftpDirectory">
+                  重试
+                </button>
+              </div>
+
+              <!-- 空目录 -->
+              <div v-else-if="sftpFiles.length === 0 && !sftpLoading" class="sftp-empty">
+                <i class="fas fa-folder-open"></i>
+                <div>目录为空</div>
+              </div>
+
+              <!-- 文件列表 -->
+              <div v-else>
+                <div v-for="file in sftpFiles" :key="file.path" class="sftp-file-item"
+                  @click="file.isDirectory ? enterDirectory(file) : openFile(file)"
+                  @dblclick="file.isDirectory ? null : openFile(file)">
+                  <!-- 文件图标 -->
+                  <div class="sftp-file-icon">
+                    <i :class="['fas', getFileIcon(file)]" :style="{ color: getFileIconColor(file) }"></i>
+                  </div>
+
+                  <!-- 文件信息 -->
+                  <div class="sftp-file-info">
+                    <div class="sftp-file-name" :title="file.name">{{ file.name }}</div>
+                    <div class="sftp-file-meta">
+                      <span v-if="!file.isDirectory">{{ formatFileSize(file.size) }}</span>
+                      <span>{{ file.permissions }}</span>
+                    </div>
+                  </div>
+
+                  <!-- 操作按钮 -->
+                  <div class="sftp-file-actions">
+                    <!-- 目录操作 -->
+                    <template v-if="file.isDirectory">
+                      <button class="sftp-action-btn" @click.stop="cdToPath(file.path)" title="在终端中 cd">
+                        <i class="fas fa-terminal"></i>
+                      </button>
+                    </template>
+                    <!-- 文件操作 -->
+                    <template v-else>
+                      <button class="sftp-action-btn" @click.stop="openFile(file)" title="编辑">
+                        <i class="fas fa-edit"></i>
+                      </button>
+                      <button class="sftp-action-btn" @click.stop="downloadFile(file)" title="下载">
+                        <i class="fas fa-download"></i>
+                      </button>
+                      <button class="sftp-action-btn" @click.stop="catFile(file)" title="在终端中查看">
+                        <i class="fas fa-eye"></i>
+                      </button>
+                    </template>
+                    <!-- 通用操作 -->
+                    <button class="sftp-action-btn" @click.stop="renameItem(file)" title="重命名">
+                      <i class="fas fa-i-cursor"></i>
+                    </button>
+                    <button class="sftp-action-btn danger" @click.stop="deleteItem(file)" title="删除">
+                      <i class="fas fa-trash"></i>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </transition>
+
+        <!-- 服务器状态侧边栏 (移动到最右侧) -->
+        <transition name="slide-right">
+          <div class="ssh-status-sidebar" v-if="showServerStatusSidebar">
+            <!-- 标题栏 -->
+            <div class="sftp-header">
+              <span class="sftp-header-title">
+                <i class="fas fa-chart-line"></i> 状态
+                <span v-if="serverStatusData" class="status-source-badge"
+                  :class="serverStatusData.is_agent ? 'badge-agent' : 'badge-ssh'">
+                  {{ serverStatusData.is_agent ? 'Agent' : 'SSH' }}
+                </span>
+              </span>
+              <div class="sftp-header-actions">
+                <!-- <button class="mini-btn-primary" @click="refreshServerStatus" title="刷新">
+                  <i class="fas fa-sync-alt" :class="{ 'fa-spin': serverStatusLoading }"></i>
+                </button> -->
+              </div>
+            </div>
+
+            <!-- 状态内容 -->
+            <div class="status-content">
+              <!-- 加载中 -->
+              <div v-if="serverStatusLoading && !serverStatusData" class="sftp-loading">
+                <i class="fas fa-spinner fa-spin"></i>
+              </div>
+
+              <!-- 错误信息 -->
+              <div v-else-if="serverStatusError && !serverStatusData" class="sftp-empty">
+                <i class="fas fa-exclamation-triangle" style="color: #ef4444"></i>
+                <div>{{ serverStatusError }}</div>
+                <button class="mini-btn-primary" style="margin-top: 12px" @click="refreshServerStatus">
+                  重试
+                </button>
+              </div>
+
+              <!-- 无会话 -->
+              <div v-else-if="!currentSSHSession" class="sftp-empty">
+                <i class="fas fa-plug"></i>
+                <div>请先连接服务器</div>
+              </div>
+
+              <!-- 状态数据 -->
+              <div v-else-if="serverStatusData" class="status-sections">
+                <!-- 服务器基本信息 -->
+                <div class="status-section">
+                  <div class="status-section-title">
+                    <i class="fas fa-server"></i> 基本信息
+                  </div>
+                  <div class="status-item">
+                    <span class="status-label">系统</span>
+                    <span class="status-value">{{ serverStatusData.platform || '-' }}</span>
+                  </div>
+                  <div class="status-item">
+                    <span class="status-label">运行时间</span>
+                    <span class="status-value">{{ formatUptime(serverStatusData.uptime) }}</span>
+                  </div>
+                  <div class="status-item" v-if="serverStatusData.agent_version">
+                    <span class="status-label">Agent</span>
+                    <span class="status-value">v{{ serverStatusData.agent_version }}</span>
+                  </div>
+                </div>
+
+                <!-- 网络流速 -->
+                <div class="status-section" v-if="serverStatusData.network">
+                  <div class="status-section-title">
+                    <i class="fas fa-network-wired"></i> 实时带宽
+                  </div>
+                  <div class="status-item">
+                    <span class="status-label">下行速率</span>
+                    <span class="status-value" style="color: #3b82f6">
+                      <i class="fas fa-arrow-down"></i> {{ serverStatusData.network.down || '0 B/s' }}
+                    </span>
+                  </div>
+                  <div class="status-item">
+                    <span class="status-label">上行速率</span>
+                    <span class="status-value" style="color: #10b981">
+                      <i class="fas fa-arrow-up"></i> {{ serverStatusData.network.up || '0 B/s' }}
+                    </span>
+                  </div>
+                </div>
+
+                <!-- CPU -->
+                <div class="status-section">
+                  <div class="status-section-title">
+                    <i class="fas fa-microchip"></i> CPU
+                  </div>
+                  <div class="status-item">
+                    <span class="status-label">使用率</span>
+                    <span class="status-value" :style="{ color: getCpuColor(serverStatusData.cpu_usage) }">
+                      {{ serverStatusData.cpu_usage || '-' }}
+                    </span>
+                  </div>
+                  <div class="status-progress" v-if="serverStatusData.cpu_usage">
+                    <div class="status-progress-bar"
+                      :style="{ width: serverStatusData.cpu_usage, background: getCpuColor(serverStatusData.cpu_usage) }">
+                    </div>
+                  </div>
+                  <div class="status-item">
+                    <span class="status-label">负载</span>
+                    <span class="status-value">{{ serverStatusData.load || '-' }}</span>
+                  </div>
+                </div>
+
+                <!-- 内存 -->
+                <div class="status-section">
+                  <div class="status-section-title">
+                    <i class="fas fa-memory"></i> 内存
+                  </div>
+                  <div class="status-item">
+                    <span class="status-label">使用</span>
+                    <span class="status-value" :style="{ color: getMemoryColor(serverStatusData.mem_percent) }">
+                      {{ serverStatusData.mem || '-' }}
+                    </span>
+                  </div>
+                  <div class="status-progress" v-if="serverStatusData.mem_percent">
+                    <div class="status-progress-bar"
+                      :style="{ width: serverStatusData.mem_percent + '%', background: getMemoryColor(serverStatusData.mem_percent) }">
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 磁盘 -->
+                <div class="status-section">
+                  <div class="status-section-title">
+                    <i class="fas fa-hdd"></i> 磁盘
+                  </div>
+                  <div class="status-item">
+                    <span class="status-label">使用情况</span>
+                    <span class="status-value">{{ serverStatusData.disk || '-' }}</span>
+                  </div>
+                </div>
+
+                <!-- GPU (如果存在) -->
+                <div class="status-section" v-if="serverStatusData.gpu && serverStatusData.gpu.length > 0">
+                  <div class="status-section-title">
+                    <i class="fas fa-microchip"></i> GPU 状态
+                  </div>
+                  <div v-for="gpu in serverStatusData.gpu" :key="gpu.index" class="gpu-mini-card">
+                    <div class="status-item">
+                      <span class="status-label">GPU {{ gpu.index }}</span>
+                      <span class="status-value">{{ gpu.temp }}°C</span>
+                    </div>
+                    <div class="status-progress">
+                      <div class="status-progress-bar"
+                        :style="{ width: gpu.utilization, background: getCpuColor(gpu.utilization) }"></div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Docker 容器概要 (如果存在) -->
+                <div class="status-section" v-if="serverStatusData.docker && serverStatusData.docker.length > 0">
+                  <div class="status-section-title">
+                    <i class="fab fa-docker"></i> Docker 容器 ({{ serverStatusData.docker.length }})
+                  </div>
+                  <div class="docker-container-list">
+                    <div v-for="container in serverStatusData.docker.slice(0, 10)" :key="container.id"
+                      class="docker-container-item">
+                      <div class="docker-status-dot" :style="{ background: getContainerStatusColor(container.state) }">
+                      </div>
+                      <span class="docker-container-name" :title="container.name">{{ container.name }}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </transition>
+
+
       </div>
 
       <!-- 空状态欢迎页 -->
@@ -2628,6 +2930,40 @@ Web服务器,192.168.1.100,22,root,password123
       <button class="btn btn-secondary" @click="showSnippetModal = false">取消</button>
       <button class="btn btn-primary" @click="saveSnippet" :disabled="snippetSaving">
         {{ snippetSaving ? '保存中...' : '保存' }}
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- SFTP 文件编辑器模态框 -->
+<div v-if="showSftpEditorModal" class="modal-overlay" style="z-index: 2000040; position: fixed; top: 0; left: 0;"
+  @click.self="showSftpEditorModal = false">
+  <div class="modal" style="max-width: 800px; width: 90%;">
+    <div class="modal-header">
+      <div class="modal-title">
+        <i class="fas fa-edit" style="color: var(--primary-color); margin-right: 8px"></i>
+        编辑文件: {{ sftpEditFile?.name }}
+      </div>
+      <button class="modal-close" @click="showSftpEditorModal = false">
+        <i class="fas fa-times"></i>
+      </button>
+    </div>
+    <div class="modal-body" v-if="sftpEditFile">
+      <div style="margin-bottom: 8px; font-size: 11px; color: var(--text-tertiary); font-family: var(--font-mono)">
+        {{ sftpEditFile.path }}
+      </div>
+      <textarea v-model="sftpEditFile.content" class="sftp-editor-content" spellcheck="false"
+        autocomplete="off"></textarea>
+    </div>
+    <div class="modal-footer">
+      <span v-if="sftpEditFile && sftpEditFile.content !== sftpEditFile.originalContent"
+        style="font-size: 11px; color: var(--warning-color); margin-right: auto">
+        <i class="fas fa-exclamation-circle"></i> 有未保存的更改
+      </span>
+      <button class="btn btn-secondary" @click="showSftpEditorModal = false">取消</button>
+      <button class="btn btn-primary" @click="saveEditedFile" :disabled="sftpSaving">
+        <i :class="sftpSaving ? 'fas fa-spinner fa-spin' : 'fas fa-save'" style="margin-right: 6px"></i>
+        {{ sftpSaving ? '保存中...' : '保存' }}
       </button>
     </div>
   </div>

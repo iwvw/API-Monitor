@@ -1,0 +1,471 @@
+<div class="tab-content tencent-tab-content theme-tencent" :class="getTabAnimationClass('tencent')">
+    <!-- 腾讯云子标签页 -->
+    <div class="sec-tabs tencent-sec-tabs" style="justify-content: center; padding-right: 10px;">
+        <div style="display: flex; gap: 6px; flex: 1; justify-content: center;">
+            <button class="tab-btn" :class="{ active: store.tencentActiveSubTab === 'dns' }"
+                @click="store.tencentActiveSubTab = 'dns'; tencentSwitchTo()">
+                <i class="fas fa-globe"></i> DNS 解析
+            </button>
+            <button class="tab-btn" :class="{ active: store.tencentActiveSubTab === 'cvm' }"
+                @click="store.tencentActiveSubTab = 'cvm'; tencentSwitchTo()">
+                <i class="fas fa-server"></i> 云服务器 CVM
+            </button>
+            <button class="tab-btn" :class="{ active: store.tencentActiveSubTab === 'lighthouse' }"
+                @click="store.tencentActiveSubTab = 'lighthouse'; tencentSwitchTo()">
+                <i class="fas fa-cube"></i> 轻量服务器
+            </button>
+            <button class="tab-btn" :class="{ active: store.tencentActiveSubTab === 'accounts' }"
+                @click="store.tencentActiveSubTab = 'accounts'">
+                <i class="fas fa-users"></i> 账号管理
+            </button>
+        </div>
+    </div>
+
+    <!-- 账号选择区 -->
+    <div style="margin-bottom: 16px"
+        v-if="store.tencentAccounts.length > 1 && store.tencentActiveSubTab !== 'accounts'">
+        <div class="zones-grid">
+            <div v-for="acc in store.tencentAccounts" :key="acc.id" class="zone-card"
+                :class="{ active: store.tencentSelectedAccountId === acc.id }" @click="tencentSelectAccount(acc)">
+                <div style="flex: 1">
+                    <div class="zone-name">
+                        <i class="fas fa-cloud" style="margin-right: 8px; color: var(--current-primary)"></i>
+                        <strong>{{ acc.name }}</strong>
+                    </div>
+                    <div class="zone-status" style="font-size: 11px">{{ acc.region_id || 'ap-guangzhou' }}</div>
+                </div>
+                <div style="display: flex; align-items: center; gap: 8px">
+                    <i v-if="store.tencentSelectedAccountId === acc.id" class="fas fa-check-circle"
+                        style="color: var(--tencent-color, #0052d9)"></i>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- DNS 面板 -->
+    <div v-if="store.tencentActiveSubTab === 'dns'" class="sub-tab-content quick-fade-in">
+        <div class="panel-header" v-if="store.tencentSelectedAccountId"
+            style="margin-bottom: 16px; display: flex; justify-content: flex-end; gap: 8px;">
+            <button class="btn btn-secondary btn-sm" @click="tencentRefreshData" title="刷新数据">
+                <i class="fas fa-sync-alt" :class="{ 'fa-spin': store.tencentLoadingDomains }"></i> 刷新
+            </button>
+            <button class="btn btn-primary btn-sm" @click="tencentOpenAddDomainModal">
+                <i class="fas fa-plus"></i> 添加域名
+            </button>
+        </div>
+
+        <div v-if="store.tencentLoadingDomains" class="loading">
+            <div class="spinner"></div>
+            <div style="margin-top: 12px">加载域名列表...</div>
+        </div>
+
+        <div v-else-if="store.tencentDomains.length > 0">
+            <div class="zones-grid" style="margin-bottom: 24px;">
+                <div v-for="domain in store.tencentDomains" :key="domain.DomainId || domain.Name" class="zone-card"
+                    :class="{ active: store.tencentSelectedDomain?.Name === domain.Name }"
+                    @click="tencentSelectDomain(domain)">
+                    <div style="flex: 1">
+                        <div class="zone-name" style="display: flex; align-items: center; justify-content: flex-start;">
+                            <span>{{ domain.Name }}</span>
+                            <a :href="'https://console.cloud.tencent.com/dnspod/records?domain=' + domain.Name"
+                                target="_blank" class="btn-icon-refined" @click.stop title="在腾讯云后台查看">
+                                <i class="fas fa-external-link-alt" style="font-size: 12px"></i>
+                            </a>
+                        </div>
+                        <div class="zone-status">DNSPod {{ domain.GradeTitle || '' }}</div>
+                    </div>
+                    <i class="fas fa-chevron-right" style="color: var(--text-tertiary)"></i>
+                </div>
+            </div>
+
+            <div v-if="store.tencentSelectedDomain" class="panel quick-fade-in" style="margin-top: 24px;">
+                <div class="panel-header">
+                    <div class="panel-title">
+                        <i class="fas fa-list-alt" style="margin-right: 8px; color: var(--tencent-color, #0052d9)"></i>
+                        {{ store.tencentSelectedDomain?.Name }} - 解析记录
+                    </div>
+                    <div style="display: flex; gap: 8px; align-items: center">
+                        <button class="btn btn-success btn-sm" @click="tencentOpenAddRecordModal">
+                            <i class="fas fa-plus"></i> 添加
+                        </button>
+                        <button class="btn btn-danger btn-sm"
+                            @click="tencentDeleteDomain(store.tencentSelectedDomain.Name)" title="删除此域名">
+                            <i class="fas fa-trash"></i> 删除
+                        </button>
+                        <button class="btn btn-secondary btn-sm" @click="store.tencentSelectedDomain = null" title="关闭">
+                            <i class="fas fa-times"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <div class="table-container">
+                    <div v-if="store.tencentLoadingRecords" class="loading" style="padding: 40px">
+                        <div class="spinner"></div>
+                        <div style="margin-top: 12px">加载记录中...</div>
+                    </div>
+                    <table v-else class="data-table">
+                        <thead>
+                            <tr>
+                                <th>主机记录</th>
+                                <th style="width: 80px">类型</th>
+                                <th>记录值</th>
+                                <th style="width: 80px">线路</th>
+                                <th style="width: 80px">状态</th>
+                                <th style="width: 100px" class="text-center">操作</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr v-for="record in store.tencentRecords" :key="record.RecordId">
+                                <td><span style="font-weight: 600">{{ record.Name }}</span></td>
+                                <td><span class="record-type" :class="record.Type">{{ record.Type }}</span></td>
+                                <td>
+                                    <div class="content-truncate">{{ record.Value }}</div>
+                                </td>
+                                <td><span class="ttl-badge">{{ record.Line }}</span></td>
+                                <td>
+                                    <button @click="tencentToggleRecordStatus(record)" class="btn btn-xs"
+                                        :class="record.Status === 'ENABLE' ? 'btn-success' : 'btn-secondary'">
+                                        {{ record.Status === 'ENABLE' ? '启用' : '暂停' }}
+                                    </button>
+                                </td>
+                                <td class="actions text-center">
+                                    <div class="flex-cell">
+                                        <button class="btn btn-icon-refined" @click="tencentEditRecord(record)"
+                                            title="编辑">
+                                            <i class="fas fa-edit"></i>
+                                        </button>
+                                        <button class="btn btn-icon-refined"
+                                            @click="tencentDeleteRecord(record.RecordId)" title="删除"
+                                            style="color: var(--danger-color)">
+                                            <i class="fas fa-trash"></i>
+                                        </button>
+                                    </div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+        <div v-else class="empty-state">
+            <i class="fas fa-globe" style="font-size: 48px; margin-bottom: 16px"></i>
+            <div>暂无域名，请先选择账号或添加域名</div>
+        </div>
+    </div>
+
+    <!-- CVM 面板 -->
+    <div v-if="store.tencentActiveSubTab === 'cvm'" class="sub-tab-content quick-fade-in">
+        <div class="panel-header" v-if="store.tencentSelectedAccountId"
+            style="margin-bottom: 16px; display: flex; justify-content: flex-end;">
+            <button class="btn btn-secondary btn-sm" @click="tencentRefreshData">
+                <i class="fas fa-sync-alt" :class="{ 'fa-spin': store.tencentLoadingCvm }"></i> 刷新
+            </button>
+        </div>
+
+        <div v-if="store.tencentLoadingCvm" class="loading">
+            <div class="spinner"></div>
+            <div style="margin-top: 12px">全域扫描 CVM 实例...</div>
+        </div>
+
+        <div v-else-if="store.tencentCvmInstances.length > 0" class="table-container panel">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>实例名称/ID</th>
+                        <th>状态</th>
+                        <th>配置</th>
+                        <th>公网 IP</th>
+                        <th>区域</th>
+                        <th class="text-center">操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr v-for="ins in store.tencentCvmInstances" :key="ins.InstanceId">
+                        <td>
+                            <div style="font-weight: 600">{{ ins.InstanceName }}</div>
+                            <div class="code-sm">{{ ins.InstanceId }}</div>
+                        </td>
+                        <td>
+                            <span class="status-badge"
+                                :class="ins.InstanceState === 'RUNNING' ? 'status-online' : 'status-offline'">
+                                {{ ins.InstanceState === 'RUNNING' ? '运行中' : '已停止' }}
+                            </span>
+                        </td>
+                        <td>{{ ins.CPU }}核 {{ ins.Memory }}GB</td>
+                        <td>
+                            <div v-for="ip in ins.PublicIpAddresses" :key="ip" class="flex-cell">
+                                <span class="code-font">{{ ip }}</span>
+                                <button class="btn-icon-refined" @click="copyToClipboard(ip)" title="复制">
+                                    <i class="fas fa-copy"></i>
+                                </button>
+                            </div>
+                        </td>
+                        <td>{{ ins.Placement.Zone }}</td>
+                        <td class="actions text-center">
+                            <div class="flex-cell">
+                                <button class="btn btn-icon-refined" v-if="ins.InstanceState === 'STOPPED'"
+                                    @click="tencentControlCvm(ins, 'start')" title="启动">
+                                    <i class="fas fa-play"></i>
+                                </button>
+                                <button class="btn btn-icon-refined" v-if="ins.InstanceState === 'RUNNING'"
+                                    @click="tencentControlCvm(ins, 'stop')" title="停止">
+                                    <i class="fas fa-stop"></i>
+                                </button>
+                                <button class="btn btn-icon-refined" v-if="ins.InstanceState === 'RUNNING'"
+                                    @click="tencentControlCvm(ins, 'reboot')" title="重启">
+                                    <i class="fas fa-redo"></i>
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Lighthouse 面板 -->
+    <div v-if="store.tencentActiveSubTab === 'lighthouse'" class="sub-tab-content quick-fade-in">
+        <div class="panel-header" v-if="store.tencentSelectedAccountId"
+            style="margin-bottom: 16px; display: flex; justify-content: flex-end;">
+            <button class="btn btn-secondary btn-sm" @click="tencentRefreshData">
+                <i class="fas fa-sync-alt" :class="{ 'fa-spin': store.tencentLoadingLighthouse }"></i> 刷新
+            </button>
+        </div>
+
+        <div v-if="store.tencentLoadingLighthouse" class="loading">
+            <div class="spinner"></div>
+            <div style="margin-top: 12px">全域扫描轻量服务器...</div>
+        </div>
+
+        <div v-else-if="store.tencentLighthouseInstances.length > 0" class="table-container panel">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>实例名称/ID</th>
+                        <th>状态</th>
+                        <th>配置</th>
+                        <th>公网 IP</th>
+                        <th>到期时间</th>
+                        <th class="text-center">操作</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr v-for="ins in store.tencentLighthouseInstances" :key="ins.InstanceId">
+                        <td>
+                            <div style="font-weight: 600">{{ ins.InstanceName }}</div>
+                            <div class="code-sm">{{ ins.InstanceId }}</div>
+                        </td>
+                        <td>
+                            <span class="status-badge"
+                                :class="ins.InstanceState === 'RUNNING' ? 'status-online' : 'status-offline'">
+                                {{ ins.InstanceState === 'RUNNING' ? '运行中' : '已停止' }}
+                            </span>
+                        </td>
+                        <td>{{ ins.CPU }}核 {{ ins.Memory }}GB</td>
+                        <td>
+                            <div v-for="ip in ins.PublicIpAddresses" :key="ip" class="flex-cell">
+                                <span class="code-font">{{ ip }}</span>
+                                <button class="btn-icon-refined" @click="copyToClipboard(ip)" title="复制">
+                                    <i class="fas fa-copy"></i>
+                                </button>
+                            </div>
+                        </td>
+                        <td class="text-secondary" style="font-size: 12px">{{ ins.ExpiredTime }}</td>
+                        <td class="actions text-center">
+                            <div class="flex-cell">
+                                <button class="btn btn-icon-refined" v-if="ins.InstanceState === 'STOPPED'"
+                                    @click="tencentControlLighthouse(ins, 'start')" title="启动">
+                                    <i class="fas fa-play"></i>
+                                </button>
+                                <button class="btn btn-icon-refined" v-if="ins.InstanceState === 'RUNNING'"
+                                    @click="tencentControlLighthouse(ins, 'stop')" title="停止">
+                                    <i class="fas fa-stop"></i>
+                                </button>
+                                <button class="btn btn-icon-refined" @click="tencentControlLighthouse(ins, 'reboot')"
+                                    title="重启">
+                                    <i class="fas fa-redo"></i>
+                                </button>
+                            </div>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- 账号管理面板 -->
+    <div v-if="store.tencentActiveSubTab === 'accounts'" class="sub-tab-content quick-fade-in">
+        <div class="panel">
+            <div class="panel-header">
+                <div class="panel-title">Tencent Cloud 账号列表</div>
+                <button class="btn btn-primary btn-sm" @click="tencentOpenAddAccountModal">
+                    <i class="fas fa-plus"></i> 添加账号
+                </button>
+            </div>
+            <div class="table-container">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>账号名称</th>
+                            <th>SecretId</th>
+                            <th>默认区域</th>
+                            <th>备注</th>
+                            <th class="text-center">操作</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr v-for="acc in store.tencentAccounts" :key="acc.id">
+                            <td>{{ acc.name }}</td>
+                            <td><code class="code-sm">{{ acc.secret_id }}</code></td>
+                            <td>{{ acc.region_id }}</td>
+                            <td>{{ acc.description || '-' }}</td>
+                            <td class="actions text-center">
+                                <div class="flex-cell">
+                                    <button class="btn btn-icon-refined" @click="tencentEditAccount(acc)" title="编辑">
+                                        <i class="fas fa-edit"></i>
+                                    </button>
+                                    <button class="btn btn-icon-refined" @click="tencentDeleteAccount(acc.id)"
+                                        title="删除" style="color: var(--danger-color)">
+                                        <i class="fas fa-trash"></i>
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 账号模态框 -->
+<transition name="modal-fade">
+    <div v-if="store.showTencentAccountModal" class="modal-overlay" @click.self="store.showTencentAccountModal = false">
+        <div class="modal" style="max-width: 450px">
+            <div class="modal-header">
+                <div class="modal-title">
+                    <i class="fas fa-cloud" style="color: var(--current-primary); margin-right: 8px;"></i>
+                    {{ store.tencentAccountForm.id ? '编辑' : '添加' }}腾讯云账号
+                </div>
+                <button class="modal-close" @click="store.showTencentAccountModal = false">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">账号名称 *</label>
+                    <div class="input-with-icon">
+                        <i class="fas fa-tag"></i>
+                        <input v-model="store.tencentAccountForm.name" type="text" class="form-input"
+                            placeholder="例如: 腾讯云主账号">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">SecretId *</label>
+                    <div class="input-with-icon">
+                        <i class="fas fa-key"></i>
+                        <input v-model="store.tencentAccountForm.secretId" type="text" class="form-input code-font"
+                            placeholder="AKID...">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">SecretKey {{ store.tencentAccountForm.id ? '(留空保持不变)' : '*' }}</label>
+                    <div class="input-with-icon">
+                        <i class="fas fa-lock"></i>
+                        <input v-model="store.tencentAccountForm.secretKey" type="password" class="form-input code-font"
+                            placeholder="••••••••">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">默认区域</label>
+                    <div class="input-with-icon">
+                        <i class="fas fa-map-marker-alt"></i>
+                        <input v-model="store.tencentAccountForm.regionId" type="text" class="form-input code-font"
+                            placeholder="ap-guangzhou">
+                    </div>
+                    <div class="form-help">默认使用广州区域 (ap-guangzhou)</div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">备注</label>
+                    <div class="input-with-icon">
+                        <i class="fas fa-comment-alt"></i>
+                        <input v-model="store.tencentAccountForm.description" type="text" class="form-input"
+                            placeholder="可选备注信息">
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" @click="store.showTencentAccountModal = false">取消</button>
+                <button class="btn btn-primary" @click="tencentSubmitAccount">保存</button>
+            </div>
+        </div>
+    </div>
+</transition>
+
+<!-- 添加域名模态框 -->
+<transition name="modal-fade">
+    <div v-if="store.showTencentAddDomainModal" class="modal-overlay"
+        @click.self="store.showTencentAddDomainModal = false">
+        <div class="modal" style="max-width: 400px">
+            <div class="modal-header">
+                <div class="modal-title">
+                    <i class="fas fa-globe" style="color: var(--current-primary); margin-right: 8px;"></i>
+                    添加域名
+                </div>
+                <button class="modal-close" @click="store.showTencentAddDomainModal = false">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label class="form-label">域名名称</label>
+                    <input v-model="store.tencentAddDomainName" type="text" class="form-input code-font"
+                        placeholder="example.com">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" @click="store.showTencentAddDomainModal = false">取消</button>
+                <button class="btn btn-primary" @click="tencentSubmitAddDomain"
+                    :disabled="!store.tencentAddDomainName">确认添加</button>
+            </div>
+        </div>
+    </div>
+</transition>
+
+<!-- 解析记录模态框 -->
+<transition name="modal-fade">
+    <div v-if="store.showTencentRecordModal" class="modal-overlay" @click.self="store.showTencentRecordModal = false">
+        <div class="modal" style="max-width: 500px">
+            <div class="modal-header">
+                <div class="modal-title">
+                    <i class="fas fa-list-alt" style="color: var(--current-primary); margin-right: 8px;"></i>
+                    {{ store.tencentEditingRecordId ? '编辑记录' : '添加解析记录' }}
+                </div>
+                <button class="modal-close" @click="store.showTencentRecordModal = false">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-row">
+                    <div class="form-group flex-1">
+                        <label class="form-label">主机记录</label>
+                        <input v-model="store.tencentRecordForm.subDomain" type="text" class="form-input code-font"
+                            placeholder="www">
+                    </div>
+                    <div class="form-group" style="width: 120px">
+                        <label class="form-label">类型</label>
+                        <select v-model="store.tencentRecordForm.recordType" class="form-input code-font">
+                            <option value="A">A</option>
+                            <option value="AAAA">AAAA</option>
+                            <option value="CNAME">CNAME</option>
+                            <option value="TXT">TXT</option>
+                            <option value="MX">MX</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label class="form-label">记录值</label>
+                    <input v-model="store.tencentRecordForm.value" type="text" class="form-input code-font">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" @click="store.showTencentRecordModal = false">取消</button>
+                <button class="btn btn-primary" @click="tencentSubmitRecord">提交</button>
+            </div>
+        </div>
+    </div>
+</transition>

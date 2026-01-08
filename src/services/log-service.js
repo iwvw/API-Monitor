@@ -10,7 +10,7 @@ const { requireAuth } = require('../middleware/auth');
 const fs = require('fs');
 const path = require('path');
 
-const logger = createLogger('LogService');
+const logger = createLogger('Log');
 const router = express.Router();
 
 /**

@@ -1,6 +1,7 @@
 services:
   api-monitor:
     image: iwvw/api-monitor:latest
+    # image: iwvw/api-monitor:dev # 开发版本可选
     container_name: api-monitor
     restart: unless-stopped
     ports:

@@ -1,7 +1,7 @@
 const axios = require('axios');
 const { HttpsProxyAgent } = require('https-proxy-agent');
 const { createLogger } = require('../../src/utils/logger');
-const logger = createLogger('Gemini-Client');
+const logger = createLogger('GCLI-Client');
 const AntigravityRequester = require('../antigravity-api/antigravity-requester');
 const path = require('path');
 let storage;

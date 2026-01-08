@@ -64,6 +64,8 @@ export const uptimeData = {
     expiryNotification: 7,
     tags: [],
     tagsInput: '', // For UI input
+    // 通知渠道配置
+    notificationChannels: [], // 选中的通知渠道 ID
   },
 };
 
@@ -342,6 +344,12 @@ export const uptimeMethods = {
       expiryNotification: 7,
       tags: [],
       tagsInput: '',
+      // 默认选中所有已启用的通知渠道
+      notificationChannels: this.notificationChannels
+        ? this.notificationChannels
+          .filter(c => c.enabled === true || c.enabled === 1)
+          .map(c => c.id)
+        : [],
     };
   },
 
@@ -352,6 +360,13 @@ export const uptimeMethods = {
     this.uptimeForm = {
       ...monitor,
       tagsInput: monitor.tags ? monitor.tags.join(', ') : '',
+      // 加载已保存的通知渠道，如果没有则默认选中所有已启用渠道
+      notificationChannels: monitor.notificationChannels ||
+        (this.notificationChannels
+          ? this.notificationChannels
+            .filter(c => c.enabled === true || c.enabled === 1)
+            .map(c => c.id)
+          : []),
     };
     this.uptimeCurrentTab = 'add';
   },

@@ -309,7 +309,27 @@ function renderTerminal(level, module, timestamp, traceId, message, data) {
   // 固定宽度定义，确保完美对齐
   const COL_TIME = 13; // HH:mm:ss.SSS
   const COL_LEVEL = 6; // ERROR
-  const COL_MODULE = 13; // [ModuleName]
+  const COL_MODULE = 14; // [ModuleName] - 增加到14字符以容纳更长的模块名
+
+  // 模块名规范化映射 (长名 -> 短名)
+  const MODULE_NAME_MAP = {
+    'cronservice': 'Cron',
+    'cronservic': 'Cron',
+    'servermonitor': 'Monitor',
+    'servermoni': 'Monitor',
+    'uptimeservice': 'Uptime',
+    'uptimeserv': 'Uptime',
+    'antigravity-service': 'AntiG',
+    'antig-serv': 'AntiG',
+    'gemini-cli-service': 'GeminiCLI',
+    'gcli-servi': 'GeminiCLI',
+    'gcli-service': 'GeminiCLI',
+    'logservice': 'Log',
+    'metricsservice': 'Metrics',
+    'sshservice': 'SSH',
+    'agentservice': 'Agent',
+    'musicservice': 'Music',
+  };
 
   // 1. 时间戳
   const timeStr = useColor
@@ -319,8 +339,16 @@ function renderTerminal(level, module, timestamp, traceId, message, data) {
   // 2. 级别
   const levelStr = colorFn(level.padEnd(COL_LEVEL));
 
-  // 3. 模块名 (动态配色)
-  const rawModule = (module || 'core').substring(0, 10);
+  // 3. 模块名 (规范化 + 动态配色)
+  let rawModule = (module || 'Core');
+  // 尝试从映射表获取规范化名称
+  const normalizedKey = rawModule.toLowerCase().replace(/[-_\s]/g, '');
+  if (MODULE_NAME_MAP[normalizedKey]) {
+    rawModule = MODULE_NAME_MAP[normalizedKey];
+  } else if (rawModule.length > 11) {
+    // 如果仍然过长，截断但保留首字母大写
+    rawModule = rawModule.substring(0, 11);
+  }
   const formattedModule = `[${rawModule}]`.padEnd(COL_MODULE);
   const moduleColorFn = getModuleColor(module);
   const moduleStr = moduleColorFn(formattedModule);
