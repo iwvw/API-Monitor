@@ -6,10 +6,6 @@
 import { store } from '../store.js';
 import { toast } from './toast.js';
 
-// 导入 AMLL 样式
-// AMLL 样式已移至 lazy load
-// import '@applemusic-like-lyrics/core/style.css';
-
 // 音频播放器实例
 let audioPlayer = null;
 const audioContext = null;

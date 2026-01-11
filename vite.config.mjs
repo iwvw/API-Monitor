@@ -147,24 +147,24 @@ export default defineConfig(({ mode }) => {
       },
       proxy: {
         '/api': {
-          target: 'http://127.0.0.1:3000',
+          target: `http://127.0.0.1:${env.PORT || 3000}`,
           changeOrigin: true,
         },
         '/v1': {
-          target: 'http://127.0.0.1:3000',
+          target: `http://127.0.0.1:${env.PORT || 3000}`,
           changeOrigin: true,
         },
         '/socket.io': {
-          target: 'http://127.0.0.1:3000',
+          target: `http://127.0.0.1:${env.PORT || 3000}`,
           ws: true,
         },
         '/ws': {
-          target: 'http://127.0.0.1:3000',
+          target: `http://127.0.0.1:${env.PORT || 3000}`,
           ws: true,
           changeOrigin: true,
         },
         '/uploads': {
-          target: 'http://127.0.0.1:3000',
+          target: `http://127.0.0.1:${env.PORT || 3000}`,
           changeOrigin: true,
         },
       },
