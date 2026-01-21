@@ -50,6 +50,8 @@ function configureHelmet(options = {}) {
                         'ws:',
                         'https:',
                         'http:', // 允许所有 HTTP/HTTPS 连接
+                        'data:', // 允许 data URL（图片上传使用）
+                        'blob:', // 允许 blob URL
                     ],
                     objectSrc: ["'none'"],
                     frameAncestors: ["'self'"],

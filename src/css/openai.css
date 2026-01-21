@@ -837,7 +837,7 @@
 
 /* Reduced Input Height */
 .openai-chat-input-wrapper {
-  padding: 6px;
+  padding: 0px 6px 6px 6px;
   /* Less vertical padding */
   background: var(--bg-secondary);
   /* border-top: 1px solid var(--border-color); */
@@ -1759,17 +1759,17 @@
 /* Modern Input Styling */
 .openai-chat-input-wrapper {
   background: transparent !important;
-  padding: 16px !important;
+  /* padding: 16px !important; */
 }
 
 .input-panel {
   background: rgba(255, 255, 255, 0.75) !important;
   backdrop-filter: blur(12px);
   border: 1px solid rgba(0, 0, 0, 0.08) !important;
-  border-radius: 24px !important;
+  /* border-radius: 24px !important; */
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05) !important;
-  padding: 6px 12px !important;
-  max-width: 900px;
+  padding: 6px !important;
+  /* max-width: 900px; */
   margin: 0 auto;
   /* Center on large screens */
 }
@@ -2342,11 +2342,15 @@
 .chat-attachments-preview {
   display: flex;
   gap: 12px;
-  padding: 12px;
-  background: rgba(0, 0, 0, 0.1);
+  padding: 12px 16px;
+  background: linear-gradient(135deg, rgba(16, 163, 127, 0.08) 0%, rgba(16, 163, 127, 0.02) 100%);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(16, 163, 127, 0.15);
   border-bottom: 1px solid var(--border-color);
   overflow-x: auto;
   border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
 }
 
 .attachment-item {
