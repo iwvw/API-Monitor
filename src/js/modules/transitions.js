@@ -6,6 +6,11 @@
 export const transitionsMethods = {
   // 获取标签页动画类
   getTabAnimationClass(tabName) {
+    // 只有当前激活的标签页才应用动画类
+    if (this.mainActiveTab !== tabName) {
+      return '';
+    }
+
     if (!this.previousMainTab) {
       // 首次加载，使用淡入动画
       return 'fade-in';

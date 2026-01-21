@@ -6,6 +6,10 @@
 # - 推送到其他分支 → dev 标签
 # - 创建版本标签（如 v1.0.0）
 # - 手动触发（workflow_dispatch）
+#
+# 构建策略：
+# - amd64 和 arm64 分别在原生 runner 上构建（避免 QEMU 问题）
+# - 使用 docker manifest 合并多架构镜像
 
 name: Build and Publish Docker Image
 
@@ -25,7 +29,7 @@ on:
         required: false
         default: "latest"
       platforms:
-        description: "构建平台（可选）"
+        description: "构建平台（可选，逗号分隔）"
         required: false
         default: "linux/amd64,linux/arm64"
 
@@ -39,27 +43,32 @@ env:
   DOCKERHUB_REPO: ${{ github.repository_owner }}/api-monitor
 
 jobs:
-  build-and-push:
-    runs-on: ubuntu-latest
+  # ==========================================
+  # 阶段 1: 分架构构建（原生 runner，避免 QEMU）
+  # ==========================================
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+            suffix: amd64
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            suffix: arm64
+
+    runs-on: ${{ matrix.runner }}
+    outputs:
+      tags: ${{ steps.meta.outputs.tags }}
 
     steps:
-      # 检出代码
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 设置 QEMU（用于多架构构建）
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      # 设置 Docker Buildx
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-        with:
-          driver-opts: |
-            image=moby/buildkit:latest
-            network=host
 
-      # 登录 GitHub Container Registry
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
         with:
@@ -67,7 +76,6 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # 登录 Docker Hub (请确保已在 GitHub Secrets 中配置 DOCKERHUB_USERNAME 和 DOCKERHUB_TOKEN)
       - name: Login to Docker Hub
         if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
@@ -75,7 +83,7 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # 提取元数据（标签、标签等）
+      # 提取元数据（用于生成标签）
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v5
@@ -84,19 +92,13 @@ jobs:
             ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
             ${{ env.DOCKERHUB_REPO }}
           tags: |
-            # 默认 latest 标签（推送到 main 分支或版本标签时都生成）
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') }}
-            # dev 标签（非主分支时生成）
             type=raw,value=dev,enable=${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/v') }}
-            # 分支名标签（非主分支时，便于区分不同分支的构建）
             type=ref,event=branch,enable=${{ github.ref != 'refs/heads/main' }}
-            # Git commit SHA（仅在推送到 main 分支时生成）
             type=sha,prefix=,enable=${{ github.ref == 'refs/heads/main' }}
-            # 版本标签（如 v1.0.0 -> 1.0.0）
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
-            # 手动触发时使用输入的标签
             type=raw,value=${{ github.event.inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag != '' }}
           labels: |
             org.opencontainers.image.title=API Monitor
@@ -104,22 +106,104 @@ jobs:
             org.opencontainers.image.vendor=iwvw
             maintainer=iwvw
 
-      # 构建并推送镜像
-      - name: Build and push Docker image
+      # 构建并推送单架构镜像（带后缀）
+      - name: Build and push by digest
+        id: build
         uses: docker/build-push-action@v5
         with:
           context: .
           file: ./Dockerfile
+          platforms: ${{ matrix.platform }}
           push: true
-          platforms: ${{ github.event.inputs.platforms != '' && github.event.inputs.platforms || 'linux/amd64,linux/arm64' }}
-          tags: ${{ steps.meta.outputs.tags }}
+          # 使用带架构后缀的临时标签
+          tags: |
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:build-${{ github.run_id }}-${{ matrix.suffix }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=${{ matrix.platform }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.platform }}
           build-args: |
             NODE_ENV=production
 
-      # 输出镜像信息
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          echo "${{ steps.build.outputs.digest }}" > /tmp/digests/${{ matrix.suffix }}
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ matrix.suffix }}
+          path: /tmp/digests/*
+          retention-days: 1
+
+  # ==========================================
+  # 阶段 2: 合并多架构 manifest
+  # ==========================================
+  merge:
+    runs-on: ubuntu-latest
+    needs: build
+
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
+            ${{ env.DOCKERHUB_REPO }}
+          tags: |
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') }}
+            type=raw,value=dev,enable=${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/v') }}
+            type=ref,event=branch,enable=${{ github.ref != 'refs/heads/main' }}
+            type=sha,prefix=,enable=${{ github.ref == 'refs/heads/main' }}
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=${{ github.event.inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag != '' }}
+
+      # 创建并推送多架构 manifest
+      - name: Create and push manifest
+        run: |
+          # 读取各架构 digest
+          AMD64_DIGEST=$(cat /tmp/digests/amd64)
+          ARM64_DIGEST=$(cat /tmp/digests/arm64)
+          
+          echo "AMD64 Digest: $AMD64_DIGEST"
+          echo "ARM64 Digest: $ARM64_DIGEST"
+          
+          # 为每个目标标签创建 manifest
+          TAGS="${{ steps.meta.outputs.tags }}"
+          echo "$TAGS" | while IFS= read -r TAG; do
+            [ -z "$TAG" ] && continue
+            echo "Creating manifest for: $TAG"
+            docker buildx imagetools create -t "$TAG" \
+              "${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}@${AMD64_DIGEST}" \
+              "${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}@${ARM64_DIGEST}"
+          done
+
       - name: Image digest
         run: |
           echo "## 🐳 Docker 镜像构建成功" >> $GITHUB_STEP_SUMMARY
@@ -129,6 +213,8 @@ jobs:
           echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**支持架构：** linux/amd64, linux/arm64" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
           echo "**拉取命令：**" >> $GITHUB_STEP_SUMMARY
           echo '```bash' >> $GITHUB_STEP_SUMMARY
           echo "# 从 GHCR 拉取" >> $GITHUB_STEP_SUMMARY
@@ -137,24 +223,46 @@ jobs:
           echo "# 从 Docker Hub 拉取" >> $GITHUB_STEP_SUMMARY
           echo "docker pull ${{ env.DOCKERHUB_REPO }}:latest" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**使用 Docker Compose 运行：**" >> $GITHUB_STEP_SUMMARY
-          echo '```bash' >> $GITHUB_STEP_SUMMARY
-          echo "docker-compose up -d" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
 
-      # 镜像安全扫描（可选）
+  # ==========================================
+  # 阶段 3: 清理临时镜像（可选）
+  # ==========================================
+  cleanup:
+    runs-on: ubuntu-latest
+    needs: merge
+    if: always()
+    continue-on-error: true
+
+    steps:
+      - name: Delete temporary build images
+        uses: actions/delete-package-versions@v5
+        with:
+          package-name: ${{ env.IMAGE_NAME }}
+          package-type: container
+          min-versions-to-keep: 0
+          delete-only-untagged-versions: false
+          # 只删除临时构建标签
+          ignore-versions: "^(?!build-${{ github.run_id }}).*$"
+        continue-on-error: true
+
+  # ==========================================
+  # 阶段 4: 安全扫描（可选）
+  # ==========================================
+  security-scan:
+    runs-on: ubuntu-latest
+    needs: merge
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
+    continue-on-error: true
+
+    steps:
       - name: Run Trivy vulnerability scanner
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:latest
           format: "sarif"
           output: "trivy-results.sarif"
-        continue-on-error: true
 
-      # 上传扫描结果（可选）
       - name: Upload Trivy scan results to GitHub Security tab
         uses: github/codeql-action/upload-sarif@v3
         with:
           sarif_file: "trivy-results.sarif"
-        continue-on-error: true
