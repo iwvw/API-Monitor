@@ -114,6 +114,7 @@ jobs:
           context: .
           file: ./Dockerfile
           platforms: ${{ matrix.platform }}
+          no-cache: true
           push: true
           # 使用带架构后缀的临时标签
           tags: |
