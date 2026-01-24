@@ -96,7 +96,6 @@ COPY --from=agent-builder --chown=nodejs:nodejs /app/agent-go/agent-windows-amd6
 # 4. 复制后端源码 (不包含 node_modules)
 COPY --chown=nodejs:nodejs server.js ./
 COPY --chown=nodejs:nodejs src ./src
-COPY --chown=nodejs:nodejs modules ./modules
 
 ENV NODE_ENV=production \
     PORT=3000 \
