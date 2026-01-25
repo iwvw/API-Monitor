@@ -298,13 +298,9 @@ async function healthCheckModel(baseUrl, apiKey, model, timeout = DEFAULT_HEALTH
       const isHttps = url.protocol === 'https:';
       const httpModule = isHttps ? https : http;
 
-      const isReasoningModel = /o[13]-|r1|reasoning|thinking/i.test(model);
-      const maxTokens = isReasoningModel ? 20000 : 100;
-
       const requestBody = JSON.stringify({
         model: model,
         messages: [{ role: 'user', content: 'hi' }],
-        max_tokens: maxTokens, // 思考模型需要更多 tokens，普通模型仅需极少 tokens 即可
         stream: true, // 使用流式 API
       });
 
