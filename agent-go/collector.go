@@ -12,7 +12,9 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
+	"unsafe"
 
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/disk"
@@ -100,12 +102,16 @@ type Collector struct {
 	lastGPUPower   float64
 	lastGPUTime    time.Time
 
-	// CPU 采集缓存 (保持上次有效值，避免返回 0)
-	lastCPUUsage float64
-	lastCPUTime  time.Time
-
 	// GPU 采集频率控制
 	lastGPUMetadataTime time.Time
+
+	// Windows Native (PDH)
+	pdhQuery   uintptr
+	pdhCounter uintptr
+
+	// NVIDIA Native (NVML)
+	nvmlLib         *syscall.LazyDLL
+	nvmlInitialized bool
 }
 
 // NewCollector 创建采集器
@@ -574,8 +580,14 @@ func (c *Collector) collectGPUState() (float64, uint64, float64) {
 	return 0, 0, 0
 }
 
-// collectNvidiaGPUState 使用 nvidia-smi 采集 NVIDIA GPU 状态
+// collectNvidiaGPUState 使用 NVML (优先) 或 nvidia-smi 采集 NVIDIA GPU 状态
 func (c *Collector) collectNvidiaGPUState(nvidiaSmi string) (float64, uint64, float64) {
+	// 1. 尝试使用原生 NVML API (性能更高，不产生新进程)
+	if usage, usedMem, power, ok := c.collectNvidiaGPUStateNative(); ok {
+		return usage, usedMem, power
+	}
+
+	// 2. 回退到 nvidia-smi 命令行工具
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
@@ -616,14 +628,19 @@ func (c *Collector) collectNvidiaGPUState(nvidiaSmi string) (float64, uint64, fl
 	return totalUsage / float64(count), totalUsedMem, totalPower
 }
 
-// collectGPUStateWindows Windows 下采集 AMD/Intel GPU 使用率
-// 使用 PowerShell 查询 GPU Engine 性能计数器
+// collectGPUStateWindows Windows 下采集 AMD/Intel/NVIDIA GPU 使用率
+// 优先使用 PDH 性能计数器 API，回退到 PowerShell
 func (c *Collector) collectGPUStateWindows() (float64, uint64, float64) {
+	// 1. 尝试使用原生 PDH API (性能极高，无额外进程)
+	if usage, ok := c.collectGPUUsagePDH(); ok {
+		return usage, 0, 0
+	}
+
+	// 2. 回退到 PowerShell (仅在 PDH 失败时使用)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
 	// 方案1: 使用 GPU Engine 性能计数器 (Windows 10 1709+)
-	// 查询所有 GPU 3D 引擎的使用率
 	psCmd := `
 $counters = Get-Counter '\GPU Engine(*engtype_3D)\Utilization Percentage' -ErrorAction SilentlyContinue
 if ($counters) {
@@ -643,9 +660,6 @@ if ($counters) {
 	}
 
 	usage, _ := strconv.ParseFloat(strings.TrimSpace(string(output)), 64)
-	if usage > 0 {
-		// fmt.Printf("[Collector] GPU (Win PerfCounter): %.1f%%\n", usage)
-	}
 	return usage, 0, 0
 }
 
@@ -819,6 +833,141 @@ func (c *Collector) collectIntelGPULinux() float64 {
 	}
 
 	return 0
+}
+
+// ==================== Native GPU Monitoring (Windows PDH & NVML) ====================
+
+var (
+	modPdh                          = syscall.NewLazyDLL("pdh.dll")
+	procPdhOpenQuery                = modPdh.NewProc("PdhOpenQueryW")
+	procPdhAddEnglishCounter        = modPdh.NewProc("PdhAddEnglishCounterW")
+	procPdhCollectQueryData         = modPdh.NewProc("PdhCollectQueryData")
+	procPdhGetFormattedCounterValue = modPdh.NewProc("PdhGetFormattedCounterValue")
+	procPdhCloseQuery               = modPdh.NewProc("PdhCloseQuery")
+)
+
+type pdh_fmt_countervalue_double struct {
+	CStatus     uint32
+	DummyStruct [4]byte // padding for 64-bit alignment
+	DoubleValue float64
+}
+
+// collectGPUUsagePDH 使用原生 PDH API 获取所有 GPU 的 3D 引擎平均使用率
+func (c *Collector) collectGPUUsagePDH() (float64, bool) {
+	if runtime.GOOS != "windows" {
+		return 0, false
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// 初始化查询
+	if c.pdhQuery == 0 {
+		var query uintptr
+		ret, _, _ := procPdhOpenQuery.Call(0, 0, uintptr(unsafe.Pointer(&query)))
+		if ret != 0 {
+			return 0, false
+		}
+		c.pdhQuery = query
+
+		// 添加计数器 (使用通配符获取所有 GPU 的 3D 引擎使用率)
+		// 使用 English 名称确保兼容性
+		counterPath := "\\GPU Engine(*engtype_3D)\\Utilization Percentage"
+		pathPtr, _ := syscall.UTF16PtrFromString(counterPath)
+		var counter uintptr
+		ret, _, _ = procPdhAddEnglishCounter.Call(c.pdhQuery, uintptr(unsafe.Pointer(pathPtr)), 0, uintptr(unsafe.Pointer(&counter)))
+		if ret != 0 {
+			procPdhCloseQuery.Call(c.pdhQuery)
+			c.pdhQuery = 0
+			return 0, false
+		}
+		c.pdhCounter = counter
+
+		// 第一次采集建立基准
+		procPdhCollectQueryData.Call(c.pdhQuery)
+		return 0, true
+	}
+
+	// 执行采集
+	ret, _, _ := procPdhCollectQueryData.Call(c.pdhQuery)
+	if ret != 0 {
+		return 0, false
+	}
+
+	// 获取格式化后的值
+	var value pdh_fmt_countervalue_double
+	const PDH_FMT_DOUBLE = 0x00000200
+	ret, _, _ = procPdhGetFormattedCounterValue.Call(c.pdhCounter, PDH_FMT_DOUBLE, 0, uintptr(unsafe.Pointer(&value)))
+	if ret != 0 {
+		return 0, false
+	}
+
+	return value.DoubleValue, true
+}
+
+// NVIDIA NVML 原生支持
+func (c *Collector) collectNvidiaGPUStateNative() (float64, uint64, float64, bool) {
+	if runtime.GOOS == "darwin" {
+		return 0, 0, 0, false
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if !c.nvmlInitialized {
+		if c.nvmlLib == nil {
+			c.nvmlLib = syscall.NewLazyDLL("nvml.dll")
+			if runtime.GOOS != "windows" {
+				c.nvmlLib = syscall.NewLazyDLL("libnvidia-ml.so")
+			}
+		}
+
+		// 尝试初始化
+		initProc := c.nvmlLib.NewProc("nvmlInit_v2")
+		if err := initProc.Find(); err != nil {
+			return 0, 0, 0, false
+		}
+		ret, _, _ := initProc.Call()
+		if ret != 0 {
+			return 0, 0, 0, false
+		}
+		c.nvmlInitialized = true
+	}
+
+	// 获取第一个设备的句柄 (简化处理)
+	getHandle := c.nvmlLib.NewProc("nvmlDeviceGetHandleByIndex_v2")
+	var device uintptr
+	ret, _, _ := getHandle.Call(0, uintptr(unsafe.Pointer(&device)))
+	if ret != 0 {
+		return 0, 0, 0, false
+	}
+
+	// 获取利用率
+	getUtil := c.nvmlLib.NewProc("nvmlDeviceGetUtilizationRates")
+	var util struct {
+		GPU    uint32
+		Memory uint32
+	}
+	ret, _, _ = getUtil.Call(device, uintptr(unsafe.Pointer(&util)))
+	if ret != 0 {
+		return 0, 0, 0, false
+	}
+
+	// 获取显存
+	getMem := c.nvmlLib.NewProc("nvmlDeviceGetMemoryInfo")
+	var mem struct {
+		Total uint64
+		Free  uint64
+		Used  uint64
+	}
+	ret, _, _ = getMem.Call(device, uintptr(unsafe.Pointer(&mem)))
+
+	// 获取功耗 (单位通常是毫瓦)
+	getPower := c.nvmlLib.NewProc("nvmlDeviceGetPowerUsage")
+	var power uint32
+	ret, _, _ = getPower.Call(device, uintptr(unsafe.Pointer(&power)))
+
+	return float64(util.GPU), mem.Used, float64(power) / 1000.0, true
 }
 
 func (c *Collector) getNvidiaSmiPath() string {
