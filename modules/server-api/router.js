@@ -272,6 +272,68 @@ router.post('/test-connection', async (req, res) => {
 // ==================== 服务器操作接口 ====================
 
 /**
+ * 服务器电源操作 (重启/关机)
+ * POST /action
+ * { serverId, action: 'reboot'|'shutdown' }
+ */
+router.post('/action', async (req, res) => {
+  try {
+    const { serverId, action } = req.body;
+    if (!serverId || !action) return res.status(400).json({ success: false, error: '缺少参数' });
+
+    const server = serverStorage.getById(serverId);
+    if (!server) return res.status(404).json({ success: false, error: '服务器不存在' });
+
+    // 智能识别操作系统
+    let platform = 'linux';
+    const hostInfo = agentService.getHostInfo ? agentService.getHostInfo(serverId) : null;
+    const metrics = agentService.getMetrics ? agentService.getMetrics(serverId) : null;
+
+    if (hostInfo && hostInfo.platform) {
+      platform = hostInfo.platform.toLowerCase();
+    } else if (metrics && metrics.platform) {
+      platform = metrics.platform.toLowerCase();
+    } else if (server.os) {
+      platform = server.os.toLowerCase();
+    }
+
+    const isWindows = platform.includes('win');
+    let command = '';
+
+    if (action === 'reboot') {
+      command = isWindows ? 'shutdown /r /t 0 /f' : 'sudo reboot';
+    } else if (action === 'shutdown') {
+      command = isWindows ? 'shutdown /s /t 0 /f' : 'sudo shutdown -h now';
+    } else {
+      return res.status(400).json({ success: false, error: '不支持的操作类型' });
+    }
+
+    // 优先使用 Agent 执行
+    if (agentService.isOnline(serverId)) {
+      const { TaskTypes } = require('./protocol');
+      const taskId = require('crypto').randomUUID();
+      agentService.sendTask(serverId, {
+        id: taskId,
+        type: TaskTypes.COMMAND,
+        data: command,
+        timeout: 10,
+      });
+      return res.json({ success: true, message: '电源管理命令已发送给 Agent' });
+    }
+
+    // 回退到 SSH 执行
+    const result = await sshService.executeCommand(serverId, server, command);
+    if (result.success) {
+      res.json({ success: true, message: 'SSH 命令执行成功' });
+    } else {
+      res.status(500).json({ success: false, message: 'SSH 执行失败: ' + (result.error || result.stderr) });
+    }
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
  * 手动触发探测所有服务器
  */
 router.post('/check-all', async (req, res) => {
