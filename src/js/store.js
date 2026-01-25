@@ -148,7 +148,7 @@ export function getModuleIcon(moduleId) {
 
 export const store = reactive({
   // 认证与基础状态
-  isAuthenticated: false,
+  isAuthenticated: true,
   isCheckingAuth: true,
   showLoginModal: false,
   showSetPasswordModal: false,
