@@ -103,14 +103,18 @@ type Collector struct {
 	// CPU 采集缓存 (保持上次有效值，避免返回 0)
 	lastCPUUsage float64
 	lastCPUTime  time.Time
+
+	// GPU 采集频率控制
+	lastGPUMetadataTime time.Time
 }
 
 // NewCollector 创建采集器
 func NewCollector() *Collector {
 	return &Collector{
-		lastNetTime: time.Now(),
-		lastGPUTime: time.Now().Add(-1 * time.Hour), // 确保第一次采集立即执行
-		lastCPUTime: time.Now().Add(-1 * time.Hour), // 确保第一次采集立即执行
+		lastNetTime:         time.Now(),
+		lastGPUTime:         time.Now().Add(-1 * time.Hour), // 确保第一次采集立即执行
+		lastCPUTime:         time.Now().Add(-1 * time.Hour), // 确保第一次采集立即执行
+		lastGPUMetadataTime: time.Now().Add(-1 * time.Hour), // 确保第一次采集立即执行
 	}
 }
 
@@ -191,6 +195,7 @@ func (c *Collector) CollectHostInfo() *HostInfo {
 	gpuModels, gpuMemTotal := c.collectGPUMetadata()
 	info.GPU = gpuModels
 	info.GPUMemTotal = gpuMemTotal
+	c.lastGPUMetadataTime = time.Now()
 
 	c.cachedHostInfo = info
 	return info
@@ -321,21 +326,27 @@ func (c *Collector) CollectState() *State {
 		c.lastGPUTime = time.Now()
 	}
 
-	// 补救措施：如果显存总量为 0，尝试重新获取静态信息
+	// 补救措施：如果显存总量为 0，尝试重新获取静态信息 (增加冷却时间，防止频繁调用 PowerShell)
 	if c.cachedHostInfo != nil && c.cachedHostInfo.GPUMemTotal == 0 {
-		go func() {
-			c.mu.Lock()
-			defer c.mu.Unlock()
-			// 再次检查，防止并发重复
-			if c.cachedHostInfo.GPUMemTotal == 0 {
+		c.mu.Lock()
+		shouldRetry := time.Since(c.lastGPUMetadataTime) > 10*time.Minute
+		if shouldRetry {
+			c.lastGPUMetadataTime = time.Now() // 预设时间，防止下一秒再次触发
+		}
+		c.mu.Unlock()
+
+		if shouldRetry {
+			go func() {
 				models, total := c.collectGPUMetadata()
 				if total > 0 {
+					c.mu.Lock()
 					c.cachedHostInfo.GPU = models
 					c.cachedHostInfo.GPUMemTotal = total
+					c.mu.Unlock()
 					fmt.Printf("[Collector] GPU metadata refreshed: %d MiB\n", total/1024/1024)
 				}
-			}
-		}()
+			}()
+		}
 	}
 	state.GPU = c.lastGPUUsage
 	state.GPUMemUsed = c.lastGPUMemUsed
@@ -545,6 +556,14 @@ func (c *Collector) collectGPUState() (float64, uint64, float64) {
 
 	// 2. 如果没有 NVIDIA，尝试其他方案
 	if runtime.GOOS == "windows" {
+		// 如果 meta 数据中已经确认没有 GPU 型号，则不再尝试采集使用率，避免频繁调用 PowerShell
+		c.mu.Lock()
+		hasGPU := c.cachedHostInfo != nil && len(c.cachedHostInfo.GPU) > 0
+		c.mu.Unlock()
+		if !hasGPU {
+			return 0, 0, 0
+		}
+
 		// Windows: 使用 Performance Counter 采集所有 GPU
 		return c.collectGPUStateWindows()
 	} else if runtime.GOOS == "linux" {
