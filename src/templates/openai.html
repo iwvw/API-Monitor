@@ -73,25 +73,20 @@
             </div>
             <!-- 模型数量及健康检测操作 -->
             <div class="endpoint-badges">
-              <div class="zeabur-balance-panel" v-if="endpoint.models"
-                @click.stop="openHealthCheckForEndpoint(endpoint.id)" style="cursor: pointer" title="对该端点进行模型健康检测">
-                <div class="zeabur-balance-item openai-health-check-badge">
-                  <div class="zeabur-balance-icon" style="background: rgba(16, 163, 127, 0.1); color: #10a37f">
-                    <i class="fas fa-heartbeat"></i>
-                  </div>
-                </div>
+              <!-- 健康检测按钮 -->
+              <div class="endpoint-action-btn btn-health" v-if="endpoint.models"
+                @click.stop="openHealthCheckForEndpoint(endpoint.id)" title="对该端点进行模型健康检测">
+                <i class="fas fa-heartbeat"></i>
               </div>
-              <div class="zeabur-balance-panel" v-if="endpoint.models" @click.stop="refreshEndpointModels(endpoint)"
-                style="cursor: pointer" :title="endpoint.refreshing ? '正在刷新...' : '点击刷新模型列表'">
-                <div class="zeabur-balance-item openai-model-count">
-                  <div class="zeabur-balance-icon" :class="{ 'refreshing': endpoint.refreshing }"
-                    style="background: rgba(16, 163, 127, 0.15); color: #10a37f">
-                    <i class="fas fa-cube"></i>
-                  </div>
-                  <div class="zeabur-balance-info">
-                    <span class="zeabur-balance-label">模型</span>
-                    <span class="zeabur-balance-value" style="color: #10a37f">{{ endpoint.models.length }}</span>
-                  </div>
+              
+              <!-- 模型数量/刷新按钮 -->
+              <div class="endpoint-action-btn btn-models" v-if="endpoint.models" 
+                @click.stop="refreshEndpointModels(endpoint)"
+                :title="endpoint.refreshing ? '正在刷新...' : '点击刷新模型列表'">
+                <i class="fas fa-cube" :class="{ 'refreshing': endpoint.refreshing }"></i>
+                <div class="action-info">
+                  <span class="label">模型</span>
+                  <span class="value">{{ endpoint.models.length }}</span>
                 </div>
               </div>
             </div>
