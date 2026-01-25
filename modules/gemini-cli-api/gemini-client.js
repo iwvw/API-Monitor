@@ -88,27 +88,20 @@ class GeminiCliClient {
     const generationConfig = {
       temperature: temperature ?? parseFloat(settings.DEFAULT_TEMPERATURE || 1),
       topP: top_p ?? parseFloat(settings.DEFAULT_TOP_P || 0.95),
-      topK: parseInt(settings.DEFAULT_TOP_K || 64), // 默认 topK (避免某些模型问题)
+      topK: parseInt(settings.DEFAULT_TOP_K || 64),
       stopSequences: Array.isArray(stop) ? stop : stop ? [stop] : [],
     };
 
-    // 只有当明确提供了 max_tokens 时才设置 maxOutputTokens
-    // 否则让 API 使用默认值（通常很大，足以覆盖 Thinking Budget）
     if (max_tokens !== undefined && max_tokens !== null) {
       generationConfig.maxOutputTokens = Math.min(max_tokens, 65536);
     } else if (settings.DEFAULT_MAX_TOKENS) {
-      // 只有在设置中明确配置了默认值时才应用
       generationConfig.maxOutputTokens = Math.min(parseInt(settings.DEFAULT_MAX_TOKENS), 65536);
     }
 
-    // 处理 Thinking 配置 (参考 CatieCli 实现)
-    // 注意: gemini-3 模型**必须**包含 thinkingConfig，否则返回 404
     const thinkingConfig = this._getThinkingConfig(model);
     if (thinkingConfig) {
       generationConfig.thinkingConfig = thinkingConfig;
 
-      // 关键校验：如果设置了 maxOutputTokens，必须大于等于 thinkingBudget (API 强制要求)
-      // 如果未设置 maxOutputTokens，则 API 默认值通常足够大，无需调整
       if (generationConfig.maxOutputTokens && thinkingConfig.thinkingBudget) {
         if (generationConfig.maxOutputTokens < thinkingConfig.thinkingBudget + 1024) {
           generationConfig.maxOutputTokens = Math.min(thinkingConfig.thinkingBudget + 4096, 65536);
