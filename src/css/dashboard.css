@@ -70,13 +70,12 @@
   align-items: center;
   gap: 8px;
   padding: 0 16px;
-  background: rgba(255, 255, 255, 0.03);
-  /* 半透明玻璃感 */
+  background: var(--bg-secondary);
   border-radius: 12px;
   font-size: 13px;
   color: var(--text-secondary);
   font-family: var(--font-mono);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--border-color);
   height: 40px;
   backdrop-filter: blur(4px);
   transition: all 0.3s ease;
@@ -553,6 +552,11 @@
 .btn-control-circle:hover {
   background: var(--bg-secondary);
   transform: scale(1.1);
+}
+
+.btn-control-circle:active {
+  transform: scale(0.95);
+  background: var(--bg-primary);
 }
 
 .btn-control-circle.play {
