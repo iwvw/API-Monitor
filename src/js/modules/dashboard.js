@@ -211,104 +211,262 @@ export const dashboardMethods = {
   },
 
   /**
-   * 绘制 Canvas 趋势图 (Sparkline)
+   * 绘制 Canvas 趋势图 (Smooth Curve + Interaction)
    */
   drawTrendChart(refName, data, color) {
     const app = document.querySelector('#app')?.__vue_app__?._instance;
 
     let canvas = null;
+    let container = null;
     if (refName === 'agChart') {
-      // 这是一个很 hacky 的查找方式，但在没有组件上下文的情况下很有效
       const groups = document.querySelectorAll('.api-stat-group');
-      if (groups.length >= 1) canvas = groups[0].querySelector('canvas');
+      if (groups.length >= 1) {
+        canvas = groups[0].querySelector('canvas');
+        container = groups[0].querySelector('.chart-container');
+      }
     } else if (refName === 'geminiChart') {
       const groups = document.querySelectorAll('.api-stat-group');
-      if (groups.length >= 2) canvas = groups[1].querySelector('canvas');
+      if (groups.length >= 2) {
+        canvas = groups[1].querySelector('canvas');
+        container = groups[1].querySelector('.chart-container');
+      }
     }
 
-    if (!canvas) return; // 没找到 Canvas
+    if (!canvas) return;
 
-    const ctx = canvas.getContext('2d');
-    const dpr = window.devicePixelRatio || 1;
-    const rect = canvas.getBoundingClientRect();
-
-    // 调整分辨率
-    canvas.width = rect.width * dpr;
-    canvas.height = rect.height * dpr;
-    ctx.scale(dpr, dpr);
-
-    const width = rect.width;
-    const height = rect.height;
-
-    // 清空
-    ctx.clearRect(0, 0, width, height);
-
+    // Check availability of data
     if (!data || data.length === 0) {
-      // 无数据
+      const ctx = canvas.getContext('2d');
+      const rect = canvas.getBoundingClientRect();
+      canvas.width = rect.width * (window.devicePixelRatio || 1);
+      canvas.height = rect.height * (window.devicePixelRatio || 1);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
       ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
       ctx.font = '10px sans-serif';
-      ctx.fillText('No Data', 10, height / 2);
+      ctx.fillText('No Data', 10, canvas.height / 2);
       return;
     }
 
-    // 准备数据
-    // 补全最近 14 天 (如果后端返回不全) - 简单起见直接用返回的数据
-    // 假设数据按日期升序
-    const values = data.map(d => d.total);
-    const maxVal = Math.max(...values, 10); // 至少 10，避免直线
+    // Save state on canvas for interaction
+    canvas.chartState = {
+      data: data.map(d => d.total),
+      labels: data.map(d => d.date), // Assuming data has date
+      color: color,
+      paddingX: 10,
+      paddingTop: 8, // More space for tooltip
+      paddingBottom: 5
+    };
 
-    // 添加左右内边距，防止边缘被切割
-    const paddingX = 4;
-    const effectiveWidth = width - (paddingX * 2);
-    const stepX = effectiveWidth / (values.length - 1 || 1);
+    // Attach event listeners once
+    if (!canvas.hasInteractionListeners) {
+      canvas.hasInteractionListeners = true;
 
-    const paddingBottom = 5;
-    const paddingTop = 5; // 添加顶部内边距
+      canvas.addEventListener('mousemove', (e) => {
+        const rect = canvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const state = canvas.chartState;
+        if (!state) return;
+
+        const effectiveWidth = rect.width - (state.paddingX * 2);
+        const stepX = effectiveWidth / (state.data.length - 1 || 1);
+
+        // Find closest index
+        let index = Math.round((x - state.paddingX) / stepX);
+        if (index < 0) index = 0;
+        if (index >= state.data.length) index = state.data.length - 1;
+
+        this.renderChartFrame(canvas, index);
+      });
+
+      canvas.addEventListener('mouseleave', () => {
+        this.renderChartFrame(canvas, null);
+      });
+    }
+
+    // Initial Render
+    this.renderChartFrame(canvas, null);
+  },
+
+  /**
+   * Internal render function
+   */
+  renderChartFrame(canvas, highlightIndex) {
+    const ctx = canvas.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+
+    // Get theme colors
+    const styles = getComputedStyle(document.body);
+    const tooltipBgColor = styles.getPropertyValue('--card-bg').trim();
+    const tooltipTextColor = styles.getPropertyValue('--text-primary').trim();
+    const guideLineColor = styles.getPropertyValue('--border-color').trim();
+
+    const rect = canvas.getBoundingClientRect();
+    const state = canvas.chartState;
+
+    // Logic coords
+    const width = rect.width;
+    const height = rect.height;
+
+    // Physical coords
+    canvas.width = width * dpr;
+    canvas.height = height * dpr;
+    ctx.scale(dpr, dpr);
+
+    ctx.clearRect(0, 0, width, height);
+
+    const { data, color, paddingX, paddingTop, paddingBottom } = state;
+    const maxVal = Math.max(...data, 10);
+    const minVal = 0;
+    const range = maxVal - minVal;
+
+    const values = data;
     const drawingHeight = height - paddingBottom - paddingTop;
+    const stepX = (width - paddingX * 2) / (values.length - 1 || 1);
 
-    // 绘制填充路径
+    // Helper to get coords
+    const getPoint = (i) => {
+      const x = paddingX + i * stepX;
+      const y = paddingTop + drawingHeight - (values[i] / maxVal) * drawingHeight;
+      return { x, y };
+    };
+
+    // 1. Fill Gradient Area
+    const gradient = ctx.createLinearGradient(0, 0, 0, height);
+    gradient.addColorStop(0, color + '66'); // 40%
+    gradient.addColorStop(1, color + '00'); // 0%
+    ctx.fillStyle = gradient;
+
     ctx.beginPath();
     ctx.moveTo(paddingX, height);
 
-    values.forEach((val, index) => {
-      const x = paddingX + (index * stepX);
-      const y = paddingTop + drawingHeight - (val / maxVal) * drawingHeight;
-      ctx.lineTo(x, y);
-    });
+    // Smooth Curve for Fill
+    if (values.length > 1) {
+      const first = getPoint(0);
+      ctx.lineTo(first.x, first.y);
+
+      for (let i = 0; i < values.length - 1; i++) {
+        const p0 = getPoint(i > 0 ? i - 1 : i);
+        const p1 = getPoint(i);
+        const p2 = getPoint(i + 1);
+        const p3 = getPoint(i + 2 < values.length ? i + 2 : i + 1);
+
+        const cp1x = p1.x + (p2.x - p0.x) * 0.2; // Tension 0.2
+        const cp1y = p1.y + (p2.y - p0.y) * 0.2;
+        const cp2x = p2.x - (p3.x - p1.x) * 0.2;
+        const cp2y = p2.y - (p3.y - p1.y) * 0.2;
+
+        ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
+      }
+    } else {
+      const p = getPoint(0);
+      ctx.lineTo(p.x, p.y);
+    }
 
     ctx.lineTo(width - paddingX, height);
     ctx.closePath();
-
-    // 渐变填充
-    const gradient = ctx.createLinearGradient(0, 0, 0, height);
-    gradient.addColorStop(0, color + '66'); // 40% opacity
-    gradient.addColorStop(1, color + '00'); // 0% opacity
-    ctx.fillStyle = gradient;
     ctx.fill();
 
-    // 绘制线条
-    ctx.beginPath();
-    values.forEach((val, index) => {
-      const x = paddingX + (index * stepX);
-      const y = paddingTop + drawingHeight - (val / maxVal) * drawingHeight;
-      if (index === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    });
-
+    // 2. Stroke Line (Smooth)
     ctx.strokeStyle = color;
     ctx.lineWidth = 2;
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
+    ctx.beginPath();
+
+    if (values.length > 1) {
+      const first = getPoint(0);
+      ctx.moveTo(first.x, first.y);
+
+      for (let i = 0; i < values.length - 1; i++) {
+        const p0 = getPoint(i > 0 ? i - 1 : i);
+        const p1 = getPoint(i);
+        const p2 = getPoint(i + 1);
+        const p3 = getPoint(i + 2 < values.length ? i + 2 : i + 1);
+
+        const cp1x = p1.x + (p2.x - p0.x) * 0.2;
+        const cp1y = p1.y + (p2.y - p0.y) * 0.2;
+        const cp2x = p2.x - (p3.x - p1.x) * 0.2;
+        const cp2y = p2.y - (p3.y - p1.y) * 0.2;
+
+        ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
+      }
+    } else {
+      const p = getPoint(0);
+      ctx.moveTo(p.x, p.y);
+      ctx.lineTo(p.x, p.y);
+    }
     ctx.stroke();
 
-    // 绘制最后一个点 (今日)
-    const lastX = paddingX + ((values.length - 1) * stepX);
-    const lastY = paddingTop + drawingHeight - (values[values.length - 1] / maxVal) * drawingHeight;
-    ctx.beginPath();
-    // 稍微向左偏移一点点确保不切
-    ctx.arc(lastX - 1, lastY, 3, 0, Math.PI * 2);
-    ctx.fillStyle = '#fff';
-    ctx.fill();
+    // 3. Highlight Interaction
+    if (highlightIndex !== null && highlightIndex >= 0 && highlightIndex < values.length) {
+      const p = getPoint(highlightIndex);
+
+      // Vertical Line
+      ctx.beginPath();
+      ctx.moveTo(p.x, paddingTop);
+      ctx.lineTo(p.x, height);
+      ctx.strokeStyle = guideLineColor;
+      ctx.lineWidth = 1;
+      ctx.setLineDash([2, 2]);
+      ctx.stroke();
+      ctx.setLineDash([]); // Reset
+
+      // Outer Glow
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 6, 0, Math.PI * 2);
+      ctx.fillStyle = color + '40'; // Transparent
+      ctx.fill();
+
+      // Inner Dot
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+      ctx.fillStyle = '#fff';
+      ctx.fill();
+
+      // Tooltip Text
+      const text = `${values[highlightIndex]}`;
+      ctx.font = 'bold 11px Inter, sans-serif';
+      const textMetrics = ctx.measureText(text);
+      const padding = 4;
+      const boxWidth = textMetrics.width + padding * 2;
+      const boxHeight = 18;
+
+      // Keep tooltip within bounds
+      // Add buffer to prevent stroke clipping (lineWidth=1)
+      const edgeBuffer = 2;
+
+      let boxX = p.x - boxWidth / 2;
+      let boxY = p.y - 12 - boxHeight;
+
+      if (boxX < edgeBuffer) boxX = edgeBuffer;
+      if (boxX + boxWidth > width - edgeBuffer) boxX = width - boxWidth - edgeBuffer;
+      if (boxY < 0) boxY = p.y + 12; // Flip to bottom if top clipped
+
+      // Tooltip BG
+      ctx.fillStyle = tooltipBgColor;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1;
+
+      // Round Rect for Tooltip
+      ctx.beginPath();
+      const r = 4;
+      ctx.roundRect(boxX, boxY, boxWidth, boxHeight, r);
+      ctx.fill();
+      ctx.stroke();
+
+      // Text
+      ctx.fillStyle = tooltipTextColor;
+      ctx.fillText(text, boxX + padding, boxY + 12);
+
+    } else {
+      // Draw last point if not hovering
+      const lastIdx = values.length - 1;
+      const p = getPoint(lastIdx);
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 3, 0, Math.PI * 2);
+      ctx.fillStyle = '#fff';
+      ctx.fill();
+    }
   },
 
   /**

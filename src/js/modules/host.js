@@ -2167,37 +2167,7 @@ export const hostMethods = {
     return platform.substring(0, 10);
   },
 
-  formatUptime(uptimeStr) {
-    if (!uptimeStr || typeof uptimeStr !== 'string') return uptimeStr;
 
-    // 移除 "up " 前缀
-    const str = uptimeStr.replace(/^up\s+/i, '');
-
-    // 提取各个时间部分
-    const weekMatch = str.match(/(\d+)\s*(weeks?|w)/i);
-    const dayMatch = str.match(/(\d+)\s*(days?|d)/i);
-    const hourMatch = str.match(/(\d+)\s*(hours?|h)/i);
-    const minMatch = str.match(/(\d+)\s*(minutes?|m)/i);
-
-    let days = dayMatch ? parseInt(dayMatch[1], 10) : 0;
-    const weeks = weekMatch ? parseInt(weekMatch[1], 10) : 0;
-    const hours = hourMatch ? parseInt(hourMatch[1], 10) : 0;
-    const minutes = minMatch ? parseInt(minMatch[1], 10) : 0;
-
-    // 将周转换为天并累加
-    days += weeks * 7;
-
-    // 构建中文格式
-    let result = '';
-    if (days > 0) result += `${days}天`;
-    if (hours > 0) result += `${hours}时`;
-    if (minutes > 0) result += `${minutes}分`;
-
-    // 如果都是0，显示 "0分"
-    if (result === '') result = '0分';
-
-    return result;
-  },
 
   translateInfoKey(key) {
     const translations = {
