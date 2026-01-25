@@ -109,7 +109,7 @@
   /* 假设有 indigo 辅助色，如果没有则回退到 primary */
   color: #fff;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 4px 12px rgba(var(--primary-rgb), 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  /* box-shadow: 0 4px 12px rgba(var(--primary-rgb), 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.2); */
   position: relative;
   overflow: hidden;
 }
@@ -758,7 +758,7 @@
 .api-stat-group {
   background: var(--bg-secondary);
   border-radius: 12px;
-  padding: 20px;
+  padding: 10px;
   border: 1px solid var(--border-color);
   cursor: pointer;
   transition: all 0.2s ease;
@@ -808,7 +808,7 @@
 .paas-list {
   display: flex;
   flex-direction: column;
-  gap: 17px;
+  gap: 5px;
 }
 
 .paas-item {
@@ -1099,7 +1099,7 @@
   }
 
   .api-stat-group {
-    padding: 14px;
+    padding: 10px;
   }
 
   .music-content-layer {
@@ -1603,7 +1603,7 @@
   .paas-list {
     display: grid !important;
     grid-template-columns: repeat(2, 1fr) !important;
-    gap: 8px !important;
+    gap: 0px !important;
   }
 
   .paas-item {
