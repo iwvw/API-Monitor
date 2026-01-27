@@ -61,7 +61,8 @@
 .header-right {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 16px;
+  /* 增加间距 */
 }
 
 .last-update {
@@ -70,14 +71,25 @@
   gap: 8px;
   padding: 0 16px;
   background: var(--bg-secondary);
-  border-radius: 20px;
-  /* 圆角增加 */
-  font-size: 12px;
-  color: var(--text-tertiary);
+  border-radius: 12px;
+  font-size: 13px;
+  color: var(--text-secondary);
   font-family: var(--font-mono);
   border: 1px solid var(--border-color);
-  height: 38px;
-  /* 增加高度 */
+  height: 40px;
+  backdrop-filter: blur(4px);
+  transition: all 0.3s ease;
+}
+
+.last-update i {
+  color: var(--text-tertiary);
+  font-size: 14px;
+}
+
+.last-update:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: rgba(255, 255, 255, 0.15);
+  color: var(--text-primary);
 }
 
 .btn-refresh-all {
@@ -85,22 +97,54 @@
   align-items: center;
   justify-content: center;
   gap: 8px;
-  height: 38px;
+  height: 40px;
   padding: 0 24px;
-  border-radius: 20px;
+  border-radius: 12px;
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
-  border: 1px solid transparent;
-  background: var(--primary-color);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  /* 渐变背景 */
+  background: linear-gradient(135deg, var(--primary-color), #4f46e5);
+  /* 假设有 indigo 辅助色，如果没有则回退到 primary */
   color: #fff;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 4px 10px rgba(var(--primary-rgb), 0.2);
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  /* box-shadow: 0 4px 12px rgba(var(--primary-rgb), 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.2); */
+  position: relative;
+  overflow: hidden;
+}
+
+/* 按钮光泽效果 */
+.btn-refresh-all::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
+  transition: 0.5s;
+}
+
+.btn-refresh-all:hover::before {
+  left: 100%;
 }
 
 .btn-refresh-all:hover:not(:disabled) {
-  /* transform: translateY(-2px); */
-  box-shadow: 0 6px 16px rgba(var(--primary-rgb), 0.3);
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px rgba(var(--primary-rgb), 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  filter: brightness(1.1);
+}
+
+.btn-refresh-all:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: 0 2px 8px rgba(var(--primary-rgb), 0.2);
+}
+
+.btn-refresh-all:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+  filter: grayscale(0.5);
 }
 
 /* =========================================
@@ -510,6 +554,11 @@
   transform: scale(1.1);
 }
 
+.btn-control-circle:active {
+  transform: scale(0.95);
+  background: var(--bg-primary);
+}
+
 .btn-control-circle.play {
   width: 58px;
   height: 58px;
@@ -709,7 +758,7 @@
 .api-stat-group {
   background: var(--bg-secondary);
   border-radius: 12px;
-  padding: 20px;
+  padding: 10px;
   border: 1px solid var(--border-color);
   cursor: pointer;
   transition: all 0.2s ease;
@@ -726,7 +775,6 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 12px;
 }
 
 .api-name {
@@ -760,7 +808,7 @@
 .paas-list {
   display: flex;
   flex-direction: column;
-  gap: 17px;
+  gap: 5px;
 }
 
 .paas-item {
@@ -1051,7 +1099,7 @@
   }
 
   .api-stat-group {
-    padding: 14px;
+    padding: 10px;
   }
 
   .music-content-layer {
@@ -1555,7 +1603,7 @@
   .paas-list {
     display: grid !important;
     grid-template-columns: repeat(2, 1fr) !important;
-    gap: 8px !important;
+    gap: 0px !important;
   }
 
   .paas-item {

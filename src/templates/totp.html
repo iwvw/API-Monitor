@@ -557,7 +557,7 @@
           <div class="totp-secret-input">
             <input v-model="totpForm.secret" :type="totpShowSecret ? 'text' : 'password'" class="form-input"
               placeholder="JBSWY3DPEHPK3PXP" :disabled="totpModalMode === 'edit'" />
-            <button type="button" class="totp-toggle-secret" @click="totpShowSecret = !totpShowSecret">
+            <button type="button" class="totp-toggle-secret" @click="toggleSecretVisibility">
               <i class="fas" :class="totpShowSecret ? 'fa-eye-slash' : 'fa-eye'"></i>
             </button>
           </div>

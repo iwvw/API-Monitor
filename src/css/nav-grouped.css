@@ -158,7 +158,7 @@
   -webkit-backdrop-filter: blur(24px) saturate(200%);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 14px;
-  padding: 6px;
+  padding: 1px;
   box-shadow:
     0 8px 30px rgba(0, 0, 0, 0.25),
     0 4px 10px rgba(0, 0, 0, 0.1),
@@ -166,7 +166,7 @@
   z-index: 1001;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 0;
 }
 
 /* 下拉菜单项 */
@@ -184,7 +184,8 @@
   border-radius: 10px;
   transition: all 0.2s ease;
   text-align: left;
-  width: 100%;
+  margin: 3px;
+  width: calc(100% - 6px);
 }
 
 .nav-group-dropdown .dropdown-item i {
@@ -297,6 +298,7 @@
     top: auto;
   }
 
+  /* 底部导航模式下的动画方向修正 */
   .nav-bottom-fixed .dropdown-fade-enter-from,
   .nav-bottom-fixed .dropdown-fade-leave-to {
     transform: translateX(-50%) translateY(8px);

@@ -21,8 +21,8 @@ const HealthStatus = {
 };
 
 // 默认配置
-const DEFAULT_HEALTH_CHECK_TIMEOUT = 15000; // 15 秒超时
-const DEGRADED_THRESHOLD = 6000; // 6 秒阈值
+const DEFAULT_HEALTH_CHECK_TIMEOUT = 60000; // 60 秒超时 (适应慢速思考模型)
+const DEGRADED_THRESHOLD = 20000; // 20 秒阈值
 
 /**
  * 发送 HTTP 请求
@@ -83,7 +83,7 @@ function apiRequest(baseUrl, apiKey, method, path, body = null) {
           'Content-Type': 'application/json',
           'User-Agent': 'API-Monitor/1.0',
         },
-        timeout: 30000,
+        timeout: 60000,
       };
 
       const req = httpModule.request(options, res => {
@@ -268,7 +268,7 @@ async function testChatCompletion(baseUrl, apiKey, model = 'gpt-3.5-turbo') {
  * @param {string} baseUrl - API 基础 URL
  * @param {string} apiKey - API Key
  * @param {string} model - 模型名称
- * @param {number} timeout - 超时时间（毫秒），默认 15000
+ * @param {number} timeout - 超时时间（毫秒），默认 60000
  * @returns {Promise<Object>} 健康检查结果
  */
 async function healthCheckModel(baseUrl, apiKey, model, timeout = DEFAULT_HEALTH_CHECK_TIMEOUT) {
@@ -301,7 +301,6 @@ async function healthCheckModel(baseUrl, apiKey, model, timeout = DEFAULT_HEALTH
       const requestBody = JSON.stringify({
         model: model,
         messages: [{ role: 'user', content: 'hi' }],
-        max_tokens: 16384, // 增加到 16k 以兼容思考模型的需求 (max_tokens must be > budget)
         stream: true, // 使用流式 API
       });
 

@@ -1,4 +1,4 @@
-<div class="tab-content dashboard-content quick-fade-in theme-dashboard">
+<div class="tab-content dashboard-content theme-dashboard" :class="getTabAnimationClass('dashboard')">
   <!-- Header: Aligned and Balanced -->
   <div class="dashboard-header">
     <div class="header-left">
@@ -247,10 +247,9 @@
             <div style="font-size: 11px; color: var(--text-tertiary)">
               总调用 {{ dashboardStats.antigravity.total_calls }} 次
             </div>
-            <div class="api-progress-track">
-              <div class="api-progress-bar" style="background: var(--ag-primary)"
-                :style="{ width: (dashboardStats.antigravity.total_calls ? (dashboardStats.antigravity.success_calls/dashboardStats.antigravity.total_calls*100) : 0) + '%' }">
-              </div>
+            <div class="chart-container"
+              style="position: relative; height: 50px; width: 100%; margin-top: 8px; margin-bottom: 4px;">
+              <canvas ref="agChart" style="width: 100%; height: 100%; display: block;"></canvas>
             </div>
           </div>
           <div class="api-stat-group" @click="mainActiveTab = 'gemini-cli'">
@@ -261,10 +260,9 @@
             <div style="font-size: 11px; color: var(--text-tertiary)">
               总调用 {{ dashboardStats.geminiCli.total_calls }} 次
             </div>
-            <div class="api-progress-track">
-              <div class="api-progress-bar" style="background: var(--gemini-primary)"
-                :style="{ width: (dashboardStats.geminiCli.total_calls ? (dashboardStats.geminiCli.success_calls/dashboardStats.geminiCli.total_calls*100) : 0) + '%' }">
-              </div>
+            <div class="chart-container"
+              style="position: relative; height: 50px; width: 100%; margin-top: 8px; margin-bottom: 4px;">
+              <canvas ref="geminiChart" style="width: 100%; height: 100%; display: block;"></canvas>
             </div>
           </div>
         </div>
@@ -273,12 +271,13 @@
 
     <!-- Right Column: Secondary Info -->
     <div class="content-column">
-      <!-- PaaS List -->
+      <!-- Services & Tools List -->
       <div class="detail-card">
         <div class="detail-header">
-          <h3><i class="fas fa-server"></i> 云服务</h3>
+          <h3><i class="fas fa-cubes"></i> 服务 & 工具</h3>
         </div>
         <div class="paas-list">
+          <!-- Zeabur -->
           <div class="paas-item" @click="mainActiveTab = 'paas'; switchPaasPlatform('zeabur')">
             <div class="paas-info">
               <div class="paas-logo-box" style="color: #6366f1">
@@ -294,6 +293,7 @@
               {{ dashboardStats.paas.zeabur.running }}
             </div>
           </div>
+          <!-- Koyeb -->
           <div class="paas-item" @click="mainActiveTab = 'paas'; switchPaasPlatform('koyeb')">
             <div class="paas-info">
               <div class="paas-logo-box" style="color: #ec4899"><i class="fas fa-box"></i></div>
@@ -307,6 +307,7 @@
               {{ dashboardStats.paas.koyeb.running }}
             </div>
           </div>
+          <!-- Fly.io -->
           <div class="paas-item" @click="mainActiveTab = 'paas'; switchPaasPlatform('fly')">
             <div class="paas-info">
               <div class="paas-logo-box" style="color: #8b5cf6">
@@ -322,15 +323,10 @@
               {{ dashboardStats.paas.fly.running }}
             </div>
           </div>
-        </div>
-      </div>
-
-      <!-- 2FA Card - Same style as PaaS List -->
-      <div class="detail-card totp-dashboard-card" @click="mainActiveTab = 'totp'" style="cursor: pointer">
-        <div class="paas-list">
-          <div class="paas-item">
+          <!-- 2FA (Merged) -->
+          <div class="paas-item" @click="mainActiveTab = 'totp'">
             <div class="paas-info">
-              <div class="paas-logo-box" style="color: #8b5cf6">
+              <div class="paas-logo-box" style="color: #10b981">
                 <i class="fas fa-shield-alt"></i>
               </div>
               <div class="paas-item-text">

@@ -107,7 +107,7 @@ import { uptimeData, uptimeMethods, uptimeComputed } from './modules/uptime.js';
 import { aliyunMethods } from './modules/aliyun.js';
 import { tencentMethods } from './modules/tencent.js';
 import { notificationData, notificationMethods } from './modules/notification.js';
-import { formatDateTime, formatFileSize, maskAddress, formatRegion } from './modules/utils.js';
+import { formatDateTime, formatFileSize, maskAddress, formatRegion, formatUptime } from './modules/utils.js';
 
 // 导入全局状态
 import { store, MODULE_CONFIG, MODULE_GROUPS } from './store.js';
@@ -1696,6 +1696,7 @@ const app = createApp({
     formatDateTime,
     formatFileSize,
     formatRegion,
+    formatUptime,
     renderMarkdown,
 
     // 带缓存的日志内容渲染（避免重复解析 Base64 图片）

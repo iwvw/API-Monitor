@@ -130,7 +130,6 @@ const autoCheckService = {
           const testRequest = {
             model: modelId,
             messages: [{ role: 'user', content: 'Hi' }],
-            max_tokens: 5,
             stream: false,
           };
 
@@ -726,7 +725,6 @@ router.post('/accounts/check', async (req, res) => {
         const testRequest = {
           model: modelId,
           messages: [{ role: 'user', content: 'Hi' }],
-          max_tokens: 5,
           stream: false,
         };
 

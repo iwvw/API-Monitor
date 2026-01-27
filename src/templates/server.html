@@ -905,7 +905,7 @@
               <div v-if="server.info && server.info.docker && server.info.docker.installed"
                 class="server-detail-section docker-section" style="grid-column: 1 / -1">
                 <div class="docker-section-header" @click.stop="toggleDockerPanel(server.id)" style="cursor: pointer">
-                  <h4><i class="fab fa-docker"></i> 容器虚拟化</h4>
+                  <h4><i class="fab fa-docker"></i> Docker 容器</h4>
                   <div class="docker-section-status">
                     <span class="docker-status-badge"
                       :class="server.info.docker.installed ? 'installed' : 'not-installed'">

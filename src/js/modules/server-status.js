@@ -130,19 +130,7 @@ export const serverStatusMethods = {
         return '#22c55e';
     },
 
-    /**
-     * 格式化运行时间
-     */
-    formatUptime(seconds) {
-        if (!seconds) return '-';
-        const days = Math.floor(seconds / 86400);
-        const hours = Math.floor((seconds % 86400) / 3600);
-        const mins = Math.floor((seconds % 3600) / 60);
 
-        if (days > 0) return `${days}天 ${hours}时`;
-        if (hours > 0) return `${hours}时 ${mins}分`;
-        return `${mins}分`;
-    },
 
     /**
      * 获取容器状态颜色

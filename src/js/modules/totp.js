@@ -161,6 +161,25 @@ export const totpMethods = {
     this.showTotpModal = true;
   },
 
+  async toggleSecretVisibility() {
+    this.totpShowSecret = !this.totpShowSecret;
+
+    if (this.totpShowSecret && this.totpModalMode === 'edit' && this.totpForm.secret.includes('•••')) {
+      try {
+        const response = await fetch(`/api/totp/accounts/${this.totpEditingId}?showSecret=true`);
+        const data = await response.json();
+        if (data.success && data.data.secret) {
+          this.totpForm.secret = data.data.secret;
+        } else {
+          this.showGlobalToast('获取密钥失败', 'error');
+        }
+      } catch (error) {
+        console.error('[TOTP] 获取密钥失败:', error);
+        this.showGlobalToast('获取密钥失败', 'error');
+      }
+    }
+  },
+
   switchTotpAddTab(tab) {
     this.totpAddTab = tab;
     if (tab !== 'scan') {

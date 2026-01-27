@@ -11,9 +11,7 @@ import 'katex/dist/katex.min.css';
 
 /**
  * 渲染 Markdown 为 HTML (安全模式)
- * 支持多模态数组、JSON 对象及普通字符串
- * @param {any} text - 输入内容
- * @returns {string} 过滤后的 HTML
+ * ... (existing renderMarkdown implementation)
  */
 export function renderMarkdown(text) {
   if (text === undefined || text === null) return '';
@@ -223,6 +221,73 @@ export function formatFileSize(bytes) {
 }
 
 /**
+ * 格式化运行时间 (增强版)
+ * 支持 "up 1 day, 10:23", "12345" (秒), "2 days 3 hours" 等格式
+ * @param {string|number} uptimeStr - 运行时间字符串或秒数
+ * @returns {string} 中文格式时间 (e.g. "1天 10时 23分")
+ */
+export function formatUptime(uptimeStr) {
+  if (uptimeStr === undefined || uptimeStr === null) return '-';
+
+  // 处理数字输入 (视为秒)
+  if (typeof uptimeStr === 'number') {
+    const days = Math.floor(uptimeStr / 86400);
+    const hours = Math.floor((uptimeStr % 86400) / 3600);
+    const minutes = Math.floor((uptimeStr % 3600) / 60);
+
+    let result = '';
+    if (days > 0) result += `${days}天`;
+    if (hours > 0) result += `${hours}时`;
+    if (minutes > 0) result += `${minutes}分`;
+    return result || '0分';
+  }
+
+  if (typeof uptimeStr !== 'string') return uptimeStr;
+
+  // 移除 "up " 前缀
+  const str = uptimeStr.replace(/^up\s+/i, '');
+
+  let days = 0;
+  let hours = 0;
+  let minutes = 0;
+
+  // 尝试匹配 "1 day, 10:23" 或 "10:23" 格式 (Linux uptime 常见)
+  const timeMatch = str.match(/(?:(\d+)\s*days?,\s*)?(\d{1,2}):(\d{2})/i);
+
+  if (timeMatch) {
+    if (timeMatch[1]) days = parseInt(timeMatch[1], 10);
+    hours = parseInt(timeMatch[2], 10);
+    minutes = parseInt(timeMatch[3], 10);
+  } else {
+    // 尝试匹配 "1 week, 2 days" 或 "1w, 2d" 格式
+    const weekMatch = str.match(/(\d+)\s*(weeks?|w)/i);
+    const dayMatch = str.match(/(\d+)\s*(days?|d)/i);
+    const hourMatch = str.match(/(\d+)\s*(hours?|h)/i);
+    const minMatch = str.match(/(\d+)\s*(minutes?|m)/i);
+
+    if (dayMatch) days = parseInt(dayMatch[1], 10);
+    if (weekMatch) days += parseInt(weekMatch[1], 10) * 7;
+    if (hourMatch) hours = parseInt(hourMatch[1], 10);
+    if (minMatch) minutes = parseInt(minMatch[1], 10);
+  }
+
+  // 构建中文格式 (紧凑)
+  let result = '';
+  if (days > 0) result += `${days}天`;
+  if (hours > 0) result += `${hours}时`;
+  if (minutes > 0) result += `${minutes}分`;
+
+  // 如果都是0，但有一个 parsing 发生，显示 "0分"
+  // 如果没有任何匹配，返回原字符串 (可能是其他格式)
+  if (result === '') {
+    if (str.includes('min') || str.includes('sec')) return '刚刚';
+    return uptimeStr; // 原样返回，防止显示错误
+  }
+
+  return result;
+}
+
+/**
  * 防抖函数
  * @param {Function} func - 要防抖的函数
  * @param {number} wait - 等待时间（毫秒）
@@ -391,4 +456,31 @@ export function formatRegion(region) {
   }
 
   return regionStr;
+}
+
+/**
+ * 格式化网速为紧凑格式
+ * 例如: "1.5 MB/s" -> "1.5M", "10 KB/s" -> "10K", "0 B/s" -> "0B"
+ */
+export function formatSpeedCompact(speed) {
+  if (!speed) return '0B';
+  // 移除 "/s" 后缀，移除空格，保留数字和单位字母
+  return speed
+    .replace(/\/s$/i, '') // 移除 /s
+    .replace(/\s+/g, '') // 移除空格
+    .replace(/(\d+\.?\d*)([KMGT]?)B?/i, '$1$2'); // 简化单位
+}
+
+/**
+ * 解析网速为数字和单位分离的对象
+ * 例如: "1.5 MB/s" -> { num: "1.5", unit: "M" }
+ */
+export function parseSpeed(speed) {
+  if (!speed) return { num: '0', unit: 'B' };
+  const cleaned = speed.replace(/\/s$/i, '').replace(/\s+/g, '');
+  const match = cleaned.match(/^(\d+\.?\d*)([KMGT]?)B?$/i);
+  if (match) {
+    return { num: match[1], unit: match[2] ? match[2].toUpperCase() : 'B' };
+  }
+  return { num: '0', unit: 'B' };
 }

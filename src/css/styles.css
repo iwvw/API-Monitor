@@ -44,6 +44,28 @@ textarea {
   resize: none;
 }
 
+
+/* button,
+a,
+input,
+select,
+textarea,
+label,
+summary,
+[role="button"],
+[role="link"],
+[role="checkbox"],
+[role="radio"],
+[role="switch"],
+[role="tab"],
+[tabindex] {
+  will-change: transform, background-color, border-color, opacity;
+  transform-origin: center center;
+  backface-visibility: hidden;
+  -webkit-font-smoothing: antialiased;
+} */
+
+
 code,
 pre,
 .code-font,
@@ -776,6 +798,135 @@ pre,
 
 body.modal-open {
   overflow: hidden;
+}
+
+/* ==================== Endpoint Action Buttons (OpenAI et al.) ==================== */
+
+.endpoint-badges {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.endpoint-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(16, 163, 127, 0.06);
+  border: 1px solid rgba(16, 163, 127, 0.15);
+  color: var(--openai-primary);
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  overflow: hidden;
+  height: 42px;
+  /* 统一高度 */
+  box-sizing: border-box;
+}
+
+.endpoint-action-btn:hover {
+  background: rgba(16, 163, 127, 0.12);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(16, 163, 127, 0.15);
+  border-color: rgba(16, 163, 127, 0.3);
+}
+
+.endpoint-action-btn:active {
+  transform: translateY(0);
+  background: rgba(16, 163, 127, 0.15);
+}
+
+/* Icons */
+.endpoint-action-btn i {
+  font-size: 16px;
+  transition: transform 0.3s ease;
+}
+
+.endpoint-action-btn:hover i {
+  transform: scale(1.1);
+}
+
+/* Health Check Button (Square) */
+.endpoint-action-btn.btn-health {
+  width: 42px;
+  font-size: 18px;
+  /* 图标稍大 */
+}
+
+/* Models Count Button (Rect) */
+.endpoint-action-btn.btn-models {
+  padding: 0 14px;
+  gap: 10px;
+  min-width: 80px;
+}
+
+.endpoint-action-btn.btn-models i {
+  font-size: 18px;
+  opacity: 0.9;
+}
+
+/* Info Text Layout */
+.endpoint-action-btn .action-info {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  line-height: 1;
+}
+
+.endpoint-action-btn .action-info .label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--openai-dark);
+  /* 深一点的绿色 */
+  opacity: 0.7;
+  margin-bottom: 2px;
+  text-transform: uppercase;
+}
+
+.endpoint-action-btn .action-info .value {
+  font-size: 15px;
+  font-weight: 800;
+  font-family: var(--font-mono);
+  color: var(--openai-primary);
+}
+
+/* Loading Spin */
+.endpoint-action-btn i.refreshing {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Dark Mode Adaptation */
+@media (prefers-color-scheme: dark) {
+  .endpoint-action-btn {
+    background: rgba(16, 163, 127, 0.1);
+    border-color: rgba(16, 163, 127, 0.2);
+  }
+
+  .endpoint-action-btn:hover {
+    background: rgba(16, 163, 127, 0.2);
+    border-color: rgba(16, 163, 127, 0.4);
+  }
+
+  .endpoint-action-btn .action-info .label {
+    color: #a7f3d0;
+    /* 浅色文字 */
+  }
+
+  .endpoint-action-btn .action-info .value {
+    color: #34d399;
+  }
 }
 
 /* App Layout */
@@ -1708,7 +1859,7 @@ body.modal-open {
       rgba(var(--zeabur-secondary-rgb), 0.05) 100%);
   border: 1px solid rgba(var(--zeabur-primary-rgb), 0.15);
   border-radius: 12px;
-  padding: 8px 6px;
+  padding: 3px 6px;
   margin: 0;
   backdrop-filter: blur(8px);
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
@@ -1725,7 +1876,7 @@ body.modal-open {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 4px 8px;
+  padding: 4px;
 }
 
 .zeabur-balance-divider {

@@ -239,6 +239,11 @@
           </div>
         </div>
         <div class="form-group-modern">
+          <label class="form-label-modern">发件人名称 (可选)</label>
+          <input type="text" v-model="channelForm.config.sender_name" class="form-input-modern"
+            placeholder="例如: API Monitor">
+        </div>
+        <div class="form-group-modern">
           <label class="form-label-modern">发件人邮箱</label>
           <input type="email" v-model="channelForm.config.auth.user" class="form-input-modern"
             placeholder="your@gmail.com">

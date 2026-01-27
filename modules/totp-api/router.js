@@ -44,6 +44,36 @@ router.get('/accounts', async (req, res) => {
 });
 
 /**
+ * GET /accounts/:id
+ * 获取单个账号详情
+ * 支持 ?showSecret=true 显示密钥
+ */
+router.get('/accounts/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const account = storage.getAccount(id);
+
+    if (!account) {
+      return res.status(404).json({ success: false, error: '账号不存在' });
+    }
+
+    const showSecret = req.query.showSecret === 'true';
+
+    res.json({
+      success: true,
+      data: {
+        ...account,
+        secret: showSecret ? account.secret : undefined,
+        hasSecret: !!account.secret
+      }
+    });
+  } catch (error) {
+    logger.error('获取账号详情失败', error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
  * POST /accounts
  * 创建新账号
  */
@@ -446,7 +476,7 @@ router.get('/extension/download', async (req, res) => {
         // 发送后删除临时文件
         try {
           fs.unlinkSync(zipFile);
-        } catch (e) {}
+        } catch (e) { }
       });
     });
   } catch (error) {

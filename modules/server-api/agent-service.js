@@ -47,6 +47,9 @@ class AgentService extends EventEmitter {
 
     // 初始化加载或生成全局密钥
     this.loadOrGenerateGlobalKey();
+
+    // 记录启动时间，用于抑制启动期间的通知风暴 (60秒静默期)
+    this.startupTime = Date.now();
   }
 
   /**
@@ -677,6 +680,12 @@ class AgentService extends EventEmitter {
 
       const notificationService = require('../notification-api/service');
       const hostInfo = this.hostInfoCache.get(serverId);
+
+      // 检查启动静默期 (防止重启后通知风暴)
+      if (Date.now() - this.startupTime < 60000) {
+        this.log(`[主机通知] 静默期内跳过上线通知: ${server.name}`);
+        return;
+      }
 
       notificationService.trigger('server', 'online', {
         serverId: serverId,

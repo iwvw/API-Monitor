@@ -100,17 +100,29 @@ type Collector struct {
 	lastGPUPower   float64
 	lastGPUTime    time.Time
 
-	// CPU 采集缓存 (保持上次有效值，避免返回 0)
-	lastCPUUsage float64
+	// GPU 采集频率控制
+	lastGPUMetadataTime time.Time
+
+	// CPU 采集缓存
 	lastCPUTime  time.Time
+	lastCPUUsage float64
+
+	// Windows Native (PDH)
+	pdhQuery   uintptr
+	pdhCounter uintptr
+
+	// NVIDIA Native (NVML)
+	nvmlLib         any
+	nvmlInitialized bool
 }
 
 // NewCollector 创建采集器
 func NewCollector() *Collector {
 	return &Collector{
-		lastNetTime: time.Now(),
-		lastGPUTime: time.Now().Add(-1 * time.Hour), // 确保第一次采集立即执行
-		lastCPUTime: time.Now().Add(-1 * time.Hour), // 确保第一次采集立即执行
+		lastNetTime:         time.Now(),
+		lastGPUTime:         time.Now().Add(-1 * time.Hour), // 确保第一次采集立即执行
+		lastCPUTime:         time.Now().Add(-1 * time.Hour), // 确保第一次采集立即执行
+		lastGPUMetadataTime: time.Now().Add(-1 * time.Hour), // 确保第一次采集立即执行
 	}
 }
 
@@ -191,6 +203,7 @@ func (c *Collector) CollectHostInfo() *HostInfo {
 	gpuModels, gpuMemTotal := c.collectGPUMetadata()
 	info.GPU = gpuModels
 	info.GPUMemTotal = gpuMemTotal
+	c.lastGPUMetadataTime = time.Now()
 
 	c.cachedHostInfo = info
 	return info
@@ -321,21 +334,27 @@ func (c *Collector) CollectState() *State {
 		c.lastGPUTime = time.Now()
 	}
 
-	// 补救措施：如果显存总量为 0，尝试重新获取静态信息
+	// 补救措施：如果显存总量为 0，尝试重新获取静态信息 (增加冷却时间，防止频繁调用 PowerShell)
 	if c.cachedHostInfo != nil && c.cachedHostInfo.GPUMemTotal == 0 {
-		go func() {
-			c.mu.Lock()
-			defer c.mu.Unlock()
-			// 再次检查，防止并发重复
-			if c.cachedHostInfo.GPUMemTotal == 0 {
+		c.mu.Lock()
+		shouldRetry := time.Since(c.lastGPUMetadataTime) > 10*time.Minute
+		if shouldRetry {
+			c.lastGPUMetadataTime = time.Now() // 预设时间，防止下一秒再次触发
+		}
+		c.mu.Unlock()
+
+		if shouldRetry {
+			go func() {
 				models, total := c.collectGPUMetadata()
 				if total > 0 {
+					c.mu.Lock()
 					c.cachedHostInfo.GPU = models
 					c.cachedHostInfo.GPUMemTotal = total
+					c.mu.Unlock()
 					fmt.Printf("[Collector] GPU metadata refreshed: %d MiB\n", total/1024/1024)
 				}
-			}
-		}()
+			}()
+		}
 	}
 	state.GPU = c.lastGPUUsage
 	state.GPUMemUsed = c.lastGPUMemUsed
@@ -545,6 +564,14 @@ func (c *Collector) collectGPUState() (float64, uint64, float64) {
 
 	// 2. 如果没有 NVIDIA，尝试其他方案
 	if runtime.GOOS == "windows" {
+		// 如果 meta 数据中已经确认没有 GPU 型号，则不再尝试采集使用率，避免频繁调用 PowerShell
+		c.mu.Lock()
+		hasGPU := c.cachedHostInfo != nil && len(c.cachedHostInfo.GPU) > 0
+		c.mu.Unlock()
+		if !hasGPU {
+			return 0, 0, 0
+		}
+
 		// Windows: 使用 Performance Counter 采集所有 GPU
 		return c.collectGPUStateWindows()
 	} else if runtime.GOOS == "linux" {
@@ -555,8 +582,14 @@ func (c *Collector) collectGPUState() (float64, uint64, float64) {
 	return 0, 0, 0
 }
 
-// collectNvidiaGPUState 使用 nvidia-smi 采集 NVIDIA GPU 状态
+// collectNvidiaGPUState 使用 NVML (优先) 或 nvidia-smi 采集 NVIDIA GPU 状态
 func (c *Collector) collectNvidiaGPUState(nvidiaSmi string) (float64, uint64, float64) {
+	// 1. 尝试使用原生 NVML API (性能更高，不产生新进程)
+	if usage, usedMem, power, ok := c.collectNvidiaGPUStateNative(); ok {
+		return usage, usedMem, power
+	}
+
+	// 2. 回退到 nvidia-smi 命令行工具
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
@@ -597,14 +630,19 @@ func (c *Collector) collectNvidiaGPUState(nvidiaSmi string) (float64, uint64, fl
 	return totalUsage / float64(count), totalUsedMem, totalPower
 }
 
-// collectGPUStateWindows Windows 下采集 AMD/Intel GPU 使用率
-// 使用 PowerShell 查询 GPU Engine 性能计数器
+// collectGPUStateWindows Windows 下采集 AMD/Intel/NVIDIA GPU 使用率
+// 优先使用 PDH 性能计数器 API，回退到 PowerShell
 func (c *Collector) collectGPUStateWindows() (float64, uint64, float64) {
+	// 1. 尝试使用原生 PDH API (性能极高，无额外进程)
+	if usage, ok := c.collectGPUUsagePDH(); ok {
+		return usage, 0, 0
+	}
+
+	// 2. 回退到 PowerShell (仅在 PDH 失败时使用)
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
 	// 方案1: 使用 GPU Engine 性能计数器 (Windows 10 1709+)
-	// 查询所有 GPU 3D 引擎的使用率
 	psCmd := `
 $counters = Get-Counter '\GPU Engine(*engtype_3D)\Utilization Percentage' -ErrorAction SilentlyContinue
 if ($counters) {
@@ -624,9 +662,6 @@ if ($counters) {
 	}
 
 	usage, _ := strconv.ParseFloat(strings.TrimSpace(string(output)), 64)
-	if usage > 0 {
-		// fmt.Printf("[Collector] GPU (Win PerfCounter): %.1f%%\n", usage)
-	}
 	return usage, 0, 0
 }
 
@@ -801,6 +836,7 @@ func (c *Collector) collectIntelGPULinux() float64 {
 
 	return 0
 }
+
 
 func (c *Collector) getNvidiaSmiPath() string {
 	if runtime.GOOS == "windows" {

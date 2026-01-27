@@ -15,20 +15,20 @@ export const openaiMethods = {
   // 从内容中提取思考标签（支持各种变体如 <think>, <think_nya>, <thinking> 等）
   extractThinkingContent(content) {
     if (!content || typeof content !== 'string') return { thinking: '', cleaned: content || '' };
-    
+
     // 匹配各种思考标签变体: <think>, <think_nya>, <thinking>, etc.
     const thinkingPattern = /<(think(?:ing|_\w+)?)\s*>([\s\S]*?)<\/\1>/gi;
     let thinking = '';
     let cleaned = content;
-    
+
     let match;
     while ((match = thinkingPattern.exec(content)) !== null) {
       thinking += match[2].trim() + '\n';
     }
-    
+
     // 移除所有思考标签
     cleaned = content.replace(thinkingPattern, '').trim();
-    
+
     return { thinking: thinking.trim(), cleaned };
   },
 
@@ -51,13 +51,13 @@ export const openaiMethods = {
     // 对于 content 字段，先过滤思考标签
     if (field === 'content' && typeof content === 'string') {
       const { thinking, cleaned } = this.extractThinkingContent(content);
-      
+
       // 如果提取到了思考内容且 msg.reasoning 为空，自动填充
       if (thinking && !msg.reasoning) {
         msg.reasoning = thinking;
         msg.showReasoning = false; // 默认折叠
       }
-      
+
       content = cleaned;
     }
 
@@ -1793,7 +1793,7 @@ ${conversationText}
   },
 
   // 创建新会话
-  async createChatSession() {
+  async createChatSession(resetToDefault = false) {
     try {
       // 创建新会话时，强制使用全局默认设置（防止沿用上一个会话的“脏”状态）
       const globalSystemPrompt = localStorage.getItem('openai_system_prompt') || '你是一个有用的 AI 助手。';
@@ -1804,7 +1804,9 @@ ${conversationText}
 
       // 恢复当前会话状态为全局默认
       store.openaiChatSystemPrompt = globalSystemPrompt;
-      if (store.openaiDefaultChatModel) {
+
+      // 只有在明确要求重置或当前没有选定模型时，才使用默认模型
+      if (store.openaiDefaultChatModel && (resetToDefault || !store.openaiChatModel)) {
         store.openaiChatModel = store.openaiDefaultChatModel;
       }
 
@@ -2493,6 +2495,11 @@ ${conversationText}
 
     // 设置模型
     store.openaiChatModel = modelName;
+
+    // 清空当前会话状态，确保开始新对话
+    store.openaiChatCurrentSessionId = null;
+    store.openaiChatMessages = [];
+    store.openaiChatSelectedSessionIds = [];
 
     // 切换到对话标签页
     store.openaiCurrentTab = 'chat';

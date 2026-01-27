@@ -26,7 +26,8 @@ class EmailChannel {
             const transporter = this.getTransporter(config);
 
             const mailOptions = {
-                from: config.auth.user,
+                // 支持自定义发送者名称: "Name" <email>
+                from: config.sender_name ? `"${config.sender_name}" <${config.auth.user}>` : config.auth.user,
                 to: config.to || config.auth.user,
                 subject: title,
                 text: message,

@@ -116,9 +116,10 @@ jobs:
           platforms: ${{ matrix.platform }}
           no-cache: true
           push: true
-          # 使用带架构后缀的临时标签
+          # 同时推送到两个 Registry 的临时架构标签，确保层已就绪，避免合并时跨 Registry 复制层
           tags: |
             ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:build-${{ github.run_id }}-${{ matrix.suffix }}
+            ${{ (github.event_name != 'pull_request' && secrets.DOCKERHUB_TOKEN != '') && format('{0}:build-{1}-{2}', env.DOCKERHUB_REPO, github.run_id, matrix.suffix) || '' }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ matrix.platform }}
           cache-to: type=gha,mode=max,scope=${{ matrix.platform }}
@@ -199,10 +200,30 @@ jobs:
           TAGS="${{ steps.meta.outputs.tags }}"
           echo "$TAGS" | while IFS= read -r TAG; do
             [ -z "$TAG" ] && continue
-            echo "Creating manifest for: $TAG"
-            docker buildx imagetools create -t "$TAG" \
-              "${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}@${AMD64_DIGEST}" \
-              "${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}@${ARM64_DIGEST}"
+            
+            # 确定当前标签所属的 Registry 以选择同源的源镜像进行合并（避免跨 Registry 复制 Blob 导致 400 错误）
+            if [[ "$TAG" == "${{ env.REGISTRY }}"* ]]; then
+               SRC_PREFIX="${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}"
+            else
+               SRC_PREFIX="${{ env.DOCKERHUB_REPO }}"
+            fi
+            
+            echo "Creating manifest for: $TAG using source: $SRC_PREFIX"
+            
+            # 增加重试机制，应对 Registry 极端情况下的抖动
+            for i in {1..3}; do
+              docker buildx imagetools create -t "$TAG" \
+                "${SRC_PREFIX}@${AMD64_DIGEST}" \
+                "${SRC_PREFIX}@${ARM64_DIGEST}" && break || {
+                if [ $i -lt 3 ]; then
+                  echo "Push failed, retrying in 10s ($i/3)..."
+                  sleep 10
+                else
+                  echo "Failed to create manifest for $TAG after 3 attempts."
+                  exit 1
+                fi
+              }
+            done
           done
 
       - name: Image digest

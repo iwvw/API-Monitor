@@ -88,20 +88,25 @@ class GeminiCliClient {
     const generationConfig = {
       temperature: temperature ?? parseFloat(settings.DEFAULT_TEMPERATURE || 1),
       topP: top_p ?? parseFloat(settings.DEFAULT_TOP_P || 0.95),
-      topK: parseInt(settings.DEFAULT_TOP_K || 64), // 默认 topK (避免某些模型问题)
-      maxOutputTokens: Math.min(max_tokens ?? parseInt(settings.DEFAULT_MAX_TOKENS || 8192), 65536), // 限制在 64k (API 限制为 65537 exclusive)
+      topK: parseInt(settings.DEFAULT_TOP_K || 64),
       stopSequences: Array.isArray(stop) ? stop : stop ? [stop] : [],
     };
 
-    // 处理 Thinking 配置 (参考 CatieCli 实现)
-    // 注意: gemini-3 模型**必须**包含 thinkingConfig，否则返回 404
+    if (max_tokens !== undefined && max_tokens !== null) {
+      generationConfig.maxOutputTokens = Math.min(max_tokens, 65536);
+    } else if (settings.DEFAULT_MAX_TOKENS) {
+      generationConfig.maxOutputTokens = Math.min(parseInt(settings.DEFAULT_MAX_TOKENS), 65536);
+    }
+
     const thinkingConfig = this._getThinkingConfig(model);
     if (thinkingConfig) {
       generationConfig.thinkingConfig = thinkingConfig;
-      // 关键校验：maxOutputTokens 必须大于等于 thinkingBudget (API 强制要求)
-      if (thinkingConfig.thinkingBudget && generationConfig.maxOutputTokens < thinkingConfig.thinkingBudget + 1024) {
-        generationConfig.maxOutputTokens = Math.min(thinkingConfig.thinkingBudget + 4096, 65536);
-        logger.info(`Adjusted maxOutputTokens for thinking budget (${thinkingConfig.thinkingBudget}): ${generationConfig.maxOutputTokens}`);
+
+      if (generationConfig.maxOutputTokens && thinkingConfig.thinkingBudget) {
+        if (generationConfig.maxOutputTokens < thinkingConfig.thinkingBudget + 1024) {
+          generationConfig.maxOutputTokens = Math.min(thinkingConfig.thinkingBudget + 4096, 65536);
+          logger.info(`Adjusted maxOutputTokens for thinking budget (${thinkingConfig.thinkingBudget}): ${generationConfig.maxOutputTokens}`);
+        }
       }
     }
 
@@ -273,9 +278,9 @@ class GeminiCliClient {
     // Gemini 3 系列必须包含 thinkingConfig (参考 CatieCli)
     if (model.includes('gemini-3')) {
       if (model.includes('flash')) {
-        return { thinkingBudget: 4096, includeThoughts: true };
+        return { thinkingBudget: 2048, includeThoughts: true };
       }
-      return { thinkingBudget: 16384, includeThoughts: true };
+      return { thinkingBudget: 4096, includeThoughts: true };
     }
     // 其他模型 (如 2.0/1.5) 不需要默认 thinkingConfig
     return null;

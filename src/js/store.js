@@ -148,7 +148,7 @@ export function getModuleIcon(moduleId) {
 
 export const store = reactive({
   // 认证与基础状态
-  isAuthenticated: false,
+  isAuthenticated: true,
   isCheckingAuth: true,
   showLoginModal: false,
   showSetPasswordModal: false,
@@ -630,7 +630,7 @@ export const store = reactive({
   openaiHealthCheckForm: {          // 健康检测表单
     useKey: 'single',               // single: 单端点, all: 所有端点
     concurrency: false,             // 是否开启并发检测
-    timeout: 15                     // 超时时间(s)
+    timeout: 60                     // 超时时间(s)
   },
 
   // 自动标题生成配置

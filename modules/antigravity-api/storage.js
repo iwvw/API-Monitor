@@ -690,10 +690,24 @@ function getStats() {
       .get();
 
     const accounts = getAccounts();
+
+    // 获取最近 14 天的趋势数据
+    const dailyTrend = db.prepare(`
+        SELECT 
+            strftime('%Y-%m-%d', datetime(created_at, 'localtime')) as date,
+            COUNT(*) as total,
+            SUM(CASE WHEN status_code = 200 THEN 1 ELSE 0 END) as success
+        FROM antigravity_logs
+        WHERE created_at >= datetime('now', '-14 days', 'localtime')
+        GROUP BY date
+        ORDER BY date ASC
+    `).all();
+
     return {
       total_calls: stats.total_calls || 0,
       success_calls: stats.success_calls || 0,
       fail_calls: stats.fail_calls || 0,
+      daily_trend: dailyTrend || [],
       accounts: {
         total: accounts.length,
         online: accounts.filter(a => a.status === 'online').length,

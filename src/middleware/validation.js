@@ -23,8 +23,12 @@ function validate(schemas) {
             if (schemas.body) {
                 const result = schemas.body.safeParse(req.body);
                 if (!result.success) {
+                    const issues = result.error?.errors || [];
+                    if (issues.length === 0) {
+                        console.error('Validation failed but no errors found:', result.error);
+                    }
                     errors.push(
-                        ...result.error.errors.map((e) => ({
+                        ...issues.map((e) => ({
                             field: `body.${e.path.join('.')}`,
                             message: e.message,
                             code: e.code,
@@ -39,8 +43,9 @@ function validate(schemas) {
             if (schemas.query) {
                 const result = schemas.query.safeParse(req.query);
                 if (!result.success) {
+                    const issues = result.error?.errors || [];
                     errors.push(
-                        ...result.error.errors.map((e) => ({
+                        ...issues.map((e) => ({
                             field: `query.${e.path.join('.')}`,
                             message: e.message,
                             code: e.code,
@@ -55,8 +60,9 @@ function validate(schemas) {
             if (schemas.params) {
                 const result = schemas.params.safeParse(req.params);
                 if (!result.success) {
+                    const issues = result.error?.errors || [];
                     errors.push(
-                        ...result.error.errors.map((e) => ({
+                        ...issues.map((e) => ({
                             field: `params.${e.path.join('.')}`,
                             message: e.message,
                             code: e.code,
