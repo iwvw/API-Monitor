@@ -219,6 +219,23 @@ class ServerAccount {
   }
 
   /**
+   * 重置所有主机状态为离线 (通常用于系统启动时)
+   * @returns {number} 更新的数量
+   */
+  static resetAllStatus() {
+    const now = new Date().toISOString();
+    const stmt = getStatement(`
+        UPDATE server_accounts
+        SET status = 'offline',
+            last_check_time = ?,
+            last_check_status = 'server_startup',
+            updated_at = ?
+    `); // Reset to offline
+    const result = stmt.run(now, now);
+    return result.changes;
+  }
+
+  /**
    * 删除主机账号
    * @param {string} id - 主机 ID
    * @returns {boolean} 是否删除成功

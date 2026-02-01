@@ -499,6 +499,14 @@ const app = createApp({
       serverAddingBatch: false,
       isDraggingFile: false, // 文件拖拽状态
 
+      // Snippet Category Rename
+      showRenameCategoryModal: false,
+      renameCategoryForm: {
+        oldName: '',
+        newName: ''
+      },
+      renameCategoryLoading: false,
+
       // 主机筛选与自动更新
       probeStatus: '', // '', 'loading', 'success', 'error'
 
@@ -770,9 +778,6 @@ const app = createApp({
       return list;
     },
 
-    /**
-     * 按主机分组的历史记录
-     */
     groupedMetricsHistory() {
       const grouped = {};
       for (const record of this.metricsHistoryList) {
@@ -783,6 +788,36 @@ const app = createApp({
         grouped[serverId].push(record);
       }
       return grouped;
+    },
+
+    /**
+     * 按分类分组的代码片段
+     */
+    groupedSnippets() {
+      const groups = {};
+      const fallback = '默认'; // Default category name
+
+      if (!this.sshSnippets || !Array.isArray(this.sshSnippets)) return [];
+
+      this.sshSnippets.forEach(snippet => {
+        const cat = snippet.category && snippet.category.trim() !== '' ? snippet.category : fallback;
+        if (!groups[cat]) {
+          groups[cat] = [];
+        }
+        groups[cat].push(snippet);
+      });
+
+      // Sort categories: 'common' or '默认' first, then others alphabetically
+      const sortedKeys = Object.keys(groups).sort((a, b) => {
+        if (a === 'common' || a === '默认') return -1;
+        if (b === 'common' || b === '默认') return 1;
+        return a.localeCompare(b);
+      });
+
+      return sortedKeys.map(cat => ({
+        name: cat,
+        snippets: groups[cat]
+      }));
     },
 
     /**

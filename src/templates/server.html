@@ -1880,11 +1880,7 @@
 
           <div class="server-management-actions" style="display: flex; gap: 8px">
             <!-- 一键升级 Agent 按钮 -->
-            <button class="btn btn-primary btn-sm" @click="showOneKeyUpgradeModal" title="升级所有 Agent" style="
-                background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-                border: none;
-                box-shadow: 0 4px 10px rgba(16, 185, 129, 0.3);
-              ">
+            <button class="btn btn-secondary btn-sm" @click="showOneKeyUpgradeModal" title="升级所有 Agent">
               <i class="fas fa-cloud-upload-alt" style="margin-right: 6px"></i>升级 Agent
             </button>
             <button class="btn btn-success btn-sm" @click="openAddServerModal" title="添加主机">
@@ -2474,22 +2470,33 @@ Web服务器,192.168.1.100,22,root,password123
               </button>
             </div>
             <div class="snippets-list">
-              <div v-for="snippet in sshSnippets" :key="snippet.id" class="snippet-item"
-                @click="sendSnippet(snippet.content)">
-                <div class="snippet-info">
-                  <div class="snippet-title">{{ snippet.title }}</div>
-                  <div class="snippet-category" v-if="snippet.category">{{ snippet.category }}</div>
-                </div>
-                <div class="snippet-actions">
-                  <button class="btn-icon-refined sm" @click.stop="openEditSnippetModal(snippet)">
-                    <i class="fas fa-edit"></i>
-                  </button>
-                  <button class="btn-icon-refined sm" style="color: var(--danger-color)"
-                    @click.stop="deleteSnippet(snippet.id)">
-                    <i class="fas fa-trash"></i>
+              <template v-for="group in groupedSnippets" :key="group.name">
+                <div class="snippet-group-header">
+                  <div style="display: flex; align-items: center; gap: 6px; flex: 1;">
+                    <i class="fas fa-folder-open" style="opacity: 0.7; font-size: 10px"></i>
+                    {{ group.name }}
+                  </div>
+                  <button class="btn-icon-refined sm" @click.stop="openRenameCategoryModal(group.name)" title="重命名分组">
+                    <i class="fas fa-pencil-alt" style="font-size: 10px"></i>
                   </button>
                 </div>
-              </div>
+                <div v-for="snippet in group.snippets" :key="snippet.id" class="snippet-item"
+                  @click="sendSnippet(snippet.content)">
+                  <div class="snippet-info">
+                    <div class="snippet-title">{{ snippet.title }}</div>
+                    <div class="snippet-preview">{{ snippet.content }}</div>
+                  </div>
+                  <div class="snippet-actions">
+                    <button class="btn-icon-refined sm" @click.stop="openEditSnippetModal(snippet)">
+                      <i class="fas fa-edit"></i>
+                    </button>
+                    <button class="btn-icon-refined sm" style="color: var(--danger-color)"
+                      @click.stop="deleteSnippet(snippet.id)">
+                      <i class="fas fa-trash"></i>
+                    </button>
+                  </div>
+                </div>
+              </template>
               <div v-if="sshSnippets.length === 0" class="empty-text">
                 <i class="fas fa-terminal"
                   style="opacity: 0.2; font-size: 24px; display: block; margin-bottom: 8px"></i>
@@ -2799,6 +2806,32 @@ Web服务器,192.168.1.100,22,root,password123
         <div class="ssh-welcome-text">选择一个会话或新建连接</div>
         <button class="btn btn-primary" @click="showAddSessionModal">
           <i class="fas fa-plus"></i> 新建会话
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 分组重命名模态框 -->
+  <div v-if="showRenameCategoryModal" class="modal-overlay" style="z-index: 2000035; position: fixed; top: 0; left: 0;"
+    @click.self="showRenameCategoryModal = false">
+    <div class="modal modal-sm">
+      <div class="modal-header">
+        <div class="modal-title">重命名分组</div>
+        <button class="modal-close" @click="showRenameCategoryModal = false">
+          <i class="fas fa-times"></i>
+        </button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>新分组名称</label>
+          <input v-model="renameCategoryForm.newName" class="form-input" placeholder="请输入新名称"
+            @keyup.enter="renameCategory" />
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" @click="showRenameCategoryModal = false">取消</button>
+        <button class="btn btn-primary" @click="renameCategory" :disabled="renameCategoryLoading">
+          {{ renameCategoryLoading ? '保存中...' : '保存' }}
         </button>
       </div>
     </div>

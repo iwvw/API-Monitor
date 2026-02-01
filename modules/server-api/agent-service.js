@@ -137,6 +137,36 @@ class AgentService extends EventEmitter {
   }
 
   /**
+   * 获取指定主机的连接状态 (供 MonitorService 调用)
+   */
+  getStatus(serverId) {
+    const isOnline = this.isAgentOnline(serverId);
+    const legacy = this.legacyStatus.get(serverId);
+
+    return {
+      connected: isOnline,
+      lastSeen: legacy ? legacy.lastSeen : (isOnline ? Date.now() : 0),
+      version: legacy ? legacy.version : (isOnline ? 'socket.io' : null)
+    };
+  }
+
+  /**
+   * 获取指定主机的最新指标 (供 MonitorService 调用)
+   */
+  getMetrics(serverId) {
+    // 优先从 stateCache 获取
+    const cached = this.stateCache.get(serverId);
+    if (cached) {
+      const hostInfo = this.hostInfoCache.get(serverId) || {};
+      // 转换格式
+      return stateToFrontendFormat(cached.state, hostInfo);
+    }
+
+    // 回退到 legacyMetrics
+    return this.legacyMetrics.get(serverId) || null;
+  }
+
+  /**
    * 向 Agent 发送升级任务
    */
   sendUpgradeTask(serverId) {

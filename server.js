@@ -327,6 +327,17 @@ loadSessions();
 server.listen(PORT, '0.0.0.0', () => {
   logger.success(`主机启动成功 - http://0.0.0.0:${PORT}`);
 
+  // 重置所有主机状态为离线 (防止重启后残留错误的在线状态)
+  try {
+    const { ServerAccount } = require('./modules/server-api/models');
+    const resetCount = ServerAccount.resetAllStatus();
+    if (resetCount > 0) {
+      logger.info(`系统启动: 已重置 ${resetCount} 台主机的状态为离线`);
+    }
+  } catch (error) {
+    logger.warn('重置主机状态失败:', error.message);
+  }
+
   // 初始化通知服务
   const notificationService = require('./modules/notification-api/service');
   notificationService.init(server);

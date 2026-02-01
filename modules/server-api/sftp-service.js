@@ -75,38 +75,43 @@ class SFTPService {
      * @param {string} remotePath - 远程路径
      * @returns {Promise<Array>}
      */
-    async listDirectory(serverId, remotePath = '/') {
+    async listDirectory(serverId, remotePath = '.') { // Default to current directory
         const { sftp, conn } = await this.getConnection(serverId);
 
         try {
             return await new Promise((resolve, reject) => {
-                sftp.readdir(remotePath, (err, list) => {
+                // First resolve the real path (handles '.' -> '/home/user' or 'C:/Users/User')
+                sftp.realpath(remotePath, (err, absPath) => {
                     if (err) return reject(err);
 
-                    // 格式化文件列表
-                    const files = list.map(item => ({
-                        name: item.filename,
-                        path: path.posix.join(remotePath, item.filename),
-                        isDirectory: item.attrs.isDirectory(),
-                        isFile: item.attrs.isFile(),
-                        isSymlink: item.attrs.isSymbolicLink(),
-                        size: item.attrs.size,
-                        mode: item.attrs.mode,
-                        mtime: item.attrs.mtime * 1000, // 转换为毫秒
-                        atime: item.attrs.atime * 1000,
-                        uid: item.attrs.uid,
-                        gid: item.attrs.gid,
-                        permissions: this._formatPermissions(item.attrs.mode),
-                    }));
+                    sftp.readdir(absPath, (err, list) => {
+                        if (err) return reject(err);
 
-                    // 按类型和名称排序：目录优先，然后按名称字母排序
-                    files.sort((a, b) => {
-                        if (a.isDirectory && !b.isDirectory) return -1;
-                        if (!a.isDirectory && b.isDirectory) return 1;
-                        return a.name.localeCompare(b.name);
+                        // Format file list
+                        const files = list.map(item => ({
+                            name: item.filename,
+                            path: path.posix.join(absPath, item.filename),
+                            isDirectory: item.attrs.isDirectory(),
+                            isFile: item.attrs.isFile(),
+                            isSymlink: item.attrs.isSymbolicLink(),
+                            size: item.attrs.size,
+                            mode: item.attrs.mode,
+                            mtime: item.attrs.mtime * 1000,
+                            atime: item.attrs.atime * 1000,
+                            uid: item.attrs.uid,
+                            gid: item.attrs.gid,
+                            permissions: this._formatPermissions(item.attrs.mode),
+                        }));
+
+                        // Sort
+                        files.sort((a, b) => {
+                            if (a.isDirectory && !b.isDirectory) return -1;
+                            if (!a.isDirectory && b.isDirectory) return 1;
+                            return a.name.localeCompare(b.name);
+                        });
+
+                        resolve({ files, cwd: absPath });
                     });
-
-                    resolve(files);
                 });
             });
         } finally {

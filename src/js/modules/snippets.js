@@ -104,4 +104,64 @@ export const snippetsMethods = {
     this.snippetError = '';
     this.showSnippetModal = true;
   },
+
+  openRenameCategoryModal(categoryName) {
+    this.renameCategoryForm = {
+      oldName: categoryName,
+      newName: categoryName
+    };
+    this.showRenameCategoryModal = true;
+    // Focus input after next tick if possible, or just rely on autofocus (not added)
+  },
+
+  async renameCategory() {
+    const { oldName, newName } = this.renameCategoryForm;
+    if (!newName || !newName.trim()) {
+      this.showGlobalToast('分组名称不能为空', 'warning');
+      return;
+    }
+    if (newName === oldName) {
+      this.showRenameCategoryModal = false;
+      return;
+    }
+
+    this.renameCategoryLoading = true;
+    try {
+      // Find all snippets in this group
+      const snippetsToUpdate = this.sshSnippets.filter(s => {
+        const cat = s.category && s.category.trim() !== '' ? s.category : '默认';
+        return cat === oldName;
+      });
+
+      if (snippetsToUpdate.length === 0) {
+        this.showGlobalToast('该分组下没有代码片段', 'warning');
+        this.showRenameCategoryModal = false;
+        return;
+      }
+
+      // Parallel update
+      const promises = snippetsToUpdate.map(snippet => {
+        return fetch(`/api/server/snippets/${snippet.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            ...snippet,
+            category: newName
+          })
+        });
+      });
+
+      await Promise.all(promises);
+
+      this.showGlobalToast('分组重命名成功', 'success');
+      this.showRenameCategoryModal = false;
+      await this.loadSnippets();
+
+    } catch (error) {
+      console.error('重命名分组失败:', error);
+      this.showGlobalToast('重命名失败: ' + error.message, 'error');
+    } finally {
+      this.renameCategoryLoading = false;
+    }
+  },
 };

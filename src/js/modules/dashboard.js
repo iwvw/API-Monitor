@@ -213,6 +213,38 @@ export const dashboardMethods = {
   /**
    * 绘制 Canvas 趋势图 (Smooth Curve + Interaction)
    */
+  /* Helper to create/get singleton tooltip */
+  ensureTooltipElement() {
+    let el = document.getElementById('dashboard-chart-tooltip');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'dashboard-chart-tooltip';
+      Object.assign(el.style, {
+        position: 'fixed',
+        zIndex: '99999',
+        pointerEvents: 'none',
+        background: 'var(--card-bg)', // dynamic theme
+        color: 'var(--text-primary)',
+        border: '1px solid var(--border-color)',
+        borderRadius: '6px',
+        padding: '6px 10px',
+        fontSize: '11px',
+        fontWeight: '700',
+        fontFamily: 'Inter, sans-serif',
+        boxShadow: '0 4px 16px rgba(0,0,0,0.2)',
+        display: 'none',
+        whiteSpace: 'nowrap',
+        transition: 'opacity 0.1s, transform 0.1s',
+        backdropFilter: 'blur(8px)',
+      });
+      document.body.appendChild(el);
+    }
+    return el;
+  },
+
+  /**
+   * 绘制 Canvas 趋势图 (Smooth Curve + Interaction)
+   */
   drawTrendChart(refName, data, color) {
     const app = document.querySelector('#app')?.__vue_app__?._instance;
 
@@ -276,10 +308,46 @@ export const dashboardMethods = {
         if (index >= state.data.length) index = state.data.length - 1;
 
         this.renderChartFrame(canvas, index);
+
+        // Update DOM Tooltip
+        const tooltip = this.ensureTooltipElement();
+        const drawingHeight = rect.height - state.paddingBottom - state.paddingTop;
+        const maxVal = Math.max(...state.data, 10);
+
+        // Calculate Logic Coordinates
+        const logicX = state.paddingX + index * stepX;
+        const logicY = state.paddingTop + drawingHeight - (state.data[index] / maxVal) * drawingHeight;
+
+        // Screen Coordinates
+        const screenX = rect.left + logicX;
+        const screenY = rect.top + logicY;
+
+        // Content
+        tooltip.textContent = state.data[index];
+        tooltip.style.display = 'block';
+        tooltip.style.borderColor = state.color;
+
+        // Position strategy: Default Top
+        // translate(-50%, -100%) places it above the point, centered
+        let top = screenY - 12;
+        let transform = 'translate(-50%, -100%)';
+
+        // Check top boundary (e.g. if close to window top)
+        if (top < 50) { // arbitrary buffer
+          // Flip to bottom
+          top = screenY + 12;
+          transform = 'translate(-50%, 0)';
+        }
+
+        tooltip.style.left = screenX + 'px';
+        tooltip.style.top = top + 'px';
+        tooltip.style.transform = transform;
       });
 
       canvas.addEventListener('mouseleave', () => {
         this.renderChartFrame(canvas, null);
+        const tooltip = document.getElementById('dashboard-chart-tooltip');
+        if (tooltip) tooltip.style.display = 'none';
       });
     }
 
@@ -293,12 +361,6 @@ export const dashboardMethods = {
   renderChartFrame(canvas, highlightIndex) {
     const ctx = canvas.getContext('2d');
     const dpr = window.devicePixelRatio || 1;
-
-    // Get theme colors
-    const styles = getComputedStyle(document.body);
-    const tooltipBgColor = styles.getPropertyValue('--card-bg').trim();
-    const tooltipTextColor = styles.getPropertyValue('--text-primary').trim();
-    const guideLineColor = styles.getPropertyValue('--border-color').trim();
 
     const rect = canvas.getBoundingClientRect();
     const state = canvas.chartState;
@@ -405,7 +467,10 @@ export const dashboardMethods = {
       ctx.beginPath();
       ctx.moveTo(p.x, paddingTop);
       ctx.lineTo(p.x, height);
-      ctx.strokeStyle = guideLineColor;
+      // Use CSS variable if possible, else fallback
+      // We can't easily get guidelines color here without re-querying style or passing it in.
+      // Reuse logic from before or hardcode a safe consistent color
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
       ctx.lineWidth = 1;
       ctx.setLineDash([2, 2]);
       ctx.stroke();
@@ -423,40 +488,7 @@ export const dashboardMethods = {
       ctx.fillStyle = '#fff';
       ctx.fill();
 
-      // Tooltip Text
-      const text = `${values[highlightIndex]}`;
-      ctx.font = 'bold 11px Inter, sans-serif';
-      const textMetrics = ctx.measureText(text);
-      const padding = 4;
-      const boxWidth = textMetrics.width + padding * 2;
-      const boxHeight = 18;
-
-      // Keep tooltip within bounds
-      // Add buffer to prevent stroke clipping (lineWidth=1)
-      const edgeBuffer = 2;
-
-      let boxX = p.x - boxWidth / 2;
-      let boxY = p.y - 12 - boxHeight;
-
-      if (boxX < edgeBuffer) boxX = edgeBuffer;
-      if (boxX + boxWidth > width - edgeBuffer) boxX = width - boxWidth - edgeBuffer;
-      if (boxY < 0) boxY = p.y + 12; // Flip to bottom if top clipped
-
-      // Tooltip BG
-      ctx.fillStyle = tooltipBgColor;
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 1;
-
-      // Round Rect for Tooltip
-      ctx.beginPath();
-      const r = 4;
-      ctx.roundRect(boxX, boxY, boxWidth, boxHeight, r);
-      ctx.fill();
-      ctx.stroke();
-
-      // Text
-      ctx.fillStyle = tooltipTextColor;
-      ctx.fillText(text, boxX + padding, boxY + 12);
+      // NOTE: Tooltip drawing removed, handled by DOM element in mousemove
 
     } else {
       // Draw last point if not hovering
