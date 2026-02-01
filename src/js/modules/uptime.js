@@ -536,7 +536,7 @@ export const uptimeMethods = {
       this.uptimeChartInstance = null;
     }
 
-    const ctx = document.getElementById('uptimeDetailChart');
+    const ctx = document.getElementById('uptimeDetailChart-' + monitorId);
     if (!ctx) return;
 
     // 数据处理 (反转以按时间顺序显示)

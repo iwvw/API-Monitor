@@ -32,23 +32,9 @@
 }
 
 /* 顶部标签栏 - 保持与其他模块一致 (reference styles.css .sec-tabs) */
-.uptime-tabs-scroll-wrapper {
-    display: flex;
-    justify-content: center;
-    gap: 6px;
-    padding-bottom: 10px;
-}
 
-/* 复用 styles.css 中的 .tab-btn 样式，此处仅做微调或特定覆盖 */
-.uptime-tabs-scroll-wrapper .tab-btn {
-    /* min-width: 90px; handled by global */
-    border-radius: 8px;
-    /* Standard radius from styles.css */
-}
+/* 顶部标签栏 - 已替换为标准的 .sec-tabs，详见 styles.css */
 
-.uptime-tabs-scroll-wrapper .tab-btn.active {
-    color: #ffffff !important;
-}
 
 /* ==================== 统计概览条 (Aligned with Header/Toolbar) ==================== */
 .uptime-stats-bar-modern {
@@ -193,41 +179,41 @@
     /* Reduced from 12px */
 }
 
+/* 卡片展开状态过渡 */
 .uptime-monitor-card {
     background: var(--card-bg);
     border-radius: 12px;
-    /* Reduced radius for tighter feel */
     padding: 10px 14px;
-    /* Reduced from 12px 16px */
     border: 1px solid var(--border-color);
     box-shadow: var(--card-shadow);
-    transition: all 0.2s ease;
+    transition:
+        border-color 0.3s ease,
+        box-shadow 0.3s ease,
+        background-color 0.3s ease,
+        transform 0.2s ease;
     overflow: hidden;
     position: relative;
+    /* fix for grid animation */
 }
 
-.uptime-monitor-card:hover {
+.uptime-monitor-card.expanded {
+    border-color: var(--uptime-status-up);
     box-shadow: var(--card-hover-shadow);
-    border-color: var(--uptime-status-up-border);
-    /* Removed translate Y for stability */
 }
 
 .uptime-monitor-header {
     display: grid;
     grid-template-columns: auto 1fr auto;
     gap: 14px;
-    /* Reduced gap */
     align-items: center;
     cursor: pointer;
 }
 
-/* 左侧状态条 - 调整为更符合卡片风格的指示器 */
+/* 左侧状态条 */
 .monitor-status-icon {
     width: 32px;
-    /* Small icon */
     height: 32px;
     border-radius: 8px;
-    /* Tighter radius */
     display: flex;
     align-items: center;
     justify-content: center;
@@ -237,14 +223,11 @@
     transition: all 0.3s;
 }
 
-/* ... status colors remain same ... */
-
 /* 主要信息区域 */
 .monitor-main-info {
     display: flex;
     flex-direction: column;
     gap: 4px;
-    /* Reduced from 6px */
 }
 
 .monitor-name-row {
@@ -255,35 +238,17 @@
 
 .monitor-name {
     font-size: 15px;
-    /* Slightly smaller header */
     font-weight: 700;
     color: var(--text-primary);
 }
 
 .monitor-url {
     font-size: 12px;
-    /* Reduced from 13px */
     color: var(--text-secondary);
     font-family: var(--font-mono);
     display: flex;
     align-items: center;
     gap: 8px;
-}
-
-/* Meta Badges */
-.monitor-meta-badges {
-    display: flex;
-    gap: 6px;
-    margin-top: 4px;
-}
-
-.meta-badge {
-    font-size: 11px;
-    padding: 2px 8px;
-    border-radius: 6px;
-    background: var(--bg-tertiary);
-    color: var(--text-secondary);
-    border: 1px solid transparent;
 }
 
 /* 右侧统计与图表 */
@@ -332,24 +297,18 @@
     height: 20px;
     align-items: end;
     width: 100%;
-    /* Fill container */
 }
 
-/* List view has fewer bars (30), so adapt grid */
 .heartbeat-bar-inline.list-view {
     grid-template-columns: repeat(30, 1fr);
     width: 200px;
-    /* Fixed small width for list view to sit on right */
     height: 16px;
-    /* Smaller height */
 }
 
 .beat-pill {
     width: 100%;
-    /* Fill grid cell */
     height: 100%;
     border-radius: 4px;
-    /* More rounded */
     background: var(--bg-tertiary);
     transition: all 0.2s;
     opacity: 0.7;
@@ -380,35 +339,46 @@
     opacity: 0;
 }
 
-/* 展开详情区域 */
-/* 展开详情区域 */
-.monitor-details-expanded {
-    margin-top: 16px;
-    padding-top: 16px;
-    border-top: 1px dashed var(--border-color);
-    background: transparent;
+/* 展开详情区域 - Grid 动画方案 */
+.monitor-details-body {
+    display: grid;
+    grid-template-rows: 0fr;
+    opacity: 0;
+    transition:
+        grid-template-rows 0.4s cubic-bezier(0.25, 1, 0.5, 1),
+        opacity 0.3s ease-out,
+        margin-top 0.4s cubic-bezier(0.25, 1, 0.5, 1),
+        padding-top 0.4s cubic-bezier(0.25, 1, 0.5, 1),
+        border-top-color 0.3s ease;
     overflow: hidden;
-    animation: slideDown 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    will-change: grid-template-rows, opacity;
+
+    /* 收起状态 */
+    margin-top: 0;
+    padding-top: 0;
+    border-top: 1px dashed transparent;
 }
 
-@keyframes slideDown {
-    0% {
-        opacity: 0;
-        transform: translateY(-10px);
-        max-height: 0;
-        margin-top: 0;
-        padding-top: 0;
-        border-top-color: transparent;
-    }
+.uptime-monitor-card.expanded .monitor-details-body {
+    grid-template-rows: 1fr;
+    opacity: 1;
 
-    100% {
-        opacity: 1;
-        transform: translateY(0);
-        max-height: 600px;
-        margin-top: 16px;
-        padding-top: 16px;
-        border-top-color: var(--border-color);
-    }
+    /* 展开状态 */
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top-color: var(--border-color);
+}
+
+/* 内部包装器，确保 Grid 转换生效 */
+.monitor-details-inner {
+    min-height: 0;
+    overflow: hidden;
+    /* 默认隐藏溢出 */
+}
+
+.uptime-monitor-card.expanded .monitor-details-inner {
+    overflow: visible;
+    /* 展开后允许溢出 (如果需要) */
 }
 
 .detail-grid {
