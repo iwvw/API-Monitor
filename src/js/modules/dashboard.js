@@ -123,6 +123,7 @@ export const dashboardMethods = {
       this.fetchPaaSSummary(),
       this.fetchDnsSummary(),
       this.fetchUptimeSummary(),
+      this.fetchFileBoxSummary ? this.fetchFileBoxSummary() : Promise.resolve(),
       this.loadTotpAccounts ? this.loadTotpAccounts() : Promise.resolve(),
     ]);
 
@@ -134,6 +135,7 @@ export const dashboardMethods = {
       paas: store.dashboardStats.paas,
       dns: store.dashboardStats.dns,
       uptime: store.dashboardStats.uptime,
+      filebox: store.dashboardStats.filebox,
     });
   },
 
@@ -654,6 +656,23 @@ export const dashboardMethods = {
       console.error('[Dashboard] Fetch Uptime summary failed:', e);
     }
   },
+
+  /**
+   * 获取文件柜摘要
+   */
+  async fetchFileBoxSummary() {
+    try {
+      const res = await fetch('/api/filebox/history', { headers: store.getAuthHeaders() });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && Array.isArray(data.data)) {
+          store.dashboardStats.filebox.total = data.data.length;
+        }
+      }
+    } catch (e) {
+      console.error('[Dashboard] Fetch FileBox summary failed:', e);
+    }
+  },
 };
 
 // 在 store 中初始化相关状态
@@ -671,5 +690,6 @@ Object.assign(store, {
     },
     dns: { zones: 0 },
     uptime: { total: 0, up: 0, down: 0 },
+    filebox: { total: 0 },
   },
 });

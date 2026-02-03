@@ -1,5 +1,8 @@
 const fs = require('fs');
 const path = require('path');
+const { createLogger } = require('../../src/utils/logger');
+
+const logger = createLogger('FileBox');
 
 class FileBoxService {
     constructor() {
@@ -29,7 +32,7 @@ class FileBoxService {
                 return JSON.parse(fs.readFileSync(this.metadataFile, 'utf8'));
             }
         } catch (e) {
-            console.error('[FileBox] Failed to load metadata:', e);
+            logger.error('Failed to load metadata:', e);
         }
         return {};
     }
@@ -38,7 +41,7 @@ class FileBoxService {
         try {
             fs.writeFileSync(this.metadataFile, JSON.stringify(this.fileStore, null, 2));
         } catch (e) {
-            console.error('[FileBox] Failed to save metadata:', e);
+            logger.error('Failed to save metadata:', e);
         }
     }
 
@@ -135,10 +138,13 @@ class FileBoxService {
         if (!entry) return;
 
         entry.downloads = (entry.downloads || 0) + 1;
-        this.saveMetadata();
 
         if (entry.burnAfterReading) {
+            // 阅后即焚：直接删除，无需先保存 downloads（deleteEntry 内部会调用 saveMetadata）
             this.deleteEntry(code.toUpperCase());
+        } else {
+            // 普通文件：仅保存下载计数
+            this.saveMetadata();
         }
     }
 
@@ -154,7 +160,7 @@ class FileBoxService {
                         fs.unlinkSync(entry.path);
                     }
                 } catch (e) {
-                    console.error(`[FileBox] Failed to delete file: ${entry.path}`, e);
+                    logger.error(`Failed to delete file: ${entry.path}`, e);
                 }
             }
             delete this.fileStore[code];

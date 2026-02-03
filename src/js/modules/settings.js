@@ -67,6 +67,7 @@ export const settingsMethods = {
             'uptime',
             'filebox',
             'notification',
+            'ai-draw',
           ];
           if (settings.moduleVisibility) {
             const filtered = {};

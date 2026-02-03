@@ -1,3 +1,4 @@
+import axios from 'axios';
 import { store } from '../store.js';
 
 export const fileboxData = {
@@ -10,6 +11,7 @@ export const fileboxData = {
     fileboxBurnAfterReading: false,
     fileboxLoading: false,
     fileboxResult: null, // { code: '...' }
+    fileboxQrCode: '', // 二维码 Data URL
     fileboxHistory: [], // Local history of uploads
     fileboxRetrievedEntry: null, // Populated after retrieve
     isDragging: false,
@@ -89,6 +91,9 @@ export const fileboxMethods = {
             if (res.data.success) {
                 this.fileboxResult = { code: res.data.code };
 
+                // 生成二维码
+                this.generateFileBoxQrCode(res.data.code);
+
                 // Save minimal info to history
                 this.saveFileBoxHistory({
                     code: res.data.code,
@@ -99,9 +104,9 @@ export const fileboxMethods = {
                     createdAt: Date.now()
                 });
 
-                this.$toast.success('分享成功！取件码已生成');
+                this.showToast('分享成功！取件码已生成', 'success');
             } else {
-                this.$toast.error('分享失败: ' + res.data.error);
+                this.showToast('分享失败: ' + res.data.error, 'error');
             }
         } catch (error) {
             this.handleError(error);
@@ -112,7 +117,7 @@ export const fileboxMethods = {
 
     async retrieveFileBoxEntry() {
         if (!this.fileboxRetrieveCode || this.fileboxRetrieveCode.length < 5) {
-            this.$toast.error('请输入 5 位取件码');
+            this.showToast('请输入 5 位取件码', 'warning');
             return;
         }
 
@@ -127,12 +132,12 @@ export const fileboxMethods = {
                     this.fileboxRetrievedEntry.content = contentRes.data;
                 }
             } else {
-                this.$toast.error(res.data.error || '取件失败');
+                this.showToast(res.data.error || '取件失败', 'error');
             }
         } catch (error) {
             // 404 handled here
             if (error.response && error.response.status === 404) {
-                this.$toast.error('取件码无效或已过期');
+                this.showToast('取件码无效或已过期', 'error');
             } else {
                 this.handleError(error);
             }
@@ -145,8 +150,16 @@ export const fileboxMethods = {
         window.open(`/api/filebox/download/${code}`, '_blank');
     },
 
-    deleteFileBoxEntry(code) {
-        // Remove from history
+    async deleteFileBoxEntry(code) {
+        try {
+            // 调用后端删除 API
+            await axios.delete(`/api/filebox/${code}`);
+            this.showToast('已删除', 'success');
+        } catch (error) {
+            // 后端删除失败（可能已过期或不存在），仍继续清理本地记录
+            console.error('后端删除失败:', error);
+        }
+        // 同时清理本地历史记录
         this.fileboxHistory = this.fileboxHistory.filter(h => h.code !== code);
         localStorage.setItem('filebox_history', JSON.stringify(this.fileboxHistory));
     },
@@ -160,9 +173,9 @@ export const fileboxMethods = {
     copyToClipboard(text) {
         if (navigator.clipboard && window.isSecureContext) {
             navigator.clipboard.writeText(text).then(() => {
-                this.$toast.success('已复制到剪贴板');
+                this.showToast('已复制到剪贴板', 'success');
             }, () => {
-                this.$toast.error('复制失败');
+                this.showToast('复制失败', 'error');
             });
         } else {
             // Fallback
@@ -175,11 +188,36 @@ export const fileboxMethods = {
             textArea.select();
             try {
                 document.execCommand('copy');
-                this.$toast.success('已复制到剪贴板');
+                this.showToast('已复制到剪贴板', 'success');
             } catch (err) {
-                this.$toast.error('复制失败');
+                this.showToast('复制失败', 'error');
             }
             document.body.removeChild(textArea);
+        }
+    },
+
+    // 复制分享链接（直接下载链接）
+    copyFileBoxLink(code) {
+        const url = `${window.location.origin}/api/filebox/download/${code}`;
+        this.copyToClipboard(url);
+    },
+
+    // 生成二维码
+    async generateFileBoxQrCode(code) {
+        const url = `${window.location.origin}/api/filebox/download/${code}`;
+        try {
+            // 使用 QRCode CDN 库或 canvas 生成
+            const QRCode = window.QRCode || (await import('qrcode')).default;
+            if (QRCode.toDataURL) {
+                this.fileboxQrCode = await QRCode.toDataURL(url, {
+                    width: 150,
+                    margin: 1,
+                    color: { dark: '#000', light: '#fff' }
+                });
+            }
+        } catch (e) {
+            console.error('QRCode generation failed:', e);
+            this.fileboxQrCode = '';
         }
     }
 };

@@ -2,6 +2,9 @@ const express = require('express');
 const router = express.Router();
 const fileBoxService = require('./service');
 const { requireAuth } = require('../../src/middleware/auth');
+const { createLogger } = require('../../src/utils/logger');
+
+const logger = createLogger('FileBox');
 
 // Public route to get info by code (no auth needed usually, or maybe restrictive?)
 // For now, let's keep it open as "FileCodeBox" implies anyone with code can access.
@@ -70,7 +73,7 @@ router.post('/share', requireAuth, async (req, res) => {
 
         res.json({ success: true, code: entry.code, expiry: entry.expiry });
     } catch (error) {
-        console.error(error);
+        logger.error('Share failed:', error);
         res.status(500).json({ success: false, error: error.message });
     }
 });

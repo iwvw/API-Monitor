@@ -1,8 +1,16 @@
 /* ==================== FileBox 模块样式 ==================== */
 
 .theme-filebox {
-    --filebox-primary: var(--primary-color);
+    --current-primary: #10b981;
+    --current-dark: #059669;
+    --current-rgb: 16, 185, 129;
+    --filebox-primary: var(--current-primary);
     --filebox-bg: var(--bg-secondary);
+}
+
+.theme-filebox .tab-btn.active {
+    background: linear-gradient(135deg, var(--current-primary), var(--current-dark)) !important;
+    box-shadow: 0 2px 8px rgba(var(--current-rgb), 0.3);
 }
 
 /* 顶部取件卡片 */
@@ -28,7 +36,9 @@
     background: var(--bg-primary);
     border: 2px solid var(--border-color);
     border-radius: 12px;
-    padding: 12px 20px;
+    padding: 0 20px;
+    height: 48px;
+    box-sizing: border-box;
     color: var(--text-primary);
     font-size: 18px;
     font-weight: 700;
@@ -48,14 +58,17 @@
     color: white;
     border: none;
     border-radius: 12px;
-    padding: 0 30px;
+    padding: 0 24px;
     font-weight: 600;
-    font-size: 16px;
+    font-size: 15px;
     cursor: pointer;
     transition: all 0.3s ease;
     display: flex;
     align-items: center;
+    justify-content: center;
     gap: 8px;
+    white-space: nowrap;
+    height: 48px;
 }
 
 .filebox-retrieve-btn:hover {
@@ -68,6 +81,96 @@
     opacity: 0.6;
     cursor: not-allowed;
     transform: none;
+}
+
+/* 配置选项行 */
+.filebox-options-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 24px;
+    margin-top: 25px;
+    padding: 15px 20px;
+    background: rgba(var(--primary-rgb), 0.03);
+    border-radius: 12px;
+    border: 1px solid var(--border-color);
+    flex-wrap: wrap;
+}
+
+.filebox-option {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 13px;
+    color: var(--text-primary);
+    font-weight: 500;
+}
+
+.filebox-option i {
+    font-size: 14px;
+    width: 20px;
+    text-align: center;
+}
+
+.filebox-option .form-select-modern {
+    width: 90px;
+    padding: 5px 8px;
+    font-size: 12px;
+    border-radius: 8px;
+}
+
+/* 立即分享按钮增强 */
+.filebox-options-row .btn-primary {
+    padding: 0 24px;
+    height: 38px;
+    font-size: 14px;
+    border-radius: 10px;
+    box-shadow: 0 4px 12px rgba(var(--primary-rgb), 0.2);
+}
+
+/* 确保 Switch 样式在 filebox 中可用 */
+.form-switch {
+    display: inline-flex;
+    align-items: center;
+    cursor: pointer;
+    user-select: none;
+}
+
+.form-switch input {
+    display: none;
+}
+
+.switch-track {
+    width: 34px;
+    height: 18px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    position: relative;
+    transition: all 0.3s ease;
+    display: inline-block;
+    vertical-align: middle;
+}
+
+.switch-knob {
+    width: 12px;
+    height: 12px;
+    background: var(--text-tertiary);
+    border-radius: 50%;
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    transition: all 0.3s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+}
+
+.form-switch input:checked+.switch-track {
+    background: var(--primary-color);
+    border-color: var(--primary-color);
+}
+
+.form-switch input:checked+.switch-track .switch-knob {
+    transform: translateX(16px);
+    background: white;
 }
 
 /* 分享切换 Tab */
@@ -110,6 +213,7 @@
 /* 上传区域 */
 .filebox-upload-zone {
     flex: 1;
+    min-height: 220px;
     border: 2px dashed var(--border-color);
     border-radius: 16px;
     display: flex;
@@ -118,14 +222,21 @@
     justify-content: center;
     padding: 40px;
     cursor: pointer;
-    transition: all 0.3s ease;
-    background: rgba(255, 255, 255, 0.02);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    background: rgba(var(--bg-primary-rgb), 0.3);
+    position: relative;
+    overflow: hidden;
 }
 
-.filebox-upload-zone:hover,
+.filebox-upload-zone:hover {
+    border-color: var(--primary-color);
+    background: rgba(var(--primary-rgb), 0.02);
+}
+
 .filebox-upload-zone.drag-active {
     border-color: var(--primary-color);
     background: rgba(var(--primary-rgb), 0.05);
+    transform: scale(1.01);
 }
 
 .filebox-upload-icon {
@@ -152,6 +263,26 @@
     margin-bottom: 15px;
 }
 
+.filebox-upload-remove {
+    font-size: 12px;
+    color: var(--danger-color);
+    padding: 6px 14px;
+    border-radius: 20px;
+    background: rgba(var(--danger-rgb), 0.1);
+    transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 10px;
+}
+
+.filebox-upload-remove:hover {
+    background: var(--danger-color);
+    color: white;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(var(--danger-rgb), 0.2);
+}
+
 /* 分享成功弹出层 */
 .filebox-overlay-result {
     position: absolute;
@@ -159,8 +290,8 @@
     left: 0;
     width: 100%;
     height: 100%;
-    background: rgba(var(--bg-primary-rgb), 0.85);
-    backdrop-filter: blur(10px);
+    background: rgba(var(--bg-primary-rgb), 0.9);
+    backdrop-filter: blur(15px);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -170,11 +301,11 @@
 
 .filebox-result-card {
     background: var(--card-bg);
-    border: 1px solid var(--border-color);
+    border: 1px solid rgba(255, 255, 255, 0.05);
     padding: 40px;
-    border-radius: 20px;
+    border-radius: 24px;
     text-align: center;
-    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 25px 60px rgba(0, 0, 0, 0.4);
     max-width: 90%;
 }
 
@@ -192,33 +323,34 @@
 .filebox-history-list-modern {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 6px;
 }
 
 .filebox-history-item {
-    display: flex;
+    display: grid;
+    grid-template-columns: 32px 1fr auto;
     align-items: center;
-    padding: 12px 16px;
+    padding: 8px 12px;
     background: var(--bg-primary);
     border: 1px solid var(--border-color);
-    border-radius: 12px;
-    gap: 15px;
+    border-radius: 8px;
+    gap: 10px;
     transition: all 0.2s ease;
 }
 
 .filebox-history-item:hover {
     border-color: var(--primary-color);
-    transform: translateX(5px);
+    background: var(--bg-secondary);
 }
 
 .item-icon-box {
-    width: 40px;
-    height: 40px;
-    border-radius: 10px;
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 18px;
+    font-size: 14px;
     flex-shrink: 0;
 }
 
@@ -235,33 +367,48 @@
 .item-main {
     flex: 1;
     min-width: 0;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    gap: 12px;
 }
 
 .item-title {
     font-weight: 600;
-    font-size: 14px;
+    font-size: 13px;
     color: var(--text-primary);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    flex: 1;
+    min-width: 0;
 }
 
 .item-meta {
-    font-size: 12px;
+    font-size: 11px;
     color: var(--text-tertiary);
-    display: flex;
-    align-items: center;
-    gap: 6px;
+    white-space: nowrap;
+    flex-shrink: 0;
 }
 
-.item-code {
+.item-code-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.item-code-actions .item-code {
     font-family: var(--font-mono);
     font-weight: 700;
     color: var(--primary-color);
-    background: rgba(var(--primary-rgb), 0.05);
-    padding: 4px 10px;
-    border-radius: 6px;
-    font-size: 14px;
+    font-size: 12px;
+    letter-spacing: 1px;
+}
+
+.item-code-actions .btn {
+    padding: 4px 6px;
+    min-width: 24px;
+    height: 24px;
 }
 
 /* 提取结果弹窗增强 */

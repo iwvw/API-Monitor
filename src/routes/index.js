@@ -810,6 +810,7 @@ function registerRoutes(app) {
     'uptime-api': '/api/uptime',
     'cron-api': '/api/cron',
     'notification-api': '/api/notification',
+    'ai-draw-api': '/api/ai-draw',
     // music-api 在下方单独挂载（无需认证）
   };
 

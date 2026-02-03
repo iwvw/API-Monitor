@@ -48,6 +48,8 @@
   gap: 8px;
   align-items: center;
   justify-content: center;
+  /* 解决内部按钮高度变化导致的容器抖动 */
+  min-height: 48px;
 }
 
 /* 分组容器 */
@@ -68,8 +70,14 @@
   font-weight: 600;
   cursor: pointer;
   border-radius: 12px;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: color 0.15s ease, background-color 0.15s ease, transform 0.15s ease;
   white-space: nowrap;
+
+  /* 硬件加速与渲染优化 */
+  transform: translateZ(0);
+  will-change: transform, background-color;
+  backface-visibility: hidden;
+  -webkit-font-smoothing: subpixel-antialiased;
 }
 
 .nav-group-btn i:first-child {
@@ -96,7 +104,7 @@
 
 .nav-group-btn.active {
   color: var(--current-primary, var(--primary-color));
-  background: rgba(var(--current-rgb, var(--primary-rgb)), 0.12);
+  background: rgba(var(--current-rgb, var(--primary-rgb)), 0.18);
 }
 
 /* 导航栏设置按钮（PC 端样式） */
@@ -112,8 +120,14 @@
   font-weight: 600;
   cursor: pointer;
   border-radius: 12px;
-  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: color 0.15s ease, background-color 0.15s ease, transform 0.15s ease;
   white-space: nowrap;
+
+  /* 硬件加速与渲染优化 */
+  transform: translateZ(0);
+  will-change: transform, background-color;
+  backface-visibility: hidden;
+  -webkit-font-smoothing: subpixel-antialiased;
 }
 
 .nav-settings-btn i {
@@ -129,7 +143,7 @@
 
 .nav-settings-btn.active {
   color: var(--primary-color);
-  background: rgba(var(--primary-rgb), 0.12);
+  background: rgba(var(--primary-rgb), 0.18);
 }
 
 .nav-settings-btn.active i {
@@ -151,8 +165,8 @@
   position: absolute;
   top: calc(100% + 8px);
   left: 50%;
-  transform: translateX(-50%);
-  min-width: 160px;
+  transform: translateX(-50%) translateZ(0);
+  width: 180px;
   background: var(--bg-primary);
   backdrop-filter: blur(24px) saturate(200%);
   -webkit-backdrop-filter: blur(24px) saturate(200%);
@@ -182,10 +196,19 @@
   font-weight: 500;
   cursor: pointer;
   border-radius: 10px;
-  transition: all 0.2s ease;
+  width: calc(100% - 6px);
+  /* 预设透明边框，防止 hover 时动态计算边框/内边距导致的微移 */
+  border: 1px solid transparent;
+  transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
   text-align: left;
   margin: 3px;
-  width: calc(100% - 6px);
+
+  /* 硬件加速与渲染稳定性优化 */
+  transform: translateZ(0);
+  will-change: transform, background-color, color;
+  backface-visibility: hidden;
+  -webkit-font-smoothing: subpixel-antialiased;
+  /* 关键：防止 Chrome 下文字因为层提升导致的细微粗细变化位移 */
 }
 
 .nav-group-dropdown .dropdown-item i {
@@ -200,71 +223,73 @@
 }
 
 .nav-group-dropdown .dropdown-item.active {
-  background: rgba(var(--current-rgb, var(--primary-rgb)), 0.15);
+  background: rgba(var(--current-rgb, var(--primary-rgb)), 0.2);
   color: var(--current-primary, var(--primary-color));
 }
 
 /* 各模块特色颜色 */
 .nav-group-dropdown .dropdown-item.openai-tab.active {
   color: var(--openai-primary);
-  background: rgba(var(--openai-rgb), 0.12);
+  background: rgba(var(--openai-rgb), 0.2);
 }
 
 .nav-group-dropdown .dropdown-item.antigravity-tab.active {
   color: var(--ag-primary);
-  background: rgba(var(--ag-rgb), 0.12);
+  background: rgba(var(--ag-rgb), 0.2);
 }
 
 .nav-group-dropdown .dropdown-item.gemini-cli-tab.active {
   color: var(--gemini-primary);
-  background: rgba(var(--gemini-rgb), 0.12);
+  background: rgba(var(--gemini-rgb), 0.2);
 }
 
 .nav-group-dropdown .dropdown-item.paas-tab.active {
   color: var(--paas-primary);
-  background: rgba(var(--paas-rgb), 0.12);
+  background: rgba(var(--paas-rgb), 0.2);
 }
 
 .nav-group-dropdown .dropdown-item.dns-tab.active {
   color: var(--cf-primary);
-  background: rgba(var(--cf-rgb), 0.12);
+  background: rgba(var(--cf-rgb), 0.2);
 }
 
 .nav-group-dropdown .dropdown-item.server-tab.active {
   color: var(--server-primary);
-  background: rgba(var(--server-rgb), 0.12);
+  background: rgba(var(--server-rgb), 0.2);
 }
 
 .nav-group-dropdown .dropdown-item.self-h-tab.active {
   color: var(--selfh-primary);
-  background: rgba(var(--selfh-rgb), 0.12);
+  background: rgba(var(--selfh-rgb), 0.2);
 }
 
 .nav-group-dropdown .dropdown-item.totp-tab.active {
   color: var(--totp-primary);
-  background: rgba(var(--totp-rgb), 0.12);
+  background: rgba(var(--totp-rgb), 0.2);
 }
 
 .nav-group-dropdown .dropdown-item.music-tab.active {
   color: #f43f5e;
-  background: rgba(244, 63, 94, 0.12);
+  background: rgba(244, 63, 94, 0.2);
 }
 
 .nav-group-dropdown .dropdown-item.filebox-tab.active {
   color: var(--filebox-primary);
-  background: rgba(var(--filebox-rgb), 0.12);
+  background: rgba(var(--filebox-rgb), 0.2);
 }
 
 /* 下拉菜单动画 */
 .dropdown-fade-enter-active,
 .dropdown-fade-leave-active {
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  /* 缩短时间并使用 quint 曲线，减少补间过程中的视觉偏差 */
+  transition: opacity 0.15s cubic-bezier(0.23, 1, 0.32, 1), transform 0.15s cubic-bezier(0.23, 1, 0.32, 1);
 }
 
 .dropdown-fade-enter-from,
 .dropdown-fade-leave-to {
   opacity: 0;
-  transform: translateX(-50%) translateY(-8px);
+  /* 严格匹配基础状态的 translateX，只在 Y 轴做动画 */
+  transform: translateX(-50%) translateY(-8px) translateZ(0);
 }
 
 /* ==================== 胶囊模式适配 ==================== */

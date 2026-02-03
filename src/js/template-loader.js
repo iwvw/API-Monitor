@@ -31,6 +31,8 @@ const TemplateLoader = {
     'uptime.html': '#template-uptime',
     'filebox.html': '#template-filebox',
     'notification.html': '#template-notification',
+    'ai-chat.html': '#template-ai-chat',
+    'ai-draw.html': '#template-ai-draw',
   },
 
   // define critical templates for initial load

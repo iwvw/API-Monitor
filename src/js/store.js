@@ -97,6 +97,18 @@ export const MODULE_CONFIG = {
     icon: 'fa-bell',
     description: '通知渠道与告警规则管理',
   },
+  'ai-chat': {
+    name: 'AI Chat',
+    shortName: 'Chat',
+    icon: 'fa-comments',
+    description: 'AI 对话助手',
+  },
+  'ai-draw': {
+    name: 'AI Draw',
+    shortName: 'Draw',
+    icon: 'fa-palette',
+    description: 'AI 驱动的一站式绘图平台',
+  },
 };
 
 /**
@@ -126,7 +138,7 @@ export const MODULE_GROUPS = [
     id: 'toolbox',
     name: '工具箱',
     icon: 'fa-toolbox',
-    modules: ['self-h', 'totp', 'music', 'uptime', 'filebox', 'notification'],
+    modules: ['self-h', 'totp', 'music', 'uptime', 'filebox', 'notification', 'ai-chat', 'ai-draw'],
   },
 ];
 
@@ -184,6 +196,8 @@ export const store = reactive({
     uptime: true,
     filebox: true,
     notification: true,
+    'ai-chat': true,
+    'ai-draw': true,
   },
   channelEnabled: {
     antigravity: true,
@@ -208,6 +222,8 @@ export const store = reactive({
     'uptime',
     'filebox',
     'notification',
+    'ai-chat',
+    'ai-draw',
   ],
 
   // 界面设置

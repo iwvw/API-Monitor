@@ -410,6 +410,28 @@ class DatabaseService {
   }
 
   /**
+   * 代理方法：直接调用 db.prepare()
+   * 允许模块使用 db.prepare() 语法
+   */
+  prepare(sql) {
+    return this.getDatabase().prepare(sql);
+  }
+
+  /**
+   * 代理方法：直接调用 db.exec()
+   */
+  exec(sql) {
+    return this.getDatabase().exec(sql);
+  }
+
+  /**
+   * 代理方法：直接调用 db.pragma()
+   */
+  pragma(sql) {
+    return this.getDatabase().pragma(sql);
+  }
+
+  /**
    * 关闭数据库连接
    */
   close() {

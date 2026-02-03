@@ -15,11 +15,11 @@ const DEFAULT_CONFIG = {
   MODELS_URL: 'https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:fetchAvailableModels',
   NO_STREAM_URL: 'https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:generateContent',
   API_HOST: 'daily-cloudcode-pa.sandbox.googleapis.com',
-  USER_AGENT: 'antigravity/1.104.0 darwin/arm64',
+  USER_AGENT: 'antigravity/1.15.8 (Windows; AMD64)',
   // 端点回退顺序：sandbox → daily → prod
   FALLBACK_BASE_URLS: [
-    'https://daily-cloudcode-pa.sandbox.googleapis.com',
     'https://daily-cloudcode-pa.googleapis.com',
+    'https://daily-cloudcode-pa.sandbox.googleapis.com',
     'https://cloudcode-pa.googleapis.com',
   ],
   SYSTEM_INSTRUCTION: '',
@@ -515,7 +515,14 @@ function convertOpenAIToAntigravityRequest(openaiRequest, token) {
         if (model.includes('gemini-3')) {
           const sigPayload = getTextThoughtSignature(contentText);
           if (sigPayload?.signature) {
-            textPart.thoughtSignature = sigPayload.signature;
+            // 处理 GROUP#SIGNATURE 格式
+            const parts = sigPayload.signature.split('#');
+            if (parts.length === 2) {
+              // 简单的逻辑：如果有 #，取后半部分。更严格的通过 modelGroup 匹配可以在之后添加
+              textPart.thoughtSignature = parts[1];
+            } else {
+              textPart.thoughtSignature = sigPayload.signature;
+            }
           }
         }
         parts.push(textPart);
@@ -537,7 +544,13 @@ function convertOpenAIToAntigravityRequest(openaiRequest, token) {
 
           const thoughtSignature = getThoughtSignature(tc.id);
           if (thoughtSignature) {
-            part.thoughtSignature = thoughtSignature;
+            // 处理 GROUP#SIGNATURE 格式
+            const parts = thoughtSignature.split('#');
+            if (parts.length === 2) {
+              part.thoughtSignature = parts[1];
+            } else {
+              part.thoughtSignature = thoughtSignature;
+            }
           }
 
           parts.push(part);
@@ -678,7 +691,7 @@ function convertOpenAIToAntigravityRequest(openaiRequest, token) {
 
   if (antigravityTools.length > 0) {
     request.tools = antigravityTools;
-    request.toolConfig = { functionCallingConfig: { mode: 'VALIDATED' } };
+    request.toolConfig = { functionCallingConfig: { mode: 'NONE' } };
   }
 
   return {

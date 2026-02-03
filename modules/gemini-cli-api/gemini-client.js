@@ -14,9 +14,9 @@ try {
 
 class GeminiCliClient {
   constructor() {
-    this.userAgent = 'GeminiCLI/0.1.5 (Windows; AMD64)';
-    // 使用生产环境端点 (gcli2api 默认使用此端点)
-    this.v1internalEndpoint = 'https://cloudcode-pa.googleapis.com/v1internal';
+    this.userAgent = 'antigravity/1.15.8 (Windows; AMD64)';
+    // 使用 daily 环境端点 (与 Antigravity 保持一致)
+    this.v1internalEndpoint = 'https://daily-cloudcode-pa.googleapis.com/v1internal';
 
     // 初始化 Requester (借用 Antigravity 的二进制)
     this.requester = new AntigravityRequester({

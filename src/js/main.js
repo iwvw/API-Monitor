@@ -54,6 +54,8 @@ async function loadLazyCSS() {
     import('../css/uptime.css'),
     import('../css/filebox.css'),
     import('../css/notification.css'),
+    import('../css/ai-chat.css'),
+    import('../css/ai-draw.css'),
   ];
   await Promise.all(styles);
   console.log('[System] Lazy CSS loaded');
@@ -109,6 +111,8 @@ import { fileboxData, fileboxMethods } from './modules/filebox.js';
 import { aliyunMethods } from './modules/aliyun.js';
 import { tencentMethods } from './modules/tencent.js';
 import { notificationData, notificationMethods } from './modules/notification.js';
+import { aiChatData, aiChatMethods, aiChatComputed } from './modules/ai-chat.js';
+import { aiDrawData, aiDrawMethods, aiDrawComputed } from './modules/ai-draw.js';
 import { formatDateTime, formatFileSize, maskAddress, formatRegion, formatUptime } from './modules/utils.js';
 
 // 导入全局状态
@@ -654,6 +658,12 @@ const app = createApp({
 
       // 文件柜模块
       ...fileboxData,
+
+      // AI Chat 模块
+      ...aiChatData,
+
+      // AI Draw 绘图模块
+      ...aiDrawData,
     };
   },
 
@@ -869,8 +879,14 @@ const app = createApp({
       );
     },
 
-    // TOTP 验证器模块计算属性
+    // TOTP 2FA 验证器模块计算属性
     ...totpComputed,
+
+    // AI Chat 模块计算属性
+    ...aiChatComputed,
+
+    // AI Draw 绘图模块计算属性
+    ...aiDrawComputed,
 
     // 聊天界面可用的模型列表 (根据端点筛选)
     filteredChatModels() {
@@ -1489,6 +1505,12 @@ const app = createApp({
             case 'notification':
               this.initNotificationModule();
               break;
+            case 'ai-chat':
+              this.aiChatInit();
+              break;
+            case 'ai-draw':
+              this.aiDrawInit();
+              break;
           }
         });
       }
@@ -1737,6 +1759,8 @@ const app = createApp({
     ...aliyunMethods,
     ...tencentMethods,
     ...notificationMethods,
+    ...aiChatMethods,
+    ...aiDrawMethods,
 
     // ==================== 工具函数 ====================
     formatDateTime,
