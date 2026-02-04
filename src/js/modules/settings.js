@@ -65,7 +65,9 @@ export const settingsMethods = {
             'totp',
             'music',
             'uptime',
+            'filebox',
             'notification',
+            'ai-draw',
           ];
           if (settings.moduleVisibility) {
             const filtered = {};

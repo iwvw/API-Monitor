@@ -520,7 +520,9 @@ router.post('/info', async (req, res) => {
       disk: `${fmt(dUsed)} / ${fmt(dTotal)} (${dPerc})`,
       network: {
         down: fmt(rb) + '/s',
-        up: fmt(tb) + '/s'
+        up: fmt(tb) + '/s',
+        rx_speed: fmt(rb) + '/s',
+        tx_speed: fmt(tb) + '/s'
       },
       is_agent: false,
       source: 'ssh',
@@ -1552,11 +1554,16 @@ const sftpService = require('./sftp-service');
  */
 router.post('/sftp/list', async (req, res) => {
   try {
-    const { serverId, path = '/' } = req.body;
+    // Use '.' as default path to land in home directory
+    const { serverId, path = '.' } = req.body;
     if (!serverId) return res.status(400).json({ success: false, error: '缺少服务器 ID' });
 
-    const files = await sftpService.listDirectory(serverId, path);
-    res.json({ success: true, data: files, path });
+    const result = await sftpService.listDirectory(serverId, path);
+    // If result has files and cwd, use them. Otherwise assume it's the old array format (unlikely unless service wasn't updated)
+    const files = result.files || result;
+    const currentPath = result.cwd || path;
+
+    res.json({ success: true, data: files, path: currentPath });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }

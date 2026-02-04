@@ -339,6 +339,22 @@
               {{ totpAccounts ? totpAccounts.length : 0 }}
             </div>
           </div>
+          <!-- FileBox -->
+          <div class="paas-item" @click="mainActiveTab = 'filebox'">
+            <div class="paas-info">
+              <div class="paas-logo-box" style="color: #10b981">
+                <i class="fas fa-box"></i>
+              </div>
+              <div class="paas-item-text">
+                <h4>文件柜</h4>
+                <p>File & Text Sharing</p>
+              </div>
+            </div>
+            <div class="paas-status-badge">
+              <div class="status-dot-mini" :class="dashboardStats.filebox.total > 0 ? 'active' : ''"></div>
+              {{ dashboardStats.filebox.total }}
+            </div>
+          </div>
         </div>
       </div>
     </div>

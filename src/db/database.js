@@ -393,6 +393,21 @@ class DatabaseService {
       } catch (err) {
         logger.error('Music Settings 表创建失败:', err.message);
       }
+
+      // AI Draw 迁移: 为 ai_draw_projects 表添加 provider_id 字段
+      try {
+        const drawProjectsColumns = this.db.pragma('table_info(ai_draw_projects)');
+        if (drawProjectsColumns.length > 0) {
+          const hasProviderId = drawProjectsColumns.some(col => col.name === 'provider_id');
+          if (!hasProviderId) {
+            logger.info('正在为 ai_draw_projects 表添加 provider_id 字段...');
+            this.db.exec('ALTER TABLE ai_draw_projects ADD COLUMN provider_id TEXT');
+            logger.success('ai_draw_projects.provider_id 字段添加成功');
+          }
+        }
+      } catch (err) {
+        logger.error('AI Draw 迁移失败:', err.message);
+      }
     } catch (error) {
       logger.error('数据库迁移失败', error.message);
       // 不抛出错误，避免影响应用启动
@@ -407,6 +422,28 @@ class DatabaseService {
       this.initialize();
     }
     return this.db;
+  }
+
+  /**
+   * 代理方法：直接调用 db.prepare()
+   * 允许模块使用 db.prepare() 语法
+   */
+  prepare(sql) {
+    return this.getDatabase().prepare(sql);
+  }
+
+  /**
+   * 代理方法：直接调用 db.exec()
+   */
+  exec(sql) {
+    return this.getDatabase().exec(sql);
+  }
+
+  /**
+   * 代理方法：直接调用 db.pragma()
+   */
+  pragma(sql) {
+    return this.getDatabase().pragma(sql);
   }
 
   /**

@@ -1,0 +1,483 @@
+<!-- AI Draw 模块模板 - 符合全站设计规范 -->
+<div class="tab-content ai-draw-tab-content theme-ai-draw" :class="getTabAnimationClass('ai-draw')">
+  <!-- 子标签页 -->
+  <div class="sec-tabs">
+    <button class="tab-btn" :class="{ active: aiDrawCurrentTab === 'projects' }" @click="aiDrawCurrentTab = 'projects'">
+      <i class="fas fa-folder-open"></i> 项目
+    </button>
+    <button class="tab-btn" :class="{ active: aiDrawCurrentTab === 'editor' }" @click="aiDrawCurrentTab = 'editor'"
+      :disabled="!aiDrawCurrentProject">
+      <i class="fas fa-edit"></i> 编辑器
+    </button>
+    <button class="tab-btn" :class="{ active: aiDrawCurrentTab === 'settings' }" @click="aiDrawCurrentTab = 'settings'">
+      <i class="fas fa-cog"></i> 设置
+    </button>
+  </div>
+
+  <!-- ==================== 项目列表 ==================== -->
+  <div v-show="aiDrawCurrentTab === 'projects'" class="sub-tab-content quick-fade-in">
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">
+          <i class="fas fa-palette" style="margin-right: 8px; color: var(--current-primary)"></i>绘图项目
+          <span style="font-weight: 400; opacity: 0.6; margin-left: 8px">({{ aiDrawProjects.length }})</span>
+        </div>
+        <div style="display: flex; gap: 8px; align-items: center">
+          <!-- 搜索 -->
+          <div class="totp-search-box" style="min-width: 150px">
+            <i class="fas fa-search"></i>
+            <input v-model="aiDrawSearchQuery" type="text" placeholder="搜索项目..." />
+          </div>
+          <!-- 新建下拉菜单 -->
+          <div class="dropdown" style="position: relative">
+            <button class="btn btn-primary" @click="aiDrawShowCreateMenu = !aiDrawShowCreateMenu">
+              <i class="fas fa-plus"></i> 新建项目
+              <i class="fas fa-chevron-down" style="margin-left: 4px; font-size: 10px"></i>
+            </button>
+            <div v-if="aiDrawShowCreateMenu" class="dropdown-menu" style="
+                position: absolute;
+                top: 100%;
+                right: 0;
+                margin-top: 4px;
+                background: var(--bg-primary);
+                border: 1px solid var(--border-color);
+                border-radius: 8px;
+                box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
+                min-width: 180px;
+                z-index: 100;
+                overflow: hidden;
+              ">
+              <button class="dropdown-item" @click="aiDrawCreateProject('mermaid')" style="
+                  display: flex;
+                  align-items: center;
+                  gap: 10px;
+                  width: 100%;
+                  padding: 10px 14px;
+                  border: none;
+                  background: none;
+                  color: var(--text-primary);
+                  cursor: pointer;
+                  font-size: 14px;
+                ">
+                <i class="fas fa-sitemap" style="color: var(--current-primary)"></i>
+                Mermaid 图表
+              </button>
+              <button class="dropdown-item" @click="aiDrawCreateProject('drawio')" style="
+                  display: flex;
+                  align-items: center;
+                  gap: 10px;
+                  width: 100%;
+                  padding: 10px 14px;
+                  border: none;
+                  background: none;
+                  color: var(--text-primary);
+                  cursor: pointer;
+                  font-size: 14px;
+                ">
+                <i class="fas fa-project-diagram" style="color: #f59e0b"></i>
+                Draw.io 图表
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 加载状态 -->
+      <div v-if="aiDrawLoading" class="loading" style="padding: 60px">
+        <div class="spinner"></div>
+        <div style="margin-top: 12px">加载中...</div>
+      </div>
+
+      <!-- 空状态 -->
+      <div v-else-if="filteredAiDrawProjects.length === 0" class="empty-state" style="padding: 60px">
+        <i class="fas fa-palette" style="font-size: 48px; margin-bottom: 16px; opacity: 0.3"></i>
+        <div>{{ aiDrawSearchQuery ? '没有匹配的项目' : '暂无绘图项目' }}</div>
+        <button v-if="!aiDrawSearchQuery" class="btn btn-primary" style="margin-top: 16px"
+          @click="aiDrawCreateProject('mermaid')">
+          <i class="fas fa-plus"></i> 创建第一个项目
+        </button>
+      </div>
+
+      <!-- 项目表格 -->
+      <div v-else class="table-container">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th style="width: 50%">项目名称</th>
+              <th class="text-center" style="width: 15%">类型</th>
+              <th class="text-center" style="width: 20%">更新时间</th>
+              <th class="text-center" style="width: 15%">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="project in filteredAiDrawProjects" :key="project.id">
+              <td>
+                <div style="display: flex; align-items: center; gap: 10px">
+                  <i :class="project.engine_type === 'mermaid' ? 'fas fa-sitemap' : 'fas fa-project-diagram'"
+                    :style="{ color: project.engine_type === 'mermaid' ? 'var(--current-primary)' : '#f59e0b' }"></i>
+                  <strong style="cursor: pointer" @click="aiDrawOpenProject(project)">{{ project.title || '未命名'
+                    }}</strong>
+                </div>
+              </td>
+              <td class="text-center">
+                <span class="record-type" :class="project.engine_type">
+                  {{ project.engine_type === 'mermaid' ? 'Mermaid' : 'Draw.io' }}
+                </span>
+              </td>
+              <td class="text-center">
+                <div class="log-time">{{ aiDrawFormatDate(project.updated_at) }}</div>
+              </td>
+              <td class="actions text-center">
+                <div class="flex-cell">
+                  <button class="btn btn-icon-refined" @click="aiDrawOpenProject(project)" title="编辑">
+                    <i class="fas fa-edit"></i>
+                  </button>
+                  <button class="btn btn-icon-refined" @click="aiDrawDeleteProject(project.id)" title="删除"
+                    style="color: var(--danger-color)">
+                    <i class="fas fa-trash"></i>
+                  </button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== 编辑器 ==================== -->
+  <div v-show="aiDrawCurrentTab === 'editor' && aiDrawCurrentProject" class="sub-tab-content quick-fade-in">
+    <!-- 编辑器工具栏 -->
+    <div class="panel-header" style="margin-bottom: 16px">
+      <div class="panel-title">
+        <button class="btn btn-secondary btn-sm" @click="aiDrawCurrentTab = 'projects'; aiDrawCurrentProject = null"
+          style="margin-right: 12px">
+          <i class="fas fa-arrow-left"></i>
+        </button>
+        <i :class="aiDrawCurrentProject?.engine_type === 'mermaid' ? 'fas fa-sitemap' : 'fas fa-project-diagram'"
+          :style="{ marginRight: '8px', color: aiDrawCurrentProject?.engine_type === 'mermaid' ? 'var(--current-primary)' : '#f59e0b' }"></i>
+        <input type="text" class="form-input" style="max-width: 300px; font-weight: 600"
+          :value="aiDrawCurrentProject?.title" @blur="aiDrawUpdateTitle($event.target.value)"
+          @keyup.enter="$event.target.blur()" />
+      </div>
+      <div style="display: flex; gap: 8px">
+        <button class="btn btn-secondary" @click="aiDrawShowChat = !aiDrawShowChat" :class="{ active: aiDrawShowChat }">
+          <i class="fas fa-robot"></i> AI 助手
+        </button>
+        <button class="btn btn-primary" @click="aiDrawSaveProject" :disabled="aiDrawSaving">
+          <i :class="aiDrawSaving ? 'fas fa-spinner fa-spin' : 'fas fa-save'"></i> 保存
+        </button>
+        <button class="btn btn-secondary" @click="aiDrawExport">
+          <i class="fas fa-download"></i> 导出
+        </button>
+      </div>
+    </div>
+
+    <!-- Mermaid 编辑器 -->
+    <div v-if="aiDrawCurrentProject?.engine_type === 'mermaid'" class="ai-draw-editor-container">
+      <div class="ai-draw-editor-main" :class="{ 'chat-visible': aiDrawShowChat }">
+        <div class="mermaid-split-view">
+          <!-- 代码面板 -->
+          <div class="mermaid-code-panel">
+            <div class="mermaid-panel-header">
+              <span><i class="fas fa-code"></i> Mermaid 代码</span>
+              <button class="btn btn-ghost btn-xs" @click="aiDrawFormatMermaid">
+                <i class="fas fa-magic"></i> 格式化
+              </button>
+            </div>
+            <textarea class="mermaid-textarea" v-model="aiDrawMermaidCode" @input="aiDrawRenderMermaid"
+              placeholder="输入 Mermaid 代码..." spellcheck="false"></textarea>
+          </div>
+          <!-- 预览面板 -->
+          <div class="mermaid-preview-panel">
+            <div class="mermaid-panel-header">
+              <span><i class="fas fa-eye"></i> 预览</span>
+            </div>
+            <div class="mermaid-preview-content" ref="mermaidPreview">
+              <div v-if="aiDrawMermaidError" class="mermaid-error">
+                <i class="fas fa-exclamation-triangle"></i>
+                <pre>{{ aiDrawMermaidError }}</pre>
+              </div>
+              <div v-else class="mermaid-svg" v-html="aiDrawMermaidSvg"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- AI 聊天侧栏 -->
+      <div v-if="aiDrawShowChat" class="ai-draw-chat-sidebar">
+        <div class="ai-draw-chat-header">
+          <span><i class="fas fa-robot"></i> AI 助手</span>
+          <button class="btn btn-ghost btn-xs" @click="aiDrawShowChat = false">
+            <i class="fas fa-times"></i>
+          </button>
+        </div>
+        <div class="ai-draw-chat-messages" ref="aiDrawChatContainer">
+          <div v-if="aiDrawChatMessages.length === 0" class="ai-draw-chat-empty">
+            <i class="fas fa-comments"></i>
+            <p>描述你想要的图表，AI 将帮你生成</p>
+            <div class="ai-draw-chat-suggestions">
+              <button @click="aiDrawSendMessage('帮我画一个用户登录的流程图')">画一个登录流程图</button>
+              <button @click="aiDrawSendMessage('生成一个简单的类图')">画一个类图</button>
+            </div>
+          </div>
+          <div v-for="(msg, idx) in aiDrawChatMessages" :key="idx" :class="['ai-draw-chat-message', msg.role]">
+            <div class="ai-draw-message-content">
+              <template v-if="msg.role === 'assistant'">
+                <div v-html="aiDrawRenderMarkdown(msg.content)"></div>
+                <button class="btn btn-xs btn-primary" style="margin-top: 8px" @click="aiDrawApplyCode(msg.content)">
+                  <i class="fas fa-check"></i> 应用到编辑器
+                </button>
+              </template>
+              <template v-else>{{ msg.content }}</template>
+            </div>
+          </div>
+          <div v-if="aiDrawChatLoading" class="ai-draw-chat-message assistant">
+            <div class="ai-draw-message-content">
+              <i class="fas fa-spinner fa-spin"></i> 思考中...
+            </div>
+          </div>
+        </div>
+        <div class="ai-draw-chat-input">
+          <textarea v-model="aiDrawChatInput" placeholder="描述你想要的图表..."
+            @keydown.enter.exact.prevent="aiDrawSendMessage()" rows="2"></textarea>
+          <button class="btn btn-primary" @click="aiDrawSendMessage()"
+            :disabled="!aiDrawChatInput.trim() || aiDrawChatLoading">
+            <i class="fas fa-paper-plane"></i>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Draw.io 编辑器 -->
+    <div v-else-if="aiDrawCurrentProject?.engine_type === 'drawio'" class="ai-draw-editor-container">
+      <iframe ref="drawioFrame" :src="aiDrawDrawioUrl" frameborder="0" class="drawio-iframe"
+        @load="aiDrawOnDrawioLoad"></iframe>
+    </div>
+  </div>
+
+  <!-- ==================== 设置 ==================== -->
+  <div v-show="aiDrawCurrentTab === 'settings'" class="sub-tab-content quick-fade-in">
+    <!-- Provider 管理 -->
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">
+          <i class="fas fa-plug" style="margin-right: 8px; color: var(--current-primary)"></i>AI Provider 配置
+          <span style="font-weight: 400; opacity: 0.6; margin-left: 8px">({{ aiDrawProviders.length }})</span>
+        </div>
+        <button class="btn btn-primary" @click="aiDrawOpenProviderModal">
+          <i class="fas fa-plus"></i> 添加 Provider
+        </button>
+      </div>
+
+      <!-- Provider 列表 -->
+      <div v-if="aiDrawProviders.length === 0" class="empty-state" style="padding: 40px">
+        <i class="fas fa-plug" style="font-size: 40px; margin-bottom: 12px; opacity: 0.3"></i>
+        <div>暂未配置 AI Provider</div>
+        <div style="font-size: 13px; opacity: 0.7; margin-top: 8px">添加一个 Provider 以启用 AI 辅助功能</div>
+      </div>
+
+      <div v-else class="table-container">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th style="width: 30%">名称</th>
+              <th class="text-center" style="width: 15%">来源</th>
+              <th style="width: 25%">模型</th>
+              <th class="text-center" style="width: 10%">状态</th>
+              <th class="text-center" style="width: 20%">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="provider in aiDrawProviders" :key="provider.id">
+              <td>
+                <div style="display: flex; align-items: center; gap: 8px">
+                  <i class="fas fa-star" v-if="provider.is_default" style="color: #f59e0b" title="默认 Provider"></i>
+                  <strong>{{ provider.name }}</strong>
+                </div>
+              </td>
+              <td class="text-center">
+                <span class="record-type" :class="provider.source_type">
+                  {{ provider.source_type === 'internal' ? '内部' : '外部' }}
+                </span>
+              </td>
+              <td>
+                <code style="font-size: 12px">{{ provider.default_model || '-' }}</code>
+              </td>
+              <td class="text-center">
+                <span :class="['status-badge', provider.enabled ? 'online' : 'offline']">
+                  {{ provider.enabled ? '启用' : '禁用' }}
+                </span>
+              </td>
+              <td class="actions text-center">
+                <div class="flex-cell">
+                  <button class="btn btn-icon-refined" @click="aiDrawTestProvider(provider)" title="测试连接"
+                    :disabled="aiDrawTestingProvider === provider.id">
+                    <i :class="aiDrawTestingProvider === provider.id ? 'fas fa-spinner fa-spin' : 'fas fa-bolt'"></i>
+                  </button>
+                  <button class="btn btn-icon-refined" @click="aiDrawEditProvider(provider)" title="编辑">
+                    <i class="fas fa-edit"></i>
+                  </button>
+                  <button class="btn btn-icon-refined" v-if="!provider.is_default"
+                    @click="aiDrawSetDefaultProvider(provider.id)" title="设为默认">
+                    <i class="fas fa-star"></i>
+                  </button>
+                  <button class="btn btn-icon-refined" @click="aiDrawDeleteProvider(provider.id)" title="删除"
+                    style="color: var(--danger-color)">
+                    <i class="fas fa-trash"></i>
+                  </button>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- 统计和其他设置 -->
+    <div class="panel" style="margin-top: 16px">
+      <div class="panel-header">
+        <div class="panel-title"><i class="fas fa-chart-bar" style="margin-right: 8px"></i>统计信息</div>
+      </div>
+      <div class="totp-settings-content">
+        <div class="settings-stats">
+          <div class="stat-item">
+            <span class="stat-value">{{ aiDrawProjects.length }}</span>
+            <span class="stat-label">个项目</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-value">{{ aiDrawProjects.filter(p => p.engine_type === 'mermaid').length }}</span>
+            <span class="stat-label">Mermaid</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-value">{{ aiDrawProjects.filter(p => p.engine_type === 'drawio').length }}</span>
+            <span class="stat-label">Draw.io</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-value">{{ aiDrawProviders.filter(p => p.enabled).length }}</span>
+            <span class="stat-label">已启用 Provider</span>
+          </div>
+        </div>
+
+        <div class="settings-divider"></div>
+
+        <div style="display: flex; gap: 12px; flex-wrap: wrap">
+          <button class="btn btn-secondary" @click="aiDrawLoadProjects">
+            <i class="fas fa-sync-alt"></i> 刷新项目列表
+          </button>
+          <button class="btn btn-secondary" @click="aiDrawLoadProviders">
+            <i class="fas fa-sync-alt"></i> 刷新 Provider
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Provider 编辑弹窗 -->
+<Teleport to="body">
+  <div v-if="aiDrawShowProviderModal" class="modal-overlay" @click.self="aiDrawShowProviderModal = false">
+    <div class="modal" style="max-width: 520px">
+      <div class="modal-header">
+        <div class="modal-title">
+          <i class="fas fa-plug" style="margin-right: 8px; color: var(--current-primary)"></i>
+          {{ aiDrawEditingProvider ? '编辑 Provider' : '添加 Provider' }}
+        </div>
+        <button class="modal-close" @click="aiDrawShowProviderModal = false">
+          <i class="fas fa-times"></i>
+        </button>
+      </div>
+
+      <div class="modal-body" style="padding: 16px 20px">
+        <!-- 名称 -->
+        <div class="form-group">
+          <label class="form-label">名称 <span style="color: var(--danger-color)">*</span></label>
+          <input type="text" class="form-input" v-model="aiDrawProviderForm.name" placeholder="例如: OpenAI、Claude" />
+        </div>
+
+        <!-- 来源类型 -->
+        <div class="form-group">
+          <label class="form-label">来源类型</label>
+          <div class="ai-draw-source-toggle">
+            <button type="button" class="source-btn" :class="{ active: aiDrawProviderForm.source_type === 'external' }"
+              @click="aiDrawProviderForm.source_type = 'external'">
+              <i class="fas fa-globe"></i>
+              <span>外部 API</span>
+            </button>
+            <button type="button" class="source-btn" :class="{ active: aiDrawProviderForm.source_type === 'internal' }"
+              @click="aiDrawProviderForm.source_type = 'internal'; aiDrawLoadInternalProviders()">
+              <i class="fas fa-link"></i>
+              <span>内部引用</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 外部配置 -->
+        <template v-if="aiDrawProviderForm.source_type === 'external'">
+          <div class="form-group">
+            <label class="form-label">API 地址 <span style="color: var(--danger-color)">*</span></label>
+            <input type="text" class="form-input" v-model="aiDrawProviderForm.base_url"
+              placeholder="https://api.openai.com/v1" />
+          </div>
+          <div class="form-group">
+            <label class="form-label">API 密钥 <span style="color: var(--danger-color)">*</span></label>
+            <input type="password" class="form-input" v-model="aiDrawProviderForm.api_key" placeholder="sk-..." />
+          </div>
+        </template>
+
+        <!-- 内部配置 -->
+        <template v-if="aiDrawProviderForm.source_type === 'internal'">
+          <div class="form-group">
+            <label class="form-label">选择内部 Provider <span style="color: var(--danger-color)">*</span></label>
+            <select class="form-input" v-model="aiDrawProviderForm.internal_provider_id">
+              <option value="">-- 请选择 --</option>
+              <option v-for="p in aiDrawInternalProviders" :key="p.id" :value="p.id">
+                {{ p.name }} ({{ p.default_model || '无默认模型' }})
+              </option>
+            </select>
+            <div v-if="aiDrawInternalProviders.length === 0" class="form-help"
+              style="color: var(--warning-color); margin-top: 8px">
+              <i class="fas fa-exclamation-triangle"></i> 未找到可用的内部 Provider，请先在 AI Chat 模块中配置
+            </div>
+          </div>
+        </template>
+
+        <!-- 默认模型 -->
+        <div class="form-group">
+          <label class="form-label">默认模型</label>
+          <input type="text" class="form-input" v-model="aiDrawProviderForm.default_model"
+            placeholder="gpt-4o、claude-3-opus-20240229 等" />
+          <div class="form-help">留空将使用 Provider 默认模型</div>
+        </div>
+
+        <!-- 选项 -->
+        <div class="form-group" style="display: flex; gap: 24px; padding-top: 8px">
+          <label class="switch-label">
+            <input type="checkbox" v-model="aiDrawProviderForm.enabled" />
+            <span class="switch"></span>
+            <span style="margin-left: 8px">启用</span>
+          </label>
+          <label class="switch-label">
+            <input type="checkbox" v-model="aiDrawProviderForm.is_default" />
+            <span class="switch"></span>
+            <span style="margin-left: 8px">设为默认</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="modal-footer">
+        <button class="btn btn-secondary" @click="aiDrawShowProviderModal = false">取消</button>
+        <button class="btn btn-primary" @click="aiDrawSaveProvider" :disabled="aiDrawSavingProvider">
+          <i :class="aiDrawSavingProvider ? 'fas fa-spinner fa-spin' : 'fas fa-check'"></i>
+          {{ aiDrawEditingProvider ? '保存修改' : '添加' }}
+        </button>
+      </div>
+    </div>
+  </div>
+</Teleport>
+
+<!-- 点击外部关闭下拉菜单 -->
+<Teleport to="body">
+  <div v-if="aiDrawShowCreateMenu" class="popover-overlay" @click="aiDrawShowCreateMenu = false"
+    style="position: fixed; inset: 0; z-index: 99"></div>
+</Teleport>

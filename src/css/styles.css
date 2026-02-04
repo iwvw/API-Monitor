@@ -99,30 +99,43 @@ pre,
   /* 核心模块颜色系统 - 高辨识度调色盘 */
   --openai-primary: #10a37f;
   --openai-dark: #0d8a6a;
+  --openai-rgb: 16, 163, 127;
 
   --ag-primary: #f43f5e;
   --ag-dark: #e11d48;
+  --ag-rgb: 244, 63, 94;
 
   --gemini-primary: #4285f4;
   --gemini-dark: #1a73e8;
+  --gemini-rgb: 66, 133, 244;
 
   --cf-primary: #f38020;
   --cf-dark: #e5730d;
+  --cf-rgb: 243, 128, 32;
 
   --selfh-primary: #06b6d4;
   --selfh-dark: #0891b2;
+  --selfh-rgb: 6, 182, 212;
 
   --server-primary: #1d4ed8;
   --server-primary-dark: #1e40af;
+  --server-rgb: 29, 78, 216;
 
   --paas-primary: #6366f1;
   --paas-dark: #4f46e5;
+  --paas-rgb: 99, 102, 241;
 
   --totp-primary: #8b5cf6;
   --totp-dark: #7c3aed;
+  --totp-rgb: 139, 92, 246;
 
   --notification-primary: #f59e0b;
   --notification-dark: #d97706;
+  --notification-rgb: 245, 158, 11;
+
+  --filebox-primary: #10b981;
+  --filebox-dark: #059669;
+  --filebox-rgb: 16, 185, 129;
 
   /* 常用功能色映射 (核心驱动) */
   --primary-color: var(--paas-primary);
@@ -389,6 +402,7 @@ pre,
   }
 
   /* 通用元素颜色覆盖逻辑 */
+  .theme-dashboard,
   .theme-openai,
   .theme-antigravity,
   .theme-gemini-cli,
@@ -399,9 +413,21 @@ pre,
   .theme-totp,
   .theme-music,
   .theme-uptime,
-  .theme-notification {
+  .theme-notification,
+  .theme-ai-chat {
     --current-primary: var(--primary-color);
     --current-dark: var(--primary-dark);
+    --current-rgb: 99, 102, 241;
+  }
+
+  .theme-dashboard {
+    --current-primary: var(--primary-color);
+    --current-rgb: 99, 102, 241;
+  }
+
+  .theme-ai-chat {
+    --current-primary: var(--primary-color);
+    --current-rgb: 100, 102, 241;
   }
 
   .theme-openai {

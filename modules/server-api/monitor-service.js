@@ -85,78 +85,96 @@ class MonitorService {
   async probeServer(server, silent = false) {
     // 纯 Agent 模式，跳过 SSH 相关的后台探测
     const agentService = require('./agent-service');
-    const agentStatus = agentService.getStatus(server.id);
-    const agentMetrics = agentService.getMetrics(server.id);
+    let agentStatus = { connected: false };
+    let agentMetrics = null;
+
+    try {
+      agentStatus = agentService.getStatus(server.id);
+      agentMetrics = agentService.getMetrics(server.id);
+    } catch (e) {
+      // Fallback if agent service not ready or method missing
+      // console.warn('Agent check failed', e);
+    }
 
     // 状态记录逻辑
     const oldStatus = server.status;
+    let responseTime = null;
+    let tcpError = null;
 
     try {
       // 1. 先用 TCP ping 测量网络延迟
-      const responseTime = await this.tcpPing(server.host, server.port || 22);
+      responseTime = await this.tcpPing(server.host, server.port || 22);
+    } catch (error) {
+      tcpError = error;
+    }
 
-      // 2. 检查 Agent 状态
-      if (agentStatus.connected && agentMetrics) {
-        const metrics = {
-          ...agentMetrics,
-          cached_at: new Date().toISOString(),
-        };
+    // Decision Logic: Agent status takes precedence
+    if (agentStatus.connected && agentMetrics) {
+      const metrics = {
+        ...agentMetrics,
+        cached_at: new Date().toISOString(),
+      };
 
-        // 更新内存缓存
-        this.metricsCache.set(server.id, metrics);
+      // 更新内存缓存
+      this.metricsCache.set(server.id, metrics);
 
+      if (!silent) {
+        ServerAccount.updateStatus(server.id, {
+          status: 'online',
+          last_check_time: new Date().toISOString(),
+          last_check_status: 'success',
+          response_time: responseTime || 0, // 0 if TCP failed but Agent is up
+        });
+
+        // Optional: Only log if we haven't logged recently to avoid spam, 
+        // or effectively we log every probe (usually every minute)
+        ServerMonitorLog.create({
+          server_id: server.id,
+          status: 'success',
+          response_time: responseTime || 0,
+        });
+      }
+
+      return { success: true, serverId: server.id, responseTime };
+
+    } else {
+      // Agent Offline. Depend on TCP.
+      if (!tcpError) {
+        // Agent 未连接，但 TCP 可达 -> Online (SSH/TCP only)
         if (!silent) {
           ServerAccount.updateStatus(server.id, {
             status: 'online',
             last_check_time: new Date().toISOString(),
-            last_check_status: 'success',
+            last_check_status: 'agent_offline', // 标记为 agent 离线但主机在线
             response_time: responseTime,
+          });
+        }
+        return { success: true, serverId: server.id, error: 'Agent 未连接', responseTime };
+      } else {
+        // Both Failed -> Offline
+        if (!silent) {
+          ServerAccount.updateStatus(server.id, {
+            status: 'offline',
+            last_check_time: new Date().toISOString(),
+            last_check_status: 'failed',
+            response_time: null,
           });
 
           ServerMonitorLog.create({
             server_id: server.id,
-            status: 'success',
-            response_time: responseTime,
+            status: 'failed',
+            response_time: null,
+            error_message: tcpError.message,
           });
         }
 
-        return { success: true, serverId: server.id, responseTime };
-      } else {
-        // Agent 未连接，但 TCP 可达
-        if (!silent) {
-          ServerAccount.updateStatus(server.id, {
-            status: 'pending',
-            last_check_time: new Date().toISOString(),
-            last_check_status: 'agent_offline',
-            response_time: responseTime,
-          });
-        }
-        return { success: false, serverId: server.id, error: 'Agent 未连接', responseTime };
+        return {
+          success: false,
+          serverId: server.id,
+          error: tcpError.message,
+          responseTime: null,
+        };
       }
-    } catch (error) {
-      // TCP ping 失败
-      if (!silent) {
-        ServerAccount.updateStatus(server.id, {
-          status: 'offline',
-          last_check_time: new Date().toISOString(),
-          last_check_status: 'failed',
-          response_time: null,
-        });
-
-        ServerMonitorLog.create({
-          server_id: server.id,
-          status: 'failed',
-          response_time: null,
-          error_message: error.message,
-        });
-      }
-
-      return {
-        success: false,
-        serverId: server.id,
-        error: error.message,
-        responseTime: null,
-      };
     }
   }
 

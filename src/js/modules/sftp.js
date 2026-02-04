@@ -14,7 +14,7 @@ export const sftpMethods = {
      * @param {string} serverId - 服务器 ID
      * @param {string} path - 目录路径
      */
-    async loadSftpDirectory(serverId, path = '/') {
+    async loadSftpDirectory(serverId, path = '.') {
         if (!serverId) {
             toast.error('请先选择服务器');
             return;
@@ -594,7 +594,7 @@ export const sftpMethods = {
 
         // 首次打开时，如果有当前会话，加载其服务器的文件
         if (this.showSftpSidebar && !this.sftpServerId && this.currentSSHSession) {
-            this.loadSftpDirectory(this.currentSSHSession.server.id, '/');
+            this.loadSftpDirectory(this.currentSSHSession.server.id, '.');
         }
     },
 

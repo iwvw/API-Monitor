@@ -4,6 +4,7 @@ const { createLogger } = require('../../src/utils/logger');
 const logger = createLogger('GCLI-Client');
 const AntigravityRequester = require('../antigravity-api/antigravity-requester');
 const path = require('path');
+const { PassThrough } = require('stream');
 let storage;
 try {
   storage = require('./storage');
@@ -15,8 +16,8 @@ try {
 class GeminiCliClient {
   constructor() {
     this.userAgent = 'GeminiCLI/0.1.5 (Windows; AMD64)';
-    // 使用生产环境端点 (gcli2api 默认使用此端点)
-    this.v1internalEndpoint = 'https://cloudcode-pa.googleapis.com/v1internal';
+    // 使用 daily 环境端点 (与 Antigravity 保持一致)
+    this.v1internalEndpoint = 'https://daily-cloudcode-pa.googleapis.com/v1internal';
 
     // 初始化 Requester (借用 Antigravity 的二进制)
     this.requester = new AntigravityRequester({
@@ -462,7 +463,7 @@ class GeminiCliClient {
     try {
       logger.info('Fetching cloudaicompanionProject from loadCodeAssist...');
 
-      const antigravityEndpoint = 'https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal';
+      const antigravityEndpoint = 'https://daily-cloudcode-pa.googleapis.com/v1internal';
       const loadCodeAssistUrl = `${antigravityEndpoint}:loadCodeAssist`;
 
       const resp = await axios.post(
@@ -514,36 +515,277 @@ class GeminiCliClient {
     // 获取 GCP 项目 ID (参考 CatieCli)
     const projectId = await this.fetchGcpProjectId(accountId);
 
-    const action = openaiRequest.stream ? 'streamGenerateContent' : 'generateContent';
-    // 只有流式请求才需要 alt=sse 参数
-    const url = openaiRequest.stream
-      ? `${this.v1internalEndpoint}:${action}?alt=sse`
-      : `${this.v1internalEndpoint}:${action}`;
+    const endpoints = [
+      'https://daily-cloudcode-pa.googleapis.com/v1internal',
+      'https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal',
+      'https://cloudcode-pa.googleapis.com/v1internal',
+    ];
 
-    // 获取基础模型名（移除前缀和后缀）
-    const baseModel = this._getBaseModelName(openaiRequest.model);
+    let lastError = null;
+    const settings = storage ? await storage.getSettings() : {};
+    const proxy = settings.PROXY || null;
 
-    const requestBody = {
-      model: baseModel,
-      project: projectId || '', // 使用获取到的项目 ID
-      request: geminiPayload,
-    };
+    for (let i = 0; i < endpoints.length; i++) {
+      const endpoint = endpoints[i];
 
-    logger.debug(`Sending request: URL=${url}, model=${requestBody.model}, project=${requestBody.project}`);
-    logger.debug(`Full payload: ${JSON.stringify(requestBody).substring(0, 1000)}`);
-    logger.debug(`generationConfig: ${JSON.stringify(geminiPayload.generationConfig)}`);
+      // 获取基础模型名（移除前缀和后缀）
+      const baseModel = this._getBaseModelName(openaiRequest.model);
+      const isGemini3 = baseModel.includes('gemini-3');
+      const isClaude = baseModel.toLowerCase().includes('claude');
+      const shouldUseStreamEndpoint = openaiRequest.stream || isGemini3 || isClaude;
 
-    const axiosConfig = await this.getAxiosConfig();
-    return axios.post(url, requestBody, {
-      ...axiosConfig,
-      headers: {
+      const action = shouldUseStreamEndpoint ? 'streamGenerateContent' : 'generateContent';
+      const url = shouldUseStreamEndpoint
+        ? `${endpoint}:${action}?alt=sse`
+        : `${endpoint}:${action}`;
+
+      // 修正模型名称 (Gemini 3 不需要改名，但需要 Thinking Config)
+      let apiModel = baseModel;
+
+      // 为 Gemini 3 模型添加 thinkingConfig
+      if (apiModel.includes('gemini-3')) {
+        if (!geminiPayload.generationConfig) {
+          geminiPayload.generationConfig = {};
+        }
+        if (!geminiPayload.generationConfig.thinkingConfig) {
+          geminiPayload.generationConfig.thinkingConfig = {
+            includeThoughts: true,
+            thinkingLevel: "high"
+          };
+        }
+      }
+
+      const requestBody = {
+        model: apiModel,
+        project: projectId || '', // 使用获取到的项目 ID
+        request: geminiPayload,
+        userAgent: 'antigravity',
+        requestType: baseModel.toLowerCase().includes('image') ? 'image_gen' : 'agent'
+      };
+
+      if (i === 0) {
+        logger.debug(`Sending request: URL=${url}, model=${requestBody.model}, project=${requestBody.project}, streamEndpoint=${shouldUseStreamEndpoint}`);
+        if (logger.level === 'debug') {
+          logger.debug(`Full payload: ${JSON.stringify(requestBody).substring(0, 1000)}`);
+        }
+      }
+
+      const headers = {
         Authorization: `Bearer ${accessToken}`,
         'Content-Type': 'application/json',
         'User-Agent': this.userAgent,
-      },
-      responseType: openaiRequest.stream ? 'stream' : 'json',
-      timeout: 120000, // 增加到 120s 超时，深度思考模型响应较慢
-    });
+        'Host': new URL(endpoint).host, // Explicitly set Host header
+      };
+
+      if (requestBody.model) {
+        if (requestBody.model.toLowerCase().includes('image')) {
+          headers['requestType'] = 'image_gen';
+        } else {
+          headers['requestType'] = 'agent';
+        }
+      }
+
+      if (i === 0) {
+        console.log(`[DEBUG] GC Request: ProjectID=${projectId} Model=${baseModel} APIModel=${apiModel} Endpoint=${endpoint}`);
+      }
+
+      const reqOptions = {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify(requestBody),
+        proxy: proxy,
+        timeout: 120000
+      };
+
+      let endpointError = null;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          if (openaiRequest.stream) {
+            // --- Stream Request (True Stream) ---
+            const passThrough = new PassThrough();
+            const s = this.requester.antigravity_fetchStream(url, reqOptions);
+            let streamStatus = 200;
+            let streamHeaders = {};
+
+            // Attach listeners immediately to avoid missing data
+            s.onData(chunk => passThrough.write(chunk));
+            s.onEnd(() => passThrough.end());
+            s.onError(err => passThrough.destroy(err));
+
+            await new Promise((resolve, reject) => {
+              s.onStart(info => {
+                streamStatus = info.status;
+                streamHeaders = info.headers;
+                resolve();
+              });
+              s.onError((err) => reject(err)); // Handle connect error
+            });
+
+            // If status is critical error, we might want to throw to trigger retry
+            // But we already started piping to passThrough. 
+            // Ideally we should wait for response before returning pipe?
+            // If 404/429, we should catch it here.
+
+            if (streamStatus !== 200) {
+              // Wait for full error text
+              const errorText = await new Promise((resolve) => {
+                let text = '';
+                // We need to capture chunks from passThrough or s? 
+                // s is already piping to passThrough. We can't double read s.
+                // But passThrough is readable.
+                // Actually, if we return passThrough, the caller reads it.
+                // BUT we want to retry on 429.
+                // So we must intercept.
+                // Re-implementing aggregation on 's' for error case is hard if we pipe.
+                resolve('Stream error occurred (status ' + streamStatus + ')');
+              });
+              // For true stream, accurate error body capture is hard if we stick to this structure.
+              // Simplification: Throw status error immediately.
+              const err = new Error(`Stream request failed with status ${streamStatus}`);
+              err.response = { status: streamStatus, data: errorText };
+              throw err;
+            }
+
+            return {
+              status: 200,
+              data: passThrough,
+              headers: streamHeaders
+            };
+
+          } else {
+            // --- Non-Stream Request (or Forced Stream) ---
+            if (shouldUseStreamEndpoint) {
+              let chunks = [];
+              let finished = false;
+              let streamError = null;
+              let streamStatus = 200;
+              let streamHeaders = {};
+              const startTime = Date.now();
+
+              const s = this.requester.antigravity_fetchStream(url, reqOptions);
+
+              s.onData(c => chunks.push(c));
+              s.onEnd(() => finished = true);
+              s.onError(e => streamError = e);
+
+              await new Promise((resolve, reject) => {
+                s.onStart(info => {
+                  streamStatus = info.status;
+                  streamHeaders = info.headers;
+                  resolve();
+                });
+                s.onError(reject);
+              });
+
+              // Wait for completion
+              while (!finished && !streamError && (Date.now() - startTime < 120000)) {
+                await new Promise(r => setTimeout(r, 50));
+              }
+
+              if (!finished && !streamError) { // Timeout
+                throw new Error('Stream timeout');
+              }
+              if (streamError) throw streamError;
+
+              const fullResponse = chunks.join('');
+
+              if (streamStatus !== 200) {
+                // The `errorText` variable is not defined in this scope.
+                // Assuming the intent was to include `fullResponse` which contains the error body.
+                // If `errorText` was intended to be a specific variable, it needs to be defined.
+                // For now, I'm using `fullResponse` to ensure syntactic correctness and logical consistency.
+                const err = new Error(`Request failed with status code ${streamStatus}. ProjectID=${projectId}. Body: ${fullResponse}`);
+                err.response = { status: streamStatus, data: fullResponse };
+                throw err;
+              }
+
+              // Parse SSE / JSON chunks
+              const parts = [];
+              let finishReason = 'STOP';
+              const lines = fullResponse.split('\n');
+              for (const line of lines) {
+                if (line.trim().startsWith('data: ')) {
+                  try {
+                    const data = JSON.parse(line.trim().substring(6));
+                    const chunkParts = data.candidates?.[0]?.content?.parts || [];
+                    for (const p of chunkParts) {
+                      if (p.text) parts.push({ text: p.text });
+                    }
+                    if (data.candidates?.[0]?.finishReason) {
+                      finishReason = data.candidates[0].finishReason;
+                    }
+                  } catch (e) { }
+                }
+              }
+
+              return {
+                status: 200,
+                data: {
+                  candidates: [
+                    {
+                      content: {
+                        parts: parts.length > 0 ? parts : [{ text: '' }],
+                        role: 'model'
+                      },
+                      finishReason: finishReason,
+                      index: 0
+                    }
+                  ]
+                },
+                headers: streamHeaders
+              };
+
+            } else {
+              // Standard non-stream
+              const res = await this.requester.antigravity_fetch(url, reqOptions);
+              if (res.status !== 200) {
+                const errText = await res.text();
+                const error = new Error(`Request failed with status code ${res.status}`);
+                error.response = { status: res.status, data: errText };
+                throw error;
+              }
+              return {
+                status: res.status,
+                data: await res.json(),
+                headers: res.headers
+              };
+            }
+          }
+        } catch (e) {
+          endpointError = e;
+          const status = e.response?.status;
+          lastError = endpointError;
+
+          // 404: Try next endpoint immediately
+          if (status === 404) {
+            break;
+          }
+
+          // 429 or 5xx: Retry
+          if (status === 429 || (status >= 500 && status < 600)) {
+            if (attempt < 2) {
+              const delay = (attempt + 1) * 2000 + Math.random() * 1000;
+              logger.warn(`Endpoint ${endpoint} hit ${status}, retrying in ${Math.round(delay)}ms...`);
+              await new Promise(r => setTimeout(r, delay));
+              continue;
+            }
+          } else {
+            // Other errors: break
+            break;
+          }
+        }
+      }
+
+      // Endpoint failed
+      const status = endpointError?.response?.status;
+      lastError = endpointError;
+      if (i < endpoints.length - 1) {
+        logger.warn(`Endpoint ${endpoint} failed with ${status}, trying next...`);
+        continue;
+      }
+      throw endpointError;
+    }
+    throw lastError;
   }
 
   /**
@@ -649,6 +891,56 @@ class GeminiCliClient {
 
       return quotas;
     }
+  }
+
+  /**
+   * 收集 Gemini SSE 流式响应并聚合成 JSON 对象
+   */
+  async _collectStreamResponse(streamRes) {
+    let buffer = '';
+    const parts = [];
+    let finishReason = 'STOP';
+
+    await new Promise((resolve, reject) => {
+      streamRes.onData(chunk => {
+        buffer += chunk;
+        const lines = buffer.split('\n');
+        buffer = lines.pop(); // Keep incomplete line
+
+        for (const line of lines) {
+          if (line.trim().startsWith('data: ')) {
+            const jsonStr = line.trim().substring(6);
+            try {
+              const data = JSON.parse(jsonStr);
+              // Extract text
+              const chunkParts = data.candidates?.[0]?.content?.parts || [];
+              for (const p of chunkParts) {
+                if (p.text) parts.push({ text: p.text });
+              }
+              if (data.candidates?.[0]?.finishReason) {
+                finishReason = data.candidates[0].finishReason;
+              }
+            } catch (e) { }
+          }
+        }
+      });
+      streamRes.onEnd(resolve);
+      streamRes.onError(reject);
+    });
+
+    // Construct minimal Gemini response
+    return {
+      candidates: [
+        {
+          content: {
+            parts: parts.length > 0 ? parts : [{ text: '' }],
+            role: 'model'
+          },
+          finishReason: finishReason,
+          index: 0
+        }
+      ]
+    };
   }
 }
 

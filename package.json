@@ -5,7 +5,7 @@
   "main": "server.js",
   "scripts": {
     "start": "cross-env DOTENV_CONFIG_QUIET=1 node server.js",
-    "dev:server": "cross-env DOTENV_CONFIG_QUIET=1 node server.js",
+    "dev:server": "cross-env DOTENV_CONFIG_QUIET=1 nodemon server.js",
     "dev:client": "cross-env DOTENV_CONFIG_QUIET=1 vite",
     "dev": "cross-env DOTENV_CONFIG_QUIET=1 concurrently --names \"SERVER,VITE\" --prefix-colors \"cyan,yellow\" \"npm run dev:server\" \"npm run dev:client\"",
     "build": "vite build",
@@ -38,6 +38,7 @@
     "jsqr": "^1.4.0",
     "katex": "^0.16.21",
     "lru-cache": "^11.2.4",
+    "mermaid": "^11.12.2",
     "multer": "^2.0.2",
     "node-cron": "^4.2.1",
     "nodemailer": "^7.0.12",

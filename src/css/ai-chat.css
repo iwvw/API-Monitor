@@ -2,6 +2,17 @@
  * AI Chat 模块样式
  */
 
+.theme-ai-chat {
+  --current-primary: #6366f1;
+  --current-dark: #4f46e5;
+  --current-rgb: 99, 102, 241;
+}
+
+.theme-ai-chat .tab-btn.active {
+  background: linear-gradient(135deg, var(--current-primary), var(--current-dark)) !important;
+  box-shadow: 0 2px 8px rgba(var(--current-rgb), 0.3);
+}
+
 /* ========== 模块容器 ========== */
 .ai-chat-module {
   display: flex;

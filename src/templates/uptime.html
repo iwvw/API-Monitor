@@ -3,7 +3,7 @@
 
   <div class="uptime-container">
     <!-- Uptime 顶部导航 (Consistent with other modules) -->
-    <div class="uptime-tabs-scroll-wrapper">
+    <div class="sec-tabs">
       <button class="tab-btn" :class="{ active: uptimeCurrentTab === 'list' }" @click="uptimeCurrentTab = 'list'">
         <i class="fas fa-heartbeat"></i> 仪表盘
       </button>
@@ -59,7 +59,7 @@
         <p style="text-align:center; color: var(--text-tertiary); padding: 40px;">Loading Monitors...</p>
       </div>
 
-      <div v-else-if="uptimeMonitors.length === 0" class="uptime-empty-state">
+      <div v-if="uptimeMonitors.length === 0" class="uptime-empty-state">
         <i class="fas fa-heartbeat"></i>
         <h3 style="margin: 12px 0 6px; font-size: 18px; color: var(--text-primary);">暂无监测目标</h3>
         <p style="margin-bottom: 24px;">添加您的第一个监测目标，实时掌握服务运行状态</p>
@@ -69,7 +69,8 @@
       </div>
 
       <div v-else class="uptime-monitor-list">
-        <div v-for="monitor in getFilteredUptimeMonitors()" :key="monitor.id" class="uptime-monitor-card">
+        <div v-for="monitor in getFilteredUptimeMonitors()" :key="monitor.id" class="uptime-monitor-card"
+          :class="{ expanded: selectedUptimeMonitor && selectedUptimeMonitor.id === monitor.id }">
 
           <!-- Card Header -->
           <div class="uptime-monitor-header" @click="selectUptimeMonitor(monitor)">
@@ -129,63 +130,65 @@
             </div>
           </div>
 
-          <!-- Expanded Details -->
-          <div v-if="selectedUptimeMonitor && selectedUptimeMonitor.id === monitor.id" class="monitor-details-expanded">
-            <div class="uptime-form-section-title">
-              <i class="fas fa-chart-area"></i> 详细数据
-              <div style="margin-left: auto; display: flex; gap: 8px;">
-                <button class="btn btn-secondary btn-sm" @click="toggleUptimeMonitor(monitor)">
-                  <i :class="monitor.active ? 'fas fa-pause' : 'fas fa-play'"></i> {{ monitor.active ? '暂停' : '恢复' }}
-                </button>
-                <button class="btn btn-secondary btn-sm" @click="editUptimeMonitor(monitor)">
-                  <i class="fas fa-edit"></i> 编辑
-                </button>
-                <button class="btn btn-danger-soft btn-sm" @click="deleteUptimeMonitor(monitor.id)"
-                  style="color: var(--danger-color);">
-                  <i class="fas fa-trash"></i> 删除
-                </button>
-              </div>
-            </div>
-
-            <div class="detail-grid">
-              <div>
-                <!-- Chart Area (Placeholder) -->
-                <!-- Chart Area -->
-                <div style="height: 120px; position: relative; margin-bottom: 12px;">
-                  <canvas id="uptimeDetailChart"></canvas>
+          <!-- Expanded Details (Always rendered, animated via CSS Grid) -->
+          <div class="monitor-details-body">
+            <div class="monitor-details-inner">
+              <div class="uptime-form-section-title">
+                <i class="fas fa-chart-area"></i> 详细数据
+                <div style="margin-left: auto; display: flex; gap: 8px;">
+                  <button class="btn btn-secondary btn-sm" @click="toggleUptimeMonitor(monitor)">
+                    <i :class="monitor.active ? 'fas fa-pause' : 'fas fa-play'"></i> {{ monitor.active ? '暂停' : '恢复' }}
+                  </button>
+                  <button class="btn btn-secondary btn-sm" @click="editUptimeMonitor(monitor)">
+                    <i class="fas fa-edit"></i> 编辑
+                  </button>
+                  <button class="btn btn-danger-soft btn-sm" @click="deleteUptimeMonitor(monitor.id)"
+                    style="color: var(--danger-color);">
+                    <i class="fas fa-trash"></i> 删除
+                  </button>
                 </div>
+              </div>
 
-                <!-- Long Heartbeat list -->
-                <div class="heartbeat-bar-inline" style="width: 100%; height: 24px; margin-top: 12px;">
-                  <div v-for="(beat, idx) in getHeartbeatBars(monitor.id, 60)" :key="idx" class="beat-pill"
-                    :class="beat.status" @mouseenter="showUptimeTooltip($event, beat)" @mouseleave="hideUptimeTooltip">
+              <div class="detail-grid">
+                <div>
+                  <!-- Chart Area -->
+                  <div style="height: 120px; position: relative; margin-bottom: 12px;">
+                    <!-- Charts are always in DOM now, render only when expanded -->
+                    <canvas :id="'uptimeDetailChart-' + monitor.id"></canvas>
+                  </div>
+
+                  <!-- Long Heartbeat list -->
+                  <div class="heartbeat-bar-inline" style="width: 100%; height: 24px; margin-top: 12px;">
+                    <div v-for="(beat, idx) in getHeartbeatBars(monitor.id, 60)" :key="idx" class="beat-pill"
+                      :class="beat.status" @mouseenter="showUptimeTooltip($event, beat)"
+                      @mouseleave="hideUptimeTooltip">
+                    </div>
+                  </div>
+                  <div
+                    style="display: flex; justify-content: space-between; font-size: 11px; color: var(--text-tertiary); margin-top: 6px; font-family: var(--font-mono);">
+                    <span>{{ getHeartbeatTimeLabel(monitor.id, 'start') }}前</span>
+                    <span>现在</span>
                   </div>
                 </div>
-                <div
-                  style="display: flex; justify-content: space-between; font-size: 11px; color: var(--text-tertiary); margin-top: 6px; font-family: var(--font-mono);">
-                  <span>{{ getHeartbeatTimeLabel(monitor.id, 'start') }}前</span>
-                  <span>现在</span>
-                </div>
-              </div>
 
-              <div style="display: flex; flex-direction: column; gap: 12px;">
-                <div class="form-group-modern"
-                  style="margin: 0; padding: 12px; background: var(--bg-primary); border-radius: 12px; border: 1px solid var(--border-color);">
-                  <div style="font-size: 11px; color: var(--text-tertiary); margin-bottom: 4px;">24h 可用率</div>
-                  <div
-                    style="font-size: 18px; font-weight: 800; color: var(--text-primary); font-family: var(--font-mono);">
-                    {{ calculateUptime(monitor.id, 1) }}%</div>
-                </div>
-                <div class="form-group-modern"
-                  style="margin: 0; padding: 12px; background: var(--bg-primary); border-radius: 12px; border: 1px solid var(--border-color);">
-                  <div style="font-size: 11px; color: var(--text-tertiary); margin-bottom: 4px;">30d 可用率</div>
-                  <div
-                    style="font-size: 18px; font-weight: 800; color: var(--text-primary); font-family: var(--font-mono);">
-                    {{ calculateUptime(monitor.id, 30) }}%</div>
+                <div style="display: flex; flex-direction: column; gap: 12px;">
+                  <div class="form-group-modern"
+                    style="margin: 0; padding: 12px; background: var(--bg-primary); border-radius: 12px; border: 1px solid var(--border-color);">
+                    <div style="font-size: 11px; color: var(--text-tertiary); margin-bottom: 4px;">24h 可用率</div>
+                    <div
+                      style="font-size: 18px; font-weight: 800; color: var(--text-primary); font-family: var(--font-mono);">
+                      {{ calculateUptime(monitor.id, 1) }}%</div>
+                  </div>
+                  <div class="form-group-modern"
+                    style="margin: 0; padding: 12px; background: var(--bg-primary); border-radius: 12px; border: 1px solid var(--border-color);">
+                    <div style="font-size: 11px; color: var(--text-tertiary); margin-bottom: 4px;">30d 可用率</div>
+                    <div
+                      style="font-size: 18px; font-weight: 800; color: var(--text-primary); font-family: var(--font-mono);">
+                      {{ calculateUptime(monitor.id, 30) }}%</div>
+                  </div>
                 </div>
               </div>
             </div>
-
           </div>
         </div>
       </div>

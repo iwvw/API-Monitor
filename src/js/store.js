@@ -85,11 +85,29 @@ export const MODULE_CONFIG = {
     icon: 'fa-heartbeat',
     description: '站点与服务可用性监测',
   },
+  filebox: {
+    name: '文件柜',
+    shortName: 'FileBox',
+    icon: 'fa-box-open',
+    description: '文件分享与暂存',
+  },
   notification: {
     name: '通知',
     shortName: 'Alerts',
     icon: 'fa-bell',
     description: '通知渠道与告警规则管理',
+  },
+  'ai-chat': {
+    name: 'AI Chat',
+    shortName: 'Chat',
+    icon: 'fa-comments',
+    description: 'AI 对话助手',
+  },
+  'ai-draw': {
+    name: 'AI Draw',
+    shortName: 'Draw',
+    icon: 'fa-palette',
+    description: 'AI 驱动的一站式绘图平台',
   },
 };
 
@@ -120,7 +138,7 @@ export const MODULE_GROUPS = [
     id: 'toolbox',
     name: '工具箱',
     icon: 'fa-toolbox',
-    modules: ['self-h', 'totp', 'music', 'uptime', 'notification'],
+    modules: ['self-h', 'totp', 'music', 'uptime', 'filebox', 'notification', 'ai-chat', 'ai-draw'],
   },
 ];
 
@@ -176,7 +194,10 @@ export const store = reactive({
     totp: true,
     music: false, // 音乐模块默认隐藏
     uptime: true,
+    filebox: true,
     notification: true,
+    'ai-chat': true,
+    'ai-draw': true,
   },
   channelEnabled: {
     antigravity: true,
@@ -199,7 +220,10 @@ export const store = reactive({
     'totp',
     'music',
     'uptime',
+    'filebox',
     'notification',
+    'ai-chat',
+    'ai-draw',
   ],
 
   // 界面设置

@@ -18,14 +18,17 @@ export const MODULE_CONFIG = {
     totp: { name: '2FA', shortName: '2FA', icon: 'fa-shield-alt', description: 'TOTP 验证器' },
     music: { name: 'Music', shortName: 'Music', icon: 'fa-music', description: '网易云音乐播放器' },
     uptime: { name: 'Uptime', shortName: 'Uptime', icon: 'fa-heartbeat', description: '站点与服务可用性监测' },
+    filebox: { name: '文件柜', shortName: 'Box', icon: 'fa-box-open', description: '匿名文件柜' },
     notification: { name: '通知', shortName: 'Alerts', icon: 'fa-bell', description: '通知渠道与告警规则管理' },
+    'ai-chat': { name: 'AI Chat', shortName: 'Chat', icon: 'fa-comments', description: 'AI 对话助手' },
+    'ai-draw': { name: 'AI Draw', shortName: 'Draw', icon: 'fa-palette', description: 'AI 驱动的一站式绘图平台' },
 };
 
 export const MODULE_GROUPS = [
     { id: 'overview', name: '仪表盘', icon: 'fa-tachometer-alt', modules: ['dashboard'] },
     { id: 'api-gateway', name: 'API 网关', icon: 'fa-bolt', modules: ['openai', 'antigravity', 'gemini-cli'] },
     { id: 'infrastructure', name: '基础设施', icon: 'fa-cubes', modules: ['paas', 'dns', 'aliyun', 'tencent', 'server'] },
-    { id: 'toolbox', name: '工具箱', icon: 'fa-toolbox', modules: ['self-h', 'totp', 'music', 'uptime', 'notification'] },
+    { id: 'toolbox', name: '工具箱', icon: 'fa-toolbox', modules: ['self-h', 'totp', 'music', 'uptime', 'filebox', 'notification', 'ai-chat', 'ai-draw'] },
 ];
 
 export const useAppStore = defineStore('app', {
@@ -46,10 +49,13 @@ export const useAppStore = defineStore('app', {
             totp: true,
             music: true,
             uptime: true,
+            filebox: true,
             notification: true,
+            'ai-chat': true,
+            'ai-draw': true,
         },
         moduleOrder: [
-            'dashboard', 'openai', 'antigravity', 'gemini-cli', 'paas', 'dns', 'aliyun', 'tencent', 'self-h', 'server', 'totp', 'music', 'uptime', 'notification'
+            'dashboard', 'openai', 'antigravity', 'gemini-cli', 'paas', 'dns', 'aliyun', 'tencent', 'self-h', 'server', 'totp', 'music', 'uptime', 'filebox', 'notification', 'ai-chat', 'ai-draw'
         ],
         // 界面设置
         opacity: 100,

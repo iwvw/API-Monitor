@@ -241,14 +241,14 @@ async function handleRequest(moduleName, req, res) {
 
           const keyTrimmed = key.trim();
 
-          // 如果已有登录态，只接受登录相关的 Cookie 更新，拒绝匿名 Cookie 覆盖
+          // 如果已有登录态，只接受登录相关的 Cookie 更新，拒绝 Cookie 覆盖
           if (hasExistingLogin) {
             // 登录相关的 Cookie 可以更新
             const loginCookies = ['MUSIC_U', 'MUSIC_R_U', 'MUSIC_A', 'MUSIC_A_T', '__csrf'];
             if (loginCookies.includes(keyTrimmed)) {
               existingCookies[keyTrimmed] = valueParts.join('=');
             }
-            // NMTID 等匿名 Cookie 不更新
+            // NMTID 等 Cookie 不更新
           } else {
             // 没有登录态时，接受所有 Cookie
             existingCookies[keyTrimmed] = valueParts.join('=');

@@ -52,7 +52,10 @@ async function loadLazyCSS() {
     import('../css/totp.css'),
     import('../css/music.css'),
     import('../css/uptime.css'),
+    import('../css/filebox.css'),
     import('../css/notification.css'),
+    import('../css/ai-chat.css'),
+    import('../css/ai-draw.css'),
   ];
   await Promise.all(styles);
   console.log('[System] Lazy CSS loaded');
@@ -104,9 +107,12 @@ import { streamPlayerMethods } from './modules/stream-player-ui.js';
 import { totpMethods, totpComputed, totpData } from './modules/totp.js';
 import { musicMethods } from './modules/music.js';
 import { uptimeData, uptimeMethods, uptimeComputed } from './modules/uptime.js';
+import { fileboxData, fileboxMethods } from './modules/filebox.js';
 import { aliyunMethods } from './modules/aliyun.js';
 import { tencentMethods } from './modules/tencent.js';
 import { notificationData, notificationMethods } from './modules/notification.js';
+import { aiChatData, aiChatMethods, aiChatComputed } from './modules/ai-chat.js';
+import { aiDrawData, aiDrawMethods, aiDrawComputed } from './modules/ai-draw.js';
 import { formatDateTime, formatFileSize, maskAddress, formatRegion, formatUptime } from './modules/utils.js';
 
 // 导入全局状态
@@ -499,6 +505,14 @@ const app = createApp({
       serverAddingBatch: false,
       isDraggingFile: false, // 文件拖拽状态
 
+      // Snippet Category Rename
+      showRenameCategoryModal: false,
+      renameCategoryForm: {
+        oldName: '',
+        newName: ''
+      },
+      renameCategoryLoading: false,
+
       // 主机筛选与自动更新
       probeStatus: '', // '', 'loading', 'success', 'error'
 
@@ -641,6 +655,15 @@ const app = createApp({
 
       // 通知管理模块
       ...notificationData,
+
+      // 文件柜模块
+      ...fileboxData,
+
+      // AI Chat 模块
+      ...aiChatData,
+
+      // AI Draw 绘图模块
+      ...aiDrawData,
     };
   },
 
@@ -770,9 +793,6 @@ const app = createApp({
       return list;
     },
 
-    /**
-     * 按主机分组的历史记录
-     */
     groupedMetricsHistory() {
       const grouped = {};
       for (const record of this.metricsHistoryList) {
@@ -783,6 +803,36 @@ const app = createApp({
         grouped[serverId].push(record);
       }
       return grouped;
+    },
+
+    /**
+     * 按分类分组的代码片段
+     */
+    groupedSnippets() {
+      const groups = {};
+      const fallback = '默认'; // Default category name
+
+      if (!this.sshSnippets || !Array.isArray(this.sshSnippets)) return [];
+
+      this.sshSnippets.forEach(snippet => {
+        const cat = snippet.category && snippet.category.trim() !== '' ? snippet.category : fallback;
+        if (!groups[cat]) {
+          groups[cat] = [];
+        }
+        groups[cat].push(snippet);
+      });
+
+      // Sort categories: 'common' or '默认' first, then others alphabetically
+      const sortedKeys = Object.keys(groups).sort((a, b) => {
+        if (a === 'common' || a === '默认') return -1;
+        if (b === 'common' || b === '默认') return 1;
+        return a.localeCompare(b);
+      });
+
+      return sortedKeys.map(cat => ({
+        name: cat,
+        snippets: groups[cat]
+      }));
     },
 
     /**
@@ -822,18 +872,21 @@ const app = createApp({
         this.showNewWorkerModal ||
         this.showWorkerRoutesModal ||
         this.showWorkerDomainsModal ||
-        this.showPagesDeploymentsModal ||
-        this.showPagesDomainsModal ||
-        this.showImagePreviewModal ||
-        this.showAddZoneModal ||
         this.showTotpModal ||
         this.showTotpImportModal ||
+        !!this.fileboxRetrievedEntry ||
         (this.customDialog && this.customDialog.show)
       );
     },
 
-    // TOTP 验证器模块计算属性
+    // TOTP 2FA 验证器模块计算属性
     ...totpComputed,
+
+    // AI Chat 模块计算属性
+    ...aiChatComputed,
+
+    // AI Draw 绘图模块计算属性
+    ...aiDrawComputed,
 
     // 聊天界面可用的模型列表 (根据端点筛选)
     filteredChatModels() {
@@ -1012,6 +1065,11 @@ const app = createApp({
         // 如果当前在 Self-H 页（单页模式），立即加载
         if (this.mainActiveTab === 'self-h') {
           this.loadOpenListAccounts();
+        }
+
+        // 如果在文件柜页，立即加载
+        if (this.mainActiveTab === 'filebox') {
+          this.initFileBox();
         }
       }
     });
@@ -1324,6 +1382,9 @@ const app = createApp({
               case 'uptime':
                 this.initUptimeModule();
                 break;
+              case 'filebox':
+                this.initFileBox();
+                break;
               case 'notification':
                 this.initNotificationModule();
                 break;
@@ -1443,6 +1504,12 @@ const app = createApp({
               break;
             case 'notification':
               this.initNotificationModule();
+              break;
+            case 'ai-chat':
+              this.aiChatInit();
+              break;
+            case 'ai-draw':
+              this.aiDrawInit();
               break;
           }
         });
@@ -1688,9 +1755,12 @@ const app = createApp({
     ...totpMethods,
     ...musicMethods,
     ...uptimeMethods,
+    ...fileboxMethods,
     ...aliyunMethods,
     ...tencentMethods,
     ...notificationMethods,
+    ...aiChatMethods,
+    ...aiDrawMethods,
 
     // ==================== 工具函数 ====================
     formatDateTime,

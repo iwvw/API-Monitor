@@ -265,6 +265,8 @@ function stateToFrontendFormat(state, hostInfo = {}) {
     network: {
       rx_speed: formatSpeed(netInSpeed),
       tx_speed: formatSpeed(netOutSpeed),
+      down: formatSpeed(netInSpeed),
+      up: formatSpeed(netOutSpeed),
       rx_total: formatBytes(netInTransfer),
       tx_total: formatBytes(netOutTransfer),
       connections: tcpConn + udpConn,

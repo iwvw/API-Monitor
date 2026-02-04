@@ -63,8 +63,12 @@ export const serverStatusMethods = {
         const session = this.currentSSHSession;
         if (!session || !session.server) {
             this.serverStatusError = '请先连接服务器';
+            this.serverStatusLoading = false; // Ensure loading is false
             return;
         }
+
+        // Do not verify active status here to allow 'connecting' or broken states to report errors properly
+        // Instead, rely on the fetch to fail or succeed
 
         this.serverStatusLoading = true;
         this.serverStatusError = '';
@@ -75,15 +79,34 @@ export const serverStatusMethods = {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ serverId: session.server.id }),
             });
+
+            if (!response.ok) {
+                // Handle 500 or other HTTP errors
+                const text = await response.text();
+                let errorMsg = `服务器错误 (${response.status})`;
+                try {
+                    const json = JSON.parse(text);
+                    if (json.error) errorMsg = json.error;
+                } catch (e) {
+                    // ignore JSON parse error, use text or default
+                    if (text && text.length < 100) errorMsg += `: ${text}`;
+                }
+                throw new Error(errorMsg);
+            }
+
             const data = await response.json();
 
             if (data.success) {
                 this.serverStatusData = data;
-                this.serverStatusInterval = data.is_agent ? 1500 : 1500;
+                this.serverStatusInterval = data.is_agent ? 1500 : 3000;
             } else {
                 this.serverStatusError = data.error || '获取状态失败';
+                // If data fetch failed, we might want to clear old data if it's misleading?
+                // For now, keep old data if available is usually better, but user reported "infinite loading"
+                // which implies no data was ever loaded.
             }
         } catch (error) {
+            console.error('[ServerStatus] Load failed:', error);
             this.serverStatusError = '请求失败: ' + error.message;
         } finally {
             this.serverStatusLoading = false;
