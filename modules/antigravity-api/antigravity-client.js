@@ -15,11 +15,11 @@ const DEFAULT_CONFIG = {
   MODELS_URL: 'https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:fetchAvailableModels',
   NO_STREAM_URL: 'https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:generateContent',
   API_HOST: 'daily-cloudcode-pa.sandbox.googleapis.com',
-  USER_AGENT: 'antigravity/1.15.8 windows/amd64',
+  USER_AGENT: 'antigravity/1.15.8 (Windows; AMD64)',
   // 端点回退顺序：sandbox → daily → prod
   FALLBACK_BASE_URLS: [
-    'https://daily-cloudcode-pa.googleapis.com',
     'https://daily-cloudcode-pa.sandbox.googleapis.com',
+    'https://daily-cloudcode-pa.googleapis.com',
     'https://cloudcode-pa.googleapis.com',
   ],
   SYSTEM_INSTRUCTION: '',
@@ -236,9 +236,16 @@ async function refreshAllAccounts() {
  */
 function buildHeaders(accessToken) {
   const config = getConfig();
+  let ua = config.USER_AGENT || 'antigravity/1.15.8 (Windows; AMD64)';
+
+  // 强制检查版本：如果是旧版本或是 GeminiCLI 前缀，强制替换为新版，防止数据库配置坑
+  if (ua.includes('1.11.3') || ua.includes('GeminiCLI') || ua.includes('1.14.')) {
+    ua = 'antigravity/1.15.8 (Windows; AMD64)';
+  }
+
   return {
     Host: config.API_HOST,
-    'User-Agent': config.USER_AGENT,
+    'User-Agent': ua,
     Authorization: `Bearer ${accessToken}`,
     'Content-Type': 'application/json',
     'Accept-Encoding': 'gzip',
@@ -1055,7 +1062,9 @@ async function collectStreamResponse(req, url, headers, antigravityRequest, conf
           if (!line.startsWith('data: ')) continue;
           try {
             const data = JSON.parse(line.slice(6));
-            const parts = data.response?.candidates?.[0]?.content?.parts;
+
+            const responseObj = data.response || data;
+            const parts = responseObj?.candidates?.[0]?.content?.parts;
 
             if (parts) {
               for (const part of parts) {

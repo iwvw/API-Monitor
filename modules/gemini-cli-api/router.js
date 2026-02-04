@@ -1465,8 +1465,18 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
           const geminiData = response.data;
 
           const candidate = geminiData.response?.candidates?.[0] || geminiData.candidates?.[0];
-          const text = candidate?.content?.parts?.[0]?.text || '';
-          const reasoning = candidate?.content?.parts?.find(p => p.thought)?.text || '';
+          const parts = candidate?.content?.parts || [];
+
+          let text = '';
+          let reasoning = '';
+
+          for (const part of parts) {
+            if (part.thought) {
+              reasoning += part.text || '';
+            } else if (part.text) {
+              text += part.text;
+            }
+          }
 
           const usageMetadata = geminiData.response?.usageMetadata || geminiData.usageMetadata || {};
           const responseData = {
