@@ -610,15 +610,88 @@ export const commonMethods = {
 
   updateBrowserThemeColor() {
     this.$nextTick(() => {
-      const bgColor = getComputedStyle(document.documentElement)
-        .getPropertyValue('--bg-primary')
-        .trim();
+      const style = getComputedStyle(document.documentElement);
+      const bgColor = style.getPropertyValue('--bg-primary').trim();
+      const currentPrimary = style.getPropertyValue('--current-primary').trim();
+      const serverPrimary = style.getPropertyValue('--server-primary').trim();
+      const globalPrimary = style.getPropertyValue('--primary-color').trim();
 
-      if (bgColor) {
-        this._setMetaThemeColor(bgColor);
-      } else {
-        this._setMetaThemeColor('#f4f6f8');
+      const inDocker = this.mainActiveTab === 'server' && this.serverCurrentTab === 'docker';
+      const accentColor = inDocker
+        ? serverPrimary || currentPrimary || globalPrimary
+        : currentPrimary || globalPrimary || serverPrimary;
+
+      const fallbackColor = bgColor || '#f4f6f8';
+      const mixedColor = this._mixThemeColors(
+        fallbackColor,
+        accentColor,
+        inDocker ? 0.28 : 0.16
+      );
+
+      this._setMetaThemeColor(mixedColor || accentColor || fallbackColor || '#f4f6f8');
+    });
+  },
+
+  _parseThemeColor(color) {
+    if (!color) return null;
+    const value = String(color).trim();
+
+    const hex3 = value.match(/^#([0-9a-f]{3})$/i);
+    if (hex3) {
+      const [r, g, b] = hex3[1].split('');
+      return {
+        r: parseInt(r + r, 16),
+        g: parseInt(g + g, 16),
+        b: parseInt(b + b, 16),
+      };
+    }
+
+    const hex6 = value.match(/^#([0-9a-f]{6})$/i);
+    if (hex6) {
+      return {
+        r: parseInt(hex6[1].slice(0, 2), 16),
+        g: parseInt(hex6[1].slice(2, 4), 16),
+        b: parseInt(hex6[1].slice(4, 6), 16),
+      };
+    }
+
+    const rgb = value.match(/^rgba?\(([^)]+)\)$/i);
+    if (rgb) {
+      const parts = rgb[1]
+        .split(',')
+        .map(item => Number.parseFloat(item.trim()))
+        .filter(num => Number.isFinite(num));
+      if (parts.length >= 3) {
+        return {
+          r: parts[0],
+          g: parts[1],
+          b: parts[2],
+        };
       }
+    }
+
+    return null;
+  },
+
+  _rgbToHex(rgb) {
+    if (!rgb) return '';
+    const clamp = value => Math.max(0, Math.min(255, Math.round(value)));
+    const toHex = value => clamp(value).toString(16).padStart(2, '0');
+    return `#${toHex(rgb.r)}${toHex(rgb.g)}${toHex(rgb.b)}`;
+  },
+
+  _mixThemeColors(baseColor, accentColor, accentRatio = 0.16) {
+    const base = this._parseThemeColor(baseColor);
+    const accent = this._parseThemeColor(accentColor);
+    if (!base && !accent) return '';
+    if (!base) return this._rgbToHex(accent);
+    if (!accent) return this._rgbToHex(base);
+
+    const ratio = Math.max(0, Math.min(1, accentRatio));
+    return this._rgbToHex({
+      r: base.r * (1 - ratio) + accent.r * ratio,
+      g: base.g * (1 - ratio) + accent.g * ratio,
+      b: base.b * (1 - ratio) + accent.b * ratio,
     });
   },
 

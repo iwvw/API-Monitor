@@ -461,6 +461,9 @@ const app = createApp({
       expandedDockerHosts: [],       // 展开的 Docker 主机列表
       dockerSubTab: 'containers',    // Docker 子标签页
       dockerSelectedServer: '',      // 当前选中的主机 ID
+      dockerSearchQuery: '',         // Docker 搜索关键词
+      dockerContainerStateFilter: 'all', // 容器状态筛选 all/running/paused/stopped
+      dockerFocusedContainerKey: '', // 当前选中的容器详情 key
       dockerResourceLoading: false,  // 资源加载状态
       dockerImages: [],              // 镜像列表
       dockerNetworks: [],            // 网络列表
@@ -478,6 +481,11 @@ const app = createApp({
       containerMenuData: { serverId: '', containerId: '', containerName: '' }, // 菜单数据
       // Docker Compose
       dockerComposeProjects: [],     // Compose 项目列表
+      // Docker 任务中心 (v2)
+      dockerTasks: [],
+      dockerTaskStream: null,
+      dockerTaskStreamConnected: false,
+      dockerTaskStreamError: '',
       // 容器创建
       showCreateContainerModal: false,
       createContainerForm: {
@@ -1182,6 +1190,16 @@ const app = createApp({
 
     serverCurrentTab: {
       handler(newVal) {
+        this.updateBrowserThemeColor();
+
+        if (newVal === 'docker') {
+          if (this.ensureDockerTaskStream) {
+            this.ensureDockerTaskStream();
+          }
+        } else if (this.closeDockerTaskStream) {
+          this.closeDockerTaskStream();
+        }
+
         // 1. 指标流连接管理 - 仅在列表页时连接
         if (newVal === 'list' && this.mainActiveTab === 'server') {
           this.connectMetricsStream();
@@ -1268,6 +1286,9 @@ const app = createApp({
         // [离开保护] 如果离开主机管理模块，强制将 DOM 节点搬回仓库，防止被销毁
         if (oldVal === 'server') {
           this.saveTerminalsToWarehouse();
+          if (this.closeDockerTaskStream) {
+            this.closeDockerTaskStream();
+          }
           // 离开时不要关闭指标流，保持后台更新
         }
 
@@ -1285,6 +1306,9 @@ const app = createApp({
           // 如果在主机列表页，开启实时指标流
           if (this.serverCurrentTab === 'list') {
             this.connectMetricsStream();
+          }
+          if (this.serverCurrentTab === 'docker' && this.ensureDockerTaskStream) {
+            this.ensureDockerTaskStream();
           }
         }
 
@@ -1719,6 +1743,9 @@ const app = createApp({
     }
     if (this.logsRealTimeTimer) {
       clearInterval(this.logsRealTimeTimer);
+    }
+    if (this.closeDockerTaskStream) {
+      this.closeDockerTaskStream();
     }
     this.stopServerPolling();
     this.stopKoyebAutoRefresh();

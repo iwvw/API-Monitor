@@ -865,35 +865,33 @@ export const hostMethods = {
    * @param {string} serverId - 服务器 ID
    */
   async checkDockerUpdates(serverId) {
+    if (!serverId) {
+      return this.checkAllDockerUpdates();
+    }
     if (this.dockerUpdateChecking) return;
 
     this.dockerUpdateChecking = true;
     this.dockerUpdateResults = [];
 
     try {
-      const response = await fetch('/api/server/docker/check-update', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ serverId }),
-      });
+      const task = await this.submitDockerTask(
+        'container.checkUpdates',
+        { serverId },
+        { timeoutMs: 240000 }
+      );
+      const parsed = this.parseDockerTaskResult(task, []);
+      const results = Array.isArray(parsed) ? parsed : parsed ? [parsed] : [];
+      this.dockerUpdateResults = results;
 
-      const data = await response.json();
+      const updatesAvailable = results.filter(r => r.has_update).length;
+      const errors = results.filter(r => r.error).length;
 
-      if (data.success && Array.isArray(data.data)) {
-        this.dockerUpdateResults = data.data;
-
-        const updatesAvailable = data.data.filter(r => r.has_update).length;
-        const errors = data.data.filter(r => r.error).length;
-
-        if (updatesAvailable > 0) {
-          this.showGlobalToast(`发现 ${updatesAvailable} 个容器有更新可用`, 'success');
-        } else if (errors > 0) {
-          this.showGlobalToast(`检测完成，${errors} 个容器检测失败 (可能是私有镜像)`, 'warning');
-        } else {
-          this.showGlobalToast('所有容器镜像均为最新', 'info');
-        }
+      if (updatesAvailable > 0) {
+        this.showGlobalToast(`发现 ${updatesAvailable} 个容器有更新可用`, 'success');
+      } else if (errors > 0) {
+        this.showGlobalToast(`检测完成，${errors} 个容器检测失败 (可能是私有镜像)`, 'warning');
       } else {
-        this.showGlobalToast('检测失败: ' + (data.error || '未知错误'), 'error');
+        this.showGlobalToast('所有容器镜像均为最新', 'info');
       }
     } catch (error) {
       console.error('检测更新失败:', error);
@@ -1008,32 +1006,421 @@ export const hostMethods = {
 
   /**
    * 加载 Docker 概览数据
-   * 从所有在线主机中提取 Docker 信息
    */
-  loadDockerOverview() {
+  async loadDockerOverview() {
     this.dockerOverviewLoading = true;
-    this.dockerUpdateResults = []; // 清除上次检测结果
+    this.dockerUpdateResults = [];
+    this.ensureDockerTaskStream();
 
     try {
-      // 从 serverList 中提取所有有 Docker 数据的主机
-      const dockerServers = [];
-
-      for (const server of this.serverList) {
-        if (server.status !== 'online') continue;
-        if (!server.info?.docker?.installed) continue;
-
-        dockerServers.push({
-          id: server.id,
-          name: server.name,
-          host: server.host,
-          containers: server.info.docker.containers || [],
-        });
+      const response = await fetch('/api/server/v2/docker/overview');
+      const data = await response.json();
+      if (!data.success) {
+        throw new Error(data.error || '加载 Docker 概览失败');
       }
 
+      const dockerServers = (data.data?.servers || []).map(server => ({
+        id: server.serverId,
+        name: server.serverName,
+        host: server.host,
+        containers: server.docker?.containers || [],
+        docker: server.docker || {},
+        resources: server.resources || {},
+      }));
+
       this.dockerOverviewServers = dockerServers;
+
+      // 保持主机筛选有效，若当前值已失效则自动回退
+      if (
+        this.dockerSelectedServer &&
+        !dockerServers.some(s => s.id === this.dockerSelectedServer)
+      ) {
+        this.dockerSelectedServer = '';
+      }
+
+      // 如果当前聚焦的容器不在列表中，自动清空详情面板
+      const allKeys = [];
+      for (const server of dockerServers) {
+        for (const container of server.containers || []) {
+          allKeys.push(this.getDockerContainerKey(server.id, container.id));
+        }
+      }
+      if (
+        this.dockerFocusedContainerKey &&
+        !allKeys.includes(this.dockerFocusedContainerKey)
+      ) {
+        this.dockerFocusedContainerKey = '';
+      }
+    } catch (error) {
+      this.showGlobalToast('加载 Docker 概览失败: ' + error.message, 'error');
     } finally {
       this.dockerOverviewLoading = false;
     }
+  },
+
+  switchDockerSubTab(tab) {
+    this.dockerSubTab = tab;
+    this.ensureDockerTaskStream();
+    this.loadDockerResources();
+  },
+
+  ensureDockerTaskStream() {
+    if (this.dockerTaskStream) return;
+
+    if (typeof window === 'undefined' || typeof window.EventSource !== 'function') {
+      this.dockerTaskStreamConnected = false;
+      this.dockerTaskStreamError = '当前浏览器不支持任务流';
+      return;
+    }
+
+    const stream = new window.EventSource('/api/server/v2/tasks/stream');
+    this.dockerTaskStream = stream;
+
+    stream.addEventListener('ready', () => {
+      this.dockerTaskStreamConnected = true;
+      this.dockerTaskStreamError = '';
+    });
+
+    stream.addEventListener('task.update', event => {
+      try {
+        const task = JSON.parse(event.data);
+        this.upsertDockerTask(task);
+      } catch (error) {
+        console.warn('[Docker] 任务流解析失败:', error);
+      }
+    });
+
+    stream.onerror = () => {
+      this.dockerTaskStreamConnected = false;
+      this.dockerTaskStreamError = '任务流连接异常，正在重连...';
+    };
+  },
+
+  closeDockerTaskStream() {
+    if (this.dockerTaskStream) {
+      this.dockerTaskStream.close();
+      this.dockerTaskStream = null;
+    }
+    this.dockerTaskStreamConnected = false;
+  },
+
+  upsertDockerTask(task) {
+    if (!task || task.domain !== 'docker') return;
+
+    const list = this.dockerTasks || [];
+    const idx = list.findIndex(item => item.taskId === task.taskId);
+    if (idx >= 0) {
+      list[idx] = { ...list[idx], ...task };
+    } else {
+      list.unshift(task);
+    }
+
+    list.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    if (list.length > 200) {
+      list.length = 200;
+    }
+
+    this.dockerTasks = [...list];
+  },
+
+  isDockerTaskDone(task) {
+    return ['success', 'failed', 'timeout', 'cancelled'].includes(task?.state);
+  },
+
+  getDockerTaskStateLabel(state) {
+    const map = {
+      running: '执行中',
+      success: '成功',
+      failed: '失败',
+      timeout: '超时',
+      cancelled: '已取消',
+    };
+    return map[state] || state || '未知';
+  },
+
+  getDockerTaskStateClass(state) {
+    if (state === 'success') return 'success';
+    if (state === 'failed' || state === 'timeout') return 'danger';
+    if (state === 'running') return 'warning';
+    return 'default';
+  },
+
+  getDockerTaskActionLabel(action) {
+    const map = {
+      'container.start': '启动容器',
+      'container.stop': '停止容器',
+      'container.restart': '重启容器',
+      'container.pause': '暂停容器',
+      'container.unpause': '恢复容器',
+      'container.pull': '拉取容器镜像',
+      'container.update': '更新容器',
+      'container.rename': '重命名容器',
+      'container.logs': '读取日志',
+      'container.checkUpdates': '检测容器更新',
+      'container.create': '创建容器',
+      'image.list': '读取镜像列表',
+      'image.pull': '拉取镜像',
+      'image.remove': '删除镜像',
+      'image.prune': '清理镜像',
+      'network.list': '读取网络列表',
+      'network.create': '创建网络',
+      'network.remove': '删除网络',
+      'network.connect': '连接网络',
+      'network.disconnect': '断开网络',
+      'volume.list': '读取存储卷列表',
+      'volume.create': '创建存储卷',
+      'volume.remove': '删除存储卷',
+      'volume.prune': '清理存储卷',
+      'stats.list': '读取资源监控',
+      'compose.list': '读取 Compose 项目',
+      'compose.up': '启动 Compose',
+      'compose.down': '停止 Compose',
+      'compose.restart': '重启 Compose',
+      'compose.pull': '拉取 Compose 镜像',
+    };
+    return map[action] || action || '未知动作';
+  },
+
+  getDockerTaskServerName(serverId) {
+    const server = (this.dockerOverviewServers || []).find(item => item.id === serverId);
+    return server?.name || serverId || '未知主机';
+  },
+
+  getDockerTaskMessage(task) {
+    return task?.error || task?.detail || task?.message || '-';
+  },
+
+  parseDockerTaskResult(task, fallback) {
+    if (!task || task.result === undefined || task.result === null) return fallback;
+    if (Array.isArray(task.result) || typeof task.result === 'object') return task.result;
+    try {
+      return JSON.parse(task.result);
+    } catch (error) {
+      return fallback;
+    }
+  },
+
+  async waitForDockerTask(taskId, options = {}) {
+    const timeoutMs = options.timeoutMs || 120000;
+    const pollIntervalMs = options.pollIntervalMs || 1200;
+    const start = Date.now();
+
+    while (Date.now() - start < timeoutMs) {
+      const fromStream = (this.dockerTasks || []).find(item => item.taskId === taskId);
+      if (fromStream && this.isDockerTaskDone(fromStream)) {
+        return fromStream;
+      }
+
+      try {
+        const response = await fetch(`/api/server/v2/tasks/${taskId}`);
+        const data = await response.json();
+        if (data.success && data.data) {
+          this.upsertDockerTask(data.data);
+          if (this.isDockerTaskDone(data.data)) {
+            return data.data;
+          }
+        }
+      } catch (error) {
+        // 网络抖动时继续轮询
+      }
+
+      await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
+    }
+
+    throw new Error('任务等待超时');
+  },
+
+  async submitDockerTask(action, payload = {}, options = {}) {
+    const serverId = payload.serverId || this.dockerSelectedServer;
+    if (!serverId) {
+      throw new Error('请先选择主机');
+    }
+
+    this.ensureDockerTaskStream();
+
+    const response = await fetch('/api/server/v2/tasks', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        serverId,
+        domain: 'docker',
+        action,
+        payload,
+      }),
+    });
+    const data = await response.json();
+    if (!data.success) {
+      throw new Error(data.error || '任务提交失败');
+    }
+
+    const taskId = data.data?.taskId;
+    if (!taskId) {
+      throw new Error('任务 ID 缺失');
+    }
+
+    if (options.wait === false) {
+      return { taskId };
+    }
+
+    const task = await this.waitForDockerTask(taskId, {
+      timeoutMs: options.timeoutMs || 180000,
+      pollIntervalMs: options.pollIntervalMs || 1200,
+    });
+    if (task.state !== 'success') {
+      throw new Error(task.error || task.message || '任务执行失败');
+    }
+    return task;
+  },
+
+  async fetchSelectedDockerOverview() {
+    if (!this.dockerSelectedServer) return null;
+    const response = await fetch(
+      `/api/server/v2/docker/overview?serverId=${encodeURIComponent(this.dockerSelectedServer)}`
+    );
+    const data = await response.json();
+    if (!data.success) {
+      throw new Error(data.error || '加载主机 Docker 数据失败');
+    }
+    return (data.data?.servers || [])[0] || null;
+  },
+
+  getDockerContainerKey(serverId, containerId) {
+    return `${serverId}::${containerId}`;
+  },
+
+  getDockerContainerState(container) {
+    const state = String(container?.state || '').toLowerCase();
+    const status = String(container?.status || '');
+
+    if (state === 'running' || (status.includes('Up') && !status.includes('Paused'))) {
+      return 'running';
+    }
+    if (state === 'paused' || status.includes('Paused')) {
+      return 'paused';
+    }
+    return 'stopped';
+  },
+
+  getDockerContainerStateLabel(container) {
+    const state = this.getDockerContainerState(container);
+    if (state === 'running') return '运行中';
+    if (state === 'paused') return '已暂停';
+    return '已停止';
+  },
+
+  formatDockerPorts(container) {
+    if (!container) return '-';
+    if (Array.isArray(container.ports) && container.ports.length > 0) {
+      return container.ports.join(', ');
+    }
+    if (typeof container.ports === 'string' && container.ports.trim()) {
+      return container.ports;
+    }
+    if (typeof container.port === 'string' && container.port.trim()) {
+      return container.port;
+    }
+    return '-';
+  },
+
+  formatDockerContainerId(id) {
+    if (!id) return '-';
+    return String(id).slice(0, 12);
+  },
+
+  getDockerSummaryMetrics() {
+    const hosts = this.dockerOverviewServers || [];
+    const allContainers = hosts.flatMap(s => s.containers || []);
+    const running = allContainers.filter(c => this.getDockerContainerState(c) === 'running').length;
+    const paused = allContainers.filter(c => this.getDockerContainerState(c) === 'paused').length;
+    const stopped = Math.max(0, allContainers.length - running - paused);
+    const updates = (this.dockerUpdateResults || []).filter(r => r.has_update).length;
+
+    return {
+      hosts: hosts.length,
+      containers: allContainers.length,
+      running,
+      paused,
+      stopped,
+      updates,
+    };
+  },
+
+  getDockerContainerRows() {
+    const query = (this.dockerSearchQuery || '').trim().toLowerCase();
+    const stateFilter = this.dockerContainerStateFilter || 'all';
+    const selectedServerId = this.dockerSelectedServer;
+    const rows = [];
+
+    for (const server of this.dockerOverviewServers || []) {
+      if (selectedServerId && server.id !== selectedServerId) continue;
+
+      for (const container of server.containers || []) {
+        const state = this.getDockerContainerState(container);
+        if (stateFilter !== 'all' && state !== stateFilter) continue;
+
+        const row = {
+          serverId: server.id,
+          serverName: server.name,
+          serverHost: server.host,
+          container,
+          state,
+          stateLabel: this.getDockerContainerStateLabel(container),
+          portsText: this.formatDockerPorts(container),
+          shortId: this.formatDockerContainerId(container.id),
+          key: this.getDockerContainerKey(server.id, container.id),
+          searchableText: [
+            server.name,
+            server.host,
+            container.name,
+            container.image,
+            container.id,
+            container.status,
+            this.formatDockerPorts(container),
+          ]
+            .filter(Boolean)
+            .join(' ')
+            .toLowerCase(),
+        };
+
+        if (query && !row.searchableText.includes(query)) continue;
+        rows.push(row);
+      }
+    }
+
+    return rows.sort((a, b) => {
+      if (a.state === b.state) {
+        return a.container.name.localeCompare(b.container.name);
+      }
+      // running > paused > stopped
+      const rank = { running: 0, paused: 1, stopped: 2 };
+      return rank[a.state] - rank[b.state];
+    });
+  },
+
+  selectDockerContainer(serverId, container) {
+    this.dockerFocusedContainerKey = this.getDockerContainerKey(serverId, container.id);
+  },
+
+  getFocusedDockerContainer() {
+    if (!this.dockerFocusedContainerKey) return null;
+
+    const [serverId, containerId] = String(this.dockerFocusedContainerKey).split('::');
+    const server = (this.dockerOverviewServers || []).find(s => s.id === serverId);
+    if (!server) return null;
+    const container = (server.containers || []).find(c => c.id === containerId);
+    if (!container) return null;
+
+    return {
+      serverId: server.id,
+      serverName: server.name,
+      serverHost: server.host,
+      container,
+      state: this.getDockerContainerState(container),
+      stateLabel: this.getDockerContainerStateLabel(container),
+      portsText: this.formatDockerPorts(container),
+      shortId: this.formatDockerContainerId(container.id),
+      key: this.getDockerContainerKey(server.id, container.id),
+    };
   },
 
   /**
@@ -1053,28 +1440,31 @@ export const hostMethods = {
     let totalErrors = 0;
 
     try {
-      // 逐个检测每台主机
-      for (const dockerServer of this.dockerOverviewServers) {
-        try {
-          const response = await fetch('/api/server/docker/check-update', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ serverId: dockerServer.id }),
-          });
+      const jobs = this.dockerOverviewServers.map(server =>
+        this.submitDockerTask(
+          'container.checkUpdates',
+          { serverId: server.id },
+          { timeoutMs: 240000 }
+        )
+      );
 
-          const data = await response.json();
-
-          if (data.success && Array.isArray(data.data)) {
-            // 合并结果
-            this.dockerUpdateResults = [...this.dockerUpdateResults, ...data.data];
-            totalUpdates += data.data.filter(r => r.has_update).length;
-            totalErrors += data.data.filter(r => r.error).length;
+      const settled = await Promise.allSettled(jobs);
+      const merged = [];
+      settled.forEach((item, index) => {
+        if (item.status === 'fulfilled') {
+          const parsed = this.parseDockerTaskResult(item.value, []);
+          if (Array.isArray(parsed)) {
+            merged.push(...parsed);
           }
-        } catch (e) {
-          console.error(`检测主机 ${dockerServer.name} 失败:`, e);
+        } else {
           totalErrors++;
+          console.error(`检测主机 ${this.dockerOverviewServers[index].name} 失败:`, item.reason);
         }
-      }
+      });
+
+      this.dockerUpdateResults = merged;
+      totalUpdates = merged.filter(r => r.has_update).length;
+      totalErrors += merged.filter(r => r.error).length;
 
       if (totalUpdates > 0) {
         this.showGlobalToast(`发现 ${totalUpdates} 个容器有更新可用`, 'success');
@@ -1105,19 +1495,12 @@ export const hostMethods = {
     this.showGlobalToast('容器更新任务已启动...', 'info');
 
     try {
-      const response = await fetch('/api/server/docker/container/update', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ serverId, containerId, containerName, image }),
-      });
-
-      const data = await response.json();
-      if (data.success) {
-        this.showGlobalToast('更新任务已提交，请等待完成', 'success');
-        // 后续可以通过 WebSocket 接收进度更新
-      } else {
-        this.showGlobalToast('启动更新任务失败: ' + data.error, 'error');
-      }
+      const { taskId } = await this.submitDockerTask(
+        'container.update',
+        { serverId, containerId, containerName, image },
+        { wait: false, timeoutMs: 10 * 60 * 1000 }
+      );
+      this.showGlobalToast(`更新任务已提交（#${taskId.slice(0, 8)}）`, 'success');
     } catch (error) {
       this.showGlobalToast('请求失败: ' + error.message, 'error');
     }
@@ -1137,20 +1520,13 @@ export const hostMethods = {
     if (!newName || newName === currentName) return;
 
     try {
-      const response = await fetch('/api/server/docker/container/rename', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ serverId, containerId, newName }),
-      });
-
-      const data = await response.json();
-      if (data.success) {
-        this.showGlobalToast('容器已重命名为: ' + newName, 'success');
-        // 刷新容器列表
-        this.loadDockerOverview();
-      } else {
-        this.showGlobalToast('重命名失败: ' + data.error, 'error');
-      }
+      await this.submitDockerTask(
+        'container.rename',
+        { serverId, containerId, newName },
+        { timeoutMs: 60000 }
+      );
+      this.showGlobalToast('容器已重命名为: ' + newName, 'success');
+      await this.loadDockerOverview();
     } catch (error) {
       this.showGlobalToast('请求失败: ' + error.message, 'error');
     }
@@ -1161,11 +1537,26 @@ export const hostMethods = {
    */
   loadDockerResources() {
     switch (this.dockerSubTab) {
-      case 'images': this.loadDockerImages(); break;
-      case 'networks': this.loadDockerNetworks(); break;
-      case 'volumes': this.loadDockerVolumes(); break;
-      case 'stats': this.loadDockerStats(); break;
-      default: this.loadDockerOverview();
+      case 'containers':
+        this.loadDockerOverview();
+        break;
+      case 'compose':
+        this.loadDockerComposeProjects();
+        break;
+      case 'images':
+        this.loadDockerImages();
+        break;
+      case 'networks':
+        this.loadDockerNetworks();
+        break;
+      case 'volumes':
+        this.loadDockerVolumes();
+        break;
+      case 'stats':
+        this.loadDockerStats();
+        break;
+      default:
+        this.loadDockerOverview();
     }
   },
 
@@ -1178,19 +1569,10 @@ export const hostMethods = {
     this.dockerImages = [];
 
     try {
-      const response = await fetch('/api/server/docker/images', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ serverId: this.dockerSelectedServer }),
-      });
-      const data = await response.json();
-      if (data.success) {
-        this.dockerImages = data.data || [];
-      } else {
-        this.showGlobalToast('加载镜像失败: ' + data.error, 'error');
-      }
-    } catch (e) {
-      this.showGlobalToast('加载镜像失败: ' + e.message, 'error');
+      const overview = await this.fetchSelectedDockerOverview();
+      this.dockerImages = overview?.resources?.images || [];
+    } catch (error) {
+      this.showGlobalToast('加载镜像失败: ' + error.message, 'error');
     } finally {
       this.dockerResourceLoading = false;
     }
@@ -1203,20 +1585,17 @@ export const hostMethods = {
     if (!this.dockerSelectedServer) return;
 
     try {
-      const response = await fetch('/api/server/docker/image/action', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ serverId: this.dockerSelectedServer, action, image }),
-      });
-      const data = await response.json();
-      if (data.success) {
-        this.showGlobalToast(data.message || '操作成功', 'success');
-        this.loadDockerImages(); // 刷新列表
-      } else {
-        this.showGlobalToast('操作失败: ' + data.error, 'error');
-      }
-    } catch (e) {
-      this.showGlobalToast('操作失败: ' + e.message, 'error');
+      const mappedAction = `image.${action}`;
+      await this.submitDockerTask(
+        mappedAction,
+        { serverId: this.dockerSelectedServer, image },
+        { timeoutMs: action === 'pull' ? 300000 : 60000 }
+      );
+      this.showGlobalToast('操作成功', 'success');
+      await this.loadDockerImages();
+      await this.loadDockerOverview();
+    } catch (error) {
+      this.showGlobalToast('操作失败: ' + error.message, 'error');
     }
   },
 
@@ -1229,19 +1608,10 @@ export const hostMethods = {
     this.dockerNetworks = [];
 
     try {
-      const response = await fetch('/api/server/docker/networks', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ serverId: this.dockerSelectedServer }),
-      });
-      const data = await response.json();
-      if (data.success) {
-        this.dockerNetworks = data.data || [];
-      } else {
-        this.showGlobalToast('加载网络失败: ' + data.error, 'error');
-      }
-    } catch (e) {
-      this.showGlobalToast('加载网络失败: ' + e.message, 'error');
+      const overview = await this.fetchSelectedDockerOverview();
+      this.dockerNetworks = overview?.resources?.networks || [];
+    } catch (error) {
+      this.showGlobalToast('加载网络失败: ' + error.message, 'error');
     } finally {
       this.dockerResourceLoading = false;
     }
@@ -1254,20 +1624,16 @@ export const hostMethods = {
     if (!this.dockerSelectedServer) return;
 
     try {
-      const response = await fetch('/api/server/docker/network/action', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ serverId: this.dockerSelectedServer, action, name }),
-      });
-      const data = await response.json();
-      if (data.success) {
-        this.showGlobalToast(data.message || '操作成功', 'success');
-        this.loadDockerNetworks();
-      } else {
-        this.showGlobalToast('操作失败: ' + data.error, 'error');
-      }
-    } catch (e) {
-      this.showGlobalToast('操作失败: ' + e.message, 'error');
+      await this.submitDockerTask(
+        `network.${action}`,
+        { serverId: this.dockerSelectedServer, name },
+        { timeoutMs: 60000 }
+      );
+      this.showGlobalToast('操作成功', 'success');
+      await this.loadDockerNetworks();
+      await this.loadDockerOverview();
+    } catch (error) {
+      this.showGlobalToast('操作失败: ' + error.message, 'error');
     }
   },
 
@@ -1280,19 +1646,10 @@ export const hostMethods = {
     this.dockerVolumes = [];
 
     try {
-      const response = await fetch('/api/server/docker/volumes', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ serverId: this.dockerSelectedServer }),
-      });
-      const data = await response.json();
-      if (data.success) {
-        this.dockerVolumes = data.data || [];
-      } else {
-        this.showGlobalToast('加载 Volume 失败: ' + data.error, 'error');
-      }
-    } catch (e) {
-      this.showGlobalToast('加载 Volume 失败: ' + e.message, 'error');
+      const overview = await this.fetchSelectedDockerOverview();
+      this.dockerVolumes = overview?.resources?.volumes || [];
+    } catch (error) {
+      this.showGlobalToast('加载 Volume 失败: ' + error.message, 'error');
     } finally {
       this.dockerResourceLoading = false;
     }
@@ -1305,20 +1662,16 @@ export const hostMethods = {
     if (!this.dockerSelectedServer) return;
 
     try {
-      const response = await fetch('/api/server/docker/volume/action', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ serverId: this.dockerSelectedServer, action, name }),
-      });
-      const data = await response.json();
-      if (data.success) {
-        this.showGlobalToast(data.message || '操作成功', 'success');
-        this.loadDockerVolumes();
-      } else {
-        this.showGlobalToast('操作失败: ' + data.error, 'error');
-      }
-    } catch (e) {
-      this.showGlobalToast('操作失败: ' + e.message, 'error');
+      await this.submitDockerTask(
+        `volume.${action}`,
+        { serverId: this.dockerSelectedServer, name },
+        { timeoutMs: 60000 }
+      );
+      this.showGlobalToast('操作成功', 'success');
+      await this.loadDockerVolumes();
+      await this.loadDockerOverview();
+    } catch (error) {
+      this.showGlobalToast('操作失败: ' + error.message, 'error');
     }
   },
 
@@ -1331,19 +1684,10 @@ export const hostMethods = {
     this.dockerStats = [];
 
     try {
-      const response = await fetch('/api/server/docker/stats', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ serverId: this.dockerSelectedServer }),
-      });
-      const data = await response.json();
-      if (data.success) {
-        this.dockerStats = data.data || [];
-      } else {
-        this.showGlobalToast('加载统计失败: ' + data.error, 'error');
-      }
-    } catch (e) {
-      this.showGlobalToast('加载统计失败: ' + e.message, 'error');
+      const overview = await this.fetchSelectedDockerOverview();
+      this.dockerStats = overview?.resources?.stats || [];
+    } catch (error) {
+      this.showGlobalToast('加载统计失败: ' + error.message, 'error');
     } finally {
       this.dockerResourceLoading = false;
     }
@@ -1369,23 +1713,23 @@ export const hostMethods = {
     this.dockerLogsLoading = true;
 
     try {
-      const response = await fetch('/api/server/docker/logs', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      const task = await this.submitDockerTask(
+        'container.logs',
+        {
           serverId: this.dockerLogsServerId,
           containerId: this.dockerLogsContainerId,
           tail: this.dockerLogsTail,
-        }),
-      });
-      const data = await response.json();
-      if (data.success) {
-        this.dockerLogsContent = data.data || '(空日志)';
-      } else {
-        this.dockerLogsContent = '加载失败: ' + data.error;
-      }
-    } catch (e) {
-      this.dockerLogsContent = '加载失败: ' + e.message;
+        },
+        { timeoutMs: 60000 }
+      );
+
+      const content =
+        typeof task.result === 'string'
+          ? task.result
+          : JSON.stringify(task.result || '(空日志)', null, 2);
+      this.dockerLogsContent = content || '(空日志)';
+    } catch (error) {
+      this.dockerLogsContent = '加载失败: ' + error.message;
     } finally {
       this.dockerLogsLoading = false;
     }
@@ -1402,19 +1746,10 @@ export const hostMethods = {
     this.dockerComposeProjects = [];
 
     try {
-      const response = await fetch('/api/server/docker/compose/list', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ serverId: this.dockerSelectedServer }),
-      });
-      const data = await response.json();
-      if (data.success) {
-        this.dockerComposeProjects = data.data || [];
-      } else {
-        this.showGlobalToast('加载 Compose 失败: ' + data.error, 'error');
-      }
-    } catch (e) {
-      this.showGlobalToast('加载 Compose 失败: ' + e.message, 'error');
+      const overview = await this.fetchSelectedDockerOverview();
+      this.dockerComposeProjects = overview?.resources?.composeProjects || [];
+    } catch (error) {
+      this.showGlobalToast('加载 Compose 失败: ' + error.message, 'error');
     } finally {
       this.dockerResourceLoading = false;
     }
@@ -1428,25 +1763,19 @@ export const hostMethods = {
 
     try {
       this.showGlobalToast(`正在${action === 'up' ? '启动' : action === 'down' ? '停止' : '执行'} ${project}...`, 'info');
-
-      const response = await fetch('/api/server/docker/compose/action', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      await this.submitDockerTask(
+        `compose.${action}`,
+        {
           serverId: this.dockerSelectedServer,
-          action,
-          project
-        }),
-      });
-      const data = await response.json();
-      if (data.success) {
-        this.showGlobalToast(data.message || '操作成功', 'success');
-        this.loadDockerComposeProjects();
-      } else {
-        this.showGlobalToast('操作失败: ' + data.error, 'error');
-      }
-    } catch (e) {
-      this.showGlobalToast('操作失败: ' + e.message, 'error');
+          project,
+        },
+        { timeoutMs: action === 'pull' ? 300000 : 120000 }
+      );
+      this.showGlobalToast('操作成功', 'success');
+      await this.loadDockerComposeProjects();
+      await this.loadDockerOverview();
+    } catch (error) {
+      this.showGlobalToast('操作失败: ' + error.message, 'error');
     }
   },
 
@@ -1505,10 +1834,9 @@ export const hostMethods = {
         if (key) env[key.trim()] = valueParts.join('=').trim();
       });
 
-      const response = await fetch('/api/server/docker/container/create', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
+      await this.submitDockerTask(
+        'container.create',
+        {
           serverId: this.dockerSelectedServer,
           name: this.createContainerForm.name,
           image: this.createContainerForm.image,
@@ -1517,18 +1845,14 @@ export const hostMethods = {
           env,
           network: this.createContainerForm.network,
           restart: this.createContainerForm.restart,
-        }),
-      });
-      const data = await response.json();
-      if (data.success) {
-        this.showGlobalToast(data.message || '容器创建成功', 'success');
-        this.showCreateContainerModal = false;
-        this.loadDockerOverview(); // 刷新容器列表
-      } else {
-        this.showGlobalToast('创建失败: ' + data.error, 'error');
-      }
-    } catch (e) {
-      this.showGlobalToast('创建失败: ' + e.message, 'error');
+        },
+        { timeoutMs: 300000 }
+      );
+      this.showGlobalToast('容器创建成功', 'success');
+      this.showCreateContainerModal = false;
+      await this.loadDockerOverview();
+    } catch (error) {
+      this.showGlobalToast('创建失败: ' + error.message, 'error');
     } finally {
       this.createContainerLoading = false;
     }
@@ -1572,8 +1896,6 @@ export const hostMethods = {
   },
 
   async handleDockerAction(serverId, containerId, action) {
-    const server = this.serverList.find(s => s.id === serverId);
-
     // 找到目标容器并设置 loading 状态
     const dockerServer = this.dockerOverviewServers.find(s => s.id === serverId);
     const container = dockerServer?.containers?.find(c => c.id === containerId);
@@ -1582,39 +1904,16 @@ export const hostMethods = {
     }
 
     try {
-      const response = await fetch('/api/server/docker/action', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ serverId, containerId, action }),
-      });
-      const data = await response.json();
-      if (data.success) {
-        this.showGlobalToast(data.message || 'Docker 操作已执行', 'success');
-
-        // 立即更新本地状态（乐观更新）
-        if (this.currentTab === 'docker') {
-          if (container) {
-            // 根据操作类型预测新状态
-            if (action === 'start') container.status = 'Up Just now';
-            else if (action === 'stop') container.status = 'Exited';
-            else if (action === 'restart') container.status = 'Up Just now';
-          }
-        }
-
-        // 500ms 后从服务器获取准确状态
-        setTimeout(async () => {
-          await this.loadServerInfo(serverId);
-          if (this.currentTab === 'docker') {
-            this.loadDockerOverview();
-          }
-        }, 500);
-      } else {
-        this.showGlobalToast('操作失败: ' + (data.error || data.message || '未知错误'), 'error');
-      }
+      await this.submitDockerTask(
+        `container.${action}`,
+        { serverId, containerId },
+        { timeoutMs: 120000 }
+      );
+      this.showGlobalToast('操作成功', 'success');
+      await this.loadDockerOverview();
     } catch (error) {
       this.showGlobalToast('Docker 操作异常: ' + error.message, 'error');
     } finally {
-      if (server) server.loading = false;
       if (container) container.actionPending = false;
     }
   },
