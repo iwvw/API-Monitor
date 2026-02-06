@@ -89,7 +89,8 @@ class FileBoxService {
 
         // Unique filename
         const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-        const saveFilename = `${uniqueSuffix}-${fileObj.name}`;
+        const safeName = this._sanitizeFilename(fileObj.name || 'upload.bin');
+        const saveFilename = `${uniqueSuffix}-${safeName}`;
         const savePath = path.join(this.uploadsDir, saveFilename);
 
         // Save file
@@ -170,7 +171,9 @@ class FileBoxService {
 
     getAll() {
         this.cleanupExpired();
-        return Object.values(this.fileStore).sort((a, b) => b.createdAt - a.createdAt);
+        return Object.values(this.fileStore)
+            .map(entry => this._toPublicEntry(entry))
+            .sort((a, b) => b.createdAt - a.createdAt);
     }
 
     cleanupExpired() {
@@ -180,6 +183,27 @@ class FileBoxService {
                 this.deleteEntry(code);
             }
         });
+    }
+
+    _sanitizeFilename(name) {
+        // 清洗掉路径与危险字符，保留可读性
+        return path
+            .basename(String(name))
+            .replace(/[<>:\"/\\\\|?*\\x00-\\x1F]/g, '_')
+            .slice(0, 180);
+    }
+
+    _toPublicEntry(entry) {
+        if (!entry) return entry;
+        const { path: _filePath, content, ...rest } = entry;
+        // 文本内容不在历史接口直接返回，避免大对象传输
+        if (entry.type === 'text') {
+            return {
+                ...rest,
+                preview: typeof content === 'string' ? content.slice(0, 80) : '',
+            };
+        }
+        return rest;
     }
 }
 

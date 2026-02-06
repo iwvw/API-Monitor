@@ -2,14 +2,7 @@
  * AI Chat 模块 - 前端业务逻辑
  */
 
-// Markdown 渲染器导入 (使用 npm 包)
-import { marked } from 'marked';
-
-// 配置 marked
-marked.setOptions({
-    breaks: true,
-    gfm: true,
-});
+import { renderMarkdown } from './utils.js';
 
 
 /**
@@ -318,7 +311,7 @@ export const aiChatMethods = {
     aiChatRenderMarkdown(content) {
         if (!content) return '';
         try {
-            return marked.parse(content);
+            return renderMarkdown(content);
         } catch (e) {
             return content;
         }
