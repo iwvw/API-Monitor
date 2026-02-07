@@ -544,6 +544,26 @@ function parseJsonSafe(value, fallback = []) {
   }
 }
 
+function toArraySafe(value) {
+  if (Array.isArray(value)) return value;
+  if (!value || typeof value !== 'object') return [];
+
+  const candidateKeys = ['data', 'items', 'list', 'results', 'projects', 'containers', 'rows'];
+  for (const key of candidateKeys) {
+    if (Array.isArray(value[key])) {
+      return value[key];
+    }
+  }
+
+  // 兜底：若对象中存在唯一一个数组字段，则直接取该字段
+  const arrayValues = Object.values(value).filter(item => Array.isArray(item));
+  if (arrayValues.length === 1) {
+    return arrayValues[0];
+  }
+
+  return [];
+}
+
 function toTaskData(data) {
   if (data === '' || data === null || data === undefined) return '';
   if (typeof data === 'string') return data;
@@ -725,64 +745,108 @@ function buildDockerV2Task(action, payload = {}) {
 }
 
 async function loadDockerOverviewForServer(server) {
-  const serverId = server.id;
-  const metrics = agentService.getMetrics(serverId) || {};
-  const docker = metrics.docker || {};
+  const serverId = server?.id || '';
+  const serverName = server?.name || '未知主机';
+  const host = server?.host || '';
 
-  const runAgentTask = async (type, timeoutMs = 30000) => {
-    try {
-      const result = await agentService.sendTaskAndWait(
-        serverId,
-        {
-          type,
-          data: '',
-          timeout: Math.ceil(timeoutMs / 1000),
-        },
-        timeoutMs
-      );
-      if (!result.successful) {
-        return { ok: false, error: result.data || '任务执行失败', data: [] };
-      }
-      return { ok: true, data: parseJsonSafe(result.data, []) };
-    } catch (error) {
-      return { ok: false, error: error.message, data: [] };
-    }
-  };
-
-  const [imagesRes, networksRes, volumesRes, statsRes, composeRes] = await Promise.all([
-    runAgentTask(DockerTaskTypes.DOCKER_IMAGES),
-    runAgentTask(DockerTaskTypes.DOCKER_NETWORKS),
-    runAgentTask(DockerTaskTypes.DOCKER_VOLUMES),
-    runAgentTask(DockerTaskTypes.DOCKER_STATS),
-    runAgentTask(DockerTaskTypes.DOCKER_COMPOSE_LIST),
-  ]);
-
-  return {
+  const emptyOverview = errorMessage => ({
     serverId,
-    serverName: server.name,
-    host: server.host,
-    online: true,
+    serverName,
+    host,
+    online: !!(serverId && agentService.isOnline(serverId)),
     docker: {
-      installed: !!docker.installed,
-      running: docker.running || 0,
-      stopped: docker.stopped || 0,
-      containers: Array.isArray(docker.containers) ? docker.containers : [],
+      installed: false,
+      running: 0,
+      stopped: 0,
+      containers: [],
     },
     resources: {
-      images: imagesRes.data,
-      networks: networksRes.data,
-      volumes: volumesRes.data,
-      stats: statsRes.data,
-      composeProjects: composeRes.data,
+      images: [],
+      networks: [],
+      volumes: [],
+      stats: [],
+      composeProjects: [],
     },
     errors: {
-      images: imagesRes.ok ? '' : imagesRes.error,
-      networks: networksRes.ok ? '' : networksRes.error,
-      volumes: volumesRes.ok ? '' : volumesRes.error,
-      stats: statsRes.ok ? '' : statsRes.error,
-      composeProjects: composeRes.ok ? '' : composeRes.error,
+      overview: errorMessage || '',
+      images: errorMessage || '',
+      networks: errorMessage || '',
+      volumes: errorMessage || '',
+      stats: errorMessage || '',
+      composeProjects: errorMessage || '',
     },
-  };
+  });
+
+  try {
+    if (!serverId) {
+      throw new Error('主机配置无效: 缺少 serverId');
+    }
+
+    const metrics = agentService.getMetrics(serverId) || {};
+    const docker = metrics.docker || {};
+
+    const runAgentTask = async (type, timeoutMs = 30000) => {
+      try {
+        const result = await agentService.sendTaskAndWait(
+          serverId,
+          {
+            type,
+            data: '',
+            timeout: Math.ceil(timeoutMs / 1000),
+          },
+          timeoutMs
+        );
+        if (!result || typeof result !== 'object') {
+          return { ok: false, error: '任务返回格式无效', data: [] };
+        }
+        if (!result.successful) {
+          return { ok: false, error: result.data || '任务执行失败', data: [] };
+        }
+        const parsed = parseJsonSafe(result.data, []);
+        return { ok: true, data: toArraySafe(parsed) };
+      } catch (error) {
+        return { ok: false, error: error.message, data: [] };
+      }
+    };
+
+    const [imagesRes, networksRes, volumesRes, statsRes, composeRes] = await Promise.all([
+      runAgentTask(DockerTaskTypes.DOCKER_IMAGES),
+      runAgentTask(DockerTaskTypes.DOCKER_NETWORKS),
+      runAgentTask(DockerTaskTypes.DOCKER_VOLUMES),
+      runAgentTask(DockerTaskTypes.DOCKER_STATS),
+      runAgentTask(DockerTaskTypes.DOCKER_COMPOSE_LIST),
+    ]);
+
+    return {
+      serverId,
+      serverName,
+      host,
+      online: true,
+      docker: {
+        installed: !!docker.installed,
+        running: docker.running || 0,
+        stopped: docker.stopped || 0,
+        containers: Array.isArray(docker.containers) ? docker.containers : [],
+      },
+      resources: {
+        images: toArraySafe(imagesRes.data),
+        networks: toArraySafe(networksRes.data),
+        volumes: toArraySafe(volumesRes.data),
+        stats: toArraySafe(statsRes.data),
+        composeProjects: toArraySafe(composeRes.data),
+      },
+      errors: {
+        overview: '',
+        images: imagesRes.ok ? '' : imagesRes.error,
+        networks: networksRes.ok ? '' : networksRes.error,
+        volumes: volumesRes.ok ? '' : volumesRes.error,
+        stats: statsRes.ok ? '' : statsRes.error,
+        composeProjects: composeRes.ok ? '' : composeRes.error,
+      },
+    };
+  } catch (error) {
+    return emptyOverview(error.message || 'Docker 概览加载失败');
+  }
 }
 
 router.post('/v2/tasks', async (req, res) => {
@@ -917,7 +981,8 @@ router.get('/v2/tasks/:taskId', (req, res) => {
 router.get('/v2/docker/overview', async (req, res) => {
   try {
     const selectedServerId = req.query.serverId ? String(req.query.serverId) : '';
-    const servers = serverStorage.getAll();
+    const serversRaw = serverStorage.getAll();
+    const servers = Array.isArray(serversRaw) ? serversRaw.filter(item => item && item.id) : [];
 
     let targetServers = [];
     if (selectedServerId) {
@@ -933,21 +998,61 @@ router.get('/v2/docker/overview', async (req, res) => {
       targetServers = servers.filter(item => agentService.isOnline(item.id));
     }
 
-    const overviews = [];
-    for (const server of targetServers) {
-      overviews.push(await loadDockerOverviewForServer(server));
-    }
+    const overviewResults = await Promise.allSettled(
+      targetServers.map(server => loadDockerOverviewForServer(server))
+    );
+
+    const overviews = overviewResults.map((entry, index) => {
+      if (entry.status === 'fulfilled') {
+        return entry.value;
+      }
+
+      const fallbackServer = targetServers[index];
+      return {
+        serverId: fallbackServer?.id || '',
+        serverName: fallbackServer?.name || '未知主机',
+        host: fallbackServer?.host || '',
+        online: false,
+        docker: {
+          installed: false,
+          running: 0,
+          stopped: 0,
+          containers: [],
+        },
+        resources: {
+          images: [],
+          networks: [],
+          volumes: [],
+          stats: [],
+          composeProjects: [],
+        },
+        errors: {
+          overview: entry.reason?.message || '主机 Docker 概览加载失败',
+          images: '',
+          networks: '',
+          volumes: '',
+          stats: '',
+          composeProjects: '',
+        },
+      };
+    });
 
     const summary = overviews.reduce(
       (acc, item) => {
+        const containers = Array.isArray(item?.docker?.containers) ? item.docker.containers : [];
+        const images = toArraySafe(item?.resources?.images);
+        const networks = toArraySafe(item?.resources?.networks);
+        const volumes = toArraySafe(item?.resources?.volumes);
+        const composeProjects = toArraySafe(item?.resources?.composeProjects);
+
         acc.hosts += 1;
-        acc.containers += item.docker.containers.length;
-        acc.running += item.docker.running || 0;
-        acc.stopped += item.docker.stopped || 0;
-        acc.images += item.resources.images.length;
-        acc.networks += item.resources.networks.length;
-        acc.volumes += item.resources.volumes.length;
-        acc.composeProjects += item.resources.composeProjects.length;
+        acc.containers += containers.length;
+        acc.running += item?.docker?.running || 0;
+        acc.stopped += item?.docker?.stopped || 0;
+        acc.images += images.length;
+        acc.networks += networks.length;
+        acc.volumes += volumes.length;
+        acc.composeProjects += composeProjects.length;
         return acc;
       },
       {
@@ -971,7 +1076,25 @@ router.get('/v2/docker/overview', async (req, res) => {
       },
     });
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    console.error('[ServerAPI] /v2/docker/overview failed:', error);
+    res.json({
+      success: false,
+      error: error.message || 'Docker 概览加载失败',
+      data: {
+        generatedAt: Date.now(),
+        servers: [],
+        summary: {
+          hosts: 0,
+          containers: 0,
+          running: 0,
+          stopped: 0,
+          images: 0,
+          networks: 0,
+          volumes: 0,
+          composeProjects: 0,
+        },
+      },
+    });
   }
 });
 
