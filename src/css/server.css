@@ -35,7 +35,7 @@
   align-items: center;
   gap: 8px;
   padding: 6px 14px;
-  background: var(--bg-secondary);
+  /* background: var(--bg-secondary); */
   border: 1px solid var(--border-color);
   border-radius: 9px;
   font-size: 13px;
@@ -3866,7 +3866,7 @@
   padding: 80px 40px;
   background: linear-gradient(180deg, var(--bg-tertiary) 0%, transparent 100%);
   border-radius: 16px;
-  margin: 20px 0;
+  /* margin: 20px 0; */
 }
 
 .docker-empty-state .empty-icon {
@@ -4283,8 +4283,8 @@
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  padding: 10px;
-  border-bottom: 1px solid var(--border-color);
+  /* padding: 10px;、 */
+  /* border-bottom: 1px solid var(--border-color); */
   flex-wrap: wrap;
 }
 
@@ -4335,7 +4335,7 @@
 }
 
 .docker-task-hub {
-  margin: 0 14px 12px;
+  margin: 10px 0px 10px 0px;
   border: 1px solid var(--border-color);
   border-radius: 12px;
   background: linear-gradient(180deg, rgba(var(--bg-secondary-rgb), 0.6), rgba(var(--bg-primary-rgb), 0.6));
@@ -4470,7 +4470,7 @@
 }
 
 .docker-console-view {
-  padding: 14px;
+  /* padding: 10px; */
 }
 
 .docker-kpi-grid {
@@ -4517,9 +4517,9 @@
 }
 
 .docker-main-grid {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 320px;
-  gap: 12px;
+  /* display: grid; */
+  /* grid-template-columns: minmax(0, 1fr) 320px; */
+  /* gap: 12px; */
 }
 
 .docker-container-table-wrap {
@@ -4555,7 +4555,7 @@
 }
 
 .docker-row-actions {
-  width: 190px;
+  /* width: 190px; */
   display: flex;
   align-items: center;
   gap: 8px;
