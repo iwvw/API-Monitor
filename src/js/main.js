@@ -1594,9 +1594,7 @@ const app = createApp({
 
         if (newVal === 'accounts') {
           // 加载三个平台的账号
-          if (this.managedAccounts.length === 0) {
-            this.loadManagedAccounts();
-          }
+          this.loadManagedAccounts();
           if (this.koyebManagedAccounts.length === 0) {
             this.loadKoyebManagedAccounts();
           }
