@@ -1019,14 +1019,16 @@ export const hostMethods = {
         throw new Error(data.error || '加载 Docker 概览失败');
       }
 
-      const dockerServers = (data.data?.servers || []).map(server => ({
-        id: server.serverId,
-        name: server.serverName,
-        host: server.host,
-        containers: server.docker?.containers || [],
-        docker: server.docker || {},
-        resources: server.resources || {},
-      }));
+      const dockerServers = (data.data?.servers || [])
+        .filter(server => server.docker && server.docker.installed)
+        .map(server => ({
+          id: server.serverId,
+          name: server.serverName,
+          host: server.host,
+          containers: server.docker?.containers || [],
+          docker: server.docker || {},
+          resources: server.resources || {},
+        }));
 
       this.dockerOverviewServers = dockerServers;
 
@@ -1588,13 +1590,16 @@ export const hostMethods = {
    * 加载 Docker 镜像列表
    */
   async loadDockerImages() {
-    if (!this.dockerSelectedServer) return;
     this.dockerResourceLoading = true;
     this.dockerImages = [];
 
     try {
-      const overview = await this.fetchSelectedDockerOverview();
-      this.dockerImages = overview?.resources?.images || [];
+      if (this.dockerOverviewServers.length === 0) {
+        await this.loadDockerOverview();
+      }
+      this.dockerImages = this.dockerOverviewServers.flatMap(server => 
+        (server.resources?.images || []).map(img => ({ ...img, serverName: server.name }))
+      );
     } catch (error) {
       this.showGlobalToast('加载镜像失败: ' + error.message, 'error');
     } finally {
@@ -1606,7 +1611,25 @@ export const hostMethods = {
    * Docker 镜像操作
    */
   async handleDockerImageAction(action, image = '') {
-    if (!this.dockerSelectedServer) return;
+    if (!this.dockerSelectedServer) {
+       if (action === 'prune') {
+         const confirmed = await this.showConfirm({
+            title: '批量清理镜像',
+            message: '确定要清理所有主机的未使用镜像吗？',
+            confirmText: '清理全部',
+            confirmClass: 'btn-warning'
+         });
+         if (!confirmed) return;
+         
+         for (const server of this.dockerOverviewServers) {
+            this.submitDockerTask('image.prune', { serverId: server.id });
+         }
+         this.showGlobalToast('批量清理任务已提交', 'success');
+         return;
+       }
+       this.showGlobalToast('请先选择一台主机进行特定镜像操作', 'warning');
+       return;
+    }
 
     try {
       const mappedAction = `image.${action}`;
@@ -1617,7 +1640,6 @@ export const hostMethods = {
       );
       this.showGlobalToast('操作成功', 'success');
       await this.loadDockerImages();
-      await this.loadDockerOverview();
     } catch (error) {
       this.showGlobalToast('操作失败: ' + error.message, 'error');
     }
@@ -1627,13 +1649,16 @@ export const hostMethods = {
    * 加载 Docker 网络列表
    */
   async loadDockerNetworks() {
-    if (!this.dockerSelectedServer) return;
     this.dockerResourceLoading = true;
     this.dockerNetworks = [];
 
     try {
-      const overview = await this.fetchSelectedDockerOverview();
-      this.dockerNetworks = overview?.resources?.networks || [];
+      if (this.dockerOverviewServers.length === 0) {
+        await this.loadDockerOverview();
+      }
+      this.dockerNetworks = this.dockerOverviewServers.flatMap(server => 
+        (server.resources?.networks || []).map(net => ({ ...net, serverName: server.name }))
+      );
     } catch (error) {
       this.showGlobalToast('加载网络失败: ' + error.message, 'error');
     } finally {
@@ -1645,7 +1670,10 @@ export const hostMethods = {
    * Docker 网络操作
    */
   async handleDockerNetworkAction(action, name = '') {
-    if (!this.dockerSelectedServer) return;
+    if (!this.dockerSelectedServer) {
+       this.showGlobalToast('请先选择一台主机', 'warning');
+       return;
+    }
 
     try {
       await this.submitDockerTask(
@@ -1655,7 +1683,6 @@ export const hostMethods = {
       );
       this.showGlobalToast('操作成功', 'success');
       await this.loadDockerNetworks();
-      await this.loadDockerOverview();
     } catch (error) {
       this.showGlobalToast('操作失败: ' + error.message, 'error');
     }
@@ -1665,13 +1692,16 @@ export const hostMethods = {
    * 加载 Docker Volume 列表
    */
   async loadDockerVolumes() {
-    if (!this.dockerSelectedServer) return;
     this.dockerResourceLoading = true;
     this.dockerVolumes = [];
 
     try {
-      const overview = await this.fetchSelectedDockerOverview();
-      this.dockerVolumes = overview?.resources?.volumes || [];
+      if (this.dockerOverviewServers.length === 0) {
+        await this.loadDockerOverview();
+      }
+      this.dockerVolumes = this.dockerOverviewServers.flatMap(server => 
+        (server.resources?.volumes || []).map(vol => ({ ...vol, serverName: server.name }))
+      );
     } catch (error) {
       this.showGlobalToast('加载 Volume 失败: ' + error.message, 'error');
     } finally {
@@ -1683,7 +1713,25 @@ export const hostMethods = {
    * Docker Volume 操作
    */
   async handleDockerVolumeAction(action, name = '') {
-    if (!this.dockerSelectedServer) return;
+    if (!this.dockerSelectedServer) {
+       if (action === 'prune') {
+         const confirmed = await this.showConfirm({
+            title: '批量清理卷',
+            message: '确定要清理所有主机的未使用存储卷吗？',
+            confirmText: '清理全部',
+            confirmClass: 'btn-warning'
+         });
+         if (!confirmed) return;
+         
+         for (const server of this.dockerOverviewServers) {
+            this.submitDockerTask('volume.prune', { serverId: server.id });
+         }
+         this.showGlobalToast('批量清理任务已提交', 'success');
+         return;
+       }
+       this.showGlobalToast('请先选择一台主机', 'warning');
+       return;
+    }
 
     try {
       await this.submitDockerTask(
@@ -1693,7 +1741,6 @@ export const hostMethods = {
       );
       this.showGlobalToast('操作成功', 'success');
       await this.loadDockerVolumes();
-      await this.loadDockerOverview();
     } catch (error) {
       this.showGlobalToast('操作失败: ' + error.message, 'error');
     }
@@ -1703,13 +1750,16 @@ export const hostMethods = {
    * 加载容器资源统计
    */
   async loadDockerStats() {
-    if (!this.dockerSelectedServer) return;
     this.dockerResourceLoading = true;
     this.dockerStats = [];
 
     try {
-      const overview = await this.fetchSelectedDockerOverview();
-      this.dockerStats = overview?.resources?.stats || [];
+      if (this.dockerOverviewServers.length === 0) {
+        await this.loadDockerOverview();
+      }
+      this.dockerStats = this.dockerOverviewServers.flatMap(server => 
+        (server.resources?.stats || []).map(stat => ({ ...stat, serverName: server.name }))
+      );
     } catch (error) {
       this.showGlobalToast('加载统计失败: ' + error.message, 'error');
     } finally {
@@ -1765,13 +1815,16 @@ export const hostMethods = {
    * 加载 Docker Compose 项目列表
    */
   async loadDockerComposeProjects() {
-    if (!this.dockerSelectedServer) return;
     this.dockerResourceLoading = true;
     this.dockerComposeProjects = [];
 
     try {
-      const overview = await this.fetchSelectedDockerOverview();
-      this.dockerComposeProjects = overview?.resources?.composeProjects || [];
+      if (this.dockerOverviewServers.length === 0) {
+        await this.loadDockerOverview();
+      }
+      this.dockerComposeProjects = this.dockerOverviewServers.flatMap(server => 
+        (server.resources?.composeProjects || []).map(p => ({ ...p, serverName: server.name, serverId: server.id }))
+      );
     } catch (error) {
       this.showGlobalToast('加载 Compose 失败: ' + error.message, 'error');
     } finally {
@@ -1782,11 +1835,21 @@ export const hostMethods = {
   /**
    * Docker Compose 操作
    */
-  async handleDockerComposeAction(project, action) {
-    if (!this.dockerSelectedServer) return;
+  async handleDockerComposeAction(project, action, serverId) {
+    // 如果没有传入 serverId，尝试从当前选择的主机获取
+    if (!serverId) serverId = this.dockerSelectedServer;
+    
+    if (!serverId) {
+       // 尝试从项目中查找 (如果 project 是对象)
+       // 但通常 project 是名称字符串。
+       // 如果是在 aggregated 视图中，必须传入 serverId。
+       this.showGlobalToast('请先选择一台主机', 'warning');
+       return;
+    }
 
-    // 查找项目配置路径
-    const projectObj = this.dockerComposeProjects.find(p => p.Name === project);
+    // 查找项目配置路径 (需从对应主机的资源中查找)
+    const serverObj = this.dockerOverviewServers.find(s => s.id === serverId);
+    const projectObj = serverObj?.resources?.composeProjects?.find(p => p.Name === project);
     const configDir = projectObj ? projectObj.ConfigFiles : '';
 
     try {
@@ -1794,7 +1857,7 @@ export const hostMethods = {
       await this.submitDockerTask(
         `compose.${action}`,
         {
-          serverId: this.dockerSelectedServer,
+          serverId: serverId,
           project,
           configDir,
         },
@@ -1802,7 +1865,6 @@ export const hostMethods = {
       );
       this.showGlobalToast('操作成功', 'success');
       await this.loadDockerComposeProjects();
-      await this.loadDockerOverview();
     } catch (error) {
       this.showGlobalToast('操作失败: ' + error.message, 'error');
     }

@@ -1538,12 +1538,21 @@
                     <div class="docker-row-ellipsis docker-mono" :title="row.portsText">{{ row.portsText }}</div>
                   </span>
                   <span class="col-actions-lg">
+                    <!-- 自动检测到更新时显示 (绿色) -->
                     <button v-if="row.hasUpdate" class="action-btn-circle success"
                       @click.stop="updateDockerContainer(row.serverId, row.container.id, row.container.name, row.container.image)"
                       :disabled="row.container.actionPending"
-                      title="立即更新 (无损)">
+                      title="立即更新 (检测到新版本)">
                       <i class="fas" :class="row.container.actionPending ? 'fa-spinner fa-spin' : 'fa-cloud-download-alt'"></i>
                     </button>
+                    <!-- 未检测到更新时显示手动强制更新 (灰色) -->
+                    <button v-else class="action-btn-circle" style="color: var(--text-tertiary)"
+                      @click.stop="updateDockerContainer(row.serverId, row.container.id, row.container.name, row.container.image)"
+                      :disabled="row.container.actionPending"
+                      title="强制拉取并重建容器">
+                      <i class="fas" :class="row.container.actionPending ? 'fa-spinner fa-spin' : 'fa-sync'"></i>
+                    </button>
+
                     <button class="action-btn-circle" :class="row.state === 'running' ? 'danger' : 'success'"
                       @click.stop="handleDockerAction(row.serverId, row.container.id, row.state === 'running' ? 'stop' : 'start')"
                       :disabled="row.container.actionPending" :title="row.state === 'running' ? '停止' : '启动'">
@@ -1599,18 +1608,22 @@
             <div class="docker-resource-header">
               <span style="flex: 2">仓库</span>
               <span style="flex: 1">标签</span>
+              <span v-if="!dockerSelectedServer" style="flex: 1">主机</span>
               <span style="flex: 1">大小</span>
               <span style="flex: 1">创建时间</span>
               <span class="col-actions-sm">操作</span>
             </div>
-            <div v-for="img in dockerImages" :key="img.id" class="docker-resource-row">
+            <div v-for="img in dockerImages" :key="img.id + img.serverName" class="docker-resource-row">
               <span style="flex: 2; font-family: var(--font-mono); font-size: 11px; overflow: hidden;">{{
                 img.repository }}</span>
               <span style="flex: 1"><span class="docker-tag-badge">{{ img.tag }}</span></span>
+              <span v-if="!dockerSelectedServer" style="flex: 1; font-size: 11px; color: var(--text-secondary)">{{ img.serverName }}</span>
               <span style="flex: 1; font-size: 11px; color: var(--text-secondary)">{{ img.size }}</span>
               <span style="flex: 1; font-size: 11px; color: var(--text-tertiary)">{{ img.created }}</span>
               <span class="col-actions-sm">
-                <button class="btn btn-xs btn-danger" @click="handleDockerImageAction('remove', img.id)" title="删除">
+                <!-- 暂时仅支持单机删除，或者后续增加参数 -->
+                <button class="btn btn-xs btn-danger" @click="handleDockerImageAction('remove', img.id)" 
+                  title="删除 (需先选择主机)" :disabled="!dockerSelectedServer">
                   <i class="fas fa-trash" style="font-size: 9px"></i>
                 </button>
               </span>
@@ -1640,19 +1653,21 @@
             <div class="docker-resource-header">
               <span style="flex: 2">名称</span>
               <span style="flex: 1">驱动</span>
+              <span v-if="!dockerSelectedServer" style="flex: 1">主机</span>
               <span style="flex: 1">范围</span>
               <span style="flex: 2">子网</span>
               <span class="col-actions-sm">操作</span>
             </div>
-            <div v-for="net in dockerNetworks" :key="net.id" class="docker-resource-row">
+            <div v-for="net in dockerNetworks" :key="net.id + net.serverName" class="docker-resource-row">
               <span style="flex: 2; font-weight: 600; font-size: 12px;">{{ net.name }}</span>
               <span style="flex: 1"><span class="docker-driver-badge">{{ net.driver }}</span></span>
+              <span v-if="!dockerSelectedServer" style="flex: 1; font-size: 11px; color: var(--text-secondary)">{{ net.serverName }}</span>
               <span style="flex: 1; font-size: 11px; color: var(--text-secondary)">{{ net.scope }}</span>
               <span style="flex: 2; font-size: 11px; font-family: var(--font-mono); color: var(--text-tertiary)">{{
                 net.subnet || '-' }}</span>
               <span class="col-actions-sm">
                 <button v-if="!['bridge', 'host', 'none'].includes(net.name)" class="btn btn-xs btn-danger"
-                  @click="handleDockerNetworkAction('remove', net.name)" title="删除">
+                  @click="handleDockerNetworkAction('remove', net.name)" title="删除" :disabled="!dockerSelectedServer">
                   <i class="fas fa-trash" style="font-size: 9px"></i>
                 </button>
               </span>
@@ -1685,18 +1700,21 @@
             <div class="docker-resource-header">
               <span style="flex: 2">名称</span>
               <span style="flex: 1">驱动</span>
+              <span v-if="!dockerSelectedServer" style="flex: 1">主机</span>
               <span style="flex: 3">挂载点</span>
               <span class="col-actions-sm">操作</span>
             </div>
-            <div v-for="vol in dockerVolumes" :key="vol.name" class="docker-resource-row">
+            <div v-for="vol in dockerVolumes" :key="vol.name + vol.serverName" class="docker-resource-row">
               <span style="flex: 2; font-weight: 600; font-size: 12px; overflow: hidden;">{{
                 vol.name }}</span>
               <span style="flex: 1"><span class="docker-driver-badge">{{ vol.driver }}</span></span>
+              <span v-if="!dockerSelectedServer" style="flex: 1; font-size: 11px; color: var(--text-secondary)">{{ vol.serverName }}</span>
               <span
                 style="flex: 3; font-size: 10px; font-family: var(--font-mono); color: var(--text-tertiary); overflow: hidden;">{{
                 vol.mountpoint }}</span>
               <span class="col-actions-sm">
-                <button class="btn btn-xs btn-danger" @click="handleDockerVolumeAction('remove', vol.name)" title="删除">
+                <button class="btn btn-xs btn-danger" @click="handleDockerVolumeAction('remove', vol.name)" 
+                  title="删除" :disabled="!dockerSelectedServer">
                   <i class="fas fa-trash" style="font-size: 9px"></i>
                 </button>
               </span>
@@ -1728,13 +1746,15 @@
           <div class="docker-resource-table">
             <div class="docker-resource-header">
               <span style="flex: 2">容器</span>
+              <span v-if="!dockerSelectedServer" style="flex: 1">主机</span>
               <span style="flex: 1">CPU</span>
               <span style="flex: 2">内存</span>
               <span style="flex: 2">网络 I/O</span>
               <span style="flex: 2">磁盘 I/O</span>
             </div>
-            <div v-for="stat in dockerStats" :key="stat.container_id" class="docker-resource-row">
+            <div v-for="stat in dockerStats" :key="stat.container_id + stat.serverName" class="docker-resource-row">
               <span style="flex: 2; font-weight: 600; font-size: 12px;">{{ stat.name }}</span>
+              <span v-if="!dockerSelectedServer" style="flex: 1; font-size: 11px; color: var(--text-secondary)">{{ stat.serverName }}</span>
               <span style="flex: 1; font-weight: 700;"
                 :style="{ color: parseFloat(stat.cpu_percent) > 80 ? '#ef4444' : '#10b981' }">{{ stat.cpu_percent
                 }}</span>
@@ -1774,7 +1794,12 @@
                   <i class="fas fa-folder-open"></i>
                 </div>
                 <div class="item-details">
-                  <div class="item-title">{{ proj.Name }}</div>
+                  <div class="item-title">
+                    {{ proj.Name }}
+                    <span v-if="!dockerSelectedServer" class="badge" style="font-size: 9px; margin-left: 6px; font-weight: normal; background: var(--bg-tertiary); color: var(--text-secondary);">
+                      {{ proj.serverName }}
+                    </span>
+                  </div>
                   <div class="item-subtitle" :title="proj.ConfigFiles">{{ proj.ConfigFiles || '无配置路径' }}</div>
                 </div>
               </div>
@@ -1790,19 +1815,19 @@
 
               <!-- Right: Actions -->
               <div class="item-actions">
-                <button class="action-btn-circle success" @click="handleDockerComposeAction(proj.Name, 'up')"
+                <button class="action-btn-circle success" @click="handleDockerComposeAction(proj.Name, 'up', proj.serverId)"
                   title="启动/更新">
                   <i class="fas fa-play"></i>
                 </button>
-                <button class="action-btn-circle" @click="handleDockerComposeAction(proj.Name, 'restart')" title="重启">
+                <button class="action-btn-circle" @click="handleDockerComposeAction(proj.Name, 'restart', proj.serverId)" title="重启">
                   <i class="fas fa-redo"></i>
                 </button>
-                <button class="action-btn-circle danger" @click="handleDockerComposeAction(proj.Name, 'down')"
+                <button class="action-btn-circle danger" @click="handleDockerComposeAction(proj.Name, 'down', proj.serverId)"
                   title="停止并移除">
                   <i class="fas fa-stop"></i>
                 </button>
                 <div style="width: 1px; height: 16px; background: var(--border-color); margin: 0 4px;"></div>
-                <button class="action-btn-circle" @click="handleDockerComposeAction(proj.Name, 'pull')" title="拉取镜像"
+                <button class="action-btn-circle" @click="handleDockerComposeAction(proj.Name, 'pull', proj.serverId)" title="拉取镜像"
                   style="color: var(--primary-color)">
                   <i class="fas fa-cloud-download-alt"></i>
                 </button>
