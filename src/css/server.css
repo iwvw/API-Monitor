@@ -4621,6 +4621,7 @@
 }
 
 .docker-inspector {
+  margin-top: 10px;
   border: 1px solid var(--border-color);
   border-radius: 12px;
   background: var(--card-bg);
