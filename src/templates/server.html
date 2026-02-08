@@ -1431,23 +1431,11 @@
         </div>
       </div>
 
-      <!-- Shared Filters Row (Hosts + Contextual Filters) -->
-      <div class="docker-state-filters" style="padding: 10px 12px; border-bottom: 1px solid var(--border-color); background: rgba(0,0,0,0.02); margin-bottom: 0;">
-        <!-- Host Quick Select -->
-        <span style="font-size: 11px; color: var(--text-tertiary); font-weight: 700; margin-right: 4px; text-transform: uppercase;">主机:</span>
-        <button class="stat-pill" :class="{ active: dockerSelectedServer === '' }"
-          @click="dockerSelectedServer = ''; loadDockerResources()">全部</button>
-        <button v-for="s in dockerOverviewServers" :key="'quick-host-' + s.id" 
-          class="stat-pill" :class="{ active: dockerSelectedServer === s.id }"
-          @click="dockerSelectedServer = s.id; loadDockerResources()">
-          {{ s.name }}
-        </button>
-
-        <div v-if="dockerSubTab === 'containers'" style="width: 1px; height: 16px; background: var(--border-color); margin: 0 8px;"></div>
-
-        <!-- Container State Filters (Contextual) -->
-        <template v-if="dockerSubTab === 'containers'">
-          <span style="font-size: 11px; color: var(--text-tertiary); font-weight: 700; margin-right: 4px; text-transform: uppercase;">状态:</span>
+      <!-- Shared Filters Row (Contextual Filters + Hosts) -->
+      <div class="docker-state-filters" style="padding: 10px 12px; border-bottom: 1px solid var(--border-color); background: rgba(0,0,0,0.02); margin-bottom: 0; display: flex; align-items: center;">
+        
+        <!-- Left: Container State Filters (Contextual) -->
+        <div v-if="dockerSubTab === 'containers'" style="display: flex; gap: 6px;">
           <button class="stat-pill" :class="{ active: dockerContainerStateFilter === 'all' }"
             @click="dockerContainerStateFilter = 'all'">全部</button>
           <button class="stat-pill" :class="{ active: dockerContainerStateFilter === 'running' }"
@@ -1456,15 +1444,29 @@
             @click="dockerContainerStateFilter = 'paused'">暂停</button>
           <button class="stat-pill" :class="{ active: dockerContainerStateFilter === 'stopped' }"
             @click="dockerContainerStateFilter = 'stopped'">停止</button>
-          
-          <!-- New Batch Update Button -->
-          <button v-if="getDockerSummaryMetrics().updates > 0" 
-            class="btn btn-success btn-xs" 
-            @click="updateAllAvailableContainers"
-            style="margin-left: auto; border-radius: 12px; padding: 2px 12px;">
-            <i class="fas fa-magic"></i> 一键更新全部 ({{ getDockerSummaryMetrics().updates }})
+        </div>
+
+        <!-- Middle Spacer -->
+        <div style="flex: 1"></div>
+
+        <!-- Right: Host Quick Select -->
+        <div style="display: flex; gap: 6px; align-items: center;">
+          <button class="stat-pill" :class="{ active: dockerSelectedServer === '' }"
+            @click="dockerSelectedServer = ''; loadDockerResources()">全部主机</button>
+          <button v-for="s in dockerOverviewServers" :key="'quick-host-' + s.id" 
+            class="stat-pill" :class="{ active: dockerSelectedServer === s.id }"
+            @click="dockerSelectedServer = s.id; loadDockerResources()">
+            {{ s.name }}
           </button>
-        </template>
+        </div>
+        
+        <!-- Far Right: Batch Update Button -->
+        <button v-if="dockerSubTab === 'containers' && getDockerSummaryMetrics().updates > 0" 
+          class="btn btn-success btn-xs" 
+          @click="updateAllAvailableContainers"
+          style="margin-left: 12px; border-radius: 12px; padding: 2px 12px;">
+          <i class="fas fa-magic"></i> 一键更新全部 ({{ getDockerSummaryMetrics().updates }})
+        </button>
       </div>
 
       <div v-if="dockerSubTab === 'containers'" class="docker-console-view" style="padding-top: 10px;">
