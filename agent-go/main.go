@@ -2279,17 +2279,48 @@ func (a *AgentClient) handleDockerContainerUpdate(taskID string, data string) {
 		a.finishWithError(taskID, progress, "拉取镜像失败: "+err.Error())
 		return
 	}
-	// TODO: 可以解析 reader 输出流来更新实时进度
-	io.Copy(io.Discard, reader)
+	
+	// 实时解析拉取进度
+	dec := json.NewDecoder(reader)
+	for {
+		var msg struct {
+			Status         string `json:"status"`
+			ProgressDetail struct {
+				Current int64 `json:"current"`
+				Total   int64 `json:"total"`
+			} `json:"progressDetail"`
+		}
+		if err := dec.Decode(&msg); err != nil {
+			if err == io.EOF {
+				break
+			}
+			break
+		}
+		
+		// 如果有具体的进度数据，计算百分比并映射到 10% - 40%
+		if msg.ProgressDetail.Total > 0 {
+			p := float64(msg.ProgressDetail.Current) / float64(msg.ProgressDetail.Total)
+			currentP := 10 + int(p*30)
+			if currentP > progress.Percentage && currentP < 40 {
+				progress.Percentage = currentP
+				progress.DetailMsg = msg.Status
+				a.updateProgress(taskID, progress)
+			}
+		} else if msg.Status != "" {
+			progress.DetailMsg = msg.Status
+			a.updateProgress(taskID, progress)
+		}
+	}
 	reader.Close()
 
 	progress.Percentage = 40
 	progress.Message = "镜像拉取完成"
+	progress.DetailMsg = ""
 	a.updateProgress(taskID, progress)
 
 	// 3. 停止旧容器
 	progress.Percentage = 50
-	progress.Message = "正在停止容器..."
+	progress.Message = "正在停止旧容器 (等待优雅退出)..."
 	a.updateProgress(taskID, progress)
 
 	timeout := 30 // seconds
@@ -2300,25 +2331,23 @@ func (a *AgentClient) handleDockerContainerUpdate(taskID string, data string) {
 
 	// 4. 重命名旧容器
 	progress.Percentage = 60
-	progress.Message = "正在备份旧容器..."
+	progress.Message = "正在备份旧容器元数据..."
 	a.updateProgress(taskID, progress)
 
 	backupName := req.ContainerName + "-backup-" + time.Now().Format("20060102-150405")
 	if err := cli.ContainerRename(ctx, req.ContainerID, backupName); err != nil {
-		// 尝试启动回原来的
 		cli.ContainerStart(ctx, req.ContainerID, container.StartOptions{})
 		a.finishWithError(taskID, progress, "备份容器失败: "+err.Error())
 		return
 	}
 
-	// 5. 创建新容器 (使用 Clone 模式)
-	progress.Percentage = 70
-	progress.Message = "正在创建新容器..."
+	// 5. 创建新容器
+	progress.Percentage = 75
+	progress.Message = "正在克隆配置并创建新容器..."
 	a.updateProgress(taskID, progress)
 
 	newConfig := oldContainer.Config
 	newConfig.Image = imageName
-	
 	newHostConfig := oldContainer.HostConfig
 	newNetworkingConfig := &network.NetworkingConfig{
 		EndpointsConfig: oldContainer.NetworkSettings.Networks,
@@ -2326,7 +2355,6 @@ func (a *AgentClient) handleDockerContainerUpdate(taskID string, data string) {
 
 	created, err := cli.ContainerCreate(ctx, newConfig, newHostConfig, newNetworkingConfig, nil, req.ContainerName)
 	if err != nil {
-		// 回滚
 		cli.ContainerRename(ctx, req.ContainerID, req.ContainerName)
 		cli.ContainerStart(ctx, req.ContainerID, container.StartOptions{})
 		a.finishWithError(taskID, progress, "创建新容器失败: "+err.Error())
@@ -2334,12 +2362,11 @@ func (a *AgentClient) handleDockerContainerUpdate(taskID string, data string) {
 	}
 
 	// 6. 启动新容器
-	progress.Percentage = 80
+	progress.Percentage = 90
 	progress.Message = "正在启动新容器..."
 	a.updateProgress(taskID, progress)
 
 	if err := cli.ContainerStart(ctx, created.ID, container.StartOptions{}); err != nil {
-		// 回滚
 		cli.ContainerRemove(ctx, created.ID, container.RemoveOptions{Force: true})
 		cli.ContainerRename(ctx, req.ContainerID, req.ContainerName)
 		cli.ContainerStart(ctx, req.ContainerID, container.StartOptions{})
@@ -2348,8 +2375,8 @@ func (a *AgentClient) handleDockerContainerUpdate(taskID string, data string) {
 	}
 
 	// 7. 删除备份
-	progress.Percentage = 90
-	progress.Message = "正在清理备份..."
+	progress.Percentage = 98
+	progress.Message = "正在清理旧容器备份..."
 	a.updateProgress(taskID, progress)
 
 	if err := cli.ContainerRemove(ctx, req.ContainerID, container.RemoveOptions{Force: true}); err != nil {
