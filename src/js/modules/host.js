@@ -1494,7 +1494,7 @@ export const hostMethods = {
    */
   async updateDockerContainer(serverId, containerId, containerName, image = '') {
     // 确认操作
-    const confirmed = await this.showConfirmDialog({
+    const confirmed = await this.showConfirm({
       title: '确认更新容器',
       message: `确定要更新容器 "${containerName}" 吗？\n\n此操作将：\n1. 拉取最新镜像\n2. 停止并备份旧容器\n3. 使用相同配置创建新容器\n4. 删除旧容器备份`,
       confirmText: '确认更新',
