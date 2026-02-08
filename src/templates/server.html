@@ -1377,10 +1377,6 @@
         </div>
 
         <div class="docker-console-actions">
-          <select v-model="dockerSelectedServer" class="docker-server-select" @change="loadDockerResources">
-            <option value="">全部主机</option>
-            <option v-for="s in dockerOverviewServers" :key="s.id" :value="s.id">{{ s.name }}</option>
-          </select>
           <div v-if="dockerSubTab === 'containers'" class="docker-search">
             <i class="fas fa-search"></i>
             <input v-model="dockerSearchQuery" type="text" placeholder="搜索容器 / 镜像 / 主机" />
@@ -1435,7 +1431,43 @@
         </div>
       </div>
 
-      <div v-if="dockerSubTab === 'containers'" class="docker-console-view">
+      <!-- Shared Filters Row (Hosts + Contextual Filters) -->
+      <div class="docker-state-filters" style="padding: 10px 12px; border-bottom: 1px solid var(--border-color); background: rgba(0,0,0,0.02); margin-bottom: 0;">
+        <!-- Host Quick Select -->
+        <span style="font-size: 11px; color: var(--text-tertiary); font-weight: 700; margin-right: 4px; text-transform: uppercase;">主机:</span>
+        <button class="stat-pill" :class="{ active: dockerSelectedServer === '' }"
+          @click="dockerSelectedServer = ''; loadDockerResources()">全部</button>
+        <button v-for="s in dockerOverviewServers" :key="'quick-host-' + s.id" 
+          class="stat-pill" :class="{ active: dockerSelectedServer === s.id }"
+          @click="dockerSelectedServer = s.id; loadDockerResources()">
+          {{ s.name }}
+        </button>
+
+        <div v-if="dockerSubTab === 'containers'" style="width: 1px; height: 16px; background: var(--border-color); margin: 0 8px;"></div>
+
+        <!-- Container State Filters (Contextual) -->
+        <template v-if="dockerSubTab === 'containers'">
+          <span style="font-size: 11px; color: var(--text-tertiary); font-weight: 700; margin-right: 4px; text-transform: uppercase;">状态:</span>
+          <button class="stat-pill" :class="{ active: dockerContainerStateFilter === 'all' }"
+            @click="dockerContainerStateFilter = 'all'">全部</button>
+          <button class="stat-pill" :class="{ active: dockerContainerStateFilter === 'running' }"
+            @click="dockerContainerStateFilter = 'running'">运行中</button>
+          <button class="stat-pill" :class="{ active: dockerContainerStateFilter === 'paused' }"
+            @click="dockerContainerStateFilter = 'paused'">暂停</button>
+          <button class="stat-pill" :class="{ active: dockerContainerStateFilter === 'stopped' }"
+            @click="dockerContainerStateFilter = 'stopped'">停止</button>
+          
+          <!-- New Batch Update Button -->
+          <button v-if="getDockerSummaryMetrics().updates > 0" 
+            class="btn btn-success btn-xs" 
+            @click="updateAllAvailableContainers"
+            style="margin-left: auto; border-radius: 12px; padding: 2px 12px;">
+            <i class="fas fa-magic"></i> 一键更新全部 ({{ getDockerSummaryMetrics().updates }})
+          </button>
+        </template>
+      </div>
+
+      <div v-if="dockerSubTab === 'containers'" class="docker-console-view" style="padding-top: 10px;">
         <div class="docker-kpi-grid">
           <div class="docker-kpi-card">
             <div class="docker-kpi-label">主机</div>
@@ -1453,25 +1485,6 @@
             <div class="docker-kpi-label">可更新</div>
             <div class="docker-kpi-value">{{ getDockerSummaryMetrics().updates }}</div>
           </div>
-        </div>
-
-        <div class="docker-state-filters">
-          <button class="stat-pill" :class="{ active: dockerContainerStateFilter === 'all' }"
-            @click="dockerContainerStateFilter = 'all'">全部</button>
-          <button class="stat-pill" :class="{ active: dockerContainerStateFilter === 'running' }"
-            @click="dockerContainerStateFilter = 'running'">运行中</button>
-          <button class="stat-pill" :class="{ active: dockerContainerStateFilter === 'paused' }"
-            @click="dockerContainerStateFilter = 'paused'">暂停</button>
-          <button class="stat-pill" :class="{ active: dockerContainerStateFilter === 'stopped' }"
-            @click="dockerContainerStateFilter = 'stopped'">停止</button>
-          
-          <!-- New Batch Update Button -->
-          <button v-if="getDockerSummaryMetrics().updates > 0" 
-            class="btn btn-success btn-xs" 
-            @click="updateAllAvailableContainers"
-            style="margin-left: auto; border-radius: 12px; padding: 2px 12px;">
-            <i class="fas fa-magic"></i> 一键更新全部 ({{ getDockerSummaryMetrics().updates }})
-          </button>
         </div>
 
         <div v-if="dockerOverviewLoading && dockerOverviewServers.length === 0" class="docker-empty-state">
