@@ -1761,6 +1761,10 @@ export const hostMethods = {
   async handleDockerComposeAction(project, action) {
     if (!this.dockerSelectedServer) return;
 
+    // 查找项目配置路径
+    const projectObj = this.dockerComposeProjects.find(p => p.Name === project);
+    const configDir = projectObj ? projectObj.ConfigFiles : '';
+
     try {
       this.showGlobalToast(`正在${action === 'up' ? '启动' : action === 'down' ? '停止' : '执行'} ${project}...`, 'info');
       await this.submitDockerTask(
@@ -1768,6 +1772,7 @@ export const hostMethods = {
         {
           serverId: this.dockerSelectedServer,
           project,
+          configDir,
         },
         { timeoutMs: action === 'pull' ? 300000 : 120000 }
       );
