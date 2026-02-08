@@ -1093,17 +1093,17 @@ func parseImageName(image string) (registry, repo, tag string) {
 
 // getRemoteDigest 从 Registry 获取远程镜像的 Digest
 func getRemoteDigest(registry, repo, tag string) (string, error) {
-	// Docker Hub 加速器列表 (当直连失败时尝试)
+	// 1. 对于非 Docker Hub 的 Registry (如 ghcr.io, quay.io)，直接尝试连接
+	if registry != "registry-1.docker.io" && registry != "docker.io" {
+		return tryGetDigestFromHost(registry, repo, tag)
+	}
+
+	// 2. 对于 Docker Hub，使用加速器列表
 	accelerators := []string{
 		"registry-1.docker.io", // 原始地址优先
 		"docker.m.daocloud.io",
 		"docker.1panel.live",
 		"hub.rat.dev",
-	}
-
-	// 非 Docker Hub 暂不支持
-	if registry != "registry-1.docker.io" && registry != "docker.io" {
-		return "", fmt.Errorf("暂不支持的 Registry: %s", registry)
 	}
 
 	var lastErr error

@@ -1037,20 +1037,6 @@ export const hostMethods = {
       ) {
         this.dockerSelectedServer = '';
       }
-
-      // 如果当前聚焦的容器不在列表中，自动清空详情面板
-      const allKeys = [];
-      for (const server of dockerServers) {
-        for (const container of server.containers || []) {
-          allKeys.push(this.getDockerContainerKey(server.id, container.id));
-        }
-      }
-      if (
-        this.dockerFocusedContainerKey &&
-        !allKeys.includes(this.dockerFocusedContainerKey)
-      ) {
-        this.dockerFocusedContainerKey = '';
-      }
     } catch (error) {
       this.showGlobalToast('加载 Docker 概览失败: ' + error.message, 'error');
     } finally {
@@ -1354,15 +1340,52 @@ export const hostMethods = {
     };
   },
 
-  getDockerContainerRows() {
+  /**
+   * 批量更新当前视图中所有有更新的容器
+   */
+  async updateAllAvailableContainers() {
+    const groups = this.getDockerGroups();
+    const toUpdate = [];
+    
+    for (const group of groups) {
+      for (const row of group.containers) {
+        if (row.hasUpdate) {
+          toUpdate.push(row);
+        }
+      }
+    }
+
+    if (toUpdate.length === 0) {
+      this.showGlobalToast('没有可更新的容器', 'info');
+      return;
+    }
+
+    const confirmed = await this.showConfirm({
+      title: '批量更新容器',
+      message: `确定要同时更新这 ${toUpdate.length} 个容器吗？\n操作将按顺序异步执行。`,
+      confirmText: '全部更新',
+      confirmClass: 'btn-success'
+    });
+
+    if (!confirmed) return;
+
+    for (const item of toUpdate) {
+      this.updateDockerContainer(item.serverId, item.container.id, item.container.name, item.container.image);
+      // 稍微延迟一点点发送请求，避免瞬间冲击
+      await new Promise(resolve => setTimeout(resolve, 500));
+    }
+  },
+
+  getDockerGroups() {
     const query = (this.dockerSearchQuery || '').trim().toLowerCase();
     const stateFilter = this.dockerContainerStateFilter || 'all';
     const selectedServerId = this.dockerSelectedServer;
-    const rows = [];
+    const groups = [];
 
     for (const server of this.dockerOverviewServers || []) {
       if (selectedServerId && server.id !== selectedServerId) continue;
 
+      const filteredContainers = [];
       for (const container of server.containers || []) {
         const state = this.getDockerContainerState(container);
         if (stateFilter !== 'all' && state !== stateFilter) continue;
@@ -1394,44 +1417,28 @@ export const hostMethods = {
         };
 
         if (query && !row.searchableText.includes(query)) continue;
-        rows.push(row);
+        filteredContainers.push(row);
+      }
+
+      if (filteredContainers.length > 0) {
+        filteredContainers.sort((a, b) => {
+          if (a.state === b.state) {
+            return a.container.name.localeCompare(b.container.name);
+          }
+          const rank = { running: 0, paused: 1, stopped: 2 };
+          return rank[a.state] - rank[b.state];
+        });
+
+        groups.push({
+          serverId: server.id,
+          serverName: server.name,
+          serverHost: server.host,
+          containers: filteredContainers
+        });
       }
     }
 
-    return rows.sort((a, b) => {
-      if (a.state === b.state) {
-        return a.container.name.localeCompare(b.container.name);
-      }
-      // running > paused > stopped
-      const rank = { running: 0, paused: 1, stopped: 2 };
-      return rank[a.state] - rank[b.state];
-    });
-  },
-
-  selectDockerContainer(serverId, container) {
-    this.dockerFocusedContainerKey = this.getDockerContainerKey(serverId, container.id);
-  },
-
-  getFocusedDockerContainer() {
-    if (!this.dockerFocusedContainerKey) return null;
-
-    const [serverId, containerId] = String(this.dockerFocusedContainerKey).split('::');
-    const server = (this.dockerOverviewServers || []).find(s => s.id === serverId);
-    if (!server) return null;
-    const container = (server.containers || []).find(c => c.id === containerId);
-    if (!container) return null;
-
-    return {
-      serverId: server.id,
-      serverName: server.name,
-      serverHost: server.host,
-      container,
-      state: this.getDockerContainerState(container),
-      stateLabel: this.getDockerContainerStateLabel(container),
-      portsText: this.formatDockerPorts(container),
-      shortId: this.formatDockerContainerId(container.id),
-      key: this.getDockerContainerKey(server.id, container.id),
-    };
+    return groups;
   },
 
   /**
@@ -1493,16 +1500,7 @@ export const hostMethods = {
    * 容器一键更新
    */
   async updateDockerContainer(serverId, containerId, containerName, image = '') {
-    // 确认操作
-    const confirmed = await this.showConfirm({
-      title: '确认更新容器',
-      message: `确定要更新容器 "${containerName}" 吗？\n\n此操作将：\n1. 拉取最新镜像\n2. 停止并备份旧容器\n3. 使用相同配置创建新容器\n4. 删除旧容器备份`,
-      confirmText: '确认更新',
-      confirmClass: 'btn-warning',
-    });
-
-    if (!confirmed) return;
-
+    // 移除确认弹窗，直接执行
     // 找到目标容器并设置 loading 状态
     const dockerServer = this.dockerOverviewServers.find(s => s.id === serverId);
     const container = dockerServer?.containers?.find(c => c.id === containerId);
@@ -1527,8 +1525,6 @@ export const hostMethods = {
     } catch (error) {
       this.showGlobalToast('请求失败: ' + error.message, 'error');
     } finally {
-       // 注意: 这是一个异步长任务，我们只等待任务提交完成，所以 loading 状态很快就会结束
-       // 真正的进度由任务流展示
       if (container) container.actionPending = false;
     }
   },
@@ -1537,14 +1533,15 @@ export const hostMethods = {
    * 容器重命名
    */
   async renameDockerContainer(serverId, containerId, currentName) {
-    const newName = await this.showPromptDialog({
+    const res = await this.showPrompt({
       title: '重命名容器',
       message: `请输入新的容器名称:`,
       placeholder: currentName,
-      defaultValue: currentName,
+      promptValue: currentName,
     });
 
-    if (!newName || newName === currentName) return;
+    if (res.action !== 'confirm' || !res.value || res.value === currentName) return;
+    const newName = res.value;
 
     try {
       await this.submitDockerTask(

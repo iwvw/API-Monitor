@@ -4292,9 +4292,11 @@
   background: transparent;
   cursor: pointer;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .modern-tab-btn:hover {
@@ -4310,7 +4312,11 @@
 }
 
 .modern-tab-btn i {
-  font-size: 12px;
+  font-size: 14px;
+  width: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   opacity: 0.8;
 }
 
@@ -4328,9 +4334,9 @@
 .docker-console-toolbar {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   gap: 12px;
-  /* padding: 10px;、 */
-  /* border-bottom: 1px solid var(--border-color); */
+  margin-bottom: 16px;
   flex-wrap: wrap;
 }
 
@@ -4348,6 +4354,18 @@
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
+}
+
+.docker-server-select {
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  padding: 0 10px;
+  font-size: 12px;
+  cursor: pointer;
+  outline: none;
 }
 
 .docker-search {
@@ -4573,12 +4591,11 @@
 }
 
 .docker-container-row {
-  cursor: pointer;
 }
 
-.docker-container-row.active {
+/* .docker-container-row.active {
   background: linear-gradient(90deg, rgba(var(--primary-rgb), 0.08), transparent);
-}
+} */
 
 .docker-row-title {
   color: var(--text-primary);
