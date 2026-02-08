@@ -48,6 +48,7 @@ type DockerContainer struct {
 	Image   string `json:"image"`
 	Status  string `json:"status"`
 	Created string `json:"created"`
+	Ports   string `json:"ports"`
 }
 
 // DockerInfo Docker 信息
@@ -403,12 +404,21 @@ func (c *Collector) collectDockerInfo() DockerInfo {
 		// 时间格式化
 		createdAt := time.Unix(c.Created, 0).Format("2006-01-02 15:04:05")
 
+		// 解析端口
+		var ports []string
+		for _, p := range c.Ports {
+			if p.PublicPort != 0 {
+				ports = append(ports, fmt.Sprintf("%d:%d", p.PublicPort, p.PrivatePort))
+			}
+		}
+
 		dc := DockerContainer{
 			ID:      c.ID[:12],
 			Name:    name,
 			Image:   c.Image,
 			Status:  c.Status,
 			Created: createdAt,
+			Ports:   strings.Join(ports, ", "),
 		}
 
 		info.Containers = append(info.Containers, dc)
