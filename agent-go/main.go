@@ -1976,9 +1976,6 @@ func (a *AgentClient) Stop() {
 // ==================== 主程序 ====================
 
 func main() {
-	// 初始化 Docker 客户端
-	InitDockerClient()
-
 	// 检查是否以 Windows 服务方式运行
 	if IsRunningAsService() {
 		RunAsService()
