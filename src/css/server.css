@@ -3972,8 +3972,18 @@
   flex-direction: column;
   justify-content: center;
   overflow: hidden;
-  line-height: 1.4;
+  line-height: 1.5;
   padding-right: 12px;
+  height: 100%;
+}
+
+.docker-resource-row > span.col-actions-lg,
+.docker-resource-row > span.col-actions-sm {
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-end;
+  overflow: visible;
+  gap: 6px;
 }
 
 .docker-resource-row:last-child {
