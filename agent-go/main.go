@@ -1748,6 +1748,11 @@ func (a *AgentClient) handleDockerComposeAction(data string) (string, error) {
 		return "", fmt.Errorf("缺少项目名称")
 	}
 
+	// 确保 Docker 可用
+	if cli := GetDockerClient(); cli == nil {
+		return "", fmt.Errorf("Docker 客户端不可用")
+	}
+
 	var args []string
 	var actionDesc string
 
