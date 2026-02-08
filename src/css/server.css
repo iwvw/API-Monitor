@@ -1254,10 +1254,10 @@
   box-shadow: 0 0 6px #f59e0b;
 }
 
-/* 鎸夐挳灏哄 */
+/* 按钮尺寸 */
 .btn-xs {
-  padding: 3px 6px !important;
-  font-size: 10px !important;
+  padding: 3px 6px;
+  font-size: 10px;
   min-width: 24px;
   height: 24px;
   border-radius: 5px;
@@ -3906,7 +3906,8 @@
 
 .docker-resource-header {
   display: flex;
-  padding: 14px 20px;
+  padding: 10px 16px;
+  /* 减少垂直内边距，更紧凑 */
   background: linear-gradient(180deg, var(--bg-tertiary) 0%, var(--bg-secondary) 100%);
   border-bottom: 1px solid var(--border-color);
   font-size: 11px;
@@ -3916,12 +3917,54 @@
   letter-spacing: 0.8px;
 }
 
+/* 统一表头和行内单元格的通用样式 */
+.docker-resource-header>span,
+.docker-resource-row>span {
+  padding: 0 8px;
+  /* 增加列间距 */
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  min-width: 0;
+  /* 允许 flex item 压缩 */
+  box-sizing: border-box;
+  /* 包含 padding */
+}
+
+/* 特殊列处理：操作列 (大型 - 用于容器) */
+.col-actions-lg {
+  flex: 0 0 190px !important;
+  width: 190px !important;
+  justify-content: flex-end;
+  display: flex !important;
+  gap: 8px;
+}
+
+/* 特殊列处理：操作列 (小型 - 用于镜像/网络/存储) */
+.col-actions-sm {
+  flex: 0 0 80px !important;
+  /*稍微宽一点以容纳间距*/
+  width: 80px !important;
+  justify-content: flex-end;
+  display: flex !important;
+  gap: 6px;
+}
+
+/* 特殊列处理：无操作列或自定义 (用于监控等) */
+.col-actions-none {
+  /* 保持 flex 自动 */
+}
+
 .docker-resource-row {
   display: flex;
   align-items: center;
-  padding: 14px 20px;
+  /* 垂直居中 */
+  padding: 10px 16px;
+  /* 与表头保持一致 */
   border-bottom: 1px solid var(--border-color);
   transition: all 0.2s ease;
+  min-height: 56px;
+  /* 稍微减小高度，更紧凑 */
 }
 
 .docker-resource-row:last-child {
@@ -4064,14 +4107,17 @@
 .modern-grid-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 }
 
 .modern-grid-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 20px;
+  padding: 10px 16px;
+  /* Match table row padding */
+  min-height: 56px;
+  /* Match table row height */
   background: var(--card-bg);
   border: 1px solid var(--border-color);
   border-radius: 12px;
@@ -4080,7 +4126,7 @@
 }
 
 .modern-grid-item:hover {
-  transform: translateY(-2px);
+  /* transform: translateY(-2px); */
   box-shadow: 0 8px 16px rgba(0, 0, 0, 0.06);
   border-color: var(--ag-primary, #4f46e5);
 }
@@ -4556,9 +4602,13 @@
 
 .docker-row-actions {
   /* width: 190px; */
-  display: flex;
+  /* display: flex;  由父级 span 接管 */
   align-items: center;
   gap: 8px;
+  justify-content: flex-end;
+  /* 靠右对齐 */
+  width: 100%;
+  /* 占满父级 span */
 }
 
 .docker-mono {
