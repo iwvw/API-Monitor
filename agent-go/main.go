@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -18,6 +19,12 @@ import (
 	"syscall"
 	"time"
 
+	dockerTypes "github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/filters"
+	dockerImage "github.com/docker/docker/api/types/image"
+	"github.com/docker/docker/api/types/network"
+	"github.com/docker/docker/api/types/volume"
 	"github.com/gorilla/websocket"
 )
 
@@ -759,51 +766,65 @@ func (a *AgentClient) handleDockerAction(data string) (string, error) {
 		return "", fmt.Errorf("缺少容器 ID")
 	}
 
-	var cmd *exec.Cmd
+	cli := GetDockerClient()
+	if cli == nil {
+		return "", fmt.Errorf("Docker 客户端不可用")
+	}
+
+	ctx := context.Background()
 	var actionDesc string
+	var err error
 
 	switch req.Action {
 	case "start":
-		cmd = exec.Command("docker", "start", req.ContainerID)
+		err = cli.ContainerStart(ctx, req.ContainerID, container.StartOptions{})
 		actionDesc = "启动"
 	case "stop":
-		cmd = exec.Command("docker", "stop", req.ContainerID)
+		err = cli.ContainerStop(ctx, req.ContainerID, container.StopOptions{})
 		actionDesc = "停止"
 	case "restart":
-		cmd = exec.Command("docker", "restart", req.ContainerID)
+		err = cli.ContainerRestart(ctx, req.ContainerID, container.StopOptions{})
 		actionDesc = "重启"
 	case "pause":
-		cmd = exec.Command("docker", "pause", req.ContainerID)
+		err = cli.ContainerPause(ctx, req.ContainerID)
 		actionDesc = "暂停"
 	case "unpause":
-		cmd = exec.Command("docker", "unpause", req.ContainerID)
+		err = cli.ContainerUnpause(ctx, req.ContainerID)
 		actionDesc = "恢复"
 	case "update":
 		// 更新流程: pull 新镜像 -> stop -> rm -> run
+		// TODO: 重构 handleDockerUpdate 以使用 SDK
 		return a.handleDockerUpdate(req)
 	case "pull":
 		// 仅拉取镜像
 		image := req.Image
 		if image == "" {
 			// 获取容器的镜像
-			inspectCmd := exec.Command("docker", "inspect", "--format", "{{.Config.Image}}", req.ContainerID)
-			output, err := inspectCmd.Output()
-			if err != nil {
-				return "", fmt.Errorf("获取容器镜像失败: %v", err)
+			c, inspectErr := cli.ContainerInspect(ctx, req.ContainerID)
+			if inspectErr != nil {
+				return "", fmt.Errorf("获取容器镜像失败: %v", inspectErr)
 			}
-			image = strings.TrimSpace(string(output))
+			image = c.Config.Image
 		}
-		cmd = exec.Command("docker", "pull", image)
+		
 		actionDesc = "拉取镜像"
+		log.Printf("[Docker] 开始拉取镜像: %s", image)
+		reader, pullErr := cli.ImagePull(ctx, image, dockerImage.PullOptions{})
+		if pullErr != nil {
+			err = pullErr
+		} else {
+			defer reader.Close()
+			// 读取输出以完成拉取过程 (ImagePull 是异步的流)
+			io.Copy(io.Discard, reader) 
+		}
 	default:
 		return "", fmt.Errorf("不支持的操作: %s", req.Action)
 	}
 
 	log.Printf("[Docker] %s容器: %s", actionDesc, req.ContainerID)
 
-	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("%s失败: %s", actionDesc, string(output))
+		return "", fmt.Errorf("%s失败: %v", actionDesc, err)
 	}
 
 	return fmt.Sprintf("%s成功", actionDesc), nil
@@ -811,61 +832,85 @@ func (a *AgentClient) handleDockerAction(data string) (string, error) {
 
 // handleDockerUpdate 处理 Docker 容器更新
 func (a *AgentClient) handleDockerUpdate(req DockerActionRequest) (string, error) {
-	// 1. 获取容器信息
-	inspectCmd := exec.Command("docker", "inspect", "--format",
-		"{{.Config.Image}}|{{.HostConfig.RestartPolicy.Name}}|{{json .HostConfig.PortBindings}}|{{json .Config.Env}}|{{json .HostConfig.Binds}}|{{.Name}}",
-		req.ContainerID)
-	output, err := inspectCmd.Output()
+	cli := GetDockerClient()
+	if cli == nil {
+		return "", fmt.Errorf("Docker 客户端不可用")
+	}
+	ctx := context.Background()
+
+	// 1. 获取旧容器信息
+	oldContainer, err := cli.ContainerInspect(ctx, req.ContainerID)
 	if err != nil {
 		return "", fmt.Errorf("获取容器信息失败: %v", err)
 	}
 
-	parts := strings.SplitN(strings.TrimSpace(string(output)), "|", 6)
-	if len(parts) < 6 {
-		return "", fmt.Errorf("解析容器信息失败")
+	containerName := strings.TrimPrefix(oldContainer.Name, "/")
+	imageName := oldContainer.Config.Image
+	if req.Image != "" {
+		imageName = req.Image
 	}
 
-	image := parts[0]
-	containerName := strings.TrimPrefix(parts[5], "/")
-
-	log.Printf("[Docker] 更新容器: %s (镜像: %s)", containerName, image)
+	log.Printf("[Docker] 更新容器: %s (镜像: %s)", containerName, imageName)
 
 	// 2. 拉取最新镜像
-	pullCmd := exec.Command("docker", "pull", image)
-	if pullOutput, err := pullCmd.CombinedOutput(); err != nil {
-		return "", fmt.Errorf("拉取镜像失败: %s", string(pullOutput))
+	// 异步拉取，丢弃输出，直到完成
+	reader, err := cli.ImagePull(ctx, imageName, dockerImage.PullOptions{})
+	if err != nil {
+		return "", fmt.Errorf("拉取镜像失败: %v", err)
 	}
+	io.Copy(io.Discard, reader)
+	reader.Close()
 
 	// 3. 停止旧容器
-	stopCmd := exec.Command("docker", "stop", req.ContainerID)
-	stopCmd.Run()
+	// 设置超时时间，避免卡死
+	timeout := 30 // seconds
+	if err := cli.ContainerStop(ctx, req.ContainerID, container.StopOptions{Timeout: &timeout}); err != nil {
+		return "", fmt.Errorf("停止容器失败: %v", err)
+	}
 
 	// 4. 重命名旧容器 (备份)
-	backupName := containerName + "_backup_" + time.Now().Format("20060102150405")
-	renameCmd := exec.Command("docker", "rename", req.ContainerID, backupName)
-	renameCmd.Run()
-
-	// 5. 使用相同配置启动新容器
-	// 注意：这是简化实现，完整实现需要解析并重建所有参数
-	runArgs := []string{"run", "-d", "--name", containerName}
-	
-	// 解析 restart policy
-	if parts[1] != "" && parts[1] != "no" {
-		runArgs = append(runArgs, "--restart", parts[1])
+	backupName := fmt.Sprintf("%s_bak_%d", containerName, time.Now().Unix())
+	if err := cli.ContainerRename(ctx, req.ContainerID, backupName); err != nil {
+		return "", fmt.Errorf("重命名旧容器失败: %v", err)
 	}
 
-	runArgs = append(runArgs, image)
+	// 5. 创建新容器 (完全复用旧配置)
+	newConfig := oldContainer.Config
+	newConfig.Image = imageName
+	// 清空 hostname，让 Docker 重新生成 (除非显式设置了) -> 保持原样即可，如果原来设置了就保留
+
+	newHostConfig := oldContainer.HostConfig
 	
-	runCmd := exec.Command("docker", runArgs...)
-	if runOutput, err := runCmd.CombinedOutput(); err != nil {
-		// 恢复旧容器
-		exec.Command("docker", "rename", backupName, containerName).Run()
-		exec.Command("docker", "start", containerName).Run()
-		return "", fmt.Errorf("启动新容器失败: %s", string(runOutput))
+	newNetworkingConfig := &network.NetworkingConfig{
+		EndpointsConfig: oldContainer.NetworkSettings.Networks,
 	}
 
-	// 6. 删除备份容器
-	exec.Command("docker", "rm", backupName).Run()
+	// 对于非默认网络，需要确保 EndpointsConfig 正确
+	// 注意: ContainerCreate 可能会因为某些只读字段报错，但在实践中复用 Config/HostConfig 通常可行
+	
+	created, err := cli.ContainerCreate(ctx, newConfig, newHostConfig, newNetworkingConfig, nil, containerName)
+	if err != nil {
+		// 回滚: 恢复旧容器
+		log.Printf("[Docker] 创建新容器失败，正在回滚... 错误: %v", err)
+		cli.ContainerRename(ctx, req.ContainerID, containerName)
+		cli.ContainerStart(ctx, req.ContainerID, container.StartOptions{})
+		return "", fmt.Errorf("创建新容器失败: %v", err)
+	}
+
+	// 6. 启动新容器
+	if err := cli.ContainerStart(ctx, created.ID, container.StartOptions{}); err != nil {
+		// 回滚
+		log.Printf("[Docker] 启动新容器失败，正在回滚... 错误: %v", err)
+		cli.ContainerRemove(ctx, created.ID, container.RemoveOptions{Force: true})
+		cli.ContainerRename(ctx, req.ContainerID, containerName)
+		cli.ContainerStart(ctx, req.ContainerID, container.StartOptions{})
+		return "", fmt.Errorf("启动新容器失败: %v", err)
+	}
+
+	// 7. 删除旧容器
+	if err := cli.ContainerRemove(ctx, req.ContainerID, container.RemoveOptions{Force: true}); err != nil {
+		log.Printf("[Docker] 删除旧容器失败 (非致命): %v", err)
+	}
 
 	return fmt.Sprintf("容器 %s 更新成功", containerName), nil
 }
@@ -893,23 +938,33 @@ func (a *AgentClient) handleDockerCheckUpdate(data string) (string, error) {
 		json.Unmarshal([]byte(data), &req)
 	}
 
-	var containers []string
+	cli := GetDockerClient()
+	if cli == nil {
+		return "", fmt.Errorf("Docker 客户端不可用")
+	}
+	ctx := context.Background()
+
+	var containers []dockerTypes.Container
+	var err error
 
 	if req.ContainerID != "" {
 		// 检查指定容器
-		containers = []string{req.ContainerID}
+		c, err := cli.ContainerInspect(ctx, req.ContainerID)
+		if err != nil {
+			return "", fmt.Errorf("获取容器信息失败: %v", err)
+		}
+		// 转换为 dockerTypes.Container 格式以便复用循环
+		containers = append(containers, dockerTypes.Container{
+			ID:    c.ID,
+			Names: []string{"/" + c.Name},
+			Image: c.Config.Image,
+			// ImageID: c.Image, // 注意: ContainerInspect 返回的 Image 是 ID，Container.Image 是名字
+		})
 	} else {
 		// 获取所有运行中的容器
-		cmd := exec.Command("docker", "ps", "-q")
-		output, err := cmd.Output()
+		containers, err = cli.ContainerList(ctx, container.ListOptions{})
 		if err != nil {
 			return "", fmt.Errorf("获取容器列表失败: %v", err)
-		}
-		lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-		for _, line := range lines {
-			if line != "" {
-				containers = append(containers, line)
-			}
 		}
 	}
 
@@ -918,69 +973,79 @@ func (a *AgentClient) handleDockerCheckUpdate(data string) (string, error) {
 	}
 
 	var results []DockerImageUpdateStatus
+	// 并发检查，避免串行网络请求太慢
+	var wg sync.WaitGroup
+	var mu sync.Mutex
 
-	for _, containerID := range containers {
-		status := a.checkContainerImageUpdate(containerID)
-		results = append(results, status)
+	// 限制并发数
+	sem := make(chan struct{}, 5)
+
+	for _, c := range containers {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(cnt dockerTypes.Container) {
+			defer wg.Done()
+			defer func() { <-sem }()
+
+			status := DockerImageUpdateStatus{
+				ContainerID: cnt.ID,
+			}
+			if len(cnt.Names) > 0 {
+				status.ContainerName = strings.TrimPrefix(cnt.Names[0], "/")
+			}
+			status.Image = cnt.Image
+
+			// 补充 Image 详情 (为了获取 Local Digest)
+			// 注意: cnt.Image 是名字，我们需要 Inspect 镜像获取 RepoDigests
+			imgInspect, _, err := cli.ImageInspectWithRaw(ctx, cnt.Image)
+			if err != nil {
+				// 尝试用 ImageID 再次 Inspect (因为 Image 字段可能是 ID)
+				// 但通常 cli.ContainerList 返回的 Image 是 "nginx:latest" 这样的可读名字
+				// 如果失败，记录错误
+				status.Error = fmt.Sprintf("获取本地镜像信息失败: %v", err)
+			} else {
+				// 获取本地 Digest
+				if len(imgInspect.RepoDigests) > 0 {
+					// RepoDigests 格式通常为 "repo@sha256:..."
+					digestStr := imgInspect.RepoDigests[0]
+					if idx := strings.Index(digestStr, "@"); idx != -1 {
+						status.CurrentDigest = digestStr[idx+1:]
+					}
+				}
+			}
+
+			// 如果没获取到 Digest，尝试用 Config.Image (如果 cnt.Image 是 ID 的话)
+			// 这里简单起见，如果 image 名字就是 ID (sha256:...)，则无法进行远程检查
+
+			// 3. 解析镜像名
+			registry, repo, tag := parseImageName(status.Image)
+
+			// 4. 获取远程 Digest (保留网络请求逻辑)
+			if !strings.HasPrefix(status.Image, "sha256:") {
+				remoteDigest, err := getRemoteDigest(registry, repo, tag)
+				if err != nil {
+					status.Error = fmt.Sprintf("获取远程镜像信息失败: %v", err)
+				} else {
+					status.LatestDigest = remoteDigest
+					status.HasUpdate = status.CurrentDigest != "" && remoteDigest != "" && status.CurrentDigest != remoteDigest
+				}
+			}
+
+			mu.Lock()
+			results = append(results, status)
+			mu.Unlock()
+		}(c)
 	}
+
+	wg.Wait()
 
 	jsonResult, _ := json.Marshal(results)
 	return string(jsonResult), nil
 }
 
-// checkContainerImageUpdate 检查单个容器的镜像更新
-func (a *AgentClient) checkContainerImageUpdate(containerID string) DockerImageUpdateStatus {
-	status := DockerImageUpdateStatus{
-		ContainerID: containerID,
-	}
 
-	// 1. 获取容器信息 (Name 和 Image)
-	inspectCmd := exec.Command("docker", "inspect", "--format",
-		"{{.Name}}|{{.Config.Image}}",
-		containerID)
-	output, err := inspectCmd.Output()
-	if err != nil {
-		status.Error = fmt.Sprintf("获取容器信息失败: %v", err)
-		return status
-	}
 
-	parts := strings.SplitN(strings.TrimSpace(string(output)), "|", 2)
-	if len(parts) < 2 {
-		status.Error = "解析容器信息失败"
-		return status
-	}
 
-	status.ContainerName = strings.TrimPrefix(parts[0], "/")
-	status.Image = parts[1]
-
-	// 2. 从镜像获取本地 Digest
-	localDigest := ""
-	imgInspect := exec.Command("docker", "image", "inspect", "--format",
-		"{{index .RepoDigests 0}}", status.Image)
-	imgOutput, err := imgInspect.Output()
-	if err == nil && strings.TrimSpace(string(imgOutput)) != "" && strings.TrimSpace(string(imgOutput)) != "<no value>" {
-		if idx := strings.Index(string(imgOutput), "@"); idx != -1 {
-			localDigest = strings.TrimSpace(string(imgOutput)[idx+1:])
-		}
-	}
-
-	status.CurrentDigest = localDigest
-
-	// 3. 解析镜像名获取 registry、repo、tag
-	registry, repo, tag := parseImageName(status.Image)
-
-	// 4. 获取远程 Digest
-	remoteDigest, err := getRemoteDigest(registry, repo, tag)
-	if err != nil {
-		status.Error = fmt.Sprintf("获取远程镜像信息失败: %v", err)
-		return status
-	}
-
-	status.LatestDigest = remoteDigest
-	status.HasUpdate = localDigest != "" && remoteDigest != "" && localDigest != remoteDigest
-
-	return status
-}
 
 // parseImageName 解析镜像名称为 registry、repo、tag
 func parseImageName(image string) (registry, repo, tag string) {
@@ -1181,32 +1246,80 @@ type DockerImage struct {
 
 // handleDockerImages 列出 Docker 镜像
 func (a *AgentClient) handleDockerImages(data string) (string, error) {
-	cmd := exec.Command("docker", "images", "--format", "{{.ID}}|{{.Repository}}|{{.Tag}}|{{.Size}}|{{.CreatedSince}}")
-	output, err := cmd.Output()
+	cli := GetDockerClient()
+	if cli == nil {
+		return "", fmt.Errorf("Docker 客户端不可用")
+	}
+
+	images, err := cli.ImageList(context.Background(), dockerImage.ListOptions{})
 	if err != nil {
 		return "", fmt.Errorf("获取镜像列表失败: %v", err)
 	}
 
-	var images []DockerImage
-	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-	for _, line := range lines {
-		if line == "" {
-			continue
-		}
-		parts := strings.SplitN(line, "|", 5)
-		if len(parts) >= 5 {
-			images = append(images, DockerImage{
-				ID:         parts[0],
-				Repository: parts[1],
-				Tag:        parts[2],
-				Size:       parts[3],
-				Created:    parts[4],
+	var result []DockerImage
+	for _, img := range images {
+		// ImageList 返回的 RepoTags 可能为空 (dangling images)
+		// 如果有多个 RepoTags，通常作为多个 entry 返回给前端
+		
+		created := time.Unix(img.Created, 0).Format("2006-01-02 15:04:05")
+		size := formatBytes(img.Size)
+
+		if len(img.RepoTags) > 0 {
+			for _, tag := range img.RepoTags {
+				repo, tagStr := parseRepoTag(tag)
+				result = append(result, DockerImage{
+					ID:         strings.TrimPrefix(img.ID, "sha256:")[:12],
+					Repository: repo,
+					Tag:        tagStr,
+					Size:       size,
+					Created:    created,
+				})
+			}
+		} else if len(img.RepoDigests) > 0 {
+			// 如果没有 tag 只有 digest (可能是 <none>:<none>)
+			repo, _ := parseRepoTag(img.RepoDigests[0])
+			result = append(result, DockerImage{
+				ID:         strings.TrimPrefix(img.ID, "sha256:")[:12],
+				Repository: repo,
+				Tag:        "<none>",
+				Size:       size,
+				Created:    created,
+			})
+		} else {
+			// dangling
+			result = append(result, DockerImage{
+				ID:         strings.TrimPrefix(img.ID, "sha256:")[:12],
+				Repository: "<none>",
+				Tag:        "<none>",
+				Size:       size,
+				Created:    created,
 			})
 		}
 	}
 
-	jsonResult, _ := json.Marshal(images)
+	jsonResult, _ := json.Marshal(result)
 	return string(jsonResult), nil
+}
+
+func parseRepoTag(repoTag string) (string, string) {
+	idx := strings.LastIndex(repoTag, ":")
+	if idx == -1 {
+		return repoTag, "latest"
+	}
+	return repoTag[:idx], repoTag[idx+1:]
+}
+
+func formatBytes(bytes int64) string {
+	const unit = 1000
+	if bytes < unit {
+		return fmt.Sprintf("%d B", bytes)
+	}
+	div, exp := int64(unit), 0
+	for n := bytes / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %cB", float64(bytes)/float64(div), "kMGTPE"[exp])
 }
 
 // DockerImageActionRequest 镜像操作请求
@@ -1222,35 +1335,55 @@ func (a *AgentClient) handleDockerImageAction(data string) (string, error) {
 		return "", fmt.Errorf("解析请求失败: %v", err)
 	}
 
-	var cmd *exec.Cmd
+	cli := GetDockerClient()
+	if cli == nil {
+		return "", fmt.Errorf("Docker 客户端不可用")
+	}
+	ctx := context.Background()
+
 	var actionDesc string
+	var err error
+	var output string // 有些操作可能需要返回文本输出
 
 	switch req.Action {
 	case "pull":
 		if req.Image == "" {
 			return "", fmt.Errorf("缺少镜像名")
 		}
-		cmd = exec.Command("docker", "pull", req.Image)
 		actionDesc = "拉取镜像"
+		reader, pullErr := cli.ImagePull(ctx, req.Image, dockerImage.PullOptions{})
+		if pullErr != nil {
+			err = pullErr
+		} else {
+			defer reader.Close()
+			io.Copy(io.Discard, reader)
+		}
+
 	case "remove":
 		if req.Image == "" {
 			return "", fmt.Errorf("缺少镜像 ID")
 		}
-		cmd = exec.Command("docker", "rmi", req.Image)
 		actionDesc = "删除镜像"
+		_, err = cli.ImageRemove(ctx, req.Image, dockerImage.RemoveOptions{Force: true})
+
 	case "prune":
-		cmd = exec.Command("docker", "image", "prune", "-f")
 		actionDesc = "清理未使用镜像"
+		report, pruneErr := cli.ImagesPrune(ctx, filters.Args{})
+		if pruneErr != nil {
+			err = pruneErr
+		} else {
+			output = fmt.Sprintf("已回收空间: %d 字节", report.SpaceReclaimed)
+		}
+
 	default:
 		return "", fmt.Errorf("不支持的操作: %s", req.Action)
 	}
 
-	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("%s失败: %s", actionDesc, string(output))
+		return "", fmt.Errorf("%s失败: %v", actionDesc, err)
 	}
 
-	return fmt.Sprintf("%s成功\n%s", actionDesc, string(output)), nil
+	return fmt.Sprintf("%s成功\n%s", actionDesc, output), nil
 }
 
 // ==================== Docker 网络管理 ====================
@@ -1267,50 +1400,45 @@ type DockerNetwork struct {
 
 // handleDockerNetworks 列出 Docker 网络
 func (a *AgentClient) handleDockerNetworks(data string) (string, error) {
-	cmd := exec.Command("docker", "network", "ls", "--format", "{{.ID}}|{{.Name}}|{{.Driver}}|{{.Scope}}")
-	output, err := cmd.Output()
+	cli := GetDockerClient()
+	if cli == nil {
+		return "", fmt.Errorf("Docker 客户端不可用")
+	}
+
+	nets, err := cli.NetworkList(context.Background(), network.ListOptions{})
 	if err != nil {
 		return "", fmt.Errorf("获取网络列表失败: %v", err)
 	}
 
-	var networks []DockerNetwork
-	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-	for _, line := range lines {
-		if line == "" {
-			continue
+	var result []DockerNetwork
+	for _, n := range nets {
+		net := DockerNetwork{
+			ID:     n.ID[:12],
+			Name:   n.Name,
+			Driver: n.Driver,
+			Scope:  n.Scope,
 		}
-		parts := strings.SplitN(line, "|", 4)
-		if len(parts) >= 4 {
-			network := DockerNetwork{
-				ID:     parts[0],
-				Name:   parts[1],
-				Driver: parts[2],
-				Scope:  parts[3],
-			}
 
-			// 获取网络详情 (子网和网关)
-			inspectCmd := exec.Command("docker", "network", "inspect", parts[0], "--format", "{{range .IPAM.Config}}{{.Subnet}}|{{.Gateway}}{{end}}")
-			inspectOut, _ := inspectCmd.Output()
-			if inspectParts := strings.SplitN(strings.TrimSpace(string(inspectOut)), "|", 2); len(inspectParts) >= 2 {
-				network.Subnet = inspectParts[0]
-				network.Gateway = inspectParts[1]
-			}
-
-			networks = append(networks, network)
+		// 获取网络详情 (子网和网关)
+		if len(n.IPAM.Config) > 0 {
+			net.Subnet = n.IPAM.Config[0].Subnet
+			net.Gateway = n.IPAM.Config[0].Gateway
 		}
+
+		result = append(result, net)
 	}
 
-	jsonResult, _ := json.Marshal(networks)
+	jsonResult, _ := json.Marshal(result)
 	return string(jsonResult), nil
 }
 
 // DockerNetworkActionRequest 网络操作请求
 type DockerNetworkActionRequest struct {
-	Action  string `json:"action"`  // create, remove, connect, disconnect
-	Name    string `json:"name"`    // 网络名
-	Driver  string `json:"driver"`  // 驱动 (bridge, host, overlay)
-	Subnet  string `json:"subnet"`  // 子网 (可选)
-	Gateway string `json:"gateway"` // 网关 (可选)
+	Action    string `json:"action"`    // create, remove, connect, disconnect
+	Name      string `json:"name"`      // 网络名
+	Driver    string `json:"driver"`    // 驱动 (bridge, host, overlay)
+	Subnet    string `json:"subnet"`    // 子网 (可选)
+	Gateway   string `json:"gateway"`   // 网关 (可选)
 	Container string `json:"container"` // 容器 ID (connect/disconnect 时使用)
 }
 
@@ -1321,52 +1449,64 @@ func (a *AgentClient) handleDockerNetworkAction(data string) (string, error) {
 		return "", fmt.Errorf("解析请求失败: %v", err)
 	}
 
-	var cmd *exec.Cmd
+	cli := GetDockerClient()
+	if cli == nil {
+		return "", fmt.Errorf("Docker 客户端不可用")
+	}
+	ctx := context.Background()
+
 	var actionDesc string
+	var err error
 
 	switch req.Action {
 	case "create":
 		if req.Name == "" {
 			return "", fmt.Errorf("缺少网络名")
 		}
-		args := []string{"network", "create"}
-		if req.Driver != "" {
-			args = append(args, "--driver", req.Driver)
-		}
-		if req.Subnet != "" {
-			args = append(args, "--subnet", req.Subnet)
-		}
-		if req.Gateway != "" {
-			args = append(args, "--gateway", req.Gateway)
-		}
-		args = append(args, req.Name)
-		cmd = exec.Command("docker", args...)
 		actionDesc = "创建网络"
+		
+		opts := network.CreateOptions{
+			Driver: req.Driver,
+		}
+		if req.Subnet != "" || req.Gateway != "" {
+			opts.IPAM = &network.IPAM{
+				Config: []network.IPAMConfig{
+					{
+						Subnet:  req.Subnet,
+						Gateway: req.Gateway,
+					},
+				},
+			}
+		}
+		_, err = cli.NetworkCreate(ctx, req.Name, opts)
+
 	case "remove":
 		if req.Name == "" {
 			return "", fmt.Errorf("缺少网络名")
 		}
-		cmd = exec.Command("docker", "network", "rm", req.Name)
 		actionDesc = "删除网络"
+		err = cli.NetworkRemove(ctx, req.Name)
+
 	case "connect":
 		if req.Name == "" || req.Container == "" {
 			return "", fmt.Errorf("缺少网络名或容器 ID")
 		}
-		cmd = exec.Command("docker", "network", "connect", req.Name, req.Container)
 		actionDesc = "连接容器到网络"
+		err = cli.NetworkConnect(ctx, req.Name, req.Container, nil)
+
 	case "disconnect":
 		if req.Name == "" || req.Container == "" {
 			return "", fmt.Errorf("缺少网络名或容器 ID")
 		}
-		cmd = exec.Command("docker", "network", "disconnect", req.Name, req.Container)
 		actionDesc = "断开容器与网络"
+		err = cli.NetworkDisconnect(ctx, req.Name, req.Container, false)
+
 	default:
 		return "", fmt.Errorf("不支持的操作: %s", req.Action)
 	}
 
-	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("%s失败: %s", actionDesc, string(output))
+		return "", fmt.Errorf("%s失败: %v", actionDesc, err)
 	}
 
 	return fmt.Sprintf("%s成功", actionDesc), nil
@@ -1384,29 +1524,27 @@ type DockerVolume struct {
 
 // handleDockerVolumes 列出 Docker Volumes
 func (a *AgentClient) handleDockerVolumes(data string) (string, error) {
-	cmd := exec.Command("docker", "volume", "ls", "--format", "{{.Name}}|{{.Driver}}|{{.Mountpoint}}")
-	output, err := cmd.Output()
+	cli := GetDockerClient()
+	if cli == nil {
+		return "", fmt.Errorf("Docker 客户端不可用")
+	}
+
+	vols, err := cli.VolumeList(context.Background(), volume.ListOptions{})
 	if err != nil {
 		return "", fmt.Errorf("获取 Volume 列表失败: %v", err)
 	}
 
-	var volumes []DockerVolume
-	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-	for _, line := range lines {
-		if line == "" {
-			continue
-		}
-		parts := strings.SplitN(line, "|", 3)
-		if len(parts) >= 3 {
-			volumes = append(volumes, DockerVolume{
-				Name:       parts[0],
-				Driver:     parts[1],
-				Mountpoint: parts[2],
-			})
-		}
+	var result []DockerVolume
+	for _, v := range vols.Volumes {
+		result = append(result, DockerVolume{
+			Name:       v.Name,
+			Driver:     v.Driver,
+			Mountpoint: v.Mountpoint,
+			// Size: "N/A", // VolumeList 不返回大小，需要 du -sh 但这很慢，保持 CLI 行为(也不返回大小)或留空
+		})
 	}
 
-	jsonResult, _ := json.Marshal(volumes)
+	jsonResult, _ := json.Marshal(result)
 	return string(jsonResult), nil
 }
 
@@ -1424,40 +1562,53 @@ func (a *AgentClient) handleDockerVolumeAction(data string) (string, error) {
 		return "", fmt.Errorf("解析请求失败: %v", err)
 	}
 
-	var cmd *exec.Cmd
+	cli := GetDockerClient()
+	if cli == nil {
+		return "", fmt.Errorf("Docker 客户端不可用")
+	}
+	ctx := context.Background()
+
 	var actionDesc string
+	var err error
+	var output string
 
 	switch req.Action {
 	case "create":
 		if req.Name == "" {
 			return "", fmt.Errorf("缺少 Volume 名")
 		}
-		args := []string{"volume", "create"}
-		if req.Driver != "" {
-			args = append(args, "--driver", req.Driver)
-		}
-		args = append(args, req.Name)
-		cmd = exec.Command("docker", args...)
 		actionDesc = "创建 Volume"
+		opts := volume.CreateOptions{
+			Name:   req.Name,
+			Driver: req.Driver,
+		}
+		_, err = cli.VolumeCreate(ctx, opts)
+
 	case "remove":
 		if req.Name == "" {
 			return "", fmt.Errorf("缺少 Volume 名")
 		}
-		cmd = exec.Command("docker", "volume", "rm", req.Name)
 		actionDesc = "删除 Volume"
+		err = cli.VolumeRemove(ctx, req.Name, true)
+
 	case "prune":
-		cmd = exec.Command("docker", "volume", "prune", "-f")
 		actionDesc = "清理未使用 Volume"
+		report, pruneErr := cli.VolumesPrune(ctx, filters.Args{})
+		if pruneErr != nil {
+			err = pruneErr
+		} else {
+			output = fmt.Sprintf("已回收空间: %d 字节", report.SpaceReclaimed)
+		}
+
 	default:
 		return "", fmt.Errorf("不支持的操作: %s", req.Action)
 	}
 
-	output, err := cmd.CombinedOutput()
 	if err != nil {
-		return "", fmt.Errorf("%s失败: %s", actionDesc, string(output))
+		return "", fmt.Errorf("%s失败: %v", actionDesc, err)
 	}
 
-	return fmt.Sprintf("%s成功\n%s", actionDesc, string(output)), nil
+	return fmt.Sprintf("%s成功\n%s", actionDesc, output), nil
 }
 
 // ==================== Docker 日志 ====================
@@ -1825,6 +1976,9 @@ func (a *AgentClient) Stop() {
 // ==================== 主程序 ====================
 
 func main() {
+	// 初始化 Docker 客户端
+	InitDockerClient()
+
 	// 检查是否以 Windows 服务方式运行
 	if IsRunningAsService() {
 		RunAsService()
@@ -2061,10 +2215,14 @@ func (a *AgentClient) handleDockerRenameContainer(data string) (string, error) {
 		return "", fmt.Errorf("缺少必要参数")
 	}
 
-	cmd := exec.Command("docker", "rename", req.ContainerID, req.NewName)
-	output, err := cmd.CombinedOutput()
+	cli := GetDockerClient()
+	if cli == nil {
+		return "", fmt.Errorf("Docker 客户端不可用")
+	}
+
+	err := cli.ContainerRename(context.Background(), req.ContainerID, req.NewName)
 	if err != nil {
-		return "", fmt.Errorf("重命名失败: %s - %v", string(output), err)
+		return "", fmt.Errorf("重命名失败: %v", err)
 	}
 
 	return fmt.Sprintf("容器已重命名为: %s", req.NewName), nil
@@ -2086,36 +2244,27 @@ func (a *AgentClient) handleDockerContainerUpdate(taskID string, data string) {
 	}
 	a.updateProgress(taskID, progress)
 
+	cli := GetDockerClient()
+	if cli == nil {
+		a.finishWithError(taskID, progress, "Docker 客户端不可用")
+		return
+	}
+	ctx := context.Background()
+
 	// 1. 获取容器当前配置
 	progress.Percentage = 5
 	progress.Message = "获取容器配置..."
 	a.updateProgress(taskID, progress)
 
-	inspectCmd := exec.Command("docker", "inspect", "--format", "{{json .}}", req.ContainerID)
-	inspectOutput, err := inspectCmd.Output()
+	oldContainer, err := cli.ContainerInspect(ctx, req.ContainerID)
 	if err != nil {
 		a.finishWithError(taskID, progress, "获取容器配置失败: "+err.Error())
 		return
 	}
 
-	var containerInfo map[string]interface{}
-	if err := json.Unmarshal(inspectOutput, &containerInfo); err != nil {
-		a.finishWithError(taskID, progress, "解析容器配置失败: "+err.Error())
-		return
-	}
-
-	// 获取镜像名
 	imageName := req.Image
 	if imageName == "" {
-		if config, ok := containerInfo["Config"].(map[string]interface{}); ok {
-			if img, ok := config["Image"].(string); ok {
-				imageName = img
-			}
-		}
-	}
-	if imageName == "" {
-		a.finishWithError(taskID, progress, "无法确定镜像名称")
-		return
+		imageName = oldContainer.Config.Image
 	}
 
 	// 2. 拉取新镜像
@@ -2123,16 +2272,17 @@ func (a *AgentClient) handleDockerContainerUpdate(taskID string, data string) {
 	progress.Message = "正在拉取镜像: " + imageName
 	a.updateProgress(taskID, progress)
 
-	pullCmd := exec.Command("docker", "pull", imageName)
-	pullOutput, err := pullCmd.CombinedOutput()
+	reader, err := cli.ImagePull(ctx, imageName, dockerImage.PullOptions{})
 	if err != nil {
-		a.finishWithError(taskID, progress, "拉取镜像失败: "+string(pullOutput))
+		a.finishWithError(taskID, progress, "拉取镜像失败: "+err.Error())
 		return
 	}
+	// TODO: 可以解析 reader 输出流来更新实时进度
+	io.Copy(io.Discard, reader)
+	reader.Close()
 
 	progress.Percentage = 40
 	progress.Message = "镜像拉取完成"
-	progress.DetailMsg = string(pullOutput)
 	a.updateProgress(taskID, progress)
 
 	// 3. 停止旧容器
@@ -2140,8 +2290,8 @@ func (a *AgentClient) handleDockerContainerUpdate(taskID string, data string) {
 	progress.Message = "正在停止容器..."
 	a.updateProgress(taskID, progress)
 
-	stopCmd := exec.Command("docker", "stop", req.ContainerID)
-	if _, err := stopCmd.CombinedOutput(); err != nil {
+	timeout := 30 // seconds
+	if err := cli.ContainerStop(ctx, req.ContainerID, container.StopOptions{Timeout: &timeout}); err != nil {
 		a.finishWithError(taskID, progress, "停止容器失败: "+err.Error())
 		return
 	}
@@ -2152,114 +2302,73 @@ func (a *AgentClient) handleDockerContainerUpdate(taskID string, data string) {
 	a.updateProgress(taskID, progress)
 
 	backupName := req.ContainerName + "-backup-" + time.Now().Format("20060102-150405")
-	renameCmd := exec.Command("docker", "rename", req.ContainerID, backupName)
-	if _, err := renameCmd.CombinedOutput(); err != nil {
+	if err := cli.ContainerRename(ctx, req.ContainerID, backupName); err != nil {
+		// 尝试启动回原来的
+		cli.ContainerStart(ctx, req.ContainerID, container.StartOptions{})
 		a.finishWithError(taskID, progress, "备份容器失败: "+err.Error())
 		return
 	}
 
-	// 5. 使用 docker run 创建新容器 (简化版，复用旧配置)
+	// 5. 创建新容器 (使用 Clone 模式)
 	progress.Percentage = 70
 	progress.Message = "正在创建新容器..."
 	a.updateProgress(taskID, progress)
 
-	// 构建 docker run 命令
-	runArgs := a.buildDockerRunArgs(containerInfo, imageName, req.ContainerName)
-	runCmd := exec.Command("docker", runArgs...)
-	runOutput, err := runCmd.CombinedOutput()
+	newConfig := oldContainer.Config
+	newConfig.Image = imageName
+	
+	newHostConfig := oldContainer.HostConfig
+	newNetworkingConfig := &network.NetworkingConfig{
+		EndpointsConfig: oldContainer.NetworkSettings.Networks,
+	}
+
+	created, err := cli.ContainerCreate(ctx, newConfig, newHostConfig, newNetworkingConfig, nil, req.ContainerName)
 	if err != nil {
-		// 创建失败，恢复旧容器
-		exec.Command("docker", "rename", backupName, req.ContainerName).Run()
-		exec.Command("docker", "start", req.ContainerName).Run()
-		a.finishWithError(taskID, progress, "创建新容器失败: "+string(runOutput))
+		// 回滚
+		cli.ContainerRename(ctx, req.ContainerID, req.ContainerName)
+		cli.ContainerStart(ctx, req.ContainerID, container.StartOptions{})
+		a.finishWithError(taskID, progress, "创建新容器失败: "+err.Error())
 		return
 	}
 
-	// 6. 删除旧容器
-	progress.Percentage = 90
-	progress.Message = "正在清理旧容器..."
+	// 6. 启动新容器
+	progress.Percentage = 80
+	progress.Message = "正在启动新容器..."
 	a.updateProgress(taskID, progress)
 
-	exec.Command("docker", "rm", backupName).Run()
+	if err := cli.ContainerStart(ctx, created.ID, container.StartOptions{}); err != nil {
+		// 回滚
+		cli.ContainerRemove(ctx, created.ID, container.RemoveOptions{Force: true})
+		cli.ContainerRename(ctx, req.ContainerID, req.ContainerName)
+		cli.ContainerStart(ctx, req.ContainerID, container.StartOptions{})
+		a.finishWithError(taskID, progress, "启动新容器失败: "+err.Error())
+		return
+	}
 
-	// 完成
+	// 7. 删除备份
+	progress.Percentage = 90
+	progress.Message = "正在清理备份..."
+	a.updateProgress(taskID, progress)
+
+	if err := cli.ContainerRemove(ctx, req.ContainerID, container.RemoveOptions{Force: true}); err != nil {
+		// 仅记录警告，不影响任务完成状态
+		log.Printf("[Docker] 删除备份容器失败: %v", err)
+	}
+
 	progress.Percentage = 100
 	progress.Message = "更新完成"
-	progress.DetailMsg = "容器已成功更新到最新版本"
 	progress.IsDone = true
+	progress.IsError = false
 	a.updateProgress(taskID, progress)
 
-	// 发送最终结果
 	a.emit(EventAgentTaskResult, map[string]interface{}{
 		"id":         taskID,
 		"successful": true,
-		"data":       "容器更新完成",
+		"data":       "容器更新成功",
 	})
 }
 
-// buildDockerRunArgs 从容器配置构建 docker run 参数
-func (a *AgentClient) buildDockerRunArgs(containerInfo map[string]interface{}, imageName, containerName string) []string {
-	args := []string{"run", "-d", "--name", containerName}
 
-	// 获取 HostConfig
-	hostConfig, _ := containerInfo["HostConfig"].(map[string]interface{})
-	config, _ := containerInfo["Config"].(map[string]interface{})
-
-	// 端口映射
-	if portBindings, ok := hostConfig["PortBindings"].(map[string]interface{}); ok {
-		for containerPort, bindings := range portBindings {
-			if bindList, ok := bindings.([]interface{}); ok && len(bindList) > 0 {
-				if bind, ok := bindList[0].(map[string]interface{}); ok {
-					hostPort := bind["HostPort"].(string)
-					args = append(args, "-p", hostPort+":"+strings.Split(containerPort, "/")[0])
-				}
-			}
-		}
-	}
-
-	// 卷挂载
-	if mounts, ok := containerInfo["Mounts"].([]interface{}); ok {
-		for _, m := range mounts {
-			if mount, ok := m.(map[string]interface{}); ok {
-				source := mount["Source"].(string)
-				dest := mount["Destination"].(string)
-				args = append(args, "-v", source+":"+dest)
-			}
-		}
-	}
-
-	// 环境变量
-	if env, ok := config["Env"].([]interface{}); ok {
-		for _, e := range env {
-			if envStr, ok := e.(string); ok {
-				// 过滤掉一些自动生成的环境变量
-				if !strings.HasPrefix(envStr, "PATH=") && !strings.HasPrefix(envStr, "HOME=") {
-					args = append(args, "-e", envStr)
-				}
-			}
-		}
-	}
-
-	// 网络模式
-	if networkMode, ok := hostConfig["NetworkMode"].(string); ok && networkMode != "default" && networkMode != "bridge" {
-		args = append(args, "--network", networkMode)
-	}
-
-	// 重启策略
-	if restartPolicy, ok := hostConfig["RestartPolicy"].(map[string]interface{}); ok {
-		if name, ok := restartPolicy["Name"].(string); ok && name != "" && name != "no" {
-			args = append(args, "--restart", name)
-		}
-	}
-
-	// 特权模式
-	if privileged, ok := hostConfig["Privileged"].(bool); ok && privileged {
-		args = append(args, "--privileged")
-	}
-
-	args = append(args, imageName)
-	return args
-}
 
 // finishWithError 完成任务并标记错误
 func (a *AgentClient) finishWithError(taskID string, progress *TaskProgress, errMsg string) {

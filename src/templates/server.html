@@ -1422,8 +1422,13 @@
               <div class="docker-task-title">
                 <span>{{ getDockerTaskActionLabel(task.action) }}</span>
                 <span class="docker-task-server">{{ getDockerTaskServerName(task.serverId) }}</span>
+                <span v-if="task.state === 'running' && task.progress" class="docker-task-percent">{{ task.progress }}%</span>
               </div>
               <div class="docker-task-msg" :title="getDockerTaskMessage(task)">{{ getDockerTaskMessage(task) }}</div>
+              <!-- 实时进度条 -->
+              <div v-if="task.state === 'running' && task.progress" class="docker-task-progress-mini">
+                <div class="fill" :style="{ width: task.progress + '%' }"></div>
+              </div>
             </div>
             <span class="docker-task-time">{{ formatDateTime(task.updatedAt || task.createdAt) }}</span>
           </div>
@@ -1493,7 +1498,11 @@
                   <div class="docker-row-sub">{{ row.shortId }}</div>
                 </span>
                 <span style="flex: 1.6">
-                  <div class="docker-row-ellipsis" :title="row.container.image">{{ row.container.image }}</div>
+                  <div class="docker-row-ellipsis" :title="row.container.image">
+                    <i v-if="row.hasUpdate" class="fas fa-arrow-alt-circle-up" style="color: #10b981; margin-right: 4px;" title="有新版本可用"></i>
+                    <i v-if="row.updateError" class="fas fa-exclamation-triangle" style="color: #f59e0b; margin-right: 4px;" :title="'检测失败: ' + row.updateError"></i>
+                    {{ row.container.image }}
+                  </div>
                 </span>
                 <span style="flex: 1">
                   <div class="docker-row-title">{{ row.serverName }}</div>
@@ -1506,6 +1515,12 @@
                   <div class="docker-row-ellipsis docker-mono" :title="row.portsText">{{ row.portsText }}</div>
                 </span>
                 <span class="col-actions-lg">
+                  <button v-if="row.hasUpdate" class="action-btn-circle success"
+                    @click.stop="updateDockerContainer(row.serverId, row.container.id, row.container.name, row.container.image)"
+                    :disabled="row.container.actionPending"
+                    title="立即更新 (无损)">
+                    <i class="fas" :class="row.container.actionPending ? 'fa-spinner fa-spin' : 'fa-cloud-download-alt'"></i>
+                  </button>
                   <button class="action-btn-circle" :class="row.state === 'running' ? 'danger' : 'success'"
                     @click.stop="handleDockerAction(row.serverId, row.container.id, row.state === 'running' ? 'stop' : 'start')"
                     :disabled="row.container.actionPending" :title="row.state === 'running' ? '停止' : '启动'">

@@ -87,3 +87,6 @@ test-*-*.js
 # AI Agent 工作目录
 # ====================
 .agent/
+
+.gemini/
+gha-creds-*.json

@@ -1289,6 +1289,11 @@ export const hostMethods = {
   },
 
   getDockerContainerState(container) {
+    // 优先使用乐观 UI 预测的状态
+    if (container?._predictedState && container?.actionPending) {
+      return container._predictedState;
+    }
+
     const state = String(container?.state || '').toLowerCase();
     const status = String(container?.status || '');
 
@@ -1302,6 +1307,10 @@ export const hostMethods = {
   },
 
   getDockerContainerStateLabel(container) {
+    if (container?._predictedState && container?.actionPending) {
+      const map = { running: '正在启动...', stopped: '正在停止...', paused: '正在暂停...' };
+      return map[container._predictedState] || '处理中...';
+    }
     const state = this.getDockerContainerState(container);
     if (state === 'running') return '运行中';
     if (state === 'paused') return '已暂停';
@@ -1368,6 +1377,8 @@ export const hostMethods = {
           portsText: this.formatDockerPorts(container),
           shortId: this.formatDockerContainerId(container.id),
           key: this.getDockerContainerKey(server.id, container.id),
+          hasUpdate: this.getContainerUpdateStatus(container.id) === 'has_update',
+          updateError: this.getContainerUpdateError(container.id),
           searchableText: [
             server.name,
             server.host,
@@ -1492,6 +1503,13 @@ export const hostMethods = {
 
     if (!confirmed) return;
 
+    // 找到目标容器并设置 loading 状态
+    const dockerServer = this.dockerOverviewServers.find(s => s.id === serverId);
+    const container = dockerServer?.containers?.find(c => c.id === containerId);
+    if (container) {
+      container.actionPending = true;
+    }
+
     this.showGlobalToast('容器更新任务已启动...', 'info');
 
     try {
@@ -1501,8 +1519,17 @@ export const hostMethods = {
         { wait: false, timeoutMs: 10 * 60 * 1000 }
       );
       this.showGlobalToast(`更新任务已提交（#${taskId.slice(0, 8)}）`, 'success');
+      
+      // 更新检测结果状态 (乐观更新: 移除更新标记)
+      if (this.dockerUpdateResults) {
+        this.dockerUpdateResults = this.dockerUpdateResults.filter(r => r.container_id !== containerId);
+      }
     } catch (error) {
       this.showGlobalToast('请求失败: ' + error.message, 'error');
+    } finally {
+       // 注意: 这是一个异步长任务，我们只等待任务提交完成，所以 loading 状态很快就会结束
+       // 真正的进度由任务流展示
+      if (container) container.actionPending = false;
     }
   },
 
@@ -1906,6 +1933,10 @@ export const hostMethods = {
     const container = dockerServer?.containers?.find(c => c.id === containerId);
     if (container) {
       container.actionPending = true;
+      // 设置预测状态实现即时反馈
+      if (action === 'start' || action === 'unpause') container._predictedState = 'running';
+      else if (action === 'stop') container._predictedState = 'stopped';
+      else if (action === 'pause') container._predictedState = 'paused';
     }
 
     try {
@@ -1919,7 +1950,10 @@ export const hostMethods = {
     } catch (error) {
       this.showGlobalToast('Docker 操作异常: ' + error.message, 'error');
     } finally {
-      if (container) container.actionPending = false;
+      if (container) {
+        container.actionPending = false;
+        delete container._predictedState;
+      }
     }
   },
 
