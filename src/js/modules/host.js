@@ -1607,16 +1607,21 @@ export const hostMethods = {
     }
   },
 
+  getDanglingImagesCount() {
+    return (this.dockerImages || []).filter(img => img.tag === '<none>' || img.repository === '<none>').length;
+  },
+
   /**
    * Docker 镜像操作
    */
   async handleDockerImageAction(action, image = '') {
     if (!this.dockerSelectedServer) {
        if (action === 'prune') {
+         const count = this.getDanglingImagesCount();
          const confirmed = await this.showConfirm({
             title: '批量清理镜像',
-            message: '确定要清理所有主机的未使用镜像吗？',
-            confirmText: '清理全部',
+            message: `确定要清理所有主机的 ${count} 个无标签(dangling)镜像吗？\n这将释放磁盘空间。`,
+            confirmText: `清理 ${count} 个镜像`,
             confirmClass: 'btn-warning'
          });
          if (!confirmed) return;
@@ -1629,6 +1634,18 @@ export const hostMethods = {
        }
        this.showGlobalToast('请先选择一台主机进行特定镜像操作', 'warning');
        return;
+    }
+
+    if (action === 'prune') {
+       // 单机清理
+       const count = (this.dockerImages || []).filter(img => img.tag === '<none>' || img.repository === '<none>').length;
+       const confirmed = await this.showConfirm({
+          title: '清理镜像',
+          message: `确定要清理主机上的 ${count} 个无标签(dangling)镜像吗？`,
+          confirmText: '确定清理',
+          confirmClass: 'btn-warning'
+       });
+       if (!confirmed) return;
     }
 
     try {

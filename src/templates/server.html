@@ -1612,10 +1612,17 @@
         </div>
         <div v-else>
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-            <span style="font-size: 13px; color: var(--text-secondary)">{{ dockerImages.length }} 个镜像</span>
+            <div style="display: flex; align-items: center; gap: 12px;">
+              <span style="font-size: 13px; color: var(--text-secondary)">{{ dockerImages.length }} 个镜像</span>
+              <span v-if="getDanglingImagesCount() > 0" class="badge warning" style="font-size: 11px;">
+                {{ getDanglingImagesCount() }} 个无标签
+              </span>
+            </div>
             <div style="display: flex; gap: 6px;">
-              <button class="btn btn-sm btn-secondary" @click="handleDockerImageAction('prune')" title="清理未使用镜像">
-                <i class="fas fa-broom"></i> 清理
+              <button class="btn btn-sm btn-secondary" @click="handleDockerImageAction('prune')" 
+                :title="'清理 ' + getDanglingImagesCount() + ' 个无标签镜像'"
+                :disabled="getDanglingImagesCount() === 0">
+                <i class="fas fa-broom"></i> 清理 ({{ getDanglingImagesCount() }})
               </button>
             </div>
           </div>
