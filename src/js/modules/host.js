@@ -871,7 +871,6 @@ export const hostMethods = {
     if (this.dockerUpdateChecking) return;
 
     this.dockerUpdateChecking = true;
-    this.dockerUpdateResults = [];
 
     try {
       const task = await this.submitDockerTask(
@@ -880,18 +879,23 @@ export const hostMethods = {
         { timeoutMs: 240000 }
       );
       const parsed = this.parseDockerTaskResult(task, []);
-      const results = Array.isArray(parsed) ? parsed : parsed ? [parsed] : [];
-      this.dockerUpdateResults = results;
+      const newResults = Array.isArray(parsed) ? parsed : parsed ? [parsed] : [];
+      
+      // 合并结果：保留其他主机的，更新当前主机的
+      const server = this.dockerOverviewServers.find(s => s.id === serverId);
+      const currentContainerIds = server?.containers?.map(c => c.id) || [];
+      
+      const otherResults = (this.dockerUpdateResults || []).filter(r => 
+        !currentContainerIds.includes(r.container_id)
+      );
 
-      const updatesAvailable = results.filter(r => r.has_update).length;
-      const errors = results.filter(r => r.error).length;
+      this.dockerUpdateResults = [...otherResults, ...newResults];
 
+      const updatesAvailable = newResults.filter(r => r.has_update).length;
       if (updatesAvailable > 0) {
-        this.showGlobalToast(`发现 ${updatesAvailable} 个容器有更新可用`, 'success');
-      } else if (errors > 0) {
-        this.showGlobalToast(`检测完成，${errors} 个容器检测失败 (可能是私有镜像)`, 'warning');
+        this.showGlobalToast(`该主机发现 ${updatesAvailable} 个容器有更新可用`, 'success');
       } else {
-        this.showGlobalToast('所有容器镜像均为最新', 'info');
+        this.showGlobalToast('该主机容器镜像均为最新', 'info');
       }
     } catch (error) {
       console.error('检测更新失败:', error);
@@ -1626,10 +1630,22 @@ export const hostMethods = {
          });
          if (!confirmed) return;
          
-         for (const server of this.dockerOverviewServers) {
-            this.submitDockerTask('image.prune', { serverId: server.id });
+         this.showGlobalToast('批量清理任务已启动...', 'info');
+         
+         const tasks = this.dockerOverviewServers.map(server => 
+            this.submitDockerTask('image.prune', { serverId: server.id })
+         );
+         
+         try {
+            await Promise.all(tasks);
+            this.showGlobalToast('所有主机清理完成', 'success');
+         } catch (e) {
+            this.showGlobalToast('部分主机清理失败', 'warning');
          }
-         this.showGlobalToast('批量清理任务已提交', 'success');
+         
+         // 强制刷新
+         await this.loadDockerOverview(); 
+         await this.loadDockerImages();
          return;
        }
        this.showGlobalToast('请先选择一台主机进行特定镜像操作', 'warning');
@@ -1638,10 +1654,12 @@ export const hostMethods = {
 
     if (action === 'prune') {
        // 单机清理
-       const count = (this.dockerImages || []).filter(img => img.tag === '<none>' || img.repository === '<none>').length;
+       const server = this.dockerOverviewServers.find(s => s.id === this.dockerSelectedServer);
+       const count = (server?.resources?.images || []).filter(img => img.tag === '<none>' || img.repository === '<none>').length;
+       
        const confirmed = await this.showConfirm({
           title: '清理镜像',
-          message: `确定要清理主机上的 ${count} 个无标签(dangling)镜像吗？`,
+          message: `确定要清理主机 "${server?.name}" 上的 ${count} 个无标签镜像吗？`,
           confirmText: '确定清理',
           confirmClass: 'btn-warning'
        });
@@ -1656,6 +1674,7 @@ export const hostMethods = {
         { timeoutMs: action === 'pull' ? 300000 : 60000 }
       );
       this.showGlobalToast('操作成功', 'success');
+      await this.loadDockerOverview(); // 强制刷新
       await this.loadDockerImages();
     } catch (error) {
       this.showGlobalToast('操作失败: ' + error.message, 'error');
