@@ -1603,11 +1603,7 @@
 
       <!-- ==================== 镜像列表视图 ==================== -->
       <div v-show="dockerSubTab === 'images'">
-        <div v-if="!dockerSelectedServer" style="text-align: center; padding: 40px; color: var(--text-tertiary);">
-          <i class="fas fa-hand-pointer" style="font-size: 32px; opacity: 0.3; margin-bottom: 12px"></i>
-          <p style="margin: 0">请先选择一台主机</p>
-        </div>
-        <div v-else-if="dockerResourceLoading" style="text-align: center; padding: 40px;">
+        <div v-if="dockerResourceLoading" style="text-align: center; padding: 40px;">
           <div class="ag-spinner-elegant ag-spinner-elegant-sm"></div>
         </div>
         <div v-else>
@@ -1660,11 +1656,7 @@
 
       <!-- ==================== 网络列表视图 ==================== -->
       <div v-show="dockerSubTab === 'networks'">
-        <div v-if="!dockerSelectedServer" style="text-align: center; padding: 40px; color: var(--text-tertiary);">
-          <i class="fas fa-hand-pointer" style="font-size: 32px; opacity: 0.3; margin-bottom: 12px"></i>
-          <p style="margin: 0">请先选择一台主机</p>
-        </div>
-        <div v-else-if="dockerResourceLoading" style="text-align: center; padding: 40px;">
+        <div v-if="dockerResourceLoading" style="text-align: center; padding: 40px;">
           <div class="ag-spinner-elegant ag-spinner-elegant-sm"></div>
         </div>
         <div v-else>
@@ -1704,11 +1696,7 @@
 
       <!-- ==================== Volume 列表视图 ==================== -->
       <div v-show="dockerSubTab === 'volumes'">
-        <div v-if="!dockerSelectedServer" style="text-align: center; padding: 40px; color: var(--text-tertiary);">
-          <i class="fas fa-hand-pointer" style="font-size: 32px; opacity: 0.3; margin-bottom: 12px"></i>
-          <p style="margin: 0">请先选择一台主机</p>
-        </div>
-        <div v-else-if="dockerResourceLoading" style="text-align: center; padding: 40px;">
+        <div v-if="dockerResourceLoading" style="text-align: center; padding: 40px;">
           <div class="ag-spinner-elegant ag-spinner-elegant-sm"></div>
         </div>
         <div v-else>
@@ -1751,11 +1739,7 @@
 
       <!-- ==================== 资源监控视图 ==================== -->
       <div v-show="dockerSubTab === 'stats'">
-        <div v-if="!dockerSelectedServer" style="text-align: center; padding: 40px; color: var(--text-tertiary);">
-          <i class="fas fa-hand-pointer" style="font-size: 32px; opacity: 0.3; margin-bottom: 12px"></i>
-          <p style="margin: 0">请先选择一台主机</p>
-        </div>
-        <div v-else-if="dockerResourceLoading" style="text-align: center; padding: 40px;">
+        <div v-if="dockerResourceLoading" style="text-align: center; padding: 40px;">
           <div class="ag-spinner-elegant ag-spinner-elegant-sm"></div>
         </div>
         <div v-else>
@@ -1795,11 +1779,7 @@
         </div>
       </div>
       <div v-show="dockerSubTab === 'compose'">
-        <div v-if="!dockerSelectedServer" style="text-align: center; padding: 60px; color: var(--text-tertiary);">
-          <i class="fas fa-hand-pointer" style="font-size: 32px; opacity: 0.3; margin-bottom: 12px"></i>
-          <p style="margin: 0">选择一台主机以管理 Compose 项目</p>
-        </div>
-        <div v-else-if="dockerResourceLoading" style="text-align: center; padding: 60px;">
+        <div v-if="dockerResourceLoading" style="text-align: center; padding: 60px;">
           <div class="ag-spinner-elegant ag-spinner-elegant-sm"></div>
         </div>
         <div v-else>
