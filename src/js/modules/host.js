@@ -1013,7 +1013,8 @@ export const hostMethods = {
    */
   async loadDockerOverview() {
     this.dockerOverviewLoading = true;
-    this.dockerUpdateResults = [];
+    // 不再这里清空，保留已检测到的更新状态
+    // this.dockerUpdateResults = []; 
     this.ensureDockerTaskStream();
 
     try {
@@ -1458,10 +1459,6 @@ export const hostMethods = {
     }
 
     this.dockerUpdateChecking = true;
-    this.dockerUpdateResults = [];
-
-    let totalUpdates = 0;
-    let totalErrors = 0;
 
     try {
       const jobs = this.dockerOverviewServers.map(server =>
@@ -1473,12 +1470,16 @@ export const hostMethods = {
       );
 
       const settled = await Promise.allSettled(jobs);
-      const merged = [];
+      const allNewResults = [];
+      let totalUpdates = 0;
+      let totalErrors = 0;
+
       settled.forEach((item, index) => {
         if (item.status === 'fulfilled') {
           const parsed = this.parseDockerTaskResult(item.value, []);
           if (Array.isArray(parsed)) {
-            merged.push(...parsed);
+            allNewResults.push(...parsed);
+            totalUpdates += parsed.filter(r => r.has_update).length;
           }
         } else {
           totalErrors++;
@@ -1486,14 +1487,15 @@ export const hostMethods = {
         }
       });
 
-      this.dockerUpdateResults = merged;
-      totalUpdates = merged.filter(r => r.has_update).length;
-      totalErrors += merged.filter(r => r.error).length;
+      // 合并结果
+      const newContainerIds = allNewResults.map(r => r.container_id);
+      const otherResults = (this.dockerUpdateResults || []).filter(r => !newContainerIds.includes(r.container_id));
+      this.dockerUpdateResults = [...otherResults, ...allNewResults];
 
       if (totalUpdates > 0) {
-        this.showGlobalToast(`发现 ${totalUpdates} 个容器有更新可用`, 'success');
+        this.showGlobalToast(`总计发现 ${totalUpdates} 个容器有更新可用`, 'success');
       } else if (totalErrors > 0) {
-        this.showGlobalToast(`检测完成，${totalErrors} 个容器检测失败`, 'warning');
+        this.showGlobalToast(`检测完成，${totalErrors} 台主机检测异常`, 'warning');
       } else {
         this.showGlobalToast('所有容器镜像均为最新', 'info');
       }
