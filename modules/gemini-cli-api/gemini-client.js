@@ -268,15 +268,12 @@ class GeminiCliClient {
    * 根据模型名获取 thinking 配置 (参考 gcli2api utils.py)
    */
   _getThinkingConfig(model) {
-    // 显式指定 nothinking
+    // 1. 显式指定 nothinking：彻底禁用，不返回任何配置对象
     if (model.includes('-nothinking')) {
-      if (model.includes('gemini-3')) {
-        // Gemini 3 似乎没有显式的 OFF，尝试使用 LOW 或不返回配置
-        return { thinkingLevel: 'LOW', includeThoughts: false };
-      }
-      return { thinkingBudget: 1024, includeThoughts: model.includes('pro') };
+      return null;
     }
-    // 显式指定 maxthinking
+
+    // 2. 显式指定 maxthinking：根据版本设置最高预算/等级
     if (model.includes('-maxthinking')) {
       if (model.includes('gemini-3')) {
         return { thinkingLevel: 'HIGH', includeThoughts: true };
@@ -284,16 +281,19 @@ class GeminiCliClient {
       if (model.includes('flash')) {
         return { thinkingBudget: 24576, includeThoughts: true };
       }
-      return { thinkingBudget: 32768, includeThoughts: true };
+      return { thinkingBudget: 65536, includeThoughts: true };
     }
-    // Gemini 3 系列使用 thinkingLevel (参考官方 defaultModelConfigs.ts)
+
+    // 3. 默认配置处理
+    // Gemini 3 系列默认使用 thinkingLevel
     if (model.includes('gemini-3')) {
       return { thinkingLevel: 'HIGH', includeThoughts: true };
     }
-    // Gemini 2.5 系列使用 thinkingBudget (官方默认 8192)
+    // Gemini 2.5 系列默认开启思考，使用官方默认 budget
     if (model.includes('gemini-2.5')) {
       return { thinkingBudget: 8192, includeThoughts: true };
     }
+
     // 其他模型 (如 2.0/1.5) 不需要默认 thinkingConfig
     return null;
   }

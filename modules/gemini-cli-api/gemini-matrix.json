@@ -3,7 +3,7 @@
     "base": true,
     "maxThinking": true,
     "noThinking": true,
-    "search": true,
+    "search": false,
     "fakeStream": false,
     "antiTrunc": false
   },
@@ -11,7 +11,7 @@
     "base": true,
     "maxThinking": true,
     "noThinking": true,
-    "search": true,
+    "search": false,
     "fakeStream": false,
     "antiTrunc": false
   },
@@ -19,7 +19,7 @@
     "base": true,
     "maxThinking": true,
     "noThinking": true,
-    "search": true,
+    "search": false,
     "fakeStream": false,
     "antiTrunc": false
   },
@@ -27,7 +27,7 @@
     "base": true,
     "maxThinking": true,
     "noThinking": true,
-    "search": true,
+    "search": false,
     "fakeStream": false,
     "antiTrunc": false
   },
@@ -35,7 +35,7 @@
     "base": true,
     "maxThinking": true,
     "noThinking": true,
-    "search": true,
+    "search": false,
     "fakeStream": false,
     "antiTrunc": false
   }

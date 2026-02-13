@@ -100,6 +100,12 @@ class StreamProcessor {
 
             let { text = '', reasoning = '' } = parsed;
 
+            // 防御性处理：如果 text 为空但 reasoning 有值，且模型处于 nothinking 模式
+            if (!text && reasoning && openaiRequest.model.includes('-nothinking')) {
+              text = reasoning;
+              reasoning = '';
+            }
+
             // 抗截断逻辑：检测 [done] 标记
             if (isAntiTrunc && text.includes(this.DONE_MARKER)) {
               foundDone = true;

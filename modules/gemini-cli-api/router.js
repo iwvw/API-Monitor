@@ -1599,6 +1599,13 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
             }
           }
 
+          // 防御性处理：如果 content 为空但 reasoning_content 有值，
+          // 且模型处于 nothinking 模式，说明发生了错位。
+          if (!text && reasoning && model.includes('-nothinking')) {
+            text = reasoning;
+            reasoning = '';
+          }
+
           const usageMetadata = geminiData.response?.usageMetadata || geminiData.usageMetadata || {};
           const responseData = {
             id: `chatcmpl-${Math.random().toString(36).slice(2)}`,
