@@ -122,49 +122,54 @@ const autoCheckService = {
         `[GCLI AutoCheck] 检测 ${modelsToCheck.length} 个模型，${accounts.length} 个账号`
       );
 
-      for (let i = 0; i < accounts.length; i++) {
-        const account = accounts[i];
-        const accountIndex = i + 1;
+      for (const modelId of modelsToCheck) {
+        // 并发检测所有账号对该模型的响应
+        await Promise.all(
+          accounts.map(async (account, index) => {
+            const accountIndex = index + 1;
+            const testRequest = {
+              model: modelId,
+              messages: [{ role: 'user', content: 'Hi' }],
+              stream: false,
+            };
 
-        for (const modelId of modelsToCheck) {
-          const testRequest = {
-            model: modelId,
-            messages: [{ role: 'user', content: 'Hi' }],
-            stream: false,
-          };
+            try {
+              const timeoutPromise = new Promise((_, reject) =>
+                setTimeout(
+                  () => reject(new Error(`Timeout for ${account.name}`)),
+                  15000
+                )
+              );
 
-          try {
-            const timeoutPromise = new Promise((_, reject) =>
-              setTimeout(() => reject(new Error('Timeout')), 15000)
-            );
+              const response = await Promise.race([
+                client.generateContent(testRequest, account.id),
+                timeoutPromise,
+              ]);
 
-            const response = await Promise.race([
-              client.generateContent(testRequest, account.id),
-              timeoutPromise,
-            ]);
+              const responseData = response && response.data ? response.data : response;
+              const candidates =
+                responseData?.response?.candidates || responseData?.candidates;
+              const hasContent = candidates && candidates.length > 0;
 
-            const responseData = response && response.data ? response.data : response;
-            const candidates = responseData?.response?.candidates || responseData?.candidates;
-            const hasContent = candidates && candidates.length > 0;
-
-            if (hasContent) {
-              globalModelStatus[modelId].ok = true;
-              globalModelStatus[modelId].passedIndices.push(accountIndex);
-            } else {
-              const errorMsg = responseData?.error?.message || 'Unexpected response';
+              if (hasContent) {
+                globalModelStatus[modelId].ok = true;
+                globalModelStatus[modelId].passedIndices.push(accountIndex);
+              } else {
+                const errorMsg = responseData?.error?.message || 'Unexpected response';
+                globalModelStatus[modelId].errors.push(`${account.name}: ${errorMsg}`);
+              }
+            } catch (e) {
+              const errorMsg = e.response?.data?.error?.message || e.message;
               globalModelStatus[modelId].errors.push(`${account.name}: ${errorMsg}`);
             }
-          } catch (e) {
-            const errorMsg = e.response?.data?.error?.message || e.message;
-            globalModelStatus[modelId].errors.push(`${account.name}: ${errorMsg}`);
-          }
 
-          // 实时更新数据库
-          const passedAccounts = globalModelStatus[modelId].passedIndices.join(',');
-          const status = globalModelStatus[modelId].ok ? 'ok' : 'error';
-          const errorLog = globalModelStatus[modelId].errors.join('\n');
-          storage.recordModelCheck(modelId, status, errorLog, batchTime, passedAccounts);
-        }
+            // 每个账号请求完成后同步更新数据库状态 (保持实时进度)
+            const passedAccounts = globalModelStatus[modelId].passedIndices.join(',');
+            const status = globalModelStatus[modelId].ok ? 'ok' : 'error';
+            const errorLog = globalModelStatus[modelId].errors.join('\n');
+            storage.recordModelCheck(modelId, status, errorLog, batchTime, passedAccounts);
+          })
+        );
       }
 
       console.log('[GCLI AutoCheck] 定时检测完成');
@@ -239,6 +244,22 @@ const MATRIX_FILE = path.join(__dirname, 'gemini-matrix.json');
 
 // 默认矩阵配置（如果文件不存在）
 const DEFAULT_MATRIX = {
+  'gemini-3-pro-preview': {
+    base: true,
+    maxThinking: true,
+    noThinking: true,
+    search: true,
+    fakeStream: true,
+    antiTrunc: true,
+  },
+  'gemini-3-flash-preview': {
+    base: true,
+    maxThinking: true,
+    noThinking: true,
+    search: true,
+    fakeStream: true,
+    antiTrunc: true,
+  },
   'gemini-2.5-pro': {
     base: true,
     maxThinking: true,
@@ -255,21 +276,13 @@ const DEFAULT_MATRIX = {
     fakeStream: true,
     antiTrunc: true,
   },
-  'gemini-3-pro-preview': {
+  'gemini-2.5-flash-lite': {
     base: true,
-    maxThinking: true,
-    noThinking: true,
-    search: true,
-    fakeStream: true,
-    antiTrunc: true,
-  },
-  'gemini-3-flash-preview': {
-    base: true,
-    maxThinking: true,
-    noThinking: true,
-    search: true,
-    fakeStream: true,
-    antiTrunc: true,
+    maxThinking: false,
+    noThinking: false,
+    search: false,
+    fakeStream: false,
+    antiTrunc: false,
   },
 };
 
@@ -498,20 +511,30 @@ router.use(['/v1', '/chat/completions'], requireChannelEnabled);
 const accountCoolDowns = new Map();
 
 /**
- * 检查账号是否处于冷却期
+ * 检查账号是否处于冷却期 (结合被动错误记录和主动额度查询)
  */
 function isAccountInCoolDown(accountId, model) {
+  // 1. 检查被动冷却 (由于之前请求报错记录的)
   const key = `${accountId}:${model}`;
-  const resetTime = accountCoolDowns.get(key);
-
-  if (!resetTime) return false;
-
-  if (resetTime > Date.now()) {
+  const pResetTime = accountCoolDowns.get(key);
+  if (pResetTime && pResetTime > Date.now()) {
     return true;
   }
+  if (pResetTime) accountCoolDowns.delete(key);
 
-  // 已过期，移除
-  accountCoolDowns.delete(key);
+  // 2. 检查主动冷却 (从 retrieveUserQuota 获取的额度)
+  const baseModel = model.replace(/-maxthinking|-nothinking|-search|-antitrunc/g, '');
+  const cached = quotaCache.data.get(accountId);
+  if (cached && (Date.now() - cached.fetchedAt < 600000)) { // 10分钟内有效
+    const bucket = cached.buckets?.find(b => b.modelId === baseModel);
+    if (bucket && bucket.remainingFraction === 0 && bucket.resetTime) {
+      const aResetTime = new Date(bucket.resetTime).getTime();
+      if (Date.now() < aResetTime) {
+        return true;
+      }
+    }
+  }
+
   return false;
 }
 
@@ -566,6 +589,76 @@ router.get('/quotas', async (req, res) => {
     res.json(quotas);
   } catch (e) {
     console.error('获取额度失败:', e);
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ============== 上游额度查询 (retrieveUserQuota) ==============
+
+// 内存中的额度缓存
+const quotaCache = {
+  data: new Map(),     // accountId -> { buckets, fetchedAt }
+  maxAge: 60000,       // 缓存 60 秒
+};
+
+/**
+ * 获取单个账号的额度 (带缓存)
+ */
+async function getAccountQuota(account, forceRefresh = false) {
+  const cached = quotaCache.data.get(account.id);
+  if (!forceRefresh && cached && (Date.now() - cached.fetchedAt < quotaCache.maxAge)) {
+    return cached;
+  }
+
+  const result = await client.retrieveUserQuota(account);
+  if (result) {
+    const cacheEntry = {
+      ...result,
+      fetchedAt: Date.now(),
+    };
+    quotaCache.data.set(account.id, cacheEntry);
+    return cacheEntry;
+  }
+  return cached || null; // 失败时返回旧缓存
+}
+
+
+/**
+ * 获取指定账号在指定模型上的剩余额度百分比 (供负载均衡使用)
+ */
+function getAccountModelQuota(accountId, modelId) {
+  const cached = quotaCache.data.get(accountId);
+  if (!cached) return null;
+
+  // 检查缓存是否过期 (宽松点，5分钟)
+  if (Date.now() - cached.fetchedAt > 300000) return null;
+
+  const bucket = cached.buckets?.find(b => b.modelId === modelId);
+  return bucket?.remainingFraction ?? null;
+}
+
+/**
+ * 获取所有账号的额度信息
+ */
+router.get('/quotas/all', async (req, res) => {
+  try {
+    const forceRefresh = req.query.refresh === '1';
+    const accounts = storage.getAccounts().filter(a => a.enable !== 0);
+
+    const results = await Promise.all(
+      accounts.map(async (account) => {
+        try {
+          return await getAccountQuota(account, forceRefresh);
+        } catch (e) {
+          logger.error(`[quotas/all] Account ${account.name}: ${e.message}`);
+          return { accountId: account.id, accountName: account.name, error: e.message };
+        }
+      })
+    );
+
+    res.json(results.filter(Boolean));
+  } catch (e) {
+    console.error('[GCLI] Quota fetch error:', e);
     res.status(500).json({ error: e.message });
   }
 });
@@ -716,74 +809,85 @@ router.post('/accounts/check', async (req, res) => {
       `[GCLI] Checking ${modelsToCheck.length} models across ${accounts.length} accounts at ${batchTime}`
     );
 
-    for (let i = 0; i < accounts.length; i++) {
-      const account = accounts[i];
-      const accountIndex = i + 1;
-      console.log(`[GCLI] Checking account #${accountIndex}: ${account.name || account.id}`);
+    for (const modelId of modelsToCheck) {
+      // 并发测试所有账号
+      await Promise.all(
+        accounts.map(async (account, index) => {
+          const accountIndex = index + 1;
+          const testRequest = {
+            model: modelId,
+            messages: [{ role: 'user', content: 'Hi' }],
+            stream: false,
+          };
 
-      for (const modelId of modelsToCheck) {
-        const testRequest = {
-          model: modelId,
-          messages: [{ role: 'user', content: 'Hi' }],
-          stream: false,
-        };
+          try {
+            console.log(`[GCLI]   -> Testing ${modelId} on account #${accountIndex}...`);
 
-        try {
-          console.log(`[GCLI]   -> Testing ${modelId}...`);
-
-          // 添加超时 (15秒)
-          const timeoutPromise = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error('Timeout')), 15000)
-          );
-
-          const response = await Promise.race([
-            client.generateContent(testRequest, account.id),
-            timeoutPromise,
-          ]);
-
-          // axios 返回的是包装后的对象，实际数据在 data 属性中
-          const responseData = response && response.data ? response.data : response;
-
-          // 只要有任何形式的内容返回就初步认为成功
-          // Google API 结构: { response: { candidates: [...] } }
-          const candidates = responseData?.response?.candidates || responseData?.candidates;
-          const hasContent = candidates && candidates.length > 0;
-
-          if (hasContent) {
-            globalModelStatus[modelId].ok = true;
-            globalModelStatus[modelId].passedIndices.push(accountIndex);
-            console.log(`\x1b[32m[GCLI]      ✓ ${modelId} passed\x1b[0m`);
-          } else {
-            // 打印实际响应结构用于调试
-            console.log(
-              `\x1b[31m[GCLI]      ✗ ${modelId} responseData:\x1b[0m`,
-              JSON.stringify(responseData).substring(0, 300)
+            // 添加超时 (15秒)
+            const timeoutPromise = new Promise((_, reject) =>
+              setTimeout(
+                () => reject(new Error(`Timeout for ${account.name}`)),
+                15000
+              )
             );
-            const errorMsg =
-              responseData && responseData.error
-                ? responseData.error.message
-                : 'Unexpected response structure';
+
+            const response = await Promise.race([
+              client.generateContent(testRequest, account.id),
+              timeoutPromise,
+            ]);
+
+            // axios 返回的是包装后的对象，实际数据在 data 属性中
+            const responseData = response && response.data ? response.data : response;
+
+            // 只要有任何形式的内容返回就初步认为成功
+            // Google API 结构: { response: { candidates: [...] } }
+            const candidates =
+              responseData?.response?.candidates || responseData?.candidates;
+            const hasContent = candidates && candidates.length > 0;
+
+            if (hasContent) {
+              globalModelStatus[modelId].ok = true;
+              globalModelStatus[modelId].passedIndices.push(accountIndex);
+              console.log(`\x1b[32m[GCLI]      ✓ ${modelId} passed on account #${accountIndex}\x1b[0m`);
+            } else {
+              // 打印实际响应结构用于调试
+              console.log(
+                `\x1b[31m[GCLI]      ✗ ${modelId} responseData on account #${accountIndex}:\x1b[0m`,
+                JSON.stringify(responseData).substring(0, 300)
+              );
+              const errorMsg =
+                responseData && responseData.error
+                  ? responseData.error.message
+                  : 'Unexpected response structure';
+              globalModelStatus[modelId].errors.push(`${account.name}: ${errorMsg}`);
+              console.log(`\x1b[31m[GCLI]      ✗ ${modelId} failed on account #${accountIndex}: ${errorMsg}\x1b[0m`);
+            }
+          } catch (e) {
+            const errorMsg = e.response?.data?.error?.message || e.message || 'Unknown error';
             globalModelStatus[modelId].errors.push(`${account.name}: ${errorMsg}`);
-            console.log(`\x1b[31m[GCLI]      ✗ ${modelId} failed: ${errorMsg}\x1b[0m`);
+            console.log(`\x1b[31m[GCLI]      ✗ ${modelId} failed on account #${accountIndex}: ${errorMsg}\x1b[0m`);
           }
-        } catch (e) {
-          const errorMsg = e.response?.data?.error?.message || e.message || 'Unknown error';
-          globalModelStatus[modelId].errors.push(`${account.name}: ${errorMsg}`);
-          console.log(`\x1b[31m[GCLI]      ✗ ${modelId} failed: ${errorMsg}\x1b[0m`);
-        }
 
-        // 实时更新数据库，让前端轮询能看到进度
-        const passedAccounts = globalModelStatus[modelId].passedIndices.join(',');
-        const status = globalModelStatus[modelId].ok ? 'ok' : 'error';
-        const errorLog = globalModelStatus[modelId].errors.join('\n');
-        storage.recordModelCheck(modelId, status, errorLog, batchTime, passedAccounts);
-      }
+          // 实时更新数据库，让前端轮询能看到进度
+          const passedAccounts = globalModelStatus[modelId].passedIndices.sort((a, b) => a - b).join(',');
+          const status = globalModelStatus[modelId].ok ? 'ok' : 'error';
+          const errorLog = globalModelStatus[modelId].errors.join('\n');
+          storage.recordModelCheck(modelId, status, errorLog, batchTime, passedAccounts);
+        })
+      );
 
-      storage.updateAccount(account.id, {
-        last_check: batchTime,
-        check_result: JSON.stringify({ timestamp: Date.now() }),
-      });
+      // 模型组所有账号完成后，如果需要额外的清理或汇总，可以在这里处理
     }
+
+    // 后置处理：更新账号最后检查时间（并行）
+    await Promise.all(
+      accounts.map(async (account) => {
+        storage.updateAccount(account.id, {
+          last_check: batchTime,
+          check_result: JSON.stringify({ timestamp: Date.now() }),
+        });
+      })
+    );
 
     console.log('[GCLI] Check complete');
     res.json({
@@ -1365,12 +1469,29 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
     const strategy = globalSettings.load_balancing_strategy || 'random';
     const loadBalancer = require('../../src/utils/loadBalancer');
 
+    // 额度感知：过滤掉额度为 0 的账号，并按额度排序
+    const baseModel = model.replace(/-maxthinking|-nothinking|-search|-antitrunc/g, '');
+    let quotaSortedAccounts = allAccounts;
+    if (allAccounts.length > 1) {
+      const accountsWithQuota = allAccounts.map(a => ({
+        account: a,
+        quota: getAccountModelQuota(a.id, baseModel),
+      }));
+
+      // 过滤掉额度为 0 的账号 (仅当有其他账号有额度时)
+      const nonZeroAccounts = accountsWithQuota.filter(a => a.quota === null || a.quota > 0);
+      if (nonZeroAccounts.length > 0) {
+        quotaSortedAccounts = nonZeroAccounts.map(a => a.account);
+      }
+      // 如果全部额度为 0，仍使用全部账号（降级）
+    }
+
     // 智能重试逻辑
     const attemptedAccounts = new Set();
     let lastError = null;
 
-    while (attemptedAccounts.size < allAccounts.length) {
-      const availableAccounts = allAccounts.filter(a => !attemptedAccounts.has(a.id));
+    while (attemptedAccounts.size < quotaSortedAccounts.length) {
+      const availableAccounts = quotaSortedAccounts.filter(a => !attemptedAccounts.has(a.id));
       if (availableAccounts.length === 0) break;
 
       const account = loadBalancer.getNextAccount('gemini-cli', availableAccounts, strategy);

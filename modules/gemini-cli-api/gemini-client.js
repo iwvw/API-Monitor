@@ -265,23 +265,30 @@ class GeminiCliClient {
    * 根据模型名获取 thinking 配置 (参考 gcli2api utils.py)
    */
   _getThinkingConfig(model) {
-    // 显式指定 nothinking - 使用最小 budget (128)
+    // 显式指定 nothinking - 使用最小 budget
     if (model.includes('-nothinking')) {
+      if (model.includes('gemini-3')) {
+        return { thinkingLevel: 'none', includeThoughts: false };
+      }
       return { thinkingBudget: 128, includeThoughts: model.includes('pro') };
     }
     // 显式指定 maxthinking
     if (model.includes('-maxthinking')) {
+      if (model.includes('gemini-3')) {
+        return { thinkingLevel: 'max', includeThoughts: true };
+      }
       if (model.includes('flash')) {
         return { thinkingBudget: 24576, includeThoughts: true };
       }
       return { thinkingBudget: 32768, includeThoughts: true };
     }
-    // Gemini 3 系列必须包含 thinkingConfig (参考 CatieCli)
+    // Gemini 3 系列使用 thinkingLevel (参考官方 defaultModelConfigs.ts)
     if (model.includes('gemini-3')) {
-      if (model.includes('flash')) {
-        return { thinkingBudget: 2048, includeThoughts: true };
-      }
-      return { thinkingBudget: 4096, includeThoughts: true };
+      return { thinkingLevel: 'HIGH', includeThoughts: true };
+    }
+    // Gemini 2.5 系列使用 thinkingBudget (官方默认 8192)
+    if (model.includes('gemini-2.5')) {
+      return { thinkingBudget: 8192, includeThoughts: true };
     }
     // 其他模型 (如 2.0/1.5) 不需要默认 thinkingConfig
     return null;
@@ -516,9 +523,9 @@ class GeminiCliClient {
     const projectId = await this.fetchGcpProjectId(accountId);
 
     const endpoints = [
+      'https://cloudcode-pa.googleapis.com/v1internal',
       'https://daily-cloudcode-pa.googleapis.com/v1internal',
       'https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal',
-      'https://cloudcode-pa.googleapis.com/v1internal',
     ];
 
     let lastError = null;
@@ -542,18 +549,6 @@ class GeminiCliClient {
       // 修正模型名称 (Gemini 3 不需要改名，但需要 Thinking Config)
       let apiModel = baseModel;
 
-      // 为 Gemini 3 模型添加 thinkingConfig
-      if (apiModel.includes('gemini-3')) {
-        if (!geminiPayload.generationConfig) {
-          geminiPayload.generationConfig = {};
-        }
-        if (!geminiPayload.generationConfig.thinkingConfig) {
-          geminiPayload.generationConfig.thinkingConfig = {
-            includeThoughts: true,
-            thinkingLevel: "high"
-          };
-        }
-      }
 
       const requestBody = {
         model: apiModel,
@@ -562,13 +557,6 @@ class GeminiCliClient {
         userAgent: 'antigravity',
         requestType: baseModel.toLowerCase().includes('image') ? 'image_gen' : 'agent'
       };
-
-      if (i === 0) {
-        logger.debug(`Sending request: URL=${url}, model=${requestBody.model}, project=${requestBody.project}, streamEndpoint=${shouldUseStreamEndpoint}`);
-        if (logger.level === 'debug') {
-          logger.debug(`Full payload: ${JSON.stringify(requestBody).substring(0, 1000)}`);
-        }
-      }
 
       const headers = {
         Authorization: `Bearer ${accessToken}`,
@@ -585,9 +573,6 @@ class GeminiCliClient {
         }
       }
 
-      if (i === 0) {
-        console.log(`[DEBUG] GC Request: ProjectID=${projectId} Model=${baseModel} APIModel=${apiModel} Endpoint=${endpoint}`);
-      }
 
       const reqOptions = {
         method: 'POST',
@@ -702,19 +687,27 @@ class GeminiCliClient {
               // Parse SSE / JSON chunks
               const parts = [];
               let finishReason = 'STOP';
+              let usageMetadata = {};
               const lines = fullResponse.split('\n');
               for (const line of lines) {
                 if (line.trim().startsWith('data: ')) {
                   try {
                     const data = JSON.parse(line.trim().substring(6));
-                    const chunkParts = data.candidates?.[0]?.content?.parts || [];
+                    const realData = data.response || data;
+                    const candidate = realData.candidates?.[0];
+                    const chunkParts = candidate?.content?.parts || [];
                     for (const p of chunkParts) {
-                      if (p.text) parts.push({ text: p.text });
+                      parts.push(p);
                     }
-                    if (data.candidates?.[0]?.finishReason) {
-                      finishReason = data.candidates[0].finishReason;
+                    if (candidate?.finishReason) {
+                      finishReason = candidate.finishReason;
                     }
-                  } catch (e) { }
+                    if (realData.usageMetadata) {
+                      usageMetadata = realData.usageMetadata;
+                    }
+                  } catch (e) {
+                    logger.error(`[Gemini-Client] JSON parse error in SSE: ${e.message}`);
+                  }
                 }
               }
 
@@ -730,7 +723,8 @@ class GeminiCliClient {
                       finishReason: finishReason,
                       index: 0
                     }
-                  ]
+                  ],
+                  usageMetadata: usageMetadata
                 },
                 headers: streamHeaders
               };
@@ -786,6 +780,110 @@ class GeminiCliClient {
       throw endpointError;
     }
     throw lastError;
+  }
+
+  /**
+   * 获取账号的额度信息 (正式接口)
+   * 参考官方 Gemini CLI: packages/core/src/code_assist/server.ts
+   * @returns {{ buckets: Array, tier: object, project: string } | null}
+   */
+  async retrieveUserQuota(account) {
+    try {
+      const accessToken = await this.getAccessToken(account.id);
+      const settings = storage ? storage.getSettings() : {};
+      const proxy = settings.PROXY || null;
+      const codeAssistBase = 'https://cloudcode-pa.googleapis.com/v1internal';
+
+      // 确定 cloudaicompanionProject
+      let companionProject = account.cloudaicompanion_project_id;
+
+      // 如果没有存储的 project，尝试通过 loadCodeAssist 获取
+      if (!companionProject) {
+        const loadResp = await this.requester.antigravity_fetch(
+          `${codeAssistBase}:loadCodeAssist`,
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              'Content-Type': 'application/json',
+              'User-Agent': this.userAgent,
+            },
+            body: JSON.stringify({ metadata: { ideType: 'GEMINI_CLI' } }),
+            proxy,
+            timeout: 15000,
+          }
+        );
+        if (loadResp.status === 200) {
+          const loadData = await loadResp.json();
+          companionProject = loadData.cloudaicompanionProject;
+          // 如果成功获取，更新到数据库
+          if (companionProject && storage) {
+            storage.updateAccount(account.id, { cloudaicompanion_project_id: companionProject });
+          }
+        }
+      }
+
+      if (!companionProject) {
+        logger.warn(`[retrieveUserQuota] Account ${account.name}: No cloudaicompanionProject`);
+        return null;
+      }
+
+      // 调用 retrieveUserQuota
+      const quotaResp = await this.requester.antigravity_fetch(
+        `${codeAssistBase}:retrieveUserQuota`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+            'User-Agent': this.userAgent,
+          },
+          body: JSON.stringify({ project: companionProject }),
+          proxy,
+          timeout: 15000,
+        }
+      );
+
+      if (quotaResp.status !== 200) {
+        const errText = await quotaResp.text();
+        logger.warn(`[retrieveUserQuota] Account ${account.name}: HTTP ${quotaResp.status} - ${errText}`);
+        return null;
+      }
+
+      const quotaData = await quotaResp.json();
+
+      // 解析 buckets：
+      // 1. 过滤掉 _vertex 后缀的重复项
+      // 2. 按 modelId 聚合，取最小 remainingFraction（最受限的 tokenType 为准）
+      //    避免因 INPUT_TOKENS / OUTPUT_TOKENS 顺序不确定导致数值跳动
+      const rawBuckets = (quotaData.buckets || [])
+        .filter(b => !b.modelId?.endsWith('_vertex'));
+
+      const bucketMap = new Map();
+      for (const b of rawBuckets) {
+        const existing = bucketMap.get(b.modelId);
+        const fraction = b.remainingFraction ?? 1;
+        if (!existing || fraction < existing.remainingFraction) {
+          bucketMap.set(b.modelId, {
+            modelId: b.modelId,
+            remainingFraction: fraction,
+            resetTime: b.resetTime,
+            tokenType: b.tokenType,
+          });
+        }
+      }
+      const buckets = Array.from(bucketMap.values());
+
+      return {
+        accountId: account.id,
+        accountName: account.name,
+        project: companionProject,
+        buckets,
+      };
+    } catch (e) {
+      logger.error(`[retrieveUserQuota] Account ${account.name}: ${e.message}`);
+      return null;
+    }
   }
 
   /**
@@ -912,13 +1010,14 @@ class GeminiCliClient {
             const jsonStr = line.trim().substring(6);
             try {
               const data = JSON.parse(jsonStr);
+              const realData = data.response || data;
               // Extract text
-              const chunkParts = data.candidates?.[0]?.content?.parts || [];
+              const chunkParts = realData.candidates?.[0]?.content?.parts || [];
               for (const p of chunkParts) {
-                if (p.text) parts.push({ text: p.text });
+                parts.push(p);
               }
-              if (data.candidates?.[0]?.finishReason) {
-                finishReason = data.candidates[0].finishReason;
+              if (realData.candidates?.[0]?.finishReason) {
+                finishReason = realData.candidates[0].finishReason;
               }
             } catch (e) { }
           }

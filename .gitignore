@@ -90,3 +90,4 @@ test-*-*.js
 
 .gemini/
 gha-creds-*.json
+stress-test-gcli.js

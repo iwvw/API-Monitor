@@ -31,7 +31,8 @@ class StreamProcessor {
       let reasoning = '';
 
       parts.forEach(part => {
-        if (part.thought) {
+        // 如果包含 thought 属性（布尔值或内容），或者包含 thoughtSignature (Gemini 3 特有)
+        if (part.thought || (part.thoughtSignature && !part.text?.includes('thoughtSignature'))) {
           reasoning += part.text || '';
         } else {
           text += part.text || '';
