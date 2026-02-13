@@ -75,15 +75,18 @@ class GeminiCliClient {
       }
     });
 
+    // 注入实时时间锚点，防止模型在 search 模式下产生时间幻觉
+    const now = new Date();
+    const currentTimeStr = `Current Time: ${now.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })} (Beijing Time)\n\n`;
+
     // 合并所有 system 消息（用双换行符分隔）
     let systemInstruction = null;
     if (systemParts.length > 0) {
-      systemInstruction = { parts: [{ text: systemParts.join('\n\n') }] };
-    }
-
-    // 如果没有消息中的 system 指令，尝试使用设置中的默认指令
-    if (!systemInstruction && settings.SYSTEM_INSTRUCTION) {
-      systemInstruction = { parts: [{ text: settings.SYSTEM_INSTRUCTION }] };
+      systemInstruction = { parts: [{ text: currentTimeStr + systemParts.join('\n\n') }] };
+    } else if (settings.SYSTEM_INSTRUCTION) {
+      systemInstruction = { parts: [{ text: currentTimeStr + settings.SYSTEM_INSTRUCTION }] };
+    } else {
+      systemInstruction = { parts: [{ text: currentTimeStr }] };
     }
 
     const generationConfig = {
@@ -265,17 +268,18 @@ class GeminiCliClient {
    * 根据模型名获取 thinking 配置 (参考 gcli2api utils.py)
    */
   _getThinkingConfig(model) {
-    // 显式指定 nothinking - 使用最小 budget
+    // 显式指定 nothinking
     if (model.includes('-nothinking')) {
       if (model.includes('gemini-3')) {
-        return { thinkingLevel: 'none', includeThoughts: false };
+        // Gemini 3 似乎没有显式的 OFF，尝试使用 LOW 或不返回配置
+        return { thinkingLevel: 'LOW', includeThoughts: false };
       }
-      return { thinkingBudget: 128, includeThoughts: model.includes('pro') };
+      return { thinkingBudget: 1024, includeThoughts: model.includes('pro') };
     }
     // 显式指定 maxthinking
     if (model.includes('-maxthinking')) {
       if (model.includes('gemini-3')) {
-        return { thinkingLevel: 'max', includeThoughts: true };
+        return { thinkingLevel: 'HIGH', includeThoughts: true };
       }
       if (model.includes('flash')) {
         return { thinkingBudget: 24576, includeThoughts: true };
