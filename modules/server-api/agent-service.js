@@ -45,6 +45,19 @@ class AgentService extends EventEmitter {
     this.legacyMetrics = new Map();
     this.legacyStatus = new Map();
 
+    // 统一任务注册表: taskId -> taskRecord
+    this.taskRegistry = new Map();
+    // 等待中的任务 Promise 解析器: taskId -> { resolve, reject }
+    this.taskResolvers = new Map();
+    // 任务进度轮询器: taskId -> intervalId
+    this.taskPollers = new Map();
+    // 任务清理策略
+    this.taskRetentionMs = 30 * 60 * 1000; // 30 分钟
+    this.taskCleanupTimer = setInterval(() => this.cleanupTaskRegistry(), 60 * 1000);
+    if (typeof this.taskCleanupTimer.unref === 'function') {
+      this.taskCleanupTimer.unref();
+    }
+
     // 初始化加载或生成全局密钥
     this.loadOrGenerateGlobalKey();
 
@@ -540,7 +553,13 @@ class AgentService extends EventEmitter {
     socket.on(Events.AGENT_TASK_RESULT, result => {
       if (!authenticated) return;
       this.log(`任务结果: ${serverId} -> ${result.id} (${result.successful ? '成功' : '失败'})`);
-      // TODO: 处理任务结果 (日志记录、通知等)
+      this.finishTaskRecord(result.id, {
+        id: result.id,
+        type: result.type,
+        successful: !!result.successful,
+        data: result.data,
+        delay: result.delay,
+      });
     });
 
     // 6. 接收 PTY 输出数据流
@@ -569,6 +588,7 @@ class AgentService extends EventEmitter {
         console.log(`[AgentService] ${msg}`);
         this.connections.delete(serverId);
         this.stopHeartbeat(serverId);
+        this.failActiveTasksByServer(serverId, `Agent 已离线: ${reason}`);
         this.updateServerStatus(serverId, 'offline');
         this.broadcastServerStatus(serverId, 'offline');
         this.triggerOfflineAlert(serverId); // Ensure offline alert is triggered
@@ -668,6 +688,7 @@ class AgentService extends EventEmitter {
    */
   handleAgentTimeout(serverId) {
     this.connections.delete(serverId);
+    this.failActiveTasksByServer(serverId, 'Agent 心跳超时');
     this.updateServerStatus(serverId, 'offline');
     this.broadcastServerStatus(serverId, 'offline');
 
@@ -825,28 +846,362 @@ class AgentService extends EventEmitter {
 
   // ==================== 任务下发 ====================
 
-  /**
-   * 向 Agent 下发任务
-   * @param {string} serverId - 目标主机 ID
-   * @param {Object} task - 任务对象
-   * @returns {boolean} 是否成功发送
-   */
-  sendTask(serverId, task) {
+  isTaskFinalState(state) {
+    return ['success', 'failed', 'timeout', 'cancelled'].includes(state);
+  }
+
+  snapshotTask(task) {
+    if (!task) return null;
+    return {
+      taskId: task.id,
+      id: task.id,
+      serverId: task.serverId,
+      domain: task.domain,
+      action: task.action,
+      type: task.type,
+      state: task.state,
+      progress: task.progress,
+      step: task.step,
+      message: task.message,
+      detail: task.detail,
+      result: task.result,
+      error: task.error,
+      timeoutMs: task.timeoutMs,
+      createdAt: task.createdAt,
+      updatedAt: task.updatedAt,
+      startedAt: task.startedAt,
+      finishedAt: task.finishedAt,
+    };
+  }
+
+  emitTaskUpdate(task) {
+    const snapshot = this.snapshotTask(task);
+    if (!snapshot) return;
+    this.emit('task:update', snapshot);
+  }
+
+  createTaskRecord(serverId, task, options = {}) {
+    const now = Date.now();
+    const taskId = task.id || crypto.randomUUID();
+    const timeoutMs = options.timeoutMs || 60000;
+
+    const record = {
+      id: taskId,
+      serverId,
+      domain: options.domain || 'system',
+      action: options.action || '',
+      type: task.type,
+      state: 'running',
+      progress: 0,
+      step: 'queued',
+      message: '任务已下发',
+      detail: '',
+      result: null,
+      error: null,
+      timeoutMs,
+      createdAt: now,
+      updatedAt: now,
+      startedAt: now,
+      finishedAt: null,
+      _timeoutTimer: null,
+    };
+
+    this.taskRegistry.set(taskId, record);
+    return record;
+  }
+
+  getTask(taskId) {
+    return this.snapshotTask(this.taskRegistry.get(taskId));
+  }
+
+  getRecentTasks(serverId = '', limit = 100) {
+    let tasks = Array.from(this.taskRegistry.values());
+    if (serverId) {
+      tasks = tasks.filter(item => item.serverId === serverId);
+    }
+    tasks.sort((a, b) => b.createdAt - a.createdAt);
+    return tasks.slice(0, limit).map(item => this.snapshotTask(item));
+  }
+
+  cleanupTaskRegistry() {
+    const now = Date.now();
+    for (const [taskId, task] of this.taskRegistry.entries()) {
+      if (!this.isTaskFinalState(task.state)) continue;
+      const finishedAt = task.finishedAt || task.updatedAt || task.createdAt;
+      if (now - finishedAt > this.taskRetentionMs) {
+        this.stopTaskProgressPolling(taskId);
+        if (task._timeoutTimer) {
+          clearTimeout(task._timeoutTimer);
+        }
+        this.taskRegistry.delete(taskId);
+        this.taskResolvers.delete(taskId);
+      }
+    }
+  }
+
+  updateTaskProgress(taskId, payload) {
+    const task = this.taskRegistry.get(taskId);
+    if (!task || this.isTaskFinalState(task.state)) return;
+
+    let progressData = payload;
+    if (typeof progressData === 'string') {
+      try {
+        progressData = JSON.parse(progressData);
+      } catch (e) {
+        return;
+      }
+    }
+    if (!progressData || typeof progressData !== 'object') return;
+
+    if (typeof progressData.percentage === 'number') {
+      const bounded = Math.max(0, Math.min(100, Math.round(progressData.percentage)));
+      task.progress = bounded;
+    }
+    if (typeof progressData.name === 'string' && progressData.name.trim()) {
+      task.step = progressData.name.trim();
+    }
+    if (typeof progressData.message === 'string' && progressData.message.trim()) {
+      task.message = progressData.message.trim();
+    }
+    if (typeof progressData.detail_msg === 'string') {
+      task.detail = progressData.detail_msg;
+    }
+    if (progressData.is_done === true) {
+      task.progress = 100;
+    }
+
+    task.updatedAt = Date.now();
+    this.emitTaskUpdate(task);
+  }
+
+  stopTaskProgressPolling(taskId) {
+    const timer = this.taskPollers.get(taskId);
+    if (timer) {
+      clearInterval(timer);
+      this.taskPollers.delete(taskId);
+    }
+  }
+
+  startTaskProgressPolling(taskId, serverId, intervalMs = 1500) {
+    if (this.taskPollers.has(taskId)) return;
+
+    const timer = setInterval(async () => {
+      const task = this.taskRegistry.get(taskId);
+      if (!task || this.isTaskFinalState(task.state)) {
+        this.stopTaskProgressPolling(taskId);
+        return;
+      }
+      if (!this.isOnline(serverId)) {
+        return;
+      }
+
+      try {
+        const result = await this._sendTaskAndWaitLegacy(
+          serverId,
+          {
+            type: TaskTypes.DOCKER_TASK_PROGRESS,
+            data: JSON.stringify({ task_id: taskId }),
+            timeout: 10,
+          },
+          15000
+        );
+
+        if (result.successful && result.data) {
+          this.updateTaskProgress(taskId, result.data);
+        }
+      } catch (error) {
+        // 进度查询失败不直接中断主任务
+      }
+    }, Math.max(1000, intervalMs));
+
+    if (typeof timer.unref === 'function') {
+      timer.unref();
+    }
+    this.taskPollers.set(taskId, timer);
+  }
+
+  finishTaskRecord(taskId, result) {
+    const task = this.taskRegistry.get(taskId);
+    if (!task) return;
+
+    if (task._timeoutTimer) {
+      clearTimeout(task._timeoutTimer);
+      task._timeoutTimer = null;
+    }
+    this.stopTaskProgressPolling(taskId);
+
+    task.updatedAt = Date.now();
+    task.finishedAt = task.updatedAt;
+
+    if (result && result.successful) {
+      task.state = 'success';
+      task.progress = 100;
+      task.message = '任务执行成功';
+      task.result = result.data || '';
+      task.error = null;
+    } else {
+      task.state = 'failed';
+      task.message = '任务执行失败';
+      task.error = result?.data || '未知错误';
+      task.result = null;
+    }
+
+    this.emitTaskUpdate(task);
+
+    const resolver = this.taskResolvers.get(taskId);
+    if (resolver) {
+      this.taskResolvers.delete(taskId);
+      resolver.resolve(result);
+    }
+  }
+
+  failActiveTasksByServer(serverId, reason = 'Agent 连接中断') {
+    for (const [taskId, task] of this.taskRegistry.entries()) {
+      if (task.serverId !== serverId || this.isTaskFinalState(task.state)) continue;
+
+      if (task._timeoutTimer) {
+        clearTimeout(task._timeoutTimer);
+        task._timeoutTimer = null;
+      }
+      this.stopTaskProgressPolling(taskId);
+
+      task.state = 'failed';
+      task.error = reason;
+      task.message = reason;
+      task.updatedAt = Date.now();
+      task.finishedAt = task.updatedAt;
+      this.emitTaskUpdate(task);
+
+      const resolver = this.taskResolvers.get(taskId);
+      if (resolver) {
+        this.taskResolvers.delete(taskId);
+        resolver.reject(new Error(reason));
+      }
+    }
+  }
+
+  // 兼容内部短查询的旧实现（例如任务进度轮询）
+  _sendTaskAndWaitLegacy(serverId, task, timeout = 60000) {
+    return new Promise((resolve, reject) => {
+      const taskId = task.id || crypto.randomUUID();
+      const socket = this.connections.get(serverId);
+
+      if (!socket) {
+        return reject(new Error('主机不在线'));
+      }
+
+      const timer = setTimeout(() => {
+        socket.off(Events.AGENT_TASK_RESULT, resultHandler);
+        reject(new Error('任务执行超时'));
+      }, timeout);
+
+      const resultHandler = result => {
+        if (result.id === taskId) {
+          clearTimeout(timer);
+          socket.off(Events.AGENT_TASK_RESULT, resultHandler);
+          resolve(result);
+        }
+      };
+
+      socket.on(Events.AGENT_TASK_RESULT, resultHandler);
+      socket.emit(Events.DASHBOARD_TASK, {
+        id: taskId,
+        type: task.type,
+        data: task.data,
+        timeout: task.timeout || 0,
+      });
+    });
+  }
+
+  submitTask(serverId, task, options = {}) {
     const socket = this.connections.get(serverId);
     if (!socket) {
-      console.warn(`[AgentService] 无法下发任务: ${serverId} 不在线`);
-      return false;
+      throw new Error('主机不在线');
+    }
+
+    const timeoutMs = options.timeoutMs || 60000;
+    const record = this.createTaskRecord(serverId, task, {
+      timeoutMs,
+      domain: options.domain,
+      action: options.action,
+    });
+
+    record._timeoutTimer = setTimeout(() => {
+      if (this.isTaskFinalState(record.state)) return;
+
+      record.state = 'timeout';
+      record.error = '任务执行超时';
+      record.message = '任务执行超时';
+      record.updatedAt = Date.now();
+      record.finishedAt = record.updatedAt;
+      this.stopTaskProgressPolling(record.id);
+      this.emitTaskUpdate(record);
+
+      const resolver = this.taskResolvers.get(record.id);
+      if (resolver) {
+        this.taskResolvers.delete(record.id);
+        resolver.reject(new Error('任务执行超时'));
+      }
+    }, timeoutMs);
+
+    if (typeof record._timeoutTimer.unref === 'function') {
+      record._timeoutTimer.unref();
     }
 
     socket.emit(Events.DASHBOARD_TASK, {
-      id: task.id || crypto.randomUUID(),
+      id: record.id,
       type: task.type,
       data: task.data,
       timeout: task.timeout || 0,
     });
 
-    this.log(`任务已下发: ${serverId} -> ${task.type}`);
-    return true;
+    this.emitTaskUpdate(record);
+    this.log(`任务已下发: ${serverId} -> ${task.type} (id: ${record.id})`);
+
+    if (options.trackProgress) {
+      this.startTaskProgressPolling(record.id, serverId, options.progressIntervalMs || 1500);
+    }
+
+    if (options.waitForResult === false) {
+      return record.id;
+    }
+
+    return new Promise((resolve, reject) => {
+      this.taskResolvers.set(record.id, { resolve, reject });
+    });
+  }
+
+  /**
+   * 向 Agent 下发任务
+   * @param {string} serverId - 目标主机 ID
+   * @param {Object} task - 任务对象
+   * @returns {string|false} 任务 ID
+   */
+  sendTask(serverId, task) {
+    // PTY 交互与非标准任务类型不进入任务注册表，避免高频输入污染任务中心
+    if (task.type === TaskTypes.PTY_START || typeof task.type !== 'number') {
+      const socket = this.connections.get(serverId);
+      if (!socket) {
+        return false;
+      }
+      socket.emit(Events.DASHBOARD_TASK, {
+        id: task.id || crypto.randomUUID(),
+        type: task.type,
+        data: task.data,
+        timeout: task.timeout || 0,
+      });
+      return task.id || true;
+    }
+
+    try {
+      return this.submitTask(serverId, task, {
+        waitForResult: false,
+        timeoutMs: Math.max(30000, ((task.timeout || 60) + 5) * 1000),
+      });
+    } catch (error) {
+      console.warn(`[AgentService] 无法下发任务: ${serverId} ${error.message}`);
+      return false;
+    }
   }
 
   /**
@@ -885,41 +1240,9 @@ class AgentService extends EventEmitter {
    * @returns {Promise<Object>}
    */
   sendTaskAndWait(serverId, task, timeout = 60000) {
-    return new Promise((resolve, reject) => {
-      const taskId = task.id || crypto.randomUUID();
-      const socket = this.connections.get(serverId);
-
-      if (!socket) {
-        return reject(new Error('主机不在线'));
-      }
-
-      // 设置超时
-      const timer = setTimeout(() => {
-        socket.off(Events.AGENT_TASK_RESULT, resultHandler);
-        reject(new Error('任务执行超时'));
-      }, timeout);
-
-      // 结果处理器
-      const resultHandler = result => {
-        if (result.id === taskId) {
-          clearTimeout(timer);
-          socket.off(Events.AGENT_TASK_RESULT, resultHandler);
-          resolve(result);
-        }
-      };
-
-      // 监听任务结果
-      socket.on(Events.AGENT_TASK_RESULT, resultHandler);
-
-      // 发送任务
-      socket.emit(Events.DASHBOARD_TASK, {
-        id: taskId,
-        type: task.type,
-        data: task.data,
-        timeout: task.timeout || 0,
-      });
-
-      this.log(`同步任务已下发: ${serverId} -> ${task.type} (id: ${taskId})`);
+    return this.submitTask(serverId, task, {
+      waitForResult: true,
+      timeoutMs: timeout,
     });
   }
 

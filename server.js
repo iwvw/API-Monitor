@@ -163,11 +163,17 @@ if (!fs.existsSync(distDir)) {
 
 // 文件上传中间件
 const fileUpload = require('express-fileupload');
+const uploadTempDir = path.join(__dirname, 'data', 'tmp', 'uploads');
+if (!fs.existsSync(uploadTempDir)) {
+  fs.mkdirSync(uploadTempDir, { recursive: true });
+}
 app.use(
   fileUpload({
     limits: { fileSize: 100 * 1024 * 1024 }, // 100MB 限制
     abortOnLimit: true,
     createParentPath: true,
+    useTempFiles: true,
+    tempFileDir: uploadTempDir,
   })
 );
 
@@ -211,7 +217,17 @@ app.post('/api/chat/upload-image', requireAuth, (req, res) => {
 
     const image = req.files.image;
     const crypto = require('crypto');
-    const hash = crypto.createHash('md5').update(image.data).digest('hex');
+    let hash = '';
+    if (image.data && image.data.length > 0) {
+      hash = crypto.createHash('md5').update(image.data).digest('hex');
+    } else if (image.tempFilePath && fs.existsSync(image.tempFilePath)) {
+      hash = crypto
+        .createHash('md5')
+        .update(fs.readFileSync(image.tempFilePath))
+        .digest('hex');
+    } else {
+      hash = crypto.randomBytes(16).toString('hex');
+    }
     const ext = path.extname(image.name) || '.jpg';
     const fileName = `${hash}${ext}`;
     const uploadPath = path.join(chatImagesDir, fileName);

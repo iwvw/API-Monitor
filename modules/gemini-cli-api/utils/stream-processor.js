@@ -31,7 +31,8 @@ class StreamProcessor {
       let reasoning = '';
 
       parts.forEach(part => {
-        if (part.thought) {
+        // 如果包含 thought 属性（布尔值或内容），或者包含 thoughtSignature (Gemini 3 特有)
+        if (part.thought || (part.thoughtSignature && !part.text?.includes('thoughtSignature'))) {
           reasoning += part.text || '';
         } else {
           text += part.text || '';
@@ -98,6 +99,12 @@ class StreamProcessor {
             if (!parsed) continue;
 
             let { text = '', reasoning = '' } = parsed;
+
+            // 防御性处理：如果 text 为空但 reasoning 有值，且模型处于 nothinking 模式
+            if (!text && reasoning && openaiRequest.model.includes('-nothinking')) {
+              text = reasoning;
+              reasoning = '';
+            }
 
             // 抗截断逻辑：检测 [done] 标记
             if (isAntiTrunc && text.includes(this.DONE_MARKER)) {

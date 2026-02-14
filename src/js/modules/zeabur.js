@@ -2,6 +2,47 @@ import { store } from '../store.js';
 import { toast } from './toast.js';
 
 export const zeaburMethods = {
+  syncManagedAccountsFromResults(accountResults = []) {
+    if (!Array.isArray(store.managedAccounts) || store.managedAccounts.length === 0) return;
+    if (!Array.isArray(accountResults) || accountResults.length === 0) return;
+
+    const now = Date.now();
+    const resultMap = new Map();
+    accountResults.forEach(item => {
+      if (item && item.name) {
+        resultMap.set(item.name, item);
+      }
+    });
+
+    store.managedAccounts = store.managedAccounts.map(account => {
+      const runtime = resultMap.get(account.name);
+      if (!runtime) return account;
+
+      if (!runtime.success) {
+        return {
+          ...account,
+          status: 'invalid',
+          lastValidated: now,
+        };
+      }
+
+      const creditCents = Number(runtime?.data?.credit);
+      const balance =
+        Number.isFinite(creditCents) && creditCents >= 0
+          ? creditCents / 100
+          : Number(account.balance) || 0;
+
+      return {
+        ...account,
+        email: runtime?.data?.email || runtime?.data?.username || account.email || '',
+        username: runtime?.data?.username || account.username || '',
+        balance,
+        status: 'active',
+        lastValidated: now,
+      };
+    });
+  },
+
   // 缓存数据到本地 (保留最新4个快照)
   saveToZeaburCache(data) {
     try {
@@ -54,6 +95,8 @@ export const zeaburMethods = {
       const accounts = await response.json();
       if (accounts && accounts.length > 0) {
         store.managedAccounts = accounts;
+        // 若运行态已存在最新余额，优先合并到账号管理列表
+        this.syncManagedAccountsFromResults(store.accounts || []);
         // 余额会在 fetchData -> /temp-accounts 请求时由后端自动获取
         // 不再在这里单独刷新，避免并行请求导致数据不一致
       }
@@ -222,6 +265,9 @@ export const zeaburMethods = {
             }),
           }).then(r => r.json()),
         ]);
+
+        // 同步运行态余额到账号管理列表，修复“账号管理余额不更新”问题
+        this.syncManagedAccountsFromResults(accountsRes);
 
         // 使用Vue.set或直接重新赋值确保响应式更新
         store.accounts = [];

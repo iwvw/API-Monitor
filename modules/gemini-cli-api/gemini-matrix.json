@@ -1,32 +1,40 @@
 {
-  "gemini-2.5-pro": {
-    "base": true,
-    "maxThinking": false,
-    "noThinking": false,
-    "search": false,
-    "fakeStream": false,
-    "antiTrunc": false
-  },
-  "gemini-2.5-flash": {
-    "base": true,
-    "maxThinking": false,
-    "noThinking": false,
-    "search": false,
-    "fakeStream": false,
-    "antiTrunc": false
-  },
   "gemini-3-pro-preview": {
     "base": true,
-    "maxThinking": false,
-    "noThinking": false,
+    "maxThinking": true,
+    "noThinking": true,
     "search": false,
     "fakeStream": false,
     "antiTrunc": false
   },
   "gemini-3-flash-preview": {
     "base": true,
-    "maxThinking": false,
-    "noThinking": false,
+    "maxThinking": true,
+    "noThinking": true,
+    "search": false,
+    "fakeStream": false,
+    "antiTrunc": false
+  },
+  "gemini-2.5-pro": {
+    "base": true,
+    "maxThinking": true,
+    "noThinking": true,
+    "search": false,
+    "fakeStream": false,
+    "antiTrunc": false
+  },
+  "gemini-2.5-flash": {
+    "base": true,
+    "maxThinking": true,
+    "noThinking": true,
+    "search": false,
+    "fakeStream": false,
+    "antiTrunc": false
+  },
+  "gemini-2.5-flash-lite": {
+    "base": true,
+    "maxThinking": true,
+    "noThinking": true,
     "search": false,
     "fakeStream": false,
     "antiTrunc": false

@@ -3,15 +3,15 @@
         <!-- 顶部二级导航 -->
         <div class="sec-tabs">
             <button class="tab-btn" :class="{ active: fileboxCurrentTab === 'share' }"
-                @click="fileboxCurrentTab = 'share'">
+                @click="switchFileboxTab('share')">
                 <i class="fas fa-paper-plane"></i> 快捷分享
             </button>
             <button class="tab-btn" :class="{ active: fileboxCurrentTab === 'retrieve' }"
-                @click="fileboxCurrentTab = 'retrieve'">
+                @click="switchFileboxTab('retrieve')">
                 <i class="fas fa-shipping-fast"></i> 极速取件
             </button>
             <button class="tab-btn" :class="{ active: fileboxCurrentTab === 'history' }"
-                @click="fileboxCurrentTab = 'history'">
+                @click="switchFileboxTab('history')">
                 <i class="fas fa-history"></i> 历史记录
             </button>
         </div>
@@ -19,8 +19,8 @@
         <!-- ========== 取件标签页 (Prominent) ========== -->
         <div v-show="fileboxCurrentTab === 'retrieve'" class="sub-tab-content fade-in-up">
             <div class="filebox-header-card">
-                <h2 style="margin: 0; font-size: 24px; color: var(--text-primary);">
-                    <i class="fas fa-shipping-fast" style="color: var(--filebox-primary);"></i> 下一秒，文件到手
+                <h2 class="filebox-page-title">
+                    <i class="fas fa-shipping-fast filebox-title-icon"></i> 下一秒，文件到手
                 </h2>
 
                 <div class="filebox-input-wrapper">
@@ -33,9 +33,9 @@
                 </div>
             </div>
 
-            <div class="uptime-form-card" style="margin-top: 20px;">
+            <div class="uptime-form-card filebox-help-card">
                 <div class="uptime-form-section-title"><i class="fas fa-info-circle"></i> 取件说明</div>
-                <div style="color: var(--text-secondary); line-height: 1.6; font-size: 14px;">
+                <div class="filebox-help-text">
                     <p>1. 取件码为分享成功后生成的 5 位随机字符。</p>
                     <p>2. 请确保取件码在有效期内，过期的内容将自动销毁。</p>
                     <p>3. 如果分享者开启了“阅后即焚”，内容在首次成功提取后将立即被永久删除。</p>
@@ -47,13 +47,12 @@
         <div v-show="fileboxCurrentTab === 'share'" class="sub-tab-content fade-in-up">
             <div class="row">
                 <div class="col-md-8 mx-auto">
-                    <div class="uptime-form-card"
-                        style="min-height: 500px; display: flex; flex-direction: column; position: relative;">
+                    <div class="uptime-form-card filebox-share-panel">
                         <div class="uptime-form-section-title">
                             <i class="fas fa-cloud-upload-alt"></i> 我要分享
                         </div>
 
-                        <div class="filebox-share-tabs" style="margin-bottom: 20px;">
+                        <div class="filebox-share-tabs filebox-share-tabs-wrap">
                             <div class="filebox-tab-btn" :class="{ active: fileboxShareType === 'file' }"
                                 @click="fileboxShareType = 'file'">
                                 <i class="fas fa-file-alt"></i> 分享文件
@@ -77,7 +76,7 @@
                                 <div class="filebox-upload-text">
                                     <strong>点击选择文件</strong> 或拖拽文件到此处
                                 </div>
-                                <div class="filebox-upload-subtext">建议不超过 100MB</div>
+                                <div class="filebox-upload-subtext">建议不超过 {{ formatFileSize(fileboxMaxFileSize) }}</div>
                             </template>
                             <template v-else>
                                 <i class="fas fa-file-archive filebox-upload-icon"
@@ -93,8 +92,25 @@
 
                         <!-- 文本输入区 -->
                         <textarea v-else v-model="fileboxShareText" class="filebox-text-area modern-form-control"
-                            placeholder="在此粘贴或输入需要分享的文本内容..."
-                            style="flex: 1; min-height: 200px; padding: 15px;"></textarea>
+                            placeholder="在此粘贴或输入需要分享的文本内容..."></textarea>
+
+                        <div v-if="fileboxShareType === 'file' && fileboxLoading" class="filebox-upload-progress-card">
+                            <div class="filebox-upload-progress-head">
+                                <span class="filebox-upload-name">{{ fileboxUploadingName || '文件上传中' }}</span>
+                                <span class="filebox-upload-percent">{{ fileboxUploadProgress }}%</span>
+                            </div>
+                            <div class="filebox-upload-progress-track">
+                                <div class="filebox-upload-progress-fill" :style="{ width: fileboxUploadProgress + '%' }"></div>
+                            </div>
+                            <div class="filebox-upload-meta">
+                                <span><i class="fas fa-tachometer-alt"></i> {{ fileboxUploadSpeedText }}</span>
+                                <span><i class="fas fa-clock"></i> 预计剩余 {{ fileboxUploadEtaText }}</span>
+                                <button type="button" class="btn btn-secondary btn-sm" @click="cancelFileBoxUpload">
+                                    <i class="fas fa-times"></i> 取消
+                                </button>
+                            </div>
+                        </div>
+
                         <!-- 配置选项 - 一行显示 -->
                         <div class="filebox-options-row">
                             <div class="filebox-option">
@@ -128,21 +144,21 @@
                             <div v-if="fileboxResult" class="filebox-overlay-result">
                                 <div class="filebox-result-card bounce-in">
                                     <i class="fas fa-check-circle"
-                                        style="font-size: 56px; color: #10b981; margin-bottom: 20px;"></i>
-                                    <h3 style="color: var(--text-primary); margin-bottom: 5px;">分享成功</h3>
+                                        class="filebox-result-icon"></i>
+                                    <h3 class="filebox-result-title">分享成功</h3>
                                     <div class="filebox-code-display">{{ fileboxResult.code }}</div>
-                                    <p style="color: var(--text-secondary); font-size: 14px; margin-bottom: 15px;">
+                                    <p class="filebox-result-desc">
                                         凭此取件码即可在任意终端提取</p>
 
                                     <!-- 二维码区域 -->
-                                    <div v-if="fileboxQrCode" style="margin-bottom: 20px;">
+                                    <div v-if="fileboxQrCode" class="filebox-qr-wrap">
                                         <img :src="fileboxQrCode" alt="取件二维码"
-                                            style="width: 120px; height: 120px; border-radius: 8px; background: #fff; padding: 8px;">
-                                        <p style="color: var(--text-tertiary); font-size: 12px; margin-top: 8px;">
+                                            class="filebox-qr-image">
+                                        <p class="filebox-qr-tip">
                                             扫码即可快速取件</p>
                                     </div>
 
-                                    <div style="display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;">
+                                    <div class="filebox-result-actions">
                                         <button class="btn btn-secondary" @click="copyToClipboard(fileboxResult.code)">
                                             <i class="fas fa-copy"></i> 复制码
                                         </button>
@@ -165,15 +181,22 @@
         <!-- ========== 历史记录标签页 ========== -->
         <div v-show="fileboxCurrentTab === 'history'" class="sub-tab-content fade-in-up">
             <div class="uptime-form-card">
-                <div class="uptime-form-section-title"
-                    style="display: flex; justify-content: space-between; align-items: center;">
+                <div class="uptime-form-section-title filebox-history-header">
                     <span><i class="fas fa-history"></i> 本地分享历史</span>
-                    <span class="meta-badge" style="font-size: 12px;">共 {{ fileboxHistory.length }} 条记录</span>
+                    <div class="filebox-history-toolbar">
+                        <span class="meta-badge filebox-meta-badge">本地 {{ fileboxHistory.length }} 条</span>
+                        <button class="btn btn-icon-refined sm" @click="loadFileBoxServerHistory" title="刷新服务端历史">
+                            <i class="fas fa-sync-alt" :class="{ 'fa-spin': fileboxHistoryLoading }"></i>
+                        </button>
+                        <button class="btn btn-icon-refined sm danger" @click="clearLocalFileBoxHistory" title="清空本地历史">
+                            <i class="fas fa-trash-alt"></i>
+                        </button>
+                    </div>
                 </div>
 
-                <div v-if="fileboxHistory.length === 0" class="empty-state" style="padding: 60px 0;">
-                    <i class="fas fa-box-open" style="font-size: 48px; opacity: 0.2;"></i>
-                    <p style="margin-top: 15px; color: var(--text-tertiary);">尚未分享过任何内容</p>
+                <div v-if="fileboxHistory.length === 0" class="empty-state filebox-empty-lg">
+                    <i class="fas fa-box-open filebox-empty-icon-lg"></i>
+                    <p class="filebox-empty-text">尚未分享过任何内容</p>
                 </div>
 
                 <div v-else class="filebox-history-list-modern">
@@ -203,6 +226,45 @@
                     </div>
                 </div>
             </div>
+
+            <div class="uptime-form-card filebox-server-history-card">
+                <div class="uptime-form-section-title filebox-history-header">
+                    <span><i class="fas fa-database"></i> 服务端文件历史</span>
+                    <span class="meta-badge filebox-meta-badge">{{ fileboxServerHistory.length }} 条</span>
+                </div>
+
+                <div v-if="fileboxHistoryLoading" class="loading filebox-loading">
+                    <div class="spinner-sm"></div>
+                </div>
+
+                <div v-else-if="fileboxServerHistory.length === 0" class="empty-state filebox-empty-md">
+                    <i class="fas fa-inbox filebox-empty-icon-md"></i>
+                    <p class="filebox-empty-text">服务端暂无可用记录</p>
+                </div>
+
+                <div v-else class="filebox-history-list-modern">
+                    <div v-for="item in fileboxServerHistory" :key="'server-' + item.code" class="filebox-history-item">
+                        <div class="item-icon-box" :class="item.type">
+                            <i class="fas" :class="item.type === 'file' ? 'fa-file-alt' : 'fa-paragraph'"></i>
+                        </div>
+                        <div class="item-main">
+                            <div class="item-title">{{ item.type === 'file' ? item.originalName : '文本内容' }}</div>
+                            <div class="item-meta">
+                                {{ formatDateTime(item.createdAt) }} · 到期 {{ formatDateTime(item.expiry) }} · 下载 {{ item.downloads || 0 }} 次
+                            </div>
+                        </div>
+                        <div class="item-code-actions">
+                            <span class="item-code">{{ item.code }}</span>
+                            <button class="btn btn-icon-refined sm" @click="copyFileBoxLink(item.code)" title="复制链接">
+                                <i class="fas fa-link"></i>
+                            </button>
+                            <button class="btn btn-icon-refined sm danger" @click="deleteFileBoxEntry(item.code)" title="删除">
+                                <i class="fas fa-trash-alt"></i>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -210,7 +272,7 @@
     <Teleport to="body">
         <div v-if="fileboxRetrievedEntry" class="modal-overlay theme-filebox" @click.self="fileboxRetrievedEntry = null"
             tabindex="-1">
-            <div class="modal" style="max-width: 550px; overflow: hidden;">
+            <div class="modal filebox-modal">
                 <div class="modal-header">
                     <div class="modal-title"><i class="fas fa-box-open"></i> 文件提取成功</div>
                     <button class="modal-close" @click="fileboxRetrievedEntry = null">
@@ -218,7 +280,7 @@
                     </button>
                 </div>
 
-                <div class="modal-body text-center" style="padding: 30px;">
+                <div class="modal-body text-center filebox-modal-body">
                     <div class="retrieved-icon-wrapper" :class="fileboxRetrievedEntry.type">
                         <i class="fas"
                             :class="fileboxRetrievedEntry.type === 'file' ? 'fa-file-archive' : 'fa-font'"></i>

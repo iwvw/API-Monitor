@@ -13,6 +13,16 @@
     box-shadow: 0 2px 8px rgba(var(--current-rgb), 0.3);
 }
 
+.filebox-page-title {
+    margin: 0;
+    font-size: 24px;
+    color: var(--text-primary);
+}
+
+.filebox-title-icon {
+    color: var(--filebox-primary);
+}
+
 /* 顶部取件卡片 */
 .filebox-header-card {
     background: var(--card-bg);
@@ -22,6 +32,16 @@
     text-align: center;
     box-shadow: var(--card-shadow);
     background-image: radial-gradient(circle at top right, rgba(var(--primary-rgb), 0.05), transparent);
+}
+
+.filebox-help-card {
+    margin-top: 20px;
+}
+
+.filebox-help-text {
+    color: var(--text-secondary);
+    line-height: 1.6;
+    font-size: 14px;
 }
 
 .filebox-input-wrapper {
@@ -128,6 +148,71 @@
     box-shadow: 0 4px 12px rgba(var(--primary-rgb), 0.2);
 }
 
+.filebox-share-panel {
+    min-height: 500px;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+}
+
+.filebox-upload-progress-card {
+    margin-top: 14px;
+    padding: 12px 14px;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+}
+
+.filebox-upload-progress-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+}
+
+.filebox-upload-name {
+    font-size: 13px;
+    color: var(--text-primary);
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.filebox-upload-percent {
+    color: var(--primary-color);
+    font-weight: 700;
+    font-family: var(--font-mono);
+}
+
+.filebox-upload-progress-track {
+    height: 8px;
+    border-radius: 6px;
+    background: var(--bg-tertiary);
+    overflow: hidden;
+}
+
+.filebox-upload-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--filebox-primary), #34d399);
+    transition: width 0.2s ease;
+}
+
+.filebox-upload-meta {
+    margin-top: 10px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
+.filebox-upload-meta i {
+    margin-right: 4px;
+}
+
 /* 确保 Switch 样式在 filebox 中可用 */
 .form-switch {
     display: inline-flex;
@@ -181,6 +266,10 @@
     border-radius: 12px;
     gap: 5px;
     border: 1px solid var(--border-color);
+}
+
+.filebox-share-tabs-wrap {
+    margin-bottom: 20px;
 }
 
 .filebox-tab-btn {
@@ -263,6 +352,12 @@
     margin-bottom: 15px;
 }
 
+.filebox-text-area {
+    flex: 1;
+    min-height: 200px;
+    padding: 15px;
+}
+
 .filebox-upload-remove {
     font-size: 12px;
     color: var(--danger-color);
@@ -317,6 +412,48 @@
     margin: 15px 0;
     font-family: var(--font-mono);
     text-shadow: 0 0 20px rgba(var(--primary-rgb), 0.3);
+}
+
+.filebox-result-icon {
+    font-size: 56px;
+    color: #10b981;
+    margin-bottom: 20px;
+}
+
+.filebox-result-title {
+    color: var(--text-primary);
+    margin-bottom: 5px;
+}
+
+.filebox-result-desc {
+    color: var(--text-secondary);
+    font-size: 14px;
+    margin-bottom: 15px;
+}
+
+.filebox-qr-wrap {
+    margin-bottom: 20px;
+}
+
+.filebox-qr-image {
+    width: 120px;
+    height: 120px;
+    border-radius: 8px;
+    background: #fff;
+    padding: 8px;
+}
+
+.filebox-qr-tip {
+    color: var(--text-tertiary);
+    font-size: 12px;
+    margin-top: 8px;
+}
+
+.filebox-result-actions {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    flex-wrap: wrap;
 }
 
 /* 历史记录列表 */
@@ -409,6 +546,62 @@
     padding: 4px 6px;
     min-width: 24px;
     height: 24px;
+}
+
+.filebox-history-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.filebox-history-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.filebox-meta-badge {
+    font-size: 12px;
+}
+
+.filebox-server-history-card {
+    margin-top: 14px;
+}
+
+.filebox-empty-lg {
+    padding: 60px 0;
+}
+
+.filebox-empty-md {
+    padding: 36px 0;
+}
+
+.filebox-empty-icon-lg {
+    font-size: 48px;
+    opacity: 0.2;
+}
+
+.filebox-empty-icon-md {
+    font-size: 34px;
+    opacity: 0.2;
+}
+
+.filebox-empty-text {
+    margin-top: 12px;
+    color: var(--text-tertiary);
+}
+
+.filebox-loading {
+    padding: 28px 0;
+}
+
+.filebox-modal {
+    max-width: 550px;
+    overflow: hidden;
+}
+
+.filebox-modal-body {
+    padding: 30px;
 }
 
 /* 提取结果弹窗增强 */
@@ -514,4 +707,49 @@
 
 .bounce-in {
     animation: bounceIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+@media (max-width: 768px) {
+    .filebox-page-title {
+        font-size: 20px;
+    }
+
+    .filebox-input-wrapper {
+        flex-direction: column;
+        max-width: 100%;
+    }
+
+    .filebox-retrieve-btn {
+        width: 100%;
+    }
+
+    .filebox-share-panel {
+        min-height: 420px;
+    }
+
+    .filebox-upload-zone {
+        min-height: 190px;
+        padding: 24px 20px;
+    }
+
+    .filebox-options-row {
+        justify-content: flex-start;
+        gap: 12px;
+    }
+
+    .filebox-options-row .btn-primary {
+        width: 100%;
+    }
+
+    .filebox-history-header {
+        align-items: flex-start;
+        gap: 8px;
+        flex-direction: column;
+    }
+
+    .filebox-history-toolbar {
+        width: 100%;
+        justify-content: flex-start;
+        flex-wrap: wrap;
+    }
 }

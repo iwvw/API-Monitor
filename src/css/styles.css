@@ -3279,7 +3279,7 @@ body.modal-open {
   }
 }
 
-@media (max-width: 80px) {
+@media (max-width: 480px) {
   .stats-grid {
     grid-template-columns: 1fr;
   }
