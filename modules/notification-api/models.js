@@ -87,6 +87,9 @@ class AlertRuleModel extends BaseModel {
             suppression: JSON.stringify(ruleData.suppression || {}),
             time_window: JSON.stringify(ruleData.time_window || { enabled: false }),
             description: ruleData.description || '',
+            title_template: ruleData.title_template || '',
+            message_template: ruleData.message_template || '',
+            backup_channels: JSON.stringify(ruleData.backup_channels || []),
         };
         this.insert(data);
         return data;
@@ -123,6 +126,7 @@ class AlertRuleModel extends BaseModel {
             conditions: JSON.parse(rule.conditions || '{}'),
             suppression: JSON.parse(rule.suppression || '{}'),
             time_window: JSON.parse(rule.time_window || '{"enabled":false}'),
+            backup_channels: JSON.parse(rule.backup_channels || '[]'),
         };
     }
 
@@ -140,6 +144,10 @@ class AlertRuleModel extends BaseModel {
         if (ruleData.suppression !== undefined) data.suppression = JSON.stringify(ruleData.suppression);
         if (ruleData.time_window !== undefined) data.time_window = JSON.stringify(ruleData.time_window);
         if (ruleData.description !== undefined) data.description = ruleData.description;
+        if (ruleData.quiet_until !== undefined) data.quiet_until = ruleData.quiet_until;
+        if (ruleData.title_template !== undefined) data.title_template = ruleData.title_template;
+        if (ruleData.message_template !== undefined) data.message_template = ruleData.message_template;
+        if (ruleData.backup_channels !== undefined) data.backup_channels = JSON.stringify(ruleData.backup_channels);
 
         return this.update(id, data);
     }
@@ -280,6 +288,8 @@ class AlertStateTrackingModel extends BaseModel {
                 fingerprint: fingerprint,
                 last_triggered_at: Date.now(),
                 consecutive_failures: 1,
+                state_history: JSON.stringify([]),
+                is_flapping: 0,
                 ...updates,
             };
             const result = this.insert(data);
@@ -402,7 +412,32 @@ class NotificationGlobalConfigModel extends BaseModel {
             enable_batch: config.enable_batch === 1,
             batch_interval_seconds: config.batch_interval_seconds || 30,
             default_channels: JSON.parse(config.default_channels || '[]'),
+            global_rate_limit_per_hour: config.global_rate_limit_per_hour || 100,
+            enable_auto_escalation: config.enable_auto_escalation === 1,
+            base_url: config.base_url || '',
         };
+    }
+}
+
+/**
+ * 维护计划模型
+ */
+class MaintenanceScheduleModel extends BaseModel {
+    constructor() {
+        super('maintenance_schedules');
+    }
+
+    /**
+     * 获取当前生效的维护计划
+     */
+    getActive() {
+        const db = this.getDb();
+        const now = new Date().toISOString();
+        const stmt = db.prepare(`
+            SELECT * FROM ${this.tableName}
+            WHERE start_at <= ? AND end_at >= ?
+        `);
+        return stmt.all(now, now);
     }
 }
 
@@ -413,5 +448,6 @@ module.exports = {
     NotificationHistory: new NotificationHistoryModel(),
     AlertStateTracking: new AlertStateTrackingModel(),
     NotificationGlobalConfig: new NotificationGlobalConfigModel(),
+    MaintenanceSchedule: new MaintenanceScheduleModel(),
     generateId,
 };

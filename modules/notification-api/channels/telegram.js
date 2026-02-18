@@ -24,7 +24,7 @@ class TelegramChannel {
         try {
             const url = `${this.apiBase}${config.bot_token}/sendMessage`;
 
-            const text = this.formatMessage(title, message);
+            const text = this.formatMessage(title, message, options.notification, config);
 
             const response = await axios.post(url, {
                 chat_id: config.chat_id,
@@ -55,11 +55,20 @@ class TelegramChannel {
     /**
      * 格式化消息
      */
-    formatMessage(title, message) {
+    formatMessage(title, message, notification, config) {
         let text = `<b>${this.escapeHTML(title)}</b>\n\n`;
 
-        // 格式化消息内容
+        // 聚合通知特殊排版
+        if (notification?.is_batch) {
+            text += `<i>当前有 ${notification.is_batch ? '多个' : ''} 汇总告警如下：</i>\n\n`;
+        }
+
         text += this.formatContent(message);
+
+        if (config.base_url) {
+            const dashboardUrl = config.base_url.replace(/\/$/, '') + '/#/';
+            text += `\n\n🔗 <a href="${dashboardUrl}">查看仪表盘</a>`;
+        }
 
         return text;
     }
@@ -68,14 +77,25 @@ class TelegramChannel {
      * 格式化内容
      */
     formatContent(message) {
-        // 如果是 JSON,格式化显示
+        // 如果是 JSON, 格式化显示
         try {
             const data = JSON.parse(message);
             const jsonStr = JSON.stringify(data, null, 2);
             return `<pre>${this.escapeHTML(jsonStr)}</pre>`;
         } catch (e) {
-            // 普通文本,转义并保留换行
-            return this.escapeHTML(message).replace(/\n/g, '\n');
+            // 普通文本，识别 "Label: Value" 模式进行美化排版
+            return message.split('\n')
+                .filter(line => line.trim())
+                .map(line => {
+                    const colonIndex = line.indexOf(':');
+                    if (colonIndex > 0 && colonIndex < 30) {
+                        const label = line.substring(0, colonIndex).replace(/[📋📧⏰📊🖥️💳🔗🌐❌⏱️⏱️💰🎯]/g, '').trim();
+                        const value = line.substring(colonIndex + 1).trim();
+                        return `<b>${this.escapeHTML(label)}:</b> ${this.escapeHTML(value)}`;
+                    }
+                    return this.escapeHTML(line);
+                })
+                .join('\n');
         }
     }
 

@@ -8,6 +8,7 @@ const {
     NotificationHistory,
     AlertStateTracking,
     NotificationGlobalConfig,
+    MaintenanceSchedule,
 } = require('./models');
 
 /**
@@ -295,4 +296,9 @@ module.exports = {
     history: historyStorage,
     stateTracking: stateTrackingStorage,
     globalConfig: globalConfigStorage,
+    maintenance: {
+        getActive() {
+            return MaintenanceSchedule.getActive();
+        }
+    }
 };
