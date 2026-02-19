@@ -6,19 +6,6 @@
       <p class="subtitle">System Overview & Status Monitor</p>
     </div>
     <div class="header-right">
-      <!-- System Health Score (New) -->
-      <div class="system-health-gauge" :class="getHealthClass(getSystemHealthScore())"
-        :title="'系统综合健康得分: ' + getSystemHealthScore()">
-        <div class="gauge-center">
-          <span class="gauge-value">{{ getSystemHealthScore() }}</span>
-          <span class="gauge-label">健康度</span>
-        </div>
-        <svg viewBox="0 0 36 36" class="circular-chart">
-          <path class="circle-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
-          <path class="circle" :style="{ strokeDasharray: getSystemHealthScore() + ', 100' }"
-            d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
-        </svg>
-      </div>
       <div class="last-update" v-show="dashboardLastUpdate">
         <i class="fas fa-history"></i><span>{{ dashboardLastUpdate }}</span>
       </div>
