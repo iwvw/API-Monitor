@@ -1407,37 +1407,44 @@
         </div>
       </div>
 
-      <div class="docker-task-hub">
-        <div class="docker-task-hub-header">
+      <div class="docker-task-hub" :class="{ 'is-collapsed': dockerTaskHubCollapsed }">
+        <div class="docker-task-hub-header" @click="dockerTaskHubCollapsed = !dockerTaskHubCollapsed"
+          style="cursor: pointer; user-select: none;">
           <div class="docker-task-stream-indicator" :class="{ online: dockerTaskStreamConnected }">
             <i class="fas" :class="dockerTaskStreamConnected ? 'fa-signal' : 'fa-plug-circle-xmark'"></i>
             <span>{{ dockerTaskStreamConnected ? '任务流已连接' : '任务流重连中' }}</span>
           </div>
-          <span class="docker-task-count">最近 {{ Math.min(dockerTasks.length, 8) }} / {{ dockerTasks.length }} 条任务</span>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <span class="docker-task-count">最近 {{ Math.min(dockerTasks.length, 8) }} / {{ dockerTasks.length }} 条任务</span>
+            <i class="fas" :class="dockerTaskHubCollapsed ? 'fa-chevron-down' : 'fa-chevron-up'"
+              style="font-size: 11px; opacity: 0.5;"></i>
+          </div>
         </div>
-        <div v-if="dockerTaskStreamError" class="docker-task-stream-error">{{ dockerTaskStreamError }}</div>
-        <div v-if="dockerTasks.length === 0" class="docker-task-empty">
-          暂无 Docker 任务记录，执行任一操作后会在这里实时显示
-        </div>
-        <div v-else class="docker-task-list">
-          <div v-for="task in dockerTasks.slice(0, 8)" :key="task.taskId || task.id" class="docker-task-item">
-            <span class="docker-task-state" :class="getDockerTaskStateClass(task.state)">
-              {{ getDockerTaskStateLabel(task.state) }}
-            </span>
-            <div class="docker-task-main">
-              <div class="docker-task-title">
-                <span>{{ getDockerTaskActionLabel(task.action) }}</span>
-                <span class="docker-task-server">{{ getDockerTaskServerName(task.serverId) }}</span>
-                <span v-if="task.state === 'running' && task.progress" class="docker-task-percent">{{ task.progress
-                  }}%</span>
+        <div v-show="!dockerTaskHubCollapsed" style="margin-top: 8px;">
+          <div v-if="dockerTaskStreamError" class="docker-task-stream-error">{{ dockerTaskStreamError }}</div>
+          <div v-if="dockerTasks.length === 0" class="docker-task-empty">
+            暂无 Docker 任务记录，执行任一操作后会在这里实时显示
+          </div>
+          <div v-else class="docker-task-list">
+            <div v-for="task in dockerTasks.slice(0, 8)" :key="task.taskId || task.id" class="docker-task-item">
+              <span class="docker-task-state" :class="getDockerTaskStateClass(task.state)">
+                {{ getDockerTaskStateLabel(task.state) }}
+              </span>
+              <div class="docker-task-main">
+                <div class="docker-task-title">
+                  <span>{{ getDockerTaskActionLabel(task.action) }}</span>
+                  <span class="docker-task-server">{{ getDockerTaskServerName(task.serverId) }}</span>
+                  <span v-if="task.state === 'running' && task.progress" class="docker-task-percent">{{ task.progress
+                    }}%</span>
+                </div>
+                <div class="docker-task-msg" :title="getDockerTaskMessage(task)">{{ getDockerTaskMessage(task) }}</div>
+                <!-- 实时进度条 -->
+                <div v-if="task.state === 'running' && task.progress" class="docker-task-progress-mini">
+                  <div class="fill" :style="{ width: task.progress + '%' }"></div>
+                </div>
               </div>
-              <div class="docker-task-msg" :title="getDockerTaskMessage(task)">{{ getDockerTaskMessage(task) }}</div>
-              <!-- 实时进度条 -->
-              <div v-if="task.state === 'running' && task.progress" class="docker-task-progress-mini">
-                <div class="fill" :style="{ width: task.progress + '%' }"></div>
-              </div>
+              <span class="docker-task-time">{{ formatDateTime(task.updatedAt || task.createdAt) }}</span>
             </div>
-            <span class="docker-task-time">{{ formatDateTime(task.updatedAt || task.createdAt) }}</span>
           </div>
         </div>
       </div>

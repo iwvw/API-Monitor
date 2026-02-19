@@ -4430,7 +4430,15 @@
   justify-content: space-between;
   align-items: center;
   gap: 12px;
-  margin-bottom: 8px;
+  transition: opacity 0.2s;
+}
+
+.docker-task-hub-header:hover {
+  opacity: 0.8;
+}
+
+.docker-task-hub.is-collapsed {
+  padding-bottom: 10px;
 }
 
 .docker-task-stream-indicator {
