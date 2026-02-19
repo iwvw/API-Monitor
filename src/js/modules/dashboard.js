@@ -140,6 +140,71 @@ export const dashboardMethods = {
   },
 
   /**
+   * 计算全站系统健康得分 (0-100)
+   */
+  getSystemHealthScore() {
+    const stats = store.dashboardStats;
+    let score = 0;
+    let weights = 0;
+
+    // 1. 主机健康度 (权重 40)
+    if (stats.servers.total > 0) {
+      score += (stats.servers.online / stats.servers.total) * 40;
+      weights += 40;
+    }
+
+    // 2. API 成功率 (权重 30)
+    const agTotal = stats.antigravity.total_calls || 0;
+    const geTotal = stats.geminiCli.total_calls || 0;
+    if (agTotal + geTotal > 0) {
+      const agRate = agTotal > 0 ? stats.antigravity.success_calls / agTotal : 1;
+      const geRate = geTotal > 0 ? stats.geminiCli.success_calls / geTotal : 1;
+      score += ((agRate + geRate) / 2) * 30;
+      weights += 30;
+    }
+
+    // 3. Uptime 监控 (权重 20)
+    if (stats.uptime.total > 0) {
+      score += (stats.uptime.up / stats.uptime.total) * 20;
+      weights += 20;
+    }
+
+    // 4. PaaS 运行状态 (权重 10)
+    const paasTotal = stats.paas.zeabur.total + stats.paas.koyeb.total + stats.paas.fly.total;
+    const paasRunning = stats.paas.zeabur.running + stats.paas.koyeb.running + stats.paas.fly.running;
+    if (paasTotal > 0) {
+      score += (paasRunning / paasTotal) * 10;
+      weights += 10;
+    }
+
+    // 归一化处理（如果没有某些指标，按比例放大现有分数）
+    if (weights === 0) return 100;
+    return Math.round((score / weights) * 100);
+  },
+
+  /**
+   * 主机快速操作：刷新状态
+   */
+  async quickPingServer(serverId) {
+    if (!this.showGlobalToast) return;
+    try {
+      const res = await fetch(`/api/server/accounts/${serverId}/probe`, {
+        method: 'POST',
+        headers: store.getAuthHeaders()
+      });
+      const data = await res.json();
+      if (data.success) {
+        this.showGlobalToast('主机检测已触发', 'success');
+        this.fetchServerSummary();
+      } else {
+        this.showGlobalToast('检测请求失败: ' + data.error, 'error');
+      }
+    } catch (e) {
+      this.showGlobalToast('网络错误', 'error');
+    }
+  },
+
+  /**
    * 获取主机状态摘要
    */
   async fetchServerSummary() {
@@ -158,6 +223,16 @@ export const dashboardMethods = {
     } catch (e) {
       console.error('[Dashboard] Fetch server summary failed:', e);
     }
+  },
+
+  /**
+   * 根据分数获取健康等级 CSS 类
+   */
+  getHealthClass(score) {
+    if (score >= 90) return 'health-excellent';
+    if (score >= 70) return 'health-good';
+    if (score >= 50) return 'health-warning';
+    return 'health-critical';
   },
 
   /**

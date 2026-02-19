@@ -1226,6 +1226,140 @@
   }
 }
 
+/* =========================================
+   System Health Score & Quick Actions
+   ========================================= */
+.system-health-gauge {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--bg-secondary);
+  padding: 4px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  position: relative;
+  height: 40px;
+  cursor: help;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+}
+
+.system-health-gauge:hover {
+  background: var(--bg-tertiary);
+  border-color: var(--primary-color);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.gauge-center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1;
+  min-width: 32px;
+}
+
+.gauge-value {
+  font-size: 16px;
+  font-weight: 800;
+  font-family: var(--font-mono, monospace);
+  color: var(--text-primary);
+}
+
+.gauge-label {
+  font-size: 8px;
+  font-weight: 700;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  margin-top: 2px;
+  letter-spacing: 0.5px;
+}
+
+.circular-chart {
+  width: 24px;
+  height: 24px;
+}
+
+.circle-bg {
+  fill: none;
+  stroke: var(--border-color);
+  stroke-width: 3.8;
+  opacity: 0.3;
+}
+
+.circle {
+  fill: none;
+  stroke-width: 3.8;
+  stroke-linecap: round;
+  transition: stroke-dasharray 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* Health Colors */
+.health-excellent .circle {
+  stroke: #10b981;
+}
+
+.health-excellent .gauge-value {
+  color: #10b981;
+}
+
+.health-good .circle {
+  stroke: #3b82f6;
+}
+
+.health-good .gauge-value {
+  color: #3b82f6;
+}
+
+.health-warning .circle {
+  stroke: #f59e0b;
+}
+
+.health-warning .gauge-value {
+  color: #f59e0b;
+}
+
+.health-critical .circle {
+  stroke: #ef4444;
+}
+
+.health-critical .gauge-value {
+  color: #ef4444;
+}
+
+/* Quick Action Button for Status Cards */
+.quick-action-btn {
+  width: 24px;
+  height: 24px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  font-size: 10px;
+}
+
+.quick-action-btn:hover:not(:disabled) {
+  background: var(--primary-color);
+  border-color: var(--primary-color);
+  color: white;
+  transform: rotate(30deg);
+  box-shadow: 0 2px 8px rgba(var(--primary-rgb), 0.3);
+}
+
+.quick-action-btn:active:not(:disabled) {
+  transform: scale(0.9) rotate(30deg);
+}
+
+.quick-action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 @media (max-width: 768px) {
   .music-skeleton-content {
     padding: 0 16px;
