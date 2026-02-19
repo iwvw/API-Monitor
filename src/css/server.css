@@ -4623,12 +4623,6 @@
   flex-wrap: wrap;
 }
 
-.docker-main-grid {
-  /* display: grid; */
-  /* grid-template-columns: minmax(0, 1fr) 320px; */
-  /* gap: 12px; */
-}
-
 .docker-container-table-wrap {
   min-width: 0;
 }
@@ -4950,7 +4944,9 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  line-height: 1.2;
+  line-height: normal;
+  padding-bottom: 2px;
+  /* Prevent descenders (g, j, p, q, y) from being cut off */
 }
 
 /* 状态标签 */

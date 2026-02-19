@@ -1103,7 +1103,10 @@ export const hostMethods = {
 
     const list = this.dockerTasks || [];
     const idx = list.findIndex(item => item.taskId === task.taskId);
+    let oldTask = null;
+
     if (idx >= 0) {
+      oldTask = list[idx];
       list[idx] = { ...list[idx], ...task };
     } else {
       list.unshift(task);
@@ -1115,6 +1118,35 @@ export const hostMethods = {
     }
 
     this.dockerTasks = [...list];
+
+    // [New] Check if task just finished
+    if (this.isDockerTaskDone(task) && (!oldTask || !this.isDockerTaskDone(oldTask))) {
+      this.handleDockerTaskCompletion(task);
+    }
+  },
+
+  handleDockerTaskCompletion(task) {
+    // Only show toast if user is currently viewing docker page
+    // and if the task is recent (avoid spam on initial load)
+    if (Date.now() - (task.updatedAt || task.createdAt) > 60000) return;
+
+    const actionLabel = this.getDockerTaskActionLabel(task.action);
+    const containerName = task.payload?.containerName || task.payload?.name || '容器';
+
+    if (task.state === 'success') {
+      this.showGlobalToast(`${actionLabel}成功: ${containerName}`, 'success');
+      // Refresh list to update state
+      if (this.serverCurrentTab === 'docker') {
+        // Debounce refresh to avoid multiple refreshes on batch operations
+        if (this._dockerRefreshTimer) clearTimeout(this._dockerRefreshTimer);
+        this._dockerRefreshTimer = setTimeout(() => {
+          this.loadDockerOverview();
+        }, 1000);
+      }
+    } else {
+      const errorMsg = task.error || task.result?.error || '未知错误';
+      this.showGlobalToast(`${actionLabel}失败: ${containerName} - ${errorMsg}`, 'error');
+    }
   },
 
   isDockerTaskDone(task) {
@@ -1251,6 +1283,19 @@ export const hostMethods = {
     if (!taskId) {
       throw new Error('任务 ID 缺失');
     }
+
+    // [New] Optimistic UI update: Add task to list immediately
+    this.upsertDockerTask({
+      taskId,
+      domain: 'docker',
+      action,
+      state: 'running',
+      progress: 0,
+      message: '任务已提交...',
+      createdAt: Date.now(),
+      serverId,
+      payload
+    });
 
     if (options.wait === false) {
       return { taskId };
