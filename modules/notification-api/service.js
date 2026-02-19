@@ -682,15 +682,23 @@ class NotificationService extends EventEmitter {
         if (eventData.monitorName) lines.push(`项目: ${eventData.monitorName}`);
         if (eventData.serverName) lines.push(`主机: ${eventData.serverName}`);
         if (eventData.error) lines.push(`错误: ${eventData.error}`);
-        if (eventData.url) lines.push(`地址: ${eventData.url}`);
+        if (eventData.url || eventData.host) lines.push(`地址: ${eventData.url || eventData.host}`);
+        if (eventData.hostname) lines.push(`标识: ${eventData.hostname}`);
         if (eventData.ping !== undefined) lines.push(`响应: ${eventData.ping}ms`);
         if (eventData.cpu_usage !== undefined) lines.push(`CPU: ${eventData.cpu_usage}%`);
         if (eventData.mem_percent !== undefined) lines.push(`内存: ${eventData.mem_percent}%`);
+        if (eventData.mem_used !== undefined && eventData.mem_total !== undefined) {
+            lines.push(`内存: ${eventData.mem_used}/${eventData.mem_total}MB`);
+        }
         if (eventData.balance !== undefined) lines.push(`余额: $${eventData.balance}`);
         if (eventData.threshold !== undefined) lines.push(`阈值: ${eventData.threshold}`);
+        if (eventData.lastSeen) {
+            const lastSeenDate = new Date(eventData.lastSeen);
+            lines.push(`最后活跃: ${lastSeenDate.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}`);
+        }
 
-        // 如果没有特定信息,显示完整数据
-        if (lines.length <= 1) {
+        // 如果没有任何特定信息,显示完整数据
+        if (lines.length === 0) {
             return JSON.stringify(eventData, null, 2);
         }
 
