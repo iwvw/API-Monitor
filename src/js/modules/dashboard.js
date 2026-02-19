@@ -139,6 +139,9 @@ export const dashboardMethods = {
     });
   },
 
+
+
+
   /**
    * 获取主机状态摘要
    */
@@ -159,6 +162,7 @@ export const dashboardMethods = {
       console.error('[Dashboard] Fetch server summary failed:', e);
     }
   },
+
 
   /**
    * 获取 API 网关摘要 (Antigravity & Gemini CLI)

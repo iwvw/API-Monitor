@@ -7,6 +7,7 @@ const accountCountEl = document.getElementById('accountCount');
 const toastEl = document.getElementById('toast');
 const searchInput = document.getElementById('searchInput');
 const datalist = document.getElementById('issuerList');
+const toggleFillButton = document.getElementById('toggleFillButton');
 
 let refreshInterval;
 let serverUrl = '';
@@ -166,8 +167,15 @@ searchInput.addEventListener('input', (e) => {
 });
 
 chrome.runtime.sendMessage({ type: 'GET_CONFIG' }, (config) => {
-  if (config && config.serverUrl) serverUrl = config.serverUrl.endsWith('/') ? config.serverUrl.slice(0, -1) : config.serverUrl;
+  if (config) {
+    if (config.serverUrl) serverUrl = config.serverUrl.endsWith('/') ? config.serverUrl.slice(0, -1) : config.serverUrl;
+    toggleFillButton.checked = config.showFillButton !== false;
+  }
   loadAccounts();
+});
+
+toggleFillButton.addEventListener('change', () => {
+  chrome.storage.sync.set({ showFillButton: toggleFillButton.checked });
 });
 
 document.getElementById('btnSettings').addEventListener('click', () => chrome.runtime.openOptionsPage());

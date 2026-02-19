@@ -4,12 +4,22 @@
 
 const serverUrl = '';
 let responseServerUrl = '';
+let showFillButton = true;
 let allAccounts = [];
 
 function isContextValid() { return typeof chrome !== 'undefined' && chrome.runtime && !!chrome.runtime.id; }
 
 function is2FAInput(input) {
+  if (input.dataset.apiMonitorIgnore) return false;
   if (input.type !== 'text' && input.type !== 'tel' && input.type !== 'number' && input.type !== 'password') return false;
+
+  // 识别分段输入框 (格子)
+  const isDigitBox = (input.maxLength === 1 || (input.size === 1 && !input.maxLength));
+  if (isDigitBox) {
+    const group = getDigitGroup(input);
+    if (group.length >= 4) return true;
+  }
+
   const hints = ['otp', '2fa', 'totp', 'code', 'verification', 'authenticator', 'token', 'mfa', '验证码', '验证'];
   const attrs = [input.name, input.id, input.placeholder, input.autocomplete, input.getAttribute('aria-label'), input.className].filter(Boolean).map(s => s.toLowerCase());
   return hints.some(h => attrs.some(a => a.includes(h))) || (parseInt(input.maxLength) >= 4 && parseInt(input.maxLength) <= 8);
@@ -18,6 +28,41 @@ function is2FAInput(input) {
 function formatCode(code) {
   if (!code) return '------';
   return code.length === 6 ? code.substring(0, 3) + ' ' + code.substring(3) : code;
+}
+
+function getDigitGroup(input) {
+  // 向上寻找共同祖先，最多找 3 层，尝试找到包含多个小格子的容器
+  let p = input.parentElement;
+  let bestGroup = [input];
+
+  for (let depth = 0; depth < 3 && p; depth++) {
+    const allInputs = Array.from(p.querySelectorAll('input')).filter(i => {
+      const style = window.getComputedStyle(i);
+      return style.display !== 'none' && style.visibility !== 'hidden' &&
+        (i.type === 'text' || i.type === 'tel' || i.type === 'number' || i.type === 'password') &&
+        !i.dataset.apiMonitorIgnore;
+    });
+
+    // 筛选出特征明显的“小格子”：maxLength 为 1，或者视觉上很窄
+    const smallInputs = allInputs.filter(i => {
+      const rect = i.getBoundingClientRect();
+      return i.maxLength === 1 || i.size === 1 || (rect.width > 0 && rect.width < 60);
+    });
+
+    if (smallInputs.length >= 4 && smallInputs.length <= 12 && smallInputs.includes(input)) {
+      // 检查这些小格子是否在视觉上大致水平排列（这是格子布局的特征）
+      const firstRect = smallInputs[0].getBoundingClientRect();
+      const lastRect = smallInputs[smallInputs.length - 1].getBoundingClientRect();
+      const isHorizontal = Math.abs(firstRect.top - lastRect.top) < 20;
+
+      if (isHorizontal) {
+        bestGroup = smallInputs;
+        break;
+      }
+    }
+    p = p.parentElement;
+  }
+  return bestGroup;
 }
 
 function safeSendMessage(message, callback) {
@@ -114,11 +159,28 @@ function renderPickerList(container, accounts, input) {
   container.querySelectorAll('.account-item').forEach(item => {
     item.addEventListener('click', () => {
       if (item.dataset.code) {
-        input.dataset.justFilled = 'true';
-        input.value = item.dataset.code;
-        input.dispatchEvent(new Event('input', { bubbles: true }));
-        input.dispatchEvent(new Event('change', { bubbles: true }));
-        input.focus();
+        const code = item.dataset.code;
+        const group = getDigitGroup(input);
+
+        if (group.length > 1) {
+          // 分段填充
+          const digits = code.replace(/\s/g, '').split('');
+          group.forEach((el, idx) => {
+            if (digits[idx] && el) {
+              el.value = digits[idx];
+              el.dispatchEvent(new Event('input', { bubbles: true }));
+              el.dispatchEvent(new Event('change', { bubbles: true }));
+            }
+          });
+          if (group[0]) group[0].focus();
+        } else {
+          // 普通填充
+          input.dataset.justFilled = 'true';
+          input.value = code;
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+          input.focus();
+        }
       }
       document.querySelectorAll('.api-monitor-2fa-picker').forEach(p => p.remove());
     });
@@ -140,14 +202,45 @@ function updateProgress(accounts) {
 }
 
 safeSendMessage({ type: 'GET_CONFIG' }, (config) => {
-  if (config && config.serverUrl) responseServerUrl = config.serverUrl.endsWith('/') ? config.serverUrl.slice(0, -1) : config.serverUrl;
+  if (config) {
+    if (config.serverUrl) responseServerUrl = config.serverUrl.endsWith('/') ? config.serverUrl.slice(0, -1) : config.serverUrl;
+    showFillButton = config.showFillButton !== false;
+    if (showFillButton) scanInputs();
+  }
 });
 
+chrome.storage.onChanged.addListener((changes) => {
+  if (changes.showFillButton) {
+    showFillButton = changes.showFillButton.newValue !== false;
+    if (showFillButton) {
+      scanInputs();
+    } else {
+      removeButtons();
+    }
+  }
+});
+
+function removeButtons() {
+  document.querySelectorAll('.api-monitor-2fa-btn').forEach(btn => btn.remove());
+  document.querySelectorAll('.api-monitor-2fa-picker').forEach(p => p.remove());
+  document.querySelectorAll('input[data-api-monitor-2fa]').forEach(input => {
+    delete input.dataset.apiMonitor2fa;
+    // 如果有 wrapper，可以选择保留或移除。为了简单，我们主要控制按钮的显示。
+  });
+}
+
 function scanInputs() {
-  if (!isContextValid()) return;
+  if (!isContextValid() || !showFillButton) return;
   document.querySelectorAll('input').forEach(input => {
-    if (input.dataset.apiMonitor2fa) return;
+    if (input.dataset.apiMonitor2fa || input.dataset.apiMonitorIgnore) return;
     if (is2FAInput(input)) {
+      const group = getDigitGroup(input);
+      if (group.length > 1 && group[0] !== input) {
+        // 如果是格子组中的非第一个，标记忽略
+        input.dataset.apiMonitorIgnore = 'true';
+        return;
+      }
+
       input.dataset.apiMonitor2fa = 'true';
       const wrapper = document.createElement('div'); wrapper.className = 'api-monitor-2fa-wrapper';
       input.parentNode.insertBefore(wrapper, input); wrapper.appendChild(input); wrapper.appendChild(createFillButton(input));

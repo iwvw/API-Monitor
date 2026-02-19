@@ -1103,7 +1103,10 @@ export const hostMethods = {
 
     const list = this.dockerTasks || [];
     const idx = list.findIndex(item => item.taskId === task.taskId);
+    let oldTask = null;
+
     if (idx >= 0) {
+      oldTask = list[idx];
       list[idx] = { ...list[idx], ...task };
     } else {
       list.unshift(task);
@@ -1115,6 +1118,35 @@ export const hostMethods = {
     }
 
     this.dockerTasks = [...list];
+
+    // [New] Check if task just finished
+    if (this.isDockerTaskDone(task) && (!oldTask || !this.isDockerTaskDone(oldTask))) {
+      this.handleDockerTaskCompletion(task);
+    }
+  },
+
+  handleDockerTaskCompletion(task) {
+    // Only show toast if user is currently viewing docker page
+    // and if the task is recent (avoid spam on initial load)
+    if (Date.now() - (task.updatedAt || task.createdAt) > 60000) return;
+
+    const actionLabel = this.getDockerTaskActionLabel(task.action);
+    const containerName = task.payload?.containerName || task.payload?.name || '容器';
+
+    if (task.state === 'success') {
+      this.showGlobalToast(`${actionLabel}成功: ${containerName}`, 'success');
+      // Refresh list to update state
+      if (this.serverCurrentTab === 'docker') {
+        // Debounce refresh to avoid multiple refreshes on batch operations
+        if (this._dockerRefreshTimer) clearTimeout(this._dockerRefreshTimer);
+        this._dockerRefreshTimer = setTimeout(() => {
+          this.loadDockerOverview();
+        }, 1000);
+      }
+    } else {
+      const errorMsg = task.error || task.result?.error || '未知错误';
+      this.showGlobalToast(`${actionLabel}失败: ${containerName} - ${errorMsg}`, 'error');
+    }
   },
 
   isDockerTaskDone(task) {
@@ -1251,6 +1283,19 @@ export const hostMethods = {
     if (!taskId) {
       throw new Error('任务 ID 缺失');
     }
+
+    // [New] Optimistic UI update: Add task to list immediately
+    this.upsertDockerTask({
+      taskId,
+      domain: 'docker',
+      action,
+      state: 'running',
+      progress: 0,
+      message: '任务已提交...',
+      createdAt: Date.now(),
+      serverId,
+      payload
+    });
 
     if (options.wait === false) {
       return { taskId };
@@ -1475,11 +1520,6 @@ export const hostMethods = {
   async checkAllDockerUpdates(options = {}) {
     if (this.dockerUpdateChecking) return;
 
-    // 如果是静默模式且当前没人在看 Docker 标签页，可以跳过以节省资源
-    if (options.silent && this.mainActiveTab !== 'server') {
-      // 也可以选择继续执行，取决于用户需求。这里暂时允许执行但保持静默。
-    }
-
     if (this.dockerOverviewServers.length === 0) {
       if (!options.silent) {
         this.showGlobalToast('没有可检测的 Docker 主机', 'warning');
@@ -1490,47 +1530,53 @@ export const hostMethods = {
     this.dockerUpdateChecking = true;
 
     try {
-      const jobs = this.dockerOverviewServers.map(server =>
-        this.submitDockerTask(
-          'container.checkUpdates',
-          { serverId: server.id },
-          { timeoutMs: 240000 }
-        )
-      );
-
-      const settled = await Promise.allSettled(jobs);
-      const allNewResults = [];
       let totalUpdates = 0;
       let totalErrors = 0;
 
-      settled.forEach((item, index) => {
-        if (item.status === 'fulfilled') {
-          const parsed = this.parseDockerTaskResult(item.value, []);
+      // 内部辅助函数：执行单台主机的检测并即时更新结果
+      const runSingleCheck = async (server) => {
+        try {
+          const task = await this.submitDockerTask(
+            'container.checkUpdates',
+            { serverId: server.id },
+            { timeoutMs: 240000, silent: true } // 这里的 silent 是指 submitDockerTask 不弹出基础提示
+          );
+
+          const parsed = this.parseDockerTaskResult(task, []);
           if (Array.isArray(parsed)) {
-            allNewResults.push(...parsed);
-            totalUpdates += parsed.filter(r => r.has_update).length;
+            // 即时合并结果到全局列表，Vue 的响应式系统会立即触发 UI 更新（如小红点出现）
+            const newContainerIds = parsed.map(r => r.container_id);
+            const otherResults = (this.dockerUpdateResults || []).filter(r => !newContainerIds.includes(r.container_id));
+            this.dockerUpdateResults = [...otherResults, ...parsed];
+
+            const count = parsed.filter(r => r.has_update).length;
+            totalUpdates += count;
+
+            if (!options.silent && count > 0) {
+              console.log(`[Docker] 主机 ${server.name} 检测完成，发现 ${count} 个更新`);
+            }
           }
-        } else {
+        } catch (error) {
           totalErrors++;
-          console.error(`检测主机 ${this.dockerOverviewServers[index].name} 失败:`, item.reason);
+          console.error(`检测主机 ${server.name} 失败:`, error);
         }
-      });
+      };
 
-      // 合并结果
-      const newContainerIds = allNewResults.map(r => r.container_id);
-      const otherResults = (this.dockerUpdateResults || []).filter(r => !newContainerIds.includes(r.container_id));
-      this.dockerUpdateResults = [...otherResults, ...allNewResults];
+      // 并行启动所有主机的检测，但不再使用 Promise.allSettled 等待所有结束后才处理
+      // 而是通过 runSingleCheck 自行处理完成后的状态更新
+      const jobs = this.dockerOverviewServers.map(server => runSingleCheck(server));
+      await Promise.allSettled(jobs);
 
+      // 最后给出一个汇总提示
       if (!options.silent) {
         if (totalUpdates > 0) {
-          this.showGlobalToast(`总计发现 ${totalUpdates} 个容器有更新可用`, 'success');
+          this.showGlobalToast(`检测完成，总计发现 ${totalUpdates} 个容器有更新可用`, 'success');
         } else if (totalErrors > 0) {
-          this.showGlobalToast(`检测完成，${totalErrors} 台主机检测异常`, 'warning');
+          this.showGlobalToast(`检测完成，部分主机（${totalErrors}台）检测异常`, 'warning');
         } else {
           this.showGlobalToast('所有容器镜像均为最新', 'info');
         }
       } else if (totalUpdates > 0) {
-        // 静默模式下如果有新发现，可以弹一个轻量提示
         this.showGlobalToast(`后台检测到 ${totalUpdates} 个容器有新版本可用`, 'info');
       }
     } finally {

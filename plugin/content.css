@@ -7,9 +7,14 @@
     width: 100%;
 }
 
+.api-monitor-2fa-wrapper input {
+    padding-right: 42px !important; /* Reserve space for the button */
+    box-sizing: border-box !important; /* Ensure padding doesn't affect width */
+}
+
 .api-monitor-2fa-btn {
     position: absolute;
-    right: 12px;
+    right: 8px; /* Slightly closer to the edge */
     top: 50%;
     transform: translateY(-50%);
     width: 26px;

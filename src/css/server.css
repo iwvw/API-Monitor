@@ -4430,7 +4430,15 @@
   justify-content: space-between;
   align-items: center;
   gap: 12px;
-  margin-bottom: 8px;
+  transition: opacity 0.2s;
+}
+
+.docker-task-hub-header:hover {
+  opacity: 0.8;
+}
+
+.docker-task-hub.is-collapsed {
+  padding-bottom: 10px;
 }
 
 .docker-task-stream-indicator {
@@ -4621,12 +4629,6 @@
   gap: 8px;
   margin-bottom: 10px;
   flex-wrap: wrap;
-}
-
-.docker-main-grid {
-  /* display: grid; */
-  /* grid-template-columns: minmax(0, 1fr) 320px; */
-  /* gap: 12px; */
 }
 
 .docker-container-table-wrap {
@@ -4950,7 +4952,9 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  line-height: 1.2;
+  line-height: normal;
+  padding-bottom: 2px;
+  /* Prevent descenders (g, j, p, q, y) from being cut off */
 }
 
 /* 状态标签 */

@@ -484,6 +484,7 @@ const app = createApp({
       dockerComposeProjects: [],     // Compose 项目列表
       // Docker 任务中心 (v2)
       dockerTasks: [],
+      dockerTaskHubCollapsed: true,
       dockerTaskStream: null,
       dockerTaskStreamConnected: false,
       dockerTaskStreamError: '',

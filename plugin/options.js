@@ -5,16 +5,18 @@
 const form = document.getElementById('settingsForm');
 const serverUrlInput = document.getElementById('serverUrl');
 const passwordInput = document.getElementById('password');
+const showFillButtonInput = document.getElementById('showFillButton');
 const messageEl = document.getElementById('message');
 
 // 加载已保存的设置
-chrome.storage.sync.get(['serverUrl', 'password'], (result) => {
+chrome.storage.sync.get(['serverUrl', 'password', 'showFillButton'], (result) => {
   if (result.serverUrl) {
     serverUrlInput.value = result.serverUrl;
   }
   if (result.password) {
     passwordInput.value = result.password;
   }
+  showFillButtonInput.checked = result.showFillButton !== false;
 });
 
 // 显示消息
@@ -34,6 +36,7 @@ form.addEventListener('submit', async (e) => {
 
   const serverUrl = serverUrlInput.value.trim().replace(/\/$/, ''); // 移除末尾斜杠
   const password = passwordInput.value;
+  const showFillButton = showFillButtonInput.checked;
 
   if (!serverUrl) {
     showMessage('请输入服务器地址', 'error');
@@ -61,7 +64,7 @@ form.addEventListener('submit', async (e) => {
     }
 
     // 保存配置
-    chrome.storage.sync.set({ serverUrl, password }, () => {
+    chrome.storage.sync.set({ serverUrl, password, showFillButton }, () => {
       showMessage('设置已保存！即将自动关闭...', 'success');
       setTimeout(() => {
         window.close();

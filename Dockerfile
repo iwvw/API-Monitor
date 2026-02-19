@@ -17,7 +17,8 @@ RUN npm config set registry https://registry.npmmirror.com
 
 # 2. 直接安装所有依赖 (确保 vite 可用)
 # 注意：不使用 --only=production，确保安装 devDependencies
-RUN npm install --legacy-peer-deps
+# 添加 --ignore-scripts 以绕过部分依赖包内置的 pnpm 强制检查 (如 only-allow)
+RUN npm install --legacy-peer-deps --ignore-scripts
 
 # 3. 复制源码
 COPY . .
@@ -60,7 +61,10 @@ RUN npm config set registry https://registry.npmmirror.com
 # 尝试使用预编译二进制，如果不可用则编译
 # better-sqlite3 支持 prebuild，会自动下载预编译的 .node 文件
 ENV npm_config_build_from_source=false
-RUN npm install --omit=dev --legacy-peer-deps && npm cache clean --force
+# 使用 --ignore-scripts 绕过强制包管理器检查，然后单独 rebuild 原生模块
+RUN npm install --omit=dev --legacy-peer-deps --ignore-scripts && \
+    npm rebuild better-sqlite3 && \
+    npm cache clean --force
 
 # 阶段 4: 运行时镜像 (Runner) - 纯净的运行环境
 FROM --platform=$TARGETPLATFORM node:20-alpine AS runner
