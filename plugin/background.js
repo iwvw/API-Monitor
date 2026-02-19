@@ -6,15 +6,17 @@
 // 默认配置
 const DEFAULT_CONFIG = {
   serverUrl: '',
-  password: ''
+  password: '',
+  showFillButton: true
 };
 
 // 获取配置
 async function getConfig() {
-  const result = await chrome.storage.sync.get(['serverUrl', 'password']);
+  const result = await chrome.storage.sync.get(['serverUrl', 'password', 'showFillButton']);
   return {
     serverUrl: result.serverUrl || DEFAULT_CONFIG.serverUrl,
-    password: result.password || DEFAULT_CONFIG.password
+    password: result.password || DEFAULT_CONFIG.password,
+    showFillButton: result.showFillButton !== undefined ? result.showFillButton : DEFAULT_CONFIG.showFillButton
   };
 }
 
