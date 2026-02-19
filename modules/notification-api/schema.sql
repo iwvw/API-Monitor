@@ -24,8 +24,20 @@ CREATE TABLE IF NOT EXISTS alert_rules (
     suppression TEXT,
     time_window TEXT,
     description TEXT,
+    quiet_until DATETIME, -- 手动静默截止时间
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 20.1 维护计划表
+CREATE TABLE IF NOT EXISTS maintenance_schedules (
+    id TEXT PRIMARY KEY,
+    target_type TEXT NOT NULL, -- monitor/server/global
+    target_id TEXT,
+    start_at DATETIME NOT NULL,
+    end_at DATETIME NOT NULL,
+    reason TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
 -- 21. 通知历史表
@@ -69,6 +81,9 @@ CREATE TABLE IF NOT EXISTS notification_global_config (
     enable_batch INTEGER DEFAULT 1,
     batch_interval_seconds INTEGER DEFAULT 30,
     default_channels TEXT,
+    global_rate_limit_per_hour INTEGER DEFAULT 100, -- 全局熔断限制
+    enable_auto_escalation INTEGER DEFAULT 0, -- 是否开启告警升级
+    base_url TEXT, -- 仪表盘基地址，用于生成链接
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 

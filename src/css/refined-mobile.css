@@ -48,17 +48,38 @@ html.single-page-mode [class*='-sec-tabs'] {
     display: none;
   }
 
-  /* --- 核心布局修复：强制全屏高度 --- */
+  /* --- 核心布局修复：单滚动容器模式 --- */
   html,
-  body,
-  #app,
-  .app-wrapper,
-  .app-main {
+  body {
     height: 100% !important;
-    overflow-y: auto !important;
+    overflow: hidden !important; /* 禁用外层原生滚动，由 app-main 接管 */
     margin: 0 !important;
     padding: 0 !important;
-    -webkit-overflow-scrolling: touch !important;
+    position: fixed !important; /* 锁定 body，防止 iOS 橡皮筋干扰 */
+    width: 100% !important;
+  }
+
+  #app,
+  .app-wrapper {
+    height: 100% !important;
+    width: 100% !important;
+    overflow: hidden !important;
+    position: relative !important;
+    display: flex !important;
+    flex-direction: column !important;
+  }
+
+  /* 核心滚动区域 */
+  .app-main {
+    flex: 1 !important;
+    height: 100% !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    -webkit-overflow-scrolling: touch !important; /* iOS 丝滑滚动关键 */
+    position: relative !important;
+    display: flex !important;
+    flex-direction: column !important;
+    background-color: var(--bg-primary);
   }
 
   /* 确保容器填满并处理 Flex 布局 */

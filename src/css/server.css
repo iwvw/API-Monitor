@@ -35,7 +35,7 @@
   align-items: center;
   gap: 8px;
   padding: 6px 14px;
-  background: var(--bg-secondary);
+  /* background: var(--bg-secondary); */
   border: 1px solid var(--border-color);
   border-radius: 9px;
   font-size: 13px;
@@ -1254,10 +1254,10 @@
   box-shadow: 0 0 6px #f59e0b;
 }
 
-/* 鎸夐挳灏哄 */
+/* 按钮尺寸 */
 .btn-xs {
-  padding: 3px 6px !important;
-  font-size: 10px !important;
+  padding: 3px 6px;
+  font-size: 10px;
   min-width: 24px;
   height: 24px;
   border-radius: 5px;
@@ -3866,7 +3866,7 @@
   padding: 80px 40px;
   background: linear-gradient(180deg, var(--bg-tertiary) 0%, transparent 100%);
   border-radius: 16px;
-  margin: 20px 0;
+  /* margin: 20px 0; */
 }
 
 .docker-empty-state .empty-icon {
@@ -3906,7 +3906,8 @@
 
 .docker-resource-header {
   display: flex;
-  padding: 14px 20px;
+  padding: 10px 16px;
+  /* 减少垂直内边距，更紧凑 */
   background: linear-gradient(180deg, var(--bg-tertiary) 0%, var(--bg-secondary) 100%);
   border-bottom: 1px solid var(--border-color);
   font-size: 11px;
@@ -3916,12 +3917,73 @@
   letter-spacing: 0.8px;
 }
 
+/* 统一表头和行内单元格的通用样式 */
+.docker-resource-header>span,
+.docker-resource-row>span {
+  padding: 0 8px;
+  /* 增加列间距 */
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  min-width: 0;
+  /* 允许 flex item 压缩 */
+  box-sizing: border-box;
+  /* 包含 padding */
+}
+
+/* 特殊列处理：操作列 (大型 - 用于容器) */
+.col-actions-lg {
+  flex: 0 0 190px !important;
+  width: 190px !important;
+  justify-content: flex-end;
+  display: flex !important;
+  gap: 8px;
+}
+
+/* 特殊列处理：操作列 (小型 - 用于镜像/网络/存储) */
+.col-actions-sm {
+  flex: 0 0 80px !important;
+  /*稍微宽一点以容纳间距*/
+  width: 80px !important;
+  justify-content: flex-end;
+  display: flex !important;
+  gap: 6px;
+}
+
+/* 特殊列处理：无操作列或自定义 (用于监控等) */
+.col-actions-none {
+  /* 保持 flex 自动 */
+}
+
 .docker-resource-row {
   display: flex;
   align-items: center;
-  padding: 14px 20px;
+  /* 垂直居中 */
+  padding: 10px 16px;
+  /* 与表头保持一致 */
   border-bottom: 1px solid var(--border-color);
   transition: all 0.2s ease;
+  min-height: 56px;
+  /* 稍微减小高度，更紧凑 */
+}
+
+.docker-resource-row>span {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  overflow: hidden;
+  line-height: 1.5;
+  padding-right: 12px;
+  height: 100%;
+}
+
+.docker-resource-row>span.col-actions-lg,
+.docker-resource-row>span.col-actions-sm {
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-end;
+  overflow: visible;
+  gap: 6px;
 }
 
 .docker-resource-row:last-child {
@@ -4064,14 +4126,17 @@
 .modern-grid-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 }
 
 .modern-grid-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 20px;
+  padding: 10px 16px;
+  /* Match table row padding */
+  min-height: 56px;
+  /* Match table row height */
   background: var(--card-bg);
   border: 1px solid var(--border-color);
   border-radius: 12px;
@@ -4080,7 +4145,7 @@
 }
 
 .modern-grid-item:hover {
-  transform: translateY(-2px);
+  /* transform: translateY(-2px); */
   box-shadow: 0 8px 16px rgba(0, 0, 0, 0.06);
   border-color: var(--ag-primary, #4f46e5);
 }
@@ -4246,9 +4311,11 @@
   background: transparent;
   cursor: pointer;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .modern-tab-btn:hover {
@@ -4264,10 +4331,852 @@
 }
 
 .modern-tab-btn i {
-  font-size: 12px;
+  font-size: 14px;
+  width: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   opacity: 0.8;
 }
 
 .modern-tab-btn.active i {
   opacity: 1;
+}
+
+/* Docker Console (refactor) */
+.docker-console-panel {
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  background: linear-gradient(180deg, rgba(var(--bg-secondary-rgb), 0.55), rgba(var(--bg-primary-rgb), 0.35));
+}
+
+.docker-console-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.docker-console-tabs {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 10px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+}
+
+.docker-console-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.docker-server-select {
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  padding: 0 10px;
+  font-size: 12px;
+  cursor: pointer;
+  outline: none;
+}
+
+.docker-search {
+  position: relative;
+}
+
+.docker-search i {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.docker-search input {
+  width: 220px;
+  height: 34px;
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  padding: 0 12px 0 30px;
+  font-size: 12px;
+}
+
+.docker-refresh-btn {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+}
+
+.docker-task-hub {
+  margin: 10px 0px 10px 0px;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(var(--bg-secondary-rgb), 0.6), rgba(var(--bg-primary-rgb), 0.6));
+  padding: 10px 12px;
+}
+
+.docker-task-hub-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.docker-task-stream-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border-color);
+}
+
+.docker-task-stream-indicator.online {
+  color: var(--success-color);
+  border-color: rgba(16, 185, 129, 0.4);
+  background: rgba(16, 185, 129, 0.1);
+}
+
+.docker-task-count {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.docker-task-stream-error {
+  font-size: 11px;
+  color: var(--warning-color);
+  margin-bottom: 8px;
+}
+
+.docker-task-empty {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  padding: 12px 4px 6px;
+}
+
+.docker-task-list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  max-height: 250px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.docker-task-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  border: 1px solid var(--border-color);
+  background: rgba(var(--bg-primary-rgb), 0.45);
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+
+.docker-task-state {
+  font-size: 10px;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 3px 7px;
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  background: rgba(var(--bg-secondary-rgb), 0.5);
+}
+
+.docker-task-state.success {
+  color: var(--success-color);
+  border-color: rgba(16, 185, 129, 0.35);
+  background: rgba(16, 185, 129, 0.1);
+}
+
+.docker-task-state.danger {
+  color: var(--danger-color);
+  border-color: rgba(239, 68, 68, 0.35);
+  background: rgba(239, 68, 68, 0.1);
+}
+
+.docker-task-state.warning {
+  color: var(--warning-color);
+  border-color: rgba(245, 158, 11, 0.35);
+  background: rgba(245, 158, 11, 0.1);
+}
+
+.docker-task-main {
+  min-width: 0;
+}
+
+.docker-task-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.docker-task-server {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 999px;
+  padding: 2px 6px;
+}
+
+.docker-task-msg {
+  margin-top: 3px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.docker-task-time {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+
+.docker-console-view {
+  /* padding: 10px; */
+}
+
+.docker-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.docker-kpi-card {
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: var(--card-bg);
+  padding: 10px 14px;
+  transition: all 0.2s ease;
+  min-height: 64px;
+}
+
+.docker-kpi-card:hover {
+  background: var(--bg-secondary);
+}
+
+.docker-kpi-card.active {
+  border-color: var(--server-primary);
+  background: rgba(36, 150, 237, 0.05);
+  box-shadow: inset 0 0 0 1px var(--server-primary);
+}
+
+.docker-kpi-card.is-running {
+  border-color: rgba(16, 185, 129, 0.35);
+}
+
+.docker-kpi-card.is-warning {
+  border-color: rgba(245, 158, 11, 0.35);
+}
+
+.docker-kpi-card.is-warning.active {
+  border-color: rgba(245, 158, 11, 0.6);
+  background: rgba(245, 158, 11, 0.05);
+  box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.6);
+}
+
+.docker-kpi-card.is-running.active {
+  border-color: rgba(16, 185, 129, 0.6);
+  background: rgba(16, 185, 129, 0.05);
+  box-shadow: inset 0 0 0 1px rgba(16, 185, 129, 0.6);
+}
+
+.docker-kpi-label {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  margin-bottom: 4px;
+}
+
+.docker-kpi-value {
+  color: var(--text-primary);
+  font-size: 22px;
+  line-height: 1;
+  font-weight: 800;
+  font-family: var(--font-mono);
+}
+
+.docker-state-filters {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.docker-main-grid {
+  /* display: grid; */
+  /* grid-template-columns: minmax(0, 1fr) 320px; */
+  /* gap: 12px; */
+}
+
+.docker-container-table-wrap {
+  min-width: 0;
+}
+
+.docker-container-row {}
+
+/* .docker-container-row.active {
+  background: linear-gradient(90deg, rgba(var(--primary-rgb), 0.08), transparent);
+} */
+
+.docker-row-title {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.docker-row-sub {
+  color: var(--text-tertiary);
+  font-size: 11px;
+  margin-top: 2px;
+}
+
+.docker-row-ellipsis {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.docker-row-actions {
+  /* width: 190px; */
+  /* display: flex;  由父级 span 接管 */
+  align-items: center;
+  gap: 8px;
+  justify-content: flex-end;
+  /* 靠右对齐 */
+  width: 100%;
+  /* 占满父级 span */
+}
+
+.docker-mono {
+  font-family: var(--font-mono);
+}
+
+.docker-empty-row {
+  justify-content: center;
+  color: var(--text-tertiary);
+}
+
+.docker-inspector {
+  margin-top: 10px;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: var(--card-bg);
+  overflow: hidden;
+  min-width: 0;
+}
+
+.docker-inspector-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 12px;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--bg-secondary);
+}
+
+.docker-inspector-body {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.docker-inspector-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.docker-inspector-item span {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.docker-inspector-item strong {
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.docker-inspector-item code {
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 7px 8px;
+  white-space: normal;
+  word-break: break-all;
+}
+
+@media (max-width: 1200px) {
+  .docker-main-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .docker-inspector {
+    order: -1;
+  }
+}
+
+@media (max-width: 768px) {
+  .docker-console-tabs {
+    width: 100%;
+    overflow-x: auto;
+  }
+
+  .docker-console-actions {
+    width: 100%;
+  }
+
+  .docker-search {
+    flex: 1;
+    min-width: 160px;
+  }
+
+  .docker-search input {
+    width: 100%;
+  }
+
+  .docker-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .docker-resource-header {
+    font-size: 10px;
+  }
+
+  .docker-task-item {
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .docker-task-time {
+    grid-column: 2 / 3;
+  }
+}
+
+/* --- Docker Grid View V4: Professional SaaS Edition --- */
+.docker-container-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+  padding: 10px 0;
+}
+
+/* 分组显示样式 */
+.docker-grid-group {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.docker-grid-group-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.docker-grid-group-header i {
+  color: var(--server-primary);
+  opacity: 0.8;
+}
+
+.docker-grid-group-title {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--text-primary);
+  letter-spacing: -0.2px;
+}
+
+.docker-grid-group-count {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-tertiary);
+  background: var(--bg-tertiary);
+  padding: 2px 8px;
+  border-radius: 20px;
+  font-family: var(--font-mono);
+}
+
+.docker-grid-cards-wrap {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+/* V4 卡片样式 */
+.docker-container-card-v4 {
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+/* 根据状态改变背景色 - 无侧边条 */
+.docker-container-card-v4.state-running {
+  background: rgba(16, 185, 129, 0.06);
+  border-color: rgba(16, 185, 129, 0.25);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.05);
+}
+
+.docker-container-card-v4.state-running:hover {
+  background: rgba(16, 185, 129, 0.1);
+  border-color: rgba(16, 185, 129, 0.4);
+  box-shadow: 0 8px 20px rgba(16, 185, 129, 0.1);
+}
+
+.docker-container-card-v4.state-stopped {
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.3);
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.05);
+}
+
+.docker-container-card-v4.state-stopped:hover {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.5);
+  box-shadow: 0 8px 20px rgba(239, 68, 68, 0.15);
+}
+
+/* 可更新状态 - 优先显示蓝色 */
+.docker-container-card-v4.has-update {
+  background: rgba(36, 150, 237, 0.08) !important;
+  border-color: rgba(36, 150, 237, 0.3) !important;
+  box-shadow: 0 4px 12px rgba(36, 150, 237, 0.05);
+}
+
+.docker-container-card-v4.has-update:hover {
+  background: rgba(36, 150, 237, 0.12) !important;
+  border-color: rgba(36, 150, 237, 0.5) !important;
+  box-shadow: 0 8px 24px rgba(36, 150, 237, 0.15);
+}
+
+.docker-container-card-v4.state-paused {
+  background: rgba(245, 158, 11, 0.03);
+  border-color: rgba(245, 158, 11, 0.2);
+}
+
+/* 顶部区域 */
+.card-header-v4 {
+  padding: 12px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.header-main-v4 {
+  display: flex;
+  gap: 10px;
+  min-width: 0;
+}
+
+.docker-icon-v4 {
+  width: 36px;
+  height: 36px;
+  background: rgba(36, 150, 237, 0.1);
+  color: #2496ed;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  flex-shrink: 0;
+  transition: all 0.3s ease;
+}
+
+.state-stopped .docker-icon-v4 {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+}
+
+.has-update .docker-icon-v4 {
+  background: rgba(36, 150, 237, 0.2);
+  color: #2496ed;
+}
+
+.title-stack-v4 {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+
+.container-name-v4 {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.6;
+  margin-bottom: 1px;
+}
+
+.container-image-v4 {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.2;
+}
+
+/* 状态标签 */
+.status-badge-v4 {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 8px 8px;
+  border-radius: 6px;
+  font-size: 9px;
+  font-weight: 800;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.state-running .status-badge-v4 {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+}
+
+.state-stopped .status-badge-v4 {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+.status-dot-v4 {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.state-running .status-dot-v4 {
+  box-shadow: 0 0 4px currentColor;
+  animation: pulse-dot-v4 2s infinite;
+}
+
+@keyframes pulse-dot-v4 {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+
+  50% {
+    transform: scale(1.4);
+    opacity: 0.6;
+  }
+
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* 内容体 */
+.card-body-v4 {
+  padding: 0 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.info-row-v4 {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0;
+}
+
+.info-label-v4 {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.info-label-v4 i {
+  font-size: 10px;
+  width: 12px;
+  text-align: center;
+  opacity: 0.6;
+}
+
+.info-value-v4 {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  max-width: 60%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.6;
+  padding-bottom: 2px;
+}
+
+.info-value-v4.mono {
+  font-family: var(--font-mono);
+  letter-spacing: -0.2px;
+}
+
+/* 任务进度条 */
+.card-progress-v4 {
+  padding: 0 16px 12px;
+}
+
+.progress-info-v4 {
+  display: flex;
+  justify-content: space-between;
+  font-size: 9px;
+  color: var(--server-primary);
+  font-weight: 800;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.progress-bar-v4 {
+  height: 4px;
+  background: var(--bg-tertiary);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.progress-fill-v4 {
+  height: 100%;
+  background: linear-gradient(90deg, var(--server-primary), #60a5fa);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+  box-shadow: 0 0 8px rgba(36, 150, 237, 0.4);
+}
+
+/* 底部区域 */
+.card-footer-v4 {
+  padding: 8px 12px 14px;
+  background: rgba(0, 0, 0, 0.01);
+  border-top: 1px dashed var(--border-color);
+  margin-top: auto;
+}
+
+.actions-group-v4 {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
+
+/* 资源统计样式 */
+.docker-resource-stat {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 12px;
+  background: var(--bg-secondary);
+  border-radius: 20px;
+  border: 1px solid var(--border-color);
+}
+
+.stat-count {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--primary-color);
+  font-family: var(--font-mono);
+}
+
+.stat-label {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-weight: 600;
+}
+
+/* 磨砂按钮 */
+.btn-glass {
+  background: rgba(255, 255, 255, 0.05) !important;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--border-color) !important;
+  color: var(--text-secondary) !important;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+}
+
+.btn-glass:hover {
+  background: rgba(255, 255, 255, 0.1) !important;
+  color: var(--text-primary) !important;
+}
+
+
+.btn-action-v4 {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.btn-action-v4:hover {
+  background: var(--bg-secondary);
+  color: var(--server-primary);
+  border-color: var(--server-primary);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.btn-action-v4:active {
+  transform: scale(0.9);
+}
+
+.btn-action-v4.success:hover {
+  color: #10b981;
+  border-color: #10b981;
+}
+
+.btn-action-v4.danger:hover {
+  color: #ef4444;
+  border-color: #ef4444;
+}
+
+.btn-action-v4.pulse-green {
+  background: rgba(16, 185, 129, 0.1);
+  color: #10b981;
+  border-color: #10b981;
 }

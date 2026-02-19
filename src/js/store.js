@@ -746,6 +746,9 @@ export const store = reactive({
   geminiCliAutoCheckInterval: 3600000, // 默认 1 小时
   geminiCliAutoCheckStatus: null, // 后端定时器状态 { running, enabled, intervalMs, nextRunTime }
   geminiCliDisabledCheckModels: [], // 禁用检测的模型列表
+  geminiCliQuotaLoading: false, // 额度查询中
+  geminiCliQuotaData: [], // 额度数据 [{ accountId, accountName, buckets: [{modelId, remainingFraction, resetTime}] }]
+  geminiCliQuotaModels: [], // 额度中出现的所有模型 ID 列表
 
   // ===== 音乐播放器模块 =====
   musicReady: false,

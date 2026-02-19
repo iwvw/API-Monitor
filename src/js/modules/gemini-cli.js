@@ -36,6 +36,7 @@ export const geminiCliMethods = {
     } else if (tabName === 'accounts') {
       this.loadGeminiCliAccounts();
       this.loadGeminiCliCheckHistory(); // 自动加载检测历史
+      this.loadGeminiCliQuotas(); // 自动加载额度信息
     }
   },
 
@@ -1185,5 +1186,93 @@ export const geminiCliMethods = {
     }
 
     return `账号 #${accountIndex} 未检测`;
+  },
+
+  // ========== 额度查询功能 ==========
+
+  /**
+   * 加载所有账号的额度信息
+   */
+  async loadGeminiCliQuotas(forceRefresh = false) {
+    store.geminiCliQuotaLoading = true;
+    try {
+      const url = `/api/gemini-cli/quotas/all${forceRefresh ? '?refresh=1' : ''}`;
+      const response = await fetch(url, {
+        headers: store.getAuthHeaders(),
+      });
+      const data = await response.json();
+      if (Array.isArray(data)) {
+        store.geminiCliQuotaData = data.filter(d => d && d.buckets);
+
+        // 提取所有模型 ID 并排序
+        const modelSet = new Set();
+        store.geminiCliQuotaData.forEach(q => {
+          (q.buckets || []).forEach(b => {
+            if (b.modelId !== 'gemini-2.0-flash') {
+              modelSet.add(b.modelId);
+            }
+          });
+        });
+        store.geminiCliQuotaModels = Array.from(modelSet).sort();
+
+        if (forceRefresh) {
+          toast.success(`额度查询完成 (${store.geminiCliQuotaData.length} 个账号)`);
+        }
+      }
+    } catch (error) {
+      console.error('加载 Gemini CLI 额度失败:', error);
+      toast.error('额度查询失败: ' + error.message);
+    } finally {
+      store.geminiCliQuotaLoading = false;
+    }
+  },
+
+  /**
+   * 获取指定账号的指定模型的 bucket 数据
+   */
+  getQuotaBucket(quotaData, modelId) {
+    return quotaData?.buckets?.find(b => b.modelId === modelId) || null;
+  },
+
+  /**
+   * 获取额度进度条颜色
+   */
+  getQuotaBarColor(fraction) {
+    if (fraction == null) return 'var(--text-tertiary)';
+    const pct = fraction * 100;
+    if (pct >= 70) return '#10b981'; // 绿色
+    if (pct >= 40) return '#f59e0b'; // 黄色
+    if (pct >= 15) return '#f97316'; // 橙色
+    return '#ef4444'; // 红色
+  },
+
+  /**
+   * 格式化额度重置时间
+   */
+  formatQuotaResetTime(resetTime) {
+    if (!resetTime) return '未知';
+    const reset = new Date(resetTime);
+    const now = new Date();
+    const diffMs = reset - now;
+
+    if (diffMs <= 0) return '已重置';
+
+    const hours = Math.floor(diffMs / 3600000);
+    const minutes = Math.floor((diffMs % 3600000) / 60000);
+
+    if (hours > 0) return `${hours}h ${minutes}m 后重置`;
+    return `${minutes}m 后重置`;
+  },
+
+  /**
+   * 判定额度是否处于冷却期
+   */
+  isQuotaInCooldown(bucket) {
+    if (!bucket) return false;
+    if (bucket.remainingFraction > 0) return false;
+    if (!bucket.resetTime) return false;
+
+    const reset = new Date(bucket.resetTime);
+    return reset > new Date();
   },
 };

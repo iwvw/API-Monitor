@@ -19,6 +19,14 @@ class NotificationService extends EventEmitter {
         this.queue = [];
         this.processing = false;
         this.retryTimer = null;
+
+        // --- 增强功能状态 ---
+        this.batchBuffer = new Map(); // channelId -> notification[]
+        this.batchTimers = new Map();
+        this.sentCountInLastHour = 0;
+        this.lastResetTime = Date.now();
+        this.circuitBroken = false;
+        this.startupTime = Date.now(); // 记录启动时间，用于启动保护
     }
 
     /**
@@ -44,6 +52,9 @@ class NotificationService extends EventEmitter {
         // 启动定时清理任务
         this.startCleanupTasks();
 
+        // 加载未完成的通知 (重启恢复)
+        this.loadIncompleteNotifications();
+
         this.initialized = true;
         logger.info('✅ 通知服务已初始化');
     }
@@ -58,16 +69,24 @@ class NotificationService extends EventEmitter {
         try {
             logger.debug(`触发告警: ${sourceModule}/${eventType}`);
 
-            // 自动处理恢复：如果是恢复事件，重置对应的故障状态追踪
-            // 这样下次故障时 repeat_count 可以重新计数
+            // 自动处理恢复：如果是恢复事件，更新对应的故障状态追踪
+            // 不再直接 reset，而是让抖动检测逻辑决定是否放行
             if (eventType === 'up' || eventType === 'online') {
                 const oppositeType = eventType === 'up' ? 'down' : 'offline';
                 const downRules = storage.rule.getBySourceAndEvent(sourceModule, oppositeType);
                 if (downRules.length > 0) {
-                    logger.debug(`检测到恢复事件,正在重置 ${downRules.length} 条故障规则的状态记录`);
                     for (const rule of downRules) {
                         const fingerprint = this.generateFingerprint(rule, data);
-                        storage.stateTracking.reset(rule.id, fingerprint);
+                        const state = storage.stateTracking.get(rule.id, fingerprint);
+                        if (state) {
+                            // 记录这次恢复尝试到历史中，以便检测是否在频繁抖动
+                            this.detectFlapping(state, eventType);
+
+                            // 如果没有抖动，才真正重置连续失败计数
+                            if (!state.is_flapping) {
+                                storage.stateTracking.reset(rule.id, fingerprint);
+                            }
+                        }
                     }
                 }
             }
@@ -127,7 +146,28 @@ class NotificationService extends EventEmitter {
             }
         }
 
-        // 5. 发送通知
+        // 4.1 检查手动静默 (quiet_until)
+        if (rule.quiet_until && new Date(rule.quiet_until) > new Date()) {
+            logger.debug(`规则处于手动静默期,跳过: ${rule.name}`);
+            return;
+        }
+
+        // 4.2 检查全局/特定维护计划
+        const maintenance = this.checkMaintenance(rule, eventData);
+        if (maintenance) {
+            logger.debug(`匹配到维护计划 [${maintenance.reason}], 跳过: ${rule.name}`);
+            return;
+        }
+
+        // 5. 抖动检测 (Anti-Flapping)
+        const isFlapping = this.detectFlapping(state, rule.event_type);
+        if (isFlapping) {
+            // 如果正在抖动，仅发送特定频率或直接抑制
+            logger.debug(`检测到监控项处于抖动状态, 抑制重复变动通知: ${rule.name}`);
+            return;
+        }
+
+        // 6. 发送通知
         for (const channelId of channelIds) {
             const channel = storage.channel.getById(channelId);
             if (!channel || !channel.enabled) {
@@ -135,114 +175,248 @@ class NotificationService extends EventEmitter {
                 continue;
             }
 
+            const ctx = { rule, eventData, severity: rule.severity, state };
             const notification = {
                 rule_id: rule.id,
                 channel_id: channelId,
-                title: this.formatTitle(rule, eventData),
-                message: this.formatMessage(rule, eventData),
+                title: this.formatTitle(rule, eventData, ctx),
+                message: this.formatMessage(rule, eventData, ctx),
                 data: eventData,
+                severity: rule.severity
             };
 
             this.enqueue(notification);
         }
 
-        // 6. 更新最后通知时间
+        // 7. 更新最后通知时间
         storage.stateTracking.updateLastNotified(rule.id, fingerprint);
     }
 
     /**
-     * 发送通知 (核心逻辑)
+     * 发送通知 (核心逻辑，支持备用渠道漂移)
      */
     async send(notification) {
-        const { channel_id, title, message } = notification;
-        const channel = storage.channel.getById(channel_id);
+        const { channel_id, title, message, rule_id } = notification;
+        let success = await this.doSend(channel_id, title, message, notification);
 
-        if (!channel) {
-            logger.error(`渠道不存在: ${channel_id}`);
-            return false;
+        // 如果首选渠道失败且有备用渠道，尝试漂移
+        if (!success && rule_id) {
+            const rule = storage.rule.getById(rule_id);
+            if (rule?.backup_channels?.length > 0) {
+                logger.warn(`首选渠道发送失败，尝试通过 ${rule.backup_channels.length} 个备用渠道漂移...`);
+                for (const backupId of rule.backup_channels) {
+                    success = await this.doSend(backupId, `[漂移] ${title}`, message, notification);
+                    if (success) {
+                        logger.info(`备用渠道 ${backupId} 漂移成功`);
+                        break;
+                    }
+                }
+            }
         }
 
+        // 更新历史记录
+        if (success) {
+            storage.history.updateStatus(notification.log_id, 'sent', new Date().toISOString());
+        } else {
+            storage.history.updateStatus(notification.log_id, 'failed', null, '所有尝试(含漂移)均失败');
+        }
+
+        return success;
+    }
+
+    /**
+     * 实际执行发送
+     */
+    async doSend(channel_id, title, message, notification) {
+        const channel = storage.channel.getById(channel_id);
+        if (!channel) return false;
+
         try {
-            // 解密配置
             const config = JSON.parse(decrypt(channel.config));
+            const options = { notification }; // 传递上下文给渠道格式化
 
             let success = false;
-
             if (channel.type === 'email') {
-                success = await emailChannel.send(config, title, message);
+                success = await emailChannel.send(config, title, message, options);
             } else if (channel.type === 'telegram') {
-                success = await telegramChannel.send(config, title, message);
-            } else {
-                logger.error(`未知渠道类型: ${channel.type}`);
-                return false;
+                success = await telegramChannel.send(config, title, message, options);
             }
-
-            // 更新历史记录
-            if (success) {
-                storage.history.updateStatus(
-                    notification.log_id,
-                    'sent',
-                    new Date().toISOString()
-                );
-                logger.info(`通知发送成功: ${title}`);
-            } else {
-                storage.history.updateStatus(
-                    notification.log_id,
-                    'failed',
-                    null,
-                    '发送失败'
-                );
-            }
-
             return success;
         } catch (error) {
-            logger.error(`发送通知失败: ${error.message}`);
-
-            // 更新历史记录为失败
-            storage.history.updateStatus(
-                notification.log_id,
-                'failed',
-                null,
-                error.message
-            );
-
+            logger.error(`执行渠道 ${channel_id} 发送失败: ${error.message}`);
             return false;
         }
     }
 
     /**
-     * 队列管理
+     * 队列管理 (增加合并与熔断支持)
      */
     enqueue(notification) {
-        // 创建历史记录
-        const log = storage.history.create(notification);
-        notification.log_id = log.id;
+        // 如果熔断开启，丢弃非 Critical 告警
+        if (this.circuitBroken) {
+            const rule = storage.rule.getById(notification.rule_id);
+            if (rule?.severity !== 'critical') {
+                logger.warn(`[熔断控制] 已丢弃非紧急告警: ${notification.title}`);
+                return;
+            }
+        }
 
-        // 加入队列
-        this.queue.push(notification);
+        // 创建/获取历史记录
+        if (!notification.log_id) {
+            const log = storage.history.create(notification);
+            notification.log_id = log.id;
+        }
 
-        logger.debug(`通知已加入队列: ${notification.title} (队列长度: ${this.queue.length})`);
+        const config = storage.globalConfig.getDefault();
+        const startupGracePeriod = 60000; // 启动 60 秒内为保护期
+        const isStartup = Date.now() - this.startupTime < startupGracePeriod;
 
-        // 确保队列处理器运行
-        if (!this.processing) {
+        // 检查是否需要合并 (Batching)
+        // 启动保护期内强制开启聚合，防止重启轰炸
+        if ((config.enable_batch || isStartup) && !notification.is_retry) {
+            let interval = config.batch_interval_seconds || 30;
+            if (isStartup && interval < 30) interval = 30; // 启动时至少等待 30 秒以收集首轮扫描的所有故障
+            this.addToBatch(notification, interval);
+        } else {
+            this.queue.push(notification);
+        }
+
+        // 启动队列处理器
+        if (!this.processing && this.queue.length > 0) {
             this.startQueueProcessor();
         }
     }
 
     /**
-     * 启动队列处理器
+     * 加入合并缓冲区
+     */
+    addToBatch(notification, interval) {
+        const channelId = notification.channel_id;
+        if (!this.batchBuffer.has(channelId)) {
+            this.batchBuffer.set(channelId, []);
+        }
+
+        this.batchBuffer.get(channelId).push(notification);
+
+        // 如果没有定时器，启动一个
+        if (!this.batchTimers.has(channelId)) {
+            const timer = setTimeout(() => {
+                this.flushBatch(channelId);
+            }, interval * 1000);
+            this.batchTimers.set(channelId, timer);
+        }
+    }
+
+    /**
+     * 刷新并发送合并通知
+     */
+    async flushBatch(channelId) {
+        const notifications = this.batchBuffer.get(channelId) || [];
+        this.batchBuffer.delete(channelId);
+        this.batchTimers.delete(channelId);
+
+        if (notifications.length === 0) return;
+
+        if (notifications.length === 1) {
+            this.queue.push(notifications[0]);
+        } else {
+            // 创建聚合通知
+            const first = notifications[0];
+            const batchNotification = {
+                ...first,
+                title: `📦 [聚合通知] 包含 ${notifications.length} 条告警`,
+                message: notifications.map(n => `--- ${n.title} ---\n${n.message}`).join('\n\n'),
+                is_batch: true
+            };
+            this.queue.push(batchNotification);
+        }
+
+        if (!this.processing) this.startQueueProcessor();
+    }
+
+    /**
+     * 熔断检查
+     */
+    checkRateLimit() {
+        const config = storage.globalConfig.getDefault();
+        const limit = config.global_rate_limit_per_hour || 100;
+
+        // 每小时重置计数器
+        const now = Date.now();
+        if (now - this.lastResetTime > 3600000) {
+            this.sentCountInLastHour = 0;
+            this.lastResetTime = now;
+            if (this.circuitBroken) {
+                this.circuitBroken = false;
+                logger.info('熔断已自动解除，恢复正常发送');
+            }
+        }
+
+        this.sentCountInLastHour++;
+
+        if (this.sentCountInLastHour > limit) {
+            if (!this.circuitBroken) {
+                this.circuitBroken = true;
+                logger.error(`[🚨 熔断控制] 已达到每小时发送上限 (${limit}), 进入保护模式！仅发送紧急告警。`);
+            }
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * 检查维护状态
+     */
+    checkMaintenance(rule, eventData) {
+        const activeSchedules = storage.maintenance.getActive();
+        if (activeSchedules.length === 0) return null;
+
+        return activeSchedules.find(s => {
+            if (s.target_type === 'global') return true;
+            if (s.target_type === 'monitor' && s.target_id == eventData.monitorId) return true;
+            if (s.target_type === 'server' && s.target_id == eventData.serverId) return true;
+            return false;
+        });
+    }
+
+    /**
+     * 启动队列处理器 (支持并发发送)
      */
     async startQueueProcessor() {
         if (this.processing) return;
 
         this.processing = true;
 
-        while (this.queue.length > 0) {
-            const notification = this.queue.shift();
-            await this.send(notification);
-        }
+        try {
+            const concurrency = 5; // 最大并发数
+            const workers = [];
 
-        this.processing = false;
+            // 启动多个 worker 并行处理队列
+            for (let i = 0; i < concurrency; i++) {
+                workers.push((async () => {
+                    while (this.queue.length > 0) {
+                        const notification = this.queue.shift();
+                        if (!notification) continue;
+
+                        try {
+                            await this.send(notification);
+                        } catch (error) {
+                            logger.error(`异步发送通知异常: ${error.message}`);
+                        }
+                    }
+                })());
+            }
+
+            // 等待所有 worker 完成
+            await Promise.all(workers);
+        } finally {
+            this.processing = false;
+
+            // 如果在 worker 完成期间又有新任务加入, 再次触发处理器
+            if (this.queue.length > 0) {
+                this.startQueueProcessor();
+            }
+        }
     }
 
     /**
@@ -262,11 +436,23 @@ class NotificationService extends EventEmitter {
                 logger.info(`发现 ${failedLogs.length} 条失败记录,准备重试`);
 
                 for (const log of failedLogs) {
-                    const retryCount = log.retry_count || 0;
-                    if (retryCount >= maxRetry) {
-                        logger.warn(`达到最大重试次数,放弃: ${log.title}`);
+                    // 增加时效性检查：不重试 24 小时前的通知
+                    const createdAt = new Date(log.created_at).getTime();
+                    if (Date.now() - createdAt > 24 * 60 * 60 * 1000) {
+                        storage.history.updateStatus(log.id, 'failed', null, '通知超过 24 小时，停止重试');
                         continue;
                     }
+
+                    const retryCount = log.retry_count || 0;
+                    if (retryCount >= maxRetry) {
+                        logger.warn(`达到最大重试次数,放弃: ${log.title} (ID: ${log.id})`);
+                        continue;
+                    }
+
+                    logger.info(`正在重试通知: ${log.title} (重试次数: ${retryCount + 1}/${maxRetry})`);
+
+                    // 更新状态为重试中 (这会增加 retry_count)
+                    storage.history.updateStatus(log.id, 'retrying');
 
                     // 重新加入队列
                     const notification = {
@@ -282,7 +468,7 @@ class NotificationService extends EventEmitter {
                 }
 
                 // 启动队列处理
-                if (!this.processing) {
+                if (!this.processing && this.queue.length > 0) {
                     this.startQueueProcessor();
                 }
             } catch (error) {
@@ -335,6 +521,57 @@ class NotificationService extends EventEmitter {
             logger.info(`清理状态记录: ${stateResult.changes} 条`);
         } catch (error) {
             logger.error(`清理任务失败: ${error.message}`);
+        }
+    }
+
+    /**
+     * 加载未完成的通知 (用于系统启动时恢复)
+     */
+    async loadIncompleteNotifications() {
+        try {
+            // 获取待处理和重试中的记录
+            const pending = storage.history.getByStatus('pending', 100);
+            const retrying = storage.history.getByStatus('retrying', 100);
+
+            const all = [...pending, ...retrying];
+
+            if (all.length === 0) return;
+
+            logger.info(`发现 ${all.length} 条未完成的通知, 正在重新加载...`);
+
+            for (const log of all) {
+                // 增加时效性检查：只加载 24 小时以内的未完成通知
+                const createdAt = new Date(log.created_at).getTime();
+                if (Date.now() - createdAt > 24 * 60 * 60 * 1000) {
+                    storage.history.updateStatus(log.id, 'failed', null, '系统重启清理：忽略 24 小时前的陈旧通知');
+                    continue;
+                }
+
+                // 检查是否已经在队列中 (防止重复)
+                if (this.queue.some(n => n.log_id === log.id)) continue;
+
+                // 补丁：更新历史遗留的图标 (如果是恢复类事件且包含旧图标)
+                let title = log.title;
+                if ((title.includes('恢复') || title.includes('online') || title.includes('up')) &&
+                    (title.includes('ℹ️') || title.includes('⚠️'))) {
+                    title = title.replace('ℹ️', '✅').replace('⚠️', '✅');
+                }
+
+                const notification = {
+                    rule_id: log.rule_id,
+                    channel_id: log.channel_id,
+                    title: title,
+                    message: log.message,
+                    data: JSON.parse(log.data || '{}'),
+                    log_id: log.id,
+                    is_backlog: true // 标记为积压通知
+                };
+
+                // 使用 enqueue 进入逻辑流，这样可以触发启动期的聚合逻辑
+                this.enqueue(notification);
+            }
+        } catch (error) {
+            logger.error(`加载未完成通知失败: ${error.message}`);
         }
     }
 
@@ -395,22 +632,37 @@ class NotificationService extends EventEmitter {
     /**
      * 格式化标题
      */
-    formatTitle(rule, eventData) {
+    formatTitle(rule, eventData, ctx) {
+        if (rule.title_template) {
+            return this.renderTemplate(rule.title_template, eventData);
+        }
+
         const severityIcon = {
             critical: '🚨',
             warning: '⚠️',
-            info: 'ℹ️',
-        };
-
-
-        // 严重程度中文映射
-        const severityText = {
-            critical: '紧急',
-            warning: '警告',
             info: '通知',
         };
 
-        const icon = severityIcon[rule.severity] || '🔔';
+        let icon = severityIcon[rule.severity] || '🔔';
+
+        // 特殊处理：恢复类事件使用绿色对勾
+        if (rule.event_type === 'up' || rule.event_type === 'online') {
+            icon = '✅';
+        }
+
+        // 核心优化：直接在标题显示“主体 - 事件”
+        const subject = eventData.monitorName || eventData.serverName || '';
+
+        if (subject) {
+            return `${icon} ${subject} - ${rule.name}`;
+        }
+
+        // 降级逻辑：如果没有具体主体，则显示 [严重程度] 规则名
+        const severityText = {
+            critical: '紧急',
+            warning: '警告',
+            info: '提示',
+        };
         const text = severityText[rule.severity] || rule.severity.toUpperCase();
         return `${icon} [${text}] ${rule.name}`;
     }
@@ -418,26 +670,24 @@ class NotificationService extends EventEmitter {
     /**
      * 格式化消息
      */
-    formatMessage(rule, eventData) {
+    formatMessage(rule, eventData, ctx) {
+        if (rule.message_template) {
+            return this.renderTemplate(rule.message_template, eventData);
+        }
+
         // 根据事件类型格式化消息
         const lines = [];
 
         // 添加基本信息
-        if (eventData.monitorName) lines.push(`📊 监控项: ${eventData.monitorName}`);
-        if (eventData.serverName) lines.push(`🖥️ 主机: ${eventData.serverName}`);
-        if (eventData.accountName) lines.push(`💳 账户: ${eventData.accountName}`);
-
-        lines.push(''); // 空行
-
-        // 添加详细信息
-        if (eventData.url) lines.push(`🔗 URL: ${eventData.url}`);
-        if (eventData.host) lines.push(`🌐 主机: ${eventData.host}`);
-        if (eventData.error) lines.push(`❌ 错误: ${eventData.error}`);
-        if (eventData.ping !== undefined) lines.push(`⏱️ 响应时间: ${eventData.ping}ms`);
-        if (eventData.cpu_usage !== undefined) lines.push(`📊 CPU 使用率: ${eventData.cpu_usage}%`);
-        if (eventData.mem_percent !== undefined) lines.push(`💾 内存使用率: ${eventData.mem_percent}%`);
-        if (eventData.balance !== undefined) lines.push(`💰 余额: $${eventData.balance}`);
-        if (eventData.threshold !== undefined) lines.push(`🎯 阈值: ${eventData.threshold}`);
+        if (eventData.monitorName) lines.push(`项目: ${eventData.monitorName}`);
+        if (eventData.serverName) lines.push(`主机: ${eventData.serverName}`);
+        if (eventData.error) lines.push(`错误: ${eventData.error}`);
+        if (eventData.url) lines.push(`地址: ${eventData.url}`);
+        if (eventData.ping !== undefined) lines.push(`响应: ${eventData.ping}ms`);
+        if (eventData.cpu_usage !== undefined) lines.push(`CPU: ${eventData.cpu_usage}%`);
+        if (eventData.mem_percent !== undefined) lines.push(`内存: ${eventData.mem_percent}%`);
+        if (eventData.balance !== undefined) lines.push(`余额: $${eventData.balance}`);
+        if (eventData.threshold !== undefined) lines.push(`阈值: ${eventData.threshold}`);
 
         // 如果没有特定信息,显示完整数据
         if (lines.length <= 1) {
@@ -448,6 +698,62 @@ class NotificationService extends EventEmitter {
         lines.push(`时间: ${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}`);
 
         return lines.join('\n');
+    }
+
+    /**
+     * 模板渲染引擎
+     */
+    renderTemplate(template, data) {
+        if (!template) return '';
+        return template.replace(/\{\{(.*?)\}\}/g, (match, key) => {
+            const val = data[key.trim()];
+            return val !== undefined ? val : match;
+        });
+    }
+
+    /**
+     * 抖动检测 (Anti-Flapping)
+     * 计算过去 10 次状态变化的频率
+     */
+    detectFlapping(stateRecord, currentEventType) {
+        try {
+            const history = JSON.parse(stateRecord.state_history || '[]');
+            const eventVal = (currentEventType === 'up' || currentEventType === 'online') ? 1 : 0;
+            const now = Date.now();
+
+            // 1. 检查是否处于已锁定的抖动冷静期 (5分钟)
+            if (stateRecord.is_flapping && stateRecord.updated_at) {
+                const lastUpdate = new Date(stateRecord.updated_at).getTime();
+                if (now - lastUpdate < 5 * 60 * 1000) {
+                    return true;
+                }
+            }
+
+            // 2. 记录历史
+            history.push({ t: now, v: eventVal });
+            if (history.length > 10) history.shift();
+
+            // 计算跳变次数 (v 变化的次数)
+            let flips = 0;
+            for (let i = 1; i < history.length; i++) {
+                if (history[i].v !== history[i - 1].v) flips++;
+            }
+
+            // 如果 10 次内有 4 次以上跳变，且时间间隔短（如 10 分钟内），判定为抖动
+            const durationMin = (history[history.length - 1].t - history[0].t) / 60000;
+            const isFlapping = flips >= 4 && durationMin < 10;
+
+            // 更新到数据库
+            storage.stateTracking.upsert(stateRecord.rule_id, stateRecord.fingerprint, {
+                state_history: JSON.stringify(history),
+                is_flapping: isFlapping ? 1 : 0
+            });
+
+            return isFlapping;
+        } catch (e) {
+            logger.error(`抖动检测异常: ${e.message}`);
+            return false;
+        }
     }
 
     /**

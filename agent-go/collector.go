@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/docker/docker/api/types/container"
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/disk"
 	"github.com/shirou/gopsutil/v3/host"
@@ -48,6 +48,7 @@ type DockerContainer struct {
 	Image   string `json:"image"`
 	Status  string `json:"status"`
 	Created string `json:"created"`
+	Ports   string `json:"ports"`
 }
 
 // DockerInfo Docker 信息
@@ -376,54 +377,54 @@ func (c *Collector) collectDockerInfo() DockerInfo {
 		Containers: []DockerContainer{},
 	}
 
-	// 检查 Docker 是否可用
-	if _, err := exec.LookPath("docker"); err != nil {
-		return info
-	}
-
-	// 尝试执行 docker ps 命令
-	cmd := exec.Command("docker", "ps", "-a", "--format", "{{json .}}")
-	hideWindow(cmd)
-	output, err := cmd.Output()
-	if err != nil {
-		// Docker 可能已安装但无权限或未运行
+	cli := GetDockerClient()
+	if cli == nil {
 		return info
 	}
 
 	info.Installed = true
 
-	// 解析容器列表
-	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-	for _, line := range lines {
-		if line == "" {
-			continue
+	// 采集容器列表 (带超时)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	containers, err := cli.ContainerList(ctx, container.ListOptions{All: true})
+	if err != nil {
+		// 记录错误但返回部分信息
+		fmt.Printf("[Collector] Docker list failed: %v\n", err)
+		return info
+	}
+
+	for _, c := range containers {
+		name := ""
+		if len(c.Names) > 0 {
+			name = strings.TrimPrefix(c.Names[0], "/")
 		}
 
-		var container struct {
-			ID      string `json:"ID"`
-			Names   string `json:"Names"`
-			Image   string `json:"Image"`
-			State   string `json:"State"`
-			Status  string `json:"Status"`
-			Created string `json:"CreatedAt"`
-		}
+		// 时间格式化
+		createdAt := time.Unix(c.Created, 0).Format("2006-01-02 15:04:05")
 
-		if err := json.Unmarshal([]byte(line), &container); err != nil {
-			continue
+		// 解析端口
+		var ports []string
+		for _, p := range c.Ports {
+			if p.PublicPort != 0 {
+				ports = append(ports, fmt.Sprintf("%d:%d", p.PublicPort, p.PrivatePort))
+			}
 		}
 
 		dc := DockerContainer{
-			ID:      container.ID[:12], // 短 ID
-			Name:    container.Names,
-			Image:   container.Image,
-			Status:  container.Status,
-			Created: container.Created,
+			ID:      c.ID[:12],
+			Name:    name,
+			Image:   c.Image,
+			Status:  c.Status,
+			Created: createdAt,
+			Ports:   strings.Join(ports, ", "),
 		}
 
 		info.Containers = append(info.Containers, dc)
 
 		// 统计运行/停止状态
-		if container.State == "running" {
+		if c.State == "running" {
 			info.Running++
 		} else {
 			info.Stopped++

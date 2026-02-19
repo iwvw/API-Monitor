@@ -77,14 +77,14 @@ function requireApiAuth(req, res, next) {
     try {
       const agStorage = require(path.join(modulesDir, 'antigravity-api', 'storage.js'));
       agApiKey = agStorage.getSetting('API_KEY');
-    } catch (e) {}
+    } catch (e) { }
 
     let gcliApiKey = null;
     try {
       const gcliStorage = require(path.join(modulesDir, 'gemini-cli-api', 'storage.js'));
       const gcliSettings = gcliStorage.getSettings();
       gcliApiKey = gcliSettings.API_KEY || '123456';
-    } catch (e) {}
+    } catch (e) { }
 
     if ((agApiKey && token === agApiKey) || (gcliApiKey && token === gcliApiKey)) {
       return next();
@@ -98,14 +98,14 @@ function requireApiAuth(req, res, next) {
     try {
       const agStorage = require(path.join(modulesDir, 'antigravity-api', 'storage.js'));
       agApiKey = agStorage.getSetting('API_KEY');
-    } catch (e) {}
+    } catch (e) { }
 
     let gcliApiKey = null;
     try {
       const gcliStorage = require(path.join(modulesDir, 'gemini-cli-api', 'storage.js'));
       const gcliSettings = gcliStorage.getSettings();
       gcliApiKey = gcliSettings.API_KEY || '123456';
-    } catch (e) {}
+    } catch (e) { }
 
     if ((agApiKey && queryKey === agApiKey) || (gcliApiKey && queryKey === gcliApiKey)) {
       return next();

@@ -63,8 +63,19 @@ export const notificationData = {
     },
     time_window: { enabled: false },
     description: '',
+    title_template: '',
+    message_template: '',
+    backup_channels: [],
+    quiet_until: '',
     enabled: true,
   },
+  // 全局配置
+  notificationGlobalConfig: {
+    enable_batch: true,
+    batch_interval_seconds: 30,
+    global_rate_limit_per_hour: 100,
+    base_url: '',
+  }
 };
 
 /**
@@ -80,6 +91,7 @@ export const notificationMethods = {
     this.loadNotificationChannels();
     this.loadNotificationRules();
     this.loadNotificationHistory();
+    this.loadNotificationGlobalConfig();
   },
 
   // ==================== 数据加载 ====================
@@ -323,6 +335,10 @@ export const notificationMethods = {
       },
       time_window: { enabled: false },
       description: '',
+      title_template: '',
+      message_template: '',
+      backup_channels: [],
+      quiet_until: '',
       enabled: true,
     };
     this.showRuleModal = true;
@@ -353,6 +369,10 @@ export const notificationMethods = {
       suppression: typeof rule.suppression === 'string' ? JSON.parse(rule.suppression) : (rule.suppression || { repeat_count: 1, silence_minutes: 0 }),
       time_window: typeof rule.time_window === 'string' ? JSON.parse(rule.time_window) : (rule.time_window || { enabled: false }),
       description: rule.description || '',
+      title_template: rule.title_template || '',
+      message_template: rule.message_template || '',
+      backup_channels: typeof rule.backup_channels === 'string' ? JSON.parse(rule.backup_channels) : (rule.backup_channels || []),
+      quiet_until: rule.quiet_until || '',
       enabled: !!rule.enabled,
     };
     this.showRuleModal = true;
@@ -510,6 +530,46 @@ export const notificationMethods = {
     } catch (error) {
       console.error('[Notification] Failed to clear history:', error);
       this.showGlobalToast('清空失败', 'error');
+    }
+  },
+
+  /**
+   * 加载全局配置
+   */
+  async loadNotificationGlobalConfig() {
+    try {
+      const res = await fetch('/api/notification/config');
+      const data = await res.json();
+      if (data.success) {
+        this.notificationGlobalConfig = data.data;
+      }
+    } catch (error) {
+      console.error('[Notification] Failed to load global config:', error);
+    }
+  },
+
+  /**
+   * 保存全局配置
+   */
+  async saveNotificationGlobalConfig() {
+    this.notificationSaving = true;
+    try {
+      const res = await fetch('/api/notification/config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(this.notificationGlobalConfig),
+      });
+      const data = await res.json();
+      if (data.success) {
+        this.showGlobalToast('全局配置已保存', 'success');
+      } else {
+        this.showGlobalToast(data.error || '保存失败', 'error');
+      }
+    } catch (error) {
+      console.error('[Notification] Failed to save global config:', error);
+      this.showGlobalToast('保存失败', 'error');
+    } finally {
+      this.notificationSaving = false;
     }
   },
 

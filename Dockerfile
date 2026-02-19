@@ -30,7 +30,7 @@ ENV PATH=/app/node_modules/.bin:$PATH \
 RUN npm run build
 
 # 阶段 2: 构建 Go Agent 二进制 (Agent Builder)
-FROM --platform=$BUILDPLATFORM golang:1.23-alpine AS agent-builder
+FROM --platform=$BUILDPLATFORM golang:1.24-alpine AS agent-builder
 WORKDIR /app/agent-go
 # 安装构建工具
 RUN apk add --no-cache upx

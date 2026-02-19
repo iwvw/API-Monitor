@@ -12,8 +12,8 @@ try {
     mermaid.initialize({
         startOnLoad: false,
         theme: 'dark',
-        securityLevel: 'loose',
-        flowchart: { useMaxWidth: true, htmlLabels: true },
+        securityLevel: 'strict',
+        flowchart: { useMaxWidth: true, htmlLabels: false },
         sequence: { useMaxWidth: true },
         fontFamily: 'inherit',
     });
@@ -30,6 +30,9 @@ export const aiDrawData = {
     aiDrawLoading: false,
     aiDrawSaving: false,
     aiDrawShowCreateMenu: false,
+    aiDrawCreateMenuGlobalBound: false,
+    aiDrawCreateMenuPointerHandler: null,
+    aiDrawCreateMenuKeyHandler: null,
     aiDrawShowChat: false,
     aiDrawCurrentTab: 'projects',
     aiDrawSearchQuery: '',
@@ -95,10 +98,35 @@ export const aiDrawMethods = {
      */
     async aiDrawInit() {
         console.log('[AI Draw] 初始化模块');
+        this.aiDrawBindCreateMenuGlobalClose();
         await Promise.all([
             this.aiDrawLoadProjects(),
             this.aiDrawLoadProviders(),
         ]);
+    },
+
+    /**
+     * 绑定创建菜单的全局关闭事件（点击外部 / ESC）
+     */
+    aiDrawBindCreateMenuGlobalClose() {
+        if (this.aiDrawCreateMenuGlobalBound) return;
+
+        this.aiDrawCreateMenuPointerHandler = (event) => {
+            if (!this.aiDrawShowCreateMenu) return;
+            const dropdown = this.$refs.aiDrawCreateDropdown;
+            if (dropdown && dropdown.contains(event.target)) return;
+            this.aiDrawShowCreateMenu = false;
+        };
+
+        this.aiDrawCreateMenuKeyHandler = (event) => {
+            if (event.key === 'Escape' && this.aiDrawShowCreateMenu) {
+                this.aiDrawShowCreateMenu = false;
+            }
+        };
+
+        document.addEventListener('pointerdown', this.aiDrawCreateMenuPointerHandler, true);
+        document.addEventListener('keydown', this.aiDrawCreateMenuKeyHandler, true);
+        this.aiDrawCreateMenuGlobalBound = true;
     },
 
     /**

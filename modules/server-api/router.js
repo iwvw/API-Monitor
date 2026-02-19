@@ -532,6 +532,572 @@ router.post('/info', async (req, res) => {
   }
 });
 
+// ==================== V2 任务与 Docker 聚合 API ====================
+
+function parseJsonSafe(value, fallback = []) {
+  if (value === null || value === undefined || value === '') return fallback;
+  if (Array.isArray(value) || typeof value === 'object') return value;
+  try {
+    return JSON.parse(value);
+  } catch (error) {
+    return fallback;
+  }
+}
+
+function toArraySafe(value) {
+  if (Array.isArray(value)) return value;
+  if (!value || typeof value !== 'object') return [];
+
+  const candidateKeys = ['data', 'items', 'list', 'results', 'projects', 'containers', 'rows'];
+  for (const key of candidateKeys) {
+    if (Array.isArray(value[key])) {
+      return value[key];
+    }
+  }
+
+  // 兜底：若对象中存在唯一一个数组字段，则直接取该字段
+  const arrayValues = Object.values(value).filter(item => Array.isArray(item));
+  if (arrayValues.length === 1) {
+    return arrayValues[0];
+  }
+
+  return [];
+}
+
+function toTaskData(data) {
+  if (data === '' || data === null || data === undefined) return '';
+  if (typeof data === 'string') return data;
+  return JSON.stringify(data);
+}
+
+function buildDockerV2Task(action, payload = {}) {
+  const defaultTimeoutMs = 60000;
+
+  switch (action) {
+    case 'container.start':
+    case 'container.stop':
+    case 'container.restart':
+    case 'container.pause':
+    case 'container.unpause':
+    case 'container.pull':
+      if (!payload.containerId) throw new Error('缺少 containerId');
+      return {
+        type: DockerTaskTypes.DOCKER_ACTION,
+        data: {
+          action: action.split('.')[1],
+          container_id: payload.containerId,
+          image: payload.image || '',
+        },
+        timeoutMs: 120000,
+      };
+    case 'container.update':
+      if (!payload.containerId || !payload.containerName) {
+        throw new Error('缺少 containerId 或 containerName');
+      }
+      return {
+        type: DockerTaskTypes.DOCKER_UPDATE_CONTAINER,
+        data: {
+          container_id: payload.containerId,
+          container_name: payload.containerName,
+          image: payload.image || '',
+        },
+        agentTimeoutSec: 600,
+        timeoutMs: 10 * 60 * 1000,
+        trackProgress: true,
+      };
+    case 'container.rename':
+      if (!payload.containerId || !payload.newName) {
+        throw new Error('缺少 containerId 或 newName');
+      }
+      return {
+        type: DockerTaskTypes.DOCKER_RENAME_CONTAINER,
+        data: {
+          container_id: payload.containerId,
+          new_name: payload.newName,
+        },
+        timeoutMs: defaultTimeoutMs,
+      };
+    case 'container.logs':
+      if (!payload.containerId) throw new Error('缺少 containerId');
+      return {
+        type: DockerTaskTypes.DOCKER_LOGS,
+        data: {
+          container_id: payload.containerId,
+          tail: payload.tail || 100,
+          since: payload.since || '',
+        },
+        timeoutMs: defaultTimeoutMs,
+      };
+    case 'container.checkUpdates':
+      return {
+        type: DockerTaskTypes.DOCKER_CHECK_UPDATE,
+        data: {
+          container_id: payload.containerId || '',
+        },
+        timeoutMs: 180000,
+      };
+    case 'container.create':
+      if (!payload.image) throw new Error('缺少镜像名称 image');
+      return {
+        type: DockerTaskTypes.DOCKER_CREATE_CONTAINER,
+        data: {
+          name: payload.name || '',
+          image: payload.image,
+          ports: Array.isArray(payload.ports) ? payload.ports : [],
+          volumes: Array.isArray(payload.volumes) ? payload.volumes : [],
+          env: payload.env && typeof payload.env === 'object' ? payload.env : {},
+          network: payload.network || '',
+          restart: payload.restart || 'unless-stopped',
+          privileged: !!payload.privileged,
+          extra_args: Array.isArray(payload.extraArgs) ? payload.extraArgs : [],
+        },
+        agentTimeoutSec: 300,
+        timeoutMs: 300000,
+      };
+    case 'image.list':
+      return {
+        type: DockerTaskTypes.DOCKER_IMAGES,
+        data: '',
+        timeoutMs: defaultTimeoutMs,
+      };
+    case 'image.pull':
+    case 'image.remove':
+    case 'image.prune':
+      return {
+        type: DockerTaskTypes.DOCKER_IMAGE_ACTION,
+        data: {
+          action: action.split('.')[1],
+          image: payload.image || '',
+        },
+        agentTimeoutSec: action === 'image.pull' ? 300 : 60,
+        timeoutMs: action === 'image.pull' ? 300000 : defaultTimeoutMs,
+      };
+    case 'network.list':
+      return {
+        type: DockerTaskTypes.DOCKER_NETWORKS,
+        data: '',
+        timeoutMs: defaultTimeoutMs,
+      };
+    case 'network.create':
+    case 'network.remove':
+    case 'network.connect':
+    case 'network.disconnect':
+      return {
+        type: DockerTaskTypes.DOCKER_NETWORK_ACTION,
+        data: {
+          action: action.split('.')[1],
+          name: payload.name || '',
+          driver: payload.driver || '',
+          subnet: payload.subnet || '',
+          gateway: payload.gateway || '',
+          container: payload.container || '',
+        },
+        timeoutMs: defaultTimeoutMs,
+      };
+    case 'volume.list':
+      return {
+        type: DockerTaskTypes.DOCKER_VOLUMES,
+        data: '',
+        timeoutMs: defaultTimeoutMs,
+      };
+    case 'volume.create':
+    case 'volume.remove':
+    case 'volume.prune':
+      return {
+        type: DockerTaskTypes.DOCKER_VOLUME_ACTION,
+        data: {
+          action: action.split('.')[1],
+          name: payload.name || '',
+          driver: payload.driver || '',
+        },
+        timeoutMs: defaultTimeoutMs,
+      };
+    case 'stats.list':
+      return {
+        type: DockerTaskTypes.DOCKER_STATS,
+        data: '',
+        timeoutMs: defaultTimeoutMs,
+      };
+    case 'compose.list':
+      return {
+        type: DockerTaskTypes.DOCKER_COMPOSE_LIST,
+        data: '',
+        timeoutMs: defaultTimeoutMs,
+      };
+    case 'compose.up':
+    case 'compose.down':
+    case 'compose.restart':
+    case 'compose.pull':
+      if (!payload.project) throw new Error('缺少 project');
+      return {
+        type: DockerTaskTypes.DOCKER_COMPOSE_ACTION,
+        data: {
+          action: action.split('.')[1],
+          project: payload.project,
+          config_dir: payload.configDir || '',
+        },
+        agentTimeoutSec: action === 'compose.pull' ? 300 : 120,
+        timeoutMs: action === 'compose.pull' ? 300000 : 120000,
+      };
+    default:
+      throw new Error(`不支持的 Docker action: ${action}`);
+  }
+}
+
+async function loadDockerOverviewForServer(server) {
+  const serverId = server?.id || '';
+  const serverName = server?.name || '未知主机';
+  const host = server?.host || '';
+
+  const emptyOverview = errorMessage => ({
+    serverId,
+    serverName,
+    host,
+    online: !!(serverId && agentService.isOnline(serverId)),
+    docker: {
+      installed: false,
+      running: 0,
+      stopped: 0,
+      containers: [],
+    },
+    resources: {
+      images: [],
+      networks: [],
+      volumes: [],
+      stats: [],
+      composeProjects: [],
+    },
+    errors: {
+      overview: errorMessage || '',
+      images: errorMessage || '',
+      networks: errorMessage || '',
+      volumes: errorMessage || '',
+      stats: errorMessage || '',
+      composeProjects: errorMessage || '',
+    },
+  });
+
+  try {
+    if (!serverId) {
+      throw new Error('主机配置无效: 缺少 serverId');
+    }
+
+    const metrics = agentService.getMetrics(serverId) || {};
+    const docker = metrics.docker || {};
+
+    const runAgentTask = async (type, timeoutMs = 30000) => {
+      try {
+        const result = await agentService.sendTaskAndWait(
+          serverId,
+          {
+            type,
+            data: '',
+            timeout: Math.ceil(timeoutMs / 1000),
+          },
+          timeoutMs
+        );
+        if (!result || typeof result !== 'object') {
+          return { ok: false, error: '任务返回格式无效', data: [] };
+        }
+        if (!result.successful) {
+          return { ok: false, error: result.data || '任务执行失败', data: [] };
+        }
+        const parsed = parseJsonSafe(result.data, []);
+        return { ok: true, data: toArraySafe(parsed) };
+      } catch (error) {
+        return { ok: false, error: error.message, data: [] };
+      }
+    };
+
+    const [imagesRes, networksRes, volumesRes, statsRes, composeRes] = await Promise.all([
+      runAgentTask(DockerTaskTypes.DOCKER_IMAGES),
+      runAgentTask(DockerTaskTypes.DOCKER_NETWORKS),
+      runAgentTask(DockerTaskTypes.DOCKER_VOLUMES),
+      runAgentTask(DockerTaskTypes.DOCKER_STATS),
+      runAgentTask(DockerTaskTypes.DOCKER_COMPOSE_LIST),
+    ]);
+
+    return {
+      serverId,
+      serverName,
+      host,
+      online: true,
+      docker: {
+        installed: !!docker.installed,
+        running: docker.running || 0,
+        stopped: docker.stopped || 0,
+        containers: Array.isArray(docker.containers) ? docker.containers : [],
+      },
+      resources: {
+        images: toArraySafe(imagesRes.data),
+        networks: toArraySafe(networksRes.data),
+        volumes: toArraySafe(volumesRes.data),
+        stats: toArraySafe(statsRes.data),
+        composeProjects: toArraySafe(composeRes.data),
+      },
+      errors: {
+        overview: '',
+        images: imagesRes.ok ? '' : imagesRes.error,
+        networks: networksRes.ok ? '' : networksRes.error,
+        volumes: volumesRes.ok ? '' : volumesRes.error,
+        stats: statsRes.ok ? '' : statsRes.error,
+        composeProjects: composeRes.ok ? '' : composeRes.error,
+      },
+    };
+  } catch (error) {
+    return emptyOverview(error.message || 'Docker 概览加载失败');
+  }
+}
+
+router.post('/v2/tasks', async (req, res) => {
+  try {
+    const { serverId, domain, action, payload, requestId } = req.body || {};
+
+    if (!serverId || !domain || !action) {
+      return res.status(400).json({ success: false, error: '缺少 serverId/domain/action' });
+    }
+    if (domain !== 'docker') {
+      return res.status(400).json({ success: false, error: `不支持的 domain: ${domain}` });
+    }
+    if (!agentService.isOnline(serverId)) {
+      return res.status(400).json({ success: false, error: '主机不在线' });
+    }
+
+    if (requestId) {
+      const existing = agentService.getTask(requestId);
+      if (existing) {
+        return res.status(202).json({
+          success: true,
+          data: {
+            taskId: existing.taskId,
+            serverId,
+            domain,
+            action,
+            acceptedAt: existing.createdAt,
+            deduped: true,
+          },
+        });
+      }
+    }
+
+    const mapped = buildDockerV2Task(action, payload || {});
+    const taskId = agentService.submitTask(
+      serverId,
+      {
+        id: requestId || undefined,
+        type: mapped.type,
+        data: toTaskData(mapped.data),
+        timeout: mapped.agentTimeoutSec || Math.ceil((mapped.timeoutMs || 60000) / 1000),
+      },
+      {
+        waitForResult: false,
+        timeoutMs: mapped.timeoutMs || 60000,
+        trackProgress: !!mapped.trackProgress,
+        domain: 'docker',
+        action,
+      }
+    );
+
+    res.status(202).json({
+      success: true,
+      data: {
+        taskId,
+        serverId,
+        domain,
+        action,
+        acceptedAt: Date.now(),
+      },
+    });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+router.get('/v2/tasks/stream', (req, res) => {
+  const serverId = req.query.serverId ? String(req.query.serverId) : '';
+  const bootstrapLimit = Math.max(1, Math.min(200, parseInt(req.query.bootstrapLimit) || 50));
+
+  res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  if (typeof res.flushHeaders === 'function') {
+    res.flushHeaders();
+  }
+
+  const writeEvent = (event, data) => {
+    res.write(`event: ${event}\n`);
+    res.write(`data: ${JSON.stringify(data)}\n\n`);
+  };
+
+  writeEvent('ready', {
+    connected: true,
+    timestamp: Date.now(),
+    serverId: serverId || null,
+  });
+
+  const recentTasks = agentService.getRecentTasks(serverId, bootstrapLimit);
+  for (const task of recentTasks) {
+    writeEvent('task.update', task);
+  }
+
+  const onTaskUpdate = task => {
+    if (serverId && task.serverId !== serverId) return;
+    writeEvent('task.update', task);
+  };
+  agentService.on('task:update', onTaskUpdate);
+
+  const heartbeat = setInterval(() => {
+    writeEvent('ping', { timestamp: Date.now() });
+  }, 15000);
+  if (typeof heartbeat.unref === 'function') {
+    heartbeat.unref();
+  }
+
+  req.on('close', () => {
+    clearInterval(heartbeat);
+    agentService.off('task:update', onTaskUpdate);
+    res.end();
+  });
+});
+
+router.get('/v2/tasks', (req, res) => {
+  const serverId = req.query.serverId ? String(req.query.serverId) : '';
+  const limit = Math.max(1, Math.min(500, parseInt(req.query.limit) || 100));
+  res.json({
+    success: true,
+    data: agentService.getRecentTasks(serverId, limit),
+  });
+});
+
+router.get('/v2/tasks/:taskId', (req, res) => {
+  const task = agentService.getTask(req.params.taskId);
+  if (!task) {
+    return res.status(404).json({ success: false, error: '任务不存在' });
+  }
+  res.json({ success: true, data: task });
+});
+
+router.get('/v2/docker/overview', async (req, res) => {
+  try {
+    const selectedServerId = req.query.serverId ? String(req.query.serverId) : '';
+    const serversRaw = serverStorage.getAll();
+    const servers = Array.isArray(serversRaw) ? serversRaw.filter(item => item && item.id) : [];
+
+    let targetServers = [];
+    if (selectedServerId) {
+      const server = servers.find(item => item.id === selectedServerId);
+      if (!server) {
+        return res.status(404).json({ success: false, error: '主机不存在' });
+      }
+      if (!agentService.isOnline(server.id)) {
+        return res.status(400).json({ success: false, error: '主机不在线' });
+      }
+      targetServers = [server];
+    } else {
+      targetServers = servers.filter(item => agentService.isOnline(item.id));
+    }
+
+    const overviewResults = await Promise.allSettled(
+      targetServers.map(server => loadDockerOverviewForServer(server))
+    );
+
+    const overviews = overviewResults.map((entry, index) => {
+      if (entry.status === 'fulfilled') {
+        return entry.value;
+      }
+
+      const fallbackServer = targetServers[index];
+      return {
+        serverId: fallbackServer?.id || '',
+        serverName: fallbackServer?.name || '未知主机',
+        host: fallbackServer?.host || '',
+        online: false,
+        docker: {
+          installed: false,
+          running: 0,
+          stopped: 0,
+          containers: [],
+        },
+        resources: {
+          images: [],
+          networks: [],
+          volumes: [],
+          stats: [],
+          composeProjects: [],
+        },
+        errors: {
+          overview: entry.reason?.message || '主机 Docker 概览加载失败',
+          images: '',
+          networks: '',
+          volumes: '',
+          stats: '',
+          composeProjects: '',
+        },
+      };
+    });
+
+    const summary = overviews.reduce(
+      (acc, item) => {
+        const containers = Array.isArray(item?.docker?.containers) ? item.docker.containers : [];
+        const images = toArraySafe(item?.resources?.images);
+        const networks = toArraySafe(item?.resources?.networks);
+        const volumes = toArraySafe(item?.resources?.volumes);
+        const composeProjects = toArraySafe(item?.resources?.composeProjects);
+
+        acc.hosts += 1;
+        acc.containers += containers.length;
+        acc.running += item?.docker?.running || 0;
+        acc.stopped += item?.docker?.stopped || 0;
+        acc.images += images.length;
+        acc.networks += networks.length;
+        acc.volumes += volumes.length;
+        acc.composeProjects += composeProjects.length;
+        return acc;
+      },
+      {
+        hosts: 0,
+        containers: 0,
+        running: 0,
+        stopped: 0,
+        images: 0,
+        networks: 0,
+        volumes: 0,
+        composeProjects: 0,
+      }
+    );
+
+    res.json({
+      success: true,
+      data: {
+        generatedAt: Date.now(),
+        servers: overviews,
+        summary,
+      },
+    });
+  } catch (error) {
+    console.error('[ServerAPI] /v2/docker/overview failed:', error);
+    res.json({
+      success: false,
+      error: error.message || 'Docker 概览加载失败',
+      data: {
+        generatedAt: Date.now(),
+        servers: [],
+        summary: {
+          hosts: 0,
+          containers: 0,
+          running: 0,
+          stopped: 0,
+          images: 0,
+          networks: 0,
+          volumes: 0,
+          composeProjects: 0,
+        },
+      },
+    });
+  }
+});
+
 /**
  * Docker 容器操作
  * POST /docker/action
@@ -750,7 +1316,7 @@ router.post('/docker/images', async (req, res) => {
     }, 30000);
 
     if (result.successful) {
-      res.json({ success: true, data: JSON.parse(result.data) });
+      res.json({ success: true, data: parseJsonSafe(result.data, []) });
     } else {
       res.status(400).json({ success: false, error: result.data });
     }
@@ -807,7 +1373,7 @@ router.post('/docker/networks', async (req, res) => {
     }, 30000);
 
     if (result.successful) {
-      res.json({ success: true, data: JSON.parse(result.data) });
+      res.json({ success: true, data: parseJsonSafe(result.data, []) });
     } else {
       res.status(400).json({ success: false, error: result.data });
     }
@@ -863,7 +1429,7 @@ router.post('/docker/volumes', async (req, res) => {
     }, 30000);
 
     if (result.successful) {
-      res.json({ success: true, data: JSON.parse(result.data) });
+      res.json({ success: true, data: parseJsonSafe(result.data, []) });
     } else {
       res.status(400).json({ success: false, error: result.data });
     }
@@ -949,7 +1515,7 @@ router.post('/docker/stats', async (req, res) => {
     }, 30000);
 
     if (result.successful) {
-      res.json({ success: true, data: JSON.parse(result.data) });
+      res.json({ success: true, data: parseJsonSafe(result.data, []) });
     } else {
       res.status(400).json({ success: false, error: result.data });
     }
@@ -977,12 +1543,7 @@ router.post('/docker/compose/list', async (req, res) => {
     }, 30000);
 
     if (result.successful) {
-      let projects = [];
-      try {
-        projects = JSON.parse(result.data);
-      } catch (e) {
-        projects = [];
-      }
+      const projects = parseJsonSafe(result.data, []);
       res.json({ success: true, data: projects });
     } else {
       res.status(400).json({ success: false, error: result.data });
@@ -1380,15 +1941,15 @@ router.post('/task/command/:serverId', async (req, res) => {
       return res.status(400).json({ success: false, error: '主机不在线' });
     }
 
-    const taskId = require('crypto').randomUUID();
-    const result = agentService.sendTask(serverId, {
-      id: taskId,
+    const requestedTaskId = require('crypto').randomUUID();
+    const taskId = agentService.sendTask(serverId, {
+      id: requestedTaskId,
       type: TaskTypes.COMMAND,
       data: command,
       timeout,
     });
 
-    if (!result) {
+    if (!taskId) {
       return res.status(500).json({ success: false, error: '任务下发失败' });
     }
 
@@ -1469,9 +2030,9 @@ router.post('/task/command/batch', async (req, res) => {
         continue;
       }
 
-      const taskId = require('crypto').randomUUID();
-      const sent = agentService.sendTask(serverId, {
-        id: taskId,
+      const requestedTaskId = require('crypto').randomUUID();
+      const sentTaskId = agentService.sendTask(serverId, {
+        id: requestedTaskId,
         type: TaskTypes.COMMAND,
         data: command,
         timeout,
@@ -1479,8 +2040,8 @@ router.post('/task/command/batch', async (req, res) => {
 
       results.push({
         serverId,
-        success: sent,
-        taskId: sent ? taskId : null,
+        success: !!sentTaskId,
+        taskId: sentTaskId || null,
       });
     }
 
@@ -1785,7 +2346,15 @@ router.post('/sftp/upload', async (req, res) => {
         : remotePath + '/' + file.name;
     }
 
-    await sftpService.uploadFile(serverId, fullPath, file.data);
+    let uploadData = file.data;
+    if ((!uploadData || uploadData.length === 0) && file.tempFilePath) {
+      uploadData = require('fs').createReadStream(file.tempFilePath);
+    }
+    if (!uploadData) {
+      return res.status(400).json({ success: false, error: '上传文件数据为空' });
+    }
+
+    await sftpService.uploadFile(serverId, fullPath, uploadData);
     res.json({ success: true, message: '上传成功', path: fullPath });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });

@@ -1,65 +1,38 @@
 <!-- ==================== Gemini CLI 管理部分 ==================== -->
-<div
-  class="tab-content gemini-cli-content theme-gemini-cli"
-  :class="getTabAnimationClass('gemini-cli')"
->
+<div class="tab-content gemini-cli-content theme-gemini-cli" :class="getTabAnimationClass('gemini-cli')">
   <!-- Gemini CLI 子标签页 -->
   <div class="sec-tabs gemini-sec-tabs">
-    <button
-      class="tab-btn"
-      :class="{ active: geminiCliCurrentTab === 'models' || geminiCliCurrentTab === 'quotas' }"
-      @click="switchGeminiCliTab('models')"
-    >
+    <button class="tab-btn" :class="{ active: geminiCliCurrentTab === 'models' || geminiCliCurrentTab === 'quotas' }"
+      @click="switchGeminiCliTab('models')">
       <i class="fas fa-th-list"></i> 模型矩阵
     </button>
-    <button
-      class="tab-btn"
-      :class="{ active: geminiCliCurrentTab === 'accounts' }"
-      @click="switchGeminiCliTab('accounts')"
-    >
+    <button class="tab-btn" :class="{ active: geminiCliCurrentTab === 'accounts' }"
+      @click="switchGeminiCliTab('accounts')">
       <i class="fas fa-list"></i> 账号管理
     </button>
-    <button
-      class="tab-btn"
-      :class="{ active: geminiCliCurrentTab === 'logs' }"
-      @click="switchGeminiCliTab('logs')"
-    >
+    <button class="tab-btn" :class="{ active: geminiCliCurrentTab === 'logs' }" @click="switchGeminiCliTab('logs')">
       <i class="fas fa-history"></i> 调用日志
     </button>
-    <button
-      class="tab-btn"
-      :class="{ active: geminiCliCurrentTab === 'settings' }"
-      @click="switchGeminiCliTab('settings')"
-    >
+    <button class="tab-btn" :class="{ active: geminiCliCurrentTab === 'settings' }"
+      @click="switchGeminiCliTab('settings')">
       <i class="fas fa-cog"></i> 模块配置
     </button>
   </div>
 
   <!-- 模型列表标签页 -->
-  <div
-    v-show="geminiCliCurrentTab === 'models' || geminiCliCurrentTab === 'quotas'"
-    class="sub-tab-content quick-fade-in"
-  >
+  <div v-show="geminiCliCurrentTab === 'models' || geminiCliCurrentTab === 'quotas'"
+    class="sub-tab-content quick-fade-in">
     <div class="panel-header" style="justify-content: space-between; padding-bottom: 10px">
       <div style="display: flex; gap: 16px; align-items: center">
         <div class="panel-title">
-          <i class="fas fa-th-large" style="margin-right: 8px; color: var(--gemini-primary)"></i
-          >Model Matrix
+          <i class="fas fa-th-large" style="margin-right: 8px; color: var(--gemini-primary)"></i>Model Matrix
         </div>
       </div>
       <div style="display: flex; gap: 8px">
-        <button
-          class="btn btn-primary btn-sm"
-          @click="saveGeminiCliMatrix"
-          :disabled="geminiCliModelLoading"
-        >
+        <button class="btn btn-primary btn-sm" @click="saveGeminiCliMatrix" :disabled="geminiCliModelLoading">
           <i class="fas fa-save"></i> 保存配置
         </button>
-        <button
-          class="btn btn-secondary btn-sm"
-          @click="loadGeminiCliMatrix"
-          :disabled="geminiCliModelLoading"
-        >
+        <button class="btn btn-secondary btn-sm" @click="loadGeminiCliMatrix" :disabled="geminiCliModelLoading">
           <i class="fas fa-sync-alt" :class="{ 'fa-spin': geminiCliModelLoading }"></i> 刷新配置
         </button>
       </div>
@@ -90,11 +63,7 @@
                   <div class="matrix-header-cell" @click="toggleMatrixColumn('maxThinking')">
                     <span>深度思考</span>
                     <label class="switch">
-                      <input
-                        type="checkbox"
-                        :checked="isMatrixColumnAllChecked('maxThinking')"
-                        readonly
-                      />
+                      <input type="checkbox" :checked="isMatrixColumnAllChecked('maxThinking')" readonly />
                       <span class="slider round"></span>
                     </label>
                   </div>
@@ -103,11 +72,7 @@
                   <div class="matrix-header-cell" @click="toggleMatrixColumn('noThinking')">
                     <span>快速思考</span>
                     <label class="switch">
-                      <input
-                        type="checkbox"
-                        :checked="isMatrixColumnAllChecked('noThinking')"
-                        readonly
-                      />
+                      <input type="checkbox" :checked="isMatrixColumnAllChecked('noThinking')" readonly />
                       <span class="slider round"></span>
                     </label>
                   </div>
@@ -116,11 +81,7 @@
                   <div class="matrix-header-cell" @click="toggleMatrixColumn('search')">
                     <span>联网搜索</span>
                     <label class="switch">
-                      <input
-                        type="checkbox"
-                        :checked="isMatrixColumnAllChecked('search')"
-                        readonly
-                      />
+                      <input type="checkbox" :checked="isMatrixColumnAllChecked('search')" readonly />
                       <span class="slider round"></span>
                     </label>
                   </div>
@@ -129,11 +90,7 @@
                   <div class="matrix-header-cell" @click="toggleMatrixColumn('fakeStream')">
                     <span>假流</span>
                     <label class="switch">
-                      <input
-                        type="checkbox"
-                        :checked="isMatrixColumnAllChecked('fakeStream')"
-                        readonly
-                      />
+                      <input type="checkbox" :checked="isMatrixColumnAllChecked('fakeStream')" readonly />
                       <span class="slider round"></span>
                     </label>
                   </div>
@@ -142,11 +99,7 @@
                   <div class="matrix-header-cell" @click="toggleMatrixColumn('antiTrunc')">
                     <span>流抗</span>
                     <label class="switch">
-                      <input
-                        type="checkbox"
-                        :checked="isMatrixColumnAllChecked('antiTrunc')"
-                        readonly
-                      />
+                      <input type="checkbox" :checked="isMatrixColumnAllChecked('antiTrunc')" readonly />
                       <span class="slider round"></span>
                     </label>
                   </div>
@@ -155,75 +108,48 @@
             </thead>
             <tbody>
               <tr v-for="row in getGeminiCliMatrixList()" :key="row.id">
-                <td
-                  style="
+                <td style="
                     font-family: var(--font-mono);
                     font-weight: 600;
                     cursor: pointer;
                     user-select: none;
-                  "
-                  @click="toggleGeminiCliMatrixRow(row.id)"
-                  title="点击切换整行开关"
-                >
+                  " @click="toggleGeminiCliMatrixRow(row.id)" title="点击切换整行开关">
                   {{ row.id }}
                 </td>
                 <td class="text-center">
                   <label class="switch">
-                    <input
-                      type="checkbox"
-                      :checked="row.base"
-                      @change="toggleMatrixItem(row.id, 'base')"
-                    />
+                    <input type="checkbox" :checked="row.base" @change="toggleMatrixItem(row.id, 'base')" />
                     <span class="slider round"></span>
                   </label>
                 </td>
                 <td class="text-center">
                   <label class="switch">
-                    <input
-                      type="checkbox"
-                      :checked="row.maxThinking"
-                      @change="toggleMatrixItem(row.id, 'maxThinking')"
-                    />
+                    <input type="checkbox" :checked="row.maxThinking"
+                      @change="toggleMatrixItem(row.id, 'maxThinking')" />
                     <span class="slider round"></span>
                   </label>
                 </td>
                 <td class="text-center">
                   <label class="switch">
-                    <input
-                      type="checkbox"
-                      :checked="row.noThinking"
-                      @change="toggleMatrixItem(row.id, 'noThinking')"
-                    />
+                    <input type="checkbox" :checked="row.noThinking" @change="toggleMatrixItem(row.id, 'noThinking')" />
                     <span class="slider round"></span>
                   </label>
                 </td>
                 <td class="text-center">
                   <label class="switch">
-                    <input
-                      type="checkbox"
-                      :checked="row.search"
-                      @change="toggleMatrixItem(row.id, 'search')"
-                    />
+                    <input type="checkbox" :checked="row.search" @change="toggleMatrixItem(row.id, 'search')" />
                     <span class="slider round"></span>
                   </label>
                 </td>
                 <td class="text-center">
                   <label class="switch">
-                    <input
-                      type="checkbox"
-                      :checked="row.fakeStream"
-                      @change="toggleMatrixItem(row.id, 'fakeStream')"
-                    />
+                    <input type="checkbox" :checked="row.fakeStream" @change="toggleMatrixItem(row.id, 'fakeStream')" />
                     <span class="slider round"></span>
                   </label>
                 </td>
                 <td class="text-center">
                   <label class="switch">
-                    <input
-                      type="checkbox"
-                      :checked="row.antiTrunc"
-                      @change="toggleMatrixItem(row.id, 'antiTrunc')"
-                    />
+                    <input type="checkbox" :checked="row.antiTrunc" @change="toggleMatrixItem(row.id, 'antiTrunc')" />
                     <span class="slider round"></span>
                   </label>
                 </td>
@@ -245,52 +171,31 @@
     <div class="panel">
       <div class="panel-header" style="padding-bottom: 6px">
         <div style="display: flex; gap: 8px">
-          <button
-            class="btn btn-gemini"
-            @click="showGeminiCliOAuthExpand = !showGeminiCliOAuthExpand"
-          >
+          <button class="btn btn-gemini" @click="showGeminiCliOAuthExpand = !showGeminiCliOAuthExpand">
             <i class="fab fa-google"></i> OAuth 授权
           </button>
           <button class="btn btn-success" @click="openAddGeminiCliAccountModal">
             <i class="fas fa-plus-circle"></i> 手动添加
           </button>
-          <button
-            class="btn btn-secondary"
-            @click="refreshGeminiCliAccounts"
-            :disabled="geminiCliLoading"
-            title="刷新全部账号"
-            style="padding: 0 12px"
-          >
+          <button class="btn btn-secondary" @click="refreshGeminiCliAccounts" :disabled="geminiCliLoading"
+            title="刷新全部账号" style="padding: 0 12px">
             <i class="fas fa-sync-alt" :class="{ 'fa-spin': geminiCliLoading }"></i>
           </button>
-          <button
-            class="btn btn-secondary"
-            @click="exportGeminiCliAccounts"
-            title="导出账号"
-            style="padding: 0 12px"
-          >
+          <button class="btn btn-secondary" @click="exportGeminiCliAccounts" title="导出账号" style="padding: 0 12px">
             <i class="fas fa-upload"></i>
           </button>
-          <button
-            class="btn btn-secondary"
-            @click="importGeminiCliAccountsFromFile"
-            title="导入账号"
-            style="padding: 0 12px"
-          >
+          <button class="btn btn-secondary" @click="importGeminiCliAccountsFromFile" title="导入账号"
+            style="padding: 0 12px">
             <i class="fas fa-download"></i>
           </button>
         </div>
       </div>
 
       <!-- Expandable OAuth Panel -->
-      <div
-        class="ag-expandable-panel gemini-oauth-panel"
-        :class="{ expanded: showGeminiCliOAuthExpand }"
-      >
+      <div class="ag-expandable-panel gemini-oauth-panel" :class="{ expanded: showGeminiCliOAuthExpand }">
         <div class="panel-header" style="border-bottom: none; padding-bottom: 0">
           <div class="panel-title" style="width: 100%; text-align: center; padding-top: 10px">
-            <i class="fab fa-google" style="margin-right: 8px; color: var(--gemini-primary)"></i
-            >连接 Google 账号
+            <i class="fab fa-google" style="margin-right: 8px; color: var(--gemini-primary)"></i>连接 Google 账号
           </div>
         </div>
 
@@ -303,21 +208,17 @@
               <button class="btn btn-gemini btn-block" @click="openGeminiCliAuthUrl">
                 <i class="fab fa-google"></i> 获取授权链接
               </button>
-              <div
-                style="
+              <div style="
                   margin-top: 8px;
                   font-size: 11px;
                   color: var(--text-tertiary);
                   display: flex;
                   align-items: flex-start;
                   gap: 6px;
-                "
-              >
+                ">
                 <i class="fas fa-info-circle" style="margin-top: 2px; opacity: 0.7"></i>
-                <span
-                  >登录时显示 "Google Antigravity" 为正常现象，因该模块共用内部 OAuth
-                  应用。两者访问的 API 端点不同，模型列表也有差异。</span
-                >
+                <span>登录时显示 "Google Antigravity" 为正常现象，因该模块共用内部 OAuth
+                  应用。两者访问的 API 端点不同，模型列表也有差异。</span>
               </div>
             </div>
           </div>
@@ -330,24 +231,16 @@
             <div class="step-badge">2</div>
             <div class="step-content">
               <div class="step-text">在下方粘贴重定向后的 URL</div>
-              <textarea
-                v-model="geminiCliOauthReturnUrl"
-                class="form-textarea oauth-textarea"
-                placeholder="粘贴以 http:// 开头的完整 URL..."
-                spellcheck="false"
-              ></textarea>
+              <textarea v-model="geminiCliOauthReturnUrl" class="form-textarea oauth-textarea"
+                placeholder="粘贴以 http:// 开头的完整 URL..." spellcheck="false"></textarea>
             </div>
           </div>
 
           <!-- Options -->
           <div class="oauth-options">
             <div class="oauth-option-row">
-              <input
-                type="text"
-                v-model="geminiCliCustomProjectId"
-                class="form-input input-sm"
-                placeholder="自定义项目 ID (可选)"
-              />
+              <input type="text" v-model="geminiCliCustomProjectId" class="form-input input-sm"
+                placeholder="自定义项目 ID (可选)" />
               <div style="display: flex; align-items: center; gap: 8px">
                 <label class="switch">
                   <input type="checkbox" v-model="geminiCliAllowRandomProjectId" />
@@ -359,11 +252,8 @@
           </div>
 
           <!-- Action -->
-          <button
-            class="btn btn-success btn-block btn-lg mt-3"
-            @click="parseGeminiCliOauthUrl"
-            :disabled="!geminiCliOauthReturnUrl || geminiCliLoading"
-          >
+          <button class="btn btn-success btn-block btn-lg mt-3" @click="parseGeminiCliOauthUrl"
+            :disabled="!geminiCliOauthReturnUrl || geminiCliLoading">
             <i class="fas" :class="geminiCliLoading ? 'fa-spinner fa-spin' : 'fa-link'"></i>
             {{ geminiCliLoading ? '验证中...' : '验证并连接' }}
           </button>
@@ -371,27 +261,22 @@
       </div>
 
       <!-- 统计信息栏 -->
-      <div
-        v-if="geminiCliStats"
-        class="stats-bar"
-        style="
+      <div v-if="geminiCliStats" class="stats-bar" style="
           display: none;
           gap: 20px;
           padding: 12px 16px;
           margin-bottom: 2px;
           border-radius: 8px;
           font-size: 13px;
-        "
-      >
+        ">
         <div class="stat-item">
           <span style="opacity: 0.7">总账号:</span>
           <strong style="margin-left: 4px">{{ geminiCliStats.total_accounts || 0 }}</strong>
         </div>
         <div class="stat-item">
           <span style="opacity: 0.7">活跃:</span>
-          <strong style="margin-left: 4px; color: var(--success-color)"
-            >{{ geminiCliStats.active_accounts || 0 }}</strong
-          >
+          <strong style="margin-left: 4px; color: var(--success-color)">{{ geminiCliStats.active_accounts || 0
+            }}</strong>
         </div>
       </div>
 
@@ -426,10 +311,8 @@
               </td>
               <td data-label="当前状态" class="text-center">
                 <div class="flex-cell">
-                  <span
-                    class="ag-status-badge"
-                    :class="account.status === 'online' ? 'ag-status-online' : (account.status === 'error' ? 'ag-status-error' : 'ag-status-unknown')"
-                  >
+                  <span class="ag-status-badge"
+                    :class="account.status === 'online' ? 'ag-status-online' : (account.status === 'error' ? 'ag-status-error' : 'ag-status-unknown')">
                     {{ account.status === 'online' ? '在线' : (account.status === 'error' ? '异常' :
                     '未知') }}
                   </span>
@@ -437,18 +320,12 @@
               </td>
               <td data-label="冻结状态" class="text-center">
                 <div class="flex-cell">
-                  <span
-                    v-if="!account.coolDowns || account.coolDowns.length === 0"
-                    class="ag-status-badge ag-status-online"
-                  >
+                  <span v-if="!account.coolDowns || account.coolDowns.length === 0"
+                    class="ag-status-badge ag-status-online">
                     正常
                   </span>
-                  <span
-                    v-else
-                    class="ag-status-badge ag-status-warning"
-                    style="cursor: pointer"
-                    :title="formatCoolDownTitle(account.coolDowns)"
-                  >
+                  <span v-else class="ag-status-badge ag-status-warning" style="cursor: pointer"
+                    :title="formatCoolDownTitle(account.coolDowns)">
                     <i class="fas fa-snowflake" style="margin-right: 4px"></i>
                     {{ account.coolDowns.length }} 模型受限
                   </span>
@@ -456,27 +333,16 @@
               </td>
               <td class="actions text-center">
                 <div class="flex-cell">
-                  <button
-                    class="btn btn-icon-refined"
+                  <button class="btn btn-icon-refined"
                     :style="{ color: account.enable ? 'var(--success-color)' : 'var(--text-tertiary)' }"
-                    @click="toggleGeminiCliAccount(account)"
-                    :title="account.enable ? '禁用账号' : '启用账号'"
-                  >
+                    @click="toggleGeminiCliAccount(account)" :title="account.enable ? '禁用账号' : '启用账号'">
                     <i class="fas" :class="account.enable ? 'fa-toggle-on' : 'fa-toggle-off'"></i>
                   </button>
-                  <button
-                    class="btn btn-icon-refined"
-                    @click="editGeminiCliAccount(account)"
-                    title="编辑配置"
-                  >
+                  <button class="btn btn-icon-refined" @click="editGeminiCliAccount(account)" title="编辑配置">
                     <i class="fas fa-edit"></i>
                   </button>
-                  <button
-                    class="btn btn-icon-refined"
-                    @click="deleteGeminiCliAccount(account)"
-                    title="删除授权"
-                    style="color: var(--danger-color)"
-                  >
+                  <button class="btn btn-icon-refined" @click="deleteGeminiCliAccount(account)" title="删除授权"
+                    style="color: var(--danger-color)">
                     <i class="fas fa-trash"></i>
                   </button>
                 </div>
@@ -491,32 +357,96 @@
       </div>
     </div>
 
+    <!-- 额度总览面板 -->
+    <div class="panel" style="margin-top: 16px">
+      <div class="panel-header" style="padding-bottom: 6px">
+        <div class="panel-title">
+          <i class="fas fa-chart-pie" style="margin-right: 8px; color: var(--gemini-primary)"></i>额度总览
+        </div>
+        <div style="display: flex; gap: 8px; align-items: center">
+          <button class="btn btn-primary btn-sm" @click="loadGeminiCliQuotas(true)" :disabled="geminiCliQuotaLoading">
+            <i class="fas" :class="geminiCliQuotaLoading ? 'fa-spinner fa-spin' : 'fa-sync-alt'"></i>
+            {{ geminiCliQuotaLoading ? '查询中...' : '刷新额度' }}
+          </button>
+        </div>
+      </div>
+
+      <div v-if="geminiCliQuotaLoading && !geminiCliQuotaData.length" class="loading" style="padding: 30px">
+        <div class="spinner"></div>
+        <div style="margin-top: 12px">正在查询额度信息...</div>
+      </div>
+
+      <div v-else-if="geminiCliQuotaData.length > 0" class="table-container">
+        <table class="data-table" style="font-size: 12px">
+          <thead>
+            <tr>
+              <th style="width: 160px">模型</th>
+              <th v-for="q in geminiCliQuotaData" :key="q.accountId" class="text-center" style="min-width: 120px">
+                {{ q.accountName || q.accountId }}
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="modelId in geminiCliQuotaModels" :key="modelId">
+              <td style="font-family: var(--font-mono); font-size: 11px; font-weight: 600">
+                {{ modelId }}
+              </td>
+              <td v-for="q in geminiCliQuotaData" :key="q.accountId" class="text-center">
+                <template v-if="getQuotaBucket(q, modelId)">
+                  <div style="display: flex; flex-direction: column; align-items: center; gap: 3px">
+                    <template v-if="isQuotaInCooldown(getQuotaBucket(q, modelId))">
+                      <div class="model-cooldown-tag" style="font-size: 9px; padding: 2px 6px">
+                        <i class="fas fa-snowflake"></i> 冷却中
+                      </div>
+                      <span style="font-size: 10px; opacity: 0.6; line-height: 1">
+                        {{ formatQuotaResetTime(getQuotaBucket(q, modelId).resetTime) }}
+                      </span>
+                    </template>
+                    <template v-else>
+                      <div style="display: flex; align-items: center; gap: 5px; justify-content: center">
+                        <div class="quota-bar-mini" style="width: 60px">
+                          <div class="quota-bar-fill" :style="{
+                              width: Math.round(getQuotaBucket(q, modelId).remainingFraction * 100) + '%',
+                              background: getQuotaBarColor(getQuotaBucket(q, modelId).remainingFraction)
+                            }"></div>
+                        </div>
+                        <span style="font-size: 11px; font-weight: 600"
+                          :style="{ color: getQuotaBarColor(getQuotaBucket(q, modelId).remainingFraction) }">{{
+                          Math.round(getQuotaBucket(q, modelId).remainingFraction * 100) }}%</span>
+                      </div>
+                      <span style="font-size: 10px; opacity: 0.45; line-height: 1">
+                        {{ formatQuotaResetTime(getQuotaBucket(q, modelId).resetTime) }}
+                      </span>
+                    </template>
+                  </div>
+                </template>
+                <span v-else style="opacity: 0.3">-</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div v-else style="text-align: center; padding: 30px; opacity: 0.5; font-size: 13px">
+        <i class="fas fa-info-circle" style="margin-right: 6px"></i>
+        点击「刷新额度」查询各账号的实时额度信息。
+      </div>
+    </div>
+
     <!-- 模型健康检测历史 -->
     <div class="panel" style="margin-top: 16px">
       <div class="panel-header" style="padding-bottom: 6px">
         <div class="panel-title">
-          <i class="fas fa-heartbeat" style="margin-right: 8px; color: var(--gemini-primary)"></i
-          >模型健康检测
+          <i class="fas fa-heartbeat" style="margin-right: 8px; color: var(--gemini-primary)"></i>模型健康检测
         </div>
         <div style="display: flex; gap: 8px; align-items: center">
           <!-- 定时检测开关 -->
-          <div
-            style="display: flex; align-items: center; gap: 6px; font-size: 12px; margin-right: 8px"
-          >
+          <div style="display: flex; align-items: center; gap: 6px; font-size: 12px; margin-right: 8px">
             <label class="switch" style="transform: scale(0.8)">
-              <input
-                type="checkbox"
-                v-model="geminiCliAutoCheck"
-                @change="toggleGeminiCliAutoCheck"
-              />
+              <input type="checkbox" v-model="geminiCliAutoCheck" @change="toggleGeminiCliAutoCheck" />
               <span class="slider round"></span>
             </label>
             <span style="opacity: 0.8">定时</span>
-            <select
-              v-model="geminiCliAutoCheckInterval"
-              @change="restartGeminiCliAutoCheck"
-              class="auto-check-select"
-            >
+            <select v-model="geminiCliAutoCheckInterval" @change="restartGeminiCliAutoCheck" class="auto-check-select">
               <option value="1800000">30分钟</option>
               <option value="3600000">1小时</option>
               <option value="7200000">2小时</option>
@@ -524,43 +454,28 @@
               <option value="21600000">6小时</option>
             </select>
           </div>
-          <button
-            class="btn btn-primary btn-sm"
-            @click="runGeminiCliModelCheck"
-            :disabled="geminiCliChecking"
-          >
+          <button class="btn btn-primary btn-sm" @click="runGeminiCliModelCheck" :disabled="geminiCliChecking">
             <i class="fas" :class="geminiCliChecking ? 'fa-spinner fa-spin' : 'fa-play'"></i>
             {{ geminiCliChecking ? '检测中...' : '执行检测' }}
           </button>
           <button class="btn btn-secondary btn-sm" @click="loadGeminiCliCheckHistory">
             <i class="fas fa-sync-alt"></i>
           </button>
-          <button
-            class="btn btn-secondary btn-sm"
-            @click="clearGeminiCliCheckHistory"
-            style="color: var(--danger-color)"
-            title="清空历史"
-          >
+          <button class="btn btn-secondary btn-sm" @click="clearGeminiCliCheckHistory"
+            style="color: var(--danger-color)" title="清空历史">
             <i class="fas fa-trash"></i>
           </button>
         </div>
       </div>
 
       <!-- 检测历史矩阵 -->
-      <div
-        v-if="geminiCliCheckHistory && geminiCliCheckHistory.models.length > 0"
-        class="table-container"
-      >
+      <div v-if="geminiCliCheckHistory && geminiCliCheckHistory.models.length > 0" class="table-container">
         <table class="data-table" style="font-size: 12px">
           <thead>
             <tr>
               <th style="width: 180px">模型</th>
-              <th
-                v-for="time in geminiCliCheckHistory.times.slice().reverse()"
-                :key="time"
-                class="text-center"
-                style="min-width: 80px; font-size: 11px"
-              >
+              <th v-for="time in geminiCliCheckHistory.times.slice().reverse()" :key="time" class="text-center"
+                style="min-width: 80px; font-size: 11px">
                 {{ formatGeminiCliCheckTime(time) }}
               </th>
             </tr>
@@ -570,33 +485,18 @@
               <td style="font-family: monospace; font-size: 11px">
                 <div style="display: flex; align-items: center; gap: 6px">
                   <label class="switch" style="transform: scale(0.6); margin: 0">
-                    <input
-                      type="checkbox"
-                      :checked="!geminiCliDisabledCheckModels.includes(model)"
-                      @change="toggleGeminiCliCheckModel(model)"
-                    />
+                    <input type="checkbox" :checked="!geminiCliDisabledCheckModels.includes(model)"
+                      @change="toggleGeminiCliCheckModel(model)" />
                     <span class="slider round"></span>
                   </label>
-                  <span :style="{ opacity: geminiCliDisabledCheckModels.includes(model) ? 0.4 : 1 }"
-                    >{{ model }}</span
-                  >
+                  <span :style="{ opacity: geminiCliDisabledCheckModels.includes(model) ? 0.4 : 1 }">{{ model }}</span>
                 </div>
               </td>
-              <td
-                v-for="time in geminiCliCheckHistory.times.slice().reverse()"
-                :key="time"
-                class="text-center"
-              >
-                <template
-                  v-if="geminiCliCheckHistory.matrix[model] && geminiCliCheckHistory.matrix[model][time]"
-                >
-                  <span
-                    v-for="n in geminiCliAccounts.length"
-                    :key="n"
-                    class="check-badge"
+              <td v-for="time in geminiCliCheckHistory.times.slice().reverse()" :key="time" class="text-center">
+                <template v-if="geminiCliCheckHistory.matrix[model] && geminiCliCheckHistory.matrix[model][time]">
+                  <span v-for="n in geminiCliAccounts.length" :key="n" class="check-badge"
                     :class="getGeminiCliCheckBadgeClass(geminiCliCheckHistory.matrix[model][time], n)"
-                    :title="getGeminiCliCheckBadgeTitle(geminiCliCheckHistory.matrix[model][time], n)"
-                  >
+                    :title="getGeminiCliCheckBadgeTitle(geminiCliCheckHistory.matrix[model][time], n)">
                     {{ n }}
                   </span>
                 </template>
@@ -624,18 +524,14 @@
       <div class="panel-header log-header-adaptive">
         <div class="panel-title-group">
           <div class="panel-title">
-            <i class="fas fa-history" style="margin-right: 8px; color: var(--gemini-primary)"></i
-            >日志管理
+            <i class="fas fa-history" style="margin-right: 8px; color: var(--gemini-primary)"></i>日志管理
           </div>
         </div>
         <div class="panel-actions-group">
           <select v-model="geminiCliLogFilterAccount" class="form-input select-sm-adaptive">
             <option value="">全部账号</option>
-            <option
-              v-for="acc in geminiCliAccounts.filter(a => a.enable !== false && a.enable !== 0)"
-              :key="acc.id"
-              :value="acc.id"
-            >
+            <option v-for="acc in geminiCliAccounts.filter(a => a.enable !== false && a.enable !== 0)" :key="acc.id"
+              :value="acc.id">
               {{ acc.name || acc.id }}
             </option>
           </select>
@@ -646,12 +542,7 @@
             </option>
           </select>
           <div style="display: flex; gap: 8px">
-            <button
-              class="btn btn-secondary btn-sm"
-              @click="loadGeminiCliLogs"
-              :disabled="geminiCliLoading"
-              title="刷新"
-            >
+            <button class="btn btn-secondary btn-sm" @click="loadGeminiCliLogs" :disabled="geminiCliLoading" title="刷新">
               <i class="fas fa-sync-alt" :class="{ 'fa-spin': geminiCliLoading }"></i>
             </button>
             <button class="btn btn-danger btn-sm" @click="clearGeminiCliLogs" title="清空">
@@ -685,14 +576,9 @@
               </td>
               <td data-label="账号备注">
                 <div style="display: flex; align-items: center; gap: 8px">
-                  <i
-                    class="fas fa-id-card"
-                    style="font-size: 12px; color: var(--primary-color); opacity: 0.7"
-                  ></i>
+                  <i class="fas fa-id-card" style="font-size: 12px; color: var(--primary-color); opacity: 0.7"></i>
                   <strong>{{ log.accountName || log.accountId }}</strong>
-                  <span v-if="log.isBalanced" class="badge-lb" title="经过全局负载均衡分发"
-                    >LB</span
-                  >
+                  <span v-if="log.isBalanced" class="badge-lb" title="经过全局负载均衡分发">LB</span>
                 </div>
               </td>
               <td data-label="调用模型" class="text-center">
@@ -702,10 +588,7 @@
               </td>
               <td data-label="接口路径">
                 <div style="display: flex; align-items: center">
-                  <span
-                    class="method-badge"
-                    :class="'method-' + (log.method || 'POST').toLowerCase()"
-                  >
+                  <span class="method-badge" :class="'method-' + (log.method || 'POST').toLowerCase()">
                     {{ log.method || 'POST' }}
                   </span>
                   <span class="log-path" :title="log.path">{{ log.path }}</span>
@@ -725,11 +608,7 @@
               </td>
               <td class="actions text-center">
                 <div class="flex-cell">
-                  <button
-                    class="btn btn-icon-refined"
-                    @click="viewGeminiCliLogDetail(log)"
-                    title="查看详情"
-                  >
+                  <button class="btn btn-icon-refined" @click="viewGeminiCliLogDetail(log)" title="查看详情">
                     <i class="fas fa-eye"></i>
                   </button>
                 </div>
@@ -737,19 +616,14 @@
             </tr>
             <tr v-if="getFilteredGeminiCliLogs().length === 0">
               <td colspan="7" style="padding: 60px">
-                <div
-                  style="
+                <div style="
                     display: flex;
                     flex-direction: column;
                     align-items: center;
                     justify-content: center;
                     color: var(--text-tertiary);
-                  "
-                >
-                  <i
-                    class="fas fa-inbox"
-                    style="font-size: 40px; margin-bottom: 12px; opacity: 0.3"
-                  ></i>
+                  ">
+                  <i class="fas fa-inbox" style="font-size: 40px; margin-bottom: 12px; opacity: 0.3"></i>
                   <span>尚无调用记录</span>
                 </div>
               </td>
@@ -764,9 +638,7 @@
   <div v-show="geminiCliCurrentTab === 'settings'" class="sub-tab-content quick-fade-in">
     <div class="panel">
       <div class="panel-header">
-        <div
-          style="display: flex; justify-content: space-between; align-items: center; width: 100%"
-        >
+        <div style="display: flex; justify-content: space-between; align-items: center; width: 100%">
           <div class="panel-title-group">
             <div class="panel-title">
               <i class="fas fa-cogs" style="margin-right: 8px; color: var(--gemini-primary)"></i>GCL
@@ -774,18 +646,10 @@
             </div>
           </div>
           <div style="display: flex; gap: 8px">
-            <button
-              class="btn btn-secondary btn-sm"
-              @click="loadGeminiCliSettings"
-              :disabled="geminiCliLoading"
-            >
+            <button class="btn btn-secondary btn-sm" @click="loadGeminiCliSettings" :disabled="geminiCliLoading">
               <i class="fas fa-sync-alt" :class="{ 'fa-spin': geminiCliLoading }"></i> 刷新
             </button>
-            <button
-              class="btn btn-primary btn-sm"
-              @click="saveGeminiCliSettings"
-              :disabled="geminiCliSaving"
-            >
+            <button class="btn btn-primary btn-sm" @click="saveGeminiCliSettings" :disabled="geminiCliSaving">
               <i class="fas" :class="geminiCliSaving ? 'fa-spinner fa-spin' : 'fa-save'"></i>
               保存全局
             </button>
@@ -796,88 +660,45 @@
       <div style="padding: 10px 3px 3px 3px">
         <!-- 生成参数 -->
         <div style="margin-bottom: 24px">
-          <div
-            style="
+          <div style="
               font-size: 13px;
               font-weight: 600;
               margin-bottom: 10px;
               color: var(--gemini-primary);
-            "
-          >
+            ">
             <i class="fas fa-sliders-h"></i> 生成参数
           </div>
-          <div
-            style="
+          <div style="
               display: grid;
               grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
               gap: 12px;
-            "
-          >
+            ">
             <div>
-              <label style="font-size: 11px; opacity: 0.7; display: block; margin-bottom: 7px"
-                >默认温度</label
-              >
-              <input
-                type="number"
-                step="0.1"
-                min="0"
-                max="2"
-                v-model="geminiCliSettingsForm.DEFAULT_TEMPERATURE"
-                class="form-input"
-                style="width: 100%; padding: 6px 10px; font-size: 13px"
-                placeholder="1"
-              />
+              <label style="font-size: 11px; opacity: 0.7; display: block; margin-bottom: 7px">默认温度</label>
+              <input type="number" step="0.1" min="0" max="2" v-model="geminiCliSettingsForm.DEFAULT_TEMPERATURE"
+                class="form-input" style="width: 100%; padding: 6px 10px; font-size: 13px" placeholder="1" />
             </div>
             <div>
-              <label style="font-size: 11px; opacity: 0.7; display: block; margin-bottom: 7px"
-                >默认 top_p</label
-              >
-              <input
-                type="number"
-                step="0.01"
-                min="0"
-                max="1"
-                v-model="geminiCliSettingsForm.DEFAULT_TOP_P"
-                class="form-input"
-                style="width: 100%; padding: 6px 10px; font-size: 13px"
-                placeholder="0.95"
-              />
+              <label style="font-size: 11px; opacity: 0.7; display: block; margin-bottom: 7px">默认 top_p</label>
+              <input type="number" step="0.01" min="0" max="1" v-model="geminiCliSettingsForm.DEFAULT_TOP_P"
+                class="form-input" style="width: 100%; padding: 6px 10px; font-size: 13px" placeholder="0.95" />
             </div>
             <div>
-              <label style="font-size: 11px; opacity: 0.7; display: block; margin-bottom: 7px"
-                >默认 top_k</label
-              >
-              <input
-                type="number"
-                step="1"
-                min="1"
-                v-model="geminiCliSettingsForm.DEFAULT_TOP_K"
-                class="form-input"
-                style="width: 100%; padding: 6px 10px; font-size: 13px"
-                placeholder="64"
-              />
+              <label style="font-size: 11px; opacity: 0.7; display: block; margin-bottom: 7px">默认 top_k</label>
+              <input type="number" step="1" min="1" v-model="geminiCliSettingsForm.DEFAULT_TOP_K" class="form-input"
+                style="width: 100%; padding: 6px 10px; font-size: 13px" placeholder="64" />
             </div>
             <div>
-              <label style="font-size: 11px; opacity: 0.7; display: block; margin-bottom: 7px"
-                >默认最大 Tokens</label
-              >
-              <input
-                type="number"
-                step="1"
-                min="1"
-                v-model="geminiCliSettingsForm.DEFAULT_MAX_TOKENS"
-                class="form-input"
-                style="width: 100%; padding: 6px 10px; font-size: 13px"
-                placeholder="8192"
-              />
+              <label style="font-size: 11px; opacity: 0.7; display: block; margin-bottom: 7px">默认最大 Tokens</label>
+              <input type="number" step="1" min="1" v-model="geminiCliSettingsForm.DEFAULT_MAX_TOKENS"
+                class="form-input" style="width: 100%; padding: 6px 10px; font-size: 13px" placeholder="8192" />
             </div>
           </div>
         </div>
 
         <!-- 模型重定向 -->
         <div style="margin-bottom: 24px">
-          <div
-            style="
+          <div style="
               font-size: 14px;
               font-weight: 600;
               margin-bottom: 12px;
@@ -885,19 +706,13 @@
               display: flex;
               align-items: center;
               gap: 8px;
-            "
-          >
+            ">
             <i class="fas fa-exchange-alt"></i> 模型重定向 (别名)
           </div>
           <!-- 列表 -->
-          <div
-            v-if="geminiCliModelRedirects.length > 0"
-            style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px"
-          >
-            <div
-              v-for="r in geminiCliModelRedirects"
-              :key="r.source_model"
-              style="
+          <div v-if="geminiCliModelRedirects.length > 0"
+            style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px">
+            <div v-for="r in geminiCliModelRedirects" :key="r.source_model" style="
                 background: var(--bg-tertiary);
                 padding: 10px 15px;
                 border-radius: 10px;
@@ -907,23 +722,18 @@
                 border: 1px solid var(--border-color);
                 transition: all 0.2s;
               "
-              :style="gcliEditingRedirectSource === r.source_model ? 'border-color: var(--gemini-primary); box-shadow: 0 0 0 2px rgba(var(--gemini-primary-rgb), 0.1);' : ''"
-            >
-              <div
-                v-if="gcliEditingRedirectSource !== r.source_model"
+              :style="gcliEditingRedirectSource === r.source_model ? 'border-color: var(--gemini-primary); box-shadow: 0 0 0 2px rgba(var(--gemini-primary-rgb), 0.1);' : ''">
+              <div v-if="gcliEditingRedirectSource !== r.source_model"
                 style="display: flex; align-items: center; gap: 10px; flex: 1"
-                @dblclick="editGeminiCliModelRedirect(r)"
-              >
-                <div
-                  style="
+                @dblclick="editGeminiCliModelRedirect(r)">
+                <div style="
                     background: rgba(var(--gemini-primary-rgb), 0.1);
                     color: var(--gemini-primary);
                     padding: 2px 8px;
                     border-radius: 4px;
                     font-weight: 600;
                     font-size: 12px;
-                  "
-                >
+                  ">
                   {{ r.source_model }}
                 </div>
                 <i class="fas fa-long-arrow-alt-right" style="opacity: 0.3"></i>
@@ -931,62 +741,39 @@
               </div>
 
               <div v-else style="display: flex; align-items: center; gap: 10px; flex: 1">
-                <input
-                  type="text"
-                  v-model="newGeminiCliRedirectSource"
-                  class="form-input-sm"
-                  style="flex: 1; min-width: 0"
-                  placeholder="源模型"
-                />
+                <input type="text" v-model="newGeminiCliRedirectSource" class="form-input-sm"
+                  style="flex: 1; min-width: 0" placeholder="源模型" />
                 <i class="fas fa-long-arrow-alt-right" style="opacity: 0.3"></i>
-                <input
-                  type="text"
-                  v-model="newGeminiCliRedirectTarget"
-                  class="form-input-sm"
-                  style="flex: 1; min-width: 0"
-                  placeholder="目标模型"
-                />
+                <input type="text" v-model="newGeminiCliRedirectTarget" class="form-input-sm"
+                  style="flex: 1; min-width: 0" placeholder="目标模型" />
               </div>
 
               <div style="display: flex; gap: 6px; margin-left: 15px">
                 <template v-if="gcliEditingRedirectSource === r.source_model">
-                  <button
-                    class="btn btn-xs btn-success icon-only"
+                  <button class="btn btn-xs btn-success icon-only"
                     @click="addGeminiCliModelRedirect(newGeminiCliRedirectSource, newGeminiCliRedirectTarget)"
-                    title="保存"
-                  >
+                    title="保存">
                     <i class="fas fa-check"></i>
                   </button>
-                  <button
-                    class="btn btn-xs btn-secondary icon-only"
+                  <button class="btn btn-xs btn-secondary icon-only"
                     @click="gcliEditingRedirectSource = null; newGeminiCliRedirectSource = ''; newGeminiCliRedirectTarget = '';"
-                    title="取消"
-                  >
+                    title="取消">
                     <i class="fas fa-times"></i>
                   </button>
                 </template>
                 <template v-else>
-                  <button
-                    class="btn btn-xs btn-primary icon-only"
-                    @click="editGeminiCliModelRedirect(r)"
-                    title="编辑"
-                  >
+                  <button class="btn btn-xs btn-primary icon-only" @click="editGeminiCliModelRedirect(r)" title="编辑">
                     <i class="fas fa-pen"></i>
                   </button>
-                  <button
-                    class="btn btn-xs btn-danger icon-only"
-                    @click="removeGeminiCliModelRedirect(r.source_model)"
-                    title="删除"
-                  >
+                  <button class="btn btn-xs btn-danger icon-only" @click="removeGeminiCliModelRedirect(r.source_model)"
+                    title="删除">
                     <i class="fas fa-trash"></i>
                   </button>
                 </template>
               </div>
             </div>
           </div>
-          <div
-            v-else
-            style="
+          <div v-else style="
               font-size: 12px;
               opacity: 0.5;
               margin-bottom: 16px;
@@ -995,15 +782,12 @@
               border-radius: 8px;
               text-align: center;
               border: 1px dashed var(--border-color);
-            "
-          >
+            ">
             暂无重定向规则。请求 source 模型将自动转发给 target 模型。
           </div>
 
           <!-- 添加表单 -->
-          <div
-            v-if="!gcliEditingRedirectSource"
-            style="
+          <div v-if="!gcliEditingRedirectSource" style="
               display: flex;
               gap: 10px;
               align-items: center;
@@ -1011,30 +795,17 @@
               padding: 12px;
               border-radius: 10px;
               border: 1px dashed var(--border-color);
-            "
-          >
+            ">
             <div style="flex: 1; position: relative">
-              <input
-                type="text"
-                v-model="newGeminiCliRedirectSource"
-                class="form-input"
-                style="width: 100%; padding: 8px 12px; font-size: 13px"
-                placeholder="源模型 (例如: gpt-4o)"
-              />
+              <input type="text" v-model="newGeminiCliRedirectSource" class="form-input"
+                style="width: 100%; padding: 8px 12px; font-size: 13px" placeholder="源模型 (例如: gpt-4o)" />
             </div>
             <i class="fas fa-arrow-right" style="opacity: 0.3"></i>
             <div style="flex: 1; position: relative">
-              <input
-                type="text"
-                v-model="newGeminiCliRedirectTarget"
-                class="form-input"
-                style="width: 100%; padding: 8px 12px; font-size: 13px"
-                placeholder="目标模型 (例如: gemini-1.5-pro)"
-              />
+              <input type="text" v-model="newGeminiCliRedirectTarget" class="form-input"
+                style="width: 100%; padding: 8px 12px; font-size: 13px" placeholder="目标模型 (例如: gemini-1.5-pro)" />
             </div>
-            <button
-              class="btn btn-gemini"
-              style="
+            <button class="btn btn-gemini" style="
                 padding: 0 20px;
                 font-size: 13px;
                 height: 38px;
@@ -1042,77 +813,48 @@
                 align-items: center;
                 gap: 6px;
                 white-space: nowrap;
-              "
-              @click="addGeminiCliModelRedirect(newGeminiCliRedirectSource, newGeminiCliRedirectTarget)"
-            >
+              " @click="addGeminiCliModelRedirect(newGeminiCliRedirectSource, newGeminiCliRedirectTarget)">
               <i class="fas fa-plus-circle"></i> 添加别名
             </button>
           </div>
         </div>
 
         <!-- 底部设置网格 -->
-        <div
-          style="
+        <div style="
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
             gap: 24px;
             margin-bottom: 10px;
-          "
-        >
+          ">
           <!-- 安全与负载 -->
           <div>
-            <div
-              style="
+            <div style="
                 font-size: 13px;
                 font-weight: 600;
                 margin-bottom: 10px;
                 color: var(--gemini-primary);
-              "
-            >
+              ">
               <i class="fas fa-shield-alt"></i> 安全与负载
             </div>
-            <div
-              style="
+            <div style="
                 display: grid;
                 grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
                 gap: 12px;
-              "
-            >
+              ">
               <div>
-                <label style="font-size: 11px; opacity: 0.7; display: block; margin-bottom: 7px"
-                  >每小时上限</label
-                >
-                <input
-                  type="number"
-                  v-model="geminiCliSettingsForm.CREDENTIAL_MAX_USAGE_PER_HOUR"
-                  class="form-input"
-                  style="width: 100%; padding: 6px 10px; font-size: 13px"
-                  placeholder="1000"
-                />
+                <label style="font-size: 11px; opacity: 0.7; display: block; margin-bottom: 7px">每小时上限</label>
+                <input type="number" v-model="geminiCliSettingsForm.CREDENTIAL_MAX_USAGE_PER_HOUR" class="form-input"
+                  style="width: 100%; padding: 6px 10px; font-size: 13px" placeholder="1000" />
               </div>
               <div>
-                <label style="font-size: 11px; opacity: 0.7; display: block; margin-bottom: 7px"
-                  >超时 (s)</label
-                >
-                <input
-                  type="number"
-                  v-model="geminiCliSettingsForm.TIMEOUT"
-                  class="form-input"
-                  style="width: 100%; padding: 6px 10px; font-size: 13px"
-                  placeholder="300"
-                />
+                <label style="font-size: 11px; opacity: 0.7; display: block; margin-bottom: 7px">超时 (s)</label>
+                <input type="number" v-model="geminiCliSettingsForm.TIMEOUT" class="form-input"
+                  style="width: 100%; padding: 6px 10px; font-size: 13px" placeholder="300" />
               </div>
               <div>
-                <label style="font-size: 11px; opacity: 0.7; display: block; margin-bottom: 7px"
-                  >日志保留</label
-                >
-                <input
-                  type="number"
-                  v-model="geminiCliSettingsForm.LOG_RETENTION_DAYS"
-                  class="form-input"
-                  style="width: 100%; padding: 6px 10px; font-size: 13px"
-                  placeholder="7"
-                />
+                <label style="font-size: 11px; opacity: 0.7; display: block; margin-bottom: 7px">日志保留</label>
+                <input type="number" v-model="geminiCliSettingsForm.LOG_RETENTION_DAYS" class="form-input"
+                  style="width: 100%; padding: 6px 10px; font-size: 13px" placeholder="7" />
               </div>
             </div>
           </div>

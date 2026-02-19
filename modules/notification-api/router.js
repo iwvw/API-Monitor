@@ -168,14 +168,9 @@ router.post('/channels/:id/test', async (req, res) => {
         // 解密配置
         const config = JSON.parse(decrypt(channel.config));
 
-        const testTitle = '🔔 [测试] API Monitor 通知测试';
-        const testMessage = `这是一条来自 API Monitor 的测试通知。
-
-📋 渠道名称: ${channel.name}
-📧 渠道类型: ${channel.type === 'email' ? 'Email 邮箱' : 'Telegram'}
-⏰ 发送时间: ${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}
-
-如果您收到此消息，说明通知渠道配置正确！`;
+        const testTitle = '🔔 通知连通性测试';
+        const testMessage = `发送时间: ${new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}
+验证状态: 配置正确, 通道畅通`;
 
         let success = false;
         if (channel.type === 'email') {
@@ -242,6 +237,10 @@ router.post('/rules', (req, res) => {
             suppression = {},
             time_window = { enabled: false },
             description = '',
+            title_template = '',
+            message_template = '',
+            backup_channels = [],
+            quiet_until = null,
             enabled = true,
         } = req.body;
 
@@ -259,6 +258,10 @@ router.post('/rules', (req, res) => {
             suppression,
             time_window,
             description,
+            title_template,
+            message_template,
+            backup_channels,
+            quiet_until,
             enabled: enabled ? 1 : 0,
         });
 
@@ -283,6 +286,10 @@ router.put('/rules/:id', (req, res) => {
             suppression,
             time_window,
             description,
+            title_template,
+            message_template,
+            backup_channels,
+            quiet_until,
             enabled,
         } = req.body;
 
@@ -294,6 +301,10 @@ router.put('/rules/:id', (req, res) => {
         if (suppression !== undefined) updateData.suppression = suppression;
         if (time_window !== undefined) updateData.time_window = time_window;
         if (description !== undefined) updateData.description = description;
+        if (title_template !== undefined) updateData.title_template = title_template;
+        if (message_template !== undefined) updateData.message_template = message_template;
+        if (backup_channels !== undefined) updateData.backup_channels = backup_channels;
+        if (quiet_until !== undefined) updateData.quiet_until = quiet_until;
         if (enabled !== undefined) updateData.enabled = enabled ? 1 : 0;
 
         storage.rule.update(req.params.id, updateData);

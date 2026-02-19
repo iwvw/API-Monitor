@@ -15,6 +15,10 @@
       @click="notificationCurrentTab = 'history'">
       <i class="fas fa-history"></i> 通知历史
     </button>
+    <button class="tab-btn" :class="{ active: notificationCurrentTab === 'settings' }"
+      @click="notificationCurrentTab = 'settings'">
+      <i class="fas fa-cog"></i> 全局配置
+    </button>
   </div>
 
   <div class="notification-container">
@@ -161,7 +165,7 @@
         </button>
       </div>
       <div v-if="notificationLoading && notificationHistory.length === 0" class="loading-state">
-        <p style="text-align:center; color: var(--text-tertiary); padding: 40px;">Loading History...</p>
+        <p style="text-align:center; color: var(--text-tertiary); padding: 40px;">加载中...</p>
       </div>
       <div v-else-if="getFilteredNotificationHistory().length === 0" class="notification-empty-state">
         <i class="fas fa-history"></i>
@@ -186,6 +190,55 @@
               <span class="meta-time">{{ formatNotificationTime(log.created_at) }}</span>
             </div>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========== 全局配置标签页 ========== -->
+    <div v-show="notificationCurrentTab === 'settings'" class="sub-tab-content quick-fade-in">
+      <div class="notification-toolbar">
+        <h3 style="margin: 0; flex: 1;">全局通知配置</h3>
+      </div>
+      <div class="settings-card-refined"
+        style="background: var(--bg-secondary); border-radius: 12px; padding: 20px; border: 1px solid var(--border-color);">
+        <div class="form-group-modern">
+          <label class="form-label-modern">看板访问基准 URL (用于告警链接)</label>
+          <input type="text" v-model="notificationGlobalConfig.base_url" class="form-input-modern"
+            placeholder="https://monitor.yourdomain.com">
+          <div class="form-help">设置后，告警消息将包含“查看看板”按钮</div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+          <div class="form-group-modern">
+            <label class="form-label-modern">全局频率限制 (条/小时)</label>
+            <input type="number" v-model.number="notificationGlobalConfig.global_rate_limit_per_hour"
+              class="form-input-modern">
+            <div class="form-help">达到限制后将仅发送紧急告警</div>
+          </div>
+          <div class="form-group-modern">
+            <label class="form-label-modern">聚合消息窗口 (秒)</label>
+            <input type="number" v-model.number="notificationGlobalConfig.batch_interval_seconds"
+              class="form-input-modern">
+            <div class="form-help">短时间内的相同渠道告警将合并发送</div>
+          </div>
+        </div>
+
+        <div class="form-group-modern">
+          <label class="ag-switch-container" style="margin-top: 10px;">
+            <div class="ag-switch">
+              <input type="checkbox" v-model="notificationGlobalConfig.enable_batch">
+              <span class="ag-switch-slider"></span>
+            </div>
+            <span class="ag-switch-label">启用通知聚合</span>
+          </label>
+        </div>
+
+        <div style="margin-top: 24px; text-align: right;">
+          <button class="btn btn-primary" @click="saveNotificationGlobalConfig" :disabled="notificationSaving"
+            style="padding: 10px 24px;">
+            <i v-if="notificationSaving" class="fas fa-spinner fa-spin"></i>
+            <i v-else class="fas fa-save" style="margin-right: 6px;"></i> 保存全局配置
+          </button>
         </div>
       </div>
     </div>
@@ -367,6 +420,35 @@
           <label class="form-label-modern">静默期 (分钟)</label>
           <input type="number" v-model.number="ruleForm.suppression.silence_minutes" class="form-input-modern" min="0">
         </div>
+      </div>
+
+      <div class="form-group-modern">
+        <label class="form-label-modern">备用通知渠道 (首选失败时触发)</label>
+        <div style="display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px;">
+          <label v-for="channel in (notificationChannels || []).filter(c => c.enabled)" :key="'backup_'+channel.id"
+            style="display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 6px 12px; background: var(--bg-tertiary); border-radius: 8px; border: 1px solid var(--border-color); transition: all 0.2s;">
+            <input type="checkbox" :value="channel.id" v-model="ruleForm.backup_channels"
+              style="width: 16px; height: 16px; accent-color: #6b7280;">
+            <span style="font-size: 13px; color: var(--text-secondary);">{{ channel.name }}</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="form-group-modern">
+        <label class="form-label-modern">自定义标题模板 (可选, 支持 \{{变量}})</label>
+        <input type="text" v-model="ruleForm.title_template" class="form-input-modern"
+          placeholder="例: 🚨 主机 \{{serverName}} 宕机!">
+      </div>
+
+      <div class="form-group-modern">
+        <label class="form-label-modern">自定义内容模板 (可选)</label>
+        <textarea v-model="ruleForm.message_template" class="form-input-modern" style="min-height: 80px;"
+          placeholder="例: \{{monitorName}} 已停止服务, 报错: \{{error}}"></textarea>
+      </div>
+
+      <div class="form-group-modern">
+        <label class="form-label-modern">手动静默至 (在该时间前不发通知)</label>
+        <input type="datetime-local" v-model="ruleForm.quiet_until" class="form-input-modern">
       </div>
 
     </div>

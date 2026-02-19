@@ -1047,7 +1047,7 @@
 /* Media Queries */
 @media (max-width: 1200px) {
   .stats-overview-grid {
-    grid-template-columns: repeat(2, 1fr);
+    grid-template-columns: repeat(3, 1fr);
   }
 
   .dashboard-main-layout {

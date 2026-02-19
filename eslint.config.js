@@ -93,6 +93,7 @@ module.exports = [
         toast: 'readonly',
         app: 'readonly',
         auth: 'readonly',
+        AbortController: 'readonly',
       },
     },
     rules: {
