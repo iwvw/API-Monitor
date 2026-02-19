@@ -1279,49 +1279,6 @@ class AgentService extends EventEmitter {
     };
   }
 
-  // ==================== 状态查询 ====================
-
-  /**
-   * 获取 Agent 指标 (兼容旧接口)
-   */
-  getMetrics(serverId) {
-    // 优先返回 Socket.IO 缓存
-    const cached = this.stateCache.get(serverId);
-    if (cached) {
-      const hostInfo = this.hostInfoCache.get(serverId) || {};
-      return stateToFrontendFormat(cached.state, hostInfo);
-    }
-
-    // 降级到旧 HTTP 缓存
-    return this.legacyMetrics.get(serverId);
-  }
-
-  /**
-   * 获取 Agent 状态 (兼容旧接口)
-   */
-  getStatus(serverId) {
-    // 优先检查 Socket.IO 连接
-    if (this.connections.has(serverId)) {
-      const cached = this.stateCache.get(serverId);
-      return {
-        connected: true,
-        lastSeen: cached?.timestamp || Date.now(),
-        version: this.hostInfoCache.get(serverId)?.agent_version || 'socket.io',
-      };
-    }
-
-    // 降级到旧缓存
-    const status = this.legacyStatus.get(serverId);
-    if (!status) {
-      return { connected: false, lastSeen: null };
-    }
-
-    const isOnline = Date.now() - status.lastSeen < 10000;
-    return {
-      ...status,
-      connected: isOnline,
-    };
-  }
 
   /**
    * 获取所有在线 Agent 列表

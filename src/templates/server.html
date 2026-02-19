@@ -1381,6 +1381,16 @@
             <i class="fas fa-search"></i>
             <input v-model="dockerSearchQuery" type="text" placeholder="搜索容器 / 镜像 / 主机" />
           </div>
+          <div class="modern-tabs" style="margin-right: 8px;">
+            <button class="modern-tab-btn" :class="{ active: dockerViewMode === 'table' }"
+              @click="dockerViewMode = 'table'" title="表格视图">
+              <i class="fas fa-list"></i>
+            </button>
+            <button class="modern-tab-btn" :class="{ active: dockerViewMode === 'grid' }"
+              @click="dockerViewMode = 'grid'" title="网格视图">
+              <i class="fas fa-th-large"></i>
+            </button>
+          </div>
           <button class="btn btn-secondary btn-sm docker-refresh-btn" @click="loadDockerResources"
             :disabled="dockerResourceLoading || dockerOverviewLoading" title="刷新">
             <i class="fas"
@@ -1433,8 +1443,7 @@
       </div>
 
       <!-- Shared Filters Row (Contextual Filters + Hosts) -->
-      <div class="docker-state-filters"
-        style="padding: 10px 12px; margin-bottom: 0; display: flex; align-items: center;">
+      <div class="docker-state-filters" style="margin-bottom: 0; display: flex; align-items: center;">
 
         <!-- Left: Container State Filters (Contextual) -->
         <div v-if="dockerSubTab === 'containers'" style="display: flex; gap: 6px;">
@@ -1446,6 +1455,9 @@
             @click="dockerContainerStateFilter = 'paused'">暂停</button>
           <button class="stat-pill" :class="{ active: dockerContainerStateFilter === 'stopped' }"
             @click="dockerContainerStateFilter = 'stopped'">停止</button>
+          <button v-if="getDockerSummaryMetrics().updates > 0" class="stat-pill"
+            :class="{ active: dockerContainerStateFilter === 'updates' }"
+            @click="dockerContainerStateFilter = 'updates'">可更新</button>
         </div>
 
         <!-- Middle Spacer -->
@@ -1462,33 +1474,43 @@
           </button>
         </div>
 
-        <!-- Far Right: Batch Update Button -->
-        <button v-if="dockerSubTab === 'containers' && getDockerSummaryMetrics().updates > 0"
-          class="btn btn-success btn-xs" @click="updateAllAvailableContainers"
-          style="margin-left: 12px; border-radius: 12px; padding: 2px 12px;">
-          <i class="fas fa-magic"></i> 一键更新全部 ({{ getDockerSummaryMetrics().updates }})
-        </button>
+        <!-- Far Right: Summary Info or placeholder -->
+        <div style="font-size: 11px; color: var(--text-tertiary); margin-left: 12px;">
+          {{ getDockerGroups().length }} 个组
+        </div>
       </div>
 
       <div v-if="dockerSubTab === 'containers'" class="docker-console-view" style="padding-top: 10px;">
         <div class="docker-kpi-grid">
-          <div class="docker-kpi-card">
+          <div class="docker-kpi-card"
+            :class="{ active: dockerContainerStateFilter === 'all' && dockerSelectedServer === '' }"
+            @click="dockerContainerStateFilter = 'all'; dockerSelectedServer = ''" style="cursor: pointer">
             <div class="docker-kpi-label">主机</div>
             <div class="docker-kpi-value">{{ getDockerSummaryMetrics().hosts }}</div>
           </div>
-          <div class="docker-kpi-card">
+          <div class="docker-kpi-card" :class="{ active: dockerContainerStateFilter === 'all' }"
+            @click="dockerContainerStateFilter = 'all'" style="cursor: pointer">
             <div class="docker-kpi-label">容器总数</div>
             <div class="docker-kpi-value">{{ getDockerSummaryMetrics().containers }}</div>
           </div>
-          <div class="docker-kpi-card is-running">
+          <div class="docker-kpi-card is-running" :class="{ active: dockerContainerStateFilter === 'running' }"
+            @click="dockerContainerStateFilter = 'running'" style="cursor: pointer">
             <div class="docker-kpi-label">运行中</div>
             <div class="docker-kpi-value">{{ getDockerSummaryMetrics().running }}</div>
           </div>
-          <div class="docker-kpi-card is-warning"
-            @click="dockerContainerStateFilter = 'all'; dockerSearchQuery = ''; (getDockerSummaryMetrics().updates > 0 ? (dockerSearchQuery = '') : null)"
-            style="cursor: pointer" title="点击筛选可更新容器">
-            <div class="docker-kpi-label">可更新</div>
-            <div class="docker-kpi-value">{{ getDockerSummaryMetrics().updates }}</div>
+          <div class="docker-kpi-card is-warning" :class="{ active: dockerContainerStateFilter === 'updates' }"
+            @click="dockerContainerStateFilter = 'updates'"
+            style="cursor: pointer; display: flex; align-items: center; justify-content: space-between; gap: 12px;"
+            title="点击筛选可更新容器">
+            <div>
+              <div class="docker-kpi-label">可更新</div>
+              <div class="docker-kpi-value">{{ getDockerSummaryMetrics().updates }}</div>
+            </div>
+            <button v-if="getDockerSummaryMetrics().updates > 0" class="btn btn-success btn-xs"
+              @click.stop="updateAllAvailableContainers"
+              style="padding: 4px 10px; font-size: 11px; border-radius: 6px; white-space: nowrap;">
+              <i class="fas fa-sync-alt"></i> 一键更新
+            </button>
           </div>
         </div>
 
@@ -1505,19 +1527,18 @@
         </div>
 
         <div v-else class="docker-main-grid">
-          <div class="docker-container-table-wrap">
+          <!-- 表格视图 -->
+          <div v-if="dockerViewMode === 'table'" class="docker-container-table-wrap">
             <div class="docker-resource-table">
               <div class="docker-resource-header">
                 <span style="flex: 1.2">容器</span>
                 <span style="flex: 1.6">镜像</span>
-                <!-- <span style="flex: 1">主机</span> Removed Host column -->
                 <span style="flex: 0.8">状态</span>
                 <span style="flex: 1.1">端口</span>
                 <span class="col-actions-lg">操作</span>
               </div>
 
               <template v-for="group in getDockerGroups()" :key="group.serverId">
-                <!-- Group Header -->
                 <div class="docker-group-header" style="
                   padding: 8px 12px;
                   background: var(--bg-tertiary);
@@ -1551,7 +1572,6 @@
                       {{ row.container.image }}
                     </div>
                   </span>
-                  <!-- <span style="flex: 1">...</span> Removed Host cell -->
                   <span style="flex: 0.8">
                     <span class="docker-status-badge" :class="'status-' + row.state">{{ row.stateLabel }}</span>
                   </span>
@@ -1559,20 +1579,17 @@
                     <div class="docker-row-ellipsis docker-mono" :title="row.portsText">{{ row.portsText }}</div>
                   </span>
                   <span class="col-actions-lg">
-                    <!-- 自动检测到更新时显示 (绿色) -->
                     <button v-if="row.hasUpdate" class="action-btn-circle success"
                       @click.stop="updateDockerContainer(row.serverId, row.container.id, row.container.name, row.container.image)"
                       :disabled="row.container.actionPending" title="立即更新 (检测到新版本)">
                       <i class="fas"
                         :class="row.container.actionPending ? 'fa-spinner fa-spin' : 'fa-cloud-download-alt'"></i>
                     </button>
-                    <!-- 未检测到更新时显示手动强制更新 (灰色) -->
                     <button v-else class="action-btn-circle" style="color: var(--text-tertiary)"
                       @click.stop="updateDockerContainer(row.serverId, row.container.id, row.container.name, row.container.image)"
                       :disabled="row.container.actionPending" title="强制拉取并重建容器">
                       <i class="fas" :class="row.container.actionPending ? 'fa-spinner fa-spin' : 'fa-sync'"></i>
                     </button>
-
                     <button class="action-btn-circle" :class="row.state === 'running' ? 'danger' : 'success'"
                       @click.stop="handleDockerAction(row.serverId, row.container.id, row.state === 'running' ? 'stop' : 'start')"
                       :disabled="row.container.actionPending" :title="row.state === 'running' ? '停止' : '启动'">
@@ -1588,7 +1605,6 @@
                       @click.stop="openDockerLogs(row.serverId, row.container.id, row.container.name)" title="日志">
                       <i class="fas fa-file-alt"></i>
                     </button>
-                    <!-- Rename Button replaces More Button -->
                     <button class="action-btn-circle"
                       @click.stop="renameDockerContainer(row.serverId, row.container.id, row.container.name)"
                       title="重命名">
@@ -1597,10 +1613,102 @@
                   </span>
                 </div>
               </template>
-
               <div v-if="getDockerGroups().length === 0" class="docker-resource-row docker-empty-row">
                 <span>当前筛选条件下没有容器</span>
               </div>
+            </div>
+          </div>
+
+          <!-- 网格视图 -->
+          <div v-else class="docker-container-grid">
+            <div v-for="group in getDockerGroups()" :key="'grid-' + group.serverId" class="docker-grid-group">
+              <!-- 分组标题 -->
+              <div class="docker-grid-group-header">
+                <i class="fas fa-server"></i>
+                <span class="docker-grid-group-title">{{ group.serverName }}</span>
+                <span class="docker-grid-group-count">{{ group.containers.length }}</span>
+              </div>
+
+              <!-- 卡片容器 -->
+              <div class="docker-grid-cards-wrap">
+                <div v-for="row in group.containers" :key="'card-' + row.key" class="docker-container-card-v4"
+                  :class="['state-' + row.state, { 'has-update': row.hasUpdate }]">
+
+                  <!-- 顶部：图标 + 标题 + 状态 -->
+                  <div class="card-header-v4">
+                    <div class="header-main-v4">
+                      <div class="docker-icon-v4"><i class="fab fa-docker"></i></div>
+                      <div class="title-stack-v4">
+                        <div class="container-name-v4">{{ row.container.name }}</div>
+                        <div class="container-image-v4" :title="row.container.image">{{ row.container.image }}</div>
+                      </div>
+                    </div>
+                    <div class="status-badge-v4" :class="row.state">
+                      <span class="status-dot-v4"></span>
+                      {{ row.stateLabel }}
+                    </div>
+                  </div>
+
+                  <!-- 中间：核心信息 -->
+                  <div class="card-body-v4">
+                    <div class="info-row-v4">
+                      <span class="info-label-v4"><i class="fas fa-network-wired"></i> 端口</span>
+                      <span class="info-value-v4 mono truncate" :title="row.portsText">{{ row.portsText || '-' }}</span>
+                    </div>
+                    <div class="info-row-v4">
+                      <span class="info-label-v4"><i class="fas fa-history"></i> 运行时长</span>
+                      <span class="info-value-v4 truncate" :title="row.container.status">{{ row.container.status
+                        }}</span>
+                    </div>
+                  </div>
+
+                  <!-- 实时任务进度条 -->
+                  <div v-if="row.activeTask" class="card-progress-v4">
+                    <div class="progress-info-v4">
+                      <span>{{ getDockerTaskActionLabel(row.activeTask.action) }}</span>
+                      <span>{{ row.activeTask.progress || 0 }}%</span>
+                    </div>
+                    <div class="progress-bar-v4">
+                      <div class="progress-fill-v4" :style="{ width: (row.activeTask.progress || 0) + '%' }"></div>
+                    </div>
+                  </div>
+
+                  <!-- 底部：操作栏 -->
+                  <div class="card-footer-v4">
+                    <div class="actions-group-v4">
+                      <button v-if="row.hasUpdate" class="btn-action-v4 pulse-green"
+                        @click.stop="updateDockerContainer(row.serverId, row.container.id, row.container.name, row.container.image)"
+                        :disabled="row.container.actionPending" title="进行更新">
+                        <i class="fas fa-arrow-up-from-bracket"></i>
+                      </button>
+                      <button class="btn-action-v4" :class="row.state === 'running' ? 'danger' : 'success'"
+                        @click.stop="handleDockerAction(row.serverId, row.container.id, row.state === 'running' ? 'stop' : 'start')"
+                        :disabled="row.container.actionPending">
+                        <i class="fas"
+                          :class="row.container.actionPending ? 'fa-spinner fa-spin' : (row.state === 'running' ? 'fa-stop' : 'fa-play')"></i>
+                      </button>
+                      <button class="btn-action-v4"
+                        @click.stop="handleDockerAction(row.serverId, row.container.id, 'restart')"
+                        :disabled="row.container.actionPending">
+                        <i class="fas fa-redo-alt"></i>
+                      </button>
+                      <button class="btn-action-v4"
+                        @click.stop="openDockerLogs(row.serverId, row.container.id, row.container.name)">
+                        <i class="fas fa-terminal"></i>
+                      </button>
+                      <button class="btn-action-v4"
+                        @click.stop="renameDockerContainer(row.serverId, row.container.id, row.container.name)">
+                        <i class="fas fa-pen"></i>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div v-if="getDockerGroups().length === 0"
+              style="grid-column: 1/-1; padding: 40px; text-align: center; color: var(--text-tertiary);">
+              当前筛选条件下没有容器
             </div>
           </div>
         </div>
@@ -1667,6 +1775,9 @@
         <div v-else>
           <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
             <span style="font-size: 13px; color: var(--text-secondary)">{{ dockerNetworks.length }} 个网络</span>
+            <button class="btn btn-sm btn-secondary" @click="handleDockerNetworkAction('prune')" title="清理未使用网络">
+              <i class="fas fa-broom"></i> 清理
+            </button>
           </div>
           <div class="docker-resource-table">
             <div class="docker-resource-header">

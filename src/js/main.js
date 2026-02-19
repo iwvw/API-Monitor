@@ -460,6 +460,7 @@ const app = createApp({
       dockerOverviewLoading: false,  // Docker 概览加载状态
       expandedDockerHosts: [],       // 展开的 Docker 主机列表
       dockerSubTab: 'containers',    // Docker 子标签页
+      dockerViewMode: 'grid',        // Docker 视图模式: table | grid
       dockerSelectedServer: '',      // 当前选中的主机 ID
       dockerSearchQuery: '',         // Docker 搜索关键词
       dockerContainerStateFilter: 'all', // 容器状态筛选 all/running/paused/stopped
@@ -486,6 +487,10 @@ const app = createApp({
       dockerTaskStream: null,
       dockerTaskStreamConnected: false,
       dockerTaskStreamError: '',
+      // Docker 自动检测
+      dockerUpdateTimer: null,
+      dockerAutoCheckEnabled: true,
+      dockerUpdateInterval: 60,
       // 容器创建
       showCreateContainerModal: false,
       createContainerForm: {
@@ -1154,6 +1159,7 @@ const app = createApp({
               const loader = document.getElementById('app-loading');
               if (loader) {
                 loader.style.opacity = '0';
+                loader.style.pointerEvents = 'none';
                 setTimeout(() => loader.remove(), 350);
               }
             });
@@ -1458,6 +1464,7 @@ const app = createApp({
         // 这些定时检测需要在后台持续运行，不能等用户切换到对应模块才启动
         this.loadAntigravityAutoCheckSettings();
         this.loadGeminiCliAutoCheckSettings();
+        this.loadDockerAutoCheckSettings();
         console.log('[System] 后台定时检测设置已加载');
 
         // 懒加载非核心样式 (异步加载，不阻塞首屏)

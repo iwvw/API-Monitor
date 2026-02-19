@@ -113,10 +113,6 @@ class EmailChannel {
         <div class="card">
             <div class="status-bar"></div>
             <div class="content">
-                <div class="header">
-                    <div class="app-name">API Monitor Feedback</div>
-                    <h1 class="title">监控告警反馈</h1>
-                </div>
                 
                 <div class="data-list">
                     ${this.formatMessage(message)}
@@ -147,7 +143,7 @@ class EmailChannel {
                 .map(line => {
                     const colonIndex = line.indexOf(':');
                     if (colonIndex > 0) {
-                        const label = line.substring(0, colonIndex).replace(/[📋📧⏰📊🖥️💳🔗🌐❌⏱️💰🎯]/g, '').trim();
+                        const label = line.substring(0, colonIndex).replace(/(📋|📧|⏰|📊|🖥️|💳|🔗|🌐|❌|⏱️|💰|🎯)/gu, '').trim();
                         const value = line.substring(colonIndex + 1).trim();
                         return `
                             <div class="data-item">

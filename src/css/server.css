@@ -4567,7 +4567,19 @@
   border: 1px solid var(--border-color);
   border-radius: 12px;
   background: var(--card-bg);
-  padding: 10px 12px;
+  padding: 10px 14px;
+  transition: all 0.2s ease;
+  min-height: 64px;
+}
+
+.docker-kpi-card:hover {
+  background: var(--bg-secondary);
+}
+
+.docker-kpi-card.active {
+  border-color: var(--server-primary);
+  background: rgba(36, 150, 237, 0.05);
+  box-shadow: inset 0 0 0 1px var(--server-primary);
 }
 
 .docker-kpi-card.is-running {
@@ -4576,6 +4588,18 @@
 
 .docker-kpi-card.is-warning {
   border-color: rgba(245, 158, 11, 0.35);
+}
+
+.docker-kpi-card.is-warning.active {
+  border-color: rgba(245, 158, 11, 0.6);
+  background: rgba(245, 158, 11, 0.05);
+  box-shadow: inset 0 0 0 1px rgba(245, 158, 11, 0.6);
+}
+
+.docker-kpi-card.is-running.active {
+  border-color: rgba(16, 185, 129, 0.6);
+  background: rgba(16, 185, 129, 0.05);
+  box-shadow: inset 0 0 0 1px rgba(16, 185, 129, 0.6);
 }
 
 .docker-kpi-label {
@@ -4753,4 +4777,406 @@
   .docker-task-time {
     grid-column: 2 / 3;
   }
+}
+
+/* --- Docker Grid View V4: Professional SaaS Edition --- */
+.docker-container-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+  padding: 10px 0;
+}
+
+/* 分组显示样式 */
+.docker-grid-group {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.docker-grid-group-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.docker-grid-group-header i {
+  color: var(--server-primary);
+  opacity: 0.8;
+}
+
+.docker-grid-group-title {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--text-primary);
+  letter-spacing: -0.2px;
+}
+
+.docker-grid-group-count {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-tertiary);
+  background: var(--bg-tertiary);
+  padding: 2px 8px;
+  border-radius: 20px;
+  font-family: var(--font-mono);
+}
+
+.docker-grid-cards-wrap {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+/* V4 卡片样式 */
+.docker-container-card-v4 {
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+/* 根据状态改变背景色 - 无侧边条 */
+.docker-container-card-v4.state-running {
+  background: rgba(16, 185, 129, 0.06);
+  border-color: rgba(16, 185, 129, 0.25);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.05);
+}
+
+.docker-container-card-v4.state-running:hover {
+  background: rgba(16, 185, 129, 0.1);
+  border-color: rgba(16, 185, 129, 0.4);
+  box-shadow: 0 8px 20px rgba(16, 185, 129, 0.1);
+}
+
+.docker-container-card-v4.state-stopped {
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.3);
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.05);
+}
+
+.docker-container-card-v4.state-stopped:hover {
+  background: rgba(239, 68, 68, 0.12);
+  border-color: rgba(239, 68, 68, 0.5);
+  box-shadow: 0 8px 20px rgba(239, 68, 68, 0.15);
+}
+
+/* 可更新状态 - 优先显示蓝色 */
+.docker-container-card-v4.has-update {
+  background: rgba(36, 150, 237, 0.08) !important;
+  border-color: rgba(36, 150, 237, 0.3) !important;
+  box-shadow: 0 4px 12px rgba(36, 150, 237, 0.05);
+}
+
+.docker-container-card-v4.has-update:hover {
+  background: rgba(36, 150, 237, 0.12) !important;
+  border-color: rgba(36, 150, 237, 0.5) !important;
+  box-shadow: 0 8px 24px rgba(36, 150, 237, 0.15);
+}
+
+.docker-container-card-v4.state-paused {
+  background: rgba(245, 158, 11, 0.03);
+  border-color: rgba(245, 158, 11, 0.2);
+}
+
+/* 顶部区域 */
+.card-header-v4 {
+  padding: 12px 16px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.header-main-v4 {
+  display: flex;
+  gap: 10px;
+  min-width: 0;
+}
+
+.docker-icon-v4 {
+  width: 36px;
+  height: 36px;
+  background: rgba(36, 150, 237, 0.1);
+  color: #2496ed;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  flex-shrink: 0;
+  transition: all 0.3s ease;
+}
+
+.state-stopped .docker-icon-v4 {
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+}
+
+.has-update .docker-icon-v4 {
+  background: rgba(36, 150, 237, 0.2);
+  color: #2496ed;
+}
+
+.title-stack-v4 {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 2px;
+}
+
+.container-name-v4 {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.6;
+  margin-bottom: 1px;
+}
+
+.container-image-v4 {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.2;
+}
+
+/* 状态标签 */
+.status-badge-v4 {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 8px 8px;
+  border-radius: 6px;
+  font-size: 9px;
+  font-weight: 800;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.state-running .status-badge-v4 {
+  background: rgba(16, 185, 129, 0.15);
+  color: #10b981;
+}
+
+.state-stopped .status-badge-v4 {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+.status-dot-v4 {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.state-running .status-dot-v4 {
+  box-shadow: 0 0 4px currentColor;
+  animation: pulse-dot-v4 2s infinite;
+}
+
+@keyframes pulse-dot-v4 {
+  0% {
+    transform: scale(1);
+    opacity: 1;
+  }
+
+  50% {
+    transform: scale(1.4);
+    opacity: 0.6;
+  }
+
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* 内容体 */
+.card-body-v4 {
+  padding: 0 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.info-row-v4 {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0;
+}
+
+.info-label-v4 {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.info-label-v4 i {
+  font-size: 10px;
+  width: 12px;
+  text-align: center;
+  opacity: 0.6;
+}
+
+.info-value-v4 {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  max-width: 60%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.6;
+  padding-bottom: 2px;
+}
+
+.info-value-v4.mono {
+  font-family: var(--font-mono);
+  letter-spacing: -0.2px;
+}
+
+/* 任务进度条 */
+.card-progress-v4 {
+  padding: 0 16px 12px;
+}
+
+.progress-info-v4 {
+  display: flex;
+  justify-content: space-between;
+  font-size: 9px;
+  color: var(--server-primary);
+  font-weight: 800;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.progress-bar-v4 {
+  height: 4px;
+  background: var(--bg-tertiary);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.progress-fill-v4 {
+  height: 100%;
+  background: linear-gradient(90deg, var(--server-primary), #60a5fa);
+  border-radius: 2px;
+  transition: width 0.3s ease;
+  box-shadow: 0 0 8px rgba(36, 150, 237, 0.4);
+}
+
+/* 底部区域 */
+.card-footer-v4 {
+  padding: 8px 12px 14px;
+  background: rgba(0, 0, 0, 0.01);
+  border-top: 1px dashed var(--border-color);
+  margin-top: auto;
+}
+
+.actions-group-v4 {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
+
+/* 资源统计样式 */
+.docker-resource-stat {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 12px;
+  background: var(--bg-secondary);
+  border-radius: 20px;
+  border: 1px solid var(--border-color);
+}
+
+.stat-count {
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--primary-color);
+  font-family: var(--font-mono);
+}
+
+.stat-label {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  font-weight: 600;
+}
+
+/* 磨砂按钮 */
+.btn-glass {
+  background: rgba(255, 255, 255, 0.05) !important;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid var(--border-color) !important;
+  color: var(--text-secondary) !important;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+}
+
+.btn-glass:hover {
+  background: rgba(255, 255, 255, 0.1) !important;
+  color: var(--text-primary) !important;
+}
+
+
+.btn-action-v4 {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: var(--text-tertiary);
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.btn-action-v4:hover {
+  background: var(--bg-secondary);
+  color: var(--server-primary);
+  border-color: var(--server-primary);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+}
+
+.btn-action-v4:active {
+  transform: scale(0.9);
+}
+
+.btn-action-v4.success:hover {
+  color: #10b981;
+  border-color: #10b981;
+}
+
+.btn-action-v4.danger:hover {
+  color: #ef4444;
+  border-color: #ef4444;
+}
+
+.btn-action-v4.pulse-green {
+  background: rgba(16, 185, 129, 0.1);
+  color: #10b981;
+  border-color: #10b981;
 }

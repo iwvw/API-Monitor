@@ -880,12 +880,12 @@ export const hostMethods = {
       );
       const parsed = this.parseDockerTaskResult(task, []);
       const newResults = Array.isArray(parsed) ? parsed : parsed ? [parsed] : [];
-      
+
       // 合并结果：保留其他主机的，更新当前主机的
       const server = this.dockerOverviewServers.find(s => s.id === serverId);
       const currentContainerIds = server?.containers?.map(c => c.id) || [];
-      
-      const otherResults = (this.dockerUpdateResults || []).filter(r => 
+
+      const otherResults = (this.dockerUpdateResults || []).filter(r =>
         !currentContainerIds.includes(r.container_id)
       );
 
@@ -1024,7 +1024,7 @@ export const hostMethods = {
         throw new Error(data.error || '加载 Docker 概览失败');
       }
 
-      const dockerServers = (data.data?.servers || [])
+      let dockerServers = (data.data?.servers || [])
         .filter(server => server.docker && server.docker.installed)
         .map(server => ({
           id: server.serverId,
@@ -1034,6 +1034,7 @@ export const hostMethods = {
           docker: server.docker || {},
           resources: server.resources || {},
         }));
+
 
       this.dockerOverviewServers = dockerServers;
 
@@ -1353,7 +1354,7 @@ export const hostMethods = {
   async updateAllAvailableContainers() {
     const groups = this.getDockerGroups();
     const toUpdate = [];
-    
+
     for (const group of groups) {
       for (const row of group.containers) {
         if (row.hasUpdate) {
@@ -1395,7 +1396,19 @@ export const hostMethods = {
       const filteredContainers = [];
       for (const container of server.containers || []) {
         const state = this.getDockerContainerState(container);
-        if (stateFilter !== 'all' && state !== stateFilter) continue;
+        const hasUpdate = this.getContainerUpdateStatus(container.id) === 'has_update';
+
+        if (stateFilter === 'updates') {
+          if (!hasUpdate) continue;
+        } else if (stateFilter !== 'all' && state !== stateFilter) {
+          continue;
+        }
+
+        const activeTask = (this.dockerTasks || []).find(t =>
+          t.state === 'running' &&
+          t.serverId === server.id &&
+          (t.payload?.containerId === container.id || t.payload?.id === container.id)
+        );
 
         const row = {
           serverId: server.id,
@@ -1409,6 +1422,12 @@ export const hostMethods = {
           key: this.getDockerContainerKey(server.id, container.id),
           hasUpdate: this.getContainerUpdateStatus(container.id) === 'has_update',
           updateError: this.getContainerUpdateError(container.id),
+          activeTask: activeTask ? {
+            id: activeTask.taskId,
+            action: activeTask.action,
+            progress: activeTask.progress,
+            message: activeTask.message
+          } : null,
           searchableText: [
             server.name,
             server.host,
@@ -1450,11 +1469,21 @@ export const hostMethods = {
 
   /**
    * 批量检查所有主机的 Docker 更新
+   * @param {Object} options - 配置项
+   * @param {boolean} options.silent - 是否静默执行（不弹出成功/无更新的消息）
    */
-  async checkAllDockerUpdates() {
+  async checkAllDockerUpdates(options = {}) {
     if (this.dockerUpdateChecking) return;
+
+    // 如果是静默模式且当前没人在看 Docker 标签页，可以跳过以节省资源
+    if (options.silent && this.mainActiveTab !== 'server') {
+      // 也可以选择继续执行，取决于用户需求。这里暂时允许执行但保持静默。
+    }
+
     if (this.dockerOverviewServers.length === 0) {
-      this.showGlobalToast('没有可检测的 Docker 主机', 'warning');
+      if (!options.silent) {
+        this.showGlobalToast('没有可检测的 Docker 主机', 'warning');
+      }
       return;
     }
 
@@ -1492,15 +1521,75 @@ export const hostMethods = {
       const otherResults = (this.dockerUpdateResults || []).filter(r => !newContainerIds.includes(r.container_id));
       this.dockerUpdateResults = [...otherResults, ...allNewResults];
 
-      if (totalUpdates > 0) {
-        this.showGlobalToast(`总计发现 ${totalUpdates} 个容器有更新可用`, 'success');
-      } else if (totalErrors > 0) {
-        this.showGlobalToast(`检测完成，${totalErrors} 台主机检测异常`, 'warning');
-      } else {
-        this.showGlobalToast('所有容器镜像均为最新', 'info');
+      if (!options.silent) {
+        if (totalUpdates > 0) {
+          this.showGlobalToast(`总计发现 ${totalUpdates} 个容器有更新可用`, 'success');
+        } else if (totalErrors > 0) {
+          this.showGlobalToast(`检测完成，${totalErrors} 台主机检测异常`, 'warning');
+        } else {
+          this.showGlobalToast('所有容器镜像均为最新', 'info');
+        }
+      } else if (totalUpdates > 0) {
+        // 静默模式下如果有新发现，可以弹一个轻量提示
+        this.showGlobalToast(`后台检测到 ${totalUpdates} 个容器有新版本可用`, 'info');
       }
     } finally {
       this.dockerUpdateChecking = false;
+    }
+  },
+
+  // ==================== Docker 定时功能 ====================
+
+  /**
+   * 加载 Docker 自动检测设置
+   */
+  async loadDockerAutoCheckSettings() {
+    try {
+      // 默认开启，频率 60 分钟
+      this.dockerAutoCheckEnabled = true;
+      this.dockerUpdateInterval = 60;
+
+      const saved = localStorage.getItem('docker_auto_check_config');
+      if (saved) {
+        const config = JSON.parse(saved);
+        this.dockerAutoCheckEnabled = config.enabled !== false;
+        this.dockerUpdateInterval = config.interval || 60;
+      }
+
+      if (this.dockerAutoCheckEnabled) {
+        this.startDockerUpdateTimer();
+      }
+    } catch (e) {
+      console.warn('[Docker] 加载自动检测设置失败:', e);
+    }
+  },
+
+  /**
+   * 启动 Docker 自动更新检测定时器
+   */
+  startDockerUpdateTimer() {
+    this.stopDockerUpdateTimer();
+
+    if (!this.dockerAutoCheckEnabled) return;
+
+    const intervalMs = Math.max(5, this.dockerUpdateInterval || 60) * 60 * 1000;
+    console.log(`[Docker] 启动后台更新检测，频率: ${this.dockerUpdateInterval} 分钟`);
+
+    this.dockerUpdateTimer = setInterval(() => {
+      // 仅在已登录且页面可见时执行
+      if (this.isAuthenticated && document.visibilityState === 'visible') {
+        this.checkAllDockerUpdates({ silent: true });
+      }
+    }, intervalMs);
+  },
+
+  /**
+   * 停止 Docker 自动更新检测定时器
+   */
+  stopDockerUpdateTimer() {
+    if (this.dockerUpdateTimer) {
+      clearInterval(this.dockerUpdateTimer);
+      this.dockerUpdateTimer = null;
     }
   },
 
@@ -1525,7 +1614,7 @@ export const hostMethods = {
         { wait: false, timeoutMs: 10 * 60 * 1000 }
       );
       this.showGlobalToast(`更新任务已提交（#${taskId.slice(0, 8)}）`, 'success');
-      
+
       // 更新检测结果状态 (乐观更新: 移除更新标记)
       if (this.dockerUpdateResults) {
         this.dockerUpdateResults = this.dockerUpdateResults.filter(r => r.container_id !== containerId);
@@ -1603,7 +1692,7 @@ export const hostMethods = {
       if (this.dockerOverviewServers.length === 0) {
         await this.loadDockerOverview();
       }
-      this.dockerImages = this.dockerOverviewServers.flatMap(server => 
+      this.dockerImages = this.dockerOverviewServers.flatMap(server =>
         (server.resources?.images || []).map(img => ({ ...img, serverName: server.name }))
       );
     } catch (error) {
@@ -1622,50 +1711,50 @@ export const hostMethods = {
    */
   async handleDockerImageAction(action, image = '') {
     if (!this.dockerSelectedServer) {
-       if (action === 'prune') {
-         const count = this.getDanglingImagesCount();
-         const confirmed = await this.showConfirm({
-            title: '批量清理镜像',
-            message: `确定要清理所有主机的 ${count} 个无标签(dangling)镜像吗？\n这将释放磁盘空间。`,
-            confirmText: `清理 ${count} 个镜像`,
-            confirmClass: 'btn-warning'
-         });
-         if (!confirmed) return;
-         
-         this.showGlobalToast('批量清理任务已启动...', 'info');
-         
-         const tasks = this.dockerOverviewServers.map(server => 
-            this.submitDockerTask('image.prune', { serverId: server.id })
-         );
-         
-         try {
-            await Promise.all(tasks);
-            this.showGlobalToast('所有主机清理完成', 'success');
-         } catch (e) {
-            this.showGlobalToast('部分主机清理失败', 'warning');
-         }
-         
-         // 强制刷新
-         await this.loadDockerOverview(); 
-         await this.loadDockerImages();
-         return;
-       }
-       this.showGlobalToast('请先选择一台主机进行特定镜像操作', 'warning');
-       return;
+      if (action === 'prune') {
+        const count = this.getDanglingImagesCount();
+        const confirmed = await this.showConfirm({
+          title: '批量清理镜像',
+          message: `确定要清理所有主机的 ${count} 个无标签(dangling)镜像吗？\n这将释放磁盘空间。`,
+          confirmText: `清理 ${count} 个镜像`,
+          confirmClass: 'btn-warning'
+        });
+        if (!confirmed) return;
+
+        this.showGlobalToast('批量清理任务已启动...', 'info');
+
+        const tasks = this.dockerOverviewServers.map(server =>
+          this.submitDockerTask('image.prune', { serverId: server.id })
+        );
+
+        try {
+          await Promise.all(tasks);
+          this.showGlobalToast('所有主机清理完成', 'success');
+        } catch (e) {
+          this.showGlobalToast('部分主机清理失败', 'warning');
+        }
+
+        // 强制刷新
+        await this.loadDockerOverview();
+        await this.loadDockerImages();
+        return;
+      }
+      this.showGlobalToast('请先选择一台主机进行特定镜像操作', 'warning');
+      return;
     }
 
     if (action === 'prune') {
-       // 单机清理
-       const server = this.dockerOverviewServers.find(s => s.id === this.dockerSelectedServer);
-       const count = (server?.resources?.images || []).filter(img => img.tag === '<none>' || img.repository === '<none>').length;
-       
-       const confirmed = await this.showConfirm({
-          title: '清理镜像',
-          message: `确定要清理主机 "${server?.name}" 上的 ${count} 个无标签镜像吗？`,
-          confirmText: '确定清理',
-          confirmClass: 'btn-warning'
-       });
-       if (!confirmed) return;
+      // 单机清理
+      const server = this.dockerOverviewServers.find(s => s.id === this.dockerSelectedServer);
+      const count = (server?.resources?.images || []).filter(img => img.tag === '<none>' || img.repository === '<none>').length;
+
+      const confirmed = await this.showConfirm({
+        title: '清理镜像',
+        message: `确定要清理主机 "${server?.name}" 上的 ${count} 个无标签镜像吗？`,
+        confirmText: '确定清理',
+        confirmClass: 'btn-warning'
+      });
+      if (!confirmed) return;
     }
 
     try {
@@ -1694,7 +1783,7 @@ export const hostMethods = {
       if (this.dockerOverviewServers.length === 0) {
         await this.loadDockerOverview();
       }
-      this.dockerNetworks = this.dockerOverviewServers.flatMap(server => 
+      this.dockerNetworks = this.dockerOverviewServers.flatMap(server =>
         (server.resources?.networks || []).map(net => ({ ...net, serverName: server.name }))
       );
     } catch (error) {
@@ -1709,8 +1798,45 @@ export const hostMethods = {
    */
   async handleDockerNetworkAction(action, name = '') {
     if (!this.dockerSelectedServer) {
-       this.showGlobalToast('请先选择一台主机', 'warning');
-       return;
+      if (action === 'prune') {
+        const confirmed = await this.showConfirm({
+          title: '批量清理网络',
+          message: `确定要清理所有主机上未使用的网络吗？\n这将删除所有未被至少一个容器使用的网络。`,
+          confirmText: `清理所有网络`,
+          confirmClass: 'btn-warning'
+        });
+        if (!confirmed) return;
+
+        this.showGlobalToast('批量清理网络任务已启动...', 'info');
+
+        const tasks = this.dockerOverviewServers.map(server =>
+          this.submitDockerTask('network.prune', { serverId: server.id })
+        );
+
+        try {
+          await Promise.all(tasks);
+          this.showGlobalToast('所有主机网络清理完成', 'success');
+        } catch (e) {
+          this.showGlobalToast('部分主机清理失败', 'warning');
+        }
+
+        await this.loadDockerOverview();
+        await this.loadDockerNetworks();
+        return;
+      }
+      this.showGlobalToast('请先选择一台主机', 'warning');
+      return;
+    }
+
+    if (action === 'prune') {
+      const server = this.dockerOverviewServers.find(s => s.id === this.dockerSelectedServer);
+      const confirmed = await this.showConfirm({
+        title: '清理网络',
+        message: `确定要清理主机 "${server?.name}" 上未使用的网络吗？`,
+        confirmText: '确定清理',
+        confirmClass: 'btn-warning'
+      });
+      if (!confirmed) return;
     }
 
     try {
@@ -1720,6 +1846,7 @@ export const hostMethods = {
         { timeoutMs: 60000 }
       );
       this.showGlobalToast('操作成功', 'success');
+      await this.loadDockerOverview();
       await this.loadDockerNetworks();
     } catch (error) {
       this.showGlobalToast('操作失败: ' + error.message, 'error');
@@ -1737,7 +1864,7 @@ export const hostMethods = {
       if (this.dockerOverviewServers.length === 0) {
         await this.loadDockerOverview();
       }
-      this.dockerVolumes = this.dockerOverviewServers.flatMap(server => 
+      this.dockerVolumes = this.dockerOverviewServers.flatMap(server =>
         (server.resources?.volumes || []).map(vol => ({ ...vol, serverName: server.name }))
       );
     } catch (error) {
@@ -1752,23 +1879,23 @@ export const hostMethods = {
    */
   async handleDockerVolumeAction(action, name = '') {
     if (!this.dockerSelectedServer) {
-       if (action === 'prune') {
-         const confirmed = await this.showConfirm({
-            title: '批量清理卷',
-            message: '确定要清理所有主机的未使用存储卷吗？',
-            confirmText: '清理全部',
-            confirmClass: 'btn-warning'
-         });
-         if (!confirmed) return;
-         
-         for (const server of this.dockerOverviewServers) {
-            this.submitDockerTask('volume.prune', { serverId: server.id });
-         }
-         this.showGlobalToast('批量清理任务已提交', 'success');
-         return;
-       }
-       this.showGlobalToast('请先选择一台主机', 'warning');
-       return;
+      if (action === 'prune') {
+        const confirmed = await this.showConfirm({
+          title: '批量清理卷',
+          message: '确定要清理所有主机的未使用存储卷吗？',
+          confirmText: '清理全部',
+          confirmClass: 'btn-warning'
+        });
+        if (!confirmed) return;
+
+        for (const server of this.dockerOverviewServers) {
+          this.submitDockerTask('volume.prune', { serverId: server.id });
+        }
+        this.showGlobalToast('批量清理任务已提交', 'success');
+        return;
+      }
+      this.showGlobalToast('请先选择一台主机', 'warning');
+      return;
     }
 
     try {
@@ -1795,7 +1922,7 @@ export const hostMethods = {
       if (this.dockerOverviewServers.length === 0) {
         await this.loadDockerOverview();
       }
-      this.dockerStats = this.dockerOverviewServers.flatMap(server => 
+      this.dockerStats = this.dockerOverviewServers.flatMap(server =>
         (server.resources?.stats || []).map(stat => ({ ...stat, serverName: server.name }))
       );
     } catch (error) {
@@ -1860,7 +1987,7 @@ export const hostMethods = {
       if (this.dockerOverviewServers.length === 0) {
         await this.loadDockerOverview();
       }
-      this.dockerComposeProjects = this.dockerOverviewServers.flatMap(server => 
+      this.dockerComposeProjects = this.dockerOverviewServers.flatMap(server =>
         (server.resources?.composeProjects || []).map(p => ({ ...p, serverName: server.name, serverId: server.id }))
       );
     } catch (error) {
@@ -1876,13 +2003,13 @@ export const hostMethods = {
   async handleDockerComposeAction(project, action, serverId) {
     // 如果没有传入 serverId，尝试从当前选择的主机获取
     if (!serverId) serverId = this.dockerSelectedServer;
-    
+
     if (!serverId) {
-       // 尝试从项目中查找 (如果 project 是对象)
-       // 但通常 project 是名称字符串。
-       // 如果是在 aggregated 视图中，必须传入 serverId。
-       this.showGlobalToast('请先选择一台主机', 'warning');
-       return;
+      // 尝试从项目中查找 (如果 project 是对象)
+      // 但通常 project 是名称字符串。
+      // 如果是在 aggregated 视图中，必须传入 serverId。
+      this.showGlobalToast('请先选择一台主机', 'warning');
+      return;
     }
 
     // 查找项目配置路径 (需从对应主机的资源中查找)
@@ -3339,26 +3466,7 @@ export const hostMethods = {
 
   // ==================== GPU 卡片交互 ====================
 
-  hasGpuData(server) {
-    if (!server || !server.info) return false;
 
-    // 检查是否有有效的 GPU 信息
-    // 1. 有 GPU 型号名称 - 明确有 GPU
-    if (server.info.gpu && server.info.gpu.Model) return true;
-
-    // 2. GPU 使用率大于 0 - 说明有 GPU 在工作
-    if (server.info.gpu && server.info.gpu.Usage) {
-      const usageVal = parseFloat(server.info.gpu.Usage);
-      if (usageVal > 0) return true;
-    }
-
-    // 3. 历史缓存中有大于 0 的 GPU 使用率数据
-    if (server.metricsCache && server.metricsCache.some(r => r.gpu_usage !== null && r.gpu_usage !== undefined && r.gpu_usage > 0)) {
-      return true;
-    }
-
-    return false;
-  },
 
   handleGpuCardClick(server) {
     if (this.hasGpuData(server)) {

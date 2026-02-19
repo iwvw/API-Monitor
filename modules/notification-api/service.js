@@ -26,6 +26,7 @@ class NotificationService extends EventEmitter {
         this.sentCountInLastHour = 0;
         this.lastResetTime = Date.now();
         this.circuitBroken = false;
+        this.startupTime = Date.now(); // 记录启动时间，用于启动保护
     }
 
     /**
@@ -68,16 +69,24 @@ class NotificationService extends EventEmitter {
         try {
             logger.debug(`触发告警: ${sourceModule}/${eventType}`);
 
-            // 自动处理恢复：如果是恢复事件，重置对应的故障状态追踪
-            // 这样下次故障时 repeat_count 可以重新计数
+            // 自动处理恢复：如果是恢复事件，更新对应的故障状态追踪
+            // 不再直接 reset，而是让抖动检测逻辑决定是否放行
             if (eventType === 'up' || eventType === 'online') {
                 const oppositeType = eventType === 'up' ? 'down' : 'offline';
                 const downRules = storage.rule.getBySourceAndEvent(sourceModule, oppositeType);
                 if (downRules.length > 0) {
-                    logger.debug(`检测到恢复事件,正在重置 ${downRules.length} 条故障规则的状态记录`);
                     for (const rule of downRules) {
                         const fingerprint = this.generateFingerprint(rule, data);
-                        storage.stateTracking.reset(rule.id, fingerprint);
+                        const state = storage.stateTracking.get(rule.id, fingerprint);
+                        if (state) {
+                            // 记录这次恢复尝试到历史中，以便检测是否在频繁抖动
+                            this.detectFlapping(state, eventType);
+
+                            // 如果没有抖动，才真正重置连续失败计数
+                            if (!state.is_flapping) {
+                                storage.stateTracking.reset(rule.id, fingerprint);
+                            }
+                        }
                     }
                 }
             }
@@ -259,10 +268,15 @@ class NotificationService extends EventEmitter {
         }
 
         const config = storage.globalConfig.getDefault();
+        const startupGracePeriod = 60000; // 启动 60 秒内为保护期
+        const isStartup = Date.now() - this.startupTime < startupGracePeriod;
 
         // 检查是否需要合并 (Batching)
-        if (config.enable_batch && !notification.is_retry) {
-            this.addToBatch(notification, config.batch_interval_seconds);
+        // 启动保护期内强制开启聚合，防止重启轰炸
+        if ((config.enable_batch || isStartup) && !notification.is_retry) {
+            let interval = config.batch_interval_seconds || 30;
+            if (isStartup && interval < 30) interval = 30; // 启动时至少等待 30 秒以收集首轮扫描的所有故障
+            this.addToBatch(notification, interval);
         } else {
             this.queue.push(notification);
         }
@@ -550,12 +564,11 @@ class NotificationService extends EventEmitter {
                     message: log.message,
                     data: JSON.parse(log.data || '{}'),
                     log_id: log.id,
+                    is_backlog: true // 标记为积压通知
                 };
-                this.queue.push(notification);
-            }
 
-            if (!this.processing && this.queue.length > 0) {
-                this.startQueueProcessor();
+                // 使用 enqueue 进入逻辑流，这样可以触发启动期的聚合逻辑
+                this.enqueue(notification);
             }
         } catch (error) {
             logger.error(`加载未完成通知失败: ${error.message}`);
@@ -706,17 +719,19 @@ class NotificationService extends EventEmitter {
         try {
             const history = JSON.parse(stateRecord.state_history || '[]');
             const eventVal = (currentEventType === 'up' || currentEventType === 'online') ? 1 : 0;
+            const now = Date.now();
 
-            // 记录历史
-            history.push({ t: Date.now(), v: eventVal });
+            // 1. 检查是否处于已锁定的抖动冷静期 (5分钟)
+            if (stateRecord.is_flapping && stateRecord.updated_at) {
+                const lastUpdate = new Date(stateRecord.updated_at).getTime();
+                if (now - lastUpdate < 5 * 60 * 1000) {
+                    return true;
+                }
+            }
+
+            // 2. 记录历史
+            history.push({ t: now, v: eventVal });
             if (history.length > 10) history.shift();
-
-            // 更新到数据库
-            storage.stateTracking.upsert(stateRecord.rule_id, stateRecord.fingerprint, {
-                state_history: JSON.stringify(history)
-            });
-
-            if (history.length < 4) return false;
 
             // 计算跳变次数 (v 变化的次数)
             let flips = 0;
@@ -724,13 +739,19 @@ class NotificationService extends EventEmitter {
                 if (history[i].v !== history[i - 1].v) flips++;
             }
 
-            // 如果 10 次内有 4 次以上跳变，且时间间隔短（如 15 分钟内），判定为抖动
+            // 如果 10 次内有 4 次以上跳变，且时间间隔短（如 10 分钟内），判定为抖动
             const durationMin = (history[history.length - 1].t - history[0].t) / 60000;
-            if (flips >= 4 && durationMin < 15) {
-                return true;
-            }
-            return false;
+            const isFlapping = flips >= 4 && durationMin < 10;
+
+            // 更新到数据库
+            storage.stateTracking.upsert(stateRecord.rule_id, stateRecord.fingerprint, {
+                state_history: JSON.stringify(history),
+                is_flapping: isFlapping ? 1 : 0
+            });
+
+            return isFlapping;
         } catch (e) {
+            logger.error(`抖动检测异常: ${e.message}`);
             return false;
         }
     }
