@@ -3,7 +3,7 @@
   <div class="dashboard-header">
     <div class="header-left">
       <h1>系统控制台</h1>
-      <p class="subtitle">System Overview & Status Monitor</p>
+      <p class="subtitle">系统概览与状态监控</p>
     </div>
     <div class="header-right">
       <div class="last-update" v-show="dashboardLastUpdate">
@@ -23,11 +23,7 @@
       <i class="fas fa-server card-icon-large"></i>
       <div class="card-top">
         <div class="icon-box"><i class="fas fa-server"></i></div>
-        <div style="display: flex; align-items: center; gap: 8px;">
-          <button class="quick-action-btn" @click.stop="fetchServerSummary" title="快速刷新主机状态"
-            :disabled="dashboardLoading">
-            <i class="fas fa-redo-alt" :class="{ 'fa-spin': dashboardLoading }"></i>
-          </button>
+        <div class="card-status-group">
           <span class="trend-badge"
             :class="dashboardStats.servers.online === dashboardStats.servers.total && dashboardStats.servers.total > 0 ? 'positive' : (dashboardStats.servers.total === 0 ? 'neutral' : 'negative')">
             {{ dashboardStats.servers.online }} / {{ dashboardStats.servers.total }} 在线
@@ -47,7 +43,7 @@
           <template v-else-if="dashboardStats.servers.offline > 0">{{ dashboardStats.servers.offline }} 台离线</template>
           <template v-else>所有系统正常</template>
         </span>
-        <i class="fas fa-arrow-right" style="opacity: 0.5"></i>
+        <i class="fas fa-arrow-right footer-arrow"></i>
       </div>
     </div>
 
@@ -56,25 +52,27 @@
       <i class="fas fa-project-diagram card-icon-large"></i>
       <div class="card-top">
         <div class="icon-box"><i class="fas fa-rocket"></i></div>
-        <span class="trend-badge neutral">API 网关</span>
+        <div class="card-status-group">
+          <span class="trend-badge tag-badge">API 网关</span>
+        </div>
       </div>
       <div class="card-main-content">
         <span class="card-label">调用次数</span>
         <div class="card-value">
           {{ (dashboardStats.antigravity.total_calls +
-          dashboardStats.geminiCli.total_calls).toLocaleString() }}
+          dashboardStats.geminiCli.total_calls) }}
           <span class="card-unit">次</span>
         </div>
       </div>
       <div class="card-footer">
-        <span>Antigravity & Gemini</span>
-        <span
+        <span class="status-dot-text"
           :class="(dashboardStats.antigravity.total_calls + dashboardStats.geminiCli.total_calls) > 0 && ((dashboardStats.antigravity.success_calls + dashboardStats.geminiCli.success_calls) / (dashboardStats.antigravity.total_calls + dashboardStats.geminiCli.total_calls)) < 0.9 ? 'status-text-warning' : 'status-text-success'">
           {{ (dashboardStats.antigravity.total_calls + dashboardStats.geminiCli.total_calls) > 0 ?
           Math.round(((dashboardStats.antigravity.success_calls +
           dashboardStats.geminiCli.success_calls) / (dashboardStats.antigravity.total_calls +
           dashboardStats.geminiCli.total_calls)) * 1000) / 10 + '%' : '-' }} 成功率
         </span>
+        <i class="fas fa-arrow-right footer-arrow"></i>
       </div>
     </div>
 
@@ -83,7 +81,9 @@
       <i class="fas fa-cloud card-icon-large"></i>
       <div class="card-top">
         <div class="icon-box"><i class="fas fa-cubes"></i></div>
-        <span class="trend-badge positive">PaaS</span>
+        <div class="card-status-group">
+          <span class="trend-badge tag-badge">PaaS</span>
+        </div>
       </div>
       <div class="card-main-content">
         <span class="card-label">云应用实例</span>
@@ -95,8 +95,8 @@
         </div>
       </div>
       <div class="card-footer">
-        <span>Zeabur, Koyeb, Fly</span>
-        <i class="fas fa-arrow-right" style="opacity: 0.5"></i>
+        <span class="status-dot-text status-text-success">实例运行正常</span>
+        <i class="fas fa-arrow-right footer-arrow"></i>
       </div>
     </div>
 
@@ -105,7 +105,9 @@
       <i class="fas fa-globe card-icon-large"></i>
       <div class="card-top">
         <div class="icon-box"><i class="fas fa-network-wired"></i></div>
-        <span class="trend-badge neutral">Cloudflare</span>
+        <div class="card-status-group">
+          <span class="trend-badge tag-badge">Cloudflare</span>
+        </div>
       </div>
       <div class="card-main-content">
         <span class="card-label">域名解析</span>
@@ -115,7 +117,7 @@
       </div>
       <div class="card-footer">
         <span class="status-dot-text status-text-success">DNS 正常</span>
-        <i class="fas fa-arrow-right" style="opacity: 0.5"></i>
+        <i class="fas fa-arrow-right footer-arrow"></i>
       </div>
     </div>
 
@@ -140,7 +142,7 @@
           <template v-if="dashboardStats.uptime.down > 0">{{ dashboardStats.uptime.down }} 个故障</template>
           <template v-else>所有服务正常</template>
         </span>
-        <i class="fas fa-arrow-right" style="opacity: 0.5"></i>
+        <i class="fas fa-arrow-right footer-arrow"></i>
       </div>
     </div>
   </div>

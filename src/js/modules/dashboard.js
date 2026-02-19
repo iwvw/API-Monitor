@@ -140,27 +140,7 @@ export const dashboardMethods = {
   },
 
 
-  /**
-   * 主机快速操作：刷新状态
-   */
-  async quickPingServer(serverId) {
-    if (!this.showGlobalToast) return;
-    try {
-      const res = await fetch(`/api/server/accounts/${serverId}/probe`, {
-        method: 'POST',
-        headers: store.getAuthHeaders()
-      });
-      const data = await res.json();
-      if (data.success) {
-        this.showGlobalToast('主机检测已触发', 'success');
-        this.fetchServerSummary();
-      } else {
-        this.showGlobalToast('检测请求失败: ' + data.error, 'error');
-      }
-    } catch (e) {
-      this.showGlobalToast('网络错误', 'error');
-    }
-  },
+
 
   /**
    * 获取主机状态摘要

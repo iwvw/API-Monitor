@@ -25,7 +25,7 @@
   display: flex;
   justify-content: space-between;
   align-items: flex-end;
-  margin-bottom: 24px;
+  margin-bottom: 10px;
   /* 与 Grid Gap 保持一致 */
   padding-bottom: 4px;
   /* 微调视觉重心 */
@@ -131,13 +131,11 @@
 }
 
 .btn-refresh-all:hover:not(:disabled) {
-  transform: translateY(-1px);
   box-shadow: 0 8px 20px rgba(var(--primary-rgb), 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.2);
   filter: brightness(1.1);
 }
 
 .btn-refresh-all:active:not(:disabled) {
-  transform: translateY(1px);
   box-shadow: 0 2px 8px rgba(var(--primary-rgb), 0.2);
 }
 
@@ -215,78 +213,85 @@
   /* 确保 padding 不撑大尺寸 */
 }
 
-/* Overview Card Special */
+/* Overview Card Specific - Compact & Balanced */
 .overview-card {
-  /* height: 160px; */
-  /* 稍微增高以容纳 padding */
   display: flex;
   flex-direction: column;
   justify-content: space-between;
   cursor: pointer;
+  padding: 14px 16px;
+  /* Reduced padding */
+  min-height: 145px;
+  /* Tighter height */
 }
 
 .overview-card:hover {
-  /* transform: translateY(-4px); */
   border-color: var(--primary-color);
-  box-shadow: var(--card-hover-shadow);
+  box-shadow: 0 10px 20px rgba(0, 0, 0, 0.1);
 }
 
 /* Card Elements */
 .card-top {
   display: flex;
   justify-content: space-between;
-  align-items: flex-start;
-  /* 顶部对齐 */
+  /* align-items: center; */
+  /* Better vertical alignment */
   position: relative;
-  z-index: 1;
+  z-index: 10;
   margin-bottom: 12px;
+  /* Tightened */
 }
 
 .icon-box {
-  width: 42px;
-  height: 42px;
-  border-radius: 12px;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
   background: var(--bg-secondary);
   color: var(--text-secondary);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 18px;
-  border: 1px solid rgba(0, 0, 0, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.03);
+  /* 优化动画性能，防止抖动 */
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    background-color 0.3s ease,
+    color 0.3s ease;
+  will-change: transform;
+  backface-visibility: hidden;
+  -webkit-font-smoothing: antialiased;
 }
 
-/* Theme Colors */
-.server-card .icon-box,
-.server-card-0 .icon-box {
-  background: rgba(59, 130, 246, 0.1);
-  color: #3b82f6;
+.overview-card:hover .icon-box {
+  background: var(--primary-color);
+  color: white;
+  transform: scale(1.05) translateZ(0);
 }
 
-.api-card .icon-box {
-  background: rgba(244, 63, 94, 0.1);
-  color: #f43f5e;
-}
-
-.paas-card .icon-box {
-  background: rgba(139, 92, 246, 0.1);
-  color: #8b5cf6;
-}
-
-.dns-card .icon-box {
-  background: rgba(245, 158, 11, 0.1);
-  color: #f59e0b;
+/* Grouping Refresh + Badge in Top Right */
+.card-status-group {
+  display: flex;
+  /* align-items: center; */
+  gap: 8px;
 }
 
 .trend-badge {
   padding: 4px 10px;
-  border-radius: 20px;
+  border-radius: 8px;
   font-weight: 700;
   font-size: 11px;
   line-height: 1;
   height: 22px;
-  /* 固定高度 */
+  /* Balanced height */
   display: inline-flex;
   align-items: center;
+  white-space: nowrap;
+}
+
+.trend-badge.tag-badge {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
 }
 
 .trend-badge.positive {
@@ -300,24 +305,28 @@
 }
 
 .trend-badge.neutral {
-  background: rgba(107, 114, 128, 0.1);
-  color: var(--text-secondary);
+  background: rgba(59, 130, 246, 0.1);
+  color: #3b82f6;
 }
 
+/* Main Content: Value & Label - Horizontal Balance */
 .card-main-content {
   position: relative;
-  z-index: 1;
+  z-index: 5;
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: baseline;
+  margin: 4px 0;
 }
 
 .card-label {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 600;
   color: var(--text-tertiary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
+  opacity: 0.8;
 }
 
 .card-value {
@@ -329,68 +338,81 @@
   letter-spacing: -0.5px;
   display: flex;
   align-items: baseline;
-  gap: 6px;
+  gap: 4px;
 }
 
 .card-unit {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 500;
   color: var(--text-tertiary);
-  transform: translateY(-2px);
+  opacity: 0.7;
 }
 
+/* Footer: Status line - Clean integrated look */
 .card-footer {
   position: relative;
-  z-index: 1;
+  z-index: 10;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-tertiary);
-  padding-top: 14px;
+  padding-top: 8px;
+  /* Slightly reduced */
   margin-top: auto;
-  /* 推到底部 */
-  border-top: 1px solid rgba(0, 0, 0, 0.04);
 }
 
 .status-dot-text {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-weight: 500;
+  gap: 6px;
+  font-weight: 600;
 }
 
 .status-dot-text::before {
   content: '';
   display: block;
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
   border-radius: 50%;
   background: currentColor;
+  box-shadow: 0 0 6px currentColor;
 }
 
 .status-text-success {
-  color: var(--success-color);
+  color: #10b981;
 }
 
 .status-text-warning {
-  color: var(--warning-color);
+  color: #f59e0b;
 }
 
 .status-text-danger {
-  color: var(--danger-color);
+  color: #ef4444;
 }
 
 .status-text-neutral {
   color: var(--text-tertiary);
 }
 
+.footer-arrow {
+  font-size: 11px;
+  opacity: 0.3;
+  transition: all 0.3s ease;
+}
+
+.overview-card:hover .footer-arrow {
+  opacity: 0.8;
+  transform: translateX(4px);
+}
+
 .card-icon-large {
   position: absolute;
-  right: -20px;
-  bottom: -20px;
-  font-size: 140px;
-  opacity: 0.06;
+  right: -10px;
+  bottom: -10px;
+  font-size: 110px;
+  opacity: 0.02;
+  /* Extremely subtle */
   color: var(--text-primary);
   pointer-events: none;
   z-index: 0;
@@ -399,7 +421,7 @@
 }
 
 .overview-card:hover .card-icon-large {
-  opacity: 0.12;
+  opacity: 0.05;
   transform: scale(1.1) rotate(-5deg);
 }
 
@@ -1230,38 +1252,6 @@
    Quick Actions
    ========================================= */
 
-/* Quick Action Button for Status Cards */
-.quick-action-btn {
-  width: 24px;
-  height: 24px;
-  border-radius: 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--border-color);
-  background: var(--bg-secondary);
-  color: var(--text-tertiary);
-  cursor: pointer;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  font-size: 10px;
-}
-
-.quick-action-btn:hover:not(:disabled) {
-  background: var(--primary-color);
-  border-color: var(--primary-color);
-  color: white;
-  transform: rotate(30deg);
-  box-shadow: 0 2px 8px rgba(var(--primary-rgb), 0.3);
-}
-
-.quick-action-btn:active:not(:disabled) {
-  transform: scale(0.9) rotate(30deg);
-}
-
-.quick-action-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
 
 @media (max-width: 768px) {
   .music-skeleton-content {
@@ -1346,11 +1336,9 @@
   background: #e0e7ff;
   /* Slightly darker indigo */
   box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2);
-  transform: translateY(-1px);
 }
 
 .music-swap-btn:active {
-  transform: translateY(0);
   background: #dbeafe;
 }
 
@@ -1361,6 +1349,93 @@
 
 .music-swap-btn:active i {
   transform: rotate(180deg);
+}
+
+/* --- Tablet / Small Desktop Adaptation (Focus: Compactness) --- */
+@media (max-width: 1200px) {
+  :root {
+    --dashboard-grid-gap: 10px;
+    --card-padding: 14px;
+  }
+
+  .stats-overview-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  .overview-card {
+    min-height: 130px;
+    padding: 15px !important;
+  }
+
+  .icon-box {
+    width: 32px !important;
+    height: 32px !important;
+    font-size: 14px !important;
+    border-radius: 8px !important;
+  }
+
+  .trend-badge {
+    height: 20px !important;
+    padding: 2px 8px !important;
+    font-size: 10px !important;
+  }
+
+  .card-value {
+    font-size: 20px !important;
+  }
+
+  .card-label {
+    font-size: 10px !important;
+  }
+
+  .paas-list {
+    display: grid !important;
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 8px !important;
+  }
+
+  .paas-item {
+    padding: 8px 12px !important;
+    background: var(--bg-secondary) !important;
+    border-radius: 10px !important;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+  }
+
+  .paas-item:hover {
+    background: var(--bg-tertiary) !important;
+    border-color: rgba(255, 255, 255, 0.1) !important;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  }
+
+  .paas-item:active {
+    background: var(--bg-primary) !important;
+    opacity: 0.8;
+  }
+
+  .paas-logo-box {
+    width: 32px !important;
+    height: 32px !important;
+    border-radius: 8px !important;
+  }
+
+  .detail-header {
+    margin-bottom: 12px !important;
+    padding-bottom: 8px !important;
+  }
+}
+
+@media (max-width: 1024px) {
+  .stats-overview-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .dashboard-main-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .overview-card {
+    min-height: 120px;
+  }
 }
 
 /* =========================================
@@ -1422,75 +1497,97 @@
     /* 只显示图标 */
   }
 
-  /* --- Stats Grid: 2 Columns --- */
+  /* --- Stats Grid: 2 Columns on Mobile --- */
   .stats-overview-grid {
-    grid-template-columns: repeat(2, 1fr);
-    gap: var(--dashboard-grid-gap);
-    margin-bottom: var(--dashboard-grid-gap);
+    display: grid !important;
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 10px !important;
+    margin-bottom: 12px !important;
   }
 
-  /* --- Overview Cards: Redesigned Mobile Layout --- */
+  /* --- Overview Cards: Mobile Card Style --- */
   .overview-card {
-    padding: 10px 12px !important;
-    border-radius: 12px !important;
-    display: flex !important;
-    flex-direction: row !important;
-    align-items: center !important;
-    gap: 10px !important;
+    min-height: 80px !important;
+    padding: 12px !important;
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    justify-content: space-between !important;
+    gap: 8px !important;
     position: relative !important;
   }
 
-  /* Icon 放左侧 */
   .card-top {
-    position: static !important;
+    width: 100% !important;
     margin: 0 !important;
-    order: -1 !important;
-    flex-shrink: 0 !important;
-  }
-
-  /* Badge 叠加在右上角 */
-  .trend-badge {
-    position: absolute !important;
-    top: 6px !important;
-    right: 8px !important;
-    font-size: 8px !important;
-    padding: 2px 6px !important;
-    height: auto !important;
+    display: flex !important;
+    justify-content: space-between !important;
+    align-items: flex-start !important;
+    position: relative !important;
+    order: 0 !important;
   }
 
   .icon-box {
     width: 32px !important;
     height: 32px !important;
-    border-radius: 8px !important;
     font-size: 14px !important;
+    margin: 0 !important;
+    border-radius: 8px !important;
   }
 
-  /* 主内容区域 */
-  .card-main-content {
-    flex: 1 !important;
-    min-width: 0 !important;
-    gap: 2px !important;
+  .card-status-group {
+    position: static !important;
+    display: flex !important;
+    align-items: center !important;
   }
 
-  .card-label {
+  .trend-badge {
+    height: 18px !important;
+    padding: 0 6px !important;
     font-size: 10px !important;
+    position: static !important;
+    margin: 0 !important;
+    display: inline-flex !important;
+    align-items: center !important;
+  }
+
+
+  .card-main-content {
+    margin: 0 !important;
+    width: 100% !important;
+    display: flex !important;
+    flex-direction: row !important;
+    /* Move to row layout */
+    justify-content: space-between !important;
+    /* Label left, Value right */
+    align-items: baseline !important;
+    gap: 4px !important;
   }
 
   .card-value {
     font-size: 18px !important;
-    gap: 3px !important;
-    line-height: 1.1 !important;
+    font-weight: 800 !important;
+    line-height: 1 !important;
+    width: auto !important;
+    /* Don't force full width */
+    text-align: right !important;
+  }
+
+  .card-label {
+    font-size: 10px !important;
+    opacity: 0.7 !important;
+    margin: 0 !important;
+    text-transform: none !important;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 
   .card-unit {
-    font-size: 9px !important;
+    font-size: 10px !important;
   }
 
-  /* Footer 隐藏或简化 */
-  .card-footer {
-    display: none !important;
-  }
-
+  /* Hide Footer/Decorations on Mobile */
+  .card-footer,
   .card-icon-large {
     display: none !important;
   }
