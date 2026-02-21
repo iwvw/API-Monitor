@@ -147,12 +147,6 @@ class SSHService {
               if (ws._protocol === 'agent') {
                 const agentService = require('./agent-service');
                 const { Events } = require('./protocol');
-                agentService.sendTask(ws._serverId, {
-                  type: Events.DASHBOARD_PTY_INPUT, // 注意这里我们直接复用事件名作为类型标识或使用特定指令
-                  id: ws._taskId,
-                  data: data.data,
-                });
-                // 修正：实际应该发送 socket.io 事件
                 const socket = agentService.connections.get(ws._serverId);
                 if (socket) {
                   socket.emit(Events.DASHBOARD_PTY_INPUT, { id: ws._taskId, data: data.data });

@@ -55,6 +55,17 @@ const TaskTypes = {
   DOCKER_UPDATE_CONTAINER: 24, // 容器一键更新
   DOCKER_RENAME_CONTAINER: 25, // 容器重命名
   DOCKER_TASK_PROGRESS: 26, // 查询任务进度
+
+  // 文件管理 (Agent 原生，无需 SSH/SFTP)
+  FILE_LIST: 30, // 列出目录
+  FILE_READ: 31, // 读取文件
+  FILE_WRITE: 32, // 写入文件
+  FILE_MKDIR: 33, // 创建目录
+  FILE_DELETE: 34, // 删除文件/目录
+  FILE_RENAME: 35, // 重命名/移动
+  FILE_STAT: 36, // 获取文件信息
+  FILE_CHMOD: 37, // 修改权限
+  FILE_DOWNLOAD_CHUNK: 38, // 分块下载文件
 };
 
 // ==================== 数据结构 ====================

@@ -14,7 +14,8 @@ const monitorService = require('./monitor-service');
 const agentService = require('./agent-service');
 const sshService = require('./ssh-service');
 const { ServerMonitorConfig, ServerMetricsHistory } = require('./models');
-const { TaskTypes: DockerTaskTypes } = require('./protocol');
+const { TaskTypes } = require('./protocol');
+const DockerTaskTypes = TaskTypes; // 兼容已有 Docker 路由代码
 
 // ==================== 主机凭据接口 ====================
 
@@ -310,7 +311,7 @@ router.post('/action', async (req, res) => {
 
     // 优先使用 Agent 执行
     if (agentService.isOnline(serverId)) {
-      const { TaskTypes } = require('./protocol');
+      // TaskTypes 已在文件顶部导入
       const taskId = require('crypto').randomUUID();
       agentService.sendTask(serverId, {
         id: taskId,
@@ -1922,7 +1923,7 @@ router.delete('/metrics/history/clear', (req, res) => {
 
 // ==================== 任务下发接口 ====================
 
-const { TaskTypes } = require('./protocol');
+
 
 /**
  * 向指定主机执行命令
@@ -2109,6 +2110,35 @@ const sftpService = require('./sftp-service');
 // 使用项目已有的 express-fileupload，不需要额外配置
 
 /**
+ * 通过 Agent 执行文件管理任务的辅助函数
+ * @param {string} serverId
+ * @param {number} taskType - TaskTypes.FILE_*
+ * @param {object} payload - 任务数据
+ * @param {number} timeoutMs - 超时毫秒数
+ * @returns {Promise<object>} - { successful, data }
+ */
+async function agentFileTask(serverId, taskType, payload, timeoutMs = 30000) {
+  const result = await agentService.sendTaskAndWait(
+    serverId,
+    {
+      type: taskType,
+      data: JSON.stringify(payload),
+      timeout: Math.ceil(timeoutMs / 1000),
+    },
+    timeoutMs
+  );
+  return result;
+}
+
+/**
+ * 判断是否应使用 Agent 通道进行文件管理
+ * 当 Agent 在线时优先使用 Agent 通道（无需 SSH 凭据）
+ */
+function shouldUseAgent(serverId) {
+  return agentService.isOnline(serverId);
+}
+
+/**
  * 列出目录内容
  * POST /sftp/list
  * { serverId, path }
@@ -2119,12 +2149,21 @@ router.post('/sftp/list', async (req, res) => {
     const { serverId, path = '.' } = req.body;
     if (!serverId) return res.status(400).json({ success: false, error: '缺少服务器 ID' });
 
-    const result = await sftpService.listDirectory(serverId, path);
-    // If result has files and cwd, use them. Otherwise assume it's the old array format (unlikely unless service wasn't updated)
-    const files = result.files || result;
-    const currentPath = result.cwd || path;
-
-    res.json({ success: true, data: files, path: currentPath });
+    if (shouldUseAgent(serverId)) {
+      // Agent 通道
+      const result = await agentFileTask(serverId, TaskTypes.FILE_LIST, { path });
+      if (!result.successful) {
+        return res.status(500).json({ success: false, error: result.data || '列目录失败' });
+      }
+      const parsed = JSON.parse(result.data);
+      res.json({ success: true, data: parsed.files || [], path: parsed.cwd || path });
+    } else {
+      // SFTP 回退
+      const result = await sftpService.listDirectory(serverId, path);
+      const files = result.files || result;
+      const currentPath = result.cwd || path;
+      res.json({ success: true, data: files, path: currentPath });
+    }
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -2140,8 +2179,16 @@ router.post('/sftp/stat', async (req, res) => {
     const { serverId, path } = req.body;
     if (!serverId || !path) return res.status(400).json({ success: false, error: '缺少参数' });
 
-    const stats = await sftpService.stat(serverId, path);
-    res.json({ success: true, data: stats });
+    if (shouldUseAgent(serverId)) {
+      const result = await agentFileTask(serverId, TaskTypes.FILE_STAT, { path });
+      if (!result.successful) {
+        return res.status(500).json({ success: false, error: result.data || '获取文件信息失败' });
+      }
+      res.json({ success: true, data: JSON.parse(result.data) });
+    } else {
+      const stats = await sftpService.stat(serverId, path);
+      res.json({ success: true, data: stats });
+    }
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -2157,8 +2204,16 @@ router.post('/sftp/read', async (req, res) => {
     const { serverId, path, maxSize } = req.body;
     if (!serverId || !path) return res.status(400).json({ success: false, error: '缺少参数' });
 
-    const content = await sftpService.readFile(serverId, path, maxSize);
-    res.json({ success: true, data: content });
+    if (shouldUseAgent(serverId)) {
+      const result = await agentFileTask(serverId, TaskTypes.FILE_READ, { path, maxSize: maxSize || 0 });
+      if (!result.successful) {
+        return res.status(500).json({ success: false, error: result.data || '读取文件失败' });
+      }
+      res.json({ success: true, data: result.data });
+    } else {
+      const content = await sftpService.readFile(serverId, path, maxSize);
+      res.json({ success: true, data: content });
+    }
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -2174,8 +2229,16 @@ router.post('/sftp/write', async (req, res) => {
     const { serverId, path, content } = req.body;
     if (!serverId || !path) return res.status(400).json({ success: false, error: '缺少参数' });
 
-    await sftpService.writeFile(serverId, path, content || '');
-    res.json({ success: true, message: '文件保存成功' });
+    if (shouldUseAgent(serverId)) {
+      const result = await agentFileTask(serverId, TaskTypes.FILE_WRITE, { path, content: content || '' });
+      if (!result.successful) {
+        return res.status(500).json({ success: false, error: result.data || '写入文件失败' });
+      }
+      res.json({ success: true, message: result.data || '文件保存成功' });
+    } else {
+      await sftpService.writeFile(serverId, path, content || '');
+      res.json({ success: true, message: '文件保存成功' });
+    }
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -2191,8 +2254,16 @@ router.post('/sftp/mkdir', async (req, res) => {
     const { serverId, path } = req.body;
     if (!serverId || !path) return res.status(400).json({ success: false, error: '缺少参数' });
 
-    await sftpService.mkdir(serverId, path);
-    res.json({ success: true, message: '目录创建成功' });
+    if (shouldUseAgent(serverId)) {
+      const result = await agentFileTask(serverId, TaskTypes.FILE_MKDIR, { path });
+      if (!result.successful) {
+        return res.status(500).json({ success: false, error: result.data || '创建目录失败' });
+      }
+      res.json({ success: true, message: result.data || '目录创建成功' });
+    } else {
+      await sftpService.mkdir(serverId, path);
+      res.json({ success: true, message: '目录创建成功' });
+    }
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -2208,8 +2279,16 @@ router.post('/sftp/delete', async (req, res) => {
     const { serverId, path } = req.body;
     if (!serverId || !path) return res.status(400).json({ success: false, error: '缺少参数' });
 
-    await sftpService.deleteFile(serverId, path);
-    res.json({ success: true, message: '文件删除成功' });
+    if (shouldUseAgent(serverId)) {
+      const result = await agentFileTask(serverId, TaskTypes.FILE_DELETE, { path, recursive: false });
+      if (!result.successful) {
+        return res.status(500).json({ success: false, error: result.data || '删除文件失败' });
+      }
+      res.json({ success: true, message: result.data || '文件删除成功' });
+    } else {
+      await sftpService.deleteFile(serverId, path);
+      res.json({ success: true, message: '文件删除成功' });
+    }
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -2225,12 +2304,20 @@ router.post('/sftp/rmdir', async (req, res) => {
     const { serverId, path, recursive } = req.body;
     if (!serverId || !path) return res.status(400).json({ success: false, error: '缺少参数' });
 
-    if (recursive) {
-      await sftpService.rmdirRecursive(serverId, path);
+    if (shouldUseAgent(serverId)) {
+      const result = await agentFileTask(serverId, TaskTypes.FILE_DELETE, { path, recursive: !!recursive });
+      if (!result.successful) {
+        return res.status(500).json({ success: false, error: result.data || '删除目录失败' });
+      }
+      res.json({ success: true, message: result.data || '目录删除成功' });
     } else {
-      await sftpService.rmdir(serverId, path);
+      if (recursive) {
+        await sftpService.rmdirRecursive(serverId, path);
+      } else {
+        await sftpService.rmdir(serverId, path);
+      }
+      res.json({ success: true, message: '目录删除成功' });
     }
-    res.json({ success: true, message: '目录删除成功' });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -2246,8 +2333,16 @@ router.post('/sftp/rename', async (req, res) => {
     const { serverId, oldPath, newPath } = req.body;
     if (!serverId || !oldPath || !newPath) return res.status(400).json({ success: false, error: '缺少参数' });
 
-    await sftpService.rename(serverId, oldPath, newPath);
-    res.json({ success: true, message: '重命名成功' });
+    if (shouldUseAgent(serverId)) {
+      const result = await agentFileTask(serverId, TaskTypes.FILE_RENAME, { oldPath, newPath });
+      if (!result.successful) {
+        return res.status(500).json({ success: false, error: result.data || '重命名失败' });
+      }
+      res.json({ success: true, message: result.data || '重命名成功' });
+    } else {
+      await sftpService.rename(serverId, oldPath, newPath);
+      res.json({ success: true, message: '重命名成功' });
+    }
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -2263,8 +2358,16 @@ router.post('/sftp/chmod', async (req, res) => {
     const { serverId, path, mode } = req.body;
     if (!serverId || !path || mode === undefined) return res.status(400).json({ success: false, error: '缺少参数' });
 
-    await sftpService.chmod(serverId, path, parseInt(mode, 8));
-    res.json({ success: true, message: '权限修改成功' });
+    if (shouldUseAgent(serverId)) {
+      const result = await agentFileTask(serverId, TaskTypes.FILE_CHMOD, { path, mode: parseInt(mode, 8) });
+      if (!result.successful) {
+        return res.status(500).json({ success: false, error: result.data || '权限修改失败' });
+      }
+      res.json({ success: true, message: result.data || '权限修改成功' });
+    } else {
+      await sftpService.chmod(serverId, path, parseInt(mode, 8));
+      res.json({ success: true, message: '权限修改成功' });
+    }
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -2283,6 +2386,71 @@ router.get('/sftp/download/:serverId', async (req, res) => {
       return res.status(400).json({ success: false, error: '缺少参数' });
     }
 
+    if (agentService.isOnline(serverId)) {
+      // 1. 获取文件大小和文件名
+      const statResult = await agentFileTask(serverId, TaskTypes.FILE_STAT, { path: remotePath });
+      if (!statResult.successful) {
+        return res.status(500).json({ success: false, error: statResult.error || '无法获取文件信息' });
+      }
+
+      let fileStat;
+      try {
+        fileStat = typeof statResult.data === 'string' ? JSON.parse(statResult.data) : statResult.data;
+      } catch (err) {
+        return res.status(500).json({ success: false, error: '解析文件信息失败' });
+      }
+
+      if (fileStat.isDirectory) {
+        return res.status(400).json({ success: false, error: '暂不支持直接下载文件夹' });
+      }
+
+      const totalSize = fileStat.size;
+      const filename = remotePath.split(/[/\\]/).pop();
+
+      res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
+      res.setHeader('Content-Length', totalSize);
+      res.setHeader('Content-Type', 'application/octet-stream');
+
+      if (totalSize === 0) {
+        return res.end();
+      }
+
+      let offset = 0;
+      const CHUNK_SIZE = 1024 * 512; // 512KB 分块
+
+      // 分块下载并流式写入响应
+      while (offset < totalSize) {
+        const readSize = Math.min(CHUNK_SIZE, totalSize - offset);
+        const chunkResult = await agentFileTask(serverId, TaskTypes.FILE_DOWNLOAD_CHUNK, {
+          path: remotePath,
+          offset,
+          size: readSize
+        });
+
+        if (!chunkResult.successful) {
+          if (!res.headersSent) {
+            return res.status(500).json({ success: false, error: chunkResult.error || '下载失败' });
+          } else {
+            console.error('Agent download chunk error:', chunkResult.error);
+            return res.end();
+          }
+        }
+
+        const chunkData = chunkResult.data; // Base64
+        if (chunkData) {
+          const buffer = Buffer.from(chunkData, 'base64');
+          res.write(buffer);
+          offset += buffer.length;
+        } else {
+          // EOF or unexpected end
+          break;
+        }
+      }
+      res.end();
+      return;
+    }
+
+    // SFTP 回退逻辑
     const { stream, size, filename, conn } = await sftpService.downloadStream(serverId, remotePath);
 
     res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
@@ -2297,9 +2465,12 @@ router.get('/sftp/download/:serverId', async (req, res) => {
       if (!res.headersSent) {
         res.status(500).json({ success: false, error: err.message });
       }
+      res.end();
     });
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    if (!res.headersSent) {
+      res.status(500).json({ success: false, error: error.message });
+    }
   }
 });
 
@@ -2327,23 +2498,26 @@ router.post('/sftp/upload', async (req, res) => {
     }
 
     // 构建完整的远程文件路径
+    // 统一将反斜杠转为正斜杠 (SFTP 协议标准使用正斜杠)
+    const normalizedRemotePath = remotePath.replace(/\\/g, '/');
     let fullPath;
     if (relativePath) {
       // 文件夹上传：使用相对路径
-      fullPath = remotePath.endsWith('/')
-        ? remotePath + relativePath
-        : remotePath + '/' + relativePath;
+      const normalizedRelPath = relativePath.replace(/\\/g, '/');
+      fullPath = normalizedRemotePath.endsWith('/')
+        ? normalizedRemotePath + normalizedRelPath
+        : normalizedRemotePath + '/' + normalizedRelPath;
 
       // 确保父目录存在
       const parentDir = require('path').posix.dirname(fullPath);
-      if (parentDir !== remotePath && parentDir !== '/') {
+      if (parentDir !== normalizedRemotePath && parentDir !== '/') {
         await sftpService.mkdirRecursive(serverId, parentDir);
       }
     } else {
       // 普通文件上传
-      fullPath = remotePath.endsWith('/')
-        ? remotePath + file.name
-        : remotePath + '/' + file.name;
+      fullPath = normalizedRemotePath.endsWith('/')
+        ? normalizedRemotePath + file.name
+        : normalizedRemotePath + '/' + file.name;
     }
 
     let uploadData = file.data;

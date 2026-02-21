@@ -681,6 +681,78 @@ func (a *AgentClient) handleTask(id string, taskType int, data string, timeout i
 			result["successful"] = true
 			result["data"] = output
 		}
+	case TaskTypeFileList: // 列出目录
+		output, err := a.handleFileList(data)
+		if err != nil {
+			result["data"] = err.Error()
+		} else {
+			result["successful"] = true
+			result["data"] = output
+		}
+	case TaskTypeFileRead: // 读取文件
+		output, err := a.handleFileRead(data)
+		if err != nil {
+			result["data"] = err.Error()
+		} else {
+			result["successful"] = true
+			result["data"] = output
+		}
+	case TaskTypeFileWrite: // 写入文件
+		output, err := a.handleFileWrite(data)
+		if err != nil {
+			result["data"] = err.Error()
+		} else {
+			result["successful"] = true
+			result["data"] = output
+		}
+	case TaskTypeFileMkdir: // 创建目录
+		output, err := a.handleFileMkdir(data)
+		if err != nil {
+			result["data"] = err.Error()
+		} else {
+			result["successful"] = true
+			result["data"] = output
+		}
+	case TaskTypeFileDelete: // 删除文件/目录
+		output, err := a.handleFileDelete(data)
+		if err != nil {
+			result["data"] = err.Error()
+		} else {
+			result["successful"] = true
+			result["data"] = output
+		}
+	case TaskTypeFileRename: // 重命名
+		output, err := a.handleFileRename(data)
+		if err != nil {
+			result["data"] = err.Error()
+		} else {
+			result["successful"] = true
+			result["data"] = output
+		}
+	case TaskTypeFileStat: // 文件信息
+		output, err := a.handleFileStat(data)
+		if err != nil {
+			result["data"] = err.Error()
+		} else {
+			result["successful"] = true
+			result["data"] = output
+		}
+	case TaskTypeFileChmod: // 修改权限
+		output, err := a.handleFileChmod(data)
+		if err != nil {
+			result["data"] = err.Error()
+		} else {
+			result["successful"] = true
+			result["data"] = output
+		}
+	case TaskTypeFileDownloadChunk: // 分块下载
+		output, err := a.handleFileDownloadChunk(data)
+		if err != nil {
+			result["data"] = err.Error()
+		} else {
+			result["successful"] = true
+			result["data"] = output
+		}
 	case 5: // UPGRADE
 		go a.handleUpgrade(id)
 		result["successful"] = true
@@ -2100,6 +2172,15 @@ func main() {
 	}
 	if config.AgentKey == "" {
 		log.Fatal("[Config] 错误: 缺少 agentKey，使用 -k 指定")
+	}
+
+	// 自动保存配置：当通过命令行/环境变量启动且 config.json 不存在时，自动生成
+	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		if saveData, err := json.MarshalIndent(config, "", "    "); err == nil {
+			if err := os.WriteFile(configPath, saveData, 0600); err == nil {
+				log.Printf("[Config] 已自动保存配置到: %s", configPath)
+			}
+		}
 	}
 
 	// 创建并启动 Agent
