@@ -244,6 +244,14 @@ const MATRIX_FILE = path.join(__dirname, 'gemini-matrix.json');
 
 // 默认矩阵配置（如果文件不存在）
 const DEFAULT_MATRIX = {
+  'gemini-3.1-pro-preview': {
+    base: true,
+    maxThinking: true,
+    noThinking: true,
+    search: true,
+    fakeStream: true,
+    antiTrunc: true,
+  },
   'gemini-3-pro-preview': {
     base: true,
     maxThinking: true,
