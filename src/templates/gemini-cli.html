@@ -561,6 +561,7 @@
               <th>接口路径</th>
               <th class="text-center" style="width: 80px">状态</th>
               <th class="text-center" style="width: 80px">耗时</th>
+              <th class="text-center" style="width: 100px">首字时间</th>
               <th class="text-center" style="width: 80px">操作</th>
             </tr>
           </thead>
@@ -604,6 +605,15 @@
               <td data-label="请求耗时" class="text-center">
                 <div class="flex-cell">
                   <span class="log-duration">{{ log.durationMs }}ms</span>
+                </div>
+              </td>
+              <td data-label="首字时间" class="text-center">
+                <div class="flex-cell">
+                  <span v-if="log.firstTokenTimeMs !== null && log.firstTokenTimeMs !== undefined" class="log-duration"
+                    :style="{ color: 'var(--success-color)' }">
+                    {{ log.firstTokenTimeMs }}ms
+                  </span>
+                  <span v-else style="opacity: 0.3">-</span>
                 </div>
               </td>
               <td class="actions text-center">

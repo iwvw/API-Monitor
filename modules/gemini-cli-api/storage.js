@@ -183,8 +183,8 @@ function recordLog(logData) {
   try {
     const db = dbService.getDatabase();
     const stmt = db.prepare(`
-            INSERT INTO gemini_cli_logs (account_id, model, is_balanced, request_path, request_method, status_code, duration_ms, client_ip, user_agent, detail)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO gemini_cli_logs (account_id, model, is_balanced, request_path, request_method, status_code, duration_ms, client_ip, user_agent, detail, first_token_time_ms)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
 
     // 安全的对象序列化，防止循环引用导致崩溃
@@ -209,7 +209,8 @@ function recordLog(logData) {
       logData.durationMs,
       logData.clientIp || null,
       logData.userAgent || null,
-      logData.detail ? safeStringify(logData.detail) : null
+      logData.detail ? safeStringify(logData.detail) : null,
+      logData.firstTokenTimeMs || null
     );
   } catch (e) {
     console.error('❌ 记录 Gemini CLI 日志失败:', e.message);
@@ -235,6 +236,7 @@ function getRecentLogs(limit = 100) {
                 l.request_method as method,
                 l.status_code as statusCode,
                 l.duration_ms as durationMs,
+                l.first_token_time_ms as firstTokenTimeMs,
                 l.client_ip as clientIp,
                 l.user_agent as userAgent,
                 l.detail,
