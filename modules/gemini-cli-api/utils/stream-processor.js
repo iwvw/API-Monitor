@@ -59,6 +59,9 @@ class StreamProcessor {
     let fullContent = '';
     let foundDone = !isAntiTrunc; // 如果不开启抗截断，默认视为已找到结束标记（即不循环）
     const responseId = `chatcmpl-${Math.random().toString(36).slice(2)}`;
+    const startTime = Date.now();
+    let firstTokenTime = null;
+    let contentStarted = false; // 状态机：正文是否已开始流出
 
     const modifiedRequest = JSON.parse(JSON.stringify(openaiRequest));
 
@@ -100,6 +103,13 @@ class StreamProcessor {
 
             let { text = '', reasoning = '' } = parsed;
 
+            // 状态机修复：一旦正文开始流出，后续 thought 标记的内容视为正文溢出
+            if (text) contentStarted = true;
+            if (contentStarted && reasoning) {
+              text += reasoning;
+              reasoning = '';
+            }
+
             // 防御性处理：如果 text 为空但 reasoning 有值，且模型处于 nothinking 模式
             if (!text && reasoning && openaiRequest.model.includes('-nothinking')) {
               text = reasoning;
@@ -113,6 +123,11 @@ class StreamProcessor {
             }
 
             fullContent += text;
+
+            // 记录首字输出时间（仅在首次有内容时）
+            if (firstTokenTime === null && (text || reasoning)) {
+              firstTokenTime = Date.now() - startTime;
+            }
 
             // 构造 OpenAI 格式的 Chunk
             const delta = {};
@@ -142,15 +157,19 @@ class StreamProcessor {
       }
     }
 
-    // 发送结束标记
+    // 发送结束标记，并通过扩展字段传递首字输出时间
     yield `data: ${JSON.stringify({
       id: responseId,
       object: 'chat.completion.chunk',
       created: Math.floor(Date.now() / 1000),
       model: openaiRequest.model,
       choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+      _firstTokenTime: firstTokenTime,
     })}\n\n`;
     yield 'data: [DONE]\n\n';
+
+    // 返回 metadata 供外层使用
+    this._lastFirstTokenTime = firstTokenTime;
   }
 }
 

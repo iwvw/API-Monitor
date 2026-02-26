@@ -1515,6 +1515,7 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
           // 累积流式响应内容用于日志记录
           let fullContent = '';
           let fullReasoning = '';
+          let firstTokenTime = null;
 
           const stream = streamProcessor.processStream(req.body, account.id);
           for await (const chunk of stream) {
@@ -1527,6 +1528,10 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
                 const delta = data.choices?.[0]?.delta;
                 if (delta?.content) fullContent += delta.content;
                 if (delta?.reasoning_content) fullReasoning += delta.reasoning_content;
+                // 提取首字输出时间（仅从最后一个chunk获取）
+                if (data._firstTokenTime !== undefined && firstTokenTime === null) {
+                  firstTokenTime = data._firstTokenTime;
+                }
               }
             } catch (e) {
               /* 忽略解析错误 */
@@ -1571,6 +1576,7 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
             durationMs: Date.now() - startTime,
             clientIp: req.ip,
             userAgent: req.get('user-agent'),
+            firstTokenTimeMs: firstTokenTime,
             detail: {
               model: req.body.model,
               messages: originalMessages,
@@ -1598,11 +1604,13 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
 
           let text = '';
           let reasoning = '';
+          let contentStarted = false;
 
           for (const part of parts) {
-            if (part.thought) {
+            if (part.thought && !contentStarted) {
               reasoning += part.text || '';
             } else if (part.text) {
+              contentStarted = true;
               text += part.text;
             }
           }

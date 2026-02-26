@@ -371,6 +371,7 @@ export const geminiCliMethods = {
         }
       }
 
+
       store.gcliLogDetailShowRaw = false;
       store.geminiCliLogDetail = data;
       store.showGeminiCliLogDetailModal = true;
