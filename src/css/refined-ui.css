@@ -1,4 +1,4 @@
-/* ==================== Antigravity Modern Loader V3.1 (Core Mode) ==================== */
+﻿/* ==================== Antigravity Modern Loader V3.1 (Core Mode) ==================== */
 
 :root {
   --loader-size: 48px;
@@ -6,7 +6,7 @@
   --loader-color-secondary: rgba(var(--primary-rgb), 0.4);
 }
 
-/* 全屏/板块遮罩 */
+/* 鍏ㄥ睆/鏉垮潡閬僵 */
 .ag-loader-overlay {
   position: absolute;
   inset: 0;
@@ -20,7 +20,7 @@
   animation: ag-fade-in 0.3s ease-out;
 }
 
-/* 核心旋涡加载器 */
+/* 鏍稿績鏃嬫丁鍔犺浇鍣?*/
 .ag-modern-loader {
   position: relative;
   width: var(--loader-size);
@@ -30,7 +30,7 @@
   justify-content: center;
 }
 
-/* 紧致双旋轨 */
+/* 绱ц嚧鍙屾棆杞?*/
 .ag-loader-inner {
   position: absolute;
   inset: 0;
@@ -52,7 +52,7 @@
   opacity: 0.6;
 }
 
-/* 强效中心核心 */
+/* 寮烘晥涓績鏍稿績 */
 .ag-loader-core {
   width: 8px;
   height: 8px;
@@ -62,9 +62,9 @@
   animation: ag-pulse 1s ease-in-out infinite;
 }
 
-/* 文本光泽 */
+/* 鏂囨湰鍏夋辰 */
 .ag-loader-text {
-  margin-top: 20px;
+  margin-top: var(--space-xl);
   font-size: 10px;
   font-weight: 800;
   color: var(--text-primary);
@@ -83,7 +83,7 @@
   opacity: 0.8;
 }
 
-/* 关键帧 */
+/* 鍏抽敭甯?*/
 @keyframes ag-spin {
   to {
     transform: rotate(360deg);
@@ -125,7 +125,7 @@
   }
 }
 
-/* 紧凑型加载器 */
+/* 绱у噾鍨嬪姞杞藉櫒 */
 .ag-spinner-mini {
   width: 18px;
   height: 18px;
@@ -139,7 +139,7 @@
 .btn-icon-refined {
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   color: var(--text-secondary);
   width: 32px;
   height: 32px;

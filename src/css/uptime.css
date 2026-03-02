@@ -1,4 +1,4 @@
-/* ==================== Uptime 监测模块样式 (Standardized) ==================== */
+﻿/* ==================== Uptime 鐩戞祴妯″潡鏍峰紡 (Standardized) ==================== */
 
 :root {
     /* Uptime Specific Colors (Color Management Only) */
@@ -17,7 +17,7 @@
     --uptime-status-unknown: #9ca3af;
 }
 
-/* ==================== 容器与布局 ==================== */
+/* ==================== 瀹瑰櫒涓庡竷灞€ ==================== */
 .uptime-container {
     width: 100%;
     margin: 0 auto;
@@ -31,21 +31,21 @@
     --current-primary: var(--uptime-status-up);
 }
 
-/* 顶部标签栏 - 保持与其他模块一致 (reference styles.css .sec-tabs) */
+/* 椤堕儴鏍囩鏍?- 淇濇寔涓庡叾浠栨ā鍧椾竴鑷?(reference styles.css .sec-tabs) */
 
-/* 顶部标签栏 - 已替换为标准的 .sec-tabs，详见 styles.css */
+/* 椤堕儴鏍囩鏍?- 宸叉浛鎹负鏍囧噯鐨?.sec-tabs锛岃瑙?styles.css */
 
 
-/* ==================== 统计概览条 (Aligned with Header/Toolbar) ==================== */
+/* ==================== 缁熻姒傝鏉?(Aligned with Header/Toolbar) ==================== */
 .uptime-stats-bar-modern {
     display: flex;
     flex-wrap: wrap;
-    gap: 12px;
+    gap: var(--space-md);
     align-items: center;
-    margin-bottom: 10px;
+    margin-bottom: var(--space-sm);
     background: var(--bg-secondary);
-    padding: 12px 20px;
-    border-radius: 20px;
+    padding: var(--space-md) var(--space-xl);
+    border-radius: var(--radius-lg);
     /* Standard Card Radius */
     border: 1px solid var(--border-color);
     box-shadow: var(--card-shadow);
@@ -54,9 +54,9 @@
 .uptime-stat-pill-modern {
     display: flex;
     align-items: center;
-    gap: 8px;
-    padding: 6px 16px;
-    border-radius: 12px;
+    gap: var(--space-sm);
+    padding: 6px var(--space-lg);
+    border-radius: var(--radius-lg);
     /* Slightly rounder than standard buttons but standard for badges */
     cursor: pointer;
     transition: all 0.2s ease;
@@ -114,7 +114,7 @@
 
 .uptime-search-modern i {
     position: absolute;
-    left: 12px;
+    left: var(--space-md);
     top: 50%;
     transform: translateY(-50%);
     color: var(--text-tertiary);
@@ -123,8 +123,8 @@
 
 .uptime-search-modern input {
     width: 100%;
-    padding: 8px 12px 8px 36px;
-    border-radius: 8px;
+    padding: var(--space-sm) var(--space-md) var(--space-sm) 36px;
+    border-radius: var(--radius-md);
     /* Standard Input Radius */
     border: 1px solid var(--border-color);
     background: var(--bg-primary);
@@ -165,25 +165,25 @@
 .meta-badge {
     font-size: 10px;
     padding: 2px 6px;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     background: var(--bg-tertiary);
     color: var(--text-tertiary);
     border: 1px solid transparent;
 }
 
-/* ==================== 监测卡片 (Standard Card Style) ==================== */
+/* ==================== 鐩戞祴鍗＄墖 (Standard Card Style) ==================== */
 .uptime-monitor-list {
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: var(--space-sm);
     /* Reduced from 12px */
 }
 
-/* 卡片展开状态过渡 */
+/* 鍗＄墖灞曞紑鐘舵€佽繃娓?*/
 .uptime-monitor-card {
     background: var(--card-bg);
-    border-radius: 12px;
-    padding: 10px 14px;
+    border-radius: var(--radius-lg);
+    padding: var(--space-sm) var(--space-lg);
     border: 1px solid var(--border-color);
     box-shadow: var(--card-shadow);
     transition:
@@ -204,16 +204,16 @@
 .uptime-monitor-header {
     display: grid;
     grid-template-columns: auto 1fr auto;
-    gap: 14px;
+    gap: var(--space-lg);
     align-items: center;
     cursor: pointer;
 }
 
-/* 左侧状态条 */
+/* 宸︿晶鐘舵€佹潯 */
 .monitor-status-icon {
     width: 32px;
     height: 32px;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -223,17 +223,17 @@
     transition: all 0.3s;
 }
 
-/* 主要信息区域 */
+/* 涓昏淇℃伅鍖哄煙 */
 .monitor-main-info {
     display: flex;
     flex-direction: column;
-    gap: 4px;
+    gap: var(--space-xs);
 }
 
 .monitor-name-row {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-sm);
 }
 
 .monitor-name {
@@ -248,21 +248,21 @@
     font-family: var(--font-mono);
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-sm);
 }
 
-/* 右侧统计与图表 */
+/* 鍙充晶缁熻涓庡浘琛?*/
 .monitor-stats-right {
     display: flex;
     flex-direction: column;
     align-items: flex-end;
-    gap: 10px;
+    gap: var(--space-sm);
 }
 
 .stats-row {
     display: flex;
     align-items: center;
-    gap: 16px;
+    gap: var(--space-lg);
 }
 
 .ping-pill {
@@ -308,7 +308,7 @@
 .beat-pill {
     width: 100%;
     height: 100%;
-    border-radius: 4px;
+    border-radius: var(--radius-sm);
     background: var(--bg-tertiary);
     transition: all 0.2s;
     opacity: 0.7;
@@ -339,7 +339,7 @@
     opacity: 0;
 }
 
-/* 展开详情区域 - Grid 动画方案 */
+/* 灞曞紑璇︽儏鍖哄煙 - Grid 鍔ㄧ敾鏂规 */
 .monitor-details-body {
     display: grid;
     grid-template-rows: 0fr;
@@ -353,7 +353,7 @@
     overflow: hidden;
     will-change: grid-template-rows, opacity;
 
-    /* 收起状态 */
+    /* 鏀惰捣鐘舵€?*/
     margin-top: 0;
     padding-top: 0;
     border-top: 1px dashed transparent;
@@ -363,28 +363,28 @@
     grid-template-rows: 1fr;
     opacity: 1;
 
-    /* 展开状态 */
-    margin-top: 16px;
-    padding-top: 16px;
+    /* 灞曞紑鐘舵€?*/
+    margin-top: var(--space-lg);
+    padding-top: var(--space-lg);
     border-top-color: var(--border-color);
 }
 
-/* 内部包装器，确保 Grid 转换生效 */
+/* 鍐呴儴鍖呰鍣紝纭繚 Grid 杞崲鐢熸晥 */
 .monitor-details-inner {
     min-height: 0;
     overflow: hidden;
-    /* 默认隐藏溢出 */
+    /* 榛樿闅愯棌婧㈠嚭 */
 }
 
 .uptime-monitor-card.expanded .monitor-details-inner {
     overflow: visible;
-    /* 展开后允许溢出 (如果需要) */
+    /* 灞曞紑鍚庡厑璁告孩鍑?(濡傛灉闇€瑕? */
 }
 
 .detail-grid {
     display: grid;
     grid-template-columns: 2fr 1fr;
-    gap: 16px;
+    gap: var(--space-lg);
     /* Reduced from 24px */
 }
 
@@ -394,11 +394,11 @@
     }
 }
 
-/* ==================== 表单样式 (Standard Form) ==================== */
+/* ==================== 琛ㄥ崟鏍峰紡 (Standard Form) ==================== */
 .uptime-form-card {
     background: var(--card-bg);
-    border-radius: 12px;
-    padding: 20px;
+    border-radius: var(--radius-lg);
+    padding: var(--space-xl);
     /* Reduced from 24px */
     box-shadow: var(--card-shadow);
     border: 1px solid var(--border-color);
@@ -412,7 +412,7 @@
 .uptime-form-grid {
     display: grid;
     grid-template-columns: repeat(12, 1fr);
-    gap: 12px;
+    gap: var(--space-md);
     /* Reduced from 16px */
 }
 
@@ -453,7 +453,7 @@
     .uptime-form-grid {
         display: flex;
         flex-direction: column;
-        gap: 16px;
+        gap: var(--space-lg);
     }
 
     .col-span-8,
@@ -469,13 +469,13 @@
     /* Smaller title */
     font-weight: 700;
     color: var(--text-primary);
-    margin-bottom: 12px;
+    margin-bottom: var(--space-md);
     /* Reduced from 16px */
-    padding-bottom: 8px;
+    padding-bottom: var(--space-sm);
     border-bottom: 1px solid var(--border-color);
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-sm);
 }
 
 .form-group-modern {
@@ -487,16 +487,16 @@
     font-size: 12px;
     font-weight: 600;
     color: var(--text-secondary);
-    margin-bottom: 4px;
+    margin-bottom: var(--space-xs);
     /* Reduced from 6px */
 }
 
 .form-input-modern,
 .form-select-modern {
     width: 100%;
-    padding: 6px 10px;
+    padding: 6px var(--space-sm);
     /* Very compact inputs */
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
     /* Tighter radius */
     border: 1px solid var(--border-color);
     background: var(--bg-primary);
@@ -514,15 +514,15 @@
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
     /* Even smaller items */
-    gap: 10px;
+    gap: var(--space-sm);
     /* Small gap */
 }
 
 .type-option {
     border: 1px solid var(--border-color);
     background: var(--bg-secondary);
-    border-radius: 8px;
-    padding: 10px 6px;
+    border-radius: var(--radius-md);
+    padding: var(--space-sm) 6px;
     /* Minimal padding */
     display: flex;
     flex-direction: column;
@@ -556,7 +556,7 @@
     position: relative;
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: var(--space-md);
     cursor: pointer;
     user-select: none;
 }
@@ -573,7 +573,7 @@
     width: 36px;
     height: 20px;
     background: var(--bg-tertiary);
-    border-radius: 20px;
+    border-radius: var(--radius-lg);
     position: relative;
     border: 1px solid var(--border-color);
     transition: all 0.3s;
@@ -614,10 +614,10 @@
 .uptime-tooltip {
     position: fixed;
     z-index: 10000;
-    padding: 8px 12px;
+    padding: var(--space-sm) var(--space-md);
     background: var(--card-bg);
     border: 1px solid var(--border-color);
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     box-shadow: var(--card-hover-shadow);
     font-size: 12px;
     pointer-events: none;
@@ -632,10 +632,10 @@
 /* Empty State */
 .uptime-empty-state {
     text-align: center;
-    padding: 80px 20px;
+    padding: 80px var(--space-xl);
     color: var(--text-tertiary);
     background: var(--bg-secondary);
-    border-radius: 20px;
+    border-radius: var(--radius-lg);
     border: 1px dashed var(--border-color);
-    margin: 20px 0;
+    margin: var(--space-xl) 0;
 }

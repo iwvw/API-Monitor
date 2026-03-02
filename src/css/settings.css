@@ -1,15 +1,15 @@
-/* Settings Sidebar Styles */
+﻿/* Settings Sidebar Styles */
 
-/* 弹窗外层包裹器：负责背景遮罩的丝滑过渡 */
+/* 寮圭獥澶栧眰鍖呰９鍣細璐熻矗鑳屾櫙閬僵鐨勪笣婊戣繃娓?*/
 .settings-modal-wrapper {
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
   bottom: 0;
-  z-index: 2000;
+  z-index: var(--z-index-modal-bg);
   background-color: rgba(0, 0, 0, 0);
-  /* 初始透明 */
+  /* 鍒濆閫忔槑 */
   pointer-events: auto;
   display: flex;
   align-items: center;
@@ -17,14 +17,14 @@
   transition: background-color 0.3s ease;
 }
 
-/* 当面板显示时，包裹器背景变深 */
+/* 褰撻潰鏉挎樉绀烘椂锛屽寘瑁瑰櫒鑳屾櫙鍙樻繁 */
 .show-settings-active .settings-modal-wrapper {
   background-color: rgba(0, 0, 0, 0.5);
 }
 
 .settings-sidebar {
   position: relative;
-  /* 改为 relative 配合 flex 居中 */
+  /* 鏀逛负 relative 閰嶅悎 flex 灞呬腑 */
   width: 90%;
   max-width: 1200px;
   height: 90vh;
@@ -32,16 +32,16 @@
   box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
   display: flex;
   flex-direction: column;
-  z-index: 2001;
-  border-radius: 24px;
+  z-index: var(--z-index-modal);
+  border-radius: var(--radius-lg);
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.1);
 
-  /* 核心：设置转换原点在右上角按钮附近 */
+  /* 鏍稿績锛氳缃浆鎹㈠師鐐瑰湪鍙充笂瑙掓寜閽檮杩?*/
   transform-origin: calc(100% - 40px) 40px;
 }
 
-/* Vue 动画定义 */
+/* Vue 鍔ㄧ敾瀹氫箟 */
 .settings-fade-enter-active,
 .settings-fade-leave-active {
   transition:
@@ -49,21 +49,21 @@
     transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-/* 进场：轻微缩放并淡入，移除模糊以提升性能 */
+/* 杩涘満锛氳交寰缉鏀惧苟娣″叆锛岀Щ闄ゆā绯婁互鎻愬崌鎬ц兘 */
 .settings-fade-enter-from,
 .settings-fade-leave-to {
   opacity: 0;
   transform: scale(0.98);
 }
 
-/* 进场后：恢复正常大小 */
+/* 杩涘満鍚庯細鎭㈠姝ｅ父澶у皬 */
 .settings-fade-enter-to,
 .settings-fade-leave-from {
   opacity: 1;
   transform: scale(1);
 }
 
-/* 针对移动端的特殊原点处理 */
+/* 閽堝绉诲姩绔殑鐗规畩鍘熺偣澶勭悊 */
 @media (max-width: 768px) {
   .settings-sidebar {
     width: 100%;
@@ -71,7 +71,7 @@
     height: 100%;
     border-radius: 0;
     transform-origin: calc(100% - 30px) 30px;
-    /* 移动端原点微调 */
+    /* 绉诲姩绔師鐐瑰井璋?*/
   }
 
   .settings-fade-enter-active,
@@ -80,26 +80,26 @@
   }
 }
 
-/* 移除 clip-path 以提升性能 */
+/* 绉婚櫎 clip-path 浠ユ彁鍗囨€ц兘 */
 .settings-container {
   flex-direction: column;
 }
 
-/* 移动端：优化设置导航栏显示而非隐藏 */
+/* 绉诲姩绔細浼樺寲璁剧疆瀵艰埅鏍忔樉绀鸿€岄潪闅愯棌 */
 .settings-nav {
   width: 100% !important;
   height: auto !important;
   flex-direction: row !important;
   overflow-x: auto !important;
-  padding: 8px !important;
+  padding: var(--space-sm) !important;
   border-right: none !important;
   border-bottom: 1px solid var(--border-color) !important;
-  gap: 4px !important;
+  gap: var(--space-xs) !important;
 }
 
 .settings-nav-item {
   width: auto !important;
-  padding: 8px 12px !important;
+  padding: var(--space-sm) var(--space-md) !important;
   border-left: none !important;
   border-bottom: 2px solid transparent !important;
   justify-content: center !important;
@@ -117,12 +117,12 @@
 }
 
 .settings-main {
-  padding: 10px;
+  padding: var(--space-sm);
   height: 100%;
 }
 
 .settings-group {
-  padding: 10px;
+  padding: var(--space-sm);
 }
 
 .settings-group-title {
@@ -141,7 +141,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 16px;
+  padding: var(--space-sm) var(--space-lg);
   border-bottom: 1px solid var(--sidebar-border);
   background-color: var(--sidebar-bg);
   color: var(--text-primary);
@@ -153,7 +153,7 @@
   color: var(--text-primary);
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-sm);
 }
 
 .settings-sidebar-close {
@@ -170,7 +170,7 @@
   align-items: center;
   justify-content: center;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
 }
 
 .settings-sidebar-close:hover {
@@ -193,33 +193,33 @@
 /* Sidebar Navigation */
 .settings-nav {
   width: 60px;
-  /* 初始仅显示图标 */
+  /* 鍒濆浠呮樉绀哄浘鏍?*/
   flex-shrink: 0;
   background-color: var(--sidebar-bg);
   border-right: 1px solid var(--sidebar-border);
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 16px 0;
+  padding: var(--space-lg) 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-xs);
   transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .settings-nav:hover {
   width: 150px;
-  /* 悬停展开 */
+  /* 鎮仠灞曞紑 */
 }
 
 .settings-nav-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  /* 从 16px 减小到 10px */
-  padding: 12px 18px;
-  /* 调整内边距以居中图标 */
+  gap: var(--space-sm);
+  /* 浠?16px 鍑忓皬鍒?10px */
+  padding: var(--space-md) 18px;
+  /* 璋冩暣鍐呰竟璺濅互灞呬腑鍥炬爣 */
   width: 150px;
-  /* 固定宽度以防止文字换行 */
+  /* 鍥哄畾瀹藉害浠ラ槻姝㈡枃瀛楁崲琛?*/
   text-align: left;
   background: none;
   border: none;
@@ -267,10 +267,10 @@
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
-  /* 防止水平溢出 */
+  /* 闃叉姘村钩婧㈠嚭 */
   width: 100%;
   box-sizing: border-box;
-  padding: 12px;
+  padding: var(--space-md);
   background-color: var(--bg-primary);
 }
 
@@ -279,7 +279,7 @@
   animation: fadeIn 0.3s ease-out;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--space-sm);
 }
 
 .settings-tab-content.full-height {
@@ -302,10 +302,10 @@
 .settings-group {
   background-color: var(--card-bg);
   border: 1px solid var(--border-color);
-  border-radius: 12px;
-  padding: 10px;
+  border-radius: var(--radius-lg);
+  padding: var(--space-sm);
   margin-bottom: 0;
-  /* 使用 gap 控制间距 */
+  /* 浣跨敤 gap 鎺у埗闂磋窛 */
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 }
 
@@ -317,23 +317,23 @@
   font-size: 18px;
   font-weight: 600;
   color: var(--text-primary);
-  margin-bottom: 8px;
+  margin-bottom: var(--space-sm);
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 .settings-description {
   font-size: 14px;
   color: var(--text-secondary);
-  margin-bottom: 10px;
+  margin-bottom: var(--space-sm);
   line-height: 1.6;
 }
 
 /* Form Elements Overrides/Specifics */
 .form-label {
   font-weight: 500;
-  margin-bottom: 8px;
+  margin-bottom: var(--space-sm);
   display: block;
 }
 
@@ -349,7 +349,7 @@
 
 .input-suffix {
   position: absolute;
-  right: 12px;
+  right: var(--space-md);
   color: var(--text-tertiary);
   font-size: 13px;
   pointer-events: none;
@@ -363,7 +363,7 @@
 
 .input-with-icon i {
   position: absolute;
-  left: 12px;
+  left: var(--space-md);
   top: 50%;
   transform: translateY(-50%);
   color: var(--text-tertiary);
@@ -380,17 +380,17 @@
 .db-stats-card {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 16px;
+  gap: var(--space-lg);
   background-color: var(--bg-secondary);
-  border-radius: 8px;
-  padding: 16px;
-  margin-bottom: 20px;
+  border-radius: var(--radius-md);
+  padding: var(--space-lg);
+  margin-bottom: var(--space-xl);
 }
 
 .db-stat-item {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-xs);
 }
 
 .db-stat-label {
@@ -411,18 +411,18 @@
 .modules-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-sm);
   position: relative;
 }
 
 .draggable-module-item {
   display: flex;
   align-items: center;
-  padding: 6px 12px;
-  /* 极致压缩 padding */
+  padding: 6px var(--space-md);
+  /* 鏋佽嚧鍘嬬缉 padding */
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   cursor: grab;
   transition: all 0.2s ease;
   user-select: none;
@@ -473,9 +473,9 @@
 
 .drag-handle {
   color: var(--text-tertiary);
-  margin-right: 8px;
+  margin-right: var(--space-sm);
   cursor: grab;
-  padding: 4px;
+  padding: var(--space-xs);
 }
 
 .module-icon-wrapper {
@@ -486,7 +486,7 @@
   justify-content: center;
   background-color: var(--card-bg);
   border: 1px solid var(--border-color);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   color: var(--text-primary);
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02);
 }
@@ -514,7 +514,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: var(--bg-tertiary);
   border: 1px solid var(--border-color);
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
@@ -563,17 +563,17 @@
   color: #d4d4d4;
   font-family: var(--font-mono);
   font-size: 12px;
-  padding: 12px;
-  border-radius: 8px;
+  padding: var(--space-md);
+  border-radius: var(--radius-md);
   flex: 1;
   min-height: 200px;
   overflow-y: auto;
   border: 1px solid #333;
 }
 
-/* 日志条目容器 */
+/* 鏃ュ織鏉＄洰瀹瑰櫒 */
 .log-item {
-  margin-bottom: 8px;
+  margin-bottom: var(--space-sm);
   padding-bottom: 6px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
@@ -582,7 +582,7 @@
   border-bottom: none;
 }
 
-/* 日志行通用样式 */
+/* 鏃ュ織琛岄€氱敤鏍峰紡 */
 .log-line {
   display: flex;
   flex-direction: row;
@@ -593,19 +593,19 @@
   flex-wrap: nowrap;
 }
 
-/* 第一行：时间 + 级别 */
+/* 绗竴琛岋細鏃堕棿 + 绾у埆 */
 .log-line-header {
   margin-bottom: 2px;
 }
 
-/* 第二行：模块 + 消息 */
+/* 绗簩琛岋細妯″潡 + 娑堟伅 */
 .log-line-content {
-  padding-left: 4px;
+  padding-left: var(--space-xs);
 }
 
 .log-time {
   color: #888;
-  margin-right: 10px;
+  margin-right: var(--space-sm);
   font-size: 12px;
   flex-shrink: 0;
   white-space: nowrap;
@@ -614,7 +614,7 @@
 .log-level {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-xs);
   margin-right: 6px;
   font-weight: 600;
   flex-shrink: 0;
@@ -657,7 +657,7 @@
   color: #8b5cf6;
 }
 
-/* 日志模块颜色 */
+/* 鏃ュ織妯″潡棰滆壊 */
 .log-module.module-servermonitor {
   color: #10b981;
 }
@@ -757,7 +757,7 @@
 .settings-grid-layout {
   display: grid;
   grid-template-columns: 1.2fr 1fr;
-  gap: 10px;
+  gap: var(--space-sm);
   align-items: stretch;
   /* margin-bottom: 20px; */
 }
@@ -773,7 +773,7 @@
   position: sticky;
   bottom: 0;
   /* padding-top: 20px; */
-  margin-top: 20px;
+  margin-top: var(--space-xl);
   /* border-top: 1px solid var(--border-color); */
   text-align: right;
   z-index: 10;
@@ -796,20 +796,20 @@ input[type='number'] {
 .about-logo {
   width: 80px;
   height: 80px;
-  margin: 0 auto 20px auto;
+  margin: 0 auto var(--space-xl) auto;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 15px;
+  padding: var(--space-lg);
   background: rgba(var(--text-primary-rgb, 0, 0, 0), 0.03);
-  border-radius: 20px;
+  border-radius: var(--radius-lg);
   border: 1px solid var(--border-color);
 }
 
-/* 2FA 账户安全模块专用样式 */
+/* 2FA 璐︽埛瀹夊叏妯″潡涓撶敤鏍峰紡 */
 .settings-2fa-container {
-  margin-top: 20px;
-  padding-top: 20px;
+  margin-top: var(--space-xl);
+  padding-top: var(--space-xl);
   border-top: 1px solid var(--border-color);
 }
 
@@ -817,7 +817,7 @@ input[type='number'] {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 12px;
+  margin-bottom: var(--space-md);
 }
 
 .settings-2fa-title {
@@ -846,30 +846,30 @@ input[type='number'] {
 
 .settings-2fa-setup-panel {
   background-color: var(--bg-tertiary);
-  border-radius: 12px;
-  padding: 16px;
-  margin-top: 12px;
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+  margin-top: var(--space-md);
   border: 1px solid var(--border-color);
 }
 
 .settings-2fa-qr-wrapper {
   text-align: center;
-  margin-bottom: 16px;
+  margin-bottom: var(--space-lg);
 }
 
 .settings-2fa-qr-title {
   font-size: 13px;
   font-weight: 600;
-  margin-bottom: 12px;
+  margin-bottom: var(--space-md);
   color: var(--text-primary);
 }
 
 .settings-2fa-qr-image {
   width: 180px;
   height: 180px;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   background: #fff;
-  padding: 10px;
+  padding: var(--space-sm);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
   margin: 0 auto;
 }
@@ -877,13 +877,13 @@ input[type='number'] {
 .settings-2fa-manual-key {
   font-size: 11px;
   color: var(--text-tertiary);
-  margin-top: 10px;
+  margin-top: var(--space-sm);
 }
 
 .settings-2fa-manual-key code {
   background: var(--bg-secondary);
   padding: 2px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   font-family: var(--font-mono);
   color: var(--primary-color);
 }

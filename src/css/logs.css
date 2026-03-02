@@ -1,12 +1,12 @@
-/* 统一日志查看器样式 */
+﻿/* 缁熶竴鏃ュ織鏌ョ湅鍣ㄦ牱寮?*/
 
-/* 模态框遮罩层 (高优先级) */
+/* 妯℃€佹閬僵灞?(楂樹紭鍏堢骇) */
 .log-viewer-overlay {
-  z-index: 2200 !important;
-  /* 高于设置页面(2001) */
+  z-index: var(--z-index-high-modal) !important;
+  /* 楂樹簬璁剧疆椤甸潰 */
 }
 
-/* 模态框容器 */
+/* 妯℃€佹瀹瑰櫒 */
 .log-viewer-modal {
   width: 900px;
   height: 620px;
@@ -23,12 +23,12 @@
   font-family: var(--font-main);
   transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
   position: relative;
-  /* 极致圆角裁剪：解决部分浏览器背景色溢出 parent 边框的问题 */
+  /* 鏋佽嚧鍦嗚瑁佸壀锛氳В鍐抽儴鍒嗘祻瑙堝櫒鑳屾櫙鑹叉孩鍑?parent 杈规鐨勯棶棰?*/
   -webkit-mask-image: -webkit-radial-gradient(white, black);
   mask-image: radial-gradient(white, black);
 }
 
-/* 覆盖 .modal-lg 和 .modal 的 max-width */
+/* 瑕嗙洊 .modal-lg 鍜?.modal 鐨?max-width */
 .modal.log-viewer-modal {
   max-width: 900px;
 }
@@ -42,7 +42,7 @@
   border: none;
 }
 
-/* 顶栏 */
+/* 椤舵爮 */
 .log-header {
   height: 50px;
   background-color: var(--bg-secondary);
@@ -51,7 +51,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 5px;
+  padding: 0 var(--space-xs);
   border-bottom: 1px solid var(--border-color);
   flex-shrink: 0;
 }
@@ -59,7 +59,7 @@
 .log-title-group {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-md);
 }
 
 .log-icon {
@@ -67,7 +67,7 @@
   height: 32px;
   background: var(--primary-color);
   color: white;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -76,7 +76,7 @@
 }
 
 .log-info {
-  gap: 8px;
+  gap: var(--space-sm);
   display: flex;
   flex-direction: row;
   justify-content: center;
@@ -96,8 +96,8 @@
 }
 
 .log-status-badge {
-  padding: 2px 10px;
-  border-radius: 20px;
+  padding: 2px var(--space-sm);
+  border-radius: var(--radius-lg);
   font-size: 10px;
   font-weight: 800;
   display: flex;
@@ -140,10 +140,10 @@
   }
 }
 
-/* 窗口控制按钮 */
+/* 绐楀彛鎺у埗鎸夐挳 */
 .log-window-controls {
   display: flex;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 .win-btn {
@@ -152,7 +152,7 @@
   border: none;
   background: transparent;
   color: #888;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -169,24 +169,24 @@
   background: #c42b1c;
 }
 
-/* 工具栏 */
+/* 宸ュ叿鏍?*/
 .log-toolbar {
   min-height: 52px;
   background-color: var(--bg-primary);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 16px;
+  padding: var(--space-sm) var(--space-lg);
   border-bottom: 1px solid var(--border-color);
   flex-shrink: 0;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: var(--space-md);
 }
 
 .log-filters {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 .search-box {
@@ -197,7 +197,7 @@
 
 .search-box i {
   position: absolute;
-  left: 10px;
+  left: var(--space-sm);
   top: 50%;
   transform: translateY(-50%);
   color: #888;
@@ -209,7 +209,7 @@
   height: 32px;
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   padding: 0 30px 0 36px;
   color: var(--text-primary);
   font-size: 13px;
@@ -225,7 +225,7 @@
 
 .clear-search {
   position: absolute;
-  right: 4px;
+  right: var(--space-xs);
   top: 50%;
   transform: translateY(-50%);
   background: none;
@@ -244,8 +244,8 @@
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
   color: var(--text-primary);
-  border-radius: 8px;
-  padding: 0 12px;
+  border-radius: var(--radius-md);
+  padding: 0 var(--space-md);
   font-size: 12px;
   outline: none;
   cursor: pointer;
@@ -259,22 +259,22 @@
 .log-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
   flex-wrap: wrap;
 }
 
 .tool-btn {
   height: 32px;
-  padding: 0 14px;
+  padding: 0 var(--space-lg);
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
   color: var(--text-secondary);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   cursor: pointer;
   font-size: 12px;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   font-weight: 500;
 }
@@ -296,7 +296,7 @@
   width: 1px;
   height: 20px;
   background-color: var(--border-color);
-  margin: 0 4px;
+  margin: 0 var(--space-xs);
 }
 
 .tool-btn i {
@@ -307,44 +307,26 @@
   width: 1px;
   height: 16px;
   background: #444;
-  margin: 0 4px;
+  margin: 0 var(--space-xs);
 }
 
-/* 日志可视区域 */
+/* 鏃ュ織鍙鍖哄煙 */
 .log-viewport {
   flex: 1;
   overflow-y: auto;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   background-color: var(--bg-primary);
-  padding: 16px 0;
+  padding: var(--space-lg) 0;
   position: relative;
   scroll-behavior: smooth;
   overscroll-behavior-x: contain;
-  /* 自定义滚动条 */
+  /* 鑷畾涔夋粴鍔ㄦ潯 */
   scrollbar-width: thin;
   scrollbar-color: var(--border-color) var(--bg-primary);
 }
 
-.log-viewport::-webkit-scrollbar {
-  display: block !important;
-  width: 8px;
-  height: 8px;
-}
 
-.log-viewport::-webkit-scrollbar-track {
-  background: var(--bg-primary);
-}
-
-.log-viewport::-webkit-scrollbar-thumb {
-  background-color: var(--border-color);
-  border: 2px solid var(--bg-primary);
-  border-radius: 10px;
-}
-
-.log-viewport::-webkit-scrollbar-thumb:hover {
-  background-color: var(--text-tertiary);
-}
 
 .log-viewport.wrap-text .message {
   white-space: pre-wrap;
@@ -370,7 +352,7 @@
   align-items: center;
   justify-content: center;
   color: #666;
-  gap: 12px;
+  gap: var(--space-md);
   padding: 40px;
 }
 
@@ -391,7 +373,7 @@
   border-left: 3px solid transparent;
   gap: 0;
   flex-wrap: nowrap;
-  /* 禁止换行 */
+  /* 绂佹鎹㈣ */
 }
 
 .log-entry:hover {
@@ -419,7 +401,7 @@
   color: var(--text-tertiary);
   min-width: 35px;
   text-align: right;
-  margin-right: 12px;
+  margin-right: var(--space-md);
   user-select: none;
   font-size: 11px;
   opacity: 0.6;
@@ -429,7 +411,7 @@
 
 .log-entry .time {
   color: var(--info-color);
-  margin-right: 12px;
+  margin-right: var(--space-md);
   font-size: 12px;
   opacity: 0.9;
   font-weight: 500;
@@ -444,9 +426,9 @@
   min-width: 55px;
   font-weight: bold;
   font-size: 11px;
-  margin-right: 10px;
+  margin-right: var(--space-sm);
   text-transform: uppercase;
-  gap: 4px;
+  gap: var(--space-xs);
   flex-shrink: 0;
   white-space: nowrap;
 }
@@ -460,21 +442,21 @@
   white-space: pre;
 }
 
-/* 日志模块标签 */
+/* 鏃ュ織妯″潡鏍囩 */
 .log-module-tag {
   font-weight: 600;
   font-size: 11px;
-  margin-right: 8px;
+  margin-right: var(--space-sm);
   flex-shrink: 0;
   white-space: nowrap;
 }
 
-/* 不同模块的颜色 */
+/* 涓嶅悓妯″潡鐨勯鑹?*/
 .module-servermonitor {
   color: #10b981;
 }
 
-/* 绿色 */
+/* 缁胯壊 */
 .module-server {
   color: #10b981;
 }
@@ -483,17 +465,17 @@
   color: #3b82f6;
 }
 
-/* 蓝色 */
+/* 钃濊壊 */
 .module-logservice {
   color: #8b5cf6;
 }
 
-/* 紫色 */
+/* 绱壊 */
 .module-database {
   color: #f59e0b;
 }
 
-/* 橙色 */
+/* 姗欒壊 */
 .module-db {
   color: #f59e0b;
 }
@@ -502,12 +484,12 @@
   color: #ef4444;
 }
 
-/* 红色 */
+/* 绾㈣壊 */
 .module-websocket {
   color: #06b6d4;
 }
 
-/* 青色 */
+/* 闈掕壊 */
 .module-ws {
   color: #06b6d4;
 }
@@ -516,37 +498,37 @@
   color: #ec4899;
 }
 
-/* 粉色 */
+/* 绮夎壊 */
 .module-core {
   color: #6b7280;
 }
 
-/* 灰色 */
+/* 鐏拌壊 */
 .module-antigravity {
   color: var(--ag-primary, #a855f7);
 }
 
-/* Antigravity 紫色 */
+/* Antigravity 绱壊 */
 .module-gemini {
   color: var(--gemini-primary, #4285f4);
 }
 
-/* Gemini 蓝色 */
+/* Gemini 钃濊壊 */
 .module-dns {
   color: #f97316;
 }
 
-/* CF DNS 橙色 */
+/* CF DNS 姗欒壊 */
 .module-paas {
   color: #14b8a6;
 }
 
-/* PaaS 青绿色 */
+/* PaaS 闈掔豢鑹?*/
 .module-openai {
   color: #22c55e;
 }
 
-/* OpenAI 绿色 */
+/* OpenAI 缁胯壊 */
 
 .log-footer {
   height: 36px;
@@ -554,11 +536,11 @@
   color: #fff;
   display: flex;
   align-items: center;
-  padding: 0 20px;
+  padding: 0 var(--space-xl);
   font-size: 11px;
-  gap: 16px;
+  gap: var(--space-lg);
   flex-shrink: 0;
-  /* 移除内部投影，由外部 modal 容器统一处理圆角 */
+  /* 绉婚櫎鍐呴儴鎶曞奖锛岀敱澶栭儴 modal 瀹瑰櫒缁熶竴澶勭悊鍦嗚 */
   box-shadow: none;
   border-top: 1px solid rgba(255, 255, 255, 0.1);
 }
@@ -571,6 +553,7 @@
 }
 
 @keyframes blink {
+
   0%,
   100% {
     opacity: 1;
@@ -623,7 +606,7 @@
 
 /* Default */
 
-/* 适配移动端 */
+/* 閫傞厤绉诲姩绔?*/
 @media (max-width: 600px) {
   .log-viewer-modal {
     width: 100vw;

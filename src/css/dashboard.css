@@ -1,13 +1,13 @@
-/* Dashboard 2.0 - Strict Alignment & Spacing */
+﻿/* Dashboard 2.0 - Strict Alignment & Spacing */
 
 /* 
-   全局容器 
-   - 增加整体内边距，提供足够的呼吸感
-   - 确保在大屏下不会贴边
+   鍏ㄥ眬瀹瑰櫒 
+   - 澧炲姞鏁翠綋鍐呰竟璺濓紝鎻愪緵瓒冲鐨勫懠鍚告劅
+   - 纭繚鍦ㄥぇ灞忎笅涓嶄細璐磋竟
 */
 .dashboard-content {
   padding: 0px;
-  /* 统一四周内边距 */
+  /* 缁熶竴鍥涘懆鍐呰竟璺?*/
   width: 100%;
   margin: 0 auto;
   font-family: var(--font-main, 'Inter', system-ui, sans-serif);
@@ -21,21 +21,21 @@
    Header Section
    ========================================= */
 .dashboard-header {
-  padding-bottom: 10px;
+  padding-bottom: var(--space-sm);
   display: flex;
   justify-content: space-between;
   align-items: flex-end;
-  margin-bottom: 10px;
-  /* 与 Grid Gap 保持一致 */
-  padding-bottom: 4px;
-  /* 微调视觉重心 */
+  margin-bottom: var(--space-sm);
+  /* 涓?Grid Gap 淇濇寔涓€鑷?*/
+  padding-bottom: var(--space-xs);
+  /* 寰皟瑙嗚閲嶅績 */
 }
 
 .header-left {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  /* 标题与副标题间距 */
+  /* 鏍囬涓庡壇鏍囬闂磋窛 */
 }
 
 .dashboard-header h1 {
@@ -54,24 +54,24 @@
   color: var(--text-secondary);
   font-size: 13px;
   font-weight: 500;
-  margin-top: 4px;
+  margin-top: var(--space-xs);
   /* Ensure spacing */
 }
 
 .header-right {
   display: flex;
   align-items: center;
-  gap: 16px;
-  /* 增加间距 */
+  gap: var(--space-lg);
+  /* 澧炲姞闂磋窛 */
 }
 
 .last-update {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 0 16px;
+  gap: var(--space-sm);
+  padding: 0 var(--space-lg);
   background: var(--bg-secondary);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   font-size: 13px;
   color: var(--text-secondary);
   font-family: var(--font-mono);
@@ -96,17 +96,17 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: var(--space-sm);
   height: 40px;
-  padding: 0 24px;
-  border-radius: 12px;
+  padding: 0 var(--space-xl);
+  border-radius: var(--radius-lg);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   border: 1px solid rgba(255, 255, 255, 0.1);
-  /* 渐变背景 */
+  /* 娓愬彉鑳屾櫙 */
   background: linear-gradient(135deg, var(--primary-color), #4f46e5);
-  /* 假设有 indigo 辅助色，如果没有则回退到 primary */
+  /* 鍋囪鏈?indigo 杈呭姪鑹诧紝濡傛灉娌℃湁鍒欏洖閫€鍒?primary */
   color: #fff;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   /* box-shadow: 0 4px 12px rgba(var(--primary-rgb), 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.2); */
@@ -114,7 +114,7 @@
   overflow: hidden;
 }
 
-/* 按钮光泽效果 */
+/* 鎸夐挳鍏夋辰鏁堟灉 */
 .btn-refresh-all::before {
   content: '';
   position: absolute;
@@ -147,15 +147,15 @@
 
 /* =========================================
    Grid Layout System
-   严格统一的间距系统
+   涓ユ牸缁熶竴鐨勯棿璺濈郴缁?
    ========================================= */
 :root {
   --dashboard-grid-gap: 12px;
-  /* 全局网格间距变量 */
+  /* 鍏ㄥ眬缃戞牸闂磋窛鍙橀噺 */
   --card-padding: 18px;
-  /* 全局卡片内边距变量 */
+  /* 鍏ㄥ眬鍗＄墖鍐呰竟璺濆彉閲?*/
   --card-radius: 16px;
-  /* 全局卡片圆角 */
+  /* 鍏ㄥ眬鍗＄墖鍦嗚 */
 }
 
 .stats-overview-grid {
@@ -168,10 +168,10 @@
 .dashboard-main-layout {
   display: grid;
   grid-template-columns: 2fr 1fr;
-  /* 2:1 比例 */
+  /* 2:1 姣斾緥 */
   gap: var(--dashboard-grid-gap);
   align-items: stretch;
-  /* 两列等高 */
+  /* 涓ゅ垪绛夐珮 */
 }
 
 .content-column {
@@ -180,7 +180,7 @@
   gap: var(--dashboard-grid-gap);
 }
 
-/* 左侧列：卡片拉伸填充 */
+/* 宸︿晶鍒楋細鍗＄墖鎷変几濉厖 */
 .content-column:first-child .detail-card {
   flex: 1;
 }
@@ -196,11 +196,11 @@
 .detail-card,
 .music-widget-wrapper {
   background: var(--card-bg);
-  border-radius: 20px;
+  border-radius: var(--radius-lg);
   padding: var(--card-padding);
   border: 1px solid var(--border-color);
   box-shadow: var(--card-shadow);
-  /* 只对视觉属性过渡，避免布局属性动画导致的闪烁 */
+  /* 鍙瑙嗚灞炴€ц繃娓★紝閬垮厤甯冨眬灞炴€у姩鐢诲鑷寸殑闂儊 */
   transition:
     transform 0.3s ease,
     box-shadow 0.3s ease,
@@ -210,7 +210,7 @@
   position: relative;
   overflow: hidden;
   box-sizing: border-box;
-  /* 确保 padding 不撑大尺寸 */
+  /* 纭繚 padding 涓嶆拺澶у昂瀵?*/
 }
 
 /* Overview Card Specific - Compact & Balanced */
@@ -219,7 +219,7 @@
   flex-direction: column;
   justify-content: space-between;
   cursor: pointer;
-  padding: 14px 16px;
+  padding: var(--space-lg) var(--space-lg);
   /* Reduced padding */
   min-height: 145px;
   /* Tighter height */
@@ -238,14 +238,14 @@
   /* Better vertical alignment */
   position: relative;
   z-index: 10;
-  margin-bottom: 12px;
+  margin-bottom: var(--space-md);
   /* Tightened */
 }
 
 .icon-box {
   width: 38px;
   height: 38px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: var(--bg-secondary);
   color: var(--text-secondary);
   display: flex;
@@ -253,7 +253,7 @@
   justify-content: center;
   font-size: 18px;
   border: 1px solid rgba(255, 255, 255, 0.03);
-  /* 优化动画性能，防止抖动 */
+  /* 浼樺寲鍔ㄧ敾鎬ц兘锛岄槻姝㈡姈鍔?*/
   transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
     background-color 0.3s ease,
     color 0.3s ease;
@@ -272,12 +272,12 @@
 .card-status-group {
   display: flex;
   /* align-items: center; */
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 .trend-badge {
-  padding: 4px 10px;
-  border-radius: 8px;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-md);
   font-weight: 700;
   font-size: 11px;
   line-height: 1;
@@ -317,7 +317,7 @@
   flex-direction: row;
   justify-content: space-between;
   align-items: baseline;
-  margin: 4px 0;
+  margin: var(--space-xs) 0;
 }
 
 .card-label {
@@ -338,7 +338,7 @@
   letter-spacing: -0.5px;
   display: flex;
   align-items: baseline;
-  gap: 4px;
+  gap: var(--space-xs);
 }
 
 .card-unit {
@@ -357,7 +357,7 @@
   justify-content: space-between;
   font-size: 11px;
   color: var(--text-tertiary);
-  padding-top: 8px;
+  padding-top: var(--space-sm);
   /* Slightly reduced */
   margin-top: auto;
 }
@@ -408,8 +408,8 @@
 
 .card-icon-large {
   position: absolute;
-  right: -10px;
-  bottom: -10px;
+  right: -var(--space-sm);
+  bottom: -var(--space-sm);
   font-size: 110px;
   opacity: 0.02;
   /* Extremely subtle */
@@ -449,8 +449,8 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 20px;
-  padding-bottom: 16px;
+  margin-bottom: var(--space-xl);
+  padding-bottom: var(--space-lg);
   border-bottom: 1px solid var(--border-color);
 }
 
@@ -460,7 +460,7 @@
   font-weight: 700;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-md);
   color: var(--text-primary);
 }
 
@@ -478,7 +478,7 @@
   border: 1px solid var(--border-color);
   box-shadow: var(--card-shadow);
   cursor: default;
-  /* 移除容器指针 */
+  /* 绉婚櫎瀹瑰櫒鎸囬拡 */
 }
 
 .music-bg-blur {
@@ -492,7 +492,7 @@
   box-sizing: border-box;
   display: flex;
   align-items: center;
-  gap: 24px;
+  gap: var(--space-xl);
   position: relative;
   z-index: 1;
   background: transparent;
@@ -501,14 +501,14 @@
 .music-cover-large {
   width: 160px;
   height: 160px;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   object-fit: cover;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
   cursor: pointer;
   transition:
     transform 0.3s ease,
     box-shadow 0.3s ease;
-  /* 防止拖动和选择 */
+  /* 闃叉鎷栧姩鍜岄€夋嫨 */
   user-select: none;
   -webkit-user-select: none;
   -webkit-user-drag: none;
@@ -525,7 +525,7 @@
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 8px;
+  gap: var(--space-sm);
   color: var(--text-primary);
   min-width: 0;
 }
@@ -547,14 +547,14 @@
 .music-artist {
   font-size: 14px;
   color: var(--text-secondary);
-  margin-bottom: 20px;
+  margin-bottom: var(--space-xl);
   font-weight: 500;
 }
 
 .music-controls {
   display: flex;
   align-items: center;
-  gap: 20px;
+  gap: var(--space-xl);
 }
 
 .btn-control-circle {
@@ -591,7 +591,7 @@
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
 }
 
-/* 默认隐藏控制按钮和状态容器，只有悬停时显示 */
+/* 榛樿闅愯棌鎺у埗鎸夐挳鍜岀姸鎬佸鍣紝鍙湁鎮仠鏃舵樉绀?*/
 .music-widget-wrapper .music-controls,
 .music-widget-wrapper .music-status-container {
   opacity: 0;
@@ -602,7 +602,7 @@
     transform 0.3s ease;
 }
 
-/* 鼠标悬停在卡片上时，恢复显示控制按钮和状态 */
+/* 榧犳爣鎮仠鍦ㄥ崱鐗囦笂鏃讹紝鎭㈠鏄剧ず鎺у埗鎸夐挳鍜岀姸鎬?*/
 .music-widget-wrapper:hover .music-controls,
 .music-widget-wrapper:hover .music-status-container {
   opacity: 1;
@@ -612,13 +612,13 @@
 
 .music-status-badge {
   position: absolute;
-  top: 24px;
-  right: 24px;
-  padding: 6px 12px;
+  top: var(--space-xl);
+  right: var(--space-xl);
+  padding: 6px var(--space-md);
   background: rgba(var(--primary-rgb), 0.15);
   backdrop-filter: blur(8px);
   border: 1px solid rgba(var(--primary-rgb), 0.3);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   color: var(--primary-color);
   font-size: 11px;
   font-weight: 700;
@@ -634,7 +634,7 @@
 .music-mini-lyric {
   position: absolute;
   bottom: 30px;
-  right: 24px;
+  right: var(--space-xl);
   text-align: right;
   display: flex;
   flex-direction: column;
@@ -643,14 +643,14 @@
   pointer-events: none;
   z-index: 2;
   overflow: hidden;
-  /* 调整遮罩比例，确保中间清晰区域更靠下，不遮挡顶部徽章 */
+  /* 璋冩暣閬僵姣斾緥锛岀‘淇濅腑闂存竻鏅板尯鍩熸洿闈犱笅锛屼笉閬尅椤堕儴寰界珷 */
   -webkit-mask-image: linear-gradient(to bottom,
       transparent 0%,
       black 15%,
       black 85%,
       transparent 100%);
   mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%);
-  /* 淡入动画，避免歌词突然出现 */
+  /* 娣″叆鍔ㄧ敾锛岄伩鍏嶆瓕璇嶇獊鐒跺嚭鐜?*/
   animation: lyricFadeIn 0.5s ease-out forwards;
 }
 
@@ -682,7 +682,7 @@
   align-items: flex-end;
   width: 100%;
   height: 56px;
-  /* 进一步增加高度，确保文字和翻译都能完全放下 */
+  /* 杩涗竴姝ュ鍔犻珮搴︼紝纭繚鏂囧瓧鍜岀炕璇戦兘鑳藉畬鍏ㄦ斁涓?*/
   justify-content: center;
   transition: all 0.8s cubic-bezier(0.2, 0, 0, 1);
 }
@@ -696,12 +696,12 @@
   font-size: 22px;
   font-weight: 800;
   line-height: 1.4;
-  /* 增加行间距 */
+  /* 澧炲姞琛岄棿璺?*/
   padding: 2px 0;
-  /* 给背景裁剪留出垂直余量 */
+  /* 缁欒儗鏅鍓暀鍑哄瀭鐩翠綑閲?*/
   white-space: nowrap;
   overflow: visible;
-  /* 防止边缘截断 */
+  /* 闃叉杈圭紭鎴柇 */
 
   /* Karaoke Effect: Base + Fill */
   color: transparent;
@@ -766,21 +766,21 @@
   right: 0;
   top: 50%;
   transform: translateY(-50%) translateY(-30px);
-  /* 减小偏移量，匹配新的高度 */
+  /* 鍑忓皬鍋忕Щ閲忥紝鍖归厤鏂扮殑楂樺害 */
 }
 
 /* API Stats Row */
 .api-stats-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 20px;
-  /* 内部间距略小于外部 */
+  gap: var(--space-xl);
+  /* 鍐呴儴闂磋窛鐣ュ皬浜庡閮?*/
 }
 
 .api-stat-group {
   background: var(--bg-secondary);
-  border-radius: 12px;
-  padding: 10px;
+  border-radius: var(--radius-lg);
+  padding: var(--space-sm);
   border: 1px solid var(--border-color);
   cursor: pointer;
   transition: all 0.2s ease;
@@ -813,16 +813,16 @@
 
 .api-progress-track {
   height: 8px;
-  /* 稍粗 */
+  /* 绋嶇矖 */
   background: var(--bg-tertiary);
-  border-radius: 4px;
-  margin-top: 16px;
+  border-radius: var(--radius-sm);
+  margin-top: var(--space-lg);
   overflow: hidden;
 }
 
 .api-progress-bar {
   height: 100%;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -830,16 +830,16 @@
 .paas-list {
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: var(--space-xs);
 }
 
 .paas-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px;
+  padding: var(--space-sm);
   background: var(--bg-secondary);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   border: 1px solid transparent;
   transition: all 0.2s;
   cursor: pointer;
@@ -853,16 +853,16 @@
 .paas-info {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: var(--space-lg);
 }
 
 .paas-logo-box {
   width: 42px;
-  /* 统一 42px */
+  /* 缁熶竴 42px */
   height: 42px;
-  /* 统一 42px */
-  border-radius: 12px;
-  /* 统一 12px */
+  /* 缁熶竴 42px */
+  border-radius: var(--radius-lg);
+  /* 缁熶竴 12px */
   background: #fff;
   display: flex;
   align-items: center;
@@ -870,7 +870,7 @@
   font-size: 18px;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
   border: 1px solid rgba(0, 0, 0, 0.03);
-  /* 增加边框一致性 */
+  /* 澧炲姞杈规涓€鑷存€?*/
 }
 
 .paas-item-text {
@@ -892,14 +892,14 @@
 }
 
 .paas-status-badge {
-  padding: 4px 10px;
+  padding: var(--space-xs) var(--space-sm);
   background: rgba(0, 0, 0, 0.03);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   font-size: 12px;
   font-weight: 600;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 .status-dot-mini {
@@ -921,20 +921,20 @@
 .quick-actions-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 16px;
-  /* 右侧小卡片间距 */
+  gap: var(--space-lg);
+  /* 鍙充晶灏忓崱鐗囬棿璺?*/
 }
 
 .action-card {
   background: var(--card-bg);
   border: 1px solid var(--border-color);
-  border-radius: 20px;
-  padding: 24px 30px;
+  border-radius: var(--radius-lg);
+  padding: var(--space-xl) 30px;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 12px;
+  gap: var(--space-md);
   /* height: 120px; Removed fixed height for flexibility */
   cursor: pointer;
   transition: all 0.3s ease;
@@ -963,7 +963,7 @@
 .totp-left {
   display: flex;
   align-items: center;
-  gap: 15px;
+  gap: var(--space-lg);
   text-align: left;
 }
 
@@ -982,17 +982,17 @@
 .totp-label {
   font-size: 12px;
   color: var(--text-tertiary);
-  margin-top: 4px;
+  margin-top: var(--space-xs);
   display: block;
 }
 
 .action-icon {
   width: 42px;
-  /* 统一 42px */
+  /* 缁熶竴 42px */
   height: 42px;
-  /* 统一 42px */
-  border-radius: 12px;
-  /* 统一 12px */
+  /* 缁熶竴 42px */
+  border-radius: var(--radius-lg);
+  /* 缁熶竴 12px */
   background: rgba(var(--primary-rgb), 0.1);
   color: var(--primary-color);
   display: flex;
@@ -1010,7 +1010,7 @@
 }
 
 .action-text p {
-  margin: 4px 0 0 0;
+  margin: var(--space-xs) 0 0 0;
   font-size: 11px;
   color: var(--text-tertiary);
 }
@@ -1022,7 +1022,7 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 16px;
+  gap: var(--space-lg);
   color: rgba(255, 255, 255, 0.7);
 }
 
@@ -1032,11 +1032,11 @@
 }
 
 .btn-music-action {
-  margin-top: 8px;
-  padding: 8px 24px;
+  margin-top: var(--space-sm);
+  padding: var(--space-sm) var(--space-xl);
   background: rgba(255, 255, 255, 0.15);
   border: 1px solid rgba(255, 255, 255, 0.3);
-  border-radius: 20px;
+  border-radius: var(--radius-lg);
   color: #fff;
   cursor: pointer;
   transition: background 0.2s;
@@ -1083,14 +1083,14 @@
 
 @media (max-width: 768px) {
   .dashboard-content {
-    padding: 12px;
+    padding: var(--space-md);
   }
 
   .dashboard-header {
     flex-direction: column;
     align-items: flex-start;
-    gap: 12px;
-    margin-bottom: 16px;
+    gap: var(--space-md);
+    margin-bottom: var(--space-lg);
   }
 
   .header-right {
@@ -1099,36 +1099,36 @@
   }
 
   .btn-refresh-all {
-    padding: 0 14px;
+    padding: 0 var(--space-lg);
     height: 34px;
     flex-shrink: 0;
   }
 
   .stats-overview-grid {
     grid-template-columns: 1fr;
-    gap: 10px;
+    gap: var(--space-sm);
   }
 
   .overview-card,
   .detail-card {
-    padding: 14px;
-    border-radius: 14px;
+    padding: var(--space-lg);
+    border-radius: var(--radius-lg);
   }
 
   .api-stats-row {
     grid-template-columns: 1fr;
-    gap: 10px;
+    gap: var(--space-sm);
   }
 
   .api-stat-group {
-    padding: 10px;
+    padding: var(--space-sm);
   }
 
   .music-content-layer {
     flex-direction: row;
     justify-content: space-between;
-    padding: 16px;
-    gap: 16px;
+    padding: var(--space-lg);
+    gap: var(--space-lg);
   }
 
   .music-cover-large {
@@ -1150,12 +1150,12 @@
 
   .music-artist {
     font-size: 12px;
-    margin-bottom: 8px;
+    margin-bottom: var(--space-sm);
   }
 
   .music-controls {
     justify-content: flex-end;
-    gap: 12px;
+    gap: var(--space-md);
   }
 
   .btn-control-circle {
@@ -1198,14 +1198,14 @@
 .music-skeleton-content {
   display: flex;
   align-items: center;
-  gap: 24px;
+  gap: var(--space-xl);
   padding: 0 30px;
 }
 
 .music-skeleton-cover {
   width: 160px;
   height: 160px;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   flex-shrink: 0;
 }
 
@@ -1213,19 +1213,19 @@
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--space-lg);
 }
 
 .music-skeleton-title {
   height: 24px;
   width: 70%;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 
 .music-skeleton-artist {
   height: 16px;
   width: 40%;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 
 /* Skeleton shimmer animation - using global definition */
@@ -1255,8 +1255,8 @@
 
 @media (max-width: 768px) {
   .music-skeleton-content {
-    padding: 0 16px;
-    gap: 16px;
+    padding: 0 var(--space-lg);
+    gap: var(--space-lg);
   }
 
   .music-skeleton-cover {
@@ -1276,19 +1276,19 @@
 /* Music Status Container (Top Right) */
 .music-status-container {
   position: absolute;
-  top: 24px;
-  right: 24px;
+  top: var(--space-xl);
+  right: var(--space-xl);
   z-index: 20;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-md);
 }
 
 /* Now Playing Badge (Image Style) */
 .music-playing-badge {
   height: 28px;
-  padding: 0 14px;
-  border-radius: 8px;
+  padding: 0 var(--space-lg);
+  border-radius: var(--radius-md);
   /* Slightly rounded rect */
   background: #eef2ff;
   /* Light indigo bg */
@@ -1308,8 +1308,8 @@
 /* Swap Button (Same Style as Badge) */
 .music-swap-btn {
   height: 28px;
-  padding: 0 14px;
-  border-radius: 8px;
+  padding: 0 var(--space-lg);
+  border-radius: var(--radius-md);
 
   /* Match Playing Badge */
   background: #eef2ff;
@@ -1364,19 +1364,19 @@
 
   .overview-card {
     min-height: 130px;
-    padding: 15px !important;
+    padding: var(--space-lg) !important;
   }
 
   .icon-box {
     width: 32px !important;
     height: 32px !important;
     font-size: 14px !important;
-    border-radius: 8px !important;
+    border-radius: var(--radius-md) !important;
   }
 
   .trend-badge {
     height: 20px !important;
-    padding: 2px 8px !important;
+    padding: 2px var(--space-sm) !important;
     font-size: 10px !important;
   }
 
@@ -1391,13 +1391,13 @@
   .paas-list {
     display: grid !important;
     grid-template-columns: repeat(2, 1fr) !important;
-    gap: 8px !important;
+    gap: var(--space-sm) !important;
   }
 
   .paas-item {
-    padding: 8px 12px !important;
+    padding: var(--space-sm) var(--space-md) !important;
     background: var(--bg-secondary) !important;
-    border-radius: 10px !important;
+    border-radius: var(--radius-md) !important;
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
   }
 
@@ -1415,12 +1415,12 @@
   .paas-logo-box {
     width: 32px !important;
     height: 32px !important;
-    border-radius: 8px !important;
+    border-radius: var(--radius-md) !important;
   }
 
   .detail-header {
-    margin-bottom: 12px !important;
-    padding-bottom: 8px !important;
+    margin-bottom: var(--space-md) !important;
+    padding-bottom: var(--space-sm) !important;
   }
 }
 
@@ -1454,8 +1454,8 @@
   .dashboard-header {
     flex-direction: column;
     align-items: stretch;
-    gap: 12px;
-    margin-bottom: 16px;
+    gap: var(--space-md);
+    margin-bottom: var(--space-lg);
     padding-bottom: 0;
   }
 
@@ -1482,37 +1482,37 @@
     justify-content: center;
     height: 36px;
     font-size: 11px;
-    padding: 0 12px;
+    padding: 0 var(--space-md);
   }
 
   .btn-refresh-all {
     height: 36px;
-    padding: 0 14px;
+    padding: 0 var(--space-lg);
     font-size: 12px;
-    border-radius: 18px;
+    border-radius: var(--radius-lg);
   }
 
   .btn-refresh-all span {
     display: none;
-    /* 只显示图标 */
+    /* 鍙樉绀哄浘鏍?*/
   }
 
   /* --- Stats Grid: 2 Columns on Mobile --- */
   .stats-overview-grid {
     display: grid !important;
     grid-template-columns: repeat(2, 1fr) !important;
-    gap: 10px !important;
-    margin-bottom: 12px !important;
+    gap: var(--space-sm) !important;
+    margin-bottom: var(--space-md) !important;
   }
 
   /* --- Overview Cards: Mobile Card Style --- */
   .overview-card {
     min-height: 80px !important;
-    padding: 12px !important;
+    padding: var(--space-md) !important;
     flex-direction: column !important;
     align-items: flex-start !important;
     justify-content: space-between !important;
-    gap: 8px !important;
+    gap: var(--space-sm) !important;
     position: relative !important;
   }
 
@@ -1531,7 +1531,7 @@
     height: 32px !important;
     font-size: 14px !important;
     margin: 0 !important;
-    border-radius: 8px !important;
+    border-radius: var(--radius-md) !important;
   }
 
   .card-status-group {
@@ -1560,7 +1560,7 @@
     justify-content: space-between !important;
     /* Label left, Value right */
     align-items: baseline !important;
-    gap: 4px !important;
+    gap: var(--space-xs) !important;
   }
 
   .card-value {
@@ -1600,13 +1600,13 @@
 
   /* --- Detail Cards: Ultra Compact --- */
   .detail-card {
-    padding: 12px;
-    border-radius: 12px;
+    padding: var(--space-md);
+    border-radius: var(--radius-lg);
   }
 
   .detail-header {
-    margin-bottom: 10px;
-    padding-bottom: 8px;
+    margin-bottom: var(--space-sm);
+    padding-bottom: var(--space-sm);
   }
 
   .detail-header h3 {
@@ -1618,26 +1618,26 @@
     font-size: 13px;
   }
 
-  /* --- Music Widget: 移动端隐藏（使用迷你播放器代替） --- */
+  /* --- Music Widget: 绉诲姩绔殣钘忥紙浣跨敤杩蜂綘鎾斁鍣ㄤ唬鏇匡級 --- */
   .music-widget-wrapper {
     display: none !important;
   }
 
   .music-content-layer {
-    padding: 10px 12px !important;
-    gap: 10px !important;
-    padding-left: 12px !important;
+    padding: var(--space-sm) var(--space-md) !important;
+    gap: var(--space-sm) !important;
+    padding-left: var(--space-md) !important;
   }
 
   .music-cover-large {
     width: 70px !important;
     height: 70px !important;
-    border-radius: 8px !important;
+    border-radius: var(--radius-md) !important;
     flex-shrink: 0 !important;
   }
 
   .music-info-col {
-    gap: 4px !important;
+    gap: var(--space-xs) !important;
     min-width: 0 !important;
   }
 
@@ -1654,7 +1654,7 @@
   }
 
   .music-controls {
-    gap: 8px !important;
+    gap: var(--space-sm) !important;
   }
 
   .btn-control-circle {
@@ -1669,7 +1669,7 @@
     font-size: 14px !important;
   }
 
-  /* 移动端始终显示控制按钮 */
+  /* 绉诲姩绔缁堟樉绀烘帶鍒舵寜閽?*/
   .music-widget-wrapper .music-controls,
   .music-widget-wrapper .music-status-container {
     opacity: 1;
@@ -1679,8 +1679,8 @@
 
   .music-status-container {
     top: 6px !important;
-    right: 8px !important;
-    gap: 4px !important;
+    right: var(--space-sm) !important;
+    gap: var(--space-xs) !important;
   }
 
   .music-playing-badge,
@@ -1688,7 +1688,7 @@
     height: 18px !important;
     padding: 0 6px !important;
     font-size: 8px !important;
-    border-radius: 4px !important;
+    border-radius: var(--radius-sm) !important;
   }
 
   .music-swap-btn i {
@@ -1702,17 +1702,17 @@
   /* --- API Stats: Ultra Compact --- */
   .api-stats-row {
     grid-template-columns: repeat(2, 1fr);
-    /* 保持2列 */
-    gap: 8px;
+    /* 淇濇寔2鍒?*/
+    gap: var(--space-sm);
   }
 
   .api-stat-group {
-    padding: 10px;
-    border-radius: 8px;
+    padding: var(--space-sm);
+    border-radius: var(--radius-md);
   }
 
   .api-stat-header {
-    margin-bottom: 4px;
+    margin-bottom: var(--space-xs);
   }
 
   .api-name {
@@ -1725,7 +1725,7 @@
 
   .api-stat-group>div:nth-child(2) {
     font-size: 10px !important;
-    /* 总调用次数 */
+    /* 鎬昏皟鐢ㄦ鏁?*/
   }
 
   .api-progress-track {
@@ -1745,8 +1745,8 @@
     flex-direction: row !important;
     align-items: center !important;
     justify-content: space-between !important;
-    padding: 10px !important;
-    border-radius: 10px !important;
+    padding: var(--space-sm) !important;
+    border-radius: var(--radius-md) !important;
     background: var(--bg-secondary) !important;
     cursor: pointer !important;
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
@@ -1767,7 +1767,7 @@
   .paas-info {
     display: flex !important;
     align-items: center !important;
-    gap: 8px !important;
+    gap: var(--space-sm) !important;
     flex: 1;
     min-width: 0;
   }
@@ -1776,7 +1776,7 @@
     width: 28px !important;
     height: 28px !important;
     min-width: 28px !important;
-    border-radius: 8px !important;
+    border-radius: var(--radius-md) !important;
     font-size: 12px !important;
   }
 
@@ -1802,7 +1802,7 @@
   .paas-status-badge {
     font-size: 11px !important;
     padding: 2px 6px !important;
-    gap: 4px !important;
+    gap: var(--space-xs) !important;
     flex-shrink: 0;
   }
 
@@ -1816,7 +1816,7 @@
 @media (max-width: 360px) {
   .stats-overview-grid {
     grid-template-columns: 1fr;
-    /* 单列 */
+    /* 鍗曞垪 */
   }
 
   .dashboard-header h1 {

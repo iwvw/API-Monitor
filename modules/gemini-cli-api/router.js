@@ -1681,6 +1681,7 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
             method: req.method,
             statusCode: 200,
             durationMs: Date.now() - startTime,
+            firstTokenTimeMs: Date.now() - startTime,
             clientIp: req.ip,
             userAgent: req.get('user-agent'),
             detail: {

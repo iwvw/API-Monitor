@@ -1,17 +1,12 @@
-/* ==================== 分组导航样式 ==================== */
-
-/* 顶部导航栏容器 - Logo 左侧，导航居中 */
-.top-nav-bar {
+﻿.top-nav-bar {
   position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 12px 0;
-  /* margin-bottom: 16px; */
+  padding: var(--space-md) 0;
   min-height: 56px;
 }
 
-/* Logo 区域 - 绝对定位在左侧 */
 .nav-brand {
   position: absolute;
   left: 0;
@@ -19,7 +14,7 @@
   transform: translateY(-50%);
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-sm);
   flex-shrink: 0;
 }
 
@@ -36,44 +31,38 @@
   cursor: default;
 }
 
-/* 主导航容器 - 居中显示 */
 .top-nav-bar .main-nav-container {
   display: flex;
   justify-content: center;
 }
 
-/* 分组导航容器 */
 .main-tabs-grouped {
   display: flex;
-  gap: 8px;
+  gap: var(--space-sm);
   align-items: center;
   justify-content: center;
-  /* 解决内部按钮高度变化导致的容器抖动 */
   min-height: 48px;
 }
 
-/* 分组容器 */
 .nav-group {
   position: relative;
 }
 
-/* 分组按钮 */
 .nav-group-btn {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 16px;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-lg);
   border: none;
   background: transparent;
   color: var(--text-secondary);
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   transition: color 0.15s ease, background-color 0.15s ease, transform 0.15s ease;
   white-space: nowrap;
 
-  /* 硬件加速与渲染优化 */
   transform: translateZ(0);
   will-change: transform, background-color;
   backface-visibility: hidden;
@@ -107,23 +96,21 @@
   background: rgba(var(--current-rgb, var(--primary-rgb)), 0.18);
 }
 
-/* 导航栏设置按钮（PC 端样式） */
 .nav-settings-btn {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 16px;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-lg);
   border: none;
   background: transparent;
   color: var(--text-secondary);
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   transition: color 0.15s ease, background-color 0.15s ease, transform 0.15s ease;
   white-space: nowrap;
 
-  /* 硬件加速与渲染优化 */
   transform: translateZ(0);
   will-change: transform, background-color;
   backface-visibility: hidden;
@@ -160,10 +147,9 @@
   }
 }
 
-/* 下拉菜单 */
 .nav-group-dropdown {
   position: absolute;
-  top: calc(100% + 8px);
+  top: calc(100% + var(--space-sm));
   left: 50%;
   transform: translateX(-50%) translateZ(0);
   width: 180px;
@@ -171,7 +157,7 @@
   backdrop-filter: blur(24px) saturate(200%);
   -webkit-backdrop-filter: blur(24px) saturate(200%);
   border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 14px;
+  border-radius: var(--radius-lg);
   padding: 1px;
   box-shadow:
     0 8px 30px rgba(0, 0, 0, 0.25),
@@ -183,33 +169,29 @@
   gap: 0;
 }
 
-/* 下拉菜单项 */
 .nav-group-dropdown .dropdown-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 14px;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-lg);
   border: none;
   background: transparent;
   color: var(--text-secondary);
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   width: calc(100% - 6px);
-  /* 预设透明边框，防止 hover 时动态计算边框/内边距导致的微移 */
   border: 1px solid transparent;
   transition: color 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
   text-align: left;
   margin: 3px;
   width: calc(100% - 6px);
 
-  /* 硬件加速与渲染稳定性优化 */
   transform: translateZ(0);
   will-change: transform, background-color, color;
   backface-visibility: hidden;
   -webkit-font-smoothing: subpixel-antialiased;
-  /* 关键：防止 Chrome 下文字因为层提升导致的细微粗细变化位移 */
 }
 
 .nav-group-dropdown .dropdown-item i {
@@ -228,7 +210,6 @@
   color: var(--current-primary, var(--primary-color));
 }
 
-/* 各模块特色颜色 */
 .nav-group-dropdown .dropdown-item.openai-tab.active {
   color: var(--openai-primary);
   background: rgba(var(--openai-rgb), 0.2);
@@ -279,21 +260,16 @@
   background: rgba(var(--filebox-rgb), 0.2);
 }
 
-/* 下拉菜单动画 */
 .dropdown-fade-enter-active,
 .dropdown-fade-leave-active {
-  /* 缩短时间并使用 quint 曲线，减少补间过程中的视觉偏差 */
   transition: opacity 0.15s cubic-bezier(0.23, 1, 0.32, 1), transform 0.15s cubic-bezier(0.23, 1, 0.32, 1);
 }
 
 .dropdown-fade-enter-from,
 .dropdown-fade-leave-to {
   opacity: 0;
-  /* 严格匹配基础状态的 translateX，只在 Y 轴做动画 */
   transform: translateX(-50%) translateY(-8px) translateZ(0);
 }
-
-/* ==================== 胶囊模式适配 ==================== */
 
 @media (min-width: 769px) {
   .nav-capsule .main-tabs-grouped {
@@ -302,14 +278,14 @@
     -webkit-backdrop-filter: blur(16px) saturate(150%);
     border: 1px solid var(--border-color);
     border-radius: 100px;
-    padding: 6px 12px;
-    gap: 4px;
+    padding: 6px var(--space-md);
+    gap: var(--space-xs);
     box-shadow: var(--card-shadow);
     height: 56px;
   }
 
   .nav-capsule .nav-group-btn {
-    padding: 8px 14px;
+    padding: var(--space-sm) var(--space-lg);
     border-radius: 50px;
     height: 42px;
   }
@@ -319,24 +295,24 @@
   }
 
   .nav-capsule .nav-group-dropdown {
-    bottom: calc(100% + 12px);
+    bottom: calc(100% + var(--space-md));
     top: auto;
   }
 
-  /* 底部导航时下拉菜单向上弹出 */
+  /* 搴曢儴瀵艰埅鏃朵笅鎷夎彍鍗曞悜涓婂脊鍑?*/
   .nav-bottom-fixed .nav-group-dropdown {
-    bottom: calc(100% + 12px);
+    bottom: calc(100% + var(--space-md));
     top: auto;
   }
 
-  /* 底部导航模式下的动画方向修正 */
+  /* 搴曢儴瀵艰埅妯″紡涓嬬殑鍔ㄧ敾鏂瑰悜淇 */
   .nav-bottom-fixed .dropdown-fade-enter-from,
   .nav-bottom-fixed .dropdown-fade-leave-to {
     transform: translateX(-50%) translateY(8px);
   }
 }
 
-/* ==================== 移动端适配 ==================== */
+/* ==================== 绉诲姩绔€傞厤 ==================== */
 
 .mobile-only {
   display: none !important;
@@ -351,7 +327,7 @@
     display: none !important;
   }
 
-  /* 移动端隐藏顶部导航栏的 Logo 区域 */
+  /* 绉诲姩绔殣钘忛《閮ㄥ鑸爮鐨?Logo 鍖哄煙 */
   .top-nav-bar {
     display: unset !important;
     padding: 0;
@@ -371,7 +347,7 @@
     z-index: 1000;
   }
 
-  /* 底栏容器样式 - 使用 flex 均分 */
+  /* 搴曟爮瀹瑰櫒鏍峰紡 - 浣跨敤 flex 鍧囧垎 */
   .main-tabs-grouped {
     width: 100%;
     display: flex !important;
@@ -380,21 +356,20 @@
     gap: 0 !important;
   }
 
-  /* 分组容器 - 等宽 */
+  /* 鍒嗙粍瀹瑰櫒 - 绛夊 */
   .nav-group {
     flex: 1 !important;
     display: flex !important;
   }
 
-  /* 分组按钮移动端样式 - 撑满父容器 */
   .nav-group-btn {
     flex: 1 !important;
     width: 100% !important;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 4px;
-    padding: 8px 4px;
+    gap: var(--space-xs);
+    padding: var(--space-sm) var(--space-xs);
     font-size: 10px;
     min-width: 0;
     height: 56px;
@@ -414,15 +389,15 @@
     display: none;
   }
 
-  /* 底栏设置按钮 - 与分组按钮样式统一 */
+  /* 搴曟爮璁剧疆鎸夐挳 - 涓庡垎缁勬寜閽牱寮忕粺涓€ */
   .nav-settings-btn {
     flex: 1 !important;
     display: flex !important;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 4px;
-    padding: 8px 4px;
+    gap: var(--space-xs);
+    padding: var(--space-sm) var(--space-xs);
     min-width: 0;
     height: 56px;
     border: none;
@@ -468,10 +443,10 @@
     }
   }
 
-  /* 下拉菜单移动端定位 - 适配贴边底栏 */
+  /* 涓嬫媺鑿滃崟绉诲姩绔畾浣?- 閫傞厤璐磋竟搴曟爮 */
   .nav-group-dropdown {
     position: fixed;
-    bottom: calc(56px + env(safe-area-inset-bottom, 0) + 8px);
+    bottom: calc(56px + env(safe-area-inset-bottom, 0) + var(--space-sm));
     left: 50%;
     transform: translateX(-50%);
     width: calc(100% - 24px);

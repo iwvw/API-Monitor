@@ -1,13 +1,13 @@
-/* ==================== Self-H (OpenList) 核心布局 ==================== */
+﻿/* ==================== Self-H (OpenList) 鏍稿績甯冨眬 ==================== */
 
-/* 文件列表主容器 - 在父容器内自适应 */
+/* 鏂囦欢鍒楄〃涓诲鍣?- 鍦ㄧ埗瀹瑰櫒鍐呰嚜閫傚簲 */
 .openlist-files-layout {
   box-shadow: var(--card-shadow);
   border: 2px solid var(--border-color);
   display: flex;
   flex-direction: column;
   height: 100%;
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   overflow: hidden;
 }
 
@@ -19,15 +19,15 @@
   background: var(--bg-primary);
 }
 
-/* 顶部工具栏 - 独立风格 */
+/* 椤堕儴宸ュ叿鏍?- 鐙珛椋庢牸 */
 .openlist-toolbar-standalone {
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
-  padding: 10px 12px;
+  padding: var(--space-sm) var(--space-md);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--space-lg);
   z-index: 10;
   /* box-shadow: 0 2px 10px rgba(0, 0, 0, 0.02); */
 }
@@ -36,14 +36,14 @@
 .toolbar-right {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-md);
 }
 
 .toolbar-right .btn-icon-refined {
   width: 36px;
   height: 36px;
-  border-radius: 8px;
-  /* 圆角矩形 */
+  border-radius: var(--radius-md);
+  /* 鍦嗚鐭╁舰 */
   color: var(--selfh-primary);
   /* background: rgba(6, 182, 212, 0.05); */
   border: 1px solid rgb(6 182 212 / 62%);
@@ -66,25 +66,25 @@
   overflow: hidden;
 }
 
-/* 账号切换胶囊 */
+/* 璐﹀彿鍒囨崲鑳跺泭 */
 .account-pill {
   position: relative;
   background: var(--bg-tertiary);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
-  padding: 4px 12px;
+  border-radius: var(--radius-md);
+  padding: var(--space-xs) var(--space-md);
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
-/* 搜索范围分段选择器容器 */
+/* 鎼滅储鑼冨洿鍒嗘閫夋嫨鍣ㄥ鍣?*/
 .search-scope-wrapper {
   display: flex;
-  margin-right: 8px;
+  margin-right: var(--space-sm);
   background: rgba(6, 182, 212, 0.05);
-  /* 注入主题色的极淡背景 */
-  border-radius: 8px;
+  /* 娉ㄥ叆涓婚鑹茬殑鏋佹贰鑳屾櫙 */
+  border-radius: var(--radius-md);
   border: 1px solid rgba(6, 182, 212, 0.1);
 }
 
@@ -92,14 +92,14 @@
   display: flex;
   background: var(--bg-tertiary);
   padding: 3px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   gap: 2px;
   border: 1px solid var(--border-color);
   white-space: nowrap;
-  /* 极其重要：防止折叠时文字换行导致高度抖动 */
+  /* 鏋佸叾閲嶈锛氶槻姝㈡姌鍙犳椂鏂囧瓧鎹㈣瀵艰嚧楂樺害鎶栧姩 */
 }
 
-/* 修改时间列右对齐 */
+/* 淇敼鏃堕棿鍒楀彸瀵归綈 */
 .col-time {
   width: 180px;
   text-align: right !important;
@@ -111,15 +111,15 @@
 }
 
 .col-name {
-  /* 在自动布局表格中，名称列占据剩余空间但受到保护 */
+  /* 鍦ㄨ嚜鍔ㄥ竷灞€琛ㄦ牸涓紝鍚嶇О鍒楀崰鎹墿浣欑┖闂翠絾鍙楀埌淇濇姢 */
   max-width: 0;
 }
 
 .search-scope-segmented button {
   background: transparent;
   border: none;
-  padding: 4px 10px;
-  border-radius: 5px;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-sm);
   font-size: 11px;
   font-weight: 600;
   color: var(--text-tertiary);
@@ -139,7 +139,7 @@
   box-shadow: 0 2px 8px rgba(6, 182, 212, 0.4);
 }
 
-/* 深色主题下的特殊微调 */
+/* 娣辫壊涓婚涓嬬殑鐗规畩寰皟 */
 @media (prefers-color-scheme: dark) {
   .search-scope-segmented button.active {
     background: var(--selfh-primary);
@@ -154,7 +154,7 @@
   align-items: center;
 }
 
-/* 进场动画 */
+/* 杩涘満鍔ㄧ敾 */
 .quick-fade-in {
   animation: ag-quick-fade-in 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -177,11 +177,11 @@
   font-weight: 600;
   outline: none;
   cursor: pointer;
-  padding-right: 15px;
+  padding-right: var(--space-lg);
   appearance: none;
 }
 
-/* 增强面包屑 - 支持换行 */
+/* 澧炲己闈㈠寘灞?- 鏀寔鎹㈣ */
 .breadcrumb-fluid-container {
   display: flex;
   align-items: center;
@@ -195,8 +195,8 @@
   background: transparent;
   border: none;
   color: var(--text-secondary);
-  padding: 4px 8px;
-  border-radius: 6px;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-sm);
   font-size: 13px;
   cursor: pointer;
   transition: all 0.2s;
@@ -225,7 +225,7 @@
   flex-shrink: 0;
 }
 
-/* 集成搜索框 - 与 btn-icon-refined 风格统一 */
+/* 闆嗘垚鎼滅储妗?- 涓?btn-icon-refined 椋庢牸缁熶竴 */
 .integrated-search {
   position: relative;
   width: 36px;
@@ -256,17 +256,17 @@
 }
 
 .integrated-search.expanded i {
-  left: 14px;
+  left: var(--space-lg);
   transform: translateY(-50%);
 }
 
-/* 未展开状态 - 与 btn-icon-refined 一致 */
+/* 鏈睍寮€鐘舵€?- 涓?btn-icon-refined 涓€鑷?*/
 .integrated-search input {
   width: 100%;
   height: 100%;
   background: transparent;
   border: 1px solid rgb(6 182 212 / 62%);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 0;
   font-size: 0;
   color: var(--text-primary);
@@ -274,7 +274,7 @@
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* 悬停状态 - 与 btn-icon-refined:hover 一致 */
+/* 鎮仠鐘舵€?- 涓?btn-icon-refined:hover 涓€鑷?*/
 .integrated-search:not(.expanded):hover {
   transform: translateY(-2px);
 }
@@ -293,9 +293,9 @@
   transform: translateY(0);
 }
 
-/* 展开状态 */
+/* 灞曞紑鐘舵€?*/
 .integrated-search.expanded input {
-  padding: 6px 12px 6px 36px;
+  padding: 6px var(--space-md) 6px 36px;
   font-size: 13px;
   cursor: text;
   background: var(--bg-tertiary);
@@ -309,7 +309,7 @@
   box-shadow: 0 0 0 3px rgba(6, 182, 212, 0.15);
 }
 
-/* 列表滚动区域 */
+/* 鍒楄〃婊氬姩鍖哄煙 */
 .openlist-list-container {
   flex: 1;
   overflow-y: auto;
@@ -317,7 +317,7 @@
   background: var(--bg-primary);
 }
 
-/* 固定表头效果 */
+/* 鍥哄畾琛ㄥご鏁堟灉 */
 .sticky-header thead th {
   position: sticky;
   top: 0;
@@ -327,7 +327,7 @@
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02);
 }
 
-/* 文件行样式 */
+/* 鏂囦欢琛屾牱寮?*/
 .openlist-list-container tbody tr {
   cursor: pointer;
   transition:
@@ -337,10 +337,10 @@
 
 .openlist-list-container tbody tr:hover {
   background: rgba(6, 182, 212, 0.08);
-  /* 使用模块主题色的淡蓝背景，浅色模式更清晰 */
+  /* 浣跨敤妯″潡涓婚鑹茬殑娣¤摑鑳屾櫙锛屾祬鑹叉ā寮忔洿娓呮櫚 */
 }
 
-/* 深色模式下保持原有效果 */
+/* 娣辫壊妯″紡涓嬩繚鎸佸師鏈夋晥鏋?*/
 @media (prefers-color-scheme: dark) {
   .openlist-list-container tbody tr:hover {
     background: var(--bg-tertiary);
@@ -350,28 +350,28 @@
 .file-cell-main {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-md);
   min-width: 0;
   overflow: hidden;
-  /* 外部保护 */
+  /* 澶栭儴淇濇姢 */
 }
 
 .file-icon-wrapper {
   width: 32px;
   height: 32px;
   min-width: 32px;
-  /* 关键：防止 flex 压缩 */
+  /* 鍏抽敭锛氶槻姝?flex 鍘嬬缉 */
   max-width: 32px;
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 20px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   overflow: hidden;
-  /* 内部裁切 */
+  /* 鍐呴儴瑁佸垏 */
   background: var(--bg-tertiary);
   flex-shrink: 0;
-  /* 禁止收缩 */
+  /* 绂佹鏀剁缉 */
 }
 
 .file-thumb-icon {
@@ -394,9 +394,9 @@
   display: block;
 }
 
-/* 骨架屏 */
+/* 楠ㄦ灦灞?*/
 .list-loading-shimmer {
-  padding: 20px;
+  padding: var(--space-xl);
 }
 
 .shimmer-row {
@@ -407,17 +407,17 @@
       var(--bg-secondary) 75%);
   background-size: 200% 100%;
   animation: ag-shimmer 1.5s infinite;
-  border-radius: 8px;
-  margin-bottom: 8px;
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-sm);
 }
 
-/* README 底部 */
+/* README 搴曢儴 */
 .readme-footer {
-  margin: 30px 20px;
-  padding: 24px;
+  margin: 30px var(--space-xl);
+  padding: var(--space-xl);
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
 }
 
 .readme-label {
@@ -426,15 +426,15 @@
   color: var(--text-tertiary);
   text-transform: uppercase;
   letter-spacing: 1.5px;
-  margin-bottom: 15px;
+  margin-bottom: var(--space-lg);
 }
 
-/* 预览图容器 */
+/* 棰勮鍥惧鍣?*/
 .file-hover-preview {
   position: fixed;
   z-index: 9999;
   background: var(--card-bg);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
   border: 1px solid rgba(255, 255, 255, 0.1);
   pointer-events: none;
@@ -456,7 +456,7 @@
   transform: scale(1) translateY(0);
 }
 
-/* 立即关闭逻辑：当没有 active 类时，取消过渡动画实现瞬关 */
+/* 绔嬪嵆鍏抽棴閫昏緫锛氬綋娌℃湁 active 绫绘椂锛屽彇娑堣繃娓″姩鐢诲疄鐜扮灛鍏?*/
 .file-hover-preview:not(.active) {
   transition: none !important;
 }
@@ -468,7 +468,7 @@
   display: block;
 }
 
-/* 预览骨架屏 */
+/* 棰勮楠ㄦ灦灞?*/
 .file-hover-preview.loading {
   min-width: 200px;
   min-height: 150px;
@@ -484,14 +484,14 @@
   opacity: 0;
 }
 
-/* 临时标签页样式 */
+/* 涓存椂鏍囩椤垫牱寮?*/
 .tab-btn.temp-tab {
   position: relative;
   border-left: 2px dashed var(--border-color);
-  margin-left: 5px;
+  margin-left: var(--space-xs);
   background: rgba(var(--primary-rgb), 0.03);
 
-  /* 宽度限制与文本省略 */
+  /* 瀹藉害闄愬埗涓庢枃鏈渷鐣?*/
   max-width: 140px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -504,60 +504,60 @@
   background: rgba(var(--primary-rgb), 0.1);
 }
 
-/* ==================== 手机端适配 ==================== */
+/* ==================== 鎵嬫満绔€傞厤 ==================== */
 @media (max-width: 768px) {
 
-  /* 隐藏修改时间列 */
+  /* 闅愯棌淇敼鏃堕棿鍒?*/
   .self-h-tab-content .col-time.hide-on-mobile {
     display: none !important;
   }
 
-  /* 表格布局：使用固定布局确保比例生效 */
+  /* 琛ㄦ牸甯冨眬锛氫娇鐢ㄥ浐瀹氬竷灞€纭繚姣斾緥鐢熸晥 */
   .self-h-tab-content .data-table {
     table-layout: fixed !important;
     width: 100% !important;
   }
 
-  /* 禁止滚动 */
+  /* 绂佹婊氬姩 */
   .openlist-list-container {
     overflow-x: hidden;
   }
 
-  /* 名称列：不设置百分比，允许其自动收缩并截断 */
+  /* 鍚嶇О鍒楋細涓嶈缃櫨鍒嗘瘮锛屽厑璁稿叾鑷姩鏀剁缉骞舵埅鏂?*/
   .self-h-tab-content .col-name {
     width: auto !important;
     max-width: none !important;
     min-width: 0 !important;
   }
 
-  /* 大小列：固定 85px 宽度，确保绝对可见 */
+  /* 澶у皬鍒楋細鍥哄畾 85px 瀹藉害锛岀‘淇濈粷瀵瑰彲瑙?*/
   .self-h-tab-content th.col-size,
   .self-h-tab-content td.col-size {
     width: 85px !important;
     min-width: 85px !important;
     max-width: 85px !important;
     text-align: right !important;
-    padding-right: 8px !important;
+    padding-right: var(--space-sm) !important;
     display: table-cell !important;
     visibility: visible !important;
     opacity: 1 !important;
     font-size: 11px !important;
   }
 
-  /* 文件名更紧凑 */
+  /* 鏂囦欢鍚嶆洿绱у噾 */
   .file-cell-main {
-    gap: 10px;
+    gap: var(--space-sm);
   }
 
-  /* 手机端列表排版优化 */
+  /* 鎵嬫満绔垪琛ㄦ帓鐗堜紭鍖?*/
   .self-h-tab-content .openlist-list-container .data-table {
     table-layout: fixed !important;
     width: 100% !important;
     min-width: 0 !important;
-    /* 核心修复：移除全局 600px 限制 */
+    /* 鏍稿績淇锛氱Щ闄ゅ叏灞€ 600px 闄愬埗 */
   }
 
-  /* 名称列：自动占据剩余空间 */
+  /* 鍚嶇О鍒楋細鑷姩鍗犳嵁鍓╀綑绌洪棿 */
   .self-h-tab-content td.col-name,
   .self-h-tab-content th.col-name {
     width: auto !important;
@@ -566,7 +566,7 @@
     overflow: hidden !important;
   }
 
-  /* 大小列：高优先级显示 */
+  /* 澶у皬鍒楋細楂樹紭鍏堢骇鏄剧ず */
   .self-h-tab-content .data-table td.col-size,
   .self-h-tab-content .data-table th.col-size {
     display: table-cell !important;
@@ -574,7 +574,7 @@
     min-width: 90px !important;
     max-width: 90px !important;
     text-align: right !important;
-    padding-right: 12px !important;
+    padding-right: var(--space-md) !important;
     visibility: visible !important;
     opacity: 1 !important;
     color: var(--text-secondary) !important;
@@ -583,27 +583,27 @@
   .file-thumb-icon {
     width: 40px;
     height: 40px;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
   }
 
   .file-name-text {
     font-size: 14px;
   }
 
-  /* 表格行内边距 */
+  /* 琛ㄦ牸琛屽唴杈硅窛 */
   .self-h-tab-content .data-table td {
-    padding: 10px 8px;
+    padding: var(--space-sm) var(--space-sm);
   }
 
   .self-h-tab-content .data-table th {
-    padding: 8px;
+    padding: var(--space-sm);
     font-size: 12px;
   }
 
-  /* 缩小工具栏间距 */
+  /* 缂╁皬宸ュ叿鏍忛棿璺?*/
   .openlist-toolbar-standalone {
-    padding: 8px 10px;
-    gap: 8px;
+    padding: var(--space-sm) var(--space-sm);
+    gap: var(--space-sm);
     flex-wrap: wrap;
   }
 
@@ -620,32 +620,32 @@
     margin: 0;
   }
 
-  /* 搜索框手机端只显示图标 */
-  /* 手机端搜索框展开时的样式覆盖 */
+  /* 鎼滅储妗嗘墜鏈虹鍙樉绀哄浘鏍?*/
+  /* 鎵嬫満绔悳绱㈡灞曞紑鏃剁殑鏍峰紡瑕嗙洊 */
   .integrated-search.expanded {
     width: 150px;
   }
 
   .integrated-search.expanded input {
     width: 100%;
-    padding: 6px 10px 6px 32px;
+    padding: 6px var(--space-sm) 6px 32px;
     font-size: 12px;
     cursor: text;
   }
 
   .integrated-search.expanded i {
-    left: 12px;
+    left: var(--space-md);
     transform: translateY(-50%);
   }
 
-  /* 搜索范围选择器手机端隐藏，搜索结果在新页面展示时再显示 */
+  /* 鎼滅储鑼冨洿閫夋嫨鍣ㄦ墜鏈虹闅愯棌锛屾悳绱㈢粨鏋滃湪鏂伴〉闈㈠睍绀烘椂鍐嶆樉绀?*/
   .search-scope-wrapper {
     display: none !important;
   }
 
-  /* 面包屑更紧凑 */
+  /* 闈㈠寘灞戞洿绱у噾 */
   .bc-node {
-    padding: 4px 6px;
+    padding: var(--space-xs) 6px;
     font-size: 12px;
   }
 
@@ -653,18 +653,18 @@
     margin: 0 2px;
   }
 
-  /* 账号选择器隐藏 */
+  /* 璐﹀彿閫夋嫨鍣ㄩ殣钘?*/
   .account-pill {
     display: none;
   }
 
-  /* 临时标签页：移动端隐藏文字，仅保留图标 */
+  /* 涓存椂鏍囩椤碉細绉诲姩绔殣钘忔枃瀛楋紝浠呬繚鐣欏浘鏍?*/
   .tab-btn.temp-tab span {
     display: none;
   }
 
   .tab-btn.temp-tab {
-    padding: 10px 14px !important;
+    padding: var(--space-sm) var(--space-lg) !important;
     max-width: 44px !important;
     min-width: 44px !important;
     display: flex !important;
@@ -678,14 +678,14 @@
   }
 }
 
-/* ==================== 右键菜单 ==================== */
+/* ==================== 鍙抽敭鑿滃崟 ==================== */
 .openlist-context-menu {
   position: fixed;
   z-index: 10000;
   min-width: 160px;
   background: var(--bg-primary);
   border: 1px solid var(--border-color);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
   padding: 6px 0;
   animation: context-menu-in 0.15s ease-out;
@@ -707,8 +707,8 @@
 .context-menu-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 14px;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-lg);
   font-size: 13px;
   color: var(--text-primary);
   cursor: pointer;
@@ -748,20 +748,20 @@
   margin: 6px 0;
 }
 
-/* ==================== 定时任务 (Cron) 界面样式 ==================== */
+/* ==================== 瀹氭椂浠诲姟 (Cron) 鐣岄潰鏍峰紡 ==================== */
 
-/* 定时任务布局 */
+/* 瀹氭椂浠诲姟甯冨眬 */
 .cron-layout {
-  padding: 16px;
+  padding: var(--space-lg);
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--space-lg);
 }
 
-/* 定时任务卡片 */
+/* 瀹氭椂浠诲姟鍗＄墖 */
 .cron-card {
   background: var(--card-bg);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   border: 1px solid var(--border-color);
   overflow: hidden;
   box-shadow: var(--card-shadow);
@@ -771,7 +771,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 14px 16px;
+  padding: var(--space-lg) var(--space-lg);
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
 }
@@ -779,7 +779,7 @@
 .cron-card-title {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-sm);
   font-size: 15px;
   font-weight: 600;
   color: var(--text-primary);
@@ -795,28 +795,28 @@
   color: white;
   font-size: 11px;
   font-weight: 600;
-  padding: 2px 8px;
-  border-radius: 10px;
+  padding: 2px var(--space-sm);
+  border-radius: var(--radius-md);
   min-width: 20px;
   text-align: center;
 }
 
 .cron-card-actions {
   display: flex;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 .cron-card-body {
   padding: 0;
 }
 
-/* 日志容器限制高度 */
+/* 鏃ュ織瀹瑰櫒闄愬埗楂樺害 */
 .cron-logs-container {
   max-height: 400px;
   overflow-y: auto;
 }
 
-/* 任务列表 */
+/* 浠诲姟鍒楄〃 */
 .cron-task-list {
   display: flex;
   flex-direction: column;
@@ -825,8 +825,8 @@
 .cron-task-item {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 14px 16px;
+  gap: var(--space-md);
+  padding: var(--space-lg) var(--space-lg);
   border-bottom: 1px solid var(--border-color);
   transition: background 0.15s;
 }
@@ -848,7 +848,7 @@
   opacity: 0.7;
 }
 
-/* 状态指示器 */
+/* 鐘舵€佹寚绀哄櫒 */
 .cron-task-status {
   flex-shrink: 0;
 }
@@ -870,12 +870,12 @@
   background: var(--text-tertiary);
 }
 
-/* 任务信息 */
+/* 浠诲姟淇℃伅 */
 .cron-task-main {
   flex: 1;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-md);
   min-width: 0;
 }
 
@@ -888,14 +888,14 @@
   font-size: 14px;
   font-weight: 600;
   color: var(--text-primary);
-  margin-bottom: 4px;
+  margin-bottom: var(--space-xs);
 }
 
 .cron-task-meta {
   display: flex;
-  gap: 12px;
+  gap: var(--space-md);
   flex-wrap: wrap;
-  margin-bottom: 4px;
+  margin-bottom: var(--space-xs);
 }
 
 .cron-task-meta span {
@@ -903,7 +903,7 @@
   color: var(--text-secondary);
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-xs);
 }
 
 .cron-task-meta i {
@@ -915,7 +915,7 @@
   font-family: var(--font-mono);
   background: var(--bg-tertiary);
   padding: 2px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
 }
 
 .cron-task-command {
@@ -928,7 +928,7 @@
   max-width: 300px;
 }
 
-/* 任务额外信息 */
+/* 浠诲姟棰濆淇℃伅 */
 .cron-task-extra {
   flex-shrink: 0;
   text-align: right;
@@ -941,63 +941,63 @@
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 4px;
+  gap: var(--space-xs);
 }
 
 .cron-last-run i {
   font-size: 10px;
 }
 
-/* 任务操作按钮 */
+/* 浠诲姟鎿嶄綔鎸夐挳 */
 .cron-task-actions {
   display: flex;
   gap: 6px;
   flex-shrink: 0;
 }
 
-/* 空状态 */
+/* 绌虹姸鎬?*/
 .cron-empty-state {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 48px 24px;
+  padding: 48px var(--space-xl);
   text-align: center;
   color: var(--text-tertiary);
 }
 
 .cron-empty-state.compact {
-  padding: 32px 24px;
+  padding: 32px var(--space-xl);
 }
 
 .cron-empty-state i {
   font-size: 48px;
-  margin-bottom: 16px;
+  margin-bottom: var(--space-lg);
   opacity: 0.3;
 }
 
 .cron-empty-state.compact i {
   font-size: 32px;
-  margin-bottom: 12px;
+  margin-bottom: var(--space-md);
 }
 
 .cron-empty-state p {
   font-size: 14px;
-  margin-bottom: 16px;
+  margin-bottom: var(--space-lg);
 }
 
 .cron-empty-state.compact p {
   margin-bottom: 0;
 }
 
-/* 日志列表 */
+/* 鏃ュ織鍒楄〃 */
 .cron-log-list {
   display: flex;
   flex-direction: column;
 }
 
 .cron-log-item {
-  padding: 12px 16px;
+  padding: var(--space-md) var(--space-lg);
   border-bottom: 1px solid var(--border-color);
   transition: background 0.15s;
 }
@@ -1010,7 +1010,7 @@
   background: rgba(6, 182, 212, 0.03);
 }
 
-/* 日志状态颜色 */
+/* 鏃ュ織鐘舵€侀鑹?*/
 .cron-log-item.status-success {
   border-left: 3px solid var(--success-color);
 }
@@ -1026,7 +1026,7 @@
 .cron-log-header {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px;
+  gap: var(--space-md);
   align-items: center;
 }
 
@@ -1036,7 +1036,7 @@
   font-family: var(--font-mono);
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-xs);
 }
 
 .cron-log-time i {
@@ -1049,7 +1049,7 @@
   font-weight: 500;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-xs);
 }
 
 .cron-log-task i {
@@ -1060,11 +1060,11 @@
 .cron-log-status {
   font-size: 11px;
   font-weight: 600;
-  padding: 2px 8px;
-  border-radius: 10px;
+  padding: 2px var(--space-sm);
+  border-radius: var(--radius-md);
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-xs);
 }
 
 .cron-log-status.bg-success {
@@ -1087,16 +1087,16 @@
   color: var(--text-secondary);
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-xs);
 }
 
 .cron-log-duration i {
   font-size: 10px;
 }
 
-/* 日志输出 */
+/* 鏃ュ織杈撳嚭 */
 .cron-log-output {
-  margin-top: 8px;
+  margin-top: var(--space-sm);
 }
 
 .cron-log-output summary {
@@ -1106,8 +1106,8 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 8px;
-  border-radius: 4px;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-sm);
   transition: background 0.15s;
 }
 
@@ -1120,10 +1120,10 @@
 }
 
 .cron-log-output pre {
-  margin-top: 8px;
-  padding: 12px;
+  margin-top: var(--space-sm);
+  padding: var(--space-md);
   background: var(--bg-secondary);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   font-size: 12px;
   font-family: var(--font-mono);
   color: var(--text-primary);
@@ -1133,7 +1133,7 @@
   overflow-y: auto;
 }
 
-/* 模态框特定样式 */
+/* 妯℃€佹鐗瑰畾鏍峰紡 */
 .cron-modal {
   max-width: 520px;
 }
@@ -1141,7 +1141,7 @@
 .cron-modal .modal-title {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-sm);
   font-size: 16px;
 }
 
@@ -1150,18 +1150,18 @@
 }
 
 .cron-modal .modal-body {
-  padding: 12px;
+  padding: var(--space-md);
 }
 
 .cron-modal .form-group {
-  margin-bottom: 16px;
+  margin-bottom: var(--space-lg);
 }
 
 .cron-modal .form-label {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-bottom: 8px;
+  margin-bottom: var(--space-sm);
 }
 
 .cron-modal .form-label i {
@@ -1169,20 +1169,20 @@
   color: var(--selfh-primary);
 }
 
-/* Cron 表达式输入 */
+/* Cron 琛ㄨ揪寮忚緭鍏?*/
 .cron-schedule-input {
   display: flex;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 .cron-schedule-input .form-input {
   flex: 1;
 }
 
-/* 任务类型选择器 */
+/* 浠诲姟绫诲瀷閫夋嫨鍣?*/
 .cron-type-selector {
   display: flex;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 .cron-type-option {
@@ -1190,11 +1190,11 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  padding: 12px 16px;
+  gap: var(--space-sm);
+  padding: var(--space-md) var(--space-lg);
   background: var(--bg-tertiary);
   border: 2px solid var(--border-color);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   cursor: pointer;
   transition: all 0.2s;
   font-size: 13px;
@@ -1221,13 +1221,13 @@
   color: var(--selfh-primary);
 }
 
-/* 启用开关 */
+/* 鍚敤寮€鍏?*/
 .cron-enable-toggle {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-md);
   cursor: pointer;
-  padding: 8px 0;
+  padding: var(--space-sm) 0;
 }
 
 .cron-enable-toggle input[type='checkbox'] {
@@ -1238,7 +1238,7 @@
   width: 44px;
   height: 24px;
   background: var(--border-color);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   position: relative;
   transition: background 0.2s;
 }
@@ -1270,17 +1270,17 @@
   font-weight: 500;
 }
 
-/* 手机端适配 */
+/* 鎵嬫満绔€傞厤 */
 @media (max-width: 768px) {
   .cron-layout {
-    padding: 12px;
-    gap: 12px;
+    padding: var(--space-md);
+    gap: var(--space-md);
   }
 
   .cron-task-item {
     flex-wrap: wrap;
-    gap: 8px;
-    padding: 12px;
+    gap: var(--space-sm);
+    padding: var(--space-md);
   }
 
   .cron-task-main {
@@ -1303,7 +1303,7 @@
   }
 
   .cron-log-header {
-    gap: 8px;
+    gap: var(--space-sm);
   }
 
   .cron-type-selector {
@@ -1311,13 +1311,13 @@
   }
 }
 
-/* ==================== 视图切换与网格布局 ==================== */
+/* ==================== 瑙嗗浘鍒囨崲涓庣綉鏍煎竷灞€ ==================== */
 
 .view-toggle-group {
   display: flex;
   background: var(--bg-tertiary);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 2px;
   gap: 2px;
 }
@@ -1326,7 +1326,7 @@
   width: 28px;
   height: 28px;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   font-size: 13px;
   color: var(--text-tertiary);
 }
@@ -1348,28 +1348,28 @@
   width: 1px;
   height: 20px;
   background: var(--border-color);
-  margin: 0 4px;
+  margin: 0 var(--space-xs);
 }
 
-/* 网格布局/瀑布流容器 */
+/* 缃戞牸甯冨眬/鐎戝竷娴佸鍣?*/
 .openlist-grid-view {
   flex: 1;
   overflow-y: auto;
-  padding: 20px;
+  padding: var(--space-xl);
   background: var(--bg-primary);
 }
 
 .file-grid-container {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-  gap: 16px;
+  gap: var(--space-lg);
   /* padding-bottom: 20px; */
 }
 
 .file-grid-item {
   background: var(--bg-primary);
   border: 1px solid var(--border-color);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   overflow: hidden;
   cursor: pointer;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
@@ -1381,7 +1381,7 @@
 .file-grid-item:hover {
   border-color: var(--selfh-primary);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
-  /* 浅色模式阴影 */
+  /* 娴呰壊妯″紡闃村奖 */
   /* transform: translateY(-4px); */
   z-index: 1;
 }
@@ -1396,7 +1396,7 @@
 .grid-item-preview {
   width: 100%;
   aspect-ratio: 16/9;
-  /* 宽屏比例适合大多图片，文件夹也协调 */
+  /* 瀹藉睆姣斾緥閫傚悎澶у鍥剧墖锛屾枃浠跺す涔熷崗璋?*/
   background: var(--bg-tertiary);
   display: flex;
   align-items: center;
@@ -1423,7 +1423,7 @@
   opacity: 0.8;
 }
 
-/* 针对不同文件类型的图标颜色微调 */
+/* 閽堝涓嶅悓鏂囦欢绫诲瀷鐨勫浘鏍囬鑹插井璋?*/
 .grid-icon-placeholder i.fa-folder {
   color: #fbbf24;
 }
@@ -1445,9 +1445,9 @@
 }
 
 .grid-item-info {
-  padding: 8px 8px;
+  padding: var(--space-sm) var(--space-sm);
   background: var(--bg-primary);
-  /* 确保文字区域背景纯净 */
+  /* 纭繚鏂囧瓧鍖哄煙鑳屾櫙绾噣 */
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -1456,16 +1456,16 @@
 
 .file-grid-item:hover .grid-item-info {
   background: var(--bg-secondary);
-  /* 悬停时稍微变亮 */
+  /* 鎮仠鏃剁◢寰彉浜?*/
 }
 
 .grid-item-name {
   font-size: 13px;
   font-weight: 500;
   color: var(--text-primary);
-  margin-bottom: 4px;
+  margin-bottom: var(--space-xs);
 
-  /* 两行省略 */
+  /* 涓よ鐪佺暐 */
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
@@ -1479,20 +1479,20 @@
   color: var(--text-tertiary);
 }
 
-/* 移动端适配 */
+/* 绉诲姩绔€傞厤 */
 @media (max-width: 768px) {
   .openlist-grid-view {
-    padding: 12px;
+    padding: var(--space-md);
   }
 
   .file-grid-container {
     grid-template-columns: repeat(auto-fill, minmax(105px, 1fr));
-    gap: 10px;
+    gap: var(--space-sm);
   }
 
   .grid-item-preview {
     aspect-ratio: 1/1;
-    /* 移动端方形更好看 */
+    /* 绉诲姩绔柟褰㈡洿濂界湅 */
   }
 
   .grid-icon-placeholder {
@@ -1500,7 +1500,7 @@
   }
 
   .grid-item-info {
-    padding: 8px 10px;
+    padding: var(--space-sm) var(--space-sm);
   }
 
   .grid-item-name {
@@ -1508,7 +1508,7 @@
   }
 }
 
-/* ==================== 图片预览弹窗 ==================== */
+/* ==================== 鍥剧墖棰勮寮圭獥 ==================== */
 .image-preview-overlay {
   position: fixed;
   inset: 0;
@@ -1518,7 +1518,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 20px;
+  padding: var(--space-xl);
   animation: image-preview-fade-in 0.2s ease-out;
 }
 
@@ -1539,7 +1539,7 @@
   display: flex;
   flex-direction: column;
   background: var(--card-bg);
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   overflow: hidden;
   box-shadow: 0 25px 80px rgba(0, 0, 0, 0.5);
   border: 1px solid var(--border-color);
@@ -1560,8 +1560,8 @@
 
 .image-preview-close {
   position: absolute;
-  top: 12px;
-  right: 12px;
+  top: var(--space-md);
+  right: var(--space-md);
   z-index: 10;
   width: 36px;
   height: 36px;
@@ -1587,9 +1587,9 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 20px;
+  padding: var(--space-lg) var(--space-xl);
   padding-right: 56px;
-  /* 为关闭按钮留出空间 */
+  /* 涓哄叧闂寜閽暀鍑虹┖闂?*/
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
 }
@@ -1607,7 +1607,7 @@
 
 .image-preview-actions {
   display: flex;
-  gap: 8px;
+  gap: var(--space-sm);
   flex-shrink: 0;
 }
 
@@ -1638,7 +1638,7 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 12px;
+  gap: var(--space-md);
   color: var(--text-tertiary);
   font-size: 14px;
   background: var(--bg-tertiary);
@@ -1663,20 +1663,20 @@
   opacity: 0;
 }
 
-/* 移动端适配 */
+/* 绉诲姩绔€傞厤 */
 @media (max-width: 768px) {
   .image-preview-overlay {
-    padding: 10px;
+    padding: var(--space-sm);
   }
 
   .image-preview-container {
     max-width: 100%;
     max-height: 100%;
-    border-radius: 12px;
+    border-radius: var(--radius-lg);
   }
 
   .image-preview-header {
-    padding: 12px 16px;
+    padding: var(--space-md) var(--space-lg);
     padding-right: 50px;
   }
 
@@ -1685,8 +1685,8 @@
   }
 
   .image-preview-close {
-    top: 10px;
-    right: 10px;
+    top: var(--space-sm);
+    right: var(--space-sm);
     width: 32px;
     height: 32px;
     font-size: 14px;

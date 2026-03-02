@@ -1415,7 +1415,8 @@
             <span>{{ dockerTaskStreamConnected ? '任务流已连接' : '任务流重连中' }}</span>
           </div>
           <div style="display: flex; align-items: center; gap: 8px;">
-            <span class="docker-task-count">最近 {{ Math.min(dockerTasks.length, 8) }} / {{ dockerTasks.length }} 条任务</span>
+            <span class="docker-task-count">最近 {{ Math.min(dockerTasks.length, 8) }} / {{ dockerTasks.length }}
+              条任务</span>
             <i class="fas" :class="dockerTaskHubCollapsed ? 'fa-chevron-down' : 'fa-chevron-up'"
               style="font-size: 11px; opacity: 0.5;"></i>
           </div>
@@ -1469,7 +1470,10 @@
 
         <!-- Middle Spacer -->
         <div style="flex: 1"></div>
-
+        <!-- Far Right: Summary Info or placeholder -->
+        <div style="font-size: 11px; color: var(--text-tertiary); margin-left: 12px;">
+          {{ getDockerGroups().length }} 个组
+        </div>
         <!-- Right: Host Quick Select -->
         <div style="display: flex; gap: 6px; align-items: center;">
           <button class="stat-pill" :class="{ active: dockerSelectedServer === '' }"
@@ -1481,10 +1485,7 @@
           </button>
         </div>
 
-        <!-- Far Right: Summary Info or placeholder -->
-        <div style="font-size: 11px; color: var(--text-tertiary); margin-left: 12px;">
-          {{ getDockerGroups().length }} 个组
-        </div>
+
       </div>
 
       <div v-if="dockerSubTab === 'containers'" class="docker-console-view" style="padding-top: 10px;">

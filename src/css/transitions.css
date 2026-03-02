@@ -1,13 +1,13 @@
-/* 页面切换过渡动画 */
+﻿/* 椤甸潰鍒囨崲杩囨浮鍔ㄧ敾 */
 
-/* 主内容区域的过渡容器 */
+/* 涓诲唴瀹瑰尯鍩熺殑杩囨浮瀹瑰櫒 */
 .tab-content-wrapper {
   position: relative;
   min-height: 400px;
   overflow: visible;
 }
 
-/* 标签页内容的基础样式 */
+/* 鏍囩椤靛唴瀹圭殑鍩虹鏍峰紡 */
 .tab-content {
   padding-bottom: 0;
   animation-duration: 0.4s;
@@ -19,14 +19,14 @@
   overflow: visible;
 }
 
-/* 移动端保留底部间距（为底部导航栏留空间） */
+/* 绉诲姩绔繚鐣欏簳閮ㄩ棿璺濓紙涓哄簳閮ㄥ鑸爮鐣欑┖闂达級 */
 @media (max-width: 768px) {
   .tab-content {
     padding-bottom: 50px;
   }
 }
 
-/* 淡入动画 - 从下方进入 */
+/* 娣″叆鍔ㄧ敾 - 浠庝笅鏂硅繘鍏?*/
 @keyframes fadeIn {
   from {
     opacity: 0;
@@ -39,7 +39,7 @@
   }
 }
 
-/* 淡出动画 */
+/* 娣″嚭鍔ㄧ敾 */
 @keyframes fadeOut {
   from {
     opacity: 1;
@@ -51,7 +51,7 @@
   }
 }
 
-/* 滑动动画 - 统一从下方进入 */
+/* 婊戝姩鍔ㄧ敾 - 缁熶竴浠庝笅鏂硅繘鍏?*/
 @keyframes slideInRight {
   from {
     opacity: 0;
@@ -64,7 +64,7 @@
   }
 }
 
-/* 滑动动画 - 统一从下方进入（保持一致） */
+/* 婊戝姩鍔ㄧ敾 - 缁熶竴浠庝笅鏂硅繘鍏ワ紙淇濇寔涓€鑷达級 */
 @keyframes slideInLeft {
   from {
     opacity: 0;
@@ -77,7 +77,7 @@
   }
 }
 
-/* 滑动退出 - 淡出 */
+/* 婊戝姩閫€鍑?- 娣″嚭 */
 @keyframes slideOutLeft {
   from {
     opacity: 1;
@@ -88,7 +88,7 @@
   }
 }
 
-/* 滑动退出 - 淡出 */
+/* 婊戝姩閫€鍑?- 娣″嚭 */
 @keyframes slideOutRight {
   from {
     opacity: 1;
@@ -99,7 +99,7 @@
   }
 }
 
-/* 应用动画类 */
+/* 搴旂敤鍔ㄧ敾绫?*/
 .fade-in {
   animation-name: fadeIn;
 }
@@ -124,8 +124,8 @@
   animation-name: slideOutRight;
 }
 
-/* ==================== 模块切换动画主题色 ==================== */
-/* Zeabur 模块 - 紫色主题 */
+/* ==================== 妯″潡鍒囨崲鍔ㄧ敾涓婚鑹?==================== */
+/* Zeabur 妯″潡 - 绱壊涓婚 */
 .zeabur-sec-tab.slide-in-left,
 .zeabur-sec-tab.slide-in-right,
 .zeabur-sec-tab.slide-out-left,
@@ -133,7 +133,7 @@
   --module-color: rgba(99, 102, 241, 0.06);
 }
 
-/* DNS 模块 - Cloudflare 橙色主题 */
+/* DNS 妯″潡 - Cloudflare 姗欒壊涓婚 */
 .dns-tab-content.slide-in-left,
 .dns-tab-content.slide-in-right,
 .dns-tab-content.slide-out-left,
@@ -141,7 +141,7 @@
   --module-color: rgba(243, 128, 32, 0.06);
 }
 
-/* OpenApi 模块 - 绿色主题 */
+/* OpenApi 妯″潡 - 缁胯壊涓婚 */
 .openai-tab-content.slide-in-left,
 .openai-tab-content.slide-in-right,
 .openai-tab-content.slide-out-left,
@@ -149,7 +149,7 @@
   --module-color: rgba(16, 163, 127, 0.06);
 }
 
-/* 主机管理模块 - 青绿色主题 */
+/* 涓绘満绠＄悊妯″潡 - 闈掔豢鑹蹭富棰?*/
 .server-tab-content.slide-in-left,
 .server-tab-content.slide-in-right,
 .server-tab-content.slide-out-left,
@@ -157,7 +157,7 @@
   --module-color: rgba(0, 212, 170, 0.06);
 }
 
-/* Music 模块 - 玫红色主题 */
+/* Music 妯″潡 - 鐜孩鑹蹭富棰?*/
 .music-tab-content.slide-in-left,
 .music-tab-content.slide-in-right,
 .music-tab-content.slide-out-left,
@@ -170,7 +170,7 @@
   animation-name: fadeIn;
 }
 
-/* Antigravity 模块 - 橙色主题 */
+/* Antigravity 妯″潡 - 姗欒壊涓婚 */
 .antigravity-tab-content.slide-in-left,
 .antigravity-tab-content.slide-in-right,
 .antigravity-tab-content.slide-out-left,
@@ -178,7 +178,7 @@
   --module-color: rgba(255, 87, 34, 0.06);
 }
 
-/* Gemini CLI 模块 - 蓝色主题 */
+/* Gemini CLI 妯″潡 - 钃濊壊涓婚 */
 .gemini-cli-content.slide-in-left,
 .gemini-cli-content.slide-in-right,
 .gemini-cli-content.slide-out-left,
@@ -186,7 +186,7 @@
   --module-color: rgba(66, 133, 244, 0.06);
 }
 
-/* Self-H 模块 - 青色主题 */
+/* Self-H 妯″潡 - 闈掕壊涓婚 */
 .self-h-tab-content.slide-in-left,
 .self-h-tab-content.slide-in-right,
 .self-h-tab-content.slide-out-left,
@@ -195,7 +195,7 @@
   --module-color: rgba(6, 182, 212, 0.06);
 }
 
-/* Music 模块 - 玫红色主题 */
+/* Music 妯″潡 - 鐜孩鑹蹭富棰?*/
 .music-tab-content.slide-in-left,
 .music-tab-content.slide-in-right,
 .music-tab-content.slide-out-left,
@@ -204,7 +204,7 @@
   --module-color: rgba(244, 63, 94, 0.06);
 }
 
-/* 切换动画使用模块主题色 */
+/* 鍒囨崲鍔ㄧ敾浣跨敤妯″潡涓婚鑹?*/
 /* .tab-content.slide-in-left,
 .tab-content.slide-in-right,
 .tab-content.slide-out-left,
@@ -212,7 +212,7 @@
   background: linear-gradient(135deg, var(--module-color, transparent), transparent 70%);
 } */
 
-/* 子标签页切换动画 */
+/* 瀛愭爣绛鹃〉鍒囨崲鍔ㄧ敾 */
 .sub-tab-content {
   animation-duration: 0.3s;
   animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
@@ -222,7 +222,7 @@
   overflow: visible;
 }
 
-/* 快速淡入效果（用于子标签页）- 统一从下方进入 */
+/* 蹇€熸贰鍏ユ晥鏋滐紙鐢ㄤ簬瀛愭爣绛鹃〉锛? 缁熶竴浠庝笅鏂硅繘鍏?*/
 @keyframes quickFadeIn {
   from {
     opacity: 0;
@@ -240,12 +240,12 @@
   animation-duration: 0.25s;
 }
 
-/* 标签按钮的过渡效果增强 */
+/* 鏍囩鎸夐挳鐨勮繃娓℃晥鏋滃寮?*/
 .tab-btn {
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* 标签按钮激活时的下划线动画 */
+/* 鏍囩鎸夐挳婵€娲绘椂鐨勪笅鍒掔嚎鍔ㄧ敾 */
 .main-tab::after {
   content: '';
   position: absolute;
@@ -265,7 +265,7 @@
   background-color: var(--cf-color);
 }
 
-/* 为每个标签类型设置::after主题色 */
+/* 涓烘瘡涓爣绛剧被鍨嬭缃?:after涓婚鑹?*/
 .main-tab.dns-tab::after {
   background-color: var(--cf-color);
 }
@@ -286,7 +286,7 @@
   background-color: var(--server-primary);
 }
 
-/* ===== Hosts 模块 - 优化展开动画 (Grid 方案) ===== */
+/* ===== Hosts 妯″潡 - 浼樺寲灞曞紑鍔ㄧ敾 (Grid 鏂规) ===== */
 .server-card-body {
   display: grid;
   grid-template-rows: 0fr;
@@ -297,28 +297,28 @@
     opacity 0.3s ease-out;
   will-change: grid-template-rows, opacity;
   transform: translateZ(0);
-  /* 开启硬件加速 */
+  /* 寮€鍚‖浠跺姞閫?*/
 }
 
 .server-card.expanded>.server-card-body {
-  padding: 0px 0px 10px 0px;
+  padding: 0px 0px var(--space-sm) 0px;
   grid-template-rows: 1fr;
   opacity: 1;
   overflow: visible;
 }
 
-/* 内部包装器，确保 Grid 转换生效 */
+/* 鍐呴儴鍖呰鍣紝纭繚 Grid 杞崲鐢熸晥 */
 .server-card-body>div {
   min-height: 0;
   overflow: hidden;
 }
 
-/* 展开后内部 div 也要 overflow visible */
+/* 灞曞紑鍚庡唴閮?div 涔熻 overflow visible */
 .server-card.expanded>.server-card-body>div {
   overflow: visible !important;
 }
 
-/* 容器操作下拉菜单 */
+/* 瀹瑰櫒鎿嶄綔涓嬫媺鑿滃崟 */
 .container-dropdown-menu {
   opacity: 1 !important;
   visibility: visible !important;
@@ -328,7 +328,7 @@
   background: var(--bg-tertiary) !important;
 }
 
-/* ===== Zeabur/OpenAPI 模块 - 使用 Grid 0fr->1fr 方案 ===== */
+/* ===== Zeabur/OpenAPI 妯″潡 - 浣跨敤 Grid 0fr->1fr 鏂规 ===== */
 .account-card-body {
   display: grid;
   grid-template-rows: 0fr;
@@ -354,16 +354,16 @@
 .account-card.expanded>.account-card-body {
   grid-template-rows: 1fr;
   opacity: 1;
-  padding-top: 8px;
+  padding-top: var(--space-sm);
   /* margin-top: 8px; */
-  padding-bottom: 5px;
+  padding-bottom: var(--space-xs);
 }
 
 .account-card.expanded>.account-card-body>* {
   overflow: visible;
 }
 
-/* 切换图标美化版 - 现代化展开箭头 */
+/* 鍒囨崲鍥炬爣缇庡寲鐗?- 鐜颁唬鍖栧睍寮€绠ご */
 .toggle-icon {
   display: inline-flex;
   align-items: center;
@@ -385,13 +385,13 @@
   background: rgba(var(--primary-rgb), 0.18);
 }
 
-/* 展开状态的箭头 */
+/* 灞曞紑鐘舵€佺殑绠ご */
 .account-card.expanded .toggle-icon,
 .server-card.expanded .toggle-icon {
   background: rgba(var(--primary-rgb), 0.15);
 }
 
-/* Zeabur/PaaS 模块箭头 */
+/* Zeabur/PaaS 妯″潡绠ご */
 .paas-sec-tab .toggle-icon {
   background: rgb(99 102 241 / 18%);
   color: #6366f1;
@@ -405,7 +405,7 @@
   background: rgb(99 102 241 / 18%);
 }
 
-/* Koyeb 模块箭头 */
+/* Koyeb 妯″潡绠ご */
 .koyeb-toggle-icon,
 .koyeb-toggle,
 [v-if*='koyeb'] .toggle-icon {
@@ -421,7 +421,7 @@
   background: rgba(79, 70, 229, 0.18) !important;
 }
 
-/* OpenAI 模块箭头 */
+/* OpenAI 妯″潡绠ご */
 .openai-tab-content .toggle-icon {
   background: rgba(16, 163, 127, 0.12);
   color: var(--openai-color);
@@ -448,7 +448,7 @@
   background: rgba(0, 212, 170, 0.18);
 }
 
-/* DNS 模块箭头 */
+/* DNS 妯″潡绠ご */
 .dns-tab-content .toggle-icon {
   background: rgba(243, 128, 32, 0.12);
   color: var(--cf-color);
@@ -458,7 +458,7 @@
   background: rgba(243, 128, 32, 0.2);
 }
 
-/* 模态框动画 */
+/* 妯℃€佹鍔ㄧ敾 */
 .modal-overlay {
   animation: fadeInOverlay 0.3s ease-out;
 }
@@ -489,7 +489,7 @@
   }
 }
 
-/* Toast 通知动画 */
+/* Toast 閫氱煡鍔ㄧ敾 */
 .custom-toast {
   animation: toastSlideIn 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -517,7 +517,7 @@
   }
 }
 
-/* 列表项交错动画 */
+/* 鍒楄〃椤逛氦閿欏姩鐢?*/
 .stagger-item {
   animation: staggerFadeIn 0.4s cubic-bezier(0.4, 0, 0.2, 1) both;
 }
@@ -534,7 +534,7 @@
   }
 }
 
-/* 为列表项添加延迟 */
+/* 涓哄垪琛ㄩ」娣诲姞寤惰繜 */
 .stagger-item:nth-child(1) {
   animation-delay: 0.05s;
 }
@@ -559,7 +559,7 @@
   animation-delay: 0.3s;
 }
 
-/* 按钮点击反馈动画 */
+/* 鎸夐挳鐐瑰嚮鍙嶉鍔ㄧ敾 */
 .btn {
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -568,7 +568,7 @@
   transform: scale(0.995);
 }
 
-/* 卡片悬停效果优化 - 只对视觉属性过渡，避免布局属性动画导致的闪烁 */
+/* 鍗＄墖鎮仠鏁堟灉浼樺寲 - 鍙瑙嗚灞炴€ц繃娓★紝閬垮厤甯冨眬灞炴€у姩鐢诲鑷寸殑闂儊 */
 .account-card,
 .stat-card,
 .zone-card,
@@ -581,7 +581,7 @@
     opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* 减少动画以提升性能（可选） */
+/* 鍑忓皯鍔ㄧ敾浠ユ彁鍗囨€ц兘锛堝彲閫夛級 */
 @media (prefers-reduced-motion: reduce) {
 
   *,
@@ -593,7 +593,7 @@
   }
 }
 
-/* 页面加载时的初始状态 */
+/* 椤甸潰鍔犺浇鏃剁殑鍒濆鐘舵€?*/
 .page-loading {
   opacity: 0;
 }

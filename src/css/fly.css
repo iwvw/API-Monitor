@@ -1,9 +1,9 @@
-/* Fly.io 模块专属样式 - 基于 Zeabur/Koyeb 样式 */
+﻿/* Fly.io 妯″潡涓撳睘鏍峰紡 - 鍩轰簬 Zeabur/Koyeb 鏍峰紡 */
 
 /* 
- * 说明:
- * 这个文件为 Fly.io 模块提供专属样式支持
- * 主要通过复写基础样式来对齐 Zeabur 和 Koyeb 的视觉效果
+ * 璇存槑:
+ * 杩欎釜鏂囦欢涓?Fly.io 妯″潡鎻愪緵涓撳睘鏍峰紡鏀寔
+ * 涓昏閫氳繃澶嶅啓鍩虹鏍峰紡鏉ュ榻?Zeabur 鍜?Koyeb 鐨勮瑙夋晥鏋?
  */
 
 :root {
@@ -12,13 +12,13 @@
   --fly-secondary: #d946ef;
 }
 
-/* 双击编辑样式预览 - 应用名称 (对齐 Zeabur/Koyeb) */
+/* 鍙屽嚮缂栬緫鏍峰紡棰勮 - 搴旂敤鍚嶇О (瀵归綈 Zeabur/Koyeb) */
 .paas-sec-tab .fly-project-name-text {
   cursor: text;
   user-select: none;
   transition: all 0.2s ease;
-  padding: 2px 4px;
-  border-radius: 4px;
+  padding: 2px var(--space-xs);
+  border-radius: var(--radius-sm);
 }
 
 .paas-sec-tab .fly-project-name-text:hover {
@@ -26,13 +26,13 @@
   box-shadow: 0 0 0 1px rgba(var(--fly-primary-rgb), 0.2);
 }
 
-/* 双击编辑样式预览 - 服务名称 */
+/* 鍙屽嚮缂栬緫鏍峰紡棰勮 - 鏈嶅姟鍚嶇О */
 .paas-sec-tab .fly-service-name {
   cursor: text;
   user-select: none;
   transition: all 0.2s ease;
-  padding: 2px 4px;
-  border-radius: 4px;
+  padding: 2px var(--space-xs);
+  border-radius: var(--radius-sm);
 }
 
 .paas-sec-tab .fly-service-name:hover {
@@ -40,7 +40,7 @@
   box-shadow: 0 0 0 1px rgba(var(--fly-primary-rgb), 0.2);
 }
 
-/* 单应用模式 - 铺满一行 (对齐 Koyeb) */
+/* 鍗曞簲鐢ㄦā寮?- 閾烘弧涓€琛?(瀵归綈 Koyeb) */
 .paas-sec-tab .fly-projects-grid.single-app {
   display: block;
 }
@@ -50,25 +50,25 @@
   max-width: 100%;
 }
 
-/* ========== Fly.io 专属视觉定制 (对齐其它模块) ========== */
+/* ========== Fly.io 涓撳睘瑙嗚瀹氬埗 (瀵归綈鍏跺畠妯″潡) ========== */
 
 /* Account Card */
 .fly-account-card {
   border-color: rgba(var(--fly-primary-rgb), 0.15);
 }
 
-/* 账号卡片展开状态的 Header 渐变 */
+/* 璐﹀彿鍗＄墖灞曞紑鐘舵€佺殑 Header 娓愬彉 */
 .fly-account-card.expanded .fly-account-header {
   background: linear-gradient(to right, rgba(var(--fly-primary-rgb), 0.05), transparent);
 }
 
-/* 账号头像渐变 */
+/* 璐﹀彿澶村儚娓愬彉 */
 .fly-account-avatar {
   background: linear-gradient(135deg, var(--fly-primary) 0%, var(--fly-secondary) 100%);
   box-shadow: 0 3px 10px rgba(var(--fly-primary-rgb), 0.25);
 }
 
-/* 展开切换按钮颜色 */
+/* 灞曞紑鍒囨崲鎸夐挳棰滆壊 */
 .fly-toggle {
   background: rgba(var(--fly-primary-rgb), 0.08);
   color: var(--fly-primary);
@@ -78,17 +78,17 @@
   background: rgba(var(--fly-primary-rgb), 0.15);
 }
 
-/* 项目卡片 Hover 高亮 */
+/* 椤圭洰鍗＄墖 Hover 楂樹寒 */
 .fly-project-card:hover {
   border-color: rgba(var(--fly-primary-rgb), 0.3);
 }
 
-/* 项目头部渐变 */
+/* 椤圭洰澶撮儴娓愬彉 */
 .fly-project-header {
   background: linear-gradient(to right, rgba(var(--fly-primary-rgb), 0.03), transparent);
 }
 
-/* 状态徽章映射修正 */
+/* 鐘舵€佸窘绔犳槧灏勪慨姝?*/
 .fly-service-item.running {
   background-color: rgba(16, 185, 129, 0.1);
   border-color: rgba(16, 185, 129, 0.2);
@@ -99,7 +99,7 @@
   border-color: rgba(239, 68, 68, 0.2);
 }
 
-/* 按钮颜色对齐 */
+/* 鎸夐挳棰滆壊瀵归綈 */
 .fly-btn {
   background-color: rgba(var(--fly-primary-rgb), 0.1);
   color: var(--fly-primary);
@@ -110,7 +110,7 @@
   border-color: var(--fly-primary);
 }
 
-/* 域名链接颜色 */
+/* 鍩熷悕閾炬帴棰滆壊 */
 .fly-domain-link {
   color: var(--fly-primary);
 }

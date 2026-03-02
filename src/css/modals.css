@@ -1,4 +1,4 @@
-/* Modal & Form Styles */
+﻿/* Modal & Form Styles */
 
 .modal-overlay {
   position: fixed;
@@ -12,8 +12,8 @@
   align-items: center;
   justify-content: center;
   z-index: 2000000;
-  /* 绝对置顶，压制所有终端和菜单 */
-  padding: 20px;
+  /* 缁濆缃《锛屽帇鍒舵墍鏈夌粓绔拰鑿滃崟 */
+  padding: var(--space-xl);
 }
 
 .modal-overlay.logs-fullscreen-overlay {
@@ -30,7 +30,7 @@
 
 .modal {
   background-color: var(--card-bg);
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   padding: 0;
   max-width: 480px;
   width: 95%;
@@ -40,7 +40,7 @@
   box-shadow: 0 15px 50px rgba(0, 0, 0, 0.25);
   overflow: hidden;
   position: relative;
-  /* 强制裁切圆角，解决部分浏览器背景色溢出问题 */
+  /* 寮哄埗瑁佸垏鍦嗚锛岃В鍐抽儴鍒嗘祻瑙堝櫒鑳屾櫙鑹叉孩鍑洪棶棰?*/
   -webkit-mask-image: -webkit-radial-gradient(white, black);
   border: 1px solid var(--border-color);
   transition:
@@ -48,43 +48,43 @@
     opacity 0.3s ease;
 }
 
-/* 手动深色模式支持 */
+/* 鎵嬪姩娣辫壊妯″紡鏀寔 */
 [data-theme='dark'] .modal {
   background-color: var(--card-bg);
   border-color: var(--border-color);
 }
 
-/* 大尺寸模态框 */
+/* 澶у昂瀵告ā鎬佹 */
 .modal-lg {
   max-width: 900px;
 }
 
-/* 小尺寸模态框 */
+/* 灏忓昂瀵告ā鎬佹 */
 .modal-sm {
   max-width: 400px;
 }
 
-/* 权限修改模态框样式 */
+/* 鏉冮檺淇敼妯℃€佹鏍峰紡 */
 .permissions-grid {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 .permissions-row {
   display: grid;
   grid-template-columns: 80px repeat(3, 1fr);
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 .permissions-row.permissions-header {
   font-weight: 600;
   color: var(--text-secondary);
   font-size: 13px;
-  padding-bottom: 8px;
+  padding-bottom: var(--space-sm);
   border-bottom: 1px solid var(--border-color);
-  margin-bottom: 4px;
+  margin-bottom: var(--space-xs);
 }
 
 .permissions-label {
@@ -104,17 +104,17 @@
   accent-color: var(--primary-color);
 }
 
-/* 属性查看模态框样式 */
+/* 灞炴€ф煡鐪嬫ā鎬佹鏍峰紡 */
 .properties-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--space-md);
 }
 
 .properties-item {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 .properties-item .properties-label {
@@ -130,30 +130,30 @@
   flex: 1;
 }
 
-/* 模态框内容区域 */
+/* 妯℃€佹鍐呭鍖哄煙 */
 .modal-body {
-  padding: 10px 16px;
+  padding: var(--space-sm) var(--space-lg);
   overflow-y: auto;
   flex: 1;
 }
 
-/* 无内部结构的简单模态框(如登录框) */
+/* 鏃犲唴閮ㄧ粨鏋勭殑绠€鍗曟ā鎬佹(濡傜櫥褰曟) */
 .modal:not(:has(.modal-body)):not(:has(.modal-footer)) {
-  padding: 7px 15px 15px 15px;
+  padding: 7px var(--space-lg) var(--space-lg) var(--space-lg);
 }
 
-/* 模态框底部 */
+/* 妯℃€佹搴曢儴 */
 .modal-footer {
-  padding: 16px 20px;
+  padding: var(--space-lg) var(--space-xl);
   border-top: 1px solid var(--border-color);
   background: var(--bg-secondary);
   display: flex;
   justify-content: flex-end;
-  gap: 12px;
+  gap: var(--space-md);
 }
 
 .modal-header {
-  padding: 12px 16px;
+  padding: var(--space-md) var(--space-lg);
   background-color: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
   display: flex;
@@ -163,7 +163,7 @@
   min-height: 48px;
 }
 
-/* 全站统一关闭按钮样式 - 使用 Flex 子项确保居中 */
+/* 鍏ㄧ珯缁熶竴鍏抽棴鎸夐挳鏍峰紡 - 浣跨敤 Flex 瀛愰」纭繚灞呬腑 */
 .modal-close,
 .close-btn {
   width: 28px;
@@ -178,21 +178,21 @@
   cursor: pointer;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   margin-left: auto;
-  /* 靠右对齐 */
+  /* 闈犲彸瀵归綈 */
   flex-shrink: 0;
 }
 
-/* 移除特定的绝对定位偏移，让 Flex 生效 */
+/* 绉婚櫎鐗瑰畾鐨勭粷瀵瑰畾浣嶅亸绉伙紝璁?Flex 鐢熸晥 */
 .modal .modal-close {
   position: static !important;
 }
 
-/* 兜底：如果不在 header 内，则保持绝对定位但位置优化 */
+/* 鍏滃簳锛氬鏋滀笉鍦?header 鍐咃紝鍒欎繚鎸佺粷瀵瑰畾浣嶄絾浣嶇疆浼樺寲 */
 .modal>.modal-close:only-child,
 .modal>.close-btn {
   position: absolute !important;
-  top: 10px;
-  right: 10px;
+  top: var(--space-sm);
+  right: var(--space-sm);
 }
 
 .modal-close:hover,
@@ -207,7 +207,7 @@
   transform: rotate(90deg) scale(0.9);
 }
 
-/* 针对标签页和特殊位置的微调 */
+/* 閽堝鏍囩椤靛拰鐗规畩浣嶇疆鐨勫井璋?*/
 .ssh-tab-close,
 .close-split-btn {
   width: 18px;
@@ -236,15 +236,15 @@
 }
 
 .form-group {
-  padding-bottom: 5px;
+  padding-bottom: var(--space-xs);
 }
 
 .form-input {
   /* margin-bottom: 8px; */
   width: 100%;
-  padding: 10px 12px;
+  padding: var(--space-sm) var(--space-md);
   border: 1px solid var(--input-border);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   font-size: 14px;
   background-color: var(--bg-secondary);
   color: var(--text-primary);
@@ -260,12 +260,12 @@
   box-shadow: 0 0 0 3px rgba(var(--primary-rgb), 0.1);
 }
 
-/* 小尺寸输入框 - 用于模型重定向等 */
+/* 灏忓昂瀵歌緭鍏ユ - 鐢ㄤ簬妯″瀷閲嶅畾鍚戠瓑 */
 .form-input-sm {
   width: 100%;
-  padding: 8px 12px;
+  padding: var(--space-sm) var(--space-md);
   border: 1px solid var(--input-border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   font-size: 13px;
   background-color: var(--bg-secondary);
   color: var(--text-primary);
@@ -283,9 +283,9 @@
 
 .form-textarea {
   width: 100%;
-  padding: 10px 12px;
+  padding: var(--space-sm) var(--space-md);
   border: 1px solid var(--input-border);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   font-size: 14px;
   background-color: var(--bg-secondary);
   color: var(--text-primary);
@@ -305,7 +305,7 @@
 .form-help {
   font-size: 12px;
   color: var(--text-tertiary);
-  margin-top: 4px;
+  margin-top: var(--space-xs);
 }
 
 .form-error {
@@ -318,15 +318,15 @@
 .form-success {
   color: var(--success-color);
   font-size: 13px;
-  margin-top: 4px;
+  margin-top: var(--space-xs);
 }
 
 /* Edit Controls */
 .edit-input {
   width: 120px;
-  padding: 4px 28px 4px 8px;
+  padding: var(--space-xs) 28px var(--space-xs) var(--space-sm);
   border: 1px solid var(--input-focus-border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   font-size: 14px;
   font-weight: 600;
   outline: none;
@@ -335,10 +335,10 @@
 }
 
 .edit-btn {
-  padding: 4px 8px;
+  padding: var(--space-xs) var(--space-sm);
   background-color: rgba(99, 102, 241, 0.2);
   border: 1px solid rgba(99, 102, 241, 0.4);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   transition: all 0.2s;
   display: flex;
@@ -352,10 +352,10 @@
 
 .cancel-btn {
   position: absolute;
-  right: 4px;
+  right: var(--space-xs);
   top: 50%;
   transform: translateY(-50%);
-  padding: 2px 4px;
+  padding: 2px var(--space-xs);
   background-color: transparent;
   border: none;
   cursor: pointer;
@@ -371,7 +371,7 @@
 .cancel-btn:hover {
   color: var(--danger-color);
   background-color: rgba(239, 68, 68, 0.1);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
 }
 
 .account-name-edit {
@@ -384,14 +384,14 @@
   display: flex;
   flex-direction: column;
   gap: 3px;
-  margin-bottom: 16px;
+  margin-bottom: var(--space-lg);
 }
 
 .account-item {
   padding-left: 18px !important;
   background-color: var(--card-bg);
-  border-radius: 10px;
-  padding: 10px;
+  border-radius: var(--radius-md);
+  padding: var(--space-sm);
   border: 1px solid var(--border-color);
   transition:
     transform 0.3s,
@@ -412,7 +412,7 @@
   flex: 1;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-md);
 }
 
 .account-item-name {
@@ -438,8 +438,8 @@
 
 .custom-dialog {
   background-color: var(--card-bg);
-  border-radius: 12px;
-  padding: 24px;
+  border-radius: var(--radius-lg);
+  padding: var(--space-xl);
   max-width: 400px;
   width: 90%;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
@@ -450,29 +450,29 @@
   font-size: 18px;
   font-weight: 600;
   color: var(--text-primary);
-  margin-bottom: 12px;
+  margin-bottom: var(--space-md);
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 .custom-dialog-message {
   font-size: 14px;
   color: var(--text-secondary);
-  margin-bottom: 20px;
+  margin-bottom: var(--space-xl);
   line-height: 1.5;
 }
 
 .custom-dialog-input {
   width: 100%;
-  padding: 10px 12px;
+  padding: var(--space-sm) var(--space-md);
   border: 1px solid var(--input-border);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   font-size: 14px;
   background-color: var(--input-bg);
   color: var(--text-primary);
   transition: border-color 0.2s;
-  margin-bottom: 20px;
+  margin-bottom: var(--space-xl);
   box-sizing: border-box;
 }
 
@@ -483,7 +483,7 @@
 
 .custom-dialog-buttons {
   display: flex;
-  gap: 12px;
+  gap: var(--space-md);
   justify-content: flex-end;
 }
 
@@ -519,44 +519,44 @@
   }
 
   .modal-header {
-    padding: 16px 20px;
+    padding: var(--space-lg) var(--space-xl);
   }
 
   .modal-body {
-    padding: 12px;
+    padding: var(--space-md);
   }
 
   .modal-footer {
-    padding: 14px 20px;
+    padding: var(--space-lg) var(--space-xl);
   }
 }
 
-/* 现代化视图切换按钮 (Pill Toggle) - 极简紧凑版 */
+/* 鐜颁唬鍖栬鍥惧垏鎹㈡寜閽?(Pill Toggle) - 鏋佺畝绱у噾鐗?*/
 .view-toggle-container {
-  padding: 10px 20px;
+  padding: var(--space-sm) var(--space-xl);
   background: transparent;
   border-bottom: 1px solid var(--border-color);
   display: flex;
   justify-content: flex-end;
-  /* 改为靠右对齐 */
+  /* 鏀逛负闈犲彸瀵归綈 */
 }
 
 .pill-group {
   display: inline-flex;
   background: rgba(0, 0, 0, 0.03);
   padding: 2px;
-  /* 进一步缩减 */
-  border-radius: 20px;
+  /* 杩涗竴姝ョ缉鍑?*/
+  border-radius: var(--radius-lg);
   border: 1px solid var(--border-color);
 }
 
 .pill-btn {
   border: none;
-  padding: 4px 12px;
-  /* 缩减宽度 */
-  border-radius: 18px;
+  padding: var(--space-xs) var(--space-md);
+  /* 缂╁噺瀹藉害 */
+  border-radius: var(--radius-lg);
   font-size: 12px;
-  /* 字号减小 */
+  /* 瀛楀彿鍑忓皬 */
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
@@ -567,30 +567,30 @@
   color: var(--text-secondary);
 }
 
-/* 选中态 */
+/* 閫変腑鎬?*/
 .pill-btn.active {
   background: var(--ag-primary) !important;
   color: white !important;
   box-shadow: 0 2px 8px rgba(var(--ag-primary-rgb), 0.3);
   transform: none;
-  /* 移除位移以保持稳定感 */
+  /* 绉婚櫎浣嶇Щ浠ヤ繚鎸佺ǔ瀹氭劅 */
 }
 
-/* 悬停态：仅针对非活动按钮 */
+/* 鎮仠鎬侊細浠呴拡瀵归潪娲诲姩鎸夐挳 */
 .pill-btn:not(.active):hover {
   background: rgba(var(--ag-primary-rgb), 0.08) !important;
   color: var(--ag-primary) !important;
   transform: translateY(-1px);
 }
 
-/* 点击瞬间反馈 */
+/* 鐐瑰嚮鐬棿鍙嶉 */
 .pill-btn:active {
   transform: translateY(1px) scale(0.98);
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
   transition: all 0.05s;
 }
 
-/* 图标动画 */
+/* 鍥炬爣鍔ㄧ敾 */
 .pill-btn i {
   transition: transform 0.2s ease;
 }
@@ -603,15 +603,15 @@
   color: white !important;
 }
 
-/* 迷你开关容器 (用于模态框标题栏) */
+/* 杩蜂綘寮€鍏冲鍣?(鐢ㄤ簬妯℃€佹鏍囬鏍? */
 .mini-view-toggle {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
   cursor: pointer;
-  padding: 4px 10px;
+  padding: var(--space-xs) var(--space-sm);
   background: var(--bg-tertiary);
-  border-radius: 20px;
+  border-radius: var(--radius-lg);
   border: 1px solid var(--border-color);
   user-select: none;
   transition: all 0.2s;
@@ -621,7 +621,7 @@
   width: 28px;
   height: 14px;
   background: #ccc;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   position: relative;
   transition: background 0.3s;
 }
@@ -651,20 +651,20 @@
   transform: scale(0.95);
 }
 
-/* 迷你药片式选择器 */
+/* 杩蜂綘鑽墖寮忛€夋嫨鍣?*/
 .pill-group-mini {
   display: inline-flex;
   background: var(--bg-tertiary);
   padding: 3px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--border-color);
 }
 
 .pill-group-mini button {
   background: transparent;
   color: var(--text-secondary);
-  padding: 4px 10px;
-  border-radius: 6px;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-sm);
   font-size: 11px;
   border: none;
   font-weight: 600;

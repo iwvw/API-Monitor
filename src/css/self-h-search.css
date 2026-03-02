@@ -1,4 +1,4 @@
-/* 展开式搜索框样式 */
+﻿/* 灞曞紑寮忔悳绱㈡鏍峰紡 */
 .search-box-expandable {
   display: flex;
   align-items: center;
@@ -11,12 +11,12 @@
   height: 32px;
   background: var(--bg-primary);
   border: 1px solid var(--border-color);
-  border-radius: 6px;
-  padding: 0 10px;
+  border-radius: var(--radius-sm);
+  padding: 0 var(--space-sm);
   font-size: 13px;
   color: var(--text-primary);
   outline: none;
-  margin-right: 8px;
+  margin-right: var(--space-sm);
   box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
 }
 
@@ -41,6 +41,6 @@
     opacity: 1;
     transform: translateX(0);
     width: 200px;
-    padding: 0 10px;
+    padding: 0 var(--space-sm);
   }
 }

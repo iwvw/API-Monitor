@@ -1,9 +1,25 @@
+*::-webkit-scrollbar { display: none !important; width: 0 !important; height: 0 !important; }
 /* API Monitor - Main Styles */
 
-/* 字体图标库已移至 index.html <head> 中通过 <link> 标签加载，避免 @import 阻塞渲染 */
+/* 瀛椾綋鍥炬爣搴撳凡绉昏嚦 index.html <head> 涓€氳繃 <link> 鏍囩鍔犺浇锛岄伩鍏?@import 闃诲娓叉煋 */
 
+/* 闅愬叆寮忕幇浠ｆ粴鍔ㄦ潯浣撻獙缁熶竴閰嶇疆 */
 ::-webkit-scrollbar {
-  display: none !important;
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: var(--border-color);
+  border-radius: var(--radius-full);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--text-tertiary);
 }
 
 * {
@@ -33,7 +49,7 @@ body {
     background-color 0.3s,
     color 0.3s;
   overflow: auto;
-  /* 核心修复：禁止 body 层级的滚动，由 app-main 接管 */
+  /* 鏍稿績淇锛氱姝?body 灞傜骇鐨勬粴鍔紝鐢?app-main 鎺ョ */
 }
 
 button,
@@ -75,7 +91,7 @@ pre,
   font-family: var(--font-mono) !important;
 }
 
-/* 统一时间、数值等需要等宽显示的视觉类 */
+/* 缁熶竴鏃堕棿銆佹暟鍊肩瓑闇€瑕佺瓑瀹芥樉绀虹殑瑙嗚绫?*/
 .log-time,
 .log-duration,
 .balance-amount,
@@ -86,7 +102,7 @@ pre,
 }
 
 :root {
-  /* 字体大小 */
+  /* 瀛椾綋澶у皬 */
   --font-size-xs: 11px;
   --font-size-sm: 12px;
   --font-size-base: 13px;
@@ -96,7 +112,7 @@ pre,
   --font-size-2xl: 18px;
   --font-size-3xl: 20px;
 
-  /* 核心模块颜色系统 - 高辨识度调色盘 */
+  /* 鏍稿績妯″潡棰滆壊绯荤粺 - 楂樿鲸璇嗗害璋冭壊鐩?*/
   --openai-primary: #10a37f;
   --openai-dark: #0d8a6a;
   --openai-rgb: 16, 163, 127;
@@ -137,7 +153,7 @@ pre,
   --filebox-dark: #059669;
   --filebox-rgb: 16, 185, 129;
 
-  /* 常用功能色映射 (核心驱动) */
+  /* 甯哥敤鍔熻兘鑹叉槧灏?(鏍稿績椹卞姩) */
   --primary-color: var(--paas-primary);
   --primary-dark: var(--paas-dark);
   --success-color: #10b981;
@@ -146,9 +162,45 @@ pre,
   --danger-color: #ef4444;
   --info-color: #3b82f6;
 
-  /* --- 现代化表单系统 (Modern Form System) --- */
+  /* ================= 闂磋窛涓庡竷灞€绯荤粺 (Spacing Scales) ================= */
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 12px;
+  --space-lg: 16px;
+  --space-xl: 24px;
+  --space-2xl: 32px;
+
+  /* ================= 鍦嗚銆佽竟妗嗕笌灞傜骇 (Radius, Border & Z-Index) ================= */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-full: 9999px;
+
+  --border-subtle: 1px solid var(--border-color);
+  --border-heavy: 2px solid var(--border-color);
+
+  --z-index-base: 1;
+  --z-index-sticky: 100;
+  --z-index-dropdown: 200;
+  --z-index-drawer: 800;
+  --z-index-modal-bg: 1040;
+  --z-index-modal: 1050;
+  --z-index-popover: 1060;
+  --z-index-tooltip: 1070;
+  --z-index-toast: 2000;
+  --z-index-high-modal: 3000;
+  --z-index-system: 9999;
+
+  /* ================= 楂樼骇鑳屾櫙涓庝氦浜?(Materials & Motion) ================= */
+  --glass-bg: rgba(var(--bg-secondary-rgb), 0.75);
+  --backdrop-blur: blur(12px);
+
+  --transition-fast: 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  --transition-normal: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+
+  /* --- 鐜颁唬鍖栬〃鍗曠郴缁?(Modern Form System) --- */
   .form-group-modern {
-    margin-bottom: 16px;
+    margin-bottom: var(--space-lg);
   }
 
   .form-label-modern {
@@ -164,8 +216,8 @@ pre,
   .form-select-modern,
   .form-textarea-modern {
     width: 100%;
-    padding: 10px 14px;
-    border-radius: 10px;
+    padding: var(--space-sm) var(--space-lg);
+    border-radius: var(--radius-md);
     border: 1px solid var(--border-color);
     background: var(--bg-primary);
     color: var(--text-primary);
@@ -189,7 +241,7 @@ pre,
     opacity: 0.5;
   }
 
-  /* 现代化选择框自定义箭头 */
+  /* 鐜颁唬鍖栭€夋嫨妗嗚嚜瀹氫箟绠ご */
   .form-select-modern {
     -webkit-appearance: none;
     -moz-appearance: none;
@@ -208,11 +260,11 @@ pre,
     background-position: right 14px center !important;
   }
 
-  /* --- 开关组件 (Modern Switch) --- */
+  /* --- 寮€鍏崇粍浠?(Modern Switch) --- */
   .ag-switch-container {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: var(--space-md);
     cursor: pointer;
   }
 
@@ -275,25 +327,25 @@ pre,
     color: var(--text-secondary);
   }
 
-  /* --- 通用组件样式 --- */
+  /* --- 閫氱敤缁勪欢鏍峰紡 --- */
 
-  /* 二级标签栏基础布局 */
+  /* 浜岀骇鏍囩鏍忓熀纭€甯冨眬 */
   .sec-tabs {
     display: flex;
     gap: 6px;
     /* margin-bottom: 10px; */
-    margin-top: 10px;
+    margin-top: var(--space-sm);
     /* border-bottom: 1px solid var(--border-color); */
-    padding-bottom: 10px;
+    padding-bottom: var(--space-sm);
     align-items: center;
     justify-content: center;
-    /* 电脑端居中 */
+    /* 鐢佃剳绔眳涓?*/
     flex-wrap: nowrap;
-    /* 强制单行显示 */
+    /* 寮哄埗鍗曡鏄剧ず */
     overflow-x: auto;
-    /* 支持左右滚动 */
+    /* 鏀寔宸﹀彸婊氬姩 */
     scrollbar-width: none;
-    /* 隐藏滚动条 (Firefox) */
+    /* 闅愯棌婊氬姩鏉?(Firefox) */
     -webkit-overflow-scrolling: touch;
   }
 
@@ -302,7 +354,7 @@ pre,
     /* border-bottom: 2px solid rgba(255, 106, 0, 0.1); */
   }
 
-  /* 单页模式下移除分割线和标题栏 */
+  /* 鍗曢〉妯″紡涓嬬Щ闄ゅ垎鍓茬嚎鍜屾爣棰樻爮 */
   body.single-page-mode .sec-tabs,
   body.single-page-mode [class*='-sec-tabs'] {
     border-bottom: none;
@@ -322,21 +374,21 @@ pre,
 
   .sec-tabs::-webkit-scrollbar {
     display: none;
-    /* 隐藏滚动条 (Chrome/Safari) */
+    /* 闅愯棌婊氬姩鏉?(Chrome/Safari) */
   }
 
-  /* 标签按钮基础样式 */
+  /* 鏍囩鎸夐挳鍩虹鏍峰紡 */
   .tab-btn {
     min-width: 90px;
-    padding: 8px 14px;
+    padding: var(--space-sm) var(--space-lg);
     border: 1px solid var(--border-color);
-    /* 添加边框 */
+    /* 娣诲姞杈规 */
     background: var(--bg-secondary);
     cursor: pointer;
     font-size: 13px;
     font-weight: 600;
     color: var(--text-secondary);
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
     display: inline-flex;
     align-items: center;
@@ -351,7 +403,7 @@ pre,
     color: var(--text-primary);
   }
 
-  /* 模块主题色边框悬停适配 */
+  /* 妯″潡涓婚鑹茶竟妗嗘偓鍋滈€傞厤 */
   .theme-openai .tab-btn:hover:not(.active) {
     border-color: var(--openai-primary) !important;
   }
@@ -390,18 +442,18 @@ pre,
 
   .tab-btn.active {
     border-color: rgba(0, 0, 0, 0.1) !important;
-    /* 激活时保持细微边框感 */
+    /* 婵€娲绘椂淇濇寔缁嗗井杈规鎰?*/
   }
 
-  /* --- 模块主题类定义 --- */
+  /* --- 妯″潡涓婚绫诲畾涔?--- */
 
-  /* 二级标签页激活状态通用逻辑 */
+  /* 浜岀骇鏍囩椤垫縺娲荤姸鎬侀€氱敤閫昏緫 */
   .tab-content .sec-tabs .tab-btn.active {
     color: white !important;
     transition: all 0.3s ease;
   }
 
-  /* 通用元素颜色覆盖逻辑 */
+  /* 閫氱敤鍏冪礌棰滆壊瑕嗙洊閫昏緫 */
   .theme-dashboard,
   .theme-openai,
   .theme-antigravity,
@@ -508,7 +560,7 @@ pre,
     --current-rgb: 0, 82, 217;
   }
 
-  /* 通用输入框图标样式 */
+  /* 閫氱敤杈撳叆妗嗗浘鏍囨牱寮?*/
   .input-with-icon {
     position: relative;
     display: flex;
@@ -518,7 +570,7 @@ pre,
 
   .input-with-icon i {
     position: absolute;
-    left: 12px;
+    left: var(--space-md);
     color: var(--text-tertiary);
     font-size: 14px;
     pointer-events: none;
@@ -549,7 +601,7 @@ pre,
     color: #ff6a00 !important;
   }
 
-  /* 应用动态颜色到通用组件 */
+  /* 搴旂敤鍔ㄦ€侀鑹插埌閫氱敤缁勪欢 */
   [class*='theme-'] .btn-primary {
     background: var(--current-primary) !important;
     border-color: var(--current-primary) !important;
@@ -576,7 +628,7 @@ pre,
     background: var(--current-primary) !important;
   }
 
-  /* 模块专属激活态阴影适配 */
+  /* 妯″潡涓撳睘婵€娲绘€侀槾褰遍€傞厤 */
   .theme-openai .tab-btn.active {
     background: linear-gradient(135deg, var(--openai-primary), var(--openai-dark)) !important;
     box-shadow: 0 2px 8px rgba(16, 163, 127, 0.3);
@@ -654,7 +706,7 @@ pre,
     border-width: 1.2px;
   }
 
-  /* 品牌 Logo 呼吸加载器 */
+  /* 鍝佺墝 Logo 鍛煎惛鍔犺浇鍣?*/
   .ag-logo-pulse {
     position: relative;
     display: flex;
@@ -667,19 +719,19 @@ pre,
     height: 40px;
     filter: drop-shadow(0 0 0px var(--current-primary));
     animation: ag-logo-breath 2.5s ease-in-out infinite;
-    /* 禁止选中和拖动 */
+    /* 绂佹閫変腑鍜屾嫋鍔?*/
     user-select: none;
     -webkit-user-drag: none;
     pointer-events: none;
   }
 
-  /* 加载遮罩层 */
+  /* 鍔犺浇閬僵灞?*/
   .loading-overlay-elegant {
     display: flex;
     flex-direction: column;
     align-items: center;
     justify-content: center;
-    gap: 24px;
+    gap: var(--space-xl);
     padding: 60px;
     background: transparent;
   }
@@ -694,9 +746,9 @@ pre,
     opacity: 0.6;
   }
 
-  /* --- 结束 AG-Loading-System 定义 --- */
+  /* --- 缁撴潫 AG-Loading-System 瀹氫箟 --- */
 
-  /* 颜色 */
+  /* 棰滆壊 */
   --primary-color: #6366f1;
   --primary-rgb: 99,
   102,
@@ -715,7 +767,7 @@ pre,
   --openai-dark: #0d8a6a;
   --paas-color: #6366f1;
 
-  /* Zeabur 模块主题色 */
+  /* Zeabur 妯″潡涓婚鑹?*/
   --zeabur-primary: #6366f1;
   --zeabur-primary-rgb: 99,
   102,
@@ -756,7 +808,7 @@ pre,
   --status-deploying: #8b5cf6;
   --status-paused: #6b7280;
   --sidebar-bg: #f8fafc;
-  /* 使用更高级的蓝灰色调 */
+  /* 浣跨敤鏇撮珮绾х殑钃濈伆鑹茶皟 */
   --sidebar-border: #e2e8f0;
   --sidebar-width: 60px;
 }
@@ -792,7 +844,7 @@ pre,
   }
 }
 
-/* 手动深色模式支持 (与媒体查询保持同步) */
+/* 鎵嬪姩娣辫壊妯″紡鏀寔 (涓庡獟浣撴煡璇繚鎸佸悓姝? */
 [data-theme='dark'] {
   --bg-primary: #111827;
   --bg-secondary: #1f2937;
@@ -822,6 +874,107 @@ pre,
   --sidebar-border: #374151;
 }
 
+/* ========================================
+   Atomic UI Components (鏍囧噯鍩虹缁勪欢缇? 
+   ======================================== */
+
+/* 1. 鍏ㄥ眬鏍囧噯妯″潡鍗＄墖 */
+.ag-card {
+  background: var(--card-bg);
+  border: var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: var(--space-xl);
+  box-shadow: var(--card-shadow);
+  transition: box-shadow var(--transition-normal), border var(--transition-normal);
+}
+
+.ag-card:hover {
+  box-shadow: var(--card-hover-shadow);
+}
+
+/* 2. 灏忓昂瀵告暟鎹睍绀哄崱鐗?(濡備华琛ㄧ洏鐘舵€佸崱鐗? */
+.ag-card-sm {
+  background: var(--card-bg);
+  border: var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: var(--space-lg);
+  box-shadow: var(--card-shadow);
+}
+
+/* 3. 鍏ㄥ眬寰芥爣绯荤粺 */
+.ag-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px var(--space-sm);
+  border-radius: var(--radius-full);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.ag-badge-success {
+  background: rgba(16, 185, 129, 0.15);
+  color: var(--success-color);
+  border: 1px solid rgba(16, 185, 129, 0.2);
+}
+
+.ag-badge-danger {
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--danger-color);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+}
+
+.ag-badge-warning {
+  background: rgba(245, 158, 11, 0.15);
+  color: var(--warning-color);
+  border: 1px solid rgba(245, 158, 11, 0.2);
+}
+
+.ag-badge-info {
+  background: rgba(59, 130, 246, 0.15);
+  color: var(--info-color);
+  border: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+/* 4. 鏍囧噯鏍囬鍙婂ご閮ㄧ粍 */
+.ag-title-h2 {
+  font-size: var(--font-size-2xl);
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: var(--space-md);
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.ag-title-h3 {
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: var(--space-sm);
+}
+
+/* 5. 绌洪潰鏉?/ 鍔犺浇鍗犱綅瀹瑰櫒 */
+.ag-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-2xl);
+  color: var(--text-tertiary);
+  text-align: center;
+  background: var(--bg-secondary);
+  border: 1px dashed var(--border-color);
+  border-radius: var(--radius-md);
+}
+
+.ag-empty-state i {
+  font-size: 32px;
+  margin-bottom: var(--space-md);
+  opacity: 0.5;
+}
+
+
 body.modal-open {
   overflow: hidden;
 }
@@ -831,7 +984,7 @@ body.modal-open {
 .endpoint-badges {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 .endpoint-action-btn {
@@ -841,13 +994,13 @@ body.modal-open {
   background: rgba(16, 163, 127, 0.06);
   border: 1px solid rgba(16, 163, 127, 0.15);
   color: var(--openai-primary);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   cursor: pointer;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
   overflow: hidden;
   height: 42px;
-  /* 统一高度 */
+  /* 缁熶竴楂樺害 */
   box-sizing: border-box;
 }
 
@@ -877,13 +1030,13 @@ body.modal-open {
 .endpoint-action-btn.btn-health {
   width: 42px;
   font-size: 18px;
-  /* 图标稍大 */
+  /* 鍥炬爣绋嶅ぇ */
 }
 
 /* Models Count Button (Rect) */
 .endpoint-action-btn.btn-models {
-  padding: 0 14px;
-  gap: 10px;
+  padding: 0 var(--space-lg);
+  gap: var(--space-sm);
   min-width: 80px;
 }
 
@@ -905,7 +1058,7 @@ body.modal-open {
   font-size: 10px;
   font-weight: 600;
   color: var(--openai-dark);
-  /* 深一点的绿色 */
+  /* 娣变竴鐐圭殑缁胯壊 */
   opacity: 0.7;
   margin-bottom: 2px;
   text-transform: uppercase;
@@ -947,7 +1100,7 @@ body.modal-open {
 
   .endpoint-action-btn .action-info .label {
     color: #a7f3d0;
-    /* 浅色文字 */
+    /* 娴呰壊鏂囧瓧 */
   }
 
   .endpoint-action-btn .action-info .value {
@@ -959,13 +1112,13 @@ body.modal-open {
 .app-wrapper {
   display: flex;
   height: 100vh;
-  /* 使用固定高度 */
+  /* 浣跨敤鍥哄畾楂樺害 */
   overflow: hidden;
-  /* 初始状态隐藏，等待 Vue 渲染完成后通过 JS 添加 app-reveal 类触发淡入 */
+  /* 鍒濆鐘舵€侀殣钘忥紝绛夊緟 Vue 娓叉煋瀹屾垚鍚庨€氳繃 JS 娣诲姞 app-reveal 绫昏Е鍙戞贰鍏?*/
   opacity: 0;
 }
 
-/* 淡入动画 - 加载完成后触发 */
+/* 娣″叆鍔ㄧ敾 - 鍔犺浇瀹屾垚鍚庤Е鍙?*/
 .app-wrapper.app-reveal {
   animation: appRevealFadeIn 0.35s cubic-bezier(0.4, 0, 0.2, 1) forwards;
 }
@@ -980,7 +1133,7 @@ body.modal-open {
   }
 }
 
-/* 首次渲染期间禁用所有过渡动画，避免数据加载导致的闪烁 */
+/* 棣栨娓叉煋鏈熼棿绂佺敤鎵€鏈夎繃娓″姩鐢伙紝閬垮厤鏁版嵁鍔犺浇瀵艰嚧鐨勯棯鐑?*/
 .app-wrapper:not(.app-ready) * {
   transition: none !important;
   animation-duration: 0s !important;
@@ -993,7 +1146,7 @@ body.modal-open {
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 16px 0;
+  padding: var(--space-lg) 0;
   flex-shrink: 0;
   z-index: 100;
   transition: width 0.3s ease;
@@ -1005,7 +1158,7 @@ body.modal-open {
   display: flex;
   flex-direction: column;
   /* height: 100%; */
-  /* 改为 100% 填充容器 */
+  /* 鏀逛负 100% 濉厖瀹瑰櫒 */
   overflow-y: auto;
   position: relative;
 }
@@ -1013,8 +1166,8 @@ body.modal-open {
 .container {
   max-width: 1300px;
   margin: 0 auto;
-  padding: 12px 12px 12px 12px;
-  /* 增加底部边距确保内容不紧贴底部 */
+  padding: var(--space-md) var(--space-md) var(--space-md) var(--space-md);
+  /* 澧炲姞搴曢儴杈硅窛纭繚鍐呭涓嶇揣璐村簳閮?*/
   width: 100%;
 }
 
@@ -1026,21 +1179,21 @@ body.modal-open {
 }
 
 .container.layout-top-capsule .header {
-  padding: 10px 20px 0 20px;
+  padding: var(--space-sm) var(--space-xl) 0 var(--space-xl);
   max-width: 1300px;
-  margin: 0 auto 5px auto;
+  margin: 0 auto var(--space-xs) auto;
 }
 
 .container.layout-top-capsule>div[id^='template-'] {
   max-width: 1300px;
   margin: 0 auto;
-  padding: 0 8px 8px 8px;
+  padding: 0 var(--space-sm) var(--space-sm) var(--space-sm);
 }
 
 .sidebar-logo {
   width: 32px;
   height: 32px;
-  margin-bottom: 20px;
+  margin-bottom: var(--space-xl);
   cursor: pointer;
   transition: transform 0.2s;
 }
@@ -1054,18 +1207,18 @@ body.modal-open {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-md);
   width: 100%;
-  padding: 0 8px;
+  padding: 0 var(--space-sm);
   position: relative;
 }
 
-/* 桌面端：隐藏移动端横向展开设置容器 */
+/* 妗岄潰绔細闅愯棌绉诲姩绔í鍚戝睍寮€璁剧疆瀹瑰櫒 */
 .mobile-settings-expand-container {
   display: none;
 }
 
-/* 桌面端：隐藏移动设置展开行 */
+/* 妗岄潰绔細闅愯棌绉诲姩璁剧疆灞曞紑琛?*/
 .mobile-settings-row {
   display: none;
 }
@@ -1073,7 +1226,7 @@ body.modal-open {
 .auth-btn {
   width: 36px;
   height: 36px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   border: none;
   background: rgba(var(--primary-rgb), 0.1);
   color: var(--primary-color);
@@ -1093,14 +1246,14 @@ body.modal-open {
 .auth-input-container {
   position: absolute;
   left: 60px;
-  bottom: 20px;
+  bottom: var(--space-xl);
   background: var(--card-bg);
-  padding: 8px;
-  border-radius: 8px;
+  padding: var(--space-sm);
+  border-radius: var(--radius-md);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   border: 1px solid var(--border-color);
   display: flex;
-  gap: 8px;
+  gap: var(--space-sm);
   animation: slideInLeft 0.2s ease;
   z-index: 200;
 }
@@ -1120,8 +1273,8 @@ body.modal-open {
 .auth-input {
   background: var(--bg-primary);
   border: 1px solid var(--border-color);
-  border-radius: 4px;
-  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  padding: 6px var(--space-sm);
   color: var(--text-primary);
   font-size: 13px;
   width: 160px;
@@ -1132,32 +1285,32 @@ body.modal-open {
   border-color: var(--primary-color);
 }
 
-/* 顶部 Header 布局优化 */
+/* 椤堕儴 Header 甯冨眬浼樺寲 */
 .header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0px 5px 10px 5px;
-  margin-bottom: 5px;
+  padding: 0px var(--space-xs) var(--space-sm) var(--space-xs);
+  margin-bottom: var(--space-xs);
 }
 
 .header-actions {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-md);
 }
 
-/* 现代设置按钮样式 */
+/* 鐜颁唬璁剧疆鎸夐挳鏍峰紡 */
 .btn-settings-toggle {
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
   color: var(--text-secondary);
-  padding: 8px 16px;
-  border-radius: 10px;
+  padding: var(--space-sm) var(--space-lg);
+  border-radius: var(--radius-md);
   cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
   font-size: 13px;
   font-weight: 600;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -1186,7 +1339,7 @@ body.modal-open {
   transform: rotate(90deg);
 }
 
-/* 基础布局容器 - 增加动效支持 */
+/* 鍩虹甯冨眬瀹瑰櫒 - 澧炲姞鍔ㄦ晥鏀寔 */
 .app-wrapper {
   transition:
     transform 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.1),
@@ -1195,18 +1348,18 @@ body.modal-open {
   will-change: transform, filter;
 }
 
-/* 当设置面板激活时的背景状态 */
+/* 褰撹缃潰鏉挎縺娲绘椂鐨勮儗鏅姸鎬?*/
 .app-wrapper.settings-active-context {
   filter: blur(3px) brightness(0.9);
-  /* 轻微模糊并压暗 */
+  /* 杞诲井妯＄硦骞跺帇鏆?*/
   transform: scale(0.97);
-  /* 轻微向后缩进 */
+  /* 杞诲井鍚戝悗缂╄繘 */
   pointer-events: none;
-  /* 防止背景误触 */
+  /* 闃叉鑳屾櫙璇Е */
   user-select: none;
 }
 
-/* 移除侧边栏后的全屏适配 */
+/* 绉婚櫎渚ц竟鏍忓悗鐨勫叏灞忛€傞厤 */
 .app-wrapper.no-sidebar {
   display: flex;
   width: 100%;
@@ -1219,7 +1372,7 @@ body.modal-open {
 
 .header-actions {
   display: flex;
-  gap: 10px;
+  gap: var(--space-sm);
   align-items: center;
 }
 
@@ -1229,7 +1382,7 @@ body.modal-open {
   color: var(--text-primary);
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 /* Guest Placeholder */
@@ -1245,7 +1398,7 @@ body.modal-open {
 
 .guest-placeholder i {
   font-size: 48px;
-  margin-bottom: 16px;
+  margin-bottom: var(--space-lg);
   opacity: 0.5;
 }
 
@@ -1253,18 +1406,18 @@ body.modal-open {
 .controls {
   display: grid;
   grid-template-columns: 1fr auto;
-  gap: 16px;
+  gap: var(--space-lg);
   align-items: center;
-  margin-bottom: 10px;
+  margin-bottom: var(--space-sm);
 }
 
 .refresh-info {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-md);
   background: rgba(var(--primary-rgb), 0.05);
-  padding: 4px 12px;
-  border-radius: 10px;
+  padding: var(--space-xs) var(--space-md);
+  border-radius: var(--radius-md);
   border: 1px solid rgba(var(--primary-rgb), 0.1);
 }
 
@@ -1275,12 +1428,12 @@ body.modal-open {
   white-space: nowrap;
 }
 
-/* 按钮组间距优化 */
+/* 鎸夐挳缁勯棿璺濅紭鍖?*/
 .paas-btn-group {
   display: flex !important;
   align-items: center;
-  gap: 20px !important;
-  /* 强制拉开间距 */
+  gap: var(--space-xl) !important;
+  /* 寮哄埗鎷夊紑闂磋窛 */
 }
 
 .refresh-progress {
@@ -1288,28 +1441,28 @@ body.modal-open {
   width: 60px;
   height: 4px;
   background-color: rgba(var(--primary-rgb), 0.1);
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
   overflow: hidden;
 }
 
 .refresh-progress-bar {
   height: 100%;
   background: var(--primary-color);
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
   transition: width 1s linear;
 }
 
 /* ========================================
-   统一按钮系统 (Unified Button System)
+   缁熶竴鎸夐挳绯荤粺 (Unified Button System)
    ======================================== */
 .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: var(--space-sm);
   height: 38px;
-  padding: 0 15px;
-  border-radius: 10px;
+  padding: 0 var(--space-lg);
+  border-radius: var(--radius-md);
   font-weight: 600;
   font-size: 14px;
   letter-spacing: 0.2px;
@@ -1324,7 +1477,7 @@ body.modal-open {
   background: var(--bg-tertiary);
 }
 
-/* --- 功能变体 (Functional Variants) --- */
+/* --- 鍔熻兘鍙樹綋 (Functional Variants) --- */
 .btn-primary {
   background: var(--primary-color);
   color: white;
@@ -1361,7 +1514,7 @@ body.modal-open {
   color: white;
 }
 
-/* 幽灵按钮/外框按钮 */
+/* 骞界伒鎸夐挳/澶栨鎸夐挳 */
 .btn-ghost {
   background: transparent;
   border-color: transparent;
@@ -1385,33 +1538,33 @@ body.modal-open {
   background: rgba(var(--primary-rgb), 0.05);
 }
 
-/* --- 尺寸规范 (Sizes) --- */
+/* --- 灏哄瑙勮寖 (Sizes) --- */
 .btn-lg {
   height: 48px;
   padding: 0 28px;
   font-size: 16px;
-  border-radius: 14px;
+  border-radius: var(--radius-lg);
 }
 
 .btn-sm {
   height: 32px;
-  padding: 0 12px;
+  padding: 0 var(--space-md);
   font-size: 13px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   gap: 6px;
 }
 
 .btn-xs {
   height: 26px;
-  padding: 0 8px;
+  padding: 0 var(--space-sm);
   font-size: 12px;
-  border-radius: 6px;
-  gap: 4px;
+  border-radius: var(--radius-sm);
+  gap: var(--space-xs);
 }
 
-/* --- 形状规范 (Shapes) --- */
+/* --- 褰㈢姸瑙勮寖 (Shapes) --- */
 .btn-pill {
-  border-radius: 999px;
+  border-radius: var(--radius-full);
 }
 
 .btn-circle {
@@ -1436,7 +1589,7 @@ body.modal-open {
 .btn-square {
   width: 38px;
   padding: 0;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
 }
 
 .btn-square.btn-lg {
@@ -1451,7 +1604,7 @@ body.modal-open {
   width: 26px;
 }
 
-/* --- 交互状态 (States) --- */
+/* --- 浜や簰鐘舵€?(States) --- */
 .btn:hover:not(:disabled) {
   filter: brightness(1.1);
   border-color: rgba(var(--primary-rgb), 0.2);
@@ -1468,7 +1621,7 @@ body.modal-open {
   filter: grayscale(0.5);
 }
 
-/* 加载状态 (Loading) */
+/* 鍔犺浇鐘舵€?(Loading) */
 .btn-loading {
   color: transparent !important;
   pointer-events: none;
@@ -1491,7 +1644,7 @@ body.modal-open {
   }
 }
 
-/* 图标大小修正 */
+/* 鍥炬爣澶у皬淇 */
 .btn i {
   font-size: inherit;
 }
@@ -1504,7 +1657,7 @@ body.modal-open {
   font-size: 11px;
 }
 
-/* 遗留/兼容类名修正 */
+/* 閬楃暀/鍏煎绫诲悕淇 */
 .btn.icon-only {
   width: 40px;
   padding: 0;
@@ -1538,15 +1691,15 @@ body.modal-open {
 .info-card {
   display: none;
   background-color: var(--card-bg);
-  border-radius: 10px;
-  padding: 8px;
-  margin-bottom: 10px;
+  border-radius: var(--radius-md);
+  padding: var(--space-sm);
+  margin-bottom: var(--space-sm);
   border: 1px solid var(--border-color);
 }
 
 .info-card-title {
   font-weight: 600;
-  margin-bottom: 8px;
+  margin-bottom: var(--space-sm);
   color: var(--primary-color);
 }
 
@@ -1559,20 +1712,20 @@ body.modal-open {
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-  gap: 12px;
-  margin-bottom: 10px;
+  gap: var(--space-md);
+  margin-bottom: var(--space-sm);
 }
 
 .stat-card {
-  padding: 7px 12px;
+  padding: 7px var(--space-md);
   background-color: var(--card-bg);
-  border-radius: 14px;
+  border-radius: var(--radius-lg);
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-md);
   box-shadow: var(--card-shadow);
   border: 1px solid var(--border-color);
-  /* 只对视觉属性过渡，避免布局属性动画导致的闪烁 */
+  /* 鍙瑙嗚灞炴€ц繃娓★紝閬垮厤甯冨眬灞炴€у姩鐢诲鑷寸殑闂儊 */
   transition:
     transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
     box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1),
@@ -1602,7 +1755,7 @@ body.modal-open {
 .stat-icon-wrapper {
   width: 44px;
   height: 44px;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1654,9 +1807,9 @@ body.modal-open {
 /* Account Cards - Unified Style with Hosts Module */
 .account-card {
   background-color: var(--card-bg);
-  border-radius: 16px;
-  padding: 4px;
-  margin-bottom: 12px;
+  border-radius: var(--radius-lg);
+  padding: var(--space-xs);
+  margin-bottom: var(--space-md);
   border: 1px solid var(--border-color);
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
@@ -1678,7 +1831,7 @@ body.modal-open {
   justify-content: center;
   color: var(--text-tertiary);
   transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  margin-right: 4px;
+  margin-right: var(--space-xs);
   border-radius: 50% !important;
   flex-shrink: 0;
   aspect-ratio: 1 / 1;
@@ -1690,9 +1843,9 @@ body.modal-open {
 }
 
 .account-header {
-  padding: 5px 5px 5px 10px;
+  padding: var(--space-xs) var(--space-xs) var(--space-xs) var(--space-sm);
   background: transparent;
-  border-radius: 14px;
+  border-radius: var(--radius-lg);
   min-height: 54px;
   display: flex;
   justify-content: flex-start;
@@ -1722,40 +1875,7 @@ body.modal-open {
   width: 100%;
 }
 
-/* account-header 横向滚动条样式 */
-.account-header::-webkit-scrollbar {
-  height: 4px;
-}
 
-.account-header::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.account-header::-webkit-scrollbar-thumb {
-  background: var(--border-color);
-  border-radius: 2px;
-}
-
-.account-header::-webkit-scrollbar-thumb:hover {
-  background: var(--text-tertiary);
-}
-
-.account-info::-webkit-scrollbar {
-  height: 4px;
-}
-
-.account-info::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.account-info::-webkit-scrollbar-thumb {
-  background: var(--border-color);
-  border-radius: 2px;
-}
-
-.account-info::-webkit-scrollbar-thumb:hover {
-  background: var(--text-tertiary);
-}
 
 .account-balance:active {
   transform: none;
@@ -1764,11 +1884,11 @@ body.modal-open {
 .account-info {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-md);
   flex: 1;
   min-width: 0;
-  padding-right: 10px;
-  /* 确保内部所有元素垂直居中 */
+  padding-right: var(--space-sm);
+  /* 纭繚鍐呴儴鎵€鏈夊厓绱犲瀭鐩村眳涓?*/
   align-self: center;
 }
 
@@ -1788,7 +1908,7 @@ body.modal-open {
   flex-direction: row;
   align-items: center;
   align-self: center;
-  gap: 10px;
+  gap: var(--space-sm);
 }
 
 .balance {
@@ -1808,8 +1928,8 @@ body.modal-open {
 .ai-balance {
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
-  padding: 6px 12px;
-  border-radius: 20px;
+  padding: 6px var(--space-md);
+  border-radius: var(--radius-lg);
   font-size: 14px;
   font-weight: 600;
 }
@@ -1822,7 +1942,7 @@ body.modal-open {
   padding: 3px 9px;
   background-color: var(--card-bg);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   transition: all 0.2s ease;
   user-select: none;
 }
@@ -1875,7 +1995,7 @@ body.modal-open {
   color: var(--warning-color);
 }
 
-/* Zeabur Balance Panel - 现代化紧凑徽章设计 */
+/* Zeabur Balance Panel - 鐜颁唬鍖栫揣鍑戝窘绔犺璁?*/
 .zeabur-balance-panel {
   display: flex;
   align-items: center;
@@ -1884,7 +2004,7 @@ body.modal-open {
       rgba(var(--zeabur-primary-rgb), 0.08) 0%,
       rgba(var(--zeabur-secondary-rgb), 0.05) 100%);
   border: 1px solid rgba(var(--zeabur-primary-rgb), 0.15);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   padding: 3px 6px;
   margin: 0;
   backdrop-filter: blur(8px);
@@ -1901,8 +2021,8 @@ body.modal-open {
 .zeabur-balance-item {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 4px;
+  gap: var(--space-sm);
+  padding: var(--space-xs);
 }
 
 .zeabur-balance-divider {
@@ -1917,7 +2037,7 @@ body.modal-open {
 .zeabur-balance-icon {
   width: 28px;
   height: 28px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1983,7 +2103,7 @@ body.modal-open {
   color: var(--danger-color);
 }
 
-/* AI Hub 余额徽章样式 */
+/* AI Hub 浣欓寰界珷鏍峰紡 */
 .zeabur-ai .zeabur-balance-icon {
   background: linear-gradient(135deg, rgba(139, 92, 246, 0.2) 0%, rgba(168, 85, 247, 0.15) 100%);
   color: #8b5cf6;
@@ -1993,14 +2113,14 @@ body.modal-open {
   color: #8b5cf6;
 }
 
-/* Zeabur Account Info - 现代化账户信息设计 */
+/* Zeabur Account Info - 鐜颁唬鍖栬处鎴蜂俊鎭璁?*/
 .zeabur-account-info {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-md);
   flex: 1;
   min-width: 0;
-  padding-right: 10px;
+  padding-right: var(--space-sm);
 }
 
 .zeabur-expand-toggle {
@@ -2032,7 +2152,7 @@ body.modal-open {
 .zeabur-account-avatar {
   width: 38px;
   height: 38px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: linear-gradient(135deg, var(--zeabur-primary) 0%, var(--zeabur-secondary) 100%);
   display: flex;
   align-items: center;
@@ -2099,11 +2219,11 @@ body.modal-open {
 
 .zeabur-account-name-edit .edit-input {
   width: 160px;
-  padding: 4px 10px;
+  padding: var(--space-xs) var(--space-sm);
   font-size: 14px;
   font-weight: 500;
   border: 1px solid rgba(var(--zeabur-primary-rgb), 0.3);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: var(--bg-secondary);
   color: var(--text-primary);
   outline: none;
@@ -2119,7 +2239,7 @@ body.modal-open {
   width: 26px;
   height: 26px;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: rgba(var(--danger-color), 0.1);
   color: var(--danger-color);
   display: flex;
@@ -2135,7 +2255,7 @@ body.modal-open {
   color: white;
 }
 
-/* OpenAI Endpoint Card - 现代化端点卡片设计 */
+/* OpenAI Endpoint Card - 鐜颁唬鍖栫鐐瑰崱鐗囪璁?*/
 .openai-endpoint-card {
   border-color: rgba(16, 163, 127, 0.15);
 }
@@ -2147,7 +2267,7 @@ body.modal-open {
 .openai-endpoint-info {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-md);
   flex: 1;
   min-width: 0;
 }
@@ -2158,7 +2278,7 @@ body.modal-open {
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: rgba(16, 163, 127, 0.1);
   color: var(--openai-color);
   font-size: 11px;
@@ -2181,7 +2301,7 @@ body.modal-open {
 .openai-endpoint-avatar {
   width: 38px;
   height: 38px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2215,7 +2335,7 @@ body.modal-open {
 .openai-endpoint-details {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-xs);
   min-width: 0;
   flex: 1;
 }
@@ -2223,7 +2343,7 @@ body.modal-open {
 .openai-endpoint-title {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
   flex-wrap: wrap;
 }
 
@@ -2237,9 +2357,9 @@ body.modal-open {
 .openai-status-badge {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  border-radius: 20px;
+  gap: var(--space-xs);
+  padding: 2px var(--space-sm);
+  border-radius: var(--radius-lg);
   font-size: 11px;
   font-weight: 600;
   line-height: 1;
@@ -2278,15 +2398,15 @@ body.modal-open {
   opacity: 0.6;
 }
 
-/* 模型数量徽章 */
+/* 妯″瀷鏁伴噺寰界珷 */
 .openai-models-badge {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
   background: linear-gradient(135deg, rgba(16, 163, 127, 0.08) 0%, rgba(13, 138, 106, 0.05) 100%);
   border: 1px solid rgba(16, 163, 127, 0.15);
-  border-radius: 10px;
-  padding: 6px 12px;
+  border-radius: var(--radius-md);
+  padding: 6px var(--space-md);
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -2298,7 +2418,7 @@ body.modal-open {
 .models-count-icon {
   width: 26px;
   height: 26px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: linear-gradient(135deg, rgba(16, 163, 127, 0.2) 0%, rgba(13, 138, 106, 0.15) 100%);
   color: var(--openai-color);
   display: flex;
@@ -2336,25 +2456,25 @@ body.modal-open {
 }
 
 /* ========================================
-   CF DNS Module - 现代化卡片设计
+   CF DNS Module - 鐜颁唬鍖栧崱鐗囪璁?
    ======================================== */
 
-/* CF 账号卡片网格 */
+/* CF 璐﹀彿鍗＄墖缃戞牸 */
 .cf-account-grid {
   display: flex;
   flex-wrap: wrap;
-  gap: 14px;
-  margin-bottom: 8px;
+  gap: var(--space-lg);
+  margin-bottom: var(--space-sm);
 }
 
 .cf-account-card {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
+  gap: var(--space-md);
+  padding: var(--space-md) var(--space-lg);
   background: var(--card-bg);
   border: 1px solid var(--border-color);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   cursor: pointer;
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   min-width: 280px;
@@ -2375,7 +2495,7 @@ body.modal-open {
 .cf-account-avatar {
   width: 40px;
   height: 40px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: linear-gradient(135deg, #f38020 0%, #e5730d 100%);
   display: flex;
   align-items: center;
@@ -2402,18 +2522,18 @@ body.modal-open {
   color: var(--text-primary);
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
   flex-wrap: wrap;
 }
 
 .cf-account-badge {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
+  gap: var(--space-xs);
+  padding: 2px var(--space-sm);
   background: linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(34, 197, 94, 0.1));
   color: var(--success-color);
-  border-radius: 20px;
+  border-radius: var(--radius-lg);
   font-size: 10px;
   font-weight: 600;
 }
@@ -2441,7 +2561,7 @@ body.modal-open {
   width: 32px;
   height: 32px;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: rgba(243, 128, 32, 0.1);
   color: var(--cf-color);
   display: flex;
@@ -2458,22 +2578,22 @@ body.modal-open {
   transform: rotate(180deg);
 }
 
-/* CF 域名卡片网格 */
+/* CF 鍩熷悕鍗＄墖缃戞牸 */
 .cf-domain-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 12px;
-  margin-top: 8px;
+  gap: var(--space-md);
+  margin-top: var(--space-sm);
 }
 
 .cf-domain-card {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 14px;
+  padding: var(--space-md) var(--space-lg);
   background: var(--card-bg);
   border: 1px solid var(--border-color);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   cursor: pointer;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -2505,7 +2625,7 @@ body.modal-open {
 .cf-domain-status {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-xs);
   font-size: 11px;
   font-weight: 500;
   text-transform: capitalize;
@@ -2531,7 +2651,7 @@ body.modal-open {
 }
 
 /* ========================================
-   Hosts Module - 现代化卡片设计
+   Hosts Module - 鐜颁唬鍖栧崱鐗囪璁?
    ======================================== */
 
 .hosts-server-card {
@@ -2545,7 +2665,7 @@ body.modal-open {
 .hosts-server-info {
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: var(--space-lg);
   flex: 1;
   min-width: 0;
 }
@@ -2585,7 +2705,7 @@ body.modal-open {
 .hosts-server-title {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-sm);
   flex-wrap: wrap;
 }
 
@@ -2598,13 +2718,13 @@ body.modal-open {
 .hosts-server-meta {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-md);
 }
 
 .hosts-meta-item {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-xs);
   font-size: 11px;
   color: var(--text-tertiary);
   font-family: var(--font-mono);
@@ -2637,19 +2757,19 @@ body.modal-open {
 .hosts-header-right {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-md);
 }
 
 .hosts-server-tags {
   display: flex;
-  gap: 4px;
+  gap: var(--space-xs);
 }
 
 .hosts-tag {
-  padding: 3px 8px;
+  padding: 3px var(--space-sm);
   background: rgba(var(--server-primary), 0.1);
   color: var(--server-primary);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   font-size: 10px;
   font-weight: 600;
 }
@@ -2663,7 +2783,7 @@ body.modal-open {
   width: 34px;
   height: 34px;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2726,7 +2846,7 @@ body.modal-open {
   margin: 0 auto;
 }
 
-/* 现代渐变双环加载动画 */
+/* 鐜颁唬娓愬彉鍙岀幆鍔犺浇鍔ㄧ敾 */
 .spinner::before {
   content: '';
   box-sizing: border-box;
@@ -2761,7 +2881,7 @@ body.modal-open {
   }
 }
 
-/* 简化版：纯 CSS 三点加载 */
+/* 绠€鍖栫増锛氱函 CSS 涓夌偣鍔犺浇 */
 .loading-dots {
   display: inline-flex;
   gap: 6px;
@@ -2809,7 +2929,7 @@ body.modal-open {
   }
 }
 
-/* 认证加载状态 */
+/* 璁よ瘉鍔犺浇鐘舵€?*/
 .auth-loading {
   position: fixed;
   top: 0;
@@ -2822,7 +2942,7 @@ body.modal-open {
   background: linear-gradient(135deg,
       var(--bg-primary) 0%,
       rgba(var(--bg-secondary-rgb), 0.95) 100%);
-  z-index: 10000;
+  z-index: var(--z-index-system);
   transition: opacity 0.5s ease;
 }
 
@@ -2833,7 +2953,7 @@ body.modal-open {
   gap: 32px;
 }
 
-/* 现代 Logo 加载动画 */
+/* 鐜颁唬 Logo 鍔犺浇鍔ㄧ敾 */
 .modern-loader {
   width: 64px;
   height: 64px;
@@ -2843,7 +2963,7 @@ body.modal-open {
   justify-content: center;
 }
 
-/* 外圈旋转光环 */
+/* 澶栧湀鏃嬭浆鍏夌幆 */
 .modern-loader::before {
   content: '';
   box-sizing: border-box;
@@ -2857,7 +2977,7 @@ body.modal-open {
   animation: loader-spin 1.2s cubic-bezier(0.5, 0, 0.5, 1) infinite;
 }
 
-/* 内圈反向光环 */
+/* 鍐呭湀鍙嶅悜鍏夌幆 */
 .modern-loader::after {
   content: '';
   box-sizing: border-box;
@@ -2881,7 +3001,7 @@ body.modal-open {
   }
 }
 
-/* 品牌文字 */
+/* 鍝佺墝鏂囧瓧 */
 .loading-text {
   font-size: 18px;
   font-weight: 700;
@@ -2912,9 +3032,9 @@ body.modal-open {
   display: none;
   background-color: rgba(239, 68, 68, 0.1);
   color: var(--danger-color);
-  padding: 16px;
-  border-radius: 12px;
-  margin-bottom: 20px;
+  padding: var(--space-lg);
+  border-radius: var(--radius-lg);
+  margin-bottom: var(--space-xl);
 }
 
 .empty-state {
@@ -2931,19 +3051,19 @@ body.modal-open {
 }
 
 /* Responsive */
-/* 现代化全局动态 Tooltip (引擎版) */
+/* 鐜颁唬鍖栧叏灞€鍔ㄦ€?Tooltip (寮曟搸鐗? */
 .system-tooltip {
   position: fixed;
-  /* 改为 fixed，避免撑开 body 滚动条 */
+  /* 鏀逛负 fixed锛岄伩鍏嶆拺寮€ body 婊氬姩鏉?*/
   background: rgba(17, 24, 39, 0.95);
   color: white;
-  padding: 8px 14px;
-  border-radius: 8px;
+  padding: var(--space-sm) var(--space-lg);
+  border-radius: var(--radius-md);
   font-size: 12px;
   font-weight: 500;
   max-width: 320px;
-  z-index: 1000000;
-  /* 绝对置顶 */
+  z-index: var(--z-index-tooltip);
+  /* 缁濆缃《 */
   pointer-events: none;
   opacity: 0;
   transform: translateY(5px);
@@ -2963,13 +3083,13 @@ body.modal-open {
   transform: translateY(0);
 }
 
-/* 统一模态框关闭按钮样式 */
+/* 缁熶竴妯℃€佹鍏抽棴鎸夐挳鏍峰紡 */
 .modal-close {
   position: absolute;
-  top: 16px;
-  right: 16px;
+  top: var(--space-lg);
+  right: var(--space-lg);
   width: 32px !important;
-  /* 强制常规尺寸 */
+  /* 寮哄埗甯歌灏哄 */
   height: 32px !important;
   border-radius: 50% !important;
   display: flex !important;
@@ -2980,48 +3100,48 @@ body.modal-open {
   border: none;
   cursor: pointer;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  z-index: 100;
+  z-index: var(--z-index-sticky);
   padding: 0 !important;
-  /* 彻底杜绝 padding 导致的形变 */
+  /* 褰诲簳鏉滅粷 padding 瀵艰嚧鐨勫舰鍙?*/
 }
 
-/* 适配大图预览的关闭按钮 - 仅适度放大，保持风格一致 */
+/* 閫傞厤澶у浘棰勮鐨勫叧闂寜閽?- 浠呴€傚害鏀惧ぇ锛屼繚鎸侀鏍间竴鑷?*/
 .image-preview-overlay .modal-close {
   background: rgba(255, 255, 255, 0.1) !important;
   color: white !important;
-  top: 24px !important;
-  right: 24px !important;
+  top: var(--space-xl) !important;
+  right: var(--space-xl) !important;
   width: 40px !important;
-  /* 仅比常规略大，增强可操作性 */
+  /* 浠呮瘮甯歌鐣ュぇ锛屽寮哄彲鎿嶄綔鎬?*/
   height: 40px !important;
 }
 
 .modal-close i {
   font-size: 14px !important;
-  /* 统一图标大小 */
+  /* 缁熶竴鍥炬爣澶у皬 */
 }
 
 .image-preview-overlay .modal-close i {
   font-size: 18px !important;
 }
 
-/* 响应式按钮文字精简 */
+/* 鍝嶅簲寮忔寜閽枃瀛楃簿绠€ */
 @media (max-width: 1000px) {
   .btn-text-min {
     display: none !important;
   }
 
   .btn-sm {
-    padding: 0 8px !important;
+    padding: 0 var(--space-sm) !important;
   }
 }
 
 @media (max-width: 768px) {
 
-  /* 移动端主框架使用动态视口高度 */
+  /* 绉诲姩绔富妗嗘灦浣跨敤鍔ㄦ€佽鍙ｉ珮搴?*/
   .app-wrapper {
     flex-direction: column-reverse;
-    /* 使用 dvh 作为首选，vh 作为回退 */
+    /* 浣跨敤 dvh 浣滀负棣栭€夛紝vh 浣滀负鍥為€€ */
     height: 100vh;
     height: 100dvh;
     overflow: hidden;
@@ -3030,7 +3150,7 @@ body.modal-open {
   .app-main {
     height: 100%;
     overflow-y: auto;
-    /* 避免滚动穿透 */
+    /* 閬垮厤婊氬姩绌块€?*/
     overscroll-behavior: contain;
   }
 
@@ -3042,7 +3162,7 @@ body.modal-open {
     width: 100%;
     height: 60px;
     flex-direction: row;
-    padding: 0 16px;
+    padding: 0 var(--space-lg);
     border-right: none;
     border-top: 1px solid var(--sidebar-border);
     justify-content: flex-end;
@@ -3059,17 +3179,17 @@ body.modal-open {
     margin-top: 0;
     flex-direction: row;
     width: auto;
-    gap: 12px;
+    gap: var(--space-md);
     padding: 0;
     align-items: center;
   }
 
-  /* 移动端：隐藏PC端设置按钮 */
+  /* 绉诲姩绔細闅愯棌PC绔缃寜閽?*/
   .desktop-settings-btn {
     display: none !important;
   }
 
-  /* 移动端横向展开设置容器 */
+  /* 绉诲姩绔í鍚戝睍寮€璁剧疆瀹瑰櫒 */
   .mobile-settings-expand-container {
     display: flex;
     flex-direction: row;
@@ -3077,7 +3197,7 @@ body.modal-open {
     position: relative;
   }
 
-  /* 设置按钮锚点 */
+  /* 璁剧疆鎸夐挳閿氱偣 */
   .settings-anchor {
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     z-index: 10;
@@ -3094,36 +3214,36 @@ body.modal-open {
     transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
-  /* 横向展开的设置项行 - 支持左右滑动 */
+  /* 妯悜灞曞紑鐨勮缃」琛?- 鏀寔宸﹀彸婊戝姩 */
   .mobile-settings-row {
     display: flex;
     flex-direction: row;
     align-items: center;
-    gap: 8px;
-    margin-right: 10px;
+    gap: var(--space-sm);
+    margin-right: var(--space-sm);
     max-width: calc(100vw - 150px);
-    /* 留出锚点按钮和登出按钮的空间 */
+    /* 鐣欏嚭閿氱偣鎸夐挳鍜岀櫥鍑烘寜閽殑绌洪棿 */
     overflow-x: auto;
     overflow-y: hidden;
     -webkit-overflow-scrolling: touch;
-    /* iOS 平滑滚动 */
+    /* iOS 骞虫粦婊氬姩 */
     scrollbar-width: none;
-    /* Firefox 隐藏滚动条 */
+    /* Firefox 闅愯棌婊氬姩鏉?*/
     -ms-overflow-style: none;
-    /* IE 隐藏滚动条 */
-    padding: 4px 0;
+    /* IE 闅愯棌婊氬姩鏉?*/
+    padding: var(--space-xs) 0;
   }
 
-  /* 隐藏滚动条 */
+  /* 闅愯棌婊氬姩鏉?*/
   .mobile-settings-row::-webkit-scrollbar {
     display: none;
   }
 
-  /* 设置展开按钮样式 - 与 auth-btn 一致 */
+  /* 璁剧疆灞曞紑鎸夐挳鏍峰紡 - 涓?auth-btn 涓€鑷?*/
   .settings-expand-btn {
     width: 36px;
     height: 36px;
-    border-radius: 10px;
+    border-radius: var(--radius-md);
     border: none;
     background: rgba(var(--primary-rgb), 0.1);
     color: var(--primary-color);
@@ -3134,7 +3254,7 @@ body.modal-open {
     font-size: 14px;
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     flex-shrink: 0;
-    /* 防止按钮被压缩 */
+    /* 闃叉鎸夐挳琚帇缂?*/
   }
 
   .settings-expand-btn:hover {
@@ -3147,7 +3267,7 @@ body.modal-open {
     transform: scale(0.95);
   }
 
-  /* 横向展开动画 - 从右向左丝滑展开 */
+  /* 妯悜灞曞紑鍔ㄧ敾 - 浠庡彸鍚戝乏涓濇粦灞曞紑 */
   .settings-expand-enter-active {
     transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
   }
@@ -3172,7 +3292,7 @@ body.modal-open {
     transform: translateX(0) scale(1);
   }
 
-  /* 每个按钮的交错入场动画 */
+  /* 姣忎釜鎸夐挳鐨勪氦閿欏叆鍦哄姩鐢?*/
   .mobile-settings-row .settings-expand-btn {
     animation: settingsExpandBtnSlide 0.3s ease-out backwards;
   }
@@ -3219,16 +3339,16 @@ body.modal-open {
 
   .app-main {
     height: calc(100vh - 0px);
-    margin-bottom: 20px;
+    margin-bottom: var(--space-xl);
   }
 
   .container {
-    padding: 16px;
+    padding: var(--space-lg);
   }
 
   .header {
     flex-wrap: wrap;
-    gap: 10px;
+    gap: var(--space-sm);
   }
 
   .header>div:last-child {
@@ -3238,13 +3358,13 @@ body.modal-open {
 
   .controls {
     grid-template-columns: 1fr;
-    gap: 12px;
+    gap: var(--space-md);
   }
 
   .controls>div:first-child {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: var(--space-sm);
     justify-content: center;
   }
 
@@ -3257,8 +3377,8 @@ body.modal-open {
   }
 
   .account-header>div:last-child {
-    right: 8px;
-    top: 8px;
+    right: var(--space-sm);
+    top: var(--space-sm);
   }
 
   .account-balance {
@@ -3266,7 +3386,7 @@ body.modal-open {
   }
 
   .main-tab {
-    padding: 12px 16px;
+    padding: var(--space-md) var(--space-lg);
     min-width: auto;
   }
 
@@ -3286,12 +3406,12 @@ body.modal-open {
 
   .controls {
     grid-template-columns: 1fr;
-    gap: 10px;
+    gap: var(--space-sm);
   }
 
   .controls>div:first-child {
     flex-direction: column;
-    gap: 8px;
+    gap: var(--space-sm);
   }
 
   .btn {
@@ -3301,7 +3421,7 @@ body.modal-open {
 
   .refresh-info {
     flex-direction: column;
-    gap: 8px;
+    gap: var(--space-sm);
   }
 }
 
@@ -3309,13 +3429,13 @@ body.modal-open {
 .reasoning-details {
   background: var(--bg-tertiary);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   /* margin-bottom: 12px; */
   overflow: hidden;
 }
 
 .reasoning-details summary {
-  padding: 8px 12px;
+  padding: var(--space-sm) var(--space-md);
   cursor: pointer;
   font-size: 12px;
   font-weight: 600;
@@ -3326,10 +3446,10 @@ body.modal-open {
   transition: background 0.2s;
   outline: none;
   list-style: none;
-  /* 移除默认三角形 */
+  /* 绉婚櫎榛樿涓夎褰?*/
 }
 
-/* 自定义折叠图标 */
+/* 鑷畾涔夋姌鍙犲浘鏍?*/
 .reasoning-details summary::-webkit-details-marker {
   display: none;
 }
@@ -3354,20 +3474,20 @@ body.modal-open {
 }
 
 .reasoning-content-inner {
-  padding: 12px;
+  padding: var(--space-md);
   border-top: 1px solid var(--border-color);
   font-size: 13px;
   color: var(--text-secondary);
   background: var(--bg-secondary);
   line-height: 1.6;
   overflow-wrap: break-word;
-  /* 确保长单词换行 */
+  /* 纭繚闀垮崟璇嶆崲琛?*/
   word-break: break-word;
-  /* 兼容性增强 */
+  /* 鍏煎鎬у寮?*/
   max-width: 100%;
-  /* 限制最大宽度 */
+  /* 闄愬埗鏈€澶у搴?*/
   box-sizing: border-box;
-  /* 确保 padding 不会撑破宽度 */
+  /* 纭繚 padding 涓嶄細鎾戠牬瀹藉害 */
 }
 
 /* Dark mode adjustment */
@@ -3381,10 +3501,10 @@ body.modal-open {
 .paas-sec-tabs {
   display: flex;
   flex-direction: column;
-  /* 垂直排列，分为两行 */
+  /* 鍨傜洿鎺掑垪锛屽垎涓轰袱琛?*/
   align-items: center;
-  /* 电脑端默认居中 */
-  gap: 12px;
+  /* 鐢佃剳绔粯璁ゅ眳涓?*/
+  gap: var(--space-md);
   width: 100%;
 }
 
@@ -3392,10 +3512,10 @@ body.modal-open {
   display: flex;
   align-items: center;
   justify-content: center;
-  /* 按钮居中 */
-  gap: 8px;
+  /* 鎸夐挳灞呬腑 */
+  gap: var(--space-sm);
   overflow-x: auto;
-  /* 允许横向滚动 */
+  /* 鍏佽妯悜婊氬姩 */
   max-width: 100%;
   scrollbar-width: none;
   /* Firefox */
@@ -3408,14 +3528,14 @@ body.modal-open {
 
 .paas-tabs-spacer {
   display: none;
-  /* 不再需要占位符 */
+  /* 涓嶅啀闇€瑕佸崰浣嶇 */
 }
 
-/* 固定的刷新控制按钮已被移除 */
+/* 鍥哄畾鐨勫埛鏂版帶鍒舵寜閽凡琚Щ闄?*/
 
 @media (max-width: 768px) {
 
-  /* 移动端覆盖：在手机上恢复靠左和全宽 */
+  /* 绉诲姩绔鐩栵細鍦ㄦ墜鏈轰笂鎭㈠闈犲乏鍜屽叏瀹?*/
   .paas-sec-tabs {
     align-items: stretch;
   }
