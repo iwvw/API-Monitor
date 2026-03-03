@@ -717,10 +717,10 @@ export const store = reactive({
   showGeminiCliOAuthExpand: false,
   geminiCliOAuthUrl: '',
   geminiCliOauthReturnUrl: '',
-  // 使用 Antigravity 的 Client ID 以获得 API 访问权限 (请在后台或环境变量中配置)
-  geminiCliCustomClientId: '',
-  geminiCliCustomClientSecret: '',
-  geminiCliOAuthRedirectUri: '',
+  // 使用 Antigravity 的 Client ID 以获得 API 访问权限 (与 Antigravity 模块共用)
+  geminiCliCustomClientId: '1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com',
+  geminiCliCustomClientSecret: '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',
+  geminiCliOAuthRedirectUri: 'http://localhost:8045/oauth-callback',
   geminiCliCustomProjectId: '',
   geminiCliAllowRandomProjectId: true,
   geminiCliStats: null,
