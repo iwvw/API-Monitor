@@ -11,6 +11,15 @@ const {
     MaintenanceSchedule,
 } = require('./models');
 
+// 执行数据库迁移（为已存在的表添加缺失列）
+try {
+    const { migrate } = require('./migrate');
+    const dbModule = require('../../src/db/database');
+    migrate(dbModule.getDatabase());
+} catch (e) {
+    // 迁移失败不阻止模块加载
+}
+
 /**
  * 渠道存储操作
  */

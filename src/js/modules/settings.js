@@ -56,6 +56,7 @@ export const settingsMethods = {
             'openai',
             'antigravity',
             'gemini-cli',
+            'deepseek',
             'paas',
             'dns',
             'aliyun',

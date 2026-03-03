@@ -1,4 +1,9 @@
-*::-webkit-scrollbar { display: none !important; width: 0 !important; height: 0 !important; }
+*::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
 /* API Monitor - Main Styles */
 
 /* 瀛椾綋鍥炬爣搴撳凡绉昏嚦 index.html <head> 涓€氳繃 <link> 鏍囩鍔犺浇锛岄伩鍏?@import 闃诲娓叉煋 */
@@ -603,7 +608,7 @@ pre,
 
   /* 搴旂敤鍔ㄦ€侀鑹插埌閫氱敤缁勪欢 */
   [class*='theme-'] .btn-primary {
-    background: var(--current-primary) !important;
+    /* background: var(--current-primary) !important; */
     border-color: var(--current-primary) !important;
   }
 

@@ -330,6 +330,15 @@
                     </label>
                     <span style="font-size: 13px; font-weight: 500">Gemini CLI</span>
                   </div>
+
+                  <div style="display: flex; align-items: center; gap: 10px">
+                    <label class="switch">
+                      <input type="checkbox" :checked="channelEnabled && channelEnabled['deepseek']"
+                        @change="toggleChannelEnabled('deepseek')" />
+                      <span class="slider round"></span>
+                    </label>
+                    <span style="font-size: 13px; font-weight: 500">DeepSeek</span>
+                  </div>
                 </div>
               </div>
 
@@ -338,7 +347,7 @@
                 <div class="form-help" style="margin-bottom: 12px; font-size: 13px; opacity: 0.8">
                   为每个渠道的模型添加前缀，避免名称冲突 (例如 "ag/" 或 "gcli/")
                 </div>
-                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px">
+                <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px">
                   <div class="form-group" style="margin-bottom: 0">
                     <label class="form-label" style="
                         font-size: 12px;
@@ -358,6 +367,16 @@
                       ">Gemini CLI 前缀</label>
                     <input type="text" class="form-input" v-model="channelModelPrefix['gemini-cli']"
                       @change="saveUserSettingsToServer" placeholder="例如: gcli/" />
+                  </div>
+                  <div class="form-group" style="margin-bottom: 0">
+                    <label class="form-label" style="
+                        font-size: 12px;
+                        color: var(--text-secondary);
+                        margin-bottom: 4px;
+                        font-weight: 500;
+                      ">DeepSeek 前缀</label>
+                    <input type="text" class="form-input" v-model="channelModelPrefix['deepseek']"
+                      @change="saveUserSettingsToServer" placeholder="例如: ds/" />
                   </div>
                 </div>
               </div>

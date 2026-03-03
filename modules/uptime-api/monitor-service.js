@@ -1,11 +1,21 @@
 /**
  * Uptime 监控服务
- * 处理实际的检查逻辑和调度
+ * 基于状态机驱动的监控与告警
+ *
+ * 状态机:
+ *   OK → (连续 N 次失败) → FIRING → (连续 N 次成功) → OK
+ *        不通知                发 Down 通知              发 Up 通知
+ *
+ * 对比旧实现：
+ *   - 旧：每次 Down 都触发通知系统（依赖策略引擎抑制）
+ *   - 新：只在状态变迁时触发通知，持续 Down/Up 期间完全静默
  */
 
 const axios = require('axios');
 const net = require('net');
 const https = require('https');
+const fs = require('fs');
+const path = require('path');
 const storage = require('./storage');
 const { createLogger } = require('../../src/utils/logger');
 
@@ -15,15 +25,70 @@ const logger = createLogger('Uptime');
 const intervals = {};
 let io = null;
 
-class UptimeService {
-    /**
-     * 使用 Server 初始化以获取 Socket.IO
-     */
-    init(server) {
-        // 如果 Server.js 中已经附加了 Socket.IO (通常是这样的)。
-        // 我们假设 `monitor-service` 在 router 或 server.js 中被引用，并且可以传递 IO。
+// ==================== 状态机 ====================
 
-        // 目前先重启所有监控项
+const STATE = {
+    OK: 'ok',        // 正常运行
+    PENDING: 'pending',   // 疑似故障（等待确认）
+    FIRING: 'firing',    // 已确认故障（已发 Down 通知）
+    RECOVERY: 'recovery',  // 疑似恢复（等待确认）
+};
+
+// 默认确认次数
+const DEFAULT_CONFIRM_COUNT = 3;
+
+// 状态存储文件
+const STATE_FILE = path.join(__dirname, '../../data/uptime-states.json');
+
+// 内存中的状态缓存: monitorId -> { status, failCount, recoveryCount, incidentStart }
+let monitorStates = {};
+
+function loadStates() {
+    try {
+        if (fs.existsSync(STATE_FILE)) {
+            monitorStates = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
+        }
+    } catch (e) {
+        logger.warn('加载监控状态失败，使用默认状态');
+        monitorStates = {};
+    }
+}
+
+function saveStates() {
+    try {
+        fs.writeFileSync(STATE_FILE, JSON.stringify(monitorStates, null, 2), 'utf8');
+    } catch (e) {
+        logger.error('保存监控状态失败:', e.message);
+    }
+}
+
+function getState(monitorId) {
+    if (!monitorStates[monitorId]) {
+        monitorStates[monitorId] = {
+            status: STATE.OK,
+            failCount: 0,
+            recoveryCount: 0,
+            incidentStart: null,
+        };
+    }
+    return monitorStates[monitorId];
+}
+
+function formatDuration(ms) {
+    if (ms < 60000) return `${Math.round(ms / 1000)}秒`;
+    if (ms < 3600000) return `${Math.floor(ms / 60000)}分${Math.round((ms % 60000) / 1000)}秒`;
+    const h = Math.floor(ms / 3600000);
+    const m = Math.floor((ms % 3600000) / 60000);
+    return `${h}小时${m}分`;
+}
+
+// 启动时加载状态
+loadStates();
+
+// ==================== 服务主体 ====================
+
+class UptimeService {
+    init(server) {
         this.restartAllMonitors();
         logger.info('Uptime 监控服务已初始化');
     }
@@ -32,9 +97,6 @@ class UptimeService {
         io = socketIO;
     }
 
-    /**
-     * 重启所有活跃的监控项 (例如启动时)
-     */
     restartAllMonitors() {
         this.stopAll();
         const monitors = storage.getActive();
@@ -47,17 +109,13 @@ class UptimeService {
         for (const key in intervals) delete intervals[key];
     }
 
-    /**
-     * 启动单个监控项
-     */
     startMonitor(monitor) {
         if (intervals[monitor.id]) clearInterval(intervals[monitor.id]);
         if (!monitor.active) return;
 
-        // 默认间隔 60秒
         const seconds = monitor.interval && monitor.interval > 5 ? monitor.interval : 60;
 
-        // 立即执行初步检查 (稍微延迟以避免启动风暴)
+        // 立即执行（延迟 2~4 秒避免启动风暴）
         setTimeout(() => this.check(monitor), 2000 + Math.random() * 2000);
 
         intervals[monitor.id] = setInterval(() => {
@@ -73,35 +131,27 @@ class UptimeService {
     }
 
     /**
-     * 执行检查
+     * 执行检查 + 状态机驱动通知
      */
     async check(monitor) {
         const startTime = Date.now();
-        let status = 0; // 0: Down, 1: Up
+        let checkResult = 0; // 0: Down, 1: Up
         let msg = '';
         let ping = 0;
-
-        // 获取上一次的心跳状态
-        const oldBeat = storage.getLastHeartbeat(monitor.id);
 
         try {
             if (monitor.type === 'http') {
                 await this.checkHttp(monitor);
-                status = 1;
+                checkResult = 1;
                 msg = 'OK';
             } else if (monitor.type === 'tcp') {
                 await this.checkTcp(monitor);
-                status = 1;
+                checkResult = 1;
                 msg = 'OK';
             } else if (monitor.type === 'ping') {
-                // 如果没有通用的 ping 库，回退到 TCP ping
                 if (monitor.hostname) {
-                    // 基础变通方案: 如果未指定端口，尝试连接 80 或 443 端口。
-                    // 'ping' 通常指 ICMP，但由于权限问题，这里如果用户输入主机名，
-                    // 我们实现基础的 TCP 连接到 80/443 作为 "ping" 类型的替代。
-                    // 真正的 ICMP 通常需要特权执行。
                     await this.checkPingLike(monitor);
-                    status = 1;
+                    checkResult = 1;
                     msg = 'OK';
                 } else {
                     throw new Error('Host required');
@@ -110,80 +160,169 @@ class UptimeService {
                 throw new Error('Unknown Type');
             }
         } catch (error) {
-            status = 0;
+            checkResult = 0;
             msg = error.message;
-            // logger.debug(`Check failed for ${monitor.name}: ${error.message}`);
         }
 
-        if (status === 1) {
-            ping = Date.now() - startTime;
-        } else {
-            ping = 0;
-        }
+        ping = checkResult === 1 ? Date.now() - startTime : 0;
 
         const beat = {
             id: Date.now(),
-            status,
+            status: checkResult,
             msg,
             ping,
             time: new Date().toISOString()
         };
 
-        // 保存
+        // 保存心跳
         storage.saveHeartbeat(monitor.id, beat);
 
-        // 触发通知逻辑
-        // 1. 如果当前处于宕机状态 (status === 0)，即使之前也是宕机，也需要触发（通知模块会处理抑制逻辑）
-        // 2. 如果状态发生了变化 (从 0 变 1 或 从 1 变 0)
-        // 3. 初始状态 (之前无记录) 且当前为宕机
-        const statusChanged = oldBeat && oldBeat.status !== beat.status;
-        const isCurrentlyDown = beat.status === 0;
-        const isFirstDown = !oldBeat && beat.status === 0;
+        // 状态机处理
+        this.processStateMachine(monitor, checkResult, beat);
 
-        if (isCurrentlyDown || statusChanged || isFirstDown) {
-            this.triggerNotification(monitor, beat, oldBeat);
-        }
-
-        // 通过 Socket.IO 推送
+        // Socket.IO 推送
         if (io) {
             io.emit('uptime:heartbeat', { monitorId: monitor.id, beat });
         }
     }
 
     /**
-     * 触发通知
+     * 状态机核心逻辑
      */
-    triggerNotification(monitor, newBeat, oldBeat) {
-        try {
-            const notificationService = require('../notification-api/service');
+    processStateMachine(monitor, checkResult, beat) {
+        const state = getState(monitor.id);
+        const confirmCount = monitor.confirmCount || DEFAULT_CONFIRM_COUNT;
+        const oldStatus = state.status;
 
-            if (newBeat.status === 0) {
-                // 宕机
-                notificationService.trigger('uptime', 'down', {
-                    monitorId: monitor.id,
-                    monitorName: monitor.name,
-                    url: monitor.url || `${monitor.hostname}:${monitor.port}`,
-                    error: newBeat.msg,
-                    type: monitor.type
-                });
-                logger.warn(`[监控告警] ${monitor.name} 宕机 - ${newBeat.msg}`);
-            } else if (oldBeat && oldBeat.status === 0 && newBeat.status === 1) {
-                // 恢复
-                notificationService.trigger('uptime', 'up', {
-                    monitorId: monitor.id,
-                    monitorName: monitor.name,
-                    url: monitor.url || `${monitor.hostname}:${monitor.port}`,
-                    ping: newBeat.ping,
-                    type: monitor.type
-                });
-                logger.info(`[监控恢复] ${monitor.name} 已恢复 - 响应时间: ${newBeat.ping}ms`);
-            }
-        } catch (error) {
-            logger.error(`触发通知失败: ${error.message}`);
+        switch (state.status) {
+            case STATE.OK:
+                if (checkResult === 0) {
+                    state.status = STATE.PENDING;
+                    state.failCount = 1;
+                    logger.debug(`[${monitor.name}] OK → PENDING (失败 1/${confirmCount})`);
+                }
+                break;
+
+            case STATE.PENDING:
+                if (checkResult === 0) {
+                    state.failCount++;
+                    logger.debug(`[${monitor.name}] PENDING (失败 ${state.failCount}/${confirmCount})`);
+
+                    if (state.failCount >= confirmCount) {
+                        // 确认宕机！
+                        state.status = STATE.FIRING;
+                        state.incidentStart = Date.now();
+                        state.recoveryCount = 0;
+                        logger.warn(`[${monitor.name}] PENDING → FIRING: 确认宕机`);
+
+                        // 创建 Incident 记录
+                        try { storage.createIncident(monitor.id, beat.msg); } catch (e) { }
+
+                        // ✅ 发送 Down 通知（仅此一次）
+                        this.notifyDown(monitor, beat);
+                    }
+                } else {
+                    // 恢复了，是瞬时抖动
+                    state.status = STATE.OK;
+                    state.failCount = 0;
+                    logger.debug(`[${monitor.name}] PENDING → OK: 瞬时抖动，不通知`);
+                }
+                break;
+
+            case STATE.FIRING:
+                if (checkResult === 1) {
+                    state.status = STATE.RECOVERY;
+                    state.recoveryCount = 1;
+                    logger.debug(`[${monitor.name}] FIRING → RECOVERY (恢复 1/${confirmCount})`);
+                }
+                // 持续 Down → 不做任何事，已经发过通知了
+                break;
+
+            case STATE.RECOVERY:
+                if (checkResult === 1) {
+                    state.recoveryCount++;
+                    logger.debug(`[${monitor.name}] RECOVERY (恢复 ${state.recoveryCount}/${confirmCount})`);
+
+                    if (state.recoveryCount >= confirmCount) {
+                        // 确认恢复！
+                        const duration = Date.now() - (state.incidentStart || Date.now());
+                        state.status = STATE.OK;
+                        state.failCount = 0;
+                        state.recoveryCount = 0;
+                        logger.info(`[${monitor.name}] RECOVERY → OK: 确认恢复 (故障持续 ${formatDuration(duration)})`);
+
+                        // 关闭 Incident 记录
+                        try { storage.resolveIncident(monitor.id, duration); } catch (e) { }
+
+                        // ✅ 发送 Up 通知（含持续时长）
+                        this.notifyUp(monitor, beat, duration);
+                        state.incidentStart = null;
+                    }
+                } else {
+                    // 恢复失败，退回 FIRING
+                    state.status = STATE.FIRING;
+                    state.recoveryCount = 0;
+                    logger.debug(`[${monitor.name}] RECOVERY → FIRING: 恢复失败，仍在故障中`);
+                }
+                break;
+        }
+
+        // 状态变化时持久化
+        if (oldStatus !== state.status) {
+            saveStates();
         }
     }
 
-    // --- 检查逻辑 ---
+    /**
+     * 发送宕机通知
+     */
+    notifyDown(monitor, beat) {
+        try {
+            const notificationService = require('../notification-api/service');
+            notificationService.trigger('uptime', 'down', {
+                monitorId: monitor.id,
+                monitorName: monitor.name,
+                url: monitor.url || `${monitor.hostname}:${monitor.port}`,
+                error: beat.msg,
+                type: monitor.type
+            });
+        } catch (error) {
+            logger.error(`发送宕机通知失败: ${error.message}`);
+        }
+    }
+
+    /**
+     * 发送恢复通知（含故障持续时长）
+     */
+    notifyUp(monitor, beat, duration) {
+        try {
+            const notificationService = require('../notification-api/service');
+            notificationService.trigger('uptime', 'up', {
+                monitorId: monitor.id,
+                monitorName: monitor.name,
+                url: monitor.url || `${monitor.hostname}:${monitor.port}`,
+                ping: beat.ping,
+                type: monitor.type,
+                downDuration: formatDuration(duration),
+                downDurationMs: duration,
+            });
+        } catch (error) {
+            logger.error(`发送恢复通知失败: ${error.message}`);
+        }
+    }
+
+    /**
+     * 获取监控状态（供 API 使用）
+     */
+    getMonitorState(monitorId) {
+        return getState(monitorId);
+    }
+
+    getAllMonitorStates() {
+        return { ...monitorStates };
+    }
+
+    // ==================== 检查逻辑 ====================
 
     async checkHttp(monitor) {
         const agent = new https.Agent({
@@ -197,30 +336,15 @@ class UptimeService {
             headers: monitor.headers ? JSON.parse(monitor.headers) : {},
             httpsAgent: agent,
             validateStatus: function (status) {
-                // Parse accepted codes e.g. "200-299"
-                // Simple impl: return true, we check result later or let axios throw if outside 2xx? 
-                // Axios throws for <200 || >=300 by default.
                 return status >= 200 && status < 300;
             }
         };
 
-        // 如果用户指定了状态码，我们需要自定义验证器
         if (monitor.accepted_status_codes) {
-            config.validateStatus = (status) => {
-                // "200-299" -> 200..299
-                // "200, 201"
-                // TODO: 增强健壮性。目前假设默认范围行为或简单匹配。
-                return true; // 我们将在下面手动检查，或者如果返回就让它通过
-            };
+            config.validateStatus = () => true;
         }
 
         const res = await axios(config);
-
-        // 如果需要，在此处显式检查状态码逻辑
-        if (monitor.accepted_status_codes) {
-            // 最简单的情况: 默认 200-299
-            // 如果失败则抛出错误
-        }
         return res;
     }
 
@@ -249,13 +373,11 @@ class UptimeService {
     }
 
     async checkPingLike(monitor) {
-        // 使用 TCP 连接到 80, 443 或 53 作为仅有主机名时的 "Ping" 代理
-        // 这是一个简单的近似实现
         const ports = [80, 443, 53];
         for (const p of ports) {
             try {
                 await this.checkTcp({ hostname: monitor.hostname, port: p, timeout: 2 });
-                return; // Success one is enough
+                return;
             } catch (e) { }
         }
         throw new Error('Ping(Tcp) Failed');

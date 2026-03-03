@@ -64,30 +64,21 @@ class NotificationService extends EventEmitter {
      * @param {string} sourceModule - 来源模块 (uptime/server/zeabur/openai)
      * @param {string} eventType - 事件类型 (down/up/offline/cpu_high/balance_low)
      * @param {object} data - 事件数据
+     *
+     * 注意：uptime 模块已通过状态机保证 down/up 仅在状态变迁时触发，
+     *       不再需要通知层做抖动检测。
      */
     async trigger(sourceModule, eventType, data) {
         try {
             logger.debug(`触发告警: ${sourceModule}/${eventType}`);
 
-            // 自动处理恢复：如果是恢复事件，更新对应的故障状态追踪
-            // 不再直接 reset，而是让抖动检测逻辑决定是否放行
+            // 恢复事件：重置对应故障的状态追踪
             if (eventType === 'up' || eventType === 'online') {
                 const oppositeType = eventType === 'up' ? 'down' : 'offline';
                 const downRules = storage.rule.getBySourceAndEvent(sourceModule, oppositeType);
-                if (downRules.length > 0) {
-                    for (const rule of downRules) {
-                        const fingerprint = this.generateFingerprint(rule, data);
-                        const state = storage.stateTracking.get(rule.id, fingerprint);
-                        if (state) {
-                            // 记录这次恢复尝试到历史中，以便检测是否在频繁抖动
-                            this.detectFlapping(state, eventType);
-
-                            // 如果没有抖动，才真正重置连续失败计数
-                            if (!state.is_flapping) {
-                                storage.stateTracking.reset(rule.id, fingerprint);
-                            }
-                        }
-                    }
+                for (const rule of downRules) {
+                    const fingerprint = this.generateFingerprint(rule, data);
+                    storage.stateTracking.reset(rule.id, fingerprint);
                 }
             }
 
@@ -399,6 +390,8 @@ class NotificationService extends EventEmitter {
                         if (!notification) continue;
 
                         try {
+                            // Bug 6 修复：在发送前检查速率限制
+                            this.checkRateLimit();
                             await this.send(notification);
                         } catch (error) {
                             logger.error(`异步发送通知异常: ${error.message}`);
@@ -446,6 +439,7 @@ class NotificationService extends EventEmitter {
                     const retryCount = log.retry_count || 0;
                     if (retryCount >= maxRetry) {
                         logger.warn(`达到最大重试次数,放弃: ${log.title} (ID: ${log.id})`);
+                        storage.history.updateStatus(log.id, 'failed', null, `达到最大重试次数 (${maxRetry})`);
                         continue;
                     }
 
@@ -462,6 +456,7 @@ class NotificationService extends EventEmitter {
                         message: log.message,
                         data: JSON.parse(log.data || '{}'),
                         log_id: log.id,
+                        is_retry: true, // Bug 1 修复：标记为重试，防止走聚合分支导致死循环
                     };
 
                     this.enqueue(notification);
@@ -696,6 +691,7 @@ class NotificationService extends EventEmitter {
             const lastSeenDate = new Date(eventData.lastSeen);
             lines.push(`最后活跃: ${lastSeenDate.toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })}`);
         }
+        if (eventData.downDuration) lines.push(`故障持续: ${eventData.downDuration}`);
 
         // 如果没有任何特定信息,显示完整数据
         if (lines.length === 0) {

@@ -32,7 +32,6 @@ class EmailChannel {
                 subject: title,
                 text: message,
                 html: this.formatHTML(message, options.notification, config),
-                ...options,
             };
 
             const info = await transporter.sendMail(mailOptions);

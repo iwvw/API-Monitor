@@ -24,6 +24,9 @@ CREATE TABLE IF NOT EXISTS alert_rules (
     suppression TEXT,
     time_window TEXT,
     description TEXT,
+    title_template TEXT DEFAULT '',
+    message_template TEXT DEFAULT '',
+    backup_channels TEXT DEFAULT '[]',
     quiet_until DATETIME, -- 手动静默截止时间
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -66,6 +69,8 @@ CREATE TABLE IF NOT EXISTS alert_state_tracking (
     consecutive_failures INTEGER DEFAULT 1,
     last_notified_at DATETIME,
     metadata TEXT,
+    state_history TEXT DEFAULT '[]',
+    is_flapping INTEGER DEFAULT 0,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     UNIQUE(rule_id, fingerprint),

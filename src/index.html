@@ -24,6 +24,7 @@
   <%- cdnStyleTags %>
     <%- cdnScriptTags %>
 
+      <link rel="stylesheet" href="css/deepseek.css" />
       <link rel="stylesheet" href="css/refined-mobile.css" />
 
       <style>
@@ -212,7 +213,7 @@
             <div class="main-nav-container" :class="[
               {'nav-bottom-fixed': navLayout === 'bottom' || navLayout === 'bottom-normal'},
               {'nav-capsule': navLayout === 'bottom' || navLayout === 'top-capsule'},
-              'theme-' + (mainActiveTab === 'self-h' ? 'self-h' : mainActiveTab === 'gemini-cli' ? 'gemini-cli' : mainActiveTab === 'dns' ? 'cf-dns' : mainActiveTab)
+              'theme-' + (mainActiveTab === 'self-h' ? 'self-h' : mainActiveTab === 'gemini-cli' ? 'gemini-cli' : mainActiveTab === 'deepseek' ? 'deepseek' : mainActiveTab === 'dns' ? 'cf-dns' : mainActiveTab)
             ]">
               <!-- 分组式标签页导航 -->
               <div class="main-tabs main-tabs-grouped" v-if="visibleModulesCount > 1">
@@ -432,7 +433,7 @@
             v-if="!singlePageMode && (!isSelfHVideoActive || !isMobile) && (navLayout === 'bottom' || navLayout === 'bottom-normal')"
             class="main-nav-container nav-bottom-fixed" :class="[
               {'nav-capsule': navLayout === 'bottom'},
-              'theme-' + (mainActiveTab === 'self-h' ? 'self-h' : mainActiveTab === 'gemini-cli' ? 'gemini-cli' : mainActiveTab === 'dns' ? 'cf-dns' : mainActiveTab)
+              'theme-' + (mainActiveTab === 'self-h' ? 'self-h' : mainActiveTab === 'gemini-cli' ? 'gemini-cli' : mainActiveTab === 'deepseek' ? 'deepseek' : mainActiveTab === 'dns' ? 'cf-dns' : mainActiveTab)
             ]">
             <div class="main-tabs main-tabs-grouped" v-if="visibleModulesCount > 1">
               <button v-if="moduleVisibility.dashboard" class="nav-group-btn single-module-btn"
@@ -478,6 +479,7 @@
           <div id="template-openai" v-show="mainActiveTab === 'openai'"></div>
           <div id="template-antigravity" v-show="mainActiveTab === 'antigravity'"></div>
           <div id="template-gemini-cli" v-show="mainActiveTab === 'gemini-cli'"></div>
+          <div id="template-deepseek" v-show="mainActiveTab === 'deepseek'"></div>
           <div id="template-server" v-show="mainActiveTab === 'server'"></div>
           <div id="template-aliyun" v-show="mainActiveTab === 'aliyun'"></div>
           <div id="template-tencent" v-show="mainActiveTab === 'tencent'"></div>

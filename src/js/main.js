@@ -91,6 +91,7 @@ import { r2Methods } from './modules/r2.js';
 import { openaiMethods } from './modules/openai.js';
 import { antigravityMethods } from './modules/antigravity.js';
 import { geminiCliMethods } from './modules/gemini-cli.js';
+import { deepseekMethods } from './modules/deepseek.js';
 import { settingsMethods } from './modules/settings.js';
 import { systemLogsMethods } from './modules/logs.js';
 import { logViewerMethods } from './modules/log-viewer.js';
@@ -1771,6 +1772,7 @@ const app = createApp({
     ...openaiMethods,
     ...antigravityMethods,
     ...geminiCliMethods,
+    ...deepseekMethods,
     ...settingsMethods,
     ...systemLogsMethods,
     ...logViewerMethods,

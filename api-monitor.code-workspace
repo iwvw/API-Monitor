@@ -1,16 +1,7 @@
 {
     "folders": [
         {
-            "name": "api-monitor",
             "path": "."
-        },
-        {
-            "name": "gemini-cli",
-            "path": "../gemini-cli"
-        },
-        {
-            "name": "CLIProxyAPI",
-            "path": "../CLIProxyAPI"
         }
     ]
 }

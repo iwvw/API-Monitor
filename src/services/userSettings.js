@@ -24,29 +24,36 @@ function loadUserSettings() {
       'self-h': false,
       antigravity: true,
       'gemini-cli': true,
+      deepseek: true,
     };
 
     const channelEnabled = settings.channel_enabled || {
       antigravity: true,
       'gemini-cli': true,
+      deepseek: true,
     };
 
     const channelModelPrefix = settings.channel_model_prefix || {
       antigravity: '',
       'gemini-cli': '',
+      deepseek: '',
     };
 
     const order = settings.module_order || [
       'openai',
       'antigravity',
       'gemini-cli',
+      'deepseek',
       'paas',
       'dns',
       'self-h',
       'server',
     ];
 
-    // 确保 gemini-cli 和 self-h 在现有设置中
+    // 确保 gemini-cli 分支等兼容
+    if (!('deepseek' in visibility)) {
+      visibility['deepseek'] = true;
+    }
     if (!('gemini-cli' in visibility)) {
       visibility['gemini-cli'] = true;
     }
@@ -54,6 +61,21 @@ function loadUserSettings() {
       visibility['self-h'] = false;
     }
 
+    if (!('deepseek' in channelEnabled)) {
+      channelEnabled['deepseek'] = true;
+    }
+    if (!('deepseek' in channelModelPrefix)) {
+      channelModelPrefix['deepseek'] = '';
+    }
+
+    if (!order.includes('deepseek')) {
+      const gcliIdx = order.indexOf('gemini-cli');
+      if (gcliIdx !== -1) {
+        order.splice(gcliIdx + 1, 0, 'deepseek');
+      } else {
+        order.push('deepseek');
+      }
+    }
     if (!order.includes('gemini-cli')) {
       order.push('gemini-cli');
     }
