@@ -37,14 +37,14 @@
   color: var(--text-primary);
   display: flex;
   align-items: center;
-  /* 灞呬腑瀵归綈 */
+  /* 居中对齐 */
   justify-content: flex-start;
   gap: var(--space-sm);
   cursor: pointer;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   white-space: nowrap;
   overflow: visible !important;
-  /* 鍏佽闃村奖婧㈠嚭 */
+  /* 允许阴影溢出 */
   text-overflow: ellipsis;
   font-weight: 500;
   position: relative;
@@ -226,7 +226,7 @@
   line-height: 1.2;
 }
 
-/* OpenAI 妯″潡浜岀骇鏍囩椤垫牱寮?*/
+/* OpenAI 模块二级标签页样?*/
 
 
 .theme-openai .tab-btn.active {
@@ -247,7 +247,7 @@
   }
 }
 
-/* 绉诲姩绔€傞厤 */
+/* 移动端配 */
 @media (max-width: 768px) {
   .openai-management-actions span {
     display: none !important;
@@ -363,7 +363,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-sm);
-  /* scroll-behavior: smooth 浼氶樆姝?JS 鐩存帴璁剧疆 scrollTop锛屽凡绉昏嚦 JS 鎺у埗 */
+  /* scroll-behavior: smooth 会阻?JS ֱ scrollTop JS  */
 }
 
 .chat-empty-state {
@@ -435,13 +435,13 @@
   max-width: 75%;
 }
 
-/* 鐢ㄦ埛娑堟伅鍐呭涓嶅簲鍗犳弧鏁磋锛岃鍏惰嚜閫傚簲瀹藉害 */
+/* 用户消息内容不应占满整行，让其自适应宽度 */
 .chat-message.user .message-content {
   flex: unset;
   align-items: flex-end;
 }
 
-/* 鐢ㄦ埛娑堟伅鏂囨湰鑷€傚簲瀹藉害 */
+/* 用户消息文本自应宽度 */
 .chat-message.user .message-text {
   width: fit-content;
   max-width: 100%;
@@ -532,7 +532,7 @@
   background: rgba(16, 163, 127, 0.1);
 }
 
-/* 鍋滄鎸夐挳濮嬬粓鏄剧ず绾㈣壊 */
+/* 停止按钮始终显示红色 */
 .btn-message-action.btn-stop {
   opacity: 1;
   color: #ef4444;
@@ -684,11 +684,11 @@
   max-height: 400px;
   overflow-y: auto;
   border-top: 1px solid rgba(147, 51, 234, 0.1);
-  /* 灞曞紑鍔ㄧ敾 */
+  /* 展开动画 */
   animation: reasoningExpand 0.3s ease-out;
 }
 
-/* 鎬濊€冭繃绋嬪睍寮€鍔ㄧ敾 */
+/* 思过程展弢动画 */
 @keyframes reasoningExpand {
   from {
     opacity: 0;
@@ -705,13 +705,13 @@
   }
 }
 
-/* 娑堟伅娣″叆鍔ㄧ敾 - 鍙鏂版秷鎭敓鏁?*/
+/* Ϣ붯 - 只对新消息生?*/
 .chat-message {
-  /* 榛樿鏃犲姩鐢伙紝閬垮厤鍒囨崲瀵硅瘽鏃堕棯鐑?*/
+  /* 默认无动画，避免切换对话时闪?*/
   animation: none;
 }
 
-/* 鏂版秷鎭粦鍏ュ姩鐢?*/
+/* 新消息滑入动?*/
 .chat-message.new-message {
   animation: messageSlideIn 0.3s ease-out;
 }
@@ -728,7 +728,7 @@
   }
 }
 
-/* 鍘嗗彶璁板綍鍔犺浇涓姸鎬?*/
+/* 历史记录加载中状?*/
 .openai-chat-messages.history-loading .chat-message {
   filter: blur(8px);
   opacity: 0.3;
@@ -737,7 +737,7 @@
 }
 
 .chat-message {
-  /* 鍩虹鍔ㄧ敾鍜屽钩婊戣繃娓?*/
+  /* 基础动画和平滑过?*/
   animation: none;
   transition: filter 0.3s ease, opacity 0.3s ease, transform 0.3s ease;
 }
@@ -787,7 +787,7 @@
   }
 }
 
-/* 鍒囨崲瀵硅瘽鏃舵秷鎭垪琛ㄦ暣浣撴贰鍏?*/
+/* 切换对话时消息列表整体淡?*/
 .openai-chat-messages.fade-in {
   animation: containerFadeIn 0.3s ease-out forwards;
 }
@@ -804,7 +804,7 @@
   }
 }
 
-/* 娑堟伅鏃堕棿鍜屾ā鍨嬫爣绛炬牱寮?*/
+/* 消息时间和模型标签样?*/
 .message-meta {
   display: flex;
   align-items: center;
@@ -970,7 +970,7 @@
   }
 }
 
-/* 搴曢儴鎿嶄綔鎸夐挳 */
+/* 底部操作按钮 */
 .chat-actions-bottom {
   display: flex;
   justify-content: center;
@@ -1029,7 +1029,7 @@
     max-width: 100%;
   }
 
-  /* 绉诲姩绔敤鎴锋秷鎭搴︽墿澶у埌 90% */
+  /* 移动端用户消息宽度扩大到 90% */
   .chat-message.user {
     max-width: 90%;
   }
@@ -1039,7 +1039,7 @@
     max-width: 100%;
   }
 
-  /* 宸ュ叿鏍忔暣浣?*/
+  /* 工具栏整?*/
   .openai-chat-toolbar {
     flex-direction: column;
     gap: var(--space-sm);
@@ -1048,7 +1048,7 @@
     overflow: visible;
   }
 
-  /* 閫夋嫨鍣ㄥ鍣細绠€鍗曟í鎺掕嚜鍔ㄦ崲琛?*/
+  /* 选择器容器：箢单横排自动换?*/
   .chat-model-selector {
     display: flex;
     flex-wrap: wrap;
@@ -1057,30 +1057,30 @@
     align-items: center;
   }
 
-  /* 浜鸿閫夋嫨鍣?- 鍥哄畾瀹藉害 */
+  /* 人设选择?- ̶ */
   .chat-model-selector .persona-select {
     flex: 0 0 auto;
     width: calc(50% - 4px);
   }
 
-  /* 绔偣閫夋嫨鍣?- 鍥哄畾瀹藉害 */
+  /* 端点选择?- ̶ */
   .chat-model-selector .endpoint-select {
     flex: 0 0 auto;
     width: calc(50% - 4px);
   }
 
-  /* 妯″瀷閫夋嫨鍣?- 鍗犳弧鏁磋 */
+  /* 模型选择?- ռ */
   .chat-model-selector .model-selector {
     flex: 0 0 100%;
     width: 100%;
   }
 
-  /* 闅愯棌宸ュ叿鏍忎笂鐨勫浘鏍囨寜閽紙鏀惰棌銆佸埛鏂扮瓑锛?*/
+  /* 隐藏工具栏上的图标按钮（收藏、刷新等?*/
   .chat-model-selector .btn-icon-refined {
     display: none;
   }
 
-  /* 閫夋嫨鍣ㄨЕ鍙戝櫒鏍峰紡 */
+  /* 选择器触发器样式 */
   .custom-select-container {
     min-width: 0;
     width: 100%;
@@ -1107,7 +1107,7 @@
     font-size: 10px;
   }
 
-  /* 鎿嶄綔鎸夐挳琛?- 鍧囧垎涓変釜鎸夐挳 */
+  /* 操作按钮?- ť */
   .chat-actions {
     display: flex;
     gap: var(--space-sm);
@@ -1134,22 +1134,22 @@
     padding: var(--space-sm) var(--space-lg);
   }
 
-  /* 涓嬫媺鑿滃崟闄愬埗瀹藉害闃叉婧㈠嚭 */
+  /* 下拉菜单限制宽度防止溢出 */
   .custom-select-options {
     max-width: calc(100vw - 20px);
     left: auto;
     right: 0;
   }
 
-  /* 绔偣閫夋嫨鍣ㄤ笅鎷夎彍鍗曢潬鍙冲榻?*/
+  /* 端点选择器下拉菜单靠右对?*/
   .endpoint-select .custom-select-options {
     right: 0;
     left: auto;
   }
 
-  /* ===== 鑱婂ぉ闈㈡澘鑷€傚簲楂樺害 ===== */
-  /* 浣跨敤 dvh (鍔ㄦ€佽鍙ｉ珮搴? 澶勭悊绉诲姩绔湴鍧€鏍忓彉鍖?*/
-  /* 鍑忓幓: 椤堕儴鍥炬爣鏍?~45px + 瀛愭爣绛炬爮 ~40px + 搴曢儴瀵艰埅鏍?~60px = ~145px */
+  /* ===== 聊天面板自应高度 ===== */
+  /* ʹ dvh (动视口高? 处理移动端地坢栏变?*/
+  /* ȥ: 顶部图标?~45px + ӱǩ ~40px + 底部导航?~60px = ~145px */
   .chat-layout {
     height: calc(100dvh - 140px);
     height: calc(100vh - 140px);
@@ -1158,7 +1158,7 @@
     overflow: hidden;
   }
 
-  /* 纭繚鑱婂ぉ瀹瑰櫒濉弧 chat-layout */
+  /* 确保聊天容器填满 chat-layout */
   .chat-main {
     height: 100%;
     display: flex;
@@ -1206,7 +1206,7 @@
   position: relative;
 }
 
-/* 绉诲姩绔晶杈规爮閬僵灞?*/
+/* 移动端侧边栏遮罩?*/
 .mobile-sidebar-overlay {
   display: none;
   position: absolute;
@@ -1685,13 +1685,13 @@
     transform: translateX(0);
   }
 
-  /* 妗岄潰绔殣钘忓巻鍙叉寜閽?*/
+  /* 桌面端隐藏历史按?*/
   .mobile-history-toggle {
     display: flex;
   }
 }
 
-/* 妗岄潰绔殣钘忓巻鍙叉寜閽?*/
+/* 桌面端隐藏历史按?*/
 @media (min-width: 769px) {
   .mobile-history-toggle {
     display: none !important;
@@ -2067,7 +2067,7 @@
   font-style: italic;
 }
 
-/* 妯″瀷鍋ュ悍鎸囩ず鍣?*/
+/* 模型健康指示?*/
 .model-health-indicator {
   width: 8px !important;
   height: 8px !important;
@@ -2120,7 +2120,7 @@
   }
 }
 
-/* 鍋ュ悍妫€娴嬪脊绐椾笓鐢ㄦ牱寮?*/
+/* 健康棢测弹窗专用样?*/
 .health-check-modal {
   max-width: 500px !important;
 }
@@ -2226,7 +2226,7 @@
   font-family: var(--font-mono);
 }
 
-/* API 绔偣椤甸潰宸ュ叿鏍?*/
+/* API 端点页面工具?*/
 .endpoints-toolbar {
   display: flex;
   align-items: center;
@@ -2264,7 +2264,7 @@
   font-size: 14px;
 }
 
-/* 寰界珷瀹瑰櫒 */
+/* 徽章容器 */
 .endpoint-badges {
   display: flex;
   align-items: center;
@@ -2303,7 +2303,7 @@
   font-size: 14px;
 }
 
-/* 鏁板鍏紡鏍峰紡 */
+/* 数学公式样式 */
 .math-block {
   margin: 1.25em 0;
   overflow-x: auto;
@@ -2320,7 +2320,7 @@
   margin: 0 !important;
 }
 
-/* 澶氭ā鎬佽緭鍏ユ牱寮?*/
+/* 多模态输入样?*/
 .chat-attachments-preview {
   display: flex;
   gap: var(--space-md);
@@ -2331,7 +2331,7 @@
   border: 1px solid rgba(16, 163, 127, 0.15);
   border-bottom: 1px solid var(--border-color);
   overflow-x: auto;
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-md);
   box-shadow: var(--card-shadow);
 }
 
@@ -2396,7 +2396,7 @@
   font-size: 14px;
 }
 
-/* 鏀惰棌妯″瀷蹇嵎鎸夐挳鏍?*/
+/* 收藏模型快捷按钮?*/
 .pinned-models-bar {
   display: flex;
   gap: 6px;
@@ -2415,7 +2415,7 @@
 .pinned-model-chip {
   padding: var(--space-xs) var(--space-sm);
   font-size: 12px;
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-md);
   border: 1px solid var(--border-color);
   background: var(--bg-tertiary);
   color: var(--text-secondary);
@@ -2438,7 +2438,7 @@
   font-weight: 600;
 }
 
-/* 娴呰壊妯″紡閫傞厤 */
+/* 浅色模式适配 */
 @media (prefers-color-scheme: light) {
   .pinned-model-chip {
     background: #f5f5f5;
@@ -2455,12 +2455,12 @@
   }
 }
 
-/* 宸ュ叿鏍忎腑鐨勬敹钘忔寜閽縺娲荤姸鎬?*/
+/* 工具栏中的收藏按钮激活状?*/
 .btn-icon-refined.is-pinned {
   color: #eab308;
 }
 
-/* 鑷畾涔変笅鎷夎彍鍗曟牱寮?*/
+/* 自定义下拉菜单样?*/
 .custom-select-container {
   position: relative;
   display: inline-block;
@@ -2517,16 +2517,16 @@
   left: 0;
   margin-top: 6px;
   width: 280px;
-  /* 榛樿瀹藉害锛屽浜庢ā鍨嬮€夋嫨杩欑闀垮垪琛ㄥ緢鏈夌敤 */
+  /* 默认宽度，对于模型择这种长列表很有用 */
   background: rgb(32, 33, 35);
-  /* 娣辫壊瀹炲績鑳屾櫙锛岀‘淇濆畬鍏ㄤ笉閫忔槑 */
+  /* 深色实心背景，确保完全不透明 */
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: var(--radius-md);
   box-shadow: var(--card-shadow);
   z-index: 100000;
-  /* 楂樹紭鍏堢骇锛岀‘淇濆湪鑱婂ぉ娑堟伅涔嬩笂 */
+  /* 高优先级，确保在聊天消息之上 */
   padding: 6px;
   max-height: 400px;
   overflow-y: auto;
@@ -2616,7 +2616,7 @@
   letter-spacing: 0.5px;
 }
 
-/* 婊氬姩鏉＄編鍖?*/
+/* 滚动条美?*/
 .custom-select-options::-webkit-scrollbar {
   width: 4px;
 }
@@ -2630,7 +2630,7 @@
   background: transparent;
 }
 
-/* 鑷畾涔変笅鎷夎彍鍗?- 娴呰壊妯″紡閫傞厤 */
+/* 自定义下拉菜?- ǳɫģʽ */
 @media (prefers-color-scheme: light) {
   .custom-select-trigger {
     background: #fff;
@@ -2686,7 +2686,7 @@
   }
 }
 
-/* 鐜颁唬鍖栬缃潰鏉挎牱寮?*/
+/* 现代化设置面板样?*/
 .settings-grid {
   display: grid;
   gap: var(--space-md);
@@ -2696,7 +2696,7 @@
 .settings-card {
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-md);
   padding: var(--space-lg);
 }
 
@@ -2768,7 +2768,7 @@
   font-family: var(--font-mono);
 }
 
-/* ==================== Persona Styles (浜鸿绯荤粺) ==================== */
+/* ==================== Persona Styles (人设系统) ==================== */
 
 .persona-select {
   width: 140px;
@@ -2782,7 +2782,7 @@
   position: relative;
 }
 
-/* 纭繚涓嬫媺妗嗛€夐」娌℃湁宸﹁竟绔栨潯 */
+/* 确保下拉框项没有左边竖条 */
 .persona-options .custom-option::before,
 .custom-select-options .custom-option::before {
   display: none !important;
@@ -2800,7 +2800,7 @@
   opacity: 1;
 }
 
-/* 浼樺寲鎸夐挳鏍峰紡 - 鏇村ソ鐨勮瑙夋晥鏋?*/
+/* Żťʽ - 更好的视觉效?*/
 .persona-options .option-actions i {
   font-size: 13px;
   padding: 6px;
@@ -2956,7 +2956,7 @@
   }
 }
 
-/* ==================== 鑷姩鏍囬鐢熸垚閰嶇疆鏍峰紡 ==================== */
+/* ==================== 自动标题生成配置样式 ==================== */
 .title-model-tag {
   display: inline-flex;
   align-items: center;
@@ -3016,7 +3016,7 @@
   color: #ef4444;
 }
 
-/* Chat Switch 鏍峰紡 */
+/* Chat Switch 样式 */
 .chat-switch-label {
   display: inline-flex;
   align-items: center;
@@ -3059,7 +3059,7 @@
   left: 19px;
 }
 
-/* 婊氬姩鍒板簳閮ㄦ寜閽?*/
+/* 滚动到底部按?*/
 .scroll-to-bottom-btn {
   position: absolute;
   bottom: 70px;
@@ -3093,7 +3093,7 @@
   transform: translateY(0);
 }
 
-/* 娣″叆娣″嚭鍔ㄧ敾 */
+/* 淡入淡出动画 */
 .fade-enter-active,
 .fade-leave-active {
   transition: opacity 0.2s ease, transform 0.2s ease;

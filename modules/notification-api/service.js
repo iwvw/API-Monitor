@@ -27,6 +27,7 @@ class NotificationService extends EventEmitter {
         this.lastResetTime = Date.now();
         this.circuitBroken = false;
         this.startupTime = Date.now(); // 记录启动时间，用于启动保护
+        this.activeProcessing = new Set(); // Bug 修复：标记当前正在处理的记录ID，防止重复捞取
     }
 
     /**
@@ -390,11 +391,18 @@ class NotificationService extends EventEmitter {
                         if (!notification) continue;
 
                         try {
+                            if (notification.log_id) {
+                                this.activeProcessing.add(notification.log_id);
+                            }
                             // Bug 6 修复：在发送前检查速率限制
                             this.checkRateLimit();
                             await this.send(notification);
                         } catch (error) {
                             logger.error(`异步发送通知异常: ${error.message}`);
+                        } finally {
+                            if (notification.log_id) {
+                                this.activeProcessing.delete(notification.log_id);
+                            }
                         }
                     }
                 })());
@@ -440,6 +448,12 @@ class NotificationService extends EventEmitter {
                     if (retryCount >= maxRetry) {
                         logger.warn(`达到最大重试次数,放弃: ${log.title} (ID: ${log.id})`);
                         storage.history.updateStatus(log.id, 'failed', null, `达到最大重试次数 (${maxRetry})`);
+                        continue;
+                    }
+
+                    // Bug 修复：检查是否已经在队列或者是由于上次还没改回状态且仍在被处理中
+                    if (this.queue.some(n => n.log_id === log.id) || this.activeProcessing.has(log.id)) {
+                        logger.debug(`通知 (ID: ${log.id}) 已经在处理队列或发送中，跳过本次重试调度`);
                         continue;
                     }
 

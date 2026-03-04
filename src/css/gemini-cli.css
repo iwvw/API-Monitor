@@ -1,4 +1,4 @@
-﻿/* Gemini CLI 妯″潡涓撳睘鏍峰紡 */
+﻿/* Gemini CLI 模块专属样式 */
 
 /* .gemini-cli-content {
   animation: fadeIn 0.4s ease-out;
@@ -6,7 +6,7 @@
 
 /* Gemini CLI Secondary Tabs */
 .gemini-sec-tabs {
-  /* 缁ф壙鍏ㄥ眬 .sec-tabs 甯冨眬 */
+  /* 继承全局 .sec-tabs 布局 */
 }
 
 .theme-gemini-cli .tab-btn:hover:not(.active) {
@@ -141,7 +141,7 @@
   transform: scale(1.02);
 }
 
-/* 鐘舵€佹爣鐐?*/
+/* 状标?*/
 .status-indicator {
   width: 8px;
   height: 8px;
@@ -159,7 +159,7 @@
   background-color: var(--error-color);
 }
 
-/* 鍝嶅簲寮忚皟鏁?*/
+/* 响应式调?*/
 @media (max-width: 768px) {
   .gemini-grid {
     grid-template-columns: 1fr;
@@ -179,7 +179,7 @@
   filter: brightness(1.1);
 }
 
-/* Gemini 鍙睍寮€ OAuth 闈㈡澘 */
+/* Gemini 可展弢 OAuth  */
 .gemini-oauth-panel {
   max-height: 0;
   overflow: hidden;
@@ -192,7 +192,7 @@
   max-height: 600px;
 }
 
-/* 妯″瀷鍐峰嵈鏍囩 */
+/* 模型冷却标签 */
 .model-cooldowns {
   display: flex;
   flex-direction: column;
@@ -230,7 +230,7 @@
   }
 }
 
-/* 妯″瀷鍋ュ悍妫€娴嬭〃鏍?*/
+/* 模型健康棢测表?*/
 .model-check-table th,
 .model-check-table td {
   padding: var(--space-sm) var(--space-md);
@@ -268,7 +268,7 @@
   font-size: 14px;
 }
 
-/* 瀹氭椂妫€娴嬩笅鎷夋鏍峰紡 */
+/* 定时棢测下拉框样式 */
 .auto-check-select {
   font-size: 11px;
   padding: var(--space-xs) var(--space-sm);
@@ -298,14 +298,14 @@
   box-shadow: 0 0 0 2px rgba(66, 133, 244, 0.2);
 }
 
-/* 涓嬫媺閫夐」鏍峰紡锛堟祻瑙堝櫒鏀寔鏈夐檺锛?*/
+/* 下拉选项样式（浏览器支持有限?*/
 .auto-check-select option {
   background: var(--bg-primary);
   color: var(--text-primary);
   padding: var(--space-sm) var(--space-md);
 }
 
-/* ========== 棰濆害杩涘害鏉℃牱寮?========== */
+/* ========== 额度进度条样?========== */
 .quota-bar-mini {
   width: 100%;
   max-width: 80px;

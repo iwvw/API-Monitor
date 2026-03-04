@@ -1,12 +1,12 @@
-﻿/* Zeabur 妯″潡涓撳睘鏍峰紡 */
+﻿/* Zeabur 模块专属样式 */
 
 /* 
- * 璇存槑:
- * 杩欎釜鏂囦欢涓?Zeabur 妯″潡鎻愪緵涓撳睘鏍峰紡鏀寔
- * 涓昏鐢ㄤ簬鍙屽嚮缂栬緫鍔熻兘鐨勮瑙夋彁绀?
+ * ˵:
+ * 这个文件?Zeabur ģṩרʽ֧
+ * 主要用于双击编辑功能的视觉提?
  */
 
-/* 鍙屽嚮缂栬緫鏍峰紡 - 椤圭洰鍚嶇О */
+/* 双击编辑样式 - 项目名称 */
 .paas-sec-tab .zeabur-project-name-text {
   cursor: text;
   user-select: none;
@@ -20,7 +20,7 @@
   box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.2);
 }
 
-/* 鍙屽嚮缂栬緫鏍峰紡 - 鏈嶅姟鍚嶇О */
+/* 双击编辑样式 - 服务名称 */
 .paas-sec-tab .zeabur-service-name {
   cursor: text;
   user-select: none;
@@ -33,7 +33,7 @@
   background: rgba(99, 102, 241, 0.08);
   box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.2);
 }
-/* 双锟斤拷锟洁辑锟斤拷式 - 锟剿猴拷锟斤拷锟斤拷 */
+/* ˫���༭��ʽ - �˺����� */
 .paas-sec-tab .zeabur-editable-name {
   cursor: text;
   user-select: none;

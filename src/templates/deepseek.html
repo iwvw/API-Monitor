@@ -20,7 +20,7 @@
   <div v-show="dsCurrentTab === 'models'" class="sub-tab-content quick-fade-in">
     <div class="panel-header" style="justify-content: space-between; padding-bottom: 10px">
       <div class="panel-title">
-        <i class="fas fa-th-large" style="margin-right: 8px; color: var(--ds-primary)"></i>DeepSeek 模型列表
+        <i class="fas fa-th-large module-color-text" style="margin-right: 8px;"></i>DeepSeek 模型列表
       </div>
       <button class="btn btn-secondary btn-sm" @click="loadDsModels" :disabled="dsModelsLoading">
         <i class="fas fa-sync-alt" :class="{ 'fa-spin': dsModelsLoading }"></i> 刷新
@@ -45,7 +45,7 @@
             </thead>
             <tbody>
               <tr v-for="model in dsModels" :key="model.id">
-                <td><code style="color: var(--ds-primary)">{{ model.id }}</code></td>
+                <td><code class="module-color-text">{{ model.id }}</code></td>
                 <td>{{ model.owned_by }}</td>
                 <td>{{ new Date(model.created * 1000).toLocaleString() }}</td>
               </tr>
@@ -63,7 +63,7 @@
       <div class="panel" style="margin-top: 16px">
         <div class="panel-header" style="padding-bottom: 10px">
           <div class="panel-title" style="font-size: 14px">
-            <i class="fas fa-exchange-alt" style="margin-right: 6px; color: var(--ds-primary)"></i>模型重定向 (别名)
+            <i class="fas fa-exchange-alt module-color-text" style="margin-right: 6px;"></i>模型重定向 (别名)
           </div>
         </div>
         <div class="form-help" style="margin-bottom: 12px">
@@ -121,7 +121,7 @@
 
         <!-- 添加表单 -->
         <div v-if="!dsEditingRedirectSource"
-          style="display: flex; gap: 10px; align-items: center; background: rgba(77, 107, 254, 0.03); padding: 12px; border-radius: 10px; border: 1px dashed var(--border-color)">
+          style="display: flex; gap: 10px; align-items: center; background: rgba(var(--current-rgb, var(--primary-rgb)), 0.03); padding: 12px; border-radius: 10px; border: 1px dashed var(--border-color)">
           <div style="flex: 1">
             <input type="text" v-model="dsNewRedirectSource" class="form-input"
               style="width: 100%; padding: 8px 12px; font-size: 13px" placeholder="源模型 (例如: gpt-4o)" />
@@ -145,7 +145,7 @@
   <div v-show="dsCurrentTab === 'accounts'" class="sub-tab-content quick-fade-in">
     <div class="panel-header" style="justify-content: space-between; padding-bottom: 10px">
       <div class="panel-title">
-        <i class="fas fa-users" style="margin-right: 8px; color: var(--ds-primary)"></i>DeepSeek 账号
+        <i class="fas fa-users module-color-text" style="margin-right: 8px;"></i>DeepSeek 账号
       </div>
       <div style="display: flex; gap: 8px">
         <button class="btn btn-primary btn-sm" @click="dsShowAddAccount = true">
@@ -273,7 +273,7 @@
       <div class="panel-header log-header-adaptive" style="border-bottom: 1px solid var(--border-color)">
         <div class="panel-title-group">
           <div class="panel-title">
-            <i class="fas fa-history" style="margin-right: 8px; color: var(--ds-primary)"></i>调用日志
+            <i class="fas fa-history module-color-text" style="margin-right: 8px;"></i>调用日志
           </div>
         </div>
         <div class="panel-actions-group">
@@ -352,95 +352,97 @@
     </div>
 
     <!-- 日志详情弹窗 -->
-    <div v-if="dsLogDetailVisible" class="settings-modal-wrapper" @click.self="dsLogDetailVisible = false"
-      style="z-index: 10000">
-      <div class="settings-sidebar" style="max-width: 750px">
-        <div class="settings-sidebar-header">
-          <div class="settings-sidebar-title">
-            <i class="fas fa-file-alt"></i><span>日志详情</span>
+    <teleport to="body">
+      <div v-if="dsLogDetailVisible" class="settings-modal-wrapper" @click.self="dsLogDetailVisible = false"
+        style="z-index: 10000">
+        <div class="settings-sidebar" style="max-width: 750px">
+          <div class="settings-sidebar-header">
+            <div class="settings-sidebar-title">
+              <i class="fas fa-file-alt"></i><span>日志详情</span>
+            </div>
+            <div style="display: flex; gap: 8px; align-items: center">
+              <button class="btn btn-xs" :class="dsLogDetailShowRaw ? 'btn-primary' : 'btn-secondary'"
+                @click="dsLogDetailShowRaw = !dsLogDetailShowRaw">
+                <i class="fas fa-code"></i> {{ dsLogDetailShowRaw ? '结构化' : '原始 JSON' }}
+              </button>
+              <button class="settings-sidebar-close" @click="dsLogDetailVisible = false">
+                <i class="fas fa-times"></i>
+              </button>
+            </div>
           </div>
-          <div style="display: flex; gap: 8px; align-items: center">
-            <button class="btn btn-xs" :class="dsLogDetailShowRaw ? 'btn-primary' : 'btn-secondary'"
-              @click="dsLogDetailShowRaw = !dsLogDetailShowRaw">
-              <i class="fas fa-code"></i> {{ dsLogDetailShowRaw ? '结构化' : '原始 JSON' }}
-            </button>
-            <button class="settings-sidebar-close" @click="dsLogDetailVisible = false">
-              <i class="fas fa-times"></i>
-            </button>
-          </div>
-        </div>
-        <div class="settings-container" style="padding: 16px">
+          <div class="settings-container" style="padding: 16px">
 
-          <!-- 原始 JSON -->
-          <div v-if="dsLogDetailShowRaw">
-            <pre class="ds-log-raw">{{ dsLogDetailContent }}</pre>
-          </div>
+            <!-- 原始 JSON -->
+            <div v-if="dsLogDetailShowRaw">
+              <pre class="ds-log-raw">{{ dsLogDetailContent }}</pre>
+            </div>
 
-          <!-- 结构化视图 -->
-          <div v-else-if="dsLogDetail">
-            <!-- 基础信息 -->
-            <div class="ds-log-section">
-              <div class="ds-log-section-title"><i class="fas fa-info-circle"></i> 请求信息</div>
-              <div class="ds-log-info-grid">
-                <div><span class="ds-log-label">模型</span><code>{{ dsLogDetail.model || '--' }}</code></div>
-                <div><span class="ds-log-label">状态码</span>
-                  <span class="badge" :class="dsLogDetail.status_code === 200 ? 'badge-success' : 'badge-danger'">{{
-                    dsLogDetail.status_code }}</span>
+            <!-- 结构化视图 -->
+            <div v-else-if="dsLogDetail">
+              <!-- 基础信息 -->
+              <div class="ds-log-section">
+                <div class="ds-log-section-title"><i class="fas fa-info-circle"></i> 请求信息</div>
+                <div class="ds-log-info-grid">
+                  <div><span class="ds-log-label">模型</span><code>{{ dsLogDetail.model || '--' }}</code></div>
+                  <div><span class="ds-log-label">状态码</span>
+                    <span class="badge" :class="dsLogDetail.status_code === 200 ? 'badge-success' : 'badge-danger'">{{
+                      dsLogDetail.status_code }}</span>
+                  </div>
+                  <div><span class="ds-log-label">耗时</span>{{ dsLogDetail.duration_ms }}ms</div>
+                  <div><span class="ds-log-label">首 Token</span>{{ dsLogDetail.first_token_time_ms ?
+                    dsLogDetail.first_token_time_ms + 'ms' : '--' }}</div>
+                  <div><span class="ds-log-label">客户端</span><span style="font-size: 11px; opacity: 0.7">{{
+                      dsLogDetail.client_ip || '--' }}</span></div>
+                  <div><span class="ds-log-label">时间</span><span style="font-size: 11px">{{ new
+                      Date(dsLogDetail.timestamp).toLocaleString() }}</span></div>
                 </div>
-                <div><span class="ds-log-label">耗时</span>{{ dsLogDetail.duration_ms }}ms</div>
-                <div><span class="ds-log-label">首 Token</span>{{ dsLogDetail.first_token_time_ms ?
-                  dsLogDetail.first_token_time_ms + 'ms' : '--' }}</div>
-                <div><span class="ds-log-label">客户端</span><span style="font-size: 11px; opacity: 0.7">{{
-                    dsLogDetail.client_ip || '--' }}</span></div>
-                <div><span class="ds-log-label">时间</span><span style="font-size: 11px">{{ new
-                    Date(dsLogDetail.timestamp).toLocaleString() }}</span></div>
               </div>
-            </div>
 
-            <!-- 请求消息 -->
-            <div v-if="getDsLogMessages().length > 0" class="ds-log-section">
-              <div class="ds-log-section-title"><i class="fas fa-comment-dots"></i> 请求消息</div>
-              <div v-for="(msg, idx) in getDsLogMessages()" :key="idx" class="ds-log-message"
-                :class="'ds-log-msg-' + msg.role">
-                <div class="ds-log-msg-role">{{ msg.role }}</div>
-                <div class="ds-log-msg-content">{{ typeof msg.content === 'string' ? msg.content :
-                  JSON.stringify(msg.content) }}</div>
+              <!-- 请求消息 -->
+              <div v-if="getDsLogMessages().length > 0" class="ds-log-section">
+                <div class="ds-log-section-title"><i class="fas fa-comment-dots"></i> 请求消息</div>
+                <div v-for="(msg, idx) in getDsLogMessages()" :key="idx" class="ds-log-message"
+                  :class="'ds-log-msg-' + msg.role">
+                  <div class="ds-log-msg-role">{{ msg.role }}</div>
+                  <div class="ds-log-msg-content">{{ typeof msg.content === 'string' ? msg.content :
+                    JSON.stringify(msg.content) }}</div>
+                </div>
               </div>
-            </div>
 
-            <!-- 响应 -->
-            <div v-if="getDsLogResponse()" class="ds-log-section">
-              <div class="ds-log-section-title"><i class="fas fa-reply"></i> 响应内容</div>
-              <div v-if="getDsLogResponse().reasoning_content" class="ds-log-message ds-log-msg-thinking">
-                <div class="ds-log-msg-role">思考过程</div>
-                <div class="ds-log-msg-content">{{ getDsLogResponse().reasoning_content }}</div>
+              <!-- 响应 -->
+              <div v-if="getDsLogResponse()" class="ds-log-section">
+                <div class="ds-log-section-title"><i class="fas fa-reply"></i> 响应内容</div>
+                <div v-if="getDsLogResponse().reasoning_content" class="ds-log-message ds-log-msg-thinking">
+                  <div class="ds-log-msg-role">思考过程</div>
+                  <div class="ds-log-msg-content">{{ getDsLogResponse().reasoning_content }}</div>
+                </div>
+                <div class="ds-log-message ds-log-msg-assistant">
+                  <div class="ds-log-msg-role">assistant</div>
+                  <div class="ds-log-msg-content">{{ getDsLogResponse().content || '(空)' }}</div>
+                </div>
               </div>
-              <div class="ds-log-message ds-log-msg-assistant">
-                <div class="ds-log-msg-role">assistant</div>
-                <div class="ds-log-msg-content">{{ getDsLogResponse().content || '(空)' }}</div>
-              </div>
-            </div>
 
-            <!-- 错误信息 -->
-            <div v-if="dsLogDetail.detail && dsLogDetail.detail.error" class="ds-log-section">
-              <div class="ds-log-section-title" style="color: var(--danger-color)"><i
-                  class="fas fa-exclamation-triangle"></i> 错误</div>
-              <div
-                style="padding: 10px; background: rgba(var(--danger-color-rgb, 220,53,69), 0.1); border-radius: 8px; font-size: 13px">
-                {{ dsLogDetail.detail.error }}
+              <!-- 错误信息 -->
+              <div v-if="dsLogDetail.detail && dsLogDetail.detail.error" class="ds-log-section">
+                <div class="ds-log-section-title" style="color: var(--danger-color)"><i
+                    class="fas fa-exclamation-triangle"></i> 错误</div>
+                <div
+                  style="padding: 10px; background: rgba(var(--danger-color-rgb, 220,53,69), 0.1); border-radius: 8px; font-size: 13px">
+                  {{ dsLogDetail.detail.error }}
+                </div>
               </div>
             </div>
           </div>
         </div>
       </div>
-    </div>
+    </teleport>
   </div>
 
   <!-- ==================== 模块配置标签页 ==================== -->
   <div v-show="dsCurrentTab === 'settings'" class="sub-tab-content quick-fade-in">
     <div class="panel-header" style="padding-bottom: 10px">
       <div class="panel-title">
-        <i class="fas fa-cog" style="margin-right: 8px; color: var(--ds-primary)"></i>DeepSeek 模块配置
+        <i class="fas fa-cog module-color-text" style="margin-right: 8px;"></i>DeepSeek 模块配置
       </div>
     </div>
 
@@ -480,7 +482,7 @@
     <div class="panel" style="margin-top: 16px; padding: 16px">
       <div class="panel-header" style="padding-bottom: 10px; border-bottom: none">
         <div class="panel-title" style="font-size: 14px">
-          <i class="fas fa-plug" style="margin-right: 6px; color: var(--ds-primary)"></i>API 接入指引
+          <i class="fas fa-plug module-color-text" style="margin-right: 6px;"></i>API 接入指引
         </div>
       </div>
 
@@ -495,8 +497,8 @@
       <div class="ds-endpoint-section">
         <div class="ds-endpoint-label">可用端点</div>
         <div style="display: flex; flex-direction: column; gap: 4px; font-size: 12px">
-          <div><code style="color: var(--ds-primary)">POST</code> <code>/v1/chat/completions</code></div>
-          <div><code style="color: var(--ds-primary)">GET</code> <code>/v1/models</code></div>
+          <div><code class="module-color-text">POST</code> <code>/v1/chat/completions</code></div>
+          <div><code class="module-color-text">GET</code> <code>/v1/models</code></div>
         </div>
       </div>
 

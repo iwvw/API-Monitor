@@ -1,4 +1,4 @@
-﻿/* ==================== FileBox 妯″潡鏍峰紡 ==================== */
+﻿/* ==================== FileBox 模块样式 ==================== */
 
 .theme-filebox {
     --current-primary: #10b981;
@@ -23,7 +23,7 @@
     color: var(--filebox-primary);
 }
 
-/* 椤堕儴鍙栦欢鍗＄墖 */
+/* 顶部取件卡片 */
 .filebox-header-card {
     background: var(--card-bg);
     border: 1px solid var(--border-color);
@@ -103,7 +103,7 @@
     transform: none;
 }
 
-/* 閰嶇疆閫夐」琛?*/
+/* 配置选项?*/
 .filebox-options-row {
     display: flex;
     align-items: center;
@@ -139,7 +139,7 @@
     border-radius: var(--radius-md);
 }
 
-/* 绔嬪嵆鍒嗕韩鎸夐挳澧炲己 */
+/* 立即分享按钮增强 */
 .filebox-options-row .btn-primary {
     padding: 0 var(--space-xl);
     height: 38px;
@@ -213,7 +213,7 @@
     margin-right: var(--space-xs);
 }
 
-/* 纭繚 Switch 鏍峰紡鍦?filebox 涓彲鐢?*/
+/* ȷ Switch 样式?filebox 中可?*/
 .form-switch {
     display: inline-flex;
     align-items: center;
@@ -258,7 +258,7 @@
     background: white;
 }
 
-/* 鍒嗕韩鍒囨崲 Tab */
+/* 分享切换 Tab */
 .filebox-share-tabs {
     display: flex;
     background: var(--bg-primary);
@@ -299,7 +299,7 @@
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 }
 
-/* 涓婁紶鍖哄煙 */
+/* 上传区域 */
 .filebox-upload-zone {
     flex: 1;
     min-height: 220px;
@@ -378,7 +378,7 @@
     box-shadow: 0 4px 12px rgba(var(--danger-rgb), 0.2);
 }
 
-/* 鍒嗕韩鎴愬姛寮瑰嚭灞?*/
+/* 分享成功弹出?*/
 .filebox-overlay-result {
     position: absolute;
     top: 0;
@@ -456,7 +456,7 @@
     flex-wrap: wrap;
 }
 
-/* 鍘嗗彶璁板綍鍒楄〃 */
+/* 历史记录列表 */
 .filebox-history-list-modern {
     display: flex;
     flex-direction: column;
@@ -604,7 +604,7 @@
     padding: 30px;
 }
 
-/* 鎻愬彇缁撴灉寮圭獥澧炲己 */
+/* 提取结果弹窗增强 */
 .retrieved-icon-wrapper {
     width: 100px;
     height: 100px;
@@ -688,7 +688,7 @@
     margin-top: var(--space-sm);
 }
 
-/* 鍔ㄧ敾 */
+/* 动画 */
 @keyframes bounceIn {
     0% {
         opacity: 0;

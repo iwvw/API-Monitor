@@ -1,11 +1,11 @@
 ﻿/**
- * 娴佸獟浣撴挱鏀惧櫒鏍峰紡
+ * ý岥ʽ
  * 
- * 浣跨敤 Plyr 鎾斁鍣?
- * 鏀寔浜壊/鏆楄壊涓婚
+ * ʹ Plyr 播放?
+ * ֧ɫ/ɫ
  */
 
-/* ==================== Plyr 鎾斁鍣ㄨ嚜瀹氫箟鏍峰紡 ==================== */
+/* ==================== Plyr 播放器自定义样式 ==================== */
 
 .plyr-player-wrapper {
   position: relative;
@@ -82,25 +82,25 @@
   display: block;
 }
 
-/* ==================== Plyr 涓婚瀹氬埗 ==================== */
+/* ==================== Plyr 主题定制 ==================== */
 .plyr {
-  /* 涓昏壊璋?*/
+  /* 主色?*/
   --plyr-color-main: #06b6d4;
 
-  /* 杩涘害鏉′笌缂撳瓨鏉″彉閲?*/
+  /* 进度条与缓存条变?*/
   --plyr-range-fill-background: #06b6d4;
   --plyr-range-track-background: rgba(255, 255, 255, 0.2);
   --plyr-video-progress-buffered-background: rgba(255, 255, 255, 0.35);
 }
 
-/* 鎺у埗鏍忚儗鏅?*/
+/* 控制栏背?*/
 .plyr__controls {
   background: linear-gradient(to top, rgba(0, 0, 0, 0.7), transparent) !important;
   z-index: 20 !important;
   padding-bottom: var(--space-xs) !important;
 }
 
-/* 浜や簰浼樺寲锛氭墜鍨嬪厜鏍?*/
+/* 交互优化：手型光?*/
 .plyr__control,
 .plyr__progress,
 .plyr__progress__container,
@@ -109,14 +109,14 @@
   cursor: pointer !important;
 }
 
-/* 鐒︾偣鏍峰紡 */
+/* 焦点样式 */
 .plyr__control:focus,
 .plyr__control:focus-visible {
   outline: none !important;
   box-shadow: none !important;
 }
 
-/* 澶ф挱鏀炬寜閽?*/
+/* 大播放按?*/
 .plyr__control--overlaid {
   background: rgba(6, 182, 212, 0.8) !important;
 }
@@ -125,7 +125,7 @@
   background: rgba(6, 182, 212, 1) !important;
 }
 
-/* 缂撳瓨杩涘害鏉℃樉绀轰紭鍖?*/
+/* 缓存进度条显示优?*/
 .plyr__progress__buffer {
   border-radius: 100px !important;
 }
@@ -139,17 +139,17 @@
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3) !important;
 }
 
-/* 鍏ㄥ睆鏃堕殣钘忚嚜瀹氫箟宸ュ叿鏍?*/
+/* 全屏时隐藏自定义工具?*/
 .plyr--fullscreen-active .plyr-player-toolbar {
   display: none;
 }
 
-/* 鍏ㄥ睆鏃舵帶鍒舵爮鍦嗚绉婚櫎 */
+/* 全屏时控制栏圆角移除 */
 .plyr--fullscreen-active .plyr__controls {
   border-radius: 0 !important;
 }
 
-/* openlist 瑙嗛瀹瑰櫒 */
+/* openlist 视频容器 */
 .openlist-video-tab-view .plyr-player-wrapper {
   width: 100%;
   max-width: 100%;
@@ -157,7 +157,7 @@
   overflow: hidden;
 }
 
-/* 闄愬埗瑙嗛楂樺害涓嶈秴杩囧睆骞曪紙鎺掗櫎鍏ㄥ睆妯″紡锛?*/
+/* 限制视频高度不超过屏幕（排除全屏模式?*/
 .openlist-video-tab-view .plyr:not(.plyr--fullscreen-active) {
   max-height: calc(100vh - 150px);
 }
@@ -171,7 +171,7 @@
   object-fit: contain;
 }
 
-/* 鍏ㄥ睆妯″紡锛氱Щ闄ゆ墍鏈夐檺鍒跺苟纭繚姝ｇ‘濉厖 */
+/* 全屏模式：移除所有限制并确保正确填充 */
 .plyr.plyr--fullscreen-active {
   max-height: none !important;
   max-width: none !important;
@@ -198,7 +198,7 @@
   object-fit: contain !important;
 }
 
-/* 鍘熺敓鍏ㄥ睆 API 鏍峰紡 */
+/* 原生全屏 API 样式 */
 .plyr:fullscreen,
 .plyr:-webkit-full-screen,
 .plyr:-moz-full-screen,
@@ -230,7 +230,7 @@
   max-height: none !important;
 }
 
-/* 瑕嗙洊 openlist-video-tab-view 鍐呯殑鍏ㄥ睆闄愬埗 */
+/* 覆盖 openlist-video-tab-view 内的全屏限制 */
 .openlist-video-tab-view .plyr:fullscreen,
 .openlist-video-tab-view .plyr:-webkit-full-screen,
 .openlist-video-tab-view .plyr.plyr--fullscreen-active {
@@ -249,7 +249,7 @@
   max-height: none !important;
 }
 
-/* 鍔犺浇鐘舵€?*/
+/* 加载状?*/
 .plyr--loading .plyr__control--overlaid {
   animation: plyr-pulse 1.5s ease-in-out infinite;
 }
@@ -268,7 +268,7 @@
   }
 }
 
-/* 绉诲姩绔€傞厤 */
+/* 移动端配 */
 @media (max-width: 768px) {
   .plyr-player-wrapper {
     border-radius: 0;
@@ -292,7 +292,7 @@
   }
 }
 
-/* ==================== 瑙嗛妯″紡甯冨眬 ==================== */
+/* ==================== 视频模式布局 ==================== */
 
 .openlist-files-layout.video-mode-layout {
   max-width: 1200px;
@@ -305,7 +305,7 @@
   border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-/* 鍏煎 :has 鏂规浣滀负鍏滃簳 */
+/* 兼容 :has 方案作为兜底 */
 .openlist-files-layout:has(.openlist-video-tab-view) {
   max-width: 1200px;
   /* margin: 20px auto; */
@@ -319,7 +319,7 @@
   align-items: center;
 }
 
-/* 鍏ㄥ眬娣辫壊娌夋蹈妯″紡锛氬綋瑙嗛婵€娲绘椂锛屽己鍒舵墍鏈夎儗鏅彉榛?*/
+/* 全局深色沉浸模式：当视频濢活时，强制所有背景变?*/
 .video-active-mode,
 .video-active-mode .app-main,
 .video-active-mode .container {
@@ -327,7 +327,7 @@
   transition: background 0.3s ease;
 }
 
-/* 绉诲姩绔壒娈婂鐞?*/
+/* 移动端特殊处?*/
 @media (max-width: 768px) {
   .video-active-mode .container {
     padding: 0 !important;

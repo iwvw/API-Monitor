@@ -33,7 +33,7 @@
   color: var(--primary-color);
 }
 
-/* 缁熶竴涓绘爣绛鹃〉閰嶈壊 - 鍖归厤鏂伴噸鏋勭殑鑹插僵绯荤粺 */
+/* 统一主标签页配色 - 匹配新重构的色彩系统 */
 
 .main-tab.paas-tab:hover,
 .main-tab.paas-tab.active {
@@ -121,7 +121,7 @@
     padding: var(--space-md) var(--space-lg);
     min-width: auto;
     position: relative;
-    /* 涓哄瓙鍏冪礌缁濆瀹氫綅鎻愪緵鍙傝€?*/
+    /* 为子元素绝对定位提供参?*/
   }
 
   .main-tab i {
@@ -133,9 +133,9 @@
   }
 }
 
-/* ==================== 渚ц竟鏍忓竷灞€妯″紡 ==================== */
+/* ==================== 侧边栏布屢模式 ==================== */
 
-/* 涓诲鍣?- 渚ц竟鏍忔ā寮?*/
+/* 主容?- 侧边栏模?*/
 .container.sidebar-layout {
   display: flex;
   flex-direction: row;
@@ -143,7 +143,7 @@
   position: relative;
 }
 
-/* 渚ц竟鏍忓鑸?- 鎮诞鍥哄畾锛岃创闈犱富妗嗘灦宸﹁竟 */
+/* 侧边栏导?- ̶ */
 .main-tabs-sidebar {
   display: flex;
   flex-direction: column;
@@ -152,13 +152,13 @@
   background: transparent;
   position: fixed;
   left: calc(50% - 600px - 50px);
-  /* 600px = max-width/2, 50px = 渚ц竟鏍忓搴?+ 闂磋窛 */
+  /* 600px = max-width/2, 50px = 侧边栏宽?+  */
   top: 50%;
   transform: translateY(-50%);
   z-index: 100;
 }
 
-/* 渚ц竟鏍忔寜閽?*/
+/* 侧边栏按?*/
 .main-tabs-sidebar .sidebar-tab {
   display: flex;
   align-items: center;
@@ -173,6 +173,8 @@
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   font-size: 18px;
   position: relative;
+  transform: scale(1);
+  will-change: transform;
 }
 
 .main-tabs-sidebar .sidebar-tab:hover {
@@ -185,7 +187,7 @@
   transform: scale(1.1);
 }
 
-/* 鍚勬ā鍧楃壒鑹查鑹?- 婵€娲荤姸鎬?*/
+/* 各模块特色颜?- 濢活状?*/
 .main-tabs-sidebar .sidebar-tab.paas-tab.active {
   color: var(--paas-primary) !important;
 }
@@ -222,14 +224,14 @@
   color: #f43f5e !important;
 }
 
-/* Tooltip 鎻愮ず - 渚ц竟鏍忔ā寮?*/
+/* Tooltip ʾ - 侧边栏模?*/
 .main-tabs-sidebar .sidebar-tab::after {
   content: attr(data-tooltip);
   position: absolute;
   left: calc(100% + var(--space-sm));
   top: 50%;
   transform: translateY(-50%);
-  /* 缁熶竴娣辫壊涓婚 tooltip */
+  /* 统一深色主题 tooltip */
   background: var(--bg-primary) !important;
   color: var(--text-primary) !important;
   padding: 6px var(--space-md);
@@ -244,7 +246,7 @@
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   border: 1px solid var(--border-color);
   z-index: 1000;
-  /* 閲嶇疆鍙兘琚ā鍧椾富棰樿壊瑕嗙洊鐨勫睘鎬?*/
+  /* 重置可能被模块主题色覆盖的属?*/
   width: auto !important;
   height: auto !important;
 }
@@ -254,7 +256,7 @@
   visibility: visible;
 }
 
-/* 涓诲唴瀹瑰尯鍩?- 渚ц竟鏍忔ā寮?*/
+/* 主内容区?- 侧边栏模?*/
 .container.sidebar-layout .main-content-area {
   flex: 1;
   min-width: 0;
@@ -262,13 +264,13 @@
   overflow-x: hidden;
 }
 
-/* 渚ц竟鏍忔ā寮忎笅闅愯棌 header 鐨勪竴浜涘厓绱?*/
+/* ģʽ header 的一些元?*/
 .container.sidebar-layout .header {
   padding: var(--space-md) 0;
   margin-bottom: var(--space-sm);
 }
 
-/* 甯冨眬閫夐」鍗＄墖鏍峰紡 */
+/* 布局选项卡片样式 */
 .layout-option {
   background: var(--bg-secondary);
 }
@@ -283,23 +285,24 @@
   background: rgba(var(--primary-rgb), 0.1);
 }
 
-.layout-option.active > div:first-child {
+.layout-option.active>div:first-child {
   color: var(--primary-color) !important;
 }
 
-/* 渚ц竟鏍忔ā寮忓搷搴斿紡 - 涓瓑灞忓箷 */
+/* 侧边栏模式响应式 - 中等屏幕 */
 @media (max-width: 1350px) {
   .main-tabs-sidebar {
     left: var(--space-sm);
-    /* 灞忓箷杈冪獎鏃惰创闈犲乏杈?*/
+    /* 屏幕较窄时贴靠左?*/
   }
 }
 
-/* ==================== 搴曟爮甯冨眬妯″紡 (Bottom Bar) ==================== */
+/* ==================== 底栏布局模式 (Bottom Bar) ==================== */
 
-/* 浠呭湪闈炵Щ鍔ㄧ锛堝搴?> 768px锛夋椂鐢熸晥 */
+/* 仅在非移动端（宽?> 768pxʱЧ */
 @media (min-width: 769px) {
-  /* 搴曢儴鍥哄畾瀹氫綅瀹瑰櫒 (bottom & bottom-normal) */
+
+  /* 底部固定定位容器 (bottom & bottom-normal) */
   .nav-bottom-fixed {
     position: fixed !important;
     bottom: var(--space-xl) !important;
@@ -311,7 +314,7 @@
     gap: var(--space-md) !important;
   }
 
-  /* 椤堕儴鑳跺泭妯″紡瀹瑰櫒 */
+  /* 顶部胶囊模式容器 */
   .nav-layout-top-capsule .main-nav-container {
     display: flex !important;
     align-items: center !important;
@@ -321,14 +324,14 @@
     width: fit-content !important;
   }
 
-  /* 鑳跺泭鏍峰紡 (bottom & top-capsule) */
+  /* 胶囊样式 (bottom & top-capsule) */
   .nav-capsule .main-tabs {
     position: relative !important;
     bottom: auto !important;
     left: auto !important;
     transform: none !important;
 
-    /* 鎮诞鑳跺泭鏍峰紡 */
+    /* 悬浮胶囊样式 */
     background: rgba(var(--bg-secondary-rgb), 0.65) !important;
     backdrop-filter: blur(16px) saturate(150%) !important;
     -webkit-backdrop-filter: blur(16px) saturate(150%) !important;
@@ -348,7 +351,7 @@
     border-bottom: none !important;
   }
 
-  /* PC 搴曟爮妯″紡涓撶敤璁剧疆鎸夐挳 - 鍦嗗舰銆侀珮搴︿竴鑷?*/
+  /* PC ģʽרðť - 圆形、高度一?*/
   .btn-settings-pc-bottom {
     width: 56px !important;
     height: 56px !important;
@@ -381,7 +384,7 @@
     border-color: var(--current-primary, var(--primary-color)) !important;
   }
 
-  /* 闅愯棌鐗瑰畾鍦烘櫙涓嬬殑鎸夐挳 */
+  /* 隐藏特定场景下的按钮 */
   .pc-hide {
     display: none !important;
   }
@@ -406,23 +409,23 @@
     box-shadow: 0 4px 12px rgba(var(--current-rgb), 0.1);
   }
 
-  /* 闅愯棌鎸囩ず鏉?(鑳跺泭妯″紡) */
+  /* 隐藏指示?(胶囊模式) */
   .nav-capsule .main-tab::after {
     display: none !important;
   }
 
-  /* 瀹瑰櫒杈硅窛 (搴曢儴甯冨眬) */
+  /* 容器边距 (底部布局) */
   .layout-bottom.container,
   .layout-bottom-normal.container {
     padding-bottom: 110px !important;
   }
 
-  /* 椤堕儴鑳跺泭妯″紡闅愯棌椤甸潰澶撮儴 */
+  /* 顶部胶囊模式隐藏页面头部 */
   .nav-layout-top-capsule .header {
     display: none !important;
   }
 
-  /* 搴曢儴鏅€氭牱寮?(bottom-normal) - 淇濇寔鍘熸湁 tab 鏍峰紡浣嗗浐瀹氬湪搴曢儴 */
+  /* 底部普样?(bottom-normal) - ԭ tab ʽ̶ڵײ */
   .nav-bottom-fixed:not(.nav-capsule) .main-tabs {
     background: rgba(var(--bg-secondary-rgb), 0.95) !important;
     backdrop-filter: blur(20px) saturate(180%) !important;
@@ -436,7 +439,7 @@
   }
 }
 
-/* 渚ц竟鏍忔ā寮忓搷搴斿紡 - 灏忓睆骞?*/
+/* ģʽӦʽ - 小屏?*/
 @media (max-width: 768px) {
   .container.sidebar-layout {
     padding-left: 0;
@@ -524,7 +527,7 @@
   user-select: none;
 }
 
-/* 闅愬幓 number 杈撳叆妗嗙殑绠ご */
+/* 隐去 number 输入框的箭头 */
 .cron-input-group input::-webkit-inner-spin-button,
 .cron-input-group input::-webkit-outer-spin-button {
   -webkit-appearance: none;

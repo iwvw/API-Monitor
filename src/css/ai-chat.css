@@ -1,5 +1,5 @@
 ﻿/**
- * AI Chat 妯″潡鏍峰紡
+ * AI Chat 模块样式
  */
 
 .theme-ai-chat {
@@ -13,7 +13,7 @@
   box-shadow: 0 2px 8px rgba(var(--current-rgb), 0.3);
 }
 
-/* ========== 妯″潡瀹瑰櫒 ========== */
+/* ========== 模块容器 ========== */
 .ai-chat-module {
   display: flex;
   height: calc(100vh - 80px);
@@ -23,7 +23,7 @@
   gap: 0;
 }
 
-/* ========== 渚ц竟鏍?(瀵硅瘽鍒楄〃) ========== */
+/* ========== 侧边?(对话列表) ========== */
 .ai-chat-sidebar {
   width: 280px;
   min-width: 280px;
@@ -126,7 +126,7 @@
   color: var(--danger-color);
 }
 
-/* ========== 涓昏亰澶╁尯鍩?========== */
+/* ========== 主聊天区?========== */
 .ai-chat-main {
   flex: 1;
   display: flex;
@@ -194,7 +194,7 @@
   color: var(--text-primary);
 }
 
-/* ========== 娑堟伅鍖哄煙 ========== */
+/* ========== 消息区域 ========== */
 .ai-chat-messages {
   flex: 1;
   overflow-y: auto;
@@ -269,7 +269,7 @@
   border: 1px solid var(--border-color);
 }
 
-/* Markdown 娓叉煋鏍峰紡 */
+/* Markdown 渲染样式 */
 .ai-chat-message .content p {
   margin: 0 0 var(--space-md) 0;
 }
@@ -326,7 +326,7 @@
   background: var(--bg-tertiary);
 }
 
-/* 鎵撳瓧鏈哄厜鏍?*/
+/* 打字机光?*/
 .ai-chat-typing-cursor {
   display: inline-block;
   width: 8px;
@@ -350,7 +350,7 @@
   }
 }
 
-/* ========== 杈撳叆鍖哄煙 ========== */
+/* ========== 输入区域 ========== */
 .ai-chat-input-area {
   padding: var(--space-lg) var(--space-xl);
   border-top: 1px solid var(--border-color);
@@ -438,7 +438,7 @@
   background: var(--danger-color);
 }
 
-/* ========== 绌虹姸鎬?========== */
+/* ========== 空状?========== */
 .ai-chat-empty {
   flex: 1;
   display: flex;
@@ -469,7 +469,7 @@
   max-width: 300px;
 }
 
-/* ========== Provider 璁剧疆寮圭獥 ========== */
+/* ========== Provider 设置弹窗 ========== */
 .ai-chat-provider-modal {
   position: fixed;
   inset: 0;
@@ -587,7 +587,7 @@
   gap: var(--space-sm);
 }
 
-/* ========== 鍝嶅簲寮?========== */
+/* ========== 响应?========== */
 @media (max-width: 768px) {
   .ai-chat-module {
     height: calc(100vh - 120px);

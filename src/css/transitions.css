@@ -1,13 +1,13 @@
-﻿/* 椤甸潰鍒囨崲杩囨浮鍔ㄧ敾 */
+﻿/* 页面切换过渡动画 */
 
-/* 涓诲唴瀹瑰尯鍩熺殑杩囨浮瀹瑰櫒 */
+/* 主内容区域的过渡容器 */
 .tab-content-wrapper {
   position: relative;
   min-height: 400px;
   overflow: visible;
 }
 
-/* 鏍囩椤靛唴瀹圭殑鍩虹鏍峰紡 */
+/* 标签页内容的基础样式 */
 .tab-content {
   padding-bottom: 0;
   animation-duration: 0.4s;
@@ -19,14 +19,14 @@
   overflow: visible;
 }
 
-/* 绉诲姩绔繚鐣欏簳閮ㄩ棿璺濓紙涓哄簳閮ㄥ鑸爮鐣欑┖闂达級 */
+/* 移动端保留底部间距（为底部导航栏留空间） */
 @media (max-width: 768px) {
   .tab-content {
     padding-bottom: 50px;
   }
 }
 
-/* 娣″叆鍔ㄧ敾 - 浠庝笅鏂硅繘鍏?*/
+/* 붯 - 从下方进?*/
 @keyframes fadeIn {
   from {
     opacity: 0;
@@ -39,7 +39,7 @@
   }
 }
 
-/* 娣″嚭鍔ㄧ敾 */
+/* 淡出动画 */
 @keyframes fadeOut {
   from {
     opacity: 1;
@@ -51,7 +51,7 @@
   }
 }
 
-/* 婊戝姩鍔ㄧ敾 - 缁熶竴浠庝笅鏂硅繘鍏?*/
+/*  - 统一从下方进?*/
 @keyframes slideInRight {
   from {
     opacity: 0;
@@ -64,7 +64,7 @@
   }
 }
 
-/* 婊戝姩鍔ㄧ敾 - 缁熶竴浠庝笅鏂硅繘鍏ワ紙淇濇寔涓€鑷达級 */
+/*  - 统一从下方进入（保持丢致） */
 @keyframes slideInLeft {
   from {
     opacity: 0;
@@ -77,7 +77,7 @@
   }
 }
 
-/* 婊戝姩閫€鍑?- 娣″嚭 */
+/* 滑动逢?-  */
 @keyframes slideOutLeft {
   from {
     opacity: 1;
@@ -88,7 +88,7 @@
   }
 }
 
-/* 婊戝姩閫€鍑?- 娣″嚭 */
+/* 滑动逢?-  */
 @keyframes slideOutRight {
   from {
     opacity: 1;
@@ -99,7 +99,7 @@
   }
 }
 
-/* 搴旂敤鍔ㄧ敾绫?*/
+/* 应用动画?*/
 .fade-in {
   animation-name: fadeIn;
 }
@@ -124,8 +124,8 @@
   animation-name: slideOutRight;
 }
 
-/* ==================== 妯″潡鍒囨崲鍔ㄧ敾涓婚鑹?==================== */
-/* Zeabur 妯″潡 - 绱壊涓婚 */
+/* ==================== 模块切换动画主题?==================== */
+/* Zeabur 模块 - 紫色主题 */
 .zeabur-sec-tab.slide-in-left,
 .zeabur-sec-tab.slide-in-right,
 .zeabur-sec-tab.slide-out-left,
@@ -133,7 +133,7 @@
   --module-color: rgba(99, 102, 241, 0.06);
 }
 
-/* DNS 妯″潡 - Cloudflare 姗欒壊涓婚 */
+/* DNS 模块 - Cloudflare 橙色主题 */
 .dns-tab-content.slide-in-left,
 .dns-tab-content.slide-in-right,
 .dns-tab-content.slide-out-left,
@@ -141,7 +141,7 @@
   --module-color: rgba(243, 128, 32, 0.06);
 }
 
-/* OpenApi 妯″潡 - 缁胯壊涓婚 */
+/* OpenApi 模块 - 绿色主题 */
 .openai-tab-content.slide-in-left,
 .openai-tab-content.slide-in-right,
 .openai-tab-content.slide-out-left,
@@ -149,7 +149,7 @@
   --module-color: rgba(16, 163, 127, 0.06);
 }
 
-/* 涓绘満绠＄悊妯″潡 - 闈掔豢鑹蹭富棰?*/
+/* ģ - 青绿色主?*/
 .server-tab-content.slide-in-left,
 .server-tab-content.slide-in-right,
 .server-tab-content.slide-out-left,
@@ -157,7 +157,7 @@
   --module-color: rgba(0, 212, 170, 0.06);
 }
 
-/* Music 妯″潡 - 鐜孩鑹蹭富棰?*/
+/* Music ģ - 玫红色主?*/
 .music-tab-content.slide-in-left,
 .music-tab-content.slide-in-right,
 .music-tab-content.slide-out-left,
@@ -170,7 +170,7 @@
   animation-name: fadeIn;
 }
 
-/* Antigravity 妯″潡 - 姗欒壊涓婚 */
+/* Antigravity 模块 - 橙色主题 */
 .antigravity-tab-content.slide-in-left,
 .antigravity-tab-content.slide-in-right,
 .antigravity-tab-content.slide-out-left,
@@ -178,7 +178,7 @@
   --module-color: rgba(255, 87, 34, 0.06);
 }
 
-/* Gemini CLI 妯″潡 - 钃濊壊涓婚 */
+/* Gemini CLI 模块 - 蓝色主题 */
 .gemini-cli-content.slide-in-left,
 .gemini-cli-content.slide-in-right,
 .gemini-cli-content.slide-out-left,
@@ -186,7 +186,7 @@
   --module-color: rgba(66, 133, 244, 0.06);
 }
 
-/* Self-H 妯″潡 - 闈掕壊涓婚 */
+/* Self-H 模块 - 青色主题 */
 .self-h-tab-content.slide-in-left,
 .self-h-tab-content.slide-in-right,
 .self-h-tab-content.slide-out-left,
@@ -195,7 +195,7 @@
   --module-color: rgba(6, 182, 212, 0.06);
 }
 
-/* Music 妯″潡 - 鐜孩鑹蹭富棰?*/
+/* Music ģ - 玫红色主?*/
 .music-tab-content.slide-in-left,
 .music-tab-content.slide-in-right,
 .music-tab-content.slide-out-left,
@@ -204,7 +204,7 @@
   --module-color: rgba(244, 63, 94, 0.06);
 }
 
-/* 鍒囨崲鍔ㄧ敾浣跨敤妯″潡涓婚鑹?*/
+/* 切换动画使用模块主题?*/
 /* .tab-content.slide-in-left,
 .tab-content.slide-in-right,
 .tab-content.slide-out-left,
@@ -212,7 +212,7 @@
   background: linear-gradient(135deg, var(--module-color, transparent), transparent 70%);
 } */
 
-/* 瀛愭爣绛鹃〉鍒囨崲鍔ㄧ敾 */
+/* 子标签页切换动画 */
 .sub-tab-content {
   animation-duration: 0.3s;
   animation-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
@@ -222,7 +222,7 @@
   overflow: visible;
 }
 
-/* 蹇€熸贰鍏ユ晥鏋滐紙鐢ㄤ簬瀛愭爣绛鹃〉锛? 缁熶竴浠庝笅鏂硅繘鍏?*/
+/* 快淡入效果（用于子标签页? 统一从下方进?*/
 @keyframes quickFadeIn {
   from {
     opacity: 0;
@@ -240,12 +240,12 @@
   animation-duration: 0.25s;
 }
 
-/* 鏍囩鎸夐挳鐨勮繃娓℃晥鏋滃寮?*/
+/* 标签按钮的过渡效果增?*/
 .tab-btn {
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* 鏍囩鎸夐挳婵€娲绘椂鐨勪笅鍒掔嚎鍔ㄧ敾 */
+/* 标签按钮濢活时的下划线动画 */
 .main-tab::after {
   content: '';
   position: absolute;
@@ -265,7 +265,7 @@
   background-color: var(--cf-color);
 }
 
-/* 涓烘瘡涓爣绛剧被鍨嬭缃?:after涓婚鑹?*/
+/* 为每个标签类型设?:after主题?*/
 .main-tab.dns-tab::after {
   background-color: var(--cf-color);
 }
@@ -286,7 +286,7 @@
   background-color: var(--server-primary);
 }
 
-/* ===== Hosts 妯″潡 - 浼樺寲灞曞紑鍔ㄧ敾 (Grid 鏂规) ===== */
+/* ===== Hosts 模块 - 优化展开动画 (Grid 方案) ===== */
 .server-card-body {
   display: grid;
   grid-template-rows: 0fr;
@@ -297,7 +297,7 @@
     opacity 0.3s ease-out;
   will-change: grid-template-rows, opacity;
   transform: translateZ(0);
-  /* 寮€鍚‖浠跺姞閫?*/
+  /* 弢启硬件加?*/
 }
 
 .server-card.expanded>.server-card-body {
@@ -307,18 +307,18 @@
   overflow: visible;
 }
 
-/* 鍐呴儴鍖呰鍣紝纭繚 Grid 杞崲鐢熸晥 */
+/* 内部包装器，确保 Grid 转换生效 */
 .server-card-body>div {
   min-height: 0;
   overflow: hidden;
 }
 
-/* 灞曞紑鍚庡唴閮?div 涔熻 overflow visible */
+/* 展开后内?div ҲҪ overflow visible */
 .server-card.expanded>.server-card-body>div {
   overflow: visible !important;
 }
 
-/* 瀹瑰櫒鎿嶄綔涓嬫媺鑿滃崟 */
+/* 容器操作下拉菜单 */
 .container-dropdown-menu {
   opacity: 1 !important;
   visibility: visible !important;
@@ -328,7 +328,7 @@
   background: var(--bg-tertiary) !important;
 }
 
-/* ===== Zeabur/OpenAPI 妯″潡 - 浣跨敤 Grid 0fr->1fr 鏂规 ===== */
+/* ===== Zeabur/OpenAPI 模块 - 使用 Grid 0fr->1fr 方案 ===== */
 .account-card-body {
   display: grid;
   grid-template-rows: 0fr;
@@ -363,7 +363,7 @@
   overflow: visible;
 }
 
-/* 鍒囨崲鍥炬爣缇庡寲鐗?- 鐜颁唬鍖栧睍寮€绠ご */
+/* 切换图标美化?- 现代化展弢箭头 */
 .toggle-icon {
   display: inline-flex;
   align-items: center;
@@ -385,13 +385,13 @@
   background: rgba(var(--primary-rgb), 0.18);
 }
 
-/* 灞曞紑鐘舵€佺殑绠ご */
+/* 展开状的箭头 */
 .account-card.expanded .toggle-icon,
 .server-card.expanded .toggle-icon {
   background: rgba(var(--primary-rgb), 0.15);
 }
 
-/* Zeabur/PaaS 妯″潡绠ご */
+/* Zeabur/PaaS 模块箭头 */
 .paas-sec-tab .toggle-icon {
   background: rgb(99 102 241 / 18%);
   color: #6366f1;
@@ -405,7 +405,7 @@
   background: rgb(99 102 241 / 18%);
 }
 
-/* Koyeb 妯″潡绠ご */
+/* Koyeb 模块箭头 */
 .koyeb-toggle-icon,
 .koyeb-toggle,
 [v-if*='koyeb'] .toggle-icon {
@@ -421,7 +421,7 @@
   background: rgba(79, 70, 229, 0.18) !important;
 }
 
-/* OpenAI 妯″潡绠ご */
+/* OpenAI 模块箭头 */
 .openai-tab-content .toggle-icon {
   background: rgba(16, 163, 127, 0.12);
   color: var(--openai-color);
@@ -448,7 +448,7 @@
   background: rgba(0, 212, 170, 0.18);
 }
 
-/* DNS 妯″潡绠ご */
+/* DNS 模块箭头 */
 .dns-tab-content .toggle-icon {
   background: rgba(243, 128, 32, 0.12);
   color: var(--cf-color);
@@ -458,7 +458,7 @@
   background: rgba(243, 128, 32, 0.2);
 }
 
-/* 妯℃€佹鍔ㄧ敾 */
+/* 模框动画 */
 .modal-overlay {
   animation: fadeInOverlay 0.3s ease-out;
 }
@@ -489,7 +489,7 @@
   }
 }
 
-/* Toast 閫氱煡鍔ㄧ敾 */
+/* Toast 通知动画 */
 .custom-toast {
   animation: toastSlideIn 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -517,7 +517,7 @@
   }
 }
 
-/* 鍒楄〃椤逛氦閿欏姩鐢?*/
+/* 列表项交错动?*/
 .stagger-item {
   animation: staggerFadeIn 0.4s cubic-bezier(0.4, 0, 0.2, 1) both;
 }
@@ -534,7 +534,7 @@
   }
 }
 
-/* 涓哄垪琛ㄩ」娣诲姞寤惰繜 */
+/* 为列表项添加延迟 */
 .stagger-item:nth-child(1) {
   animation-delay: 0.05s;
 }
@@ -559,16 +559,17 @@
   animation-delay: 0.3s;
 }
 
-/* 鎸夐挳鐐瑰嚮鍙嶉鍔ㄧ敾 */
+/* 按钮点击反馈动画 */
 .btn {
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  transform: scale(1);
 }
 
 .btn:active:not(:disabled) {
   transform: scale(0.995);
 }
 
-/* 鍗＄墖鎮仠鏁堟灉浼樺寲 - 鍙瑙嗚灞炴€ц繃娓★紝閬垮厤甯冨眬灞炴€у姩鐢诲鑷寸殑闂儊 */
+/* ƬͣЧŻ - 只对视觉属过渡，避免布局属动画导致的闪烁 */
 .account-card,
 .stat-card,
 .zone-card,
@@ -579,9 +580,10 @@
     border-color 0.3s cubic-bezier(0.4, 0, 0.2, 1),
     background-color 0.3s cubic-bezier(0.4, 0, 0.2, 1),
     opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transform: translateZ(0);
 }
 
-/* 鍑忓皯鍔ㄧ敾浠ユ彁鍗囨€ц兘锛堝彲閫夛級 */
+/* 减少动画以提升能（可选） */
 @media (prefers-reduced-motion: reduce) {
 
   *,
@@ -593,7 +595,7 @@
   }
 }
 
-/* 椤甸潰鍔犺浇鏃剁殑鍒濆鐘舵€?*/
+/* 页面加载时的初始状?*/
 .page-loading {
   opacity: 0;
 }

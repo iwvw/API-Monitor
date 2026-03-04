@@ -6,7 +6,7 @@
   --loader-color-secondary: rgba(var(--primary-rgb), 0.4);
 }
 
-/* 鍏ㄥ睆/鏉垮潡閬僵 */
+/* 全屏/板块遮罩 */
 .ag-loader-overlay {
   position: absolute;
   inset: 0;
@@ -20,7 +20,7 @@
   animation: ag-fade-in 0.3s ease-out;
 }
 
-/* 鏍稿績鏃嬫丁鍔犺浇鍣?*/
+/* 核心旋涡加载?*/
 .ag-modern-loader {
   position: relative;
   width: var(--loader-size);
@@ -30,7 +30,7 @@
   justify-content: center;
 }
 
-/* 绱ц嚧鍙屾棆杞?*/
+/* 紧致双旋?*/
 .ag-loader-inner {
   position: absolute;
   inset: 0;
@@ -52,7 +52,7 @@
   opacity: 0.6;
 }
 
-/* 寮烘晥涓績鏍稿績 */
+/* 强效中心核心 */
 .ag-loader-core {
   width: 8px;
   height: 8px;
@@ -62,7 +62,7 @@
   animation: ag-pulse 1s ease-in-out infinite;
 }
 
-/* 鏂囨湰鍏夋辰 */
+/* 文本光泽 */
 .ag-loader-text {
   margin-top: var(--space-xl);
   font-size: 10px;
@@ -83,7 +83,7 @@
   opacity: 0.8;
 }
 
-/* 鍏抽敭甯?*/
+/* 关键?*/
 @keyframes ag-spin {
   to {
     transform: rotate(360deg);
@@ -125,7 +125,7 @@
   }
 }
 
-/* 绱у噾鍨嬪姞杞藉櫒 */
+/* 紧凑型加载器 */
 .ag-spinner-mini {
   width: 18px;
   height: 18px;

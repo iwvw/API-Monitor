@@ -1,7 +1,7 @@
-﻿/* ==================== 閫氱煡绠＄悊妯″潡鏍峰紡 ==================== */
-/* 璇ユ枃浠朵粎鍖呭惈閫氱煡妯″潡鐗规湁鐨勬牱寮忥紝閫氱敤缁勪欢璇蜂娇鐢?styles.css 涓殑鍏ㄥ眬鏍峰紡 */
+﻿/* ==================== 通知管理模块样式 ==================== */
+/* 该文件仅包含通知模块特有的样式，通用组件请使?styles.css еȫʽ */
 
-/* 瀹瑰櫒涓庡竷灞€ */
+/* 容器与布屢 */
 .notification-tab-content {
   transform: none !important;
   position: static !important;
@@ -13,7 +13,7 @@
   padding: var(--space-xl);
 }
 
-/* 宸ュ叿鏍?*/
+/* 工具?*/
 .notification-toolbar {
   display: flex;
   align-items: center;
@@ -21,14 +21,14 @@
   margin-bottom: var(--space-xl);
 }
 
-/* 绛涢€夋爮 */
+/* 筛栏 */
 .notification-filter-bar {
   display: flex;
   gap: var(--space-md);
   margin-bottom: var(--space-lg);
 }
 
-/* 绌虹姸鎬?*/
+/* 空状?*/
 .notification-empty-state {
   text-align: center;
   padding: 60px var(--space-xl);
@@ -53,7 +53,7 @@
   margin-bottom: var(--space-xl);
 }
 
-/* ==================== 娓犻亾鍒楄〃 ==================== */
+/* ==================== 渠道列表 ==================== */
 .notification-channel-list {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
@@ -145,7 +145,7 @@
   color: #10b981;
 }
 
-/* 鍝佺墝鍖栦富棰樿鐩?*/
+/* 品牌化主题覆?*/
 .theme-notification .notification-channel-card:hover,
 .theme-notification .notification-rule-card:hover {
   border-color: var(--notification-primary);
@@ -167,7 +167,7 @@
   min-width: 130px;
 }
 
-/* ==================== 瑙勫垯鍒楄〃 ==================== */
+/* ==================== 规则列表 ==================== */
 .notification-rule-list {
   display: flex;
   flex-direction: column;
@@ -272,7 +272,7 @@
   opacity: 0.7;
 }
 
-/* ==================== 鍘嗗彶鍒楄〃 ==================== */
+/* ==================== 历史列表 ==================== */
 .notification-history-list {
   display: flex;
   flex-direction: column;
@@ -364,10 +364,10 @@
   color: #f59e0b;
 }
 
-/* 缁ф壙鍏ㄥ眬 .modal-overlay 瀹氫箟锛屼粎鍦ㄩ渶瑕佹椂杩涜寰皟 */
+/* ̳ȫ .modal-overlay 壬Ҫʱ΢ */
 .notification-modal-overlay {}
 
-/* ==================== 鍝嶅簲寮?==================== */
+/* ==================== 响应?==================== */
 @media (max-width: 768px) {
   .notification-container {
     padding: var(--space-md);

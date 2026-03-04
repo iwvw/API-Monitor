@@ -31,7 +31,7 @@
         </button>
 
         <!-- 下拉菜单 -->
-        <transition name="dropdown-fade">
+        <transition name="ssh-dropdown-fade">
           <div v-if="showSSHQuickMenu" class="ssh-quick-menu">
             <div class="ssh-quick-menu-header"
               style="display: flex; justify-content: space-between; align-items: center">
@@ -88,7 +88,7 @@
         <div class="stat-pill" :class="{ active: serverStatusFilter === 'all' }" @click="serverStatusFilter = 'all'"
           style="
             padding: 4px 12px;
-            border-radius: 12px;
+            border-radius: var(--radius-md);
             font-size: 11px;
             cursor: pointer;
             border: 1px solid var(--border-color);
@@ -100,7 +100,7 @@
         <div class="stat-pill online" :class="{ active: serverStatusFilter === 'online' }"
           @click="serverStatusFilter = 'online'" style="
             padding: 4px 12px;
-            border-radius: 12px;
+            border-radius: var(--radius-md);
             font-size: 11px;
             cursor: pointer;
             border: 1px solid rgba(16, 185, 129, 0.2);
@@ -134,7 +134,7 @@
           <input v-model="serverSearchText" placeholder="搜索..." class="form-input" style="
               padding-left: 28px;
               height: 30px;
-              border-radius: 15px;
+              border-radius: var(--radius-full);
               background: var(--bg-secondary);
               border: 1px solid var(--border-color);
               width: 100%;
@@ -143,7 +143,6 @@
         </div>
 
         <button class="btn btn-primary btn-sm" @click="openAddServerModal" data-tooltip="添加主机" style="
-            border-radius: 50%;
             width: 30px;
             height: 30px;
             padding: 0;

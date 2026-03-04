@@ -1,16 +1,16 @@
 ﻿/**
- * TOTP/HOTP 楠岃瘉鍣ㄦā鍧楁牱寮?
- * 鍏ㄧ珯缁熶竴椋庢牸
+ * TOTP/HOTP 验证器模块样?
+ * ȫվͳһ
  */
 
-/* ==================== 闈㈡澘澶撮儴鎸夐挳淇 ==================== */
-/* 闃叉鎸夐挳鍦?flex 瀹瑰櫒涓鍘嬬缉瀵艰嚧鏂囧瓧鎴柇 */
+/* ==================== 面板头部按钮修复 ==================== */
+/* 防止按钮?flex бѹֽض */
 .totp-tab-content .panel-header .btn {
   flex-shrink: 0;
   white-space: nowrap;
 }
 
-/* ==================== 鎼滅储妗?==================== */
+/* ==================== 搜索?==================== */
 .totp-search-box {
   position: relative;
   min-width: 180px;
@@ -42,7 +42,7 @@
   box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
 }
 
-/* ==================== 楠岃瘉鐮佸崱鐗囩綉鏍?==================== */
+/* ==================== 验证码卡片网?==================== */
 .totp-cards-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
@@ -50,7 +50,7 @@
   padding: var(--space-md) 0px 0px 0px;
 }
 
-/* 骞冲彴鍒嗛殧鏍囬 */
+/* 平台分隔标题 */
 .totp-platform-header {
   grid-column: 1 / -1;
   display: flex;
@@ -81,7 +81,7 @@
   margin-left: auto;
 }
 
-/* 鏈€灏忓寲妯″紡 - 鍙樉绀哄垎鍓茬嚎 */
+/* 朢小化模式 - ֻʾָ */
 .totp-platform-header.header-minimal {
   height: 1px;
   padding: 0;
@@ -99,6 +99,8 @@
   overflow: hidden;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
+  transform: scale(1);
+  box-shadow: 0 0 0 transparent;
 }
 
 .totp-card::before {
@@ -124,7 +126,7 @@
   pointer-events: none;
 }
 
-/* 浠呭湪鏀寔 hover 鐨勮澶囦笂搴旂敤 hover 鏁堟灉 */
+/* ֧ hover 豸Ӧ hover Ч */
 @media (hover: hover) {
   .totp-card:hover {
     border-color: var(--card-accent, var(--totp-primary));
@@ -133,7 +135,7 @@
   }
 }
 
-/* 鐐瑰嚮鍙嶉 - 閫傜敤浜庢墍鏈夎澶?*/
+/*  - 适用于所有设?*/
 .totp-card:active {
   transform: scale(0.98) !important;
   background: var(--bg-hover) !important;
@@ -141,7 +143,7 @@
   transition: all 0.05s;
 }
 
-/* ==================== 鍗＄墖澶撮儴 ==================== */
+/* ==================== 卡片头部 ==================== */
 .totp-card-header {
   display: flex;
   align-items: center;
@@ -163,7 +165,7 @@
   flex-shrink: 0;
 }
 
-/* 纭繚鍥炬爣缁ф壙鐧借壊 */
+/* 确保图标继承白色 */
 .totp-issuer-badge i,
 .totp-issuer-badge [class*='si-'],
 .totp-issuer-badge .fab,
@@ -218,7 +220,7 @@
   color: #10b981;
 }
 
-/* ==================== 楠岃瘉鐮佹樉绀?==================== */
+/* ==================== 验证码显?==================== */
 .totp-code-area {
   text-align: center;
 }
@@ -254,14 +256,14 @@
   }
 }
 
-/* 闅愯棌楠岃瘉鐮佹牱寮?*/
+/* 隐藏验证码样?*/
 .totp-code-display.code-hidden {
   cursor: pointer;
   line-height: 1;
-  /* 淇鏄熷彿鍋忛珮鐨勯棶棰?*/
+  /* 修正星号偏高的问?*/
 }
 
-/* 涓嬩竴涓獙璇佺爜棰勮 */
+/* 下一个验证码预览 */
 .totp-next-code {
   display: flex;
   align-items: center;
@@ -280,7 +282,7 @@
   font-weight: 500;
 }
 
-/* ==================== TOTP 璁℃椂鍣?==================== */
+/* ==================== TOTP 计时?==================== */
 .totp-timer {
   display: flex;
   align-items: center;
@@ -289,7 +291,7 @@
   height: 16px;
 }
 
-/* 杩涘害鏉¤建閬撳鍣?*/
+/* 进度条轨道容?*/
 .totp-timer-track {
   flex: 1;
   height: 4px;
@@ -318,7 +320,7 @@
   flex-shrink: 0;
 }
 
-/* ==================== HOTP 璁℃暟鍣?==================== */
+/* ==================== HOTP 计数?==================== */
 .totp-counter {
   display: flex;
   align-items: center;
@@ -342,6 +344,8 @@
   cursor: pointer;
   font-size: 12px;
   transition: all 0.2s;
+  transform: scale(1);
+  box-shadow: 0 0 0 transparent;
 }
 
 .btn-hotp-next:hover {
@@ -349,7 +353,7 @@
   box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
 }
 
-/* ==================== 鍗＄墖鎿嶄綔 (鎮诞) ==================== */
+/* ==================== 卡片操作 (悬浮) ==================== */
 .totp-card-actions {
   position: absolute;
   top: var(--space-sm);
@@ -390,7 +394,7 @@
   color: var(--danger-color);
 }
 
-/* ==================== 鍒嗙粍棰滆壊鐐?==================== */
+/* ==================== 分组颜色?==================== */
 .group-color-dot {
   width: 20px;
   height: 20px;
@@ -398,7 +402,7 @@
   border: 2px solid rgba(255, 255, 255, 0.3);
 }
 
-/* ==================== 绫诲瀷閫夋嫨鍣?==================== */
+/* ==================== 类型选择?==================== */
 .totp-type-selector {
   display: flex;
   gap: var(--space-sm);
@@ -431,7 +435,7 @@
   color: var(--totp-primary);
 }
 
-/* ==================== 瀵嗛挜杈撳叆 ==================== */
+/* ==================== 密钥输入 ==================== */
 .totp-secret-input {
   display: flex;
   gap: var(--space-sm);
@@ -454,7 +458,7 @@
   color: var(--totp-primary);
 }
 
-/* ==================== 楂樼骇閫夐」 ==================== */
+/* ==================== 高级选项 ==================== */
 .totp-advanced {
   margin-top: var(--space-lg);
   /* border: 1px solid var(--border-color); */
@@ -480,14 +484,14 @@
 
 .totp-advanced-content {
   padding: var(--space-xl) !important;
-  /* 淇鍐呰竟璺?*/
+  /* 修正内边?*/
 }
 
 .totp-grid-three {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: var(--space-xl);
-  /* 澧炲ぇ缃戞牸闂磋窛 */
+  /* 增大网格间距 */
   margin-bottom: var(--space-xl);
 }
 
@@ -495,19 +499,19 @@
   margin-bottom: 0 !important;
 }
 
-/* ==================== TOTP 妯℃€佹 ==================== */
+/* ==================== TOTP 模框 ==================== */
 .totp-modal {
   max-width: 500px;
 }
 
 .totp-modal .modal-body {
   padding: var(--space-md);
-  /* 澧炲ぇ鍏ㄥ眬鍐呰竟璺濓紝鎻愬崌鍛煎惛鎰?*/
+  /* 增大全局内边距，提升呼吸?*/
 }
 
 .totp-modal .form-group {
   margin-bottom: var(--space-sm);
-  /* 澧炲ぇ瀛楁闂磋窛 */
+  /* 增大字段间距 */
 }
 
 .totp-modal .form-group:last-child {
@@ -516,7 +520,7 @@
 
 .totp-modal .form-group label {
   margin-bottom: var(--space-sm);
-  /* 澧炲ぇ鏍囩涓嬫柟闂磋窛 */
+  /* 增大标签下方间距 */
   display: block;
   font-weight: 500;
   color: var(--text-secondary);
@@ -539,12 +543,12 @@
   padding: 0 !important;
 }
 
-/* 涓婚鑹茶緭鍏ユ鏍峰紡 */
+/* 主题色输入框样式 */
 .totp-modal .totp-advanced-content>.form-group {
   margin-top: var(--space-md);
 }
 
-/* ==================== 璁剧疆椤甸潰 ==================== */
+/* ==================== 设置页面 ==================== */
 .totp-settings-content {
   padding: var(--space-xl);
 }
@@ -650,7 +654,7 @@
   border-radius: var(--radius-md);
 }
 
-/* ==================== 浜岀淮鐮佸鍏?==================== */
+/* ==================== 二维码导?==================== */
 .qr-paste-zone {
   border: 2px dashed var(--border-color);
   border-radius: var(--radius-lg);
@@ -716,10 +720,10 @@
   background: var(--border-color);
 }
 
-/* ==================== 鍝嶅簲寮?- 鎵嬫満绔垪琛ㄥ竷灞€ ==================== */
+/* ==================== 响应?- 手机端列表布屢 ==================== */
 @media (max-width: 768px) {
 
-  /* 鍒楄〃甯冨眬 */
+  /* 列表布局 */
   .totp-cards-grid {
     display: flex;
     flex-direction: column;
@@ -727,7 +731,7 @@
     padding: 0;
   }
 
-  /* 鍗＄墖鍙樻垚鍒楄〃椤?*/
+  /* 卡片变成列表?*/
   .totp-card {
     border-radius: 0;
     border: none;
@@ -749,7 +753,7 @@
     background: var(--bg-secondary);
   }
 
-  /* 澶撮儴宸︿晶 */
+  /* 头部左侧 */
   .totp-card-header {
     flex: 1;
     min-width: 0;
@@ -773,7 +777,7 @@
     color: var(--text-tertiary);
   }
 
-  /* 楠岃瘉鐮佸彸渚?*/
+  /* 验证码右?*/
   .totp-code-area {
     text-align: right;
     flex-shrink: 0;
@@ -787,7 +791,7 @@
     border-radius: 0;
   }
 
-  /* 杩涘害鏉＄揣鍑戞樉绀?*/
+  /* 进度条紧凑显?*/
   .totp-timer {
     justify-content: flex-end;
     margin-top: var(--space-xs);
@@ -808,7 +812,7 @@
     display: none;
   }
 
-  /* 鎿嶄綔鎸夐挳闅愯棌 */
+  /* 操作按钮隐藏 */
   .totp-card-actions {
     display: none;
   }
@@ -817,7 +821,7 @@
     flex-direction: column;
   }
 
-  /* 宸ュ叿鏍忓搷搴斿紡 */
+  /* 工具栏响应式 */
   .totp-tab-content .panel-header {
     flex-wrap: wrap;
     gap: var(--space-sm);
@@ -844,7 +848,7 @@
   }
 }
 
-/* ==================== 妯℃€佹 Tabs ==================== */
+/* ==================== 模框 Tabs ==================== */
 .modal-tabs {
   display: flex;
   border-bottom: 1px solid var(--border-color);
@@ -885,7 +889,7 @@
   font-size: 16px;
 }
 
-/* 妯℃€佹鍔ㄧ敾 */
+/* 模框动画 */
 .fade-in {
   animation: fadeIn 0.2s ease-out;
 }
@@ -902,7 +906,7 @@
   }
 }
 
-/* ==================== 闀挎寜涓婁笅鏂囪彍鍗?(绉诲姩绔? ==================== */
+/* ==================== 长按上下文菜?(移动? ==================== */
 .totp-context-menu-backdrop {
   position: fixed;
   top: 0;
@@ -991,7 +995,7 @@
   color: var(--danger-color);
 }
 
-/* 鍒嗛殧绾?*/
+/* 分隔?*/
 .totp-context-menu-item+.totp-context-menu-item.danger {
   border-top: 1px solid var(--border-color);
 }

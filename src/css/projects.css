@@ -505,7 +505,7 @@
   padding: var(--space-xs);
   border-radius: var(--radius-sm);
   font-size: 15px;
-  /* 澧炲ぇ鍥炬爣 */
+  /* 增大图标 */
   font-weight: 500;
   cursor: pointer;
   transition: all 0.25s cubic-bezier(0.175, 0.885, 0.32, 1.275);
@@ -613,7 +613,7 @@
   transition: all 0.2s;
   border: 1px solid var(--border-color);
   min-width: 0;
-  /* 鍏佽鍦?flex 瀹瑰櫒涓敹缂?*/
+  /* 允许?flex 容器中收?*/
 }
 
 .domain-link span:not(.domain-badge) {
@@ -633,7 +633,7 @@
   font-weight: 600;
 }
 
-/* 鍒涘缓鎸夐挳 */
+/* 创建按钮 */
 .create-project-btn {
   padding: var(--space-sm) var(--space-md);
   border: none;
@@ -693,7 +693,7 @@
   transform: translateY(0);
 }
 
-/* 鍝嶅簲寮忚璁?*/
+/* 响应式设?*/
 @media (max-width: 768px) {
   .project-mini-cards {
     grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
@@ -705,9 +705,9 @@
   }
 }
 
-/* ====== Zeabur 妯″潡涓婚鑹茬粺涓€ ====== */
+/* ====== Zeabur 模块主题色统丢 ====== */
 
-/* Zeabur 妯″潡涓绘寜閽?*/
+/* Zeabur 模块主按?*/
 .zeabur-sec-tab .btn-primary {
   background: var(--zeabur-primary);
   box-shadow: 0 2px 8px rgba(var(--zeabur-secondary-rgb), 0.3);
@@ -718,7 +718,7 @@
   box-shadow: 0 4px 12px rgba(var(--zeabur-secondary-rgb), 0.4);
 }
 
-/* Zeabur 瀛愭爣绛鹃〉 */
+/* Zeabur 子标签页 */
 
 .zeabur-sec-tab .tab-btn.active {
   background: var(--zeabur-primary) !important;
@@ -820,9 +820,9 @@
   letter-spacing: 0.5px;
 }
 
-/* ====== PaaS 妯″潡鏍峰紡 ====== */
+/* ====== PaaS 模块样式 ====== */
 
-/* PaaS 骞冲彴鍒囨崲鍣?*/
+/* PaaS 平台切换?*/
 .paas-platform-switcher {
   display: flex;
   gap: var(--space-sm);
@@ -863,12 +863,12 @@
   font-size: 16px;
 }
 
-/* PaaS 骞冲彴鍐呭瀹瑰櫒 */
+/* PaaS 平台内容容器 */
 .paas-platform-content {
   animation: fadeIn 0.2s ease;
 }
 
-/* PaaS 涓绘爣绛鹃〉鏍峰紡缁ф壙鑷?Zeabur */
+/* PaaS 主标签页样式继承?Zeabur */
 .paas-sec-tab .btn-primary {
   background: var(--primary-color);
   box-shadow: 0 2px 8px rgba(var(--primary-rgb), 0.3);
@@ -879,9 +879,9 @@
   box-shadow: 0 4px 12px rgba(var(--primary-rgb), 0.4);
 }
 
-/* PaaS 妯″潡浜岀骇鏍囩椤垫牱寮?*/
+/* PaaS 模块二级标签页样?*/
 .paas-sec-tabs {
-  /* 缁ф壙鍏ㄥ眬 .sec-tabs 甯冨眬 */
+  /* 继承全局 .sec-tabs 布局 */
 }
 
 .theme-paas .tab-btn.active {
@@ -890,12 +890,12 @@
   box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
 }
 
-/* Koyeb 鐗瑰畾棰滆壊 */
+/* Koyeb 特定颜色 */
 .paas-koyeb .platform-tab.active {
   background: linear-gradient(135deg, #4f46e5, #7c3aed);
 }
 
-/* 鐘舵€佺被 - 鍏煎 Koyeb 鐨勭姸鎬?*/
+/* 状类 -  Koyeb 的状?*/
 .status-starting {
   background-color: rgba(59, 130, 246, 0.2);
   color: #3b82f6;
@@ -931,7 +931,7 @@
   border-color: rgba(239, 68, 68, 0.2);
 }
 
-/* ==================== 鍩熷悕绠＄悊妯″潡鏍峰紡 ==================== */
+/* ==================== 域名管理模块样式 ==================== */
 .domain-item-wrapper {
   position: relative;
   width: 100%;
@@ -941,7 +941,7 @@
 .domain-link-group {
   display: flex;
   align-items: stretch;
-  /* 寮哄埗瀛愰」绛夐珮 */
+  /* 强制子项等高 */
   gap: 6px;
   width: 100%;
 }
@@ -952,13 +952,13 @@
   display: flex;
   align-items: center;
   padding: 6px var(--space-md);
-  /* 鍑忓皬涓婁笅杈硅窛浠ラ檷浣庨珮搴?*/
+  /* 减小上下边距以降低高?*/
   background-color: var(--bg-secondary);
   border-radius: var(--radius-md);
   color: var(--zeabur-primary);
   text-decoration: none;
   font-size: 12px;
-  /* 鐣ュ井鍑忓皬瀛楀彿 */
+  /* 略微减小字号 */
   font-weight: 600;
   border: 1px solid var(--border-color);
   transition: all 0.2s;
@@ -970,7 +970,7 @@
   border: 1px solid var(--border-color);
   color: var(--text-tertiary);
   cursor: pointer;
-  /* 鏋佽嚧瀵归綈鏂规锛氬悓姝ョ缉灏忓埌 32px */
+  /* 极致对齐方案：同步缩小到 32px */
   padding: 0 !important;
   margin: 0;
   width: 32px;
@@ -982,7 +982,7 @@
   align-items: center;
   justify-content: center;
   font-size: 14px;
-  /* 鍚屾璋冨皬鍥炬爣 */
+  /* 同步调小图标 */
   transition: all 0.2s;
   flex-shrink: 0;
   box-sizing: border-box;
@@ -994,7 +994,7 @@
   border-color: var(--zeabur-primary);
 }
 
-/* 蹇€熸坊鍔犲崰浣嶇 */
+/* 快添加占位符 */
 .domain-empty-state {
   width: 100%;
 }

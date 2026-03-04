@@ -1,34 +1,3 @@
-.theme-deepseek {
-  --ds-primary: #4d6bfe;
-  --ds-primary-hover: #3b56db;
-  --ds-primary-rgb: 77, 107, 254;
-  --bg-tertiary: rgba(77, 107, 254, 0.05);
-}
-
-.theme-deepseek .nav-group-btn.active,
-.theme-deepseek .dropdown-item.active,
-#template-deepseek .tab-btn.active,
-.ds-module-container .tab-btn.active {
-  color: var(--ds-primary) !important;
-  background-color: rgba(77, 107, 254, 0.1) !important;
-}
-
-.theme-deepseek .btn-primary {
-  background-color: var(--ds-primary);
-  border-color: var(--ds-primary);
-  color: #fff !important;
-}
-
-.theme-deepseek .btn-primary:hover {
-  background-color: var(--ds-primary-hover);
-  border-color: var(--ds-primary-hover);
-}
-
-.theme-deepseek .panel-title i {
-  color: var(--ds-primary);
-}
-
-/* 重定向列表项 */
 .ds-redirect-item {
   background: var(--bg-tertiary);
   padding: 10px 15px;
@@ -41,17 +10,17 @@
 }
 
 .ds-redirect-item:hover {
-  border-color: rgba(77, 107, 254, 0.3);
+  border-color: rgba(var(--current-rgb, var(--primary-rgb)), 0.3);
 }
 
 .ds-redirect-editing {
-  border-color: var(--ds-primary) !important;
-  box-shadow: 0 0 0 2px rgba(77, 107, 254, 0.1);
+  border-color: var(--current-primary, var(--primary-color)) !important;
+  box-shadow: 0 0 0 2px rgba(var(--current-rgb, var(--primary-rgb)), 0.1);
 }
 
 .ds-redirect-badge {
-  background: rgba(77, 107, 254, 0.1);
-  color: var(--ds-primary);
+  background: rgba(var(--current-rgb, var(--primary-rgb)), 0.1);
+  color: var(--current-primary, var(--primary-color));
   padding: 2px 8px;
   border-radius: 4px;
   font-weight: 600;
@@ -81,7 +50,7 @@
   font-size: 13px;
   font-weight: 600;
   margin-bottom: 10px;
-  color: var(--ds-primary);
+  color: var(--current-primary, var(--primary-color));
   display: flex;
   align-items: center;
   gap: 6px;
@@ -140,8 +109,8 @@
 }
 
 .ds-log-msg-user {
-  background: rgba(77, 107, 254, 0.06);
-  border-left-color: var(--ds-primary);
+  background: rgba(var(--current-rgb, var(--primary-rgb)), 0.06);
+  border-left-color: var(--current-primary, var(--primary-color));
 }
 
 .ds-log-msg-assistant {

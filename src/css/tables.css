@@ -17,7 +17,7 @@
   justify-content: space-between;
 }
 
-/* Panel Header 鎸夐挳缁熶竴楂樺害 */
+/* Panel Header 按钮统一高度 */
 .panel-header .btn {
   height: 32px;
   display: inline-flex;
@@ -94,7 +94,7 @@
   background: var(--bg-secondary);
 }
 
-/* 缁熶竴鎿嶄綔鍒楀拰鍗曞厓鏍煎唴 flex 甯冨眬 */
+/* 统一操作列和单元格内 flex 布局 */
 .data-table td.actions,
 .data-table td .flex-cell {
   vertical-align: middle;
@@ -111,7 +111,7 @@
   margin: 0 auto;
 }
 
-/* 鏂规硶鏍囩鏍峰紡 */
+/* 方法标签样式 */
 .method-badge {
   font-size: 10px;
   font-weight: 800;
@@ -166,7 +166,7 @@
   font-family: var(--font-mono);
 }
 
-/* 璐熻浇鍧囪　鍕嬬珷 */
+/* 负载均衡勋章 */
 .badge-lb {
   background: rgba(139, 92, 246, 0.1);
   color: #8b5cf6;
@@ -180,7 +180,7 @@
   line-height: 1;
 }
 
-/* 濡傛灉闇€瑕佸乏瀵归綈锛屽彲浠ヨ鐩?*/
+/* 如果霢要左对齐，可以覆?*/
 .data-table td .flex-cell.justify-start {
   justify-content: flex-start;
 }
@@ -338,7 +338,7 @@
   }
 }
 
-/* 妯″瀷閰嶉閫氱敤鏄剧ず鏍峰紡 (鐢ㄤ簬璐﹀彿鍒楄〃绛? */
+/* ģͨʾʽ (用于账号列表? */
 .quota-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -370,7 +370,7 @@
   height: 8px;
   border-radius: var(--radius-sm);
   background: rgba(0, 0, 0, 0.05);
-  /* 鏇存贰鐨勮儗鏅?*/
+  /* 更淡的背?*/
   overflow: hidden;
   min-width: 40px;
 }
@@ -390,7 +390,7 @@
   font-family: var(--font-mono);
 }
 
-/* 閫傞厤娣辫壊妯″紡 */
+/* 适配深色模式 */
 [data-theme='dark'] .quota-bar {
   background: rgba(255, 255, 255, 0.1);
 }

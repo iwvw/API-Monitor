@@ -1,4 +1,4 @@
-﻿/* ==================== Uptime 鐩戞祴妯″潡鏍峰紡 (Standardized) ==================== */
+﻿/* ==================== Uptime 监测模块样式 (Standardized) ==================== */
 
 :root {
     /* Uptime Specific Colors (Color Management Only) */
@@ -17,7 +17,7 @@
     --uptime-status-unknown: #9ca3af;
 }
 
-/* ==================== 瀹瑰櫒涓庡竷灞€ ==================== */
+/* ==================== 容器与布屢 ==================== */
 .uptime-container {
     width: 100%;
     margin: 0 auto;
@@ -31,12 +31,12 @@
     --current-primary: var(--uptime-status-up);
 }
 
-/* 椤堕儴鏍囩鏍?- 淇濇寔涓庡叾浠栨ā鍧椾竴鑷?(reference styles.css .sec-tabs) */
+/* 顶部标签?- 保持与其他模块一?(reference styles.css .sec-tabs) */
 
-/* 椤堕儴鏍囩鏍?- 宸叉浛鎹负鏍囧噯鐨?.sec-tabs锛岃瑙?styles.css */
+/* 顶部标签?- 已替换为标准?.sec-tabs，详?styles.css */
 
 
-/* ==================== 缁熻姒傝鏉?(Aligned with Header/Toolbar) ==================== */
+/* ==================== 统计概览?(Aligned with Header/Toolbar) ==================== */
 .uptime-stats-bar-modern {
     display: flex;
     flex-wrap: wrap;
@@ -171,7 +171,7 @@
     border: 1px solid transparent;
 }
 
-/* ==================== 鐩戞祴鍗＄墖 (Standard Card Style) ==================== */
+/* ==================== 监测卡片 (Standard Card Style) ==================== */
 .uptime-monitor-list {
     display: flex;
     flex-direction: column;
@@ -179,7 +179,7 @@
     /* Reduced from 12px */
 }
 
-/* 鍗＄墖灞曞紑鐘舵€佽繃娓?*/
+/* 卡片展开状过?*/
 .uptime-monitor-card {
     background: var(--card-bg);
     border-radius: var(--radius-lg);
@@ -209,7 +209,7 @@
     cursor: pointer;
 }
 
-/* 宸︿晶鐘舵€佹潯 */
+/* 左侧状条 */
 .monitor-status-icon {
     width: 32px;
     height: 32px;
@@ -223,7 +223,7 @@
     transition: all 0.3s;
 }
 
-/* 涓昏淇℃伅鍖哄煙 */
+/* 主要信息区域 */
 .monitor-main-info {
     display: flex;
     flex-direction: column;
@@ -251,7 +251,7 @@
     gap: var(--space-sm);
 }
 
-/* 鍙充晶缁熻涓庡浘琛?*/
+/* 右侧统计与图?*/
 .monitor-stats-right {
     display: flex;
     flex-direction: column;
@@ -339,7 +339,7 @@
     opacity: 0;
 }
 
-/* 灞曞紑璇︽儏鍖哄煙 - Grid 鍔ㄧ敾鏂规 */
+/* 展开详情区域 - Grid 动画方案 */
 .monitor-details-body {
     display: grid;
     grid-template-rows: 0fr;
@@ -353,7 +353,7 @@
     overflow: hidden;
     will-change: grid-template-rows, opacity;
 
-    /* 鏀惰捣鐘舵€?*/
+    /* 收起状?*/
     margin-top: 0;
     padding-top: 0;
     border-top: 1px dashed transparent;
@@ -363,22 +363,22 @@
     grid-template-rows: 1fr;
     opacity: 1;
 
-    /* 灞曞紑鐘舵€?*/
+    /* 展开状?*/
     margin-top: var(--space-lg);
     padding-top: var(--space-lg);
     border-top-color: var(--border-color);
 }
 
-/* 鍐呴儴鍖呰鍣紝纭繚 Grid 杞崲鐢熸晥 */
+/* 内部包装器，确保 Grid 转换生效 */
 .monitor-details-inner {
     min-height: 0;
     overflow: hidden;
-    /* 榛樿闅愯棌婧㈠嚭 */
+    /* 默认隐藏溢出 */
 }
 
 .uptime-monitor-card.expanded .monitor-details-inner {
     overflow: visible;
-    /* 灞曞紑鍚庡厑璁告孩鍑?(濡傛灉闇€瑕? */
+    /* 展开后允许溢?(如果霢? */
 }
 
 .detail-grid {
@@ -394,7 +394,7 @@
     }
 }
 
-/* ==================== 琛ㄥ崟鏍峰紡 (Standard Form) ==================== */
+/* ==================== 表单样式 (Standard Form) ==================== */
 .uptime-form-card {
     background: var(--card-bg);
     border-radius: var(--radius-lg);

@@ -40,7 +40,7 @@
   padding: var(--space-xl);
   transition: all 0.3s ease;
   pointer-events: auto;
-  /* 纭繚鐧诲綍椤靛彲浜や簰 */
+  /* 确保登录页可交互 */
 }
 
 .auth-card {
@@ -259,13 +259,13 @@
   font-size: 13px;
 }
 
-/* 2FA 涓撶敤鏍峰紡 */
+/* 2FA 专用样式 */
 .auth-totp-input {
   text-align: center !important;
   font-size: 28px !important;
   letter-spacing: 0.5em !important;
   font-weight: 800 !important;
-  /* 瀵圭О杈硅窛锛岀‘淇?text-align: center 鑳藉缁濆灞呬腑骞堕伩寮€宸︿晶鍥炬爣 */
+  /* 对称边距，确?text-align: center 能够绝对居中并避弢左侧图标 */
   padding-left: 44px !important;
   padding-right: 44px !important;
   font-family: var(--font-mono), 'Monaco', 'Consolas', monospace !important;
@@ -317,7 +317,7 @@
   }
 }
 
-/* 闃叉绌烘ā鏉垮鍣ㄩ樆鎸＄偣鍑?*/
+/* 防止空模板容器阻挡点?*/
 #template-auth,
 #template-welcome {
   pointer-events: none;

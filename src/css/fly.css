@@ -1,9 +1,9 @@
-﻿/* Fly.io 妯″潡涓撳睘鏍峰紡 - 鍩轰簬 Zeabur/Koyeb 鏍峰紡 */
+﻿/* Fly.io 模块专属样式 - 基于 Zeabur/Koyeb 样式 */
 
 /* 
- * 璇存槑:
- * 杩欎釜鏂囦欢涓?Fly.io 妯″潡鎻愪緵涓撳睘鏍峰紡鏀寔
- * 涓昏閫氳繃澶嶅啓鍩虹鏍峰紡鏉ュ榻?Zeabur 鍜?Koyeb 鐨勮瑙夋晥鏋?
+ * ˵:
+ * 这个文件?Fly.io ģṩרʽ֧
+ * 主要通过复写基础样式来对?Zeabur ?Koyeb 的视觉效?
  */
 
 :root {
@@ -12,7 +12,7 @@
   --fly-secondary: #d946ef;
 }
 
-/* 鍙屽嚮缂栬緫鏍峰紡棰勮 - 搴旂敤鍚嶇О (瀵归綈 Zeabur/Koyeb) */
+/* 双击编辑样式预览 - 应用名称 (对齐 Zeabur/Koyeb) */
 .paas-sec-tab .fly-project-name-text {
   cursor: text;
   user-select: none;
@@ -26,7 +26,7 @@
   box-shadow: 0 0 0 1px rgba(var(--fly-primary-rgb), 0.2);
 }
 
-/* 鍙屽嚮缂栬緫鏍峰紡棰勮 - 鏈嶅姟鍚嶇О */
+/* 双击编辑样式预览 - 服务名称 */
 .paas-sec-tab .fly-service-name {
   cursor: text;
   user-select: none;
@@ -40,7 +40,7 @@
   box-shadow: 0 0 0 1px rgba(var(--fly-primary-rgb), 0.2);
 }
 
-/* 鍗曞簲鐢ㄦā寮?- 閾烘弧涓€琛?(瀵归綈 Koyeb) */
+/* 单应用模?- 铺满丢?(对齐 Koyeb) */
 .paas-sec-tab .fly-projects-grid.single-app {
   display: block;
 }
@@ -50,25 +50,25 @@
   max-width: 100%;
 }
 
-/* ========== Fly.io 涓撳睘瑙嗚瀹氬埗 (瀵归綈鍏跺畠妯″潡) ========== */
+/* ========== Fly.io 专属视觉定制 (对齐其它模块) ========== */
 
 /* Account Card */
 .fly-account-card {
   border-color: rgba(var(--fly-primary-rgb), 0.15);
 }
 
-/* 璐﹀彿鍗＄墖灞曞紑鐘舵€佺殑 Header 娓愬彉 */
+/* 账号卡片展开状的 Header  */
 .fly-account-card.expanded .fly-account-header {
   background: linear-gradient(to right, rgba(var(--fly-primary-rgb), 0.05), transparent);
 }
 
-/* 璐﹀彿澶村儚娓愬彉 */
+/* 账号头像渐变 */
 .fly-account-avatar {
   background: linear-gradient(135deg, var(--fly-primary) 0%, var(--fly-secondary) 100%);
   box-shadow: 0 3px 10px rgba(var(--fly-primary-rgb), 0.25);
 }
 
-/* 灞曞紑鍒囨崲鎸夐挳棰滆壊 */
+/* 展开切换按钮颜色 */
 .fly-toggle {
   background: rgba(var(--fly-primary-rgb), 0.08);
   color: var(--fly-primary);
@@ -78,17 +78,17 @@
   background: rgba(var(--fly-primary-rgb), 0.15);
 }
 
-/* 椤圭洰鍗＄墖 Hover 楂樹寒 */
+/* 项目卡片 Hover 高亮 */
 .fly-project-card:hover {
   border-color: rgba(var(--fly-primary-rgb), 0.3);
 }
 
-/* 椤圭洰澶撮儴娓愬彉 */
+/* 项目头部渐变 */
 .fly-project-header {
   background: linear-gradient(to right, rgba(var(--fly-primary-rgb), 0.03), transparent);
 }
 
-/* 鐘舵€佸窘绔犳槧灏勪慨姝?*/
+/* 状徽章映射修?*/
 .fly-service-item.running {
   background-color: rgba(16, 185, 129, 0.1);
   border-color: rgba(16, 185, 129, 0.2);
@@ -99,7 +99,7 @@
   border-color: rgba(239, 68, 68, 0.2);
 }
 
-/* 鎸夐挳棰滆壊瀵归綈 */
+/* 按钮颜色对齐 */
 .fly-btn {
   background-color: rgba(var(--fly-primary-rgb), 0.1);
   color: var(--fly-primary);
@@ -110,7 +110,7 @@
   border-color: var(--fly-primary);
 }
 
-/* 鍩熷悕閾炬帴棰滆壊 */
+/* 域名链接颜色 */
 .fly-domain-link {
   color: var(--fly-primary);
 }

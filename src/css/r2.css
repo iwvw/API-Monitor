@@ -1,10 +1,10 @@
-﻿/* ==================== R2 瀛樺偍绠＄悊鏍峰紡 ==================== */
+﻿/* ==================== R2 洢ʽ ==================== */
 
 .r2-container {
   padding: 2px;
 }
 
-/* 瀛樺偍妗跺崱鐗囧垪琛?*/
+/* 存储桶卡片列?*/
 .r2-buckets-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -72,7 +72,7 @@
   margin-top: var(--space-xs);
 }
 
-/* 瀵硅薄娴忚鍣ㄥ竷灞€ */
+/* 对象浏览器布屢 */
 .r2-browser {
   background: var(--bg-primary);
   border: 1px solid var(--border-color);
@@ -123,7 +123,7 @@
   gap: var(--space-md);
 }
 
-/* 鎼滅储妗?*/
+/* 搜索?*/
 .r2-search-container {
   position: relative;
   max-width: 300px;
@@ -156,7 +156,7 @@
   pointer-events: none;
 }
 
-/* 瀵硅薄鍒楄〃琛ㄦ牸 */
+/* 对象列表表格 */
 .r2-table {
   width: 100%;
   border-collapse: collapse;
@@ -238,7 +238,7 @@
   white-space: nowrap;
 }
 
-/* 绌虹姸鎬?*/
+/* 空状?*/
 .r2-empty {
   padding: 60px var(--space-xl);
   text-align: center;
@@ -251,7 +251,7 @@
   opacity: 0.3;
 }
 
-/* 涓婁紶娴眰 */
+/* 上传浮层 */
 .r2-upload-area {
   border: 2px dashed var(--border-color);
   border-radius: var(--radius-lg);

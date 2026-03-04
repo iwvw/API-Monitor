@@ -37,7 +37,7 @@
   padding: 6px var(--space-lg);
   /* background: var(--bg-secondary); */
   border: 1px solid var(--border-color);
-  border-radius: 9px;
+  border-radius: var(--radius-md);
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
@@ -161,7 +161,8 @@
 
 .search-box input:focus {
   border-color: var(--server-primary);
-  box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.05);
+  box-shadow: 0 0 0 3px rgba(var(--server-primary-dark), 0.15);
+  /* 统一焦点环手感 */
   outline: none;
 }
 
@@ -232,7 +233,7 @@
 
 .server-status-indicator.online {
   background: var(--success-color);
-  box-shadow: 0 0 8px var(--success-color);
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.4);
 }
 
 .server-status-indicator.online::after {
@@ -242,7 +243,7 @@
 
 .server-status-indicator.offline {
   background: var(--danger-color);
-  box-shadow: 0 0 8px var(--danger-color);
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.4);
 }
 
 .server-status-indicator.offline::after {
@@ -408,7 +409,7 @@
   line-height: 1.4;
 }
 
-/* 杩涘害鏉?*/
+/* 进度?*/
 .progress-bar {
   width: 100%;
   height: 10px;
@@ -520,7 +521,7 @@
   }
 }
 
-/* Docker 瀹瑰櫒鍒楄〃 */
+/* Docker 容器列表 */
 .docker-container-list {
   margin-top: var(--space-sm);
 }
@@ -804,7 +805,7 @@
   line-height: 1.1;
 }
 
-/* Docker 瀹瑰櫒鍒楄〃 - 澶氬垪绱у噾缃戞牸 */
+/* Docker 容器列表 - 多列紧凑网格 */
 .docker-container-list {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
@@ -812,7 +813,7 @@
   max-height: 65vh;
   overflow-y: auto;
   padding: 2px;
-  /* 闅愯棌婊氬姩鏉′絾淇濈暀婊氬姩鍔熻兘 */
+  /* 隐藏滚动条但保留滚动功能 */
   scrollbar-width: none;
   /* Firefox */
   -ms-overflow-style: none;
@@ -888,7 +889,7 @@
   z-index: 1;
 }
 
-/* 鍚庡彴绠＄悊缃戞牸甯冨眬 */
+/* 后台管理网格布局 */
 .management-grid {
   display: flex;
   flex-direction: column;
@@ -909,7 +910,7 @@
   }
 }
 
-/* 閰嶇疆鍗＄墖鏍峰紡 */
+/* 配置卡片样式 */
 .config-card {
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
@@ -992,7 +993,7 @@
   width: 100%;
 }
 
-/* 鍑嵁鍒楄〃鏍峰紡 */
+/* 凭据列表样式 */
 .compact-list {
   padding: var(--space-sm) !important;
   max-height: 250px;
@@ -1077,7 +1078,7 @@
   font-size: 24px;
 }
 
-/* Docker 杩蜂綘鍒楄〃 - 鐢ㄤ簬涓绘満鍗＄墖璇︽儏 */
+/* Docker 迷你列表 - 用于主机卡片详情 */
 .docker-mini-list {
   background: rgba(0, 0, 0, 0.2);
   border-radius: var(--radius-lg);
@@ -1200,7 +1201,7 @@
   font-weight: 500;
 }
 
-/* 瀹瑰櫒缃戞牸甯冨眬 */
+/* 容器网格布局 */
 .docker-containers-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
@@ -1296,7 +1297,7 @@
   justify-content: center;
 }
 
-/* Docker 闈㈡澘灞曞紑鍐呭鏍峰紡 */
+/* Docker 面板展开内容样式 */
 .docker-panel-content {
   background: rgba(0, 0, 0, 0);
   border-radius: var(--radius-md);
@@ -1437,7 +1438,7 @@
   border-radius: var(--radius-sm);
 }
 
-/* Docker 绌虹姸鎬?*/
+/* Docker 空状?*/
 .docker-empty-state {
   text-align: center;
   padding: 60px var(--space-xl);
@@ -1464,7 +1465,7 @@
   color: var(--text-secondary);
 }
 
-/* 鏃ф牱寮忎繚鐣欎互鍏煎 */
+/* 旧样式保留以兼容 */
 .docker-container-table {
   overflow-x: auto;
 }
@@ -1492,7 +1493,7 @@
   font-family: var(--font-mono);
 }
 
-/* 澶嶇敤 account-card 椋庢牸 */
+/* 复用 account-card 风格 */
 .server-management-container {
   padding: var(--space-xl);
 }
@@ -1729,7 +1730,7 @@
   padding: var(--space-sm);
 }
 
-/* 涓绘満閫夋嫨鍒楄〃 */
+/* 主机选择列表 */
 .server-select-list {
   display: flex;
   flex-direction: column;
@@ -1886,7 +1887,7 @@
   border-color: var(--server-primary-dark);
 }
 
-/* SSH 娣诲姞鎸夐挳灞呬腑 */
+/* SSH 添加按钮居中 */
 .ssh-add-tab {
   display: flex !important;
   align-items: center !important;
@@ -2006,7 +2007,7 @@
   transform: rotate(90deg);
 }
 
-/* SSH 缁堢鍐呭鍖哄煙 */
+/* SSH 终端内容区域 */
 .ssh-tab-content {
   padding: 0 !important;
 }
@@ -2019,7 +2020,7 @@
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
-/* SSH 缁堢宸ュ叿鏍?*/
+/* SSH 终端工具?*/
 .ssh-terminal-toolbar {
   display: flex;
   justify-content: space-between;
@@ -2095,7 +2096,7 @@
   gap: var(--space-sm);
 }
 
-/* 鍐呭祵缁堢闈㈡澘 */
+/* 内嵌终端面板 */
 .ssh-terminal-pane-embedded {
   width: 100%;
   height: calc(100vh - 280px);
@@ -2105,7 +2106,7 @@
   background: var(--card-bg);
 }
 
-/* SSH 缁堢宸ュ叿鏍?*/
+/* SSH 终端工具?*/
 .ssh-terminal-toolbar {
   display: flex;
   justify-content: space-between;
@@ -2181,7 +2182,7 @@
   gap: var(--space-sm);
 }
 
-/* 鍐呭祵缁堢闈㈡澘 */
+/* 内嵌终端面板 */
 .ssh-terminal-pane-embedded {
   width: 100%;
   height: calc(100vh - 280px);
@@ -2191,7 +2192,7 @@
   background: var(--card-bg);
 }
 
-/* SSH 缁堢搴曢儴鎻愮ず */
+/* SSH 终端底部提示 */
 .ssh-terminal-footer {
   padding: var(--space-sm) var(--space-lg);
   background: var(--section-bg);
@@ -2204,7 +2205,7 @@
   margin-right: 6px;
 }
 
-/* 鍝嶅簲寮忚皟鏁?*/
+/* 响应式调?*/
 @media (max-width: 768px) {
   .ssh-terminal-toolbar {
     flex-direction: column;
@@ -2254,7 +2255,7 @@
   overflow-y: auto;
 }
 
-/* 瑕嗙洊server-modal涓殑form-group鏍峰紡 */
+/* 覆盖server-modal中的form-group样式 */
 .server-modal .form-group label {
   font-size: 11px;
   font-weight: 500;
@@ -2284,7 +2285,7 @@
   margin-bottom: var(--space-xs);
 }
 
-/* 琛ㄥ崟鍖哄潡 */
+/* 表单区块 */
 .server-form-section {
   background: var(--section-bg);
   border: 1px solid var(--border-color);
@@ -2297,7 +2298,7 @@
   background: transparent;
 }
 
-/* 璁よ瘉鏂瑰紡鍒囨崲鎸夐挳缁?*/
+/* 认证方式切换按钮?*/
 .server-auth-toggle {
   display: flex;
   gap: var(--space-sm);
@@ -2338,7 +2339,7 @@
   font-size: 14px;
 }
 
-/* 琛ㄥ崟瀛楁鏍峰紡 */
+/* 表单字段样式 */
 .server-form-field {
   margin-bottom: var(--space-md);
 }
@@ -2396,7 +2397,7 @@
   font-family: var(--font-mono);
 }
 
-/* 琛ㄥ崟閿欒鎻愮ず */
+/* 表单错误提示 */
 .server-form-error {
   display: flex;
   align-items: center;
@@ -2414,7 +2415,7 @@
   font-size: 14px;
 }
 
-/* 妯℃€佹搴曢儴鎿嶄綔鏍?*/
+/* 模框底部操作?*/
 .server-modal-footer {
   display: flex;
   justify-content: space-between;
@@ -2430,7 +2431,7 @@
   gap: var(--space-sm);
 }
 
-/* 妯℃€佹鎸夐挳鏍峰紡 */
+/* 模框按钮样式 */
 .btn-server-cancel {
   padding: var(--space-sm) var(--space-xl);
   background: transparent;
@@ -2638,36 +2639,36 @@
   }
 }
 
-/* 涓嬫媺鑿滃崟灞曞紑鍔ㄧ敾 */
-.dropdown-fade-enter-active {
+/* 下拉菜单展开动画 */
+.ssh-dropdown-fade-enter-active {
   animation: dropdownSlideIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.dropdown-fade-leave-active {
+.ssh-dropdown-fade-leave-active {
   animation: dropdownSlideOut 0.15s cubic-bezier(0.4, 0, 1, 1);
 }
 
 @keyframes dropdownSlideIn {
   from {
     opacity: 0;
-    transform: translateX(-50%) translateY(-10px) scale(0.95);
+    transform: translateX(-50%) translateY(-10px) scale(0.95) translateZ(0);
   }
 
   to {
     opacity: 1;
-    transform: translateX(-50%) translateY(0) scale(1);
+    transform: translateX(-50%) translateY(0) scale(1) translateZ(0);
   }
 }
 
 @keyframes dropdownSlideOut {
   from {
     opacity: 1;
-    transform: translateX(-50%) translateY(0) scale(1);
+    transform: translateX(-50%) translateY(0) scale(1) translateZ(0);
   }
 
   to {
     opacity: 0;
-    transform: translateX(-50%) translateY(-10px) scale(0.95);
+    transform: translateX(-50%) translateY(-10px) scale(0.95) translateZ(0);
   }
 }
 
@@ -2856,7 +2857,7 @@
   color: var(--server-primary);
 }
 
-/* 绌虹姸鎬?*/
+/* 空状?*/
 .ssh-quick-empty {
   padding: 40px var(--space-xl);
   text-align: center;
@@ -2972,7 +2973,7 @@
   color: white;
 }
 
-/* 鐘舵€佺偣鎸囩ず鍣?*/
+/* 状点指示?*/
 .status-dot {
   display: inline-block;
   width: 8px;
@@ -2990,7 +2991,7 @@
   background: #ef4444;
 }
 
-/* 鎸囨爣鍗曞厓鏍?*/
+/* 指标单元?*/
 .metrics-cell {
   display: flex;
   flex-direction: column;
@@ -3016,7 +3017,7 @@
   color: #ef4444;
 }
 
-/* 杩蜂綘杩涘害鏉￠鑹?*/
+/* 迷你进度条颜?*/
 .mini-progress .normal {
   background: linear-gradient(90deg, #10b981, #34d399);
 }
@@ -3029,7 +3030,7 @@
   background: linear-gradient(90deg, #ef4444, #f87171);
 }
 
-/* 閲囬泦鍣ㄧ姸鎬佹爮 */
+/* 采集器状态栏 */
 .collector-status-bar {
   flex-wrap: wrap;
 }
@@ -3046,7 +3047,7 @@
   }
 }
 
-/* 缇庡寲鐨勭瓫閫変笅鎷夋 */
+/* 美化的筛选下拉框 */
 .metrics-filter-select {
   position: relative;
   display: inline-flex;
@@ -3110,7 +3111,7 @@
   color: var(--text-primary);
 }
 
-/* 閲囬泦闂撮殧閫夋嫨妗?*/
+/* 采集间隔选择?*/
 .metrics-interval-select {
   position: relative;
   display: inline-flex;
@@ -3147,7 +3148,7 @@
   border-color: var(--server-primary);
 }
 
-/* 鍘嗗彶璁板綍宸ュ叿鏍?*/
+/* 历史记录工具?*/
 .metrics-history-toolbar {
   display: flex;
   gap: var(--space-sm);
@@ -3155,7 +3156,7 @@
   flex-wrap: wrap;
 }
 
-/* 缁熶竴鐨勫伐鍏锋爮鎸夐挳 */
+/* 统一的工具栏按钮 */
 .metrics-toolbar-btn {
   display: inline-flex;
   align-items: center;
@@ -3188,7 +3189,7 @@
   font-size: 11px;
 }
 
-/* 涓昏鎸夐挳鏍峰紡 */
+/* 主要按钮样式 */
 .metrics-toolbar-btn.primary {
   background: var(--server-primary);
   border-color: var(--server-primary);
@@ -3220,7 +3221,7 @@
   gap: 6px;
 }
 
-/* 涓绘満鍗＄墖 */
+/* 主机卡片 */
 .metrics-server-card {
   background: var(--card-bg);
   border: 1px solid var(--border-color);
@@ -3285,7 +3286,7 @@
   transition: transform 0.2s ease;
 }
 
-/* 璁板綍鍒楄〃 */
+/* 记录列表 */
 .metrics-records-list {
   border-top: 1px solid var(--border-color);
   max-height: 400px;
@@ -3368,7 +3369,7 @@
   border-radius: var(--radius-sm);
 }
 
-/* 鍝嶅簲寮?*/
+/* 响应?*/
 @media (max-width: 768px) {
   .metrics-record-item {
     flex-direction: column;
@@ -3944,7 +3945,7 @@
   gap: var(--space-sm);
 }
 
-/* 特殊列处理：操作列 (小型 - 用于镜像/网络/存储) */
+/* д (С - ھ//洢) */
 .col-actions-sm {
   flex: 0 0 80px !important;
   /*稍微宽一点以容纳间距*/

@@ -1,6 +1,6 @@
 ﻿/* Settings Sidebar Styles */
 
-/* 寮圭獥澶栧眰鍖呰９鍣細璐熻矗鑳屾櫙閬僵鐨勪笣婊戣繃娓?*/
+/* 弹窗外层包裹器：负责背景遮罩的丝滑过?*/
 .settings-modal-wrapper {
   position: fixed;
   top: 0;
@@ -9,7 +9,7 @@
   bottom: 0;
   z-index: var(--z-index-modal-bg);
   background-color: rgba(0, 0, 0, 0);
-  /* 鍒濆閫忔槑 */
+  /* 初始透明 */
   pointer-events: auto;
   display: flex;
   align-items: center;
@@ -17,14 +17,14 @@
   transition: background-color 0.3s ease;
 }
 
-/* 褰撻潰鏉挎樉绀烘椂锛屽寘瑁瑰櫒鑳屾櫙鍙樻繁 */
+/* 当面板显示时，包裹器背景变深 */
 .show-settings-active .settings-modal-wrapper {
   background-color: rgba(0, 0, 0, 0.5);
 }
 
 .settings-sidebar {
   position: relative;
-  /* 鏀逛负 relative 閰嶅悎 flex 灞呬腑 */
+  /* 改为 relative 配合 flex 居中 */
   width: 90%;
   max-width: 1200px;
   height: 90vh;
@@ -37,11 +37,11 @@
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.1);
 
-  /* 鏍稿績锛氳缃浆鎹㈠師鐐瑰湪鍙充笂瑙掓寜閽檮杩?*/
+  /* 核心：设置转换原点在右上角按钮附?*/
   transform-origin: calc(100% - 40px) 40px;
 }
 
-/* Vue 鍔ㄧ敾瀹氫箟 */
+/* Vue 动画定义 */
 .settings-fade-enter-active,
 .settings-fade-leave-active {
   transition:
@@ -49,21 +49,21 @@
     transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-/* 杩涘満锛氳交寰缉鏀惧苟娣″叆锛岀Щ闄ゆā绯婁互鎻愬崌鎬ц兘 */
+/* 进场：轻微缩放并淡入，移除模糊以提升性能 */
 .settings-fade-enter-from,
 .settings-fade-leave-to {
   opacity: 0;
   transform: scale(0.98);
 }
 
-/* 杩涘満鍚庯細鎭㈠姝ｅ父澶у皬 */
+/* 进场后：恢复正常大小 */
 .settings-fade-enter-to,
 .settings-fade-leave-from {
   opacity: 1;
   transform: scale(1);
 }
 
-/* 閽堝绉诲姩绔殑鐗规畩鍘熺偣澶勭悊 */
+/* 针对移动端的特殊原点处理 */
 @media (max-width: 768px) {
   .settings-sidebar {
     width: 100%;
@@ -71,7 +71,7 @@
     height: 100%;
     border-radius: 0;
     transform-origin: calc(100% - 30px) 30px;
-    /* 绉诲姩绔師鐐瑰井璋?*/
+    /* 移动端原点微?*/
   }
 
   .settings-fade-enter-active,
@@ -80,12 +80,12 @@
   }
 }
 
-/* 绉婚櫎 clip-path 浠ユ彁鍗囨€ц兘 */
+/* Ƴ clip-path 以提升能 */
 .settings-container {
   flex-direction: column;
 }
 
-/* 绉诲姩绔細浼樺寲璁剧疆瀵艰埅鏍忔樉绀鸿€岄潪闅愯棌 */
+/* 移动端：优化设置导航栏显示非隐藏 */
 .settings-nav {
   width: 100% !important;
   height: auto !important;
@@ -171,6 +171,7 @@
   justify-content: center;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   border-radius: var(--radius-md);
+  transform: rotate(0deg);
 }
 
 .settings-sidebar-close:hover {
@@ -193,7 +194,7 @@
 /* Sidebar Navigation */
 .settings-nav {
   width: 60px;
-  /* 鍒濆浠呮樉绀哄浘鏍?*/
+  /* 初始仅显示图?*/
   flex-shrink: 0;
   background-color: var(--sidebar-bg);
   border-right: 1px solid var(--sidebar-border);
@@ -208,18 +209,18 @@
 
 .settings-nav:hover {
   width: 150px;
-  /* 鎮仠灞曞紑 */
+  /* 悬停展开 */
 }
 
 .settings-nav-item {
   display: flex;
   align-items: center;
   gap: var(--space-sm);
-  /* 浠?16px 鍑忓皬鍒?10px */
+  /* ?16px 减小?10px */
   padding: var(--space-md) 18px;
-  /* 璋冩暣鍐呰竟璺濅互灞呬腑鍥炬爣 */
+  /* 调整内边距以居中图标 */
   width: 150px;
-  /* 鍥哄畾瀹藉害浠ラ槻姝㈡枃瀛楁崲琛?*/
+  /* 固定宽度以防止文字换?*/
   text-align: left;
   background: none;
   border: none;
@@ -267,7 +268,7 @@
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
-  /* 闃叉姘村钩婧㈠嚭 */
+  /* 防止水平溢出 */
   width: 100%;
   box-sizing: border-box;
   padding: var(--space-md);
@@ -305,7 +306,7 @@
   border-radius: var(--radius-lg);
   padding: var(--space-sm);
   margin-bottom: 0;
-  /* 浣跨敤 gap 鎺у埗闂磋窛 */
+  /* 使用 gap 控制间距 */
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 }
 
@@ -419,7 +420,7 @@
   display: flex;
   align-items: center;
   padding: 6px var(--space-md);
-  /* 鏋佽嚧鍘嬬缉 padding */
+  /* 极致压缩 padding */
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-md);
@@ -427,6 +428,8 @@
   transition: all 0.2s ease;
   user-select: none;
   touch-action: none;
+  transform: scale(1);
+  box-shadow: 0 0 0 transparent;
 }
 
 .draggable-module-item.module-hidden {
@@ -519,6 +522,7 @@
   border: 1px solid var(--border-color);
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   color: var(--text-secondary);
+  transform: scale(1);
 }
 
 .btn-sm.btn-icon:hover {
@@ -551,6 +555,7 @@
 .btn-sm.btn-icon i {
   font-size: 14px;
   transition: transform 0.2s ease;
+  transform: scale(1);
 }
 
 .btn-sm.btn-icon:hover i {
@@ -571,7 +576,7 @@
   border: 1px solid #333;
 }
 
-/* 鏃ュ織鏉＄洰瀹瑰櫒 */
+/* 日志条目容器 */
 .log-item {
   margin-bottom: var(--space-sm);
   padding-bottom: 6px;
@@ -582,7 +587,7 @@
   border-bottom: none;
 }
 
-/* 鏃ュ織琛岄€氱敤鏍峰紡 */
+/* 日志行用样式 */
 .log-line {
   display: flex;
   flex-direction: row;
@@ -593,12 +598,12 @@
   flex-wrap: nowrap;
 }
 
-/* 绗竴琛岋細鏃堕棿 + 绾у埆 */
+/* 第一行：时间 + 级别 */
 .log-line-header {
   margin-bottom: 2px;
 }
 
-/* 绗簩琛岋細妯″潡 + 娑堟伅 */
+/* 第二行：模块 + 消息 */
 .log-line-content {
   padding-left: var(--space-xs);
 }
@@ -657,7 +662,7 @@
   color: #8b5cf6;
 }
 
-/* 鏃ュ織妯″潡棰滆壊 */
+/* 日志模块颜色 */
 .log-module.module-servermonitor {
   color: #10b981;
 }
@@ -806,7 +811,7 @@ input[type='number'] {
   border: 1px solid var(--border-color);
 }
 
-/* 2FA 璐︽埛瀹夊叏妯″潡涓撶敤鏍峰紡 */
+/* 2FA 账户安全模块专用样式 */
 .settings-2fa-container {
   margin-top: var(--space-xl);
   padding-top: var(--space-xl);

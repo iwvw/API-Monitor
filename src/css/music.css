@@ -18,7 +18,7 @@
   /* Prevent module from scrolling, let children scroll */
   position: relative;
 
-  /* 鏍稿績鍙橀噺: Rose Red Theme */
+  /* 核心变量: Rose Red Theme */
   --primary-color: #f43f5e;
   --primary-color-hover: #e11d48;
   --text-primary-local: var(--text-primary);
@@ -28,7 +28,7 @@
   --border-light: var(--border-color);
   --card-radius: 12px;
 
-  /* z-index 灞傜骇绯荤粺 */
+  /* z-index 层级系统 */
   --z-base: 1;
   --z-sticky: 100;
   --z-drawer: 500;
@@ -38,12 +38,12 @@
   --z-top: 2200;
 }
 
-/* 妯″潡鑳屾櫙锛氬叏灞忔挱鏀惧櫒婵€娲绘椂鍙橀粦锛岀獊鍑哄崱鐗囨劅 */
+/* 模块背景：全屏播放器濢活时变黑，突出卡片感 */
 .music-module.player-active {
   transition: background 0.6s ease;
 }
 
-/* 鑳屾櫙鍖呰灞?- 鐢ㄤ簬鍏ㄥ睆鎾斁鏃剁殑缂╂斁鍔ㄧ敾 */
+/* 背景包装?- ȫʱŶ */
 .music-bg-wrapper {
   display: flex;
   flex-direction: column;
@@ -51,7 +51,7 @@
   min-height: 0;
   height: 100%;
   /* padding-bottom: 120px; */
-  /* 涓哄浐瀹氱殑闊充箰鏍忕暀鍑虹┖闂?*/
+  /* 为固定的音乐栏留出空?*/
   transition:
     transform 0.6s cubic-bezier(0.25, 1, 0.5, 1),
     border-radius 0.6s ease,
@@ -61,16 +61,16 @@
   background: var(--bg-primary);
 }
 
-/* 褰撳叏灞忔挱鏀惧櫒婵€娲绘椂锛岃儗鏅缉灏?*/
+/* 当全屏播放器濢活时，背景缩?*/
 .music-module.player-active .music-bg-wrapper {
   transform: scale(0.94) translateY(10px);
   border-radius: var(--radius-lg);
   pointer-events: none;
-  /* 闃叉鐐瑰嚮鑳屾櫙 */
+  /* 防止点击背景 */
   user-select: none;
 }
 
-/* 纭繚妯℃澘瀹瑰櫒姝ｇ‘濉厖楂樺害 */
+/* 确保模板容器正确填充高度 */
 #template-music {
   display: flex;
   flex-direction: column;
@@ -97,7 +97,7 @@
   /* Critical: allow dropdown to overflow outside header */
 }
 
-/* 鎼滅储鏍囩鍏抽棴鎸夐挳 */
+/* 搜索标签关闭按钮 */
 .tab-close-hint {
   margin-left: 6px;
   font-size: 14px;
@@ -142,7 +142,7 @@
   display: flex;
   align-items: center;
   flex-direction: row-reverse;
-  /* 鍥炬爣鍦ㄥ彸杈?*/
+  /* 图标在右?*/
   background: var(--bg-glass);
   padding: var(--space-sm) var(--space-lg);
   border-radius: var(--radius-lg);
@@ -353,7 +353,7 @@
   overflow-y: auto;
   /* padding: 20px 40px 40px 40px; */
   padding-bottom: 120px;
-  /* 纭繚婊氬姩鍒板簳閮ㄦ椂鍐呭鍦ㄦ挱鏀惧櫒涓婃柟 */
+  /* 确保滚动到底部时内容在播放器上方 */
   position: relative;
   min-height: 0;
 }
@@ -686,7 +686,7 @@
 }
 
 .empty-state>i {
-  /* 鍙拡瀵圭洿鎺ュ瓙鍏冪礌鍥炬爣锛屽嵆澶ц楗板浘鏍?*/
+  /* 只针对直接子元素图标，即大装饰图?*/
   font-size: 64px;
   margin-bottom: var(--space-xl);
   opacity: 0.3;
@@ -697,7 +697,7 @@
   font-size: 15px;
 }
 
-/* 鎸夐挳寰皟锛氶拡瀵归煶涔愭ā鍧?*/
+/* 按钮微调：针对音乐模?*/
 .music-module .btn-pill {
   padding: var(--space-sm) var(--space-xl);
 }
@@ -726,17 +726,17 @@
 /* --- Bottom Bar --- */
 .music-bottom-bar {
   position: fixed !important;
-  /* 寮哄埗鑴辩浠讳綍 transform 瀹瑰櫒锛岀浉瀵逛簬绐楀彛瀹氫綅 */
+  /* 强制脱离任何 transform 容器，相对于窗口定位 */
   bottom: var(--space-sm) !important;
   left: 50% !important;
   transform: translateX(-50%) !important;
 
-  /* 澧炲姞瀹藉害 */
+  /* 增加宽度 */
   width: 95% !important;
   max-width: 1400px !important;
   height: 76px !important;
 
-  /* 鑷€傚簲纾ㄧ爞鐜荤拑璐ㄦ劅 - 鏋佽嚧涓€鑷存€?*/
+  /* 自应磨砂玻璃质感 - 极致丢致?*/
   background: rgba(var(--bg-secondary-rgb), 0.72) !important;
   backdrop-filter: blur(40px) saturate(180%) !important;
   -webkit-backdrop-filter: blur(40px) saturate(180%) !important;
@@ -745,31 +745,31 @@
   border-radius: var(--radius-lg) !important;
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15) !important;
   user-select: none !important;
-  /* 绂佹鍐呭琚€夋嫨 */
+  /* 禁止内容被择 */
   -webkit-user-drag: none !important;
-  /* 绂佹鎷栨嫿 */
+  /* 禁止拖拽 */
 
   display: grid !important;
   grid-template-columns: minmax(100px, 300px) 1fr minmax(80px, 300px) !important;
   align-items: center !important;
   padding: 0 var(--space-xl) !important;
   z-index: 11000 !important;
-  /* 寮€鍚儗鏅拰杈规鐨勭‖浠朵紭鍖?*/
+  /* 弢启背景和边框的硬件优?*/
   will-change: background, border-color, box-shadow, transform;
   transition: all 0.6s cubic-bezier(0.32, 0.72, 0, 1) !important;
 }
 
-/* 灞曞紑鐘舵€侊細浣跨敤鍙繃娓″睘鎬у€硷紝褰诲簳娑堥櫎鏀惰捣鐬棿鐨勮竟缂橀棯鐑?*/
+/* 展开状：使用可过渡属性，彻底消除收起瞬间的边缘闪?*/
 .music-bottom-bar.expanded {
   background: rgba(var(--bg-secondary-rgb), 0) !important;
   backdrop-filter: blur(0px) saturate(100%) !important;
   -webkit-backdrop-filter: blur(0px) saturate(100%) !important;
   border-color: transparent !important;
   box-shadow: 0 0 0 rgba(0, 0, 0, 0) !important;
-  /* 鏍稿績锛氱敤閫忔槑闃村奖浠ｆ浛 none */
+  /* 核心：用透明阴影代替 none */
 }
 
-/* 閫傞厤娣辫壊妯″紡锛氬己鍒朵繚鎸?0.72 閫忔槑搴︼紝纭繚涓庢瓕璇嶉〉瀹屽叏涓€鑷?*/
+/* 适配深色模式：强制保?0.72 透明度，确保与歌词页完全丢?*/
 @media (prefers-color-scheme: dark) {
   .music-bottom-bar {
     background: rgba(var(--bg-secondary-rgb), 0.72) !important;
@@ -780,7 +780,7 @@
   }
 }
 
-/* 绉婚櫎骞叉壈锛氬交搴曞垹闄ゅ簳鏍忛《閮ㄧ殑鐧借壊瑁呴グ绾垮拰浠讳綍浼厓绱犺楗?*/
+/* 移除干扰：彻底删除底栏顶部的白色装饰线和任何伪元素装?*/
 .music-bottom-bar::before,
 .music-bottom-bar::after,
 .music-bottom-bar.expanded::before,
@@ -789,29 +789,29 @@
   content: none !important;
 }
 
-/* 鏍稿績淇锛氶槻姝换浣曠埗绾у鍣ㄧ殑 transform 灞炴€р€滃洑绂佲€?fixed 鍏冪礌 */
+/* ޸ֹκθ transform 属囚禁?fixed Ԫ */
 .app-main,
 .container,
 #template-music,
 .music-module {
   perspective: none !important;
-  /* 娉ㄦ剰锛氬鏋滆繖閲岀殑鐖剁骇蹇呴』淇濈暀 transform 鍔ㄧ敾锛?
-       鍒?fixed 瀹氫綅鍙兘鐩稿浜庤瀹瑰櫒鏄剧ず銆?
-       浣嗕负浜嗘偓娴晥鏋滐紝鎴戜滑寮哄埗淇鑳屾櫙鍖呰灞傜殑 z-index */
+  /* ע⣺ĸ뱣 transform 动画?
+       ?fixed 定位只能相对于该容器显示?
+       ΪЧǿװ z-index */
 }
 
-/* 纭繚鑳屾櫙鍐呭婊氬姩鏃朵笉浼氶伄鎸″簳鏍?*/
+/* 确保背景内容滚动时不会遮挡底?*/
 .music-bg-wrapper {
   position: relative;
   z-index: 1;
 }
 
-/* 姝岃瘝闈㈡澘灞曞紑鏃剁殑搴曢儴bar鏍峰紡 */
+/* 歌词面板展开时的底部bar样式 */
 .music-bottom-bar.expanded {
   border-radius: 0 0 var(--radius-lg) var(--radius-lg) !important;
 }
 
-/* 鐐瑰嚮鑳屾櫙灞?- 鐐瑰嚮灞曞紑鎾斁鍣?*/
+/* 点击背景?- 点击展开播放?*/
 .bar-click-layer {
   position: absolute;
   inset: 0;
@@ -820,7 +820,7 @@
   border-radius: inherit;
 }
 
-/* 绾挎潯瑁呴グ宸茬Щ鑷?display: none */
+/* 线条装饰已移?display: none */
 
 .music-bottom-bar:hover {
   /* background: rgba(var(--bg-secondary-rgb, 20, 20, 20), 0.85); */
@@ -838,7 +838,7 @@
   height: 3px;
   cursor: pointer;
   background: rgba(128, 128, 128, 0.15);
-  /* 杩涘害鏉″簳鑹?*/
+  /* 进度条底?*/
   border-radius: 50px;
   transition:
     transform 0.2s ease,
@@ -847,7 +847,7 @@
   transform-origin: center center;
 }
 
-/* 澧炲ぇ鐐瑰嚮鍖哄煙鐨勪吉鍏冪礌 */
+/* 增大点击区域的伪元素 */
 .bar-progress::before {
   content: '';
   position: absolute;
@@ -859,7 +859,7 @@
 
 .bar-progress:hover {
   transform: scaleY(2.5);
-  /* 灞呬腑鏀惧ぇ */
+  /* 居中放大 */
 }
 
 .bar-fill {
@@ -890,7 +890,7 @@
   opacity: 1;
 }
 
-/* 宸插湪涓婃柟缁熶竴澶勭悊 */
+/* 已在上方统一处理 */
 
 .bar-left {
   display: flex;
@@ -907,7 +907,7 @@
   cursor: pointer;
 }
 
-/* 鏀惰捣鎸夐挳鏍峰紡 */
+/* 收起按钮样式 */
 .bar-collapse-btn {
   cursor: pointer;
 }
@@ -927,7 +927,7 @@
   color: white;
 }
 
-/* 宸︿晶鍐呭鍒囨崲鍔ㄧ敾 - 寮圭哀鏁堟灉 */
+/* 左侧内容切换动画 - 弹簧效果 */
 .bar-left-fade-enter-active {
   transition:
     opacity 0.3s ease,
@@ -950,7 +950,7 @@
   transform: scale(0.9);
 }
 
-/* 纭繚涓や釜鐘舵€佸彔鍔犳樉绀烘椂浣嶇疆姝ｇ‘ */
+/* 确保两个状叠加显示时位置正确 */
 .bar-left-fade-leave-active {
   position: absolute;
 }
@@ -1028,7 +1028,7 @@
   animation: none;
 }
 
-/* 褰撴爣棰樻孩鍑烘椂娣诲姞婊氬姩鍔ㄧ敾 */
+/* 当标题溢出时添加滚动动画 */
 .bar-title.scrolling span {
   animation: marquee-scroll 8s linear infinite;
 }
@@ -1110,7 +1110,7 @@
   background: #e11d48;
 }
 
-/* 寰幆鎸夐挳瑙掓爣 */
+/* 循环按钮角标 */
 .ctrl-btn.repeat-btn {
   position: relative;
 }
@@ -1167,7 +1167,7 @@
   overflow: hidden;
   position: relative;
   height: 20px;
-  /* 澧炲ぇ鐐瑰嚮鍖哄煙 */
+  /* 增大点击区域 */
   display: flex;
   align-items: center;
   background: transparent;
@@ -1175,7 +1175,7 @@
   transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* 瑙嗚涓婄殑婊戣建 */
+/* 视觉上的滑轨 */
 .volume-slider-wrapper::before {
   content: '';
   position: absolute;
@@ -1225,7 +1225,7 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* Playlist Detail Page - 鍥哄畾瀹瑰櫒杈圭晫 */
+/* Playlist Detail Page - 固定容器边界 */
 .music-playlist-detail-page {
   position: relative;
   flex: 1;
@@ -1277,23 +1277,23 @@
   background: var(--bg-glass-hover);
 }
 
-/* 璇︽儏鍐呭鍖猴細宸﹀彸涓ゆ爮甯冨眬 */
+/* 详情内容区：左右两栏布局 */
 .music-detail-content {
   padding: var(--space-lg);
   padding-bottom: 0;
-  /* 搴曢儴涓嶉渶瑕?padding */
+  /* 底部不需?padding */
   display: flex;
   /* gap: 40px; */
   flex: 1;
   min-height: 0;
   height: 0;
   /* Force flex-based height calculation */
-  /* 閲嶈锛氬厑璁?flex 瀛愰」鏀剁缉 */
+  /* 重要：允?flex  */
   overflow: hidden;
   /* Critical: clip children so they can scroll internally */
 }
 
-/* 宸︿晶淇℃伅鍖猴細鍥哄畾瀹藉害 */
+/* 左侧信息区：固定宽度 */
 .music-detail-info {
   width: clamp(200px, 25%, 320px);
   flex-shrink: 0;
@@ -1337,7 +1337,7 @@
   overflow: hidden;
 }
 
-/* 姝屾洸鍒楄〃锛氱嫭绔嬫粴鍔ㄥ尯鍩?*/
+/* 歌曲列表：独立滚动区?*/
 .music-song-list {
   flex: 1 1 0;
   /* Use 0 basis to force shrinking */
@@ -1345,24 +1345,24 @@
   height: 0;
   /* Force flex-based height calculation */
   /* Force flex-based height calculation */
-  /* 閲嶈锛歠lex 瀛愰」鍙敹缂?*/
+  /* Ҫflex 子项可收?*/
   flex-grow: 1;
   height: 100%;
   overflow-y: auto !important;
   /* Force scrollbar */
   overflow-x: hidden;
   padding-top: var(--space-sm);
-  /* 椤堕儴鐣欑櫧闃叉绗竴琛岃閬?*/
+  /* 顶部留白防止第一行被?*/
   padding-bottom: 120px;
-  /* 搴曢儴鐣欑櫧缁欐挱鏀炬潯 */
+  /* 底部留白给播放条 */
   /* margin-right: -10px; */
-  /* 婊氬姩鏉′笉鍗犵敤鍐呭绌洪棿 */
+  /* 滚动条不占用内容空间 */
   /* padding-right: 10px; */
 }
 
 
 
-/* 鍔犺浇鏇村鎸囩ず鍣?*/
+/* 加载更多指示?*/
 .music-load-more {
   text-align: center;
   padding: var(--space-xl);
@@ -1460,7 +1460,7 @@
   display: flex;
   flex-direction: column;
   z-index: 13400;
-  /* 纭繚鍦ㄦ瓕璇嶉〉涔嬩笂 */
+  /* 确保在歌词页之上 */
   overflow: hidden;
   animation: slideUp 0.3s ease;
 }
@@ -1535,18 +1535,18 @@
   font-size: 12px;
 }
 
-/* 杩斿洖鎸夐挳鏍峰紡 */
+/* 返回按钮样式 */
 .music-back-btn {
   display: inline-flex;
-  /* 鍏佽瀹藉害鑷€傚簲 */
+  /* 允许宽度自应 */
   align-items: center;
   gap: var(--space-sm);
   padding: 6px var(--space-lg);
   font-size: 14px;
   width: auto !important;
-  /* 寮哄埗瑕嗙洊 btn-icon-refined 鐨勫浐瀹氬搴?*/
+  /* ǿƸ btn-icon-refined 的固定宽?*/
   height: auto !important;
-  /* 寮哄埗瑕嗙洊 btn-icon-refined 鐨勫浐瀹氶珮搴?*/
+  /* ǿƸ btn-icon-refined 的固定高?*/
   border-radius: var(--radius-lg);
 }
 
@@ -1660,7 +1660,7 @@
   }
 }
 
-/* 骞虫澘鏂偣 */
+/* 平板断点 */
 @media (max-width: 768px) {
   .music-sec-tabs {
     padding-left: var(--space-md);
@@ -1672,7 +1672,7 @@
   }
 
   .music-bottom-bar {
-    /* 绮剧‘璁＄畻锛氭偓娴湪搴曢儴瀵艰埅鏍?(56px) 涔嬩笂 */
+    /* 精确计算：悬浮在底部导航?(56px) ֮ */
     bottom: calc(56px + env(safe-area-inset-bottom, 0) + var(--space-md)) !important;
     width: calc(100% - 24px) !important;
     height: 68px !important;
@@ -1700,7 +1700,7 @@
   }
 }
 
-/* 鎵嬫満鏂偣 */
+/* 手机断点 */
 @media (max-width: 480px) {
   .music-sec-tabs .search-pill {
     display: none;
@@ -1765,7 +1765,7 @@
   }
 }
 
-/* Focus 鐘舵€佹牱寮?- 鏃犻殰纰嶆敮鎸?*/
+/* Focus 状样?- 无障碍支?*/
 .music-module button:focus-visible,
 .music-module input:focus-visible,
 .music-module .tab-btn:focus-visible {
@@ -1796,7 +1796,7 @@
   border: 0;
 }
 
-/* 楠ㄦ灦灞忔牱寮?*/
+/* 骨架屏样?*/
 .skeleton {
   background: linear-gradient(90deg,
       var(--bg-tertiary) 25%,
@@ -1835,7 +1835,7 @@
   margin-top: 6px;
 }
 
-/* Vue Transition 鍔ㄧ敾 */
+/* Vue Transition 动画 */
 .drawer-slide-enter-active,
 .drawer-slide-leave-active {
   transition:
@@ -1849,7 +1849,7 @@
   opacity: 0;
 }
 
-/* 姝屽崟璇︽儏椤靛姩鐢?*/
+/* 歌单详情页动?*/
 .slide-up-enter-active {
   transition:
     transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
@@ -1872,7 +1872,7 @@
   opacity: 0;
 }
 
-/* 娣″叆娣″嚭 */
+/* 淡入淡出 */
 .fade-enter-active,
 .fade-leave-active {
   transition: opacity 0.2s ease;
@@ -1883,7 +1883,7 @@
   opacity: 0;
 }
 
-/* 鍏ㄥ睆鎾斁鍣ㄥ姩鐢?(閰嶅悎鑳屾櫙缂╂斁) */
+/* 全屏播放器动?(配合背景缩放) */
 .full-player-fade-enter-active,
 .full-player-fade-leave-active {
   transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1);
@@ -1895,7 +1895,7 @@
   transform: translate(-50%, 100px) scale(0.9);
 }
 
-/* 缂╂斁娣″叆 */
+/* 缩放淡入 */
 .scale-fade-enter-active,
 .scale-fade-leave-active {
   transition:
@@ -1909,7 +1909,7 @@
   opacity: 0;
 }
 
-/* 姝屾洸鏃堕暱鏍峰紡 */
+/* 歌曲时长样式 */
 .song-duration {
   font-size: 12px;
   opacity: 0.6;
@@ -1917,10 +1917,10 @@
   margin-left: var(--space-md);
 }
 
-/* --- Full Screen Player (浠庡簳鏍忎笂杈圭紭鍚戜笂鐢熼暱鐨勫鍣? --- */
+/* --- Full Screen Player (从底栏上边缘向上生长的容? --- */
 .music-full-player {
   position: fixed !important;
-  /* 鐪熉蜂竴浣撳寲锛氬簳杈圭紭涓庡簳鏍忓畬鍏ㄩ噸鍚?*/
+  /* 真·一体化：底边缘与底栏完全重?*/
   bottom: var(--space-sm) !important;
   top: var(--space-sm) !important;
   left: 50% !important;
@@ -1935,34 +1935,34 @@
   color: var(--text-primary);
   overflow: hidden;
 
-  /* 鏁翠綋鍦嗚锛屼笌搴曟爮闂悎鐘舵€佷竴鑷?*/
+  /* 整体圆角，与底栏闭合状一?*/
   border-radius: var(--radius-lg) !important;
   border: 1px solid var(--border-color) !important;
 
-  /* 鍏ㄥ睆椤垫壙杞藉敮涓€鐨勭（鐮傝儗鏅浘灞?*/
+  /* 全屏页承载唯丢的磨砂背景图?*/
   background: rgba(var(--bg-secondary-rgb), 0.72) !important;
   backdrop-filter: blur(40px) saturate(180%) !important;
   -webkit-backdrop-filter: blur(40px) saturate(180%) !important;
 
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3) !important;
-  /* Zeabur 椋庢牸鍚戜笂鐢熼暱鍔ㄧ敾 */
+  /* Zeabur 风格向上生长动画 */
   transition: all 0.6s cubic-bezier(0.32, 0.72, 0, 1) !important;
   transform-origin: bottom center !important;
 
   will-change: transform, opacity;
 
-  /* 绂佹閫変腑鏂囧瓧鍜屽浘鐗?*/
+  /* 禁止选中文字和图?*/
   user-select: none;
   -webkit-user-select: none;
   -webkit-user-drag: none;
 }
 
-/* 淇濇姢鍐呭锛氬湪鐢熼暱杩囩▼涓负搴曢儴棰勭暀搴曟爮鎸夐挳鐨勭┖闂?*/
+/* 保护内容：在生长过程中为底部预留底栏按钮的空?*/
 .full-player-body {
   flex: 1;
   display: flex;
   padding: var(--space-xl) 60px 86px 60px !important;
-  /* 86px = 搴曟爮楂樺害76 + 10px 杈硅窛 */
+  /* 86px = 底栏高度76 + 10px 边距 */
   gap: 60px;
   overflow: hidden;
 }
@@ -1980,14 +1980,14 @@
   }
 }
 
-/* 褰诲簳绂佹浠讳綍瑕嗙洊鍏ㄥ睆椤佃儗鏅殑浼厓绱犲畾涔夛紝闃叉鑹插樊 */
+/* ׽ֹκθȫҳαԪض壬ֹɫ */
 .music-full-player::before,
 .music-full-player::after {
   display: none !important;
   content: none !important;
 }
 
-/* 绉婚櫎鍚庣画閲嶅鐨?radial-gradient 瀹氫箟 */
+/* 移除后续重复?radial-gradient  */
 
 @keyframes rotate-bg {
   from {
@@ -2016,7 +2016,7 @@
   left: 0;
   width: 100%;
   height: 100%;
-  /* 涓婚鑷€傚簲閬僵 - 澧炲姞涓€灞傛瀬鍏跺井濡欑殑鏆楀寲浠ユ彁鍗囨枃瀛楀彲璇绘€?*/
+  /* 主题自应遮罩 - 增加丢层极其微妙的暗化以提升文字可读?*/
   background: rgba(0, 0, 0, 0.03) !important;
   backdrop-filter: none !important;
   z-index: -1;
@@ -2053,7 +2053,7 @@
   opacity: 1;
 }
 
-/* 鏀惰捣鎸夐挳鐗规畩鏍峰紡 */
+/* 收起按钮特殊样式 */
 .header-btn.collapse-btn {
   opacity: 0.8;
   background: var(--bg-tertiary);
@@ -2081,7 +2081,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  /* 灏侀潰鏁翠綋鍦ㄥ乏渚у崐鍖哄眳涓?*/
+  /* 封面整体在左侧半区居?*/
   justify-content: center;
   height: 100%;
 }
@@ -2089,9 +2089,9 @@
 .full-player-info {
   width: 100%;
   max-width: 500px;
-  /* 涓庡皝闈㈡渶澶у搴﹀榻?*/
+  /* 与封面最大宽度对?*/
   text-align: left;
-  /* 鍐呴儴鏂囧瓧宸﹀榻?*/
+  /* 内部文字左对?*/
 }
 
 .full-player-cover-container {
@@ -2120,7 +2120,7 @@
   display: block;
   -webkit-user-drag: none !important;
   pointer-events: none;
-  /* 褰诲簳绂佹浜や簰 */
+  /* 彻底禁止交互 */
 }
 
 .full-player-info {
@@ -2170,7 +2170,7 @@
   width: 100%;
   height: 100%;
   overflow: hidden;
-  /* 娓愬彉閬僵锛氫笂涓嬭竟缂樻贰鍑?*/
+  /* 渐变遮罩：上下边缘淡?*/
   mask: linear-gradient(180deg,
       hsla(0, 0%, 100%, 0) 0,
       hsla(0, 0%, 100%, 0.6) 5%,
@@ -2185,7 +2185,7 @@
       #fff 75%,
       hsla(0, 0%, 100%, 0.6) 85%,
       hsla(0, 0%, 100%, 0));
-  /* 闄愬畾娣峰悎妯″紡鍙綔鐢ㄤ簬姝岃瘝鍖哄煙 */
+  /* 限定混合模式只作用于歌词区域 */
   isolation: isolate;
 }
 
@@ -2195,16 +2195,16 @@
 
   width: 100%;
   height: 100%;
-  /* 纭欢鍔犻€燂細鎻愬崌婊氬姩娴佺晠搴?*/
+  /* 硬件加：提升滚动流畅?*/
   will-change: transform;
   transform: translate3d(0, 0, 0);
   z-index: 15;
-  /* 纭繚鍦ㄦ笎鍙橀伄缃╀箣涓?*/
+  /* 确保在渐变遮罩之?*/
   backface-visibility: hidden;
   perspective: 1000px;
 
   contain: layout style;
-  /* 绉婚櫎 paints锛岄槻姝㈡剰澶栬鍓?*/
+  /* Ƴ paints，防止意外裁?*/
   position: absolute;
   left: 0;
   top: 0;
@@ -2213,45 +2213,45 @@
   text-align: left;
   box-sizing: border-box;
   -webkit-font-smoothing: antialiased;
-  /* 鍩虹鏂囧瓧闃村奖锛屽寮鸿法鑳屾櫙璇嗗埆搴?*/
+  /* 基础文字阴影，增强跨背景识别?*/
   text-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
 }
 
-/* 姝岃瘝琛屾牱寮忎紭鍖?*/
+/* 歌词行样式优?*/
 .amll-lyric-player [class*='_lyricLine_'] {
   transform-origin: left center;
   will-change: transform, opacity;
-  /* 绉婚櫎杩欓噷鐨?transform: translate3d锛屽洜涓哄畠浼氳鐩?AMLL 鍐呴儴鐨勬粴鍔?缂╂斁浣嶇疆 */
-  /* 澧炲姞鍐呰竟璺濅互浼樺寲 hover 鏁堟灉 */
+  /* 移除这里?transform: translate3d，因为它会覆?AMLL 内部的滚?缩放位置 */
+  /* 增加内边距以优化 hover 效果 */
   padding: var(--space-sm) var(--space-xl);
   margin: var(--space-xs) var(--space-xl) var(--space-xs) 0;
-  /* 鍙充晶鐣欑櫧闃叉鎴柇 */
+  /* 右侧留白防止截断 */
   border-radius: var(--radius-lg);
   line-height: 1.4;
-  /* 鏍稿績淇锛氱Щ闄?transform 杩囨浮锛屼氦缁?AMLL JS 寮曟搸瀹炴椂椹卞姩銆傚鏋滃紑鍚簡 CSS transform transition锛屼細涓?JS 鍔ㄧ敾鍐茬獊瀵艰嚧婊炲悗鎰?*/
+  /* 核心修复：移?transform 过渡，交?AMLL JS ʵʱ CSS transform transition，会?JS 动画冲突导致滞后?*/
   transition:
     background-color 0.2s ease,
     opacity 0.3s ease;
 
-  /* 鏋佽嚧涓濇粦锛氬钩婊戞枃瀛楀潎琛?*/
+  /* 极致丝滑：平滑文字均?*/
   -webkit-font-smoothing: antialiased;
 }
 
 .amll-lyric-player [class*='_lyricLine_'][class*='active'],
 .amll-lyric-player [class*='_lyricLine_'][class*='current'] {
-  /* 浣跨敤鍔犳硶娣峰悎妯″紡锛屼娇楂樹寒琛屽湪鑳屾櫙涓婃樉寰楁洿浜€佹洿閫?*/
+  /* 使用加法混合模式，使高亮行在背景上显得更亮更?*/
   mix-blend-mode: plus-lighter;
   color: rgba(255, 255, 255, 0.98) !important;
-  /* 杞彂鍏夋晥鏋?*/
+  /* 软发光效?*/
   text-shadow:
     0 0 20px rgba(255, 255, 255, 0.4),
     0 2px 10px rgba(0, 0, 0, 0.2);
-  /* 寮哄埗閲嶇粯浼樺寲 */
+  /* 强制重绘优化 */
   will-change: transform, opacity, color;
   opacity: 1 !important;
 }
 
-/* 鍏煎鎬ч檷绾?*/
+/* 兼容性降?*/
 @supports not (mix-blend-mode: plus-lighter) {
 
   .amll-lyric-player [class*='_lyricLine_'][class*='active'],
@@ -2261,12 +2261,12 @@
   }
 }
 
-/* 榧犳爣鎮仠楂樹寒 */
+/* 鼠标悬停高亮 */
 .amll-lyric-player [class*='_lyricLine_']:hover {
   background-color: rgba(255, 255, 255, 0.08);
 }
 
-/* 閫傞厤娴呰壊妯″紡鐨勯珮浜€昏緫 */
+/* 适配浅色模式的高亮辑 */
 @media (prefers-color-scheme: light) {
 
   .amll-lyric-player [class*='_lyricLine_'][class*='active'],
@@ -2281,7 +2281,7 @@
   }
 }
 
-/* 缈昏瘧姝岃瘝 */
+/* 翻译歌词 */
 .amll-lyric-player [class*='_lyricSubLine_'] {
   opacity: 0.5;
   font-size: 23px;
@@ -2289,12 +2289,12 @@
   margin-top: var(--space-sm);
 }
 
-/* 闂村鐐规牱寮?- 鏄捐憲鏀惧ぇ */
+/* 间奏点样?- Ŵ */
 .amll-lyric-player [class*='_interludeDots_'] {
   margin-bottom: 300px;
 }
 
-/* 閽堝鍐呴儴鍦嗙偣杩涜鍔犲浐鏈夊姏鏄剧ず */
+/* 针对内部圆点进行加固有力显示 */
 .amll-lyric-player [class*='_interludeDots_'] span,
 .amll-lyric-player [class*='_interludeDot_'] {
   width: 20px !important;
@@ -2303,7 +2303,7 @@
   box-shadow: 0 0 10px rgba(255, 255, 255, 0.3);
 }
 
-/* 澶囩敤绠€鍗曟覆鏌撻€昏緫閫傞厤 */
+/* 备用箢单渲染辑适配 */
 .lyric-line {
   font-size: 22px;
   font-weight: 700;
@@ -2426,7 +2426,7 @@
   box-shadow: 0 10px 40px rgba(var(--primary-rgb), 0.4);
 }
 
-/* Transitions - 姝岃瘝闈㈡澘骞虫粦灞曞紑 */
+/* Transitions - 歌词面板平滑展开 */
 .full-player-fade-enter-active {
   transition:
     top 0.5s cubic-bezier(0.25, 1, 0.5, 1),
@@ -2435,7 +2435,7 @@
 
 .full-player-fade-enter-active,
 .full-player-fade-leave-active {
-  /* 鏍稿績鐢熼暱鍔ㄧ敾鏃堕棿锛?.6s锛岃礉濉炲皵鏇茬嚎澶嶅埢 Zeabur 骞虫粦鎰?*/
+  /* 核心生长动画时间?.6s，贝塞尔曲线复刻 Zeabur 平滑?*/
   transition:
     transform 0.6s cubic-bezier(0.32, 0.72, 0, 1),
     opacity 0.4s ease !important;
@@ -2443,7 +2443,7 @@
 
 .full-player-fade-enter-from,
 .full-player-fade-leave-to {
-  /* Zeabur 椋庢牸璧风偣锛氫粠搴曟爮楂樺害锛堢害 0.08 姣斾緥锛夊紑濮嬬敓闀?*/
+  /* Zeabur 㣺ӵ߶ȣԼ 0.08 比例）开始生?*/
   transform: translateX(-50%) scaleY(0.08) !important;
   opacity: 0;
   transform-origin: bottom center !important;
@@ -2455,7 +2455,7 @@
   opacity: 1;
 }
 
-/* 瑙ｅ喅鍐呭鎵洸锛氬湪瀹瑰櫒鐢熼暱杩囩▼涓紝鍏堥殣钘忓唴瀹癸紝绛夊鍣ㄩ暱楂樺悗鍐嶆樉鐜?*/
+/* 解决内容扭曲：在容器生长过程中，先隐藏内容，等容器长高后再显?*/
 .full-player-fade-enter-from .full-player-header,
 .full-player-fade-enter-from .full-player-body {
   opacity: 0;
@@ -2535,17 +2535,17 @@
   }
 }
 
-/* 绂佹鎵€鏈夊浘鐗囨嫋鍔?*/
+/* 禁止扢有图片拖?*/
 .music-module img {
   -webkit-user-select: none;
   user-select: none;
   pointer-events: auto;
 }
 
-/* ==================== 绉诲姩绔€傞厤 ==================== */
+/* ==================== 移动端配 ==================== */
 @media (max-width: 768px) {
 
-  /* 鏍囩鏍忕畝鍖?*/
+  /* 标签栏简?*/
   .music-sec-tabs {
     display: flex !important;
     flex-wrap: wrap;
@@ -2577,7 +2577,7 @@
     max-width: 280px;
   }
 
-  /* 涓诲唴瀹瑰尯 */
+  /* 主内容区 */
   .music-main-content {
     padding: var(--space-md) var(--space-lg) 130px var(--space-lg);
   }
@@ -2592,7 +2592,7 @@
     margin-bottom: var(--space-md);
   }
 
-  /* 蹇€熻闂崱鐗?*/
+  /* 快访问卡?*/
   .quick-grid-home {
     grid-template-columns: 1fr;
     gap: var(--space-sm);
@@ -2616,7 +2616,7 @@
     font-size: 12px;
   }
 
-  /* 姝屽崟澧?*/
+  /* 歌单?*/
   .playlist-wall {
     grid-template-columns: repeat(2, 1fr);
     gap: var(--space-md);
@@ -2631,7 +2631,7 @@
     font-size: 11px;
   }
 
-  /* 搴曢儴鎾斁鏍?*/
+  /* 底部播放?*/
   .music-bottom-bar {
     width: calc(100% - 20px) !important;
     bottom: var(--space-xs) !important;
@@ -2679,7 +2679,7 @@
     height: 32px;
   }
 
-  /* 姝屾洸鍒楄〃 */
+  /* 歌曲列表 */
   .track-item {
     padding: var(--space-sm) var(--space-md);
   }
@@ -2697,13 +2697,13 @@
     font-size: 12px;
   }
 
-  /* 鎾斁闃熷垪鎶藉眽 */
+  /* 播放队列抽屉 */
   .music-playlist-drawer {
     width: 85%;
     max-width: 320px;
   }
 
-  /* 绌虹姸鎬?*/
+  /* 空状?*/
   .empty-state {
     padding: 40px var(--space-xl);
   }

@@ -1,13 +1,13 @@
 ﻿/* Dashboard 2.0 - Strict Alignment & Spacing */
 
 /* 
-   鍏ㄥ眬瀹瑰櫒 
-   - 澧炲姞鏁翠綋鍐呰竟璺濓紝鎻愪緵瓒冲鐨勫懠鍚告劅
-   - 纭繚鍦ㄥぇ灞忎笅涓嶄細璐磋竟
+   全局容器 
+   - 增加整体内边距，提供足够的呼吸感
+   - 确保在大屏下不会贴边
 */
 .dashboard-content {
   padding: 0px;
-  /* 缁熶竴鍥涘懆鍐呰竟璺?*/
+  /* 统一四周内边?*/
   width: 100%;
   margin: 0 auto;
   font-family: var(--font-main, 'Inter', system-ui, sans-serif);
@@ -26,16 +26,16 @@
   justify-content: space-between;
   align-items: flex-end;
   margin-bottom: var(--space-sm);
-  /* 涓?Grid Gap 淇濇寔涓€鑷?*/
+  /* ?Grid Gap 保持丢?*/
   padding-bottom: var(--space-xs);
-  /* 寰皟瑙嗚閲嶅績 */
+  /* 微调视觉重心 */
 }
 
 .header-left {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  /* 鏍囬涓庡壇鏍囬闂磋窛 */
+  /* 标题与副标题间距 */
 }
 
 .dashboard-header h1 {
@@ -62,7 +62,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-lg);
-  /* 澧炲姞闂磋窛 */
+  /* 增加间距 */
 }
 
 .last-update {
@@ -104,9 +104,9 @@
   font-weight: 600;
   cursor: pointer;
   border: 1px solid rgba(255, 255, 255, 0.1);
-  /* 娓愬彉鑳屾櫙 */
+  /* 渐变背景 */
   background: linear-gradient(135deg, var(--primary-color), #4f46e5);
-  /* 鍋囪鏈?indigo 杈呭姪鑹诧紝濡傛灉娌℃湁鍒欏洖閫€鍒?primary */
+  /* 假设?indigo 辅助色，如果没有则回逢?primary */
   color: #fff;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   /* box-shadow: 0 4px 12px rgba(var(--primary-rgb), 0.25), inset 0 1px 0 rgba(255, 255, 255, 0.2); */
@@ -114,7 +114,7 @@
   overflow: hidden;
 }
 
-/* 鎸夐挳鍏夋辰鏁堟灉 */
+/* 按钮光泽效果 */
 .btn-refresh-all::before {
   content: '';
   position: absolute;
@@ -147,15 +147,15 @@
 
 /* =========================================
    Grid Layout System
-   涓ユ牸缁熶竴鐨勯棿璺濈郴缁?
+   严格统一的间距系?
    ========================================= */
 :root {
   --dashboard-grid-gap: 12px;
-  /* 鍏ㄥ眬缃戞牸闂磋窛鍙橀噺 */
+  /* 全局网格间距变量 */
   --card-padding: 18px;
-  /* 鍏ㄥ眬鍗＄墖鍐呰竟璺濆彉閲?*/
+  /* 全局卡片内边距变?*/
   --card-radius: 16px;
-  /* 鍏ㄥ眬鍗＄墖鍦嗚 */
+  /* 全局卡片圆角 */
 }
 
 .stats-overview-grid {
@@ -168,10 +168,10 @@
 .dashboard-main-layout {
   display: grid;
   grid-template-columns: 2fr 1fr;
-  /* 2:1 姣斾緥 */
+  /* 2:1 比例 */
   gap: var(--dashboard-grid-gap);
   align-items: stretch;
-  /* 涓ゅ垪绛夐珮 */
+  /* 两列等高 */
 }
 
 .content-column {
@@ -180,7 +180,7 @@
   gap: var(--dashboard-grid-gap);
 }
 
-/* 宸︿晶鍒楋細鍗＄墖鎷変几濉厖 */
+/* 左侧列：卡片拉伸填充 */
 .content-column:first-child .detail-card {
   flex: 1;
 }
@@ -200,7 +200,7 @@
   padding: var(--card-padding);
   border: 1px solid var(--border-color);
   box-shadow: var(--card-shadow);
-  /* 鍙瑙嗚灞炴€ц繃娓★紝閬垮厤甯冨眬灞炴€у姩鐢诲鑷寸殑闂儊 */
+  /* 只对视觉属过渡，避免布局属动画导致的闪烁 */
   transition:
     transform 0.3s ease,
     box-shadow 0.3s ease,
@@ -210,7 +210,7 @@
   position: relative;
   overflow: hidden;
   box-sizing: border-box;
-  /* 纭繚 padding 涓嶆拺澶у昂瀵?*/
+  /* ȷ padding 不撑大尺?*/
 }
 
 /* Overview Card Specific - Compact & Balanced */
@@ -253,7 +253,7 @@
   justify-content: center;
   font-size: 18px;
   border: 1px solid rgba(255, 255, 255, 0.03);
-  /* 浼樺寲鍔ㄧ敾鎬ц兘锛岄槻姝㈡姈鍔?*/
+  /* 优化动画性能，防止抖?*/
   transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
     background-color 0.3s ease,
     color 0.3s ease;
@@ -478,7 +478,7 @@
   border: 1px solid var(--border-color);
   box-shadow: var(--card-shadow);
   cursor: default;
-  /* 绉婚櫎瀹瑰櫒鎸囬拡 */
+  /* 移除容器指针 */
 }
 
 .music-bg-blur {
@@ -508,7 +508,7 @@
   transition:
     transform 0.3s ease,
     box-shadow 0.3s ease;
-  /* 闃叉鎷栧姩鍜岄€夋嫨 */
+  /* 防止拖动和择 */
   user-select: none;
   -webkit-user-select: none;
   -webkit-user-drag: none;
@@ -591,7 +591,7 @@
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
 }
 
-/* 榛樿闅愯棌鎺у埗鎸夐挳鍜岀姸鎬佸鍣紝鍙湁鎮仠鏃舵樉绀?*/
+/* 默认隐藏控制按钮和状态容器，只有悬停时显?*/
 .music-widget-wrapper .music-controls,
 .music-widget-wrapper .music-status-container {
   opacity: 0;
@@ -602,7 +602,7 @@
     transform 0.3s ease;
 }
 
-/* 榧犳爣鎮仠鍦ㄥ崱鐗囦笂鏃讹紝鎭㈠鏄剧ず鎺у埗鎸夐挳鍜岀姸鎬?*/
+/* 鼠标悬停在卡片上时，恢复显示控制按钮和状?*/
 .music-widget-wrapper:hover .music-controls,
 .music-widget-wrapper:hover .music-status-container {
   opacity: 1;
@@ -643,14 +643,14 @@
   pointer-events: none;
   z-index: 2;
   overflow: hidden;
-  /* 璋冩暣閬僵姣斾緥锛岀‘淇濅腑闂存竻鏅板尯鍩熸洿闈犱笅锛屼笉閬尅椤堕儴寰界珷 */
+  /* 调整遮罩比例，确保中间清晰区域更靠下，不遮挡顶部徽章 */
   -webkit-mask-image: linear-gradient(to bottom,
       transparent 0%,
       black 15%,
       black 85%,
       transparent 100%);
   mask-image: linear-gradient(to bottom, transparent 0%, black 15%, black 85%, transparent 100%);
-  /* 娣″叆鍔ㄧ敾锛岄伩鍏嶆瓕璇嶇獊鐒跺嚭鐜?*/
+  /* 淡入动画，避免歌词突然出?*/
   animation: lyricFadeIn 0.5s ease-out forwards;
 }
 
@@ -682,7 +682,7 @@
   align-items: flex-end;
   width: 100%;
   height: 56px;
-  /* 杩涗竴姝ュ鍔犻珮搴︼紝纭繚鏂囧瓧鍜岀炕璇戦兘鑳藉畬鍏ㄦ斁涓?*/
+  /* 进一步增加高度，确保文字和翻译都能完全放?*/
   justify-content: center;
   transition: all 0.8s cubic-bezier(0.2, 0, 0, 1);
 }
@@ -696,12 +696,12 @@
   font-size: 22px;
   font-weight: 800;
   line-height: 1.4;
-  /* 澧炲姞琛岄棿璺?*/
+  /* 增加行间?*/
   padding: 2px 0;
-  /* 缁欒儗鏅鍓暀鍑哄瀭鐩翠綑閲?*/
+  /* 给背景裁剪留出垂直余?*/
   white-space: nowrap;
   overflow: visible;
-  /* 闃叉杈圭紭鎴柇 */
+  /* 防止边缘截断 */
 
   /* Karaoke Effect: Base + Fill */
   color: transparent;
@@ -766,7 +766,7 @@
   right: 0;
   top: 50%;
   transform: translateY(-50%) translateY(-30px);
-  /* 鍑忓皬鍋忕Щ閲忥紝鍖归厤鏂扮殑楂樺害 */
+  /* 减小偏移量，匹配新的高度 */
 }
 
 /* API Stats Row */
@@ -774,7 +774,7 @@
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: var(--space-xl);
-  /* 鍐呴儴闂磋窛鐣ュ皬浜庡閮?*/
+  /* 内部间距略小于外?*/
 }
 
 .api-stat-group {
@@ -813,7 +813,7 @@
 
 .api-progress-track {
   height: 8px;
-  /* 绋嶇矖 */
+  /* 稍粗 */
   background: var(--bg-tertiary);
   border-radius: var(--radius-sm);
   margin-top: var(--space-lg);
@@ -858,11 +858,11 @@
 
 .paas-logo-box {
   width: 42px;
-  /* 缁熶竴 42px */
+  /* 统一 42px */
   height: 42px;
-  /* 缁熶竴 42px */
+  /* 统一 42px */
   border-radius: var(--radius-lg);
-  /* 缁熶竴 12px */
+  /* 统一 12px */
   background: #fff;
   display: flex;
   align-items: center;
@@ -870,7 +870,7 @@
   font-size: 18px;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
   border: 1px solid rgba(0, 0, 0, 0.03);
-  /* 澧炲姞杈规涓€鑷存€?*/
+  /* 增加边框丢致?*/
 }
 
 .paas-item-text {
@@ -922,7 +922,7 @@
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: var(--space-lg);
-  /* 鍙充晶灏忓崱鐗囬棿璺?*/
+  /* 右侧小卡片间?*/
 }
 
 .action-card {
@@ -988,11 +988,11 @@
 
 .action-icon {
   width: 42px;
-  /* 缁熶竴 42px */
+  /* 统一 42px */
   height: 42px;
-  /* 缁熶竴 42px */
+  /* 统一 42px */
   border-radius: var(--radius-lg);
-  /* 缁熶竴 12px */
+  /* 统一 12px */
   background: rgba(var(--primary-rgb), 0.1);
   color: var(--primary-color);
   display: flex;
@@ -1494,7 +1494,7 @@
 
   .btn-refresh-all span {
     display: none;
-    /* 鍙樉绀哄浘鏍?*/
+    /* 只显示图?*/
   }
 
   /* --- Stats Grid: 2 Columns on Mobile --- */
@@ -1618,7 +1618,7 @@
     font-size: 13px;
   }
 
-  /* --- Music Widget: 绉诲姩绔殣钘忥紙浣跨敤杩蜂綘鎾斁鍣ㄤ唬鏇匡級 --- */
+  /* --- Music Widget: ƶأʹ㲥棩 --- */
   .music-widget-wrapper {
     display: none !important;
   }
@@ -1669,7 +1669,7 @@
     font-size: 14px !important;
   }
 
-  /* 绉诲姩绔缁堟樉绀烘帶鍒舵寜閽?*/
+  /* 移动端始终显示控制按?*/
   .music-widget-wrapper .music-controls,
   .music-widget-wrapper .music-status-container {
     opacity: 1;
@@ -1702,7 +1702,7 @@
   /* --- API Stats: Ultra Compact --- */
   .api-stats-row {
     grid-template-columns: repeat(2, 1fr);
-    /* 淇濇寔2鍒?*/
+    /* 保持2?*/
     gap: var(--space-sm);
   }
 
@@ -1725,7 +1725,7 @@
 
   .api-stat-group>div:nth-child(2) {
     font-size: 10px !important;
-    /* 鎬昏皟鐢ㄦ鏁?*/
+    /* 总调用次?*/
   }
 
   .api-progress-track {
@@ -1816,7 +1816,7 @@
 @media (max-width: 360px) {
   .stats-overview-grid {
     grid-template-columns: 1fr;
-    /* 鍗曞垪 */
+    /* 单列 */
   }
 
   .dashboard-header h1 {

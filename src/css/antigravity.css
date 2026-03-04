@@ -10,7 +10,7 @@
   --ag-color: var(--ag-primary);
 }
 
-/* 鍩虹鎺掔増浼樺寲 */
+/* 基础排版优化 */
 .antigravity-tab-content {
   letter-spacing: 0.5px;
   line-height: 1.5;
@@ -19,7 +19,7 @@
 
 /* Antigravity Secondary Tabs */
 .antigravity-sec-tabs {
-  /* 缁ф壙鍏ㄥ眬 .sec-tabs 甯冨眬 */
+  /* 继承全局 .sec-tabs 布局 */
 }
 
 .theme-antigravity .tab-btn:hover:not(.active) {
@@ -32,22 +32,22 @@
   box-shadow: 0 2px 8px rgba(255, 87, 34, 0.3);
 }
 
-/* 瀛愰〉闈㈠竷灞€浼樺寲 */
+/* 子页面布屢优化 */
 .antigravity-tab-content .sub-tab-content {
   animation: agFadeInUp 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   height: 100%;
   display: flex;
   flex-direction: column;
-  /* 鐢ㄦ埛瑕佹眰鐨勭揣鍑?Padding */
+  /* 用户要求的紧?Padding */
 }
 
-/* 鐘舵€佹爣绛?*/
+/* 状标?*/
 .ag-status-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   padding: 3px var(--space-sm);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-sm);
   font-size: 11px;
   font-weight: 600;
   gap: 6px;
@@ -62,7 +62,7 @@
   background-color: currentColor;
 }
 
-/* 鐘舵€佹爣绛鹃厤鑹?- 寮哄寲浼樺厛绾?*/
+/* 状标签配?- 强化优先?*/
 body .ag-status-online,
 body .ag-status-success,
 body .status-2xx {
@@ -104,7 +104,7 @@ body .ag-status-unknown {
   box-sizing: border-box;
   width: 100%;
   overflow-x: hidden;
-  /* 鏍稿績锛氱姝㈡按骞虫孩鍑?*/
+  /* 核心：禁止水平溢?*/
 }
 
 .chat-history-modern .msg-bubble {
@@ -114,12 +114,12 @@ body .ag-status-unknown {
   line-height: 1.5;
   position: relative;
   word-break: break-all;
-  /* 寮哄埗鎵€鏈夊瓧绗︽崲琛?*/
+  /* 强制扢有字符换?*/
   overflow-wrap: break-word;
   max-width: 100%;
   box-sizing: border-box;
   min-width: 0;
-  /* 鍏佽鍦?flex 瀹瑰櫒涓敹缂?*/
+  /* 允许?flex 容器中收?*/
 }
 
 .chat-history-modern .user-bubble {
@@ -181,22 +181,22 @@ body .ag-status-unknown {
 .response-content li {
   margin-bottom: var(--space-xs);
   word-break: break-all;
-  /* 纭繚鍒楄〃椤瑰唴瀹逛篃寮哄埗鎹㈣ */
+  /* 确保列表项内容也强制换行 */
   white-space: normal;
   max-width: 100%;
 }
 
-/* 閽堝闀夸唬鐮佸潡鐨勯澶栦繚鎶?*/
+/* 针对长代码块的额外保?*/
 .msg-bubble pre,
 .response-content pre {
   max-width: 100%;
   overflow-x: auto;
   white-space: pre-wrap;
-  /* 濡傛灉甯屾湜浠ｇ爜涔熻嚜鍔ㄦ崲琛岋紝鍙栨秷姝よ鐨勬敞閲婃垨淇濇寔 pre 鍐呯殑婊氬姩 */
+  /* 如果希望代码也自动换行，取消此行的注释或保持 pre 内的滚动 */
   word-break: normal;
 }
 
-/* Markdown Table 澶勭悊 */
+/* Markdown Table 处理 */
 .msg-bubble table,
 .response-content table {
   width: 100%;
@@ -205,7 +205,7 @@ body .ag-status-unknown {
   font-size: 12px;
   table-layout: auto;
   display: block;
-  /* 鍏佽妯悜婊氬姩 */
+  /* 允许横向滚动 */
   overflow-x: auto;
 }
 
@@ -244,7 +244,7 @@ body .ag-status-unknown {
   font-size: 0.9em;
 }
 
-/* 鐢ㄦ埛娑堟伅涓殑 Markdown 閫傞厤 (娣辫壊鑳屾櫙) */
+/* 用户消息中的 Markdown 适配 (深色背景) */
 [style*='var(--ag-primary)'] pre,
 [style*='var(--ag-primary)'] code {
   background: rgba(255, 255, 255, 0.2);
@@ -264,7 +264,7 @@ body .ag-status-unknown {
   opacity: 0.8;
 }
 
-/* 澶氭ā鎬佸浘鐗囬瑙堟牱寮?*/
+/* 多模态图片预览样?*/
 .msg-image-container {
   margin: var(--space-xs) 0;
   text-align: left;
@@ -289,12 +289,12 @@ body .ag-status-unknown {
   box-shadow: 0 6px 16px rgba(0, 0, 0, 0.15);
 }
 
-/* 鐢ㄦ埛钃濆簳娑堟伅姘旀场涓殑鍥剧墖澶勭悊 */
+/* 用户蓝底消息气泡中的图片处理 */
 [style*='var(--ag-primary)'] .msg-inline-image {
   border-color: rgba(255, 255, 255, 0.3);
 }
 
-/* 鎬濊€冭繃绋嬪睍寮€妗嗕紭鍖?*/
+/* 思过程展弢框优?*/
 .reasoning-details {
   background: rgba(0, 0, 0, 0.02) !important;
   border: 1px dashed var(--border-color) !important;
@@ -310,12 +310,12 @@ body .ag-status-unknown {
   color: var(--text-tertiary);
   outline: none;
   list-style: none;
-  /* 绉婚櫎榛樿绠ご */
+  /* 移除默认箭头 */
 }
 
 .reasoning-details summary::-webkit-details-marker {
   display: none;
-  /* 鍏煎 Safari 绉婚櫎绠ご */
+  /* 兼容 Safari 移除箭头 */
 }
 
 .reasoning-details .reasoning-content-inner {
@@ -325,11 +325,11 @@ body .ag-status-unknown {
   line-height: 1.6;
   border-top: 1px dashed var(--border-color);
   background: rgba(255, 255, 255, 0.3);
-  /* 鍗婇€忔槑锛岄€傞厤鏆楄壊妯″紡 */
+  /* 半明，配暗色模式 */
   white-space: pre-wrap;
   font-style: italic;
   overflow-wrap: break-word;
-  /* 闃叉婧㈠嚭 */
+  /* 防止溢出 */
   word-break: break-word;
   max-width: 100%;
   box-sizing: border-box;
@@ -347,7 +347,7 @@ body .ag-status-unknown {
   border: 1px solid rgba(158, 158, 158, 0.2);
 }
 
-/* 棰濆害缃戞牸涓庡崱鐗?*/
+/* 额度网格与卡?*/
 .ag-quota-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
@@ -371,23 +371,23 @@ body .ag-status-unknown {
   border-color: var(--ag-primary);
 }
 
-/* 璁剧疆甯冨眬 */
+/* 设置布局 */
 .ag-settings-layout {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
   gap: var(--space-lg);
 }
 
-/* 琛ㄦ牸鏍峰紡寰皟 - 纭繚鍨傜洿灞呬腑 */
+/* 表格样式微调 - 确保垂直居中 */
 .data-table td {
   vertical-align: middle;
 }
 
-/* 缇庡寲璐﹀彿閫夋嫨妗?*/
+/* 美化账号选择?*/
 .ag-account-selector {
   appearance: none;
   -webkit-appearance: none;
-  /* 浣跨敤 CSS 鏋勫缓绠ご鏇村彲闈狅紝鎴栬€?SVG */
+  /* ʹ CSS 构建箭头更可靠，或?SVG */
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%23888888'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 10px center;
@@ -419,7 +419,7 @@ body .ag-status-unknown {
   box-shadow: 0 0 0 3px rgba(var(--ag-primary-rgb), 0.15);
 }
 
-/* 涓嬫媺閫夐」鏍峰紡 - 淇澶滈棿妯″紡 */
+/* 下拉选项样式 - 修复夜间模式 */
 .ag-account-selector option {
   background-color: var(--bg-secondary);
   color: var(--text-primary);
@@ -497,12 +497,12 @@ body .ag-status-unknown {
   opacity: 0.9;
 }
 
-/* Switch 寮€鍏虫牱寮?- 绱у噾 */
+/* Switch 弢关样?-  */
 .switch {
   position: relative;
   display: inline-block;
   width: 30px;
-  /* 鏇村皬 */
+  /* 更小 */
   height: 16px;
   vertical-align: middle;
 }
@@ -545,7 +545,7 @@ input:checked+.slider:before {
   transform: translateX(14px);
 }
 
-/* 杩涘害鏉?*/
+/* 进度?*/
 .quota-progress-container {
   display: flex;
   align-items: center;
@@ -558,7 +558,7 @@ input:checked+.slider:before {
   border-radius: var(--radius-sm);
   overflow: hidden;
   flex: 1;
-  /* 璁╄繘搴︽潯鍗犳嵁鍓╀綑绌洪棿 */
+  /* 让进度条占据剩余空间 */
 }
 
 .progress-bar-fill {
@@ -567,7 +567,7 @@ input:checked+.slider:before {
   transition:
     width 0.3s ease,
     background 0.3s ease;
-  /* 棰滆壊鐢卞唴鑱旀牱寮忔帶鍒?*/
+  /* 颜色由内联样式控?*/
 }
 
 .quota-percent {
@@ -578,7 +578,7 @@ input:checked+.slider:before {
   font-weight: 500;
 }
 
-/* 鍔ㄧ敾 */
+/* 动画 */
 @keyframes agFadeInUp {
   from {
     opacity: 0;
@@ -591,7 +591,7 @@ input:checked+.slider:before {
   }
 }
 
-/* 鏆楄壊妯″紡閫傞厤 */
+/* 暗色模式适配 */
 @media (prefers-color-scheme: dark) {
   .ag-account-selector {
     background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%23aaaaaa'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E");
@@ -754,7 +754,7 @@ input:checked+.slider:before {
   font-weight: 600;
 }
 
-/* 绉诲姩绔€傞厤锛氭棩蹇楀ご閮?*/
+/* 移动端配：日志头?*/
 .log-header-adaptive {
   flex-wrap: wrap;
   gap: var(--space-md);
@@ -802,7 +802,7 @@ input:checked+.slider:before {
   }
 }
 
-/* 妯″瀷妫€娴嬪巻鍙叉爣璁版牱寮?*/
+/* 模型棢测历史标记样?*/
 .check-badge {
   display: inline-flex;
   align-items: center;
@@ -845,7 +845,7 @@ input:checked+.slider:before {
   transform: scale(1.1);
 }
 
-/* 鏆楄壊妯″紡閫傞厤 */
+/* 暗色模式适配 */
 @media (prefers-color-scheme: dark) {
   .check-badge-success {
     background: rgba(16, 185, 129, 0.2);

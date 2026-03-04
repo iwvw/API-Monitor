@@ -237,7 +237,7 @@
                       <i class="fas fa-chevron-down group-arrow"></i>
                     </button>
                     <!-- 下拉菜单 -->
-                    <transition name="dropdown-fade">
+                    <transition name="main-nav-dropdown">
                       <div v-show="navGroupExpanded === group.id" class="nav-group-dropdown"
                         @mouseenter="cancelGroupLeave" @mouseleave="handleGroupLeave">
                         <button v-for="module in getVisibleModulesInGroup(group.modules)" :key="module"
@@ -452,7 +452,7 @@
                     <span class="group-name">{{ group.name }}</span>
                     <i class="fas fa-chevron-down group-arrow"></i>
                   </button>
-                  <transition name="dropdown-fade">
+                  <transition name="main-nav-dropdown">
                     <div v-show="navGroupExpanded === group.id" class="nav-group-dropdown"
                       @mouseenter="cancelGroupLeave" @mouseleave="handleGroupLeave">
                       <button v-for="module in getVisibleModulesInGroup(group.modules)" :key="module"

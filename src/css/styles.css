@@ -6,9 +6,9 @@
 
 /* API Monitor - Main Styles */
 
-/* 瀛椾綋鍥炬爣搴撳凡绉昏嚦 index.html <head> 涓€氳繃 <link> 鏍囩鍔犺浇锛岄伩鍏?@import 闃诲娓叉煋 */
+/* ͼ index.html <head> 中过 <link> 标签加载，避?@import Ⱦ */
 
-/* 闅愬叆寮忕幇浠ｆ粴鍔ㄦ潯浣撻獙缁熶竴閰嶇疆 */
+/* 隐入式现代滚动条体验统一配置 */
 ::-webkit-scrollbar {
   width: 6px;
   height: 6px;
@@ -54,7 +54,7 @@ body {
     background-color 0.3s,
     color 0.3s;
   overflow: auto;
-  /* 鏍稿績淇锛氱姝?body 灞傜骇鐨勬粴鍔紝鐢?app-main 鎺ョ */
+  /* 核心修复：禁?body 层级的滚动，?app-main ӹ */
 }
 
 button,
@@ -96,7 +96,7 @@ pre,
   font-family: var(--font-mono) !important;
 }
 
-/* 缁熶竴鏃堕棿銆佹暟鍊肩瓑闇€瑕佺瓑瀹芥樉绀虹殑瑙嗚绫?*/
+/* 统一时间、数值等霢要等宽显示的视觉?*/
 .log-time,
 .log-duration,
 .balance-amount,
@@ -107,7 +107,7 @@ pre,
 }
 
 :root {
-  /* 瀛椾綋澶у皬 */
+  /* 字体大小 */
   --font-size-xs: 11px;
   --font-size-sm: 12px;
   --font-size-base: 13px;
@@ -117,7 +117,7 @@ pre,
   --font-size-2xl: 18px;
   --font-size-3xl: 20px;
 
-  /* 鏍稿績妯″潡棰滆壊绯荤粺 - 楂樿鲸璇嗗害璋冭壊鐩?*/
+  /* ģɫϵͳ - 高辨识度调色?*/
   --openai-primary: #10a37f;
   --openai-dark: #0d8a6a;
   --openai-rgb: 16, 163, 127;
@@ -158,7 +158,7 @@ pre,
   --filebox-dark: #059669;
   --filebox-rgb: 16, 185, 129;
 
-  /* 甯哥敤鍔熻兘鑹叉槧灏?(鏍稿績椹卞姩) */
+  /* 常用功能色映?(核心驱动) */
   --primary-color: var(--paas-primary);
   --primary-dark: var(--paas-dark);
   --success-color: #10b981;
@@ -167,7 +167,7 @@ pre,
   --danger-color: #ef4444;
   --info-color: #3b82f6;
 
-  /* ================= 闂磋窛涓庡竷灞€绯荤粺 (Spacing Scales) ================= */
+  /* ================= 间距与布屢系统 (Spacing Scales) ================= */
   --space-xs: 4px;
   --space-sm: 8px;
   --space-md: 12px;
@@ -175,10 +175,12 @@ pre,
   --space-xl: 24px;
   --space-2xl: 32px;
 
-  /* ================= 鍦嗚銆佽竟妗嗕笌灞傜骇 (Radius, Border & Z-Index) ================= */
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 16px;
+  /* ================= 圆角、边框与层级 (Radius, Border & Z-Index) ================= */
+  --radius-xs: 2px;
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-xl: 16px;
   --radius-full: 9999px;
 
   --border-subtle: 1px solid var(--border-color);
@@ -196,14 +198,14 @@ pre,
   --z-index-high-modal: 3000;
   --z-index-system: 9999;
 
-  /* ================= 楂樼骇鑳屾櫙涓庝氦浜?(Materials & Motion) ================= */
+  /* ================= 高级背景与交?(Materials & Motion) ================= */
   --glass-bg: rgba(var(--bg-secondary-rgb), 0.75);
   --backdrop-blur: blur(12px);
 
   --transition-fast: 0.15s cubic-bezier(0.4, 0, 0.2, 1);
   --transition-normal: 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 
-  /* --- 鐜颁唬鍖栬〃鍗曠郴缁?(Modern Form System) --- */
+  /* --- 现代化表单系?(Modern Form System) --- */
   .form-group-modern {
     margin-bottom: var(--space-lg);
   }
@@ -246,7 +248,7 @@ pre,
     opacity: 0.5;
   }
 
-  /* 鐜颁唬鍖栭€夋嫨妗嗚嚜瀹氫箟绠ご */
+  /* 现代化择框自定义箭头 */
   .form-select-modern {
     -webkit-appearance: none;
     -moz-appearance: none;
@@ -265,7 +267,7 @@ pre,
     background-position: right 14px center !important;
   }
 
-  /* --- 寮€鍏崇粍浠?(Modern Switch) --- */
+  /* --- 弢关组?(Modern Switch) --- */
   .ag-switch-container {
     display: flex;
     align-items: center;
@@ -332,9 +334,9 @@ pre,
     color: var(--text-secondary);
   }
 
-  /* --- 閫氱敤缁勪欢鏍峰紡 --- */
+  /* --- 通用组件样式 --- */
 
-  /* 浜岀骇鏍囩鏍忓熀纭€甯冨眬 */
+  /* 二级标签栏基硢布局 */
   .sec-tabs {
     display: flex;
     gap: 6px;
@@ -344,13 +346,13 @@ pre,
     padding-bottom: var(--space-sm);
     align-items: center;
     justify-content: center;
-    /* 鐢佃剳绔眳涓?*/
+    /* 电脑端居?*/
     flex-wrap: nowrap;
-    /* 寮哄埗鍗曡鏄剧ず */
+    /* 强制单行显示 */
     overflow-x: auto;
-    /* 鏀寔宸﹀彸婊氬姩 */
+    /* 支持左右滚动 */
     scrollbar-width: none;
-    /* 闅愯棌婊氬姩鏉?(Firefox) */
+    /* 隐藏滚动?(Firefox) */
     -webkit-overflow-scrolling: touch;
   }
 
@@ -359,7 +361,7 @@ pre,
     /* border-bottom: 2px solid rgba(255, 106, 0, 0.1); */
   }
 
-  /* 鍗曢〉妯″紡涓嬬Щ闄ゅ垎鍓茬嚎鍜屾爣棰樻爮 */
+  /* 单页模式下移除分割线和标题栏 */
   body.single-page-mode .sec-tabs,
   body.single-page-mode [class*='-sec-tabs'] {
     border-bottom: none;
@@ -379,15 +381,15 @@ pre,
 
   .sec-tabs::-webkit-scrollbar {
     display: none;
-    /* 闅愯棌婊氬姩鏉?(Chrome/Safari) */
+    /* 隐藏滚动?(Chrome/Safari) */
   }
 
-  /* 鏍囩鎸夐挳鍩虹鏍峰紡 */
+  /* 标签按钮基础样式 */
   .tab-btn {
     min-width: 90px;
     padding: var(--space-sm) var(--space-lg);
     border: 1px solid var(--border-color);
-    /* 娣诲姞杈规 */
+    /* 添加边框 */
     background: var(--bg-secondary);
     cursor: pointer;
     font-size: 13px;
@@ -401,6 +403,7 @@ pre,
     gap: 6px;
     position: relative;
     overflow: hidden;
+    box-shadow: 0 2px 8px transparent;
   }
 
   .tab-btn:hover {
@@ -408,7 +411,7 @@ pre,
     color: var(--text-primary);
   }
 
-  /* 妯″潡涓婚鑹茶竟妗嗘偓鍋滈€傞厤 */
+  /* 模块主题色边框悬停配 */
   .theme-openai .tab-btn:hover:not(.active) {
     border-color: var(--openai-primary) !important;
   }
@@ -447,18 +450,18 @@ pre,
 
   .tab-btn.active {
     border-color: rgba(0, 0, 0, 0.1) !important;
-    /* 婵€娲绘椂淇濇寔缁嗗井杈规鎰?*/
+    /* 濢活时保持细微边框?*/
   }
 
-  /* --- 妯″潡涓婚绫诲畾涔?--- */
+  /* --- 模块主题类定?--- */
 
-  /* 浜岀骇鏍囩椤垫縺娲荤姸鎬侀€氱敤閫昏緫 */
+  /* 二级标签页激活状态用逻辑 */
   .tab-content .sec-tabs .tab-btn.active {
     color: white !important;
     transition: all 0.3s ease;
   }
 
-  /* 閫氱敤鍏冪礌棰滆壊瑕嗙洊閫昏緫 */
+  /* 通用元素颜色覆盖逻辑 */
   .theme-dashboard,
   .theme-openai,
   .theme-antigravity,
@@ -503,6 +506,12 @@ pre,
     --current-primary: var(--gemini-primary);
     --current-dark: var(--gemini-dark);
     --current-rgb: 66, 133, 244;
+  }
+
+  .theme-deepseek {
+    --current-primary: var(--ds-primary, #4d6bfe);
+    --current-dark: var(--ds-primary-hover, #3b56db);
+    --current-rgb: 77, 107, 254;
   }
 
   .theme-cf-dns {
@@ -565,7 +574,7 @@ pre,
     --current-rgb: 0, 82, 217;
   }
 
-  /* 閫氱敤杈撳叆妗嗗浘鏍囨牱寮?*/
+  /* 通用输入框图标样?*/
   .input-with-icon {
     position: relative;
     display: flex;
@@ -606,7 +615,7 @@ pre,
     color: #ff6a00 !important;
   }
 
-  /* 搴旂敤鍔ㄦ€侀鑹插埌閫氱敤缁勪欢 */
+  /* 应用动颜色到通用组件 */
   [class*='theme-'] .btn-primary {
     /* background: var(--current-primary) !important; */
     border-color: var(--current-primary) !important;
@@ -633,7 +642,7 @@ pre,
     background: var(--current-primary) !important;
   }
 
-  /* 妯″潡涓撳睘婵€娲绘€侀槾褰遍€傞厤 */
+  /* 模块专属濢活阴影配 */
   .theme-openai .tab-btn.active {
     background: linear-gradient(135deg, var(--openai-primary), var(--openai-dark)) !important;
     box-shadow: 0 2px 8px rgba(16, 163, 127, 0.3);
@@ -711,7 +720,7 @@ pre,
     border-width: 1.2px;
   }
 
-  /* 鍝佺墝 Logo 鍛煎惛鍔犺浇鍣?*/
+  /* Ʒ Logo 呼吸加载?*/
   .ag-logo-pulse {
     position: relative;
     display: flex;
@@ -724,13 +733,13 @@ pre,
     height: 40px;
     filter: drop-shadow(0 0 0px var(--current-primary));
     animation: ag-logo-breath 2.5s ease-in-out infinite;
-    /* 绂佹閫変腑鍜屾嫋鍔?*/
+    /* 禁止选中和拖?*/
     user-select: none;
     -webkit-user-drag: none;
     pointer-events: none;
   }
 
-  /* 鍔犺浇閬僵灞?*/
+  /* 加载遮罩?*/
   .loading-overlay-elegant {
     display: flex;
     flex-direction: column;
@@ -751,9 +760,9 @@ pre,
     opacity: 0.6;
   }
 
-  /* --- 缁撴潫 AG-Loading-System 瀹氫箟 --- */
+  /* --- 结束 AG-Loading-System 定义 --- */
 
-  /* 棰滆壊 */
+  /* 颜色 */
   --primary-color: #6366f1;
   --primary-rgb: 99,
   102,
@@ -772,7 +781,7 @@ pre,
   --openai-dark: #0d8a6a;
   --paas-color: #6366f1;
 
-  /* Zeabur 妯″潡涓婚鑹?*/
+  /* Zeabur 模块主题?*/
   --zeabur-primary: #6366f1;
   --zeabur-primary-rgb: 99,
   102,
@@ -793,12 +802,21 @@ pre,
   --text-primary: #4e4e4e;
   --text-secondary: #4b5563;
   --text-tertiary: #6b7280;
-  --border-color: #dedede;
+  --border-color: rgba(0, 0, 0, 0.08);
   --card-bg: #ffffff;
-  --card-shadow: 5px 5px 8px -5px rgba(0, 0, 0, 0.1),
-  0 7px 7px -7px rgba(0, 0, 0, 0.04);
-  --card-hover-shadow: 5px 5px 6px 0px rgb(0 0 0 / 0%),
-  4px 4px 5px 0px rgb(0 0 0 / 9%);
+  /* 阴影系统 - Fluent 双层 (Key + Ambient) */
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.10),
+  0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.07),
+  0 2px 4px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.10),
+  0 4px 6px rgba(0, 0, 0, 0.05);
+  --shadow-xl: 0 20px 25px rgba(0, 0, 0, 0.10),
+  0 8px 10px rgba(0, 0, 0, 0.04);
+  --card-shadow: var(--shadow-sm);
+  --card-hover-shadow: var(--shadow-md);
+  --modal-shadow: var(--shadow-xl);
   --modal-overlay: rgba(0, 0, 0, 0.5);
   --input-bg: transparent;
   --input-border: #d1d5db;
@@ -813,7 +831,7 @@ pre,
   --status-deploying: #8b5cf6;
   --status-paused: #6b7280;
   --sidebar-bg: #f8fafc;
-  /* 浣跨敤鏇撮珮绾х殑钃濈伆鑹茶皟 */
+  /* 使用更高级的蓝灰色调 */
   --sidebar-border: #e2e8f0;
   --sidebar-width: 60px;
 }
@@ -827,10 +845,17 @@ pre,
     --text-primary: #f9fafb;
     --text-secondary: #d1d5db;
     --text-tertiary: #9ca3af;
-    --border-color: #374151;
+    --border-color: rgba(255, 255, 255, 0.08);
     --card-bg: #1f2937;
-    --card-shadow: 2px 2px 2px 0px rgba(0, 0, 0, 0.3), 2px 2px 2px 0px rgba(0, 0, 0, 0.2);
-    --card-hover-shadow: 5px 5px 6px 0px rgba(0, 0, 0, 0.3), 4px 4px 5px 0px rgba(0, 0, 0, 0.2);
+    /* Dark 阴影 - Fluent 双层 */
+    --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.2);
+    --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.3), 0 0 1px rgba(0, 0, 0, 0.2);
+    --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.3), 0 0 1px rgba(0, 0, 0, 0.2);
+    --shadow-lg: 0 8px 16px rgba(0, 0, 0, 0.35), 0 0 1px rgba(0, 0, 0, 0.2);
+    --shadow-xl: 0 16px 48px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.06);
+    --card-shadow: var(--shadow-sm);
+    --card-hover-shadow: var(--shadow-md);
+    --modal-shadow: var(--shadow-xl);
     --modal-overlay: rgba(0, 0, 0, 0.7);
     --input-bg: transparent;
     --input-border: #4b5563;
@@ -849,7 +874,7 @@ pre,
   }
 }
 
-/* 鎵嬪姩娣辫壊妯″紡鏀寔 (涓庡獟浣撴煡璇繚鎸佸悓姝? */
+/* ֶɫģʽ֧ (与媒体查询保持同? */
 [data-theme='dark'] {
   --bg-primary: #111827;
   --bg-secondary: #1f2937;
@@ -880,10 +905,10 @@ pre,
 }
 
 /* ========================================
-   Atomic UI Components (鏍囧噯鍩虹缁勪欢缇? 
+   Atomic UI Components (标准基础组件? 
    ======================================== */
 
-/* 1. 鍏ㄥ眬鏍囧噯妯″潡鍗＄墖 */
+/* 1. ȫֱ׼ģ鿨Ƭ */
 .ag-card {
   background: var(--card-bg);
   border: var(--border-subtle);
@@ -897,7 +922,7 @@ pre,
   box-shadow: var(--card-hover-shadow);
 }
 
-/* 2. 灏忓昂瀵告暟鎹睍绀哄崱鐗?(濡備华琛ㄧ洏鐘舵€佸崱鐗? */
+/* 2. 小尺寸数据展示卡?(如仪表盘状卡? */
 .ag-card-sm {
   background: var(--card-bg);
   border: var(--border-subtle);
@@ -906,7 +931,7 @@ pre,
   box-shadow: var(--card-shadow);
 }
 
-/* 3. 鍏ㄥ眬寰芥爣绯荤粺 */
+/* 3. 全局徽标系统 */
 .ag-badge {
   display: inline-flex;
   align-items: center;
@@ -941,7 +966,7 @@ pre,
   border: 1px solid rgba(59, 130, 246, 0.2);
 }
 
-/* 4. 鏍囧噯鏍囬鍙婂ご閮ㄧ粍 */
+/* 4. 标准标题及头部组 */
 .ag-title-h2 {
   font-size: var(--font-size-2xl);
   font-weight: 600;
@@ -959,7 +984,7 @@ pre,
   margin-bottom: var(--space-sm);
 }
 
-/* 5. 绌洪潰鏉?/ 鍔犺浇鍗犱綅瀹瑰櫒 */
+/* 5. 空面?/ ռλ */
 .ag-empty-state {
   display: flex;
   flex-direction: column;
@@ -999,13 +1024,15 @@ body.modal-open {
   background: rgba(16, 163, 127, 0.06);
   border: 1px solid rgba(16, 163, 127, 0.15);
   color: var(--openai-primary);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-md);
   cursor: pointer;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
+  transform: translateY(0);
+  box-shadow: 0 0 0 transparent;
   overflow: hidden;
   height: 42px;
-  /* 缁熶竴楂樺害 */
+  /* 统一高度 */
   box-sizing: border-box;
 }
 
@@ -1025,6 +1052,7 @@ body.modal-open {
 .endpoint-action-btn i {
   font-size: 16px;
   transition: transform 0.3s ease;
+  transform: scale(1);
 }
 
 .endpoint-action-btn:hover i {
@@ -1035,7 +1063,7 @@ body.modal-open {
 .endpoint-action-btn.btn-health {
   width: 42px;
   font-size: 18px;
-  /* 鍥炬爣绋嶅ぇ */
+  /* 图标稍大 */
 }
 
 /* Models Count Button (Rect) */
@@ -1063,7 +1091,7 @@ body.modal-open {
   font-size: 10px;
   font-weight: 600;
   color: var(--openai-dark);
-  /* 娣变竴鐐圭殑缁胯壊 */
+  /* 深一点的绿色 */
   opacity: 0.7;
   margin-bottom: 2px;
   text-transform: uppercase;
@@ -1105,7 +1133,7 @@ body.modal-open {
 
   .endpoint-action-btn .action-info .label {
     color: #a7f3d0;
-    /* 娴呰壊鏂囧瓧 */
+    /* 浅色文字 */
   }
 
   .endpoint-action-btn .action-info .value {
@@ -1117,13 +1145,13 @@ body.modal-open {
 .app-wrapper {
   display: flex;
   height: 100vh;
-  /* 浣跨敤鍥哄畾楂樺害 */
+  /* 使用固定高度 */
   overflow: hidden;
-  /* 鍒濆鐘舵€侀殣钘忥紝绛夊緟 Vue 娓叉煋瀹屾垚鍚庨€氳繃 JS 娣诲姞 app-reveal 绫昏Е鍙戞贰鍏?*/
+  /* 初始状隐藏，等待 Vue 渲染完成后过 JS  app-reveal 类触发淡?*/
   opacity: 0;
 }
 
-/* 娣″叆鍔ㄧ敾 - 鍔犺浇瀹屾垚鍚庤Е鍙?*/
+/* 붯 - 加载完成后触?*/
 .app-wrapper.app-reveal {
   animation: appRevealFadeIn 0.35s cubic-bezier(0.4, 0, 0.2, 1) forwards;
 }
@@ -1138,7 +1166,7 @@ body.modal-open {
   }
 }
 
-/* 棣栨娓叉煋鏈熼棿绂佺敤鎵€鏈夎繃娓″姩鐢伙紝閬垮厤鏁版嵁鍔犺浇瀵艰嚧鐨勯棯鐑?*/
+/* 首次渲染期间禁用扢有过渡动画，避免数据加载导致的闪?*/
 .app-wrapper:not(.app-ready) * {
   transition: none !important;
   animation-duration: 0s !important;
@@ -1163,7 +1191,7 @@ body.modal-open {
   display: flex;
   flex-direction: column;
   /* height: 100%; */
-  /* 鏀逛负 100% 濉厖瀹瑰櫒 */
+  /* 改为 100% 填充容器 */
   overflow-y: auto;
   position: relative;
 }
@@ -1172,7 +1200,7 @@ body.modal-open {
   max-width: 1300px;
   margin: 0 auto;
   padding: var(--space-md) var(--space-md) var(--space-md) var(--space-md);
-  /* 澧炲姞搴曢儴杈硅窛纭繚鍐呭涓嶇揣璐村簳閮?*/
+  /* 增加底部边距确保内容不紧贴底?*/
   width: 100%;
 }
 
@@ -1218,12 +1246,12 @@ body.modal-open {
   position: relative;
 }
 
-/* 妗岄潰绔細闅愯棌绉诲姩绔í鍚戝睍寮€璁剧疆瀹瑰櫒 */
+/* 桌面端：隐藏移动端横向展弢设置容器 */
 .mobile-settings-expand-container {
   display: none;
 }
 
-/* 妗岄潰绔細闅愯棌绉诲姩璁剧疆灞曞紑琛?*/
+/* 桌面端：隐藏移动设置展开?*/
 .mobile-settings-row {
   display: none;
 }
@@ -1290,7 +1318,7 @@ body.modal-open {
   border-color: var(--primary-color);
 }
 
-/* 椤堕儴 Header 甯冨眬浼樺寲 */
+/* 顶部 Header 布局优化 */
 .header {
   display: flex;
   justify-content: space-between;
@@ -1305,7 +1333,7 @@ body.modal-open {
   gap: var(--space-md);
 }
 
-/* 鐜颁唬璁剧疆鎸夐挳鏍峰紡 */
+/* 现代设置按钮样式 */
 .btn-settings-toggle {
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
@@ -1344,7 +1372,7 @@ body.modal-open {
   transform: rotate(90deg);
 }
 
-/* 鍩虹甯冨眬瀹瑰櫒 - 澧炲姞鍔ㄦ晥鏀寔 */
+/* 基础布局容器 - 增加动效支持 */
 .app-wrapper {
   transition:
     transform 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.1),
@@ -1353,18 +1381,18 @@ body.modal-open {
   will-change: transform, filter;
 }
 
-/* 褰撹缃潰鏉挎縺娲绘椂鐨勮儗鏅姸鎬?*/
+/* 当设置面板激活时的背景状?*/
 .app-wrapper.settings-active-context {
   filter: blur(3px) brightness(0.9);
-  /* 杞诲井妯＄硦骞跺帇鏆?*/
+  /* 轻微模糊并压?*/
   transform: scale(0.97);
-  /* 杞诲井鍚戝悗缂╄繘 */
+  /* 轻微向后缩进 */
   pointer-events: none;
-  /* 闃叉鑳屾櫙璇Е */
+  /* 防止背景误触 */
   user-select: none;
 }
 
-/* 绉婚櫎渚ц竟鏍忓悗鐨勫叏灞忛€傞厤 */
+/* 移除侧边栏后的全屏配 */
 .app-wrapper.no-sidebar {
   display: flex;
   width: 100%;
@@ -1433,12 +1461,12 @@ body.modal-open {
   white-space: nowrap;
 }
 
-/* 鎸夐挳缁勯棿璺濅紭鍖?*/
+/* 按钮组间距优?*/
 .paas-btn-group {
   display: flex !important;
   align-items: center;
   gap: var(--space-xl) !important;
-  /* 寮哄埗鎷夊紑闂磋窛 */
+  /* 强制拉开间距 */
 }
 
 .refresh-progress {
@@ -1458,7 +1486,7 @@ body.modal-open {
 }
 
 /* ========================================
-   缁熶竴鎸夐挳绯荤粺 (Unified Button System)
+   统一按钮系统 (Unified Button System)
    ======================================== */
 .btn {
   display: inline-flex;
@@ -1469,29 +1497,33 @@ body.modal-open {
   padding: 0 var(--space-lg);
   border-radius: var(--radius-md);
   font-weight: 600;
-  font-size: 14px;
-  letter-spacing: 0.2px;
+  font-size: 13px;
+  letter-spacing: 0.1px;
   cursor: pointer;
   white-space: nowrap;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  border: 1px solid transparent;
+  border: 1px solid var(--border-color);
   user-select: none;
   position: relative;
   overflow: hidden;
   color: var(--text-primary);
   background: var(--bg-tertiary);
+  box-shadow: var(--shadow-xs);
 }
 
-/* --- 鍔熻兘鍙樹綋 (Functional Variants) --- */
+/* --- 功能变体 (Functional Variants) --- */
 .btn-primary {
   background: var(--primary-color);
   color: white;
+  border-color: transparent;
+  box-shadow: var(--shadow-sm);
 }
 
 .btn-secondary {
-  background: var(--bg-tertiary);
-  border-color: var(--border-color);
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
   color: var(--text-secondary);
+  box-shadow: var(--shadow-xs);
 }
 
 .btn-secondary:hover:not(:disabled) {
@@ -1502,24 +1534,28 @@ body.modal-open {
 .btn-success {
   background: var(--success-color);
   color: white;
+  border-color: transparent;
 }
 
 .btn-danger {
   background: var(--danger-color);
   color: white;
+  border-color: transparent;
 }
 
 .btn-warning {
   background: var(--warning-color);
   color: white;
+  border-color: transparent;
 }
 
 .btn-info {
   background: var(--info-color);
   color: white;
+  border-color: transparent;
 }
 
-/* 骞界伒鎸夐挳/澶栨鎸夐挳 */
+/* 鰴ť/ť */
 .btn-ghost {
   background: transparent;
   border-color: transparent;
@@ -1543,7 +1579,7 @@ body.modal-open {
   background: rgba(var(--primary-rgb), 0.05);
 }
 
-/* --- 灏哄瑙勮寖 (Sizes) --- */
+/* --- ߴ淶 (Sizes) --- */
 .btn-lg {
   height: 48px;
   padding: 0 28px;
@@ -1567,7 +1603,7 @@ body.modal-open {
   gap: var(--space-xs);
 }
 
-/* --- 褰㈢姸瑙勮寖 (Shapes) --- */
+/* --- ״淶 (Shapes) --- */
 .btn-pill {
   border-radius: var(--radius-full);
 }
@@ -1609,24 +1645,26 @@ body.modal-open {
   width: 26px;
 }
 
-/* --- 浜や簰鐘舵€?(States) --- */
+/* --- 交互状态 - Material 3 State Layer + Apple 弹性缩放 --- */
 .btn:hover:not(:disabled) {
-  filter: brightness(1.1);
-  border-color: rgba(var(--primary-rgb), 0.2);
+  filter: brightness(1.08);
+  box-shadow: var(--shadow-sm);
 }
 
 .btn:active:not(:disabled) {
-  filter: brightness(0.9);
+  transform: scale(0.97);
+  filter: brightness(0.95);
+  box-shadow: var(--shadow-xs);
   transition: all 0.1s ease;
 }
 
 .btn:disabled {
-  opacity: 0.5;
+  opacity: 0.38;
   cursor: not-allowed;
-  filter: grayscale(0.5);
+  filter: grayscale(0.3);
 }
 
-/* 鍔犺浇鐘舵€?(Loading) */
+/* 加载状?(Loading) */
 .btn-loading {
   color: transparent !important;
   pointer-events: none;
@@ -1649,7 +1687,7 @@ body.modal-open {
   }
 }
 
-/* 鍥炬爣澶у皬淇 */
+/* 图标大小修正 */
 .btn i {
   font-size: inherit;
 }
@@ -1662,7 +1700,7 @@ body.modal-open {
   font-size: 11px;
 }
 
-/* 閬楃暀/鍏煎绫诲悕淇 */
+/* 遗留/兼容类名修正 */
 .btn.icon-only {
   width: 40px;
   padding: 0;
@@ -1730,7 +1768,7 @@ body.modal-open {
   gap: var(--space-md);
   box-shadow: var(--card-shadow);
   border: 1px solid var(--border-color);
-  /* 鍙瑙嗚灞炴€ц繃娓★紝閬垮厤甯冨眬灞炴€у姩鐢诲鑷寸殑闂儊 */
+  /* 只对视觉属过渡，避免布局属动画导致的闪烁 */
   transition:
     transform 0.3s cubic-bezier(0.4, 0, 0.2, 1),
     box-shadow 0.3s cubic-bezier(0.4, 0, 0.2, 1),
@@ -1893,7 +1931,7 @@ body.modal-open {
   flex: 1;
   min-width: 0;
   padding-right: var(--space-sm);
-  /* 纭繚鍐呴儴鎵€鏈夊厓绱犲瀭鐩村眳涓?*/
+  /* 确保内部扢有元素垂直居?*/
   align-self: center;
 }
 
@@ -2000,7 +2038,7 @@ body.modal-open {
   color: var(--warning-color);
 }
 
-/* Zeabur Balance Panel - 鐜颁唬鍖栫揣鍑戝窘绔犺璁?*/
+/* Zeabur Balance Panel - 现代化紧凑徽章设?*/
 .zeabur-balance-panel {
   display: flex;
   align-items: center;
@@ -2108,7 +2146,7 @@ body.modal-open {
   color: var(--danger-color);
 }
 
-/* AI Hub 浣欓寰界珷鏍峰紡 */
+/* AI Hub 余额徽章样式 */
 .zeabur-ai .zeabur-balance-icon {
   background: linear-gradient(135deg, rgba(139, 92, 246, 0.2) 0%, rgba(168, 85, 247, 0.15) 100%);
   color: #8b5cf6;
@@ -2118,7 +2156,7 @@ body.modal-open {
   color: #8b5cf6;
 }
 
-/* Zeabur Account Info - 鐜颁唬鍖栬处鎴蜂俊鎭璁?*/
+/* Zeabur Account Info - 现代化账户信息设?*/
 .zeabur-account-info {
   display: flex;
   align-items: center;
@@ -2260,7 +2298,7 @@ body.modal-open {
   color: white;
 }
 
-/* OpenAI Endpoint Card - 鐜颁唬鍖栫鐐瑰崱鐗囪璁?*/
+/* OpenAI Endpoint Card - 现代化端点卡片设?*/
 .openai-endpoint-card {
   border-color: rgba(16, 163, 127, 0.15);
 }
@@ -2318,19 +2356,19 @@ body.modal-open {
 .openai-endpoint-avatar.valid {
   background: linear-gradient(135deg, #10a37f 0%, #0d8a6a 100%);
   color: white;
-  box-shadow: 0 3px 10px rgba(16, 163, 127, 0.3);
+  box-shadow: 0 4px 12px rgba(16, 163, 127, 0.2);
 }
 
 .openai-endpoint-avatar.invalid {
   background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
   color: white;
-  box-shadow: 0 3px 10px rgba(239, 68, 68, 0.3);
+  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.2);
 }
 
 .openai-endpoint-avatar:not(.valid):not(.invalid) {
   background: linear-gradient(135deg, #6b7280 0%, #4b5563 100%);
   color: white;
-  box-shadow: 0 3px 10px rgba(107, 114, 128, 0.3);
+  box-shadow: 0 4px 12px rgba(107, 114, 128, 0.2);
 }
 
 .openai-endpoint-card:hover .openai-endpoint-avatar {
@@ -2403,7 +2441,7 @@ body.modal-open {
   opacity: 0.6;
 }
 
-/* 妯″瀷鏁伴噺寰界珷 */
+/* 模型数量徽章 */
 .openai-models-badge {
   display: flex;
   align-items: center;
@@ -2461,10 +2499,10 @@ body.modal-open {
 }
 
 /* ========================================
-   CF DNS Module - 鐜颁唬鍖栧崱鐗囪璁?
+   CF DNS Module - 现代化卡片设?
    ======================================== */
 
-/* CF 璐﹀彿鍗＄墖缃戞牸 */
+/* CF 账号卡片网格 */
 .cf-account-grid {
   display: flex;
   flex-wrap: wrap;
@@ -2583,7 +2621,7 @@ body.modal-open {
   transform: rotate(180deg);
 }
 
-/* CF 鍩熷悕鍗＄墖缃戞牸 */
+/* CF 域名卡片网格 */
 .cf-domain-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
@@ -2598,7 +2636,7 @@ body.modal-open {
   padding: var(--space-md) var(--space-lg);
   background: var(--card-bg);
   border: 1px solid var(--border-color);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   cursor: pointer;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -2606,7 +2644,7 @@ body.modal-open {
 .cf-domain-card:hover {
   border-color: rgba(243, 128, 32, 0.3);
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+  box-shadow: var(--card-hover-shadow);
 }
 
 .cf-domain-card.active {
@@ -2656,7 +2694,7 @@ body.modal-open {
 }
 
 /* ========================================
-   Hosts Module - 鐜颁唬鍖栧崱鐗囪璁?
+   Hosts Module - 现代化卡片设?
    ======================================== */
 
 .hosts-server-card {
@@ -2665,6 +2703,7 @@ body.modal-open {
 
 .hosts-server-card:hover {
   border-color: rgba(71, 85, 105, 0.4);
+  box-shadow: var(--shadow-sm);
 }
 
 .hosts-server-info {
@@ -2851,7 +2890,7 @@ body.modal-open {
   margin: 0 auto;
 }
 
-/* 鐜颁唬娓愬彉鍙岀幆鍔犺浇鍔ㄧ敾 */
+/* 现代渐变双环加载动画 */
 .spinner::before {
   content: '';
   box-sizing: border-box;
@@ -2886,7 +2925,7 @@ body.modal-open {
   }
 }
 
-/* 绠€鍖栫増锛氱函 CSS 涓夌偣鍔犺浇 */
+/* 箢化版：纯 CSS  */
 .loading-dots {
   display: inline-flex;
   gap: 6px;
@@ -2934,7 +2973,7 @@ body.modal-open {
   }
 }
 
-/* 璁よ瘉鍔犺浇鐘舵€?*/
+/* 认证加载状?*/
 .auth-loading {
   position: fixed;
   top: 0;
@@ -2958,7 +2997,7 @@ body.modal-open {
   gap: 32px;
 }
 
-/* 鐜颁唬 Logo 鍔犺浇鍔ㄧ敾 */
+/* 现代 Logo 加载动画 */
 .modern-loader {
   width: 64px;
   height: 64px;
@@ -2968,7 +3007,7 @@ body.modal-open {
   justify-content: center;
 }
 
-/* 澶栧湀鏃嬭浆鍏夌幆 */
+/* 外圈旋转光环 */
 .modern-loader::before {
   content: '';
   box-sizing: border-box;
@@ -2982,7 +3021,7 @@ body.modal-open {
   animation: loader-spin 1.2s cubic-bezier(0.5, 0, 0.5, 1) infinite;
 }
 
-/* 鍐呭湀鍙嶅悜鍏夌幆 */
+/* 内圈反向光环 */
 .modern-loader::after {
   content: '';
   box-sizing: border-box;
@@ -3006,7 +3045,7 @@ body.modal-open {
   }
 }
 
-/* 鍝佺墝鏂囧瓧 */
+/* 品牌文字 */
 .loading-text {
   font-size: 18px;
   font-weight: 700;
@@ -3056,10 +3095,10 @@ body.modal-open {
 }
 
 /* Responsive */
-/* 鐜颁唬鍖栧叏灞€鍔ㄦ€?Tooltip (寮曟搸鐗? */
+/* 现代化全屢动?Tooltip (引擎? */
 .system-tooltip {
   position: fixed;
-  /* 鏀逛负 fixed锛岄伩鍏嶆拺寮€ body 婊氬姩鏉?*/
+  /* Ϊ fixed，避免撑弢 body 滚动?*/
   background: rgba(17, 24, 39, 0.95);
   color: white;
   padding: var(--space-sm) var(--space-lg);
@@ -3068,7 +3107,7 @@ body.modal-open {
   font-weight: 500;
   max-width: 320px;
   z-index: var(--z-index-tooltip);
-  /* 缁濆缃《 */
+  /* 绝对置顶 */
   pointer-events: none;
   opacity: 0;
   transform: translateY(5px);
@@ -3088,13 +3127,13 @@ body.modal-open {
   transform: translateY(0);
 }
 
-/* 缁熶竴妯℃€佹鍏抽棴鎸夐挳鏍峰紡 */
+/* 统一模框关闭按钮样式 */
 .modal-close {
   position: absolute;
   top: var(--space-lg);
   right: var(--space-lg);
   width: 32px !important;
-  /* 寮哄埗甯歌灏哄 */
+  /* 强制常规尺寸 */
   height: 32px !important;
   border-radius: 50% !important;
   display: flex !important;
@@ -3107,30 +3146,30 @@ body.modal-open {
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   z-index: var(--z-index-sticky);
   padding: 0 !important;
-  /* 褰诲簳鏉滅粷 padding 瀵艰嚧鐨勫舰鍙?*/
+  /* ׶ž padding 导致的形?*/
 }
 
-/* 閫傞厤澶у浘棰勮鐨勫叧闂寜閽?- 浠呴€傚害鏀惧ぇ锛屼繚鎸侀鏍间竴鑷?*/
+/* 适配大图预览的关闭按?- 仅度放大，保持风格一?*/
 .image-preview-overlay .modal-close {
   background: rgba(255, 255, 255, 0.1) !important;
   color: white !important;
   top: var(--space-xl) !important;
   right: var(--space-xl) !important;
   width: 40px !important;
-  /* 浠呮瘮甯歌鐣ュぇ锛屽寮哄彲鎿嶄綔鎬?*/
+  /* 仅比常规略大，增强可操作?*/
   height: 40px !important;
 }
 
 .modal-close i {
   font-size: 14px !important;
-  /* 缁熶竴鍥炬爣澶у皬 */
+  /* 统一图标大小 */
 }
 
 .image-preview-overlay .modal-close i {
   font-size: 18px !important;
 }
 
-/* 鍝嶅簲寮忔寜閽枃瀛楃簿绠€ */
+/* 响应式按钮文字精箢 */
 @media (max-width: 1000px) {
   .btn-text-min {
     display: none !important;
@@ -3143,10 +3182,10 @@ body.modal-open {
 
 @media (max-width: 768px) {
 
-  /* 绉诲姩绔富妗嗘灦浣跨敤鍔ㄦ€佽鍙ｉ珮搴?*/
+  /* 移动端主框架使用动视口高?*/
   .app-wrapper {
     flex-direction: column-reverse;
-    /* 浣跨敤 dvh 浣滀负棣栭€夛紝vh 浣滀负鍥為€€ */
+    /* ʹ dvh 作为首，vh 作为回 */
     height: 100vh;
     height: 100dvh;
     overflow: hidden;
@@ -3155,7 +3194,7 @@ body.modal-open {
   .app-main {
     height: 100%;
     overflow-y: auto;
-    /* 閬垮厤婊氬姩绌块€?*/
+    /* 避免滚动穿?*/
     overscroll-behavior: contain;
   }
 
@@ -3189,12 +3228,12 @@ body.modal-open {
     align-items: center;
   }
 
-  /* 绉诲姩绔細闅愯棌PC绔缃寜閽?*/
+  /* 移动端：隐藏PC端设置按?*/
   .desktop-settings-btn {
     display: none !important;
   }
 
-  /* 绉诲姩绔í鍚戝睍寮€璁剧疆瀹瑰櫒 */
+  /* 移动端横向展弢设置容器 */
   .mobile-settings-expand-container {
     display: flex;
     flex-direction: row;
@@ -3202,7 +3241,7 @@ body.modal-open {
     position: relative;
   }
 
-  /* 璁剧疆鎸夐挳閿氱偣 */
+  /* 设置按钮锚点 */
   .settings-anchor {
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
     z-index: 10;
@@ -3219,7 +3258,7 @@ body.modal-open {
     transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
-  /* 妯悜灞曞紑鐨勮缃」琛?- 鏀寔宸﹀彸婊戝姩 */
+  /* 横向展开的设置项?- ֧һ */
   .mobile-settings-row {
     display: flex;
     flex-direction: row;
@@ -3227,24 +3266,24 @@ body.modal-open {
     gap: var(--space-sm);
     margin-right: var(--space-sm);
     max-width: calc(100vw - 150px);
-    /* 鐣欏嚭閿氱偣鎸夐挳鍜岀櫥鍑烘寜閽殑绌洪棿 */
+    /* 留出锚点按钮和登出按钮的空间 */
     overflow-x: auto;
     overflow-y: hidden;
     -webkit-overflow-scrolling: touch;
-    /* iOS 骞虫粦婊氬姩 */
+    /* iOS 平滑滚动 */
     scrollbar-width: none;
-    /* Firefox 闅愯棌婊氬姩鏉?*/
+    /* Firefox 隐藏滚动?*/
     -ms-overflow-style: none;
-    /* IE 闅愯棌婊氬姩鏉?*/
+    /* IE 隐藏滚动?*/
     padding: var(--space-xs) 0;
   }
 
-  /* 闅愯棌婊氬姩鏉?*/
+  /* 隐藏滚动?*/
   .mobile-settings-row::-webkit-scrollbar {
     display: none;
   }
 
-  /* 璁剧疆灞曞紑鎸夐挳鏍峰紡 - 涓?auth-btn 涓€鑷?*/
+  /* չťʽ - ?auth-btn 丢?*/
   .settings-expand-btn {
     width: 36px;
     height: 36px;
@@ -3259,7 +3298,7 @@ body.modal-open {
     font-size: 14px;
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     flex-shrink: 0;
-    /* 闃叉鎸夐挳琚帇缂?*/
+    /* 防止按钮被压?*/
   }
 
   .settings-expand-btn:hover {
@@ -3272,7 +3311,7 @@ body.modal-open {
     transform: scale(0.95);
   }
 
-  /* 妯悜灞曞紑鍔ㄧ敾 - 浠庡彸鍚戝乏涓濇粦灞曞紑 */
+  /* 横向展开动画 - 从右向左丝滑展开 */
   .settings-expand-enter-active {
     transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
   }
@@ -3297,7 +3336,7 @@ body.modal-open {
     transform: translateX(0) scale(1);
   }
 
-  /* 姣忎釜鎸夐挳鐨勪氦閿欏叆鍦哄姩鐢?*/
+  /* 每个按钮的交错入场动?*/
   .mobile-settings-row .settings-expand-btn {
     animation: settingsExpandBtnSlide 0.3s ease-out backwards;
   }
@@ -3451,10 +3490,10 @@ body.modal-open {
   transition: background 0.2s;
   outline: none;
   list-style: none;
-  /* 绉婚櫎榛樿涓夎褰?*/
+  /* 移除默认三角?*/
 }
 
-/* 鑷畾涔夋姌鍙犲浘鏍?*/
+/* 自定义折叠图?*/
 .reasoning-details summary::-webkit-details-marker {
   display: none;
 }
@@ -3486,13 +3525,13 @@ body.modal-open {
   background: var(--bg-secondary);
   line-height: 1.6;
   overflow-wrap: break-word;
-  /* 纭繚闀垮崟璇嶆崲琛?*/
+  /* 确保长单词换?*/
   word-break: break-word;
-  /* 鍏煎鎬у寮?*/
+  /* 兼容性增?*/
   max-width: 100%;
-  /* 闄愬埗鏈€澶у搴?*/
+  /* 限制朢大宽?*/
   box-sizing: border-box;
-  /* 纭繚 padding 涓嶄細鎾戠牬瀹藉害 */
+  /* 确保 padding 不会撑破宽度 */
 }
 
 /* Dark mode adjustment */
@@ -3506,9 +3545,9 @@ body.modal-open {
 .paas-sec-tabs {
   display: flex;
   flex-direction: column;
-  /* 鍨傜洿鎺掑垪锛屽垎涓轰袱琛?*/
+  /* 垂直排列，分为两?*/
   align-items: center;
-  /* 鐢佃剳绔粯璁ゅ眳涓?*/
+  /* 电脑端默认居?*/
   gap: var(--space-md);
   width: 100%;
 }
@@ -3517,10 +3556,10 @@ body.modal-open {
   display: flex;
   align-items: center;
   justify-content: center;
-  /* 鎸夐挳灞呬腑 */
+  /* 按钮居中 */
   gap: var(--space-sm);
   overflow-x: auto;
-  /* 鍏佽妯悜婊氬姩 */
+  /* 允许横向滚动 */
   max-width: 100%;
   scrollbar-width: none;
   /* Firefox */
@@ -3533,14 +3572,14 @@ body.modal-open {
 
 .paas-tabs-spacer {
   display: none;
-  /* 涓嶅啀闇€瑕佸崰浣嶇 */
+  /* 不再霢要占位符 */
 }
 
-/* 鍥哄畾鐨勫埛鏂版帶鍒舵寜閽凡琚Щ闄?*/
+/* 固定的刷新控制按钮已被移?*/
 
 @media (max-width: 768px) {
 
-  /* 绉诲姩绔鐩栵細鍦ㄦ墜鏈轰笂鎭㈠闈犲乏鍜屽叏瀹?*/
+  /* 移动端覆盖：在手机上恢复靠左和全?*/
   .paas-sec-tabs {
     align-items: stretch;
   }

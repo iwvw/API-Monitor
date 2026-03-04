@@ -1,7 +1,7 @@
 ﻿/* DNS Management Styles */
 
 .dns-sec-tabs {
-  /* 缁ф壙鍏ㄥ眬 .sec-tabs 甯冨眬 */
+  /* 继承全局 .sec-tabs 布局 */
 }
 
 .theme-cf-dns .tab-btn.active {
@@ -281,7 +281,7 @@
   box-shadow: 0 0 0 1px rgba(247, 147, 20, 0.2);
 }
 
-/* NS Popover 鏍峰紡 */
+/* NS Popover 样式 */
 .ns-popover {
   position: absolute;
   top: calc(100% + var(--space-sm));
@@ -379,7 +379,7 @@
   background: transparent;
 }
 
-/* ==================== SSL/TLS 鐘舵€佸崱鐗囷紙绱у噾鐗堬級 ==================== */
+/* ==================== SSL/TLS 状卡片（紧凑版） ==================== */
 
 .ssl-status-card {
   background: linear-gradient(135deg, var(--bg-primary) 0%, var(--bg-secondary) 100%);
@@ -466,7 +466,7 @@
   font-size: 12px;
 }
 
-/* SSL 妯″紡鎸夐挳缁勬牱寮?- 瀹炰綋鎸夐挳椋庢牸 */
+/* SSL 模式按钮组样?- ʵ尴ť */
 .ssl-mode-btn-group {
   display: flex;
   gap: var(--space-sm);
@@ -487,7 +487,7 @@
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   white-space: nowrap;
 
-  /* 榛樿鐘舵€?*/
+  /* 默认状?*/
   background: var(--card-bg);
   border: 1px solid var(--border-color);
   color: var(--text-secondary);
@@ -595,25 +595,25 @@
   font-size: 12px;
 }
 
-/* 鍝嶅簲寮忚皟鏁?*/
+/* 响应式调?*/
 @media (min-width: 769px) {
   .ssl-body {
     display: grid;
     grid-template-columns: 1fr 1.5fr;
-    /* 妯″紡閫夋嫨鍗犲皬閮ㄥ垎锛岃瘉涔︿俊鎭崰澶ч儴鍒?*/
+    /* 模式选择占小部分，证书信息占大部?*/
     gap: var(--space-xl);
     align-items: start;
   }
 
   .ssl-cert-info {
     margin-top: 0;
-    /* 绉婚櫎椤堕儴闂磋窛锛屽洜涓烘槸骞舵帓 */
+    /* 移除顶部间距，因为是并排 */
     flex-direction: row;
     justify-content: space-between;
     align-items: center;
     padding: var(--space-md) var(--space-xl);
     height: 100%;
-    /* 濉弧楂樺害 */
+    /* 填满高度 */
   }
 
   .ssl-row {
@@ -661,7 +661,7 @@
   }
 }
 
-/* ==================== Analytics 浠〃鏉匡紙绱у噾鐗堬級 ==================== */
+/* ==================== Analytics Ǳ壨հ棩 ==================== */
 
 .analytics-card {
   background: linear-gradient(135deg, var(--bg-primary) 0%, var(--bg-secondary) 100%);
@@ -834,7 +834,7 @@
   }
 }
 
-/* ==================== Tunnel 绠＄悊鏍峰紡 ==================== */
+/* ==================== Tunnel 管理样式 ==================== */
 
 .tunnel-status-badge {
   display: inline-flex;
@@ -862,7 +862,7 @@
   color: #f59e0b;
 }
 
-/* Tunnel Ingress 瑙勫垯鍒楄〃 */
+/* Tunnel Ingress 规则列表 */
 .tunnel-ingress-list {
   display: flex;
   flex-direction: column;
@@ -901,11 +901,11 @@
   cursor: not-allowed;
 }
 
-/* 鍒犻櫎鎸夐挳瀵归綈 - 涓庤緭鍏ユ搴曢儴瀵归綈 */
+/* 删除按钮对齐 - 与输入框底部对齐 */
 .tunnel-ingress-item>button {
   flex-shrink: 0;
   margin-bottom: 1px;
-  /* 寰皟涓庤緭鍏ユ搴曢儴瀵归綈 */
+  /* 微调与输入框底部对齐 */
   height: 36px;
   width: 36px;
   display: flex;
@@ -924,7 +924,7 @@
   cursor: not-allowed;
 }
 
-/* 鍝嶅簲寮忚皟鏁?*/
+/* 响应式调?*/
 @media (max-width: 768px) {
   .tunnel-ingress-item {
     flex-direction: column;
@@ -941,7 +941,7 @@
   }
 }
 
-/* Tunnel Token 鏄剧ず妗?*/
+/* Tunnel Token 显示?*/
 .tunnel-token-box {
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
@@ -960,7 +960,7 @@
   font-family: var(--font-mono);
 }
 
-/* Tunnel 鍛戒护妗?*/
+/* Tunnel 命令?*/
 .tunnel-command-box {
   background: var(--bg-tertiary);
   border-radius: var(--radius-md);
