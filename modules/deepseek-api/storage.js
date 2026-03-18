@@ -270,6 +270,42 @@ function findSessionCache(content) {
     return null;
 }
 
+// ==================== 文件管理 ====================
+
+function saveFileCache(fileId, accountId, sessionId, fileName, fileSize) {
+    const database = getDb();
+    if (!database) return;
+    try {
+        database.prepare(`
+            INSERT OR REPLACE INTO ds_file_cache (file_id, account_id, session_id, file_name, file_size)
+            VALUES (?, ?, ?, ?, ?)
+        `).run(fileId, accountId, sessionId, fileName, fileSize);
+    } catch (e) {
+        logger.error('保存文件缓存失败:', e.message);
+    }
+}
+
+function getFileCache(fileId) {
+    const database = getDb();
+    if (!database) return null;
+    try {
+        return database.prepare('SELECT * FROM ds_file_cache WHERE file_id = ?').get(fileId);
+    } catch (e) {
+        logger.error('获取文件缓存失败:', e.message);
+        return null;
+    }
+}
+
+function getAllFileCaches(limit = 100) {
+    const database = getDb();
+    if (!database) return [];
+    try {
+        return database.prepare('SELECT * FROM ds_file_cache ORDER BY created_at DESC LIMIT ?').all(limit);
+    } catch (e) {
+        return [];
+    }
+}
+
 module.exports = {
     getAccounts,
     addAccount,
@@ -291,4 +327,7 @@ module.exports = {
     getDisabledModels,
     saveSessionCache,
     findSessionCache,
+    saveFileCache,
+    getFileCache,
+    getAllFileCaches,
 };

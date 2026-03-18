@@ -61,6 +61,11 @@ function parseSSEStream(response, isReasoner, onData, onEnd, onError, onMeta) {
 
             if (!trimmed.startsWith('data: ')) continue;
             const dataStr = trimmed.slice(6).trim();
+
+            try {
+                require('fs').appendFileSync('ds_raw_log.txt', dataStr + '\n');
+            } catch (e) {}
+
             if (!dataStr || dataStr === '[DONE]' || dataStr === '{}') continue;
 
             if (['title', 'update_session', 'close', 'finish', 'ready', 'finish_session'].includes(currentEvent)) {
@@ -99,15 +104,13 @@ function parseSSEStream(response, isReasoner, onData, onEnd, onError, onMeta) {
 
                 // --- 2. 识别路径并动态确定类型 ---
                 if (data.p && typeof data.p === 'string') {
-                    // 匹配 response/fragments/(\d+)/content 或类似的路径
-                    const contentMatch = data.p.match(/response\/fragments\/(\d+)\/content/);
+                    // 匹配 response/fragments/(-1 或 \d+)/content 或类似的路径
+                    const contentMatch = data.p.match(/response\/fragments\/(-?\d+)\/content/);
                     if (contentMatch) {
-                        const index = parseInt(contentMatch[1]);
-                        const type = (index === 0 && isReasoner) ? 'thinking' : 'content';
-                        
+                        // -1 代表 DeepSeek 当前最新的活动片段（可能是思考也可能是回答）
+                        // 它的本质类型已经被 currentType 所记录，不应该再强行将其判定为 index 0
                         if (typeof data.v === 'string') {
-                            onData(type, data.v);
-                            currentType = type;
+                            onData(currentType, data.v);
                             handled = true;
                         }
                         if (handled) continue;

@@ -47,6 +47,16 @@ CREATE TABLE IF NOT EXISTS ds_session_cache (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 文件缓存表 (用于多账号文件映射)
+CREATE TABLE IF NOT EXISTS ds_file_cache (
+    file_id TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL,
+    session_id TEXT,
+    file_name TEXT,
+    file_size INTEGER,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
 -- 默认设置
 INSERT OR IGNORE INTO ds_settings (key, value) VALUES ('API_KEY', '123456');
 INSERT OR IGNORE INTO ds_settings (key, value) VALUES ('DEFAULT_TEMPERATURE', '1');

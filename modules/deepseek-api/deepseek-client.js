@@ -7,6 +7,8 @@
 
 const https = require('https');
 const http = require('http');
+const axios = require('axios');
+const FormData = require('form-data');
 const { createLogger } = require('../../src/utils/logger');
 const { getSolver } = require('./pow-solver');
 const storage = require('./storage');
@@ -18,6 +20,7 @@ const DS_LOGIN_URL = 'https://chat.deepseek.com/api/v0/users/login';
 const DS_SESSION_URL = 'https://chat.deepseek.com/api/v0/chat_session/create';
 const DS_POW_URL = 'https://chat.deepseek.com/api/v0/chat/create_pow_challenge';
 const DS_COMPLETION_URL = 'https://chat.deepseek.com/api/v0/chat/completion';
+const DS_UPLOAD_URL = 'https://chat.deepseek.com/api/v0/chat/upload_file';
 
 const BASE_HEADERS = {
     'Host': 'chat.deepseek.com',
@@ -224,6 +227,42 @@ async function callCompletion(token, payload, powHeader) {
 }
 
 /**
+ * 上传文件到 DeepSeek
+ * @param {string} token
+ * @param {string} sessionId
+ * @param {Buffer} fileBuffer
+ * @param {string} fileName
+ * @returns {string} fileId
+ */
+async function uploadFile(token, sessionId, fileBuffer, fileName) {
+    const form = new FormData();
+    form.append('file', fileBuffer, { filename: fileName });
+    form.append('chat_session_id', sessionId);
+
+    try {
+        const resp = await axios.post(DS_UPLOAD_URL, form, {
+            headers: {
+                ...BASE_HEADERS,
+                ...form.getHeaders(),
+                authorization: `Bearer ${token}`,
+            },
+        });
+
+        if (resp.status === 200 && resp.data.code === 0) {
+            const fileId = resp.data.data?.biz_data?.id;
+            if (fileId) return fileId;
+        }
+
+        throw new Error(`Upload failed: ${resp.data.msg || 'unknown'}`);
+    } catch (err) {
+        if (err.response && isTokenInvalid(err.response.status, err.response.data?.code, err.response.data?.msg)) {
+            throw new Error('TOKEN_INVALID');
+        }
+        throw err;
+    }
+}
+
+/**
  * 检查 token 是否失效
  */
 function isTokenInvalid(status, code, msg) {
@@ -312,7 +351,7 @@ function buildCompletionPayload(sessionId, messages, model, options = {}) {
     const payload = {
         chat_session_id: sessionId,
         prompt: userPrompt,
-        ref_file_ids: [],
+        ref_file_ids: options.file_ids || [],
         thinking_enabled: isReasoner,
         search_enabled: isSearch,
     };
@@ -333,5 +372,6 @@ module.exports = {
     getAccessToken,
     refreshToken,
     buildCompletionPayload,
+    uploadFile,
     BASE_HEADERS,
 };

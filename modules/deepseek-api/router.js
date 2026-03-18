@@ -395,26 +395,116 @@ router.delete('/models/redirects/:sourceModel', requireAuth, (req, res) => {
     }
 });
 
+// ==================== OpenAI 兼容文件接口 ====================
+
+router.post('/v1/files', requireApiKey, async (req, res) => {
+    try {
+        if (!req.files || !req.files.file) {
+            return res.status(400).json({ error: { message: 'No file uploaded', type: 'invalid_request_error' } });
+        }
+
+        const file = req.files.file;
+        const purpose = req.body.purpose || 'fine-tune'; // OpenAI 兼容
+
+        // 1. 选择账号
+        const allAccounts = storage.getAccounts().filter(a => a.enable !== 0);
+        if (allAccounts.length === 0) {
+            return res.status(503).json({ error: { message: 'No enabled accounts available', type: 'service_unavailable' } });
+        }
+        const account = allAccounts[Math.floor(Math.random() * allAccounts.length)];
+
+        // 2. 获取 Token
+        const token = await client.getAccessToken(account.id);
+
+        // 3. 创建临时 Session 用于上传
+        const sessionId = await client.createSession(token);
+
+        // 4. 读取文件并上传
+        const fileBuffer = fs.readFileSync(file.tempFilePath);
+        const fileId = await client.uploadFile(token, sessionId, fileBuffer, file.name);
+
+        // 5. 记录缓存
+        storage.saveFileCache(fileId, account.id, sessionId, file.name, file.size);
+
+        // 6. 返回 OpenAI 兼容响应
+        res.json({
+            id: fileId,
+            object: 'file',
+            bytes: file.size,
+            created_at: Math.floor(Date.now() / 1000),
+            filename: file.name,
+            purpose: purpose,
+            status: 'processed',
+        });
+
+        // 清理临时文件
+        try { fs.unlinkSync(file.tempFilePath); } catch (e) { }
+
+    } catch (e) {
+        logger.error(`File upload error: ${e.message}`);
+        res.status(500).json({ error: { message: e.message, type: 'api_error' } });
+    }
+});
+
+router.get('/v1/files', requireApiKey, (req, res) => {
+    try {
+        const files = storage.getAllFileCaches(100);
+        res.json({
+            object: 'list',
+            data: files.map(f => ({
+                id: f.file_id,
+                object: 'file',
+                bytes: f.file_size,
+                created_at: Math.floor(new Date(f.created_at).getTime() / 1000),
+                filename: f.file_name,
+                purpose: 'fine-tune',
+                status: 'processed',
+            })),
+        });
+    } catch (e) {
+        res.status(500).json({ error: { message: e.message } });
+    }
+});
+
 // ==================== OpenAI 兼容对话接口 ====================
 
 router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async (req, res) => {
     const startTime = Date.now();
     try {
-        let { model, messages, stream } = req.body;
+        let { model, messages, stream, file_ids } = req.body;
 
         // 处理模型重定向
         const redirects = storage.getModelRedirects();
         const redirect = redirects.find(r => r.source_model === model);
         if (redirect) model = redirect.target_model;
 
+        // 如果 file_ids 是数组但为空，忽略它；如果是字符串，转为数组
+        if (typeof file_ids === 'string') file_ids = [file_ids];
+        const hasFiles = Array.isArray(file_ids) && file_ids.length > 0;
+
         // 获取可用账号
+        let account;
         const allAccounts = storage.getAccounts().filter(a => a.enable !== 0);
         if (allAccounts.length === 0) {
             return res.status(503).json({ error: { message: 'No enabled accounts available', type: 'service_unavailable' } });
         }
 
-        // 简单轮询选择账号
-        const account = allAccounts[Math.floor(Math.random() * allAccounts.length)];
+        // 如果有文件，强制选择拥有该文件的账号
+        if (hasFiles) {
+            const fileCache = storage.getFileCache(file_ids[0]);
+            if (fileCache) {
+                account = allAccounts.find(a => a.id === fileCache.account_id);
+                if (!account) {
+                    return res.status(400).json({ error: { message: `Account for file ${file_ids[0]} not found or disabled`, type: 'invalid_request_error' } });
+                }
+                logger.info(`[文件对话] 强制使用账号: ${account.name || account.id} (文件 ID: ${file_ids[0]})`);
+            }
+        }
+
+        // 如果没选定账号（无文件或文件缓存未命中），则随机选
+        if (!account) {
+            account = allAccounts[Math.floor(Math.random() * allAccounts.length)];
+        }
 
         try {
             // 1. 获取 Token
@@ -440,14 +530,25 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
                 parentId = cached.parentId || null;
                 logger.info(`[连续对话] 复用 session: ${sessionId}, parent: ${parentId}`);
             } else {
-                try {
-                    sessionId = await client.createSession(token);
-                } catch (sessionErr) {
-                    if (sessionErr.message === 'TOKEN_INVALID') {
-                        token = await client.refreshToken(account.id);
+                // 如果是有文件的对话，且缓存中记录了上传时的 sessionId，可以尝试复用
+                if (hasFiles) {
+                    const fileCache = storage.getFileCache(file_ids[0]);
+                    if (fileCache && fileCache.session_id) {
+                        sessionId = fileCache.session_id;
+                        logger.info(`[文件对话] 复用上传时的 session: ${sessionId}`);
+                    }
+                }
+
+                if (!sessionId) {
+                    try {
                         sessionId = await client.createSession(token);
-                    } else {
-                        throw sessionErr;
+                    } catch (sessionErr) {
+                        if (sessionErr.message === 'TOKEN_INVALID') {
+                            token = await client.refreshToken(account.id);
+                            sessionId = await client.createSession(token);
+                        } else {
+                            throw sessionErr;
+                        }
                     }
                 }
             }
@@ -466,7 +567,10 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
             }
 
             // 4. 构建请求体
-            const payload = client.buildCompletionPayload(sessionId, messages, model, { parent_message_id: parentId });
+            const payload = client.buildCompletionPayload(sessionId, messages, model, {
+                parent_message_id: parentId,
+                file_ids: file_ids || [],
+            });
 
             // 5. 调用 Completion
             const dsResponse = await client.callCompletion(token, payload, powHeader);
