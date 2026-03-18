@@ -69,6 +69,7 @@ function parseSSEStream(response, isReasoner, onData, onEnd, onError, onMeta) {
 
             try {
                 const data = JSON.parse(dataStr);
+                let handled = false;
 
                 // --- 1. 初始 response 对象 ---
                 if (data.v && typeof data.v === 'object' && data.v.response) {
@@ -78,66 +79,86 @@ function parseSSEStream(response, isReasoner, onData, onEnd, onError, onMeta) {
                     }
                     if (resp.fragments && Array.isArray(resp.fragments)) {
                         for (const frag of resp.fragments) {
-                            if (frag.type === 'THINK' && frag.content) {
-                                onData('thinking', frag.content);
-                            } else if (frag.type === 'RESPONSE' && frag.content) {
-                                onData('content', frag.content);
-                            } else if (frag.type === 'SEARCH' && Array.isArray(frag.results)) {
-                                frag.results.forEach(r => searchResults.push(r));
+                            const fType = frag.type;
+                            const fContent = frag.content || frag.v || ""; 
+                            if (fContent) {
+                                if (fType === 'THINK') {
+                                    onData('thinking', fContent);
+                                    handled = true;
+                                } else if (['RESPONSE', 'CONTENT', 'TEXT', 'ANSWER'].includes(fType)) {
+                                    onData('content', fContent);
+                                    handled = true;
+                                } else if (fType === 'SEARCH' && Array.isArray(frag.results)) {
+                                    frag.results.forEach(r => searchResults.push(r));
+                                }
                             }
                         }
                     }
-                    continue;
+                    if (handled) continue;
                 }
 
                 // --- 2. 识别路径并动态确定类型 ---
                 if (data.p && typeof data.p === 'string') {
+                    // 匹配 response/fragments/(\d+)/content 或类似的路径
                     const contentMatch = data.p.match(/response\/fragments\/(\d+)\/content/);
                     if (contentMatch) {
                         const index = parseInt(contentMatch[1]);
                         const type = (index === 0 && isReasoner) ? 'thinking' : 'content';
                         
-                        if ((data.o === 'APPEND' || data.o === 'SET') && typeof data.v === 'string') {
+                        if (typeof data.v === 'string') {
                             onData(type, data.v);
                             currentType = type;
+                            handled = true;
                         }
-                        continue;
+                        if (handled) continue;
                     }
 
+                    // 搜索结果
                     if (data.p.match(/response\/fragments\/\d+\/results/) && Array.isArray(data.v)) {
                          data.v.forEach(item => searchResults.push(item));
                          continue;
                     }
                 }
 
-                // --- 3. 兼容 fragments APPEND ---
-                if (data.p === 'response/fragments' && data.o === 'APPEND' && Array.isArray(data.v)) {
+                // --- 3. 兼容 fragments APPEND (片段切换/新增) ---
+                if (data.p === 'response/fragments' && (data.o === 'APPEND' || data.o === 'SET') && Array.isArray(data.v)) {
                     for (const frag of data.v) {
-                        if (frag.type === 'RESPONSE') {
+                        const fType = frag.type;
+                        const fContent = frag.content || frag.v || "";
+                        if (fType === 'RESPONSE' || fType === 'CONTENT' || fType === 'TEXT') {
                             currentType = 'content';
-                            if (frag.content) onData('content', frag.content);
-                        } else if (frag.type === 'THINK') {
+                            if (fContent) onData('content', fContent);
+                            handled = true;
+                        } else if (fType === 'THINK') {
                             currentType = 'thinking';
-                            if (frag.content) onData('thinking', frag.content);
+                            if (fContent) onData('thinking', fContent);
+                            handled = true;
                         }
                     }
-                    continue;
+                    if (handled) continue;
                 }
 
-                // --- 4. 简单内容片段 {"v":"文本"} ---
-                if (data.v !== undefined && data.p === undefined && data.o === undefined) {
+                // --- 4. 简单内容片段 {"v":"文本"} (无 p 字段) ---
+                if (data.v !== undefined && data.p === undefined && (data.o === undefined || data.o === 'APPEND')) {
                     if (typeof data.v === 'string' && data.v.length > 0) {
                         onData(currentType, data.v);
+                        handled = true;
                     }
-                    continue;
+                    if (handled) continue;
                 }
 
-                // --- 5. 兜底带路径的文本 APPEND ---
-                if (data.p && (data.o === 'APPEND' || data.o === 'SET') && typeof data.v === 'string') {
+                // --- 5. 兜底带路径的文本 (SET/APPEND/BATCH) ---
+                if (data.p && typeof data.v === 'string') {
                     if (data.p.includes('content') || data.p.includes('response/fragments')) {
                         onData(currentType, data.v);
+                        handled = true;
                     }
-                    continue;
+                }
+
+                if (!handled && typeof data.v === 'string' && data.v.length > 0 && !shouldSkip(data.p || "")) {
+                    // 最后的兜底：如果没处理但看起来像文本，且不在跳过列表中，也尝试收集
+                    // logger.debug(`[Low-Confidence] Collected suspect data: path=${data.p}, val=${data.v}`);
+                    onData(currentType, data.v);
                 }
             } catch (e) {
                 // Ignore parse errors

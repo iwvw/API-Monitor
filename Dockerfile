@@ -41,10 +41,8 @@ RUN go mod download
 # 复制源码并构建
 COPY agent-go/ .
 # 构建 Linux amd64 和 arm64
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o agent-linux-amd64 && \
-    upx --best agent-linux-amd64 || true
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o agent-linux-arm64 && \
-    upx --best agent-linux-arm64 || true
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o agent-linux-amd64
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o agent-linux-arm64
 # 构建 Windows amd64
 RUN CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o agent-windows-amd64.exe
 
