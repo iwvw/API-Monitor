@@ -146,8 +146,8 @@ function requireApiAuth(req, res, next) {
     });
 }
 
-// 合并模型列表的智能处理
-router.get('/models', requireApiAuth, async (req, res) => {
+// 合并模型列表的智能处理 (支持单数和复数形式以便兼容部分工具)
+router.get(['/models', '/model'], requireApiAuth, async (req, res) => {
   try {
     const settings = userSettingsService.loadUserSettings();
     const channelEnabled = settings.channelEnabled || {};
