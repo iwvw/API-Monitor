@@ -1,9 +1,9 @@
-/* Zeabur 模块专属样式 */
+﻿/* Zeabur 模块专属样式 */
 
 /* 
- * 说明:
- * 这个文件为 Zeabur 模块提供专属样式支持
- * 主要用于双击编辑功能的视觉提示
+ * ˵:
+ * 这个文件?Zeabur ģṩרʽ֧
+ * 主要用于双击编辑功能的视觉提?
  */
 
 /* 双击编辑样式 - 项目名称 */
@@ -11,8 +11,8 @@
   cursor: text;
   user-select: none;
   transition: all 0.2s ease;
-  padding: 2px 4px;
-  border-radius: 4px;
+  padding: 2px var(--space-xs);
+  border-radius: var(--radius-sm);
 }
 
 .paas-sec-tab .zeabur-project-name-text:hover {
@@ -25,8 +25,8 @@
   cursor: text;
   user-select: none;
   transition: all 0.2s ease;
-  padding: 2px 4px;
-  border-radius: 4px;
+  padding: 2px var(--space-xs);
+  border-radius: var(--radius-sm);
 }
 
 .paas-sec-tab .zeabur-service-name:hover {
@@ -38,8 +38,8 @@
   cursor: text;
   user-select: none;
   transition: all 0.2s ease;
-  padding: 2px 4px;
-  border-radius: 4px;
+  padding: 2px var(--space-xs);
+  border-radius: var(--radius-sm);
 }
 
 .paas-sec-tab .zeabur-editable-name:hover {

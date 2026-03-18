@@ -44,6 +44,7 @@ CREATE TABLE IF NOT EXISTS gemini_cli_logs (
     client_ip TEXT,
     user_agent TEXT,
     detail TEXT,  -- 存储完整的请求和响应快照 (JSON)
+    first_token_time_ms INTEGER,  -- 首字输出延迟 (毫秒)
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 

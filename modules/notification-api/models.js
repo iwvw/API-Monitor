@@ -233,7 +233,9 @@ class NotificationHistoryModel extends BaseModel {
 
         if (status === 'retrying') {
             const log = this.findById(id);
-            data.retry_count = (log.retry_count || 0) + 1;
+            if (log) {
+                data.retry_count = (log.retry_count || 0) + 1;
+            }
         }
 
         return this.update(id, data);

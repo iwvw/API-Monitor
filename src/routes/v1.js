@@ -18,6 +18,8 @@ let gcliClient = null;
 let gcliStorage = null;
 let agService = null;
 let agStorage = null;
+let dsRouter = null;
+let dsStorage = null;
 
 try {
   const agPath = path.join(modulesDir, 'antigravity-api', 'router.js');
@@ -46,6 +48,15 @@ try {
   const agStoragePath = path.join(modulesDir, 'antigravity-api', 'storage.js');
   if (fs.existsSync(agStoragePath)) {
     agStorage = require(agStoragePath);
+  }
+  // 加载 DeepSeek 模块
+  const dsPath = path.join(modulesDir, 'deepseek-api', 'router.js');
+  if (fs.existsSync(dsPath)) {
+    dsRouter = require(dsPath);
+  }
+  const dsStoragePath = path.join(modulesDir, 'deepseek-api', 'storage.js');
+  if (fs.existsSync(dsStoragePath)) {
+    dsStorage = require(dsStoragePath);
   }
 } catch (e) {
   console.error('Failed to load module routers for v1 aggregation:', e);
@@ -86,7 +97,13 @@ function requireApiAuth(req, res, next) {
       gcliApiKey = gcliSettings.API_KEY || '123456';
     } catch (e) { }
 
-    if ((agApiKey && token === agApiKey) || (gcliApiKey && token === gcliApiKey)) {
+    let dsApiKey = null;
+    try {
+      const dsStorage = require(path.join(modulesDir, 'deepseek-api', 'storage.js'));
+      dsApiKey = dsStorage.getSetting('API_KEY');
+    } catch (e) { }
+
+    if ((agApiKey && token === agApiKey) || (gcliApiKey && token === gcliApiKey) || (dsApiKey && token === dsApiKey)) {
       return next();
     }
   }
@@ -107,7 +124,13 @@ function requireApiAuth(req, res, next) {
       gcliApiKey = gcliSettings.API_KEY || '123456';
     } catch (e) { }
 
-    if ((agApiKey && queryKey === agApiKey) || (gcliApiKey && queryKey === gcliApiKey)) {
+    let dsApiKey = null;
+    try {
+      const dsStorage = require(path.join(modulesDir, 'deepseek-api', 'storage.js'));
+      dsApiKey = dsStorage.getSetting('API_KEY');
+    } catch (e) { }
+
+    if ((agApiKey && queryKey === agApiKey) || (gcliApiKey && queryKey === gcliApiKey) || (dsApiKey && queryKey === dsApiKey)) {
       return next();
     }
   }
@@ -242,6 +265,34 @@ router.get('/models', requireApiAuth, async (req, res) => {
       }
     }
 
+    // --- 3. 处理 DeepSeek 渠道 ---
+    if (channelEnabled['deepseek']) {
+      try {
+        const dsPrefix = channelModelPrefix['deepseek'] || '';
+        const dsMatrixPath = path.join(modulesDir, 'deepseek-api', 'deepseek-models.json');
+        if (fs.existsSync(dsMatrixPath)) {
+          const dsMatrix = JSON.parse(fs.readFileSync(dsMatrixPath, 'utf8'));
+          const now = Math.floor(Date.now() / 1000);
+          for (const [baseId, config] of Object.entries(dsMatrix)) {
+            if (config.base) {
+              const fullId = dsPrefix + baseId;
+              if (!allModelsMap.has(fullId)) {
+                allModelsMap.set(fullId, { id: fullId, object: 'model', created: now, owned_by: 'deepseek' });
+              }
+            }
+            if (config.search) {
+              const fullId = dsPrefix + baseId + '-search';
+              if (!allModelsMap.has(fullId)) {
+                allModelsMap.set(fullId, { id: fullId, object: 'model', created: now, owned_by: 'deepseek' });
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('[v1/models] DeepSeek process failed:', e.message);
+      }
+    }
+
     const data = Array.from(allModelsMap.values());
     if (data.length === 0) {
       return res
@@ -273,6 +324,7 @@ const dispatch = async (req, res, next) => {
 
   const agEnabled = channelEnabled['antigravity'] && agRouter;
   const gcliEnabled = channelEnabled['gemini-cli'] && gcliRouter;
+  const dsEnabled = channelEnabled['deepseek'] && dsRouter;
 
   // 3. 模型路由逻辑 (仅针对包含 model 的 POST 请求)
   if (req.method === 'POST' && req.body && req.body.model) {
@@ -280,7 +332,21 @@ const dispatch = async (req, res, next) => {
     const agPrefix = channelModelPrefix['antigravity'] || '';
     const gcliPrefix = channelModelPrefix['gemini-cli'] || '';
 
+    const dsPrefix = channelModelPrefix['deepseek'] || '';
+
     // --- A. 精确匹配前缀优先 ---
+
+    // 尝试匹配 DeepSeek 前缀或 deepseek-* 模型名
+    if (dsEnabled) {
+      if (dsPrefix && fullModelId.startsWith(dsPrefix)) {
+        req.body.model = fullModelId.substring(dsPrefix.length);
+        return dsRouter(req, res, next);
+      }
+      // 无前缀时，通过模型名关键词匹配
+      if (!dsPrefix && (fullModelId.startsWith('deepseek-') || fullModelId.startsWith('deepseek/'))) {
+        return dsRouter(req, res, next);
+      }
+    }
 
     // 尝试匹配 GCLI 前缀 (如果前缀非空且匹配)
     if (gcliPrefix && fullModelId.startsWith(gcliPrefix)) {
@@ -365,6 +431,7 @@ const dispatch = async (req, res, next) => {
   // 4. 非模型请求或降级路由
   if (agEnabled) return agRouter(req, res, next);
   if (gcliEnabled) return gcliRouter(req, res, next);
+  if (dsEnabled) return dsRouter(req, res, next);
 
   next();
 };

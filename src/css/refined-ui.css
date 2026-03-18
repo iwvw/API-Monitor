@@ -1,4 +1,4 @@
-/* ==================== Antigravity Modern Loader V3.1 (Core Mode) ==================== */
+﻿/* ==================== Antigravity Modern Loader V3.1 (Core Mode) ==================== */
 
 :root {
   --loader-size: 48px;
@@ -20,7 +20,7 @@
   animation: ag-fade-in 0.3s ease-out;
 }
 
-/* 核心旋涡加载器 */
+/* 核心旋涡加载?*/
 .ag-modern-loader {
   position: relative;
   width: var(--loader-size);
@@ -30,7 +30,7 @@
   justify-content: center;
 }
 
-/* 紧致双旋轨 */
+/* 紧致双旋?*/
 .ag-loader-inner {
   position: absolute;
   inset: 0;
@@ -64,7 +64,7 @@
 
 /* 文本光泽 */
 .ag-loader-text {
-  margin-top: 20px;
+  margin-top: var(--space-xl);
   font-size: 10px;
   font-weight: 800;
   color: var(--text-primary);
@@ -83,7 +83,7 @@
   opacity: 0.8;
 }
 
-/* 关键帧 */
+/* 关键?*/
 @keyframes ag-spin {
   to {
     transform: rotate(360deg);
@@ -139,7 +139,7 @@
 .btn-icon-refined {
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   color: var(--text-secondary);
   width: 32px;
   height: 32px;

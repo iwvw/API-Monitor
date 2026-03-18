@@ -1,0 +1,173 @@
+.ds-redirect-item {
+  background: var(--bg-tertiary);
+  padding: 10px 15px;
+  border-radius: 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border: 1px solid var(--border-color);
+  transition: all 0.2s;
+}
+
+.ds-redirect-item:hover {
+  border-color: rgba(var(--current-rgb, var(--primary-rgb)), 0.3);
+}
+
+.ds-redirect-editing {
+  border-color: var(--current-primary, var(--primary-color)) !important;
+  box-shadow: 0 0 0 2px rgba(var(--current-rgb, var(--primary-rgb)), 0.1);
+}
+
+.ds-redirect-badge {
+  background: rgba(var(--current-rgb, var(--primary-rgb)), 0.1);
+  color: var(--current-primary, var(--primary-color));
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 600;
+  font-size: 12px;
+  font-family: var(--font-mono);
+}
+
+/* 日志详情 */
+.ds-log-raw {
+  white-space: pre-wrap;
+  word-break: break-all;
+  font-size: 12px;
+  max-height: 65vh;
+  overflow: auto;
+  background: var(--bg-tertiary);
+  padding: 12px;
+  border-radius: 8px;
+  font-family: var(--font-mono);
+  line-height: 1.5;
+}
+
+.ds-log-section {
+  margin-bottom: 16px;
+}
+
+.ds-log-section-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 10px;
+  color: var(--current-primary, var(--primary-color));
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ds-log-info-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+  padding: 10px;
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  font-size: 13px;
+}
+
+.ds-log-info-grid>div {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ds-log-label {
+  font-size: 11px;
+  opacity: 0.6;
+  min-width: 50px;
+}
+
+/* 日志消息气泡 */
+.ds-log-message {
+  padding: 10px 12px;
+  border-radius: 8px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  line-height: 1.6;
+  border-left: 3px solid transparent;
+}
+
+.ds-log-msg-role {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  opacity: 0.6;
+  margin-bottom: 4px;
+}
+
+.ds-log-msg-content {
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 200px;
+  overflow: auto;
+}
+
+.ds-log-msg-system {
+  background: rgba(108, 117, 125, 0.08);
+  border-left-color: #6c757d;
+}
+
+.ds-log-msg-user {
+  background: rgba(var(--current-rgb, var(--primary-rgb)), 0.06);
+  border-left-color: var(--current-primary, var(--primary-color));
+}
+
+.ds-log-msg-assistant {
+  background: rgba(40, 167, 69, 0.06);
+  border-left-color: #28a745;
+}
+
+.ds-log-msg-thinking {
+  background: rgba(255, 193, 7, 0.06);
+  border-left-color: #ffc107;
+}
+
+/* API 接入指引 */
+.ds-endpoint-section {
+  margin-bottom: 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.ds-endpoint-section:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+.ds-endpoint-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  opacity: 0.6;
+  margin-bottom: 6px;
+}
+
+.ds-endpoint-value {
+  display: flex;
+  align-items: center;
+  padding: 8px 12px;
+  background: var(--bg-secondary);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.2s;
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.ds-endpoint-value:hover {
+  background: var(--bg-tertiary);
+}
+
+.ds-code-block {
+  background: var(--bg-secondary);
+  padding: 12px;
+  border-radius: 8px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+}

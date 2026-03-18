@@ -1,4 +1,4 @@
-/* ==================== FileBox 模块样式 ==================== */
+﻿/* ==================== FileBox 模块样式 ==================== */
 
 .theme-filebox {
     --current-primary: #10b981;
@@ -27,7 +27,7 @@
 .filebox-header-card {
     background: var(--card-bg);
     border: 1px solid var(--border-color);
-    border-radius: 16px;
+    border-radius: var(--radius-lg);
     padding: 30px;
     text-align: center;
     box-shadow: var(--card-shadow);
@@ -35,7 +35,7 @@
 }
 
 .filebox-help-card {
-    margin-top: 20px;
+    margin-top: var(--space-xl);
 }
 
 .filebox-help-text {
@@ -47,16 +47,16 @@
 .filebox-input-wrapper {
     display: flex;
     max-width: 500px;
-    margin: 25px auto 0;
-    gap: 12px;
+    margin: var(--space-xl) auto 0;
+    gap: var(--space-md);
 }
 
 .filebox-code-input {
     flex: 1;
     background: var(--bg-primary);
     border: 2px solid var(--border-color);
-    border-radius: 12px;
-    padding: 0 20px;
+    border-radius: var(--radius-lg);
+    padding: 0 var(--space-xl);
     height: 48px;
     box-sizing: border-box;
     color: var(--text-primary);
@@ -77,8 +77,8 @@
     background: var(--primary-color);
     color: white;
     border: none;
-    border-radius: 12px;
-    padding: 0 24px;
+    border-radius: var(--radius-lg);
+    padding: 0 var(--space-xl);
     font-weight: 600;
     font-size: 15px;
     cursor: pointer;
@@ -86,7 +86,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 8px;
+    gap: var(--space-sm);
     white-space: nowrap;
     height: 48px;
 }
@@ -103,16 +103,16 @@
     transform: none;
 }
 
-/* 配置选项行 */
+/* 配置选项?*/
 .filebox-options-row {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 24px;
-    margin-top: 25px;
-    padding: 15px 20px;
+    gap: var(--space-xl);
+    margin-top: var(--space-xl);
+    padding: var(--space-lg) var(--space-xl);
     background: rgba(var(--primary-rgb), 0.03);
-    border-radius: 12px;
+    border-radius: var(--radius-lg);
     border: 1px solid var(--border-color);
     flex-wrap: wrap;
 }
@@ -120,7 +120,7 @@
 .filebox-option {
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: var(--space-sm);
     font-size: 13px;
     color: var(--text-primary);
     font-weight: 500;
@@ -134,17 +134,17 @@
 
 .filebox-option .form-select-modern {
     width: 90px;
-    padding: 5px 8px;
+    padding: var(--space-xs) var(--space-sm);
     font-size: 12px;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
 }
 
 /* 立即分享按钮增强 */
 .filebox-options-row .btn-primary {
-    padding: 0 24px;
+    padding: 0 var(--space-xl);
     height: 38px;
     font-size: 14px;
-    border-radius: 10px;
+    border-radius: var(--radius-md);
     box-shadow: 0 4px 12px rgba(var(--primary-rgb), 0.2);
 }
 
@@ -156,19 +156,19 @@
 }
 
 .filebox-upload-progress-card {
-    margin-top: 14px;
-    padding: 12px 14px;
+    margin-top: var(--space-lg);
+    padding: var(--space-md) var(--space-lg);
     background: var(--bg-primary);
     border: 1px solid var(--border-color);
-    border-radius: 10px;
+    border-radius: var(--radius-md);
 }
 
 .filebox-upload-progress-head {
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: 12px;
-    margin-bottom: 10px;
+    gap: var(--space-md);
+    margin-bottom: var(--space-sm);
 }
 
 .filebox-upload-name {
@@ -188,7 +188,7 @@
 
 .filebox-upload-progress-track {
     height: 8px;
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
     background: var(--bg-tertiary);
     overflow: hidden;
 }
@@ -200,20 +200,20 @@
 }
 
 .filebox-upload-meta {
-    margin-top: 10px;
+    margin-top: var(--space-sm);
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: var(--space-md);
     flex-wrap: wrap;
     color: var(--text-secondary);
     font-size: 12px;
 }
 
 .filebox-upload-meta i {
-    margin-right: 4px;
+    margin-right: var(--space-xs);
 }
 
-/* 确保 Switch 样式在 filebox 中可用 */
+/* ȷ Switch 样式?filebox 中可?*/
 .form-switch {
     display: inline-flex;
     align-items: center;
@@ -230,7 +230,7 @@
     height: 18px;
     background: var(--bg-primary);
     border: 1px solid var(--border-color);
-    border-radius: 10px;
+    border-radius: var(--radius-md);
     position: relative;
     transition: all 0.3s ease;
     display: inline-block;
@@ -262,22 +262,22 @@
 .filebox-share-tabs {
     display: flex;
     background: var(--bg-primary);
-    padding: 5px;
-    border-radius: 12px;
-    gap: 5px;
+    padding: var(--space-xs);
+    border-radius: var(--radius-lg);
+    gap: var(--space-xs);
     border: 1px solid var(--border-color);
 }
 
 .filebox-share-tabs-wrap {
-    margin-bottom: 20px;
+    margin-bottom: var(--space-xl);
 }
 
 .filebox-tab-btn {
     flex: 1;
-    padding: 10px;
+    padding: var(--space-sm);
     text-align: center;
     cursor: pointer;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     font-size: 14px;
     font-weight: 600;
     color: var(--text-secondary);
@@ -285,7 +285,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 8px;
+    gap: var(--space-sm);
 }
 
 .filebox-tab-btn:hover {
@@ -304,7 +304,7 @@
     flex: 1;
     min-height: 220px;
     border: 2px dashed var(--border-color);
-    border-radius: 16px;
+    border-radius: var(--radius-lg);
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -331,7 +331,7 @@
 .filebox-upload-icon {
     font-size: 48px;
     color: var(--text-tertiary);
-    margin-bottom: 20px;
+    margin-bottom: var(--space-xl);
     transition: all 0.3s ease;
 }
 
@@ -343,32 +343,32 @@
 .filebox-upload-text {
     font-size: 16px;
     color: var(--text-primary);
-    margin-bottom: 8px;
+    margin-bottom: var(--space-sm);
 }
 
 .filebox-upload-subtext {
     font-size: 13px;
     color: var(--text-tertiary);
-    margin-bottom: 15px;
+    margin-bottom: var(--space-lg);
 }
 
 .filebox-text-area {
     flex: 1;
     min-height: 200px;
-    padding: 15px;
+    padding: var(--space-lg);
 }
 
 .filebox-upload-remove {
     font-size: 12px;
     color: var(--danger-color);
-    padding: 6px 14px;
-    border-radius: 20px;
+    padding: 6px var(--space-lg);
+    border-radius: var(--radius-lg);
     background: rgba(var(--danger-rgb), 0.1);
     transition: all 0.2s ease;
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    margin-top: 10px;
+    margin-top: var(--space-sm);
 }
 
 .filebox-upload-remove:hover {
@@ -378,7 +378,7 @@
     box-shadow: 0 4px 12px rgba(var(--danger-rgb), 0.2);
 }
 
-/* 分享成功弹出层 */
+/* 分享成功弹出?*/
 .filebox-overlay-result {
     position: absolute;
     top: 0;
@@ -391,14 +391,14 @@
     align-items: center;
     justify-content: center;
     z-index: 100;
-    border-radius: 16px;
+    border-radius: var(--radius-lg);
 }
 
 .filebox-result-card {
     background: var(--card-bg);
     border: 1px solid rgba(255, 255, 255, 0.05);
     padding: 40px;
-    border-radius: 24px;
+    border-radius: var(--radius-lg);
     text-align: center;
     box-shadow: 0 25px 60px rgba(0, 0, 0, 0.4);
     max-width: 90%;
@@ -409,7 +409,7 @@
     font-weight: 800;
     color: var(--primary-color);
     letter-spacing: 8px;
-    margin: 15px 0;
+    margin: var(--space-lg) 0;
     font-family: var(--font-mono);
     text-shadow: 0 0 20px rgba(var(--primary-rgb), 0.3);
 }
@@ -417,41 +417,41 @@
 .filebox-result-icon {
     font-size: 56px;
     color: #10b981;
-    margin-bottom: 20px;
+    margin-bottom: var(--space-xl);
 }
 
 .filebox-result-title {
     color: var(--text-primary);
-    margin-bottom: 5px;
+    margin-bottom: var(--space-xs);
 }
 
 .filebox-result-desc {
     color: var(--text-secondary);
     font-size: 14px;
-    margin-bottom: 15px;
+    margin-bottom: var(--space-lg);
 }
 
 .filebox-qr-wrap {
-    margin-bottom: 20px;
+    margin-bottom: var(--space-xl);
 }
 
 .filebox-qr-image {
     width: 120px;
     height: 120px;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     background: #fff;
-    padding: 8px;
+    padding: var(--space-sm);
 }
 
 .filebox-qr-tip {
     color: var(--text-tertiary);
     font-size: 12px;
-    margin-top: 8px;
+    margin-top: var(--space-sm);
 }
 
 .filebox-result-actions {
     display: flex;
-    gap: 12px;
+    gap: var(--space-md);
     justify-content: center;
     flex-wrap: wrap;
 }
@@ -467,11 +467,11 @@
     display: grid;
     grid-template-columns: 32px 1fr auto;
     align-items: center;
-    padding: 8px 12px;
+    padding: var(--space-sm) var(--space-md);
     background: var(--bg-primary);
     border: 1px solid var(--border-color);
-    border-radius: 8px;
-    gap: 10px;
+    border-radius: var(--radius-md);
+    gap: var(--space-sm);
     transition: all 0.2s ease;
 }
 
@@ -483,7 +483,7 @@
 .item-icon-box {
     width: 32px;
     height: 32px;
-    border-radius: 6px;
+    border-radius: var(--radius-sm);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -507,7 +507,7 @@
     overflow: hidden;
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: var(--space-md);
 }
 
 .item-title {
@@ -531,7 +531,7 @@
 .item-code-actions {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-sm);
 }
 
 .item-code-actions .item-code {
@@ -543,7 +543,7 @@
 }
 
 .item-code-actions .btn {
-    padding: 4px 6px;
+    padding: var(--space-xs) 6px;
     min-width: 24px;
     height: 24px;
 }
@@ -551,7 +551,7 @@
 .filebox-history-toolbar {
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: var(--space-sm);
 }
 
 .filebox-history-header {
@@ -565,7 +565,7 @@
 }
 
 .filebox-server-history-card {
-    margin-top: 14px;
+    margin-top: var(--space-lg);
 }
 
 .filebox-empty-lg {
@@ -587,7 +587,7 @@
 }
 
 .filebox-empty-text {
-    margin-top: 12px;
+    margin-top: var(--space-md);
     color: var(--text-tertiary);
 }
 
@@ -609,7 +609,7 @@
     width: 100px;
     height: 100px;
     border-radius: 30px;
-    margin: 0 auto 25px;
+    margin: 0 auto var(--space-xl);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -632,22 +632,22 @@
     font-size: 20px;
     font-weight: 700;
     color: var(--text-primary);
-    margin-bottom: 15px;
+    margin-bottom: var(--space-lg);
     word-break: break-all;
 }
 
 .retrieved-info-pills {
     display: flex;
     justify-content: center;
-    gap: 10px;
-    margin-bottom: 20px;
+    gap: var(--space-sm);
+    margin-bottom: var(--space-xl);
 }
 
 .info-pill {
     background: var(--bg-primary);
     border: 1px solid var(--border-color);
-    padding: 6px 12px;
-    border-radius: 8px;
+    padding: 6px var(--space-md);
+    border-radius: var(--radius-md);
     font-size: 12px;
     color: var(--text-secondary);
     display: flex;
@@ -658,9 +658,9 @@
 .retrieved-text-viewer {
     background: var(--bg-primary);
     border: 1px solid var(--border-color);
-    border-radius: 12px;
-    padding: 15px;
-    margin: 15px 0;
+    border-radius: var(--radius-lg);
+    padding: var(--space-lg);
+    margin: var(--space-lg) 0;
     max-height: 250px;
     overflow-y: auto;
     text-align: left;
@@ -678,14 +678,14 @@
 .burn-notice {
     display: inline-flex;
     align-items: center;
-    gap: 8px;
-    padding: 8px 16px;
+    gap: var(--space-sm);
+    padding: var(--space-sm) var(--space-lg);
     background: rgba(var(--danger-rgb), 0.1);
     color: var(--danger-color);
-    border-radius: 10px;
+    border-radius: var(--radius-md);
     font-size: 13px;
     font-weight: 600;
-    margin-top: 10px;
+    margin-top: var(--space-sm);
 }
 
 /* 动画 */
@@ -729,12 +729,12 @@
 
     .filebox-upload-zone {
         min-height: 190px;
-        padding: 24px 20px;
+        padding: var(--space-xl) var(--space-xl);
     }
 
     .filebox-options-row {
         justify-content: flex-start;
-        gap: 12px;
+        gap: var(--space-md);
     }
 
     .filebox-options-row .btn-primary {
@@ -743,7 +743,7 @@
 
     .filebox-history-header {
         align-items: flex-start;
-        gap: 8px;
+        gap: var(--space-sm);
         flex-direction: column;
     }
 

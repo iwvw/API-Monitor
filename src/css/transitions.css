@@ -1,4 +1,4 @@
-/* 页面切换过渡动画 */
+﻿/* 页面切换过渡动画 */
 
 /* 主内容区域的过渡容器 */
 .tab-content-wrapper {
@@ -26,7 +26,7 @@
   }
 }
 
-/* 淡入动画 - 从下方进入 */
+/* 붯 - 从下方进?*/
 @keyframes fadeIn {
   from {
     opacity: 0;
@@ -51,7 +51,7 @@
   }
 }
 
-/* 滑动动画 - 统一从下方进入 */
+/*  - 统一从下方进?*/
 @keyframes slideInRight {
   from {
     opacity: 0;
@@ -64,7 +64,7 @@
   }
 }
 
-/* 滑动动画 - 统一从下方进入（保持一致） */
+/*  - 统一从下方进入（保持丢致） */
 @keyframes slideInLeft {
   from {
     opacity: 0;
@@ -77,7 +77,7 @@
   }
 }
 
-/* 滑动退出 - 淡出 */
+/* 滑动逢?-  */
 @keyframes slideOutLeft {
   from {
     opacity: 1;
@@ -88,7 +88,7 @@
   }
 }
 
-/* 滑动退出 - 淡出 */
+/* 滑动逢?-  */
 @keyframes slideOutRight {
   from {
     opacity: 1;
@@ -99,7 +99,7 @@
   }
 }
 
-/* 应用动画类 */
+/* 应用动画?*/
 .fade-in {
   animation-name: fadeIn;
 }
@@ -124,7 +124,7 @@
   animation-name: slideOutRight;
 }
 
-/* ==================== 模块切换动画主题色 ==================== */
+/* ==================== 模块切换动画主题?==================== */
 /* Zeabur 模块 - 紫色主题 */
 .zeabur-sec-tab.slide-in-left,
 .zeabur-sec-tab.slide-in-right,
@@ -149,7 +149,7 @@
   --module-color: rgba(16, 163, 127, 0.06);
 }
 
-/* 主机管理模块 - 青绿色主题 */
+/* ģ - 青绿色主?*/
 .server-tab-content.slide-in-left,
 .server-tab-content.slide-in-right,
 .server-tab-content.slide-out-left,
@@ -157,7 +157,7 @@
   --module-color: rgba(0, 212, 170, 0.06);
 }
 
-/* Music 模块 - 玫红色主题 */
+/* Music ģ - 玫红色主?*/
 .music-tab-content.slide-in-left,
 .music-tab-content.slide-in-right,
 .music-tab-content.slide-out-left,
@@ -195,7 +195,7 @@
   --module-color: rgba(6, 182, 212, 0.06);
 }
 
-/* Music 模块 - 玫红色主题 */
+/* Music ģ - 玫红色主?*/
 .music-tab-content.slide-in-left,
 .music-tab-content.slide-in-right,
 .music-tab-content.slide-out-left,
@@ -204,7 +204,7 @@
   --module-color: rgba(244, 63, 94, 0.06);
 }
 
-/* 切换动画使用模块主题色 */
+/* 切换动画使用模块主题?*/
 /* .tab-content.slide-in-left,
 .tab-content.slide-in-right,
 .tab-content.slide-out-left,
@@ -222,7 +222,7 @@
   overflow: visible;
 }
 
-/* 快速淡入效果（用于子标签页）- 统一从下方进入 */
+/* 快淡入效果（用于子标签页? 统一从下方进?*/
 @keyframes quickFadeIn {
   from {
     opacity: 0;
@@ -240,12 +240,12 @@
   animation-duration: 0.25s;
 }
 
-/* 标签按钮的过渡效果增强 */
+/* 标签按钮的过渡效果增?*/
 .tab-btn {
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-/* 标签按钮激活时的下划线动画 */
+/* 标签按钮濢活时的下划线动画 */
 .main-tab::after {
   content: '';
   position: absolute;
@@ -265,7 +265,7 @@
   background-color: var(--cf-color);
 }
 
-/* 为每个标签类型设置::after主题色 */
+/* 为每个标签类型设?:after主题?*/
 .main-tab.dns-tab::after {
   background-color: var(--cf-color);
 }
@@ -297,11 +297,11 @@
     opacity 0.3s ease-out;
   will-change: grid-template-rows, opacity;
   transform: translateZ(0);
-  /* 开启硬件加速 */
+  /* 弢启硬件加?*/
 }
 
 .server-card.expanded>.server-card-body {
-  padding: 0px 0px 10px 0px;
+  padding: 0px 0px var(--space-sm) 0px;
   grid-template-rows: 1fr;
   opacity: 1;
   overflow: visible;
@@ -313,7 +313,7 @@
   overflow: hidden;
 }
 
-/* 展开后内部 div 也要 overflow visible */
+/* 展开后内?div ҲҪ overflow visible */
 .server-card.expanded>.server-card-body>div {
   overflow: visible !important;
 }
@@ -354,16 +354,16 @@
 .account-card.expanded>.account-card-body {
   grid-template-rows: 1fr;
   opacity: 1;
-  padding-top: 8px;
+  padding-top: var(--space-sm);
   /* margin-top: 8px; */
-  padding-bottom: 5px;
+  padding-bottom: var(--space-xs);
 }
 
 .account-card.expanded>.account-card-body>* {
   overflow: visible;
 }
 
-/* 切换图标美化版 - 现代化展开箭头 */
+/* 切换图标美化?- 现代化展弢箭头 */
 .toggle-icon {
   display: inline-flex;
   align-items: center;
@@ -385,7 +385,7 @@
   background: rgba(var(--primary-rgb), 0.18);
 }
 
-/* 展开状态的箭头 */
+/* 展开状的箭头 */
 .account-card.expanded .toggle-icon,
 .server-card.expanded .toggle-icon {
   background: rgba(var(--primary-rgb), 0.15);
@@ -458,7 +458,7 @@
   background: rgba(243, 128, 32, 0.2);
 }
 
-/* 模态框动画 */
+/* 模框动画 */
 .modal-overlay {
   animation: fadeInOverlay 0.3s ease-out;
 }
@@ -517,7 +517,7 @@
   }
 }
 
-/* 列表项交错动画 */
+/* 列表项交错动?*/
 .stagger-item {
   animation: staggerFadeIn 0.4s cubic-bezier(0.4, 0, 0.2, 1) both;
 }
@@ -562,13 +562,14 @@
 /* 按钮点击反馈动画 */
 .btn {
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  transform: scale(1);
 }
 
 .btn:active:not(:disabled) {
   transform: scale(0.995);
 }
 
-/* 卡片悬停效果优化 - 只对视觉属性过渡，避免布局属性动画导致的闪烁 */
+/* ƬͣЧŻ - 只对视觉属过渡，避免布局属动画导致的闪烁 */
 .account-card,
 .stat-card,
 .zone-card,
@@ -579,9 +580,10 @@
     border-color 0.3s cubic-bezier(0.4, 0, 0.2, 1),
     background-color 0.3s cubic-bezier(0.4, 0, 0.2, 1),
     opacity 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transform: translateZ(0);
 }
 
-/* 减少动画以提升性能（可选） */
+/* 减少动画以提升能（可选） */
 @media (prefers-reduced-motion: reduce) {
 
   *,
@@ -593,7 +595,7 @@
   }
 }
 
-/* 页面加载时的初始状态 */
+/* 页面加载时的初始状?*/
 .page-loading {
   opacity: 0;
 }

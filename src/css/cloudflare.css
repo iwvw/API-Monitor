@@ -1,4 +1,4 @@
-/* DNS Management Styles */
+﻿/* DNS Management Styles */
 
 .dns-sec-tabs {
   /* 继承全局 .sec-tabs 布局 */
@@ -27,14 +27,14 @@
 .zones-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 12px;
-  margin-bottom: 16px;
+  gap: var(--space-md);
+  margin-bottom: var(--space-lg);
 }
 
 .zone-card {
   background: var(--card-bg);
-  border-radius: 8px;
-  padding: 5px 16px;
+  border-radius: var(--radius-md);
+  padding: var(--space-xs) var(--space-lg);
   border: 1px solid var(--border-color);
   cursor: pointer;
   transition: all 0.2s;
@@ -69,8 +69,8 @@
 
 /* DNS Records */
 .record-type {
-  padding: 2px 8px;
-  border-radius: 4px;
+  padding: 2px var(--space-sm);
+  border-radius: var(--radius-sm);
   font-size: 11px;
   font-weight: 600;
   background: var(--bg-tertiary);
@@ -121,7 +121,7 @@
 
 .proxied-badge {
   padding: 2px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   font-size: 10px;
   font-weight: 600;
   display: inline-block;
@@ -141,12 +141,12 @@
 /* Quick Switch */
 .quick-switch {
   display: none;
-  gap: 8px;
+  gap: var(--space-sm);
   align-items: center;
-  padding: 12px;
+  padding: var(--space-md);
   background: var(--bg-secondary);
-  border-radius: 8px;
-  margin-bottom: 16px;
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-lg);
   flex-wrap: wrap;
 }
 
@@ -154,9 +154,9 @@
   display: none;
   flex: 1;
   min-width: 120px;
-  padding: 8px 12px;
+  padding: var(--space-sm) var(--space-md);
   border: 1px solid var(--input-border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: var(--input-bg);
   color: var(--text-primary);
   font-size: 14px;
@@ -172,8 +172,8 @@
 
 .editable-cell {
   cursor: pointer;
-  padding: 2px 4px;
-  border-radius: 4px;
+  padding: 2px var(--space-xs);
+  border-radius: var(--radius-sm);
   transition: background-color 0.2s;
   color: var(--text-primary);
 }
@@ -190,9 +190,9 @@
 }
 
 .inline-edit-input {
-  padding: 2px 28px 2px 4px;
+  padding: 2px 28px 2px var(--space-xs);
   border: 1px solid var(--cf-color);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   font-size: 13px;
   background-color: var(--input-bg);
   color: var(--text-primary);
@@ -208,10 +208,10 @@
 
 .inline-edit-cancel {
   position: absolute;
-  right: 4px;
+  right: var(--space-xs);
   top: 50%;
   transform: translateY(-50%);
-  padding: 2px 4px;
+  padding: 2px var(--space-xs);
   background-color: transparent;
   border: none;
   cursor: pointer;
@@ -227,7 +227,7 @@
 .inline-edit-cancel:hover {
   color: var(--danger-color);
   background-color: rgba(239, 68, 68, 0.1);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
 }
 
 @media (max-width: 480px) {
@@ -238,7 +238,7 @@
 
   .data-table th,
   .data-table td {
-    padding: 8px 10px;
+    padding: var(--space-sm) var(--space-sm);
     white-space: nowrap;
   }
 
@@ -253,12 +253,12 @@
   }
 
   .tab-btn {
-    padding: 6px 10px;
+    padding: 6px var(--space-sm);
     font-size: 12px;
   }
 
   .zone-card {
-    padding: 8px 12px;
+    padding: var(--space-sm) var(--space-md);
   }
 
   .zone-name {
@@ -284,13 +284,13 @@
 /* NS Popover 样式 */
 .ns-popover {
   position: absolute;
-  top: calc(100% + 8px);
+  top: calc(100% + var(--space-sm));
   right: 0;
   background: var(--card-bg);
   border: 1px solid var(--border-color);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
-  padding: 12px;
+  padding: var(--space-md);
   min-width: 320px;
   z-index: 100;
   animation: popoverSlideIn 0.2s cubic-bezier(0.4, 0, 0.2, 1);
@@ -312,7 +312,7 @@
   content: '';
   position: absolute;
   top: -6px;
-  right: 16px;
+  right: var(--space-lg);
   width: 12px;
   height: 12px;
   background: var(--card-bg);
@@ -325,11 +325,11 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 12px;
-  margin: 4px 0;
+  padding: var(--space-sm) var(--space-md);
+  margin: var(--space-xs) 0;
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   cursor: pointer;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   font-family: var(--font-mono);
@@ -353,7 +353,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  margin-right: 8px;
+  margin-right: var(--space-sm);
 }
 
 .ns-item i {
@@ -379,31 +379,31 @@
   background: transparent;
 }
 
-/* ==================== SSL/TLS 状态卡片（紧凑版） ==================== */
+/* ==================== SSL/TLS 状卡片（紧凑版） ==================== */
 
 .ssl-status-card {
   background: linear-gradient(135deg, var(--bg-primary) 0%, var(--bg-secondary) 100%);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
-  padding: 12px 16px;
-  margin-bottom: 16px;
+  border-radius: var(--radius-md);
+  padding: var(--space-md) var(--space-lg);
+  margin-bottom: var(--space-lg);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
   display: flex;
   align-items: center;
-  gap: 20px;
+  gap: var(--space-xl);
 }
 
 .ssl-header {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
   min-width: 140px;
 }
 
 .ssl-title {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 .ssl-title i {
@@ -426,7 +426,7 @@
 .ssl-body {
   display: flex;
   align-items: center;
-  gap: 24px;
+  gap: var(--space-xl);
   flex: 1;
   flex-wrap: wrap;
 }
@@ -434,7 +434,7 @@
 .ssl-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 .ssl-label {
@@ -461,15 +461,15 @@
 .ssl-cert-type {
   text-transform: capitalize;
   background: var(--bg-tertiary);
-  padding: 2px 8px;
-  border-radius: 4px;
+  padding: 2px var(--space-sm);
+  border-radius: var(--radius-sm);
   font-size: 12px;
 }
 
-/* SSL 模式按钮组样式 - 实体按钮风格 */
+/* SSL 模式按钮组样?- ʵ尴ť */
 .ssl-mode-btn-group {
   display: flex;
-  gap: 8px;
+  gap: var(--space-sm);
   width: 100%;
   max-width: 400px;
 }
@@ -479,15 +479,15 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 8px 12px;
-  border-radius: 8px;
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-md);
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   white-space: nowrap;
 
-  /* 默认状态 */
+  /* 默认状?*/
   background: var(--card-bg);
   border: 1px solid var(--border-color);
   color: var(--text-secondary);
@@ -518,9 +518,9 @@
 .ssl-status {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 3px 10px;
-  border-radius: 12px;
+  gap: var(--space-xs);
+  padding: 3px var(--space-sm);
+  border-radius: var(--radius-lg);
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
@@ -544,12 +544,12 @@
 .ssl-cert-info {
   background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--card-bg) 100%);
   border: 1px solid var(--border-color);
-  border-radius: 12px;
-  padding: 16px;
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  margin-top: 12px;
+  gap: var(--space-md);
+  margin-top: var(--space-md);
   position: relative;
   overflow: hidden;
   transition: all 0.3s ease;
@@ -563,13 +563,13 @@
 .ssl-row {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-md);
 }
 
 .ssl-label {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
   color: var(--text-tertiary);
   font-size: 13px;
   min-width: 90px;
@@ -590,18 +590,18 @@
 .ssl-cert-type {
   background: rgba(243, 128, 32, 0.1);
   color: var(--cf-color);
-  padding: 2px 8px;
-  border-radius: 4px;
+  padding: 2px var(--space-sm);
+  border-radius: var(--radius-sm);
   font-size: 12px;
 }
 
-/* 响应式调整 */
+/* 响应式调?*/
 @media (min-width: 769px) {
   .ssl-body {
     display: grid;
     grid-template-columns: 1fr 1.5fr;
-    /* 模式选择占小部分，证书信息占大部分 */
-    gap: 24px;
+    /* 模式选择占小部分，证书信息占大部?*/
+    gap: var(--space-xl);
     align-items: start;
   }
 
@@ -611,7 +611,7 @@
     flex-direction: row;
     justify-content: space-between;
     align-items: center;
-    padding: 12px 20px;
+    padding: var(--space-md) var(--space-xl);
     height: 100%;
     /* 填满高度 */
   }
@@ -625,12 +625,12 @@
   .ssl-body {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: var(--space-md);
   }
 
   .ssl-cert-info {
-    padding: 12px;
-    gap: 8px;
+    padding: var(--space-md);
+    gap: var(--space-sm);
     width: 100%;
     box-sizing: border-box;
   }
@@ -657,18 +657,18 @@
 
   .ssl-cert-info {
     padding-left: 0;
-    gap: 8px;
+    gap: var(--space-sm);
   }
 }
 
-/* ==================== Analytics 仪表板（紧凑版） ==================== */
+/* ==================== Analytics Ǳ壨հ棩 ==================== */
 
 .analytics-card {
   background: linear-gradient(135deg, var(--bg-primary) 0%, var(--bg-secondary) 100%);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
-  padding: 12px 16px;
-  margin-bottom: 16px;
+  border-radius: var(--radius-md);
+  padding: var(--space-md) var(--space-lg);
+  margin-bottom: var(--space-lg);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 }
 
@@ -676,13 +676,13 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 16px;
+  margin-bottom: var(--space-lg);
 }
 
 .analytics-title {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
   font-size: 14px;
   font-weight: 600;
   color: var(--text-primary);
@@ -696,8 +696,8 @@
 .analytics-time-badge {
   background: var(--cf-color);
   color: white;
-  padding: 2px 8px;
-  border-radius: 10px;
+  padding: 2px var(--space-sm);
+  border-radius: var(--radius-md);
   font-size: 11px;
   font-weight: 600;
 }
@@ -705,19 +705,19 @@
 .analytics-controls {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 .analytics-time-selector {
   display: flex;
-  gap: 4px;
+  gap: var(--space-xs);
 }
 
 .time-btn {
-  padding: 4px 12px;
+  padding: var(--space-xs) var(--space-md);
   border: 1px solid var(--border-color);
   background: var(--bg-primary);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
@@ -742,10 +742,10 @@
 }
 
 .refresh-btn {
-  padding: 4px 8px;
+  padding: var(--space-xs) var(--space-sm);
   border: 1px solid var(--border-color);
   background: var(--bg-primary);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   transition: all 0.2s;
   color: var(--text-secondary);
@@ -764,16 +764,16 @@
 .analytics-metrics {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 20px;
+  gap: var(--space-xl);
 }
 
 .metric {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 8px;
+  gap: var(--space-md);
+  padding: var(--space-sm);
   background: var(--bg-tertiary);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   transition: all 0.2s;
 }
 
@@ -812,7 +812,7 @@
 @media (max-width: 1024px) {
   .analytics-metrics {
     grid-template-columns: repeat(2, 1fr);
-    gap: 12px;
+    gap: var(--space-md);
   }
 }
 
@@ -820,7 +820,7 @@
   .analytics-header {
     flex-direction: column;
     align-items: flex-start;
-    gap: 12px;
+    gap: var(--space-md);
   }
 
   .analytics-controls {
@@ -830,7 +830,7 @@
 
   .analytics-metrics {
     grid-template-columns: 1fr;
-    gap: 8px;
+    gap: var(--space-sm);
   }
 }
 
@@ -840,8 +840,8 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 10px;
-  border-radius: 12px;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-lg);
   font-size: 12px;
   font-weight: 600;
   white-space: nowrap;
@@ -866,17 +866,17 @@
 .tunnel-ingress-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--space-md);
 }
 
 .tunnel-ingress-item {
   display: flex;
   align-items: flex-end;
-  gap: 12px;
-  padding: 16px;
+  gap: var(--space-md);
+  padding: var(--space-lg);
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   transition: all 0.2s;
 }
 
@@ -891,7 +891,7 @@
 }
 
 .tunnel-ingress-item .form-input {
-  padding: 8px 12px;
+  padding: var(--space-sm) var(--space-md);
   font-size: 13px;
 }
 
@@ -914,7 +914,7 @@
 }
 
 .tunnel-ingress-item .form-input {
-  padding: 8px 12px;
+  padding: var(--space-sm) var(--space-md);
   font-size: 13px;
 }
 
@@ -924,12 +924,12 @@
   cursor: not-allowed;
 }
 
-/* 响应式调整 */
+/* 响应式调?*/
 @media (max-width: 768px) {
   .tunnel-ingress-item {
     flex-direction: column;
     align-items: stretch;
-    gap: 8px;
+    gap: var(--space-sm);
   }
 
   .tunnel-ingress-item>div:first-child {
@@ -941,12 +941,12 @@
   }
 }
 
-/* Tunnel Token 显示框 */
+/* Tunnel Token 显示?*/
 .tunnel-token-box {
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
-  padding: 12px;
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
   overflow: hidden;
 }
 
@@ -960,11 +960,11 @@
   font-family: var(--font-mono);
 }
 
-/* Tunnel 命令框 */
+/* Tunnel 命令?*/
 .tunnel-command-box {
   background: var(--bg-tertiary);
-  border-radius: 8px;
-  padding: 16px;
+  border-radius: var(--radius-md);
+  padding: var(--space-lg);
   font-family: var(--font-mono);
   font-size: 13px;
   overflow-x: auto;
@@ -975,5 +975,5 @@
   word-break: break-all;
   white-space: pre-wrap;
   color: var(--cf-color);
-  margin-bottom: 4px;
+  margin-bottom: var(--space-xs);
 }

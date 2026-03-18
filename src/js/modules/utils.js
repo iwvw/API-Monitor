@@ -79,8 +79,8 @@ export function renderMarkdown(text) {
   source = source.replace(/\$([^\s$][^$]*?[^\s$])\$/g, (m, c) => addMath(c, false));
   source = source.replace(/\$([^\s$])\$/g, (m, c) => addMath(c, false));
 
-  // 5. 预处理思考标签 <think> (DeepSeek/Gemini)
-  source = source.replace(/<think>([\s\S]*?)<\/think>/gi, (match, content) => {
+  // 5. 预处理思考标签 <think>/<thinking>/<think_nya> 等变体 (DeepSeek/Gemini)
+  source = source.replace(/<(think(?:ing|_\w+)?)\s*>([\s\S]*?)<\/\1>/gi, (match, tag, content) => {
     return `<details class="reasoning-details"><summary><i class="fas fa-brain" style="margin-right: 6px;"></i>思考过程</summary><div class="reasoning-content-inner">\n\n${content}\n\n</div></details>`;
   });
 

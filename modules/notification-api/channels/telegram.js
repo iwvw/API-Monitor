@@ -31,7 +31,6 @@ class TelegramChannel {
                 text: text,
                 parse_mode: 'HTML',
                 disable_web_page_preview: true,
-                ...options,
             }, {
                 timeout: 10000, // 10秒超时
             });

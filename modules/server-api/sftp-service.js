@@ -90,7 +90,7 @@ class SFTPService {
                         // Format file list
                         const files = list.map(item => ({
                             name: item.filename,
-                            path: path.posix.join(absPath, item.filename),
+                            path: this._joinRemotePath(absPath, item.filename),
                             isDirectory: item.attrs.isDirectory(),
                             isFile: item.attrs.isFile(),
                             isSymlink: item.attrs.isSymbolicLink(),
@@ -110,7 +110,7 @@ class SFTPService {
                             return a.name.localeCompare(b.name);
                         });
 
-                        resolve({ files, cwd: absPath });
+                        resolve({ files, cwd: absPath.replace(/\\/g, '/') });
                     });
                 });
             });
@@ -254,8 +254,17 @@ class SFTPService {
      * 内部递归创建目录方法
      */
     async _mkdirRecursiveInternal(sftp, remotePath) {
-        const parts = remotePath.split('/').filter(Boolean);
+        // 统一将反斜杠转为正斜杠
+        const normalizedPath = remotePath.replace(/\\/g, '/');
+        const parts = normalizedPath.split('/').filter(Boolean);
         let currentPath = '';
+
+        // 检测是否为 Windows 驱动器路径（如 C:/Users/xxx）
+        const isWinDrive = /^[A-Za-z]:$/.test(parts[0]);
+        if (isWinDrive) {
+            // Windows: 从 C: 开始构建路径，跳过驱动器号本身
+            currentPath = parts.shift(); // "C:"
+        }
 
         for (const part of parts) {
             currentPath += '/' + part;
@@ -442,7 +451,7 @@ class SFTPService {
         return {
             stream,
             size: stats.size,
-            filename: path.posix.basename(remotePath),
+            filename: this._extractFilename(remotePath),
             conn, // 返回连接以便手动管理
         };
     }
@@ -477,6 +486,44 @@ class SFTPService {
     }
 
     // ==================== 工具方法 ====================
+
+    /**
+     * 检测远程路径是否为 Windows 风格
+     * @param {string} remotePath
+     * @returns {boolean}
+     */
+    _isWindowsPath(remotePath) {
+        // 匹配 C:\ 或 C:/ 开头的路径
+        return /^[A-Za-z]:[/\\]/.test(remotePath);
+    }
+
+    /**
+     * 拼接远程路径（自动适配 Windows / Linux 远程主机）
+     * SFTP 协议本身使用 / 分隔符，但 Windows 的 realpath 返回可能包含 \，
+     * 这里统一将反斜杠转为正斜杠以确保 SFTP 兼容性
+     * @param {string} basePath - 基础路径
+     * @param {string} fileName - 文件名或子路径
+     * @returns {string}
+     */
+    _joinRemotePath(basePath, fileName) {
+        // 统一将反斜杠转为正斜杠（SFTP 协议标准使用正斜杠）
+        const normalized = basePath.replace(/\\/g, '/');
+        if (normalized.endsWith('/')) {
+            return normalized + fileName;
+        }
+        return normalized + '/' + fileName;
+    }
+
+    /**
+     * 从远程路径中提取文件名（兼容 / 和 \ 分隔符）
+     * @param {string} remotePath
+     * @returns {string}
+     */
+    _extractFilename(remotePath) {
+        // 同时处理 / 和 \ 分隔符
+        const parts = remotePath.replace(/\\/g, '/').split('/');
+        return parts[parts.length - 1] || 'download';
+    }
 
     /**
      * 格式化权限位为 rwx 形式

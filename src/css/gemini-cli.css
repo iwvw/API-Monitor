@@ -1,4 +1,4 @@
-/* Gemini CLI 模块专属样式 */
+﻿/* Gemini CLI 模块专属样式 */
 
 /* .gemini-cli-content {
   animation: fadeIn 0.4s ease-out;
@@ -22,8 +22,8 @@
 .gemini-card {
   background: var(--card-bg);
   border: 1px solid var(--border-color);
-  border-radius: 16px;
-  padding: 20px;
+  border-radius: var(--radius-lg);
+  padding: var(--space-xl);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
   overflow: hidden;
@@ -50,7 +50,7 @@
 
 .model-matrix-table th {
   vertical-align: middle;
-  padding: 8px 4px;
+  padding: var(--space-sm) var(--space-xs);
   /* Balanced padding */
   background: var(--bg-secondary);
 }
@@ -58,7 +58,7 @@
 .model-matrix-table td {
   vertical-align: middle;
   height: 50px;
-  padding: 0 4px;
+  padding: 0 var(--space-xs);
 }
 
 .model-matrix-table td.text-center {
@@ -74,7 +74,7 @@
 /* Fix Model Name alignment */
 .model-matrix-table th:first-child,
 .model-matrix-table td:first-child {
-  padding-left: 16px;
+  padding-left: var(--space-lg);
   text-align: left;
 }
 
@@ -82,10 +82,10 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: var(--space-sm);
   cursor: pointer;
-  padding: 6px 12px;
-  border-radius: 6px;
+  padding: 6px var(--space-md);
+  border-radius: var(--radius-sm);
   transition: background-color 0.2s;
   user-select: none;
 }
@@ -115,8 +115,8 @@
 }
 
 .gemini-badge {
-  padding: 4px 10px;
-  border-radius: 20px;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-lg);
   font-size: 11px;
   font-weight: 600;
   background: rgba(66, 133, 244, 0.1);
@@ -127,12 +127,12 @@
   background: var(--gemini-primary);
   color: white;
   border: none;
-  border-radius: 12px;
-  padding: 10px 20px;
+  border-radius: var(--radius-lg);
+  padding: var(--space-sm) var(--space-xl);
   font-weight: 600;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
   transition: all 0.2s;
 }
 
@@ -141,7 +141,7 @@
   transform: scale(1.02);
 }
 
-/* 状态标点 */
+/* 状标?*/
 .status-indicator {
   width: 8px;
   height: 8px;
@@ -159,7 +159,7 @@
   background-color: var(--error-color);
 }
 
-/* 响应式调整 */
+/* 响应式调?*/
 @media (max-width: 768px) {
   .gemini-grid {
     grid-template-columns: 1fr;
@@ -179,13 +179,13 @@
   filter: brightness(1.1);
 }
 
-/* Gemini 可展开 OAuth 面板 */
+/* Gemini 可展弢 OAuth  */
 .gemini-oauth-panel {
   max-height: 0;
   overflow: hidden;
   transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1);
   background: linear-gradient(135deg, rgba(66, 133, 244, 0.05) 0%, rgba(0, 191, 165, 0.08) 100%);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
 }
 
 .gemini-oauth-panel.expanded {
@@ -198,7 +198,7 @@
   flex-direction: column;
   gap: 2px;
   align-items: center;
-  margin-top: 4px;
+  margin-top: var(--space-xs);
 }
 
 .model-cooldown-tag {
@@ -207,7 +207,7 @@
   background: rgba(245, 158, 11, 0.1);
   color: #f59e0b;
   border: 1px solid rgba(245, 158, 11, 0.2);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   white-space: nowrap;
   font-family: var(--font-mono);
   font-weight: 600;
@@ -230,10 +230,10 @@
   }
 }
 
-/* 模型健康检测表格 */
+/* 模型健康棢测表?*/
 .model-check-table th,
 .model-check-table td {
-  padding: 8px 12px;
+  padding: var(--space-sm) var(--space-md);
   font-size: 12px;
 }
 
@@ -268,11 +268,11 @@
   font-size: 14px;
 }
 
-/* 定时检测下拉框样式 */
+/* 定时棢测下拉框样式 */
 .auto-check-select {
   font-size: 11px;
-  padding: 4px 8px;
-  border-radius: 6px;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-sm);
   border: 1px solid var(--border-color);
   background: var(--bg-tertiary);
   color: var(--text-primary);
@@ -284,7 +284,7 @@
   background-repeat: no-repeat;
   background-position: right 4px center;
   background-size: 16px;
-  padding-right: 24px;
+  padding-right: var(--space-xl);
 }
 
 .auto-check-select:hover {
@@ -298,20 +298,20 @@
   box-shadow: 0 0 0 2px rgba(66, 133, 244, 0.2);
 }
 
-/* 下拉选项样式（浏览器支持有限） */
+/* 下拉选项样式（浏览器支持有限?*/
 .auto-check-select option {
   background: var(--bg-primary);
   color: var(--text-primary);
-  padding: 8px 12px;
+  padding: var(--space-sm) var(--space-md);
 }
 
-/* ========== 额度进度条样式 ========== */
+/* ========== 额度进度条样?========== */
 .quota-bar-mini {
   width: 100%;
   max-width: 80px;
   height: 6px;
   background: rgba(128, 128, 128, 0.15);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   overflow: hidden;
   cursor: help;
   margin: 0 auto;
@@ -319,7 +319,7 @@
 
 .quota-bar-fill {
   height: 100%;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1), background 0.3s;
   min-width: 2px;
 }

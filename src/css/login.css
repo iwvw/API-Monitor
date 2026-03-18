@@ -1,4 +1,4 @@
-/* Modern Auth Screen Styles */
+﻿/* Modern Auth Screen Styles */
 :root {
   --auth-bg: #f0f4f8;
   --auth-card-bg: #ffffff;
@@ -37,7 +37,7 @@
   align-items: center;
   justify-content: center;
   z-index: 10000;
-  padding: 20px;
+  padding: var(--space-xl);
   transition: all 0.3s ease;
   pointer-events: auto;
   /* 确保登录页可交互 */
@@ -49,7 +49,7 @@
   width: 100%;
   max-width: 420px;
   padding: 30px 30px;
-  border-radius: 24px;
+  border-radius: var(--radius-lg);
   box-shadow: var(--auth-shadow);
   overflow: hidden;
   animation: authPopIn 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
@@ -69,7 +69,7 @@
 
 .auth-header {
   text-align: center;
-  margin-bottom: 20px;
+  margin-bottom: var(--space-xl);
 }
 
 .auth-logo {
@@ -77,11 +77,11 @@
   height: 72px;
   background: linear-gradient(135deg, #3b82f6, #2563eb);
   color: white;
-  border-radius: 20px;
+  border-radius: var(--radius-lg);
   display: flex;
   align-items: center;
   justify-content: center;
-  margin: 0 auto 24px;
+  margin: 0 auto var(--space-xl);
   font-size: 32px;
   box-shadow: 6px 6px 9px 0px var(--auth-primary-glow);
   position: relative;
@@ -106,7 +106,7 @@
   font-size: 28px;
   font-weight: 800;
   color: var(--auth-text-main);
-  margin: 0 0 12px 0;
+  margin: 0 0 var(--space-md) 0;
   letter-spacing: -0.025em;
 }
 
@@ -119,7 +119,7 @@
 .auth-body {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: var(--space-xl);
   position: relative;
   z-index: 2;
 }
@@ -133,7 +133,7 @@
 
 .input-icon {
   position: absolute;
-  left: 16px;
+  left: var(--space-lg);
   color: var(--auth-text-muted);
   font-size: 16px;
   transition: all 0.5s ease;
@@ -144,10 +144,10 @@
 .auth-input {
   width: 100%;
   height: 52px;
-  padding: 0 16px 0 44px;
+  padding: 0 var(--space-lg) 0 44px;
   background: var(--auth-input-bg);
   border: 2px solid transparent;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   color: var(--auth-text-main);
   font-size: 15px;
   transition: all 0.5s ease;
@@ -175,12 +175,12 @@
 .auth-error-msg {
   background: rgba(239, 68, 68, 0.1);
   color: var(--auth-error);
-  padding: 12px 16px;
-  border-radius: 12px;
+  padding: var(--space-md) var(--space-lg);
+  border-radius: var(--radius-lg);
   font-size: 14px;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-sm);
   animation: authShake 0.4s ease-in-out;
 }
 
@@ -204,17 +204,17 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 12px;
-  padding: 10px;
+  gap: var(--space-md);
+  padding: var(--space-sm);
   background: var(--auth-primary);
   color: white;
   border: none;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   font-size: 17px;
   font-weight: 700;
   cursor: pointer;
   transition: all 0.3s ease;
-  margin-top: 8px;
+  margin-top: var(--space-sm);
 }
 
 .auth-primary-btn:hover {
@@ -231,14 +231,14 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
-  padding: 14px;
+  gap: var(--space-sm);
+  padding: var(--space-lg);
   background: rgba(255, 255, 255, 0.03);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   color: var(--auth-text-muted);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   font-size: 14px;
   font-weight: 500;
   cursor: pointer;
@@ -265,7 +265,7 @@
   font-size: 28px !important;
   letter-spacing: 0.5em !important;
   font-weight: 800 !important;
-  /* 对称边距，确保 text-align: center 能够绝对居中并避开左侧图标 */
+  /* 对称边距，确?text-align: center 能够绝对居中并避弢左侧图标 */
   padding-left: 44px !important;
   padding-right: 44px !important;
   font-family: var(--font-mono), 'Monaco', 'Consolas', monospace !important;
@@ -298,8 +298,8 @@
   width: 150px;
   height: 150px;
   background: rgba(59, 130, 246, 0.15);
-  bottom: 20px;
-  right: 20px;
+  bottom: var(--space-xl);
+  right: var(--space-xl);
 }
 
 .c2 {
@@ -312,12 +312,12 @@
 
 @media (max-width: 480px) {
   .auth-card {
-    padding: 32px 24px;
-    border-radius: 24px;
+    padding: 32px var(--space-xl);
+    border-radius: var(--radius-lg);
   }
 }
 
-/* 防止空模板容器阻挡点击 */
+/* 防止空模板容器阻挡点?*/
 #template-auth,
 #template-welcome {
   pointer-events: none;

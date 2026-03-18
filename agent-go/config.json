@@ -1,8 +1,0 @@
-{
-    "serverUrl": "http://localhost:3000",
-    "serverId": "7abda9e0-1810-4177-beba-eadae968013a",
-    "agentKey": "b1789ded202d2ccb6fec1c8f843f1c56",
-    "reportInterval": 1500,
-    "reconnectDelay": 4000,
-    "debug": true
-}

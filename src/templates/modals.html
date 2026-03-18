@@ -297,404 +297,409 @@
 </div>
 
 <!-- 统一日志查看器模态框 -->
-<div v-if="logViewer.visible" class="modal-overlay log-viewer-overlay"
-  :class="{ 'logs-fullscreen': logViewer.fullscreen }" @keydown.esc.stop="closeLogViewer" tabindex="-1">
-  <div class="modal log-viewer-modal" :class="{ 'fullscreen': logViewer.fullscreen }">
-    <!-- 顶栏：标题与核心控制 -->
-    <div class="log-header">
-      <div class="log-title-group">
-        <div class="log-icon">
-          <i class="fas fa-terminal"></i>
+<teleport to="body">
+  <div v-if="logViewer.visible" class="modal-overlay log-viewer-overlay"
+    :class="{ 'logs-fullscreen': logViewer.fullscreen }" @keydown.esc.stop="closeLogViewer" tabindex="-1">
+    <div class="modal log-viewer-modal" :class="{ 'fullscreen': logViewer.fullscreen }">
+      <!-- 顶栏：标题与核心控制 -->
+      <div class="log-header">
+        <div class="log-title-group">
+          <div class="log-icon">
+            <i class="fas fa-terminal"></i>
+          </div>
+          <div class="log-info">
+            <div class="log-title">{{ logViewer.title }}</div>
+            <div class="log-subtitle" v-if="logViewer.subtitle">{{ logViewer.subtitle }}</div>
+          </div>
+          <div class="log-status-badge" :class="logViewer.streamActive ? 'live' : 'static'">
+            <span class="dot"></span> {{ logViewer.streamActive ? 'LIVE' : 'ARCHIVE' }}
+          </div>
         </div>
-        <div class="log-info">
-          <div class="log-title">{{ logViewer.title }}</div>
-          <div class="log-subtitle" v-if="logViewer.subtitle">{{ logViewer.subtitle }}</div>
-        </div>
-        <div class="log-status-badge" :class="logViewer.streamActive ? 'live' : 'static'">
-          <span class="dot"></span> {{ logViewer.streamActive ? 'LIVE' : 'ARCHIVE' }}
-        </div>
-      </div>
-      <div class="log-window-controls">
-        <button class="win-btn" @click="logViewer.fullscreen = !logViewer.fullscreen"
-          :title="logViewer.fullscreen ? '退出全屏' : '全屏'">
-          <i class="fas" :class="logViewer.fullscreen ? 'fa-compress' : 'fa-expand'"></i>
-        </button>
-        <button class="win-btn close" @click="closeLogViewer" title="关闭">
-          <i class="fas fa-times"></i>
-        </button>
-      </div>
-    </div>
-
-    <!-- 工具栏：过滤与操作 -->
-    <div class="log-toolbar">
-      <div class="log-filters">
-        <div class="search-box">
-          <i class="fas fa-search"></i>
-          <input v-model="logViewer.filterText" placeholder="搜索日志..." />
-          <button v-if="logViewer.filterText" @click="logViewer.filterText = ''" class="clear-search">
-            <i class="fas fa-times-circle"></i>
+        <div class="log-window-controls">
+          <button class="win-btn" @click="logViewer.fullscreen = !logViewer.fullscreen"
+            :title="logViewer.fullscreen ? '退出全屏' : '全屏'">
+            <i class="fas" :class="logViewer.fullscreen ? 'fa-compress' : 'fa-expand'"></i>
+          </button>
+          <button class="win-btn close" @click="closeLogViewer" title="关闭">
+            <i class="fas fa-times"></i>
           </button>
         </div>
-        <select v-model="logViewer.levelFilter" class="level-select">
-          <option value="ALL">所有级别</option>
-          <option value="INFO">INFO</option>
-          <option value="WARN">WARN</option>
-          <option value="ERROR">ERROR</option>
-          <option value="DEBUG">DEBUG</option>
-        </select>
-      </div>
-      <div class="log-actions">
-        <button class="tool-btn" :class="{ active: logViewer.autoScroll }" @click="toggleLogAutoScroll" title="自动滚动">
-          <i class="fas fa-arrow-down"></i> <span>Auto-scroll</span>
-        </button>
-        <button class="tool-btn" :class="{ active: logViewer.wrapText }" @click="toggleLogWrap" title="自动换行">
-          <i class="fas fa-align-left"></i> <span>Wrap</span>
-        </button>
-        <div class="divider"></div>
-        <button class="tool-btn" @click="clearLogs" title="清空视图">
-          <i class="fas fa-trash-alt"></i>
-        </button>
-        <button class="tool-btn" @click="downloadLogs" title="下载日志">
-          <i class="fas fa-download"></i>
-        </button>
-      </div>
-    </div>
-
-    <!-- 日志内容区域 -->
-    <div id="log-viewer-container" class="log-viewport" :class="{ 'wrap-text': logViewer.wrapText }">
-      <div v-if="logViewer.loading && logViewer.logs.length === 0" class="log-loading">
-        <div class="spinner"></div>
-        <span>正在加载日志流...</span>
       </div>
 
-      <div v-if="!logViewer.loading && getFilteredLogs().length === 0" class="log-empty">
-        <i class="fas fa-inbox"></i>
-        <span>无匹配日志</span>
-      </div>
-
-      <!-- 虚拟列表优化：实际渲染的日志行 -->
-      <div class="log-lines">
-        <div v-for="(log, index) in getFilteredLogs()" :key="log.id || index" class="log-entry"
-          :class="log.level.toLowerCase()">
-          <span class="line-num">{{ index + 1 }}</span>
-          <span class="time">{{ new Date(log.timestamp).toLocaleTimeString() }}</span>
-          <span class="level-tag"><i class="fas" :class="getLogIcon(log.level)"></i> {{ log.level }}</span>
-          <span v-if="log.module" class="log-module-tag" :class="'module-' + log.module.toLowerCase()">[{{ log.module
-            }}]</span>
-          <span class="message" v-html="formatMessage(log.message)"></span>
+      <!-- 工具栏：过滤与操作 -->
+      <div class="log-toolbar">
+        <div class="log-filters">
+          <div class="search-box">
+            <i class="fas fa-search"></i>
+            <input v-model="logViewer.filterText" placeholder="搜索日志..." />
+            <button v-if="logViewer.filterText" @click="logViewer.filterText = ''" class="clear-search">
+              <i class="fas fa-times-circle"></i>
+            </button>
+          </div>
+          <select v-model="logViewer.levelFilter" class="level-select">
+            <option value="ALL">所有级别</option>
+            <option value="INFO">INFO</option>
+            <option value="WARN">WARN</option>
+            <option value="ERROR">ERROR</option>
+            <option value="DEBUG">DEBUG</option>
+          </select>
+        </div>
+        <div class="log-actions">
+          <button class="tool-btn" :class="{ active: logViewer.autoScroll }" @click="toggleLogAutoScroll" title="自动滚动">
+            <i class="fas fa-arrow-down"></i> <span>Auto-scroll</span>
+          </button>
+          <button class="tool-btn" :class="{ active: logViewer.wrapText }" @click="toggleLogWrap" title="自动换行">
+            <i class="fas fa-align-left"></i> <span>Wrap</span>
+          </button>
+          <div class="divider"></div>
+          <button class="tool-btn" @click="clearLogs" title="清空视图">
+            <i class="fas fa-trash-alt"></i>
+          </button>
+          <button class="tool-btn" @click="downloadLogs" title="下载日志">
+            <i class="fas fa-download"></i>
+          </button>
         </div>
       </div>
-    </div>
 
-    <!-- 底部状态栏 -->
-    <div class="log-footer">
-      <div class="footer-stat">
-        <i class="fas fa-list-ol"></i> {{ logViewer.logs.length }} lines
+      <!-- 日志内容区域 -->
+      <div id="log-viewer-container" class="log-viewport" :class="{ 'wrap-text': logViewer.wrapText }">
+        <div v-if="logViewer.loading && logViewer.logs.length === 0" class="log-loading">
+          <div class="spinner"></div>
+          <span>正在加载日志流...</span>
+        </div>
+
+        <div v-if="!logViewer.loading && getFilteredLogs().length === 0" class="log-empty">
+          <i class="fas fa-inbox"></i>
+          <span>无匹配日志</span>
+        </div>
+
+        <!-- 虚拟列表优化：实际渲染的日志行 -->
+        <div class="log-lines">
+          <div v-for="(log, index) in getFilteredLogs()" :key="log.id || index" class="log-entry"
+            :class="log.level.toLowerCase()">
+            <span class="line-num">{{ index + 1 }}</span>
+            <span class="time">{{ new Date(log.timestamp).toLocaleTimeString() }}</span>
+            <span class="level-tag"><i class="fas" :class="getLogIcon(log.level)"></i> {{ log.level }}</span>
+            <span v-if="log.module" class="log-module-tag" :class="'module-' + log.module.toLowerCase()">[{{ log.module
+              }}]</span>
+            <span class="message" v-html="formatMessage(log.message)"></span>
+          </div>
+        </div>
       </div>
-      <div class="footer-stat" v-if="logViewer.filterText">
-        <i class="fas fa-filter"></i> Filtered: {{ getFilteredLogs().length }}
+
+      <!-- 底部状态栏 -->
+      <div class="log-footer">
+        <div class="footer-stat">
+          <i class="fas fa-list-ol"></i> {{ logViewer.logs.length }} lines
+        </div>
+        <div class="footer-stat" v-if="logViewer.filterText">
+          <i class="fas fa-filter"></i> Filtered: {{ getFilteredLogs().length }}
+        </div>
       </div>
     </div>
   </div>
-</div>
+</teleport>
 
 <!-- 保留其他特定的模态框 -->
 <!-- Antigravity Log Detail Modal -->
-<div v-if="showAntigravityLogDetailModal" class="modal-overlay" @click.self="showAntigravityLogDetailModal = false"
-  @keydown.esc="showAntigravityLogDetailModal = false" tabindex="-1">
-  <div class="modal" style="max-width: 1300px">
-    <div class="modal-header" style="justify-content: space-between">
-      <div style="display: flex; align-items: center; gap: 15px">
-        <div class="modal-title"><i class="fas fa-file-alt"></i> 调用日志详情</div>
+<teleport to="body">
+  <div v-if="showAntigravityLogDetailModal" class="modal-overlay" @click.self="showAntigravityLogDetailModal = false"
+    @keydown.esc="showAntigravityLogDetailModal = false" tabindex="-1">
+    <div class="modal" style="max-width: 1300px">
+      <div class="modal-header" style="justify-content: space-between">
+        <div style="display: flex; align-items: center; gap: 15px">
+          <div class="modal-title"><i class="fas fa-file-alt"></i> 调用日志详情</div>
 
-        <!-- 迷你视图切换开关 -->
-        <div class="mini-view-toggle" @click="agLogDetailShowRaw = !agLogDetailShowRaw"
-          data-tooltip="在易读视图与原始 JSON 之间切换">
-          <span style="font-size: 11px; font-weight: 600; opacity: 0.7">原始 JSON</span>
-          <div class="mini-switch" :class="{ on: agLogDetailShowRaw }" style="
-              width: 28px;
-              height: 14px;
-              background: #ccc;
-              border-radius: 10px;
-              position: relative;
-              transition: background 0.3s;
-            ">
-            <div class="mini-slider" style="
-                width: 10px;
-                height: 10px;
-                background: white;
-                border-radius: 50%;
-                position: absolute;
-                top: 2px;
-                left: 2px;
-                transition: transform 0.3s;
-              " :style="{ transform: agLogDetailShowRaw ? 'translateX(14px)' : 'none' }"></div>
+          <!-- 迷你视图切换开关 -->
+          <div class="mini-view-toggle" @click="agLogDetailShowRaw = !agLogDetailShowRaw"
+            data-tooltip="在易读视图与原始 JSON 之间切换">
+            <span style="font-size: 11px; font-weight: 600; opacity: 0.7">原始 JSON</span>
+            <div class="mini-switch" :class="{ on: agLogDetailShowRaw }" style="
+                width: 28px;
+                height: 14px;
+                background: #ccc;
+                border-radius: 10px;
+                position: relative;
+                transition: background 0.3s;
+              ">
+              <div class="mini-slider" style="
+                  width: 10px;
+                  height: 10px;
+                  background: white;
+                  border-radius: 50%;
+                  position: absolute;
+                  top: 2px;
+                  left: 2px;
+                  transition: transform 0.3s;
+                " :style="{ transform: agLogDetailShowRaw ? 'translateX(14px)' : 'none' }"></div>
+            </div>
           </div>
         </div>
+        <button class="modal-close" @click="showAntigravityLogDetailModal = false">
+          <i class="fas fa-times"></i>
+        </button>
       </div>
-      <button class="modal-close" @click="showAntigravityLogDetailModal = false">
-        <i class="fas fa-times"></i>
-      </button>
-    </div>
-    <div class="modal-body" v-if="antigravityLogDetail" style="padding: 0">
-      <div style="padding: 10px; max-height: 75vh; overflow-y: auto">
-        <!-- 易读视图 -->
-        <div v-if="!agLogDetailShowRaw" class="log-readable-view">
-          <div class="log-detail-section">
-            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 5px">
-              <div style="width: 4px; height: 16px; background: var(--ag-primary); border-radius: 2px"></div>
-              <h4 style="margin: 0; font-size: 15px; font-weight: 600">基础运行信息</h4>
-            </div>
-
-            <div class="info-grid" style="
-                display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-                gap: 12px;
-                background: var(--bg-secondary);
-                padding: 16px;
-                border-radius: 10px;
-                border: 1px solid var(--border-color);
-              ">
-              <div class="info-item" style="display: flex; flex-direction: column; gap: 4px">
-                <span style="
-                    font-size: 11px;
-                    opacity: 0.5;
-                    text-transform: uppercase;
-                    letter-spacing: 0.5px;
-                  ">请求标识 ID</span>
-                <span style="font-family: var(--font-mono); font-size: 13px; color: var(--text-primary)">#{{
-                  antigravityLogDetail.id }}</span>
+      <div class="modal-body" v-if="antigravityLogDetail" style="padding: 0">
+        <div style="padding: 10px; max-height: 75vh; overflow-y: auto">
+          <!-- 易读视图 -->
+          <div v-if="!agLogDetailShowRaw" class="log-readable-view">
+            <div class="log-detail-section">
+              <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 5px">
+                <div style="width: 4px; height: 16px; background: var(--ag-primary); border-radius: 2px"></div>
+                <h4 style="margin: 0; font-size: 15px; font-weight: 600">基础运行信息</h4>
               </div>
 
-              <div class="info-item" style="display: flex; flex-direction: column; gap: 4px">
-                <span style="
-                    font-size: 11px;
-                    opacity: 0.5;
-                    text-transform: uppercase;
-                    letter-spacing: 0.5px;
-                  ">发生时间</span>
-                <span style="font-size: 13px">{{ formatDateTime(antigravityLogDetail.created_at ||
-                  antigravityLogDetail.timestamp) }}</span>
-              </div>
-
-              <div class="info-item" style="display: flex; flex-direction: column; gap: 4px">
-                <span style="
-                    font-size: 11px;
-                    opacity: 0.5;
-                    text-transform: uppercase;
-                    letter-spacing: 0.5px;
-                  ">接口路径 & 方法</span>
-                <div style="display: flex; align-items: center; gap: 6px">
-                  <span class="method-badge"
-                    :class="'method-' + (antigravityLogDetail.request_method || antigravityLogDetail.method || 'POST').toLowerCase()"
-                    style="font-size: 10px; padding: 2px 6px">
-                    {{ antigravityLogDetail.request_method || antigravityLogDetail.method || 'POST'
-                    }}
-                  </span>
-                  <code style="
-                      font-size: 12px;
-                      background: rgba(0, 0, 0, 0.05);
-                      padding: 2px 4px;
-                      border-radius: 4px;
-                    ">{{ antigravityLogDetail.request_path || antigravityLogDetail.path }}</code>
-                </div>
-              </div>
-
-              <div class="info-item" style="display: flex; flex-direction: column; gap: 4px">
-                <span style="
-                    font-size: 11px;
-                    opacity: 0.5;
-                    text-transform: uppercase;
-                    letter-spacing: 0.5px;
-                  ">状态与耗时</span>
-                <div style="display: flex; align-items: center; gap: 8px">
-                  <span class="ag-status-badge"
-                    :class="getLogStatusClass(antigravityLogDetail.status_code || antigravityLogDetail.statusCode)"
-                    style="font-size: 10px">
-                    {{ antigravityLogDetail.status_code || antigravityLogDetail.statusCode }}
-                  </span>
-                  <span style="font-size: 13px; font-weight: 600; color: var(--ag-primary)">{{
-                    antigravityLogDetail.duration_ms || antigravityLogDetail.durationMs
-                    }}ms</span>
-                </div>
-              </div>
-
-              <div class="info-item" style="display: flex; flex-direction: column; gap: 4px">
-                <span style="
-                    font-size: 11px;
-                    opacity: 0.5;
-                    text-transform: uppercase;
-                    letter-spacing: 0.5px;
-                  ">所用模型</span>
-                <div style="display: flex; align-items: center; gap: 6px">
+              <div class="info-grid" style="
+                  display: grid;
+                  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+                  gap: 12px;
+                  background: var(--bg-secondary);
+                  padding: 16px;
+                  border-radius: 10px;
+                  border: 1px solid var(--border-color);
+                ">
+                <div class="info-item" style="display: flex; flex-direction: column; gap: 4px">
                   <span style="
-                      font-size: 13px;
-                      font-weight: 600;
-                      color: var(--text-primary);
-                      font-family: var(--font-mono);
-                    ">
-                    {{ antigravityLogDetail.model || antigravityLogDetail.model_name || '-' }}
-                  </span>
+                      font-size: 11px;
+                      opacity: 0.5;
+                      text-transform: uppercase;
+                      letter-spacing: 0.5px;
+                    ">请求标识 ID</span>
+                  <span style="font-family: var(--font-mono); font-size: 13px; color: var(--text-primary)">#{{
+                    antigravityLogDetail.id }}</span>
                 </div>
-              </div>
 
-              <div class="info-item" style="display: flex; flex-direction: column; gap: 4px">
-                <span style="
-                    font-size: 11px;
-                    opacity: 0.5;
-                    text-transform: uppercase;
-                    letter-spacing: 0.5px;
-                  ">调用客户端</span>
-                <div style="
-                    font-size: 12px;
-                    white-space: nowrap;
-                    overflow: hidden;
-                    text-overflow: ellipsis;
-                    opacity: 0.9;
-                  " :data-tooltip="antigravityLogDetail.user_agent || '未知浏览器'">
-                  <i class="fas fa-network-wired" style="margin-right: 4px; opacity: 0.5"></i>
-                  {{ antigravityLogDetail.client_ip || antigravityLogDetail.clientIp || '-' }}
+                <div class="info-item" style="display: flex; flex-direction: column; gap: 4px">
+                  <span style="
+                      font-size: 11px;
+                      opacity: 0.5;
+                      text-transform: uppercase;
+                      letter-spacing: 0.5px;
+                    ">发生时间</span>
+                  <span style="font-size: 13px">{{ formatDateTime(antigravityLogDetail.created_at ||
+                    antigravityLogDetail.timestamp) }}</span>
                 </div>
-              </div>
-            </div>
-          </div>
 
-          <div v-if="antigravityLogDetail.detail" class="log-detail-section" style="margin-top: 10px">
-            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 15px">
-              <div style="width: 4px; height: 16px; background: var(--ag-primary); border-radius: 2px"></div>
-              <h4 style="margin: 0; font-size: 15px; font-weight: 600">对话流回溯</h4>
-            </div>
-
-            <!-- 现代对话流展示 -->
-            <div
-              v-if="antigravityLogDetail.detail.messages || (antigravityLogDetail.detail.response && antigravityLogDetail.detail.response.choices)"
-              class="chat-history-modern" style="
-                display: flex;
-                flex-direction: column;
-                gap: 16px;
-                background: var(--bg-secondary);
-                padding: 20px;
-                border-radius: 12px;
-                border: 1px solid var(--border-color);
-              ">
-              <!-- 遍历历史请求消息 -->
-              <div v-for="(msg, idx) in antigravityLogDetail.detail.messages" :key="'req-'+idx"
-                :style="{ alignSelf: msg.role === 'user' ? 'flex-end' : 'flex-start', width: 'fit-content', maxWidth: '90%' }">
-                <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 6px"
-                  :style="{ flexDirection: msg.role === 'user' ? 'row-reverse' : 'row' }">
-                  <div style="
-                      width: 20px;
-                      height: 20px;
-                      border-radius: 50%;
-                      display: flex;
-                      align-items: center;
-                      justify-content: center;
-                      font-size: 10px;
-                      background: var(--bg-tertiary);
-                      color: var(--text-secondary);
-                      border: 1px solid var(--border-color);
-                    ">
-                    <i class="fas" :class="msg.role === 'user' ? 'fa-user' : 'fa-robot'"></i>
+                <div class="info-item" style="display: flex; flex-direction: column; gap: 4px">
+                  <span style="
+                      font-size: 11px;
+                      opacity: 0.5;
+                      text-transform: uppercase;
+                      letter-spacing: 0.5px;
+                    ">接口路径 & 方法</span>
+                  <div style="display: flex; align-items: center; gap: 6px">
+                    <span class="method-badge"
+                      :class="'method-' + (antigravityLogDetail.request_method || antigravityLogDetail.method || 'POST').toLowerCase()"
+                      style="font-size: 10px; padding: 2px 6px">
+                      {{ antigravityLogDetail.request_method || antigravityLogDetail.method || 'POST'
+                      }}
+                    </span>
+                    <code style="
+                        font-size: 12px;
+                        background: rgba(0, 0, 0, 0.05);
+                        padding: 2px 4px;
+                        border-radius: 4px;
+                      ">{{ antigravityLogDetail.request_path || antigravityLogDetail.path }}</code>
                   </div>
-                  <span style="font-size: 11px; font-weight: 600; opacity: 0.6">
-                    {{ msg.role === 'user' ? '用户' : (msg.role === 'assistant' ? 'AI' :
-                    msg.role.toUpperCase()) }}
-                  </span>
                 </div>
 
-                <details v-if="msg.role === 'system'" class="reasoning-details" style="width: 100%">
-                  <summary>
-                    <i class="fas fa-terminal"></i>
-                    <span>系统指令 / System Prompt</span>
-                  </summary>
-                  <div class="msg-bubble system-bubble" style="
-                      font-family: var(--font-mono);
+                <div class="info-item" style="display: flex; flex-direction: column; gap: 4px">
+                  <span style="
+                      font-size: 11px;
+                      opacity: 0.5;
+                      text-transform: uppercase;
+                      letter-spacing: 0.5px;
+                    ">状态与耗时</span>
+                  <div style="display: flex; align-items: center; gap: 8px">
+                    <span class="ag-status-badge"
+                      :class="getLogStatusClass(antigravityLogDetail.status_code || antigravityLogDetail.statusCode)"
+                      style="font-size: 10px">
+                      {{ antigravityLogDetail.status_code || antigravityLogDetail.statusCode }}
+                    </span>
+                    <span style="font-size: 13px; font-weight: 600; color: var(--ag-primary)">{{
+                      antigravityLogDetail.duration_ms || antigravityLogDetail.durationMs
+                      }}ms</span>
+                  </div>
+                </div>
+
+                <div class="info-item" style="display: flex; flex-direction: column; gap: 4px">
+                  <span style="
+                      font-size: 11px;
+                      opacity: 0.5;
+                      text-transform: uppercase;
+                      letter-spacing: 0.5px;
+                    ">所用模型</span>
+                  <div style="display: flex; align-items: center; gap: 6px">
+                    <span style="
+                        font-size: 13px;
+                        font-weight: 600;
+                        color: var(--text-primary);
+                        font-family: var(--font-mono);
+                      ">
+                      {{ antigravityLogDetail.model || antigravityLogDetail.model_name || '-' }}
+                    </span>
+                  </div>
+                </div>
+
+                <div class="info-item" style="display: flex; flex-direction: column; gap: 4px">
+                  <span style="
+                      font-size: 11px;
+                      opacity: 0.5;
+                      text-transform: uppercase;
+                      letter-spacing: 0.5px;
+                    ">调用客户端</span>
+                  <div style="
                       font-size: 12px;
-                      background: var(--bg-tertiary);
-                      border: 1px dashed var(--border-color);
-                      white-space: pre-wrap;
-                      opacity: 0.8;
-                      width: 100%;
-                      border-top: none;
-                      border-radius: 0 0 8px 8px;
-                      margin-top: 0;
-                    ">
-                    {{ msg.content }}
+                      white-space: nowrap;
+                      overflow: hidden;
+                      text-overflow: ellipsis;
+                      opacity: 0.9;
+                    " :data-tooltip="antigravityLogDetail.user_agent || '未知浏览器'">
+                    <i class="fas fa-network-wired" style="margin-right: 4px; opacity: 0.5"></i>
+                    {{ antigravityLogDetail.client_ip || antigravityLogDetail.clientIp || '-' }}
                   </div>
-                </details>
-                <div v-else class="msg-bubble" :class="msg.role === 'user' ? 'user-bubble' : 'assistant-bubble'"
-                  v-html="getCachedLogHtml(msg, 'content')"></div>
+                </div>
+              </div>
+            </div>
+
+            <div v-if="antigravityLogDetail.detail" class="log-detail-section" style="margin-top: 10px">
+              <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 15px">
+                <div style="width: 4px; height: 16px; background: var(--ag-primary); border-radius: 2px"></div>
+                <h4 style="margin: 0; font-size: 15px; font-weight: 600">对话流回溯</h4>
               </div>
 
-              <!-- 展示本次 AI 响应 (包含思考过程) -->
+              <!-- 现代对话流展示 -->
               <div
-                v-if="antigravityLogDetail.detail.response && antigravityLogDetail.detail.response.choices && antigravityLogDetail.detail.response.choices[0].message"
-                style="align-self: flex-start; width: 100%; max-width: 95%">
-                <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 6px">
-                  <div style="
-                      width: 20px;
-                      height: 20px;
-                      border-radius: 50%;
-                      background: var(--ag-primary);
-                      color: white;
-                      display: flex;
-                      align-items: center;
-                      justify-content: center;
-                      font-size: 10px;
-                      box-shadow: 0 2px 6px rgba(var(--ag-primary-rgb), 0.3);
-                    ">
-                    <i class="fas fa-magic"></i>
+                v-if="antigravityLogDetail.detail.messages || (antigravityLogDetail.detail.response && antigravityLogDetail.detail.response.choices)"
+                class="chat-history-modern" style="
+                  display: flex;
+                  flex-direction: column;
+                  gap: 16px;
+                  background: var(--bg-secondary);
+                  padding: 20px;
+                  border-radius: 12px;
+                  border: 1px solid var(--border-color);
+                ">
+                <!-- 遍历历史请求消息 -->
+                <div v-for="(msg, idx) in antigravityLogDetail.detail.messages" :key="'req-'+idx"
+                  :style="{ alignSelf: msg.role === 'user' ? 'flex-end' : 'flex-start', width: 'fit-content', maxWidth: '90%' }">
+                  <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 6px"
+                    :style="{ flexDirection: msg.role === 'user' ? 'row-reverse' : 'row' }">
+                    <div style="
+                        width: 20px;
+                        height: 20px;
+                        border-radius: 50%;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        font-size: 10px;
+                        background: var(--bg-tertiary);
+                        color: var(--text-secondary);
+                        border: 1px solid var(--border-color);
+                      ">
+                      <i class="fas" :class="msg.role === 'user' ? 'fa-user' : 'fa-robot'"></i>
+                    </div>
+                    <span style="font-size: 11px; font-weight: 600; opacity: 0.6">
+                      {{ msg.role === 'user' ? '用户' : (msg.role === 'assistant' ? 'AI' :
+                      msg.role.toUpperCase()) }}
+                    </span>
                   </div>
-                  <span style="font-size: 11px; font-weight: 700; color: var(--ag-primary)">当前响应</span>
-                </div>
 
-                <div class="current-response-container">
-                  <!-- 思考过程 (折叠) -->
-                  <details v-if="antigravityLogDetail.detail.response.choices[0].message.reasoning_content"
-                    class="reasoning-details">
+                  <details v-if="msg.role === 'system'" class="reasoning-details" style="width: 100%">
                     <summary>
-                      <i class="fas fa-brain" style="color: #9c27b0"></i>
-                      <span>思考过程</span>
+                      <i class="fas fa-terminal"></i>
+                      <span>系统指令 / System Prompt</span>
                     </summary>
-                    <div class="reasoning-content-inner"
-                      v-html="getCachedLogHtml(antigravityLogDetail.detail.response.choices[0].message, 'reasoning_content')">
+                    <div class="msg-bubble system-bubble" style="
+                        font-family: var(--font-mono);
+                        font-size: 12px;
+                        background: var(--bg-tertiary);
+                        border: 1px dashed var(--border-color);
+                        white-space: pre-wrap;
+                        opacity: 0.8;
+                        width: 100%;
+                        border-top: none;
+                        border-radius: 0 0 8px 8px;
+                        margin-top: 0;
+                      ">
+                      {{ msg.content }}
                     </div>
                   </details>
+                  <div v-else class="msg-bubble" :class="msg.role === 'user' ? 'user-bubble' : 'assistant-bubble'"
+                    v-html="getCachedLogHtml(msg, 'content')"></div>
+                </div>
 
-                  <!-- 最终回复正文 -->
-                  <div class="response-content"
-                    v-html="getCachedLogHtml(antigravityLogDetail.detail.response.choices[0].message, 'content')"></div>
+                <!-- 展示本次 AI 响应 (包含思考过程) -->
+                <div
+                  v-if="antigravityLogDetail.detail.response && antigravityLogDetail.detail.response.choices && antigravityLogDetail.detail.response.choices[0].message"
+                  style="align-self: flex-start; width: 100%; max-width: 95%">
+                  <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 6px">
+                    <div style="
+                        width: 20px;
+                        height: 20px;
+                        border-radius: 50%;
+                        background: var(--ag-primary);
+                        color: white;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        font-size: 10px;
+                        box-shadow: 0 2px 6px rgba(var(--ag-primary-rgb), 0.3);
+                      ">
+                      <i class="fas fa-magic"></i>
+                    </div>
+                    <span style="font-size: 11px; font-weight: 700; color: var(--ag-primary)">当前响应</span>
+                  </div>
+
+                  <div class="current-response-container">
+                    <!-- 思考过程 (折叠) -->
+                    <details v-if="antigravityLogDetail.detail.response.choices[0].message.reasoning_content"
+                      class="reasoning-details">
+                      <summary>
+                        <i class="fas fa-brain" style="color: #9c27b0"></i>
+                        <span>思考过程</span>
+                      </summary>
+                      <div class="reasoning-content-inner"
+                        v-html="getCachedLogHtml(antigravityLogDetail.detail.response.choices[0].message, 'reasoning_content')">
+                      </div>
+                    </details>
+
+                    <!-- 最终回复正文 -->
+                    <div class="response-content"
+                      v-html="getCachedLogHtml(antigravityLogDetail.detail.response.choices[0].message, 'content')">
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 如果没有 messages 只有 response 摘要 -->
+              <div v-else-if="antigravityLogDetail.detail.response"
+                style="background: var(--bg-tertiary); padding: 12px; border-radius: 8px">
+                <strong>响应摘要:</strong>
+                <div v-if="antigravityLogDetail.detail.response.choices"
+                  style="margin-top: 4px; font-size: 12px; opacity: 0.9">
+                  {{ antigravityLogDetail.detail.response.choices[0].message.content }}
                 </div>
               </div>
             </div>
-
-            <!-- 如果没有 messages 只有 response 摘要 -->
-            <div v-else-if="antigravityLogDetail.detail.response"
-              style="background: var(--bg-tertiary); padding: 12px; border-radius: 8px">
-              <strong>响应摘要:</strong>
-              <div v-if="antigravityLogDetail.detail.response.choices"
-                style="margin-top: 4px; font-size: 12px; opacity: 0.9">
-                {{ antigravityLogDetail.detail.response.choices[0].message.content }}
-              </div>
-            </div>
           </div>
-        </div>
 
-        <!-- 原始视图 -->
-        <div v-else>
-          <pre style="
-              background: var(--bg-secondary);
-              padding: 12px;
-              border-radius: 8px;
-              font-size: 12px;
-              overflow-x: auto;
-            ">
+          <!-- 原始视图 -->
+          <div v-else>
+            <pre style="
+                background: var(--bg-secondary);
+                padding: 12px;
+                border-radius: 8px;
+                font-size: 12px;
+                overflow-x: auto;
+              ">
 {{ JSON.stringify(antigravityLogDetail, null, 2) }}</pre>
+          </div>
         </div>
       </div>
     </div>
   </div>
-</div>
+</teleport>
 
 <!-- 全屏图片预览模态框 -->
 <div v-if="showImagePreviewModal" class="modal-overlay image-preview-overlay" @click="showImagePreviewModal = false"
@@ -734,271 +739,273 @@
 </div>
 
 <!-- Gemini CLI Log Detail Modal -->
-<div v-if="showGeminiCliLogDetailModal" class="modal-overlay" @click.self="showGeminiCliLogDetailModal = false"
-  @keydown.esc="showGeminiCliLogDetailModal = false" tabindex="-1">
-  <div class="modal" style="max-width: 1300px">
-    <div class="modal-header" style="justify-content: space-between">
-      <div style="display: flex; align-items: center; gap: 15px">
-        <div class="modal-title"><i class="fas fa-file-alt"></i> Gemini CLI 调用详情</div>
+<teleport to="body">
+  <div v-if="showGeminiCliLogDetailModal" class="modal-overlay" @click.self="showGeminiCliLogDetailModal = false"
+    @keydown.esc="showGeminiCliLogDetailModal = false" tabindex="-1">
+    <div class="modal" style="max-width: 1300px">
+      <div class="modal-header" style="justify-content: space-between">
+        <div style="display: flex; align-items: center; gap: 15px">
+          <div class="modal-title"><i class="fas fa-file-alt"></i> Gemini CLI 调用详情</div>
 
-        <!-- 迷你视图切换开关 -->
-        <div class="mini-view-toggle" @click="gcliLogDetailShowRaw = !gcliLogDetailShowRaw"
-          data-tooltip="在易读视图与原始 JSON 之间切换">
-          <span style="font-size: 11px; font-weight: 600; opacity: 0.7">原始 JSON</span>
-          <div class="mini-switch" :class="{ on: gcliLogDetailShowRaw }" style="
-              width: 28px;
-              height: 14px;
-              background: #ccc;
-              border-radius: 10px;
-              position: relative;
-              transition: background 0.3s;
-            ">
-            <div class="mini-slider" style="
-                width: 10px;
-                height: 10px;
-                background: white;
-                border-radius: 50%;
-                position: absolute;
-                top: 2px;
-                left: 2px;
-                transition: transform 0.3s;
-              " :style="{ transform: gcliLogDetailShowRaw ? 'translateX(14px)' : 'none' }"></div>
+          <!-- 迷你视图切换开关 -->
+          <div class="mini-view-toggle" @click="gcliLogDetailShowRaw = !gcliLogDetailShowRaw"
+            data-tooltip="在易读视图与原始 JSON 之间切换">
+            <span style="font-size: 11px; font-weight: 600; opacity: 0.7">原始 JSON</span>
+            <div class="mini-switch" :class="{ on: gcliLogDetailShowRaw }" style="
+                width: 28px;
+                height: 14px;
+                background: #ccc;
+                border-radius: 10px;
+                position: relative;
+                transition: background 0.3s;
+              ">
+              <div class="mini-slider" style="
+                  width: 10px;
+                  height: 10px;
+                  background: white;
+                  border-radius: 50%;
+                  position: absolute;
+                  top: 2px;
+                  left: 2px;
+                  transition: transform 0.3s;
+                " :style="{ transform: gcliLogDetailShowRaw ? 'translateX(14px)' : 'none' }"></div>
+            </div>
           </div>
         </div>
+        <button class="modal-close" @click="showGeminiCliLogDetailModal = false">
+          <i class="fas fa-times"></i>
+        </button>
       </div>
-      <button class="modal-close" @click="showGeminiCliLogDetailModal = false">
-        <i class="fas fa-times"></i>
-      </button>
-    </div>
-    <div class="modal-body" v-if="geminiCliLogDetail" style="padding: 0">
-      <div style="padding: 10px; max-height: 75vh; overflow-y: auto">
-        <!-- 易读视图 -->
-        <div v-if="!gcliLogDetailShowRaw" class="log-readable-view">
-          <div class="log-detail-section">
-            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 5px">
-              <div style="
-                  width: 4px;
-                  height: 16px;
-                  background: var(--gemini-primary, #4285f4);
-                  border-radius: 2px;
-                "></div>
-              <h4 style="margin: 0; font-size: 15px; font-weight: 600">基础运行信息</h4>
-            </div>
-
-            <div class="info-grid" style="
-                display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-                gap: 12px;
-                background: var(--bg-secondary);
-                padding: 16px;
-                border-radius: 10px;
-                border: 1px solid var(--border-color);
-              ">
-              <div class="info-item" style="display: flex; flex-direction: column; gap: 4px">
-                <span style="
-                    font-size: 11px;
-                    opacity: 0.5;
-                    text-transform: uppercase;
-                    letter-spacing: 0.5px;
-                  ">请求标识 ID</span>
-                <span style="font-family: var(--font-mono); font-size: 13px; color: var(--text-primary)">#{{
-                  geminiCliLogDetail.id }}</span>
+      <div class="modal-body" v-if="geminiCliLogDetail" style="padding: 0">
+        <div style="padding: 10px; max-height: 75vh; overflow-y: auto">
+          <!-- 易读视图 -->
+          <div v-if="!gcliLogDetailShowRaw" class="log-readable-view">
+            <div class="log-detail-section">
+              <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 5px">
+                <div style="
+                    width: 4px;
+                    height: 16px;
+                    background: var(--gemini-primary, #4285f4);
+                    border-radius: 2px;
+                  "></div>
+                <h4 style="margin: 0; font-size: 15px; font-weight: 600">基础运行信息</h4>
               </div>
 
-              <div class="info-item" style="display: flex; flex-direction: column; gap: 4px">
-                <span style="
-                    font-size: 11px;
-                    opacity: 0.5;
-                    text-transform: uppercase;
-                    letter-spacing: 0.5px;
-                  ">发生时间</span>
-                <span style="font-size: 13px">{{ formatDateTime(geminiCliLogDetail.created_at ||
-                  geminiCliLogDetail.timestamp)
-                  }}</span>
-              </div>
-
-              <div class="info-item" style="display: flex; flex-direction: column; gap: 4px">
-                <span style="
-                    font-size: 11px;
-                    opacity: 0.5;
-                    text-transform: uppercase;
-                    letter-spacing: 0.5px;
-                  ">状态与耗时</span>
-                <div style="display: flex; align-items: center; gap: 8px">
-                  <span class="ag-status-badge"
-                    :class="getGcliStatusClass(geminiCliLogDetail.status_code || geminiCliLogDetail.statusCode)"
-                    style="font-size: 10px">
-                    {{ geminiCliLogDetail.status_code || geminiCliLogDetail.statusCode }}
-                  </span>
-                  <span style="font-size: 13px; font-weight: 600; color: var(--gemini-primary, #4285f4)">{{
-                    geminiCliLogDetail.duration_ms || geminiCliLogDetail.durationMs }}ms</span>
-                </div>
-              </div>
-
-              <div class="info-item" style="display: flex; flex-direction: column; gap: 4px">
-                <span style="
-                    font-size: 11px;
-                    opacity: 0.5;
-                    text-transform: uppercase;
-                    letter-spacing: 0.5px;
-                  ">所用模型</span>
-                <div style="display: flex; align-items: center; gap: 6px">
+              <div class="info-grid" style="
+                  display: grid;
+                  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+                  gap: 12px;
+                  background: var(--bg-secondary);
+                  padding: 16px;
+                  border-radius: 10px;
+                  border: 1px solid var(--border-color);
+                ">
+                <div class="info-item" style="display: flex; flex-direction: column; gap: 4px">
                   <span style="
-                      font-size: 13px;
-                      font-weight: 600;
-                      color: var(--text-primary);
-                      font-family: var(--font-mono);
-                    ">
-                    {{ geminiCliLogDetail.model || '-' }}
-                  </span>
+                      font-size: 11px;
+                      opacity: 0.5;
+                      text-transform: uppercase;
+                      letter-spacing: 0.5px;
+                    ">请求标识 ID</span>
+                  <span style="font-family: var(--font-mono); font-size: 13px; color: var(--text-primary)">#{{
+                    geminiCliLogDetail.id }}</span>
+                </div>
+
+                <div class="info-item" style="display: flex; flex-direction: column; gap: 4px">
+                  <span style="
+                      font-size: 11px;
+                      opacity: 0.5;
+                      text-transform: uppercase;
+                      letter-spacing: 0.5px;
+                    ">发生时间</span>
+                  <span style="font-size: 13px">{{ formatDateTime(geminiCliLogDetail.created_at ||
+                    geminiCliLogDetail.timestamp)
+                    }}</span>
+                </div>
+
+                <div class="info-item" style="display: flex; flex-direction: column; gap: 4px">
+                  <span style="
+                      font-size: 11px;
+                      opacity: 0.5;
+                      text-transform: uppercase;
+                      letter-spacing: 0.5px;
+                    ">状态与耗时</span>
+                  <div style="display: flex; align-items: center; gap: 8px">
+                    <span class="ag-status-badge"
+                      :class="getGcliStatusClass(geminiCliLogDetail.status_code || geminiCliLogDetail.statusCode)"
+                      style="font-size: 10px">
+                      {{ geminiCliLogDetail.status_code || geminiCliLogDetail.statusCode }}
+                    </span>
+                    <span style="font-size: 13px; font-weight: 600; color: var(--gemini-primary, #4285f4)">{{
+                      geminiCliLogDetail.duration_ms || geminiCliLogDetail.durationMs }}ms</span>
+                  </div>
+                </div>
+
+                <div class="info-item" style="display: flex; flex-direction: column; gap: 4px">
+                  <span style="
+                      font-size: 11px;
+                      opacity: 0.5;
+                      text-transform: uppercase;
+                      letter-spacing: 0.5px;
+                    ">所用模型</span>
+                  <div style="display: flex; align-items: center; gap: 6px">
+                    <span style="
+                        font-size: 13px;
+                        font-weight: 600;
+                        color: var(--text-primary);
+                        font-family: var(--font-mono);
+                      ">
+                      {{ geminiCliLogDetail.model || '-' }}
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
 
-          <div v-if="geminiCliLogDetail.detail" class="log-detail-section" style="margin-top: 10px">
-            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 15px">
-              <div style="
-                  width: 4px;
-                  height: 16px;
-                  background: var(--gemini-primary, #4285f4);
-                  border-radius: 2px;
-                "></div>
-              <h4 style="margin: 0; font-size: 15px; font-weight: 600">对话流回溯</h4>
-            </div>
-
-            <!-- 现代对话流展示 -->
-            <div
-              v-if="geminiCliLogDetail.detail.messages || (geminiCliLogDetail.detail.response && geminiCliLogDetail.detail.response.choices)"
-              class="chat-history-modern" style="
-                display: flex;
-                flex-direction: column;
-                gap: 16px;
-                background: var(--bg-secondary);
-                padding: 20px;
-                border-radius: 12px;
-                border: 1px solid var(--border-color);
-              ">
-              <!-- 遍历历史请求消息 -->
-              <div v-for="(msg, idx) in geminiCliLogDetail.detail.messages" :key="'req-'+idx"
-                :style="{ alignSelf: msg.role === 'user' ? 'flex-end' : 'flex-start', width: 'fit-content', maxWidth: '90%' }">
-                <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 6px"
-                  :style="{ flexDirection: msg.role === 'user' ? 'row-reverse' : 'row' }">
-                  <div style="
-                      width: 20px;
-                      height: 20px;
-                      border-radius: 50%;
-                      display: flex;
-                      align-items: center;
-                      justify-content: center;
-                      font-size: 10px;
-                      background: var(--bg-tertiary);
-                      color: var(--text-secondary);
-                      border: 1px solid var(--border-color);
-                    ">
-                    <i class="fas" :class="msg.role === 'user' ? 'fa-user' : 'fa-robot'"></i>
-                  </div>
-                  <span style="font-size: 11px; font-weight: 600; opacity: 0.6">
-                    {{ msg.role === 'user' ? 'User' : (msg.role === 'assistant' ? 'Assistant' :
-                    msg.role.toUpperCase()) }}
-                  </span>
-                </div>
-
-                <details v-if="msg.role === 'system'" class="reasoning-details" style="width: 100%">
-                  <summary>
-                    <i class="fas fa-terminal"></i>
-                    <span>系统指令 / System Prompt</span>
-                  </summary>
-                  <div class="msg-bubble system-bubble" style="
-                      font-family: var(--font-mono);
-                      font-size: 12px;
-                      background: var(--bg-tertiary);
-                      border: 1px dashed var(--border-color);
-                      white-space: pre-wrap;
-                      opacity: 0.8;
-                      width: 100%;
-                      border-top: none;
-                      border-radius: 0 0 8px 8px;
-                      margin-top: 0;
-                    ">
-                    {{ msg.content }}
-                  </div>
-                </details>
-                <div v-else class="msg-bubble" :class="msg.role === 'user' ? 'user-bubble' : 'assistant-bubble'"
-                  v-html="getCachedLogHtml(msg, 'content')"></div>
+            <div v-if="geminiCliLogDetail.detail" class="log-detail-section" style="margin-top: 10px">
+              <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 15px">
+                <div style="
+                    width: 4px;
+                    height: 16px;
+                    background: var(--gemini-primary, #4285f4);
+                    border-radius: 2px;
+                  "></div>
+                <h4 style="margin: 0; font-size: 15px; font-weight: 600">对话流回溯</h4>
               </div>
 
-              <!-- 展示本次 AI 响应 -->
+              <!-- 现代对话流展示 -->
               <div
-                v-if="geminiCliLogDetail.detail.response && geminiCliLogDetail.detail.response.choices && geminiCliLogDetail.detail.response.choices[0].message"
-                style="align-self: flex-start; width: 100%; max-width: 95%">
-                <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 6px">
-                  <div style="
-                      width: 20px;
-                      height: 20px;
-                      border-radius: 50%;
-                      background: var(--gemini-primary, #4285f4);
-                      color: white;
-                      display: flex;
-                      align-items: center;
-                      justify-content: center;
-                      font-size: 10px;
-                      box-shadow: 0 2px 6px rgba(66, 133, 244, 0.3);
-                    ">
-                    <i class="fas fa-magic"></i>
+                v-if="geminiCliLogDetail.detail.messages || (geminiCliLogDetail.detail.response && geminiCliLogDetail.detail.response.choices)"
+                class="chat-history-modern" style="
+                  display: flex;
+                  flex-direction: column;
+                  gap: 16px;
+                  background: var(--bg-secondary);
+                  padding: 20px;
+                  border-radius: 12px;
+                  border: 1px solid var(--border-color);
+                ">
+                <!-- 遍历历史请求消息 -->
+                <div v-for="(msg, idx) in geminiCliLogDetail.detail.messages" :key="'req-'+idx"
+                  :style="{ alignSelf: msg.role === 'user' ? 'flex-end' : 'flex-start', width: 'fit-content', maxWidth: '90%' }">
+                  <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 6px"
+                    :style="{ flexDirection: msg.role === 'user' ? 'row-reverse' : 'row' }">
+                    <div style="
+                        width: 20px;
+                        height: 20px;
+                        border-radius: 50%;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        font-size: 10px;
+                        background: var(--bg-tertiary);
+                        color: var(--text-secondary);
+                        border: 1px solid var(--border-color);
+                      ">
+                      <i class="fas" :class="msg.role === 'user' ? 'fa-user' : 'fa-robot'"></i>
+                    </div>
+                    <span style="font-size: 11px; font-weight: 600; opacity: 0.6">
+                      {{ msg.role === 'user' ? 'User' : (msg.role === 'assistant' ? 'Assistant' :
+                      msg.role.toUpperCase()) }}
+                    </span>
                   </div>
-                  <span style="font-size: 11px; font-weight: 700; color: var(--gemini-primary, #4285f4)">Current
-                    Response</span>
-                </div>
 
-                <div class="current-response-container">
-                  <!-- 思考过程 (折叠) - 如果有 -->
-                  <details v-if="geminiCliLogDetail.detail.response.choices[0].message.reasoning_content"
-                    class="reasoning-details">
+                  <details v-if="msg.role === 'system'" class="reasoning-details" style="width: 100%">
                     <summary>
-                      <i class="fas fa-brain" style="color: #9c27b0"></i>
-                      <span>Thinking Process</span>
-                      <i class="fas fa-chevron-down" style="margin-left: auto; font-size: 10px; opacity: 0.5"></i>
+                      <i class="fas fa-terminal"></i>
+                      <span>系统指令 / System Prompt</span>
                     </summary>
-                    <div class="reasoning-content-inner"
-                      v-html="getCachedLogHtml(geminiCliLogDetail.detail.response.choices[0].message, 'reasoning_content')">
+                    <div class="msg-bubble system-bubble" style="
+                        font-family: var(--font-mono);
+                        font-size: 12px;
+                        background: var(--bg-tertiary);
+                        border: 1px dashed var(--border-color);
+                        white-space: pre-wrap;
+                        opacity: 0.8;
+                        width: 100%;
+                        border-top: none;
+                        border-radius: 0 0 8px 8px;
+                        margin-top: 0;
+                      ">
+                      {{ msg.content }}
                     </div>
                   </details>
+                  <div v-else class="msg-bubble" :class="msg.role === 'user' ? 'user-bubble' : 'assistant-bubble'"
+                    v-html="getCachedLogHtml(msg, 'content')"></div>
+                </div>
 
-                  <!-- 最终回复正文 -->
-                  <div class="response-content"
-                    v-html="getCachedLogHtml(geminiCliLogDetail.detail.response.choices[0].message, 'content')"></div>
+                <!-- 展示本次 AI 响应 -->
+                <div
+                  v-if="geminiCliLogDetail.detail.response && geminiCliLogDetail.detail.response.choices && geminiCliLogDetail.detail.response.choices[0].message"
+                  style="align-self: flex-start; width: 100%; max-width: 95%">
+                  <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 6px">
+                    <div style="
+                        width: 20px;
+                        height: 20px;
+                        border-radius: 50%;
+                        background: var(--gemini-primary, #4285f4);
+                        color: white;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        font-size: 10px;
+                        box-shadow: 0 2px 6px rgba(66, 133, 244, 0.3);
+                      ">
+                      <i class="fas fa-magic"></i>
+                    </div>
+                    <span style="font-size: 11px; font-weight: 700; color: var(--gemini-primary, #4285f4)">Current
+                      Response</span>
+                  </div>
+
+                  <div class="current-response-container">
+                    <!-- 思考过程 (折叠) - 如果有 -->
+                    <details v-if="geminiCliLogDetail.detail.response.choices[0].message.reasoning_content"
+                      class="reasoning-details">
+                      <summary>
+                        <i class="fas fa-brain" style="color: #9c27b0"></i>
+                        <span>Thinking Process</span>
+                        <i class="fas fa-chevron-down" style="margin-left: auto; font-size: 10px; opacity: 0.5"></i>
+                      </summary>
+                      <div class="reasoning-content-inner"
+                        v-html="getCachedLogHtml(geminiCliLogDetail.detail.response.choices[0].message, 'reasoning_content')">
+                      </div>
+                    </details>
+
+                    <!-- 最终回复正文 -->
+                    <div class="response-content"
+                      v-html="getCachedLogHtml(geminiCliLogDetail.detail.response.choices[0].message, 'content')"></div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 如果没有 messages 只有 response 摘要 -->
+              <div v-else-if="geminiCliLogDetail.detail.response"
+                style="background: var(--bg-tertiary); padding: 12px; border-radius: 8px">
+                <strong>响应摘要:</strong>
+                <div v-if="geminiCliLogDetail.detail.response.choices"
+                  style="margin-top: 4px; font-size: 12px; opacity: 0.9">
+                  {{ geminiCliLogDetail.detail.response.choices[0].message.content }}
                 </div>
               </div>
             </div>
-
-            <!-- 如果没有 messages 只有 response 摘要 -->
-            <div v-else-if="geminiCliLogDetail.detail.response"
-              style="background: var(--bg-tertiary); padding: 12px; border-radius: 8px">
-              <strong>响应摘要:</strong>
-              <div v-if="geminiCliLogDetail.detail.response.choices"
-                style="margin-top: 4px; font-size: 12px; opacity: 0.9">
-                {{ geminiCliLogDetail.detail.response.choices[0].message.content }}
-              </div>
-            </div>
           </div>
-        </div>
 
-        <!-- 原始视图 -->
-        <div v-else>
-          <pre style="
-              background: var(--bg-secondary);
-              padding: 12px;
-              border-radius: 8px;
-              font-size: 12px;
-              overflow-x: auto;
-            ">
+          <!-- 原始视图 -->
+          <div v-else>
+            <pre style="
+                background: var(--bg-secondary);
+                padding: 12px;
+                border-radius: 8px;
+                font-size: 12px;
+                overflow-x: auto;
+              ">
 {{ JSON.stringify(geminiCliLogDetail, null, 2) }}</pre>
+          </div>
         </div>
       </div>
     </div>
   </div>
-</div>
+</teleport>
 
 <!-- Server Modals -->
 
@@ -3041,33 +3048,36 @@
 </transition>
 
 <!-- Docker 日志弹窗 -->
-<div v-if="showDockerLogsModal" class="modal-overlay" @click.self="showDockerLogsModal = false" style="z-index: 10001;">
-  <div class="modal" style="max-width: 800px; width: 90%;">
-    <div class="modal-header">
-      <div class="modal-title"><i class="fas fa-file-alt"></i> {{ dockerLogsContainerName }} 日志</div>
-      <div style="display: flex; align-items: center; gap: 8px;">
-        <select v-model="dockerLogsTail" class="form-input" style="padding: 4px 8px; font-size: 11px; min-width: 80px;"
-          @change="refreshDockerLogs">
-          <option :value="50">50 行</option>
-          <option :value="100">100 行</option>
-          <option :value="200">200 行</option>
-          <option :value="500">500 行</option>
-        </select>
-        <button class="btn btn-sm btn-secondary" @click="refreshDockerLogs" :disabled="dockerLogsLoading">
-          <i class="fas" :class="dockerLogsLoading ? 'fa-spinner fa-spin' : 'fa-sync-alt'"></i>
-        </button>
-        <button class="modal-close" @click="showDockerLogsModal = false"><i class="fas fa-times"></i></button>
+<teleport to="body">
+  <div v-if="showDockerLogsModal" class="modal-overlay" @click.self="showDockerLogsModal = false"
+    style="z-index: 10001;">
+    <div class="modal" style="max-width: 800px; width: 90%;">
+      <div class="modal-header">
+        <div class="modal-title"><i class="fas fa-file-alt"></i> {{ dockerLogsContainerName }} 日志</div>
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <select v-model="dockerLogsTail" class="form-input"
+            style="padding: 4px 8px; font-size: 11px; min-width: 80px;" @change="refreshDockerLogs">
+            <option :value="50">50 行</option>
+            <option :value="100">100 行</option>
+            <option :value="200">200 行</option>
+            <option :value="500">500 行</option>
+          </select>
+          <button class="btn btn-sm btn-secondary" @click="refreshDockerLogs" :disabled="dockerLogsLoading">
+            <i class="fas" :class="dockerLogsLoading ? 'fa-spinner fa-spin' : 'fa-sync-alt'"></i>
+          </button>
+          <button class="modal-close" @click="showDockerLogsModal = false"><i class="fas fa-times"></i></button>
+        </div>
       </div>
-    </div>
-    <div class="modal-body" style="padding: 0;">
-      <div v-if="dockerLogsLoading" style="padding: 40px; text-align: center;">
-        <div class="ag-spinner-elegant ag-spinner-elegant-sm"></div>
+      <div class="modal-body" style="padding: 0;">
+        <div v-if="dockerLogsLoading" style="padding: 40px; text-align: center;">
+          <div class="ag-spinner-elegant ag-spinner-elegant-sm"></div>
+        </div>
+        <pre v-else
+          style="margin: 0; padding: 12px; background: #0d1117; color: #c9d1d9; font-size: 11px; font-family: var(--font-mono); height: 400px; overflow: auto; white-space: pre-wrap; word-break: break-all;">{{ dockerLogsContent || '暂无日志' }}</pre>
       </div>
-      <pre v-else
-        style="margin: 0; padding: 12px; background: #0d1117; color: #c9d1d9; font-size: 11px; font-family: var(--font-mono); height: 400px; overflow: auto; white-space: pre-wrap; word-break: break-all;">{{ dockerLogsContent || '暂无日志' }}</pre>
     </div>
   </div>
-</div>
+</teleport>
 
 <!-- 创建容器模态框 -->
 <div v-if="showCreateContainerModal" class="modal-overlay" @click.self="showCreateContainerModal = false"

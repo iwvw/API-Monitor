@@ -1,8 +1,8 @@
-/* OpenAI Module Styles - Model List Only */
+﻿/* OpenAI Module Styles - Model List Only */
 
 /* Models Container & Grid - Matches Zeabur Projects/Services layout */
 .openai-models-container {
-  padding: 0 4px 6px 4px;
+  padding: 0 var(--space-xs) 6px var(--space-xs);
   /* Tight padding to match Zeabur expansion */
   max-height: 2000px;
   opacity: 1;
@@ -22,7 +22,7 @@
   /* More compact columns */
   gap: 6px;
   padding: 6px 6px 0px 6px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   /* Removed background/border to match Zeabur's clean look */
 }
 
@@ -30,8 +30,8 @@
 .model-tag-item {
   background: linear-gradient(135deg, rgba(16, 163, 127, 0.08) 0%, rgba(16, 163, 127, 0.02) 100%);
   border: 1px solid rgba(16, 163, 127, 0.15);
-  border-radius: 10px;
-  padding: 6px 10px;
+  border-radius: var(--radius-md);
+  padding: 6px var(--space-sm);
   font-size: 12px;
   font-family: var(--font-mono);
   color: var(--text-primary);
@@ -39,7 +39,7 @@
   align-items: center;
   /* 居中对齐 */
   justify-content: flex-start;
-  gap: 8px;
+  gap: var(--space-sm);
   cursor: pointer;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   white-space: nowrap;
@@ -48,7 +48,7 @@
   text-overflow: ellipsis;
   font-weight: 500;
   position: relative;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+  box-shadow: var(--card-shadow);
   flex-direction: row;
 }
 
@@ -57,7 +57,7 @@
   border: 1px solid rgba(16, 163, 127, 0.25);
   color: #10a37f;
   /* transform: translateY(-2px); */
-  /* box-shadow: 0 4px 12px rgba(16, 163, 127, 0.15); */
+  /* box-shadow: var(--card-shadow); */
   z-index: 1;
 }
 
@@ -65,7 +65,7 @@
   transition: all 0.1s ease-out;
   /* background: linear-gradient(135deg, rgba(16, 163, 127, 0.15) 0%, rgba(16, 163, 127, 0.05) 100%); */
   border: 1px solid rgba(16, 163, 127, 0.4);
-  /* box-shadow: 0 4px 12px rgba(16, 163, 127, 0.15); */
+  /* box-shadow: var(--card-shadow); */
   transform: scale(0.98);
 }
 
@@ -93,7 +93,7 @@
   border: none;
   background: transparent;
   color: var(--text-tertiary);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -135,11 +135,11 @@
 /* Icon on the right like Zeabur status if preferred, but keep it consistent for now */
 
 .empty-models {
-  padding: 16px;
+  padding: var(--space-lg);
   text-align: center;
   color: var(--text-tertiary);
   background: rgba(0, 0, 0, 0.02);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   border: 1px dashed var(--border-color);
   font-size: 12px;
 }
@@ -154,9 +154,9 @@
   display: flex;
   align-items: center;
   background: var(--bg-secondary);
-  padding: 4px 2px;
+  padding: var(--space-xs) 2px;
   /* margin: 4px 0; */
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--border-color);
   transition: all 0.25s ease;
 }
@@ -173,8 +173,8 @@
 .openai-tab-content .zeabur-balance-item {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 3px 8px;
+  gap: var(--space-sm);
+  padding: 3px var(--space-sm);
 }
 
 .openai-tab-content .zeabur-balance-icon {
@@ -226,13 +226,13 @@
   line-height: 1.2;
 }
 
-/* OpenAI 模块二级标签页样式 */
+/* OpenAI 模块二级标签页样?*/
 
 
 .theme-openai .tab-btn.active {
   background: linear-gradient(135deg, var(--openai-primary), var(--openai-dark)) !important;
   color: white !important;
-  box-shadow: 0 2px 8px rgba(16, 163, 127, 0.3);
+  box-shadow: var(--card-shadow);
 }
 
 @keyframes openaiFadeIn {
@@ -247,7 +247,7 @@
   }
 }
 
-/* 移动端适配 */
+/* 移动端配 */
 @media (max-width: 768px) {
   .openai-management-actions span {
     display: none !important;
@@ -260,7 +260,7 @@
     display: flex !important;
     align-items: center !important;
     justify-content: center !important;
-    border-radius: 10px !important;
+    border-radius: var(--radius-md) !important;
   }
 
   .openai-management-actions .btn i {
@@ -287,22 +287,22 @@
   display: flex;
   flex-direction: column;
   background: var(--bg-secondary);
-  border-radius: 0px 12px 12px 0px;
+  border-radius: 0px var(--radius-lg) var(--radius-lg) 0px;
   border: 1px solid var(--border-color);
   overflow: hidden;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+  box-shadow: var(--card-shadow);
   position: relative;
 }
 
 .openai-chat-toolbar {
-  padding: 8px;
+  padding: var(--space-sm);
   background: transparent;
   border-bottom: 1px solid var(--border-color);
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
   position: relative;
   z-index: 10;
 }
@@ -310,7 +310,7 @@
 .chat-model-selector {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
   color: #10a37f;
   font-weight: 500;
 }
@@ -328,7 +328,7 @@
   background: var(--bg-primary);
   color: var(--text-primary);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 6px;
   font-size: 13px;
   transition: all 0.2s;
@@ -353,17 +353,17 @@
 
 .chat-actions {
   display: flex;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 .openai-chat-messages {
   flex: 1;
   overflow-y: auto;
-  padding: 24px;
+  padding: var(--space-xl);
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  /* scroll-behavior: smooth 会阻止 JS 直接设置 scrollTop，已移至 JS 控制 */
+  gap: var(--space-sm);
+  /* scroll-behavior: smooth 会阻?JS ֱ scrollTop JS  */
 }
 
 .chat-empty-state {
@@ -398,7 +398,7 @@
   align-items: center;
   justify-content: center;
   font-size: 36px;
-  margin-bottom: 24px;
+  margin-bottom: var(--space-xl);
   color: #10a37f;
   box-shadow: 0 0 20px rgba(16, 163, 127, 0.2);
 }
@@ -406,13 +406,13 @@
 .chat-empty-state h3 {
   font-size: 20px;
   font-weight: 600;
-  margin-bottom: 8px;
+  margin-bottom: var(--space-sm);
   color: var(--text-primary);
 }
 
 .chat-message {
   display: flex;
-  gap: 16px;
+  gap: var(--space-lg);
   max-width: 100%;
   animation: messageSlide 0.3s ease-out;
 }
@@ -441,7 +441,7 @@
   align-items: flex-end;
 }
 
-/* 用户消息文本自适应宽度 */
+/* 用户消息文本自应宽度 */
 .chat-message.user .message-text {
   width: fit-content;
   max-width: 100%;
@@ -450,7 +450,7 @@
 .message-avatar {
   width: 36px;
   height: 36px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: var(--bg-tertiary);
   display: flex;
   align-items: center;
@@ -458,10 +458,10 @@
   font-size: 16px;
   flex-shrink: 0;
   border: 1px solid var(--border-color);
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.05);
+  box-shadow: var(--card-shadow);
   /* Sticky Avatar */
   position: sticky;
-  top: 10px;
+  top: var(--space-sm);
   align-self: flex-start;
   z-index: 2;
 }
@@ -470,7 +470,7 @@
   background: linear-gradient(135deg, #10a37f, #0d8a6a);
   color: white;
   border: none;
-  box-shadow: 0 2px 8px rgba(16, 163, 127, 0.3);
+  box-shadow: var(--card-shadow);
 }
 
 .message-content {
@@ -486,20 +486,20 @@
   font-size: 11px;
   font-weight: 600;
   color: var(--text-tertiary);
-  padding: 0 4px;
+  padding: 0 var(--space-xs);
   opacity: 0.8;
 }
 
 .message-header {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 .message-actions {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-xs);
 }
 
 .btn-message-action {
@@ -508,8 +508,8 @@
   border: none;
   color: var(--text-tertiary);
   cursor: pointer;
-  padding: 4px 6px;
-  border-radius: 4px;
+  padding: var(--space-xs) 6px;
+  border-radius: var(--radius-sm);
   font-size: 11px;
   transition: all 0.15s ease;
 }
@@ -554,14 +554,14 @@
 
 .message-text {
   background: var(--bg-secondary);
-  padding: 6px 12px;
-  border-radius: 10px;
+  padding: 6px var(--space-md);
+  border-radius: var(--radius-md);
   border: 1px solid var(--border-color);
   line-height: 1.6;
   font-size: 14px;
   word-break: break-word;
   color: var(--text-primary);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  box-shadow: var(--card-shadow);
   overflow-x: auto;
   max-width: 100%;
 }
@@ -570,8 +570,8 @@
   background: linear-gradient(135deg, #10a37f 0%, #0d9675 100%);
   color: white;
   border: none;
-  border-radius: 12px;
-  box-shadow: 0 4px 12px rgba(16, 163, 127, 0.2);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--card-shadow);
 }
 
 /* Fix markdown styles inside user bubbles */
@@ -594,9 +594,9 @@
 .message-text pre {
   overflow-x: auto;
   max-width: 100%;
-  margin: 8px 0;
-  padding: 12px;
-  border-radius: 8px;
+  margin: var(--space-sm) 0;
+  padding: var(--space-md);
+  border-radius: var(--radius-md);
   background: var(--bg-tertiary);
 }
 
@@ -608,16 +608,16 @@
 .message-text ul,
 .message-text ol {
   padding-left: 1.5em;
-  margin: 8px 0;
+  margin: var(--space-sm) 0;
 }
 
 .message-text li {
-  margin: 4px 0;
+  margin: var(--space-xs) 0;
 }
 
 .message-text blockquote {
-  margin: 8px 0;
-  padding-left: 12px;
+  margin: var(--space-sm) 0;
+  padding-left: var(--space-md);
   border-left: 3px solid var(--border-color);
   color: var(--text-secondary);
 }
@@ -625,13 +625,13 @@
 .message-text table {
   width: 100%;
   border-collapse: collapse;
-  margin: 12px 0;
+  margin: var(--space-md) 0;
   font-size: 13px;
 }
 
 .message-text th,
 .message-text td {
-  padding: 8px 12px;
+  padding: var(--space-sm) var(--space-md);
   border: 1px solid var(--border-color);
   text-align: left;
 }
@@ -649,20 +649,20 @@
   /* margin-bottom: 12px; */
   border: 1px solid rgba(147, 51, 234, 0.3);
   /* Purple tint for thinking */
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   overflow: hidden;
   background: rgba(147, 51, 234, 0.03);
 }
 
 .reasoning-header {
-  padding: 8px 12px;
+  padding: var(--space-sm) var(--space-md);
   background: rgba(147, 51, 234, 0.1);
   font-size: 12px;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--space-sm);
   color: #9333ea;
   /* Purple */
   font-weight: 600;
@@ -675,7 +675,7 @@
 }
 
 .reasoning-content {
-  padding: 12px;
+  padding: var(--space-md);
   font-size: 13px;
   color: var(--text-secondary);
   background: rgba(0, 0, 0, 0.02);
@@ -688,7 +688,7 @@
   animation: reasoningExpand 0.3s ease-out;
 }
 
-/* 思考过程展开动画 */
+/* 思过程展弢动画 */
 @keyframes reasoningExpand {
   from {
     opacity: 0;
@@ -700,18 +700,18 @@
   to {
     opacity: 1;
     max-height: 400px;
-    padding-top: 12px;
-    padding-bottom: 12px;
+    padding-top: var(--space-md);
+    padding-bottom: var(--space-md);
   }
 }
 
-/* 消息淡入动画 - 只对新消息生效 */
+/* Ϣ붯 - 只对新消息生?*/
 .chat-message {
-  /* 默认无动画，避免切换对话时闪烁 */
+  /* 默认无动画，避免切换对话时闪?*/
   animation: none;
 }
 
-/* 新消息滑入动画 */
+/* 新消息滑入动?*/
 .chat-message.new-message {
   animation: messageSlideIn 0.3s ease-out;
 }
@@ -728,7 +728,7 @@
   }
 }
 
-/* 历史记录加载中状态 */
+/* 历史记录加载中状?*/
 .openai-chat-messages.history-loading .chat-message {
   filter: blur(8px);
   opacity: 0.3;
@@ -737,7 +737,7 @@
 }
 
 .chat-message {
-  /* 基础动画和平滑过渡 */
+  /* 基础动画和平滑过?*/
   animation: none;
   transition: filter 0.3s ease, opacity 0.3s ease, transform 0.3s ease;
 }
@@ -756,7 +756,7 @@
   justify-content: center;
   z-index: 100;
   color: var(--text-secondary);
-  gap: 12px;
+  gap: var(--space-md);
   animation: overlayFadeIn 0.3s ease-out forwards;
 }
 
@@ -787,7 +787,7 @@
   }
 }
 
-/* 切换对话时消息列表整体淡入 */
+/* 切换对话时消息列表整体淡?*/
 .openai-chat-messages.fade-in {
   animation: containerFadeIn 0.3s ease-out forwards;
 }
@@ -804,7 +804,7 @@
   }
 }
 
-/* 消息时间和模型标签样式 */
+/* 消息时间和模型标签样?*/
 .message-meta {
   display: flex;
   align-items: center;
@@ -826,7 +826,7 @@
   padding: 2px 6px;
   background: rgba(16, 163, 127, 0.1);
   color: #10a37f;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   font-size: 10px;
   font-family: var(--font-mono);
   /* max-width: 120px; */
@@ -847,15 +847,15 @@
 .input-panel {
   position: relative;
   display: flex;
-  gap: 4px;
+  gap: var(--space-xs);
   align-items: center;
   background: var(--bg-primary);
   border: 1px solid var(--border-color);
   border-radius: 15px;
-  padding: 4px;
+  padding: var(--space-xs);
   /* Reduced vertical padding */
   transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+  box-shadow: var(--card-shadow);
 }
 
 .input-panel:focus-within {
@@ -867,7 +867,7 @@
   width: 1px;
   height: 20px;
   background-color: var(--border-color);
-  margin: 0 4px;
+  margin: 0 var(--space-xs);
   opacity: 0.6;
 }
 
@@ -875,7 +875,7 @@
   flex: 1;
   background: transparent;
   border: none;
-  padding: 10px 0px;
+  padding: var(--space-sm) 0px;
   /* Reduced padding */
   resize: none;
   font-size: 14px;
@@ -897,7 +897,7 @@
   position: relative;
   width: 40px;
   height: 40px;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   background: linear-gradient(135deg, #10a37f, #0d8a6a);
   color: white;
   border: none;
@@ -906,7 +906,7 @@
   align-items: center;
   justify-content: center;
   transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-  box-shadow: 0 2px 8px rgba(16, 163, 127, 0.3);
+  box-shadow: var(--card-shadow);
   /* margin-bottom: 2px; */
   right: auto;
   bottom: auto;
@@ -914,7 +914,7 @@
 
 .btn-send-chat:hover:not(:disabled) {
   /* transform: scale(1.08) translateY(-1px); */
-  box-shadow: 0 4px 12px rgba(16, 163, 127, 0.4);
+  box-shadow: var(--card-shadow);
 }
 
 .btn-send-chat:active:not(:disabled) {
@@ -931,10 +931,10 @@
 
 .typing-indicator {
   display: flex;
-  gap: 4px;
-  padding: 12px 16px;
+  gap: var(--space-xs);
+  padding: var(--space-md) var(--space-lg);
   background: var(--bg-secondary);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   border: 1px solid var(--border-color);
   width: fit-content;
 }
@@ -974,16 +974,16 @@
 .chat-actions-bottom {
   display: flex;
   justify-content: center;
-  padding: 12px 0;
-  gap: 10px;
+  padding: var(--space-md) 0;
+  gap: var(--space-sm);
 }
 
 .btn-chat-action {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 16px;
-  border-radius: 20px;
+  padding: var(--space-sm) var(--space-lg);
+  border-radius: var(--radius-lg);
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
@@ -1039,43 +1039,43 @@
     max-width: 100%;
   }
 
-  /* 工具栏整体 */
+  /* 工具栏整?*/
   .openai-chat-toolbar {
     flex-direction: column;
-    gap: 8px;
+    gap: var(--space-sm);
     align-items: stretch;
-    padding: 10px;
+    padding: var(--space-sm);
     overflow: visible;
   }
 
-  /* 选择器容器：简单横排自动换行 */
+  /* 选择器容器：箢单横排自动换?*/
   .chat-model-selector {
     display: flex;
     flex-wrap: wrap;
-    gap: 8px;
+    gap: var(--space-sm);
     width: 100%;
     align-items: center;
   }
 
-  /* 人设选择器 - 固定宽度 */
+  /* 人设选择?- ̶ */
   .chat-model-selector .persona-select {
     flex: 0 0 auto;
     width: calc(50% - 4px);
   }
 
-  /* 端点选择器 - 固定宽度 */
+  /* 端点选择?- ̶ */
   .chat-model-selector .endpoint-select {
     flex: 0 0 auto;
     width: calc(50% - 4px);
   }
 
-  /* 模型选择器 - 占满整行 */
+  /* 模型选择?- ռ */
   .chat-model-selector .model-selector {
     flex: 0 0 100%;
     width: 100%;
   }
 
-  /* 隐藏工具栏上的图标按钮（收藏、刷新等） */
+  /* 隐藏工具栏上的图标按钮（收藏、刷新等?*/
   .chat-model-selector .btn-icon-refined {
     display: none;
   }
@@ -1090,7 +1090,7 @@
     min-width: 0;
     width: 100%;
     height: 38px;
-    padding: 6px 10px;
+    padding: 6px var(--space-sm);
   }
 
   .custom-select-trigger .selected-text {
@@ -1107,17 +1107,17 @@
     font-size: 10px;
   }
 
-  /* 操作按钮行 - 均分三个按钮 */
+  /* 操作按钮?- ť */
   .chat-actions {
     display: flex;
-    gap: 8px;
+    gap: var(--space-sm);
     width: 100%;
   }
 
   .chat-actions .btn {
     flex: 1;
     justify-content: center;
-    padding: 8px 12px;
+    padding: var(--space-sm) var(--space-md);
     font-size: 13px;
   }
 
@@ -1127,11 +1127,11 @@
   }
 
   .openai-chat-input-wrapper {
-    padding: 10px;
+    padding: var(--space-sm);
   }
 
   .message-text {
-    padding: 10px 14px;
+    padding: var(--space-sm) var(--space-lg);
   }
 
   /* 下拉菜单限制宽度防止溢出 */
@@ -1141,20 +1141,20 @@
     right: 0;
   }
 
-  /* 端点选择器下拉菜单靠右对齐 */
+  /* 端点选择器下拉菜单靠右对?*/
   .endpoint-select .custom-select-options {
     right: 0;
     left: auto;
   }
 
-  /* ===== 聊天面板自适应高度 ===== */
-  /* 使用 dvh (动态视口高度) 处理移动端地址栏变化 */
-  /* 减去: 顶部图标栏 ~45px + 子标签栏 ~40px + 底部导航栏 ~60px = ~145px */
+  /* ===== 聊天面板自应高度 ===== */
+  /* ʹ dvh (动视口高? 处理移动端地坢栏变?*/
+  /* ȥ: 顶部图标?~45px + ӱǩ ~40px + 底部导航?~60px = ~145px */
   .chat-layout {
     height: calc(100dvh - 140px);
     height: calc(100vh - 140px);
     /* fallback */
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     overflow: hidden;
   }
 
@@ -1199,14 +1199,14 @@
   background-image:
     radial-gradient(at 0% 0%, rgba(16, 163, 127, 0.03) 0px, transparent 50%),
     radial-gradient(at 100% 100%, rgba(59, 130, 246, 0.03) 0px, transparent 50%);
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   overflow: hidden;
   border: 1px solid var(--border-color);
-  box-shadow: 0 20px 50px -12px rgba(0, 0, 0, 0.15);
+  box-shadow: var(--card-shadow);
   position: relative;
 }
 
-/* 移动端侧边栏遮罩层 */
+/* 移动端侧边栏遮罩?*/
 .mobile-sidebar-overlay {
   display: none;
   position: absolute;
@@ -1264,7 +1264,7 @@
   display: flex;
   flex-direction: column;
   height: 100%;
-  padding: 16px 8px;
+  padding: var(--space-lg) var(--space-sm);
   /* Reduced padding from 20px 12px */
   box-sizing: border-box;
 }
@@ -1274,9 +1274,9 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 16px;
+  margin-bottom: var(--space-lg);
   /* Reduced from 24px */
-  padding: 0 4px;
+  padding: 0 var(--space-xs);
   height: 32px;
   flex-shrink: 0;
 }
@@ -1284,7 +1284,7 @@
 .history-header-left {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
   flex: 1;
   overflow: hidden;
 }
@@ -1302,14 +1302,14 @@
 .history-header-actions {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-xs);
 }
 
 /* Collapsed Header */
 .chat-history-sidebar.collapsed .chat-history-header {
   flex-direction: column;
   height: auto;
-  gap: 16px;
+  gap: var(--space-lg);
   margin-bottom: 30px;
   justify-content: center;
 }
@@ -1323,7 +1323,7 @@
 .btn-icon-refined {
   width: 28px;
   height: 28px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1353,7 +1353,7 @@
   background: linear-gradient(135deg, #10a37f 0%, #059669 100%);
   color: white;
   border: none;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   /* Slightly smaller radius */
   height: 40px;
   /* Reduced from 48px */
@@ -1366,8 +1366,8 @@
   font-size: 14px;
   cursor: pointer;
   transition: all 0.3s cubic-bezier(0.2, 0, 0, 1);
-  box-shadow: 0 4px 12px rgba(16, 163, 127, 0.25);
-  margin-bottom: 16px;
+  box-shadow: var(--card-shadow);
+  margin-bottom: var(--space-lg);
   /* Reduced from 24px */
   width: 100%;
   flex-shrink: 0;
@@ -1381,7 +1381,7 @@
   /* Fixed width container for icon to ensure stability */
   width: 20px;
   text-align: center;
-  margin-right: 12px;
+  margin-right: var(--space-md);
   transition: transform 0.3s ease;
 }
 
@@ -1396,7 +1396,7 @@
 .new-chat-btn i {
   font-size: 14px;
   flex-shrink: 0;
-  margin-right: 10px;
+  margin-right: var(--space-sm);
   transition: margin-right 0.3s ease;
 }
 
@@ -1421,7 +1421,7 @@
 
 .new-chat-btn:hover {
   /* transform: translateY(-2px); */
-  box-shadow: 0 8px 20px rgba(16, 163, 127, 0.35);
+  box-shadow: var(--card-shadow);
 }
 
 .new-chat-btn:hover::after {
@@ -1439,7 +1439,7 @@
   /* Clear padding to allow centering via flex */
   justify-content: center;
   /* Now we can center because text is gone */
-  border-radius: 14px;
+  border-radius: var(--radius-lg);
 }
 
 .chat-history-sidebar.collapsed .new-chat-btn i {
@@ -1468,35 +1468,17 @@
   /* Slightly increased from 2px for better margin */
 }
 
-/* Minimal Scrollbar */
-.chat-history-list::-webkit-scrollbar {
-  width: 4px;
-}
 
-.chat-history-list::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.1);
-  border-radius: 2px;
-}
-
-.chat-history-list::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-@media (prefers-color-scheme: dark) {
-  .chat-history-list::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.1);
-  }
-}
 
 /* ITEM STYLES */
 /* ITEM STYLES */
 .chat-history-item {
   display: flex;
   align-items: center;
-  padding: 8px 8px 8px 10px;
+  padding: var(--space-sm) var(--space-sm) var(--space-sm) var(--space-sm);
   /* Add right padding so buttons don't touch edge */
   /* Fixed left padding matching new chat btn */
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   cursor: pointer;
   background: transparent;
   color: var(--text-secondary);
@@ -1554,12 +1536,12 @@
   content: '';
   position: absolute;
   left: 0;
-  top: 8px;
+  top: var(--space-sm);
   /* Adjusted for smaller height */
-  bottom: 8px;
+  bottom: var(--space-sm);
   width: 3px;
   background: #10a37f;
-  border-radius: 0 3px 3px 0;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
 }
 
 /* Icons */
@@ -1570,7 +1552,7 @@
   width: 24px;
   /* Fixed width anchor */
   text-align: center;
-  margin-right: 12px;
+  margin-right: var(--space-md);
   flex-shrink: 0;
   transition: all 0.2s;
 }
@@ -1637,7 +1619,7 @@
 /* Collapsed Active State (Glow) */
 .chat-history-sidebar.collapsed .chat-history-item.active {
   background: linear-gradient(135deg, rgba(16, 163, 127, 0.15), rgba(16, 163, 127, 0.05)) !important;
-  box-shadow: 0 4px 12px rgba(16, 163, 127, 0.15);
+  box-shadow: var(--card-shadow);
   border-color: transparent;
 }
 
@@ -1649,12 +1631,12 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   opacity: 0;
   transform: translateX(10px);
   transition: all 0.2s ease;
   /* background: var(--bg-primary); */
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--card-shadow);
   /* Stronger shadow to pop out */
   flex-shrink: 0;
   z-index: 2;
@@ -1703,13 +1685,13 @@
     transform: translateX(0);
   }
 
-  /* 桌面端隐藏历史按钮 */
+  /* 桌面端隐藏历史按?*/
   .mobile-history-toggle {
     display: flex;
   }
 }
 
-/* 桌面端隐藏历史按钮 */
+/* 桌面端隐藏历史按?*/
 @media (min-width: 769px) {
   .mobile-history-toggle {
     display: none !important;
@@ -1767,7 +1749,7 @@
   backdrop-filter: blur(12px);
   border: 1px solid rgba(0, 0, 0, 0.08) !important;
   /* border-radius: 24px !important; */
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05) !important;
+  box-shadow: var(--card-shadow);
   padding: 6px !important;
   /* max-width: 900px; */
   margin: 0 auto;
@@ -1795,14 +1777,14 @@
 .hchat-settings-tabs {
   display: flex;
   gap: 0;
-  padding: 0 16px;
+  padding: 0 var(--space-lg);
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
 }
 
 .settings-tab {
   flex: 1;
-  padding: 12px 16px;
+  padding: var(--space-md) var(--space-lg);
   background: none;
   border: none;
   border-bottom: 2px solid transparent;
@@ -1814,7 +1796,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 .settings-tab:hover {
@@ -1828,15 +1810,15 @@
 }
 
 .settings-panel {
-  padding: 10px;
+  padding: var(--space-sm);
 }
 
 /* Model Management */
 .model-management-header {
   display: flex;
   align-items: center;
-  gap: 16px;
-  margin-bottom: 16px;
+  gap: var(--space-lg);
+  margin-bottom: var(--space-lg);
 }
 
 .model-search {
@@ -1846,7 +1828,7 @@
 
 .model-search i {
   position: absolute;
-  left: 12px;
+  left: var(--space-md);
   top: 50%;
   transform: translateY(-50%);
   color: var(--text-secondary);
@@ -1860,7 +1842,7 @@
 .checkbox-label {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
   font-size: 13px;
   color: var(--text-secondary);
   cursor: pointer;
@@ -1868,7 +1850,7 @@
 }
 
 .model-section {
-  margin-bottom: 20px;
+  margin-bottom: var(--space-xl);
 }
 
 .section-title {
@@ -1877,17 +1859,17 @@
   color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  margin-bottom: 10px;
+  margin-bottom: var(--space-sm);
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
   justify-content: space-between;
 }
 
 .section-title span {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 .section-title i {
@@ -1903,7 +1885,7 @@
 .model-list {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-xs);
   max-height: 300px;
   overflow-y: auto;
 }
@@ -1911,10 +1893,10 @@
 .model-item {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 10px 12px;
+  gap: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
   background: var(--bg-secondary);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   transition: all 0.2s;
 }
 
@@ -1963,15 +1945,15 @@
 
 .model-channel {
   font-size: 11px;
-  padding: 2px 8px;
+  padding: 2px var(--space-sm);
   background: var(--bg-tertiary);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   color: var(--text-secondary);
 }
 
 .model-actions {
   display: flex;
-  gap: 4px;
+  gap: var(--space-xs);
 }
 
 .model-actions .btn-icon {
@@ -1982,7 +1964,7 @@
   background: none;
   color: var(--text-secondary);
   cursor: pointer;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2002,16 +1984,16 @@
 .endpoint-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 .endpoint-item {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px;
+  gap: var(--space-md);
+  padding: var(--space-md);
   background: var(--bg-secondary);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--border-color);
 }
 
@@ -2054,15 +2036,15 @@
 }
 
 .endpoint-tip {
-  margin-top: 16px;
-  padding: 12px;
+  margin-top: var(--space-lg);
+  padding: var(--space-md);
   background: rgba(16, 163, 127, 0.1);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   font-size: 13px;
   color: var(--text-secondary);
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 .endpoint-tip i {
@@ -2072,10 +2054,10 @@
 .default-model-display {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 10px 12px;
+  gap: var(--space-md);
+  padding: var(--space-sm) var(--space-md);
   background: var(--bg-secondary);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   font-family: var(--font-mono);
   font-size: 13px;
 }
@@ -2085,7 +2067,7 @@
   font-style: italic;
 }
 
-/* 模型健康指示器 */
+/* 模型健康指示?*/
 .model-health-indicator {
   width: 8px !important;
   height: 8px !important;
@@ -2138,7 +2120,7 @@
   }
 }
 
-/* 健康检测弹窗专用样式 */
+/* 健康棢测弹窗专用样?*/
 .health-check-modal {
   max-width: 500px !important;
 }
@@ -2146,11 +2128,11 @@
 .health-check-warning {
   background: rgba(245, 158, 11, 0.1);
   border: 1px solid rgba(245, 158, 11, 0.3);
-  border-radius: 12px;
-  padding: 16px;
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
   display: flex;
-  gap: 16px;
-  margin-bottom: 24px;
+  gap: var(--space-lg);
+  margin-bottom: var(--space-xl);
 }
 
 .warning-icon {
@@ -2162,7 +2144,7 @@
 .warning-title {
   font-weight: 700;
   color: #fbbf24;
-  margin-bottom: 4px;
+  margin-bottom: var(--space-xs);
   font-size: 14px;
 }
 
@@ -2177,8 +2159,8 @@
 .health-config-options {
   display: flex;
   flex-direction: column;
-  gap: 20px;
-  padding: 4px;
+  gap: var(--space-xl);
+  padding: var(--space-xs);
 }
 
 .config-item {
@@ -2197,7 +2179,7 @@
   display: flex;
   background: var(--bg-tertiary);
   padding: 3px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   gap: 2px;
   border: 1px solid var(--border-color);
 }
@@ -2206,9 +2188,9 @@
   border: none !important;
   background: transparent !important;
   color: var(--text-tertiary) !important;
-  padding: 6px 16px !important;
+  padding: 6px var(--space-lg) !important;
   font-size: 12px !important;
-  border-radius: 6px !important;
+  border-radius: var(--radius-sm) !important;
   min-width: 64px;
   font-weight: 600;
   transition: all 0.2s;
@@ -2217,7 +2199,7 @@
 .health-config-options .toggle-group .btn.active {
   background: var(--bg-primary) !important;
   color: #10a37f !important;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2) !important;
+  box-shadow: var(--card-shadow);
 }
 
 .input-with-unit {
@@ -2228,31 +2210,31 @@
 
 .input-with-unit .form-input {
   width: 120px;
-  padding: 8px 36px 8px 12px;
+  padding: var(--space-sm) 36px var(--space-sm) var(--space-md);
   text-align: left;
   background: var(--bg-tertiary);
   border: 1px solid var(--border-color);
   color: var(--text-primary);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
 }
 
 .input-with-unit .unit {
   position: absolute;
-  right: 12px;
+  right: var(--space-md);
   color: var(--text-tertiary);
   font-size: 12px;
   font-family: var(--font-mono);
 }
 
-/* API 端点页面工具栏 */
+/* API 端点页面工具?*/
 .endpoints-toolbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 16px;
+  padding: var(--space-md) var(--space-lg);
   background: var(--bg-secondary);
-  border-radius: 12px;
-  margin-bottom: 16px;
+  border-radius: var(--radius-lg);
+  margin-bottom: var(--space-lg);
   border: 1px solid var(--border-color);
   backdrop-filter: blur(10px);
 }
@@ -2265,13 +2247,13 @@
 
 .toolbar-right {
   display: flex;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 .toolbar-progress {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-sm);
   color: #10a37f;
   font-size: 13px;
   font-weight: 600;
@@ -2286,13 +2268,13 @@
 .endpoint-badges {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 .openai-health-check-badge .zeabur-balance-icon {
   width: 32px;
   height: 32px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2306,13 +2288,13 @@
 
 .empty-state {
   text-align: center;
-  padding: 40px 20px;
+  padding: 40px var(--space-xl);
   color: var(--text-secondary);
 }
 
 .empty-state i {
   font-size: 32px;
-  margin-bottom: 12px;
+  margin-bottom: var(--space-md);
   opacity: 0.5;
 }
 
@@ -2338,26 +2320,26 @@
   margin: 0 !important;
 }
 
-/* 多模态输入样式 */
+/* 多模态输入样?*/
 .chat-attachments-preview {
   display: flex;
-  gap: 12px;
-  padding: 12px 16px;
+  gap: var(--space-md);
+  padding: var(--space-md) var(--space-lg);
   background: linear-gradient(135deg, rgba(16, 163, 127, 0.08) 0%, rgba(16, 163, 127, 0.02) 100%);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   border: 1px solid rgba(16, 163, 127, 0.15);
   border-bottom: 1px solid var(--border-color);
   overflow-x: auto;
-  border-radius: 12px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+  border-radius: var(--radius-md);
+  box-shadow: var(--card-shadow);
 }
 
 .attachment-item {
   position: relative;
   width: 60px;
   height: 60px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   overflow: hidden;
   border: 1px solid var(--border-color);
 }
@@ -2401,7 +2383,7 @@
   justify-content: center;
   cursor: pointer;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   margin-left: 2px;
 }
 
@@ -2414,11 +2396,11 @@
   font-size: 14px;
 }
 
-/* 收藏模型快捷按钮栏 */
+/* 收藏模型快捷按钮?*/
 .pinned-models-bar {
   display: flex;
   gap: 6px;
-  padding: 0 8px;
+  padding: 0 var(--space-sm);
   flex-wrap: nowrap;
   overflow-x: auto;
   max-width: 100%;
@@ -2431,9 +2413,9 @@
 }
 
 .pinned-model-chip {
-  padding: 4px 10px;
+  padding: var(--space-xs) var(--space-sm);
   font-size: 12px;
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--border-color);
   background: var(--bg-tertiary);
   color: var(--text-secondary);
@@ -2473,12 +2455,12 @@
   }
 }
 
-/* 工具栏中的收藏按钮激活状态 */
+/* 工具栏中的收藏按钮激活状?*/
 .btn-icon-refined.is-pinned {
   color: #eab308;
 }
 
-/* 自定义下拉菜单样式 */
+/* 自定义下拉菜单样?*/
 .custom-select-container {
   position: relative;
   display: inline-block;
@@ -2491,8 +2473,8 @@
   gap: 6px;
   background: var(--bg-tertiary);
   border: 1px solid var(--border-color);
-  border-radius: 6px;
-  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  padding: 6px var(--space-sm);
   font-size: 13px;
   color: var(--text-primary);
   cursor: pointer;
@@ -2535,14 +2517,14 @@
   left: 0;
   margin-top: 6px;
   width: 280px;
-  /* 默认宽度，对于模型选择这种长列表很有用 */
+  /* 默认宽度，对于模型择这种长列表很有用 */
   background: rgb(32, 33, 35);
   /* 深色实心背景，确保完全不透明 */
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+  border-radius: var(--radius-md);
+  box-shadow: var(--card-shadow);
   z-index: 100000;
   /* 高优先级，确保在聊天消息之上 */
   padding: 6px;
@@ -2570,7 +2552,7 @@
 }
 
 .dropdown-search {
-  padding: 6px 8px;
+  padding: 6px var(--space-sm);
   margin-bottom: 6px;
   position: sticky;
   top: -9px;
@@ -2579,7 +2561,7 @@
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 .dropdown-search i {
@@ -2597,8 +2579,8 @@
 }
 
 .custom-option {
-  padding: 8px 10px;
-  border-radius: 6px;
+  padding: var(--space-sm) var(--space-sm);
+  border-radius: var(--radius-sm);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -2628,27 +2610,27 @@
 .option-group-label {
   font-size: 11px;
   color: var(--text-tertiary);
-  padding: 8px 10px 4px 10px;
+  padding: var(--space-sm) var(--space-sm) var(--space-xs) var(--space-sm);
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
 
-/* 滚动条美化 */
+/* 滚动条美?*/
 .custom-select-options::-webkit-scrollbar {
   width: 4px;
 }
 
 .custom-select-options::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.2);
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
 }
 
 .custom-select-options::-webkit-scrollbar-track {
   background: transparent;
 }
 
-/* 自定义下拉菜单 - 浅色模式适配 */
+/* 自定义下拉菜?- ǳɫģʽ */
 @media (prefers-color-scheme: light) {
   .custom-select-trigger {
     background: #fff;
@@ -2665,7 +2647,7 @@
   .custom-select-options {
     background: rgb(255, 255, 255);
     border: 1px solid rgba(0, 0, 0, 0.1);
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+    box-shadow: var(--card-shadow);
   }
 
   .dropdown-search {
@@ -2704,24 +2686,24 @@
   }
 }
 
-/* 现代化设置面板样式 */
+/* 现代化设置面板样?*/
 .settings-grid {
   display: grid;
-  gap: 12px;
-  padding: 5px;
+  gap: var(--space-md);
+  padding: var(--space-xs);
 }
 
 .settings-card {
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
-  border-radius: 12px;
-  padding: 16px;
+  border-radius: var(--radius-md);
+  padding: var(--space-lg);
 }
 
 .settings-card-header {
   font-size: 14px;
   font-weight: 600;
-  margin-bottom: 12px;
+  margin-bottom: var(--space-md);
   color: var(--text-secondary);
   display: flex;
   align-items: center;
@@ -2731,8 +2713,8 @@
 .modern-form-control {
   background: var(--bg-tertiary) !important;
   border: 1px solid var(--border-color) !important;
-  border-radius: 8px !important;
-  padding: 10px 12px !important;
+  border-radius: var(--radius-md) !important;
+  padding: var(--space-sm) var(--space-md) !important;
   color: var(--text-primary) !important;
   transition: all 0.2s;
   width: 100%;
@@ -2745,14 +2727,14 @@
 
 .range-wrap {
   position: relative;
-  padding: 10px 0;
+  padding: var(--space-sm) 0;
 }
 
 .range-track {
   width: 100%;
   height: 6px;
   background: var(--bg-tertiary);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   position: relative;
 }
 
@@ -2770,18 +2752,18 @@
   align-items: center;
   justify-content: space-between;
   background: var(--bg-tertiary);
-  padding: 12px;
-  border-radius: 8px;
+  padding: var(--space-md);
+  border-radius: var(--radius-md);
   border: 1px solid var(--border-color);
 }
 
 .model-tag {
   display: inline-flex;
   align-items: center;
-  padding: 4px 8px;
+  padding: var(--space-xs) var(--space-sm);
   background: rgba(16, 163, 127, 0.1);
   color: #10a37f;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   font-size: 12px;
   font-family: var(--font-mono);
 }
@@ -2793,14 +2775,14 @@
 }
 
 .persona-options .custom-option {
-  padding: 10px 12px;
+  padding: var(--space-sm) var(--space-md);
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-sm);
   position: relative;
 }
 
-/* 确保下拉框选项没有左边竖条 */
+/* 确保下拉框项没有左边竖条 */
 .persona-options .custom-option::before,
 .custom-select-options .custom-option::before {
   display: none !important;
@@ -2809,7 +2791,7 @@
 
 .persona-options .option-actions {
   display: flex;
-  gap: 10px;
+  gap: var(--space-sm);
   opacity: 0;
   transition: opacity 0.2s ease;
 }
@@ -2818,11 +2800,11 @@
   opacity: 1;
 }
 
-/* 优化按钮样式 - 更好的视觉效果 */
+/* Żťʽ - 更好的视觉效?*/
 .persona-options .option-actions i {
   font-size: 13px;
   padding: 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   transition: all 0.2s ease;
   color: var(--text-tertiary);
   background: transparent;
@@ -2920,7 +2902,7 @@
   align-items: center;
   justify-content: center;
   background: var(--bg-tertiary);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--border-color);
   font-size: 18px;
   box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
@@ -2929,10 +2911,10 @@
 .preset-icons-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(32px, 1fr));
-  gap: 8px;
-  padding: 10px;
+  gap: var(--space-sm);
+  padding: var(--space-sm);
   background: var(--bg-tertiary);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--border-color);
 }
 
@@ -2943,7 +2925,7 @@
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   transition: all 0.2s;
   background: var(--bg-secondary);
   border: 1px solid transparent;
@@ -2979,10 +2961,10 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 8px;
+  padding: var(--space-xs) var(--space-sm);
   background: rgba(16, 163, 127, 0.1);
   border: 1px solid rgba(16, 163, 127, 0.3);
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   font-size: 12px;
   color: var(--text-primary);
   transition: all 0.2s;
@@ -3077,11 +3059,11 @@
   left: 19px;
 }
 
-/* 滚动到底部按钮 */
+/* 滚动到底部按?*/
 .scroll-to-bottom-btn {
   position: absolute;
   bottom: 70px;
-  right: 20px;
+  right: var(--space-xl);
   width: 36px;
   height: 36px;
   border-radius: 50%;
@@ -3093,7 +3075,7 @@
   align-items: center;
   justify-content: center;
   font-size: 14px;
-  box-shadow: 0 4px 12px rgba(16, 163, 127, 0.4);
+  box-shadow: var(--card-shadow);
   transition: all 0.2s ease;
   z-index: 100;
   pointer-events: auto;
@@ -3104,7 +3086,7 @@
   color: white;
   border-color: #10a37f;
   transform: translateY(-2px);
-  box-shadow: 0 6px 16px rgba(16, 163, 127, 0.3);
+  box-shadow: var(--card-shadow);
 }
 
 .scroll-to-bottom-btn:active {

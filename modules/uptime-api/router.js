@@ -78,13 +78,36 @@ router.post('/monitors/:id/toggle', (req, res) => {
     const monitor = storage.getById(id);
     if (!monitor) return res.status(404).json({ error: 'Not found' });
 
-    monitor.active = !monitor.active;
-    storage.update(id, { active: monitor.active });
+    const newActive = !monitor.active;
+    storage.update(id, { active: newActive });
 
-    if (monitor.active) monitorService.startMonitor(monitor);
+    if (newActive) monitorService.startMonitor(storage.getById(id));
     else monitorService.stopMonitor(id);
 
-    res.json({ success: true, active: monitor.active });
+    res.json({ success: true, active: newActive });
+});
+
+// GET /api/uptime/monitors/:id/uptime?days=1
+router.get('/monitors/:id/uptime', (req, res) => {
+    const id = parseInt(req.params.id);
+    const days = parseInt(req.query.days) || 1;
+    const uptime = storage.calculateUptime(id, days);
+    res.json({ monitorId: id, days, uptime });
+});
+
+// GET /api/uptime/monitors/:id/incidents
+router.get('/monitors/:id/incidents', (req, res) => {
+    const id = parseInt(req.params.id);
+    const limit = parseInt(req.query.limit) || 20;
+    const incidents = storage.getIncidents(id, limit);
+    res.json(incidents);
+});
+
+// GET /api/uptime/monitors/:id/state
+router.get('/monitors/:id/state', (req, res) => {
+    const id = parseInt(req.params.id);
+    const state = monitorService.getMonitorState(id);
+    res.json(state);
 });
 
 module.exports = router;

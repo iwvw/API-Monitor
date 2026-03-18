@@ -5,13 +5,13 @@
 .controls-bar {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin-bottom: 10px;
-  padding: 12px;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-sm);
+  padding: var(--space-md);
   background: rgba(var(--bg-secondary-rgb), 0.5);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   border: 1px solid var(--border-color);
   box-shadow: 0 4px 20px -5px rgba(0, 0, 0, 0.05);
 }
@@ -20,24 +20,24 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-md);
   flex-wrap: wrap;
 }
 
 .stats-pills {
   display: flex;
-  gap: 8px;
+  gap: var(--space-sm);
   align-items: center;
 }
 
 .stat-pill {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 14px;
+  gap: var(--space-sm);
+  padding: 6px var(--space-lg);
   /* background: var(--bg-secondary); */
   border: 1px solid var(--border-color);
-  border-radius: 9px;
+  border-radius: var(--radius-md);
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
@@ -56,7 +56,7 @@
   background: var(--server-primary);
   border-color: var(--server-primary);
   color: white;
-  box-shadow: 0 2px 5px -4px rgba(0, 0, 0, 0.2);
+  box-shadow: var(--card-shadow);
 }
 
 .stat-pill .label {
@@ -69,31 +69,32 @@
   opacity: 0.9;
 }
 
-/* 瀹炴椂鐩戞帶 LIVE 鎸囩ず鍣?*/
+/* 实时监控 LIVE 指示器 */
 .live-indicator-wrapper {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  margin-left: 6px;
-  padding: 1px 5px;
+  gap: var(--space-xs);
+  margin-left: var(--space-xs);
+  padding: 1px var(--space-xs);
   background: rgba(16, 185, 129, 0.15);
-  border-radius: 4px;
+  /* Keep alpha success for visual contrast */
+  border-radius: var(--radius-sm);
   vertical-align: middle;
 }
 
 .live-indicator-dot {
   width: 6px;
   height: 6px;
-  background: #10b981;
-  border-radius: 50%;
-  box-shadow: 0 0 6px #10b981;
+  background: var(--success-color);
+  border-radius: var(--radius-full);
+  box-shadow: 0 0 6px var(--success-color);
   animation: live-pulse 1.5s infinite;
 }
 
 .live-indicator-text {
   font-size: 9px;
   font-weight: 800;
-  color: #10b981;
+  color: var(--success-color);
   letter-spacing: 0.5px;
   font-family: var(--font-mono);
 }
@@ -121,14 +122,14 @@
 }
 
 .stat-pill.online.active {
-  background: linear-gradient(135deg, #10b981, #059669);
-  border-color: #10b981;
+  background: linear-gradient(135deg, var(--success-color), var(--success-dark));
+  border-color: var(--success-color);
   box-shadow: 0 8px 16px -4px rgba(16, 185, 129, 0.3);
 }
 
 .stat-pill.offline.active {
-  background: linear-gradient(135deg, #ef4444, #dc2626);
-  border-color: #ef4444;
+  background: linear-gradient(135deg, var(--danger-color), #dc2626);
+  border-color: var(--danger-color);
   box-shadow: 0 8px 16px -4px rgba(239, 68, 68, 0.3);
 }
 
@@ -140,17 +141,17 @@
 
 .search-box input {
   width: 100%;
-  padding: 10px 16px 10px 42px;
+  padding: var(--space-sm) var(--space-lg) var(--space-sm) 42px;
   background: var(--input-bg);
   border: 1px solid var(--border-color);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   font-size: 13px;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .search-box i {
   position: absolute;
-  left: 14px;
+  left: var(--space-lg);
   top: 50%;
   transform: translateY(-50%);
   color: var(--text-tertiary);
@@ -160,7 +161,8 @@
 
 .search-box input:focus {
   border-color: var(--server-primary);
-  box-shadow: 0 0 0 4px rgba(0, 0, 0, 0.05);
+  box-shadow: 0 0 0 3px rgba(var(--server-primary-dark), 0.15);
+  /* 统一焦点环手感 */
   outline: none;
 }
 
@@ -170,9 +172,9 @@
 
 .server-card {
   background-color: var(--card-bg);
-  border-radius: 16px;
-  padding: 4px;
-  margin-bottom: 10px;
+  border-radius: var(--radius-lg);
+  padding: var(--space-xs);
+  margin-bottom: var(--space-sm);
   border: 1px solid var(--border-color);
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
@@ -186,8 +188,8 @@
 
 .server-card-header {
   background: transparent;
-  padding: 4px 20px;
-  border-radius: 14px;
+  padding: var(--space-xs) var(--space-xl);
+  border-radius: var(--radius-lg);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -207,7 +209,7 @@
 .server-card-info {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: var(--space-lg);
   flex: 1;
 }
 
@@ -215,37 +217,37 @@
   position: relative;
   width: 10px;
   height: 10px;
-  border-radius: 50%;
+  border-radius: var(--radius-full);
 }
 
 .server-status-indicator::after {
   content: '';
   position: absolute;
-  top: -4px;
-  left: -4px;
-  right: -4px;
-  bottom: -4px;
-  border-radius: 50%;
+  top: -var(--space-xs);
+  left: -var(--space-xs);
+  right: -var(--space-xs);
+  bottom: -var(--space-xs);
+  border-radius: var(--radius-full);
   opacity: 0.3;
 }
 
 .server-status-indicator.online {
-  background: #10b981;
-  box-shadow: 0 0 8px #10b981;
+  background: var(--success-color);
+  box-shadow: 0 0 8px rgba(16, 185, 129, 0.4);
 }
 
 .server-status-indicator.online::after {
-  background: #10b981;
+  background: var(--success-color);
   animation: pulse-green 2s infinite;
 }
 
 .server-status-indicator.offline {
-  background: #ef4444;
-  box-shadow: 0 0 8px #ef4444;
+  background: var(--danger-color);
+  box-shadow: 0 0 8px rgba(239, 68, 68, 0.4);
 }
 
 .server-status-indicator.offline::after {
-  background: #ef4444;
+  background: var(--danger-color);
 }
 
 @keyframes pulse-green {
@@ -264,6 +266,7 @@
     opacity: 0;
   }
 }
+
 
 /* Heartbeat Animation for Probe */
 @keyframes heart-beat {
@@ -304,25 +307,25 @@
   font-size: 12px;
   opacity: 0.7;
   background: var(--bg-tertiary);
-  padding: 2px 8px;
-  border-radius: 6px;
-  margin-top: 4px;
+  padding: 2px var(--space-sm);
+  border-radius: var(--radius-sm);
+  margin-top: var(--space-xs);
   display: inline-block;
 }
 
 .server-quick-info {
   display: flex;
-  gap: 15px;
+  gap: var(--space-lg);
   font-size: 12px;
   color: var(--text-tertiary);
-  padding-right: 15px;
+  padding-right: var(--space-lg);
 }
 
 .server-card-actions {
   display: flex;
-  gap: 8px;
+  gap: var(--space-sm);
   margin-left: auto;
-  padding-left: 15px;
+  padding-left: var(--space-lg);
 }
 
 .server-card-body {
@@ -335,15 +338,15 @@
   display: block;
   width: 100%;
   background-color: var(--card-bg);
-  border-radius: 10px;
-  padding: 0px 10px 0px 10px;
+  border-radius: var(--radius-md);
+  padding: 0px var(--space-sm) 0px var(--space-sm);
   /* border: 1px solid var(--border-color); */
 }
 
 .server-details-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 12px;
+  gap: var(--space-md);
   align-items: stretch;
 }
 
@@ -353,7 +356,7 @@
 
 .server-detail-section {
   background: var(--section-bg);
-  padding: 7px 15px;
+  padding: 7px var(--space-lg);
   border-radius: 13px;
   border: 1px solid var(--border-color);
 }
@@ -371,9 +374,9 @@
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  padding: 8px 0;
+  padding: var(--space-sm) 0;
   border-bottom: 1px solid var(--border-color);
-  gap: 12px;
+  gap: var(--space-md);
 }
 
 .server-detail-item:last-child {
@@ -406,25 +409,25 @@
   line-height: 1.4;
 }
 
-/* 杩涘害鏉?*/
+/* 进度?*/
 .progress-bar {
   width: 100%;
   height: 10px;
   background: rgba(var(--text-primary-rgb, 0, 0, 0), 0.08);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   overflow: hidden;
-  margin-top: 8px;
+  margin-top: var(--space-sm);
   box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.1);
   border: 1px solid rgba(var(--text-primary-rgb, 0, 0, 0), 0.05);
 }
 
 .progress-bar-fill {
   height: 100%;
-  background: linear-gradient(90deg, #10b981, #34d399);
+  background: linear-gradient(90deg, var(--success-color), #34d399);
   transition: width 0.8s cubic-bezier(0.34, 1.56, 0.64, 1);
   position: relative;
   box-shadow: 0 0 12px rgba(16, 185, 129, 0.3);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 
 .progress-bar-fill::after {
@@ -459,25 +462,25 @@
 }
 
 .progress-bar-fill.warning {
-  background: linear-gradient(90deg, #f59e0b, #fbbf24);
+  background: linear-gradient(90deg, var(--warning-color), #fbbf24);
   box-shadow: 0 0 12px rgba(245, 158, 11, 0.3);
 }
 
 .progress-bar-fill.danger {
-  background: linear-gradient(90deg, #ef4444, #f87171);
+  background: linear-gradient(90deg, var(--danger-color), #f87171);
   box-shadow: 0 0 12px rgba(239, 68, 68, 0.3);
 }
 
-/* 瀹炴椂鐩戞帶 LIVE 鎸囩ず鍣?*/
+/* 实时监控 LIVE 指示器 */
 .live-indicator-wrapper {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  margin-left: 8px;
+  gap: var(--space-xs);
+  margin-left: var(--space-sm);
   padding: 2px 6px;
   background: rgba(16, 185, 129, 0.12);
   border: 1px solid rgba(16, 185, 129, 0.2);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   vertical-align: middle;
   line-height: 1;
   pointer-events: none;
@@ -486,9 +489,9 @@
 .live-indicator-dot {
   width: 6px;
   height: 6px;
-  background: #10b981;
-  border-radius: 50%;
-  box-shadow: 0 0 6px #10b981;
+  background: var(--success-color);
+  border-radius: var(--radius-full);
+  box-shadow: 0 0 6px var(--success-color);
   animation: live-pulse-new 1.5s infinite;
   flex-shrink: 0;
 }
@@ -496,9 +499,9 @@
 .live-indicator-text {
   font-size: 10px;
   font-weight: 800;
-  color: #10b981;
+  color: var(--success-color);
   letter-spacing: 0.5px;
-  font-family: monospace;
+  font-family: var(--font-mono);
 }
 
 @keyframes live-pulse-new {
@@ -518,20 +521,20 @@
   }
 }
 
-/* Docker 瀹瑰櫒鍒楄〃 */
+/* Docker 容器列表 */
 .docker-container-list {
-  margin-top: 10px;
+  margin-top: var(--space-sm);
 }
 
 .docker-container-item {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 8px 12px;
+  padding: var(--space-sm) var(--space-md);
   background: var(--card-bg);
   border: 1px solid var(--border-color);
-  border-radius: 4px;
-  margin-bottom: 8px;
+  border-radius: var(--radius-sm);
+  margin-bottom: var(--space-sm);
   font-size: 12px;
 }
 
@@ -541,25 +544,25 @@
 }
 
 .docker-container-status {
-  padding: 2px 8px;
-  border-radius: 3px;
+  padding: 2px var(--space-sm);
+  border-radius: var(--radius-sm);
   font-size: 11px;
   font-weight: 500;
 }
 
 .docker-container-status.running {
-  background: #10b98120;
-  color: #10b981;
+  background: rgba(16, 185, 129, 0.12);
+  color: var(--success-color);
 }
 
 .docker-container-status.exited {
-  background: #ef444420;
-  color: #ef4444;
+  background: rgba(239, 68, 68, 0.12);
+  color: var(--danger-color);
 }
 
 .radio-tile-group {
   display: flex;
-  gap: 12px;
+  gap: var(--space-md);
   flex-wrap: wrap;
 }
 
@@ -581,11 +584,11 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  padding: 12px;
+  gap: var(--space-sm);
+  padding: var(--space-md);
   background: var(--bg-secondary);
   border: 2px solid var(--border-color);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   cursor: pointer;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   color: var(--text-secondary);
@@ -624,43 +627,43 @@
 
 .server-actions-bar {
   display: flex;
-  gap: 10px;
+  gap: var(--space-sm);
   flex-wrap: wrap;
   justify-content: flex-end;
   align-items: center;
-  padding: 12px 15px;
+  padding: var(--space-md) var(--space-lg);
   background: var(--section-bg);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--border-color);
-  margin-top: 15px;
+  margin-top: var(--space-lg);
 }
 
 .server-empty-state {
   text-align: center;
-  padding: 60px 20px;
+  padding: 60px var(--space-xl);
 }
 
 .server-empty-state-icon {
   font-size: 64px;
   color: var(--text-secondary);
-  margin-bottom: 20px;
+  margin-bottom: var(--space-xl);
 }
 
 .server-empty-state h3 {
   font-size: 20px;
   color: var(--text-primary);
-  margin-bottom: 10px;
+  margin-bottom: var(--space-sm);
 }
 
 .server-empty-state p {
   font-size: 14px;
   color: var(--text-secondary);
-  margin-bottom: 20px;
+  margin-bottom: var(--space-xl);
 }
 
 .server-loading {
   text-align: center;
-  padding: 40px 20px;
+  padding: 40px var(--space-xl);
 }
 
 .server-loading-spinner {
@@ -670,7 +673,7 @@
   border-top-color: var(--server-primary);
   border-radius: 50%;
   animation: spin 1s linear infinite;
-  margin: 0 auto 15px;
+  margin: 0 auto var(--space-lg);
 }
 
 @keyframes spin {
@@ -683,14 +686,14 @@
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
-  margin-top: 8px;
+  margin-top: var(--space-sm);
 }
 
 .server-tag {
-  padding: 2px 8px;
+  padding: 2px var(--space-sm);
   background: rgba(0, 212, 170, 0.1);
   color: var(--server-primary);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   font-size: 11px;
   font-weight: 500;
 }
@@ -699,20 +702,20 @@
   max-height: 300px;
   overflow-y: auto;
   border: 1px solid var(--border-color);
-  border-radius: 6px;
-  padding: 10px;
+  border-radius: var(--radius-sm);
+  padding: var(--space-md);
   background: var(--section-bg);
 }
 
 .import-preview-item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 12px;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
   background: var(--card-bg);
   border: 1px solid var(--border-color);
-  border-radius: 4px;
-  margin-bottom: 8px;
+  border-radius: var(--radius-sm);
+  margin-bottom: var(--space-sm);
   font-size: 13px;
 }
 
@@ -735,8 +738,8 @@
 .docker-info-header {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: 12px;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-md);
 }
 
 .docker-info-card {
@@ -744,10 +747,10 @@
   min-width: 120px;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 8px 12px;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
   background: var(--card-bg);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--border-color);
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
 }
@@ -775,7 +778,7 @@
   align-items: center;
   justify-content: center;
   background: var(--section-bg);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   flex-shrink: 0;
 }
 
@@ -802,15 +805,15 @@
   line-height: 1.1;
 }
 
-/* Docker 瀹瑰櫒鍒楄〃 - 澶氬垪绱у噾缃戞牸 */
+/* Docker 容器列表 - 多列紧凑网格 */
 .docker-container-list {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 10px;
+  gap: var(--space-sm);
   max-height: 65vh;
   overflow-y: auto;
   padding: 2px;
-  /* 闅愯棌婊氬姩鏉′絾淇濈暀婊氬姩鍔熻兘 */
+  /* 隐藏滚动条但保留滚动功能 */
   scrollbar-width: none;
   /* Firefox */
   -ms-overflow-style: none;
@@ -825,7 +828,7 @@
 .docker-container-card {
   background: var(--card-bg);
   border: 1px solid var(--border-color);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   padding: 0;
   overflow: hidden;
   transition: all 0.2s ease;
@@ -834,14 +837,14 @@
 }
 
 .docker-container-info {
-  padding: 15px;
+  padding: var(--space-lg);
 }
 
 .docker-container-header-row {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  margin-bottom: 10px;
+  margin-bottom: var(--space-sm);
 }
 
 .docker-container-image {
@@ -856,10 +859,10 @@
 }
 
 .docker-container-actions {
-  margin-top: 15px;
+  margin-top: var(--space-lg);
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 .docker-container-card::before {
@@ -869,12 +872,13 @@
   top: 0;
   bottom: 0;
   width: 3px;
-  background: #6b7280;
+  background: var(--text-tertiary);
+  /* Soft disconnected proxy grey */
   opacity: 0.5;
 }
 
 .docker-container-card.running::before {
-  background: #10b981;
+  background: var(--success-color);
   opacity: 1;
 }
 
@@ -885,18 +889,18 @@
   z-index: 1;
 }
 
-/* 鍚庡彴绠＄悊缃戞牸甯冨眬 */
+/* 后台管理网格布局 */
 .management-grid {
   display: flex;
   flex-direction: column;
-  gap: 20px;
-  padding: 10px;
+  gap: var(--space-xl);
+  padding: var(--space-sm);
 }
 
 .secondary-config-row {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 15px;
+  gap: var(--space-lg);
   align-items: start;
 }
 
@@ -906,29 +910,30 @@
   }
 }
 
-/* 閰嶇疆鍗＄墖鏍峰紡 */
+/* 配置卡片样式 */
 .config-card {
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
-  border-radius: 12px;
-  padding: 15px;
+  border-radius: var(--radius-md);
+  padding: var(--space-lg);
   transition: all 0.2s ease;
 }
 
 .config-card:hover {
   border-color: var(--server-primary);
-  box-shadow: 0 4px 12px rgba(0, 212, 170, 0.08);
+  box-shadow: 0 4px 12px rgba(var(--server-rgb), 0.08);
+  /* Swap magic shadow var with dynamic global map */
 }
 
 .config-card-title {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
   font-size: 13px;
   font-weight: 600;
   color: var(--text-primary);
-  margin-bottom: 12px;
-  padding-bottom: 10px;
+  margin-bottom: var(--space-md);
+  padding-bottom: var(--space-md);
   border-bottom: 1px dashed var(--border-color);
 }
 
@@ -942,41 +947,41 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 20px;
+  padding: var(--space-xl);
   text-align: center;
 }
 
 .glass-panel {
   background: rgba(var(--bg-secondary-rgb), 0.4) !important;
-  backdrop-filter: blur(8px);
+  backdrop-filter: var(--backdrop-blur);
   border: 1px solid rgba(255, 255, 255, 0.05) !important;
-  border-radius: 16px !important;
+  border-radius: var(--radius-lg) !important;
   overflow: hidden;
 }
 
 .compact-form {
-  padding: 10px 15px 15px !important;
+  padding: var(--space-sm) var(--space-lg) var(--space-lg) !important;
 }
 
 .compact-form .form-group {
-  margin-bottom: 10px;
+  margin-bottom: var(--space-sm);
 }
 
 .compact-form label {
   font-size: 11px;
-  margin-bottom: 4px;
+  margin-bottom: var(--space-xs);
   opacity: 0.8;
 }
 
 .compact-form .form-input {
-  padding: 6px 10px;
+  padding: 6px var(--space-sm);
   font-size: 13px;
   height: 32px;
 }
 
 .form-row {
   display: flex;
-  gap: 12px;
+  gap: var(--space-md);
   /* margin-bottom: 10px; */
 }
 
@@ -988,9 +993,9 @@
   width: 100%;
 }
 
-/* 鍑嵁鍒楄〃鏍峰紡 */
+/* 凭据列表样式 */
 .compact-list {
-  padding: 10px !important;
+  padding: var(--space-sm) !important;
   max-height: 250px;
   overflow-y: auto;
 }
@@ -1005,10 +1010,10 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 6px 12px;
+  padding: 6px var(--space-md);
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   transition: all 0.2s ease;
 }
 
@@ -1020,7 +1025,7 @@
 .cred-info {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-sm);
   flex: 1;
 }
 
@@ -1030,15 +1035,15 @@
   color: var(--text-primary);
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 .cred-user {
   font-size: 11px;
   color: var(--text-tertiary);
   background: rgba(0, 212, 170, 0.1);
-  padding: 2px 8px;
-  border-radius: 4px;
+  padding: 2px var(--space-sm);
+  border-radius: var(--radius-sm);
 }
 
 .cred-actions {
@@ -1051,7 +1056,7 @@
   cursor: pointer;
   opacity: 0.5;
   transition: all 0.2s;
-  padding: 4px;
+  padding: var(--space-xs);
 }
 
 .cred-actions i:hover {
@@ -1066,26 +1071,26 @@
   justify-content: center;
   padding: 30px;
   opacity: 0.4;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 .empty-mini i {
   font-size: 24px;
 }
 
-/* Docker 杩蜂綘鍒楄〃 - 鐢ㄤ簬涓绘満鍗＄墖璇︽儏 */
+/* Docker 迷你列表 - 用于主机卡片详情 */
 .docker-mini-list {
   background: rgba(0, 0, 0, 0.2);
-  border-radius: 12px;
-  padding: 8px;
+  border-radius: var(--radius-lg);
+  padding: var(--space-sm);
 }
 
 .docker-mini-item {
   display: flex;
   align-items: center;
-  padding: 6px 10px;
-  gap: 10px;
-  border-radius: 8px;
+  padding: 6px var(--space-sm);
+  gap: var(--space-sm);
+  border-radius: var(--radius-md);
   transition: background 0.2s;
 }
 
@@ -1115,7 +1120,7 @@
 
 .container-mini-actions {
   display: flex;
-  gap: 8px;
+  gap: var(--space-sm);
   opacity: 0;
   transition: opacity 0.2s;
 }
@@ -1141,8 +1146,8 @@
   color: var(--primary-color);
   font-size: 11px;
   cursor: pointer;
-  padding: 4px 10px;
-  margin-top: 4px;
+  padding: var(--space-xs) var(--space-sm);
+  margin-top: var(--space-xs);
 }
 
 .btn-text:hover {
@@ -1160,7 +1165,7 @@
   justify-content: space-between;
   align-items: center;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 .docker-section-header h4 {
@@ -1170,12 +1175,12 @@
 .docker-section-status {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-md);
 }
 
 .docker-status-badge {
-  padding: 3px 10px;
-  border-radius: 6px;
+  padding: 3px var(--space-sm);
+  border-radius: var(--radius-sm);
   font-size: 11px;
   font-weight: 600;
 }
@@ -1196,22 +1201,22 @@
   font-weight: 500;
 }
 
-/* 瀹瑰櫒缃戞牸甯冨眬 */
+/* 容器网格布局 */
 .docker-containers-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 10px;
-  margin-top: 12px;
+  gap: var(--space-sm);
+  margin-top: var(--space-md);
 }
 
 .docker-container-mini-card {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 10px 12px;
+  padding: var(--space-sm) var(--space-md);
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--border-color);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   transition: all 0.2s ease;
   position: relative;
 }
@@ -1224,7 +1229,7 @@
 .docker-container-mini-card .container-info {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
   flex: 1;
   min-width: 0;
 }
@@ -1240,7 +1245,7 @@
 
 .docker-container-mini-card .container-actions {
   display: flex;
-  gap: 4px;
+  gap: var(--space-xs);
   opacity: 0;
   transition: opacity 0.2s;
 }
@@ -1260,7 +1265,7 @@
   font-size: 10px;
   min-width: 24px;
   height: 24px;
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
 }
 
 .btn-xs.icon-only {
@@ -1275,11 +1280,11 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  padding: 20px;
+  gap: var(--space-sm);
+  padding: var(--space-xl);
   color: var(--text-tertiary);
   font-size: 12px;
-  margin-top: 10px;
+  margin-top: var(--space-sm);
 }
 
 .docker-empty-mini i {
@@ -1287,15 +1292,15 @@
 }
 
 .docker-manage-all {
-  margin-top: 12px;
+  margin-top: var(--space-md);
   width: 100%;
   justify-content: center;
 }
 
-/* Docker 闈㈡澘灞曞紑鍐呭鏍峰紡 */
+/* Docker 面板展开内容样式 */
 .docker-panel-content {
   background: rgba(0, 0, 0, 0);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   animation: panelSlideIn 0.25s ease-out;
 }
 
@@ -1314,7 +1319,7 @@
 .docker-section-header h4 {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 .docker-section-header h4 .toggle-icon {
@@ -1345,7 +1350,7 @@
   justify-content: space-between;
   align-items: center;
   background: rgba(var(--primary-rgb), 0.02);
-  padding: 10px 12px;
+  padding: var(--space-sm) var(--space-md);
 }
 
 .docker-container-info {
@@ -1354,13 +1359,13 @@
   gap: 3px;
   flex: 1;
   min-width: 0;
-  margin-right: 10px;
+  margin-right: var(--space-sm);
 }
 
 .docker-container-main {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 .docker-container-icon {
@@ -1396,12 +1401,12 @@
   display: flex;
   align-items: center;
   flex-shrink: 0;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 .docker-status-badge {
   padding: 1px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   font-size: 9px;
   font-weight: 600;
   text-transform: uppercase;
@@ -1419,7 +1424,7 @@
 
 .docker-container-actions {
   display: flex;
-  gap: 4px;
+  gap: var(--space-xs);
 }
 
 .docker-container-actions .btn-sm {
@@ -1430,21 +1435,21 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 
-/* Docker 绌虹姸鎬?*/
+/* Docker 空状?*/
 .docker-empty-state {
   text-align: center;
-  padding: 60px 20px;
+  padding: 60px var(--space-xl);
   background: var(--section-bg);
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   border: 2px dashed var(--border-color);
 }
 
 .docker-empty-icon {
   font-size: 64px;
-  margin-bottom: 16px;
+  margin-bottom: var(--space-lg);
   color: var(--border-color);
 }
 
@@ -1452,7 +1457,7 @@
   font-size: 18px;
   font-weight: 700;
   color: var(--text-primary);
-  margin-bottom: 8px;
+  margin-bottom: var(--space-sm);
 }
 
 .docker-empty-state p {
@@ -1460,17 +1465,17 @@
   color: var(--text-secondary);
 }
 
-/* 鏃ф牱寮忎繚鐣欎互鍏煎 */
+/* 旧样式保留以兼容 */
 .docker-container-table {
   overflow-x: auto;
 }
 
 .docker-container-name-badge {
   display: inline-block;
-  padding: 4px 10px;
+  padding: var(--space-xs) var(--space-sm);
   background: rgba(0, 212, 170, 0.1);
   color: var(--server-primary);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   font-size: 13px;
   font-weight: 500;
   font-family: var(--font-mono);
@@ -1488,16 +1493,16 @@
   font-family: var(--font-mono);
 }
 
-/* 澶嶇敤 account-card 椋庢牸 */
+/* 复用 account-card 风格 */
 .server-management-container {
-  padding: 20px;
+  padding: var(--space-xl);
 }
 
 .management-section {
   background-color: var(--card-bg);
-  border-radius: 14px;
-  padding: 12px;
-  margin-bottom: 12px;
+  border-radius: var(--radius-lg);
+  padding: var(--space-md);
+  margin-bottom: var(--space-md);
   box-shadow: var(--card-shadow);
   border: 1px solid var(--border-color);
   overflow: visible;
@@ -1505,13 +1510,13 @@
 
 .management-section-header {
   background-color: var(--card-bg);
-  border-radius: 10px;
-  padding: 12px 18px;
+  border-radius: var(--radius-md);
+  padding: var(--space-md) 18px;
   border: 1px solid var(--border-color);
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 12px;
+  margin-bottom: var(--space-md);
 }
 
 .management-section-header h3 {
@@ -1521,26 +1526,26 @@
   color: var(--text-primary);
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-sm);
 }
 
 .management-section-actions {
   display: flex;
-  gap: 10px;
+  gap: var(--space-sm);
   align-items: center;
 }
 
 .management-section-body {
-  padding: 15px;
+  padding: var(--space-lg);
   background: var(--section-bg);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--border-color);
 }
 
 .management-actions-grid {
   display: flex;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: var(--space-sm);
 }
 
 .management-actions-grid .btn {
@@ -1549,23 +1554,23 @@
 
 .form-actions {
   display: flex;
-  gap: 10px;
-  margin-top: 20px;
+  gap: var(--space-sm);
+  margin-top: var(--space-xl);
 }
 
 .form-success {
-  margin-top: 15px;
-  padding: 12px;
+  margin-top: var(--space-lg);
+  padding: var(--space-md);
   background: #10b98120;
   color: #10b981;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   font-size: 14px;
 }
 
 .loading-state,
 .empty-state {
   text-align: center;
-  padding: 40px 20px;
+  padding: 40px var(--space-xl);
   color: var(--text-secondary);
 }
 
@@ -1576,7 +1581,7 @@
   border-top-color: var(--primary-color);
   border-radius: 50%;
   animation: spin 1s linear infinite;
-  margin: 0 auto 15px;
+  margin: 0 auto var(--space-lg);
 }
 
 .monitor-logs-table {
@@ -1585,8 +1590,8 @@
 
 .status-badge {
   display: inline-block;
-  padding: 4px 10px;
-  border-radius: 4px;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-sm);
   font-size: 12px;
   font-weight: 500;
 }
@@ -1615,9 +1620,9 @@
   display: flex;
   justify-content: center;
   align-items: center;
-  gap: 15px;
-  margin-top: 20px;
-  padding-top: 20px;
+  gap: var(--space-lg);
+  margin-top: var(--space-xl);
+  padding-top: var(--space-xl);
   border-top: 1px solid var(--border-color);
 }
 
@@ -1638,7 +1643,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0 10px 0 0 !important;
+  padding: 0 var(--space-sm) 0 0 !important;
   background: #2d2d2d !important;
   border-bottom: 1px solid #444 !important;
 }
@@ -1649,16 +1654,16 @@
   gap: 2px;
   flex: 1;
   overflow-x: auto;
-  padding: 8px 0 0 8px;
+  padding: var(--space-sm) 0 0 var(--space-sm);
 }
 
 .ssh-tab {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
   background: #3d3d3d;
-  border-radius: 6px 6px 0 0;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
   cursor: pointer;
   transition: background 0.2s;
   min-width: 120px;
@@ -1693,7 +1698,7 @@
   cursor: pointer;
   padding: 2px;
   font-size: 10px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1709,8 +1714,8 @@
   border: 1px dashed #555;
   color: #888;
   cursor: pointer;
-  padding: 8px 12px;
-  border-radius: 6px 6px 0 0;
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
   font-size: 12px;
 }
 
@@ -1722,24 +1727,24 @@
 .ssh-terminal-pane {
   width: 100%;
   height: 600px;
-  padding: 10px;
+  padding: var(--space-sm);
 }
 
-/* 涓绘満閫夋嫨鍒楄〃 */
+/* 主机选择列表 */
 .server-select-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 .server-select-item {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 10px 14px;
+  gap: var(--space-md);
+  padding: var(--space-sm) var(--space-lg);
   background: var(--section-bg);
   border: 1px solid var(--border-color);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   cursor: pointer;
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -1754,7 +1759,7 @@
 .server-select-avatar {
   width: 36px;
   height: 36px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1806,7 +1811,7 @@
   .server-list-header {
     flex-direction: column;
     align-items: flex-start;
-    gap: 15px;
+    gap: var(--space-lg);
   }
 
   .server-list-actions {
@@ -1817,13 +1822,13 @@
   .server-card-info {
     flex-direction: row;
     align-items: center;
-    gap: 12px;
+    gap: var(--space-md);
     flex-wrap: nowrap;
   }
 
   .server-quick-info {
     flex-direction: column;
-    gap: 5px;
+    gap: var(--space-xs);
   }
 
   .server-details-grid {
@@ -1837,7 +1842,7 @@
 
 .server-sec-tabs {
   flex-wrap: nowrap;
-  gap: 4px;
+  gap: var(--space-xs);
   overflow: visible !important;
 }
 
@@ -1845,7 +1850,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: var(--space-sm);
   overflow: visible;
   max-width: 100%;
   padding-bottom: 0px;
@@ -1882,12 +1887,12 @@
   border-color: var(--server-primary-dark);
 }
 
-/* SSH 娣诲姞鎸夐挳灞呬腑 */
+/* SSH 添加按钮居中 */
 .ssh-add-tab {
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
-  padding: 6px 10px !important;
+  padding: 6px var(--space-sm) !important;
   min-width: 36px;
 }
 
@@ -1899,12 +1904,12 @@
   display: flex;
   align-items: center;
   /* gap: 6px; */
-  padding: 3px 4px !important;
+  padding: 3px var(--space-xs) !important;
   position: relative;
   background: var(--bg-secondary) !important;
   border: 1px solid var(--border-color) !important;
   color: var(--text-primary) !important;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   transition: all 0.2s ease;
   min-width: 120px;
   max-width: 180px;
@@ -1950,7 +1955,7 @@
   justify-content: center;
   width: 16px;
   height: 16px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   font-size: 18px;
   line-height: 1;
   color: var(--text-secondary);
@@ -1974,12 +1979,12 @@
 }
 
 .ssh-add-tab {
-  padding: 8px 14px !important;
+  padding: var(--space-sm) var(--space-lg) !important;
   min-width: auto !important;
   border: 1px dashed var(--server-primary) !important;
   background: rgba(0, 212, 170, 0.08) !important;
   color: var(--server-primary) !important;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
@@ -2002,7 +2007,7 @@
   transform: rotate(90deg);
 }
 
-/* SSH 缁堢鍐呭鍖哄煙 */
+/* SSH 终端内容区域 */
 .ssh-tab-content {
   padding: 0 !important;
 }
@@ -2010,17 +2015,17 @@
 .ssh-terminal-container {
   background: var(--card-bg);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   overflow: hidden;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
-/* SSH 缁堢宸ュ叿鏍?*/
+/* SSH 终端工具?*/
 .ssh-terminal-toolbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 10px 15px;
+  padding: var(--space-sm) var(--space-lg);
   background: #2d2d2d;
   border-bottom: 1px solid #444;
 }
@@ -2028,12 +2033,12 @@
 .ssh-terminal-info {
   display: flex;
   align-items: center;
-  gap: 15px;
+  gap: var(--space-lg);
 }
 
 .ssh-terminal-actions {
   display: flex;
-  gap: 8px;
+  gap: var(--space-sm);
   align-items: center;
 }
 
@@ -2054,7 +2059,7 @@
 }
 
 .ssh-terminal-actions .btn-primary i {
-  margin-right: 4px;
+  margin-right: var(--space-xs);
 }
 
 .ssh-status {
@@ -2062,8 +2067,8 @@
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  padding: 4px 10px;
-  border-radius: 12px;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-lg);
 }
 
 .ssh-status.connected {
@@ -2088,10 +2093,10 @@
 
 .ssh-terminal-actions {
   display: flex;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
-/* 鍐呭祵缁堢闈㈡澘 */
+/* 内嵌终端面板 */
 .ssh-terminal-pane-embedded {
   width: 100%;
   height: calc(100vh - 280px);
@@ -2101,12 +2106,12 @@
   background: var(--card-bg);
 }
 
-/* SSH 缁堢宸ュ叿鏍?*/
+/* SSH 终端工具?*/
 .ssh-terminal-toolbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 10px 15px;
+  padding: var(--space-sm) var(--space-lg);
   background: #2d2d2d;
   border-bottom: 1px solid #444;
 }
@@ -2114,12 +2119,12 @@
 .ssh-terminal-info {
   display: flex;
   align-items: center;
-  gap: 15px;
+  gap: var(--space-lg);
 }
 
 .ssh-terminal-actions {
   display: flex;
-  gap: 8px;
+  gap: var(--space-sm);
   align-items: center;
 }
 
@@ -2140,7 +2145,7 @@
 }
 
 .ssh-terminal-actions .btn-primary i {
-  margin-right: 4px;
+  margin-right: var(--space-xs);
 }
 
 .ssh-status {
@@ -2148,8 +2153,8 @@
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  padding: 4px 10px;
-  border-radius: 12px;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-lg);
 }
 
 .ssh-status.connected {
@@ -2174,10 +2179,10 @@
 
 .ssh-terminal-actions {
   display: flex;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
-/* 鍐呭祵缁堢闈㈡澘 */
+/* 内嵌终端面板 */
 .ssh-terminal-pane-embedded {
   width: 100%;
   height: calc(100vh - 280px);
@@ -2187,9 +2192,9 @@
   background: var(--card-bg);
 }
 
-/* SSH 缁堢搴曢儴鎻愮ず */
+/* SSH 终端底部提示 */
 .ssh-terminal-footer {
-  padding: 8px 15px;
+  padding: var(--space-sm) var(--space-lg);
   background: var(--section-bg);
   border-top: 1px solid var(--border-color);
   color: var(--text-secondary);
@@ -2200,11 +2205,11 @@
   margin-right: 6px;
 }
 
-/* 鍝嶅簲寮忚皟鏁?*/
+/* 响应式调?*/
 @media (max-width: 768px) {
   .ssh-terminal-toolbar {
     flex-direction: column;
-    gap: 10px;
+    gap: var(--space-sm);
     align-items: flex-start;
   }
 
@@ -2229,15 +2234,15 @@
 }
 
 .server-modal .modal-header {
-  padding: 10px 20px;
-  border-radius: 12px 12px 0 0;
+  padding: var(--space-sm) var(--space-xl);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
 }
 
 .server-modal .modal-title {
   font-size: 14px;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 .server-modal .modal-title i {
@@ -2250,15 +2255,15 @@
   overflow-y: auto;
 }
 
-/* 瑕嗙洊server-modal涓殑form-group鏍峰紡 */
+/* 覆盖server-modal中的form-group样式 */
 .server-modal .form-group label {
   font-size: 11px;
   font-weight: 500;
   color: var(--text-secondary);
   display: flex;
   align-items: center;
-  gap: 5px;
-  margin-bottom: 4px;
+  gap: var(--space-xs);
+  margin-bottom: var(--space-xs);
 }
 
 .server-modal .form-group label i {
@@ -2267,45 +2272,45 @@
 }
 
 .server-modal .form-input {
-  padding: 7px 10px;
+  padding: 7px var(--space-sm);
   font-size: 12px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 
 .server-modal .form-group {
-  margin-bottom: 4px;
+  margin-bottom: var(--space-xs);
 }
 
 .server-modal .form-row {
-  margin-bottom: 4px;
+  margin-bottom: var(--space-xs);
 }
 
-/* 琛ㄥ崟鍖哄潡 */
+/* 表单区块 */
 .server-form-section {
   background: var(--section-bg);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
-  padding: 10px 12px;
-  margin-bottom: 8px;
+  border-radius: var(--radius-md);
+  padding: var(--space-sm) var(--space-md);
+  margin-bottom: var(--space-sm);
 }
 
 .server-form-section.collapsed-section {
   background: transparent;
 }
 
-/* 璁よ瘉鏂瑰紡鍒囨崲鎸夐挳缁?*/
+/* 认证方式切换按钮?*/
 .server-auth-toggle {
   display: flex;
-  gap: 8px;
-  margin-bottom: 12px;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-md);
 }
 
 .server-auth-toggle button {
   flex: 1;
-  padding: 10px 16px;
+  padding: var(--space-sm) var(--space-lg);
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   color: var(--text-secondary);
   font-size: 13px;
   font-weight: 500;
@@ -2314,7 +2319,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 .server-auth-toggle button:hover {
@@ -2334,9 +2339,9 @@
   font-size: 14px;
 }
 
-/* 琛ㄥ崟瀛楁鏍峰紡 */
+/* 表单字段样式 */
 .server-form-field {
-  margin-bottom: 12px;
+  margin-bottom: var(--space-md);
 }
 
 .server-form-field label {
@@ -2364,10 +2369,10 @@
 .server-form-field input,
 .server-form-field textarea {
   width: 100%;
-  padding: 10px 12px;
+  padding: var(--space-sm) var(--space-md);
   background: var(--input-bg);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   font-size: 13px;
   color: var(--text-primary);
   transition: all 0.2s ease;
@@ -2392,46 +2397,46 @@
   font-family: var(--font-mono);
 }
 
-/* 琛ㄥ崟閿欒鎻愮ず */
+/* 表单错误提示 */
 .server-form-error {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 14px;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-lg);
   background: rgba(239, 68, 68, 0.1);
   border: 1px solid rgba(239, 68, 68, 0.3);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   color: #ef4444;
   font-size: 13px;
-  margin-top: 8px;
+  margin-top: var(--space-sm);
 }
 
 .server-form-error i {
   font-size: 14px;
 }
 
-/* 妯℃€佹搴曢儴鎿嶄綔鏍?*/
+/* 模框底部操作?*/
 .server-modal-footer {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 16px;
+  padding: var(--space-md) var(--space-lg);
   background: var(--section-bg);
   border-top: 1px solid var(--border-color);
-  gap: 12px;
+  gap: var(--space-md);
 }
 
 .server-modal-actions {
   display: flex;
-  gap: 10px;
+  gap: var(--space-sm);
 }
 
-/* 妯℃€佹鎸夐挳鏍峰紡 */
+/* 模框按钮样式 */
 .btn-server-cancel {
-  padding: 10px 20px;
+  padding: var(--space-sm) var(--space-xl);
   background: transparent;
   border: 1px solid var(--border-color);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   color: var(--text-secondary);
   font-size: 13px;
   font-weight: 500;
@@ -2451,10 +2456,10 @@
 }
 
 .btn-server-test {
-  padding: 10px 18px;
+  padding: var(--space-sm) 18px;
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   color: var(--text-primary);
   font-size: 13px;
   font-weight: 500;
@@ -2478,10 +2483,10 @@
 }
 
 .btn-server-save {
-  padding: 10px 22px;
+  padding: var(--space-sm) 22px;
   background: linear-gradient(135deg, var(--server-primary), var(--server-primary-dark));
   border: none;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   color: white;
   font-size: 13px;
   font-weight: 600;
@@ -2508,10 +2513,10 @@
   position: relative;
   width: 100%;
   min-height: 120px;
-  padding: 20px;
+  padding: var(--space-xl);
   background: var(--bg-tertiary);
   border: 2px dashed var(--border-color);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   display: flex;
   flex-direction: column;
@@ -2542,14 +2547,14 @@
   flex-direction: column;
   align-items: center;
   text-align: center;
-  gap: 8px;
+  gap: var(--space-sm);
   pointer-events: none;
 }
 
 .file-drop-zone-icon {
   font-size: 28px;
   color: var(--server-primary);
-  margin-bottom: 4px;
+  margin-bottom: var(--space-xs);
   transition: transform 0.3s ease;
 }
 
@@ -2573,11 +2578,11 @@
   width: 100%;
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
+  gap: var(--space-md);
+  padding: var(--space-md) var(--space-lg);
   background: var(--bg-secondary);
   border: 1px solid var(--server-primary);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   animation: slideInUp 0.3s ease;
 }
 
@@ -2612,7 +2617,7 @@
   background: rgba(239, 68, 68, 0.1);
   color: #ef4444;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   transition: all 0.2s;
 }
@@ -2634,36 +2639,36 @@
   }
 }
 
-/* 涓嬫媺鑿滃崟灞曞紑鍔ㄧ敾 */
-.dropdown-fade-enter-active {
+/* 下拉菜单展开动画 */
+.ssh-dropdown-fade-enter-active {
   animation: dropdownSlideIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.dropdown-fade-leave-active {
+.ssh-dropdown-fade-leave-active {
   animation: dropdownSlideOut 0.15s cubic-bezier(0.4, 0, 1, 1);
 }
 
 @keyframes dropdownSlideIn {
   from {
     opacity: 0;
-    transform: translateX(-50%) translateY(-10px) scale(0.95);
+    transform: translateX(-50%) translateY(-10px) scale(0.95) translateZ(0);
   }
 
   to {
     opacity: 1;
-    transform: translateX(-50%) translateY(0) scale(1);
+    transform: translateX(-50%) translateY(0) scale(1) translateZ(0);
   }
 }
 
 @keyframes dropdownSlideOut {
   from {
     opacity: 1;
-    transform: translateX(-50%) translateY(0) scale(1);
+    transform: translateX(-50%) translateY(0) scale(1) translateZ(0);
   }
 
   to {
     opacity: 0;
-    transform: translateX(-50%) translateY(-10px) scale(0.95);
+    transform: translateX(-50%) translateY(-10px) scale(0.95) translateZ(0);
   }
 }
 
@@ -2683,10 +2688,10 @@
   justify-content: center;
   min-width: 40px;
   height: 37px;
-  padding: 8px 14px;
+  padding: var(--space-sm) var(--space-lg);
   background: var(--bg-secondary);
   border: 1px dashed var(--border-color);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   color: var(--server-primary);
   font-size: 13px;
   font-weight: 600;
@@ -2710,20 +2715,20 @@
 
 .ssh-quick-menu {
   position: absolute;
-  top: calc(100% + 8px);
+  top: calc(100% + var(--space-sm));
   left: 50%;
   transform: translateX(-50%);
   min-width: 300px;
   background: var(--card-bg);
   border: 1px solid var(--border-color);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
   z-index: 99999;
   overflow: hidden;
 }
 
 .ssh-quick-menu-header {
-  padding: 12px 16px;
+  padding: var(--space-md) var(--space-lg);
   border-bottom: 1px solid var(--border-color);
   font-size: 12px;
   color: var(--text-secondary);
@@ -2731,14 +2736,14 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  gap: var(--space-sm);
   background: var(--bg-secondary);
 }
 
 .ssh-quick-menu-header>span {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 .ssh-quick-menu-header i {
@@ -2746,18 +2751,18 @@
 }
 
 .ssh-quick-menu-header .mini-btn-primary {
-  padding: 5px 10px;
+  padding: var(--space-xs) var(--space-sm);
   font-size: 10px;
   font-weight: 600;
   background: var(--server-primary);
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   color: white;
   cursor: pointer;
   transition: all 0.15s ease;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-xs);
 }
 
 .ssh-quick-menu-header .mini-btn-primary i {
@@ -2772,7 +2777,7 @@
 .ssh-quick-menu-list {
   max-height: 320px;
   overflow-y: auto;
-  padding: 4px;
+  padding: var(--space-xs);
 }
 
 .ssh-quick-menu-list::-webkit-scrollbar {
@@ -2781,17 +2786,17 @@
 
 .ssh-quick-menu-list::-webkit-scrollbar-thumb {
   background: var(--border-color);
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
 }
 
 .ssh-quick-item {
-  padding: 10px 12px;
+  padding: var(--space-sm) var(--space-md);
   margin: 2px 0;
   cursor: pointer;
   display: flex;
   align-items: center;
-  gap: 12px;
-  border-radius: 8px;
+  gap: var(--space-md);
+  border-radius: var(--radius-md);
   transition: background 0.15s ease;
 }
 
@@ -2852,16 +2857,16 @@
   color: var(--server-primary);
 }
 
-/* 绌虹姸鎬?*/
+/* 空状?*/
 .ssh-quick-empty {
-  padding: 40px 20px;
+  padding: 40px var(--space-xl);
   text-align: center;
   color: var(--text-tertiary);
   font-size: 12px;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-sm);
 }
 
 .ssh-quick-empty i {
@@ -2876,7 +2881,7 @@
     height: 44px !important;
     padding: 0 !important;
     font-size: 16px !important;
-    border-radius: 12px !important;
+    border-radius: var(--radius-lg) !important;
     border-style: dashed !important;
   }
 
@@ -2884,8 +2889,8 @@
   .ssh-quick-menu {
     position: fixed !important;
     top: 68px !important;
-    left: 12px !important;
-    right: 12px !important;
+    left: var(--space-md) !important;
+    right: var(--space-md) !important;
     width: auto !important;
     min-width: 0 !important;
     transform: none !important;
@@ -2918,13 +2923,13 @@
   }
 
   .ssh-quick-menu-header {
-    padding: 10px 12px;
+    padding: var(--space-sm) var(--space-md);
     font-size: 11px;
   }
 
   .ssh-quick-item {
-    padding: 10px 12px;
-    gap: 10px;
+    padding: var(--space-sm) var(--space-md);
+    gap: var(--space-sm);
   }
 
   .ssh-quick-item-name {
@@ -2941,16 +2946,16 @@
   gap: 2px;
   padding: 0px;
   background: var(--bg-secondary);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--border-color);
 }
 
 .pill-btn {
-  padding: 6px 12px;
+  padding: 6px var(--space-md);
   border: none;
   background: transparent;
   color: var(--text-secondary);
-  border-radius: 8.5px;
+  border-radius: 8.var(--radius-sm);
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
@@ -2968,7 +2973,7 @@
   color: white;
 }
 
-/* 鐘舵€佺偣鎸囩ず鍣?*/
+/* 状点指示?*/
 .status-dot {
   display: inline-block;
   width: 8px;
@@ -2986,12 +2991,12 @@
   background: #ef4444;
 }
 
-/* 鎸囨爣鍗曞厓鏍?*/
+/* 指标单元?*/
 .metrics-cell {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-xs);
 }
 
 .metrics-value {
@@ -3012,7 +3017,7 @@
   color: #ef4444;
 }
 
-/* 杩蜂綘杩涘害鏉￠鑹?*/
+/* 迷你进度条颜?*/
 .mini-progress .normal {
   background: linear-gradient(90deg, #10b981, #34d399);
 }
@@ -3025,7 +3030,7 @@
   background: linear-gradient(90deg, #ef4444, #f87171);
 }
 
-/* 閲囬泦鍣ㄧ姸鎬佹爮 */
+/* 采集器状态栏 */
 .collector-status-bar {
   flex-wrap: wrap;
 }
@@ -3034,7 +3039,7 @@
   .collector-status-bar {
     flex-direction: column;
     align-items: flex-start;
-    gap: 8px;
+    gap: var(--space-sm);
   }
 
   .time-range-pills {
@@ -3042,7 +3047,7 @@
   }
 }
 
-/* 缇庡寲鐨勭瓫閫変笅鎷夋 */
+/* 美化的筛选下拉框 */
 .metrics-filter-select {
   position: relative;
   display: inline-flex;
@@ -3052,7 +3057,7 @@
 
 .metrics-filter-select>i:first-child {
   position: absolute;
-  left: 12px;
+  left: var(--space-md);
   font-size: 11px;
   color: var(--server-primary);
   pointer-events: none;
@@ -3061,7 +3066,7 @@
 
 .metrics-filter-select>i:last-child {
   position: absolute;
-  right: 10px;
+  right: var(--space-sm);
   font-size: 10px;
   color: var(--text-tertiary);
   pointer-events: none;
@@ -3081,7 +3086,7 @@
   color: var(--text-primary);
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   cursor: pointer;
   appearance: none;
   -webkit-appearance: none;
@@ -3101,12 +3106,12 @@
 }
 
 .metrics-filter-select select option {
-  padding: 8px 12px;
+  padding: var(--space-sm) var(--space-md);
   background: var(--bg-primary);
   color: var(--text-primary);
 }
 
-/* 閲囬泦闂撮殧閫夋嫨妗?*/
+/* 采集间隔选择?*/
 .metrics-interval-select {
   position: relative;
   display: inline-flex;
@@ -3116,13 +3121,13 @@
 .metrics-interval-select select {
   width: 100%;
   height: 36px;
-  padding: 0 12px;
+  padding: 0 var(--space-md);
   font-size: 13px;
   font-weight: 500;
   color: var(--text-primary);
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   cursor: pointer;
   appearance: none;
   -webkit-appearance: none;
@@ -3143,26 +3148,26 @@
   border-color: var(--server-primary);
 }
 
-/* 鍘嗗彶璁板綍宸ュ叿鏍?*/
+/* 历史记录工具?*/
 .metrics-history-toolbar {
   display: flex;
-  gap: 10px;
+  gap: var(--space-sm);
   align-items: center;
   flex-wrap: wrap;
 }
 
-/* 缁熶竴鐨勫伐鍏锋爮鎸夐挳 */
+/* 统一的工具栏按钮 */
 .metrics-toolbar-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 6px;
   height: 32px;
-  padding: 0 12px;
+  padding: 0 var(--space-md);
   border: 1px solid var(--border-color);
   background: var(--bg-secondary);
   color: var(--text-secondary);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
@@ -3184,7 +3189,7 @@
   font-size: 11px;
 }
 
-/* 涓昏鎸夐挳鏍峰紡 */
+/* 主要按钮样式 */
 .metrics-toolbar-btn.primary {
   background: var(--server-primary);
   border-color: var(--server-primary);
@@ -3216,11 +3221,11 @@
   gap: 6px;
 }
 
-/* 涓绘満鍗＄墖 */
+/* 主机卡片 */
 .metrics-server-card {
   background: var(--card-bg);
   border: 1px solid var(--border-color);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   overflow: hidden;
 }
 
@@ -3228,7 +3233,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 14px 16px;
+  padding: var(--space-lg) var(--space-lg);
   cursor: pointer;
   transition: background 0.15s ease;
 }
@@ -3240,7 +3245,7 @@
 .metrics-server-info {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-sm);
 }
 
 .metrics-server-info>i {
@@ -3257,22 +3262,22 @@
   font-size: 11px;
   color: var(--text-tertiary);
   background: var(--bg-tertiary);
-  padding: 2px 8px;
-  border-radius: 4px;
+  padding: 2px var(--space-sm);
+  border-radius: var(--radius-sm);
 }
 
 .metrics-server-stats {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-md);
 }
 
 .metrics-record-count {
   font-size: 12px;
   color: var(--text-secondary);
   background: var(--bg-secondary);
-  padding: 4px 10px;
-  border-radius: 10px;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-md);
 }
 
 .metrics-server-stats>i {
@@ -3281,7 +3286,7 @@
   transition: transform 0.2s ease;
 }
 
-/* 璁板綍鍒楄〃 */
+/* 记录列表 */
 .metrics-records-list {
   border-top: 1px solid var(--border-color);
   max-height: 400px;
@@ -3292,9 +3297,9 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 12px 16px;
+  padding: var(--space-md) var(--space-lg);
   border-bottom: 1px solid var(--border-color);
-  gap: 16px;
+  gap: var(--space-lg);
 }
 
 .metrics-record-item:last-child {
@@ -3322,7 +3327,7 @@
 
 .metrics-record-data {
   display: flex;
-  gap: 20px;
+  gap: var(--space-xl);
   flex-wrap: wrap;
   flex: 1;
   justify-content: flex-end;
@@ -3361,20 +3366,20 @@
   font-size: 11px;
   background: var(--bg-secondary);
   padding: 2px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
 }
 
-/* 鍝嶅簲寮?*/
+/* 响应?*/
 @media (max-width: 768px) {
   .metrics-record-item {
     flex-direction: column;
     align-items: flex-start;
-    gap: 10px;
+    gap: var(--space-sm);
   }
 
   .metrics-record-data {
     justify-content: flex-start;
-    gap: 12px;
+    gap: var(--space-md);
   }
 
   .metrics-server-host {
@@ -3402,18 +3407,18 @@
 }
 
 .skeleton-container {
-  padding: 0px 10px;
+  padding: 0px var(--space-sm);
 }
 
 .skeleton-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 12px;
+  gap: var(--space-md);
 }
 
 .skeleton-section {
   background: var(--section-bg);
-  padding: 15px;
+  padding: var(--space-lg);
   border-radius: 13px;
   border: 1px solid var(--border-color);
 }
@@ -3421,14 +3426,14 @@
 .skeleton-title {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 16px;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-lg);
 }
 
 .skeleton-icon {
   width: 16px;
   height: 16px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: linear-gradient(90deg,
       var(--bg-tertiary) 25%,
       rgba(var(--text-primary-rgb), 0.08) 50%,
@@ -3439,7 +3444,7 @@
 
 .skeleton-text {
   height: 14px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: linear-gradient(90deg,
       var(--bg-tertiary) 25%,
       rgba(var(--text-primary-rgb), 0.08) 50%,
@@ -3468,7 +3473,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 10px 0;
+  padding: var(--space-sm) 0;
   border-bottom: 1px solid var(--border-color);
 }
 
@@ -3479,8 +3484,8 @@
 .skeleton-progress {
   width: 100%;
   height: 10px;
-  margin-top: 8px;
-  border-radius: 6px;
+  margin-top: var(--space-sm);
+  border-radius: var(--radius-sm);
   background: linear-gradient(90deg,
       var(--bg-tertiary) 25%,
       rgba(var(--text-primary-rgb), 0.1) 50%,
@@ -3493,7 +3498,7 @@
 .skeleton-chart {
   width: 100%;
   height: 145px;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   background: linear-gradient(90deg,
       var(--bg-tertiary) 25%,
       rgba(var(--text-primary-rgb), 0.06) 50%,
@@ -3553,21 +3558,21 @@
 
 .server-quick-info {
   display: flex;
-  gap: 8px;
+  gap: var(--space-sm);
   align-items: center;
   flex-wrap: wrap;
   margin-left: auto;
-  margin-right: 16px;
+  margin-right: var(--space-lg);
 }
 
 .metric-pill {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 8px;
+  padding: var(--space-xs) var(--space-sm);
   background: rgba(var(--bg-secondary-rgb), 0.5);
   border: 1px solid var(--border-color);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   font-size: 11px;
   font-family: var(--font-mono);
   color: var(--text-secondary);
@@ -3585,8 +3590,8 @@
     display: flex !important;
     flex-direction: column !important;
     align-items: stretch !important;
-    gap: 10px !important;
-    padding: 12px 14px !important;
+    gap: var(--space-sm) !important;
+    padding: var(--space-md) var(--space-lg) !important;
     position: relative !important;
   }
 
@@ -3601,15 +3606,15 @@
   /* 将操作按钮固定在右侧 */
   .server-card-header .action-group {
     position: absolute !important;
-    right: 12px !important;
-    top: 10px !important;
+    right: var(--space-md) !important;
+    top: var(--space-sm) !important;
     margin: 0 !important;
   }
 
   .server-card-header .action-group .btn-icon-refined {
     width: 30px !important;
     height: 30px !important;
-    border-radius: 8px !important;
+    border-radius: var(--radius-md) !important;
     background: rgba(var(--bg-tertiary-rgb), 0.8) !important;
   }
 
@@ -3621,7 +3626,7 @@
   .server-card-header .metrics-meters {
     width: 100% !important;
     justify-content: space-between !important;
-    gap: 8px !important;
+    gap: var(--space-sm) !important;
     flex: none !important;
     order: 2 !important;
   }
@@ -3630,8 +3635,8 @@
     max-width: none !important;
     flex: 1 !important;
     background: var(--bg-secondary) !important;
-    padding: 6px 10px !important;
-    border-radius: 8px !important;
+    padding: 6px var(--space-sm) !important;
+    border-radius: var(--radius-md) !important;
     border: 1px solid var(--border-color) !important;
   }
 
@@ -3639,7 +3644,7 @@
   .server-card-header .network-metrics {
     width: 100% !important;
     justify-content: flex-start !important;
-    padding: 4px 0 !important;
+    padding: var(--space-xs) 0 !important;
     order: 3 !important;
     min-width: 0 !important;
     flex: none !important;
@@ -3647,7 +3652,7 @@
 
   .server-card-header .network-speed-container {
     flex-direction: row !important;
-    gap: 8px !important;
+    gap: var(--space-sm) !important;
     width: 100% !important;
     justify-content: center !important;
   }
@@ -3671,7 +3676,7 @@
     display: flex !important;
     align-items: center !important;
     justify-content: center !important;
-    border-radius: 10px !important;
+    border-radius: var(--radius-md) !important;
   }
 
   .server-management-actions .btn i {
@@ -3686,7 +3691,7 @@
 
   .server-quick-info {
     width: 100%;
-    margin: 8px 0 0 0;
+    margin: var(--space-sm) 0 0 0;
     justify-content: flex-start;
     order: 4;
   }
@@ -3749,9 +3754,9 @@
 .update-badge {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  border-radius: 10px;
+  gap: var(--space-xs);
+  padding: 2px var(--space-sm);
+  border-radius: var(--radius-md);
   font-size: 10px;
   font-weight: 600;
   letter-spacing: 0.3px;
@@ -3798,18 +3803,18 @@
 .docker-page-header {
   display: flex;
   align-items: center;
-  gap: 16px;
-  padding: 20px 24px;
+  gap: var(--space-lg);
+  padding: var(--space-xl) var(--space-xl);
   background: linear-gradient(135deg, rgba(36, 150, 237, 0.08) 0%, rgba(36, 150, 237, 0.02) 100%);
-  border-radius: 16px;
-  margin-bottom: 20px;
+  border-radius: var(--radius-lg);
+  margin-bottom: var(--space-xl);
   border: 1px solid rgba(36, 150, 237, 0.1);
 }
 
 .docker-page-header .docker-logo {
   width: 48px;
   height: 48px;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   background: linear-gradient(135deg, #2496ED, #1a7bc4);
   display: flex;
   align-items: center;
@@ -3822,18 +3827,18 @@
 /* 子标签容器 */
 .docker-sub-tabs {
   display: flex;
-  gap: 8px;
+  gap: var(--space-sm);
   padding: 6px;
   background: var(--bg-tertiary);
-  border-radius: 12px;
-  margin-bottom: 20px;
+  border-radius: var(--radius-lg);
+  margin-bottom: var(--space-xl);
 }
 
 .docker-sub-tab {
-  padding: 10px 18px;
+  padding: var(--space-sm) 18px;
   background: transparent;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   cursor: pointer;
   font-size: 13px;
   font-weight: 600;
@@ -3841,7 +3846,7 @@
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
   position: relative;
 }
 
@@ -3864,17 +3869,17 @@
 .docker-empty-state {
   text-align: center;
   padding: 80px 40px;
-  background: linear-gradient(180deg, var(--bg-tertiary) 0%, transparent 100%);
-  border-radius: 16px;
+  /* background: linear-gradient(180deg, var(--bg-tertiary) 0%, transparent 100%); */
+  border-radius: var(--radius-lg);
   /* margin: 20px 0; */
 }
 
 .docker-empty-state .empty-icon {
   width: 80px;
   height: 80px;
-  margin: 0 auto 20px;
+  margin: 0 auto var(--space-xl);
   background: linear-gradient(135deg, rgba(36, 150, 237, 0.15), rgba(36, 150, 237, 0.05));
-  border-radius: 20px;
+  border-radius: var(--radius-lg);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3884,7 +3889,7 @@
 }
 
 .docker-empty-state h4 {
-  margin: 0 0 8px 0;
+  margin: 0 0 var(--space-sm) 0;
   font-size: 16px;
   font-weight: 600;
   color: var(--text-secondary);
@@ -3899,14 +3904,14 @@
 /* Docker 资源表格 */
 .docker-resource-table {
   border: 1px solid var(--border-color);
-  border-radius: 16px;
+  border-radius: var(--radius-md);
   overflow: hidden;
   background: var(--card-bg);
 }
 
 .docker-resource-header {
   display: flex;
-  padding: 10px 16px;
+  padding: var(--space-sm) var(--space-lg);
   /* 减少垂直内边距，更紧凑 */
   background: linear-gradient(180deg, var(--bg-tertiary) 0%, var(--bg-secondary) 100%);
   border-bottom: 1px solid var(--border-color);
@@ -3920,7 +3925,7 @@
 /* 统一表头和行内单元格的通用样式 */
 .docker-resource-header>span,
 .docker-resource-row>span {
-  padding: 0 8px;
+  padding: 0 var(--space-sm);
   /* 增加列间距 */
   overflow: hidden;
   white-space: nowrap;
@@ -3937,10 +3942,10 @@
   width: 190px !important;
   justify-content: flex-end;
   display: flex !important;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
-/* 特殊列处理：操作列 (小型 - 用于镜像/网络/存储) */
+/* д (С - ھ//洢) */
 .col-actions-sm {
   flex: 0 0 80px !important;
   /*稍微宽一点以容纳间距*/
@@ -3959,7 +3964,7 @@
   display: flex;
   align-items: center;
   /* 垂直居中 */
-  padding: 10px 16px;
+  padding: var(--space-sm) var(--space-lg);
   /* 与表头保持一致 */
   border-bottom: 1px solid var(--border-color);
   transition: all 0.2s ease;
@@ -3973,7 +3978,7 @@
   justify-content: center;
   overflow: hidden;
   line-height: 1.5;
-  padding-right: 12px;
+  padding-right: var(--space-md);
   height: 100%;
 }
 
@@ -3998,10 +4003,10 @@
 .docker-tag-badge {
   display: inline-flex;
   align-items: center;
-  padding: 4px 10px;
+  padding: var(--space-xs) var(--space-sm);
   background: linear-gradient(135deg, rgba(59, 130, 246, 0.12), rgba(59, 130, 246, 0.06));
   color: #3b82f6;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   font-size: 11px;
   font-weight: 600;
   font-family: var(--font-mono);
@@ -4011,10 +4016,10 @@
 .docker-driver-badge {
   display: inline-flex;
   align-items: center;
-  padding: 4px 10px;
+  padding: var(--space-xs) var(--space-sm);
   background: linear-gradient(135deg, rgba(168, 85, 247, 0.12), rgba(168, 85, 247, 0.06));
   color: #a855f7;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   font-size: 11px;
   font-weight: 600;
   border: 1px solid rgba(168, 85, 247, 0.15);
@@ -4024,9 +4029,9 @@
 .docker-status-badge {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 4px 10px;
-  border-radius: 20px;
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-lg);
   font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
@@ -4068,9 +4073,9 @@
 
 /* 主机选择器样式 */
 .docker-server-select {
-  padding: 8px 14px;
+  padding: var(--space-sm) var(--space-lg);
   font-size: 13px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--border-color);
   background: var(--bg-secondary);
   color: var(--text-primary);
@@ -4091,9 +4096,9 @@
 
 /* 超小按钮 */
 .btn-xs {
-  padding: 5px 10px;
+  padding: var(--space-xs) var(--space-sm);
   font-size: 11px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   font-weight: 600;
 }
 
@@ -4112,7 +4117,7 @@
 .docker-host-card {
   background: var(--card-bg);
   border: 1px solid var(--border-color);
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   overflow: hidden;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -4126,20 +4131,20 @@
 .modern-grid-list {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--space-sm);
 }
 
 .modern-grid-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 16px;
+  padding: var(--space-sm) var(--space-lg);
   /* Match table row padding */
   min-height: 56px;
   /* Match table row height */
   background: var(--card-bg);
   border: 1px solid var(--border-color);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   transition: all 0.2s ease;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.02);
 }
@@ -4153,7 +4158,7 @@
 .item-main-info {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: var(--space-lg);
   flex: 2;
   min-width: 0;
 }
@@ -4161,7 +4166,7 @@
 .item-icon {
   width: 42px;
   height: 42px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -4180,7 +4185,7 @@
 .item-details {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-xs);
   min-width: 0;
 }
 
@@ -4204,8 +4209,8 @@
 
 /* 状态药丸 */
 .status-pill {
-  padding: 4px 12px;
-  border-radius: 20px;
+  padding: var(--space-xs) var(--space-md);
+  border-radius: var(--radius-lg);
   font-size: 12px;
   font-weight: 600;
   display: inline-flex;
@@ -4236,19 +4241,19 @@
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 4px;
+  gap: var(--space-xs);
   flex: 1;
-  padding: 0 16px;
+  padding: 0 var(--space-lg);
   border-left: 1px solid var(--border-color);
-  margin-left: 16px;
+  margin-left: var(--space-lg);
 }
 
 .item-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
   flex-shrink: 0;
-  padding-left: 16px;
+  padding-left: var(--space-lg);
   border-left: 1px solid var(--border-color);
 }
 
@@ -4256,7 +4261,7 @@
 .action-btn-circle {
   width: 32px;
   height: 32px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   border: 1px solid transparent;
   background: var(--bg-secondary);
   color: var(--text-secondary);
@@ -4294,16 +4299,16 @@
 
 .modern-tabs {
   display: inline-flex;
-  gap: 4px;
+  gap: var(--space-xs);
   background: var(--bg-secondary);
-  padding: 4px;
-  border-radius: 10px;
+  padding: var(--space-xs);
+  border-radius: var(--radius-md);
   border: 1px solid var(--border-color);
 }
 
 .modern-tab-btn {
-  padding: 6px 14px;
-  border-radius: 8px;
+  padding: 6px var(--space-lg);
+  border-radius: var(--radius-sm);
   font-size: 13px;
   font-weight: 500;
   color: var(--text-secondary);
@@ -4313,7 +4318,7 @@
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
   line-height: 1;
   white-space: nowrap;
 }
@@ -4324,9 +4329,9 @@
 }
 
 .modern-tab-btn.active {
-  background: var(--card-bg);
-  color: var(--ag-primary);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  background: rgba(var(--primary-rgb), 0.15);
+  color: var(--primary-color);
+  box-shadow: inset 0 0 0 1px rgba(var(--primary-rgb), 0.3);
   font-weight: 600;
 }
 
@@ -4346,24 +4351,25 @@
 /* Docker Console (refactor) */
 .docker-console-panel {
   border: 1px solid var(--border-color);
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
   background: linear-gradient(180deg, rgba(var(--bg-secondary-rgb), 0.55), rgba(var(--bg-primary-rgb), 0.35));
+  padding: var(--space-md);
 }
 
 .docker-console-toolbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 16px;
+  gap: var(--space-md);
+  margin-bottom: var(--space-lg);
   flex-wrap: wrap;
 }
 
 .docker-console-tabs {
   display: inline-flex;
-  gap: 4px;
-  padding: 4px;
-  border-radius: 10px;
+  gap: var(--space-xs);
+  padding: var(--space-xs);
+  border-radius: var(--radius-md);
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
 }
@@ -4371,17 +4377,17 @@
 .docker-console-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
   flex-wrap: wrap;
 }
 
 .docker-server-select {
   height: 34px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--border-color);
   background: var(--bg-secondary);
   color: var(--text-primary);
-  padding: 0 10px;
+  padding: 0 var(--space-sm);
   font-size: 12px;
   cursor: pointer;
   outline: none;
@@ -4393,7 +4399,7 @@
 
 .docker-search i {
   position: absolute;
-  left: 10px;
+  left: var(--space-sm);
   top: 50%;
   transform: translateY(-50%);
   color: var(--text-tertiary);
@@ -4403,11 +4409,11 @@
 .docker-search input {
   width: 220px;
   height: 34px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--border-color);
   background: var(--bg-secondary);
   color: var(--text-primary);
-  padding: 0 12px 0 30px;
+  padding: 0 var(--space-md) 0 30px;
   font-size: 12px;
 }
 
@@ -4418,18 +4424,18 @@
 }
 
 .docker-task-hub {
-  margin: 10px 0px 10px 0px;
+  margin: var(--space-lg) 0px var(--space-lg) 0px;
   border: 1px solid var(--border-color);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   background: linear-gradient(180deg, rgba(var(--bg-secondary-rgb), 0.6), rgba(var(--bg-primary-rgb), 0.6));
-  padding: 10px 12px;
+  padding: var(--space-md) var(--space-lg);
 }
 
 .docker-task-hub-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-md);
   transition: opacity 0.2s;
 }
 
@@ -4438,7 +4444,7 @@
 }
 
 .docker-task-hub.is-collapsed {
-  padding-bottom: 10px;
+  padding-bottom: var(--space-sm);
 }
 
 .docker-task-stream-indicator {
@@ -4447,15 +4453,15 @@
   gap: 6px;
   font-size: 12px;
   color: var(--text-secondary);
-  padding: 4px 8px;
-  border-radius: 999px;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-full);
   border: 1px solid var(--border-color);
 }
 
 .docker-task-stream-indicator.online {
   color: var(--success-color);
-  border-color: rgba(16, 185, 129, 0.4);
-  background: rgba(16, 185, 129, 0.1);
+  border-color: rgba(var(--success-rgb, 16, 185, 129), 0.4);
+  background: rgba(var(--success-rgb, 16, 185, 129), 0.15);
 }
 
 .docker-task-count {
@@ -4466,13 +4472,13 @@
 .docker-task-stream-error {
   font-size: 11px;
   color: var(--warning-color);
-  margin-bottom: 8px;
+  margin-bottom: var(--space-sm);
 }
 
 .docker-task-empty {
   font-size: 12px;
   color: var(--text-tertiary);
-  padding: 12px 4px 6px;
+  padding: var(--space-md) var(--space-xs) 6px;
 }
 
 .docker-task-list {
@@ -4487,18 +4493,18 @@
 .docker-task-item {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: 10px;
+  gap: var(--space-sm);
   align-items: center;
   border: 1px solid var(--border-color);
   background: rgba(var(--bg-primary-rgb), 0.45);
-  border-radius: 10px;
-  padding: 8px 10px;
+  border-radius: var(--radius-md);
+  padding: var(--space-sm) var(--space-sm);
 }
 
 .docker-task-state {
   font-size: 10px;
   font-weight: 700;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   padding: 3px 7px;
   border: 1px solid var(--border-color);
   color: var(--text-secondary);
@@ -4530,7 +4536,7 @@
 .docker-task-title {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
   font-size: 12px;
   color: var(--text-primary);
   font-weight: 600;
@@ -4540,7 +4546,7 @@
   font-size: 10px;
   color: var(--text-tertiary);
   border: 1px solid var(--border-color);
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   padding: 2px 6px;
 }
 
@@ -4567,15 +4573,15 @@
 .docker-kpi-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 10px;
-  margin-bottom: 10px;
+  gap: var(--space-lg);
+  margin-bottom: var(--space-lg);
 }
 
 .docker-kpi-card {
   border: 1px solid var(--border-color);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   background: var(--card-bg);
-  padding: 10px 14px;
+  padding: var(--space-sm) var(--space-lg);
   transition: all 0.2s ease;
   min-height: 64px;
 }
@@ -4613,7 +4619,7 @@
 .docker-kpi-label {
   color: var(--text-tertiary);
   font-size: 11px;
-  margin-bottom: 4px;
+  margin-bottom: var(--space-xs);
 }
 
 .docker-kpi-value {
@@ -4626,8 +4632,8 @@
 
 .docker-state-filters {
   display: flex;
-  gap: 8px;
-  margin-bottom: 10px;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-xs);
   flex-wrap: wrap;
 }
 
@@ -4665,7 +4671,7 @@
   /* width: 190px; */
   /* display: flex;  由父级 span 接管 */
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
   justify-content: flex-end;
   /* 靠右对齐 */
   width: 100%;
@@ -4682,9 +4688,9 @@
 }
 
 .docker-inspector {
-  margin-top: 10px;
+  margin-top: var(--space-sm);
   border: 1px solid var(--border-color);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   background: var(--card-bg);
   overflow: hidden;
   min-width: 0;
@@ -4694,23 +4700,23 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 8px;
-  padding: 12px;
+  gap: var(--space-sm);
+  padding: var(--space-md);
   border-bottom: 1px solid var(--border-color);
   background: var(--bg-secondary);
 }
 
 .docker-inspector-body {
-  padding: 12px;
+  padding: var(--space-md);
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--space-sm);
 }
 
 .docker-inspector-item {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-xs);
 }
 
 .docker-inspector-item span {
@@ -4728,8 +4734,8 @@
   color: var(--text-secondary);
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
-  padding: 7px 8px;
+  border-radius: var(--radius-md);
+  padding: 7px var(--space-sm);
   white-space: normal;
   word-break: break-all;
 }
@@ -4773,7 +4779,7 @@
 
   .docker-task-item {
     grid-template-columns: auto minmax(0, 1fr);
-    gap: 8px;
+    gap: var(--space-sm);
   }
 
   .docker-task-time {
@@ -4786,21 +4792,21 @@
   display: flex;
   flex-direction: column;
   gap: 32px;
-  padding: 10px 0;
+  padding: var(--space-sm) 0;
 }
 
 /* 分组显示样式 */
 .docker-grid-group {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--space-lg);
 }
 
 .docker-grid-group-header {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding-bottom: 8px;
+  gap: var(--space-md);
+  padding-bottom: var(--space-sm);
   border-bottom: 1px solid var(--border-color);
 }
 
@@ -4821,22 +4827,22 @@
   font-weight: 700;
   color: var(--text-tertiary);
   background: var(--bg-tertiary);
-  padding: 2px 8px;
-  border-radius: 20px;
+  padding: 2px var(--space-sm);
+  border-radius: var(--radius-lg);
   font-family: var(--font-mono);
 }
 
 .docker-grid-cards-wrap {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 12px;
+  gap: var(--space-md);
 }
 
 /* V4 卡片样式 */
 .docker-container-card-v4 {
   background: var(--card-bg);
   border: 1px solid var(--border-color);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   display: flex;
   flex-direction: column;
   position: relative;
@@ -4890,16 +4896,16 @@
 
 /* 顶部区域 */
 .card-header-v4 {
-  padding: 12px 16px;
+  padding: var(--space-md) var(--space-lg);
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  gap: 10px;
+  gap: var(--space-sm);
 }
 
 .header-main-v4 {
   display: flex;
-  gap: 10px;
+  gap: var(--space-sm);
   min-width: 0;
 }
 
@@ -4908,7 +4914,7 @@
   height: 36px;
   background: rgba(36, 150, 237, 0.1);
   color: #2496ed;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -4961,9 +4967,9 @@
 .status-badge-v4 {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  padding: 8px 8px;
-  border-radius: 6px;
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-sm);
+  border-radius: var(--radius-sm);
   font-size: 9px;
   font-weight: 800;
   background: var(--bg-tertiary);
@@ -5013,7 +5019,7 @@
 
 /* 内容体 */
 .card-body-v4 {
-  padding: 0 16px 12px;
+  padding: 0 var(--space-lg) var(--space-md);
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -5023,7 +5029,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 4px 0;
+  padding: var(--space-xs) 0;
 }
 
 .info-label-v4 {
@@ -5060,7 +5066,7 @@
 
 /* 任务进度条 */
 .card-progress-v4 {
-  padding: 0 16px 12px;
+  padding: 0 var(--space-lg) var(--space-md);
 }
 
 .progress-info-v4 {
@@ -5069,7 +5075,7 @@
   font-size: 9px;
   color: var(--server-primary);
   font-weight: 800;
-  margin-bottom: 4px;
+  margin-bottom: var(--space-xs);
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
@@ -5077,21 +5083,21 @@
 .progress-bar-v4 {
   height: 4px;
   background: var(--bg-tertiary);
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
   overflow: hidden;
 }
 
 .progress-fill-v4 {
   height: 100%;
   background: linear-gradient(90deg, var(--server-primary), #60a5fa);
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
   transition: width 0.3s ease;
   box-shadow: 0 0 8px rgba(36, 150, 237, 0.4);
 }
 
 /* 底部区域 */
 .card-footer-v4 {
-  padding: 8px 12px 14px;
+  padding: var(--space-sm) var(--space-md) var(--space-lg);
   background: rgba(0, 0, 0, 0.01);
   border-top: 1px dashed var(--border-color);
   margin-top: auto;
@@ -5100,7 +5106,7 @@
 .actions-group-v4 {
   display: flex;
   justify-content: center;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 /* 资源统计样式 */
@@ -5108,9 +5114,9 @@
   display: flex;
   align-items: baseline;
   gap: 6px;
-  padding: 4px 12px;
+  padding: var(--space-xs) var(--space-md);
   background: var(--bg-secondary);
-  border-radius: 20px;
+  border-radius: var(--radius-lg);
   border: 1px solid var(--border-color);
 }
 
@@ -5146,7 +5152,7 @@
 .btn-action-v4 {
   width: 28px;
   height: 28px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   display: flex;
   align-items: center;
   justify-content: center;

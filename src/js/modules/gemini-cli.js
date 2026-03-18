@@ -262,6 +262,7 @@ export const geminiCliMethods = {
     const order = [
       'gemini-2.5-pro',
       'gemini-2.5-flash',
+      'gemini-3.1-pro-preview',
       'gemini-3-pro-preview',
       'gemini-3-flash-preview',
     ];
@@ -369,6 +370,7 @@ export const geminiCliMethods = {
           }
         }
       }
+
 
       store.gcliLogDetailShowRaw = false;
       store.geminiCliLogDetail = data;

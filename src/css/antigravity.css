@@ -1,4 +1,4 @@
-/* Antigravity Module Styles */
+﻿/* Antigravity Module Styles */
 :root {
   --ag-primary: #ff5722;
   --ag-primary-rgb: 255, 87, 34;
@@ -32,22 +32,22 @@
   box-shadow: 0 2px 8px rgba(255, 87, 34, 0.3);
 }
 
-/* 子页面布局优化 */
+/* 子页面布屢优化 */
 .antigravity-tab-content .sub-tab-content {
   animation: agFadeInUp 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   height: 100%;
   display: flex;
   flex-direction: column;
-  /* 用户要求的紧凑 Padding */
+  /* 用户要求的紧?Padding */
 }
 
-/* 状态标签 */
+/* 状标?*/
 .ag-status-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 3px 10px;
-  border-radius: 20px;
+  padding: 3px var(--space-sm);
+  border-radius: var(--radius-sm);
   font-size: 11px;
   font-weight: 600;
   gap: 6px;
@@ -62,7 +62,7 @@
   background-color: currentColor;
 }
 
-/* 状态标签配色 - 强化优先级 */
+/* 状标签配?- 强化优先?*/
 body .ag-status-online,
 body .ag-status-success,
 body .status-2xx {
@@ -104,22 +104,22 @@ body .ag-status-unknown {
   box-sizing: border-box;
   width: 100%;
   overflow-x: hidden;
-  /* 核心：禁止水平溢出 */
+  /* 核心：禁止水平溢?*/
 }
 
 .chat-history-modern .msg-bubble {
-  padding: 10px 14px;
-  border-radius: 12px;
+  padding: var(--space-sm) var(--space-lg);
+  border-radius: var(--radius-lg);
   font-size: 13px;
   line-height: 1.5;
   position: relative;
   word-break: break-all;
-  /* 强制所有字符换行 */
+  /* 强制扢有字符换?*/
   overflow-wrap: break-word;
   max-width: 100%;
   box-sizing: border-box;
   min-width: 0;
-  /* 允许在 flex 容器中收缩 */
+  /* 允许?flex 容器中收?*/
 }
 
 .chat-history-modern .user-bubble {
@@ -139,10 +139,10 @@ body .ag-status-unknown {
 .chat-history-modern .current-response-container {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--space-sm);
   background: var(--bg-tertiary);
-  padding: 14px;
-  border-radius: 12px;
+  padding: var(--space-lg);
+  border-radius: var(--radius-lg);
   border: 1px solid var(--border-color);
   border-top-left-radius: 2px;
   width: 100%;
@@ -163,7 +163,7 @@ body .ag-status-unknown {
 
 .msg-bubble p,
 .response-content p {
-  margin: 0 0 10px 0;
+  margin: 0 0 var(--space-sm) 0;
   max-width: 100%;
 }
 
@@ -171,7 +171,7 @@ body .ag-status-unknown {
 .msg-bubble ol,
 .response-content ul,
 .response-content ol {
-  margin: 8px 0;
+  margin: var(--space-sm) 0;
   padding-left: 1.5em;
   max-width: 100%;
   box-sizing: border-box;
@@ -179,14 +179,14 @@ body .ag-status-unknown {
 
 .msg-bubble li,
 .response-content li {
-  margin-bottom: 4px;
+  margin-bottom: var(--space-xs);
   word-break: break-all;
   /* 确保列表项内容也强制换行 */
   white-space: normal;
   max-width: 100%;
 }
 
-/* 针对长代码块的额外保护 */
+/* 针对长代码块的额外保?*/
 .msg-bubble pre,
 .response-content pre {
   max-width: 100%;
@@ -201,7 +201,7 @@ body .ag-status-unknown {
 .response-content table {
   width: 100%;
   border-collapse: collapse;
-  margin: 10px 0;
+  margin: var(--space-sm) 0;
   font-size: 12px;
   table-layout: auto;
   display: block;
@@ -214,12 +214,12 @@ body .ag-status-unknown {
 .msg-bubble td,
 .response-content td {
   border: 1px solid var(--border-color);
-  padding: 6px 10px;
+  padding: 6px var(--space-sm);
   text-align: left;
 }
 
 .chat-history-compact p {
-  margin: 0 0 8px 0;
+  margin: 0 0 var(--space-sm) 0;
 }
 
 .chat-history-compact p:last-child {
@@ -228,18 +228,18 @@ body .ag-status-unknown {
 
 .chat-history-compact pre {
   background: rgba(0, 0, 0, 0.05);
-  padding: 10px;
-  border-radius: 6px;
+  padding: var(--space-sm);
+  border-radius: var(--radius-sm);
   overflow-x: auto;
-  margin: 8px 0;
+  margin: var(--space-sm) 0;
   font-family: var(--font-mono);
   font-size: 12px;
 }
 
 .chat-history-compact code {
   background: rgba(0, 0, 0, 0.05);
-  padding: 2px 4px;
-  border-radius: 4px;
+  padding: 2px var(--space-xs);
+  border-radius: var(--radius-sm);
   font-family: var(--font-mono);
   font-size: 0.9em;
 }
@@ -253,20 +253,20 @@ body .ag-status-unknown {
 
 .chat-history-compact ul,
 .chat-history-compact ol {
-  margin: 8px 0;
-  padding-left: 20px;
+  margin: var(--space-sm) 0;
+  padding-left: var(--space-xl);
 }
 
 .chat-history-compact blockquote {
-  margin: 8px 0;
-  padding-left: 12px;
+  margin: var(--space-sm) 0;
+  padding-left: var(--space-md);
   border-left: 3px solid var(--border-color);
   opacity: 0.8;
 }
 
-/* 多模态图片预览样式 */
+/* 多模态图片预览样?*/
 .msg-image-container {
-  margin: 4px 0;
+  margin: var(--space-xs) 0;
   text-align: left;
   display: block;
 }
@@ -274,7 +274,7 @@ body .ag-status-unknown {
 .msg-inline-image {
   max-width: 200px;
   max-height: 200px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--border-color);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
   transition:
@@ -294,16 +294,16 @@ body .ag-status-unknown {
   border-color: rgba(255, 255, 255, 0.3);
 }
 
-/* 思考过程展开框优化 */
+/* 思过程展弢框优?*/
 .reasoning-details {
   background: rgba(0, 0, 0, 0.02) !important;
   border: 1px dashed var(--border-color) !important;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   /* margin-bottom: 12px; */
 }
 
 .reasoning-details summary {
-  padding: 8px 12px;
+  padding: var(--space-sm) var(--space-md);
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
@@ -319,13 +319,13 @@ body .ag-status-unknown {
 }
 
 .reasoning-details .reasoning-content-inner {
-  padding: 12px;
+  padding: var(--space-md);
   font-size: 12px;
   color: var(--text-secondary);
   line-height: 1.6;
   border-top: 1px dashed var(--border-color);
   background: rgba(255, 255, 255, 0.3);
-  /* 半透明，适配暗色模式 */
+  /* 半明，配暗色模式 */
   white-space: pre-wrap;
   font-style: italic;
   overflow-wrap: break-word;
@@ -347,18 +347,18 @@ body .ag-status-unknown {
   border: 1px solid rgba(158, 158, 158, 0.2);
 }
 
-/* 额度网格与卡片 */
+/* 额度网格与卡?*/
 .ag-quota-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
-  gap: 16px;
-  margin-top: 10px;
+  gap: var(--space-lg);
+  margin-top: var(--space-sm);
 }
 
 .quota-card {
   border: 1px solid var(--border-color);
   background: var(--card-bg);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
   overflow: hidden;
@@ -375,7 +375,7 @@ body .ag-status-unknown {
 .ag-settings-layout {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
-  gap: 16px;
+  gap: var(--space-lg);
 }
 
 /* 表格样式微调 - 确保垂直居中 */
@@ -383,19 +383,19 @@ body .ag-status-unknown {
   vertical-align: middle;
 }
 
-/* 美化账号选择框 */
+/* 美化账号选择?*/
 .ag-account-selector {
   appearance: none;
   -webkit-appearance: none;
-  /* 使用 CSS 构建箭头更可靠，或者 SVG */
+  /* ʹ CSS 构建箭头更可靠，或?SVG */
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%23888888'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 10px center;
   background-size: 14px;
-  padding: 8px 36px 8px 14px !important;
+  padding: var(--space-sm) 36px var(--space-sm) var(--space-lg) !important;
   background-color: var(--bg-secondary);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   font-size: 13px;
   font-weight: 500;
   color: var(--text-primary);
@@ -423,7 +423,7 @@ body .ag-status-unknown {
 .ag-account-selector option {
   background-color: var(--bg-secondary);
   color: var(--text-primary);
-  padding: 10px 14px;
+  padding: var(--space-sm) var(--space-lg);
   font-size: 13px;
 }
 
@@ -436,14 +436,14 @@ body .ag-status-unknown {
 /* Antigravity Model Matrix Styles */
 .model-matrix-table th {
   vertical-align: middle;
-  padding: 8px 4px;
+  padding: var(--space-sm) var(--space-xs);
   background: var(--bg-secondary);
 }
 
 .model-matrix-table td {
   vertical-align: middle;
   height: 50px;
-  padding: 0 4px;
+  padding: 0 var(--space-xs);
 }
 
 .model-matrix-table td.text-center {
@@ -459,7 +459,7 @@ body .ag-status-unknown {
 /* Fix Model Name alignment */
 .model-matrix-table th:first-child,
 .model-matrix-table td:first-child {
-  padding-left: 16px;
+  padding-left: var(--space-lg);
   text-align: left;
 }
 
@@ -467,10 +467,10 @@ body .ag-status-unknown {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: var(--space-sm);
   cursor: pointer;
-  padding: 6px 12px;
-  border-radius: 6px;
+  padding: 6px var(--space-md);
+  border-radius: var(--radius-sm);
   transition: background-color 0.2s;
   user-select: none;
 }
@@ -497,7 +497,7 @@ body .ag-status-unknown {
   opacity: 0.9;
 }
 
-/* Switch 开关样式 - 紧凑 */
+/* Switch 弢关样?-  */
 .switch {
   position: relative;
   display: inline-block;
@@ -522,7 +522,7 @@ body .ag-status-unknown {
   bottom: 0;
   background-color: #ddd;
   transition: 0.3s;
-  border-radius: 16px;
+  border-radius: var(--radius-lg);
 }
 
 .slider:before {
@@ -545,7 +545,7 @@ input:checked+.slider:before {
   transform: translateX(14px);
 }
 
-/* 进度条 */
+/* 进度?*/
 .quota-progress-container {
   display: flex;
   align-items: center;
@@ -555,7 +555,7 @@ input:checked+.slider:before {
 .progress-bar-compact {
   height: 6px;
   background: var(--bg-tertiary);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   overflow: hidden;
   flex: 1;
   /* 让进度条占据剩余空间 */
@@ -563,15 +563,15 @@ input:checked+.slider:before {
 
 .progress-bar-fill {
   height: 100%;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   transition:
     width 0.3s ease,
     background 0.3s ease;
-  /* 颜色由内联样式控制 */
+  /* 颜色由内联样式控?*/
 }
 
 .quota-percent {
-  margin-left: 10px;
+  margin-left: var(--space-sm);
   width: 40px;
   text-align: right;
   font-size: 12px;
@@ -639,27 +639,27 @@ input:checked+.slider:before {
     padding 0.4s ease,
     margin 0.4s ease;
   background: var(--bg-secondary);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   margin-bottom: 0;
 }
 
 .ag-expandable-panel.expanded {
   max-height: 800px;
-  margin-top: 10px;
+  margin-top: var(--space-sm);
   /* Sufficiently large value */
   opacity: 1;
-  margin-bottom: 10px;
+  margin-bottom: var(--space-sm);
   border: 1px solid var(--border-color);
 }
 
 .oauth-modern-body {
-  padding: 0px 10px 10px 10px;
+  padding: 0px var(--space-sm) var(--space-sm) var(--space-sm);
 }
 
 .oauth-step-item {
   display: flex;
-  gap: 16px;
-  margin-bottom: 4px;
+  gap: var(--space-lg);
+  margin-bottom: var(--space-xs);
 }
 
 .step-badge {
@@ -684,9 +684,9 @@ input:checked+.slider:before {
 .step-text {
   font-size: 13px;
   color: var(--text-secondary);
-  margin-bottom: 10px;
+  margin-bottom: var(--space-sm);
   line-height: 1.4;
-  padding-top: 4px;
+  padding-top: var(--space-xs);
 }
 
 .oauth-step-line {
@@ -694,7 +694,7 @@ input:checked+.slider:before {
   height: 20px;
   background: var(--border-color);
   margin-left: 13px;
-  margin-bottom: 4px;
+  margin-bottom: var(--space-xs);
   opacity: 0.5;
 }
 
@@ -702,9 +702,9 @@ input:checked+.slider:before {
   min-height: 80px !important;
   font-family: var(--font-mono);
   font-size: 13px;
-  padding: 12px;
+  padding: var(--space-md);
   resize: none;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: #f8f9fa00;
   border: 1px solid var(--border-color);
   transition: all 0.2s ease;
@@ -730,36 +730,36 @@ input:checked+.slider:before {
 }
 
 .oauth-options {
-  margin-top: 16px;
-  padding-top: 16px;
+  margin-top: var(--space-lg);
+  padding-top: var(--space-lg);
   border-top: 1px dashed var(--border-color);
 }
 
 .oauth-option-row {
-  padding-bottom: 10px;
+  padding-bottom: var(--space-sm);
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-md);
 }
 
 .oauth-option-row .input-sm {
   flex: 1;
   font-size: 12px;
-  padding: 6px 10px;
+  padding: 6px var(--space-sm);
 }
 
 .btn-lg {
-  padding: 10px 16px;
+  padding: var(--space-sm) var(--space-lg);
   font-size: 14px;
   font-weight: 600;
 }
 
-/* 移动端适配：日志头部 */
+/* 移动端配：日志头?*/
 .log-header-adaptive {
   flex-wrap: wrap;
-  gap: 12px;
+  gap: var(--space-md);
   height: auto !important;
-  padding: 3px 5px 10px 5px !important;
+  padding: 3px var(--space-xs) var(--space-sm) var(--space-xs) !important;
 }
 
 .panel-title-group {
@@ -768,14 +768,14 @@ input:checked+.slider:before {
 
 .panel-actions-group {
   display: flex;
-  gap: 8px;
+  gap: var(--space-sm);
   align-items: center;
   flex-wrap: nowrap;
 }
 
 .select-sm-adaptive {
   width: 140px;
-  padding: 4px 8px;
+  padding: var(--space-xs) var(--space-sm);
   font-size: 12px;
 }
 
@@ -789,7 +789,7 @@ input:checked+.slider:before {
     width: 100%;
     display: grid !important;
     grid-template-columns: 1fr 1fr;
-    gap: 8px;
+    gap: var(--space-sm);
   }
 
   .panel-actions-group .btn {
@@ -802,15 +802,15 @@ input:checked+.slider:before {
   }
 }
 
-/* 模型检测历史标记样式 */
+/* 模型棢测历史标记样?*/
 .check-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   min-width: 18px;
   height: 18px;
-  padding: 0 5px;
-  border-radius: 4px;
+  padding: 0 var(--space-xs);
+  border-radius: var(--radius-sm);
   font-size: 10px;
   font-weight: 600;
   margin: 1px;

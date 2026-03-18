@@ -1,10 +1,10 @@
-/* Table & Panel Styles */
+﻿/* Table & Panel Styles */
 
 .panel {
   line-height: 1;
   background: var(--card-bg);
-  border-radius: 16px;
-  padding: 10px;
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
   box-shadow: var(--card-shadow);
   border: 2px solid var(--border-color);
 }
@@ -23,14 +23,14 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0 12px;
+  padding: 0 var(--space-md);
   font-size: 13px;
   line-height: 1;
 }
 
 .panel-header .btn-sm {
   height: 28px;
-  padding: 0 10px;
+  padding: 0 var(--space-sm);
   font-size: 12px;
 }
 
@@ -38,9 +38,9 @@
   font-size: 12px;
 }
 
-.panel-header .btn i + span,
+.panel-header .btn i+span,
 .panel-header .btn i:not(:last-child) {
-  margin-right: 4px;
+  margin-right: var(--space-xs);
 }
 
 .panel-title {
@@ -56,24 +56,7 @@
   -webkit-overflow-scrolling: touch;
 }
 
-.table-container::-webkit-scrollbar {
-  display: block !important;
-  height: 4px;
-}
 
-.table-container::-webkit-scrollbar-thumb {
-  background: var(--border-color);
-  border-radius: 2px;
-}
-
-.table-container::-webkit-scrollbar-track {
-  background: var(--bg-secondary);
-  border-radius: 3px;
-}
-
-.table-container::-webkit-scrollbar-thumb:hover {
-  background: var(--text-tertiary);
-}
 
 .data-table {
   width: max-content;
@@ -85,7 +68,7 @@
 
 .data-table th,
 .data-table td {
-  padding: 10px 12px;
+  padding: var(--space-sm) var(--space-md);
   text-align: left;
   border-bottom: 1px solid var(--border-color);
   color: var(--text-primary);
@@ -117,12 +100,12 @@
   vertical-align: middle;
 }
 
-.data-table td.actions > div,
+.data-table td.actions>div,
 .data-table td .flex-cell {
   display: inline-flex !important;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: var(--space-sm);
   white-space: nowrap !important;
   flex-wrap: nowrap !important;
   margin: 0 auto;
@@ -132,8 +115,8 @@
 .method-badge {
   font-size: 10px;
   font-weight: 800;
-  padding: 2px 5px;
-  border-radius: 4px;
+  padding: 2px var(--space-xs);
+  border-radius: var(--radius-sm);
   margin-right: 6px;
   font-family: var(--font-mono);
   text-transform: uppercase;
@@ -189,15 +172,15 @@
   color: #8b5cf6;
   border: 1px solid rgba(139, 92, 246, 0.2);
   font-size: 10px;
-  padding: 1px 4px;
-  border-radius: 4px;
+  padding: 1px var(--space-xs);
+  border-radius: var(--radius-sm);
   font-weight: 700;
-  margin-left: 4px;
+  margin-left: var(--space-xs);
   display: inline-block;
   line-height: 1;
 }
 
-/* 如果需要左对齐，可以覆盖 */
+/* 如果霢要左对齐，可以覆?*/
 .data-table td .flex-cell.justify-start {
   justify-content: flex-start;
 }
@@ -208,7 +191,7 @@
   text-align: center !important;
 }
 
-.data-table td.actions > div {
+.data-table td.actions>div {
   width: 100%;
   justify-content: center;
 }
@@ -230,7 +213,7 @@
 
 .openai-table th,
 .openai-table td {
-  padding: 10px 16px;
+  padding: var(--space-sm) var(--space-lg);
   text-align: left;
   border-bottom: 1px solid var(--border-color);
   color: var(--text-primary);
@@ -251,11 +234,11 @@
 }
 
 .openai-table td.actions {
-  padding: 10px 16px;
+  padding: var(--space-sm) var(--space-lg);
   vertical-align: middle;
 }
 
-.openai-table td.actions > *:not(:last-child) {
+.openai-table td.actions>*:not(:last-child) {
   margin-right: 6px;
 }
 
@@ -284,17 +267,17 @@
 }
 
 .copy-btn {
-  padding: 4px 8px;
+  padding: var(--space-xs) var(--space-sm);
   background: var(--bg-tertiary);
   border: 1px solid var(--border-color);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   font-size: 11px;
   color: var(--text-secondary);
   transition: all 0.2s;
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--space-xs);
   white-space: nowrap;
 }
 
@@ -314,7 +297,7 @@
   .panel-header {
     flex-direction: column;
     align-items: flex-start;
-    gap: 8px;
+    gap: var(--space-sm);
   }
 
   .data-table {
@@ -323,7 +306,7 @@
 
   .data-table th,
   .data-table td {
-    padding: 6px 8px;
+    padding: 6px var(--space-sm);
   }
 
   .openai-table-container {
@@ -338,7 +321,7 @@
 
   .openai-table th,
   .openai-table td {
-    padding: 8px 10px;
+    padding: var(--space-sm) var(--space-sm);
     white-space: nowrap;
   }
 
@@ -355,11 +338,11 @@
   }
 }
 
-/* 模型配额通用显示样式 (用于账号列表等) */
+/* ģͨʾʽ (用于账号列表? */
 .quota-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
-  gap: 4px 12px;
+  gap: var(--space-xs) var(--space-md);
 }
 
 .quota-item {
@@ -378,23 +361,23 @@
 .quota-bar-wrapper {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-sm);
   flex: 1;
 }
 
 .quota-bar {
   flex: 1;
   height: 8px;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: rgba(0, 0, 0, 0.05);
-  /* 更淡的背景 */
+  /* 更淡的背?*/
   overflow: hidden;
   min-width: 40px;
 }
 
 .quota-fill {
   height: 100%;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
 }
 

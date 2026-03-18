@@ -1,16 +1,16 @@
-/**
- * TOTP/HOTP 验证器模块样式
- * 全站统一风格
+﻿/**
+ * TOTP/HOTP 验证器模块样?
+ * ȫվͳһ
  */
 
 /* ==================== 面板头部按钮修复 ==================== */
-/* 防止按钮在 flex 容器中被压缩导致文字截断 */
+/* 防止按钮?flex бѹֽض */
 .totp-tab-content .panel-header .btn {
   flex-shrink: 0;
   white-space: nowrap;
 }
 
-/* ==================== 搜索框 ==================== */
+/* ==================== 搜索?==================== */
 .totp-search-box {
   position: relative;
   min-width: 180px;
@@ -18,7 +18,7 @@
 
 .totp-search-box i {
   position: absolute;
-  left: 12px;
+  left: var(--space-md);
   top: 50%;
   transform: translateY(-50%);
   color: var(--text-tertiary);
@@ -27,9 +27,9 @@
 
 .totp-search-box input {
   width: 100%;
-  padding: 8px 12px 8px 34px;
+  padding: var(--space-sm) var(--space-md) var(--space-sm) 34px;
   border: 1px solid var(--border-color);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: var(--bg-secondary);
   font-size: 13px;
   color: var(--text-primary);
@@ -42,12 +42,12 @@
   box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.1);
 }
 
-/* ==================== 验证码卡片网格 ==================== */
+/* ==================== 验证码卡片网?==================== */
 .totp-cards-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 12px;
-  padding: 12px 0px 0px 0px;
+  gap: var(--space-md);
+  padding: var(--space-md) 0px 0px 0px;
 }
 
 /* 平台分隔标题 */
@@ -55,9 +55,9 @@
   grid-column: 1 / -1;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 0px 0 8px 0;
-  margin-top: 8px;
+  gap: var(--space-sm);
+  padding: 0px 0 var(--space-sm) 0;
+  margin-top: var(--space-sm);
   border-bottom: 1px solid var(--border-color);
 }
 
@@ -81,7 +81,7 @@
   margin-left: auto;
 }
 
-/* 最小化模式 - 只显示分割线 */
+/* 朢小化模式 - ֻʾָ */
 .totp-platform-header.header-minimal {
   height: 1px;
   padding: 0;
@@ -91,14 +91,16 @@
 .totp-card {
   background: var(--card-bg);
   border: 1px solid var(--card-accent, var(--totp-primary));
-  border-radius: 10px;
-  padding: 12px 12px 6px 12px;
+  border-radius: var(--radius-md);
+  padding: var(--space-md) var(--space-md) 6px var(--space-md);
   cursor: pointer;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
   overflow: hidden;
   user-select: none;
   -webkit-tap-highlight-color: transparent;
+  transform: scale(1);
+  box-shadow: 0 0 0 transparent;
 }
 
 .totp-card::before {
@@ -124,7 +126,7 @@
   pointer-events: none;
 }
 
-/* 仅在支持 hover 的设备上应用 hover 效果 */
+/* ֧ hover 豸Ӧ hover Ч */
 @media (hover: hover) {
   .totp-card:hover {
     border-color: var(--card-accent, var(--totp-primary));
@@ -133,7 +135,7 @@
   }
 }
 
-/* 点击反馈 - 适用于所有设备 */
+/*  - 适用于所有设?*/
 .totp-card:active {
   transform: scale(0.98) !important;
   background: var(--bg-hover) !important;
@@ -145,15 +147,15 @@
 .totp-card-header {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding-top: 5px;
+  gap: var(--space-sm);
+  padding-top: var(--space-xs);
   padding-bottom: 1px;
 }
 
 .totp-issuer-badge {
   width: 32px;
   height: 32px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -204,7 +206,7 @@
   font-size: 10px;
   font-weight: 700;
   padding: 3px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   text-transform: uppercase;
 }
 
@@ -218,7 +220,7 @@
   color: #10b981;
 }
 
-/* ==================== 验证码显示 ==================== */
+/* ==================== 验证码显?==================== */
 .totp-code-area {
   text-align: center;
 }
@@ -229,9 +231,9 @@
   font-weight: 700;
   letter-spacing: 3px;
   color: var(--text-primary);
-  padding: 8px 10px;
+  padding: var(--space-sm) var(--space-sm);
   /* background: var(--bg-secondary); */
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   transition: all 0.3s;
   display: inline-flex;
   align-items: center;
@@ -254,11 +256,11 @@
   }
 }
 
-/* 隐藏验证码样式 */
+/* 隐藏验证码样?*/
 .totp-code-display.code-hidden {
   cursor: pointer;
   line-height: 1;
-  /* 修正星号偏高的问题 */
+  /* 修正星号偏高的问?*/
 }
 
 /* 下一个验证码预览 */
@@ -266,7 +268,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-top: 4px;
+  margin-top: var(--space-xs);
   font-size: 12px;
 }
 
@@ -280,21 +282,21 @@
   font-weight: 500;
 }
 
-/* ==================== TOTP 计时器 ==================== */
+/* ==================== TOTP 计时?==================== */
 .totp-timer {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-top: 4px;
+  gap: var(--space-sm);
+  margin-top: var(--space-xs);
   height: 16px;
 }
 
-/* 进度条轨道容器 */
+/* 进度条轨道容?*/
 .totp-timer-track {
   flex: 1;
   height: 4px;
   background: var(--border-color);
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
   position: relative;
   overflow: hidden;
 }
@@ -302,7 +304,7 @@
 .totp-timer-bar {
   height: 4px;
   background: var(--totp-primary);
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
   transition: width 0.3s linear;
   position: absolute;
   left: 0;
@@ -318,13 +320,13 @@
   flex-shrink: 0;
 }
 
-/* ==================== HOTP 计数器 ==================== */
+/* ==================== HOTP 计数?==================== */
 .totp-counter {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 12px;
-  margin-top: 12px;
+  gap: var(--space-md);
+  margin-top: var(--space-md);
 }
 
 .totp-counter span {
@@ -334,14 +336,16 @@
 }
 
 .btn-hotp-next {
-  padding: 6px 12px;
+  padding: 6px var(--space-md);
   background: linear-gradient(135deg, #10b981, #059669);
   color: white;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   font-size: 12px;
   transition: all 0.2s;
+  transform: scale(1);
+  box-shadow: 0 0 0 transparent;
 }
 
 .btn-hotp-next:hover {
@@ -352,10 +356,10 @@
 /* ==================== 卡片操作 (悬浮) ==================== */
 .totp-card-actions {
   position: absolute;
-  top: 8px;
-  right: 8px;
+  top: var(--space-sm);
+  right: var(--space-sm);
   display: flex;
-  gap: 4px;
+  gap: var(--space-xs);
   opacity: 0;
   transition: opacity 0.2s;
   z-index: 10;
@@ -369,7 +373,7 @@
   width: 26px;
   height: 26px;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: var(--bg-tertiary);
   color: var(--text-secondary);
   cursor: pointer;
@@ -390,7 +394,7 @@
   color: var(--danger-color);
 }
 
-/* ==================== 分组颜色点 ==================== */
+/* ==================== 分组颜色?==================== */
 .group-color-dot {
   width: 20px;
   height: 20px;
@@ -398,17 +402,17 @@
   border: 2px solid rgba(255, 255, 255, 0.3);
 }
 
-/* ==================== 类型选择器 ==================== */
+/* ==================== 类型选择?==================== */
 .totp-type-selector {
   display: flex;
-  gap: 10px;
+  gap: var(--space-sm);
 }
 
 .totp-type-selector .type-btn {
   flex: 1;
-  padding: 12px 16px;
+  padding: var(--space-md) var(--space-lg);
   border: 2px solid var(--border-color);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: var(--bg-secondary);
   color: var(--text-secondary);
   font-size: 13px;
@@ -417,7 +421,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: var(--space-sm);
   transition: all 0.2s;
 }
 
@@ -434,7 +438,7 @@
 /* ==================== 密钥输入 ==================== */
 .totp-secret-input {
   display: flex;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 .totp-secret-input input {
@@ -442,9 +446,9 @@
 }
 
 .totp-toggle-secret {
-  padding: 0 14px;
+  padding: 0 var(--space-lg);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: var(--bg-secondary);
   color: var(--text-secondary);
   cursor: pointer;
@@ -456,14 +460,14 @@
 
 /* ==================== 高级选项 ==================== */
 .totp-advanced {
-  margin-top: 16px;
+  margin-top: var(--space-lg);
   /* border: 1px solid var(--border-color); */
   /* border-radius: 10px; */
   overflow: hidden;
 }
 
 .totp-advanced summary {
-  padding: 12px 16px;
+  padding: var(--space-md) var(--space-lg);
   background: var(--bg-secondary);
   cursor: pointer;
   font-size: 13px;
@@ -471,7 +475,7 @@
   color: var(--text-secondary);
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 .totp-advanced summary:hover {
@@ -479,34 +483,34 @@
 }
 
 .totp-advanced-content {
-  padding: 20px !important;
-  /* 修正内边距 */
+  padding: var(--space-xl) !important;
+  /* 修正内边?*/
 }
 
 .totp-grid-three {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 20px;
+  gap: var(--space-xl);
   /* 增大网格间距 */
-  margin-bottom: 20px;
+  margin-bottom: var(--space-xl);
 }
 
 .totp-grid-three .form-group {
   margin-bottom: 0 !important;
 }
 
-/* ==================== TOTP 模态框 ==================== */
+/* ==================== TOTP 模框 ==================== */
 .totp-modal {
   max-width: 500px;
 }
 
 .totp-modal .modal-body {
-  padding: 12px;
-  /* 增大全局内边距，提升呼吸感 */
+  padding: var(--space-md);
+  /* 增大全局内边距，提升呼吸?*/
 }
 
 .totp-modal .form-group {
-  margin-bottom: 10px;
+  margin-bottom: var(--space-sm);
   /* 增大字段间距 */
 }
 
@@ -515,7 +519,7 @@
 }
 
 .totp-modal .form-group label {
-  margin-bottom: 8px;
+  margin-bottom: var(--space-sm);
   /* 增大标签下方间距 */
   display: block;
   font-weight: 500;
@@ -524,14 +528,14 @@
 }
 
 .totp-modal .form-group label i {
-  margin-right: 8px;
+  margin-right: var(--space-sm);
   opacity: 0.8;
 }
 
 .totp-modal .color-input {
   width: 60px;
   height: 38px;
-  padding: 4px;
+  padding: var(--space-xs);
   cursor: pointer;
 }
 
@@ -541,18 +545,18 @@
 
 /* 主题色输入框样式 */
 .totp-modal .totp-advanced-content>.form-group {
-  margin-top: 12px;
+  margin-top: var(--space-md);
 }
 
 /* ==================== 设置页面 ==================== */
 .totp-settings-content {
-  padding: 20px;
+  padding: var(--space-xl);
 }
 
 .settings-stats {
   display: flex;
   gap: 32px;
-  margin-bottom: 8px;
+  margin-bottom: var(--space-sm);
 }
 
 .stat-item {
@@ -575,17 +579,17 @@
 .settings-divider {
   height: 1px;
   background: var(--border-color);
-  margin: 20px 0;
+  margin: var(--space-xl) 0;
 }
 
 .setting-item {
-  margin-bottom: 16px;
+  margin-bottom: var(--space-lg);
 }
 
 .toggle-label {
   display: flex;
   align-items: flex-start;
-  gap: 12px;
+  gap: var(--space-md);
   cursor: pointer;
 }
 
@@ -622,13 +626,13 @@
 }
 
 .toggle-checkbox:checked+.toggle-switch::after {
-  left: 20px;
+  left: var(--space-xl);
 }
 
 .setting-text {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-xs);
 }
 
 .setting-title {
@@ -644,17 +648,17 @@
 
 .setting-sub {
   margin-left: 52px;
-  margin-top: 12px;
-  padding: 12px;
+  margin-top: var(--space-md);
+  padding: var(--space-md);
   background: var(--bg-secondary);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
 }
 
-/* ==================== 二维码导入 ==================== */
+/* ==================== 二维码导?==================== */
 .qr-paste-zone {
   border: 2px dashed var(--border-color);
-  border-radius: 12px;
-  padding: 24px;
+  border-radius: var(--radius-lg);
+  padding: var(--space-xl);
   text-align: center;
   cursor: pointer;
   transition: all 0.2s;
@@ -672,7 +676,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
   color: var(--text-secondary);
 }
 
@@ -691,19 +695,19 @@
 }
 
 .qr-loading i {
-  margin-right: 8px;
+  margin-right: var(--space-sm);
 }
 
 .qr-actions {
-  margin-top: 12px;
+  margin-top: var(--space-md);
   text-align: center;
 }
 
 .form-divider {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin: 16px 0;
+  gap: var(--space-md);
+  margin: var(--space-lg) 0;
   color: var(--text-tertiary);
   font-size: 12px;
 }
@@ -716,7 +720,7 @@
   background: var(--border-color);
 }
 
-/* ==================== 响应式 - 手机端列表布局 ==================== */
+/* ==================== 响应?- 手机端列表布屢 ==================== */
 @media (max-width: 768px) {
 
   /* 列表布局 */
@@ -727,7 +731,7 @@
     padding: 0;
   }
 
-  /* 卡片变成列表项 */
+  /* 卡片变成列表?*/
   .totp-card {
     border-radius: 0;
     border: none;
@@ -736,7 +740,7 @@
     display: flex;
     flex-direction: row;
     align-items: center;
-    gap: 12px;
+    gap: var(--space-md);
   }
 
   .totp-card::before {
@@ -773,7 +777,7 @@
     color: var(--text-tertiary);
   }
 
-  /* 验证码右侧 */
+  /* 验证码右?*/
   .totp-code-area {
     text-align: right;
     flex-shrink: 0;
@@ -782,15 +786,15 @@
   .totp-code-display {
     font-size: 20px;
     letter-spacing: 2px;
-    padding: 4px 8px;
+    padding: var(--space-xs) var(--space-sm);
     background: transparent;
     border-radius: 0;
   }
 
-  /* 进度条紧凑显示 */
+  /* 进度条紧凑显?*/
   .totp-timer {
     justify-content: flex-end;
-    margin-top: 4px;
+    margin-top: var(--space-xs);
     gap: 0;
   }
 
@@ -820,7 +824,7 @@
   /* 工具栏响应式 */
   .totp-tab-content .panel-header {
     flex-wrap: wrap;
-    gap: 8px;
+    gap: var(--space-sm);
   }
 
   .totp-tab-content .panel-header>div:last-child {
@@ -844,7 +848,7 @@
   }
 }
 
-/* ==================== 模态框 Tabs ==================== */
+/* ==================== 模框 Tabs ==================== */
 .modal-tabs {
   display: flex;
   border-bottom: 1px solid var(--border-color);
@@ -854,7 +858,7 @@
 
 .modal-tab {
   flex: 1;
-  padding: 12px;
+  padding: var(--space-md);
   background: none;
   border: none;
   border-bottom: 2px solid transparent;
@@ -865,7 +869,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: var(--space-sm);
   transition: all 0.2s;
 }
 
@@ -885,7 +889,7 @@
   font-size: 16px;
 }
 
-/* 模态框动画 */
+/* 模框动画 */
 .fade-in {
   animation: fadeIn 0.2s ease-out;
 }
@@ -902,7 +906,7 @@
   }
 }
 
-/* ==================== 长按上下文菜单 (移动端) ==================== */
+/* ==================== 长按上下文菜?(移动? ==================== */
 .totp-context-menu-backdrop {
   position: fixed;
   top: 0;
@@ -920,7 +924,7 @@
   min-width: 180px;
   background: var(--bg-primary);
   border: 1px solid var(--border-color);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
   overflow: hidden;
   animation: contextMenuIn 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
@@ -941,8 +945,8 @@
 .totp-context-menu-header {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 12px 16px;
+  gap: var(--space-sm);
+  padding: var(--space-md) var(--space-lg);
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
   font-size: 13px;
@@ -957,9 +961,9 @@
 .totp-context-menu-item {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-md);
   width: 100%;
-  padding: 14px 16px;
+  padding: var(--space-lg) var(--space-lg);
   background: none;
   border: none;
   font-size: 14px;
@@ -991,7 +995,7 @@
   color: var(--danger-color);
 }
 
-/* 分隔线 */
+/* 分隔?*/
 .totp-context-menu-item+.totp-context-menu-item.danger {
   border-top: 1px solid var(--border-color);
 }

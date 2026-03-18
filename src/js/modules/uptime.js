@@ -17,6 +17,9 @@ export const uptimeData = {
   // { monitorId: [{ id, status, time, ping, msg }, ...] }
   uptimeHeartbeats: {},
 
+  // 可用率缓存: monitorId -> { '1': '99.950', '30': '99.800' }
+  uptimeRateCache: {},
+
   // 统计信息
   uptimeStats: {
     up: 0,
@@ -141,25 +144,20 @@ export const uptimeMethods = {
       this.uptimeMonitors.forEach(m => {
         if (!this.uptimeHeartbeats[m.id]) this.uptimeHeartbeats[m.id] = [];
         if (m.lastHeartbeat) {
-          // Normalize status
           if (typeof m.lastHeartbeat.status === 'number') {
             m.lastHeartbeat.status = m.lastHeartbeat.status === 1 ? 'up' : 'down';
           }
-          // Pre-fill latest status if provided by API list
           this.uptimeHeartbeats[m.id] = [m.lastHeartbeat];
         }
       });
-      // 是否需要进一步获取历史数据？
-      // 目前列表接口提供了最后一条数据。如果用户点击详情，我们再获取完整历史。
-      // 但对于迷你图 (sparklines)，我们通常需要更多历史。
-      // 优化：批量获取历史记录？还是让 Socket 填满它？
-      // 简单起见，这里为所有项获取历史数据 (数量较少时可接受)
+
+      // 加载心跳和可用率
       this.uptimeMonitors.forEach(m => this.loadHeartbeats(m.id));
+      this.loadUptimeRates();
 
       this.calculateUptimeStats();
     } catch (error) {
       console.error('加载列表失败:', error);
-      // Fallback or Toast?
       this.showToast('加载列表失败', 'error');
     } finally {
       this.uptimeLoading = false;
@@ -450,23 +448,31 @@ export const uptimeMethods = {
   },
 
   /**
-   * 计算可用率
+   * 计算可用率（使用后端 API 缓存）
+   * 后端通过 Incident 事件精确计算: (总时间 - 宕机时间) / 总时间 × 100
    */
   calculateUptime(monitorId, days = 1) {
-    const beats = this.uptimeHeartbeats[monitorId] || [];
-    if (beats.length === 0) return '0.00';
+    const cache = this.uptimeRateCache[monitorId];
+    if (cache && cache[days]) return cache[days];
+    return '100.000'; // 默认值，等待 API 返回
+  },
 
-    const now = Date.now();
-    const cutoff = now - days * 24 * 60 * 60 * 1000;
-
-    const relevantBeats = beats.filter(
-      (b) => b.status !== 'empty' && new Date(b.time).getTime() >= cutoff
-    );
-
-    if (relevantBeats.length === 0) return '0.00';
-
-    const upBeats = relevantBeats.filter((b) => b.status === 'up').length;
-    return ((upBeats / relevantBeats.length) * 100).toFixed(2);
+  /**
+   * 批量加载所有监控项的可用率
+   */
+  async loadUptimeRates() {
+    for (const m of this.uptimeMonitors) {
+      try {
+        const [res1, res30] = await Promise.all([
+          fetch(`/api/uptime/monitors/${m.id}/uptime?days=1`),
+          fetch(`/api/uptime/monitors/${m.id}/uptime?days=30`),
+        ]);
+        const [d1, d30] = await Promise.all([res1.json(), res30.json()]);
+        this.uptimeRateCache[m.id] = { 1: d1.uptime, 30: d30.uptime };
+      } catch (e) {
+        // 静默失败
+      }
+    }
   },
 
   /**
@@ -474,25 +480,20 @@ export const uptimeMethods = {
    */
   calculateOverallUptime(days = 1) {
     const activeMonitors = this.uptimeMonitors.filter((m) => m.active);
-    if (activeMonitors.length === 0) return '0.00';
+    if (activeMonitors.length === 0) return '100.000';
 
-    let totalUp = 0;
-    let totalBeats = 0;
-
-    const now = Date.now();
-    const cutoff = now - days * 24 * 60 * 60 * 1000;
-
-    activeMonitors.forEach((monitor) => {
-      const beats = this.uptimeHeartbeats[monitor.id] || [];
-      const relevantBeats = beats.filter(
-        (b) => b.status !== 'empty' && new Date(b.time).getTime() >= cutoff
-      );
-      totalBeats += relevantBeats.length;
-      totalUp += relevantBeats.filter((b) => b.status === 'up').length;
+    let sum = 0;
+    let count = 0;
+    activeMonitors.forEach((m) => {
+      const rate = parseFloat(this.calculateUptime(m.id, days));
+      if (!isNaN(rate)) {
+        sum += rate;
+        count++;
+      }
     });
 
-    if (totalBeats === 0) return '0.00';
-    return ((totalUp / totalBeats) * 100).toFixed(2);
+    if (count === 0) return '100.000';
+    return (sum / count).toFixed(3);
   },
 
   /**

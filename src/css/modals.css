@@ -1,4 +1,4 @@
-/* Modal & Form Styles */
+﻿/* Modal & Form Styles */
 
 .modal-overlay {
   position: fixed;
@@ -13,7 +13,7 @@
   justify-content: center;
   z-index: 2000000;
   /* 绝对置顶，压制所有终端和菜单 */
-  padding: 20px;
+  padding: var(--space-xl);
 }
 
 .modal-overlay.logs-fullscreen-overlay {
@@ -30,14 +30,14 @@
 
 .modal {
   background-color: var(--card-bg);
-  border-radius: 16px;
+  border-radius: var(--radius-xl);
   padding: 0;
   max-width: 480px;
   width: 95%;
   max-height: 90vh;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 15px 50px rgba(0, 0, 0, 0.25);
+  box-shadow: var(--modal-shadow);
   overflow: hidden;
   position: relative;
   /* 强制裁切圆角，解决部分浏览器背景色溢出问题 */
@@ -68,23 +68,23 @@
 .permissions-grid {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 .permissions-row {
   display: grid;
   grid-template-columns: 80px repeat(3, 1fr);
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 .permissions-row.permissions-header {
   font-weight: 600;
   color: var(--text-secondary);
   font-size: 13px;
-  padding-bottom: 8px;
+  padding-bottom: var(--space-sm);
   border-bottom: 1px solid var(--border-color);
-  margin-bottom: 4px;
+  margin-bottom: var(--space-xs);
 }
 
 .permissions-label {
@@ -104,17 +104,17 @@
   accent-color: var(--primary-color);
 }
 
-/* 属性查看模态框样式 */
+/* 属查看模态框样式 */
 .properties-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--space-md);
 }
 
 .properties-item {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 .properties-item .properties-label {
@@ -130,30 +130,30 @@
   flex: 1;
 }
 
-/* 模态框内容区域 */
+/* 模框内容区域 */
 .modal-body {
-  padding: 10px 16px;
+  padding: var(--space-sm) var(--space-lg);
   overflow-y: auto;
   flex: 1;
 }
 
-/* 无内部结构的简单模态框(如登录框) */
+/* 无内部结构的箢单模态框(如登录框) */
 .modal:not(:has(.modal-body)):not(:has(.modal-footer)) {
-  padding: 7px 15px 15px 15px;
+  padding: 7px var(--space-lg) var(--space-lg) var(--space-lg);
 }
 
-/* 模态框底部 */
+/* 模框底部 */
 .modal-footer {
-  padding: 16px 20px;
+  padding: var(--space-lg) var(--space-xl);
   border-top: 1px solid var(--border-color);
   background: var(--bg-secondary);
   display: flex;
   justify-content: flex-end;
-  gap: 12px;
+  gap: var(--space-md);
 }
 
 .modal-header {
-  padding: 12px 16px;
+  padding: var(--space-md) var(--space-lg);
   background-color: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
   display: flex;
@@ -182,17 +182,17 @@
   flex-shrink: 0;
 }
 
-/* 移除特定的绝对定位偏移，让 Flex 生效 */
+/* 移除特定的绝对定位偏移，?Flex Ч */
 .modal .modal-close {
   position: static !important;
 }
 
-/* 兜底：如果不在 header 内，则保持绝对定位但位置优化 */
+/* 兜底：如果不?header ڣ򱣳־ԶλλŻ */
 .modal>.modal-close:only-child,
 .modal>.close-btn {
   position: absolute !important;
-  top: 10px;
-  right: 10px;
+  top: var(--space-sm);
+  right: var(--space-sm);
 }
 
 .modal-close:hover,
@@ -207,7 +207,7 @@
   transform: rotate(90deg) scale(0.9);
 }
 
-/* 针对标签页和特殊位置的微调 */
+/* 针对标签页和特殊位置的微?*/
 .ssh-tab-close,
 .close-split-btn {
   width: 18px;
@@ -236,15 +236,15 @@
 }
 
 .form-group {
-  padding-bottom: 5px;
+  padding-bottom: var(--space-xs);
 }
 
 .form-input {
   /* margin-bottom: 8px; */
   width: 100%;
-  padding: 10px 12px;
+  padding: var(--space-sm) var(--space-md);
   border: 1px solid var(--input-border);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   font-size: 14px;
   background-color: var(--bg-secondary);
   color: var(--text-primary);
@@ -263,9 +263,9 @@
 /* 小尺寸输入框 - 用于模型重定向等 */
 .form-input-sm {
   width: 100%;
-  padding: 8px 12px;
+  padding: var(--space-sm) var(--space-md);
   border: 1px solid var(--input-border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   font-size: 13px;
   background-color: var(--bg-secondary);
   color: var(--text-primary);
@@ -283,9 +283,9 @@
 
 .form-textarea {
   width: 100%;
-  padding: 10px 12px;
+  padding: var(--space-sm) var(--space-md);
   border: 1px solid var(--input-border);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   font-size: 14px;
   background-color: var(--bg-secondary);
   color: var(--text-primary);
@@ -305,7 +305,7 @@
 .form-help {
   font-size: 12px;
   color: var(--text-tertiary);
-  margin-top: 4px;
+  margin-top: var(--space-xs);
 }
 
 .form-error {
@@ -318,15 +318,15 @@
 .form-success {
   color: var(--success-color);
   font-size: 13px;
-  margin-top: 4px;
+  margin-top: var(--space-xs);
 }
 
 /* Edit Controls */
 .edit-input {
   width: 120px;
-  padding: 4px 28px 4px 8px;
+  padding: var(--space-xs) 28px var(--space-xs) var(--space-sm);
   border: 1px solid var(--input-focus-border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   font-size: 14px;
   font-weight: 600;
   outline: none;
@@ -335,10 +335,10 @@
 }
 
 .edit-btn {
-  padding: 4px 8px;
+  padding: var(--space-xs) var(--space-sm);
   background-color: rgba(99, 102, 241, 0.2);
   border: 1px solid rgba(99, 102, 241, 0.4);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   transition: all 0.2s;
   display: flex;
@@ -352,10 +352,10 @@
 
 .cancel-btn {
   position: absolute;
-  right: 4px;
+  right: var(--space-xs);
   top: 50%;
   transform: translateY(-50%);
-  padding: 2px 4px;
+  padding: 2px var(--space-xs);
   background-color: transparent;
   border: none;
   cursor: pointer;
@@ -371,7 +371,7 @@
 .cancel-btn:hover {
   color: var(--danger-color);
   background-color: rgba(239, 68, 68, 0.1);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
 }
 
 .account-name-edit {
@@ -384,14 +384,14 @@
   display: flex;
   flex-direction: column;
   gap: 3px;
-  margin-bottom: 16px;
+  margin-bottom: var(--space-lg);
 }
 
 .account-item {
   padding-left: 18px !important;
   background-color: var(--card-bg);
-  border-radius: 10px;
-  padding: 10px;
+  border-radius: var(--radius-md);
+  padding: var(--space-sm);
   border: 1px solid var(--border-color);
   transition:
     transform 0.3s,
@@ -412,7 +412,7 @@
   flex: 1;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-md);
 }
 
 .account-item-name {
@@ -438,11 +438,11 @@
 
 .custom-dialog {
   background-color: var(--card-bg);
-  border-radius: 12px;
-  padding: 24px;
+  border-radius: var(--radius-xl);
+  padding: var(--space-xl);
   max-width: 400px;
   width: 90%;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--modal-shadow);
   animation: scaleIn 0.2s;
 }
 
@@ -450,29 +450,29 @@
   font-size: 18px;
   font-weight: 600;
   color: var(--text-primary);
-  margin-bottom: 12px;
+  margin-bottom: var(--space-md);
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 .custom-dialog-message {
   font-size: 14px;
   color: var(--text-secondary);
-  margin-bottom: 20px;
+  margin-bottom: var(--space-xl);
   line-height: 1.5;
 }
 
 .custom-dialog-input {
   width: 100%;
-  padding: 10px 12px;
+  padding: var(--space-sm) var(--space-md);
   border: 1px solid var(--input-border);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   font-size: 14px;
   background-color: var(--input-bg);
   color: var(--text-primary);
   transition: border-color 0.2s;
-  margin-bottom: 20px;
+  margin-bottom: var(--space-xl);
   box-sizing: border-box;
 }
 
@@ -483,7 +483,7 @@
 
 .custom-dialog-buttons {
   display: flex;
-  gap: 12px;
+  gap: var(--space-md);
   justify-content: flex-end;
 }
 
@@ -519,21 +519,21 @@
   }
 
   .modal-header {
-    padding: 16px 20px;
+    padding: var(--space-lg) var(--space-xl);
   }
 
   .modal-body {
-    padding: 12px;
+    padding: var(--space-md);
   }
 
   .modal-footer {
-    padding: 14px 20px;
+    padding: var(--space-lg) var(--space-xl);
   }
 }
 
-/* 现代化视图切换按钮 (Pill Toggle) - 极简紧凑版 */
+/* 现代化视图切换按?(Pill Toggle) - 极简紧凑?*/
 .view-toggle-container {
-  padding: 10px 20px;
+  padding: var(--space-sm) var(--space-xl);
   background: transparent;
   border-bottom: 1px solid var(--border-color);
   display: flex;
@@ -545,18 +545,17 @@
   display: inline-flex;
   background: rgba(0, 0, 0, 0.03);
   padding: 2px;
-  /* 进一步缩减 */
-  border-radius: 20px;
+  /* 进一步缩?*/
+  border-radius: var(--radius-md);
   border: 1px solid var(--border-color);
 }
 
 .pill-btn {
   border: none;
-  padding: 4px 12px;
+  padding: var(--space-xs) var(--space-md);
   /* 缩减宽度 */
-  border-radius: 18px;
+  border-radius: var(--radius-md);
   font-size: 12px;
-  /* 字号减小 */
   font-weight: 600;
   cursor: pointer;
   transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
@@ -569,25 +568,25 @@
 
 /* 选中态 */
 .pill-btn.active {
-  background: var(--ag-primary) !important;
-  color: white !important;
-  box-shadow: 0 2px 8px rgba(var(--ag-primary-rgb), 0.3);
-  transform: none;
-  /* 移除位移以保持稳定感 */
+  background: var(--ag-primary);
+  color: white;
+  box-shadow: var(--shadow-sm);
+  /* 更统一且不那么夸张 */
+  transform: translateY(0);
 }
 
 /* 悬停态：仅针对非活动按钮 */
 .pill-btn:not(.active):hover {
-  background: rgba(var(--ag-primary-rgb), 0.08) !important;
-  color: var(--ag-primary) !important;
-  transform: translateY(-1px);
+  background: rgba(var(--ag-primary-rgb), 0.08);
+  color: var(--ag-primary);
 }
 
 /* 点击瞬间反馈 */
+/* 点击瞬间反馈：极微弹压，完全移除额外阴影变动以保持利落 */
 .pill-btn:active {
-  transform: translateY(1px) scale(0.98);
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-  transition: all 0.05s;
+  transform: scale(0.97);
+  box-shadow: none;
+  transition: all 0.1s ease;
 }
 
 /* 图标动画 */
@@ -603,15 +602,15 @@
   color: white !important;
 }
 
-/* 迷你开关容器 (用于模态框标题栏) */
+/* 迷你弢关容?(用于模框标题? */
 .mini-view-toggle {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-sm);
   cursor: pointer;
-  padding: 4px 10px;
+  padding: var(--space-xs) var(--space-sm);
   background: var(--bg-tertiary);
-  border-radius: 20px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--border-color);
   user-select: none;
   transition: all 0.2s;
@@ -621,7 +620,7 @@
   width: 28px;
   height: 14px;
   background: #ccc;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   position: relative;
   transition: background 0.3s;
 }
@@ -651,20 +650,20 @@
   transform: scale(0.95);
 }
 
-/* 迷你药片式选择器 */
+/* 迷你药片式择?*/
 .pill-group-mini {
   display: inline-flex;
   background: var(--bg-tertiary);
   padding: 3px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--border-color);
 }
 
 .pill-group-mini button {
   background: transparent;
   color: var(--text-secondary);
-  padding: 4px 10px;
-  border-radius: 6px;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-sm);
   font-size: 11px;
   border: none;
   font-weight: 600;

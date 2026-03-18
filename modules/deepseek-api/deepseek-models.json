@@ -1,0 +1,12 @@
+{
+    "deepseek-chat": {
+        "base": true,
+        "search": true,
+        "thinking": false
+    },
+    "deepseek-reasoner": {
+        "base": true,
+        "search": true,
+        "thinking": true
+    }
+}

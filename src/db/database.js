@@ -273,6 +273,13 @@ class DatabaseService {
             this.db.exec('ALTER TABLE gemini_cli_logs ADD COLUMN is_balanced INTEGER DEFAULT 0');
             logger.success('gemini_cli_logs.is_balanced 字段添加成功');
           }
+
+          const hasFirstTokenTime = gcliLogColumns.some(col => col.name === 'first_token_time_ms');
+          if (!hasFirstTokenTime) {
+            logger.info('正在为 gemini_cli_logs 表添加 first_token_time_ms 字段...');
+            this.db.exec('ALTER TABLE gemini_cli_logs ADD COLUMN first_token_time_ms INTEGER');
+            logger.success('gemini_cli_logs.first_token_time_ms 字段添加成功');
+          }
         }
       } catch (err) {
         logger.error('Gemini CLI Logs 迁移失败:', err.message);

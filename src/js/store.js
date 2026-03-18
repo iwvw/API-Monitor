@@ -126,7 +126,7 @@ export const MODULE_GROUPS = [
     id: 'api-gateway',
     name: 'API 网关',
     icon: 'fa-bolt',
-    modules: ['openai', 'antigravity', 'gemini-cli'],
+    modules: ['openai', 'antigravity', 'gemini-cli', 'deepseek'],
   },
   {
     id: 'infrastructure',
@@ -185,10 +185,12 @@ export const store = reactive({
     dashboard: true,
     openai: true,
     antigravity: true,
+    deepseek: true,
     'gemini-cli': true,
     paas: true,
     dns: true,
     aliyun: true,
+    tencent: true,
     'self-h': true,
     server: true,
     totp: true,
@@ -202,19 +204,23 @@ export const store = reactive({
   channelEnabled: {
     antigravity: true,
     'gemini-cli': true,
+    deepseek: true,
   },
   channelModelPrefix: {
     antigravity: '',
     'gemini-cli': '',
+    deepseek: '',
   },
   moduleOrder: [
     'dashboard',
     'openai',
     'antigravity',
     'gemini-cli',
+    'deepseek',
     'paas',
     'dns',
     'aliyun',
+    'tencent',
     'self-h',
     'server',
     'totp',
@@ -717,10 +723,10 @@ export const store = reactive({
   showGeminiCliOAuthExpand: false,
   geminiCliOAuthUrl: '',
   geminiCliOauthReturnUrl: '',
-  // 使用 Antigravity 的 Client ID 以获得 API 访问权限 (请在后台或环境变量中配置)
-  geminiCliCustomClientId: '',
-  geminiCliCustomClientSecret: '',
-  geminiCliOAuthRedirectUri: '',
+  // 使用 Antigravity 的 Client ID 以获得 API 访问权限 (与 Antigravity 模块共用)
+  geminiCliCustomClientId: '1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com',
+  geminiCliCustomClientSecret: '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',
+  geminiCliOAuthRedirectUri: 'http://localhost:8045/oauth-callback',
   geminiCliCustomProjectId: '',
   geminiCliAllowRandomProjectId: true,
   geminiCliStats: null,
@@ -748,6 +754,33 @@ export const store = reactive({
   geminiCliQuotaLoading: false, // 额度查询中
   geminiCliQuotaData: [], // 额度数据 [{ accountId, accountName, buckets: [{modelId, remainingFraction, resetTime}] }]
   geminiCliQuotaModels: [], // 额度中出现的所有模型 ID 列表
+
+  // ===== DeepSeek 模块 =====
+  dsCurrentTab: 'models',
+  dsModels: [],
+  dsModelsLoading: false,
+  dsModelRedirects: [],
+  dsNewRedirectSource: '',
+  dsNewRedirectTarget: '',
+  dsEditingRedirectSource: null,
+  dsAccounts: [],
+  dsAccountsLoading: false,
+  dsShowAddAccount: false,
+  dsAccountAddMode: 'password', // 'password' | 'token'
+  dsAccountForm: { name: '', emailOrMobile: '', password: '', token: '' },
+  dsAccountFormError: '',
+  dsAccountAdding: false,
+  dsAccountRefreshing: false,
+  dsLogs: [],
+  dsLogsLoading: false,
+  dsLogFilterModel: '',
+  dsLogFilterAccount: '',
+  dsLogDetailVisible: false,
+  dsLogDetailContent: '',
+  dsLogDetail: null,
+  dsLogDetailShowRaw: false,
+  dsSettingsForm: { API_KEY: '', DEFAULT_TEMPERATURE: '1', DEFAULT_MAX_TOKENS: '8192', SYSTEM_INSTRUCTION: '' },
+  dsSaving: false,
 
   // ===== 音乐播放器模块 =====
   musicReady: false,

@@ -1,9 +1,9 @@
-/* Fly.io 模块专属样式 - 基于 Zeabur/Koyeb 样式 */
+﻿/* Fly.io 模块专属样式 - 基于 Zeabur/Koyeb 样式 */
 
 /* 
- * 说明:
- * 这个文件为 Fly.io 模块提供专属样式支持
- * 主要通过复写基础样式来对齐 Zeabur 和 Koyeb 的视觉效果
+ * ˵:
+ * 这个文件?Fly.io ģṩרʽ֧
+ * 主要通过复写基础样式来对?Zeabur ?Koyeb 的视觉效?
  */
 
 :root {
@@ -17,8 +17,8 @@
   cursor: text;
   user-select: none;
   transition: all 0.2s ease;
-  padding: 2px 4px;
-  border-radius: 4px;
+  padding: 2px var(--space-xs);
+  border-radius: var(--radius-sm);
 }
 
 .paas-sec-tab .fly-project-name-text:hover {
@@ -31,8 +31,8 @@
   cursor: text;
   user-select: none;
   transition: all 0.2s ease;
-  padding: 2px 4px;
-  border-radius: 4px;
+  padding: 2px var(--space-xs);
+  border-radius: var(--radius-sm);
 }
 
 .paas-sec-tab .fly-service-name:hover {
@@ -40,7 +40,7 @@
   box-shadow: 0 0 0 1px rgba(var(--fly-primary-rgb), 0.2);
 }
 
-/* 单应用模式 - 铺满一行 (对齐 Koyeb) */
+/* 单应用模?- 铺满丢?(对齐 Koyeb) */
 .paas-sec-tab .fly-projects-grid.single-app {
   display: block;
 }
@@ -57,7 +57,7 @@
   border-color: rgba(var(--fly-primary-rgb), 0.15);
 }
 
-/* 账号卡片展开状态的 Header 渐变 */
+/* 账号卡片展开状的 Header  */
 .fly-account-card.expanded .fly-account-header {
   background: linear-gradient(to right, rgba(var(--fly-primary-rgb), 0.05), transparent);
 }
@@ -88,7 +88,7 @@
   background: linear-gradient(to right, rgba(var(--fly-primary-rgb), 0.03), transparent);
 }
 
-/* 状态徽章映射修正 */
+/* 状徽章映射修?*/
 .fly-service-item.running {
   background-color: rgba(16, 185, 129, 0.1);
   border-color: rgba(16, 185, 129, 0.2);

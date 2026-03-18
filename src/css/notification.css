@@ -1,7 +1,7 @@
-/* ==================== 通知管理模块样式 ==================== */
-/* 该文件仅包含通知模块特有的样式，通用组件请使用 styles.css 中的全局样式 */
+﻿/* ==================== 通知管理模块样式 ==================== */
+/* 该文件仅包含通知模块特有的样式，通用组件请使?styles.css еȫʽ */
 
-/* 容器与布局 */
+/* 容器与布屢 */
 .notification-tab-content {
   transform: none !important;
   position: static !important;
@@ -10,61 +10,61 @@
 .notification-container {
   max-width: 1200px;
   margin: 0 auto;
-  padding: 20px;
+  padding: var(--space-xl);
 }
 
-/* 工具栏 */
+/* 工具?*/
 .notification-toolbar {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 20px;
+  gap: var(--space-md);
+  margin-bottom: var(--space-xl);
 }
 
-/* 筛选栏 */
+/* 筛栏 */
 .notification-filter-bar {
   display: flex;
-  gap: 12px;
-  margin-bottom: 16px;
+  gap: var(--space-md);
+  margin-bottom: var(--space-lg);
 }
 
-/* 空状态 */
+/* 空状?*/
 .notification-empty-state {
   text-align: center;
-  padding: 60px 20px;
+  padding: 60px var(--space-xl);
   color: var(--text-secondary);
 }
 
 .notification-empty-state i {
   font-size: 48px;
   opacity: 0.5;
-  margin-bottom: 16px;
+  margin-bottom: var(--space-lg);
 }
 
 .notification-empty-state h3 {
   font-size: 18px;
   font-weight: 600;
-  margin: 12px 0 6px;
+  margin: var(--space-md) 0 6px;
   color: var(--text-primary);
 }
 
 .notification-empty-state p {
   font-size: 14px;
-  margin-bottom: 24px;
+  margin-bottom: var(--space-xl);
 }
 
 /* ==================== 渠道列表 ==================== */
 .notification-channel-list {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
-  gap: 16px;
+  gap: var(--space-lg);
 }
 
 .notification-channel-card {
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
-  border-radius: 12px;
-  padding: 16px;
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
   transition: all 0.2s ease;
 }
 
@@ -76,14 +76,14 @@
 .channel-header {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 12px;
+  gap: var(--space-md);
+  margin-bottom: var(--space-md);
 }
 
 .channel-icon {
   width: 48px;
   height: 48px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -110,7 +110,7 @@
   font-size: 16px;
   font-weight: 600;
   color: var(--text-primary);
-  margin-bottom: 4px;
+  margin-bottom: var(--space-xs);
 }
 
 .channel-type {
@@ -132,8 +132,8 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 4px 10px;
-  border-radius: 6px;
+  padding: var(--space-xs) var(--space-sm);
+  border-radius: var(--radius-sm);
   font-size: 12px;
   font-weight: 500;
   background: var(--bg-tertiary);
@@ -145,7 +145,7 @@
   color: #10b981;
 }
 
-/* 品牌化主题覆盖 */
+/* 品牌化主题覆?*/
 .theme-notification .notification-channel-card:hover,
 .theme-notification .notification-rule-card:hover {
   border-color: var(--notification-primary);
@@ -171,14 +171,14 @@
 .notification-rule-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--space-md);
 }
 
 .notification-rule-card {
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
-  border-radius: 10px;
-  padding: 16px;
+  border-radius: var(--radius-md);
+  padding: var(--space-lg);
   transition: all 0.2s ease;
 }
 
@@ -189,14 +189,14 @@
 .rule-header {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-bottom: 12px;
+  gap: var(--space-md);
+  margin-bottom: var(--space-md);
 }
 
 .rule-severity {
   width: 40px;
   height: 40px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -233,13 +233,13 @@
 
 .rule-meta {
   display: flex;
-  gap: 8px;
+  gap: var(--space-sm);
   flex-wrap: wrap;
 }
 
 .rule-meta .meta-badge {
-  padding: 2px 8px;
-  border-radius: 4px;
+  padding: 2px var(--space-sm);
+  border-radius: var(--radius-sm);
   font-size: 11px;
   font-weight: 500;
   background: var(--bg-tertiary);
@@ -253,9 +253,9 @@
 
 .rule-config {
   display: flex;
-  gap: 16px;
+  gap: var(--space-lg);
   flex-wrap: wrap;
-  padding-top: 12px;
+  padding-top: var(--space-md);
   border-top: 1px solid var(--border-color);
 }
 
@@ -276,16 +276,16 @@
 .notification-history-list {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--space-md);
 }
 
 .notification-history-item {
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
-  border-radius: 8px;
-  padding: 14px;
+  border-radius: var(--radius-md);
+  padding: var(--space-lg);
   display: flex;
-  gap: 12px;
+  gap: var(--space-md);
   transition: all 0.2s ease;
 }
 
@@ -296,7 +296,7 @@
 .history-status {
   width: 36px;
   height: 36px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -328,19 +328,19 @@
   font-size: 14px;
   font-weight: 600;
   color: var(--text-primary);
-  margin-bottom: 4px;
+  margin-bottom: var(--space-xs);
 }
 
 .history-message {
   font-size: 13px;
   color: var(--text-secondary);
-  margin-bottom: 8px;
+  margin-bottom: var(--space-sm);
   line-height: 1.5;
 }
 
 .history-meta {
   display: flex;
-  gap: 12px;
+  gap: var(--space-md);
   flex-wrap: wrap;
   font-size: 12px;
 }
@@ -357,20 +357,20 @@
   color: #ef4444;
   background: rgba(239, 68, 68, 0.1);
   padding: 2px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
 }
 
 .history-meta .meta-retry {
   color: #f59e0b;
 }
 
-/* 继承全局 .modal-overlay 定义，仅在需要时进行微调 */
+/* ̳ȫ .modal-overlay 壬Ҫʱ΢ */
 .notification-modal-overlay {}
 
-/* ==================== 响应式 ==================== */
+/* ==================== 响应?==================== */
 @media (max-width: 768px) {
   .notification-container {
-    padding: 12px;
+    padding: var(--space-md);
   }
 
   .notification-channel-list {
@@ -383,6 +383,6 @@
 
   .notification-toolbar h3 {
     width: 100%;
-    margin-bottom: 12px;
+    margin-bottom: var(--space-md);
   }
 }

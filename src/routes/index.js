@@ -805,6 +805,7 @@ function registerRoutes(app) {
     'server-api': '/api/server',
     'antigravity-api': '/api/antigravity',
     'gemini-cli-api': '/api/gemini-cli',
+    'deepseek-api': '/api/deepseek',
     'ai-chat-api': '/api/ai-chat',
     'totp-api': '/api/totp',
     'uptime-api': '/api/uptime',
@@ -829,7 +830,7 @@ function registerRoutes(app) {
           const routePath = moduleRouteMap[moduleName] || `/api/${moduleName.replace('-api', '')}`;
 
           // 根据模块特性决定是否应用认证中间件
-          if (moduleName === 'antigravity-api' || moduleName === 'gemini-cli-api' || moduleName === 'filebox-api') {
+          if (moduleName === 'antigravity-api' || moduleName === 'gemini-cli-api' || moduleName === 'deepseek-api' || moduleName === 'filebox-api') {
             app.use(routePath, moduleRouter);
           } else {
             // 模块路由优先挂载

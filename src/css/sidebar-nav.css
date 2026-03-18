@@ -1,4 +1,4 @@
-/* --- Modern Sidebar Redesign --- */
+﻿/* --- Modern Sidebar Redesign --- */
 
 .app-sidebar {
   width: 68px; /* 默认宽度略微增加，提升点击舒适度 */
@@ -6,7 +6,7 @@
   border-right: 1px solid var(--border-color);
   display: flex;
   flex-direction: column;
-  transition: width 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.1); /* 弹性展开动画 */
+  transition: width 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.1); /* 弹展弢动画 */
   position: relative;
   z-index: 100;
   overflow: hidden;
@@ -21,33 +21,33 @@
 .sidebar-logo {
   width: 32px;
   height: 32px;
-  margin: 20px 18px; /* 初始偏移量 */
+  margin: var(--space-xl) 18px; /* 初始偏移?*/
   flex-shrink: 0;
   transition: all 0.3s ease;
   filter: drop-shadow(0 0 8px rgba(var(--ag-primary-rgb), 0.2));
 }
 
 .app-sidebar:hover .sidebar-logo {
-  margin-left: 20px;
-  transform: rotate(360deg); /* 展开时 Logo 微旋 */
+  margin-left: var(--space-xl);
+  transform: rotate(360deg); /* 展开?Logo ΢ */
 }
 
 /* 导航容器 */
 .sidebar-nav {
   display: flex;
   flex-direction: column;
-  gap: 12px; /* 增加项间距 */
-  padding: 10px 14px;
+  gap: var(--space-md); /* 增加项间?*/
+  padding: var(--space-sm) var(--space-lg);
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
 }
 
-/* 基础项样式 */
+/* 基础项样?*/
 .sidebar-tab {
   width: 40px;
   height: 40px;
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   border: none;
   background: transparent;
   color: var(--text-tertiary);
@@ -57,8 +57,8 @@
   justify-content: flex-start;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   position: relative;
-  padding: 0 10px;
-  gap: 16px; /* 图标与文字间距 */
+  padding: 0 var(--space-sm);
+  gap: var(--space-lg); /* 图标与文字间?*/
 }
 
 .sidebar-tab i {
@@ -88,7 +88,7 @@
   transform: translateX(0);
 }
 
-/* 悬停与激活态 - 核心视觉提升 */
+/* 悬停与激活?- Ӿ */
 .sidebar-tab:hover {
   background: rgba(var(--primary-rgb), 0.05);
   color: var(--primary-color);
@@ -100,38 +100,38 @@
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.05);
 }
 
-/* 侧边活动指示条 (Pill) */
+/* 侧边活动指示?(Pill) */
 .sidebar-tab.active::before {
   content: '';
   position: absolute;
   left: 0;
-  top: 8px;
-  bottom: 8px;
+  top: var(--space-sm);
+  bottom: var(--space-sm);
   width: 4px;
   background: var(--current-primary, var(--primary-color));
-  border-radius: 0 4px 4px 0;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
   box-shadow: 2px 0 10px var(--current-primary, var(--primary-color));
 }
 
 /* 底部区域 */
 .sidebar-footer {
-  padding: 15px 14px;
+  padding: var(--space-lg) var(--space-lg);
   border-top: 1px solid var(--border-color);
   background: rgba(var(--bg-secondary-rgb), 0.3);
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-sm);
 }
 
 .auth-btn {
   width: 40px !important;
   height: 40px !important;
-  border-radius: 12px !important;
+  border-radius: var(--radius-lg) !important;
   background: transparent !important;
   display: flex;
   align-items: center;
-  padding: 0 10px !important;
-  gap: 16px !important;
+  padding: 0 var(--space-sm) !important;
+  gap: var(--space-lg) !important;
   color: var(--text-secondary) !important;
   transition: all 0.3s ease !important;
 }
@@ -145,12 +145,12 @@
   color: var(--primary-color) !important;
 }
 
-/* 隐藏滚动条 */
+/* 隐藏滚动?*/
 .sidebar-nav::-webkit-scrollbar {
   display: none;
 }
 
-/* --- 移动端适配覆盖 --- */
+/* --- 移动端配覆盖 --- */
 @media (max-width: 768px) {
   .app-sidebar {
     width: 100% !important;
@@ -164,13 +164,13 @@
   }
 
   .sidebar-logo {
-    margin: 14px !important;
+    margin: var(--space-lg) !important;
   }
 
   .sidebar-nav {
     flex-direction: row !important;
-    padding: 10px !important;
-    gap: 8px !important;
+    padding: var(--space-sm) !important;
+    gap: var(--space-sm) !important;
     align-items: center;
   }
 
@@ -182,13 +182,13 @@
   }
 
   .sidebar-tab.active::before {
-    left: 8px;
-    right: 8px;
+    left: var(--space-sm);
+    right: var(--space-sm);
     top: auto;
     bottom: 0;
     width: auto;
     height: 3px;
-    border-radius: 3px 3px 0 0;
+    border-radius: var(--radius-sm) var(--radius-sm) 0 0;
   }
 
   .tab-label,

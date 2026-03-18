@@ -1,8 +1,8 @@
-/**
+﻿/**
  * 模板模块样式
  */
 .{{module_name}}-module {
-    padding: 20px;
+    padding: var(--space-xl);
     animation: fadeIn 0.3s ease-in-out;
 }
 
@@ -10,17 +10,17 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 24px;
+    margin-bottom: var(--space-xl);
     background: var(--bg-card);
-    padding: 16px 24px;
-    border-radius: 12px;
+    padding: var(--space-lg) var(--space-xl);
+    border-radius: var(--radius-lg);
     box-shadow: 0 4px 6px var(--shadow-color);
 }
 
 .{{module_name}}-module .title-area {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: var(--space-md);
 }
 
 .{{module_name}}-module .title-area i {
@@ -36,13 +36,13 @@
 .{{module_name}}-module .data-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-    gap: 20px;
+    gap: var(--space-xl);
 }
 
 .{{module_name}}-module .data-card {
     background: var(--bg-card);
-    border-radius: 12px;
-    padding: 20px;
+    border-radius: var(--radius-lg);
+    padding: var(--space-xl);
     border: 1px solid var(--border-color);
     transition: transform 0.2s, box-shadow 0.2s;
 }
@@ -56,12 +56,12 @@
     display: flex;
     justify-content: space-between;
     align-items: flex-start;
-    margin-bottom: 15px;
+    margin-bottom: var(--space-lg);
 }
 
 .{{module_name}}-module .status-badge {
-    padding: 4px 8px;
-    border-radius: 4px;
+    padding: var(--space-xs) var(--space-sm);
+    border-radius: var(--radius-sm);
     font-size: 12px;
     text-transform: uppercase;
 }

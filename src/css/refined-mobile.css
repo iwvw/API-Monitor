@@ -1,12 +1,12 @@
-/* Refined Mobile Adaptation - API Monitor */
+﻿/* Refined Mobile Adaptation - API Monitor */
 
 /* ============================================================
-   单页模式 (Single Page Mode) - 全面隐藏导航元素
-   访问路径: /s/模块名 (例如 /s/totp, /s/dns)
-   使用 html 选择器确保检测脚本在 head 中执行后立即生效
+   ҳģʽ (Single Page Mode) - ȫصԪ
+   ·: /s/模块?(例如 /s/totp, /s/dns)
+   ʹ html ѡȷű head ִкЧ
    ============================================================ */
 
-/* 隐藏所有导航相关元素 */
+/* 隐藏扢有导航相关元?*/
 html.single-page-mode .header,
 html.single-page-mode .top-nav-bar,
 html.single-page-mode .nav-brand,
@@ -25,18 +25,18 @@ html.single-page-mode .btn-settings-pc-bottom {
   overflow: hidden !important;
 }
 
-/* 单页模式下容器无需底部边距（底部导航已隐藏） */
+/* 单页模式下容器无霢底部边距（底部导航已隐藏?*/
 html.single-page-mode .container {
-  padding-bottom: 12px !important;
-  padding-top: 12px !important;
+  padding-bottom: var(--space-md) !important;
+  padding-top: var(--space-md) !important;
 }
 
 /* 单页模式下迷你播放器沉底（因为底部导航栏已隐藏） */
 html.single-page-mode .mini-player {
-  bottom: calc(10px + env(safe-area-inset-bottom, 0)) !important;
+  bottom: calc(var(--space-sm) + env(safe-area-inset-bottom, 0)) !important;
 }
 
-/* 单页模式下移除 sec-tabs 的顶部边距 */
+/* 单页模式下移?sec-tabs 的顶部边?*/
 html.single-page-mode .sec-tabs,
 html.single-page-mode [class*='-sec-tabs'] {
   margin-top: 0px !important;
@@ -55,7 +55,7 @@ html.single-page-mode [class*='-sec-tabs'] {
     overflow: hidden !important; /* 禁用外层原生滚动，由 app-main 接管 */
     margin: 0 !important;
     padding: 0 !important;
-    position: fixed !important; /* 锁定 body，防止 iOS 橡皮筋干扰 */
+    position: fixed !important; /*  body，防?iOS 橡皮筋干?*/
     width: 100% !important;
   }
 
@@ -82,7 +82,7 @@ html.single-page-mode [class*='-sec-tabs'] {
     background-color: var(--bg-primary);
   }
 
-  /* 确保容器填满并处理 Flex 布局 */
+  /* 确保容器填满并处?Flex  */
   .container {
     min-height: 100% !important;
     display: flex !important;
@@ -99,7 +99,7 @@ html.single-page-mode [class*='-sec-tabs'] {
     overflow: hidden !important;
   }
 
-  /* 确保详情页父容器也撑满 */
+  /* 确保详情页父容器也撑?*/
   .music-playlist-detail-page {
     flex: 1 !important;
     height: 100% !important;
@@ -112,15 +112,15 @@ html.single-page-mode [class*='-sec-tabs'] {
   .music-detail-content {
     flex: 1 !important;
     height: auto !important;
-    /* 覆盖原来的 height: 0 */
+    /* 覆盖原来?height: 0 */
     min-height: 0 !important;
     display: flex !important;
     flex-direction: column !important;
-    /* 移动端改为上下布局 */
+    /* 移动端改为上下布屢 */
     overflow: hidden !important;
   }
 
-  /* 左侧信息区（封面等）不再固定宽度，而是自适应 */
+  /* 左侧信息区（封面等）不再固定宽度，是自应 */
   .music-detail-info {
     width: 100% !important;
     flex-shrink: 0 !important;
@@ -137,7 +137,7 @@ html.single-page-mode [class*='-sec-tabs'] {
     /* 保持底部留白 */
   }
 
-  /* --- 主标签栏底部导航 - 跨浏览器一致性 --- */
+  /* --- ǩײ - 跨浏览器丢致?--- */
   .main-tabs {
     position: fixed !important;
     bottom: 0 !important;
@@ -146,8 +146,8 @@ html.single-page-mode [class*='-sec-tabs'] {
     z-index: 1000 !important;
 
     /* 
-     * 背景策略：使用不透明背景，避免透出黑边
-     * 如需毛玻璃效果，可改为半透明但需确保底部有内容填充
+     * 背景策略：使用不透明背景，避免出黑边
+     * 如需毛玻璃效果，可改为半透明但需确保底部有内容填?
      */
     background: var(--bg-primary) !important;
 
@@ -157,9 +157,9 @@ html.single-page-mode [class*='-sec-tabs'] {
     border-radius: 0 !important;
 
     /* 
-     * 安全区域适配：
+     * 安全区域适配?
      * constant() - iOS 11.0-11.2
-     * env() - iOS 11.2+ 及现代浏览器
+     * env() - iOS 11.2+ ִ
      */
     padding: 0 !important;
     padding-bottom: constant(safe-area-inset-bottom) !important;
@@ -176,22 +176,22 @@ html.single-page-mode [class*='-sec-tabs'] {
     align-items: stretch !important;
   }
 
-  /* --- Apple Music 风格迷你播放器 --- */
+  /* --- Apple Music 风格迷你播放?--- */
   .mini-player {
     position: fixed !important;
     bottom: calc(66px + env(safe-area-inset-bottom, 0)) !important;
-    left: 12px !important;
-    right: 12px !important;
+    left: var(--space-md) !important;
+    right: var(--space-md) !important;
     z-index: 999 !important;
     height: 60px !important;
     background: var(--bg-secondary) !important;
     backdrop-filter: none !important;
-    border-radius: 14px !important;
+    border-radius: var(--radius-lg) !important;
     box-shadow: 0 0px 32px rgba(0, 0, 0, 0.1) !important;
     display: flex !important;
     align-items: center !important;
-    padding: 8px 12px 8px 8px !important;
-    gap: 12px !important;
+    padding: var(--space-sm) var(--space-md) var(--space-sm) var(--space-sm) !important;
+    gap: var(--space-md) !important;
     cursor: pointer !important;
     overflow: hidden !important;
     border: 1px solid var(--border-color) !important;
@@ -200,7 +200,7 @@ html.single-page-mode [class*='-sec-tabs'] {
   .mini-player-cover {
     width: 40px !important;
     height: 40px !important;
-    border-radius: 6px !important;
+    border-radius: var(--radius-sm) !important;
     object-fit: cover !important;
     flex-shrink: 0 !important;
   }
@@ -233,7 +233,7 @@ html.single-page-mode [class*='-sec-tabs'] {
   .mini-player-controls {
     display: flex !important;
     align-items: center !important;
-    gap: 4px !important;
+    gap: var(--space-xs) !important;
     flex-shrink: 0 !important;
   }
 
@@ -256,7 +256,7 @@ html.single-page-mode [class*='-sec-tabs'] {
     background: var(--bg-tertiary) !important;
   }
 
-  /* 进度条 */
+  /* 进度?*/
   .mini-player-progress {
     position: absolute !important;
     bottom: 0 !important;
@@ -275,18 +275,18 @@ html.single-page-mode [class*='-sec-tabs'] {
     overflow: hidden !important;
   }
 
-  /* 移动端每日推荐歌曲卡片紧凑样式 */
+  /* 移动端每日推荐歌曲卡片紧凑样?*/
   .music-main-content {
-    padding: 16px !important;
+    padding: var(--space-lg) !important;
     /* padding-bottom: 20px !important; */
     width: 100% !important;
     box-sizing: border-box !important;
   }
 
-  /* 调整顶部 Tab 栏的间距以对齐内容 */
+  /*  Tab 栏的间距以对齐内?*/
   .music-sec-tabs {
-    padding: 16px !important;
-    margin-top: 8px !important;
+    padding: var(--space-lg) !important;
+    margin-top: var(--space-sm) !important;
     width: 100% !important;
     box-sizing: border-box !important;
   }
@@ -294,7 +294,7 @@ html.single-page-mode [class*='-sec-tabs'] {
   .playlist-wall {
     display: grid !important;
     grid-template-columns: repeat(3, 1fr) !important;
-    gap: 10px !important;
+    gap: var(--space-sm) !important;
   }
 
   /* 修复 grid 子项溢出问题 */
@@ -305,7 +305,7 @@ html.single-page-mode [class*='-sec-tabs'] {
 
   /* 强制 1:1 封面 */
   .wall-cover {
-    border-radius: 8px !important;
+    border-radius: var(--radius-md) !important;
     width: 100% !important;
     padding-bottom: 100% !important;
     /* 1:1 Aspect Ratio */
@@ -334,18 +334,18 @@ html.single-page-mode [class*='-sec-tabs'] {
   }
 
   .quick-grid-home {
-    gap: 16px !important;
-    margin-bottom: 20px !important;
+    gap: var(--space-lg) !important;
+    margin-bottom: var(--space-xl) !important;
   }
 
-  /* 移动端歌单详情页紧凑左右布局 */
+  /* ƶ˸赥ҳҲ */
   .music-detail-info {
     display: flex !important;
     flex-direction: row !important;
     align-items: center !important;
-    gap: 16px !important;
+    gap: var(--space-lg) !important;
     text-align: left !important;
-    padding: 0px 0px 12px 0px !important;
+    padding: 0px 0px var(--space-md) 0px !important;
   }
 
   .music-detail-cover {
@@ -374,7 +374,7 @@ html.single-page-mode [class*='-sec-tabs'] {
   }
 
   .music-detail-creator {
-    margin-bottom: 10px !important;
+    margin-bottom: var(--space-sm) !important;
     /* 增加间距 */
     text-align: left !important;
     font-size: 13px !important;
@@ -385,19 +385,19 @@ html.single-page-mode [class*='-sec-tabs'] {
     /* 移动端隐藏描述以节省空间 */
   }
 
-  /* 调整详情页播放全部按钮 */
+  /* 调整详情页播放全部按?*/
   .music-detail-meta .btn-primary {
-    padding: 6px 16px !important;
+    padding: 6px var(--space-lg) !important;
     font-size: 13px !important;
     width: auto !important;
-    border-radius: 20px !important;
+    border-radius: var(--radius-lg) !important;
   }
 
   .play-count {
     font-size: 9px !important;
-    padding: 1px 4px !important;
-    top: 4px !important;
-    right: 4px !important;
+    padding: 1px var(--space-xs) !important;
+    top: var(--space-xs) !important;
+    right: var(--space-xs) !important;
   }
 
   /* === Apple Music 风格移动端全屏播放器 === */
@@ -426,15 +426,15 @@ html.single-page-mode [class*='-sec-tabs'] {
     background-position: center !important;
     filter: blur(80px) brightness(0.5) saturate(1.3) !important;
     z-index: 0 !important;
-    /* 移除对 background-image 的直接过渡，改用 will-change 优化渲染 */
+    /* 移除?background-image ֱӹɣ will-change ŻȾ */
     transition: opacity 0.8s ease !important;
     will-change: opacity, filter;
   }
 
   .mfp-close {
     position: absolute !important;
-    top: calc(env(safe-area-inset-top, 0) + 12px) !important;
-    left: 16px !important;
+    top: calc(env(safe-area-inset-top, 0) + var(--space-md)) !important;
+    left: var(--space-lg) !important;
     z-index: 10 !important;
     width: 32px !important;
     height: 32px !important;
@@ -456,9 +456,9 @@ html.single-page-mode [class*='-sec-tabs'] {
     flex: 1 !important;
     display: flex !important;
     flex-direction: column !important;
-    padding: 0 24px !important;
+    padding: 0 var(--space-xl) !important;
     padding-top: calc(env(safe-area-inset-top, 0) + 60px) !important;
-    padding-bottom: calc(env(safe-area-inset-bottom, 0) + 24px) !important;
+    padding-bottom: calc(env(safe-area-inset-bottom, 0) + var(--space-xl)) !important;
     color: #fff !important;
   }
 
@@ -466,17 +466,17 @@ html.single-page-mode [class*='-sec-tabs'] {
     display: flex !important;
     justify-content: center !important;
     align-items: center !important;
-    padding: 16px 0 !important;
+    padding: var(--space-lg) 0 !important;
   }
 
   .mfp-cover {
     width: 100vw !important;
     max-width: 550px !important;
     aspect-ratio: 1 !important;
-    border-radius: 12px !important;
+    border-radius: var(--radius-lg) !important;
     box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6) !important;
     object-fit: cover !important;
-    /* 优化过渡属性，明确指定，利用硬件加速 */
+    /* 优化过渡属，明确指定，利用硬件加?*/
     transition:
       width 0.45s cubic-bezier(0.2, 0.8, 0.2, 1),
       border-radius 0.45s ease,
@@ -485,18 +485,18 @@ html.single-page-mode [class*='-sec-tabs'] {
     will-change: transform, width, border-radius;
   }
 
-  /* 暂停状态收缩 */
+  /* 暂停状收?*/
   .mfp-cover {
     transform: scale(0.9) !important;
   }
 
-  /* 播放时封面恢复正常大小 */
+  /* 播放时封面恢复正常大?*/
   .mfp-cover-wrapper.playing .mfp-cover {
     transform: scale(1) !important;
     box-shadow: 0 32px 100px rgba(0, 0, 0, 0.7) !important;
   }
 
-  /* 禁止选中和复制 */
+  /* 禁止选中和复?*/
   .mobile-full-player {
     user-select: none !important;
     -webkit-user-select: none !important;
@@ -510,7 +510,7 @@ html.single-page-mode [class*='-sec-tabs'] {
     left: 50% !important;
     transform: translate(-50%, -50%) !important;
     z-index: 10 !important;
-    /* 采用 Apple Music 风格的流畅曲线 */
+    /*  Apple Music 风格的流畅曲?*/
     transition:
       top 0.6s cubic-bezier(0.19, 1, 0.22, 1),
       left 0.6s cubic-bezier(0.19, 1, 0.22, 1),
@@ -518,7 +518,7 @@ html.single-page-mode [class*='-sec-tabs'] {
     will-change: top, left, transform;
   }
 
-  /* 封面容器 - 歌词模式（左上角小尺寸） */
+  /*  - ģʽϽСߴ磩 */
   .mfp-cover-container.compact {
     top: calc(env(safe-area-inset-top, 0) + 48px) !important;
     left: 52px !important;
@@ -529,7 +529,7 @@ html.single-page-mode [class*='-sec-tabs'] {
     width: 100vw !important;
     max-width: 550px !important;
     aspect-ratio: 1 !important;
-    border-radius: 12px !important;
+    border-radius: var(--radius-lg) !important;
     box-shadow: 0 24px 80px rgba(0, 0, 0, 0.6) !important;
     object-fit: cover !important;
     cursor: pointer !important;
@@ -538,7 +538,7 @@ html.single-page-mode [class*='-sec-tabs'] {
       box-shadow 0.4s ease !important;
   }
 
-  /* 封面 - 歌词模式小尺寸样式调整 */
+  /*  - 歌词模式小尺寸样式调?*/
   .mfp-cover-container.compact .mfp-cover {
     border-radius: 60px !important;
     /* 缩小后看起来圆角适中 */
@@ -550,13 +550,13 @@ html.single-page-mode [class*='-sec-tabs'] {
     position: absolute !important;
     top: calc(50% + 80px) !important;
     /* 增加与封面的距离，防止在长屏上太靠上 */
-    left: 24px !important;
-    right: 24px !important;
+    left: var(--space-xl) !important;
+    right: var(--space-xl) !important;
     text-align: left !important;
     z-index: 10 !important;
-    /* 增加垂直间距，防止内容太挤 */
-    padding-bottom: 20px !important;
-    /* 为信息切换设置相同的弹性曲线 */
+    /* 增加垂直间距，防止内容太?*/
+    padding-bottom: var(--space-xl) !important;
+    /* 为信息切换设置相同的弹曲?*/
     transition:
       top 0.6s cubic-bezier(0.19, 1, 0.22, 1),
       left 0.6s cubic-bezier(0.19, 1, 0.22, 1),
@@ -567,9 +567,9 @@ html.single-page-mode [class*='-sec-tabs'] {
 
   /* 歌曲信息 - 歌词模式（封面右侧） */
   .mfp-info-container.compact {
-    top: calc(env(safe-area-inset-top, 0) + 24px) !important;
+    top: calc(env(safe-area-inset-top, 0) + var(--space-xl)) !important;
     left: 100px !important;
-    right: 24px !important;
+    right: var(--space-xl) !important;
   }
 
   .mfp-info-container.compact .mfp-title {
@@ -645,7 +645,7 @@ html.single-page-mode [class*='-sec-tabs'] {
 
   /* 单行容器 */
   .mfp-lyric-line {
-    padding: 10px 0 !important;
+    padding: var(--space-sm) 0 !important;
     min-height: 35px !important;
     transition: opacity 0.25s ease-out, transform 0.25s ease-out, filter 0.25s ease-out !important;
     cursor: pointer !important;
@@ -655,16 +655,16 @@ html.single-page-mode [class*='-sec-tabs'] {
     width: 100% !important;
     text-align: left !important;
     will-change: transform, opacity !important;
-    /* GPU 加速提示 */
+    /* GPU 加提?*/
     contain: layout style !important;
-    /* 限制重绘范围 */
+    /* ػ淶Χ */
   }
 
-  /* 高亮行 */
+  /* 高亮?*/
   .mfp-lyric-line.active {
     opacity: 1 !important;
     transform: scale(1.02) translateZ(0) !important;
-    /* translateZ 强制 GPU 层 */
+    /* translateZ 强制 GPU 灞?*/
     filter: blur(0) !important;
   }
 
@@ -679,11 +679,11 @@ html.single-page-mode [class*='-sec-tabs'] {
     transition: all 0.4s ease !important;
   }
 
-  /* 间奏指示器 */
+  /* 间奏指示?*/
   .mfp-interlude-dots {
     display: flex !important;
-    gap: 12px !important;
-    padding: 15px 0 !important;
+    gap: var(--space-md) !important;
+    padding: var(--space-lg) 0 !important;
     align-items: center !important;
     justify-content: flex-start !important;
     width: 100% !important;
@@ -711,7 +711,7 @@ html.single-page-mode [class*='-sec-tabs'] {
     transform: none !important;
     transition: opacity 0.5s ease !important;
     pointer-events: none !important;
-    /* 未激活时不触发点击 */
+    /* 未激活时不触发点?*/
   }
 
   .mfp-lyric-line.is-interlude.active {
@@ -721,7 +721,7 @@ html.single-page-mode [class*='-sec-tabs'] {
 
 
 
-  /* 逐字/词特效容器 */
+  /* 逐字/词特效容?*/
   .mfp-char {
     display: inline-block !important;
     vertical-align: baseline !important;
@@ -735,7 +735,7 @@ html.single-page-mode [class*='-sec-tabs'] {
     will-change: transform, color, text-shadow;
   }
 
-  /* 波浪起伏动画：缓慢跃起 2px 后落回原位，循环进行 */
+  /* 波浪起伏动画：缓慢跃?2px ԭλѭ */
   @keyframes mfp-lyric-wave {
     0% {
       transform: translateY(0);
@@ -750,7 +750,7 @@ html.single-page-mode [class*='-sec-tabs'] {
     }
   }
 
-  /* 逐字状态：激活时轻微起伏一次，随后保持静止 */
+  /* 逐字状：濢活时轻微起伏丢次，随后保持静止 */
   .mfp-char.active {
     color: #ffffff !important;
     /* 仅执行单次动画，跳动后立即回位并保持，彻底消除持续波动感 */
@@ -765,7 +765,7 @@ html.single-page-mode [class*='-sec-tabs'] {
   .mfp-line-trans {
     font-size: 15px !important;
     font-weight: 500 !important;
-    margin-top: 5px !important;
+    margin-top: var(--space-xs) !important;
     /* 缩小翻译与原文的间距 */
     color: rgba(255, 255, 255, 0.25) !important;
     line-height: 1.4 !important;
@@ -787,7 +787,7 @@ html.single-page-mode [class*='-sec-tabs'] {
     height: 35vh !important;
   }
 
-  /* --- 嵌入式歌单区域 --- */
+  /* --- 嵌入式歌单区?--- */
   .mfp-playlist-area {
     position: absolute !important;
     top: calc(env(safe-area-inset-top, 0) + 120px) !important;
@@ -797,7 +797,7 @@ html.single-page-mode [class*='-sec-tabs'] {
     /* 增加底部空间 */
     z-index: 6 !important;
     overflow: hidden !important;
-    /* 上下模糊过渡遮罩 - 与歌词保持一致 */
+    /* ģ - 与歌词保持一?*/
     -webkit-mask-image: linear-gradient(to bottom,
         transparent 0%,
         black 10%,
@@ -814,8 +814,8 @@ html.single-page-mode [class*='-sec-tabs'] {
     height: 100% !important;
     overflow-y: auto !important;
     -webkit-overflow-scrolling: touch !important;
-    padding: 20px 24px 100px 24px !important;
-    /* 增加底部 padding 确保最后几项能露出 */
+    padding: var(--space-xl) var(--space-xl) 100px var(--space-xl) !important;
+    /* ӵײ padding 确保朢后几项能露出 */
     scrollbar-width: none !important;
   }
 
@@ -827,23 +827,23 @@ html.single-page-mode [class*='-sec-tabs'] {
     font-size: 18px !important;
     font-weight: 700 !important;
     color: #fff !important;
-    margin-bottom: 20px !important;
-    padding-top: 10px !important;
+    margin-bottom: var(--space-xl) !important;
+    padding-top: var(--space-sm) !important;
     opacity: 0.9 !important;
   }
 
   .mfp-playlist-list {
     display: flex !important;
     flex-direction: column !important;
-    gap: 12px !important;
+    gap: var(--space-md) !important;
   }
 
   .mfp-playlist-item {
     display: flex !important;
     align-items: center !important;
-    gap: 12px !important;
-    padding: 8px !important;
-    border-radius: 10px !important;
+    gap: var(--space-md) !important;
+    padding: var(--space-sm) !important;
+    border-radius: var(--radius-md) !important;
     background: rgba(255, 255, 255, 0.05) !important;
     transition: all 0.3s ease !important;
     cursor: pointer !important;
@@ -856,7 +856,7 @@ html.single-page-mode [class*='-sec-tabs'] {
   .mfp-pi-cover {
     width: 44px !important;
     height: 44px !important;
-    border-radius: 6px !important;
+    border-radius: var(--radius-sm) !important;
     object-fit: cover !important;
   }
 
@@ -886,13 +886,13 @@ html.single-page-mode [class*='-sec-tabs'] {
   .mfp-pi-playing {
     color: #fff !important;
     font-size: 14px !important;
-    padding-right: 8px !important;
+    padding-right: var(--space-sm) !important;
     text-shadow: 0 0 10px rgba(255, 255, 255, 0.8) !important;
   }
 
-  /* 调整进度条在歌单模式下的显示 */
+  /* ڸ赥ģʽµʾ */
   .mfp-progress-wrapper {
-    margin-bottom: 24px !important;
+    margin-bottom: var(--space-xl) !important;
     /* 增加底部间距 */
     transition: all 0.4s cubic-bezier(0.32, 0.72, 0, 1) !important;
   }
@@ -903,12 +903,12 @@ html.single-page-mode [class*='-sec-tabs'] {
     font-size: 12px !important;
     font-weight: 600 !important;
     opacity: 0.7 !important;
-    margin-top: 10px !important;
-    /* 增加与进度条的间距 */
+    margin-top: var(--space-sm) !important;
+    /* 增加与进度条的间?*/
     letter-spacing: 0.5px !important;
   }
 
-  /* 歌单模式下隐藏控件逻辑 */
+  /* 歌单模式下隐藏控件辑 */
   body:has(.mobile-full-player) .mfp-bottom-fixed {
     transition:
       transform 0.4s cubic-bezier(0.32, 0.72, 0, 1),
@@ -923,12 +923,12 @@ html.single-page-mode [class*='-sec-tabs'] {
     pointer-events: auto !important;
   }
 
-  /* 为了让歌单区域占满屏幕，调整其在激活时的底部距离 - 现在保持与歌词一致以容纳控制台 */
+  /* 为了让歌单区域占满屏幕，调整其在濢活时的底部距?- 现在保持与歌词一致以容纳控制?*/
   .mfp-playlist-active .mfp-playlist-area {
     bottom: 240px !important;
   }
 
-  /* 歌词按钮激活状态 */
+  /* 歌词按钮濢活状?*/
   .mfp-action-btn.active {
     color: #fff !important;
   }
@@ -939,14 +939,14 @@ html.single-page-mode [class*='-sec-tabs'] {
 
   .mfp-song-info {
     text-align: left !important;
-    margin-bottom: 16px !important;
-    padding: 0 4px !important;
+    margin-bottom: var(--space-lg) !important;
+    padding: 0 var(--space-xs) !important;
   }
 
   .mfp-title {
     font-size: 26px !important;
     font-weight: 700 !important;
-    margin-bottom: 4px !important;
+    margin-bottom: var(--space-xs) !important;
     white-space: nowrap !important;
     overflow: hidden !important;
     text-overflow: ellipsis !important;
@@ -965,25 +965,25 @@ html.single-page-mode [class*='-sec-tabs'] {
   /* 底部固定区域 */
   .mfp-bottom-fixed {
     position: absolute !important;
-    left: 24px !important;
-    right: 24px !important;
-    bottom: calc(env(safe-area-inset-bottom, 0) + 24px) !important;
+    left: var(--space-xl) !important;
+    right: var(--space-xl) !important;
+    bottom: calc(env(safe-area-inset-bottom, 0) + var(--space-xl)) !important;
     z-index: 30 !important;
   }
 
   .mfp-progress-wrapper {
-    margin-bottom: 20px !important;
+    margin-bottom: var(--space-xl) !important;
   }
 
   .mfp-progress-track {
     position: relative !important;
     height: 28px !important;
-    /* 大触摸区域 */
+    /* 大触摸区?*/
     display: flex !important;
     align-items: center !important;
     cursor: pointer !important;
     touch-action: none !important;
-    /* 禁止默认触摸行为，确保拖动 */
+    /* 禁止默认触摸行为，确保拖?*/
   }
 
   .mfp-progress-track::before {
@@ -993,7 +993,7 @@ html.single-page-mode [class*='-sec-tabs'] {
     right: 0 !important;
     height: 4px !important;
     background: rgba(255, 255, 255, 0.3) !important;
-    border-radius: 2px !important;
+    border-radius: var(--radius-sm) !important;
     transition:
       height 0.15s ease,
       box-shadow 0.15s ease !important;
@@ -1011,7 +1011,7 @@ html.single-page-mode [class*='-sec-tabs'] {
     left: 0 !important;
     height: 4px !important;
     background: rgba(255, 255, 255, 0.95) !important;
-    border-radius: 2px !important;
+    border-radius: var(--radius-sm) !important;
     pointer-events: none !important;
     transition: height 0.15s ease !important;
   }
@@ -1032,7 +1032,7 @@ html.single-page-mode [class*='-sec-tabs'] {
     font-size: 12px !important;
     font-weight: 600 !important;
     color: rgba(255, 255, 255, 0.7) !important;
-    margin-top: 8px !important;
+    margin-top: var(--space-sm) !important;
     letter-spacing: 0.5px !important;
   }
 
@@ -1040,8 +1040,8 @@ html.single-page-mode [class*='-sec-tabs'] {
     display: flex !important;
     justify-content: center !important;
     align-items: center !important;
-    gap: 24px !important;
-    /* 缩小间距以容纳 5 个按钮 */
+    gap: var(--space-xl) !important;
+    /* 缩小间距以容?5 个按?*/
     margin-bottom: 32px !important;
   }
 
@@ -1063,7 +1063,7 @@ html.single-page-mode [class*='-sec-tabs'] {
       opacity 0.15s ease !important;
   }
 
-  /* 移动端只用 active，避免 hover 粘滞 */
+  /* 移动端只?active，避?hover ճ */
   .mfp-btn:active {
     transform: scale(0.9) !important;
     background: rgba(255, 255, 255, 0.08) !important;
@@ -1085,7 +1085,7 @@ html.single-page-mode [class*='-sec-tabs'] {
     transform: scale(0.85) !important;
   }
 
-  /* 模式按钮（循环/随机）特殊样式 */
+  /* 模式按钮（循?随机）特殊样?*/
   .mfp-mode-btn {
     font-size: 18px !important;
     opacity: 0.4 !important;
@@ -1122,7 +1122,7 @@ html.single-page-mode [class*='-sec-tabs'] {
     display: flex !important;
     justify-content: space-between !important;
     align-items: center !important;
-    padding: 0 32px 12px 32px !important;
+    padding: 0 32px var(--space-md) 32px !important;
     max-width: 500px !important;
     margin: 0 auto !important;
   }
@@ -1142,14 +1142,14 @@ html.single-page-mode [class*='-sec-tabs'] {
     transition: all 0.2s cubic-bezier(0.32, 0.72, 0, 1) !important;
   }
 
-  /* 移动端统一按压效果 */
+  /* 移动端统丢按压效果 */
   .mfp-action-btn:active {
     transform: scale(0.8) !important;
     background: rgba(255, 255, 255, 0.1) !important;
     color: #fff !important;
   }
 
-  /* 统一图标阴影，增加触控按钮的精致感 */
+  /* 统一图标阴影，增加触控按钮的精致?*/
   .mfp-action-btn:active i {
     text-shadow: 0 0 20px rgba(255, 255, 255, 1) !important;
   }
@@ -1165,7 +1165,7 @@ html.single-page-mode [class*='-sec-tabs'] {
     transform: translateY(100%) !important;
   }
 
-  /* 封面切歌渐隐动画 */
+  /* и轥 */
   img.mfp-cover-slide-enter-active,
   img.mfp-cover-slide-leave-active {
     transition: opacity 0.2s ease !important;
@@ -1176,7 +1176,7 @@ html.single-page-mode [class*='-sec-tabs'] {
     opacity: 0 !important;
   }
 
-  /* 分组按钮贴边样式 */
+  /* 鰴ťʽ */
   .main-tabs .nav-group,
   .main-tabs .nav-settings-btn {
     flex: 1 !important;
@@ -1190,20 +1190,20 @@ html.single-page-mode [class*='-sec-tabs'] {
     width: 100% !important;
     height: 56px !important;
     border-radius: 0 !important;
-    padding: 6px 4px !important;
+    padding: 6px var(--space-xs) !important;
   }
 
   .main-tabs .nav-settings-btn {
     height: 56px !important;
     border-radius: 0 !important;
-    padding: 6px 4px !important;
+    padding: 6px var(--space-xs) !important;
   }
 
   .main-tabs .main-tab {
     flex: 1 !important;
     flex-direction: column !important;
     gap: 2px !important;
-    padding: 6px 4px !important;
+    padding: 6px var(--space-xs) !important;
     min-width: 0 !important;
     min-height: 56px !important;
     font-size: 10px !important;
@@ -1228,17 +1228,17 @@ html.single-page-mode [class*='-sec-tabs'] {
     max-width: 100% !important;
   }
 
-  /* 容器调整 - 最大化可见区域 */
+  /*  - 朢大化可见区域 */
   .container {
     padding: 6px !important;
-    padding-top: 4px !important;
-    padding-bottom: calc(56px + env(safe-area-inset-bottom, 0) + 12px) !important;
+    padding-top: var(--space-xs) !important;
+    padding-bottom: calc(56px + env(safe-area-inset-bottom, 0) + var(--space-md)) !important;
     margin-top: 0 !important;
     width: 100% !important;
     overflow-x: hidden;
   }
 
-  /* 仅隐藏 Logo 和标题内容，保持 Header 容器存在以避免 Vue 挂载点丢失 */
+  /* 仅隐?Logo ͱݣ Header 容器存在以避?Vue 挂载点丢?*/
   .header {
     height: 0 !important;
     margin: 0 !important;
@@ -1246,14 +1246,14 @@ html.single-page-mode [class*='-sec-tabs'] {
     border: none !important;
     overflow: visible !important;
     display: block !important;
-    /* 确保它是块级元素而非 none */
+    /* ȷǿ鼶Ԫض none */
   }
 
   .header .title-group {
     display: none !important;
   }
 
-  /* 设置按钮移到右上角 */
+  /* 设置按钮移到右上?*/
   .header-actions {
     margin-left: auto !important;
   }
@@ -1263,7 +1263,7 @@ html.single-page-mode [class*='-sec-tabs'] {
     display: none !important;
   }
 
-  /* 手机端Toast放底部居中 - 略高于悬浮底栏和设置按钮 */
+  /* 手机端Toast放底部居?- Ըðť */
   .toast-manager-container.bottom-right,
   .toast-manager-container.bottom-left,
   .toast-manager-container.bottom-center {
@@ -1290,17 +1290,17 @@ html.single-page-mode [class*='-sec-tabs'] {
   }
 
   .panel {
-    padding: 12px !important;
-    margin-bottom: 12px !important;
-    border-radius: 12px !important;
+    padding: var(--space-md) !important;
+    margin-bottom: var(--space-md) !important;
+    border-radius: var(--radius-lg) !important;
   }
 
   .panel-header {
     padding-bottom: 3px;
     flex-direction: column !important;
     align-items: stretch !important;
-    gap: 12px !important;
-    padding-bottom: 12px !important;
+    gap: var(--space-md) !important;
+    padding-bottom: var(--space-md) !important;
   }
 
   .panel-title {
@@ -1310,7 +1310,7 @@ html.single-page-mode [class*='-sec-tabs'] {
   .panel-actions-group {
     display: grid !important;
     grid-template-columns: 1fr 1fr;
-    gap: 8px !important;
+    gap: var(--space-sm) !important;
     width: 100%;
   }
 
@@ -1326,21 +1326,21 @@ html.single-page-mode [class*='-sec-tabs'] {
     width: 100%;
     overflow-x: auto !important;
     -webkit-overflow-scrolling: touch;
-    border-radius: 8px;
+    border-radius: var(--radius-md);
     background: var(--bg-secondary);
   }
 
   .data-table {
     min-width: 600px;
-    /* 保证最小宽度，防止内容过度挤压 */
+    /* 保证朢小宽度，防止内容过度挤压 */
     white-space: nowrap;
     /* 防止文字换行撑高行高 */
   }
 
   .data-table th,
   .data-table td {
-    /* 对通用的数据表格缩减内边距，但不再使用 !important 以允许模块内覆盖 */
-    padding: 6px 8px;
+    /* 对用的数据表格缩减内边距，但不再使用 !important ģڸ */
+    padding: 6px var(--space-sm);
     font-size: 12px !important;
   }
 
@@ -1352,15 +1352,15 @@ html.single-page-mode [class*='-sec-tabs'] {
   /* --- 模型矩阵特殊优化 --- */
   .model-matrix-table {
     min-width: 600px;
-    /* 保证列不被压缩得太难看 */
+    /* 保证列不被压缩得太难?*/
   }
 
   .matrix-header-cell span {
     font-size: 11px !important;
   }
 
-  /* --- 二级标签栏优化 --- */
-  /* 统一所有模块二级标签栏高度与间距 (通用的 + 各模块专用的) */
+  /* --- 二级标签栏优?--- */
+  /* 统一扢有模块二级标签栏高度与间?(通用?+ ģרõ) */
   .sec-tabs,
   .server-sec-tabs,
   .paas-sec-tabs,
@@ -1370,13 +1370,13 @@ html.single-page-mode [class*='-sec-tabs'] {
   .antigravity-sec-tabs {
     overflow-x: auto !important;
     overflow-y: visible !important;
-    /* 额外强调 Y 轴可见 */
+    /* ǿ Y 轴可?*/
     display: flex !important;
     justify-content: flex-start !important;
     white-space: nowrap !important;
-    padding-top: 8px !important;
-    padding-bottom: 8px !important;
-    margin-bottom: 10px !important;
+    padding-top: var(--space-sm) !important;
+    padding-bottom: var(--space-sm) !important;
+    margin-bottom: var(--space-sm) !important;
     scrollbar-width: none !important;
     position: relative !important;
     -webkit-overflow-scrolling: touch !important;
@@ -1384,11 +1384,11 @@ html.single-page-mode [class*='-sec-tabs'] {
     border-bottom: 1px solid var(--border-color) !important;
     box-sizing: border-box !important;
     height: 60px !important;
-    /* 增加到 60px */
+    /* 增加?60px */
     align-items: center !important;
   }
 
-  /* 关键修复：重置包装层并允许溢出 */
+  /* 关键修复：重置包装层并允许溢?*/
   .sec-tabs>div,
   .server-tabs-scroll-wrapper,
   .paas-tabs-scroll-wrapper {
@@ -1407,11 +1407,11 @@ html.single-page-mode [class*='-sec-tabs'] {
     display: none;
   }
 
-  /* 已移除通用滚动引导箭头 */
+  /* 已移除用滚动引导箭头 */
 
   .tab-btn {
     flex: 0 0 auto !important;
-    /* 强制不压缩 */
+    /* 强制不压?*/
     min-width: 44px !important;
     width: 44px !important;
     height: 44px !important;
@@ -1419,7 +1419,7 @@ html.single-page-mode [class*='-sec-tabs'] {
     font-size: 0 !important;
     /* 隐藏文字节点 */
     font-weight: 700 !important;
-    border-radius: 12px !important;
+    border-radius: var(--radius-lg) !important;
     background: var(--bg-tertiary) !important;
     color: var(--text-tertiary) !important;
     border: 1px solid var(--border-color) !important;
@@ -1427,7 +1427,7 @@ html.single-page-mode [class*='-sec-tabs'] {
     align-items: center !important;
     justify-content: center !important;
     gap: 0 !important;
-    /* 仅显示图标时不需要间距 */
+    /* 仅显示图标时不需要间?*/
     transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1) !important;
   }
@@ -1449,26 +1449,26 @@ html.single-page-mode [class*='-sec-tabs'] {
   .zones-grid {
     display: grid !important;
     grid-template-columns: 1fr 1fr !important;
-    gap: 8px !important;
+    gap: var(--space-sm) !important;
   }
 
   .zone-card,
   .zone-card.active {
-    padding: 10px 12px !important;
-    padding-right: 24px !important;
+    padding: var(--space-sm) var(--space-md) !important;
+    padding-right: var(--space-xl) !important;
     /* 留出箭头空间 */
     flex-direction: row !important;
     /* 改回横向排列，让内部 div 自然填充 */
     align-items: center !important;
     /* 垂直居中 */
-    gap: 8px !important;
+    gap: var(--space-sm) !important;
     min-height: auto !important;
     justify-content: flex-start !important;
     position: relative !important;
     background: var(--card-bg) !important;
     border: 1px solid var(--border-color) !important;
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02) !important;
-    border-radius: 10px !important;
+    border-radius: var(--radius-md) !important;
   }
 
   .zone-card.active {
@@ -1491,14 +1491,14 @@ html.single-page-mode [class*='-sec-tabs'] {
 
   .zone-name i {
     flex-shrink: 0 !important;
-    /* 防止图标被压缩 */
+    /* 防止图标被压?*/
   }
 
-  /* 手机端将箭头固定在右侧中心 */
+  /* 手机端将箭头固定在右侧中?*/
   .zones-grid .zone-card .fa-chevron-right {
     display: block !important;
     position: absolute !important;
-    right: 8px !important;
+    right: var(--space-sm) !important;
     top: 50% !important;
     transform: translateY(-50%) !important;
     opacity: 0.4 !important;
@@ -1517,18 +1517,18 @@ html.single-page-mode [class*='-sec-tabs'] {
   }
 
   /* --- DNS 头部控制按钮优化 --- */
-  /* 提高优先级：使用双类名选择器 */
+  /* 提高优先级：使用双类名择?*/
   .panel-actions-group.dns-header-controls {
     display: flex !important;
     flex-direction: row !important;
-    /* 恢复一行 */
+    /* 恢复丢?*/
     flex-wrap: nowrap !important;
     overflow-x: auto !important;
     justify-content: center !important;
     /* 居中显示图标 */
-    gap: 8px !important;
+    gap: var(--space-sm) !important;
     width: 100% !important;
-    padding: 4px 0 !important;
+    padding: var(--space-xs) 0 !important;
     scrollbar-width: none;
   }
 
@@ -1536,7 +1536,7 @@ html.single-page-mode [class*='-sec-tabs'] {
     display: none;
   }
 
-  /* 提高优先级覆盖 .panel-actions-group .btn */
+  /* 提高优先级覆?.panel-actions-group .btn */
   .panel-actions-group.dns-header-controls .btn {
     width: 40px !important;
     /* 增大触摸目标 */
@@ -1546,7 +1546,7 @@ html.single-page-mode [class*='-sec-tabs'] {
     align-items: center !important;
     justify-content: center !important;
     flex: 0 0 auto !important;
-    border-radius: 8px !important;
+    border-radius: var(--radius-md) !important;
     margin: 0 !important;
   }
 
@@ -1563,11 +1563,11 @@ html.single-page-mode [class*='-sec-tabs'] {
 
   .zone-card {
     cursor: pointer !important;
-    /* 修复可能的点击穿透问题 */
+    /* 修复可能的点击穿透问?*/
     z-index: 1;
   }
 
-  /* 修复 NS Popover 在 overflow 容器中被遮挡的问题 */
+  /* ޸ NS Popover ?overflow 容器中被遮挡的问?*/
   .ns-popover {
     position: fixed !important;
     top: 50% !important;
@@ -1580,7 +1580,7 @@ html.single-page-mode [class*='-sec-tabs'] {
     border: 1px solid var(--border-color) !important;
   }
 
-  /* 确保 Popover 遮罩层有效 */
+  /* ȷ Popover 遮罩层有?*/
   .popover-overlay {
     position: fixed !important;
     z-index: 999 !important;
@@ -1594,31 +1594,31 @@ html.single-page-mode [class*='-sec-tabs'] {
 
   .settings-main {
     order: 1 !important;
-    /* 内容区在上 */
+    /* 内容区在?*/
     flex: 1 !important;
     overflow-y: auto !important;
   }
 
   .settings-footer-actions {
     order: 2 !important;
-    /* 按钮在中间 */
+    /* 按钮在中?*/
     border-bottom: 1px solid var(--border-color) !important;
   }
 
   .settings-nav {
     order: 3 !important;
-    /* 导航栏在最底部 */
+    /* 导航栏在朢底部 */
     border-bottom: none !important;
     border-top: 1px solid var(--border-color) !important;
-    padding: 4px 4px !important;
+    padding: var(--space-xs) var(--space-xs) !important;
     background: var(--bg-secondary) !important;
   }
 
   .settings-nav-item {
     flex-direction: column !important;
-    gap: 4px !important;
+    gap: var(--space-xs) !important;
     flex: 1 !important;
-    padding: 6px 4px !important;
+    padding: 6px var(--space-xs) !important;
     min-width: 60px !important;
     justify-content: center !important;
   }
@@ -1633,17 +1633,17 @@ html.single-page-mode [class*='-sec-tabs'] {
     font-weight: 500 !important;
   }
 
-  /* --- 模态框全屏化 --- */
+  /* --- 模框全屏?--- */
   .modal {
     width: 95% !important;
     max-width: 95% !important;
-    margin: 10px auto !important;
+    margin: var(--space-sm) auto !important;
     max-height: 90vh !important;
-    border-radius: 16px !important;
+    border-radius: var(--radius-lg) !important;
   }
 
   .modal-body {
-    padding: 5px !important;
+    padding: var(--space-xs) !important;
   }
 
   .info-grid {
@@ -1651,10 +1651,10 @@ html.single-page-mode [class*='-sec-tabs'] {
     /* 详情网格单列显示 */
   }
 
-  /* --- 登录页适配 --- */
+  /* --- 登录页配 --- */
   .login-card {
     width: 90% !important;
-    padding: 24px !important;
+    padding: var(--space-xl) !important;
   }
 
   /* --- Zeabur 组件优化 --- */
@@ -1664,16 +1664,16 @@ html.single-page-mode [class*='-sec-tabs'] {
 
   /* --- 统计网格两列显示 --- */
   .stats-grid {
-    gap: 8px !important;
-    margin-bottom: 12px !important;
+    gap: var(--space-sm) !important;
+    margin-bottom: var(--space-md) !important;
     grid-template-columns: repeat(2, 1fr) !important;
     /* 恢复双列 */
   }
 
   .stat-card {
-    padding: 6px 10px !important;
-    gap: 8px !important;
-    border-radius: 12px !important;
+    padding: 6px var(--space-sm) !important;
+    gap: var(--space-sm) !important;
+    border-radius: var(--radius-lg) !important;
     min-height: auto !important;
   }
 
@@ -1692,7 +1692,7 @@ html.single-page-mode [class*='-sec-tabs'] {
   .paas-tabs-scroll-wrapper {
     display: flex !important;
     flex: 0 0 auto !important;
-    gap: 8px !important;
+    gap: var(--space-sm) !important;
     overscroll-behavior-x: contain;
     align-items: center !important;
     width: auto !important;
@@ -1701,21 +1701,21 @@ html.single-page-mode [class*='-sec-tabs'] {
 
   /* 调整手机端设置项密度 */
   .settings-group {
-    padding: 12px !important;
-    margin-bottom: 12px !important;
+    padding: var(--space-md) !important;
+    margin-bottom: var(--space-md) !important;
   }
 
-  /* 显式显示手机端专用的振动开关（防止被 pc-only 逻辑误伤） */
+  /* 显式显示手机端专用的振动弢关（防止?pc-only 逻辑误伤?*/
   .mobile-vibration-group {
     display: block !important;
-    margin-bottom: 16px !important;
+    margin-bottom: var(--space-lg) !important;
     background: var(--bg-tertiary) !important;
-    padding: 12px !important;
-    border-radius: 12px !important;
+    padding: var(--space-md) !important;
+    border-radius: var(--radius-lg) !important;
     border: 1px solid var(--border-color) !important;
   }
 
-  /* 隐藏仅 PC 可见的元素 (如导航布局设置) */
+  /* 隐藏?PC 可见的元?(如导航布屢设置) */
   .pc-only {
     display: none !important;
   }
@@ -1757,9 +1757,9 @@ html.single-page-mode [class*='-sec-tabs'] {
 .playlist-wall-scroll {
   display: flex !important;
   overflow-x: auto !important;
-  gap: 16px !important;
-  padding: 12px 20px !important;
-  margin: 0 -20px !important;
+  gap: var(--space-lg) !important;
+  padding: var(--space-md) var(--space-xl) !important;
+  margin: 0 -var(--space-xl) !important;
   scroll-snap-type: x mandatory !important;
   scrollbar-width: none !important;
   -webkit-overflow-scrolling: touch !important;
