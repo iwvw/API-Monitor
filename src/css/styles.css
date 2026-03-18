@@ -514,6 +514,16 @@ pre,
     --current-rgb: 77, 107, 254;
   }
 
+  .theme-deepseek .tab-btn:hover:not(.active) {
+    border-color: var(--current-primary) !important;
+  }
+
+  .theme-deepseek .tab-btn.active {
+    background: linear-gradient(135deg, var(--current-primary), var(--current-dark)) !important;
+    color: white !important;
+    box-shadow: 0 2px 8px rgba(77, 107, 254, 0.3);
+  }
+
   .theme-cf-dns {
     --current-primary: var(--cf-primary);
     --current-dark: var(--cf-dark);
@@ -3594,3 +3604,79 @@ body.modal-open {
     justify-content: space-between;
   }
 }
+
+/* DeepSeek Log Details Styling */
+.ds-log-section {
+    margin-bottom: 20px;
+    padding: 12px;
+    background: rgba(var(--current-rgb, 77, 107, 254), 0.03);
+    border-radius: 12px;
+    border: 1px solid var(--border-color);
+}
+.ds-log-section-title {
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 12px;
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.ds-log-info-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+    gap: 12px;
+    font-size: 13px;
+}
+.ds-log-label {
+    color: var(--text-tertiary);
+    margin-right: 8px;
+    font-weight: 500;
+}
+.ds-log-message {
+    padding: 10px 14px;
+    border-radius: 10px;
+    margin-bottom: 8px;
+    position: relative;
+    font-size: 13px;
+    line-height: 1.5;
+}
+.ds-log-msg-user {
+    background: rgba(var(--current-rgb, 77, 107, 254), 0.08);
+    border: 1px solid rgba(var(--current-rgb, 77, 107, 254), 0.1);
+    margin-left: 20px;
+}
+.ds-log-msg-assistant {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    margin-right: 20px;
+}
+.ds-log-msg-thinking {
+    background: rgba(245, 158, 11, 0.05);
+    border: 1px solid rgba(245, 158, 11, 0.1);
+    color: var(--text-secondary);
+    font-style: italic;
+    font-size: 12px;
+    margin-right: 20px;
+}
+.ds-log-msg-role {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    color: var(--text-tertiary);
+    margin-bottom: 4px;
+    opacity: 0.7;
+}
+.ds-log-msg-content {
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+.ds-log-raw {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    padding: 12px;
+    background: #1e1e1e;
+    color: #d4d4d4;
+    border-radius: 8px;
+    overflow-x: auto;
+}
