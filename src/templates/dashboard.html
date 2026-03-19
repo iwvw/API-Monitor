@@ -48,7 +48,7 @@
     </div>
 
     <!-- API Stats -->
-    <div class="overview-card api-card" @click="mainActiveTab = 'antigravity'">
+    <div class="overview-card api-card" @click="mainActiveTab = 'deepseek'">
       <i class="fas fa-project-diagram card-icon-large"></i>
       <div class="card-top">
         <div class="icon-box"><i class="fas fa-rocket"></i></div>
@@ -59,17 +59,17 @@
       <div class="card-main-content">
         <span class="card-label">调用次数</span>
         <div class="card-value">
-          {{ (dashboardStats.antigravity.total_calls +
+          {{ (dashboardStats.deepseek.total_calls +
           dashboardStats.geminiCli.total_calls) }}
           <span class="card-unit">次</span>
         </div>
       </div>
       <div class="card-footer">
         <span class="status-dot-text"
-          :class="(dashboardStats.antigravity.total_calls + dashboardStats.geminiCli.total_calls) > 0 && ((dashboardStats.antigravity.success_calls + dashboardStats.geminiCli.success_calls) / (dashboardStats.antigravity.total_calls + dashboardStats.geminiCli.total_calls)) < 0.9 ? 'status-text-warning' : 'status-text-success'">
-          {{ (dashboardStats.antigravity.total_calls + dashboardStats.geminiCli.total_calls) > 0 ?
-          Math.round(((dashboardStats.antigravity.success_calls +
-          dashboardStats.geminiCli.success_calls) / (dashboardStats.antigravity.total_calls +
+          :class="(dashboardStats.deepseek.total_calls + dashboardStats.geminiCli.total_calls) > 0 && ((dashboardStats.deepseek.success_calls + dashboardStats.geminiCli.success_calls) / (dashboardStats.deepseek.total_calls + dashboardStats.geminiCli.total_calls)) < 0.9 ? 'status-text-warning' : 'status-text-success'">
+          {{ (dashboardStats.deepseek.total_calls + dashboardStats.geminiCli.total_calls) > 0 ?
+          Math.round(((dashboardStats.deepseek.success_calls +
+          dashboardStats.geminiCli.success_calls) / (dashboardStats.deepseek.total_calls +
           dashboardStats.geminiCli.total_calls)) * 1000) / 10 + '%' : '-' }} 成功率
         </span>
         <i class="fas fa-arrow-right footer-arrow"></i>
@@ -247,30 +247,17 @@
           <h3><i class="fas fa-chart-line"></i> API 调用概览</h3>
         </div>
         <div class="api-stats-row">
-          <div class="api-stat-group" @click="mainActiveTab = 'antigravity'">
+          <div class="api-stat-group" v-for="api in getSortedApis()" :key="api.id" @click="mainActiveTab = api.tab">
             <div class="api-stat-header">
-              <span class="api-name">Antigravity API</span>
-              <span class="api-detail-val">{{ dashboardStats.antigravity.success_calls }}</span>
+              <span class="api-name">{{ api.name }}</span>
+              <span class="api-detail-val">{{ api.stats.success_calls }}</span>
             </div>
             <div style="font-size: 11px; color: var(--text-tertiary)">
-              总调用 {{ dashboardStats.antigravity.total_calls }} 次
+              总调用 {{ api.stats.total_calls }} 次
             </div>
             <div class="chart-container"
               style="position: relative; height: 50px; width: 100%; margin-top: 8px; margin-bottom: 4px;">
-              <canvas ref="agChart" style="width: 100%; height: 100%; display: block;"></canvas>
-            </div>
-          </div>
-          <div class="api-stat-group" @click="mainActiveTab = 'gemini-cli'">
-            <div class="api-stat-header">
-              <span class="api-name">Gemini CLI</span>
-              <span class="api-detail-val">{{ dashboardStats.geminiCli.success_calls }}</span>
-            </div>
-            <div style="font-size: 11px; color: var(--text-tertiary)">
-              总调用 {{ dashboardStats.geminiCli.total_calls }} 次
-            </div>
-            <div class="chart-container"
-              style="position: relative; height: 50px; width: 100%; margin-top: 8px; margin-bottom: 4px;">
-              <canvas ref="geminiChart" style="width: 100%; height: 100%; display: block;"></canvas>
+              <canvas :id="'chart-' + api.id" style="width: 100%; height: 100%; display: block;"></canvas>
             </div>
           </div>
         </div>

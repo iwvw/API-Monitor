@@ -130,7 +130,7 @@ export const dashboardMethods = {
     // 保存到缓存
     saveToCache({
       servers: store.dashboardStats.servers,
-      antigravity: store.dashboardStats.antigravity,
+      deepseek: store.dashboardStats.deepseek,
       geminiCli: store.dashboardStats.geminiCli,
       paas: store.dashboardStats.paas,
       dns: store.dashboardStats.dns,
@@ -165,19 +165,19 @@ export const dashboardMethods = {
 
 
   /**
-   * 获取 API 网关摘要 (Antigravity & Gemini CLI)
+   * 获取 API 网关摘要 (DeepSeek & Gemini CLI)
    * 优化：两个请求并行执行
    */
   async fetchApiSummary() {
-    const updateAntigravity = async () => {
+    const updateDeepseek = async () => {
       try {
-        const res = await fetch('/api/antigravity/stats', { headers: store.getAuthHeaders() });
+        const res = await fetch('/api/deepseek/stats', { headers: store.getAuthHeaders() });
         if (res.ok) {
           const data = await res.json();
-          store.dashboardStats.antigravity = data.data || data;
+          store.dashboardStats.deepseek = data.data || data;
         }
       } catch (e) {
-        console.error('[Dashboard] Antigravity stats failed:', e);
+        console.error('[Dashboard] DeepSeek stats failed:', e);
       }
     };
 
@@ -195,25 +195,45 @@ export const dashboardMethods = {
 
     // Fire both, don't wait for all to finish before updating individual stats
     // But await the group to know when API section is fully done (for loading state)
-    await Promise.allSettled([updateAntigravity(), updateGemini()]);
+    await Promise.allSettled([updateDeepseek(), updateGemini()]);
 
     // 渲染图表
     this.renderApiCharts();
   },
 
-  /**
-   * 渲染 API 趋势图表
-   */
   renderApiCharts() {
     // 确保 DOM 更新后执行
     setTimeout(() => {
-      if (store.dashboardStats.antigravity.daily_trend) {
-        this.drawTrendChart('agChart', store.dashboardStats.antigravity.daily_trend, '#f97316'); // Orange for AG
-      }
-      if (store.dashboardStats.geminiCli.daily_trend) {
-        this.drawTrendChart('geminiChart', store.dashboardStats.geminiCli.daily_trend, '#3b82f6'); // Blue for Gemini
-      }
+      const apis = this.getSortedApis();
+      apis.forEach((api) => {
+        if (api.stats && api.stats.daily_trend) {
+           this.drawTrendChart('chart-' + api.id, api.stats.daily_trend, api.color);
+        }
+      });
     }, 100);
+  },
+
+  /**
+   * 按调用量排序获取 API 列表
+   */
+  getSortedApis() {
+    const apis = [
+      {
+        id: 'deepseek',
+        name: 'DeepSeek API',
+        tab: 'deepseek',
+        stats: store.dashboardStats.deepseek,
+        color: '#f97316'
+      },
+      {
+        id: 'gemini-cli',
+        name: 'Gemini CLI',
+        tab: 'gemini-cli',
+        stats: store.dashboardStats.geminiCli,
+        color: '#3b82f6'
+      }
+    ];
+    return apis.sort((a, b) => (b.stats?.total_calls || 0) - (a.stats?.total_calls || 0));
   },
 
   /**
@@ -254,21 +274,7 @@ export const dashboardMethods = {
   drawTrendChart(refName, data, color) {
     const app = document.querySelector('#app')?.__vue_app__?._instance;
 
-    let canvas = null;
-    let container = null;
-    if (refName === 'agChart') {
-      const groups = document.querySelectorAll('.api-stat-group');
-      if (groups.length >= 1) {
-        canvas = groups[0].querySelector('canvas');
-        container = groups[0].querySelector('.chart-container');
-      }
-    } else if (refName === 'geminiChart') {
-      const groups = document.querySelectorAll('.api-stat-group');
-      if (groups.length >= 2) {
-        canvas = groups[1].querySelector('canvas');
-        container = groups[1].querySelector('.chart-container');
-      }
-    }
+    let canvas = document.getElementById(refName);
 
     if (!canvas) return;
 
@@ -685,7 +691,7 @@ Object.assign(store, {
   dashboardLastUpdate: '',
   dashboardStats: {
     servers: { total: 0, online: 0, offline: 0, error: 0 },
-    antigravity: { total_calls: 0, success_calls: 0, fail_calls: 0 },
+    deepseek: { total_calls: 0, success_calls: 0, fail_calls: 0 },
     geminiCli: { total_calls: 0, success_calls: 0, fail_calls: 0 },
     paas: {
       zeabur: { total: 0, running: 0 },

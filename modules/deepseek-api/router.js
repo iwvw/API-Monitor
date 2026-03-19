@@ -302,6 +302,17 @@ router.post('/settings', requireAuth, (req, res) => {
     }
 });
 
+// ==================== 统计概览 ====================
+
+router.get('/stats', requireAuth, (req, res) => {
+    try {
+        const stats = storage.getStats();
+        res.json(stats);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // ==================== 日志管理 ====================
 
 router.get('/logs', requireAuth, (req, res) => {

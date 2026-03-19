@@ -306,6 +306,55 @@ function getAllFileCaches(limit = 100) {
     }
 }
 
+// ==================== 统计 ====================
+
+function getStats() {
+    const database = getDb();
+    if (!database) {
+        return {
+            total_calls: 0,
+            success_calls: 0,
+            fail_calls: 0,
+            daily_trend: [],
+        };
+    }
+    try {
+        const stats = database.prepare(`
+            SELECT 
+                COUNT(*) as total_calls,
+                SUM(CASE WHEN status_code = 200 THEN 1 ELSE 0 END) as success_calls,
+                SUM(CASE WHEN status_code != 200 THEN 1 ELSE 0 END) as fail_calls
+            FROM ds_logs
+        `).get();
+
+        const dailyTrend = database.prepare(`
+            SELECT 
+                strftime('%Y-%m-%d', datetime(timestamp, 'localtime')) as date,
+                COUNT(*) as total,
+                SUM(CASE WHEN status_code = 200 THEN 1 ELSE 0 END) as success
+            FROM ds_logs
+            WHERE timestamp >= datetime('now', '-14 days', 'localtime')
+            GROUP BY date
+            ORDER BY date ASC
+        `).all();
+
+        return {
+            total_calls: stats.total_calls || 0,
+            success_calls: stats.success_calls || 0,
+            fail_calls: stats.fail_calls || 0,
+            daily_trend: dailyTrend || [],
+        };
+    } catch (e) {
+        logger.error('获取统计失败:', e.message);
+        return {
+            total_calls: 0,
+            success_calls: 0,
+            fail_calls: 0,
+            daily_trend: [],
+        };
+    }
+}
+
 module.exports = {
     getAccounts,
     addAccount,
@@ -330,4 +379,5 @@ module.exports = {
     saveFileCache,
     getFileCache,
     getAllFileCaches,
+    getStats,
 };
