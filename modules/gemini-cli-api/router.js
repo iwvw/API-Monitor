@@ -292,6 +292,14 @@ const DEFAULT_MATRIX = {
     fakeStream: false,
     antiTrunc: false,
   },
+  'gemini-3.1-flash-lite-preview': {
+    base: true,
+    maxThinking: false,
+    noThinking: false,
+    search: false,
+    fakeStream: false,
+    antiTrunc: false,
+  },
 };
 
 // 辅助函数：读取矩阵配置
@@ -314,6 +322,33 @@ function saveMatrixConfig(config) {
   } catch (e) {
     console.error('Failed to save matrix file:', e);
     return false;
+  }
+}
+
+// 辅助函数：自动把新模型加入矩阵
+function autoAddModelsToMatrix(modelIds) {
+  if (!modelIds || modelIds.length === 0) return;
+  const matrixConfig = getMatrixConfig();
+  let matrixUpdated = false;
+
+  modelIds.forEach(modelId => {
+    // 忽略带特殊后缀的变体模型，防止将变体本身存入矩阵基础配置
+    if (modelId && !modelId.includes('/') && !modelId.includes('-search') && !modelId.includes('-thinking') && !matrixConfig[modelId]) {
+      matrixConfig[modelId] = {
+        base: true,
+        maxThinking: false,
+        noThinking: false,
+        search: false,
+        fakeStream: false,
+        antiTrunc: false,
+      };
+      matrixUpdated = true;
+      logger.info(`[GCLI] Auto-added new model from quota to matrix: ${modelId}`);
+    }
+  });
+
+  if (matrixUpdated) {
+    saveMatrixConfig(matrixConfig);
   }
 }
 
@@ -594,6 +629,16 @@ router.get('/quotas', async (req, res) => {
 
     // 使用 client 获取模型列表和额度
     const quotas = await client.getQuotas(account);
+
+    // 自动将新获取的模型加入系统矩阵配置
+    try {
+      if (quotas) {
+        autoAddModelsToMatrix(Object.keys(quotas));
+      }
+    } catch (e) {
+      logger.error(`[quotas] Auto add models error: ${e.message}`);
+    }
+
     res.json(quotas);
   } catch (e) {
     console.error('获取额度失败:', e);
@@ -663,6 +708,23 @@ router.get('/quotas/all', async (req, res) => {
         }
       })
     );
+
+    // 自动将新获取的模型加入系统矩阵配置
+    try {
+      const modelIds = new Set();
+      results.forEach(result => {
+        if (result && result.buckets) {
+          result.buckets.forEach(bucket => {
+            if (bucket && bucket.modelId) {
+              modelIds.add(bucket.modelId);
+            }
+          });
+        }
+      });
+      autoAddModelsToMatrix(Array.from(modelIds));
+    } catch (e) {
+      logger.error(`[quotas/all] Auto add models error: ${e.message}`);
+    }
 
     res.json(results.filter(Boolean));
   } catch (e) {
