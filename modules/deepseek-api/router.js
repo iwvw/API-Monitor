@@ -10,6 +10,7 @@ const router = express.Router();
 const storage = require('./storage');
 const client = require('./deepseek-client');
 const { parseSSEStream, collectStream } = require('./sse-parser');
+const { estimateMessagesTokens, estimateTokens } = require('./tokenizer');
 const { createLogger } = require('../../src/utils/logger');
 const logger = createLogger('DS-Router');
 const { getSession, getSessionById } = require('../../src/services/session');
@@ -493,29 +494,60 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
         if (typeof file_ids === 'string') file_ids = [file_ids];
         const hasFiles = Array.isArray(file_ids) && file_ids.length > 0;
 
-        // 获取可用账号
-        let account;
+        // 1. 获取可用账号列表
         const allAccounts = storage.getAccounts().filter(a => a.enable !== 0);
         if (allAccounts.length === 0) {
             return res.status(503).json({ error: { message: 'No enabled accounts available', type: 'service_unavailable' } });
         }
 
-        // 如果有文件，强制选择拥有该文件的账号
+        // 2. 选择账号
+        let account;
+        // 如果有文件，优先选择拥有该文件的账号
         if (hasFiles) {
             const fileCache = storage.getFileCache(file_ids[0]);
             if (fileCache) {
                 account = allAccounts.find(a => a.id === fileCache.account_id);
-                if (!account) {
-                    return res.status(400).json({ error: { message: `Account for file ${file_ids[0]} not found or disabled`, type: 'invalid_request_error' } });
-                }
-                logger.info(`[文件对话] 强制使用账号: ${account.name || account.id} (文件 ID: ${file_ids[0]})`);
             }
         }
-
-        // 如果没选定账号（无文件或文件缓存未命中），则随机选
+        // 如果没选定账号，随机选
         if (!account) {
             account = allAccounts[Math.floor(Math.random() * allAccounts.length)];
         }
+
+        // 3. 自动视觉：解析并上传 Base64 图片
+        const uploadedFileIds = [];
+        for (const msg of messages) {
+            if (Array.isArray(msg.content)) {
+                for (const part of msg.content) {
+                    if (part.type === 'image_url' && part.image_url?.url?.startsWith('data:')) {
+                        try {
+                            const base64Data = part.image_url.url.split(',')[1];
+                            const buffer = Buffer.from(base64Data, 'base64');
+                            const mimeMatch = part.image_url.url.match(/^data:(image\/[a-z]+);base64,/);
+                            const ext = mimeMatch ? mimeMatch[1].split('/')[1] : 'png';
+                            const fileName = `vision_${Date.now()}.${ext}`;
+
+                            const token = await client.getAccessToken(account.id);
+                            // 视觉上传需要一个临时会话，如果此时还没有上下文，先创建一个
+                            const uploadSessionId = await client.createSession(token);
+                            const fileId = await client.uploadFile(token, uploadSessionId, buffer, fileName);
+                            uploadedFileIds.push(fileId);
+                            logger.info(`[自动视觉] 账号 ${account.name} 上传成功: ${fileId}`);
+                            // 记录缓存
+                            storage.saveFileCache(fileId, account.id, uploadSessionId, fileName, buffer.length);
+                        } catch (uploadErr) {
+                            logger.warn(`[自动视觉] 上传失败: ${uploadErr.message}`);
+                        }
+                    }
+                }
+            }
+        }
+        if (uploadedFileIds.length > 0) {
+            file_ids = [...(file_ids || []), ...uploadedFileIds];
+        }
+
+        // 计算预估 Prompt Token
+        const promptTokens = estimateMessagesTokens(messages);
 
         try {
             // 1. 获取 Token
@@ -630,6 +662,11 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
                         const doneChunk = {
                             id: completionId, object: 'chat.completion.chunk', created, model,
                             choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
+                            usage: {
+                                prompt_tokens: promptTokens,
+                                completion_tokens: estimateTokens(fullContent),
+                                total_tokens: promptTokens + estimateTokens(fullContent)
+                            }
                         };
                         res.write(`data: ${JSON.stringify(doneChunk)}\n\n`);
                         res.write('data: [DONE]\n\n');
@@ -675,7 +712,11 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
                         message: { role: 'assistant', content: result.content, reasoning_content: result.thinking },
                         finish_reason: 'stop',
                     }],
-                    usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+                    usage: {
+                        prompt_tokens: promptTokens,
+                        completion_tokens: estimateTokens(result.content),
+                        total_tokens: promptTokens + estimateTokens(result.content)
+                    },
                 };
                 // 记录会话继承 (保存 message_id 作为下次的 parent_id)
                 saveToSessionCache(result.content, sessionId, result.message_id);

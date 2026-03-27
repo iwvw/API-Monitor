@@ -342,11 +342,22 @@ function buildCompletionPayload(sessionId, messages, model, options = {}) {
         return '';
     }).join('\n\n');
 
-    // 最后一条用户消息作为 prompt
+    // 提取 system 消息并合并内容
+    const systemPrompt = messages
+        .filter(m => m.role === 'system')
+        .map(m => (typeof m.content === 'string' ? m.content : JSON.stringify(m.content)))
+        .join('\n\n');
+
+    // 最后一条用户消息作为基础 prompt
     const lastUserMsg = [...messages].reverse().find(m => m.role === 'user');
-    const userPrompt = lastUserMsg
+    let userPrompt = lastUserMsg
         ? (typeof lastUserMsg.content === 'string' ? lastUserMsg.content : JSON.stringify(lastUserMsg.content))
         : '';
+
+    // 如果有 system prompt，则附加到 userPrompt 前面
+    if (systemPrompt) {
+        userPrompt = `${systemPrompt}\n\n${userPrompt}`;
+    }
 
     const payload = {
         chat_session_id: sessionId,
