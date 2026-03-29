@@ -217,10 +217,11 @@ async function fetchAccountData(token) {
     }
   `;
 
+  // serviceCostsThisMonth 已被 Zeabur 移除，此处不再查询
   const serviceCostsQuery = `
     query {
       me {
-        serviceCostsThisMonth
+        _id
       }
     }
   `;
@@ -265,7 +266,7 @@ async function fetchAccountData(token) {
   }
 
   const aihub = aihubData?.data?.aihubTenant || {};
-  const serviceCosts = serviceCostsData?.data?.me?.serviceCostsThisMonth || 0;
+  const serviceCosts = 0; // 该字段已废弃，默认返回 0
 
   // 在后端直接转换地域为中文
   const projects = queryProjects.map(project => {

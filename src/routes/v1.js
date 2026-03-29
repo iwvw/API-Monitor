@@ -336,14 +336,20 @@ const dispatch = async (req, res, next) => {
 
     // --- A. 精确匹配前缀优先 ---
 
-    // 尝试匹配 DeepSeek 前缀或 deepseek-* 模型名
+    // 尝试匹配 DeepSeek 前缀或 deepseek-* 模型名及已知别名 (gpt-*, o1, o3, claude- 等)
     if (dsEnabled) {
-      if (dsPrefix && fullModelId.startsWith(dsPrefix)) {
-        req.body.model = fullModelId.substring(dsPrefix.length);
-        return dsRouter(req, res, next);
-      }
-      // 无前缀时，通过模型名关键词匹配
-      if (!dsPrefix && (fullModelId.startsWith('deepseek-') || fullModelId.startsWith('deepseek/'))) {
+      const isDsPrefixMatch = dsPrefix && fullModelId.startsWith(dsPrefix);
+      const dsAliases = ['gpt-', 'o1', 'o3', 'claude-', 'llama-', 'qwen-'];
+      const isDsAliasMatch = !dsPrefix && (
+        fullModelId.startsWith('deepseek-') ||
+        fullModelId.startsWith('deepseek/') ||
+        dsAliases.some(p => fullModelId.startsWith(p))
+      );
+
+      if (isDsPrefixMatch || isDsAliasMatch) {
+        if (isDsPrefixMatch) {
+          req.body.model = fullModelId.substring(dsPrefix.length);
+        }
         return dsRouter(req, res, next);
       }
     }

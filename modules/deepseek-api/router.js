@@ -17,6 +17,149 @@ const { getSession, getSessionById } = require('../../src/services/session');
 const fs = require('fs');
 const path = require('path');
 
+// ==================== 常量 (移植自 ds2api) ====================
+
+const KEEPALIVE_INTERVAL_MS = 5000;    // KeepAlive 心跳间隔
+const STREAM_IDLE_TIMEOUT_MS = 30000;  // 流式空闲超时
+const MAX_KEEPALIVE_NO_CONTENT = 10;   // 最大无内容心跳次数
+
+// ==================== 智能模型解析 (移植自 ds2api/config/models.go) ====================
+
+// 内置默认模型别名 - 让客户端用任何主流模型名都能通过
+const DEFAULT_MODEL_ALIASES = {
+    'gpt-4o': 'deepseek-chat',
+    'gpt-4.1': 'deepseek-chat',
+    'gpt-4.1-mini': 'deepseek-chat',
+    'gpt-4.1-nano': 'deepseek-chat',
+    'gpt-5': 'deepseek-chat',
+    'gpt-5-mini': 'deepseek-chat',
+    'gpt-5-codex': 'deepseek-reasoner',
+    'o1': 'deepseek-reasoner',
+    'o1-mini': 'deepseek-reasoner',
+    'o3': 'deepseek-reasoner',
+    'o3-mini': 'deepseek-reasoner',
+    'claude-sonnet-4-5': 'deepseek-chat',
+    'claude-haiku-4-5': 'deepseek-chat',
+    'claude-opus-4-6': 'deepseek-reasoner',
+    'claude-3-5-sonnet': 'deepseek-chat',
+    'claude-3-5-haiku': 'deepseek-chat',
+    'claude-3-opus': 'deepseek-reasoner',
+    'gemini-2.5-pro': 'deepseek-chat',
+    'gemini-2.5-flash': 'deepseek-chat',
+    'llama-3.1-70b-instruct': 'deepseek-chat',
+    'qwen-max': 'deepseek-chat',
+};
+
+const SUPPORTED_DS_MODELS = new Set([
+    'deepseek-chat', 'deepseek-reasoner',
+    'deepseek-chat-search', 'deepseek-reasoner-search',
+]);
+
+const KNOWN_FAMILY_PREFIXES = [
+    'gpt-', 'o1', 'o3', 'claude-', 'gemini-', 'llama-', 'qwen-', 'mistral-', 'command-',
+];
+
+/**
+ * 解析模型名称 → 真实 DeepSeek 模型
+ * 优先级: 数据库重定向 > 默认别名 > 智能推断 > 原始值
+ */
+function resolveModel(requestedModel) {
+    if (!requestedModel) return { resolved: 'deepseek-chat', original: '' };
+    const model = requestedModel.toLowerCase().trim();
+
+    // 1. 原生支持的 DeepSeek 模型
+    if (SUPPORTED_DS_MODELS.has(model)) {
+        return { resolved: model, original: requestedModel };
+    }
+
+    // 2. 数据库存储的重定向
+    const redirects = storage.getModelRedirects();
+    const redirect = redirects.find(r => r.source_model.toLowerCase() === model);
+    if (redirect && SUPPORTED_DS_MODELS.has(redirect.target_model.toLowerCase())) {
+        return { resolved: redirect.target_model.toLowerCase(), original: requestedModel };
+    }
+
+    // 3. 默认别名
+    if (DEFAULT_MODEL_ALIASES[model]) {
+        return { resolved: DEFAULT_MODEL_ALIASES[model], original: requestedModel };
+    }
+
+    // 4. 智能推断：对已知模型系列进行关键词匹配
+    const isKnownFamily = KNOWN_FAMILY_PREFIXES.some(p => model.startsWith(p));
+    if (isKnownFamily) {
+        const useReasoner = model.includes('reason') || model.includes('reasoner') ||
+            model.startsWith('o1') || model.startsWith('o3') ||
+            model.includes('opus') || model.includes('r1');
+        const useSearch = model.includes('search');
+
+        if (useReasoner && useSearch) return { resolved: 'deepseek-reasoner-search', original: requestedModel };
+        if (useReasoner) return { resolved: 'deepseek-reasoner', original: requestedModel };
+        if (useSearch) return { resolved: 'deepseek-chat-search', original: requestedModel };
+        return { resolved: 'deepseek-chat', original: requestedModel };
+    }
+
+    // 5. 未知模型：默认 deepseek-chat
+    return { resolved: 'deepseek-chat', original: requestedModel };
+}
+
+// ==================== 智能账号选择器 (移植自 ds2api/account/pool) ====================
+
+const accountInUse = new Map();  // accountId -> 当前并发数
+let lastSelectedIdx = -1;        // 轮转索引
+const MAX_INFLIGHT_PER_ACCOUNT = 2; // 每个账号最大并发
+
+/**
+ * 智能选择可用账号
+ * 策略: 有Token优先 → 并发控制 → 轮转使用
+ */
+function selectAccount(allAccounts, preferAccountId = null) {
+    if (allAccounts.length === 0) return null;
+
+    // 如果指定了优先账号且可用
+    if (preferAccountId) {
+        const preferred = allAccounts.find(a => a.id === preferAccountId);
+        if (preferred && canUseAccount(preferred.id)) {
+            return preferred;
+        }
+    }
+
+    // 分离有Token和无Token的账号
+    const withToken = allAccounts.filter(a => a.token && a.token.trim());
+    const withoutToken = allAccounts.filter(a => !a.token || !a.token.trim());
+
+    // 先尝试有Token的，再尝试无Token的
+    for (const pool of [withToken, withoutToken]) {
+        if (pool.length === 0) continue;
+        // 轮转选择 (round-robin)
+        for (let i = 0; i < pool.length; i++) {
+            const idx = (lastSelectedIdx + 1 + i) % pool.length;
+            const account = pool[idx];
+            if (canUseAccount(account.id)) {
+                lastSelectedIdx = idx;
+                accountInUse.set(account.id, (accountInUse.get(account.id) || 0) + 1);
+                return account;
+            }
+        }
+    }
+
+    // 所有账号都满负载，不再强行回退（避免挤占官方单账号并发导致静默失败）
+    return null;
+}
+
+function canUseAccount(accountId) {
+    return (accountInUse.get(accountId) || 0) < MAX_INFLIGHT_PER_ACCOUNT;
+}
+
+function releaseAccount(accountId) {
+    if (!accountId) return;
+    const count = accountInUse.get(accountId) || 0;
+    if (count <= 1) {
+        accountInUse.delete(accountId);
+    } else {
+        accountInUse.set(accountId, count - 1);
+    }
+}
+
 // ==================== Session 缓存 (用于维系上下文对话) ====================
 // 外部客户端可能将 reasoning_content 与 content 合并发回
 // 因此使用子串包含匹配，同时持久化到数据库以支持重启后续接
@@ -485,10 +628,12 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
     try {
         let { model, messages, stream, file_ids } = req.body;
 
-        // 处理模型重定向
-        const redirects = storage.getModelRedirects();
-        const redirect = redirects.find(r => r.source_model === model);
-        if (redirect) model = redirect.target_model;
+        // 智能模型解析 (移植自 ds2api)
+        const { resolved: resolvedModel, original: originalModel } = resolveModel(model);
+        model = resolvedModel;
+        if (originalModel !== resolvedModel) {
+            logger.info(`[模型映射] ${originalModel} → ${resolvedModel}`);
+        }
 
         // 如果 file_ids 是数组但为空，忽略它；如果是字符串，转为数组
         if (typeof file_ids === 'string') file_ids = [file_ids];
@@ -500,18 +645,21 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
             return res.status(503).json({ error: { message: 'No enabled accounts available', type: 'service_unavailable' } });
         }
 
-        // 2. 选择账号
+        // 2. 智能选择账号 (移植自 ds2api account pool)
         let account;
         // 如果有文件，优先选择拥有该文件的账号
         if (hasFiles) {
             const fileCache = storage.getFileCache(file_ids[0]);
             if (fileCache) {
-                account = allAccounts.find(a => a.id === fileCache.account_id);
+                account = selectAccount(allAccounts, fileCache.account_id);
             }
         }
-        // 如果没选定账号，随机选
+        // 智能轮转选择
         if (!account) {
-            account = allAccounts[Math.floor(Math.random() * allAccounts.length)];
+            account = selectAccount(allAccounts);
+        }
+        if (!account) {
+            return res.status(503).json({ error: { message: 'All accounts are busy', type: 'service_unavailable' } });
         }
 
         // 3. 自动视觉：解析并上传 Base64 图片
@@ -633,12 +781,49 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
                 let fullReasoning = '';
                 let firstTokenTime = null;
                 let responseMessageId = null;
+                let hasReceivedContent = false;
+                let lastContentTime = Date.now();
+                let keepaliveCount = 0;
+
+                // 流式超时保护 (移植自 ds2api stream engine)
+                const keepaliveTimer = setInterval(() => {
+                    if (!hasReceivedContent) {
+                        keepaliveCount++;
+                        if (keepaliveCount >= MAX_KEEPALIVE_NO_CONTENT) {
+                            logger.warn(`[流式超时] 连续 ${MAX_KEEPALIVE_NO_CONTENT} 次心跳无内容，终止流`);
+                            clearInterval(keepaliveTimer);
+                            if (!res.writableEnded) {
+                                res.write(`: keepalive timeout\n\n`);
+                                res.end();
+                            }
+                            releaseAccount(account.id);
+                            return;
+                        }
+                    }
+                    if (hasReceivedContent && (Date.now() - lastContentTime) > STREAM_IDLE_TIMEOUT_MS) {
+                        logger.warn(`[流式超时] 空闲超过 ${STREAM_IDLE_TIMEOUT_MS}ms，终止流`);
+                        clearInterval(keepaliveTimer);
+                        if (!res.writableEnded) {
+                            res.end();
+                        }
+                        releaseAccount(account.id);
+                        return;
+                    }
+                    // 发送 SSE 注释保持连接
+                    if (!res.writableEnded) {
+                        res.write(`: keepalive\n\n`);
+                        if (res.flush) res.flush();
+                    }
+                }, KEEPALIVE_INTERVAL_MS);
 
                 parseSSEStream(
                     dsResponse,
                     isReasoner,
                     (type, text) => {
                         if (firstTokenTime === null) firstTokenTime = Date.now() - startTime;
+                        hasReceivedContent = true;
+                        lastContentTime = Date.now();
+                        keepaliveCount = 0;
 
                         if (type === 'thinking') {
                             fullReasoning += text;
@@ -658,6 +843,8 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
                         if (res.flush) res.flush();
                     },
                     () => {
+                        clearInterval(keepaliveTimer);
+
                         // 发送结束标记
                         const doneChunk = {
                             id: completionId, object: 'chat.completion.chunk', created, model,
@@ -675,6 +862,17 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
                         // 记录会话继承 (保存 message_id 作为下次的 parent_id)
                         saveToSessionCache(fullContent, sessionId, responseMessageId);
 
+                        // 会话自动清理 (移植自 ds2api)
+                        const autoDelete = storage.getSetting('AUTO_DELETE_SESSIONS');
+                        if (autoDelete === '1' || autoDelete === 'true') {
+                            client.deleteAllSessions(token).catch(e => 
+                                logger.warn(`[自动清理] 删除会话失败: ${e.message}`)
+                            );
+                        }
+
+                        // 释放账号
+                        releaseAccount(account.id);
+
                         // 记录日志
                         storage.recordLog({
                             accountId: account.id, model, is_balanced: req.lb,
@@ -689,7 +887,9 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
                         });
                     },
                     (err) => {
+                        clearInterval(keepaliveTimer);
                         logger.error(`Stream error: ${err.message}`);
+                        releaseAccount(account.id);
                         if (!res.headersSent) {
                             res.status(500).json({ error: { message: err.message } });
                         } else {
@@ -721,6 +921,17 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
                 // 记录会话继承 (保存 message_id 作为下次的 parent_id)
                 saveToSessionCache(result.content, sessionId, result.message_id);
 
+                // 会话自动清理 (移植自 ds2api)
+                const autoDelete = storage.getSetting('AUTO_DELETE_SESSIONS');
+                if (autoDelete === '1' || autoDelete === 'true') {
+                    client.deleteAllSessions(token).catch(e => 
+                        logger.warn(`[自动清理] 删除会话失败: ${e.message}`)
+                    );
+                }
+
+                // 释放账号
+                releaseAccount(account.id);
+
                 // 记录日志
                 storage.recordLog({
                     accountId: account.id, model, is_balanced: req.lb,
@@ -734,6 +945,9 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
             }
         } catch (error) {
             logger.error(`[DS] Account ${account.name} failed: ${error.message}`);
+
+            // 释放账号
+            releaseAccount(account.id);
 
             // 记录错误日志
             storage.recordLog({
