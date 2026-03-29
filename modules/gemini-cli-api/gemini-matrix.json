@@ -46,13 +46,5 @@
     "search": false,
     "fakeStream": false,
     "antiTrunc": false
-  },
-  "gemini-3.1-flash-lite-preview": {
-    "base": false,
-    "maxThinking": false,
-    "noThinking": false,
-    "search": false,
-    "fakeStream": false,
-    "antiTrunc": false
   }
 }
