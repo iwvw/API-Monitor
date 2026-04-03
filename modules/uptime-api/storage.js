@@ -26,12 +26,12 @@ class UptimeStorage {
         const db = getDb();
         try {
             // 检查 uptime_monitors 是否有 created_at 列
-            const info = db.prepare("PRAGMA table_info(uptime_monitors)").all();
+            const info = db.prepare('PRAGMA table_info(uptime_monitors)').all();
             const hasCreatedAt = info.some(c => c.name === 'created_at');
             if (!hasCreatedAt) {
                 logger.info('正在为 uptime_monitors 添加 created_at 和 updated_at 列...');
-                db.prepare("ALTER TABLE uptime_monitors ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP").run();
-                db.prepare("ALTER TABLE uptime_monitors ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP").run();
+                db.prepare('ALTER TABLE uptime_monitors ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP').run();
+                db.prepare('ALTER TABLE uptime_monitors ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP').run();
             }
         } catch (e) {
             logger.warn(`检查列定义失败: ${e.message}`);

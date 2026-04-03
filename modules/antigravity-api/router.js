@@ -1725,7 +1725,7 @@ router.post('/v1/chat/completions', requireApiAuth, async (req, res) => {
           res.end();
 
           // 记录成功日志 (包含累计的回复内容和思考过程)
-          let originalMessages = JSON.parse(JSON.stringify(req.body.messages || []));
+          const originalMessages = JSON.parse(JSON.stringify(req.body.messages || []));
 
           // === 日志净化：移除 Base64 图片 ===
           originalMessages.forEach(msg => {
@@ -1787,7 +1787,7 @@ router.post('/v1/chat/completions', requireApiAuth, async (req, res) => {
           // 确保返回结果中的 model 是带前缀的
           if (result && result.model) result.model = modelWithPrefix;
 
-          let originalMessages = JSON.parse(JSON.stringify(req.body.messages || []));
+          const originalMessages = JSON.parse(JSON.stringify(req.body.messages || []));
 
           // === 日志净化：移除 Base64 图片 ===
           originalMessages.forEach(msg => {
@@ -1841,7 +1841,7 @@ router.post('/v1/chat/completions', requireApiAuth, async (req, res) => {
         lastError = error;
 
         // 如果是 401 之外的错误（通常是 429 或 5xx），记录日志并继续循环
-        let originalMessages = JSON.parse(JSON.stringify(req.body.messages || []));
+        const originalMessages = JSON.parse(JSON.stringify(req.body.messages || []));
 
         // === 日志净化：移除 Base64 图片 ===
         originalMessages.forEach(msg => {

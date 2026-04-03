@@ -80,7 +80,7 @@ class AgentService extends EventEmitter {
   loadOrGenerateGlobalKey() {
     try {
       const { SystemConfig } = require('../../src/db/models');
-      let savedKey = SystemConfig.getConfigValue('agent_global_key');
+      const savedKey = SystemConfig.getConfigValue('agent_global_key');
 
       if (savedKey) {
         this.globalAgentKey = savedKey;

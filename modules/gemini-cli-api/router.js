@@ -1656,7 +1656,7 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
           res.end();
 
           // 记录成功日志（包含累积的回复内容）
-          let originalMessages = JSON.parse(JSON.stringify(req.body.messages || []));
+          const originalMessages = JSON.parse(JSON.stringify(req.body.messages || []));
 
           // === 日志净化：移除 Base64 图片 ===
           originalMessages.forEach(msg => {
@@ -1763,7 +1763,7 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
           };
 
           // 记录成功日志
-          let originalMessages = JSON.parse(JSON.stringify(req.body.messages || []));
+          const originalMessages = JSON.parse(JSON.stringify(req.body.messages || []));
 
           // === 日志净化：移除 Base64 图片 ===
           originalMessages.forEach(msg => {
@@ -1846,7 +1846,7 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
         }
 
         // 记录错误日志
-        let originalMessages = JSON.parse(JSON.stringify(req.body.messages || []));
+        const originalMessages = JSON.parse(JSON.stringify(req.body.messages || []));
 
         // === 日志净化：移除 Base64 图片 ===
         originalMessages.forEach(msg => {

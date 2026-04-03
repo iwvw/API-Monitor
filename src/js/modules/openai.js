@@ -591,7 +591,7 @@ ${conversationText}
   // 模型健康检测
   async testModelHealth(model) {
     // 找到该模型所属的端点
-    let modelId = typeof model === 'string' ? model : model.id;
+    const modelId = typeof model === 'string' ? model : model.id;
     const endpoint = store.openaiEndpoints.find(ep =>
       ep.models && ep.models.includes(modelId)
     );
@@ -660,7 +660,7 @@ ${conversationText}
 
     try {
       let url = '/api/openai/health-check-all';
-      let payload = { timeout: timeout * 1000, concurrency };
+      const payload = { timeout: timeout * 1000, concurrency };
 
       // 如果选择“单个”，且有选中的端点
       if (useKey === 'single') {

@@ -70,7 +70,7 @@ function parseSSEStream(response, isReasoner, onData, onEnd, onError, onMeta) {
     // 深度思考模式下从 thinking 开始，否则从 content 开始
     let currentType = isReasoner ? 'thinking' : 'content';
     let currentEvent = '';
-    let searchResults = [];
+    const searchResults = [];
 
     response.on('data', (chunk) => {
         buffer += chunk;
@@ -109,7 +109,7 @@ function parseSSEStream(response, isReasoner, onData, onEnd, onError, onMeta) {
                     const bizCode = data.v.code || data.v.response?.code;
                     const bizMsg = data.v.msg || data.v.response?.msg;
                     
-                    if (bizCode !== undefined && bizCode !== 0 && bizCode !== "0") {
+                    if (bizCode !== undefined && bizCode !== 0 && bizCode !== '0') {
                         logger.warn(`[DeepSeek 业务错误] 代码: ${bizCode}, 信息: ${bizMsg}`);
                         onError(new Error(bizMsg || `DeepSeek Error (${bizCode})`));
                         return;
@@ -123,7 +123,7 @@ function parseSSEStream(response, isReasoner, onData, onEnd, onError, onMeta) {
                         if (resp.fragments && Array.isArray(resp.fragments)) {
                             for (const frag of resp.fragments) {
                                 const fType = frag.type;
-                                const fContent = frag.content || frag.v || ""; 
+                                const fContent = frag.content || frag.v || ''; 
                                 if (fContent) {
                                     if (fType === 'THINK') {
                                         onData('thinking', fContent);
@@ -178,7 +178,7 @@ function parseSSEStream(response, isReasoner, onData, onEnd, onError, onMeta) {
                 if (data.p === 'response/fragments' && (data.o === 'APPEND' || data.o === 'SET') && Array.isArray(data.v)) {
                     for (const frag of data.v) {
                         const fType = frag.type;
-                        const fContent = frag.content || frag.v || "";
+                        const fContent = frag.content || frag.v || '';
                         if (fType === 'RESPONSE' || fType === 'CONTENT' || fType === 'TEXT') {
                             currentType = 'content';
                             if (fContent) onData('content', fContent);
@@ -209,7 +209,7 @@ function parseSSEStream(response, isReasoner, onData, onEnd, onError, onMeta) {
                     }
                 }
 
-                if (!handled && typeof data.v === 'string' && data.v.length > 0 && !shouldSkip(data.p || "")) {
+                if (!handled && typeof data.v === 'string' && data.v.length > 0 && !shouldSkip(data.p || '')) {
                     // 最后的兜底：如果没处理但看起来像文本，且不在跳过列表中，也尝试收集
                     // logger.debug(`[Low-Confidence] Collected suspect data: path=${data.p}, val=${data.v}`);
                     onData(currentType, data.v);

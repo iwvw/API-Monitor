@@ -1,3 +1,4 @@
+/* 全站隐藏滚动条 */
 *::-webkit-scrollbar {
   display: none !important;
   width: 0 !important;
@@ -411,83 +412,23 @@ pre,
     color: var(--text-primary);
   }
 
-  /* 模块主题色边框悬停配 */
-  .theme-openai .tab-btn:hover:not(.active) {
-    border-color: var(--openai-primary) !important;
-  }
-
-  .theme-antigravity .tab-btn:hover:not(.active) {
-    border-color: var(--ag-primary) !important;
-  }
-
-  .theme-gemini-cli .tab-btn:hover:not(.active) {
-    border-color: var(--gemini-primary) !important;
-  }
-
-  .theme-cf-dns .tab-btn:hover:not(.active) {
-    border-color: var(--cf-primary) !important;
-  }
-
-  .theme-self-h .tab-btn:hover:not(.active) {
-    border-color: var(--selfh-primary) !important;
-  }
-
-  .theme-server .tab-btn:hover:not(.active) {
-    border-color: var(--server-primary) !important;
-  }
-
-  .theme-paas .tab-btn:hover:not(.active) {
-    border-color: var(--paas-primary) !important;
-  }
-
-  .theme-totp .tab-btn:hover:not(.active) {
-    border-color: var(--totp-primary) !important;
-  }
-
-  .theme-music .tab-btn:hover:not(.active) {
-    border-color: #f43f5e !important;
-  }
-
   .tab-btn.active {
     border-color: rgba(0, 0, 0, 0.1) !important;
-    /* 濢活时保持细微边框?*/
   }
 
-  /* --- 模块主题类定?--- */
-
-  /* 二级标签页激活状态用逻辑 */
+  /* 二级标签页激活状态 */
   .tab-content .sec-tabs .tab-btn.active {
     color: white !important;
     transition: all 0.3s ease;
   }
 
-  /* 通用元素颜色覆盖逻辑 */
+  /* --- 模块主题变量定义 --- */
+  /* 每个模块只需声明 3 个变量，通用规则自动应用到 hover/active/icon 等 */
   .theme-dashboard,
-  .theme-openai,
-  .theme-antigravity,
-  .theme-gemini-cli,
-  .theme-cf-dns,
-  .theme-self-h,
-  .theme-server,
-  .theme-paas,
-  .theme-totp,
-  .theme-music,
-  .theme-uptime,
-  .theme-notification,
   .theme-ai-chat {
     --current-primary: var(--primary-color);
     --current-dark: var(--primary-dark);
     --current-rgb: 99, 102, 241;
-  }
-
-  .theme-dashboard {
-    --current-primary: var(--primary-color);
-    --current-rgb: 99, 102, 241;
-  }
-
-  .theme-ai-chat {
-    --current-primary: var(--primary-color);
-    --current-rgb: 100, 102, 241;
   }
 
   .theme-openai {
@@ -512,16 +453,6 @@ pre,
     --current-primary: var(--ds-primary, #4d6bfe);
     --current-dark: var(--ds-primary-hover, #3b56db);
     --current-rgb: 77, 107, 254;
-  }
-
-  .theme-deepseek .tab-btn:hover:not(.active) {
-    border-color: var(--current-primary) !important;
-  }
-
-  .theme-deepseek .tab-btn.active {
-    background: linear-gradient(135deg, var(--current-primary), var(--current-dark)) !important;
-    color: white !important;
-    box-shadow: 0 2px 8px rgba(77, 107, 254, 0.3);
   }
 
   .theme-cf-dns {
@@ -584,6 +515,11 @@ pre,
     --current-rgb: 0, 82, 217;
   }
 
+  /* 通用模块悬停样式 — 使用 --current-primary 变量 */
+  [class*='theme-'] .tab-btn:hover:not(.active) {
+    border-color: var(--current-primary) !important;
+  }
+
   /* 通用输入框图标样?*/
   .input-with-icon {
     position: relative;
@@ -606,23 +542,14 @@ pre,
     width: 100%;
   }
 
-  .theme-aliyun .tab-btn:hover:not(.active) {
-    border-color: #ff6a00 !important;
-  }
-
-  .theme-aliyun .tab-btn.active {
-    background: linear-gradient(135deg, #ff6a00, #e55c00) !important;
-    box-shadow: 0 2px 8px rgba(255, 106, 0, 0.3);
-  }
-
   .theme-aliyun .zone-card.active {
-    border-color: #ff6a00 !important;
+    border-color: var(--current-primary) !important;
     background: rgba(255, 106, 0, 0.05);
     box-shadow: 0 2px 8px rgba(255, 106, 0, 0.1);
   }
 
   .theme-aliyun .zone-card.active i {
-    color: #ff6a00 !important;
+    color: var(--current-primary) !important;
   }
 
   /* 应用动颜色到通用组件 */
@@ -652,62 +579,10 @@ pre,
     background: var(--current-primary) !important;
   }
 
-  /* 模块专属濢活阴影配 */
-  .theme-openai .tab-btn.active {
-    background: linear-gradient(135deg, var(--openai-primary), var(--openai-dark)) !important;
-    box-shadow: 0 2px 8px rgba(16, 163, 127, 0.3);
-  }
-
-  .theme-antigravity .tab-btn.active {
-    background: linear-gradient(135deg, var(--ag-primary), var(--ag-dark)) !important;
-    box-shadow: 0 2px 8px rgba(244, 63, 94, 0.3);
-  }
-
-  .theme-gemini-cli .tab-btn.active {
-    background: linear-gradient(135deg, var(--gemini-primary), var(--gemini-dark)) !important;
-    box-shadow: 0 2px 8px rgba(66, 133, 244, 0.3);
-  }
-
-  .theme-cf-dns .tab-btn.active {
-    background: linear-gradient(135deg, var(--cf-primary), var(--cf-dark)) !important;
-    box-shadow: 0 2px 8px rgba(243, 128, 32, 0.3);
-  }
-
-  .theme-self-h .tab-btn.active {
-    background: linear-gradient(135deg, var(--selfh-primary), var(--selfh-dark)) !important;
-    box-shadow: 0 2px 8px rgba(6, 182, 212, 0.3);
-  }
-
-  .theme-server .tab-btn.active {
-    background: linear-gradient(135deg,
-        var(--server-primary),
-        var(--server-primary-dark)) !important;
-    box-shadow: 0 2px 8px rgba(71, 85, 105, 0.3);
-  }
-
-  .theme-paas .tab-btn.active {
-    background: linear-gradient(135deg, var(--paas-primary), var(--paas-dark)) !important;
-    box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
-  }
-
-  .theme-totp .tab-btn.active {
-    background: linear-gradient(135deg, var(--totp-primary), var(--totp-dark)) !important;
-    box-shadow: 0 2px 8px rgba(139, 92, 246, 0.3);
-  }
-
-  .theme-music .tab-btn.active {
-    background: linear-gradient(135deg, #f43f5e, #e11d48) !important;
-    box-shadow: 0 2px 8px rgba(244, 63, 94, 0.3);
-  }
-
-  .theme-uptime .tab-btn.active {
-    background: linear-gradient(135deg, #10b981, #059669) !important;
-    box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
-  }
-
-  .theme-notification .tab-btn.active {
-    background: linear-gradient(135deg, var(--notification-primary), var(--notification-dark)) !important;
-    box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3);
+  /* 通用模块激活样式 — 使用 --current-primary/--current-dark 变量，无需逐模块硬编码 */
+  [class*='theme-'] .tab-btn.active {
+    background: linear-gradient(135deg, var(--current-primary), var(--current-dark)) !important;
+    box-shadow: 0 2px 8px rgba(var(--current-rgb), 0.3);
   }
 
   /* ========================================
@@ -884,7 +759,7 @@ pre,
   }
 }
 
-/* ֶɫģʽ֧ (与媒体查询保持同? */
+/* 手动深色模式开关：复用同一套变量，避免重复维护 */
 [data-theme='dark'] {
   --bg-primary: #111827;
   --bg-secondary: #1f2937;
@@ -893,10 +768,16 @@ pre,
   --text-primary: #f9fafb;
   --text-secondary: #d1d5db;
   --text-tertiary: #9ca3af;
-  --border-color: #374151;
+  --border-color: rgba(255, 255, 255, 0.08);
   --card-bg: #1f2937;
-  --card-shadow: 2px 2px 2px 0px rgba(0, 0, 0, 0.3), 2px 2px 2px 0px rgba(0, 0, 0, 0.2);
-  --card-hover-shadow: 5px 5px 6px 0px rgba(0, 0, 0, 0.3), 4px 4px 5px 0px rgba(0, 0, 0, 0.2);
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.2);
+  --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.3), 0 0 1px rgba(0, 0, 0, 0.2);
+  --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.3), 0 0 1px rgba(0, 0, 0, 0.2);
+  --shadow-lg: 0 8px 16px rgba(0, 0, 0, 0.35), 0 0 1px rgba(0, 0, 0, 0.2);
+  --shadow-xl: 0 16px 48px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.06);
+  --card-shadow: var(--shadow-sm);
+  --card-hover-shadow: var(--shadow-md);
+  --modal-shadow: var(--shadow-xl);
   --modal-overlay: rgba(0, 0, 0, 0.7);
   --input-bg: transparent;
   --input-border: #4b5563;
