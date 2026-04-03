@@ -98,7 +98,7 @@ module.exports = [
     },
     rules: {
       // 基础规则
-      // TODO: 后续逐步修复未使用变量后，可将此规则改为 'error'
+      // TODO: 后续逐步修复未使用变量后，可将 varsIgnorePattern 收窄
       'no-unused-vars': [
         'warn',
         {
@@ -121,9 +121,9 @@ module.exports = [
       'eol-last': 'off',
 
       // 最佳实践
-      eqeqeq: 'off', // 允许 == (项目中很多是有意的)
-      'no-var': 'warn',
-      'prefer-const': 'off',
+      eqeqeq: ['error', 'always', { null: 'ignore' }], // 强制 ===，但允许 == null 简写
+      'no-var': 'error',
+      'prefer-const': ['warn', { destructuring: 'all' }],
       'no-throw-literal': 'warn',
       'no-prototype-builtins': 'off',
       'no-useless-escape': 'off', // 很多正则有意使用转义

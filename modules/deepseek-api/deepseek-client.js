@@ -21,6 +21,8 @@ const DS_SESSION_URL = 'https://chat.deepseek.com/api/v0/chat_session/create';
 const DS_POW_URL = 'https://chat.deepseek.com/api/v0/chat/create_pow_challenge';
 const DS_COMPLETION_URL = 'https://chat.deepseek.com/api/v0/chat/completion';
 const DS_UPLOAD_URL = 'https://chat.deepseek.com/api/v0/chat/upload_file';
+const DS_DELETE_SESSION_URL = 'https://chat.deepseek.com/api/v0/chat_session/delete';
+const DS_DELETE_ALL_SESSIONS_URL = 'https://chat.deepseek.com/api/v0/chat_session/delete_all';
 
 const BASE_HEADERS = {
     'Host': 'chat.deepseek.com',
@@ -265,11 +267,34 @@ async function uploadFile(token, sessionId, fileBuffer, fileName) {
 /**
  * 检查 token 是否失效
  */
-function isTokenInvalid(status, code, msg) {
+function isTokenInvalid(status, code, msg, bizCode, bizMsg) {
     if (status === 401 || status === 403) return true;
     if (code === 40001 || code === 40002 || code === 40003) return true;
-    const m = (msg || '').toLowerCase();
-    return m.includes('token') || m.includes('unauthorized');
+    if (bizCode === 40001 || bizCode === 40002 || bizCode === 40003) return true;
+    const m = ((msg || '') + ' ' + (bizMsg || '')).toLowerCase();
+    return m.includes('token') || m.includes('unauthorized') ||
+        m.includes('expired') || m.includes('not login') ||
+        m.includes('login required') || m.includes('invalid jwt');
+}
+
+/**
+ * 判断是否应尝试刷新 Token（更精确的判断）
+ * 对 HTTP 200 但 biz_code 异常的情况做认证相关性检测
+ */
+function shouldAttemptRefresh(status, code, bizCode, msg, bizMsg) {
+    if (isTokenInvalid(status, code, msg, bizCode, bizMsg)) return true;
+    // HTTP 200/code=0 但 biz_code 非零时，检查是否是认证相关的失败
+    if (status === 200 && code === 0 && bizCode !== 0) {
+        const combined = ((msg || '') + ' ' + (bizMsg || '')).toLowerCase();
+        const authKeywords = [
+            'auth', 'authorization', 'credential', 'expired',
+            'invalid jwt', 'jwt', 'login', 'not login',
+            'session expired', 'token', 'unauthorized',
+            '登录', '未登录', '认证', '凭证', '会话过期', '令牌',
+        ];
+        return authKeywords.some(kw => combined.includes(kw));
+    }
+    return false;
 }
 
 // ==================== 账号令牌管理 ====================
@@ -323,34 +348,110 @@ async function refreshToken(accountId) {
     return token;
 }
 
+// ==================== 消息格式化 (移植自 ds2api/internal/prompt/messages.go) ====================
+
+// Markdown 图片模式 - 移除 ! 前缀防止 DeepSeek 渲染异常
+const MARKDOWN_IMAGE_RE = /!\[([^\]]*)\]\(([^)]+)\)/g;
+
+/**
+ * 标准化消息内容，支持字符串、数组和其他格式
+ * 移植自 ds2api NormalizeContent()
+ */
+function normalizeContent(content) {
+    if (!content) return '';
+    if (typeof content === 'string') return content;
+    if (Array.isArray(content)) {
+        const parts = [];
+        for (const item of content) {
+            if (!item || typeof item !== 'object') continue;
+            const type = (item.type || '').toLowerCase().trim();
+            // 支持 text / output_text / input_text 类型
+            if (type === 'text' || type === 'output_text' || type === 'input_text') {
+                if (item.text) parts.push(item.text);
+                else if (item.content) parts.push(item.content);
+            }
+        }
+        return parts.join('\n');
+    }
+    return JSON.stringify(content);
+}
+
+/**
+ * 使用 DeepSeek 特殊标记格式化消息
+ * 移植自 ds2api MessagesPrepare()
+ *
+ * 核心改进：使用 DeepSeek 原生的特殊 token 标记来构建 prompt
+ * 这对 R1 深度思考的上下文理解有显著提升
+ */
+function messagesPrepare(messages) {
+    // 1. 预处理：标准化每条消息
+    const processed = messages.map(m => ({
+        role: m.role || 'user',
+        text: normalizeContent(m.content),
+    }));
+
+    if (processed.length === 0) return '';
+
+    // 2. 合并连续相同角色的消息
+    const merged = [];
+    for (const msg of processed) {
+        if (merged.length > 0 && merged[merged.length - 1].role === msg.role) {
+            merged[merged.length - 1].text += '\n\n' + msg.text;
+        } else {
+            merged.push({ ...msg });
+        }
+    }
+
+    // 3. 使用 DeepSeek 特殊标记格式化
+    const parts = [];
+    for (let i = 0; i < merged.length; i++) {
+        const m = merged[i];
+        switch (m.role) {
+            case 'assistant':
+                parts.push(`<｜Assistant｜>${m.text}<｜end▁of▁sentence｜>`);
+                break;
+            case 'tool':
+                if (i > 0) {
+                    parts.push(`<｜Tool｜>${m.text}`);
+                } else {
+                    parts.push(m.text);
+                }
+                break;
+            case 'system':
+                // 清晰的 system 边界能显著改善 R1 和 V3 的上下文理解
+                if (m.text.trim()) {
+                    parts.push(`<system_instructions>\n${m.text.trim()}\n</system_instructions>\n\n`);
+                }
+                break;
+            case 'user':
+                // 始终为 user 消息添加标记，R1 推理在显式标记用户回合时效果最佳
+                parts.push(`<｜User｜>${m.text}`);
+                break;
+            default:
+                parts.push(m.text);
+                break;
+        }
+    }
+
+    // 4. 移除 Markdown 图片的 ! 前缀
+    return parts.join('').replace(MARKDOWN_IMAGE_RE, '[$1]($2)');
+}
+
 /**
  * 构建 DeepSeek Completion 请求体
+ * 使用增强的消息格式化（DeepSeek 特殊标记）
  */
 function buildCompletionPayload(sessionId, messages, model, options = {}) {
-    const settings = storage.getSettings();
-
     // 确定是否启用思考模式
     const isReasoner = model.includes('reasoner');
     const isSearch = model.includes('search');
 
-    // 构建提示词
-    const prompt = messages.map(m => {
-        if (typeof m.content === 'string') return m.content;
-        if (Array.isArray(m.content)) {
-            return m.content.map(p => p.text || '').join('\n');
-        }
-        return '';
-    }).join('\n\n');
-
-    // 最后一条用户消息作为 prompt
-    const lastUserMsg = [...messages].reverse().find(m => m.role === 'user');
-    const userPrompt = lastUserMsg
-        ? (typeof lastUserMsg.content === 'string' ? lastUserMsg.content : JSON.stringify(lastUserMsg.content))
-        : '';
+    // 使用增强的格式化器构建 prompt
+    const prompt = messagesPrepare(messages);
 
     const payload = {
         chat_session_id: sessionId,
-        prompt: userPrompt,
+        prompt: prompt,
         ref_file_ids: options.file_ids || [],
         thinking_enabled: isReasoner,
         search_enabled: isSearch,
@@ -364,6 +465,33 @@ function buildCompletionPayload(sessionId, messages, model, options = {}) {
     return payload;
 }
 
+// ==================== 会话清理 (移植自 ds2api/internal/deepseek/client_session_delete.go) ====================
+
+/**
+ * 删除单个 DeepSeek 会话
+ */
+async function deleteSession(token, sessionId) {
+    if (!sessionId) return;
+    try {
+        const headers = { ...BASE_HEADERS, authorization: `Bearer ${token}` };
+        await postJSON(DS_DELETE_SESSION_URL, headers, { chat_session_id: sessionId });
+    } catch (e) {
+        logger.warn(`删除会话失败: ${e.message}`);
+    }
+}
+
+/**
+ * 删除所有 DeepSeek 会话
+ */
+async function deleteAllSessions(token) {
+    try {
+        const headers = { ...BASE_HEADERS, authorization: `Bearer ${token}` };
+        await postJSON(DS_DELETE_ALL_SESSIONS_URL, headers, {});
+    } catch (e) {
+        logger.warn(`删除所有会话失败: ${e.message}`);
+    }
+}
+
 module.exports = {
     login,
     createSession,
@@ -373,5 +501,8 @@ module.exports = {
     refreshToken,
     buildCompletionPayload,
     uploadFile,
+    deleteSession,
+    deleteAllSessions,
+    normalizeContent,
     BASE_HEADERS,
 };

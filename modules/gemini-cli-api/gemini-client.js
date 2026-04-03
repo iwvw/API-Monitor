@@ -551,7 +551,7 @@ class GeminiCliClient {
         : `${endpoint}:${action}`;
 
       // 修正模型名称 (Gemini 3 不需要改名，但需要 Thinking Config)
-      let apiModel = baseModel;
+      const apiModel = baseModel;
 
 
       const requestBody = {
@@ -618,7 +618,7 @@ class GeminiCliClient {
             if (streamStatus !== 200) {
               // Wait for full error text
               const errorText = await new Promise((resolve) => {
-                let text = '';
+                const text = '';
                 // We need to capture chunks from passThrough or s? 
                 // s is already piping to passThrough. We can't double read s.
                 // But passThrough is readable.
@@ -644,7 +644,7 @@ class GeminiCliClient {
           } else {
             // --- Non-Stream Request (or Forced Stream) ---
             if (shouldUseStreamEndpoint) {
-              let chunks = [];
+              const chunks = [];
               let finished = false;
               let streamError = null;
               let streamStatus = 200;

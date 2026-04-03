@@ -883,7 +883,7 @@ export const sshMethods = {
     }
 
     const sessionId = 'session_' + Date.now();
-    let type = (server.monitor_mode === 'agent') ? 'agent' : 'ssh';
+    const type = (server.monitor_mode === 'agent') ? 'agent' : 'ssh';
 
     const session = {
       id: sessionId,
@@ -948,7 +948,7 @@ export const sshMethods = {
           server.host.startsWith('172.') ||
           server.host.startsWith('10.') ||
           server.host.startsWith('192.168.');
-        let type = (server.monitor_mode === 'agent' || (isInvalidHost && server.status === 'online')) ? 'agent' : 'ssh';
+        const type = (server.monitor_mode === 'agent' || (isInvalidHost && server.status === 'online')) ? 'agent' : 'ssh';
 
         session = {
           id: sessionId,

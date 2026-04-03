@@ -274,7 +274,7 @@ export const dashboardMethods = {
   drawTrendChart(refName, data, color) {
     const app = document.querySelector('#app')?.__vue_app__?._instance;
 
-    let canvas = document.getElementById(refName);
+    const canvas = document.getElementById(refName);
 
     if (!canvas) return;
 

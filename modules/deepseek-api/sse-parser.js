@@ -21,6 +21,7 @@ const logger = createLogger('DS-SSE');
 const SKIP_PATHS = new Set([
     'quasi_status',
     'response/status',
+    'response/search_status',
 ]);
 
 const SKIP_CONTAINS = [
@@ -28,7 +29,30 @@ const SKIP_CONTAINS = [
     'elapsed_secs',
     'pending_fragment',
     'conversation_mode',
+    'fragments/-1/status',
+    'fragments/-2/status',
+    'fragments/-3/status',
 ];
+
+// Unicode 上标数字映射
+const SUPERSCRIPT_DIGITS = { '0': '⁰', '1': '¹', '2': '²', '3': '³', '4': '⁴', '5': '⁵', '6': '⁶', '7': '⁷', '8': '⁸', '9': '⁹' };
+
+/**
+ * 将 [citation:N] 转换为带超链接的 Unicode 上标
+ * 有 URL 时: [citation:8] → [⁽⁸⁾](url)
+ * 无 URL 时: [citation:8] → ⁽⁸⁾
+ */
+function formatCitations(text, searchResults) {
+    return text.replace(/\[citation:(\d+)\]/g, (_, num) => {
+        const idx = parseInt(num, 10);
+        const superNum = num.split('').map(d => SUPERSCRIPT_DIGITS[d] || d).join('');
+        const sup = `⁽${superNum}⁾`;
+        // 在已收集的搜索结果中查找对应来源 URL
+        const ref = searchResults.find(r => (r.cite_index || r.index) === idx);
+        const url = ref && (ref.url || ref.link || ref.href);
+        return url ? `[${sup}](${url})` : sup;
+    });
+}
 
 /**
  * 解析 DeepSeek SSE 流
@@ -37,10 +61,16 @@ function parseSSEStream(response, isReasoner, onData, onEnd, onError, onMeta) {
     let buffer = '';
     response.setEncoding('utf8');
 
+    // 包装 onData：自动转换 [citation:N] → [⁽ᴺ⁾](url)
+    const originalOnData = onData;
+    onData = (type, text) => {
+        originalOnData(type, formatCitations(text, searchResults));
+    };
+
     // 深度思考模式下从 thinking 开始，否则从 content 开始
     let currentType = isReasoner ? 'thinking' : 'content';
     let currentEvent = '';
-    let searchResults = [];
+    const searchResults = [];
 
     response.on('data', (chunk) => {
         buffer += chunk;
@@ -62,9 +92,7 @@ function parseSSEStream(response, isReasoner, onData, onEnd, onError, onMeta) {
             if (!trimmed.startsWith('data: ')) continue;
             const dataStr = trimmed.slice(6).trim();
 
-            try {
-                require('fs').appendFileSync('ds_raw_log.txt', dataStr + '\n');
-            } catch (e) {}
+
 
             if (!dataStr || dataStr === '[DONE]' || dataStr === '{}') continue;
 
@@ -76,30 +104,45 @@ function parseSSEStream(response, isReasoner, onData, onEnd, onError, onMeta) {
                 const data = JSON.parse(dataStr);
                 let handled = false;
 
-                // --- 1. 初始 response 对象 ---
-                if (data.v && typeof data.v === 'object' && data.v.response) {
-                    const resp = data.v.response;
-                    if (onMeta && resp.message_id) {
-                        onMeta({ message_id: resp.message_id });
+                // --- 1. 初始 response 对象与业务错误检测 ---
+                if (data.v && typeof data.v === 'object') {
+                    const bizCode = data.v.code || data.v.response?.code;
+                    const bizMsg = data.v.msg || data.v.response?.msg;
+                    
+                    if (bizCode !== undefined && bizCode !== 0 && bizCode !== '0') {
+                        logger.warn(`[DeepSeek 业务错误] 代码: ${bizCode}, 信息: ${bizMsg}`);
+                        onError(new Error(bizMsg || `DeepSeek Error (${bizCode})`));
+                        return;
                     }
-                    if (resp.fragments && Array.isArray(resp.fragments)) {
-                        for (const frag of resp.fragments) {
-                            const fType = frag.type;
-                            const fContent = frag.content || frag.v || ""; 
-                            if (fContent) {
-                                if (fType === 'THINK') {
-                                    onData('thinking', fContent);
-                                    handled = true;
-                                } else if (['RESPONSE', 'CONTENT', 'TEXT', 'ANSWER'].includes(fType)) {
-                                    onData('content', fContent);
-                                    handled = true;
-                                } else if (fType === 'SEARCH' && Array.isArray(frag.results)) {
-                                    frag.results.forEach(r => searchResults.push(r));
+
+                    if (data.v.response) {
+                        const resp = data.v.response;
+                        if (onMeta && resp.message_id) {
+                            onMeta({ message_id: resp.message_id });
+                        }
+                        if (resp.fragments && Array.isArray(resp.fragments)) {
+                            for (const frag of resp.fragments) {
+                                const fType = frag.type;
+                                const fContent = frag.content || frag.v || ''; 
+                                if (fContent) {
+                                    if (fType === 'THINK') {
+                                        onData('thinking', fContent);
+                                        handled = true;
+                                    } else if (['RESPONSE', 'CONTENT', 'TEXT', 'ANSWER'].includes(fType)) {
+                                        onData('content', fContent);
+                                        handled = true;
+                                    } else if (fType === 'SEARCH') {
+                                        const results = frag.results || frag.search_results || frag.references || [];
+                                        if (Array.isArray(results)) {
+                                            logger.debug(`[搜索] 初始 SEARCH fragment 收集到 ${results.length} 条结果`);
+                                            results.forEach(r => searchResults.push(r));
+                                        }
+                                    }
                                 }
                             }
                         }
+                        if (handled) continue;
                     }
-                    if (handled) continue;
                 }
 
                 // --- 2. 识别路径并动态确定类型 ---
@@ -116,8 +159,16 @@ function parseSSEStream(response, isReasoner, onData, onEnd, onError, onMeta) {
                         if (handled) continue;
                     }
 
-                    // 搜索结果
-                    if (data.p.match(/response\/fragments\/\d+\/results/) && Array.isArray(data.v)) {
+                    // 搜索结果 (覆盖各种可能的路径)
+                    if (data.p.match(/response\/fragments\/(-?\d+)\/(results|search_results|references)/) && Array.isArray(data.v)) {
+                         logger.debug(`[搜索] 增量路径 ${data.p} 收集到 ${data.v.length} 条结果`);
+                         data.v.forEach(item => searchResults.push(item));
+                         continue;
+                    }
+
+                    // 搜索结果也可能出现在 response/search_results 等路径
+                    if ((data.p === 'response/search_results' || data.p === 'search_results') && Array.isArray(data.v)) {
+                         logger.debug(`[搜索] 顶层路径 ${data.p} 收集到 ${data.v.length} 条结果`);
                          data.v.forEach(item => searchResults.push(item));
                          continue;
                     }
@@ -127,7 +178,7 @@ function parseSSEStream(response, isReasoner, onData, onEnd, onError, onMeta) {
                 if (data.p === 'response/fragments' && (data.o === 'APPEND' || data.o === 'SET') && Array.isArray(data.v)) {
                     for (const frag of data.v) {
                         const fType = frag.type;
-                        const fContent = frag.content || frag.v || "";
+                        const fContent = frag.content || frag.v || '';
                         if (fType === 'RESPONSE' || fType === 'CONTENT' || fType === 'TEXT') {
                             currentType = 'content';
                             if (fContent) onData('content', fContent);
@@ -158,7 +209,7 @@ function parseSSEStream(response, isReasoner, onData, onEnd, onError, onMeta) {
                     }
                 }
 
-                if (!handled && typeof data.v === 'string' && data.v.length > 0 && !shouldSkip(data.p || "")) {
+                if (!handled && typeof data.v === 'string' && data.v.length > 0 && !shouldSkip(data.p || '')) {
                     // 最后的兜底：如果没处理但看起来像文本，且不在跳过列表中，也尝试收集
                     // logger.debug(`[Low-Confidence] Collected suspect data: path=${data.p}, val=${data.v}`);
                     onData(currentType, data.v);
@@ -185,15 +236,18 @@ function parseSSEStream(response, isReasoner, onData, onEnd, onError, onMeta) {
             }
         }
 
+        logger.debug(`[搜索] 流结束, 共收集 ${searchResults.length} 条搜索结果`);
         if (searchResults.length > 0) {
+            logger.info(`[搜索引用] 共 ${searchResults.length} 条来源, 样本: ${JSON.stringify(searchResults[0])}`);
             let refText = '\n\n---\n**参考资料:**\n';
             const seen = new Set();
-            searchResults.slice().sort((a, b) => (a.cite_index || 0) - (b.cite_index || 0)).forEach(item => {
-                const idx = item.cite_index || 0;
-                if (!seen.has(idx)) {
+            searchResults.slice().sort((a, b) => (a.cite_index || a.index || 0) - (b.cite_index || b.index || 0)).forEach(item => {
+                const idx = item.cite_index || item.index || 0;
+                const url = item.url || item.link || item.href || '';
+                if (!seen.has(idx) && url) {
                     seen.add(idx);
-                    const title = item.title || item.site_name || item.url;
-                    refText += `[${idx}] [${title}](${item.url})\n`;
+                    const title = item.title || item.site_name || item.name || url;
+                    refText += `[${idx}] [${title}](${url})\n`;
                 }
             });
             onData('content', refText);

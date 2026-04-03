@@ -63,8 +63,11 @@ export default defineConfig(({ mode }) => {
           globals: globals,
           // 代码分割策略
           manualChunks: id => {
-            // 注意：已经在 externalDeps 中的包（CDN 引用的包）不能在此处分包
             if (id.includes('node_modules')) {
+              // 防御性检查：已被标记为外部依赖的包（CDN 引用）不参与分包
+              if (externalDeps.some(dep => id.includes(`/node_modules/${dep}/`) || id.includes(`/node_modules/${dep.replace('/', '+')}/`))) {
+                return;
+              }
               // 终端组件
               if (id.includes('@xterm')) {
                 return 'vendor-xterm';
@@ -82,7 +85,7 @@ export default defineConfig(({ mode }) => {
               if (id.includes('@pixi') || id.includes('pixi-filters')) {
                 return 'vendor-pixi';
               }
-              // 其他大型工具库 (且不在 CDN 中的)
+              // 其他大型工具库
               if (
                 id.includes('axios') ||
                 id.includes('marked') ||
@@ -90,8 +93,6 @@ export default defineConfig(({ mode }) => {
                 id.includes('uuid') ||
                 id.includes('vue')
               ) {
-                // 如果启用了 CDN 且 vue/axios 在 external 中，Vite 会自动忽略它们
-                // 这里我们显式将非 CDN 的大库打包
                 return 'vendor-utils';
               }
             }
@@ -100,9 +101,9 @@ export default defineConfig(({ mode }) => {
       },
       terserOptions: {
         compress: {
-          drop_console: false, // 暂时禁用，确保调试信息可见
           drop_debugger: isProduction,
-          pure_funcs: [], // 不要优化掉任何函数调用
+          // 生产环境移除 console.log/debug，保留 error/warn 用于线上排障
+          pure_funcs: isProduction ? ['console.log', 'console.debug'] : [],
         },
         mangle: {
           reserved: ['compile', 'compileToFunction', 'baseCompile'], // 保留编译器函数名
@@ -138,12 +139,18 @@ export default defineConfig(({ mode }) => {
         host: 'localhost',
         port: 5173,
       },
-      // SPA 历史回退：所有非静态资源路由都返回 index.html
-      historyApiFallback: {
-        rewrites: [
-          { from: /^\/api\/.*$/, to: '/index.html' }, // 仅做兜底，实际应由 proxy 处理
+      // 文件系统访问控制：阻止 dev server 暴露后端源代码
+      fs: {
+        deny: [
+          '**/db/**',
+          '**/middleware/**',
+          '**/routes/**',
+          '**/services/**',
+          '**/utils/**',
+          '**/views/**',
+          '**/scripts/**',
+          '**/*.sql',
         ],
-        disableDotRule: true, // 允许路径中带点
       },
       proxy: {
         '/api': {

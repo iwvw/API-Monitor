@@ -1024,7 +1024,7 @@ export const hostMethods = {
         throw new Error(data.error || '加载 Docker 概览失败');
       }
 
-      let dockerServers = (data.data?.servers || [])
+      const dockerServers = (data.data?.servers || [])
         .filter(server => server.docker && server.docker.installed)
         .map(server => ({
           id: server.serverId,

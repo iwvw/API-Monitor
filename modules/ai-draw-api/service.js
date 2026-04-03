@@ -349,7 +349,7 @@ class AIDrawService {
             const title = titleMatch ? titleMatch[1].trim() : 'Untitled';
 
             // 移除脚本和样式标签，提取文本内容
-            let content = html
+            const content = html
                 .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
                 .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
                 .replace(/<[^>]+>/g, ' ')

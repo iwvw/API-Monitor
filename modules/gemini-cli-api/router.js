@@ -71,7 +71,38 @@ const autoCheckService = {
         return;
       }
 
-      // 获取要检测的模型列表（复用现有逻辑）
+      // 1. 自动全量更新模型矩阵 (每 12 小时执行一次)
+      const settings = storage.getSettings();
+      const lastSyncTime = parseInt(settings.lastAutoSyncTime) || 0;
+      const nowMs = Date.now();
+      const twelveHoursMs = 12 * 3600 * 1000;
+
+      if (nowMs - lastSyncTime > twelveHoursMs) {
+        logger.info('[GCLI AutoCheck] 达到同步周期，开始自动全量更新模型矩阵...');
+        try {
+          // 仅拉取启用账号的额度信息进行聚合
+          const enabledAccounts = accounts.filter(a => a.enable !== 0);
+          const results = await Promise.all(
+            enabledAccounts.map(async (account) => {
+              try {
+                return await getAccountQuota(account, true); // 强制刷新
+              } catch (e) {
+                return null;
+              }
+            })
+          );
+          const allUpstreamModels = aggregateUpstreamModels(results);
+          if (allUpstreamModels.length > 0) {
+            syncModelsToMatrix(allUpstreamModels, true); // 全量同步并自动清理
+            storage.updateSetting('lastAutoSyncTime', nowMs.toString());
+            logger.info(`[GCLI AutoCheck] 自动清理完成，当前上游可用模型数: ${allUpstreamModels.length}`);
+          }
+        } catch (syncErr) {
+          logger.error(`[GCLI AutoCheck] 自动同步矩阵失败: ${syncErr.message}`);
+        }
+      }
+
+      // 2. 获取要检测的模型列表 (原有常规逻辑)
       const set = new Set();
       const redirects = storage.getModelRedirects();
       if (Array.isArray(redirects)) {
@@ -87,7 +118,6 @@ const autoCheckService = {
       let modelsToCheck = Array.from(set);
 
       // 应用禁用模型过滤
-      const settings = storage.getSettings();
       if (settings.disabledCheckModels) {
         try {
           const disabledModels = JSON.parse(settings.disabledCheckModels);
@@ -99,8 +129,8 @@ const autoCheckService = {
 
       if (modelsToCheck.length === 0) {
         modelsToCheck = [
-          'gemini-2.5-pro',
-          'gemini-2.5-flash',
+          'gemini-2.1-pro',
+          'gemini-2.0-flash-exp',
           'gemini-1.5-pro',
           'gemini-1.5-flash',
         ];
@@ -292,6 +322,14 @@ const DEFAULT_MATRIX = {
     fakeStream: false,
     antiTrunc: false,
   },
+  'gemini-3.1-flash-lite-preview': {
+    base: true,
+    maxThinking: false,
+    noThinking: false,
+    search: false,
+    fakeStream: false,
+    antiTrunc: false,
+  },
 };
 
 // 辅助函数：读取矩阵配置
@@ -314,6 +352,64 @@ function saveMatrixConfig(config) {
   } catch (e) {
     console.error('Failed to save matrix file:', e);
     return false;
+  }
+}
+
+// 辅助函数：聚合上游获取到的模型 ID
+function aggregateUpstreamModels(results) {
+  const modelIds = new Set();
+  if (!Array.isArray(results)) return [];
+
+  results.forEach(result => {
+    if (result && result.buckets) {
+      result.buckets.forEach(bucket => {
+        if (bucket && bucket.modelId) {
+          modelIds.add(bucket.modelId);
+        }
+      });
+    }
+  });
+
+  return Array.from(modelIds);
+}
+
+// 辅助函数：将模型同步到矩阵 (支持全量同步/自动清理)
+function syncModelsToMatrix(upstreamModelIds, isFullSync = false) {
+  if (!upstreamModelIds || upstreamModelIds.length === 0) return;
+  const matrixConfig = getMatrixConfig();
+  let matrixUpdated = false;
+
+  // 1. 添加并更新上游存在的模型
+  upstreamModelIds.forEach(modelId => {
+    // 忽略带特殊后缀的变体模型
+    if (modelId && !modelId.includes('/') && !modelId.includes('-search') && !modelId.includes('-thinking') && !matrixConfig[modelId]) {
+      matrixConfig[modelId] = {
+        base: true,
+        maxThinking: false,
+        noThinking: false,
+        search: false,
+        fakeStream: false,
+        antiTrunc: false,
+      };
+      matrixUpdated = true;
+      logger.info(`[GCLI] Auto-added new model from quota to matrix: ${modelId}`);
+    }
+  });
+
+  // 2. 全量同步模式下：自动清理上游已不存在的模型
+  if (isFullSync) {
+    Object.keys(matrixConfig).forEach(modelId => {
+      // 如果模型不在上游列表，则执行清理 (移除 DEFAULT_MATRIX 强制保留限制)
+      if (!upstreamModelIds.includes(modelId)) {
+        delete matrixConfig[modelId];
+        matrixUpdated = true;
+        logger.info(`[GCLI] Auto-removed stale model from matrix: ${modelId}`);
+      }
+    });
+  }
+
+  if (matrixUpdated) {
+    saveMatrixConfig(matrixConfig);
   }
 }
 
@@ -594,6 +690,16 @@ router.get('/quotas', async (req, res) => {
 
     // 使用 client 获取模型列表和额度
     const quotas = await client.getQuotas(account);
+
+    // 自动将新获取的模型加入系统矩阵配置 (只增不减)
+    try {
+      if (quotas) {
+        syncModelsToMatrix(Object.keys(quotas), false);
+      }
+    } catch (e) {
+      logger.error(`[quotas] Auto add models error: ${e.message}`);
+    }
+
     res.json(quotas);
   } catch (e) {
     console.error('获取额度失败:', e);
@@ -663,6 +769,16 @@ router.get('/quotas/all', async (req, res) => {
         }
       })
     );
+
+    // 自动将新获取的模型加入系统矩阵配置 (全量同步/自动清理)
+    try {
+      const modelIds = aggregateUpstreamModels(results);
+      if (modelIds.length > 0) {
+        syncModelsToMatrix(modelIds, true);
+      }
+    } catch (e) {
+      logger.error(`[quotas/all] Auto add models error: ${e.message}`);
+    }
 
     res.json(results.filter(Boolean));
   } catch (e) {
@@ -1540,7 +1656,7 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
           res.end();
 
           // 记录成功日志（包含累积的回复内容）
-          let originalMessages = JSON.parse(JSON.stringify(req.body.messages || []));
+          const originalMessages = JSON.parse(JSON.stringify(req.body.messages || []));
 
           // === 日志净化：移除 Base64 图片 ===
           originalMessages.forEach(msg => {
@@ -1647,7 +1763,7 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
           };
 
           // 记录成功日志
-          let originalMessages = JSON.parse(JSON.stringify(req.body.messages || []));
+          const originalMessages = JSON.parse(JSON.stringify(req.body.messages || []));
 
           // === 日志净化：移除 Base64 图片 ===
           originalMessages.forEach(msg => {
@@ -1730,7 +1846,7 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
         }
 
         // 记录错误日志
-        let originalMessages = JSON.parse(JSON.stringify(req.body.messages || []));
+        const originalMessages = JSON.parse(JSON.stringify(req.body.messages || []));
 
         // === 日志净化：移除 Base64 图片 ===
         originalMessages.forEach(msg => {

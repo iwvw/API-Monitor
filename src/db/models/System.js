@@ -607,7 +607,7 @@ class LoginAttempt extends BaseModel {
     const lockDurationMinutes = 15;
 
     // 获取或创建记录
-    let record = this.findOneWhere({ ip_address: ip });
+    const record = this.findOneWhere({ ip_address: ip });
 
     if (!record) {
       // 首次失败

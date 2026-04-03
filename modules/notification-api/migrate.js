@@ -16,7 +16,7 @@ function migrate(db) {
         { table: 'alert_rules', column: 'backup_channels', sql: "ALTER TABLE alert_rules ADD COLUMN backup_channels TEXT DEFAULT '[]'" },
         // alert_state_tracking 缺失列
         { table: 'alert_state_tracking', column: 'state_history', sql: "ALTER TABLE alert_state_tracking ADD COLUMN state_history TEXT DEFAULT '[]'" },
-        { table: 'alert_state_tracking', column: 'is_flapping', sql: "ALTER TABLE alert_state_tracking ADD COLUMN is_flapping INTEGER DEFAULT 0" },
+        { table: 'alert_state_tracking', column: 'is_flapping', sql: 'ALTER TABLE alert_state_tracking ADD COLUMN is_flapping INTEGER DEFAULT 0' },
     ];
 
     for (const m of migrations) {

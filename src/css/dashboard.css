@@ -1,4 +1,4 @@
-﻿/* Dashboard 2.0 - Strict Alignment & Spacing */
+/* Dashboard 2.0 - Strict Alignment & Spacing */
 
 /* 
    全局容器 
@@ -13,8 +13,6 @@
   font-family: var(--font-main, 'Inter', system-ui, sans-serif);
   color: var(--text-primary);
   box-sizing: border-box;
-  user-select: none;
-  -webkit-user-select: none;
 }
 
 /* =========================================
@@ -160,7 +158,7 @@
 
 .stats-overview-grid {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
   gap: var(--dashboard-grid-gap);
   margin-bottom: var(--dashboard-grid-gap);
 }
@@ -1497,12 +1495,10 @@
     /* 只显示图?*/
   }
 
-  /* --- Stats Grid: 2 Columns on Mobile --- */
+  /* --- Stats Grid: 流式布局自动适配，仅微调间距 --- */
   .stats-overview-grid {
-    display: grid !important;
-    grid-template-columns: repeat(2, 1fr) !important;
-    gap: var(--space-sm) !important;
-    margin-bottom: var(--space-md) !important;
+    gap: var(--space-sm);
+    margin-bottom: var(--space-md);
   }
 
   /* --- Overview Cards: Mobile Card Style --- */

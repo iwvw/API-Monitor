@@ -54,7 +54,7 @@ function createClient(ClientClass, auth, region = 'ap-guangzhou') {
         region: region,
         profile: {
             httpProfile: {
-                endpoint: "",
+                endpoint: '',
             },
         },
     };
@@ -135,7 +135,7 @@ async function addDomainRecord(auth, domain, record) {
             Value: record.value,
             TTL: record.ttl || 600,
             MX: record.mx,
-            Status: "ENABLE"
+            Status: 'ENABLE'
         });
     } catch (e) {
         throw new Error(`CreateRecord Failed: ${e.message}`);

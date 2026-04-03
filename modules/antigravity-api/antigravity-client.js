@@ -655,7 +655,7 @@ function convertOpenAIToAntigravityRequest(openaiRequest, token) {
   const isGemini3Pro = model.includes('gemini-3-pro');
 
   // 处理 thinking 配置
-  let thinkingConfig = generationConfig.thinkingConfig;
+  const thinkingConfig = generationConfig.thinkingConfig;
   if (thinkingConfig && !model.startsWith('gemini-3-')) {
     // 非 Gemini-3 模型：移除 thinkingLevel，设置 thinkingBudget: -1
     if (thinkingConfig.thinkingLevel) {

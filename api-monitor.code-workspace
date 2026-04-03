@@ -1,7 +1,11 @@
 {
-    "folders": [
-        {
-            "path": "."
-        }
-    ]
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../AmGo"
+		}
+	],
+	"settings": {}
 }

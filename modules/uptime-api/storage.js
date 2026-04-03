@@ -17,6 +17,25 @@ class UptimeStorage {
     constructor() {
         // 延迟初始化，在首次调用时检查迁移
         this._migrated = false;
+        this._columnsChecked = false;
+    }
+
+    _checkColumns() {
+        if (this._columnsChecked) return;
+        this._columnsChecked = true;
+        const db = getDb();
+        try {
+            // 检查 uptime_monitors 是否有 created_at 列
+            const info = db.prepare('PRAGMA table_info(uptime_monitors)').all();
+            const hasCreatedAt = info.some(c => c.name === 'created_at');
+            if (!hasCreatedAt) {
+                logger.info('正在为 uptime_monitors 添加 created_at 和 updated_at 列...');
+                db.prepare('ALTER TABLE uptime_monitors ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP').run();
+                db.prepare('ALTER TABLE uptime_monitors ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP').run();
+            }
+        } catch (e) {
+            logger.warn(`检查列定义失败: ${e.message}`);
+        }
     }
 
     /**
@@ -122,6 +141,7 @@ class UptimeStorage {
     // ==================== 监控项 CRUD ====================
 
     getAll() {
+        this._checkColumns();
         this._ensureMigrated();
         const db = getDb();
         const monitors = db.prepare('SELECT * FROM uptime_monitors ORDER BY created_at DESC').all();
@@ -129,6 +149,7 @@ class UptimeStorage {
     }
 
     getActive() {
+        this._checkColumns();
         this._ensureMigrated();
         const db = getDb();
         const monitors = db.prepare('SELECT * FROM uptime_monitors WHERE active = 1').all();
@@ -136,6 +157,7 @@ class UptimeStorage {
     }
 
     getById(id) {
+        this._checkColumns();
         this._ensureMigrated();
         const db = getDb();
         const m = db.prepare('SELECT * FROM uptime_monitors WHERE id = ?').get(id);
@@ -143,6 +165,7 @@ class UptimeStorage {
     }
 
     create(data) {
+        this._checkColumns();
         this._ensureMigrated();
         const db = getDb();
         const result = db.prepare(`
@@ -166,6 +189,7 @@ class UptimeStorage {
     }
 
     update(id, data) {
+        this._checkColumns();
         this._ensureMigrated();
         const db = getDb();
         const fields = [];
