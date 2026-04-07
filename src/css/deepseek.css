@@ -171,3 +171,45 @@
   white-space: pre-wrap;
   word-break: break-all;
 }
+
+/* 模型测试 */
+.ds-test-thinking,
+.ds-test-answer {
+  margin-bottom: 12px;
+  border-radius: 10px;
+  padding: 12px;
+  border: 1px solid var(--border-color);
+}
+
+.ds-test-thinking {
+  background: rgba(255, 193, 7, 0.03);
+  border-left: 4px solid #ffc107;
+}
+
+.ds-test-answer {
+  background: rgba(var(--current-rgb, var(--primary-rgb)), 0.03);
+  border-left: 4px solid var(--current-primary, var(--primary-color));
+}
+
+.ds-test-label {
+  font-size: 11px;
+  font-weight: 600;
+  margin-bottom: 6px;
+  opacity: 0.6;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ds-test-content {
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.ds-test-meta {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}

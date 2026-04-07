@@ -23,6 +23,9 @@ export const deepseekMethods = {
         else if (tab === 'accounts') this.loadDsAccounts();
         else if (tab === 'logs') this.loadDsLogs();
         else if (tab === 'settings') this.loadDsSettings();
+        else if (tab === 'test') {
+            if (store.dsModels.length === 0) this.loadDsModels();
+        }
     },
 
     // ==================== 模型管理 ====================
@@ -441,5 +444,89 @@ export const deepseekMethods = {
         }).catch(() => {
             toast.error('复制失败，请手动复制');
         });
+    },
+
+    // ==================== 模型测试 ====================
+    async runDsTest() {
+        if (store.dsTesting) return;
+        store.dsTesting = true;
+        store.dsTestResult = { content: '', reasoning: '', usage: null, error: null };
+
+        try {
+            const body = {
+                model: store.dsTestModel,
+                messages: [{ role: 'user', content: store.dsTestMessage }],
+                stream: store.dsTestStream,
+            };
+
+            const headers = {
+                'Content-Type': 'application/json',
+            };
+            if (store.dsSettingsForm.API_KEY) {
+                headers['Authorization'] = `Bearer ${store.dsSettingsForm.API_KEY}`;
+            }
+
+            const resp = await fetch(`${DS_API}/v1/chat/completions`, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify(body),
+            });
+
+            if (!resp.ok) {
+                const errData = await resp.json().catch(() => ({}));
+                throw new Error(errData.error?.message || errData.error || `HTTP ${resp.status}`);
+            }
+
+            if (!store.dsTestStream) {
+                const data = await resp.json();
+                const choice = data.choices?.[0]?.message;
+                store.dsTestResult.content = choice?.content || '';
+                store.dsTestResult.reasoning = choice?.reasoning_content || '';
+                store.dsTestResult.usage = data.usage;
+            } else {
+                const reader = resp.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop() || '';
+
+                    for (const line of lines) {
+                        const trimmed = line.trim();
+                        if (!trimmed || !trimmed.startsWith('data: ')) continue;
+                        const dataStr = trimmed.slice(6);
+                        if (dataStr === '[DONE]') break;
+
+                        try {
+                            const data = JSON.parse(dataStr);
+                            const delta = data.choices?.[0]?.delta;
+                            if (delta) {
+                                if (delta.reasoning_content) {
+                                    store.dsTestResult.reasoning += delta.reasoning_content;
+                                }
+                                if (delta.content) {
+                                    store.dsTestResult.content += delta.content;
+                                }
+                            }
+                            if (data.usage) {
+                                store.dsTestResult.usage = data.usage;
+                            }
+                        } catch (e) {
+                            // 忽略部分解析错误
+                        }
+                    }
+                }
+            }
+        } catch (e) {
+            store.dsTestResult.error = e.message;
+            toast.error('测试失败: ' + e.message);
+        } finally {
+            store.dsTesting = false;
+        }
     },
 };

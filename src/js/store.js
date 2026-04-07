@@ -782,6 +782,13 @@ export const store = reactive({
   dsSettingsForm: { API_KEY: '', DEFAULT_TEMPERATURE: '1', DEFAULT_MAX_TOKENS: '8192', SYSTEM_INSTRUCTION: '' },
   dsSaving: false,
 
+  // DeepSeek 模型测试
+  dsTestModel: 'deepseek-chat',
+  dsTestMessage: '你好，测试',
+  dsTestResult: null, // { content, reasoning, usage, error }
+  dsTesting: false,
+  dsTestStream: true,
+
   // ===== 音乐播放器模块 =====
   musicReady: false,
   musicCurrentTab: 'home', // 'home', 'discover', 'search', 'library', 'settings'

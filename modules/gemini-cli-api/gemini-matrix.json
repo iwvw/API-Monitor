@@ -40,7 +40,7 @@
     "antiTrunc": false
   },
   "gemini-2.5-flash-lite": {
-    "base": true,
+    "base": false,
     "maxThinking": false,
     "noThinking": false,
     "search": false,

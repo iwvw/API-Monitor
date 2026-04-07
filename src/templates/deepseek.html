@@ -438,6 +438,77 @@
     </teleport>
   </div>
 
+  <!-- ==================== 模型测试标签页 ==================== -->
+  <div v-show="dsCurrentTab === 'test'" class="sub-tab-content quick-fade-in">
+    <div class="panel-header" style="padding-bottom: 10px">
+      <div class="panel-title">
+        <i class="fas fa-flask module-color-text" style="margin-right: 8px;"></i>DeepSeek 模型测试
+      </div>
+    </div>
+
+    <div class="panel" style="padding: 16px">
+      <div style="display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap">
+        <div style="flex: 1; min-width: 200px">
+          <label class="form-label" style="font-size: 12px">测试模型</label>
+          <select v-model="dsTestModel" class="form-input">
+            <option v-for="m in dsModels" :key="m.id" :value="m.id">{{ m.id }}</option>
+            <option v-if="dsModels.length === 0" value="deepseek-chat">deepseek-chat</option>
+            <option v-if="dsModels.length === 0" value="deepseek-reasoner">deepseek-reasoner</option>
+          </select>
+        </div>
+        <div style="display: flex; align-items: flex-end; padding-bottom: 8px">
+          <label class="checkbox-container" style="font-size: 13px">
+            <input type="checkbox" v-model="dsTestStream" />
+            <span class="checkmark"></span> 流式输出
+          </label>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label class="form-label" style="font-size: 12px">测试消息</label>
+        <textarea class="form-textarea" v-model="dsTestMessage" rows="3" placeholder="输入测试内容..."></textarea>
+      </div>
+
+      <div style="display: flex; gap: 10px">
+        <button class="btn btn-primary" @click="runDsTest" :disabled="dsTesting || !dsTestMessage" style="flex: 1">
+          <i class="fas" :class="dsTesting ? 'fa-spinner fa-spin' : 'fa-paper-plane'"></i> {{ dsTesting ? '正在发送...' : '开始测试' }}
+        </button>
+        <button class="btn btn-secondary" @click="dsTestResult = null" :disabled="dsTesting || !dsTestResult">
+          清空结果
+        </button>
+      </div>
+    </div>
+
+    <!-- 测试结果展示 -->
+    <div v-if="dsTestResult" class="panel quick-fade-in" style="margin-top: 16px; padding: 16px">
+      <div class="panel-title" style="font-size: 14px; margin-bottom: 12px">
+        <i class="fas fa-comment-alt module-color-text" style="margin-right: 6px;"></i>响应结果
+      </div>
+
+      <div v-if="dsTestResult.error" class="form-error" style="margin-top: 0">
+        <i class="fas fa-exclamation-circle"></i> {{ dsTestResult.error }}
+      </div>
+
+      <div v-else>
+        <div v-if="dsTestResult.reasoning" class="ds-test-thinking">
+          <div class="ds-test-label"><i class="fas fa-brain"></i> 思考过程</div>
+          <div class="ds-test-content">{{ dsTestResult.reasoning }}</div>
+        </div>
+        
+        <div class="ds-test-answer">
+          <div class="ds-test-label"><i class="fas fa-reply"></i> 回复内容</div>
+          <div class="ds-test-content">{{ dsTestResult.content || (dsTesting ? '正在生成...' : '(空)') }}</div>
+        </div>
+
+        <div v-if="dsTestResult.usage" class="ds-test-meta" style="margin-top: 12px">
+          <span class="badge badge-info">Prompt: {{ dsTestResult.usage.prompt_tokens }}</span>
+          <span class="badge badge-info">Completion: {{ dsTestResult.usage.completion_tokens }}</span>
+          <span class="badge badge-secondary">Total: {{ dsTestResult.usage.total_tokens }}</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- ==================== 模块配置标签页 ==================== -->
   <div v-show="dsCurrentTab === 'settings'" class="sub-tab-content quick-fade-in">
     <div class="panel-header" style="padding-bottom: 10px">
