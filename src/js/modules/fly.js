@@ -1,6 +1,5 @@
 import { store } from '../store.js';
 import { toast } from './toast.js';
-import { formatRegion } from './utils.js';
 
 export const flyMethods = {
   // 缓存数据到本地
@@ -66,7 +65,6 @@ export const flyMethods = {
 
   // 加载 Fly.io 监控数据（用于 Dashboard）
   async loadFlyData(isManual = false) {
-    const now = Date.now();
     if (store.flyRefreshing) return;
 
     store.flyRefreshing = true;

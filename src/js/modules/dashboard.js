@@ -272,8 +272,6 @@ export const dashboardMethods = {
    * 绘制 Canvas 趋势图 (Smooth Curve + Interaction)
    */
   drawTrendChart(refName, data, color) {
-    const app = document.querySelector('#app')?.__vue_app__?._instance;
-
     const canvas = document.getElementById(refName);
 
     if (!canvas) return;
@@ -390,8 +388,6 @@ export const dashboardMethods = {
 
     const { data, color, paddingX, paddingTop, paddingBottom } = state;
     const maxVal = Math.max(...data, 10);
-    const minVal = 0;
-    const range = maxVal - minVal;
 
     const values = data;
     const drawingHeight = height - paddingBottom - paddingTop;
@@ -635,12 +631,11 @@ export const dashboardMethods = {
 
         let up = 0;
         let down = 0;
-        let paused = 0;
 
         // 遍历统计真实状态
         monitors.forEach(m => {
           if (!m.active) {
-            paused++;
+            // 已暂停
           } else {
             // 根据 lastHeartbeat 判断状态
             if (m.lastHeartbeat) {

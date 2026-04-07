@@ -1,4 +1,4 @@
-﻿/**
+/**
  * API Monitor - 主应用模块
  * 整合所有功能模块，初始化 Vue 应用
  */
@@ -103,21 +103,20 @@ import { sshMethods } from './modules/ssh.js';
 import { sftpMethods } from './modules/sftp.js';
 import { serverStatusMethods } from './modules/server-status.js';
 import { commonMethods } from './modules/common.js';
-import { toast } from './modules/toast.js';
 import { streamPlayerMethods } from './modules/stream-player-ui.js';
 import { totpMethods, totpComputed, totpData } from './modules/totp.js';
 import { musicMethods } from './modules/music.js';
-import { uptimeData, uptimeMethods, uptimeComputed } from './modules/uptime.js';
+import { uptimeData, uptimeMethods } from './modules/uptime.js';
 import { fileboxData, fileboxMethods } from './modules/filebox.js';
 import { aliyunMethods } from './modules/aliyun.js';
 import { tencentMethods } from './modules/tencent.js';
 import { notificationData, notificationMethods } from './modules/notification.js';
 import { aiChatData, aiChatMethods, aiChatComputed } from './modules/ai-chat.js';
 import { aiDrawData, aiDrawMethods, aiDrawComputed } from './modules/ai-draw.js';
-import { formatDateTime, formatFileSize, maskAddress, formatRegion, formatUptime } from './modules/utils.js';
+import { formatDateTime, formatFileSize, formatRegion, formatUptime } from './modules/utils.js';
 
 // 导入全局状态
-import { store, MODULE_CONFIG, MODULE_GROUPS } from './store.js';
+import { store, MODULE_CONFIG } from './store.js';
 import { computed } from 'vue';
 
 // 导入 Composables

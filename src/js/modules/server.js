@@ -1568,8 +1568,18 @@ function renderQuickMetrics(metrics) {
     `;
 }
 
-// 导出函数到全局作用域...
+// 导出函数到全局作用域以供 HTML 模板调用
 window.serverModule = {
-  // ...
-  formatHost, // 导出格式化函数
+  toggleServerCard,
+  refreshServerInfo,
+  showEditServerModal,
+  deleteServer,
+  connectSSH,
+  rebootServer,
+  shutdownServer,
+  showAddServerModal,
+  probeAllServers,
+  showImportModal,
+  exportServers,
+  formatHost,
 };

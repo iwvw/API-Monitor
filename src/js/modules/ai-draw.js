@@ -367,7 +367,6 @@ export const aiDrawMethods = {
      */
     async aiDrawCreateProject(engineType) {
         this.aiDrawShowCreateMenu = false;
-        const tempId = Date.now();
 
         try {
             // Optimistic UI update (optional, but good for responsiveness)

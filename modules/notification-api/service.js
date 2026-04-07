@@ -365,8 +365,8 @@ class NotificationService extends EventEmitter {
 
         return activeSchedules.find(s => {
             if (s.target_type === 'global') return true;
-            if (s.target_type === 'monitor' && s.target_id == eventData.monitorId) return true;
-            if (s.target_type === 'server' && s.target_id == eventData.serverId) return true;
+            if (s.target_type === 'monitor' && s.target_id === eventData.monitorId) return true;
+            if (s.target_type === 'server' && s.target_id === eventData.serverId) return true;
             return false;
         });
     }

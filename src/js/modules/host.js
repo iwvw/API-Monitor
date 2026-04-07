@@ -2344,7 +2344,7 @@ export const hostMethods = {
   applyCredential(event) {
     const id = event.target.value;
     if (!id) return;
-    const cred = this.serverCredentials.find(c => c.id == id);
+    const cred = this.serverCredentials.find(c => c.id === id);
     if (cred) {
       this.serverForm.username = cred.username;
       this.serverForm.authType = cred.auth_type === 'key' ? 'privateKey' : 'password';
@@ -3120,11 +3120,9 @@ export const hostMethods = {
       }
 
       let allDone = true;
-      let onlineCount = 0;
 
       for (const [id, status] of monitorMap.entries()) {
         if (status === 'ok') {
-          onlineCount++;
           continue;
         }
 
@@ -3139,7 +3137,6 @@ export const hostMethods = {
               const serverName = targetServers.find(s => s.id === id)?.name;
               this.upgradeLog += `   ✅ [${serverName}] 已重新上线 (v${data.version || '?'})\n`;
               monitorMap.set(id, 'ok');
-              onlineCount++;
             } else {
               allDone = false;
             }

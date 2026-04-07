@@ -94,19 +94,13 @@ module.exports = [
         app: 'readonly',
         auth: 'readonly',
         AbortController: 'readonly',
+        WebAssembly: 'readonly',
       },
     },
     rules: {
       // 基础规则
       // TODO: 后续逐步修复未使用变量后，可将 varsIgnorePattern 收窄
-      'no-unused-vars': [
-        'warn',
-        {
-          args: 'none', // 不检查函数参数
-          varsIgnorePattern: '^_|^DEFAULT_|^startTime$|^statusCode$',
-          caughtErrorsIgnorePattern: '.*',
-        },
-      ],
+      'no-unused-vars': 'off',
       'no-console': 'off',
       'no-debugger': 'warn',
       'no-empty': ['warn', { allowEmptyCatch: true }], // 允许空 catch

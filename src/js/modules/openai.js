@@ -157,9 +157,6 @@ export const openaiMethods = {
       });
       const epData = await epResponse.json();
       if (Array.isArray(epData)) {
-        // 保持当前的展开状态
-        const expandedIds = { ...this.openaiExpandedEndpoints };
-
         store.openaiEndpoints = epData.map(ep => ({
           ...ep,
           showKey: false,
@@ -1749,7 +1746,7 @@ ${conversationText}
         toast.success('人设已删除');
         await this.loadPersonas();
         // 如果删除的是当前选中的，切换回默认
-        if (store.openaiCurrentPersonaId == id) {
+        if (store.openaiCurrentPersonaId === id) {
           const def = store.openaiPersonas.find(p => p.is_default);
           if (def) this.selectPersona(def.id);
         }

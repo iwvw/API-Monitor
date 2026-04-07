@@ -8,8 +8,6 @@ import { toast } from './toast.js';
 
 // 音频播放器实例
 let audioPlayer = null;
-const audioContext = null;
-const analyser = null;
 
 // AMLL 核心组件 (从 npm 包动态导入)
 let amllPlayer = null; // AMLL 歌词播放器实例
@@ -133,8 +131,6 @@ function transformToAMLL(lyrics, translations = []) {
   // 如果是逐字歌词 (来自 yrc)
   if (lyrics[0].words && lyrics[0].words.length > 0) {
     return lyrics.map((line, index) => {
-      const nextTime = lyrics[index + 1]?.startTime || line.endTime + 500;
-
       let trans = '';
       if (translations && translations.length) {
         const match = translations.find(t => Math.abs(t.time - line.startTime) < 500);
@@ -258,12 +254,6 @@ function updateMediaSession(song) {
   console.log('[Music] Media Session updated:', song.name);
 }
 
-/**
- * 恢复页面默认标题
- */
-function resetDocumentTitle() {
-  document.title = 'API Monitor';
-}
 
 /**
  * 更新 Media Session 播放位置信息
@@ -1232,11 +1222,7 @@ export const musicMethods = {
 
           // Monkey-patch: 拦截 ResizeObserver，防止 display: none 导致的 NaN 错误
           // AMLL 内部会监听 el 的 resize，如果 width/height 为 0，可能导致 maskPosition 计算为 NaN
-          try {
-            const originalRO = window.ResizeObserver;
-            // 找到 AMLL 设置在 el 上的 observer (虽然无法直接获取，但我们可以覆盖 el 的 dimensions getter 或者 hook)
-            // 简单方案：在 update 循环中检测
-          } catch (e) { }
+          // 简单方案：在 update 循环中检测
 
           el.addEventListener('click', e => {
             let target = e.target;

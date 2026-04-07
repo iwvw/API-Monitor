@@ -5,7 +5,7 @@ const fs = require('fs');
 const http = require('http');
 
 // 导入日志工具
-const { createLogger, logger: globalLogger } = require('./src/utils/logger');
+const { createLogger } = require('./src/utils/logger');
 const logger = createLogger('Server');
 
 // 打印 Logo
@@ -34,10 +34,7 @@ const compression = require('compression');
 // 导入服务
 const { loadSessions } = require('./src/services/session');
 const {
-  loadAdminPassword,
   isPasswordSavedToFile,
-  loadServerAccounts,
-  getEnvAccounts,
 } = require('./src/services/config');
 
 // 导入路由
