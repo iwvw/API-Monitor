@@ -117,8 +117,10 @@ function parseSSEStream(response, isReasoner, onData, onEnd, onError, onMeta) {
 
                     if (data.v.response) {
                         const resp = data.v.response;
-                        if (onMeta && resp.message_id) {
-                            onMeta({ message_id: resp.message_id });
+                        if (onMeta) {
+                            if (resp.message_id) onMeta({ message_id: resp.message_id });
+                            if (resp.status) onMeta({ status: resp.status });
+                            if (resp.auto_continue) onMeta({ status: 'AUTO_CONTINUE' });
                         }
                         if (resp.fragments && Array.isArray(resp.fragments)) {
                             for (const frag of resp.fragments) {
@@ -147,16 +149,27 @@ function parseSSEStream(response, isReasoner, onData, onEnd, onError, onMeta) {
 
                 // --- 2. 识别路径并动态确定类型 ---
                 if (data.p && typeof data.p === 'string') {
+                    // 状态与指令提取 (用于自动续写)
+                    if (['response/status', 'status', 'quasi_status'].includes(data.p)) {
+                        if (onMeta) onMeta({ status: data.v });
+                    }
+                    if (['response_message_id', 'message_id'].includes(data.p)) {
+                        if (onMeta) onMeta({ message_id: data.v });
+                    }
+
                     // 匹配 response/fragments/(-1 或 \d+)/content 或类似的路径
                     const contentMatch = data.p.match(/response\/fragments\/(-?\d+)\/content/);
                     if (contentMatch) {
-                        // -1 代表 DeepSeek 当前最新的活动片段（可能是思考也可能是回答）
-                        // 它的本质类型已经被 currentType 所记录，不应该再强行将其判定为 index 0
                         if (typeof data.v === 'string') {
                             onData(currentType, data.v);
                             handled = true;
                         }
                         if (handled) continue;
+                    }
+                    
+                    // 状态路径匹配 (片段级状态)
+                    if (data.p.match(/response\/fragments\/(-?\d+)\/status/)) {
+                        if (onMeta) onMeta({ status: data.v });
                     }
 
                     // 搜索结果 (覆盖各种可能的路径)
@@ -171,6 +184,15 @@ function parseSSEStream(response, isReasoner, onData, onEnd, onError, onMeta) {
                          logger.debug(`[搜索] 顶层路径 ${data.p} 收集到 ${data.v.length} 条结果`);
                          data.v.forEach(item => searchResults.push(item));
                          continue;
+                    }
+                }
+
+                // 处理嵌套在 message 里的 response (部分样本中存在)
+                if (data.message?.response) {
+                    const resp = data.message.response;
+                    if (onMeta) {
+                        if (resp.message_id) onMeta({ message_id: resp.message_id });
+                        if (resp.status) onMeta({ status: resp.status });
                     }
                 }
 

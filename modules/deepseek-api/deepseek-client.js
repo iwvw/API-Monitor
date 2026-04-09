@@ -23,6 +23,7 @@ const DS_COMPLETION_URL = 'https://chat.deepseek.com/api/v0/chat/completion';
 const DS_UPLOAD_URL = 'https://chat.deepseek.com/api/v0/chat/upload_file';
 const DS_DELETE_SESSION_URL = 'https://chat.deepseek.com/api/v0/chat_session/delete';
 const DS_DELETE_ALL_SESSIONS_URL = 'https://chat.deepseek.com/api/v0/chat_session/delete_all';
+const DS_CONTINUE_URL = 'https://chat.deepseek.com/api/v0/chat/continue';
 
 const BASE_HEADERS = {
     'Host': 'chat.deepseek.com',
@@ -223,6 +224,34 @@ async function callCompletion(token, payload, powHeader) {
             errBody += chunk;
         }
         throw new Error(`Completion failed (${resp.statusCode}): ${errBody.slice(0, 500)}`);
+    }
+
+    return resp;
+}
+
+/**
+ * 调用 Continue API（流式续写）
+ */
+async function callContinue(token, sessionId, messageId, powHeader) {
+    const headers = {
+        ...BASE_HEADERS,
+        authorization: `Bearer ${token}`,
+        'x-ds-pow-response': powHeader,
+    };
+    const payload = {
+        chat_session_id: sessionId,
+        message_id: messageId,
+        fallback_to_resume: true,
+    };
+
+    const resp = await streamPost(DS_CONTINUE_URL, headers, payload);
+
+    if (resp.statusCode !== 200) {
+        let errBody = '';
+        for await (const chunk of resp) {
+            errBody += chunk;
+        }
+        throw new Error(`Continue failed (${resp.statusCode}): ${errBody.slice(0, 500)}`);
     }
 
     return resp;
@@ -497,6 +526,7 @@ module.exports = {
     createSession,
     getPow,
     callCompletion,
+    callContinue,
     getAccessToken,
     refreshToken,
     buildCompletionPayload,
