@@ -166,18 +166,25 @@ function normalizeMobile(raw) {
 async function createSession(token) {
     const headers = { ...BASE_HEADERS, authorization: `Bearer ${token}` };
     const resp = await postJSON(DS_SESSION_URL, headers, { agent: 'chat' });
+    const data = resp.data || {};
 
-    if (resp.status === 200 && resp.data.code === 0) {
-        const sessionId = resp.data.data?.biz_data?.id;
+    const code = data.code;
+    const msg = data.msg;
+    const bizData = data.data?.biz_data || {};
+    const bizCode = data.data?.biz_code;
+    const bizMsg = data.data?.biz_msg || bizData.msg || '';
+
+    if (resp.status === 200 && code === 0 && (bizCode === 0 || bizCode === undefined)) {
+        // 参考 ds2api，支持 biz_data.id 和 biz_data.chat_session.id
+        const sessionId = bizData.id || bizData.chat_session?.id;
         if (sessionId) return sessionId;
     }
 
-    // 检查 token 是否失效
-    if (isTokenInvalid(resp.status, resp.data.code, resp.data.msg)) {
+    if (isTokenInvalid(resp.status, code, msg, bizCode, bizMsg)) {
         throw new Error('TOKEN_INVALID');
     }
 
-    throw new Error(`Create session failed: ${resp.data.msg || 'unknown'}`);
+    throw new Error(`Create session failed: ${bizMsg || msg || 'unknown'}`);
 }
 
 /**
@@ -186,9 +193,16 @@ async function createSession(token) {
 async function getPow(token) {
     const headers = { ...BASE_HEADERS, authorization: `Bearer ${token}` };
     const resp = await postJSON(DS_POW_URL, headers, { target_path: '/api/v0/chat/completion' });
+    const data = resp.data || {};
 
-    if (resp.status === 200 && resp.data.code === 0) {
-        const challenge = resp.data.data?.biz_data?.challenge;
+    const code = data.code;
+    const msg = data.msg;
+    const bizData = data.data?.biz_data || {};
+    const bizCode = data.data?.biz_code;
+    const bizMsg = data.data?.biz_msg || bizData.msg || '';
+
+    if (resp.status === 200 && code === 0 && (bizCode === 0 || bizCode === undefined)) {
+        const challenge = bizData.challenge;
         if (!challenge) throw new Error('Empty PoW challenge');
 
         const solver = getSolver();
@@ -197,11 +211,11 @@ async function getPow(token) {
         return PowSolver.buildPowHeader(challenge, answer);
     }
 
-    if (isTokenInvalid(resp.status, resp.data.code, resp.data.msg)) {
+    if (isTokenInvalid(resp.status, code, msg, bizCode, bizMsg)) {
         throw new Error('TOKEN_INVALID');
     }
 
-    throw new Error(`Get PoW failed: ${resp.data.msg || 'unknown'}`);
+    throw new Error(`Get PoW failed: ${bizMsg || msg || 'unknown'}`);
 }
 
 /**
