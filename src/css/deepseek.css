@@ -213,3 +213,112 @@
   gap: 8px;
   flex-wrap: wrap;
 }
+
+/* 统计卡片样式优化 */
+.ds-stat-cards {
+  display: flex !important;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.ds-stat-card {
+  flex: 1;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  min-height: 90px;
+  justify-content: center;
+}
+
+.ds-stat-card:hover {
+  border-color: rgba(var(--current-rgb, var(--primary-rgb)), 0.4);
+  background: var(--bg-tertiary);
+  box-shadow: 0 8px 16px -4px rgba(0, 0, 0, 0.1);
+}
+
+.ds-stat-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+  letter-spacing: 0.5px;
+}
+
+.ds-stat-value {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--current-primary, var(--primary-color));
+  font-family: var(--font-mono);
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.ds-stat-icon {
+  position: absolute;
+  right: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 32px;
+  opacity: 0.05;
+  color: var(--current-primary, var(--primary-color));
+  pointer-events: none;
+  transition: all 0.3s;
+}
+
+.ds-stat-card:hover .ds-stat-icon {
+  opacity: 0.12;
+  transform: translateY(-50%);
+}
+
+/* API 接入指引样式 */
+.ds-endpoint-section {
+  margin-top: 12px;
+}
+
+.ds-endpoint-label {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  margin-bottom: 4px;
+  font-weight: 600;
+}
+
+.ds-endpoint-value {
+  background: var(--bg-secondary);
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border: 1px solid var(--border-color);
+  transition: all 0.2s;
+}
+
+.ds-endpoint-value:hover {
+  border-color: var(--current-primary, var(--primary-color));
+  background: rgba(var(--primary-rgb), 0.05);
+}
+
+.ds-code-block {
+  background: #1e1e1e;
+  color: #d4d4d4;
+  padding: 12px;
+  border-radius: 8px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-x: auto;
+  border: 1px solid #333;
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+}

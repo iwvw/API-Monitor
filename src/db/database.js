@@ -285,6 +285,21 @@ class DatabaseService {
         logger.error('Gemini CLI Logs 迁移失败:', err.message);
       }
 
+      // DeepSeek Logs 迁移
+      try {
+        const dsLogColumns = this.db.pragma('table_info(ds_logs)');
+        if (dsLogColumns.length > 0) {
+          const hasTotalTokens = dsLogColumns.some(col => col.name === 'total_tokens');
+          if (!hasTotalTokens) {
+            logger.info('正在为 ds_logs 表添加 total_tokens 字段...');
+            this.db.exec('ALTER TABLE ds_logs ADD COLUMN total_tokens INTEGER DEFAULT 0');
+            logger.success('ds_logs.total_tokens 字段添加成功');
+          }
+        }
+      } catch (err) {
+        logger.error('DeepSeek Logs 迁移失败:', err.message);
+      }
+
       // Operation Logs 迁移: 检查 operation_logs 表是否有 trace_id 字段
       try {
         const logColumns = this.db.pragma('table_info(operation_logs)');

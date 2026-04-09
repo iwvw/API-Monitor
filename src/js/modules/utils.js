@@ -221,6 +221,26 @@ export function formatFileSize(bytes) {
 }
 
 /**
+ * 格式化 Token 数量 (K/M/B)
+ * @param {number} num - Token 数量
+ * @returns {string} 格式化后的字符串
+ */
+export function formatTokens(num) {
+  if (!num || num === 0) return '0';
+  if (num < 1000) return num.toString();
+  
+  if (num < 1000000) {
+    return (num / 1000).toFixed(1).replace(/\.0$/, '') + 'K';
+  }
+  
+  if (num < 1000000000) {
+    return (num / 1000000).toFixed(1).replace(/\.0$/, '') + 'M';
+  }
+  
+  return (num / 1000000000).toFixed(2).replace(/\.00$/, '') + 'B';
+}
+
+/**
  * 格式化运行时间 (增强版)
  * 支持 "up 1 day, 10:23", "12345" (秒), "2 days 3 hours" 等格式
  * @param {string|number} uptimeStr - 运行时间字符串或秒数

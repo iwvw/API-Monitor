@@ -11,20 +11,63 @@ export const deepseekMethods = {
     switchToDeepSeek() {
         store.mainActiveTab = 'deepseek';
         if (!store.dsCurrentTab) store.dsCurrentTab = 'models';
-        if (store.dsCurrentTab === 'models') this.loadDsModels();
-        else if (store.dsCurrentTab === 'accounts') this.loadDsAccounts();
-        else if (store.dsCurrentTab === 'logs') this.loadDsLogs();
-        else if (store.dsCurrentTab === 'settings') this.loadDsSettings();
+        this.switchDeepSeekTab(store.dsCurrentTab);
     },
 
     switchDeepSeekTab(tab) {
         store.dsCurrentTab = tab;
-        if (tab === 'models') this.loadDsModels();
-        else if (tab === 'accounts') this.loadDsAccounts();
-        else if (tab === 'logs') this.loadDsLogs();
-        else if (tab === 'settings') this.loadDsSettings();
-        else if (tab === 'test') {
-            if (store.dsModels.length === 0) this.loadDsModels();
+        if (tab === 'models') {
+            this.loadDsModels();
+            this.loadDsMatrix();
+            this.loadDsStats(); // 把统计也放在 models 标签下展示 (类似 gcli)
+        } else if (tab === 'accounts') {
+            this.loadDsAccounts();
+            this.loadDsCheckHistory();
+        } else if (tab === 'logs') {
+            this.loadDsLogs();
+        } else if (tab === 'settings') {
+            this.loadDsSettings();
+            this.loadDsModelRedirects();
+        }
+    },
+
+    // ==================== 模型矩阵 ====================
+    async loadDsMatrix() {
+        try {
+            const resp = await fetch(`${DS_API}/matrix`);
+            if (resp.ok) {
+                store.dsMatrix = await resp.json();
+            }
+        } catch (e) {
+            console.error('加载矩阵失败:', e.message);
+        }
+    },
+
+    async updateDsMatrixItem(modelId, field, value) {
+        try {
+            const resp = await fetch(`${DS_API}/matrix/${modelId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ [field]: value }),
+            });
+            if (resp.ok) {
+                const data = await resp.json();
+                store.dsMatrix = data.matrix;
+                toast.success(`${modelId} 配置已同步`);
+            }
+        } catch (e) {
+            toast.error('更新矩阵失败: ' + e.message);
+        }
+    },
+
+    async loadDsStats() {
+        try {
+            const resp = await fetch(`${DS_API}/stats`);
+            if (resp.ok) {
+                store.dsStats = await resp.json();
+            }
+        } catch (e) {
+            console.error('加载统计失败:', e.message);
         }
     },
 
@@ -369,6 +412,24 @@ export const deepseekMethods = {
         return choice.message || {};
     },
 
+    getDsLogStatusClass(code) {
+        if (!code) return 'ag-status-unknown';
+        if (code >= 200 && code < 300) return 'ag-status-success';
+        if (code === 429) return 'ag-status-warning';
+        if (code >= 400) return 'ag-status-danger';
+        return 'ag-status-unknown';
+    },
+
+    copyDsLogJson() {
+        if (!store.dsLogDetail) return;
+        const json = JSON.stringify(store.dsLogDetail, null, 2);
+        navigator.clipboard.writeText(json).then(() => {
+            toast.success('JSON 已复制到剪贴板');
+        }).catch(err => {
+            toast.error('复制失败: ' + err.message);
+        });
+    },
+
     async clearDsLogs() {
         const confirmed = await store.showConfirm({
             title: '确认清空',
@@ -395,24 +456,24 @@ export const deepseekMethods = {
             store.dsSettingsForm = {
                 API_KEY: data.API_KEY || '',
                 DEFAULT_TEMPERATURE: data.DEFAULT_TEMPERATURE || '1',
-                DEFAULT_MAX_TOKENS: data.DEFAULT_MAX_TOKENS || '8192',
+                DEFAULT_MAX_TOKENS: data.DEFAULT_MAX_TOKENS || '131072',
                 SYSTEM_INSTRUCTION: data.SYSTEM_INSTRUCTION || '',
             };
-        } catch (e) {
-            toast.error('加载设置失败: ' + e.message);
-        }
-        // 填充端点信息
-        this.$nextTick(() => {
+
+            // 填充端点信息 (放在 try 块内以访问 data)
             let hostUrl = window.location.origin;
             if (store.publicApiUrl) {
                 hostUrl = store.publicApiUrl.replace(/\/$/, '');
             }
             const baseUrl = `${hostUrl}/v1`;
-            const baseUrlEl = document.getElementById('ds-base-url');
-            if (baseUrlEl) baseUrlEl.textContent = baseUrl;
-            const curlEl = document.getElementById('ds-curl-example');
-            if (curlEl) curlEl.textContent = `curl ${baseUrl}/chat/completions \\\n  -H "Authorization: Bearer YOUR_API_KEY" \\\n  -H "Content-Type: application/json" \\\n  -d '{\n    "model": "deepseek-chat",\n    "messages": [{"role": "user", "content": "Hello"}],\n    "stream": true\n  }'`;
-        });
+            store.dsBaseUrl = baseUrl;
+            const apiKey = (this.agSettingsForm && this.agSettingsForm.API_KEY) || data.API_KEY || 'YOUR_API_KEY';
+            const example = `curl ${baseUrl}/chat/completions \\\n  -H "Authorization: Bearer ${apiKey}" \\\n  -H "Content-Type: application/json" \\\n  -d '{\n    "model": "deepseek-chat",\n    "messages": [{"role": "user", "content": "Hello"}],\n    "stream": true\n  }'`;
+            store.dsCurlExample = example;
+            console.log('[DS] API Guide updated:', { baseUrl, apiKeyLength: apiKey.length });
+        } catch (e) {
+            toast.error('加载设置失败: ' + e.message);
+        }
     },
 
     async saveDsSettings() {
@@ -423,8 +484,12 @@ export const deepseekMethods = {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(store.dsSettingsForm),
             });
-            if (resp.ok) toast.success('设置已保存');
-            else toast.error('保存失败');
+            if (resp.ok) {
+                toast.success('设置已保存');
+                await this.loadDsSettings();
+            } else {
+                toast.error('保存失败');
+            }
         } catch (e) {
             toast.error('保存失败: ' + e.message);
         } finally {
@@ -446,87 +511,118 @@ export const deepseekMethods = {
         });
     },
 
-    // ==================== 模型测试 ====================
-    async runDsTest() {
-        if (store.dsTesting) return;
-        store.dsTesting = true;
-        store.dsTestResult = { content: '', reasoning: '', usage: null, error: null };
-
+    // ==================== 模型检测 (参考 gcli 模式) ====================
+    async loadDsCheckHistory() {
         try {
-            const body = {
-                model: store.dsTestModel,
-                messages: [{ role: 'user', content: store.dsTestMessage }],
-                stream: store.dsTestStream,
-            };
-
-            const headers = {
-                'Content-Type': 'application/json',
-            };
-            if (store.dsSettingsForm.API_KEY) {
-                headers['Authorization'] = `Bearer ${store.dsSettingsForm.API_KEY}`;
-            }
-
-            const resp = await fetch(`${DS_API}/v1/chat/completions`, {
-                method: 'POST',
-                headers,
-                body: JSON.stringify(body),
-            });
-
-            if (!resp.ok) {
-                const errData = await resp.json().catch(() => ({}));
-                throw new Error(errData.error?.message || errData.error || `HTTP ${resp.status}`);
-            }
-
-            if (!store.dsTestStream) {
-                const data = await resp.json();
-                const choice = data.choices?.[0]?.message;
-                store.dsTestResult.content = choice?.content || '';
-                store.dsTestResult.reasoning = choice?.reasoning_content || '';
-                store.dsTestResult.usage = data.usage;
-            } else {
-                const reader = resp.body.getReader();
-                const decoder = new TextDecoder();
-                let buffer = '';
-
-                while (true) {
-                    const { done, value } = await reader.read();
-                    if (done) break;
-
-                    buffer += decoder.decode(value, { stream: true });
-                    const lines = buffer.split('\n');
-                    buffer = lines.pop() || '';
-
-                    for (const line of lines) {
-                        const trimmed = line.trim();
-                        if (!trimmed || !trimmed.startsWith('data: ')) continue;
-                        const dataStr = trimmed.slice(6);
-                        if (dataStr === '[DONE]') break;
-
-                        try {
-                            const data = JSON.parse(dataStr);
-                            const delta = data.choices?.[0]?.delta;
-                            if (delta) {
-                                if (delta.reasoning_content) {
-                                    store.dsTestResult.reasoning += delta.reasoning_content;
-                                }
-                                if (delta.content) {
-                                    store.dsTestResult.content += delta.content;
-                                }
-                            }
-                            if (data.usage) {
-                                store.dsTestResult.usage = data.usage;
-                            }
-                        } catch (e) {
-                            // 忽略部分解析错误
-                        }
-                    }
-                }
+            const resp = await fetch(`${DS_API}/check/history`);
+            if (resp.ok) {
+                store.dsCheckHistory = await resp.json();
             }
         } catch (e) {
-            store.dsTestResult.error = e.message;
-            toast.error('测试失败: ' + e.message);
-        } finally {
-            store.dsTesting = false;
+            console.error('加载检测历史失败:', e.message);
         }
+    },
+
+    async runDsHealthCheck() {
+        if (store.dsChecking) return;
+        store.dsChecking = true;
+        try {
+            const resp = await fetch(`${DS_API}/check/run`, { method: 'POST' });
+            if (resp.ok) {
+                toast.success('已启动批量健康检测');
+                // 启动轮询检查进度
+                this.pollDsCheckHistory();
+            } else {
+                toast.error('启动检测失败');
+                store.dsChecking = false;
+            }
+        } catch (e) {
+            toast.error('请求失败: ' + e.message);
+            store.dsChecking = false;
+        }
+    },
+
+    // 轮询检测进度
+    async pollDsCheckHistory() {
+        const interval = setInterval(async () => {
+            await this.loadDsCheckHistory();
+            // 如果所有模型在最新时间点都有了结果，或者超过 2 分钟，停止轮询
+            // 这里简单处理：如果正在检测的任务完成（后端逻辑），通常 matrix 会更新
+            // 目前后端逻辑是后台运行，前端可以一直轮询直到用户切换页面或多次加载后无变化
+            // 为了性能，我们轮询 12 次 (约 1 分钟)
+        }, 5000);
+        setTimeout(() => {
+            clearInterval(interval);
+            store.dsChecking = false;
+        }, 60000);
+    },
+
+    async clearDsCheckHistory() {
+        const confirmed = await store.showConfirm({
+            title: '确认清空',
+            message: '确定清空所有模型健康检测历史记录吗？',
+            icon: 'fa-trash',
+            confirmText: '清空',
+            confirmClass: 'btn-danger',
+        });
+        if (!confirmed) return;
+
+        try {
+            const resp = await fetch(`${DS_API}/check/clear`, { method: 'POST' });
+            if (resp.ok) {
+                toast.success('记录已清空');
+                store.dsCheckHistory = { models: [], times: [], matrix: {} };
+            }
+        } catch (e) {
+            toast.error('操作失败: ' + e.message);
+        }
+    },
+
+    formatDsCheckTime(timestamp) {
+        if (!timestamp) return '';
+        const date = new Date(timestamp * 1000);
+        const now = new Date();
+        const isToday = date.toDateString() === now.toDateString();
+        
+        const h = date.getHours().toString().padStart(2, '0');
+        const m = date.getMinutes().toString().padStart(2, '0');
+        
+        if (isToday) return `${h}:${m}`;
+        
+        const mo = (date.getMonth() + 1).toString().padStart(2, '0');
+        const d = date.getDate().toString().padStart(2, '0');
+        return `${mo}-${d} ${h}:${m}`;
+    },
+
+    toggleDsCheckModel(model) {
+        if (store.dsDisabledCheckModels.includes(model)) {
+            store.dsDisabledCheckModels = store.dsDisabledCheckModels.filter(m => m !== model);
+        } else {
+            store.dsDisabledCheckModels.push(model);
+        }
+    },
+
+    getDsCheckBadgeClass(matrixData, accountIndex) {
+        if (!matrixData || !matrixData.passedAccounts) return 'check-badge-unknown';
+        const passedArr = matrixData.passedAccounts.split(',').map(Number);
+        if (passedArr.includes(accountIndex)) return 'check-badge-ok';
+        if (matrixData.status === 'error' || matrixData.status === 'ok') {
+            // 如果整体状态已有，但此账号不在通过列表，说明它失败了
+            return 'check-badge-error';
+        }
+        return 'check-badge-unknown';
+    },
+
+    getDsCheckBadgeTitle(matrixData, accountIndex) {
+        if (!matrixData) return '未检测';
+        const passedArr = (matrixData.passedAccounts || '').split(',').map(Number);
+        if (passedArr.includes(accountIndex)) return '检测通过';
+        if (matrixData.error_log) return `检测失败:\n${matrixData.error_log}`;
+        return '未通过';
+    },
+
+    // 保留旧的测试方法，以防某些地方仍有引用
+    async testDsModel() {
+        toast.info('该功能已迁移至健康检测');
     },
 };

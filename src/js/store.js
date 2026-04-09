@@ -109,6 +109,12 @@ export const MODULE_CONFIG = {
     icon: 'fa-palette',
     description: 'AI 驱动的一站式绘图平台',
   },
+  deepseek: {
+    name: 'DeepSeek',
+    shortName: 'DS',
+    icon: 'fa-brain',
+    description: 'DeepSeek API 代理服务',
+  },
 };
 
 /**
@@ -732,6 +738,8 @@ export const store = reactive({
   geminiCliStats: null,
   geminiCliLogs: [],
   geminiCliSettings: {},
+  gcliBaseUrl: 'Loading...',
+  gcliCurlExample: 'Generating example...',
   geminiCliEditingAccount: null,
   geminiCliModels: {},
   geminiCliMatrix: null, // Stores the model matrix configuration
@@ -779,15 +787,24 @@ export const store = reactive({
   dsLogDetailContent: '',
   dsLogDetail: null,
   dsLogDetailShowRaw: false,
-  dsSettingsForm: { API_KEY: '', DEFAULT_TEMPERATURE: '1', DEFAULT_MAX_TOKENS: '8192', SYSTEM_INSTRUCTION: '' },
+  dsSettingsForm: { API_KEY: '', DEFAULT_TEMPERATURE: '1', DEFAULT_MAX_TOKENS: '131072', SYSTEM_INSTRUCTION: '' },
   dsSaving: false,
+  dsMatrix: {},
+  dsStats: { total_calls: 0, success_calls: 0, total_tokens: 0 },
+  dsBaseUrl: 'Loading...',
+  dsCurlExample: 'Generating example...',
 
-  // DeepSeek 模型测试
+  // DeepSeek 交互测试 (保留现状供需要时激活)
   dsTestModel: 'deepseek-chat',
   dsTestMessage: '你好，测试',
-  dsTestResult: null, // { content, reasoning, usage, error }
+  dsTestResult: null,
   dsTesting: false,
   dsTestStream: true,
+
+  // DeepSeek 模型检测 (对齐 GCLI)
+  dsCheckHistory: { models: [], times: [], matrix: {} },
+  dsChecking: false,
+  dsDisabledCheckModels: [],
 
   // ===== 音乐播放器模块 =====
   musicReady: false,

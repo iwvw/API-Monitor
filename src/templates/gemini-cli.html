@@ -871,6 +871,36 @@
         </div>
       </div>
     </div>
+    
+    <!-- API 接入指引 -->
+    <div class="panel" style="margin-top: 16px; padding: 16px">
+      <div class="panel-header" style="padding-bottom: 10px; border-bottom: none">
+        <div class="panel-title" style="font-size: 14px">
+          <i class="fas fa-plug" style="margin-right: 6px; color: var(--gemini-primary)"></i>API 接入指引
+        </div>
+      </div>
+
+      <div class="ds-endpoint-section">
+        <div class="ds-endpoint-label">Base URL</div>
+        <div class="ds-endpoint-value" @click="copyGeminiCliEndpoint">
+          <code>{{ store.gcliBaseUrl }}</code>
+          <i class="fas fa-copy" style="opacity: 0.5; margin-left: 8px; cursor: pointer" title="复制"></i>
+        </div>
+      </div>
+
+      <div class="ds-endpoint-section">
+        <div class="ds-endpoint-label">可用端点</div>
+        <div style="display: flex; flex-direction: column; gap: 4px; font-size: 12px">
+          <div><code style="color: var(--gemini-primary)">POST</code> <code>/v1/chat/completions</code></div>
+          <div><code style="color: var(--gemini-primary)">GET</code> <code>/v1/models</code></div>
+        </div>
+      </div>
+
+      <div class="ds-endpoint-section">
+        <div class="ds-endpoint-label">请求示例</div>
+        <pre class="ds-code-block" v-text="store.gcliCurlExample"></pre>
+      </div>
+    </div>
   </div>
 </div>
 <!-- ==================== Gemini CLI 管理部分结束 ==================== -->

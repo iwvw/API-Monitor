@@ -2,7 +2,7 @@
     "deepseek-chat": {
         "base": true,
         "search": true,
-        "thinking": false
+        "thinking": true
     },
     "deepseek-reasoner": {
         "base": true,

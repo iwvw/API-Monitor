@@ -39,6 +39,7 @@ async function loadLazyCSS() {
     import('@applemusic-like-lyrics/core/style.css'),
     import('../css/antigravity.css'),
     import('../css/gemini-cli.css'),
+    import('../css/deepseek.css'),
     import('../css/openai.css'),
     import('../css/self-h.css'),
     import('../css/zeabur.css'),
@@ -113,7 +114,7 @@ import { tencentMethods } from './modules/tencent.js';
 import { notificationData, notificationMethods } from './modules/notification.js';
 import { aiChatData, aiChatMethods, aiChatComputed } from './modules/ai-chat.js';
 import { aiDrawData, aiDrawMethods, aiDrawComputed } from './modules/ai-draw.js';
-import { formatDateTime, formatFileSize, formatRegion, formatUptime } from './modules/utils.js';
+import { formatDateTime, formatFileSize, formatRegion, formatUptime, formatTokens } from './modules/utils.js';
 
 // 导入全局状态
 import { store, MODULE_CONFIG } from './store.js';
@@ -1801,6 +1802,7 @@ const app = createApp({
     formatFileSize,
     formatRegion,
     formatUptime,
+    formatTokens,
     renderMarkdown,
 
     // 带缓存的日志内容渲染（避免重复解析 Base64 图片）

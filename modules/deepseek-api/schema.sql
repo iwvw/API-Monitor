@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS ds_logs (
     first_token_time_ms INTEGER,
     client_ip TEXT,
     user_agent TEXT,
+    total_tokens INTEGER DEFAULT 0,
     detail TEXT,
     timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
 );
@@ -56,6 +57,20 @@ CREATE TABLE IF NOT EXISTS ds_file_cache (
     file_size INTEGER,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+-- 模型检测历史表 (参考 gcli 模式)
+CREATE TABLE IF NOT EXISTS ds_model_checks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    model_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    error_message TEXT,
+    check_time INTEGER NOT NULL,
+    passed_accounts TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_ds_model_checks_unique ON ds_model_checks(model_id, check_time);
+CREATE INDEX IF NOT EXISTS idx_ds_model_checks_time ON ds_model_checks(check_time);
 
 -- 默认设置
 INSERT OR IGNORE INTO ds_settings (key, value) VALUES ('API_KEY', '123456');

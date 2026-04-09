@@ -106,7 +106,7 @@ function resolveModel(requestedModel) {
 
 const accountInUse = new Map();  // accountId -> 当前并发数
 let lastSelectedIdx = -1;        // 轮转索引
-const MAX_INFLIGHT_PER_ACCOUNT = 2; // 每个账号最大并发
+const MAX_INFLIGHT_PER_ACCOUNT = 2; // DeepSeek 建议单账号并发不超过 2
 
 /**
  * 智能选择可用账号
@@ -146,19 +146,27 @@ function selectAccount(allAccounts, preferAccountId = null) {
     return null;
 }
 
-function canUseAccount(accountId) {
-    return (accountInUse.get(accountId) || 0) < MAX_INFLIGHT_PER_ACCOUNT;
-}
-
 function releaseAccount(accountId) {
     if (!accountId) return;
     const count = accountInUse.get(accountId) || 0;
-    if (count <= 1) {
-        accountInUse.delete(accountId);
-    } else {
+    if (count > 0) {
         accountInUse.set(accountId, count - 1);
+        console.log(`[DeepSeek] Account ${accountId} released, remaining: ${count - 1}`);
     }
 }
+
+function canUseAccount(accountId) {
+    const current = accountInUse.get(accountId) || 0;
+    if (current >= MAX_INFLIGHT_PER_ACCOUNT) {
+        console.warn(`[DeepSeek] Account ${accountId} is FULL: ${current}/${MAX_INFLIGHT_PER_ACCOUNT}`);
+        return false;
+    }
+    if (current > 0) {
+        console.log(`[DeepSeek] Account ${accountId} usage: ${current}/${MAX_INFLIGHT_PER_ACCOUNT}`);
+    }
+    return true;
+}
+
 
 // ==================== Session 缓存 (用于维系上下文对话) ====================
 // 外部客户端可能将 reasoning_content 与 content 合并发回
@@ -489,7 +497,162 @@ router.delete('/logs', requireAuth, (req, res) => {
     }
 });
 
+// ==================== 模型检测 (参考 gcli 模式) ====================
+
+/**
+ * 获取检测历史矩阵
+ */
+router.get('/check/history', requireAuth, (req, res) => {
+    try {
+        res.json(storage.getModelCheckHistory());
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+/**
+ * 清空检测历史
+ */
+router.post('/check/clear', requireAuth, (req, res) => {
+    try {
+        storage.clearModelCheckHistory();
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+/**
+ * 执行批量健康检测
+ */
+router.post('/check/run', requireAuth, async (req, res) => {
+    try {
+        const accounts = storage.getAccounts().filter(a => a.enable !== 0);
+        if (accounts.length === 0) {
+            return res.json({ success: false, error: '没有启用的账号' });
+        }
+
+        // 获取要检测的模型
+        const matrixPath = path.join(__dirname, 'deepseek-models.json');
+        const matrix = JSON.parse(fs.readFileSync(matrixPath, 'utf8'));
+        const modelsToCheck = Object.keys(matrix).filter(m => matrix[m].base);
+        
+        // 如果没有模型，默认测这两个
+        if (modelsToCheck.length === 0) {
+            modelsToCheck.push('deepseek-chat', 'deepseek-reasoner');
+        }
+
+        const batchTime = Math.floor(Date.now() / 1000);
+
+        // 先给前端返回成功，后台慢慢测 (前端通过轮询 history 获取进度)
+        res.json({ success: true, batchTime });
+
+        // 后台异步执行检测
+        (async () => {
+            logger.info(`[DS Check] 开始批量检测: ${modelsToCheck.length} 个模型, ${accounts.length} 个账号`);
+            
+            for (const modelId of modelsToCheck) {
+                const results = {
+                    ok: false,
+                    passedIndices: [],
+                    errors: []
+                };
+
+                // 并行检测此模型下的所有账号
+                await Promise.all(accounts.map(async (account, index) => {
+                    const accountIndex = index + 1;
+                    try {
+                        const token = await client.getAccessToken(account.id);
+
+                        // 完整的健康检测链：创建会话 -> 获取 PoW -> 尝试对话 -> 删除会话
+                        const sessionId = await client.createSession(token);
+                        const powHeader = await client.getPow(token);
+                        const payload = client.buildCompletionPayload(sessionId, [{ role: 'user', content: 'Hi' }], modelId, { max_tokens: 1 });
+
+                        let timer;
+                        const timeoutPromise = new Promise((_, reject) => {
+                            timer = setTimeout(() => reject(new Error('Timeout')), 15000);
+                        });
+
+                        try {
+                            const response = await Promise.race([
+                                client.callCompletion(token, payload, powHeader),
+                                timeoutPromise
+                            ]);
+                            clearTimeout(timer);
+
+                            if (response && response.statusCode === 200) {
+                                results.ok = true;
+                                results.passedIndices.push(accountIndex);
+                            } else {
+                                results.errors.push(`${account.name}: 响应异常`);
+                            }
+                        } catch (raceErr) {
+                            clearTimeout(timer);
+                            throw raceErr;
+                        } finally {
+                            // 清理临时会话
+                            client.deleteSession(token, sessionId).catch(() => {});
+                        }
+                    } catch (err) {
+                        results.errors.push(`${account.name}: ${err.message}`);
+                    }
+
+                    // 每完成一个账号就同步更新一次数据库，前端轮询能看到动态进度
+                    const passedStr = results.passedIndices.sort((a, b) => a - b).join(',');
+                    const status = results.ok ? 'ok' : 'error';
+                    const errorLog = results.errors.join('\n');
+                    storage.recordModelCheck(modelId, status, errorLog, batchTime, passedStr);
+                }));
+            }
+            logger.info('[DS Check] 批量检测完成');
+        })().catch(err => logger.error(`[DS Check] 任务异常: ${err.message}`));
+
+    } catch (e) {
+        if (!res.headersSent) res.status(500).json({ error: e.message });
+    }
+});
+
+router.get('/stats', requireAuth, (req, res) => {
+    try {
+        const stats = storage.getStats();
+        res.json(stats);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // ==================== 模型相关 ====================
+
+// ==================== 模型矩阵管理 ====================
+
+router.get('/matrix', requireAuth, (req, res) => {
+    try {
+        const matrixPath = path.join(__dirname, 'deepseek-models.json');
+        const matrix = JSON.parse(fs.readFileSync(matrixPath, 'utf8'));
+        res.json(matrix);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
+router.put('/matrix/:id', requireAuth, (req, res) => {
+    try {
+        const { id } = req.params;
+        const matrixPath = path.join(__dirname, 'deepseek-models.json');
+        const matrix = JSON.parse(fs.readFileSync(matrixPath, 'utf8'));
+        
+        if (matrix[id]) {
+            matrix[id] = { ...matrix[id], ...req.body };
+            fs.writeFileSync(matrixPath, JSON.stringify(matrix, null, 4));
+            res.json({ success: true, matrix });
+        } else {
+            res.status(404).json({ error: 'Model not found in matrix' });
+        }
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
 
 router.get('/models', (req, res) => {
     try {
@@ -626,7 +789,7 @@ router.get('/v1/files', requireApiKey, (req, res) => {
 router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async (req, res) => {
     const startTime = Date.now();
     try {
-        let { model, messages, stream, file_ids } = req.body;
+        let { model, messages, stream, file_ids, max_tokens, temperature } = req.body;
 
         // 智能模型解析 (移植自 ds2api)
         const { resolved: resolvedModel, original: originalModel } = resolveModel(model);
@@ -715,7 +878,11 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
             let sessionId;
             let parentId = null;
 
-            const cached = findSessionIdByMessages(messages);
+            // 获取最后一条用户消息内容作为特征 Key
+            const lastUserMsg = [...messages].reverse().find(m => m.role === 'user');
+            const contentKey = lastUserMsg ? (typeof lastUserMsg.content === 'string' ? lastUserMsg.content : '') : '';
+            
+            const cached = contentKey ? storage.findSessionCache(contentKey) : null;
             if (cached) {
                 sessionId = cached.sessionId;
                 parentId = cached.parentId || null;
@@ -758,9 +925,11 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
             }
 
             // 4. 构建请求体
+            const defaultMaxTokens = storage.getSetting('DEFAULT_MAX_TOKENS') || '8192';
             const payload = client.buildCompletionPayload(sessionId, messages, model, {
                 parent_message_id: parentId,
                 file_ids: file_ids || [],
+                max_tokens: max_tokens || parseInt(defaultMaxTokens),
             });
 
             // 5. 调用 Completion
@@ -899,8 +1068,9 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
                     res.write('data: [DONE]\n\n');
                     res.end();
 
-                    // 记录会话继承
-                    saveToSessionCache(fullContent, sessionId, responseMessageId);
+                    // 记录会话继承 (使用回复内容的前 100 个字符作为 Key)
+                    const resKey = fullContent.substring(0, 100);
+                    storage.saveSessionCache(resKey, sessionId, responseMessageId);
 
                     // 会话自动清理
                     const autoDelete = storage.getSetting('AUTO_DELETE_SESSIONS');
@@ -918,6 +1088,7 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
                         path: req.path, method: req.method, statusCode: 200,
                         durationMs: Date.now() - startTime, firstTokenTimeMs: firstTokenTime,
                         clientIp: req.ip, userAgent: req.get('user-agent'),
+                        totalTokens: promptTokens + estimateTokens(fullContent),
                         detail: {
                             model, type: 'stream',
                             messages: sanitizeMessages(messages),
@@ -994,7 +1165,8 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
                     },
                 };
                 // 记录会话继承
-                saveToSessionCache(result.content, sessionId, result.message_id);
+                const resKey = result.content.substring(0, 100);
+                storage.saveSessionCache(resKey, sessionId, result.message_id);
 
                 // 会话自动清理
                 const autoDelete = storage.getSetting('AUTO_DELETE_SESSIONS');
@@ -1013,6 +1185,7 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
                     path: req.path, method: req.method, statusCode: 200,
                     durationMs: Date.now() - startTime, firstTokenTimeMs: Date.now() - startTime,
                     clientIp: req.ip, userAgent: req.get('user-agent'),
+                    totalTokens: promptTokens + estimateTokens(result.content),
                     detail: { model, messages: sanitizeMessages(messages), response: responseData },
                 });
 
@@ -1049,17 +1222,22 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
 
 // ==================== 辅助函数 ====================
 
+/**
+ * 清洗消息数据，去除 Base64 图片等大负载，防止日志数据库过大
+ */
 function sanitizeMessages(messages) {
-    if (!messages) return [];
-    return JSON.parse(JSON.stringify(messages)).map(msg => {
-        if (Array.isArray(msg.content)) {
-            msg.content.forEach(part => {
+    if (!Array.isArray(messages)) return messages;
+    return messages.map(msg => {
+        const newMsg = { ...msg };
+        if (Array.isArray(newMsg.content)) {
+            newMsg.content = newMsg.content.map(part => {
                 if (part.type === 'image_url' && part.image_url?.url?.startsWith('data:')) {
-                    part.image_url.url = `data:image/... [Base64 hidden, size=${part.image_url.url.length}]`;
+                    return { ...part, image_url: { url: '[BASE64_IMAGE_DATA]' } };
                 }
+                return part;
             });
         }
-        return msg;
+        return newMsg;
     });
 }
 

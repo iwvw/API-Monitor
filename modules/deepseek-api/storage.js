@@ -147,8 +147,8 @@ function recordLog(data) {
     if (!database) return;
     try {
         database.prepare(`
-      INSERT INTO ds_logs (account_id, model, is_balanced, path, method, status_code, duration_ms, first_token_time_ms, client_ip, user_agent, detail)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO ds_logs (account_id, model, is_balanced, path, method, status_code, duration_ms, first_token_time_ms, client_ip, user_agent, total_tokens, detail)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
             data.accountId || '',
             data.model || '',
@@ -160,6 +160,7 @@ function recordLog(data) {
             data.firstTokenTimeMs || null,
             data.clientIp || '',
             data.userAgent || '',
+            data.totalTokens || 0,
             data.detail ? JSON.stringify(data.detail) : null
         );
     } catch (e) {
@@ -323,7 +324,8 @@ function getStats() {
             SELECT 
                 COUNT(*) as total_calls,
                 SUM(CASE WHEN status_code = 200 THEN 1 ELSE 0 END) as success_calls,
-                SUM(CASE WHEN status_code != 200 THEN 1 ELSE 0 END) as fail_calls
+                SUM(CASE WHEN status_code != 200 THEN 1 ELSE 0 END) as fail_calls,
+                SUM(total_tokens) as total_tokens
             FROM ds_logs
         `).get();
 
@@ -342,6 +344,7 @@ function getStats() {
             total_calls: stats.total_calls || 0,
             success_calls: stats.success_calls || 0,
             fail_calls: stats.fail_calls || 0,
+            total_tokens: stats.total_tokens || 0,
             daily_trend: dailyTrend || [],
         };
     } catch (e) {
@@ -352,6 +355,93 @@ function getStats() {
             fail_calls: 0,
             daily_trend: [],
         };
+    }
+}
+
+// ==================== 模型检测 (参考 gcli 模式) ====================
+
+/**
+ * 记录模型检测结果
+ */
+function recordModelCheck(modelId, status, errorMessage = null, checkTime = null, passedAccounts = null) {
+    const database = getDb();
+    if (!database) return false;
+    try {
+        const time = checkTime || Math.floor(Date.now() / 1000);
+        database.prepare(`
+            INSERT INTO ds_model_checks (model_id, status, error_message, check_time, passed_accounts)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(model_id, check_time) DO UPDATE SET
+                status = excluded.status,
+                error_message = excluded.error_message,
+                passed_accounts = excluded.passed_accounts
+        `).run(modelId, status, errorMessage, time, passedAccounts);
+        return true;
+    } catch (e) {
+        logger.error('记录模型检测失败:', e.message);
+        return false;
+    }
+}
+
+/**
+ * 获取模型检测历史
+ */
+function getModelCheckHistory() {
+    const database = getDb();
+    if (!database) return { models: [], times: [], matrix: {} };
+    try {
+        const times = database.prepare(`
+            SELECT DISTINCT check_time FROM ds_model_checks 
+            ORDER BY check_time DESC LIMIT 10
+        `).all().map(r => r.check_time);
+
+        const models = database.prepare(`
+            SELECT DISTINCT model_id FROM ds_model_checks 
+            ORDER BY model_id
+        `).all().map(r => r.model_id);
+
+        if (times.length === 0) {
+            return { models: [], times: [], matrix: {} };
+        }
+
+        const checks = database.prepare(`
+            SELECT model_id, status, check_time, passed_accounts, error_message FROM ds_model_checks 
+            WHERE check_time IN (${times.map(() => '?').join(',')})
+        `).all(...times);
+
+        const matrix = {};
+        models.forEach(model => {
+            matrix[model] = {};
+        });
+        checks.forEach(check => {
+            if (matrix[check.model_id]) {
+                matrix[check.model_id][check.check_time] = {
+                    status: check.status,
+                    passedAccounts: check.passed_accounts || '',
+                    error_log: check.error_message || '',
+                };
+            }
+        });
+
+        return { models, times, matrix };
+    } catch (e) {
+        logger.error('获取检测历史失败:', e.message);
+        return { models: [], times: [], matrix: {} };
+    }
+}
+
+/**
+ * 清空模型检测历史
+ */
+function clearModelCheckHistory() {
+    const database = getDb();
+    if (!database) return false;
+    try {
+        database.prepare('DELETE FROM ds_model_checks').run();
+        return true;
+    } catch (e) {
+        logger.error('清空检测历史失败:', e.message);
+        return false;
     }
 }
 
@@ -380,4 +470,7 @@ module.exports = {
     getFileCache,
     getAllFileCaches,
     getStats,
+    recordModelCheck,
+    getModelCheckHistory,
+    clearModelCheckHistory
 };

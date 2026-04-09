@@ -499,6 +499,10 @@ function buildCompletionPayload(sessionId, messages, model, options = {}) {
         thinking_enabled: isReasoner,
         search_enabled: isSearch,
     };
+    
+    if (options.max_tokens) {
+        payload.max_tokens = options.max_tokens;
+    }
 
     // 连续对话：传入上一条消息的 ID 作为 parent
     if (options.parent_message_id) {

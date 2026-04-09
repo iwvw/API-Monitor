@@ -418,6 +418,18 @@ export const geminiCliMethods = {
       if (store.mainActiveTab === 'gemini-cli' && store.geminiCliCurrentTab === 'settings') {
         toast.success('模块设置已从服务器同步');
       }
+
+      // 填充端点信息
+      let hostUrl = window.location.origin;
+      if (store.publicApiUrl) {
+        hostUrl = store.publicApiUrl.replace(/\/$/, '');
+      }
+      const baseUrl = `${hostUrl}/v1`;
+      store.gcliBaseUrl = baseUrl;
+      const apiKey = (this.agSettingsForm && this.agSettingsForm.API_KEY) || this.geminiCliSettingsForm.API_KEY || 'YOUR_API_KEY';
+      const example = `curl ${baseUrl}/chat/completions \\\n  -H "Authorization: Bearer ${apiKey}" \\\n  -H "Content-Type: application/json" \\\n  -d '{\n    "model": "gemini-2.5-flash",\n    "messages": [{"role": "user", "content": "Hello"}],\n    "stream": true\n  }'`;
+      store.gcliCurlExample = example;
+      console.log('[GCLI] API Guide updated:', { baseUrl, apiKeyLength: apiKey.length });
     } catch (error) {
       toast.error('加载设置失败');
     } finally {
@@ -1276,5 +1288,22 @@ export const geminiCliMethods = {
 
     const reset = new Date(bucket.resetTime);
     return reset > new Date();
+  },
+
+  // 复制端点地址
+  copyGeminiCliEndpoint() {
+    let hostUrl = window.location.origin;
+    if (store.publicApiUrl) {
+      hostUrl = store.publicApiUrl.replace(/\/$/, '');
+    }
+    const baseUrl = `${hostUrl}/v1`;
+    navigator.clipboard
+      .writeText(baseUrl)
+      .then(() => {
+        toast.success('已复制 API 端点地址');
+      })
+      .catch(() => {
+        toast.error('复制失败，请手动复制');
+      });
   },
 };

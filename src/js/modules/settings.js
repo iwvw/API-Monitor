@@ -225,20 +225,29 @@ export const settingsMethods = {
         payload.API_KEY = apiKey;
       }
 
-      // 1. 同步保存到 Antigravity 和 Gemini CLI
-      await fetch('/api/antigravity/settings', {
-        method: 'POST',
-        headers: store.getAuthHeaders(),
-        body: JSON.stringify(payload),
-      });
-      await fetch('/api/gemini-cli/settings', {
-        method: 'POST',
-        headers: store.getAuthHeaders(),
-        body: JSON.stringify(payload),
-      });
+      // 1. 同步保存到 Antigravity, Gemini CLI 和 DeepSeek
+      const syncTargets = [
+        '/api/antigravity/settings',
+        '/api/gemini-cli/settings',
+        '/api/deepseek/settings'
+      ];
+
+      for (const url of syncTargets) {
+        await fetch(url, {
+          method: 'POST',
+          headers: store.getAuthHeaders(),
+          body: JSON.stringify(payload),
+        });
+      }
 
       // 2. 保存其余全局选项
       await this.saveUserSettingsToServer();
+
+      // 3. 刷新相关模块的接入指引
+      if (typeof this.loadDsSettings === 'function') this.loadDsSettings();
+      if (typeof this.loadGeminiCliSettings === 'function') this.loadGeminiCliSettings();
+      if (typeof this.loadAntigravitySettings === 'function') this.loadAntigravitySettings();
+
       this.showGlobalToast('全局配置已保存', 'success');
     } catch (error) {
       this.showGlobalToast('保存失败: ' + error.message, 'error');
