@@ -112,20 +112,24 @@ const MAX_INFLIGHT_PER_ACCOUNT = 2; // DeepSeek 建议单账号并发不超过 2
  * 智能选择可用账号
  * 策略: 有Token优先 → 并发控制 → 轮转使用
  */
-function selectAccount(allAccounts, preferAccountId = null) {
+function selectAccount(allAccounts, preferAccountId = null, excludeIds = []) {
     if (allAccounts.length === 0) return null;
 
+    // 过滤掉被排除的账号
+    const availablePool = allAccounts.filter(a => !excludeIds.includes(a.id));
+    if (availablePool.length === 0) return null;
+
     // 如果指定了优先账号且可用
-    if (preferAccountId) {
-        const preferred = allAccounts.find(a => a.id === preferAccountId);
+    if (preferAccountId && !excludeIds.includes(preferAccountId)) {
+        const preferred = availablePool.find(a => a.id === preferAccountId);
         if (preferred && canUseAccount(preferred.id)) {
             return preferred;
         }
     }
 
     // 分离有Token和无Token的账号
-    const withToken = allAccounts.filter(a => a.token && a.token.trim());
-    const withoutToken = allAccounts.filter(a => !a.token || !a.token.trim());
+    const withToken = availablePool.filter(a => a.token && a.token.trim());
+    const withoutToken = availablePool.filter(a => !a.token || !a.token.trim());
 
     // 先尝试有Token的，再尝试无Token的
     for (const pool of [withToken, withoutToken]) {
@@ -807,409 +811,231 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
             return res.status(503).json({ error: { message: 'No enabled accounts available', type: 'service_unavailable' } });
         }
 
-        // 2. 智能选择账号 (移植自 ds2api account pool)
-        let account;
-        // 如果有文件，优先选择拥有该文件的账号
-        if (hasFiles) {
-            const fileCache = storage.getFileCache(file_ids[0]);
-            if (fileCache) {
-                account = selectAccount(allAccounts, fileCache.account_id);
-            }
-        }
-        // 智能轮转选择
-        if (!account) {
-            account = selectAccount(allAccounts);
-        }
-        if (!account) {
-            return res.status(503).json({ error: { message: 'All accounts are busy', type: 'service_unavailable' } });
-        }
+        const excludedIds = [];
+        let lastError = null;
+        const MAX_RETRIES = Math.min(allAccounts.length, 3);
 
-        // 3. 自动视觉：解析并上传 Base64 图片
-        const uploadedFileIds = [];
-        for (const msg of messages) {
-            if (Array.isArray(msg.content)) {
-                for (const part of msg.content) {
-                    if (part.type === 'image_url' && part.image_url?.url?.startsWith('data:')) {
-                        try {
-                            const base64Data = part.image_url.url.split(',')[1];
-                            const buffer = Buffer.from(base64Data, 'base64');
-                            const mimeMatch = part.image_url.url.match(/^data:(image\/[a-z]+);base64,/);
-                            const ext = mimeMatch ? mimeMatch[1].split('/')[1] : 'png';
-                            const fileName = `vision_${Date.now()}.${ext}`;
-
-                            const token = await client.getAccessToken(account.id);
-                            // 视觉上传需要一个临时会话，如果此时还没有上下文，先创建一个
-                            const uploadSessionId = await client.createSession(token);
-                            const fileId = await client.uploadFile(token, uploadSessionId, buffer, fileName);
-                            uploadedFileIds.push(fileId);
-                            logger.info(`[自动视觉] 账号 ${account.name} 上传成功: ${fileId}`);
-                            // 记录缓存
-                            storage.saveFileCache(fileId, account.id, uploadSessionId, fileName, buffer.length);
-                        } catch (uploadErr) {
-                            logger.warn(`[自动视觉] 上传失败: ${uploadErr.message}`);
-                        }
-                    }
+        for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+            // 2. 智能选择账号 (支持排除已失败账号)
+            let account;
+            if (hasFiles) {
+                const fileCache = storage.getFileCache(file_ids[0]);
+                if (fileCache) {
+                    account = selectAccount(allAccounts, fileCache.account_id, excludedIds);
                 }
             }
-        }
-        if (uploadedFileIds.length > 0) {
-            file_ids = [...(file_ids || []), ...uploadedFileIds];
-        }
+            if (!account) {
+                account = selectAccount(allAccounts, null, excludedIds);
+            }
 
-        // 计算预估 Prompt Token
-        const promptTokens = estimateMessagesTokens(messages);
+            if (!account) {
+                break;
+            }
 
-        try {
-            // 1. 获取 Token
-            let token;
             try {
-                token = await client.getAccessToken(account.id);
-            } catch (tokenErr) {
-                // Token 无效，尝试刷新
-                if (tokenErr.message === 'TOKEN_INVALID') {
-                    token = await client.refreshToken(account.id);
-                } else {
-                    throw tokenErr;
-                }
-            }
+                // 3. 自动视觉：解析并上传 Base64 图片 (如果是重试，跳过已上传的)
+                if (attempt === 0) {
+                    const uploadedFileIds = [];
+                    for (const msg of messages) {
+                        if (Array.isArray(msg.content)) {
+                            for (const part of msg.content) {
+                                if (part.type === 'image_url' && part.image_url?.url?.startsWith('data:')) {
+                                    try {
+                                        const base64Data = part.image_url.url.split(',')[1];
+                                        const buffer = Buffer.from(base64Data, 'base64');
+                                        const mimeMatch = part.image_url.url.match(/^data:(image\/[a-z]+);base64,/);
+                                        const ext = mimeMatch ? mimeMatch[1].split('/')[1] : 'png';
+                                        const fileName = `vision_${Date.now()}.${ext}`;
 
-            // 2. 获取或创建 Session
-            let sessionId;
-            let parentId = null;
-
-            // 优先从历史消息中查找已存在的会话 (由 Assistant 回复标识)
-            const cached = findSessionIdByMessages(messages);
-            let finalMessages = messages;
-
-            if (cached) {
-                sessionId = cached.sessionId;
-                parentId = cached.parentId || null;
-                // 关键点：如果复用会话，只发送匹配点之后的新消息作为 Prompt
-                finalMessages = messages.slice(cached.matchedIndex + 1);
-                logger.info(`[连续对话] 命中历史记录 (索引: ${cached.matchedIndex})，复用 session: ${sessionId}, parent: ${parentId}, 增量消息数: ${finalMessages.length}`);
-            } else {
-                // 如果是有文件的对话，且缓存中记录了上传时的 sessionId，可以尝试复用
-                if (hasFiles) {
-                    const fileCache = storage.getFileCache(file_ids[0]);
-                    if (fileCache && fileCache.session_id) {
-                        sessionId = fileCache.session_id;
-                        logger.info(`[文件对话] 复用上传时的 session: ${sessionId}`);
-                    }
-                }
-
-                if (!sessionId) {
-                    try {
-                        sessionId = await client.createSession(token);
-                    } catch (sessionErr) {
-                        if (sessionErr.message === 'TOKEN_INVALID') {
-                            token = await client.refreshToken(account.id);
-                            sessionId = await client.createSession(token);
-                        } else {
-                            throw sessionErr;
-                        }
-                    }
-                }
-            }
-
-            // 3. 获取 PoW
-            let powHeader;
-            try {
-                powHeader = await client.getPow(token);
-            } catch (powErr) {
-                if (powErr.message === 'TOKEN_INVALID') {
-                    token = await client.refreshToken(account.id);
-                    powHeader = await client.getPow(token);
-                } else {
-                    throw powErr;
-                }
-            }
-
-            // 4. 构建请求体
-            const defaultMaxTokens = storage.getSetting('DEFAULT_MAX_TOKENS') || '8192';
-            const payload = client.buildCompletionPayload(sessionId, finalMessages, model, {
-                parent_message_id: parentId,
-                file_ids: file_ids || [],
-                max_tokens: max_tokens || parseInt(defaultMaxTokens),
-            });
-
-            // 5. 调用 Completion
-            const dsResponse = await client.callCompletion(token, payload, powHeader);
-
-            const isReasoner = model.includes('reasoner');
-
-            if (stream) {
-                // 流式输出
-                res.setHeader('Content-Type', 'text/event-stream');
-                res.setHeader('Cache-Control', 'no-cache');
-                res.setHeader('Connection', 'keep-alive');
-                res.setHeader('X-Accel-Buffering', 'no');
-
-                const completionId = `chatcmpl-${Math.random().toString(36).slice(2)}`;
-                const created = Math.floor(Date.now() / 1000);
-                let fullContent = '';
-                let fullReasoning = '';
-                let firstTokenTime = null;
-                let responseMessageId = null;
-                let hasReceivedContent = false;
-                let lastContentTime = Date.now();
-                let keepaliveCount = 0;
-
-                // 流式超时保护 (移植自 ds2api stream engine)
-                const keepaliveTimer = setInterval(() => {
-                    if (!hasReceivedContent) {
-                        keepaliveCount++;
-                        if (keepaliveCount >= MAX_KEEPALIVE_NO_CONTENT) {
-                            logger.warn(`[流式超时] 连续 ${MAX_KEEPALIVE_NO_CONTENT} 次心跳无内容，终止流`);
-                            clearInterval(keepaliveTimer);
-                            if (!res.writableEnded) {
-                                res.write(`: keepalive timeout\n\n`);
-                                res.end();
+                                        const token = await client.getAccessToken(account.id);
+                                        const uploadSessionId = await client.createSession(token);
+                                        const fileId = await client.uploadFile(token, uploadSessionId, buffer, fileName);
+                                        uploadedFileIds.push(fileId);
+                                        logger.info(`[自动视觉] 账号 ${account.name} 上传成功: ${fileId}`);
+                                        storage.saveFileCache(fileId, account.id, uploadSessionId, fileName, buffer.length);
+                                    } catch (uploadErr) {
+                                        logger.warn(`[自动视觉] 上传失败: ${uploadErr.message}`);
+                                    }
+                                }
                             }
+                        }
+                    }
+                    if (uploadedFileIds.length > 0) {
+                        file_ids = [...(file_ids || []), ...uploadedFileIds];
+                    }
+                }
+
+                const promptTokens = estimateMessagesTokens(messages);
+                let token;
+                try {
+                    token = await client.getAccessToken(account.id);
+                } catch (tokenErr) {
+                    if (tokenErr.message === 'TOKEN_INVALID') {
+                        token = await client.refreshToken(account.id);
+                    } else { throw tokenErr; }
+                }
+
+                let sessionId;
+                let parentId = null;
+                const cached = findSessionIdByMessages(messages);
+                let finalMessages = messages;
+
+                if (cached) {
+                    sessionId = cached.sessionId;
+                    parentId = cached.parentId || null;
+                    // 不再切片，发送完整历史以确保 System 提示词等 context 不丢失
+                    logger.info(`[连续对话] 命中历史记录 (索引: ${cached.matchedIndex}), 复用 session: ${sessionId}, 维持完整上下文`);
+                } else {
+                    if (hasFiles) {
+                        const fileCache = storage.getFileCache(file_ids[0]);
+                        if (fileCache && fileCache.session_id) {
+                            sessionId = fileCache.session_id;
+                            logger.info(`[文件对话] 复用上传时的 session: ${sessionId}`);
+                        }
+                    }
+                    if (!sessionId) {
+                        sessionId = await client.createSession(token);
+                    }
+                }
+
+                let powHeader = await client.getPow(token);
+                const defaultMaxTokens = storage.getSetting('DEFAULT_MAX_TOKENS') || '8192';
+                const payload = client.buildCompletionPayload(sessionId, finalMessages, model, {
+                    parent_message_id: parentId,
+                    file_ids: file_ids || [],
+                    max_tokens: max_tokens || parseInt(defaultMaxTokens),
+                });
+
+                const dsResponse = await client.callCompletion(token, payload, powHeader);
+                const isReasoner = model.includes('reasoner');
+
+                if (stream) {
+                    // 流式输出
+                    res.setHeader('Content-Type', 'text/event-stream');
+                    res.setHeader('Cache-Control', 'no-cache');
+                    res.setHeader('Connection', 'keep-alive');
+                    res.setHeader('X-Accel-Buffering', 'no');
+
+                    const completionId = `chatcmpl-${Math.random().toString(36).slice(2)}`;
+                    const created = Math.floor(Date.now() / 1000);
+                    let fullContent = '';
+                    let fullReasoning = '';
+                    let firstTokenTime = null;
+                    let responseMessageId = null;
+                    let hasReceivedContent = false;
+                    let finalFinishReason = 'stop';
+                    let lastContentTime = Date.now();
+
+                    const keepaliveTimer = setInterval(() => {
+                        if (!hasReceivedContent && (Date.now() - startTime > 60000)) {
+                            clearInterval(keepaliveTimer);
+                            if (!res.writableEnded) res.end();
                             releaseAccount(account.id);
                             return;
                         }
-                    }
-                    if (hasReceivedContent && (Date.now() - lastContentTime) > STREAM_IDLE_TIMEOUT_MS) {
-                        logger.warn(`[流式超时] 空闲超过 ${STREAM_IDLE_TIMEOUT_MS}ms，终止流`);
-                        clearInterval(keepaliveTimer);
-                        if (!res.writableEnded) {
-                            res.end();
+                        if (hasReceivedContent && (Date.now() - lastContentTime) > STREAM_IDLE_TIMEOUT_MS) {
+                            clearInterval(keepaliveTimer);
+                            if (!res.writableEnded) res.end();
+                            releaseAccount(account.id);
+                            return;
                         }
-                        releaseAccount(account.id);
-                        return;
-                    }
-                    // 发送 SSE 注释保持连接
-                    if (!res.writableEnded) {
-                        res.write(`: keepalive\n\n`);
-                        if (res.flush) res.flush();
-                    }
-                }, KEEPALIVE_INTERVAL_MS);
+                        if (!res.writableEnded) {
+                            res.write(`: keepalive\n\n`);
+                            if (res.flush) res.flush();
+                        }
+                    }, KEEPALIVE_INTERVAL_MS);
 
-                const MAX_CONTINUE_ROUNDS = 8;
-                let rounds = 0;
-                let lastStatus = '';
-
-                const pumpStream = (sourceStream) => {
-                    return new Promise((resolve, reject) => {
-                        let streamMessageId = null;
-                        let streamStatus = '';
-
-                        parseSSEStream(
-                            sourceStream,
-                            isReasoner,
-                            (type, text) => {
+                    const pumpStream = (sourceStream, rounds = 0) => {
+                        return new Promise((resolve, reject) => {
+                            let streamMessageId = null;
+                            let streamStatus = '';
+                            parseSSEStream(sourceStream, isReasoner, (type, text) => {
                                 if (firstTokenTime === null) firstTokenTime = Date.now() - startTime;
                                 hasReceivedContent = true;
                                 lastContentTime = Date.now();
-                                keepaliveCount = 0;
-
                                 if (type === 'thinking') {
                                     fullReasoning += text;
-                                    const chunk = {
-                                        id: completionId, object: 'chat.completion.chunk', created, model,
-                                        choices: [{ index: 0, delta: { reasoning_content: text }, finish_reason: null }],
-                                    };
-                                    res.write(`data: ${JSON.stringify(chunk)}\n\n`);
+                                    res.write(`data: ${JSON.stringify({ id: completionId, object: 'chat.completion.chunk', created, model, choices: [{ index: 0, delta: { reasoning_content: text }, finish_reason: null }] })}\n\n`);
                                 } else {
                                     fullContent += text;
-                                    const chunk = {
-                                        id: completionId, object: 'chat.completion.chunk', created, model,
-                                        choices: [{ index: 0, delta: { content: text }, finish_reason: null }],
-                                    };
-                                    res.write(`data: ${JSON.stringify(chunk)}\n\n`);
+                                    res.write(`data: ${JSON.stringify({ id: completionId, object: 'chat.completion.chunk', created, model, choices: [{ index: 0, delta: { content: text }, finish_reason: null }] })}\n\n`);
                                 }
                                 if (res.flush) res.flush();
-                            },
-                            async () => {
-                                // 检查是否需要自动续写
-                                const shouldContinue = ['WIP', 'INCOMPLETE', 'AUTO_CONTINUE'].includes(streamStatus.toUpperCase()) && 
-                                                     streamMessageId && rounds < MAX_CONTINUE_ROUNDS;
-                                
-                                if (shouldContinue) {
-                                    rounds++;
-                                    logger.info(`[自动续写] 开启第 ${rounds} 轮续写, Session: ${sessionId}, MessageID: ${streamMessageId}`);
+                            }, async () => {
+                                if (['WIP', 'INCOMPLETE', 'AUTO_CONTINUE'].includes(streamStatus.toUpperCase()) && streamMessageId && rounds < 8) {
                                     try {
                                         const nextStream = await client.callContinue(token, sessionId, streamMessageId, powHeader);
-                                        await pumpStream(nextStream);
+                                        await pumpStream(nextStream, rounds + 1);
                                         resolve();
-                                    } catch (err) {
-                                        reject(err);
-                                    }
+                                    } catch (err) { reject(err); }
                                 } else {
-                                    lastStatus = streamStatus;
+                                    if (streamStatus === 'content_filter') finalFinishReason = 'content_filter';
                                     if (streamMessageId) responseMessageId = streamMessageId;
                                     resolve();
                                 }
-                            },
-                            (err) => reject(err),
-                            (meta) => {
+                            }, (err) => reject(err), (meta) => {
                                 if (meta.message_id) streamMessageId = meta.message_id;
                                 if (meta.status) streamStatus = meta.status;
-                            }
-                        );
-                    });
-                };
-
-                // 启动流处理
-                pumpStream(dsResponse).then(() => {
-                    clearInterval(keepaliveTimer);
-
-                    // 发送结束标记
-                    const doneChunk = {
-                        id: completionId, object: 'chat.completion.chunk', created, model,
-                        choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
-                        usage: {
-                            prompt_tokens: promptTokens,
-                            completion_tokens: estimateTokens(fullContent),
-                            total_tokens: promptTokens + estimateTokens(fullContent)
-                        }
+                            });
+                        });
                     };
-                    res.write(`data: ${JSON.stringify(doneChunk)}\n\n`);
+
+                    await pumpStream(dsResponse);
+                    clearInterval(keepaliveTimer);
+                    res.write(`data: ${JSON.stringify({ id: completionId, object: 'chat.completion.chunk', created, model, choices: [{ index: 0, delta: {}, finish_reason: finalFinishReason }], usage: { prompt_tokens: promptTokens, completion_tokens: estimateTokens(fullContent), total_tokens: promptTokens + estimateTokens(fullContent) } })}\n\n`);
                     res.write('data: [DONE]\n\n');
                     res.end();
 
-                    // 记录会话继承 (使用回复内容作为 Key 存入缓存)
                     saveToSessionCache(fullContent, sessionId, responseMessageId);
-
-                    // 会话自动清理
-                    const autoDelete = storage.getSetting('AUTO_DELETE_SESSIONS');
-                    if (autoDelete === '1' || autoDelete === 'true') {
-                        client.deleteAllSessions(token).catch(e => 
-                            logger.warn(`[自动清理] 删除会话失败: ${e.message}`)
-                        );
-                    }
-
                     releaseAccount(account.id);
-
-                    // 记录日志
                     storage.recordLog({
-                        accountId: account.id, model, is_balanced: req.lb,
-                        path: req.path, method: req.method, statusCode: 200,
-                        durationMs: Date.now() - startTime, firstTokenTimeMs: firstTokenTime,
-                        clientIp: req.ip, userAgent: req.get('user-agent'),
+                        accountId: account.id, model, is_balanced: req.lb, path: req.path, method: req.method, statusCode: 200,
+                        durationMs: Date.now() - startTime, firstTokenTimeMs: firstTokenTime, clientIp: req.ip, userAgent: req.get('user-agent'),
                         totalTokens: promptTokens + estimateTokens(fullContent),
-                        detail: {
-                            model, type: 'stream',
-                            messages: sanitizeMessages(messages),
-                            response: { choices: [{ message: { role: 'assistant', content: fullContent, reasoning_content: fullReasoning } }] },
-                        },
+                        detail: { model, type: 'stream', messages: sanitizeMessages(messages), response: { choices: [{ message: { role: 'assistant', content: fullContent, reasoning_content: fullReasoning } }] } },
                     });
-                }).catch((err) => {
-                    clearInterval(keepaliveTimer);
-                    logger.error(`Stream processing error: ${err.message}`);
+                } else {
+                    // 非流式
+                    const collectWithRetry = async (sourceStream, rounds = 0) => {
+                        let streamId = null; let status = '';
+                        const result = await new Promise((resolve, reject) => {
+                            let thinking = ''; let content = '';
+                            parseSSEStream(sourceStream, isReasoner, (t, s) => { if (t === 'thinking') thinking += s; else content += s; },
+                                () => resolve({ thinking, content, message_id: streamId, status }), (e) => reject(e),
+                                (m) => { if (m.message_id) streamId = m.message_id; if (m.status) status = m.status; });
+                        });
+                        if (['WIP', 'INCOMPLETE', 'AUTO_CONTINUE'].includes(result.status.toUpperCase()) && result.message_id && rounds < 8) {
+                            const next = await client.callContinue(token, sessionId, result.message_id, powHeader);
+                            const nr = await collectWithRetry(next, rounds + 1);
+                            return { thinking: result.thinking + nr.thinking, content: result.content + nr.content, message_id: nr.message_id, status: nr.status };
+                        }
+                        return result;
+                    };
+                    const result = await collectWithRetry(dsResponse);
+                    const completionId = `chatcmpl-${Math.random().toString(36).slice(2)}`;
+                    const responseData = { id: completionId, object: 'chat.completion', created: Math.floor(Date.now() / 1000), model, choices: [{ index: 0, message: { role: 'assistant', content: result.content, reasoning_content: result.thinking }, finish_reason: result.status === 'content_filter' ? 'content_filter' : 'stop' }], usage: { prompt_tokens: promptTokens, completion_tokens: estimateTokens(result.content), total_tokens: promptTokens + estimateTokens(result.content) } };
+                    saveToSessionCache(result.content, sessionId, result.message_id);
                     releaseAccount(account.id);
-                    if (!res.headersSent) {
-                        res.status(500).json({ error: { message: err.message } });
-                    } else {
-                        res.end();
-                    }
-                });
-            } else {
-                // 非流式输出也支持自动续写
-                const collectWithContinue = async (sourceStream, currentRounds = 0) => {
-                    let streamMessageId = null;
-                    let streamStatus = '';
-                    const result = await new Promise((resolve, reject) => {
-                        let thinking = '';
-                        let content = '';
-                        parseSSEStream(
-                            sourceStream,
-                            isReasoner,
-                            (type, text) => {
-                                if (type === 'thinking') thinking += text;
-                                else content += text;
-                            },
-                            () => resolve({ thinking, content, message_id: streamMessageId, status: streamStatus }),
-                            (err) => reject(err),
-                            (meta) => {
-                                if (meta.message_id) streamMessageId = meta.message_id;
-                                if (meta.status) streamStatus = meta.status;
-                            }
-                        );
-                    });
-
-                    const shouldContinue = ['WIP', 'INCOMPLETE', 'AUTO_CONTINUE'].includes(result.status.toUpperCase()) && 
-                                         result.message_id && currentRounds < 8;
-
-                    if (shouldContinue) {
-                        logger.info(`[自动续写] 非流式开启第 ${currentRounds + 1} 轮续写`);
-                        const nextStream = await client.callContinue(token, sessionId, result.message_id, powHeader);
-                        const nextResult = await collectWithContinue(nextStream, currentRounds + 1);
-                        return {
-                            thinking: result.thinking + nextResult.thinking,
-                            content: result.content + nextResult.content,
-                            message_id: nextResult.message_id,
-                            status: nextResult.status
-                        };
-                    }
-                    return result;
-                };
-
-                const result = await collectWithContinue(dsResponse);
-                const completionId = `chatcmpl-${Math.random().toString(36).slice(2)}`;
-                const responseData = {
-                    id: completionId,
-                    object: 'chat.completion',
-                    created: Math.floor(Date.now() / 1000),
-                    model,
-                    choices: [{
-                        index: 0,
-                        message: { role: 'assistant', content: result.content, reasoning_content: result.thinking },
-                        finish_reason: 'stop',
-                    }],
-                    usage: {
-                        prompt_tokens: promptTokens,
-                        completion_tokens: estimateTokens(result.content),
-                        total_tokens: promptTokens + estimateTokens(result.content)
-                    },
-                };
-                // 记录会话继承
-                saveToSessionCache(result.content, sessionId, result.message_id);
-
-                // 会话自动清理
-                const autoDelete = storage.getSetting('AUTO_DELETE_SESSIONS');
-                if (autoDelete === '1' || autoDelete === 'true') {
-                    client.deleteAllSessions(token).catch(e => 
-                        logger.warn(`[自动清理] 删除会话失败: ${e.message}`)
-                    );
+                    storage.recordLog({ accountId: account.id, model, is_balanced: req.lb, path: req.path, method: req.method, statusCode: 200, durationMs: Date.now() - startTime, firstTokenTimeMs: Date.now() - startTime, clientIp: req.ip, userAgent: req.get('user-agent'), totalTokens: promptTokens + estimateTokens(result.content), detail: { model, messages: sanitizeMessages(messages), response: responseData } });
+                    res.json(responseData);
                 }
-
-                // 释放账号
+                return; // 成功执行，退出重试循环
+            } catch (err) {
+                lastError = err;
+                logger.error(`[DS 重试] 账号 ${account.name} 失败 (尝试 ${attempt + 1}/${MAX_RETRIES}): ${err.message}`);
                 releaseAccount(account.id);
-
-                // 记录日志
-                storage.recordLog({
-                    accountId: account.id, model, is_balanced: req.lb,
-                    path: req.path, method: req.method, statusCode: 200,
-                    durationMs: Date.now() - startTime, firstTokenTimeMs: Date.now() - startTime,
-                    clientIp: req.ip, userAgent: req.get('user-agent'),
-                    totalTokens: promptTokens + estimateTokens(result.content),
-                    detail: { model, messages: sanitizeMessages(messages), response: responseData },
-                });
-
-                res.json(responseData);
-            }
-        } catch (error) {
-            logger.error(`[DS] Account ${account.name} failed: ${error.message}`);
-
-            // 释放账号
-            releaseAccount(account.id);
-
-            // 记录错误日志
-            storage.recordLog({
-                accountId: account.id, model, is_balanced: req.lb,
-                path: req.path, method: req.method, statusCode: error.response?.status || 500,
-                durationMs: Date.now() - startTime,
-                clientIp: req.ip, userAgent: req.get('user-agent'),
-                detail: { model, error: error.message },
-            });
-
-            if (!res.headersSent) {
-                res.status(500).json({
-                    error: { message: error.message, type: 'api_error' },
-                });
+                excludedIds.push(account.id);
+                if (res.headersSent) {
+                    logger.warn('[DS 重试] Headers 已发送，无法继续重试，终止连接');
+                    return res.end();
+                }
             }
         }
+
+        // 如果循环结束还没 return，说明全部失败
+        const finalStatus = lastError?.response?.status || 500;
+        storage.recordLog({ accountId: 'SYSTEM', model, is_balanced: req.lb, path: req.path, method: req.method, statusCode: finalStatus, durationMs: Date.now() - startTime, clientIp: req.ip, userAgent: req.get('user-agent'), detail: { model, error: lastError?.message, attempts: excludedIds.length } });
+        res.status(finalStatus).json({ error: { message: lastError?.message || 'All accounts failed', type: 'api_error' } });
     } catch (e) {
         logger.error(`Request error: ${e.message}`);
         if (!res.headersSent) {

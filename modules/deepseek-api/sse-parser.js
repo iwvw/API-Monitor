@@ -104,138 +104,102 @@ function parseSSEStream(response, isReasoner, onData, onEnd, onError, onMeta) {
                 const data = JSON.parse(dataStr);
                 let handled = false;
 
-                // --- 1. 初始 response 对象与业务错误检测 ---
-                if (data.v && typeof data.v === 'object') {
-                    const bizCode = data.v.code || data.v.response?.code;
-                    const bizMsg = data.v.msg || data.v.response?.msg;
-                    
-                    if (bizCode !== undefined && bizCode !== 0 && bizCode !== '0') {
-                        logger.warn(`[DeepSeek 业务错误] 代码: ${bizCode}, 信息: ${bizMsg}`);
-                        onError(new Error(bizMsg || `DeepSeek Error (${bizCode})`));
-                        return;
+                // --- 1. 初始 response 对象与业务错误检测 (逻辑增强) ---
+                const bizData = data.v || {};
+                const bizCode = bizData.code !== undefined ? bizData.code : (bizData.response?.code);
+                const bizMsg = bizData.msg || (bizData.response?.msg);
+
+                if (bizCode !== undefined && bizCode !== 0 && bizCode !== '0') {
+                    // 特殊处理敏感词拦截
+                    if (bizCode === 'content_filter' || (bizMsg && bizMsg.includes('content_filter'))) {
+                        if (onMeta) onMeta({ status: 'content_filter' });
+                    }
+                    logger.warn(`[DeepSeek 业务错误] 代码: ${bizCode}, 信息: ${bizMsg}`);
+                    onError(new Error(bizMsg || `DeepSeek Error (${bizCode})`));
+                    return;
+                }
+
+                // --- 2. 递归解析逻辑 (核心引擎) ---
+                const processObject = (obj) => {
+                    const { p, v, o } = obj;
+
+                    // A. 提取元数据 (状态、ID)
+                    if (p && ['response/status', 'status', 'quasi_status'].some(path => p === path || p.endsWith('/' + path))) {
+                        if (onMeta) onMeta({ status: v });
+                        if (v === 'content_filter' && onMeta) onMeta({ status: 'content_filter' });
+                    }
+                    if (p && (p === 'response_message_id' || p === 'message_id' || p.endsWith('/message_id'))) {
+                        if (onMeta) onMeta({ message_id: v });
                     }
 
-                    if (data.v.response) {
-                        const resp = data.v.response;
+                    // B. 提取搜索/参考资料 (增量收集)
+                    if (p && (p.includes('results') || p.includes('search_results') || p.includes('references')) && Array.isArray(v)) {
+                        v.forEach(item => {
+                            if (item && !searchResults.some(r => (r.cite_index || r.index) === (item.cite_index || item.index))) {
+                                searchResults.push(item);
+                            }
+                        });
+                    }
+
+                    // C. 提取文本片段 (多种路径兼容)
+                    // 路径匹配逻辑：包含 content 或 response/fragments 的字符串值
+                    if (p && typeof v === 'string' && v.length > 0) {
+                        if (p.includes('content') || p.includes('response/fragments')) {
+                            onData(currentType, v);
+                            handled = true;
+                        }
+                    }
+
+                    // D. 处理片段数组 (DeepSeek 核心格式)
+                    if ((p === 'response/fragments' || p === 'fragments') && Array.isArray(v)) {
+                        for (const frag of v) {
+                            const fType = frag.type || '';
+                            const fContent = frag.content || frag.v || '';
+                            if (fType === 'RESPONSE' || fType === 'CONTENT' || fType === 'TEXT') {
+                                currentType = 'content';
+                                if (fContent) { onData('content', fContent); handled = true; }
+                            } else if (fType === 'THINK') {
+                                currentType = 'thinking';
+                                if (fContent) { onData('thinking', fContent); handled = true; }
+                            } else if (fType === 'SEARCH' && Array.isArray(frag.results || frag.search_results)) {
+                                (frag.results || frag.search_results).forEach(r => {
+                                    if (r && !searchResults.some(seen => (seen.cite_index || seen.index) === (r.cite_index || r.index))) {
+                                        searchResults.push(r);
+                                    }
+                                });
+                            }
+                        }
+                    }
+
+                    // E. 特殊处理 message/response 嵌套
+                    if (obj.message?.response) {
+                        const resp = obj.message.response;
                         if (onMeta) {
                             if (resp.message_id) onMeta({ message_id: resp.message_id });
                             if (resp.status) onMeta({ status: resp.status });
-                            if (resp.auto_continue) onMeta({ status: 'AUTO_CONTINUE' });
                         }
-                        if (resp.fragments && Array.isArray(resp.fragments)) {
-                            for (const frag of resp.fragments) {
-                                const fType = frag.type;
-                                const fContent = frag.content || frag.v || ''; 
-                                if (fContent) {
-                                    if (fType === 'THINK') {
-                                        onData('thinking', fContent);
-                                        handled = true;
-                                    } else if (['RESPONSE', 'CONTENT', 'TEXT', 'ANSWER'].includes(fType)) {
-                                        onData('content', fContent);
-                                        handled = true;
-                                    } else if (fType === 'SEARCH') {
-                                        const results = frag.results || frag.search_results || frag.references || [];
-                                        if (Array.isArray(results)) {
-                                            logger.debug(`[搜索] 初始 SEARCH fragment 收集到 ${results.length} 条结果`);
-                                            results.forEach(r => searchResults.push(r));
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        if (handled) continue;
-                    }
-                }
-
-                // --- 2. 识别路径并动态确定类型 ---
-                if (data.p && typeof data.p === 'string') {
-                    // 状态与指令提取 (用于自动续写)
-                    if (['response/status', 'status', 'quasi_status'].includes(data.p)) {
-                        if (onMeta) onMeta({ status: data.v });
-                    }
-                    if (['response_message_id', 'message_id'].includes(data.p)) {
-                        if (onMeta) onMeta({ message_id: data.v });
                     }
 
-                    // 匹配 response/fragments/(-1 或 \d+)/content 或类似的路径
-                    const contentMatch = data.p.match(/response\/fragments\/(-?\d+)\/content/);
-                    if (contentMatch) {
-                        if (typeof data.v === 'string') {
-                            onData(currentType, data.v);
-                            handled = true;
-                        }
-                        if (handled) continue;
-                    }
-                    
-                    // 状态路径匹配 (片段级状态)
-                    if (data.p.match(/response\/fragments\/(-?\d+)\/status/)) {
-                        if (onMeta) onMeta({ status: data.v });
-                    }
-
-                    // 搜索结果 (覆盖各种可能的路径)
-                    if (data.p.match(/response\/fragments\/(-?\d+)\/(results|search_results|references)/) && Array.isArray(data.v)) {
-                         logger.debug(`[搜索] 增量路径 ${data.p} 收集到 ${data.v.length} 条结果`);
-                         data.v.forEach(item => searchResults.push(item));
-                         continue;
-                    }
-
-                    // 搜索结果也可能出现在 response/search_results 等路径
-                    if ((data.p === 'response/search_results' || data.p === 'search_results') && Array.isArray(data.v)) {
-                         logger.debug(`[搜索] 顶层路径 ${data.p} 收集到 ${data.v.length} 条结果`);
-                         data.v.forEach(item => searchResults.push(item));
-                         continue;
-                    }
-                }
-
-                // 处理嵌套在 message 里的 response (部分样本中存在)
-                if (data.message?.response) {
-                    const resp = data.message.response;
-                    if (onMeta) {
-                        if (resp.message_id) onMeta({ message_id: resp.message_id });
-                        if (resp.status) onMeta({ status: resp.status });
-                    }
-                }
-
-                // --- 3. 兼容 fragments APPEND (片段切换/新增) ---
-                if (data.p === 'response/fragments' && (data.o === 'APPEND' || data.o === 'SET') && Array.isArray(data.v)) {
-                    for (const frag of data.v) {
-                        const fType = frag.type;
-                        const fContent = frag.content || frag.v || '';
-                        if (fType === 'RESPONSE' || fType === 'CONTENT' || fType === 'TEXT') {
-                            currentType = 'content';
-                            if (fContent) onData('content', fContent);
-                            handled = true;
-                        } else if (fType === 'THINK') {
-                            currentType = 'thinking';
-                            if (fContent) onData('thinking', fContent);
+                    // F. 兜底处理简单值 {"v": "text"} (无路径且无操作符)
+                    if (!handled && v !== undefined && p === undefined && (o === undefined || o === 'APPEND')) {
+                        if (typeof v === 'string' && v.length > 0) {
+                            onData(currentType, v);
                             handled = true;
                         }
                     }
-                    if (handled) continue;
-                }
 
-                // --- 4. 简单内容片段 {"v":"文本"} (无 p 字段) ---
-                if (data.v !== undefined && data.p === undefined && (data.o === undefined || data.o === 'APPEND')) {
-                    if (typeof data.v === 'string' && data.v.length > 0) {
-                        onData(currentType, data.v);
-                        handled = true;
+                    // G. 递归遍历子对象/数组
+                    if (Array.isArray(v)) {
+                        v.forEach(item => {
+                            if (typeof item === 'object' && item !== null) processObject(item);
+                        });
+                    } else if (typeof v === 'object' && v !== null && !handled) {
+                        processObject(v);
                     }
-                    if (handled) continue;
-                }
+                };
 
-                // --- 5. 兜底带路径的文本 (SET/APPEND/BATCH) ---
-                if (data.p && typeof data.v === 'string') {
-                    if (data.p.includes('content') || data.p.includes('response/fragments')) {
-                        onData(currentType, data.v);
-                        handled = true;
-                    }
-                }
-
-                if (!handled && typeof data.v === 'string' && data.v.length > 0 && !shouldSkip(data.p || '')) {
-                    // 最后的兜底：如果没处理但看起来像文本，且不在跳过列表中，也尝试收集
-                    // logger.debug(`[Low-Confidence] Collected suspect data: path=${data.p}, val=${data.v}`);
-                    onData(currentType, data.v);
-                }
+                // 执行解析
+                processObject(data);
             } catch (e) {
                 // Ignore parse errors
             }

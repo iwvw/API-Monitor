@@ -445,39 +445,35 @@ function messagesPrepare(messages) {
         }
     }
 
-    // 3. 使用 DeepSeek 特殊标记格式化
+    // 3. 使用 DeepSeek 特殊标记格式化 (对齐 ds2api)
     const parts = [];
     for (let i = 0; i < merged.length; i++) {
         const m = merged[i];
+        const text = m.text.trim();
+        if (!text) continue;
+
         switch (m.role) {
             case 'assistant':
-                parts.push(`<｜Assistant｜>${m.text}<｜end▁of▁sentence｜>`);
+                parts.push(`<｜Assistant｜>\n${text}<｜end▁of▁sentence｜>`);
                 break;
             case 'tool':
-                if (i > 0) {
-                    parts.push(`<｜Tool｜>${m.text}`);
-                } else {
-                    parts.push(m.text);
-                }
+                parts.push(`<｜Tool｜>\n${text}<｜end▁of▁toolresults｜>`);
                 break;
             case 'system':
-                // 清晰的 system 边界能显著改善 R1 和 V3 的上下文理解
-                if (m.text.trim()) {
-                    parts.push(`<system_instructions>\n${m.text.trim()}\n</system_instructions>\n\n`);
-                }
+                parts.push(`<｜System｜>\n${text}<｜end▁of▁instructions｜>`);
                 break;
             case 'user':
-                // 始终为 user 消息添加标记，R1 推理在显式标记用户回合时效果最佳
-                parts.push(`<｜User｜>${m.text}`);
+                parts.push(`<｜User｜>\n${text}<｜end▁of▁sentence｜>`);
                 break;
             default:
-                parts.push(m.text);
+                parts.push(text);
                 break;
         }
     }
 
-    // 4. 移除 Markdown 图片的 ! 前缀
-    return parts.join('').replace(MARKDOWN_IMAGE_RE, '[$1]($2)');
+    // 4. 合并并移除 Markdown 图片的 ! 前缀
+    const out = parts.join('\n\n');
+    return out.replace(MARKDOWN_IMAGE_RE, '[$1]($2)');
 }
 
 /**
