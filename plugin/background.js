@@ -7,16 +7,18 @@
 const DEFAULT_CONFIG = {
   serverUrl: '',
   password: '',
-  showFillButton: true
+  showFillButton: true,
+  masterEnabled: true
 };
 
 // 获取配置
 async function getConfig() {
-  const result = await chrome.storage.sync.get(['serverUrl', 'password', 'showFillButton']);
+  const result = await chrome.storage.sync.get(['serverUrl', 'password', 'showFillButton', 'masterEnabled']);
   return {
     serverUrl: result.serverUrl || DEFAULT_CONFIG.serverUrl,
     password: result.password || DEFAULT_CONFIG.password,
-    showFillButton: result.showFillButton !== undefined ? result.showFillButton : DEFAULT_CONFIG.showFillButton
+    showFillButton: result.showFillButton !== undefined ? result.showFillButton : DEFAULT_CONFIG.showFillButton,
+    masterEnabled: result.masterEnabled !== undefined ? result.masterEnabled : DEFAULT_CONFIG.masterEnabled
   };
 }
 
@@ -51,16 +53,23 @@ function matchAccountsByDomain(accounts, domain) {
   if (!accounts || !domain) return [];
 
   const domainParts = domain.toLowerCase().split('.');
-  const mainDomain = domainParts.slice(-2).join('.'); // 获取主域名
+  // 简单但更健壮的主域名提取 (处理 .com.cn 等常见多级后缀)
+  let mainDomain = domainParts.slice(-2).join('.');
+  if (domainParts.length >= 3 && ['com', 'net', 'org', 'edu', 'gov'].includes(domainParts[domainParts.length - 2])) {
+      mainDomain = domainParts.slice(-3).join('.');
+  }
+  
+  const searchTerms = [domain, mainDomain, ...domainParts.filter(p => p.length > 2 && !['com', 'net', 'org', 'www'].includes(p))];
 
   return accounts.filter(account => {
-    const issuer = (account.issuer || '').toLowerCase();
+    const issuer = (account.issuer || '').toLowerCase().replace(/\s/g, '');
     const accountName = (account.account || '').toLowerCase();
 
-    // 匹配 issuer 或 account 中包含域名
-    return issuer.includes(mainDomain) ||
-            accountName.includes(mainDomain) ||
-            mainDomain.includes(issuer.replace(/\s/g, ''));
+    return searchTerms.some(term => 
+        issuer.includes(term) || 
+        term.includes(issuer) || 
+        accountName.includes(term)
+    );
   });
 }
 

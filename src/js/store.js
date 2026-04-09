@@ -103,12 +103,7 @@ export const MODULE_CONFIG = {
     icon: 'fa-comments',
     description: 'AI 对话助手',
   },
-  'ai-draw': {
-    name: 'AI Draw',
-    shortName: 'Draw',
-    icon: 'fa-palette',
-    description: 'AI 驱动的一站式绘图平台',
-  },
+
   deepseek: {
     name: 'DeepSeek',
     shortName: 'DS',
@@ -144,7 +139,7 @@ export const MODULE_GROUPS = [
     id: 'toolbox',
     name: '工具箱',
     icon: 'fa-toolbox',
-    modules: ['self-h', 'totp', 'music', 'uptime', 'filebox', 'notification', 'ai-chat', 'ai-draw'],
+    modules: ['self-h', 'totp', 'music', 'uptime', 'filebox', 'notification', 'ai-chat'],
   },
 ];
 
@@ -205,7 +200,6 @@ export const store = reactive({
     filebox: true,
     notification: true,
     'ai-chat': true,
-    'ai-draw': true,
   },
   channelEnabled: {
     antigravity: true,
@@ -235,7 +229,6 @@ export const store = reactive({
     'filebox',
     'notification',
     'ai-chat',
-    'ai-draw',
   ],
 
   // 界面设置

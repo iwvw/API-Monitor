@@ -9,7 +9,7 @@ const showFillButtonInput = document.getElementById('showFillButton');
 const messageEl = document.getElementById('message');
 
 // 加载已保存的设置
-chrome.storage.sync.get(['serverUrl', 'password', 'showFillButton'], (result) => {
+chrome.storage.sync.get(['serverUrl', 'password', 'showFillButton', 'masterEnabled'], (result) => {
   if (result.serverUrl) {
     serverUrlInput.value = result.serverUrl;
   }
@@ -17,6 +17,8 @@ chrome.storage.sync.get(['serverUrl', 'password', 'showFillButton'], (result) =>
     passwordInput.value = result.password;
   }
   showFillButtonInput.checked = result.showFillButton !== false;
+  // masterEnabled 在设置页不可见，但我们需要保留它
+  window._masterEnabled = result.masterEnabled !== false;
 });
 
 // 显示消息

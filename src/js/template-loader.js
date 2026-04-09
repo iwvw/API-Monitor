@@ -33,7 +33,6 @@ const TemplateLoader = {
     'filebox.html': '#template-filebox',
     'notification.html': '#template-notification',
     'ai-chat.html': '#template-ai-chat',
-    'ai-draw.html': '#template-ai-draw',
   },
 
   // define critical templates for initial load

@@ -705,6 +705,35 @@ export const totpMethods = {
     }
   },
 
+  /**
+   * 一键同步配置到浏览器插件
+   */
+  syncConfigToExtension() {
+    const password = localStorage.getItem('admin_password') || this.loginPassword || '';
+    const serverUrl = window.location.origin;
+
+    // 发送同步消息给插件的 content script
+    window.postMessage({
+      type: 'API_MONITOR_SYNC_CONFIG',
+      serverUrl: serverUrl,
+      password: password
+    }, '*');
+
+    // 监听来自扩展的成功回执 (这里用临时监听器)
+    const successHandler = (event) => {
+      if (event.data && event.data.type === 'API_MONITOR_SYNC_SUCCESS') {
+        this.showGlobalToast('✅ 配置已成功同步到浏览器插件！', 'success', 3000);
+        window.removeEventListener('message', successHandler);
+      }
+    };
+    window.addEventListener('message', successHandler);
+
+    // 兜底提示：如果插件没装或没响应，3秒后移除监听
+    setTimeout(() => {
+        window.removeEventListener('message', successHandler);
+    }, 3000);
+  },
+
   // ==================== 长按菜单 (移动端) ====================
 
   /**

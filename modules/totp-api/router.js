@@ -456,27 +456,44 @@ router.get('/extension/download', async (req, res) => {
     const fs = require('fs');
     const { exec } = require('child_process');
 
-    const pluginDir = path.join(__dirname, '../../plugin');
-    const tempDir = path.join(__dirname, '../../tmp');
+    const pluginDir = path.resolve(__dirname, '../../plugin');
+    const tempDir = path.resolve(__dirname, '../../tmp');
     const zipFile = path.join(tempDir, 'api-monitor-2fa-extension.zip');
 
-    if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir);
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
 
-    // 使用 PowerShell 进行压缩
+    // 使用 PowerShell 进行压缩，确保路径处理更稳健
     const cmd = `powershell -Command "Compress-Archive -Path '${pluginDir}\\*' -DestinationPath '${zipFile}' -Force"`;
+
+    logger.info(`正在压缩扩展程序: ${pluginDir} -> ${zipFile}`);
 
     exec(cmd, (error, stdout, stderr) => {
       if (error) {
-        logger.error('压缩扩展失败', error.message);
-        return res.status(500).json({ success: false, error: '压缩失败' });
+        logger.error('压缩扩展失败', {
+          message: error.message,
+          stderr: stderr,
+          stdout: stdout
+        });
+        return res.status(500).json({ success: false, error: '压缩失败: ' + (stderr || error.message) });
+      }
+
+      if (!fs.existsSync(zipFile)) {
+        logger.error('压缩成功但未找到 ZIP 文件', zipFile);
+        return res.status(500).json({ success: false, error: '文件生成失败' });
       }
 
       res.download(zipFile, 'api-monitor-2fa-extension.zip', err => {
-        if (err) logger.error('发送扩展失败', err.message);
-        // 发送后删除临时文件
-        try {
-          fs.unlinkSync(zipFile);
-        } catch (e) { }
+        if (err) {
+          logger.error('发送扩展失败', err.message);
+        }
+        // 发送后尝试删除临时文件
+        setTimeout(() => {
+          try {
+            if (fs.existsSync(zipFile)) fs.unlinkSync(zipFile);
+          } catch (e) { }
+        }, 1000);
       });
     });
   } catch (error) {

@@ -34,7 +34,6 @@ async function loadLazyCSS() {
     import('../css/server.css'),
     import('../css/ssh-ide.css'),
     import('../css/ssh-ide.css'),
-    // xterm.css 移至关键资源导入
     import('@xterm/xterm/css/xterm.css'),
     import('@applemusic-like-lyrics/core/style.css'),
     import('../css/antigravity.css'),
@@ -47,7 +46,6 @@ async function loadLazyCSS() {
     import('../css/fly.css'),
     import('../css/r2.css'),
     import('../css/chat.css'),
-    // import('../css/template.css'), // 模板文件，从构建中排除
     import('../css/stream-player.css'),
     import('plyr/dist/plyr.css'),
     import('../css/totp.css'),
@@ -56,7 +54,6 @@ async function loadLazyCSS() {
     import('../css/filebox.css'),
     import('../css/notification.css'),
     import('../css/ai-chat.css'),
-    import('../css/ai-draw.css'),
   ];
   await Promise.all(styles);
   console.log('[System] Lazy CSS loaded');
@@ -113,7 +110,6 @@ import { aliyunMethods } from './modules/aliyun.js';
 import { tencentMethods } from './modules/tencent.js';
 import { notificationData, notificationMethods } from './modules/notification.js';
 import { aiChatData, aiChatMethods, aiChatComputed } from './modules/ai-chat.js';
-import { aiDrawData, aiDrawMethods, aiDrawComputed } from './modules/ai-draw.js';
 import { formatDateTime, formatFileSize, formatRegion, formatUptime, formatTokens } from './modules/utils.js';
 
 // 导入全局状态
@@ -677,8 +673,6 @@ const app = createApp({
       // AI Chat 模块
       ...aiChatData,
 
-      // AI Draw 绘图模块
-      ...aiDrawData,
     };
   },
 
@@ -899,9 +893,6 @@ const app = createApp({
 
     // AI Chat 模块计算属性
     ...aiChatComputed,
-
-    // AI Draw 绘图模块计算属性
-    ...aiDrawComputed,
 
     // 聊天界面可用的模型列表 (根据端点筛选)
     filteredChatModels() {
@@ -1541,9 +1532,7 @@ const app = createApp({
             case 'ai-chat':
               this.aiChatInit();
               break;
-            case 'ai-draw':
-              this.aiDrawInit();
-              break;
+
           }
         });
       }
@@ -1795,7 +1784,6 @@ const app = createApp({
     ...tencentMethods,
     ...notificationMethods,
     ...aiChatMethods,
-    ...aiDrawMethods,
 
     // ==================== 工具函数 ====================
     formatDateTime,

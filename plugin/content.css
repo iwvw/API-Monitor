@@ -1,44 +1,52 @@
 /* API Monitor 2FA - Premium Glassmorphic UI */
 
-.api-monitor-2fa-wrapper {
-    position: relative;
-    display: inline-flex;
-    align-items: center;
-    width: 100%;
-}
-
-.api-monitor-2fa-wrapper input {
-    padding-right: 42px !important; /* Reserve space for the button */
-    box-sizing: border-box !important; /* Ensure padding doesn't affect width */
-}
-
 .api-monitor-2fa-btn {
     position: absolute;
-    right: 8px; /* Slightly closer to the edge */
-    top: 50%;
-    transform: translateY(-50%);
-    width: 26px;
-    height: 26px;
-    border: none;
-    background: rgba(255, 255, 255, 0.1);
-    backdrop-filter: blur(4px);
-    border-radius: 6px;
+    z-index: 2147483646;
+    width: 24px;
+    height: 24px;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    background: #f9fafb;
+    border-radius: 4px;
     cursor: pointer;
-    font-size: 14px;
     display: flex;
     align-items: center;
     justify-content: center;
-    opacity: 0.6;
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    z-index: 10;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+    opacity: 0;
+    transition: all 0.2s;
+    color: #4b5563;
+    padding: 4px;
+}
+
+.api-monitor-2fa-btn.visible {
+    opacity: 0.8;
+}
+
+.api-monitor-2fa-btn svg {
+    width: 100%;
+    height: 100%;
+    stroke: currentColor;
+    stroke-width: 2px;
 }
 
 .api-monitor-2fa-btn:hover {
-    opacity: 1;
-    background: rgba(255, 255, 255, 0.2);
-    transform: translateY(-50%) scale(1.1);
-    box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+    opacity: 1 !important;
+    background: #6366f1;
+    color: white;
+    border-color: #6366f1;
+    transform: none;
+}
+
+.api-monitor-2fa-btn:active {
+    background: #4f46e5;
+}
+
+@media (prefers-color-scheme: dark) {
+    .api-monitor-2fa-btn {
+        background: #374151;
+        border-color: #4b5563;
+        color: #d1d5db;
+    }
 }
 
 .api-monitor-2fa-picker {
@@ -53,33 +61,34 @@
     border-radius: 10px;
     /* Reduced from 16px */
     box-shadow:
-        0 15px 35px -8px rgba(0, 0, 0, 0.12),
-        0 0 0 1px rgba(0, 0, 0, 0.04);
+        0 15px 35px -8px rgba(0, 0, 0, 0.2),
+        0 0 0 1px rgba(0, 0, 0, 0.05);
     max-height: 300px;
     overflow-y: auto;
-    font-family: -apple-system, Inter, system-ui, sans-serif;
+    font-family: -apple-system, 'Segoe UI', Inter, system-ui, sans-serif;
     padding: 0;
-    /* Changed from 4px to accommodate search bar */
     margin-top: 6px;
-    animation: api-monitor-slide-up 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    animation: api-monitor-slide-down 0.25s cubic-bezier(0.16, 1, 0.3, 1);
     box-sizing: border-box;
     display: flex;
     flex-direction: column;
     scrollbar-width: none;
-    /* Hide for Firefox */
+}
+
+.api-monitor-2fa-picker.pop-up {
+    margin-top: 0;
+    margin-bottom: 6px;
+    animation: api-monitor-slide-up 0.25s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .api-monitor-2fa-picker::-webkit-scrollbar {
     display: none;
-    /* Hide for Chrome */
 }
-
 
 .api-monitor-2fa-list-container {
     flex: 1;
     overflow-y: auto;
-    padding: 12px;
-    /* Uniform four-side padding */
+    padding: 10px;
     scrollbar-width: none;
 }
 
@@ -89,21 +98,31 @@
 
 @media (prefers-color-scheme: dark) {
     .api-monitor-2fa-picker {
-        background: rgba(24, 24, 27, 0.85);
-        border: 1px solid rgba(255, 255, 255, 0.12);
-        color: #f3f4f6;
+        background: rgba(17, 24, 39, 0.9);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        color: #f9fafb;
         box-shadow:
-            0 15px 35px -8px rgba(0, 0, 0, 0.45),
-            0 0 0 1px rgba(255, 255, 255, 0.06);
+            0 20px 40px -10px rgba(0, 0, 0, 0.5),
+            0 0 0 1px rgba(255, 255, 255, 0.05);
+    }
+}
+
+@keyframes api-monitor-slide-down {
+    from {
+        opacity: 0;
+        transform: translateY(-10px) scale(0.98);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
     }
 }
 
 @keyframes api-monitor-slide-up {
     from {
         opacity: 0;
-        transform: translateY(10px) scale(0.95);
+        transform: translateY(10px) scale(0.98);
     }
-
     to {
         opacity: 1;
         transform: translateY(0) scale(1);
@@ -186,11 +205,10 @@
 .api-monitor-2fa-code {
     grid-column: 2;
     grid-row: 1;
-    font-family: 'JetBrains Mono', 'Menlo', monospace;
-    font-size: 19px;
-    /* Slightly larger */
+    font-family: ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, Monaco, Consolas, 'JetBrains Mono', monospace;
+    font-size: 20px;
     font-weight: 700;
-    color: #4f46e5;
+    color: #6366f1;
     letter-spacing: 0.5px;
     line-height: 20px;
     text-align: right;

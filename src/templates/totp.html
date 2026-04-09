@@ -388,15 +388,18 @@
                   ">
                   支持自动识别、实时同步，提供更高效的二步验证体验。
                 </p>
-                <div style="display: flex; gap: 12px; flex-wrap: wrap">
-                  <a href="/api/totp/extension/download" class="btn btn-primary btn-sm" style="text-decoration: none">
-                    <i class="fas fa-download"></i> 下载扩展程序 ZIP
-                  </a>
-                  <button class="btn btn-secondary btn-sm" @click="totpShowExtensionGuide = !totpShowExtensionGuide">
-                    <i class="fas" :class="totpShowExtensionGuide ? 'fa-chevron-up' : 'fa-info-circle'"></i>
-                    {{ totpShowExtensionGuide ? '隐藏教程' : '安装教程' }}
-                  </button>
-                </div>
+                  <div style="display: flex; gap: 12px; flex-wrap: wrap">
+                    <a href="/api/totp/extension/download" class="btn btn-primary btn-sm" style="text-decoration: none">
+                      <i class="fas fa-download"></i> 下载扩展程序 ZIP
+                    </a>
+                    <button class="btn btn-success btn-sm" @click="syncConfigToExtension">
+                        <i class="fas fa-sync-alt"></i> 一键同步配置
+                    </button>
+                    <button class="btn btn-secondary btn-sm" @click="totpShowExtensionGuide = !totpShowExtensionGuide">
+                      <i class="fas" :class="totpShowExtensionGuide ? 'fa-chevron-up' : 'fa-info-circle'"></i>
+                      {{ totpShowExtensionGuide ? '隐藏教程' : '安装教程' }}
+                    </button>
+                  </div>
               </div>
             </div>
 

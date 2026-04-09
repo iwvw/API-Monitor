@@ -1,59 +1,33 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
-
+<html>
 <head>
     <meta charset="UTF-8">
+    <title>API Monitor 2FA</title>
     <style>
         :root {
-            --bg-color: #ffffff;
-            --text-main: #374151;
-            --text-sub: #6b7280;
-            --border-color: #f3f4f6;
-            --item-hover: #f9fafb;
+            --bg-color: #0f172a;
+            --header-bg: #1e293b;
+            --item-bg: rgba(30, 41, 59, 0.7);
+            --border-color: rgba(255, 255, 255, 0.1);
+            --text-main: #f8fafc;
+            --text-sub: #94a3b8;
             --accent-color: #6366f1;
-            --code-color: #4b5563;
-            --header-bg: #ffffff;
-            --progress-bg: #e5e7eb;
+            --accent-hover: #4f46e5;
+            --success-color: #22c55e;
+            --error-color: #ef4444;
         }
 
-        @media (prefers-color-scheme: dark) {
-            :root {
-                --bg-color: #111827;
-                --text-main: #f9fafb;
-                --text-sub: #9ca3af;
-                --border-color: #1f2937;
-                --item-hover: #1f2937;
-                --accent-color: #818cf8;
-                --code-color: #f3f4f6;
-                --header-bg: #111827;
-                --progress-bg: #374151;
-            }
-        }
-
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-
+        * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
-            width: 350px;
-            max-height: 550px;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            width: 320px;
             background-color: var(--bg-color);
             color: var(--text-main);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
             overflow: hidden;
-            scrollbar-width: none;
         }
 
-        ::-webkit-scrollbar {
-            display: none;
-        }
-
-        /* 头部 */
         .header {
-            padding: 16px;
-            /* Equal padding on all 4 sides */
+            padding: 12px 16px;
             background-color: var(--header-bg);
             border-bottom: 1px solid var(--border-color);
             display: flex;
@@ -61,451 +35,174 @@
             justify-content: space-between;
         }
 
-        .header-title {
+        .header-left {
             display: flex;
             align-items: center;
             gap: 8px;
         }
 
-        .header-title i {
-            color: var(--accent-color);
-            font-size: 16px;
-        }
+        .header-left .logo { font-size: 18px; }
+        .header-left .title { font-size: 14px; font-weight: 600; white-space: nowrap; }
+        .header-left small { opacity: 0.5; font-weight: 400; margin-left: 2px; }
 
-        .header h1 {
-            font-size: 15px;
-            font-weight: 600;
-        }
-
-        .header .count {
-            font-size: 14px;
-            color: var(--text-sub);
-            font-weight: normal;
-            margin-left: 4px;
-        }
-
-        /* 账号列表 */
-        .content {
-            max-height: 450px;
-            overflow-y: auto;
-            padding-bottom: 4px;
-        }
-
-        .content::-webkit-scrollbar {
-            width: 5px;
-        }
-
-        .content::-webkit-scrollbar-track {
-            background: transparent;
-        }
-
-        .content::-webkit-scrollbar-thumb {
-            background: rgba(0, 0, 0, 0.1);
-            border-radius: 10px;
-        }
-
-        @media (prefers-color-scheme: dark) {
-            .content::-webkit-scrollbar-thumb {
-                background: rgba(255, 255, 255, 0.15);
-            }
-        }
-
-        .content::-webkit-scrollbar-thumb:hover {
-            background: var(--accent-color);
-        }
-
-        .account-list {
+        .header-actions {
             display: flex;
-            flex-direction: column;
+            align-items: center;
+            gap: 12px;
         }
 
-        .group-header {
-            padding: 8px 16px;
-            background-color: var(--border-color);
-            font-size: 10px;
-            font-weight: 700;
-            color: var(--text-sub);
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            opacity: 0.8;
-            position: sticky;
-            top: 0;
-            z-index: 5;
+        .action-item {
+            display: flex;
+            align-items: center;
         }
 
-        .search-container {
-            padding: 16px;
-            /* Symmetrical padding */
-            background-color: var(--bg-color);
-            border-bottom: 1px solid var(--border-color);
+        /* 迷你滑块 */
+        .switch {
             position: relative;
-            /* For suggestions positioning */
+            display: inline-block;
+            width: 28px;
+            height: 16px;
         }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background-color: #475569;
+            transition: .3s;
+            border-radius: 20px;
+        }
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 12px; width: 12px;
+            left: 2px; bottom: 2px;
+            background-color: white;
+            transition: .3s;
+            border-radius: 50%;
+        }
+        input:checked + .slider { background-color: var(--success-color); }
+        input:checked + .slider:before { transform: translateX(12px); }
 
-        .search-input {
+        .settings-btn {
+            background: none;
+            border: none;
+            color: var(--text-sub);
+            cursor: pointer;
+            padding: 4px;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+        }
+        .settings-btn:hover { color: var(--text-main); }
+        .settings-btn svg { width: 18px; height: 18px; }
+
+        .search-box { padding: 10px 16px; border-bottom: 1px solid var(--border-color); }
+        .search-box input {
             width: 100%;
-            padding: 8px 12px;
-            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.05);
             border: 1px solid var(--border-color);
-            background-color: var(--bg-color);
-            color: var(--text-main);
+            padding: 8px 12px;
+            border-radius: 6px;
+            color: white;
             font-size: 13px;
             outline: none;
-            transition: all 0.2s;
-            box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.02);
         }
+        .search-box input:focus { border-color: var(--accent-color); }
 
-        .search-input:focus {
-            border-color: var(--accent-color);
-            box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.1);
-        }
-
-        /* Custom Dropdown Suggestions */
-        .api-monitor-2fa-suggestions {
-            background-color: var(--bg-color);
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
-            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
-            z-index: 100;
-            max-height: 500px;
-            overflow-y: auto;
-            display: none;
-            scrollbar-width: none;
-            position: absolute;
-            top: 100%;
-            left: 16px;
-            right: 16px;
-            margin-top: 4px;
-        }
-
-        .api-monitor-2fa-suggestions::-webkit-scrollbar {
-            display: none;
-        }
-
-        .api-monitor-2fa-suggestion-item {
-            padding: 10px 16px;
-            font-size: 13px;
-            cursor: pointer;
-            transition: background 0.2s;
-            color: var(--text-main);
-        }
-
-        .api-monitor-2fa-suggestion-item:hover {
-            background-color: var(--item-hover);
+        #main { min-height: 200px; max-height: 480px; overflow-y: auto; }
+        #main::-webkit-scrollbar { display: none; }
+        #main { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        .group-header {
+            padding: 12px 16px 4px 16px;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
             color: var(--accent-color);
+            font-weight: 700;
         }
-
-        @media (prefers-color-scheme: dark) {
-            .api-monitor-2fa-suggestions {
-                box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
-            }
-        }
-
 
         .account-item {
+            padding: 10px 16px;
             display: flex;
             align-items: center;
-            padding: 12px 16px;
+            justify-content: space-between;
             border-bottom: 1px solid var(--border-color);
             cursor: pointer;
-            transition: background 0.2s;
         }
+        .account-item:hover { background: rgba(255, 255, 255, 0.05); }
 
-        .account-item:hover {
-            background-color: var(--item-hover);
-        }
+        .account-info { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+        .issuer { font-size: 13px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text-main); }
+        .account-name { font-size: 11px; color: var(--text-sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-        .account-icon {
-            width: 36px;
-            height: 36px;
-            border-radius: 8px;
-            background-color: #f3f4f6;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin-right: 12px;
-            flex-shrink: 0;
-            overflow: hidden;
-        }
-
-        .account-icon img {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-        }
-
-        .account-icon .initial {
-            font-size: 18px;
-            font-weight: bold;
-            color: #9ca3af;
-            text-transform: uppercase;
-        }
-
-        .account-info {
-            flex: 1;
-            min-width: 0;
-            display: flex;
-            flex-direction: column;
-        }
-
-        .issuer {
-            font-size: 13px;
-            font-weight: 600;
-            color: var(--text-main);
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-
-        .account-name {
-            font-size: 11px;
-            color: var(--text-sub);
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-
-        .code-container {
-            display: flex;
-            flex-direction: column;
-            align-items: flex-end;
-            margin-left: 12px;
-        }
-
+        .code-container { text-align: right; margin-left: 12px; }
         .code {
-            font-family: 'SF Mono', 'JetBrains Mono', 'Fira Code', monospace;
-            font-size: 20px;
+            font-family: ui-monospace, 'Cascadia Code', monospace;
+            font-size: 18px;
             font-weight: 700;
-            color: var(--code-color);
-            letter-spacing: 1px;
+            color: var(--accent-color);
             line-height: 1;
             margin-bottom: 4px;
         }
 
-        .account-progress {
-            width: 100%;
-            min-width: 80px;
-            height: 3px;
-            background-color: var(--progress-bg);
-            border-radius: 2px;
-            overflow: hidden;
-        }
+        .account-progress { width: 100%; height: 2px; background: rgba(255, 255, 255, 0.1); border-radius: 1px; overflow: hidden; }
+        .progress-bar { height: 100%; background: var(--accent-color); transition: width 1s linear; }
+        .progress-bar.low { background: var(--error-color); }
 
-        .progress-bar {
-            height: 100%;
-            background-color: var(--accent-color);
-            width: 0%;
-            transition: width 1s linear, background-color 0.3s;
-        }
-
-        .progress-bar.low {
-            background-color: #ef4444;
-        }
-
-        /* 状态提示 */
-        .loading,
-        .empty,
-        .error {
-            padding: 60px 40px;
-            text-align: center;
-            color: var(--text-sub);
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 16px;
-        }
-
-        .error p {
-            font-size: 14px;
-            line-height: 1.5;
-            margin-bottom: 4px;
-        }
-
-        .retry-btn {
-            background-color: var(--accent-color);
-            color: white;
-            border: none;
-            padding: 10px 24px;
-            border-radius: 12px;
-            font-size: 14px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2);
-            outline: none;
-        }
-
-        .retry-btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 6px 16px rgba(99, 102, 241, 0.3);
-            filter: brightness(1.1);
-        }
-
-        .retry-btn:active {
-            transform: translateY(0);
-        }
-
-        .spinner {
-            display: inline-block;
-            width: 20px;
-            height: 20px;
-            border: 2px solid var(--progress-bg);
-            border-top-color: var(--accent-color);
-            border-radius: 50%;
-            animation: spin 0.8s linear infinite;
-            margin-bottom: 8px;
-        }
-
-        @keyframes spin {
-            to {
-                transform: rotate(360deg);
-            }
-        }
-
-        /* 底部 */
-        .footer {
-            padding: 8px 16px;
-            border-top: 1px solid var(--border-color);
-            display: flex;
-            justify-content: flex-end;
-            background-color: var(--bg-color);
-        }
-
-        .btn-settings {
-            background: transparent;
-            border: none;
-            color: var(--text-sub);
-            padding: 4px;
-            border-radius: 4px;
-            font-size: 16px;
-            cursor: pointer;
-            transition: color 0.2s;
-        }
-
-        .btn-settings:hover {
-            color: var(--accent-color);
-        }
-
-        /* Toast */
         .toast {
             position: fixed;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%) translateY(20px);
-            background-color: rgba(0, 0, 0, 0.8);
+            bottom: 20px; left: 50%;
+            transform: translateX(-50%) translateY(100px);
+            background: var(--accent-hover);
             color: white;
-            padding: 8px 16px;
+            padding: 6px 16px;
             border-radius: 20px;
             font-size: 12px;
-            opacity: 0;
-            transition: all 0.3s cubic-bezier(0.18, 0.89, 0.32, 1.28);
-            pointer-events: none;
+            transition: transform 0.3s cubic-bezier(0.18, 0.89, 0.32, 1.28);
             z-index: 100;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.3);
         }
-
-        .toast.show {
-            opacity: 1;
-            transform: translateX(-50%) translateY(0);
-        }
-
-        /* 快捷开关样式 */
-        .switch-container {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            font-size: 11px;
-            color: var(--text-sub);
-            cursor: pointer;
-            padding: 4px 8px;
-            border-radius: 6px;
-            transition: background 0.2s;
-        }
-
-        .switch-container:hover {
-            background: var(--item-hover);
-        }
-
-        .switch {
-            position: relative;
-            display: inline-block;
-            width: 24px;
-            height: 14px;
-        }
-
-        .switch input {
-            opacity: 0;
-            width: 0;
-            height: 0;
-        }
-
-        .slider {
-            position: absolute;
-            cursor: pointer;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background-color: var(--progress-bg);
-            transition: .4s;
-            border-radius: 14px;
-        }
-
-        .slider:before {
-            position: absolute;
-            content: "";
-            height: 10px;
-            width: 10px;
-            left: 2px;
-            bottom: 2px;
-            background-color: white;
-            transition: .4s;
-            border-radius: 50%;
-        }
-
-        input:checked+.slider {
-            background-color: var(--accent-color);
-        }
-
-        input:checked+.slider:before {
-            transform: translateX(10px);
-        }
+        .toast.show { transform: translateX(-50%) translateY(0); }
     </style>
 </head>
-
 <body>
     <div class="header">
-        <div class="header-title">
-            <span style="font-size: 16px;">🛡️</span>
-            <h1>2FA 账号<span class="count" id="accountCount"></span></h1>
+        <div class="header-left">
+            <span class="logo">🛡️</span>
+            <span class="title">2FA 账号 <small id="accountCount">(0)</small></span>
         </div>
-        <div style="display: flex; gap: 8px; align-items: center;">
-            <label class="switch-container">
-                <span>填充按钮</span>
-                <div class="switch">
-                    <input type="checkbox" id="toggleFillButton" checked>
+        <div class="header-actions">
+            <div class="action-item" title="总开关">
+                <label class="switch">
+                    <input type="checkbox" id="toggleMaster" checked>
                     <span class="slider"></span>
-                </div>
-            </label>
-            <button class="btn-settings" id="btnSettings" title="设置">⚙️</button>
+                </label>
+            </div>
+            <button class="settings-btn" id="btnToggleFill" title="页面图标开关">
+                <!-- 优化后的标准 SVG 路径 -->
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="7.5" cy="15.5" r="5.5"></circle>
+                    <path d="M21 2l-9.6 9.6M15.5 7.5l3 3L22 7"></path>
+                </svg>
+            </button>
+            <button class="settings-btn" id="btnSettings" title="设置">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <circle cx="12" cy="12" r="3"></circle>
+                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+                </svg>
+            </button>
         </div>
     </div>
 
-    <div class="search-container">
-        <input type="text" class="search-input" id="searchInput" placeholder="搜索厂商或账号..." autocomplete="off">
-        <div class="api-monitor-2fa-suggestions" id="issuerList"></div>
+    <div class="search-box">
+        <input type="text" id="searchInput" placeholder="搜索厂商或账号..." autocomplete="off">
     </div>
 
-
-    <div id="main" class="content">
-        <div class="loading">
-            <div class="spinner"></div>
-            <p>正在同步数据...</p>
-        </div>
-    </div>
-
-    <div class="toast" id="toast">复制成功</div>
+    <div id="main"></div>
+    <div id="toast" class="toast">复制成功</div>
 
     <script src="popup.js"></script>
 </body>
-
 </html>

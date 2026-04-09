@@ -4,25 +4,60 @@
 
 const serverUrl = '';
 let responseServerUrl = '';
-let showFillButton = true;
+let showFillButton = false; // 默认关闭，等待配置加载
+let masterEnabled = true;   // 默认开启
 let allAccounts = [];
 
 function isContextValid() { return typeof chrome !== 'undefined' && chrome.runtime && !!chrome.runtime.id; }
 
-function is2FAInput(input) {
-  if (input.dataset.apiMonitorIgnore) return false;
-  if (input.type !== 'text' && input.type !== 'tel' && input.type !== 'number' && input.type !== 'password') return false;
+function is2FAInput(target) {
+  if (target.dataset.apiMonitorIgnore) return false;
+  
+  // 识别基础：支持 INPUT 和特定自定义组件 (如华为云的 div)
+  const isInput = target.tagName === 'INPUT' && (target.type === 'text' || target.type === 'tel' || target.type === 'number' || target.type === 'password');
+  const isCustomBox = target.tagName === 'DIV' && (target.className.includes('hwid-input-area') || target.className.includes('sixInputArea'));
 
-  // 识别分段输入框 (格子)
-  const isDigitBox = (input.maxLength === 1 || (input.size === 1 && !input.maxLength));
+  if (!isInput && !isCustomBox) return false;
+
+  const attrs = [target.name, target.id, target.placeholder, target.autocomplete, target.getAttribute('aria-label'), target.className].filter(Boolean).map(s => s.toLowerCase());
+  
+  // 排除规则
+  if (target.autocomplete === 'current-password' || target.autocomplete === 'new-password') return false;
+  const ignoreHints = ['search', 'user', 'mail', 'phone', 'captcha', 'username', 'login', 'signin'];
+  if (ignoreHints.some(h => attrs.some(a => a.includes(h)))) return false;
+
+  // 容器特征扫描 (向上溯源)
+  let p = target.parentElement;
+  for(let i=0; i<4 && p; i++) {
+    const pc = p.className.toLowerCase();
+    const pi = p.id.toLowerCase();
+    if (pc.includes('mfa') || pc.includes('2fa') || pc.includes('sixinputarea') || pc.includes('otp-container') || pi.includes('mfa')) {
+      return true; 
+    }
+    p = p.parentElement;
+  }
+
+  if (target.autocomplete === 'one-time-code') return true;
+
+  const isDigitBox = (target.maxLength === 1 || (target.size === 1 && !target.maxLength) || isCustomBox);
   if (isDigitBox) {
-    const group = getDigitGroup(input);
+    const group = getDigitGroup(target);
     if (group.length >= 4) return true;
   }
 
-  const hints = ['otp', '2fa', 'totp', 'code', 'verification', 'authenticator', 'token', 'mfa', '验证码', '验证'];
-  const attrs = [input.name, input.id, input.placeholder, input.autocomplete, input.getAttribute('aria-label'), input.className].filter(Boolean).map(s => s.toLowerCase());
-  return hints.some(h => attrs.some(a => a.includes(h))) || (parseInt(input.maxLength) >= 4 && parseInt(input.maxLength) <= 8);
+  const strongHints = ['otp', '2fa', 'totp', 'mfa', 'authenticator', 'token', '验证码', '两步验证', '动态码', '动态口令', '安全令牌'];
+  if (strongHints.some(h => attrs.some(a => a.includes(h)))) return true;
+
+  const weakHints = ['code', 'verification', 'verify', 'pin', 'password', '验证', '校验', '口令'];
+  const hasWeakHint = weakHints.some(h => attrs.some(a => a.includes(h)));
+  if (hasWeakHint) {
+    const maxLen = parseInt(target.maxLength);
+    if (maxLen >= 4 && maxLen <= 10) return true;
+    if (target.inputMode === 'numeric' || target.type === 'number') return true;
+    if (attrs.some(a => a.includes('verification') || a.includes('verify'))) return true;
+  }
+
+  return false;
 }
 
 function formatCode(code) {
@@ -31,36 +66,28 @@ function formatCode(code) {
 }
 
 function getDigitGroup(input) {
-  // 向上寻找共同祖先，最多找 3 层，尝试找到包含多个小格子的容器
-  let p = input.parentElement;
+  if (!input || !input.parentElement) return [];
   let bestGroup = [input];
+  let p = input.parentElement;
+  let depth = 0;
 
-  for (let depth = 0; depth < 3 && p; depth++) {
-    const allInputs = Array.from(p.querySelectorAll('input')).filter(i => {
-      const style = window.getComputedStyle(i);
-      return style.display !== 'none' && style.visibility !== 'hidden' &&
-        (i.type === 'text' || i.type === 'tel' || i.type === 'number' || i.type === 'password') &&
-        !i.dataset.apiMonitorIgnore;
-    });
-
-    // 筛选出特征明显的“小格子”：maxLength 为 1，或者视觉上很窄
-    const smallInputs = allInputs.filter(i => {
-      const rect = i.getBoundingClientRect();
-      return i.maxLength === 1 || i.size === 1 || (rect.width > 0 && rect.width < 60);
+  while (p && depth < 5) {
+    const smallInputs = Array.from(p.querySelectorAll('input, div.hwid-input-area, div.sixInputArea')).filter(el => {
+      const isShort = el.offsetWidth > 0 && el.offsetWidth < 66;
+      const isSingleChar = el.maxLength === 1 || (el.size === 1 && !el.maxLength) || el.className.includes('hwid-input-area');
+      return (isShort || isSingleChar);
     });
 
     if (smallInputs.length >= 4 && smallInputs.length <= 12 && smallInputs.includes(input)) {
-      // 检查这些小格子是否在视觉上大致水平排列（这是格子布局的特征）
       const firstRect = smallInputs[0].getBoundingClientRect();
       const lastRect = smallInputs[smallInputs.length - 1].getBoundingClientRect();
-      const isHorizontal = Math.abs(firstRect.top - lastRect.top) < 20;
-
-      if (isHorizontal) {
+      if (Math.abs(firstRect.top - lastRect.top) < 40) {
         bestGroup = smallInputs;
         break;
       }
     }
     p = p.parentElement;
+    depth++;
   }
   return bestGroup;
 }
@@ -69,47 +96,78 @@ function safeSendMessage(message, callback) {
   if (!isContextValid()) return;
   try {
     chrome.runtime.sendMessage(message, (r) => {
-      if (chrome.runtime.lastError && chrome.runtime.lastError.message.includes('context invalidated')) return;
+      if (chrome.runtime.lastError) return;
       if (callback) callback(r);
     });
   } catch (e) { }
 }
 
 function createFillButton(input) {
+  if (input.dataset.btnAdded === 'true') return;
   const btn = document.createElement('button');
-  btn.className = 'api-monitor-2fa-btn'; btn.innerHTML = '🔐';
-  btn.title = '一键填充 2FA 验证码'; btn.type = 'button';
+  btn.className = 'api-monitor-2fa-btn';
+  btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect><path d="M7 11V7a5 5 0 0 1 10 0v4"></path></svg>`;
+  btn.title = '一键填充 2FA 验证码';
+  btn.type = 'button';
+  
+  const align = () => {
+    if (!document.body.contains(input)) { btn.remove(); return; }
+    const rect = input.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0 || window.getComputedStyle(input).display === 'none') {
+      btn.style.display = 'none'; return;
+    }
+    btn.style.display = 'flex';
+    btn.style.top = `${rect.top + window.scrollY + (rect.height - 24) / 2}px`;
+    btn.style.left = `${rect.left + window.scrollX + rect.width - 32}px`;
+    btn.classList.add('visible');
+  };
+
   btn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); showCodePicker(input); });
-  return btn;
+  document.body.appendChild(btn);
+  input.dataset.btnAdded = 'true';
+  align();
+
+  window.addEventListener('resize', align, { passive: true });
+  document.addEventListener('scroll', align, { capture: true, passive: true });
+  
+  const timer = setInterval(() => {
+    if (!document.body.contains(input)) { btn.remove(); clearInterval(timer); } 
+    else { align(); }
+  }, 1000);
 }
 
 async function showCodePicker(input) {
-  if (!isContextValid()) { alert('扩展已更新，请刷新页面'); return; }
+  if (!isContextValid() || !masterEnabled) return; // 如果总开关关闭，拒绝显示面板
   document.querySelectorAll('.api-monitor-2fa-picker').forEach(el => el.remove());
 
   const picker = document.createElement('div');
   picker.className = 'api-monitor-2fa-picker';
-
-  picker.innerHTML = `
-    <div class="api-monitor-2fa-list-container" id="api-2fa-list">
-      <div class="loading">正在加载验证码...</div>
-    </div>
-  `;
-
-  const rect = input.getBoundingClientRect();
-  picker.style.top = `${rect.bottom + window.scrollY + 8}px`; /* Increased offset from 6px to 8px */
-  picker.style.left = `${rect.left + window.scrollX}px`;
-  picker.style.width = `${rect.width}px`;
-  picker.style.minWidth = '240px';
+  picker.innerHTML = `<div class="api-monitor-2fa-list-container" id="api-2fa-list"><div class="loading">加载中...</div></div>`;
   document.body.appendChild(picker);
-
+  
+  const rect = input.getBoundingClientRect();
+  const pickerHeight = 280;
+  const spaceBelow = window.innerHeight - rect.bottom;
+  
+  if (spaceBelow < pickerHeight && rect.top > spaceBelow) {
+    picker.style.bottom = `${window.innerHeight - rect.top - window.scrollY + 8}px`;
+    picker.style.top = 'auto';
+    picker.classList.add('pop-up');
+  } else {
+    picker.style.top = `${rect.bottom + window.scrollY + 8}px`;
+  }
+  picker.style.left = `${Math.max(16, Math.min(rect.left + window.scrollX, window.innerWidth - 260))}px`;
+  picker.style.width = `${Math.max(rect.width, 240)}px`;
+  
   const listCont = picker.querySelector('#api-2fa-list');
-
   safeSendMessage({ type: 'GET_ACCOUNTS', domain: window.location.hostname }, (response) => {
-    if (!response || !response.success) { listCont.innerHTML = `<div class="error">${response?.error || '获取失败'}</div>`; return; }
+    if (!response || !response.success) { 
+      listCont.innerHTML = `<div class="error"><p>${response?.error || '获取失败'}</p></div>`; return; 
+    }
     allAccounts = response.matched?.length > 0 ? response.matched : response.data;
-    if (!allAccounts || allAccounts.length === 0) { listCont.innerHTML = '<div class="empty">📭 暂无账号</div>'; return; }
-
+    if (!allAccounts || allAccounts.length === 0) { 
+      listCont.innerHTML = '<div class="empty">📭 暂无账号</div>'; return; 
+    }
     renderPickerList(listCont, allAccounts, input);
   });
 
@@ -123,66 +181,38 @@ async function showCodePicker(input) {
 }
 
 function renderPickerList(container, accounts, input) {
-  const groups = {};
-  accounts.forEach(acc => {
-    const issuer = acc.issuer || '其他';
-    if (!groups[issuer]) groups[issuer] = [];
-    groups[issuer].push(acc);
-  });
-
-  const sortedIssuers = Object.keys(groups).sort((a, b) => {
-    const countA = groups[a].length;
-    const countB = groups[b].length;
-    if (countB !== countA) return countB - countA;
-    return a.localeCompare(b);
-  });
-
-  let html = '';
-  sortedIssuers.forEach(issuer => {
-    html += groups[issuer].map(acc => {
-      return `
-        <div class="account-item" data-code="${acc.currentCode || ''}">
-          <div class="api-monitor-2fa-info">
-            <div class="api-monitor-2fa-account">${acc.account || '未命名'}</div>
-            <div class="api-monitor-2fa-issuer">${acc.issuer || '其他'}</div>
-          </div>
-          <div class="api-monitor-2fa-code-wrapper">
-            <div class="api-monitor-2fa-code">${formatCode(acc.currentCode)}</div>
-            <div class="api-monitor-2fa-progress-container"><div class="api-monitor-2fa-progress-bar" id="prog-${acc.id}"></div></div>
-          </div>
-        </div>`;
-    }).join('');
-  });
-
-  container.innerHTML = html;
+  container.innerHTML = accounts.map(acc => `
+    <div class="account-item" data-code="${acc.currentCode || ''}">
+      <div class="api-monitor-2fa-info">
+        <div class="api-monitor-2fa-account">${acc.account || '未命名'}</div>
+        <div class="api-monitor-2fa-issuer">${acc.issuer || '其他'}</div>
+      </div>
+      <div class="api-monitor-2fa-code-wrapper">
+        <div class="api-monitor-2fa-code">${formatCode(acc.currentCode)}</div>
+        <div class="api-monitor-2fa-progress-container"><div class="api-monitor-2fa-progress-bar" id="prog-${acc.id}"></div></div>
+      </div>
+    </div>`).join('');
 
   container.querySelectorAll('.account-item').forEach(item => {
     item.addEventListener('click', () => {
-      if (item.dataset.code) {
-        const code = item.dataset.code;
-        const group = getDigitGroup(input);
-
-        if (group.length > 1) {
-          // 分段填充
-          const digits = code.replace(/\s/g, '').split('');
-          group.forEach((el, idx) => {
-            if (digits[idx] && el) {
-              el.value = digits[idx];
-              el.dispatchEvent(new Event('input', { bubbles: true }));
-              el.dispatchEvent(new Event('change', { bubbles: true }));
-            }
-          });
-          if (group[0]) group[0].focus();
-        } else {
-          // 普通填充
-          input.dataset.justFilled = 'true';
-          input.value = code;
-          input.dispatchEvent(new Event('input', { bubbles: true }));
-          input.dispatchEvent(new Event('change', { bubbles: true }));
-          input.focus();
-        }
+      const code = item.dataset.code;
+      const group = getDigitGroup(input);
+      if (group.length > 1) {
+        const digits = code.replace(/\s/g, '').split('');
+        group.forEach((el, idx) => {
+          if (digits[idx]) {
+            if (el.tagName === 'INPUT') el.value = digits[idx];
+            else el.textContent = digits[idx];
+            el.dispatchEvent(new Event('input', { bubbles: true }));
+          }
+        });
+      } else {
+        input.dataset.justFilled = 'true';
+        if (input.tagName === 'INPUT') input.value = code;
+        else input.textContent = code;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
       }
-      document.querySelectorAll('.api-monitor-2fa-picker').forEach(p => p.remove());
+      container.closest('.api-monitor-2fa-picker').remove();
     });
   });
   updateProgress(accounts);
@@ -195,24 +225,66 @@ function updateProgress(accounts) {
     const rem = 30 - (Math.floor(Date.now() / 1000) % 30);
     accounts.forEach(acc => {
       const bar = document.getElementById(`prog-${acc.id}`);
-      if (bar) { bar.style.width = `${(rem / 30) * 100}%`; bar.classList.toggle('low', rem <= 5); }
+      if (bar) {
+        bar.style.width = `${(rem / 30) * 100}%`;
+        bar.classList.toggle('low', rem <= 5);
+      }
     });
+    if (rem === 30) {
+       // 周期到，通知 background 刷新一下（虽然 content 目前没法直接刷 data，但至少能保住视觉同步）
+    }
   };
-  tick(); progressTimer = setInterval(tick, 1000);
+  tick();
+  progressTimer = setInterval(tick, 1000);
+}
+
+function scanInputs() {
+  if (!isContextValid()) return;
+  document.querySelectorAll('input, div.hwid-input-area, div.sixInputArea').forEach(input => {
+    if (input.dataset.scanAdded === 'true') return;
+    if (is2FAInput(input)) {
+      input.dataset.scanAdded = 'true';
+      const group = getDigitGroup(input);
+      if (group.length > 1 && group[0] !== input) { input.dataset.apiMonitorIgnore = 'true'; return; }
+      
+      input.dataset.apiMonitor2fa = 'true';
+      if (showFillButton) createFillButton(input);
+
+      input.addEventListener('focus', () => {
+        if (input.dataset.justFilled === 'true') { input.dataset.justFilled = 'false'; return; }
+        setTimeout(() => showCodePicker(input), 150);
+      });
+      if (input.tagName === 'DIV') {
+        input.style.cursor = 'pointer';
+        input.addEventListener('click', () => showCodePicker(input));
+      }
+    }
+  });
+}
+
+function removeButtons() {
+  document.querySelectorAll('.api-monitor-2fa-btn').forEach(btn => btn.remove());
+  document.querySelectorAll('input, div').forEach(el => delete el.dataset.btnAdded);
+}
+
+function removeAll() {
+  removeButtons();
+  document.querySelectorAll('.api-monitor-2fa-picker').forEach(p => p.remove());
+  document.querySelectorAll('input, div').forEach(el => {
+    delete el.dataset.scanAdded;
+    delete el.dataset.apiMonitor2fa;
+  });
 }
 
 safeSendMessage({ type: 'GET_CONFIG' }, (config) => {
   if (config) {
     if (config.serverUrl) responseServerUrl = config.serverUrl.endsWith('/') ? config.serverUrl.slice(0, -1) : config.serverUrl;
     showFillButton = config.showFillButton !== false;
-    if (showFillButton) scanInputs();
-  }
-});
-
-chrome.storage.onChanged.addListener((changes) => {
-  if (changes.showFillButton) {
-    showFillButton = changes.showFillButton.newValue !== false;
-    if (showFillButton) {
+    masterEnabled = config.masterEnabled !== false;
+    
+    if (!masterEnabled) {
+      removeAll();
+    } else if (showFillButton) {
       scanInputs();
     } else {
       removeButtons();
@@ -220,41 +292,40 @@ chrome.storage.onChanged.addListener((changes) => {
   }
 });
 
-function removeButtons() {
-  document.querySelectorAll('.api-monitor-2fa-btn').forEach(btn => btn.remove());
-  document.querySelectorAll('.api-monitor-2fa-picker').forEach(p => p.remove());
-  document.querySelectorAll('input[data-api-monitor-2fa]').forEach(input => {
-    delete input.dataset.apiMonitor2fa;
-    // 如果有 wrapper，可以选择保留或移除。为了简单，我们主要控制按钮的显示。
-  });
-}
+chrome.storage.onChanged.addListener((changes) => {
+  if (changes.masterEnabled) {
+    masterEnabled = changes.masterEnabled.newValue !== false;
+    if (!masterEnabled) removeAll(); else scanInputs();
+  }
+  if (changes.showFillButton) {
+    showFillButton = changes.showFillButton.newValue !== false;
+    if (masterEnabled) {
+      if (showFillButton) scanInputs(); else removeButtons();
+    }
+  }
+});
 
-function scanInputs() {
-  if (!isContextValid() || !showFillButton) return;
-  document.querySelectorAll('input').forEach(input => {
-    if (input.dataset.apiMonitor2fa || input.dataset.apiMonitorIgnore) return;
-    if (is2FAInput(input)) {
-      const group = getDigitGroup(input);
-      if (group.length > 1 && group[0] !== input) {
-        // 如果是格子组中的非第一个，标记忽略
-        input.dataset.apiMonitorIgnore = 'true';
-        return;
-      }
+const observer = new MutationObserver(() => isContextValid() && masterEnabled && scanInputs());
+if (isContextValid()) observer.observe(document.body, { childList: true, subtree: true });
+scanInputs();
 
-      input.dataset.apiMonitor2fa = 'true';
-      const wrapper = document.createElement('div'); wrapper.className = 'api-monitor-2fa-wrapper';
-      input.parentNode.insertBefore(wrapper, input); wrapper.appendChild(input); wrapper.appendChild(createFillButton(input));
-
-      input.addEventListener('focus', () => {
-        if (input.dataset.justFilled === 'true') {
-          input.dataset.justFilled = 'false';
-          return;
-        }
-        setTimeout(() => showCodePicker(input), 150);
+// --- 核心功能：主站一键同步配置 ---
+window.addEventListener('message', (event) => {
+  // 安全校验：只接受来自主站的消息（这里逻辑可以根据主站域名加固）
+  if (event.data && event.data.type === 'API_MONITOR_SYNC_CONFIG') {
+    const { serverUrl, password } = event.data;
+    if (serverUrl) {
+      const cleanUrl = serverUrl.endsWith('/') ? serverUrl.slice(0, -1) : serverUrl;
+      chrome.storage.sync.set({ 
+        serverUrl: cleanUrl, 
+        password: password || '' 
+      }, () => {
+        // 同步成功后通知主站显示成功状态
+        window.postMessage({ type: 'API_MONITOR_SYNC_SUCCESS' }, '*');
+        // 同时立即更新当前页面的变量
+        responseServerUrl = cleanUrl;
+        console.log('API Monitor: 配置已自动同步');
       });
     }
-  });
-}
-
-const observer = new MutationObserver(() => isContextValid() ? scanInputs() : observer.disconnect());
-scanInputs(); if (isContextValid()) observer.observe(document.body, { childList: true, subtree: true });
+  }
+});
