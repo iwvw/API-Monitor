@@ -202,7 +202,7 @@ function findSessionIdByMessages(messages) {
             // 1. 先查内存缓存
             for (const [key, value] of sessionCache.entries()) {
                 if (incoming.includes(key)) {
-                    return value;
+                    return { ...value, matchedIndex: i };
                 }
             }
             // 2. 内存未命中，查数据库
@@ -211,12 +211,11 @@ function findSessionIdByMessages(messages) {
                 // 回填到内存
                 const key = extractContentKey(incoming);
                 if (key) sessionCache.set(key, dbResult);
-                return dbResult;
+                return { ...dbResult, matchedIndex: i };
             }
         }
     }
     return null;
-
 }
 
 // ==================== API Key 认证中间件 ====================
@@ -878,15 +877,16 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
             let sessionId;
             let parentId = null;
 
-            // 获取最后一条用户消息内容作为特征 Key
-            const lastUserMsg = [...messages].reverse().find(m => m.role === 'user');
-            const contentKey = lastUserMsg ? (typeof lastUserMsg.content === 'string' ? lastUserMsg.content : '') : '';
-            
-            const cached = contentKey ? storage.findSessionCache(contentKey) : null;
+            // 优先从历史消息中查找已存在的会话 (由 Assistant 回复标识)
+            const cached = findSessionIdByMessages(messages);
+            let finalMessages = messages;
+
             if (cached) {
                 sessionId = cached.sessionId;
                 parentId = cached.parentId || null;
-                logger.info(`[连续对话] 复用 session: ${sessionId}, parent: ${parentId}`);
+                // 关键点：如果复用会话，只发送匹配点之后的新消息作为 Prompt
+                finalMessages = messages.slice(cached.matchedIndex + 1);
+                logger.info(`[连续对话] 命中历史记录 (索引: ${cached.matchedIndex})，复用 session: ${sessionId}, parent: ${parentId}, 增量消息数: ${finalMessages.length}`);
             } else {
                 // 如果是有文件的对话，且缓存中记录了上传时的 sessionId，可以尝试复用
                 if (hasFiles) {
@@ -926,7 +926,7 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
 
             // 4. 构建请求体
             const defaultMaxTokens = storage.getSetting('DEFAULT_MAX_TOKENS') || '8192';
-            const payload = client.buildCompletionPayload(sessionId, messages, model, {
+            const payload = client.buildCompletionPayload(sessionId, finalMessages, model, {
                 parent_message_id: parentId,
                 file_ids: file_ids || [],
                 max_tokens: max_tokens || parseInt(defaultMaxTokens),
@@ -1068,9 +1068,8 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
                     res.write('data: [DONE]\n\n');
                     res.end();
 
-                    // 记录会话继承 (使用回复内容的前 100 个字符作为 Key)
-                    const resKey = fullContent.substring(0, 100);
-                    storage.saveSessionCache(resKey, sessionId, responseMessageId);
+                    // 记录会话继承 (使用回复内容作为 Key 存入缓存)
+                    saveToSessionCache(fullContent, sessionId, responseMessageId);
 
                     // 会话自动清理
                     const autoDelete = storage.getSetting('AUTO_DELETE_SESSIONS');
@@ -1165,8 +1164,7 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
                     },
                 };
                 // 记录会话继承
-                const resKey = result.content.substring(0, 100);
-                storage.saveSessionCache(resKey, sessionId, result.message_id);
+                saveToSessionCache(result.content, sessionId, result.message_id);
 
                 // 会话自动清理
                 const autoDelete = storage.getSetting('AUTO_DELETE_SESSIONS');
