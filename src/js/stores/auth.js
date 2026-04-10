@@ -93,15 +93,48 @@ export const useAuthStore = defineStore('auth', {
           }
           return true;
         } else {
-          this.loginError = result.error || '密码错误，请重试';
+          // 优化错误信息提取，后端的 result.error 可能是一个包含 code, message, details 的对象
+          let errorMsg = '密码错误，请重试';
+          const errData = result.error;
+
+          try {
+            if (errData) {
+              if (typeof errData === 'string') {
+                errorMsg = errData;
+              } else if (typeof errData === 'object') {
+                if (errData.code === 'VALIDATION_ERROR' && errData.details && Array.isArray(errData.details)) {
+                  errorMsg = errData.details.map(d => d.message).join(', ');
+                } else if (errData.message) {
+                  errorMsg = errData.message;
+                } else {
+                  errorMsg = JSON.stringify(errData);
+                }
+              }
+            } else if (result.message) {
+              errorMsg = result.message;
+            }
+          } catch (e) {
+            errorMsg = '解析错误: ' + e.message;
+          }
+
+          // 如果 errorMsg 最后依然是一个对象（防范未知边界条件），强制序列化
+          if (typeof errorMsg !== 'string') {
+            errorMsg = JSON.stringify(errorMsg);
+          }
+
+          this.loginError = errorMsg;
+          
           if (!silent) {
-            toast.error(this.loginError);
+            toast.error(errorMsg); // toast 也要安全展示
           }
           return false;
         }
       } catch (error) {
-        this.loginError = '验证失败: ' + error.message;
-        toast.error(this.loginError);
+        const catchMsg = error.message || '网络验证失败';
+        this.loginError = catchMsg;
+        if (!silent) {
+          toast.error(catchMsg);
+        }
         return false;
       } finally {
         this.loginLoading = false;

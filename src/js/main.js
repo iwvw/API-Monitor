@@ -1036,7 +1036,6 @@ const app = createApp({
 
     // 1. 核心数据与 UI 重置 (立即执行)
     window.vueApp = this;
-    this.loadModuleSettings();
     this.updateBrowserThemeColor();
 
     // 2. 尝试从缓存恢复主机列表 (实现瞬间展示)
@@ -1167,6 +1166,8 @@ const app = createApp({
     },
 
     settingsCurrentTab(newVal) {
+      if (!this.isAuthenticated) return;
+
       if (newVal === 'logs') {
         // 进入日志标签页：加载日志数据和设置，并自动连接日志流
         this.initLogWs();
@@ -1190,6 +1191,7 @@ const app = createApp({
     serverCurrentTab: {
       handler(newVal) {
         this.updateBrowserThemeColor();
+        if (!this.isAuthenticated) return;
 
         if (newVal === 'docker') {
           if (this.ensureDockerTaskStream) {

@@ -878,7 +878,7 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
                 let sessionId;
                 let parentId = null;
                 const cached = findSessionIdByMessages(messages);
-                let finalMessages = messages;
+                const finalMessages = messages;
 
                 if (cached) {
                     sessionId = cached.sessionId;
@@ -898,7 +898,7 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
                     }
                 }
 
-                let powHeader = await client.getPow(token);
+                const powHeader = await client.getPow(token);
                 const defaultMaxTokens = storage.getSetting('DEFAULT_MAX_TOKENS') || '8192';
                 const payload = client.buildCompletionPayload(sessionId, finalMessages, model, {
                     parent_message_id: parentId,
