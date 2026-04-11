@@ -22,6 +22,37 @@
   <!-- 模型列表标签页 -->
   <div v-show="geminiCliCurrentTab === 'models' || geminiCliCurrentTab === 'quotas'"
     class="sub-tab-content quick-fade-in">
+    
+    <!-- 统计概览卡片 (对齐 ds-stat-cards 规范) -->
+    <div v-if="geminiCliStats" class="ds-stat-cards">
+      <div class="ds-stat-card">
+        <div class="ds-stat-label">总调用量</div>
+        <div class="ds-stat-value">{{ geminiCliStats.total_calls || 0 }}</div>
+        <div class="ds-stat-icon"><i class="fas fa-chart-line"></i></div>
+      </div>
+      <div class="ds-stat-card">
+        <div class="ds-stat-label">总消耗 Token</div>
+        <div class="ds-stat-value">{{ formatTokens(geminiCliStats.total_tokens || 0) }}</div>
+        <div class="ds-stat-icon"><i class="fas fa-database"></i></div>
+      </div>
+      <div class="ds-stat-card">
+        <div class="ds-stat-label">平均响应</div>
+        <div class="ds-stat-value">
+          {{ geminiCliStats.avg_duration || 0 }}
+          <small style="font-size: 11px; margin-left: 2px;">ms</small>
+        </div>
+        <div class="ds-stat-icon"><i class="fas fa-tachometer-alt"></i></div>
+      </div>
+      <div class="ds-stat-card">
+        <div class="ds-stat-label">累计成功率</div>
+        <div class="ds-stat-value">
+          {{ geminiCliStats.success_rate || '0.0' }}
+          <small style="font-size: 11px; margin-left: 2px;">%</small>
+        </div>
+        <div class="ds-stat-icon"><i class="fas fa-check-circle"></i></div>
+      </div>
+    </div>
+
     <div class="panel-header" style="justify-content: space-between; padding-bottom: 10px">
       <div style="display: flex; gap: 16px; align-items: center">
         <div class="panel-title">

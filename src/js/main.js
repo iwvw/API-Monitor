@@ -54,6 +54,7 @@ async function loadLazyCSS() {
     import('../css/filebox.css'),
     import('../css/notification.css'),
     import('../css/ai-chat.css'),
+    import('../css/qwen.css'),
   ];
   await Promise.all(styles);
   console.log('[System] Lazy CSS loaded');
@@ -110,6 +111,7 @@ import { aliyunMethods } from './modules/aliyun.js';
 import { tencentMethods } from './modules/tencent.js';
 import { notificationData, notificationMethods } from './modules/notification.js';
 import { aiChatData, aiChatMethods, aiChatComputed } from './modules/ai-chat.js';
+import { qwenMethods } from './modules/qwen.js';
 import { formatDateTime, formatFileSize, formatRegion, formatUptime, formatTokens } from './modules/utils.js';
 
 // 导入全局状态
@@ -1410,6 +1412,9 @@ const app = createApp({
               case 'filebox':
                 this.initFileBox();
                 break;
+              case 'qwen':
+                this.switchToQwen();
+                break;
               case 'notification':
                 this.initNotificationModule();
                 break;
@@ -1764,6 +1769,7 @@ const app = createApp({
     ...antigravityMethods,
     ...geminiCliMethods,
     ...deepseekMethods,
+    ...qwenMethods,
     ...settingsMethods,
     ...systemLogsMethods,
     ...logViewerMethods,

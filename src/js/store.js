@@ -110,6 +110,12 @@ export const MODULE_CONFIG = {
     icon: 'fa-brain',
     description: 'DeepSeek API 代理服务',
   },
+  qwen: {
+    name: '通义千问',
+    shortName: 'Qwen',
+    icon: 'fa-magic',
+    description: '通义千问 API 代理服务',
+  },
 };
 
 /**
@@ -127,7 +133,7 @@ export const MODULE_GROUPS = [
     id: 'api-gateway',
     name: 'API 网关',
     icon: 'fa-bolt',
-    modules: ['openai', 'antigravity', 'gemini-cli', 'deepseek'],
+    modules: ['openai', 'antigravity', 'gemini-cli', 'deepseek', 'qwen'],
   },
   {
     id: 'infrastructure',
@@ -187,6 +193,7 @@ export const store = reactive({
     openai: true,
     antigravity: true,
     deepseek: true,
+    qwen: true,
     'gemini-cli': true,
     paas: true,
     dns: true,
@@ -217,6 +224,7 @@ export const store = reactive({
     'antigravity',
     'gemini-cli',
     'deepseek',
+    'qwen',
     'paas',
     'dns',
     'aliyun',
@@ -798,6 +806,44 @@ export const store = reactive({
   dsCheckHistory: { models: [], times: [], matrix: {} },
   dsChecking: false,
   dsDisabledCheckModels: [],
+
+  // ===== Qwen 模块 =====
+  qwenCurrentTab: 'models',
+  qwenModels: [],
+  qwenModelsLoading: false,
+  qwenModelRedirects: [],
+  qwenNewRedirectSource: '',
+  qwenNewRedirectTarget: '',
+  qwenEditingRedirectSource: null,
+  qwenAccounts: [],
+  qwenAccountsLoading: false,
+  qwenShowAddAccount: false,
+  qwenAccountAddMode: 'token', // 'token'
+  qwenAccountForm: { name: '', email: '', password: '', token: '' },
+  qwenAccountFormError: '',
+  qwenAccountAdding: false,
+  qwenAccountRefreshing: false,
+  qwenSaving: false,
+  qwenShowApiKey: false,
+  qwenLogs: [],
+  qwenLogsLoading: false,
+  qwenLogFilterModel: '',
+  qwenLogFilterAccount: '',
+  qwenLogDetailVisible: false,
+  qwenLogDetailContent: '',
+  qwenLogDetail: null,
+  qwenLogDetailShowRaw: false,
+  qwenSettingsForm: { API_KEY: '', SYSTEM_INSTRUCTION: '' },
+  qwenMatrix: {},
+  qwenModelsSyncing: false,
+  qwenStats: { total_calls: 0, success_calls: 0, total_tokens: 0 },
+  qwenBaseUrl: 'Loading...',
+  qwenCurlExample: 'Generating example...',
+
+  // Qwen 模型检测 (对齐 GCLI/DeepSeek)
+  qwenCheckHistory: { models: [], times: [], matrix: {} },
+  qwenChecking: false,
+  qwenDisabledCheckModels: [],
 
   // ===== 音乐播放器模块 =====
   musicReady: false,

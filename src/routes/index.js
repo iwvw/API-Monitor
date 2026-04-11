@@ -30,6 +30,15 @@ function registerRoutes(app) {
   app.use('/api/logs', logService.router);
   app.use('/v1', v1Router);
 
+  // --- QWEN API 手动挂载 (强力修复 404) ---
+  try {
+    const qwenRouter = require('../../modules/qwen-api/router');
+    app.use('/api/qwen', qwenRouter);
+    logger.success('Qwen-API 手动挂载成功 -> /api/qwen');
+  } catch (err) {
+    logger.error('Qwen-API 手动挂载失败:', err.message);
+  }
+
   // 3. 独立认证路由 (避免干扰 /api/xxxx)
   app.use('/api/auth', authRouter);
 
@@ -806,6 +815,7 @@ function registerRoutes(app) {
     'antigravity-api': '/api/antigravity',
     'gemini-cli-api': '/api/gemini-cli',
     'deepseek-api': '/api/deepseek',
+    'qwen-api': '/api/qwen',
     'ai-chat-api': '/api/ai-chat',
     'totp-api': '/api/totp',
     'uptime-api': '/api/uptime',
@@ -829,7 +839,7 @@ function registerRoutes(app) {
           const routePath = moduleRouteMap[moduleName] || `/api/${moduleName.replace('-api', '')}`;
 
           // 根据模块特性决定是否应用认证中间件
-          if (moduleName === 'antigravity-api' || moduleName === 'gemini-cli-api' || moduleName === 'deepseek-api' || moduleName === 'filebox-api') {
+          if (moduleName === 'antigravity-api' || moduleName === 'gemini-cli-api' || moduleName === 'deepseek-api' || moduleName === 'qwen-api' || moduleName === 'filebox-api') {
             app.use(routePath, moduleRouter);
           } else {
             // 模块路由优先挂载

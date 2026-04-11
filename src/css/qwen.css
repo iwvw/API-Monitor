@@ -1,0 +1,81 @@
+/* ==================== Qwen Theme Standard (100% Alignment with DeepSeek/GCLI) ==================== */
+
+.theme-qwen {
+  /* 品牌色动态变量 - 精准对齐系统规范名 */
+  --current-primary: #6366f1;
+  --current-dark: #4f46e5; /* 增加 dark 变量以触发全局线性渐变 */
+  --current-rgb: 99, 102, 241; /* 使用系统标准的 --current-rgb 而不是 -primary-rgb */
+  --qwen-primary: #6366f1;
+  
+  /* 状态色映射 */
+  --btn-primary-bg: var(--qwen-primary);
+  --btn-primary-hover: #4f46e5;
+}
+
+
+/* 2. 面板与列表规范化 */
+.qwen-content .panel {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-color);
+    box-shadow: none; /* 移除额外投影，保持扁平 */
+}
+
+/* 强制表格行间距对齐 DeepSeek */
+.qwen-content .data-table tr td {
+    padding: 12px 15px;
+    height: 52px;
+}
+
+/* 3. 详情 Modal 样式补强 (对齐 DeepSeek 气泡流) */
+.theme-qwen .ds-log-section-title {
+  border-left: 4px solid var(--qwen-primary);
+  padding-left: 12px;
+  margin-bottom: 16px;
+}
+
+.theme-qwen .ds-log-section-title span {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.theme-qwen .ds-log-message {
+  border-radius: 12px;
+  padding: 12px 16px;
+  margin-bottom: 12px;
+  border: 1px solid var(--border-color);
+}
+
+.theme-qwen .ds-log-msg-user {
+  background: rgba(var(--current-primary-rgb), 0.05);
+  border-color: rgba(var(--current-primary-rgb), 0.1);
+}
+
+.theme-qwen .ds-log-msg-assistant {
+  background: var(--bg-tertiary);
+}
+
+/* 4. 辅助组件 */
+.theme-qwen .badge-success { background: rgba(34, 197, 94, 0.1); color: #22c55e; }
+.theme-qwen .badge-danger { background: rgba(239, 68, 68, 0.1); color: #ef4444; }
+.theme-qwen .badge-warning { background: rgba(245, 158, 11, 0.1); color: #f59e0b; }
+
+.endpoint-showcase {
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 16px;
+}
+
+.endpoint-label {
+    color: var(--text-tertiary);
+    font-size: 11px;
+    margin-bottom: 4px;
+}
+
+/* 5. 暗色模式细节对齐 */
+@media (prefers-color-scheme: dark) {
+    .theme-qwen .panel-header {
+        border-bottom-color: #334155;
+    }
+}

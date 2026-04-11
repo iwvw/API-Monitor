@@ -28,6 +28,7 @@ export const geminiCliMethods = {
     store.geminiCliCurrentTab = tabName;
     if (tabName === 'models') {
       this.loadGeminiCliMatrix();
+      this.loadGeminiCliStats();
     } else if (tabName === 'logs') {
       this.loadGeminiCliLogs();
     } else if (tabName === 'settings') {

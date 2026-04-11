@@ -270,6 +270,7 @@ const spaRoutes = [
   '/self-h',
   '/server',
   '/totp',
+  '/qwen',
 ];
 spaRoutes.forEach(route => {
   app.get(route, (req, res) => {

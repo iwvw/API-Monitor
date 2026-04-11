@@ -25,6 +25,7 @@ function loadUserSettings() {
       antigravity: true,
       'gemini-cli': true,
       deepseek: true,
+      qwen: true,
     };
 
     const channelEnabled = settings.channel_enabled || {
@@ -44,6 +45,7 @@ function loadUserSettings() {
       'antigravity',
       'gemini-cli',
       'deepseek',
+      'qwen',
       'paas',
       'dns',
       'self-h',
@@ -60,12 +62,21 @@ function loadUserSettings() {
     if (!('self-h' in visibility)) {
       visibility['self-h'] = false;
     }
+    if (!('qwen' in visibility)) {
+      visibility['qwen'] = true;
+    }
 
     if (!('deepseek' in channelEnabled)) {
       channelEnabled['deepseek'] = true;
     }
+    if (!('qwen' in channelEnabled)) {
+      channelEnabled['qwen'] = true;
+    }
     if (!('deepseek' in channelModelPrefix)) {
       channelModelPrefix['deepseek'] = '';
+    }
+    if (!('qwen' in channelModelPrefix)) {
+      channelModelPrefix['qwen'] = '';
     }
 
     if (!order.includes('deepseek')) {
@@ -74,6 +85,14 @@ function loadUserSettings() {
         order.splice(gcliIdx + 1, 0, 'deepseek');
       } else {
         order.push('deepseek');
+      }
+    }
+    if (!order.includes('qwen')) {
+      const dsIdx = order.indexOf('deepseek');
+      if (dsIdx !== -1) {
+        order.splice(dsIdx + 1, 0, 'qwen');
+      } else {
+        order.push('qwen');
       }
     }
     if (!order.includes('gemini-cli')) {
@@ -208,7 +227,7 @@ function getDefaultSettings() {
       antigravity: '',
       'gemini-cli': '',
     },
-    moduleOrder: ['openai', 'antigravity', 'gemini-cli', 'paas', 'dns', 'self-h', 'server'],
+    moduleOrder: ['openai', 'antigravity', 'gemini-cli', 'deepseek', 'qwen', 'paas', 'dns', 'self-h', 'server'],
     load_balancing_strategy: 'random',
     serverIpDisplayMode: 'normal',
     navLayout: 'top',

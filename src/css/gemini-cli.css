@@ -1,4 +1,4 @@
-﻿/* Gemini CLI 模块专属样式 */
+/* Gemini CLI 模块专属样式 */
 
 /* .gemini-cli-content {
   animation: fadeIn 0.4s ease-out;
@@ -7,6 +7,11 @@
 /* Gemini CLI Secondary Tabs */
 .gemini-sec-tabs {
   /* 继承全局 .sec-tabs 布局 */
+}
+
+.theme-gemini-cli {
+  --current-primary: var(--gemini-primary);
+  --current-rgb: 66, 133, 244; /* Google Blue RGB */
 }
 
 .theme-gemini-cli .tab-btn:hover:not(.active) {

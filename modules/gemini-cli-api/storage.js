@@ -182,9 +182,18 @@ function saveToken(tokenData) {
 function recordLog(logData) {
   try {
     const db = dbService.getDatabase();
+    
+    // 自动提取 Token (支持 OpenAI 和 Google 格式)
+    let totalTokens = 0;
+    if (logData.detail && logData.detail.response && logData.detail.response.usage) {
+      totalTokens = logData.detail.response.usage.total_tokens || 0;
+    } else if (logData.detail && logData.detail.usage) {
+      totalTokens = logData.detail.usage.total_tokens || 0;
+    }
+    
     const stmt = db.prepare(`
-            INSERT INTO gemini_cli_logs (account_id, model, is_balanced, request_path, request_method, status_code, duration_ms, client_ip, user_agent, detail, first_token_time_ms)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO gemini_cli_logs (account_id, model, is_balanced, request_path, request_method, status_code, duration_ms, client_ip, user_agent, detail, first_token_time_ms, total_tokens)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
 
     // 安全的对象序列化，防止循环引用导致崩溃
@@ -210,7 +219,8 @@ function recordLog(logData) {
       logData.clientIp || null,
       logData.userAgent || null,
       logData.detail ? safeStringify(logData.detail) : null,
-      logData.firstTokenTimeMs || null
+      logData.firstTokenTimeMs || null,
+      totalTokens
     );
   } catch (e) {
     console.error('❌ 记录 Gemini CLI 日志失败:', e.message);
@@ -237,6 +247,7 @@ function getRecentLogs(limit = 100) {
                 l.status_code as statusCode,
                 l.duration_ms as durationMs,
                 l.first_token_time_ms as firstTokenTimeMs,
+                l.total_tokens as totalTokens,
                 l.client_ip as clientIp,
                 l.user_agent as userAgent,
                 l.detail,
@@ -528,54 +539,57 @@ function clearModelCheckHistory() {
  * 获取统计信息
  */
 function getStats() {
-  try {
-    const db = dbService.getDatabase();
-    const stats = db
-      .prepare(
-        `
+    try {
+        const db = dbService.getDatabase();
+        const stats = db.prepare(`
             SELECT 
                 COUNT(*) as total_calls,
-                SUM(CASE WHEN status_code = 200 THEN 1 ELSE 0 END) as success_calls,
-                SUM(CASE WHEN status_code != 200 THEN 1 ELSE 0 END) as fail_calls
+                SUM(CASE WHEN status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END) as success_calls,
+                SUM(CASE WHEN status_code >= 400 THEN 1 ELSE 0 END) as fail_calls,
+                SUM(total_tokens) as total_tokens,
+                AVG(CASE WHEN status_code >= 200 AND status_code < 300 THEN duration_ms ELSE NULL END) as avg_duration
             FROM gemini_cli_logs
-        `
-      )
-      .get();
+        `).get();
 
-    const accounts = getAccounts();
+        const accounts = getAccounts();
 
-    // 获取最近 14 天的趋势数据
-    const dailyTrend = db.prepare(`
-        SELECT 
-            strftime('%Y-%m-%d', datetime(created_at, 'localtime')) as date,
-            COUNT(*) as total,
-            SUM(CASE WHEN status_code = 200 THEN 1 ELSE 0 END) as success
-        FROM gemini_cli_logs
-        WHERE created_at >= datetime('now', '-14 days', 'localtime')
-        GROUP BY date
-        ORDER BY date ASC
-    `).all();
+        // 获取最近 14 天的趋势数据
+        const dailyTrend = db.prepare(`
+            SELECT 
+                strftime('%Y-%m-%d', datetime(created_at, 'localtime')) as date,
+                COUNT(*) as total,
+                SUM(CASE WHEN status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END) as success
+            FROM gemini_cli_logs
+            WHERE created_at >= datetime('now', '-14 days', 'localtime')
+            GROUP BY date
+            ORDER BY date ASC
+        `).all();
 
-    return {
-      total_calls: stats.total_calls || 0,
-      success_calls: stats.success_calls || 0,
-      fail_calls: stats.fail_calls || 0,
-      daily_trend: dailyTrend || [],
-      accounts: {
-        total: accounts.length,
-        online: accounts.filter(a => a.status === 'online').length,
-        enabled: accounts.filter(a => a.enable !== 0).length,
-      },
-    };
-  } catch (e) {
-    console.error('❌ 获取 Gemini CLI 统计失败:', e.message);
-    return {
-      total_calls: 0,
-      success_calls: 0,
-      fail_calls: 0,
-      accounts: { total: 0, online: 0, enabled: 0 },
-    };
-  }
+        return {
+            total_calls: stats.total_calls || 0,
+            success_calls: stats.success_calls || 0,
+            fail_calls: stats.fail_calls || 0,
+            total_tokens: stats.total_tokens || 0,
+            avg_duration: Math.round(stats.avg_duration || 0),
+            success_rate: stats.total_calls > 0 ? ((stats.success_calls / stats.total_calls) * 100).toFixed(1) : '0.0',
+            daily_trend: dailyTrend || [],
+            accounts: {
+                total: accounts.length,
+                online: accounts.filter(a => a.status === 'online').length,
+                enabled: accounts.filter(a => a.enable !== 0).length
+            }
+        };
+    } catch (e) {
+        console.error('❌ 获取 Gemini CLI 统计失败:', e.message);
+        return {
+            total_calls: 0,
+            success_calls: 0,
+            fail_calls: 0,
+            avg_duration: 0,
+            success_rate: '0.0',
+            accounts: { total: 0, online: 0, enabled: 0 }
+        };
+    }
 }
 
 module.exports = {

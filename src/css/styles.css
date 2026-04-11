@@ -455,6 +455,12 @@ pre,
     --current-rgb: 77, 107, 254;
   }
 
+  .theme-qwen {
+    --current-primary: #006eff;
+    --current-dark: #0056cc;
+    --current-rgb: 0, 110, 255;
+  }
+
   .theme-cf-dns {
     --current-primary: var(--cf-primary);
     --current-dark: var(--cf-dark);

@@ -173,9 +173,10 @@
       <div v-if="dsAccountsLoading" class="loading">
         <div class="spinner"></div>
       </div>
-      <div v-else-if="dsAccounts.length === 0" style="text-align: center; padding: 30px; opacity: 0.5">
-        <i class="fas fa-user-plus" style="font-size: 24px; margin-bottom: 8px; display: block"></i>
-        暂无账号，点击上方"添加账号"开始
+      <div v-else-if="dsAccounts.length === 0" 
+           style="display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 60px 20px; opacity: 0.4;">
+        <i class="fas fa-user-plus" style="font-size: 42px; margin-bottom: 16px; display: block"></i>
+        <p style="font-size: 14px; margin: 0; font-weight: 500;">暂无账号，点击上方“添加账号”开始</p>
       </div>
       <div v-else class="table-container">
         <table class="data-table">
@@ -326,59 +327,89 @@
         </div>
       </div>
 
-      <div class="table-container" style="background: transparent;">
+      <div class="table-container">
         <table class="data-table">
           <thead>
             <tr>
-              <th width="160" class="text-center">时间</th>
-              <th width="240">接口路径</th>
-              <th>模型</th>
-              <th width="90" class="text-center">状态</th>
-              <th width="90" class="text-center">首字时间</th>
-              <th width="80" class="text-center">耗时</th>
-              <th width="60" class="text-center">详情</th>
+              <th style="width: 160px" class="text-center">调用时间</th>
+              <th>账号备注</th>
+              <th style="width: 120px" class="text-center">调用模型</th>
+              <th>接口路径</th>
+              <th class="text-center" style="width: 80px">状态</th>
+              <th class="text-center" style="width: 80px">耗时</th>
+              <th class="text-center" style="width: 100px">首字时间</th>
+              <th class="text-center" style="width: 80px">操作</th>
             </tr>
           </thead>
           <tbody>
-            <tr v-for="log in getDsFilteredLogs()" :key="log.id" class="clickable-row" @click="showDsLogDetail(log)">
-              <td class="log-time text-center">{{ formatDateTime(log.timestamp) }}</td>
-              <td>
-                <div style="display: flex; align-items: center">
-                  <span class="method-badge" :class="'method-' + (log.method || 'POST').toLowerCase()">
-                    {{ log.method || 'POST' }}
-                  </span>
-                  <span class="log-path" :title="log.path"><code>{{ log.path || '/v1/chat/completions' }}</code></span>
-                </div>
-              </td>
-              <td class="log-model">
-                <div style="display: flex; align-items: center; gap: 8px">
-                  <span class="model-icon" style="color: var(--deepseek-primary); font-size: 14px"><i class="fas fa-brain"></i></span>
-                  <div style="display: flex; flex-direction: column; line-height: 1.2">
-                    <div style="font-weight: 600; font-size: 13px">{{ log.model }}</div>
-                    <div v-if="log.accountName" style="font-size: 10px; opacity: 0.5; margin-top: 1px">{{ log.accountName }}</div>
+            <tr v-for="log in getDsFilteredLogs()" :key="log.id">
+              <td data-label="调用时间" class="text-center">
+                <div class="flex-cell">
+                  <div class="log-time">
+                    <i class="far fa-clock" style="margin-right: 4px; opacity: 0.5"></i>
+                    {{ formatDateTime(log.created_at || log.timestamp) }}
                   </div>
                 </div>
               </td>
-              <td class="text-center">
-                <span class="ag-status-badge" :class="getDsLogStatusClass(log.statusCode || log.status_code)" style="transform: scale(0.9)">
-                  {{ log.statusCode || log.status_code }}
-                </span>
-                <span v-if="log.is_balanced" class="badge-lb" data-tooltip="通过负载均衡通道">LB</span>
+              <td data-label="账号备注">
+                <div style="display: flex; align-items: center; gap: 8px">
+                  <i class="fas fa-id-card" style="font-size: 12px; color: var(--deepseek-primary); opacity: 0.7"></i>
+                  <strong>{{ log.accountName || log.account_name || log.accountId || '-' }}</strong>
+                  <span v-if="log.is_balanced" class="badge-lb" title="经过负载均衡分发">LB</span>
+                </div>
               </td>
-              <td class="text-center" style="font-size: 11px; font-weight: 600; color: var(--success-color)">
-                {{ (log.firstTokenTimeMs || log.first_token_time_ms) ? (log.firstTokenTimeMs || log.first_token_time_ms) + 'ms' : '--' }}
+              <td data-label="调用模型" class="text-center">
+                <div class="flex-cell">
+                  <code class="code-sm">{{ log.model || '-' }}</code>
+                </div>
               </td>
-              <td class="log-duration text-center" style="font-size: 11px">{{ log.durationMs || log.duration_ms }}ms</td>
-              <td style="text-align: center">
-                <button class="btn btn-icon-refined btn-xs" @click.stop="showDsLogDetail(log)">
-                  <i class="fas fa-chevron-right"></i>
-                </button>
+              <td data-label="接口路径">
+                <div style="display: flex; align-items: center">
+                  <span class="method-badge method-post">POST</span>
+                  <span class="log-path" :title="log.path">{{ log.path || '/v1/chat/completions' }}</span>
+                </div>
+              </td>
+              <td data-label="状态码" class="text-center">
+                <div class="flex-cell">
+                  <span :class="getDsLogStatusClass(log.statusCode || log.status_code)" class="ag-status-badge">
+                    {{ log.statusCode || log.status_code }}
+                  </span>
+                </div>
+              </td>
+              <td data-label="请求耗时" class="text-center">
+                <div class="flex-cell">
+                  <span class="log-duration">{{ log.durationMs || log.duration_ms }}ms</span>
+                </div>
+              </td>
+              <td data-label="首字时间" class="text-center">
+                <div class="flex-cell">
+                  <span v-if="(log.firstTokenTimeMs || log.first_token_time_ms)" class="log-duration"
+                    :style="{ color: 'var(--success-color)' }">
+                    {{ (log.firstTokenTimeMs || log.first_token_time_ms) }}ms
+                  </span>
+                  <span v-else style="opacity: 0.3">-</span>
+                </div>
+              </td>
+              <td class="actions text-center">
+                <div class="flex-cell">
+                  <button class="btn btn-icon-refined" @click="showDsLogDetail(log)" title="查看详情">
+                    <i class="fas fa-eye"></i>
+                  </button>
+                </div>
               </td>
             </tr>
             <tr v-if="getDsFilteredLogs().length === 0">
-              <td colspan="7" class="empty-state">
-                <i class="fas fa-inbox"></i>
-                <p>暂无符合条件的调用日志</p>
+              <td colspan="8" style="padding: 60px">
+                <div style="
+                    display: flex;
+                    flex-direction: column;
+                    align-items: center;
+                    justify-content: center;
+                    color: var(--text-tertiary);
+                  ">
+                  <i class="fas fa-inbox" style="font-size: 40px; margin-bottom: 12px; opacity: 0.3"></i>
+                  <span>尚无符合条件的调用日志</span>
+                </div>
               </td>
             </tr>
           </tbody>

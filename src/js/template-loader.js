@@ -19,6 +19,7 @@ const TemplateLoader = {
     'dns.html': '#template-dns',
     'gemini-cli.html': '#template-gemini-cli',
     'deepseek.html': '#template-deepseek',
+    'qwen.html': '#template-qwen',
     'openai.html': '#template-openai',
     'server.html': '#template-server',
     'self-h.html': '#template-self-h',

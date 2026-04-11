@@ -68,6 +68,7 @@ export const settingsMethods = {
             'uptime',
             'filebox',
             'notification',
+            'qwen',
           ];
           if (settings.moduleVisibility) {
             const filtered = {};
@@ -228,7 +229,8 @@ export const settingsMethods = {
       const syncTargets = [
         '/api/antigravity/settings',
         '/api/gemini-cli/settings',
-        '/api/deepseek/settings'
+        '/api/deepseek/settings',
+        '/api/qwen/settings'
       ];
 
       for (const url of syncTargets) {

@@ -1,6 +1,6 @@
 /**
  * 统一的 OpenAI 兼容接口 (/v1)
- * 根据全局配置动态分发请求到 Antigravity 或 Gemini CLI
+ * 根据全局配置动态分发请求到 Antigravity, Gemini CLI, DeepSeek 或 Qwen
  */
 
 const express = require('express');
@@ -14,435 +14,243 @@ const { getSession, getSessionById } = require('../services/session');
 const modulesDir = path.join(__dirname, '../../modules');
 let agRouter = null;
 let gcliRouter = null;
-let gcliClient = null;
-let gcliStorage = null;
-let agService = null;
+const agService = null;
 let agStorage = null;
 let dsRouter = null;
 let dsStorage = null;
+let qwenRouter = null;
+let qwenStorage = null;
+let gcliStorage = null;
 
 try {
   const agPath = path.join(modulesDir, 'antigravity-api', 'router.js');
-  if (fs.existsSync(agPath)) {
-    agRouter = require(agPath);
-  }
+  if (fs.existsSync(agPath)) agRouter = require(agPath);
+  
   const gcliPath = path.join(modulesDir, 'gemini-cli-api', 'router.js');
-  if (fs.existsSync(gcliPath)) {
-    gcliRouter = require(gcliPath);
-  }
-  // 加载 GCLI 客户端用于获取模型
-  const gcliClientPath = path.join(modulesDir, 'gemini-cli-api', 'gemini-client.js');
-  if (fs.existsSync(gcliClientPath)) {
-    gcliClient = require(gcliClientPath);
-  }
-  const gcliStoragePath = path.join(modulesDir, 'gemini-cli-api', 'storage.js');
-  if (fs.existsSync(gcliStoragePath)) {
-    gcliStorage = require(gcliStoragePath);
-  }
-  // 加载 Antigravity 服务用于获取模型
-  const agServicePath = path.join(modulesDir, 'antigravity-api', 'antigravity-service.js');
-  if (fs.existsSync(agServicePath)) {
-    agService = require(agServicePath);
-  }
-  // 加载 Antigravity storage 用于获取 API Key 设置
-  const agStoragePath = path.join(modulesDir, 'antigravity-api', 'storage.js');
-  if (fs.existsSync(agStoragePath)) {
-    agStorage = require(agStoragePath);
-  }
-  // 加载 DeepSeek 模块
+  if (fs.existsSync(gcliPath)) gcliRouter = require(gcliPath);
+  
   const dsPath = path.join(modulesDir, 'deepseek-api', 'router.js');
-  if (fs.existsSync(dsPath)) {
-    dsRouter = require(dsPath);
-  }
+  if (fs.existsSync(dsPath)) dsRouter = require(dsPath);
+  
+  const qwenPath = path.join(modulesDir, 'qwen-api', 'router.js');
+  if (fs.existsSync(qwenPath)) qwenRouter = require(qwenPath);
+
+  // 加载存储层用于鉴权
+  const agStoragePath = path.join(modulesDir, 'antigravity-api', 'storage.js');
+  if (fs.existsSync(agStoragePath)) agStorage = require(agStoragePath);
+
   const dsStoragePath = path.join(modulesDir, 'deepseek-api', 'storage.js');
-  if (fs.existsSync(dsStoragePath)) {
-    dsStorage = require(dsStoragePath);
-  }
+  if (fs.existsSync(dsStoragePath)) dsStorage = require(dsStoragePath);
+
+  const qwenStoragePath = path.join(modulesDir, 'qwen-api', 'storage.js');
+  if (fs.existsSync(qwenStoragePath)) qwenStorage = require(qwenStoragePath);
+
+  const gcliStoragePath = path.join(modulesDir, 'gemini-cli-api', 'storage.js');
+  if (fs.existsSync(gcliStoragePath)) gcliStorage = require(gcliStoragePath);
+
 } catch (e) {
   console.error('Failed to load module routers for v1 aggregation:', e);
 }
 
+// 辅助函数：获取 GCLI 矩阵模型列表
+function getGcliModelIds() {
+    try {
+        const gcliMatrixPath = path.join(modulesDir, 'gemini-cli-api', 'gemini-matrix.json');
+        if (fs.existsSync(gcliMatrixPath)) {
+            const matrix = JSON.parse(fs.readFileSync(gcliMatrixPath, 'utf8'));
+            return Object.keys(matrix);
+        }
+    } catch(e){}
+    return [];
+}
+
+// 辅助函数：获取深度搜索可用别名
+const DS_ALIASES = ['gpt-', 'o1', 'o3', 'claude-', 'llama-', 'deepseek-'];
+
 /**
  * API Key 认证中间件
- * 允许:
- * 1. 有效的 Admin Session
- * 2. Authorization Header "Bearer <API_KEY>"
- * 3. Query Param key=<API_KEY>
  */
 function requireApiAuth(req, res, next) {
-  // 1. 检查 Session
   const session = getSession(req);
   if (session) return next();
 
-  // 2. 检查 Authorization Header (API Key)
   const authHeader = req.headers['authorization'];
   if (authHeader && authHeader.startsWith('Bearer ')) {
     const token = authHeader.substring(7);
-
-    // 尝试作为 Session ID
     const sessionById = getSessionById(token);
     if (sessionById) return next();
 
-    // 尝试作为 API Key (动态从存储中获取最新值)
-    let agApiKey = null;
-    try {
-      const agStorage = require(path.join(modulesDir, 'antigravity-api', 'storage.js'));
-      agApiKey = agStorage.getSetting('API_KEY');
-    } catch (e) { }
-
-    let gcliApiKey = null;
-    try {
-      const gcliStorage = require(path.join(modulesDir, 'gemini-cli-api', 'storage.js'));
-      const gcliSettings = gcliStorage.getSettings();
-      gcliApiKey = gcliSettings.API_KEY || '123456';
-    } catch (e) { }
-
-    let dsApiKey = null;
-    try {
-      const dsStorage = require(path.join(modulesDir, 'deepseek-api', 'storage.js'));
-      dsApiKey = dsStorage.getSetting('API_KEY');
-    } catch (e) { }
-
-    if ((agApiKey && token === agApiKey) || (gcliApiKey && token === gcliApiKey) || (dsApiKey && token === dsApiKey)) {
-      return next();
-    }
+    // 检查各渠道 API Key
+    if (agStorage && token === agStorage.getSetting('API_KEY')) return next();
+    if (dsStorage && token === dsStorage.getSetting('API_KEY')) return next();
+    if (qwenStorage && token === qwenStorage.getSetting('API_KEY')) return next();
+    try { if (gcliStorage && token === (gcliStorage.getSettings().API_KEY || '123456')) return next(); } catch(e) {}
   }
 
-  // 3. 检查 Query Param (compat)
   const queryKey = req.query.key;
   if (queryKey) {
-    let agApiKey = null;
-    try {
-      const agStorage = require(path.join(modulesDir, 'antigravity-api', 'storage.js'));
-      agApiKey = agStorage.getSetting('API_KEY');
-    } catch (e) { }
-
-    let gcliApiKey = null;
-    try {
-      const gcliStorage = require(path.join(modulesDir, 'gemini-cli-api', 'storage.js'));
-      const gcliSettings = gcliStorage.getSettings();
-      gcliApiKey = gcliSettings.API_KEY || '123456';
-    } catch (e) { }
-
-    let dsApiKey = null;
-    try {
-      const dsStorage = require(path.join(modulesDir, 'deepseek-api', 'storage.js'));
-      dsApiKey = dsStorage.getSetting('API_KEY');
-    } catch (e) { }
-
-    if ((agApiKey && queryKey === agApiKey) || (gcliApiKey && queryKey === gcliApiKey) || (dsApiKey && queryKey === dsApiKey)) {
-      return next();
-    }
+    if (agStorage && queryKey === agStorage.getSetting('API_KEY')) return next();
+    if (dsStorage && queryKey === dsStorage.getSetting('API_KEY')) return next();
+    if (qwenStorage && queryKey === qwenStorage.getSetting('API_KEY')) return next();
+    try { if (gcliStorage && queryKey === (gcliStorage.getSettings().API_KEY || '123456')) return next(); } catch(e) {}
   }
 
-  res
-    .status(401)
-    .json({
-      error: {
-        message: 'Invalid API Key or Session',
-        type: 'invalid_request_error',
-        code: 'invalid_api_key',
-      },
-    });
+  res.status(401).json({ error: { message: 'Invalid API Key or Session', type: 'invalid_request_error', code: 'invalid_api_key' } });
 }
 
-// 合并模型列表的智能处理 (支持单数和复数形式以便兼容部分工具)
+// 模型列表合并
 router.get(['/models', '/model'], requireApiAuth, async (req, res) => {
   try {
     const settings = userSettingsService.loadUserSettings();
     const channelEnabled = settings.channelEnabled || {};
     const channelModelPrefix = settings.channelModelPrefix || {};
+    const allModelsMap = new Map();
+    const now = Math.floor(Date.now() / 1000);
 
-    const allModelsMap = new Map(); // 使用 Map 进行全局去重 (ID 为 Key)
+    // 辅助函数：添加模型
+    const addModels = (models, prefix, owner) => {
+        models.forEach(m => {
+            const id = prefix + (typeof m === 'string' ? m : m.id);
+            allModelsMap.set(id, { id, object: 'model', created: now, owned_by: owner });
+        });
+    };
 
-    // --- 1. 处理 Antigravity 渠道 ---
-    if (channelEnabled['antigravity']) {
-      try {
-        const agService = require(
-          path.join(modulesDir, 'antigravity-api', 'antigravity-service.js')
-        );
-        const prefix = channelModelPrefix['antigravity'] || '';
-        const agModels = agService.getAvailableModels(prefix);
-        agModels.forEach(m => allModelsMap.set(m.id, m));
-      } catch (e) {
-        console.warn('[v1/models] Antigravity process failed:', e.message);
-      }
+    // 1. Antigravity
+    if (channelEnabled['antigravity'] && agStorage) {
+        try {
+            const agService = require(path.join(modulesDir, 'antigravity-api', 'antigravity-service.js'));
+            addModels(agService.getAvailableModels(''), channelModelPrefix['antigravity'] || '', 'google');
+        } catch(e){}
     }
 
-    // --- 2. 处理 Gemini CLI 渠道 ---
-    if (channelEnabled['gemini-cli']) {
-      try {
-        // 同样引用 GCLI 的逻辑 (如果 GCLI 也有 service 更好，否则复刻精简版)
-        const gcliPrefix = channelModelPrefix['gemini-cli'] || '';
-        const matrixPath = path.join(modulesDir, 'gemini-cli-api', 'gemini-matrix.json');
-        const gcliStorage = require(path.join(modulesDir, 'gemini-cli-api', 'storage.js'));
-
-        if (fs.existsSync(matrixPath)) {
-          const matrix = JSON.parse(fs.readFileSync(matrixPath, 'utf8'));
-          const disabledModels = gcliStorage.getDisabledModels();
-          const redirects = gcliStorage.getModelRedirects();
-          const redirectTargets = new Set(redirects.map(r => r.target_model));
-          const now = Math.floor(Date.now() / 1000);
-
-          Object.keys(matrix).forEach(baseId => {
-            const config = matrix[baseId];
-            const variants = [];
-            if (config.base) {
-              variants.push(baseId);
-              if (config.search) variants.push(baseId + '-search');
-            }
-            if (config.maxThinking) {
-              variants.push(baseId + '-maxthinking');
-              if (config.search) variants.push(baseId + '-maxthinking-search');
-            }
-            if (config.noThinking) {
-              variants.push(baseId + '-nothinking');
-              if (config.search) variants.push(baseId + '-nothinking-search');
-            }
-
-            if (variants.length > 0) {
-              variants.forEach(v => {
-                const possibleIds = [v];
-                if (config.fakeStream) possibleIds.push('假流/' + v);
-                if (config.antiTrunc) possibleIds.push('流抗/' + v);
-
-                possibleIds.forEach(id => {
-                  const fullId = gcliPrefix + id;
-                  if (!disabledModels.includes(fullId) && !redirectTargets.has(id)) {
-                    if (!allModelsMap.has(fullId)) {
-                      allModelsMap.set(fullId, {
-                        id: fullId,
-                        object: 'model',
-                        created: now,
-                        owned_by: 'google',
-                      });
-                    }
-                  }
-                });
-              });
-            } else {
-              // base/maxThinking/noThinking 都为 false 时，直接生成功能性变体
-              if (config.fakeStream) {
-                const fullId = gcliPrefix + '假流/' + baseId;
-                if (!disabledModels.includes(fullId) && !allModelsMap.has(fullId)) {
-                  allModelsMap.set(fullId, {
-                    id: fullId,
-                    object: 'model',
-                    created: now,
-                    owned_by: 'google',
-                  });
-                }
-              }
-              if (config.antiTrunc) {
-                const fullId = gcliPrefix + '流抗/' + baseId;
-                if (!disabledModels.includes(fullId) && !allModelsMap.has(fullId)) {
-                  allModelsMap.set(fullId, {
-                    id: fullId,
-                    object: 'model',
-                    created: now,
-                    owned_by: 'google',
-                  });
-                }
-              }
-            }
-          });
-
-          // GCLI Redirects
-          redirects.forEach(r => {
-            const fullId = gcliPrefix + r.source_model;
-            if (!allModelsMap.has(fullId)) {
-              allModelsMap.set(fullId, {
-                id: fullId,
-                object: 'model',
-                created: now,
-                owned_by: 'system-redirect',
-              });
-            }
-          });
-        }
-      } catch (e) {
-        console.warn('[v1/models] Gemini CLI process failed:', e.message);
-      }
-    }
-
-    // --- 3. 处理 DeepSeek 渠道 ---
-    if (channelEnabled['deepseek']) {
-      try {
-        const dsPrefix = channelModelPrefix['deepseek'] || '';
+    // 2. DeepSeek
+    if (channelEnabled['deepseek'] && dsStorage) {
         const dsMatrixPath = path.join(modulesDir, 'deepseek-api', 'deepseek-models.json');
         if (fs.existsSync(dsMatrixPath)) {
-          const dsMatrix = JSON.parse(fs.readFileSync(dsMatrixPath, 'utf8'));
-          const now = Math.floor(Date.now() / 1000);
-          for (const [baseId, config] of Object.entries(dsMatrix)) {
-            if (config.base) {
-              const fullId = dsPrefix + baseId;
-              if (!allModelsMap.has(fullId)) {
-                allModelsMap.set(fullId, { id: fullId, object: 'model', created: now, owned_by: 'deepseek' });
-              }
-            }
-            if (config.search) {
-              const fullId = dsPrefix + baseId + '-search';
-              if (!allModelsMap.has(fullId)) {
-                allModelsMap.set(fullId, { id: fullId, object: 'model', created: now, owned_by: 'deepseek' });
-              }
-            }
-          }
+            const dsMatrix = JSON.parse(fs.readFileSync(dsMatrixPath, 'utf8'));
+            const prefix = channelModelPrefix['deepseek'] || '';
+            Object.keys(dsMatrix).forEach(id => {
+                if(dsMatrix[id].base) addModels([id], prefix, 'deepseek');
+                if(dsMatrix[id].search) addModels([id + '-search'], prefix, 'deepseek');
+            });
         }
-      } catch (e) {
-        console.warn('[v1/models] DeepSeek process failed:', e.message);
-      }
+    }
+
+    // 3. Gemini CLI
+    if (channelEnabled['gemini-cli'] && gcliStorage) {
+        const gcliMatrixPath = path.join(modulesDir, 'gemini-cli-api', 'gemini-matrix.json');
+        if (fs.existsSync(gcliMatrixPath)) {
+            const gcliMatrix = JSON.parse(fs.readFileSync(gcliMatrixPath, 'utf8'));
+            const prefix = channelModelPrefix['gemini-cli'] || '';
+            Object.keys(gcliMatrix).forEach(id => {
+                if(gcliMatrix[id].base) addModels([id], prefix, 'google');
+                if(gcliMatrix[id].search) addModels([id + '-search'], prefix, 'google');
+                if(gcliMatrix[id].maxThinking) addModels([id + '-max-thinking'], prefix, 'google');
+                if(gcliMatrix[id].noThinking) addModels([id + '-no-thinking'], prefix, 'google');
+                if(gcliMatrix[id].fakeStream) addModels([id + '-fs'], prefix, 'google');
+                if(gcliMatrix[id].antiTrunc) addModels([id + '-anti-trunc'], prefix, 'google');
+            });
+        }
+    }
+
+    // 4. Qwen (向 qwen2API 靠拢的新能力)
+    if (channelEnabled['qwen'] && qwenStorage) {
+        const prefix = channelModelPrefix['qwen'] || '';
+        const matrix = qwenStorage.getMatrix();
+        Object.keys(matrix).forEach(id => {
+            if(matrix[id].enabled) addModels([id], prefix, 'qwen');
+        });
     }
 
     const data = Array.from(allModelsMap.values());
-    if (data.length === 0) {
-      return res
-        .status(404)
-        .json({ error: { message: 'No enabled AI models found', type: 'invalid_request_error' } });
-    }
-
     res.json({ object: 'list', data });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
 });
 
-// 辅助函数：根据配置转发请求
+// 核心分发器 (Dispatch)
 const dispatch = async (req, res, next) => {
-  // 标记为经过 V1 分发器 (负载均衡)
   req.lb = true;
+  if (!req.url.startsWith('/v1')) req.url = '/v1' + req.url;
 
-  // 1. 还原路径
-  // 如果 req.url 不以 /v1 开头，添加它
-  if (!req.url.startsWith('/v1')) {
-    req.url = '/v1' + req.url;
-  }
-
-  // 2. 获取配置
   const settings = userSettingsService.loadUserSettings();
   const channelEnabled = settings.channelEnabled || {};
   const channelModelPrefix = settings.channelModelPrefix || {};
 
-  const agEnabled = channelEnabled['antigravity'] && agRouter;
-  const gcliEnabled = channelEnabled['gemini-cli'] && gcliRouter;
-  const dsEnabled = channelEnabled['deepseek'] && dsRouter;
-
-  // 3. 模型路由逻辑 (仅针对包含 model 的 POST 请求)
   if (req.method === 'POST' && req.body && req.body.model) {
-    const fullModelId = req.body.model;
-    const agPrefix = channelModelPrefix['antigravity'] || '';
-    const gcliPrefix = channelModelPrefix['gemini-cli'] || '';
-
+    const fullId = req.body.model;
+    
+    // 优先级 1: 显式前缀匹配
+    // 检查 Qwen 前缀
+    const qwenPrefix = channelModelPrefix['qwen'] || '';
+    if (qwenPrefix && fullId.startsWith(qwenPrefix)) {
+        req.body.model = fullId.substring(qwenPrefix.length);
+        if (channelEnabled['qwen'] && qwenRouter) return qwenRouter(req, res, next);
+    }
+    // 检查 DeepSeek 前缀
     const dsPrefix = channelModelPrefix['deepseek'] || '';
-
-    // --- A. 精确匹配前缀优先 ---
-
-    // 尝试匹配 DeepSeek 前缀或 deepseek-* 模型名及已知别名 (gpt-*, o1, o3, claude- 等)
-    if (dsEnabled) {
-      const isDsPrefixMatch = dsPrefix && fullModelId.startsWith(dsPrefix);
-      const dsAliases = ['gpt-', 'o1', 'o3', 'claude-', 'llama-', 'qwen-'];
-      const isDsAliasMatch = !dsPrefix && (
-        fullModelId.startsWith('deepseek-') ||
-        fullModelId.startsWith('deepseek/') ||
-        dsAliases.some(p => fullModelId.startsWith(p))
-      );
-
-      if (isDsPrefixMatch || isDsAliasMatch) {
-        if (isDsPrefixMatch) {
-          req.body.model = fullModelId.substring(dsPrefix.length);
-        }
-        return dsRouter(req, res, next);
-      }
+    if (dsPrefix && fullId.startsWith(dsPrefix)) {
+        req.body.model = fullId.substring(dsPrefix.length);
+        if (channelEnabled['deepseek'] && dsRouter) return dsRouter(req, res, next);
+    }
+    // 检查 GCLI 前缀
+    const gcliPrefix = channelModelPrefix['gemini-cli'] || '';
+    if (gcliPrefix && fullId.startsWith(gcliPrefix)) {
+        req.body.model = fullId.substring(gcliPrefix.length);
+        if (channelEnabled['gemini-cli'] && gcliRouter) return gcliRouter(req, res, next);
+    }
+    // 检查 Antigravity 前缀
+    const agPrefix = channelModelPrefix['antigravity'] || '';
+    if (agPrefix && fullId.startsWith(agPrefix)) {
+        req.body.model = fullId.substring(agPrefix.length);
+        if (channelEnabled['antigravity'] && agRouter) return agRouter(req, res, next);
     }
 
-    // 尝试匹配 GCLI 前缀 (如果前缀非空且匹配)
-    if (gcliPrefix && fullModelId.startsWith(gcliPrefix)) {
-      const innerModel = fullModelId.substring(gcliPrefix.length);
-      if (gcliEnabled) {
-        req.body.model = innerModel;
-        return gcliRouter(req, res, next);
-      }
+    // 优先级 2: 智能探测 (无前缀或前缀不匹配)
+    // A. 探测 Qwen 归属
+    if (channelEnabled['qwen'] && qwenStorage && qwenRouter) {
+        const matrix = qwenStorage.getMatrix();
+        const baseId = fullId.toLowerCase();
+        if (matrix[fullId] || baseId.startsWith('qwen')) {
+            return qwenRouter(req, res, next);
+        }
     }
 
-    // 尝试匹配 Antigravity 前缀 (如果前缀非空且匹配)
-    if (agPrefix && fullModelId.startsWith(agPrefix)) {
-      const innerModel = fullModelId.substring(agPrefix.length);
-      if (agEnabled) {
-        req.body.model = innerModel;
-        return agRouter(req, res, next);
-      }
+    // B. 探测 DeepSeek 归属
+    if (channelEnabled['deepseek'] && dsRouter) {
+        if (fullId.startsWith('deepseek-') || DS_ALIASES.some(p => fullId.startsWith(p))) {
+            return dsRouter(req, res, next);
+        }
     }
 
-    // --- B. 无前缀匹配或前缀为空时的探测逻辑 ---
-
-    // 如果两个都开启，需要判断模型归属
-    if (agEnabled && gcliEnabled) {
-      try {
-        // 1. 加载 GCLI 矩阵和获取实时可用列表
-        const matrixPath = path.join(modulesDir, 'gemini-cli-api', 'gemini-matrix.json');
-        const gcliRouterPath = path.join(modulesDir, 'gemini-cli-api', 'router.js');
-
-        let isGcliModel = false;
-
-        // 优先检查全名匹配 (剥离空前缀后)
-        const checkModelId = gcliPrefix
-          ? fullModelId.startsWith(gcliPrefix)
-            ? fullModelId.substring(gcliPrefix.length)
-            : null
-          : fullModelId;
-
-        if (checkModelId) {
-          // a. 检查矩阵中的基础模型定义
-          if (fs.existsSync(matrixPath)) {
-            const matrix = JSON.parse(fs.readFileSync(matrixPath, 'utf8'));
-            // 尝试直接匹配键名 (例如 gemini-2.0-pro)
-            if (matrix[checkModelId]) {
-              isGcliModel = true;
-            } else {
-              // 尝试模糊匹配：模型 ID 是否以矩阵中的某个键开头
-              // 这处理了 gemini-2.0-pro-search 等变体
-              const baseId = Object.keys(matrix).find(key => checkModelId.includes(key));
-              if (baseId) isGcliModel = true;
-            }
-          }
-
-          // b. 辅助判断：如果是 google/gemini 相关的路径且没匹配上前置条件
-          if (
-            !isGcliModel &&
-            (checkModelId.toLowerCase().includes('gemini') ||
-              checkModelId.toLowerCase().includes('google'))
-          ) {
-            // 启发式：含有 gemini 关键字且不是显式的 Antigravity 模型时，倾向于给 GCLI (如果是它特有的格式)
-            // 但这里我们保持严谨，如果不确定，后面还有 fallback
-          }
+    // C. 探测 Gemini CLI 归属
+    if (channelEnabled['gemini-cli'] && gcliRouter) {
+        const gcliModels = getGcliModelIds();
+        // 如果命中 GCLI 矩阵模型，或者以 gemini- 开头
+        if (gcliModels.some(m => fullId.startsWith(m)) || fullId.startsWith('gemini-')) {
+            return gcliRouter(req, res, next);
         }
+    }
 
-        if (isGcliModel) {
-          if (gcliPrefix && fullModelId.startsWith(gcliPrefix)) {
-            req.body.model = fullModelId.substring(gcliPrefix.length);
-          }
-          return gcliRouter(req, res, next);
+    // D. 探测 Antigravity 归属
+    if (channelEnabled['antigravity'] && agRouter) {
+        // 如果是 google 系模型但没被 GCLI 命中，交给 Antigravity
+        if (fullId.includes('gemini-') || fullId.includes('google')) {
+            return agRouter(req, res, next);
         }
-      } catch (e) {
-        console.error('[Dispatch] Precise GCLI model check failed:', e.message);
-      }
-
-      // 默认走 Antigravity (因为它支持的模型更多/更灵活)
-      if (agPrefix && fullModelId.startsWith(agPrefix)) {
-        req.body.model = fullModelId.substring(agPrefix.length);
-      }
-      return agRouter(req, res, next);
     }
   }
 
-  // 4. 非模型请求或降级路由
-  if (agEnabled) return agRouter(req, res, next);
-  if (gcliEnabled) return gcliRouter(req, res, next);
-  if (dsEnabled) return dsRouter(req, res, next);
+  // 默认 Fallback
+  if (channelEnabled['qwen'] && qwenRouter) return qwenRouter(req, res, next);
+  if (channelEnabled['deepseek'] && dsRouter) return dsRouter(req, res, next);
+  if (channelEnabled['gemini-cli'] && gcliRouter) return gcliRouter(req, res, next);
+  if (channelEnabled['antigravity'] && agRouter) return agRouter(req, res, next);
 
   next();
 };
 
-// 挂载所有请求到分发器（需要 API Key 认证）
 router.use(requireApiAuth, dispatch);
 
 module.exports = router;
