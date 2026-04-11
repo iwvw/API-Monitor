@@ -202,8 +202,70 @@ function updateMatrixItem(modelId, data) {
     return { success: true };
 }
 
-function syncModelsFromOfficial() {
-  // ... (保持原样)
+async function syncModelsFromOfficial() {
+    logger.info('正在从通义千问官网同步模型列表...');
+    try {
+        const axios = require('axios');
+        
+        // 改进：尝试获取任意一个在线账号的 Token 以获取全量模型
+        const accounts = getAccounts();
+        const activeAccount = accounts.find(a => a.token && (a.status === 'online' || a.enable !== false));
+        const headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36'
+        };
+        
+        if (activeAccount && activeAccount.token) {
+            const jwt = activeAccount.token.includes('token=') ? 
+                activeAccount.token.match(/token=([^;]+)/)[1] : activeAccount.token;
+            headers['Authorization'] = `Bearer ${jwt}`;
+            logger.info(`使用账号 [${activeAccount.name}] 的 Token 进行全量模型同步...`);
+        } else {
+            logger.info('未发现在线账号，将以游客身份同步 (模型数量将受限)...');
+        }
+
+        const resp = await axios.get('https://chat.qwen.ai/api/models', {
+            headers: headers,
+            timeout: 15000 
+        });
+
+        if (!resp || !resp.data) throw new Error('同步失败：官网返回了空响应');
+        
+        const officialModels = resp.data.data || [];
+        logger.info(`官网接口返回了 ${officialModels.length} 个模型`);
+        
+        if (officialModels.length === 0) return { success: true, count: 0, added: 0 };
+
+        const matrix = getMatrix();
+        let addedCount = 0;
+
+        officialModels.forEach(m => {
+            if (!m.id) return;
+            if (!matrix[m.id]) {
+                matrix[m.id] = {
+                    enabled: true,
+                    name: m.name || m.id,
+                    capabilities: m.info?.meta?.capabilities || {}
+                };
+                addedCount++;
+            }
+        });
+
+        if (addedCount > 0) {
+            updateSetting('QWEN_MATRIX', JSON.stringify(matrix));
+            logger.info(`同步完成，矩阵新增了 ${addedCount} 个模型`);
+        } else {
+            logger.info('同步完成，矩阵已是最新，无新增模型');
+        }
+
+        return { success: true, count: officialModels.length, added: addedCount };
+    } catch (e) {
+        let msg = e.message;
+        if (e.code === 'ECONNABORTED') msg = '请求官网超时（15s），请检查服务器网络状态';
+        else if (e.response) msg = `官网接口报错: ${e.response.status} ${e.response.statusText}`;
+        
+        logger.error('同步官网模型异常:', msg);
+        throw new Error(msg);
+    }
 }
 
 // ==================== 模型重定向 (别名) ====================

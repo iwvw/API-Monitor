@@ -23,7 +23,13 @@ export const qwenMethods = {
     async loadQwenStats() {
         try {
             const resp = await fetch(`${QWEN_API}/stats`);
-            if (resp.ok) store.qwenStats = await resp.json();
+            if (resp.ok) {
+                try {
+                    store.qwenStats = await resp.json();
+                } catch (e) {
+                    console.error('解析 Qwen 统计失败 (非 JSON)', e);
+                }
+            }
         } catch (e) { console.error('加载 Qwen 统计失败:', e); }
     },
 
@@ -31,9 +37,17 @@ export const qwenMethods = {
         store.qwenModelsLoading = true;
         try {
             const resp = await fetch(`${QWEN_API}/matrix`);
-            if (resp.ok) store.qwenMatrix = await resp.json();
-        } catch (e) { console.error('加载 Qwen 矩阵失败:', e); }
-        finally { store.qwenModelsLoading = false; }
+            if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+            try {
+                store.qwenMatrix = await resp.json();
+            } catch (e) {
+                console.error('解析 Qwen 矩阵 JSON 失败:', e);
+            }
+        } catch (e) { 
+            console.error('加载 Qwen 矩阵失败:', e.message); 
+        } finally { 
+            store.qwenModelsLoading = false; 
+        }
     },
 
     async syncQwenModels() {
@@ -41,13 +55,41 @@ export const qwenMethods = {
         store.qwenModelsSyncing = true;
         try {
             const resp = await fetch(`${QWEN_API}/sync-models`, { method: 'POST' });
-            const result = await resp.json();
+            
+            // 防御性：检查状态码
+            if (!resp.ok) {
+                let errorMsg = `服务器返回错误 (${resp.status})`;
+                try {
+                    const errorData = await resp.json();
+                    errorMsg = errorData.error || errorMsg;
+                } catch (e) { /* 非 JSON 响应，维持默认错误 */ }
+                throw new Error(errorMsg);
+            }
+
+            // 防御性：安全解析 JSON
+            let result;
+            try {
+                result = await resp.json();
+            } catch (e) {
+                throw new Error('服务器响应格式解析失败 (非有效 JSON)');
+            }
+
             if (result.error) throw new Error(result.error);
+            
             this.loadQwenModels();
-            if (this.showToast) this.showToast(`同步完成！发现 ${result.count} 个模型`, 'success');
+            if (this.showToast) {
+                this.showToast(`同步完成！发现 ${result.count} 个模型${result.added > 0 ? ` (新增 ${result.added} 个)` : ''}`, 'success');
+            } else {
+                alert('同步完成！');
+            }
         } catch (e) {
             console.error('同步 Qwen 模型失败:', e);
-            alert('同步失败: ' + e.message);
+            const displayMsg = e.message.includes('Unexpected end of JSON input') 
+                ? '服务器连接异常，未能获取有效响应' 
+                : e.message;
+                
+            if (this.showToast) this.showToast(`同步失败: ${displayMsg}`, 'danger');
+            else alert('同步失败: ' + displayMsg);
         } finally {
             store.qwenModelsSyncing = false;
         }
@@ -69,7 +111,13 @@ export const qwenMethods = {
         store.qwenAccountsLoading = true;
         try {
             const resp = await fetch(`${QWEN_API}/accounts`);
-            if (resp.ok) store.qwenAccounts = await resp.json();
+            if (resp.ok) {
+                try {
+                    store.qwenAccounts = await resp.json();
+                } catch (e) {
+                    console.error('解析 Qwen 账号失败 (非 JSON)', e);
+                }
+            }
         } catch (e) { console.error('加载 Qwen 账号失败:', e); }
         finally { store.qwenAccountsLoading = false; }
     },
@@ -122,11 +170,17 @@ export const qwenMethods = {
     async loadQwenSettings() {
         try {
             const resp = await fetch(`${QWEN_API}/settings`);
-            const data = await resp.json();
-            store.qwenSettingsForm = {
-                API_KEY: data.API_KEY || '',
-                SYSTEM_INSTRUCTION: data.SYSTEM_INSTRUCTION || '',
-            };
+            if (resp.ok) {
+                try {
+                    const data = await resp.json();
+                    store.qwenSettingsForm = {
+                        API_KEY: data.API_KEY || '',
+                        SYSTEM_INSTRUCTION: data.SYSTEM_INSTRUCTION || '',
+                    };
+                } catch (e) {
+                    console.error('解析 Qwen 设置失败 (非 JSON)', e);
+                }
+            }
             store.qwenBaseUrl = `${window.location.origin}/v1`;
         } catch (e) { console.error('加载 Qwen 设置失败:', e); }
     },
@@ -160,7 +214,13 @@ export const qwenMethods = {
     async loadQwenModelRedirects() {
         try {
             const resp = await fetch(`${QWEN_API}/models/redirects`);
-            if (resp.ok) store.qwenModelRedirects = await resp.json();
+            if (resp.ok) {
+                try {
+                    store.qwenModelRedirects = await resp.json();
+                } catch (e) {
+                    console.error('解析 Qwen 重定向失败 (非 JSON)', e);
+                }
+            }
         } catch (e) { console.error('加载 Qwen 重定向失败:', e); }
     },
 
@@ -218,7 +278,13 @@ export const qwenMethods = {
         store.qwenLogsLoading = true;
         try {
             const resp = await fetch(`${QWEN_API}/logs`);
-            if (resp.ok) store.qwenLogs = await resp.json();
+            if (resp.ok) {
+                try {
+                    store.qwenLogs = await resp.json();
+                } catch (e) {
+                    console.error('解析 Qwen 日志失败 (非 JSON)', e);
+                }
+            }
         } catch (e) { console.error('加载调用日志失败:', e); }
         finally { store.qwenLogsLoading = false; }
     },
