@@ -185,8 +185,17 @@ function recordLog(logData) {
     
     // 自动提取 Token (支持 OpenAI 和 Google 格式)
     let totalTokens = 0;
-    if (logData.detail && logData.detail.response && logData.detail.response.usage) {
-      totalTokens = logData.detail.response.usage.total_tokens || 0;
+    if (logData.detail && logData.detail.response) {
+      const resp = logData.detail.response;
+      // 1. OpenAI 格式 (usage.total_tokens)
+      if (resp.usage && resp.usage.total_tokens) {
+        totalTokens = resp.usage.total_tokens;
+      } 
+      // 2. Gemini 原生格式 (usageMetadata.totalTokenCount)
+      else if (resp.usageMetadata && resp.usageMetadata.totalTokenCount) {
+        totalTokens = resp.usageMetadata.totalTokenCount;
+      }
+      // 3. 特殊嵌套格式 (detail.usage)
     } else if (logData.detail && logData.detail.usage) {
       totalTokens = logData.detail.usage.total_tokens || 0;
     }

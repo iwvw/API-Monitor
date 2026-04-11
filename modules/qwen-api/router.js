@@ -128,7 +128,13 @@ router.get('/logs', (req, res) => {
 });
 
 router.delete('/logs', (req, res) => {
-    // ... (保持原样)
+    const db = require('../../src/db/database').getDatabase();
+    try {
+        db.prepare('DELETE FROM qwen_logs').run();
+        res.json({ success: true });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
 });
 
 // ==================== 模型重定向 (别名) ====================
@@ -191,16 +197,23 @@ router.post('/v1/chat/completions', async (req, res) => {
     const qwenMsg = {
         fid: uuidv4(), parentId: null, childrenIds: [uuidv4()],
         role: 'user', content: finalContent, user_action: 'chat',
-        timestamp: ts, models: [targetModel], chat_type: subType,
-        feature_config: {
+        timestamp: ts, models: [targetModel], chat_type: 't2t',
+        feature_config: isImageRequest ? {
+            thinking_enabled: false, output_schema: 'phase',
+            auto_thinking: false, thinking_mode: 'off',
+            auto_search: false, code_interpreter: false, function_calling: false,
+            plugins_enabled: true,
+            image_generation: true,
+            default_aspect_ratio: '16:9',
+        } : {
             thinking_enabled: true, output_schema: 'phase', research_mode: 'normal',
             auto_thinking: true, thinking_mode: 'Auto', thinking_format: 'summary',
             auto_search: false, code_interpreter: false, function_calling: false, 
             plugins_enabled: true,
-            image_generation: isImageRequest, 
+            image_generation: false, 
             default_aspect_ratio: '1:1',
         },
-        extra: { meta: { subChatType: subType, mode: isImageRequest ? 'image_generation' : undefined } },
+        extra: { meta: { subChatType: subType, mode: isImageRequest ? 'image_generation' : undefined, aspectRatio: isImageRequest ? '16:9' : undefined } },
         sub_chat_type: subType, parent_id: null,
     };
 
@@ -217,7 +230,7 @@ router.post('/v1/chat/completions', async (req, res) => {
     let chatId = null;
     try {
         const createRes = await axios.post('https://chat.qwen.ai/api/v2/chats/new', {
-            title: `chat_${ts}`, models: [targetModel], chat_mode: 'normal', chat_type: 't2t', timestamp: ts,
+            title: `chat_${ts}`, models: [targetModel], chat_mode: 'normal', chat_type: isImageRequest ? 't2i' : 't2t', timestamp: ts,
         }, { headers: commonHeaders, timeout: 15000 });
 
         chatId = createRes.data?.data?.id;
@@ -294,11 +307,43 @@ router.post('/v1/chat/completions', async (req, res) => {
                     if (isThinking) fullReasoning += text;
                     else fullContent += text;
 
-                    // 图片生图链接捕获 (Wanx 增强支持)
-                    const wanxUrl = data.extra?.wanx_image_url || data.extra?.tool_result?.[0]?.image;
-                    if (wanxUrl) {
-                        const imgMd = `\n\n![Generated Image](${wanxUrl})`;
-                        if (!fullContent.includes(wanxUrl)) {
+                    // 图片生图链接捕获 (增强版，参考 qwen2API)
+                    const extra = delta.extra || {};
+                    const extractedUrls = [];
+                    
+                    // ① tool_result[].image (image_gen_tool 完成事件)
+                    if (Array.isArray(extra.tool_result)) {
+                        for (const item of extra.tool_result) {
+                            if (typeof item === 'object') {
+                                for (const k of ['image', 'url', 'src', 'imageUrl', 'image_url']) {
+                                    if (typeof item[k] === 'string' && item[k].startsWith('http')) extractedUrls.push(item[k]);
+                                }
+                            } else if (typeof item === 'string' && item.startsWith('http')) {
+                                extractedUrls.push(item);
+                            }
+                        }
+                    }
+                    // ② 平铺字段
+                    for (const k of ['image_url', 'wanx_image_url', 'imageUrl']) {
+                        if (typeof extra[k] === 'string' && extra[k].startsWith('http')) extractedUrls.push(extra[k]);
+                    }
+                    // ③ 列表字段
+                    for (const k of ['image_urls', 'images', 'imageUrls']) {
+                        if (Array.isArray(extra[k])) {
+                            for (const item of extra[k]) {
+                                if (typeof item === 'string' && item.startsWith('http')) extractedUrls.push(item);
+                                else if (typeof item === 'object') {
+                                    for (const sk of ['url', 'src', 'image']) {
+                                        if (typeof item[sk] === 'string' && item[sk].startsWith('http')) extractedUrls.push(item[sk]);
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    for (const imgUrl of extractedUrls) {
+                        if (!fullContent.includes(imgUrl)) {
+                            const imgMd = `\n\n![Generated Image](${imgUrl})\n\n`;
                             fullContent += imgMd;
                             if (stream) {
                                 res.write(`data: ${JSON.stringify({
@@ -327,7 +372,7 @@ router.post('/v1/chat/completions', async (req, res) => {
             // 全量入库：包含上下文和首字耗时
             storage.addLog({
                 account_id: account.id, model: targetModel, prompt: currentContent,
-                response: fullContent, tokens, duration, status: 'success',
+                response: fullContent, reasoning_content: fullReasoning, tokens, duration, status: 'success',
                 first_token_time_ms: firstTokenTimeMs,
                 messages: messages // 存入完整上下文数组
             });

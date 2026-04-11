@@ -280,6 +280,13 @@ class DatabaseService {
             this.db.exec('ALTER TABLE gemini_cli_logs ADD COLUMN first_token_time_ms INTEGER');
             logger.success('gemini_cli_logs.first_token_time_ms 字段添加成功');
           }
+
+          const hasGcliTotalTokens = gcliLogColumns.some(col => col.name === 'total_tokens');
+          if (!hasGcliTotalTokens) {
+            logger.info('正在为 gemini_cli_logs 表添加 total_tokens 字段...');
+            this.db.exec('ALTER TABLE gemini_cli_logs ADD COLUMN total_tokens INTEGER DEFAULT 0');
+            logger.success('gemini_cli_logs.total_tokens 字段添加成功');
+          }
         }
       } catch (err) {
         logger.error('Gemini CLI Logs 迁移失败:', err.message);

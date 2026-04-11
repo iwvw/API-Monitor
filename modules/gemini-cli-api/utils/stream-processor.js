@@ -31,8 +31,9 @@ class StreamProcessor {
       let reasoning = '';
 
       parts.forEach(part => {
-        // 如果包含 thought 属性（布尔值或内容），或者包含 thoughtSignature (Gemini 3 特有)
-        if (part.thought || (part.thoughtSignature && !part.text?.includes('thoughtSignature'))) {
+        // 只有 thought === true 的 part 才是思考内容
+        // thoughtSignature 是最终回复携带的签名，不是思考标记
+        if (part.thought === true) {
           reasoning += part.text || '';
         } else {
           text += part.text || '';
@@ -61,7 +62,9 @@ class StreamProcessor {
     const responseId = `chatcmpl-${Math.random().toString(36).slice(2)}`;
     const startTime = Date.now();
     let firstTokenTime = null;
+    let lastUsage = null; // 局部变量，确保线程安全
     let contentStarted = false; // 状态机：正文是否已开始流出
+    let accumulatedReasoning = ''; // 累积的思考内容，用于后处理修正
 
     const modifiedRequest = JSON.parse(JSON.stringify(openaiRequest));
 
@@ -101,7 +104,12 @@ class StreamProcessor {
             const parsed = this.parseGeminiChunk(line.trim());
             if (!parsed) continue;
 
-            let { text = '', reasoning = '' } = parsed;
+            let { text = '', reasoning = '', usage = null } = parsed;
+
+            // 持续更新最后一个有效的使用度统计
+            if (usage) {
+              lastUsage = usage;
+            }
 
             // 状态机修复：一旦正文开始流出，后续 thought 标记的内容视为正文溢出
             if (text) contentStarted = true;
@@ -123,6 +131,7 @@ class StreamProcessor {
             }
 
             fullContent += text;
+            if (reasoning) accumulatedReasoning += reasoning;
 
             // 记录首字输出时间（仅在首次有内容时）
             if (firstTokenTime === null && (text || reasoning)) {
@@ -157,7 +166,38 @@ class StreamProcessor {
       }
     }
 
-    // 发送结束标记，并通过扩展字段传递首字输出时间
+    // 防御性后处理：Gemini 有时将最终回复混入思考内容 (尤其在短对话时)
+    // 如果流结束后正文为空但有思考内容，从思考末尾提取实际回复
+    if (!contentStarted && !fullContent && accumulatedReasoning) {
+      const segments = accumulatedReasoning.split('\n\n');
+      if (segments.length > 1) {
+        // 从末尾向前扫描，找到第一个不以 ** 开头的段落（即非思考标题段）
+        let extractedLines = [];
+        for (let i = segments.length - 1; i >= 0; i--) {
+          const seg = segments[i].trim();
+          if (seg.startsWith('**') && seg.includes('**\n')) break; // 遇到思考标题，停止
+          if (!seg) continue; // 跳过空段
+          extractedLines.unshift(seg);
+          segments.splice(i, 1);
+          // 只提取最后一个连续的非思考段落
+          if (i > 0 && segments[i - 1]?.trim().startsWith('**')) break;
+        }
+        if (extractedLines.length > 0) {
+          const extractedContent = extractedLines.join('\n\n');
+          fullContent = extractedContent;
+          logger.info(`[Stream] 从思考内容末尾提取了被混入的最终回复 (${extractedContent.length} chars)`);
+          yield `data: ${JSON.stringify({
+            id: responseId,
+            object: 'chat.completion.chunk',
+            created: Math.floor(Date.now() / 1000),
+            model: openaiRequest.model,
+            choices: [{ index: 0, delta: { content: extractedContent }, finish_reason: null }],
+          })}\n\n`;
+        }
+      }
+    }
+
+    // 发送结束标记，并通过扩展字段传递首字输出时间及最终使用度统计
     yield `data: ${JSON.stringify({
       id: responseId,
       object: 'chat.completion.chunk',
@@ -165,6 +205,7 @@ class StreamProcessor {
       model: openaiRequest.model,
       choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
       _firstTokenTime: firstTokenTime,
+      usage: lastUsage || null, // 回传最终统计
     })}\n\n`;
     yield 'data: [DONE]\n\n';
 

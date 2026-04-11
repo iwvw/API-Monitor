@@ -37,6 +37,8 @@ CREATE TABLE IF NOT EXISTS gemini_cli_settings (
 CREATE TABLE IF NOT EXISTS gemini_cli_logs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     account_id TEXT,
+    model TEXT,
+    is_balanced INTEGER DEFAULT 0,
     request_path TEXT,
     request_method TEXT,
     status_code INTEGER,
@@ -45,6 +47,7 @@ CREATE TABLE IF NOT EXISTS gemini_cli_logs (
     user_agent TEXT,
     detail TEXT,  -- 存储完整的请求和响应快照 (JSON)
     first_token_time_ms INTEGER,  -- 首字输出延迟 (毫秒)
+    total_tokens INTEGER DEFAULT 0,  -- Token 消耗统计
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 

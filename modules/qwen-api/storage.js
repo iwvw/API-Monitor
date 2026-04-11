@@ -48,6 +48,10 @@ function initDb() {
             logger.info('正在为 qwen_logs 表添加 first_token_time_ms 字段...');
             database.prepare('ALTER TABLE qwen_logs ADD COLUMN first_token_time_ms INTEGER').run();
         }
+        if (!columns.includes('reasoning_content')) {
+            logger.info('正在为 qwen_logs 表添加 reasoning_content 字段...');
+            database.prepare('ALTER TABLE qwen_logs ADD COLUMN reasoning_content TEXT').run();
+        }
 
         logger.info('Qwen 数据库表已初始化');
     } catch (e) {
@@ -138,14 +142,15 @@ function addLog(logData) {
     if (!database) return;
     try {
         database.prepare(`
-            INSERT INTO qwen_logs (trace_id, account_id, model, prompt, response, messages, tokens, status, error, duration, first_token_time_ms)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO qwen_logs (trace_id, account_id, model, prompt, response, reasoning_content, messages, tokens, status, error, duration, first_token_time_ms)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
             logData.trace_id || uuidv4(),
             logData.account_id,
             logData.model,
             logData.prompt,
             logData.response,
+            logData.reasoning_content || null,
             logData.messages ? (typeof logData.messages === 'string' ? logData.messages : JSON.stringify(logData.messages)) : null,
             logData.tokens || 0,
             logData.status,

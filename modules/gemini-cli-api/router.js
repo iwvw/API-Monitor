@@ -8,6 +8,42 @@ const { requireAuth } = require('../../src/middleware/auth');
 const { createLogger } = require('../../src/utils/logger');
 const logger = createLogger('GCLI');
 
+/**
+ * 辅助函数：为日志记录准备消息列表 (净化与加固)
+ */
+function prepareMessagesForLog(originalMessages, settings) {
+  try {
+    // 深度克隆以防后续操作影响原始请求 (安全性加固)
+    const messages = JSON.parse(JSON.stringify(originalMessages || []));
+
+    // 1. 日志净化：移除超大 Base64 图片
+    messages.forEach(msg => {
+      if (Array.isArray(msg.content)) {
+        msg.content.forEach(part => {
+          if (part.type === 'image_url' && part.image_url?.url?.startsWith('data:')) {
+            if (part.image_url._original_url) {
+              // 恢复原始路径，以便在前端预览
+              part.image_url.url = part.image_url._original_url;
+            } else {
+              part.image_url.url = `data:image/... [Base64 hidden, size=${part.image_url.url.length}]`;
+            }
+          }
+        });
+      }
+    });
+
+    // 2. 确保合并系统指令到日志中
+    if (!messages.some(m => m.role === 'system') && settings.SYSTEM_INSTRUCTION) {
+      messages.unshift({ role: 'system', content: settings.SYSTEM_INSTRUCTION });
+    }
+
+    return messages;
+  } catch (e) {
+    logger.warn('Failed to prepare messages for log:', e.message);
+    return originalMessages; // 失败时返回原始数据，recordLog 会在存储层进行二级安全序列化
+  }
+}
+
 const streamProcessor = new StreamProcessor(client);
 
 // ==================== 服务器端定时检测服务 ====================
@@ -1628,15 +1664,16 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
           res.setHeader('Connection', 'keep-alive');
           res.setHeader('X-Accel-Buffering', 'no'); // 禁用反代缓存 (如 Nginx)
 
-          // 累积流式响应内容用于日志记录
           let fullContent = '';
           let fullReasoning = '';
           let firstTokenTime = null;
+          let lastUsage = null;
 
           const stream = streamProcessor.processStream(req.body, account.id);
           for await (const chunk of stream) {
             res.write(chunk);
             if (res.flush) res.flush(); // 强制刷新缓冲区 (支持 compression 中间件)
+
             // 尝试解析 chunk 以累积内容
             try {
               if (chunk.startsWith('data: ') && !chunk.includes('[DONE]')) {
@@ -1644,9 +1681,13 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
                 const delta = data.choices?.[0]?.delta;
                 if (delta?.content) fullContent += delta.content;
                 if (delta?.reasoning_content) fullReasoning += delta.reasoning_content;
-                // 提取首字输出时间（仅从最后一个chunk获取）
+                // 提取首字输出时间
                 if (data._firstTokenTime !== undefined && firstTokenTime === null) {
                   firstTokenTime = data._firstTokenTime;
+                }
+                // 提取使用度统计 (重要修复)
+                if (data.usage) {
+                  lastUsage = data.usage;
                 }
               }
             } catch (e) {
@@ -1655,32 +1696,9 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
           }
           res.end();
 
-          // 记录成功日志（包含累积的回复内容）
-          const originalMessages = JSON.parse(JSON.stringify(req.body.messages || []));
-
-          // === 日志净化：移除 Base64 图片 ===
-          originalMessages.forEach(msg => {
-            if (Array.isArray(msg.content)) {
-              msg.content.forEach(part => {
-                if (part.type === 'image_url' && part.image_url?.url?.startsWith('data:')) {
-                  if (part.image_url._original_url) {
-                    // 恢复原始路径，以便在前端预览
-                    part.image_url.url = part.image_url._original_url;
-                  } else {
-                    part.image_url.url = `data:image/... [Base64 hidden, size=${part.image_url.url.length}]`;
-                  }
-                }
-              });
-            }
-          });
-          // =================================
-
+          // 记录成功日志
           const settings = await storage.getSettings();
-
-          // 确保合并系统指令到日志中
-          if (!originalMessages.some(m => m.role === 'system') && settings.SYSTEM_INSTRUCTION) {
-            originalMessages.unshift({ role: 'system', content: settings.SYSTEM_INSTRUCTION });
-          }
+          const logMessages = prepareMessagesForLog(req.body.messages, settings);
 
           storage.recordLog({
             accountId: account.id,
@@ -1695,7 +1713,7 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
             firstTokenTimeMs: firstTokenTime,
             detail: {
               model: req.body.model,
-              messages: originalMessages,
+              messages: logMessages,
               type: 'stream',
               response: {
                 choices: [
@@ -1707,6 +1725,7 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
                     },
                   },
                 ],
+                usageMetadata: lastUsage, // 注入捕获到的统计
               },
             },
           });
@@ -1723,19 +1742,48 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
           let contentStarted = false;
 
           for (const part of parts) {
-            if (part.thought && !contentStarted) {
+            // 只有 thought === true 的 part 才是思考内容
+            // thoughtSignature 是最终回复携带的签名，不是思考标记
+            const isThought = part.thought === true;
+
+            if (isThought && !contentStarted) {
               reasoning += part.text || '';
+            } else if (isThought && contentStarted) {
+              // 状态机修复: 正文已开始流出后，后续 thought 标记的内容视为正文溢出
+              text += part.text || '';
             } else if (part.text) {
               contentStarted = true;
               text += part.text;
             }
           }
 
-          // 防御性处理：如果 content 为空但 reasoning_content 有值，
-          // 且模型处于 nothinking 模式，说明发生了错位。
-          if (!text && reasoning && model.includes('-nothinking')) {
-            text = reasoning;
-            reasoning = '';
+          // 防御性处理：如果 content 为空但 reasoning_content 有值
+          if (!text && reasoning) {
+            if (model.includes('-nothinking')) {
+              // nothinking 模式：全部作为正文
+              text = reasoning;
+              reasoning = '';
+            } else {
+              // 标准思考模式：Gemini 有时将最终回复混入思考末尾
+              // 从 reasoning 末尾提取非思考标题的段落作为正文
+              const segments = reasoning.split('\n\n');
+              if (segments.length > 1) {
+                let extractedLines = [];
+                for (let i = segments.length - 1; i >= 0; i--) {
+                  const seg = segments[i].trim();
+                  if (seg.startsWith('**') && seg.includes('**\n')) break;
+                  if (!seg) continue;
+                  extractedLines.unshift(seg);
+                  segments.splice(i, 1);
+                  if (i > 0 && segments[i - 1]?.trim().startsWith('**')) break;
+                }
+                if (extractedLines.length > 0) {
+                  text = extractedLines.join('\n\n');
+                  reasoning = segments.join('\n\n');
+                  logger.info(`[NonStream] 从思考内容末尾提取了被混入的最终回复 (${text.length} chars)`);
+                }
+              }
+            }
           }
 
           const usageMetadata = geminiData.response?.usageMetadata || geminiData.usageMetadata || {};
@@ -1763,31 +1811,8 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
           };
 
           // 记录成功日志
-          const originalMessages = JSON.parse(JSON.stringify(req.body.messages || []));
-
-          // === 日志净化：移除 Base64 图片 ===
-          originalMessages.forEach(msg => {
-            if (Array.isArray(msg.content)) {
-              msg.content.forEach(part => {
-                if (part.type === 'image_url' && part.image_url?.url?.startsWith('data:')) {
-                  if (part.image_url._original_url) {
-                    // 恢复原始路径，以便在前端预览
-                    part.image_url.url = part.image_url._original_url;
-                  } else {
-                    part.image_url.url = `data:image/... [Base64 hidden, size=${part.image_url.url.length}]`;
-                  }
-                }
-              });
-            }
-          });
-          // =================================
-
           const settings = await storage.getSettings();
-
-          // 确保合并系统指令到日志中
-          if (!originalMessages.some(m => m.role === 'system') && settings.SYSTEM_INSTRUCTION) {
-            originalMessages.unshift({ role: 'system', content: settings.SYSTEM_INSTRUCTION });
-          }
+          const logMessages = prepareMessagesForLog(req.body.messages, settings);
 
           storage.recordLog({
             accountId: account.id,
@@ -1802,7 +1827,7 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
             userAgent: req.get('user-agent'),
             detail: {
               model: req.body.model,
-              messages: originalMessages,
+              messages: logMessages,
               response: responseData,
             },
           });
@@ -1846,31 +1871,8 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
         }
 
         // 记录错误日志
-        const originalMessages = JSON.parse(JSON.stringify(req.body.messages || []));
-
-        // === 日志净化：移除 Base64 图片 ===
-        originalMessages.forEach(msg => {
-          if (Array.isArray(msg.content)) {
-            msg.content.forEach(part => {
-              if (part.type === 'image_url' && part.image_url?.url?.startsWith('data:')) {
-                if (part.image_url._original_url) {
-                  // 恢复原始路径，以便在前端预览
-                  part.image_url.url = part.image_url._original_url;
-                } else {
-                  part.image_url.url = `data:image/... [Base64 hidden, size=${part.image_url.url.length}]`;
-                }
-              }
-            });
-          }
-        });
-        // =================================
-
         const settings = await storage.getSettings();
-
-        // 确保合并系统指令到日志中
-        if (!originalMessages.some(m => m.role === 'system') && settings.SYSTEM_INSTRUCTION) {
-          originalMessages.unshift({ role: 'system', content: settings.SYSTEM_INSTRUCTION });
-        }
+        const logMessages = prepareMessagesForLog(req.body.messages, settings);
 
         storage.recordLog({
           accountId: account.id,
@@ -1885,7 +1887,7 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
           detail: {
             error: error.message,
             response_data: error.response?.data,
-            messages: originalMessages,
+            messages: logMessages,
             model: req.body.model,
           },
         });

@@ -1,4 +1,5 @@
 import { store } from '../store.js';
+import { toast } from './toast.js';
 
 const QWEN_API = '/api/qwen';
 
@@ -129,7 +130,7 @@ export const qwenMethods = {
     },
 
     async addQwenAccount() {
-        if (!store.qwenAccountForm.token) return alert('请输入凭证内容');
+        if (!store.qwenAccountForm.token) return toast.warning('请输入凭证内容');
         try {
             const resp = await fetch(`${QWEN_API}/accounts`, {
                 method: 'POST',
@@ -140,8 +141,9 @@ export const qwenMethods = {
                 store.qwenShowAddAccount = false;
                 store.qwenAccountForm = { name: '', token: '' };
                 this.loadQwenAccounts();
+                toast.success('凭证已添加');
             }
-        } catch (e) { console.error('添加账号失败:', e); }
+        } catch (e) { toast.error('添加账号失败: ' + e.message); }
     },
 
     async toggleQwenAccount(id) {
@@ -159,11 +161,21 @@ export const qwenMethods = {
     },
 
     async deleteQwenAccount(id) {
-        if (!confirm('确定要删除该账号吗？')) return;
+        const confirmed = await store.showConfirm({
+            title: '确认删除',
+            message: '确定删除此账号？此操作不可恢复。',
+            icon: 'fa-trash',
+            confirmText: '删除',
+            confirmClass: 'btn-danger',
+        });
+        if (!confirmed) return;
         try {
             const resp = await fetch(`${QWEN_API}/accounts/${id}`, { method: 'DELETE' });
-            if (resp.ok) this.loadQwenAccounts();
-        } catch (e) { console.error('删除账号失败:', e); }
+            if (resp.ok) {
+                toast.success('账号已删除');
+                this.loadQwenAccounts();
+            }
+        } catch (e) { toast.error('删除账号失败: ' + e.message); }
     },
 
     // ==================== 配置 ====================
@@ -194,19 +206,17 @@ export const qwenMethods = {
                 body: JSON.stringify(store.qwenSettingsForm)
             });
             if (resp.ok) {
-                if (this.showToast) this.showToast('Qwen 配置保存成功', 'success');
-                else alert('Qwen 配置保存成功');
+                toast.success('Qwen 配置保存成功');
             }
-        } catch (e) { console.error('保存设置失败:', e); }
+        } catch (e) { toast.error('保存设置失败: ' + e.message); }
         finally { store.qwenSaving = false; }
     },
 
     copyQwenEndpoint() {
         navigator.clipboard.writeText(store.qwenBaseUrl).then(() => {
-            if (this.showToast) this.showToast('Base URL 已复制', 'success');
-            else alert('Base URL 已复制');
+            toast.success('Base URL 已复制');
         }).catch(err => {
-            console.error('复制失败:', err);
+            toast.error('复制失败: ' + err.message);
         });
     },
 
@@ -237,28 +247,38 @@ export const qwenMethods = {
             });
 
             if (resp.ok) {
+                toast.success('重定向规则已保存');
                 store.qwenNewRedirectSource = '';
                 store.qwenNewRedirectTarget = '';
                 store.qwenEditingRedirectSource = null;
                 await this.loadQwenModelRedirects();
             } else {
                 const data = await resp.json();
-                alert('保存失败: ' + (data.error || '未知错误'));
+                toast.error('保存失败: ' + (data.error || '未知错误'));
             }
         } catch (e) {
-            console.error('保存重定向失败:', e);
-            alert('保存失败: ' + e.message);
+            toast.error('保存失败: ' + e.message);
         }
     },
 
     async removeQwenModelRedirect(sourceModel) {
-        if (!confirm(`确定要删除对模型 ${sourceModel} 的重定向吗？`)) return;
+        const confirmed = await store.showConfirm({
+            title: '确认删除',
+            message: `确定要删除 ${sourceModel} 的重定向规则吗？`,
+            icon: 'fa-trash',
+            confirmText: '删除',
+            confirmClass: 'btn-danger',
+        });
+        if (!confirmed) return;
         try {
             const resp = await fetch(`${QWEN_API}/models/redirects/${encodeURIComponent(sourceModel)}`, {
                 method: 'DELETE'
             });
-            if (resp.ok) await this.loadQwenModelRedirects();
-        } catch (e) { console.error('删除重定向失败:', e); }
+            if (resp.ok) {
+                toast.success('删除成功');
+                await this.loadQwenModelRedirects();
+            }
+        } catch (e) { toast.error('删除重定向失败: ' + e.message); }
     },
 
     editQwenModelRedirect(r) {
@@ -315,15 +335,20 @@ export const qwenMethods = {
     },
 
     async clearQwenLogs() {
-        if (!confirm('确定清空所有调用日志？此操作不可恢复。')) return;
+        const confirmed = await store.showConfirm({
+            title: '确认清空',
+            message: '确定清空所有调用日志？此操作不可恢复。',
+            icon: 'fa-trash',
+            confirmText: '清空',
+            confirmClass: 'btn-danger',
+        });
+        if (!confirmed) return;
         try {
             await fetch(`${QWEN_API}/logs`, { method: 'DELETE' });
             store.qwenLogs = [];
-            if (this.showToast) this.showToast('日志已清空', 'success');
-            else alert('日志已清空');
+            toast.success('日志已清空');
         } catch (e) {
-            console.error('清空失败:', e);
-            alert('清空失败: ' + e.message);
+            toast.error('清空失败: ' + e.message);
         }
     },
 
@@ -348,10 +373,9 @@ export const qwenMethods = {
         if (!store.qwenLogDetail) return;
         const text = JSON.stringify(store.qwenLogDetail, null, 2);
         navigator.clipboard.writeText(text).then(() => {
-            if (this.showToast) this.showToast('JSON 已复制到剪贴板', 'success');
-            else alert('已复制到剪贴板');
+            toast.success('JSON 已复制到剪贴板');
         }).catch(err => {
-            console.error('复制失败:', err);
+            toast.error('复制失败: ' + err.message);
         });
     }
 };

@@ -120,7 +120,14 @@ try {
 // 应用安全中间件
 app.use(configureHelmet());
 app.use(generalLimiter); // 通用访问限制
-app.use(compression()); // 启用 Gzip 压缩
+app.use(compression({
+  filter: (req, res) => {
+    // SSE 流式响应不压缩，避免缓冲导致流式输出失效
+    if (req.headers.accept === 'text/event-stream') return false;
+    if (res.getHeader('Content-Type') === 'text/event-stream') return false;
+    return compression.filter(req, res);
+  }
+}));
 
 // 应用基础中间件
 app.use(loggerMiddleware);
