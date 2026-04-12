@@ -171,21 +171,20 @@ export const sshMethods = {
   },
 
   /**
-   * 重新连接SSH会话
+   * 重新连接 SSH 会话
    */
-  reconnectSSHSession(sessionId) {
-    const session = this.sshSessions.find(s => s.id === sessionId);
+  async reconnectSSHSession(sessionId) {
+    const session = this.getSessionById(sessionId);
     if (!session) return;
 
-    console.log(`[SSH ${sessionId}] 开始重新连接...`);
+    console.log(`[Terminal ${sessionId}] 开始重新连接...`);
 
-    // 清除心跳定时器
+    // 清理现有资源
     if (session.heartbeatInterval) {
       clearInterval(session.heartbeatInterval);
       session.heartbeatInterval = null;
     }
 
-    // 如果已连接，先断开
     if (session.ws) {
       if (session.ws.readyState === WebSocket.OPEN) {
         session.ws.send(JSON.stringify({ type: 'disconnect' }));
@@ -194,7 +193,7 @@ export const sshMethods = {
       session.ws = null;
     }
 
-    // 清空终端并显示重连信息
+    // 清空输出并显示状态
     if (session.terminal) {
       session.terminal.clear();
       session.terminal.writeln(
@@ -202,81 +201,8 @@ export const sshMethods = {
       );
     }
 
-    // 建立新的 WebSocket 连接
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${protocol}//${window.location.host}/ws/ssh`);
-    session.ws = ws;
-
-    ws.onopen = () => {
-      console.log(`[SSH ${sessionId}] WebSocket 已重新连接`);
-      ws.send(
-        JSON.stringify({
-          type: 'connect',
-          serverId: session.server.id,
-          protocol: session.type, // 修复：重连时必须携带协议类型 (agent/ssh)
-          cols: session.terminal.cols,
-          rows: session.terminal.rows,
-        })
-      );
-
-      // 启动心跳保活
-      session.heartbeatInterval = setInterval(() => {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: 'ping' }));
-        }
-      }, 30000);
-    };
-
-    ws.onmessage = event => {
-      try {
-        const msg = JSON.parse(event.data);
-        switch (msg.type) {
-          case 'connected':
-            session.connected = true;
-            session.terminal.writeln(`\x1b[1;32m${msg.message}\x1b[0m`);
-            session.terminal.writeln('');
-
-            // 如果当前是单屏布局，默认打开服务器状态侧栏
-            if (this.sshViewLayout === 'single' && !this.showServerStatusSidebar) {
-              this.toggleServerStatusSidebar();
-            }
-            break;
-          case 'output':
-            session.terminal.write(msg.data);
-            break;
-          case 'error':
-            session.terminal.writeln(`\x1b[1;31m错误: ${msg.message}\x1b[0m`);
-            break;
-          case 'disconnected':
-            session.connected = false;
-            session.terminal.writeln('');
-            session.terminal.writeln(`\x1b[1;33m${msg.message}\x1b[0m`);
-            break;
-        }
-      } catch (e) {
-        console.error('解析消息失败:', e);
-      }
-    };
-
-    ws.onerror = () => {
-      session.terminal.writeln('\x1b[1;31mWebSocket 连接错误\x1b[0m');
-    };
-
-    ws.onclose = () => {
-      console.log(`[SSH ${sessionId}] WebSocket 已关闭`);
-
-      // 清除心跳定时器
-      if (session.heartbeatInterval) {
-        clearInterval(session.heartbeatInterval);
-        session.heartbeatInterval = null;
-      }
-
-      if (session.connected) {
-        session.terminal.writeln('');
-        session.terminal.writeln('\x1b[1;33m连接已断开。点击"重新连接"按钮恢复连接。\x1b[0m');
-      }
-      session.connected = false;
-    };
+    // 重新初始化 WebSocket
+    this._initWebSocket(session);
   },
 
   // ==================== SSH 分屏逻辑 (已移至 ssh-split.js) ====================
@@ -629,70 +555,14 @@ export const sshMethods = {
       `\x1b[1;33m正在连接到 ${session.server.name} (${this.formatHost(session.server.host)})...\x1b[0m`
     );
 
-    // 建立 WebSocket 连接 (统一支持 SSH 和 Agent PTY)
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${protocol}//${window.location.host}/ws/ssh`);
-    session.ws = ws;
-
-    ws.onopen = () => {
-      console.log(`[Terminal ${sessionId}] WebSocket 已连接 (${session.type})`);
-      // 发送连接请求
-      ws.send(
-        JSON.stringify({
-          type: 'connect',
-          serverId: session.server.id,
-          protocol: session.type === 'agent' ? 'agent' : 'ssh',
-          cols: terminal.cols,
-          rows: terminal.rows,
-        })
-      );
-
-      // 启动心跳保活
-      session.heartbeatInterval = setInterval(() => {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: 'ping' }));
-        }
-      }, 30000); // 每30秒发送一次心跳
-    };
-
-    ws.onmessage = event => {
-      try {
-        const msg = JSON.parse(event.data);
-
-        switch (msg.type) {
-          case 'connected':
-            session.connected = true;
-            // 连接成功后清屏，提供完全干净的界面
-            terminal.clear();
-            // 连接成功后再次 fit 确保终端填满容器
-            setTimeout(() => this.safeTerminalFit(session), 100);
-            break;
-
-          case 'output':
-            terminal.write(msg.data);
-            break;
-
-          case 'error':
-            terminal.writeln(`\x1b[1;31m错误: ${msg.message}\x1b[0m`);
-            break;
-
-          case 'disconnected':
-            session.connected = false;
-            terminal.writeln('');
-            terminal.writeln(`\x1b[1;33m${msg.message}\x1b[0m`);
-            break;
-        }
-      } catch (e) {
-        console.error('解析消息失败:', e);
-      }
-    };
-
+    // 初始化 WebSocket (心跳、消息处理、断连等)
+    this._initWebSocket(session);
 
     // 监听终端输入，发送到 WebSocket (包含多屏同步逻辑)
     terminal.onData(data => {
       // 1. 发送到当前会话
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(
+      if (session.ws && session.ws.readyState === WebSocket.OPEN) {
+        session.ws.send(
           JSON.stringify({
             type: 'input',
             data: data,
@@ -723,6 +593,94 @@ export const sshMethods = {
     });
 
     // 已使用 ResizeObserver 监听容器，此处无需 window.resize
+  },
+
+  /**
+   * 初始化 WebSocket 连接及其生命周期管理 (私有方法，供 init 和 reconnect 复用)
+   */
+  _initWebSocket(session) {
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const ws = new WebSocket(`${protocol}//${window.location.host}/ws/ssh`);
+    session.ws = ws;
+
+    ws.onopen = () => {
+      console.log(`[Terminal ${session.id}] WebSocket 已连接 (${session.type})`);
+      // 发送连接请求
+      ws.send(
+        JSON.stringify({
+          type: 'connect',
+          serverId: session.server.id,
+          protocol: session.type, // 'agent' 或 'ssh'
+          cols: session.terminal.cols,
+          rows: session.terminal.rows,
+        })
+      );
+
+      // 启动心跳保活
+      if (session.heartbeatInterval) clearInterval(session.heartbeatInterval);
+      session.heartbeatInterval = setInterval(() => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'ping' }));
+        }
+      }, 30000); // 每30秒发送一次心跳
+    };
+
+    ws.onmessage = event => {
+      try {
+        const msg = JSON.parse(event.data);
+
+        switch (msg.type) {
+          case 'connected':
+            session.connected = true;
+            // 连接成功后清屏 (首次) 或输出提示 (重连)
+            if (session.terminal.buffer.active.cursorY > 0 || session.terminal.buffer.active.baseY > 0) {
+                session.terminal.writeln(`\x1b[1;32m${msg.message || '已连接'}\x1b[0m`);
+            } else {
+                session.terminal.clear();
+            }
+            // 确保终端填满容器
+            setTimeout(() => this.safeTerminalFit(session), 100);
+            break;
+
+          case 'output':
+            session.terminal.write(msg.data);
+            break;
+
+          case 'error':
+            session.terminal.writeln(`\x1b[1;31m错误: ${msg.message}\x1b[0m`);
+            break;
+
+          case 'disconnected':
+            session.connected = false;
+            session.terminal.writeln('');
+            session.terminal.writeln(`\x1b[1;33m${msg.message}\x1b[0m`);
+            break;
+        }
+      } catch (e) {
+        console.error('解析消息失败:', e);
+      }
+    };
+
+    ws.onclose = (event) => {
+      session.connected = false;
+      if (session.heartbeatInterval) {
+        clearInterval(session.heartbeatInterval);
+        session.heartbeatInterval = null;
+      }
+      console.log(`[Terminal ${session.id}] WebSocket 已断开 (code: ${event.code})`);
+      if (session.terminal) {
+        session.terminal.writeln('');
+        session.terminal.writeln(`\x1b[1;33m连接已断开 (原因代码: ${event.code})\x1b[0m`);
+      }
+    };
+
+    ws.onerror = (err) => {
+      console.error(`[Terminal ${session.id}] WebSocket 错误:`, err);
+      if (session.terminal) {
+        session.terminal.writeln('');
+        session.terminal.writeln(`\x1b[1;31m网络连接发生错误\x1b[0m`);
+      }
+    };
   },
 
 

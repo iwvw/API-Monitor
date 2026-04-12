@@ -131,6 +131,7 @@ class SSHService {
                 port: serverConfig.port || 22,
                 username: serverConfig.username,
                 readyTimeout: 20000,
+                keepaliveInterval: 15000, // 15秒发送一次保活信号
               };
 
               if (serverConfig.auth_type === 'key') {
