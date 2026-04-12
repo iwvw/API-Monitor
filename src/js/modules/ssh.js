@@ -282,84 +282,8 @@ export const sshMethods = {
   // ==================== SSH 分屏逻辑 (已移至 ssh-split.js) ====================
 
   /**
-   * 对所有当前可见的终端执行 Fit 序列，解决布局切换时的尺寸计算错位
+   * 自适应调整所有可见终端尺寸
    */
-  /**
-   * 手动计算并调整终端尺寸 (替代不稳定的 FitAddon)
-   */
-  /**
-   * 手动调整终端大小 (兼容 FitAddon)
-   */
-  manualTerminalResize(session) {
-    if (!session || !session.terminal) return;
-
-    // 如果有 FitAddon，优先使用
-    if (session.fit) {
-      try {
-        session.fit.fit();
-        // 同步后端
-        this.syncTerminalSize(session);
-        return;
-      } catch (e) {
-        console.warn('FitAddon failed, falling back to manual resize', e);
-      }
-    }
-
-    const terminal = session.terminal;
-    const container = document.getElementById('ssh-terminal-' + session.id);
-    if (!container || container.offsetWidth === 0) return;
-
-    // 1. 获取或缓存字符尺寸 (Consolas 14px 约 8.4x17)
-    // 动态测量以适应不同系统缩放
-    if (!this._charSize) {
-      const measure = document.createElement('div');
-      measure.style.fontFamily = 'Consolas, "Courier New", monospace';
-      measure.style.fontSize = '14px';
-      measure.style.lineHeight = '1.2';
-      measure.style.position = 'absolute';
-      measure.style.visibility = 'hidden';
-      measure.style.whiteSpace = 'pre';
-      measure.innerText = 'W'.repeat(10); // 测量10个字符取平均值更准
-      document.body.appendChild(measure);
-      this._charSize = {
-        width: measure.offsetWidth / 10,
-        height: measure.offsetHeight,
-      };
-      document.body.removeChild(measure);
-    }
-
-    // 2. 计算理想行列数 (预留内边距)
-    const padding = 20; // 考虑 padding (10px * 2)
-    const cols = Math.floor((container.offsetWidth - padding) / this._charSize.width);
-    const rows = Math.floor((container.offsetHeight - 10) / this._charSize.height);
-
-    // 3. 执行调整
-    if (cols !== terminal.cols || rows !== terminal.rows) {
-      terminal.resize(Math.max(20, cols), Math.max(5, rows));
-
-      // 4. 同步到后端
-      this.syncTerminalSize(session);
-    }
-  },
-
-  syncTerminalSize(session) {
-    if (!session || !session.terminal) return;
-    if (session.ws && session.ws.readyState === WebSocket.OPEN) {
-      if (session._resizeDebounce) clearTimeout(session._resizeDebounce);
-      session._resizeDebounce = setTimeout(() => {
-        if (session.ws && session.ws.readyState === WebSocket.OPEN) {
-          session.ws.send(
-            JSON.stringify({
-              type: 'resize',
-              cols: session.terminal.cols,
-              rows: session.terminal.rows,
-            })
-          );
-        }
-      }, 400);
-    }
-  },
-
   fitAllVisibleSessions() {
     const ids =
       this.sshViewLayout === 'single'
@@ -370,13 +294,13 @@ export const sshMethods = {
 
     ids.forEach(id => {
       const session = this.getSessionById(id);
-      if (session) this.manualTerminalResize(session);
+      if (session) this.safeTerminalFit(session);
     });
   },
 
   fitCurrentSSHSession() {
     const session = this.getSessionById(this.activeSSHSessionId);
-    if (session) this.manualTerminalResize(session);
+    if (session) this.safeTerminalFit(session);
   },
 
   /**
@@ -427,69 +351,7 @@ export const sshMethods = {
     }
   },
 
-  /**
-   * 切换 SSH 窗口全屏模式 (使用浏览器 Fullscreen API)
-   */
-  async toggleSSHWindowFullscreen() {
-    const sshLayout = document.querySelector('.ssh-ide-layout');
-    if (!sshLayout) return;
 
-    try {
-      if (!document.fullscreenElement) {
-        await sshLayout.requestFullscreen();
-        this.sshWindowFullscreen = true;
-      } else {
-        await document.exitFullscreen();
-        this.sshWindowFullscreen = false;
-      }
-    } catch (err) {
-      console.error('窗口全屏切换失败:', err);
-    }
-
-    // 监听全屏变化事件
-    document.addEventListener(
-      'fullscreenchange',
-      () => {
-        this.sshWindowFullscreen = !!document.fullscreenElement;
-        setTimeout(() => this.fitCurrentSSHSession(), 100);
-        setTimeout(() => this.fitCurrentSSHSession(), 300);
-        setTimeout(() => this.fitCurrentSSHSession(), 500);
-      },
-      { once: true }
-    );
-  },
-
-  /**
-   * 切换 SSH 屏幕全屏模式 (使用浏览器原生全屏 API)
-   */
-  async toggleSSHScreenFullscreen() {
-    const sshLayout = document.querySelector('.ssh-ide-layout');
-    if (!sshLayout) return;
-
-    try {
-      if (!document.fullscreenElement) {
-        await sshLayout.requestFullscreen();
-        this.sshIdeFullscreen = true;
-      } else {
-        await document.exitFullscreen();
-        this.sshIdeFullscreen = false;
-      }
-    } catch (err) {
-      console.error('全屏切换失败:', err);
-    }
-
-    // 监听全屏变化事件
-    document.addEventListener(
-      'fullscreenchange',
-      () => {
-        this.sshIdeFullscreen = !!document.fullscreenElement;
-        setTimeout(() => this.fitCurrentSSHSession(), 100);
-        setTimeout(() => this.fitCurrentSSHSession(), 300);
-        setTimeout(() => this.fitCurrentSSHSession(), 500);
-      },
-      { once: true }
-    );
-  },
 
   /**
    * 更新所有终端的主题并强制重新渲染
@@ -752,15 +614,12 @@ export const sshMethods = {
 
     // 立即执行一次手动适配
     this.$nextTick(() => {
-      this.manualTerminalResize(session);
+      this.safeTerminalFit(session);
     });
 
     // 使用 ResizeObserver 监听容器大小变化
     const resizeObserver = new ResizeObserver(() => {
-      // 使用 rAF 依然是好的实践，确保在浏览器布局完成后执行
-      window.requestAnimationFrame(() => {
-        this.manualTerminalResize(session);
-      });
+      this.safeTerminalFit(session);
     });
     resizeObserver.observe(terminalContainer);
     session.resizeObserver = resizeObserver;

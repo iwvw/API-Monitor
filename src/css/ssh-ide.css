@@ -1,4 +1,4 @@
-﻿.ssh-terminal-sub-page {
+.ssh-terminal-sub-page {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -518,11 +518,7 @@ div[id^='ssh-terminal-'] {
   color: var(--text-secondary);
 }
 
-.snippets-list {
-  flex: 1;
-  overflow-y: auto;
-  padding: var(--space-sm);
-}
+
 
 .snippet-item {
   display: flex;
@@ -608,6 +604,7 @@ div[id^='ssh-terminal-'] {
   flex: 1;
   overflow-y: auto;
   min-height: 0;
+  padding: var(--space-sm);
   padding-bottom: var(--space-xl);
 }
 

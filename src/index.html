@@ -547,6 +547,11 @@
     <!-- 全局组件占位符 -->
     <div id="template-settings"></div>
     <div id="template-modals"></div>
+
+    <!-- 终端 DOM 仓库：不可见时暂存 xterm 实例，防止 Vue 重渲染时销毁节点 -->
+    <div id="ssh-terminal-warehouse"
+      style="visibility:hidden!important;position:absolute!important;left:-9999px!important;top:-9999px!important;width:100px;height:100px;overflow:hidden;pointer-events:none">
+    </div>
   </div>
 
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
