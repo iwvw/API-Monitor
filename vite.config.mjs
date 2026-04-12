@@ -23,7 +23,7 @@ export default defineConfig(({ mode }) => {
 
   return {
     root: 'src',
-    base: './',
+    base: '/',
     plugins: [
       createHtmlPlugin({
         minify: isProduction,
@@ -120,7 +120,7 @@ export default defineConfig(({ mode }) => {
         // 关键：确保支持在 HTML 中直接写模板 (Runtime Compilation)
         // 必须使用 esm-bundler 版本，它会自动引入 @vue/compiler-dom
         // esm-browser 版本不包含编译器，会导致 compiler-30 错误
-        vue: 'vue/dist/vue.esm-bundler.js',
+        vue: 'vue/dist/vue.esm-browser.js',
       },
     },
     define: {
