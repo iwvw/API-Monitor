@@ -401,10 +401,21 @@ pre,
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    gap: 6px;
+    gap: 8px;
     position: relative;
     overflow: hidden;
     box-shadow: 0 2px 8px transparent;
+    line-height: 1; /* 统一行高以辅助居中 */
+  }
+
+  .tab-btn i {
+    font-size: 14px;
+    margin-right: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 1em;
+    transform: translateY(0.5px); /* 微调 FontAwesome 图标视觉分量 */
   }
 
   .tab-btn:hover {

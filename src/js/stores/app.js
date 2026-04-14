@@ -27,7 +27,7 @@ export const MODULE_CONFIG = {
 
 export const MODULE_GROUPS = [
     { id: 'overview', name: '仪表盘', icon: 'fa-tachometer-alt', modules: ['dashboard'] },
-    { id: 'api-gateway', name: 'API 网关', icon: 'fa-bolt', modules: ['openai', 'antigravity', 'gemini-cli', 'deepseek', 'qwen'] },
+    { id: 'api-gateway', name: 'API 网关', icon: 'fa-bolt', modules: ['openai', 'gemini-cli', 'deepseek', 'qwen'] },
     { id: 'infrastructure', name: '基础设施', icon: 'fa-cubes', modules: ['paas', 'dns', 'aliyun', 'tencent', 'server'] },
     { id: 'toolbox', name: '工具箱', icon: 'fa-toolbox', modules: ['self-h', 'totp', 'music', 'uptime', 'filebox', 'notification', 'ai-chat'] },
 ];
@@ -39,7 +39,6 @@ export const useAppStore = defineStore('app', {
         moduleVisibility: {
             dashboard: true,
             openai: true,
-            antigravity: true,
             'gemini-cli': true,
             deepseek: true,
             qwen: true,
@@ -57,7 +56,7 @@ export const useAppStore = defineStore('app', {
             'ai-chat': true,
         },
         moduleOrder: [
-            'dashboard', 'openai', 'antigravity', 'gemini-cli', 'deepseek', 'qwen', 'paas', 'dns', 'aliyun', 'tencent', 'self-h', 'server', 'totp', 'music', 'uptime', 'filebox', 'notification', 'ai-chat'
+            'dashboard', 'openai', 'gemini-cli', 'deepseek', 'qwen', 'paas', 'dns', 'aliyun', 'tencent', 'self-h', 'server', 'totp', 'music', 'uptime', 'filebox', 'notification', 'ai-chat'
         ],
         // 界面设置
         opacity: 100,

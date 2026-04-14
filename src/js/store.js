@@ -61,10 +61,16 @@ export const MODULE_CONFIG = {
     icon: 'fa-server',
     description: '自建服务管理',
   },
+  tencent: {
+    name: '腾讯云',
+    shortName: 'Tencent',
+    icon: 'fa-hdd',
+    description: '腾讯云 DNS / CVM 管理',
+  },
   server: {
     name: 'Hosts',
     shortName: 'Hosts',
-    icon: 'fa-hdd',
+    icon: 'fa-server',
     description: '终端与服务器监控',
   },
   totp: {
@@ -133,13 +139,13 @@ export const MODULE_GROUPS = [
     id: 'api-gateway',
     name: 'API 网关',
     icon: 'fa-bolt',
-    modules: ['openai', 'antigravity', 'gemini-cli', 'deepseek', 'qwen'],
+    modules: ['openai', 'gemini-cli', 'deepseek', 'qwen'],
   },
   {
     id: 'infrastructure',
     name: '基础设施',
     icon: 'fa-cubes',
-    modules: ['paas', 'dns', 'aliyun', 'server'],
+    modules: ['paas', 'dns', 'aliyun', 'tencent', 'server'],
   },
   {
     id: 'toolbox',
@@ -191,7 +197,6 @@ export const store = reactive({
   moduleVisibility: {
     dashboard: true,
     openai: true,
-    antigravity: true,
     deepseek: true,
     qwen: true,
     'gemini-cli': true,
@@ -221,7 +226,6 @@ export const store = reactive({
   moduleOrder: [
     'dashboard',
     'openai',
-    'antigravity',
     'gemini-cli',
     'deepseek',
     'qwen',
