@@ -265,7 +265,9 @@ class GeminiCliClient {
   }
 
   /**
-   * 根据模型名获取 thinking 配置 (参考 gcli2api utils.py)
+   * 根据模型名获取 thinking 配置
+   * 参考 CLIProxyAPI registry: lite 模型支持 thinking 但默认不注入
+   * (CLIProxyAPI 策略: 用户没请求就 passthrough，不强制注入)
    */
   _getThinkingConfig(model) {
     // 1. 显式指定 nothinking：彻底禁用，不返回任何配置对象
@@ -284,7 +286,14 @@ class GeminiCliClient {
       return { thinkingBudget: 65536, includeThoughts: true };
     }
 
-    // 3. 默认配置处理
+    // 3. lite 系列模型：支持 thinking 但默认不注入
+    //    用户可通过 -maxthinking 后缀显式启用（步骤 2 已处理）
+    //    参考 CLIProxyAPI: levels=[minimal,low,medium,high], 但不主动注入
+    if (model.includes('-lite')) {
+      return null;
+    }
+
+    // 4. 默认配置处理
     // Gemini 3 系列默认使用 thinkingLevel
     if (model.includes('gemini-3')) {
       return { thinkingLevel: 'HIGH', includeThoughts: true };
@@ -595,19 +604,31 @@ class GeminiCliClient {
             const s = this.requester.antigravity_fetchStream(url, reqOptions);
             let streamStatus = 200;
             let streamHeaders = {};
+            let startResolved = false;
 
             // Attach listeners immediately to avoid missing data
             s.onData(chunk => passThrough.write(chunk));
             s.onEnd(() => passThrough.end());
-            s.onError(err => passThrough.destroy(err));
+
+            // 使用单一 onError handler 解决竞态：
+            // 连接前错误 -> reject Promise; 连接后错误 -> 销毁 passThrough
+            let rejectStart = null;
+            s.onError(err => {
+              if (!startResolved && rejectStart) {
+                rejectStart(err);
+              } else {
+                passThrough.destroy(err);
+              }
+            });
 
             await new Promise((resolve, reject) => {
+              rejectStart = reject;
               s.onStart(info => {
+                startResolved = true;
                 streamStatus = info.status;
                 streamHeaders = info.headers;
                 resolve();
               });
-              s.onError((err) => reject(err)); // Handle connect error
             });
 
             // If status is critical error, we might want to throw to trigger retry
@@ -652,18 +673,30 @@ class GeminiCliClient {
               const startTime = Date.now();
 
               const s = this.requester.antigravity_fetchStream(url, reqOptions);
+              let startResolved = false;
 
               s.onData(c => chunks.push(c));
               s.onEnd(() => finished = true);
-              s.onError(e => streamError = e);
+
+              // 使用单一 onError handler 解决竞态：
+              // 连接前错误 -> reject Promise; 连接后错误 -> 设置 streamError
+              let rejectStart = null;
+              s.onError(e => {
+                if (!startResolved && rejectStart) {
+                  rejectStart(e);
+                } else {
+                  streamError = e;
+                }
+              });
 
               await new Promise((resolve, reject) => {
+                rejectStart = reject;
                 s.onStart(info => {
+                  startResolved = true;
                   streamStatus = info.status;
                   streamHeaders = info.headers;
                   resolve();
                 });
-                s.onError(reject);
               });
 
               // Wait for completion
