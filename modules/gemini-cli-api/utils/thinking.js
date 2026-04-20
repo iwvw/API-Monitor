@@ -237,7 +237,7 @@ function validateConfig(config, support) {
   const hasBudget = support.min > 0 || support.max > 0;
   const hasLevels = support.levels && support.levels.length > 0;
 
-  let result = { ...config };
+  const result = { ...config };
 
   // Auto-convert Budget ↔ Level based on model capability
   if (!hasBudget && hasLevels && result.mode === ThinkingMode.BUDGET) {

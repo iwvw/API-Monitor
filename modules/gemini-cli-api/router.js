@@ -1791,7 +1791,7 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
               // 从 reasoning 末尾提取非思考标题的段落作为正文
               const segments = reasoning.split('\n\n');
               if (segments.length > 1) {
-                let extractedLines = [];
+                const extractedLines = [];
                 for (let i = segments.length - 1; i >= 0; i--) {
                   const seg = segments[i].trim();
                   if (seg.startsWith('**') && seg.includes('**\n')) break;

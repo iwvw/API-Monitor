@@ -183,7 +183,7 @@ class StreamProcessor {
       const segments = accumulatedReasoning.split('\n\n');
       if (segments.length > 1) {
         // 从末尾向前扫描，找到第一个不以 ** 开头的段落（即非思考标题段）
-        let extractedLines = [];
+        const extractedLines = [];
         for (let i = segments.length - 1; i >= 0; i--) {
           const seg = segments[i].trim();
           if (seg.startsWith('**') && seg.includes('**\n')) break; // 遇到思考标题，停止
