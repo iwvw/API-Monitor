@@ -136,20 +136,33 @@ router.get(['/models', '/model'], requireApiAuth, async (req, res) => {
         }
     }
 
-    // 3. Gemini CLI
+    // 3. Gemini CLI — reuse router.js getAvailableModels() for name consistency
     if (channelEnabled['gemini-cli'] && gcliStorage) {
-        const gcliMatrixPath = path.join(modulesDir, 'gemini-cli-api', 'gemini-matrix.json');
-        if (fs.existsSync(gcliMatrixPath)) {
-            const gcliMatrix = JSON.parse(fs.readFileSync(gcliMatrixPath, 'utf8'));
+        try {
+            const gcliRouterModule = require(path.join(modulesDir, 'gemini-cli-api', 'router.js'));
             const prefix = channelModelPrefix['gemini-cli'] || '';
-            Object.keys(gcliMatrix).forEach(id => {
-                if(gcliMatrix[id].base) addModels([id], prefix, 'google');
-                if(gcliMatrix[id].search) addModels([id + '-search'], prefix, 'google');
-                if(gcliMatrix[id].maxThinking) addModels([id + '-max-thinking'], prefix, 'google');
-                if(gcliMatrix[id].noThinking) addModels([id + '-no-thinking'], prefix, 'google');
-                if(gcliMatrix[id].fakeStream) addModels([id + '-fs'], prefix, 'google');
-                if(gcliMatrix[id].antiTrunc) addModels([id + '-anti-trunc'], prefix, 'google');
-            });
+            if (typeof gcliRouterModule.getAvailableModels === 'function') {
+                const gcliModels = gcliRouterModule.getAvailableModels(prefix);
+                gcliModels.forEach(m => {
+                    allModelsMap.set(m.id, { id: m.id, object: 'model', created: now, owned_by: 'google' });
+                });
+            } else {
+                // Fallback: manual matrix parsing with correct naming
+                const gcliMatrixPath = path.join(modulesDir, 'gemini-cli-api', 'gemini-matrix.json');
+                if (fs.existsSync(gcliMatrixPath)) {
+                    const gcliMatrix = JSON.parse(fs.readFileSync(gcliMatrixPath, 'utf8'));
+                    Object.keys(gcliMatrix).forEach(id => {
+                        if(gcliMatrix[id].base) addModels([id], prefix, 'google');
+                        if(gcliMatrix[id].search) addModels([id + '-search'], prefix, 'google');
+                        if(gcliMatrix[id].maxThinking) addModels([id + '-maxthinking'], prefix, 'google');
+                        if(gcliMatrix[id].noThinking) addModels([id + '-nothinking'], prefix, 'google');
+                        if(gcliMatrix[id].fakeStream) addModels(['假流/' + id], prefix, 'google');
+                        if(gcliMatrix[id].antiTrunc) addModels(['流抗/' + id], prefix, 'google');
+                    });
+                }
+            }
+        } catch(e) {
+            console.error('Failed to load GCLI models for v1 aggregation:', e.message);
         }
     }
 

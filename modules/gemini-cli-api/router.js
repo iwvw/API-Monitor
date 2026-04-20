@@ -4,6 +4,7 @@ const axios = require('axios');
 const storage = require('./storage');
 const client = require('./gemini-client');
 const StreamProcessor = require('./utils/stream-processor');
+const thinking = require('./utils/thinking');
 const { requireAuth } = require('../../src/middleware/auth');
 const { createLogger } = require('../../src/utils/logger');
 const logger = createLogger('GCLI');
@@ -1575,10 +1576,16 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
     const modelWithPrefix = prefix + model;
 
     // 验证模型是否有效（即在矩阵配置中存在且未被禁用）
+    // For bracket suffix models like "gemini-2.5-pro(8192)", validate against the base model
     const availableModels = getAvailableModels(prefix);
-    if (!availableModels.find(m => m.id === modelWithPrefix)) {
+    const suffixResult = thinking.parseSuffix(model);
+    const modelForValidation = suffixResult.hasSuffix && !suffixResult.legacySuffix
+      ? prefix + suffixResult.modelName  // Bracket suffix: validate base model
+      : modelWithPrefix;                 // Legacy or no suffix: validate as-is
+
+    if (!availableModels.find(m => m.id === modelForValidation) && !availableModels.find(m => m.id === modelWithPrefix)) {
       const disabledModels = storage.getDisabledModels();
-      if (disabledModels.includes(modelWithPrefix)) {
+      if (disabledModels.includes(modelWithPrefix) || disabledModels.includes(modelForValidation)) {
         return res
           .status(403)
           .json({
@@ -1734,8 +1741,24 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
           const response = await client.generateContent(req.body, account.id);
           const geminiData = response.data;
 
-          const candidate = geminiData.response?.candidates?.[0] || geminiData.candidates?.[0];
-          const parts = candidate?.content?.parts || [];
+          const responseObj = geminiData.response || geminiData;
+          const candidate = responseObj.candidates?.[0];
+
+          // 检测安全过滤: candidates 为空/缺失，或 finishReason 为 SAFETY/RECITATION
+          if (!candidate || !candidate.content) {
+            const blockReason = responseObj.promptFeedback?.blockReason ||
+                                candidate?.finishReason || 'EMPTY_RESPONSE';
+            const safetyError = new Error(`Response blocked: ${blockReason}`);
+            safetyError.response = { status: 400, data: responseObj };
+            throw safetyError;
+          }
+          if (candidate.finishReason === 'SAFETY' || candidate.finishReason === 'RECITATION') {
+            const safetyError = new Error(`Response blocked by ${candidate.finishReason}`);
+            safetyError.response = { status: 400, data: responseObj };
+            throw safetyError;
+          }
+
+          const parts = candidate.content?.parts || [];
 
           let text = '';
           let reasoning = '';
@@ -1846,28 +1869,71 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
         );
         lastError = error;
 
-        // 处理 429 错误并提取重置时间
+        // Handle 429 errors: extract precise retry delay (aligned with CLIProxyAPI)
         if (error.response?.status === 429) {
           const errorData = error.response.data;
-          // 支持多种 Google 错误格式中的重置时间字段
-          const resetTimeStr =
-            errorData?.quotaInfo?.resetTime ||
-            errorData?.error?.details?.[0]?.metadata?.quotaResetTimeStamp ||
-            errorData?.error?.details?.[0]?.metadata?.resetTime;
-
           const key = `${account.id}:${model}`;
-          if (resetTimeStr) {
-            const resetTime = new Date(resetTimeStr).getTime();
-            if (!isNaN(resetTime)) {
-              console.log(
-                `[GCLI] Account ${account.name} model ${model} rate limited until ${resetTimeStr}. Adding to cool-down.`
-              );
-              accountCoolDowns.set(key, resetTime);
+          let coolDownMs = null;
+
+          // Method 1: Parse retryDelay from error.details (e.g. "0.847655010s")
+          const details = errorData?.error?.details;
+          if (Array.isArray(details)) {
+            for (const detail of details) {
+              if (detail['@type'] === 'type.googleapis.com/google.rpc.RetryInfo' && detail.retryDelay) {
+                const match = detail.retryDelay.match(/^([\d.]+)s$/);
+                if (match) {
+                  coolDownMs = Math.ceil(parseFloat(match[1]) * 1000);
+                  break;
+                }
+              }
             }
-          } else {
-            // 如果没找到明确重置时间，默认避让 1 分钟
-            accountCoolDowns.set(key, Date.now() + 60000);
+            // Fallback: quotaResetDelay from ErrorInfo (e.g. "373.801628ms")
+            if (!coolDownMs) {
+              for (const detail of details) {
+                if (detail['@type'] === 'type.googleapis.com/google.rpc.ErrorInfo') {
+                  const qrd = detail.metadata?.quotaResetDelay;
+                  if (qrd) {
+                    const msMatch = qrd.match(/^([\d.]+)ms$/);
+                    const sMatch = qrd.match(/^([\d.]+)s$/);
+                    if (msMatch) coolDownMs = Math.ceil(parseFloat(msMatch[1]));
+                    else if (sMatch) coolDownMs = Math.ceil(parseFloat(sMatch[1]) * 1000);
+                    if (coolDownMs) break;
+                  }
+                }
+              }
+            }
           }
+
+          // Method 2: Parse from error.message "Your quota will reset after Xs."
+          if (!coolDownMs) {
+            const msg = errorData?.error?.message || '';
+            const afterMatch = msg.match(/after\s+(\d+)s\.?/);
+            if (afterMatch) {
+              coolDownMs = parseInt(afterMatch[1]) * 1000;
+            }
+          }
+
+          // Method 3: Absolute reset timestamp (original logic)
+          if (!coolDownMs) {
+            const resetTimeStr =
+              errorData?.quotaInfo?.resetTime ||
+              errorData?.error?.details?.[0]?.metadata?.quotaResetTimeStamp ||
+              errorData?.error?.details?.[0]?.metadata?.resetTime;
+            if (resetTimeStr) {
+              const resetTime = new Date(resetTimeStr).getTime();
+              if (!isNaN(resetTime) && resetTime > Date.now()) {
+                coolDownMs = resetTime - Date.now();
+              }
+            }
+          }
+
+          // Default: short cool-down (5s instead of 60s, Google resets are usually fast)
+          if (!coolDownMs || coolDownMs <= 0) coolDownMs = 5000;
+
+          console.log(
+            `[GCLI] Account ${account.name} model ${model} rate limited, cool-down ${Math.round(coolDownMs / 1000)}s`
+          );
+          accountCoolDowns.set(key, Date.now() + coolDownMs);
         }
 
         // 记录错误日志
@@ -1916,3 +1982,4 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
 });
 
 module.exports = router;
+module.exports.getAvailableModels = getAvailableModels;

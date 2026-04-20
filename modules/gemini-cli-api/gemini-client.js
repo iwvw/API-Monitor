@@ -4,7 +4,9 @@ const { createLogger } = require('../../src/utils/logger');
 const logger = createLogger('GCLI-Client');
 const AntigravityRequester = require('../antigravity-api/antigravity-requester');
 const path = require('path');
+const os = require('os');
 const { PassThrough } = require('stream');
+const thinking = require('./utils/thinking');
 let storage;
 try {
   storage = require('./storage');
@@ -15,9 +17,10 @@ try {
 
 class GeminiCliClient {
   constructor() {
-    this.userAgent = 'GeminiCLI/0.1.5 (Windows; AMD64)';
-    // 使用 daily 环境端点 (与 Antigravity 保持一致)
-    this.v1internalEndpoint = 'https://daily-cloudcode-pa.googleapis.com/v1internal';
+    this.cliVersion = '0.31.0';
+    this.xGoogApiClient = 'google-genai-sdk/1.41.0 gl-node/v22.19.0';
+    // Canonical endpoint (aligned with CLIProxyAPI: cloudcode-pa only, no daily/sandbox)
+    this.codeAssistEndpoint = 'https://cloudcode-pa.googleapis.com/v1internal';
 
     // 初始化 Requester (借用 Antigravity 的二进制)
     this.requester = new AntigravityRequester({
@@ -42,7 +45,7 @@ class GeminiCliClient {
    * 将 OpenAI 请求转换为 Gemini 原生负载
    */
   async convertOpenAIToGemini(openaiRequest) {
-    const { messages, model, stream, temperature, top_p, max_tokens, stop } = openaiRequest;
+    const { messages, model, stream, temperature, top_p, max_tokens, stop, reasoning_effort } = openaiRequest;
 
     const settings = storage ? await storage.getSettings() : {};
 
@@ -50,7 +53,7 @@ class GeminiCliClient {
     const systemParts = []; // 收集所有 system 消息
 
     messages.forEach(msg => {
-      if (msg.role === 'system') {
+      if (msg.role === 'system' || msg.role === 'developer') {
         // 收集所有 system 消息内容
         const textContent = this._extractTextContent(msg.content);
         if (textContent.trim()) {
@@ -102,7 +105,7 @@ class GeminiCliClient {
       generationConfig.maxOutputTokens = Math.min(parseInt(settings.DEFAULT_MAX_TOKENS), 65536);
     }
 
-    const thinkingConfig = this._getThinkingConfig(model);
+    const thinkingConfig = this._getThinkingConfig(model, reasoning_effort);
     if (thinkingConfig) {
       generationConfig.thinkingConfig = thinkingConfig;
 
@@ -126,10 +129,10 @@ class GeminiCliClient {
     }
 
     payload.safetySettings = [
-      { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
-      { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_NONE' },
-      { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_NONE' },
-      { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_NONE' },
+      { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'OFF' },
+      { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'OFF' },
+      { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'OFF' },
+      { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'OFF' },
       { category: 'HARM_CATEGORY_CIVIC_INTEGRITY', threshold: 'BLOCK_NONE' },
     ];
 
@@ -265,51 +268,24 @@ class GeminiCliClient {
   }
 
   /**
-   * 根据模型名获取 thinking 配置
-   * 参考 CLIProxyAPI registry: lite 模型支持 thinking 但默认不注入
-   * (CLIProxyAPI 策略: 用户没请求就 passthrough，不强制注入)
+   * Get thinking configuration using the unified thinking module.
+   * Supports both legacy suffixes (-maxthinking/-nothinking) and
+   * new bracket suffix format: model(value) with model capability awareness.
+   *
+   * Aligned with CLIProxyAPI's thinking pipeline:
+   *   ParseSuffix → extractConfig → validate → apply
+   *
+   * @param {string} model - Model name (may include suffixes)
+   * @param {string} [reasoningEffort] - OpenAI reasoning_effort parameter
    */
-  _getThinkingConfig(model) {
-    // 1. 显式指定 nothinking：彻底禁用，不返回任何配置对象
-    if (model.includes('-nothinking')) {
-      return null;
-    }
-
-    // 2. 显式指定 maxthinking：根据版本设置最高预算/等级
-    if (model.includes('-maxthinking')) {
-      if (model.includes('gemini-3')) {
-        return { thinkingLevel: 'HIGH', includeThoughts: true };
-      }
-      if (model.includes('flash')) {
-        return { thinkingBudget: 24576, includeThoughts: true };
-      }
-      return { thinkingBudget: 65536, includeThoughts: true };
-    }
-
-    // 3. lite 系列模型：支持 thinking 但默认不注入
-    //    用户可通过 -maxthinking 后缀显式启用（步骤 2 已处理）
-    //    参考 CLIProxyAPI: levels=[minimal,low,medium,high], 但不主动注入
-    if (model.includes('-lite')) {
-      return null;
-    }
-
-    // 4. 默认配置处理
-    // Gemini 3 系列默认使用 thinkingLevel
-    if (model.includes('gemini-3')) {
-      return { thinkingLevel: 'HIGH', includeThoughts: true };
-    }
-    // Gemini 2.5 系列默认开启思考，使用官方默认 budget
-    if (model.includes('gemini-2.5')) {
-      return { thinkingBudget: 8192, includeThoughts: true };
-    }
-
-    // 其他模型 (如 2.0/1.5) 不需要默认 thinkingConfig
-    return null;
+  _getThinkingConfig(model, reasoningEffort) {
+    const result = thinking.applyThinking(model, reasoningEffort);
+    return result.thinkingConfig;
   }
 
   /**
-   * 获取基础模型名 (移除前缀和后缀)
-   * 参考 CatieCli 的 _map_model_name 方法
+   * 获取基础模型名 (移除前缀、后缀、括号后缀)
+   * Supports both legacy (-maxthinking/-nothinking) and bracket model(value) formats.
    */
   _getBaseModelName(model) {
     // 移除前缀
@@ -321,15 +297,23 @@ class GeminiCliClient {
       }
     }
 
-    // 移除后缀 (按长度从长到短排序以避免匹配问题)
-    const suffixes = [
-      '-maxthinking-search',
-      '-nothinking-search',
+    // 移除 -search 后缀 (先处理，因为可能叠加在 thinking 后缀上)
+    if (model.endsWith('-search')) {
+      model = model.substring(0, model.length - '-search'.length);
+    }
+
+    // 1. Try bracket suffix: model(value)
+    const suffixResult = thinking.parseSuffix(model);
+    if (suffixResult.hasSuffix) {
+      return suffixResult.modelName;
+    }
+
+    // 2. Legacy suffixes (backward compatibility)
+    const legacySuffixes = [
       '-maxthinking',
       '-nothinking',
-      '-search',
     ];
-    for (const suffix of suffixes) {
+    for (const suffix of legacySuffixes) {
       if (model.endsWith(suffix)) {
         model = model.substring(0, model.length - suffix.length);
         break;
@@ -337,6 +321,48 @@ class GeminiCliClient {
     }
 
     return model;
+  }
+
+  /**
+   * Build User-Agent string matching Gemini CLI format.
+   * Uses runtime platform/arch detection (aligned with CLIProxyAPI).
+   * @param {string} model - Model name to include in UA
+   * @returns {string} User-Agent string
+   */
+  _buildUserAgent(model) {
+    const platform = process.platform === 'win32' ? 'win32' : process.platform;
+    const arch = process.arch === 'x64' ? 'x64' : process.arch === 'ia32' ? 'x86' : process.arch;
+    return `GeminiCLI/${this.cliVersion}/${model || 'unknown'} (${platform}; ${arch})`;
+  }
+
+  /**
+   * Scrub proxy/fingerprint headers from outgoing requests.
+   * Prevents upstream from identifying non-native client characteristics.
+   * Aligned with CLIProxyAPI's ScrubProxyAndFingerprintHeaders.
+   * @param {object} headers - Headers object to clean
+   * @returns {object} Cleaned headers
+   */
+  _scrubHeaders(headers) {
+    const scrubKeys = [
+      // Proxy tracing headers
+      'x-forwarded-for', 'x-forwarded-host', 'x-forwarded-proto',
+      'x-forwarded-port', 'x-real-ip', 'forwarded', 'via',
+      // Client identity headers
+      'x-title', 'x-stainless-lang', 'x-stainless-package-version',
+      'x-stainless-os', 'x-stainless-arch', 'x-stainless-runtime',
+      'x-stainless-runtime-version', 'http-referer', 'referer',
+      // Browser fingerprint headers
+      'sec-ch-ua', 'sec-ch-ua-mobile', 'sec-ch-ua-platform',
+      'sec-fetch-mode', 'sec-fetch-site', 'sec-fetch-dest', 'priority',
+      // Encoding negotiation
+      'accept-encoding',
+    ];
+    for (const key of scrubKeys) {
+      delete headers[key];
+      // Also try exact case variants commonly seen
+      delete headers[key.split('-').map(s => s.charAt(0).toUpperCase() + s.slice(1)).join('-')];
+    }
+    return headers;
   }
 
   /**
@@ -483,8 +509,7 @@ class GeminiCliClient {
     try {
       logger.info('Fetching cloudaicompanionProject from loadCodeAssist...');
 
-      const antigravityEndpoint = 'https://daily-cloudcode-pa.googleapis.com/v1internal';
-      const loadCodeAssistUrl = `${antigravityEndpoint}:loadCodeAssist`;
+      const loadCodeAssistUrl = `${this.codeAssistEndpoint}:loadCodeAssist`;
 
       const resp = await axios.post(
         loadCodeAssistUrl,
@@ -535,18 +560,15 @@ class GeminiCliClient {
     // 获取 GCP 项目 ID (参考 CatieCli)
     const projectId = await this.fetchGcpProjectId(accountId);
 
-    const endpoints = [
-      'https://cloudcode-pa.googleapis.com/v1internal',
-      'https://daily-cloudcode-pa.googleapis.com/v1internal',
-      'https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal',
-    ];
+    // Single canonical endpoint (aligned with CLIProxyAPI)
+    const endpoint = this.codeAssistEndpoint;
 
     let lastError = null;
     const settings = storage ? await storage.getSettings() : {};
     const proxy = settings.PROXY || null;
 
-    for (let i = 0; i < endpoints.length; i++) {
-      const endpoint = endpoints[i];
+    // Single-endpoint loop (simplified from multi-endpoint rotation)
+    for (let i = 0; i < 1; i++) {
 
       // 获取基础模型名（移除前缀和后缀）
       const baseModel = this._getBaseModelName(openaiRequest.model);
@@ -571,20 +593,13 @@ class GeminiCliClient {
         requestType: baseModel.toLowerCase().includes('image') ? 'image_gen' : 'agent'
       };
 
-      const headers = {
+      const headers = this._scrubHeaders({
         Authorization: `Bearer ${accessToken}`,
         'Content-Type': 'application/json',
-        'User-Agent': this.userAgent,
-        'Host': new URL(endpoint).host, // Explicitly set Host header
-      };
-
-      if (requestBody.model) {
-        if (requestBody.model.toLowerCase().includes('image')) {
-          headers['requestType'] = 'image_gen';
-        } else {
-          headers['requestType'] = 'agent';
-        }
-      }
+        'User-Agent': this._buildUserAgent(baseModel),
+        'X-Goog-Api-Client': this.xGoogApiClient,
+        'Accept': shouldUseStreamEndpoint ? 'text/event-stream' : 'application/json',
+      });
 
 
       const reqOptions = {
@@ -731,7 +746,18 @@ class GeminiCliClient {
                   try {
                     const data = JSON.parse(line.trim().substring(6));
                     const realData = data.response || data;
+                    // Detect safety filter blocks in SSE
+                    if (realData.promptFeedback?.blockReason) {
+                      const err = new Error(`Blocked by safety: ${realData.promptFeedback.blockReason}`);
+                      err.response = { status: 400, data: realData };
+                      throw err;
+                    }
                     const candidate = realData.candidates?.[0];
+                    if (candidate?.finishReason === 'SAFETY' || candidate?.finishReason === 'RECITATION') {
+                      const err = new Error(`Response blocked by ${candidate.finishReason}`);
+                      err.response = { status: 400, data: realData };
+                      throw err;
+                    }
                     const chunkParts = candidate?.content?.parts || [];
                     for (const p of chunkParts) {
                       parts.push(p);
@@ -743,6 +769,10 @@ class GeminiCliClient {
                       usageMetadata = realData.usageMetadata;
                     }
                   } catch (e) {
+                    // Re-throw safety errors, only suppress JSON parse failures
+                    if (e.message?.includes('Blocked by safety') || e.message?.includes('Response blocked')) {
+                      throw e;
+                    }
                     logger.error(`[Gemini-Client] JSON parse error in SSE: ${e.message}`);
                   }
                 }
@@ -808,12 +838,7 @@ class GeminiCliClient {
       }
 
       // Endpoint failed
-      const status = endpointError?.response?.status;
       lastError = endpointError;
-      if (i < endpoints.length - 1) {
-        logger.warn(`Endpoint ${endpoint} failed with ${status}, trying next...`);
-        continue;
-      }
       throw endpointError;
     }
     throw lastError;
@@ -931,7 +956,7 @@ class GeminiCliClient {
       const accessToken = await this.getAccessToken(account.id);
 
       // 调用 Google 内部 API 获取模型列表
-      const modelsUrl = `${this.v1internalEndpoint}:fetchAvailableModels`;
+      const modelsUrl = `${this.codeAssistEndpoint}:fetchAvailableModels`;
       logger.info(`Fetching model list from ${modelsUrl}...`);
 
       const settings = storage ? await storage.getSettings() : {};

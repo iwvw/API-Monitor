@@ -24,7 +24,13 @@ class StreamProcessor {
       }
 
       const candidate = data.candidates?.[0];
-      if (!candidate) return {}; // 返回空对象而不是 null，表示 JSON 合法但无内容
+      if (!candidate) {
+        // Check for safety filter
+        if (data.promptFeedback?.blockReason) {
+          return { text: '', reasoning: '', finishReason: 'SAFETY', blocked: data.promptFeedback.blockReason };
+        }
+        return {}; // Return empty object, JSON is valid but no content
+      }
 
       const parts = candidate.content?.parts || [];
       let text = '';
@@ -103,6 +109,11 @@ class StreamProcessor {
           for (const line of lines) {
             const parsed = this.parseGeminiChunk(line.trim());
             if (!parsed) continue;
+
+            // Detect safety filter blocks and throw to trigger account retry
+            if (parsed.blocked) {
+              throw new Error(`Response blocked by safety filter: ${parsed.blocked}`);
+            }
 
             let { text = '', reasoning = '', usage = null } = parsed;
 
