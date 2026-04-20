@@ -128,9 +128,9 @@ class GeminiCliClient {
       payload.systemInstruction = systemInstruction;
     }
 
-        // 处理 tools (参考 CLIProxyAPI 的自动挂载逻辑)
+    // 处理 tools (参考 CLIProxyAPI 的自动挂载逻辑)
     const geminiTools = [];
-    
+
     // A. 自动挂载：如果模型 ID 包含 -search，强制开启谷歌搜索
     if (model.includes('-search')) {
       geminiTools.push({ googleSearch: {} });
@@ -164,7 +164,6 @@ class GeminiCliClient {
 
     if (geminiTools.length > 0) {
       payload.tools = geminiTools;
-    }
     }
 
     payload.safetySettings = [
@@ -201,20 +200,20 @@ class GeminiCliClient {
   async _convertMessageToParts(msg) {
     // 1. 处理 Tool 响应
     if (msg.role === 'tool') {
-       let parsedContent = {};
-       try { parsedContent = typeof msg.content === 'string' ? JSON.parse(msg.content) : msg.content; } 
-       catch (e) { parsedContent = { value: msg.content }; }
-       return [{
-         functionResponse: {
-           name: msg.tool_call_id || msg.name || 'unknown_function',
-           response: { result: parsedContent }
-         }
-       }];
+      let parsedContent = {};
+      try { parsedContent = typeof msg.content === 'string' ? JSON.parse(msg.content) : msg.content; }
+      catch (e) { parsedContent = { value: msg.content }; }
+      return [{
+        functionResponse: {
+          name: msg.tool_call_id || msg.name || 'unknown_function',
+          response: { result: parsedContent }
+        }
+      }];
     }
 
     const parts = [];
     const content = msg.content;
-    
+
     // 2. 转换内容文本或数组
     if (content) {
       if (typeof content === 'string') {
@@ -247,8 +246,8 @@ class GeminiCliClient {
       for (const tc of msg.tool_calls) {
         if (tc.type === 'function' && tc.function) {
           let args = {};
-          try { args = typeof tc.function.arguments === 'string' ? JSON.parse(tc.function.arguments) : tc.function.arguments; } 
-          catch(e) {}
+          try { args = typeof tc.function.arguments === 'string' ? JSON.parse(tc.function.arguments) : tc.function.arguments; }
+          catch (e) { }
           parts.push({
             functionCall: {
               name: tc.function.name,
@@ -259,7 +258,7 @@ class GeminiCliClient {
         }
       }
     }
-    
+
     return parts.length > 0 ? parts : [{ text: '' }];
   }
 
@@ -311,16 +310,16 @@ class GeminiCliClient {
       try {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 15000);
-        
+
         const response = await fetch(imageUrl, { signal: controller.signal });
         clearTimeout(timeoutId);
-        
+
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
-        
+
         const arrayBuffer = await response.arrayBuffer();
         const mimeType = response.headers.get('content-type') || 'image/jpeg';
         const base64Data = Buffer.from(arrayBuffer).toString('base64');
-        
+
         return {
           inlineData: {
             mimeType: mimeType,
@@ -334,7 +333,7 @@ class GeminiCliClient {
     }
 
     return null;
-  }  }
+  }
 
   /**
    * Get thinking configuration using the unified thinking module.
