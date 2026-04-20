@@ -45,14 +45,14 @@ class GeminiCliClient {
    * 将 OpenAI 请求转换为 Gemini 原生负载
    */
   async convertOpenAIToGemini(openaiRequest) {
-    const { messages, model, stream, temperature, top_p, max_tokens, stop, reasoning_effort } = openaiRequest;
+    const { messages, model, stream, temperature, top_p, max_tokens, stop, reasoning_effort, tools } = openaiRequest;
 
     const settings = storage ? await storage.getSettings() : {};
 
     const contents = [];
     const systemParts = []; // 收集所有 system 消息
 
-    messages.forEach(msg => {
+    for (const msg of messages) {
       if (msg.role === 'system' || msg.role === 'developer') {
         // 收集所有 system 消息内容
         const textContent = this._extractTextContent(msg.content);
@@ -60,8 +60,8 @@ class GeminiCliClient {
           systemParts.push(textContent);
         }
       } else {
-        const role = msg.role === 'assistant' ? 'model' : 'user';
-        const parts = this._convertContentToParts(msg.content);
+        const role = (msg.role === 'assistant' || msg.role === 'model') ? 'model' : 'user';
+        const parts = await this._convertMessageToParts(msg);
 
         // Gemini API 要求消息角色严格交替（user ↔ model）
         // 如果上一条消息角色相同，则合并 parts 而不是新增消息
@@ -76,7 +76,7 @@ class GeminiCliClient {
           });
         }
       }
-    });
+    }
 
     // 注入实时时间锚点，防止模型在 search 模式下产生时间幻觉
     const now = new Date();
@@ -117,7 +117,7 @@ class GeminiCliClient {
       }
     }
 
-    // 构建请求体（参考 CatieCli，只添加有值的字段）
+    // 构建请求体
     const payload = { contents };
 
     if (Object.keys(generationConfig).length > 0) {
@@ -126,6 +126,45 @@ class GeminiCliClient {
 
     if (systemInstruction) {
       payload.systemInstruction = systemInstruction;
+    }
+
+        // 处理 tools (参考 CLIProxyAPI 的自动挂载逻辑)
+    const geminiTools = [];
+    
+    // A. 自动挂载：如果模型 ID 包含 -search，强制开启谷歌搜索
+    if (model.includes('-search')) {
+      geminiTools.push({ googleSearch: {} });
+    }
+
+    // B. 手动挂载：解析请求中的 tools
+    if (tools && Array.isArray(tools) && tools.length > 0) {
+      const functionDeclarations = [];
+      for (const t of tools) {
+        if (t.type === 'function' && t.function) {
+          const fn = t.function;
+          const fnDecl = { name: fn.name, description: fn.description || '' };
+          if (fn.parameters) {
+            fnDecl.parametersJsonSchema = fn.parameters;
+            if (!fnDecl.parametersJsonSchema.type) fnDecl.parametersJsonSchema.type = 'object';
+          } else {
+            fnDecl.parametersJsonSchema = { type: 'object', properties: {} };
+          }
+          functionDeclarations.push(fnDecl);
+        }
+        // 防止重复挂载 googleSearch
+        if (t.google_search && !model.includes('-search')) {
+          geminiTools.push({ googleSearch: t.google_search });
+        }
+        if (t.code_execution) geminiTools.push({ codeExecution: t.code_execution });
+      }
+      if (functionDeclarations.length > 0) {
+        geminiTools.push({ functionDeclarations });
+      }
+    }
+
+    if (geminiTools.length > 0) {
+      payload.tools = geminiTools;
+    }
     }
 
     payload.safetySettings = [
@@ -141,8 +180,6 @@ class GeminiCliClient {
 
   /**
    * 提取内容中的文本部分
-   * @param {string|Array} content - OpenAI 消息内容
-   * @returns {string} 文本内容
    */
   _extractTextContent(content) {
     if (typeof content === 'string') {
@@ -158,47 +195,85 @@ class GeminiCliClient {
   }
 
   /**
-   * 将 OpenAI 格式的 content 转换为 Gemini parts
-   * 支持多模态输入（文本 + 图像）
-   * @param {string|Array} content - OpenAI 消息内容
-   * @returns {Array} Gemini parts 数组
+   * 将 OpenAI 格式的 msg 转换为 Gemini parts
+   * 支持多模态输入、Tool Calls、Tool Responses 及思考内容处理
    */
-  _convertContentToParts(content) {
-    // 简单字符串
-    if (typeof content === 'string') {
-      return [{ text: content }];
+  async _convertMessageToParts(msg) {
+    // 1. 处理 Tool 响应
+    if (msg.role === 'tool') {
+       let parsedContent = {};
+       try { parsedContent = typeof msg.content === 'string' ? JSON.parse(msg.content) : msg.content; } 
+       catch (e) { parsedContent = { value: msg.content }; }
+       return [{
+         functionResponse: {
+           name: msg.tool_call_id || msg.name || 'unknown_function',
+           response: { result: parsedContent }
+         }
+       }];
     }
 
-    // 数组格式 (多模态)
-    if (Array.isArray(content)) {
-      const parts = [];
-      for (const item of content) {
-        if (item.type === 'text') {
-          parts.push({ text: item.text || '' });
-        } else if (item.type === 'image_url') {
-          const imageUrl = item.image_url?.url || '';
-          const imagePart = this._parseImageUrl(imageUrl);
-          if (imagePart) {
-            parts.push(imagePart);
+    const parts = [];
+    const content = msg.content;
+    
+    // 2. 转换内容文本或数组
+    if (content) {
+      if (typeof content === 'string') {
+        parts.push({ text: content });
+      } else if (Array.isArray(content)) {
+        for (const item of content) {
+          if (item.type === 'text') {
+            parts.push({ text: item.text || '' });
+          } else if (item.type === 'image_url') {
+            const imageUrl = item.image_url?.url || '';
+            const imagePart = await this._parseImageUrl(imageUrl);
+            if (imagePart) parts.push(imagePart);
           }
         }
       }
-      return parts.length > 0 ? parts : [{ text: '' }];
     }
 
-    // 其他类型，转为字符串
-    return [{ text: String(content || '') }];
+    // 3. 处理历史思考内容 (拍扁转化为普通文本，防报错)
+    if (msg.reasoning_content) {
+      const thoughtText = `[Thought: ${msg.reasoning_content}]\n`;
+      if (parts.length > 0 && parts[0].text !== undefined) {
+        parts[0].text = thoughtText + parts[0].text;
+      } else {
+        parts.unshift({ text: thoughtText });
+      }
+    }
+
+    // 4. 处理 Assistant 产生的 Tool Calls
+    if (msg.role === 'assistant' && msg.tool_calls) {
+      for (const tc of msg.tool_calls) {
+        if (tc.type === 'function' && tc.function) {
+          let args = {};
+          try { args = typeof tc.function.arguments === 'string' ? JSON.parse(tc.function.arguments) : tc.function.arguments; } 
+          catch(e) {}
+          parts.push({
+            functionCall: {
+              name: tc.function.name,
+              args: args
+            },
+            thoughtSignature: "skip_thought_signature_validator"
+          });
+        }
+      }
+    }
+    
+    return parts.length > 0 ? parts : [{ text: '' }];
   }
 
   /**
    * 解析图像 URL 并转换为 Gemini inlineData 格式
-   * @param {string} imageUrl - 图像 URL (base64 data URI 或 HTTP URL)
-   * @returns {Object|null} Gemini inlineData part
    */
-  _parseImageUrl(imageUrl) {
+  /**
+   * 解析图像 URL 并转换为 Gemini inlineData 格式
+   * 已升级：支持网络图片自动下载，且使用原生 fetch 避免依赖报错
+   */
+  async _parseImageUrl(imageUrl) {
     if (!imageUrl) return null;
 
-    // 处理 Base64 Data URI: data:image/jpeg;base64,/9j/4AAQ...
+    // 处理 Base64 Data URI
     const base64Match = imageUrl.match(/^data:image\/(\w+);base64,(.+)$/);
     if (base64Match) {
       return {
@@ -209,23 +284,11 @@ class GeminiCliClient {
       };
     }
 
-    // 处理其他 MIME 类型 (如 data:application/octet-stream)
-    const genericBase64Match = imageUrl.match(/^data:([^;]+);base64,(.+)$/);
-    if (genericBase64Match) {
-      return {
-        inlineData: {
-          mimeType: genericBase64Match[1],
-          data: genericBase64Match[2],
-        },
-      };
-    }
-
     // 处理本地文件路径 (/uploads/...)
     if (imageUrl.startsWith('/uploads/')) {
       try {
         const fs = require('fs');
         const path = require('path');
-        // 构造文件路径: process.cwd() + /data + /uploads/...
         const relativePath = imageUrl.startsWith('/') ? imageUrl.slice(1) : imageUrl;
         const filePath = path.join(process.cwd(), 'data', relativePath);
 
@@ -233,39 +296,45 @@ class GeminiCliClient {
           const fileBuffer = fs.readFileSync(filePath);
           const base64Data = fileBuffer.toString('base64');
           const ext = path.extname(filePath).toLowerCase();
-
           let mimeType = 'image/jpeg';
           if (ext === '.png') mimeType = 'image/png';
           else if (ext === '.webp') mimeType = 'image/webp';
-          else if (ext === '.gif') mimeType = 'image/gif';
-
-          logger.info(`[Gemini-Client] Loaded local image: ${filePath} (${Math.round(fileBuffer.length / 1024)}KB)`);
-
-          return {
-            inlineData: {
-              mimeType: mimeType,
-              data: base64Data
-            }
-          };
-        } else {
-          logger.warn(`[Gemini-Client] Image file not found: ${filePath}`);
-          return null;
+          return { inlineData: { mimeType, data: base64Data } };
         }
       } catch (e) {
-        logger.error(`[Gemini-Client] Failed to process local image: ${e.message}`);
+        logger.error(`[Gemini-Client] Local image error: ${e.message}`);
+      }
+    }
+
+    // 处理 HTTP/HTTPS URL (核心优化：参考 CLIProxyAPI 的自动转码)
+    if (imageUrl.startsWith('http')) {
+      try {
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000);
+        
+        const response = await fetch(imageUrl, { signal: controller.signal });
+        clearTimeout(timeoutId);
+        
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        
+        const arrayBuffer = await response.arrayBuffer();
+        const mimeType = response.headers.get('content-type') || 'image/jpeg';
+        const base64Data = Buffer.from(arrayBuffer).toString('base64');
+        
+        return {
+          inlineData: {
+            mimeType: mimeType,
+            data: base64Data
+          }
+        };
+      } catch (e) {
+        logger.warn(`Failed to download image: ${imageUrl.substring(0, 60)} - ${e.message}`);
         return null;
       }
     }
 
-    // HTTP/HTTPS URL 暂不支持（需要下载图片）
-    if (imageUrl.startsWith('http://') || imageUrl.startsWith('https://')) {
-      logger.warn(`HTTP image URLs not yet supported, skipping: ${imageUrl.substring(0, 80)}`);
-      return null;
-    }
-
-    logger.warn(`Unsupported image URL format: ${imageUrl.substring(0, 50)}`);
     return null;
-  }
+  }  }
 
   /**
    * Get thinking configuration using the unified thinking module.
@@ -588,9 +657,7 @@ class GeminiCliClient {
       const requestBody = {
         model: apiModel,
         project: projectId || '', // 使用获取到的项目 ID
-        request: geminiPayload,
-        userAgent: 'antigravity',
-        requestType: baseModel.toLowerCase().includes('image') ? 'image_gen' : 'agent'
+        request: geminiPayload
       };
 
       const headers = this._scrubHeaders({

@@ -240,8 +240,8 @@ const dispatch = async (req, res, next) => {
     // C. 探测 Gemini CLI 归属
     if (channelEnabled['gemini-cli'] && gcliRouter) {
         const gcliModels = getGcliModelIds();
-        // 如果命中 GCLI 矩阵模型，或者以 gemini- 开头
-        if (gcliModels.some(m => fullId.startsWith(m)) || fullId.startsWith('gemini-')) {
+        // 仅当命中 GCLI 矩阵模型（支持前缀匹配以兼容变体）时分发
+        if (gcliModels.some(m => fullId === m || fullId.startsWith(m + '-') || fullId.startsWith(m + '(') || fullId.includes('/' + m))) {
             return gcliRouter(req, res, next);
         }
     }

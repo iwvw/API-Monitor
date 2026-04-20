@@ -1,4 +1,8 @@
-const { Readable } = require('stream');
+const fs = require('fs');
+const file = 'E:/Code/api-monitor/modules/gemini-cli-api/utils/stream-processor.js';
+let code = fs.readFileSync(file, 'utf8');
+
+const newCode = `const { Readable } = require('stream');
 const { createLogger } = require('../../../src/utils/logger');
 const logger = createLogger('GCLI-Stream');
 
@@ -7,7 +11,7 @@ class StreamProcessor {
     this.client = client;
     this.DONE_MARKER = '[done]';
     this.CONTINUATION_PROMPT =
-      '\n请从刚才被截断的地方继续输出剩余的所有内容。\n重要提醒：直接继续输出即可，不要重复前面内容。最后请以 [done] 结尾。';
+      '\\n请从刚才被截断的地方继续输出剩余的所有内容。\\n重要提醒：直接继续输出即可，不要重复前面内容。最后请以 [done] 结尾。';
   }
 
   /**
@@ -69,7 +73,7 @@ class StreamProcessor {
     let currentAttempt = 0;
     let fullContent = '';
     let foundDone = !isAntiTrunc; // 如果不开启抗截断，默认视为已找到结束标记（即不循环）
-    const responseId = `chatcmpl-${Math.random().toString(36).slice(2)}`;
+    const responseId = \`chatcmpl-\${Math.random().toString(36).slice(2)}\`;
     const startTime = Date.now();
     let firstTokenTime = null;
     let lastUsage = null; // 局部变量，确保线程安全
@@ -81,7 +85,7 @@ class StreamProcessor {
     if (isAntiTrunc) {
       // 仅在抗截断模式下注入指令
       const systemMsg = modifiedRequest.messages.find(m => m.role === 'system');
-      const antiTruncInstr = '\n[系统指令] 请在回答完全结束时，在最后一行输出 [done] 标记。';
+      const antiTruncInstr = '\\n[系统指令] 请在回答完全结束时，在最后一行输出 [done] 标记。';
       if (systemMsg) {
         systemMsg.content += antiTruncInstr;
       } else {
@@ -107,7 +111,7 @@ class StreamProcessor {
         let buffer = '';
         for await (const chunk of stream) {
           buffer += chunk.toString();
-          const lines = buffer.split('\n');
+          const lines = buffer.split('\\n');
           buffer = lines.pop(); // 保留最后一行（可能不完整）
 
           for (const line of lines) {
@@ -118,17 +122,17 @@ class StreamProcessor {
             if (parsed.blocked || parsed.finishReason === 'SAFETY' || parsed.finishReason === 'RECITATION') {
               if (firstTokenTime === null && currentAttempt === 1) {
                 // 还没有输出任何内容，且是第一次尝试，抛出异常让外层换号重试
-                throw new Error(`Response blocked by safety filter: ${parsed.blocked || parsed.finishReason}`);
+                throw new Error(\`Response blocked by safety filter: \${parsed.blocked || parsed.finishReason}\`);
               } else {
                 // 已经开始输出内容了，优雅中断，返回 content_filter
-                yield `data: ${JSON.stringify({
+                yield \`data: \${JSON.stringify({
                   id: responseId,
                   object: 'chat.completion.chunk',
                   created: Math.floor(Date.now() / 1000),
                   model: openaiRequest.model,
                   choices: [{ index: 0, delta: {}, finish_reason: 'content_filter' }],
-                })}\n\n`;
-                yield 'data: [DONE]\n\n';
+                })}\\n\\n\`;
+                yield 'data: [DONE]\\n\\n';
                 return;
               }
             }
@@ -180,7 +184,7 @@ class StreamProcessor {
             // 构造 Tool Calls
             if (toolCalls && toolCalls.length > 0) {
               delta.tool_calls = toolCalls.map((tc, idx) => ({
-                id: `call_${Math.random().toString(36).slice(2)}`,
+                id: \`call_\${Math.random().toString(36).slice(2)}\`,
                 index: idx,
                 type: 'function',
                 function: {
@@ -192,21 +196,21 @@ class StreamProcessor {
             }
 
             if (Object.keys(delta).length > 0) {
-              yield `data: ${JSON.stringify({
+              yield \`data: \${JSON.stringify({
                 id: responseId,
                 object: 'chat.completion.chunk',
                 created: Math.floor(Date.now() / 1000),
                 model: openaiRequest.model,
                 choices: [{ index: 0, delta, finish_reason: null }],
-              })}\n\n`;
+              })}\\n\\n\`;
             }
           }
         }
 
         if (!isAntiTrunc || foundDone) break;
-        logger.warn(`Stream interrupted, attempt ${currentAttempt} failed to find [done].`);
+        logger.warn(\`Stream interrupted, attempt \${currentAttempt} failed to find [done].\`);
       } catch (e) {
-        logger.error(`Stream processing error (Attempt ${currentAttempt}): ${e.message}`);
+        logger.error(\`Stream processing error (Attempt \${currentAttempt}): \${e.message}\`);
         if (currentAttempt === 1) {
           throw e; // 第一次尝试失败，抛出异常让外层（如负载均衡/账号重试）处理
         }
@@ -216,35 +220,35 @@ class StreamProcessor {
 
     // 防御性后处理：Gemini 有时将最终回复混入思考内容 (尤其在短对话时)
     if (!contentStarted && !fullContent && accumulatedReasoning) {
-      const segments = accumulatedReasoning.split('\n\n');
+      const segments = accumulatedReasoning.split('\\n\\n');
       if (segments.length > 1) {
         // 从末尾向前扫描，找到第一个不以 ** 开头的段落（即非思考标题段）
         const extractedLines = [];
         for (let i = segments.length - 1; i >= 0; i--) {
           const seg = segments[i].trim();
-          if (seg.startsWith('**') && seg.includes('**\n')) break; 
+          if (seg.startsWith('**') && seg.includes('**\\n')) break; 
           if (!seg) continue; 
           extractedLines.unshift(seg);
           segments.splice(i, 1);
           if (i > 0 && segments[i - 1]?.trim().startsWith('**')) break;
         }
         if (extractedLines.length > 0) {
-          const extractedContent = extractedLines.join('\n\n');
+          const extractedContent = extractedLines.join('\\n\\n');
           fullContent = extractedContent;
-          logger.info(`[Stream] 从思考内容末尾提取了被混入的最终回复 (${extractedContent.length} chars)`);
-          yield `data: ${JSON.stringify({
+          logger.info(\`[Stream] 从思考内容末尾提取了被混入的最终回复 (\${extractedContent.length} chars)\`);
+          yield \`data: \${JSON.stringify({
             id: responseId,
             object: 'chat.completion.chunk',
             created: Math.floor(Date.now() / 1000),
             model: openaiRequest.model,
             choices: [{ index: 0, delta: { content: extractedContent }, finish_reason: null }],
-          })}\n\n`;
+          })}\\n\\n\`;
         }
       }
     }
 
     // 发送结束标记，并通过扩展字段传递首字输出时间及最终使用度统计
-    yield `data: ${JSON.stringify({
+    yield \`data: \${JSON.stringify({
       id: responseId,
       object: 'chat.completion.chunk',
       created: Math.floor(Date.now() / 1000),
@@ -252,12 +256,15 @@ class StreamProcessor {
       choices: [{ index: 0, delta: {}, finish_reason: 'stop' }],
       _firstTokenTime: firstTokenTime,
       usage: lastUsage || null, // 回传最终统计
-    })}\n\n`;
-    yield 'data: [DONE]\n\n';
+    })}\\n\\n\`;
+    yield 'data: [DONE]\\n\\n';
 
     // 返回 metadata 供外层使用
     this._lastFirstTokenTime = firstTokenTime;
   }
 }
 
-module.exports = StreamProcessor;
+module.exports = StreamProcessor;`;
+
+fs.writeFileSync(file, newCode);
+console.log("stream-processor.js completely replaced.");

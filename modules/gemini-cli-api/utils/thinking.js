@@ -419,9 +419,6 @@ function applyThinking(model, reasoningEffort, matrixConfig) {
     } else {
       config = parseSuffixToConfig(suffixResult.rawSuffix);
     }
-    if (config) {
-      logger.debug(`Thinking config from suffix: mode=${config.mode}, budget=${config.budget}, level=${config.level}`);
-    }
   } else if (reasoningEffort) {
     // Extract from reasoning_effort body parameter
     const effort = String(reasoningEffort).toLowerCase().trim();
@@ -440,6 +437,12 @@ function applyThinking(model, reasoningEffort, matrixConfig) {
         }
       }
     }
+  } else if (support && !model.includes('-nothinking')) {
+    // --- 核心修复：参考 CLIProxyAPI 的智能默认值 ---
+    // 对于 Pro 等支持推理的模型，如果不带后缀也不传参数，默认开启智能推理 (AUTO)
+    // 这能让直接请求基础模型 ID (如 gemini-2.5-pro) 时也吐出思考过程
+    config = { mode: ThinkingMode.AUTO, budget: -1, level: '' };
+    logger.debug(`Applying smart default thinking (AUTO) for base model: ${baseModel}`);
   }
 
   // 6. No config found → passthrough (let backend use defaults)

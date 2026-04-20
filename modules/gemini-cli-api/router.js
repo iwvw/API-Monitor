@@ -1586,6 +1586,22 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
     if (!availableModels.find(m => m.id === modelForValidation) && !availableModels.find(m => m.id === modelWithPrefix)) {
       const disabledModels = storage.getDisabledModels();
       if (disabledModels.includes(modelWithPrefix) || disabledModels.includes(modelForValidation)) {
+        const settings = await storage.getSettings();
+        const logMessages = prepareMessagesForLog(req.body.messages, settings);
+        storage.recordLog({
+          model: modelWithPrefix,
+          path: req.path,
+          method: req.method,
+          statusCode: 403,
+          durationMs: Date.now() - startTime,
+          clientIp: req.ip,
+          userAgent: req.get('user-agent'),
+          detail: {
+            error: `Model '${modelWithPrefix}' is disabled`,
+            messages: logMessages,
+            model: req.body.model,
+          },
+        });
         return res
           .status(403)
           .json({
@@ -1597,6 +1613,22 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
           });
       } else {
         // 如果在 GCLI 矩阵中完全找不到，可能不该由本渠道处理
+        const settings = await storage.getSettings();
+        const logMessages = prepareMessagesForLog(req.body.messages, settings);
+        storage.recordLog({
+          model: modelWithPrefix,
+          path: req.path,
+          method: req.method,
+          statusCode: 404,
+          durationMs: Date.now() - startTime,
+          clientIp: req.ip,
+          userAgent: req.get('user-agent'),
+          detail: {
+            error: `Model '${modelWithPrefix}' not found in Gemini CLI matrix`,
+            messages: logMessages,
+            model: req.body.model,
+          },
+        });
         return res
           .status(404)
           .json({
@@ -1615,6 +1647,22 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
     // 获取所有启用账号
     let allAccounts = (await storage.getAccounts()).filter(a => a.enable !== 0);
     if (allAccounts.length === 0) {
+      const settings = await storage.getSettings();
+      const logMessages = prepareMessagesForLog(req.body.messages, settings);
+      storage.recordLog({
+        model: modelWithPrefix,
+        path: req.path,
+        method: req.method,
+        statusCode: 503,
+        durationMs: Date.now() - startTime,
+        clientIp: req.ip,
+        userAgent: req.get('user-agent'),
+        detail: {
+          error: 'No enabled accounts available',
+          messages: logMessages,
+          model: req.body.model,
+        },
+      });
       return res
         .status(503)
         .json({ error: { message: 'No enabled accounts available', type: 'service_unavailable' } });
@@ -1623,6 +1671,22 @@ router.post(['/v1/chat/completions', '/chat/completions'], requireApiKey, async 
     // 过滤掉处于冷却期的账号
     allAccounts = allAccounts.filter(a => !isAccountInCoolDown(a.id, model));
     if (allAccounts.length === 0) {
+      const settings = await storage.getSettings();
+      const logMessages = prepareMessagesForLog(req.body.messages, settings);
+      storage.recordLog({
+        model: modelWithPrefix,
+        path: req.path,
+        method: req.method,
+        statusCode: 429,
+        durationMs: Date.now() - startTime,
+        clientIp: req.ip,
+        userAgent: req.get('user-agent'),
+        detail: {
+          error: 'All available Gemini accounts are currently rate-limited (429)',
+          messages: logMessages,
+          model: req.body.model,
+        },
+      });
       return res.status(429).json({
         error: {
           message:
