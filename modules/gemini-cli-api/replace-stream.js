@@ -1,6 +1,6 @@
 const fs = require('fs');
 const file = 'E:/Code/api-monitor/modules/gemini-cli-api/utils/stream-processor.js';
-let code = fs.readFileSync(file, 'utf8');
+const code = fs.readFileSync(file, 'utf8');
 
 const newCode = `const { Readable } = require('stream');
 const { createLogger } = require('../../../src/utils/logger');
@@ -267,4 +267,4 @@ class StreamProcessor {
 module.exports = StreamProcessor;`;
 
 fs.writeFileSync(file, newCode);
-console.log("stream-processor.js completely replaced.");
+console.log('stream-processor.js completely replaced.');

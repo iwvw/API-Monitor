@@ -4,13 +4,13 @@ let code = fs.readFileSync(file, 'utf8');
 
 // Fix: Change reasoning_effort to reasoningEffort to match function signature
 code = code.replace(
-  "else if (reasoning_effort) {",
-  "else if (reasoningEffort) {"
+  'else if (reasoning_effort) {',
+  'else if (reasoningEffort) {'
 );
 
 code = code.replace(
-  "const effort = String(reasoning_effort).toLowerCase().trim();",
-  "const effort = String(reasoningEffort).toLowerCase().trim();"
+  'const effort = String(reasoning_effort).toLowerCase().trim();',
+  'const effort = String(reasoningEffort).toLowerCase().trim();'
 );
 
 fs.writeFileSync(file, code);

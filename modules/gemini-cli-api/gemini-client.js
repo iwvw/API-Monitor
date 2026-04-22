@@ -253,7 +253,7 @@ class GeminiCliClient {
               name: tc.function.name,
               args: args
             },
-            thoughtSignature: "skip_thought_signature_validator"
+            thoughtSignature: 'skip_thought_signature_validator'
           });
         }
       }

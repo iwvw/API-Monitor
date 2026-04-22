@@ -311,7 +311,7 @@ let endMarker = '    logger.warn(`Unsupported image URL format: ${imageUrl.subst
 
 const startIdx = code.indexOf(startMarker);
 // 考虑前置注释
-let prefixIdx = code.lastIndexOf('  /**', startIdx);
+const prefixIdx = code.lastIndexOf('  /**', startIdx);
 
 let matchEnd = code.indexOf(endMarker);
 if (matchEnd === -1) {
@@ -323,7 +323,7 @@ if (matchEnd === -1) {
 if (prefixIdx !== -1 && matchEnd !== -1) {
   code = code.substring(0, prefixIdx) + newCode + code.substring(matchEnd + endMarker.length);
   fs.writeFileSync(file, code);
-  console.log("Replaced successfully");
+  console.log('Replaced successfully');
 } else {
-  console.log("Could not find markers", prefixIdx, matchEnd);
+  console.log('Could not find markers', prefixIdx, matchEnd);
 }
