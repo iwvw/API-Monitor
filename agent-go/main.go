@@ -1087,14 +1087,12 @@ func (a *AgentClient) handleDockerUpdate(req DockerActionRequest) (string, error
 
 // sendTaskProgress 向主控发送任务进度 (模拟)
 func (a *AgentClient) sendTaskProgress(containerId string, msg string, progress int) {
-	// 在现有架构下，直接将进度事件发回 Server 端
-	payload := map[string]interface{}{
-		"taskId": containerId, // 暂时用 containerId 关联
-		"message": msg,
-		"progress": progress,
-	}
-	payloadBytes, _ := json.Marshal(payload)
-	a.sendData(26, string(payloadBytes)) // DOCKER_TASK_PROGRESS = 26
+	a.updateProgress(containerId, &TaskProgress{
+		TaskID:     containerId,
+		Name:       "更新任务: " + containerId,
+		Percentage: progress,
+		Message:    msg,
+	})
 }
 
 // DockerCheckUpdateRequest 检查更新请求
@@ -2460,6 +2458,89 @@ func (a *AgentClient) handleDockerContainerUpdate(taskID string, data string) {
 		imageName = oldContainer.Config.Image
 	}
 
+	// 检查是否是 Docker Compose 管理的容器
+	projectLabel := oldContainer.Config.Labels["com.docker.compose.project"]
+	serviceLabel := oldContainer.Config.Labels["com.docker.compose.service"]
+	workingDir := oldContainer.Config.Labels["com.docker.compose.project.working_dir"]
+	configFile := oldContainer.Config.Labels["com.docker.compose.project.config_files"]
+
+	if projectLabel != "" && serviceLabel != "" {
+		progress.Percentage = 10
+		progress.Message = "检测到 Compose 容器，准备拉取镜像..."
+		a.updateProgress(taskID, progress)
+		
+		var composeArgs []string
+		composeCmd := "docker"
+		composeArgs = append(composeArgs, "compose")
+		
+		if workingDir != "" {
+			composeArgs = append(composeArgs, "--project-directory", workingDir)
+		}
+		if configFile != "" {
+			for _, file := range strings.Split(configFile, ",") {
+				if file != "" {
+					composeArgs = append(composeArgs, "-f", file)
+				}
+			}
+		} else {
+			composeArgs = append(composeArgs, "--project-name", projectLabel)
+		}
+
+		// 1. Pull latest image
+		pullArgs := append(append([]string{}, composeArgs...), "pull", serviceLabel)
+		pullExec := exec.Command(composeCmd, pullArgs...)
+		if out, err := pullExec.CombinedOutput(); err != nil {
+			// 如果 docker compose 失败，尝试 docker-compose
+			composeCmd = "docker-compose"
+			pullArgs = append([]string{"pull", serviceLabel})
+			if workingDir != "" {
+				pullArgs = append([]string{"--project-directory", workingDir}, pullArgs...)
+			}
+			if configFile != "" {
+				for _, file := range strings.Split(configFile, ",") {
+					if file != "" {
+						pullArgs = append([]string{"-f", file}, pullArgs...)
+					}
+				}
+			} else {
+				pullArgs = append([]string{"--project-name", projectLabel}, pullArgs...)
+			}
+			
+			pullExec = exec.Command(composeCmd, pullArgs...)
+			if out2, err2 := pullExec.CombinedOutput(); err2 != nil {
+				a.finishWithError(taskID, progress, fmt.Sprintf("Compose 拉取镜像失败:\n%s\n%s", string(out), string(out2)))
+				return
+			}
+		}
+
+		progress.Percentage = 60
+		progress.Message = "拉取完成，准备重建容器..."
+		a.updateProgress(taskID, progress)
+
+		// 2. Up -d the service
+		upArgs := append(append([]string{}, composeArgs...), "up", "-d", serviceLabel)
+		upExec := exec.Command(composeCmd, upArgs...)
+		if out, err := upExec.CombinedOutput(); err != nil {
+			a.finishWithError(taskID, progress, fmt.Sprintf("Compose 重建容器失败: %v, 输出: %s", err, string(out)))
+			return
+		}
+
+		progress.Percentage = 100
+		progress.Message = "更新完成"
+		progress.IsDone = true
+		progress.IsError = false
+		a.updateProgress(taskID, progress)
+
+		a.emit(EventAgentTaskResult, map[string]interface{}{
+			"id":         taskID,
+			"successful": true,
+			"data":       fmt.Sprintf("Compose 容器 %s 更新成功", req.ContainerName),
+		})
+		return
+	}
+
+	// ==================== 独立容器的更新逻辑 ====================
+
 	// 2. 拉取新镜像
 	progress.Percentage = 10
 	progress.Message = "正在拉取镜像: " + imageName
@@ -2488,7 +2569,6 @@ func (a *AgentClient) handleDockerContainerUpdate(taskID string, data string) {
 			break
 		}
 		
-		// 如果有具体的进度数据，计算百分比并映射到 10% - 40%
 		if msg.ProgressDetail.Total > 0 {
 			p := float64(msg.ProgressDetail.Current) / float64(msg.ProgressDetail.Total)
 			currentP := 10 + int(p*30)
@@ -2542,6 +2622,19 @@ func (a *AgentClient) handleDockerContainerUpdate(taskID string, data string) {
 	newHostConfig := oldContainer.HostConfig
 	newNetworkingConfig := &network.NetworkingConfig{
 		EndpointsConfig: oldContainer.NetworkSettings.Networks,
+	}
+
+	// 清理可能导致冲突的网络别名中的旧短ID
+	shortOldId := oldContainer.ID[:12]
+	for netName, endpoint := range newNetworkingConfig.EndpointsConfig {
+		var newAliases []string
+		for _, alias := range endpoint.Aliases {
+			if alias != shortOldId {
+				newAliases = append(newAliases, alias)
+			}
+		}
+		endpoint.Aliases = newAliases
+		newNetworkingConfig.EndpointsConfig[netName] = endpoint
 	}
 
 	created, err := cli.ContainerCreate(ctx, newConfig, newHostConfig, newNetworkingConfig, nil, req.ContainerName)
