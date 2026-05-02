@@ -277,16 +277,11 @@ export const flyMethods = {
     return store.flyExpandedAccounts[accountName];
   },
 
-  // 重启应用
-  async restartFlyApp(account, app) {
-    // ... existing logic
-  },
-
   // 重新部署应用 (触发新 Release)
   async redeployFlyApp(account, app) {
     const confirmed = await store.showConfirm({
       title: '确认重新部署',
-      message: `确定要为 Fly.io 应用 "${app.name}" 触发一次新部署吗？这将创建一个新的发布版本。`,
+      message: `确定要为 Fly.io 应用 "${app.name}" 触发一次新部署吗？这将创建一个新的发布版本（仅重启现有容器）。`,
       icon: 'fa-rocket',
       confirmText: '确定部署',
       confirmClass: 'btn-primary',
@@ -310,6 +305,120 @@ export const flyMethods = {
       }
     } catch (error) {
       toast.error('操作失败: ' + error.message);
+    }
+  },
+
+  // 更新容器镜像 (实现类似 fly deploy 的功能)
+  async updateFlyAppImage(account, app) {
+    let currentImage = '';
+    store.flyLoading = true;
+
+    try {
+      // 1. 无论如何先获取最新的 machines 信息以确保拿到当前配置
+      const response = await fetch(
+        `/api/flyio/apps/${app.name}/machines?accountId=${account.id}`,
+        {
+          headers: store.getAuthHeaders(),
+        }
+      );
+      const result = await response.json();
+      if (result.success && result.data.length > 0) {
+        app.machines = result.data;
+        currentImage = app.machines[0].config?.image || '';
+      }
+    } catch (e) {
+      console.warn('获取当前镜像失败:', e);
+    } finally {
+      store.flyLoading = false;
+    }
+
+    // 智能建议：如果是 image:v123，建议 image:latest
+    let suggestedImage = currentImage;
+    if (currentImage && currentImage.includes(':')) {
+      suggestedImage = currentImage.split(':')[0] + ':latest';
+    } else if (currentImage) {
+      suggestedImage = currentImage + ':latest';
+    }
+
+    const promptResult = await store.showPrompt({
+      title: '更新容器镜像',
+      message: currentImage 
+        ? `当前正在运行：\n${currentImage}\n\n确认要更新为以下镜像吗？`
+        : `未能自动检测到当前镜像。请输入完整的镜像地址：`,
+      promptValue: suggestedImage || currentImage, 
+      placeholder: '例如: registry.fly.io/my-app:latest',
+      icon: 'fa-ship',
+    });
+
+    if (promptResult.action !== 'confirm' || !promptResult.value || promptResult.value.trim() === '') {
+      return;
+    }
+
+    const image = promptResult.value.trim();
+    store.flyRefreshing = true; // 显示加载状态
+    console.log(`[Fly.io] 开始为应用 ${app.name} 更新镜像: ${image.trim()}`);
+
+    try {
+      const response = await fetch(`/api/flyio/apps/${app.name}/update-image`, {
+        method: 'POST',
+        headers: store.getAuthHeaders(),
+        body: JSON.stringify({
+          accountId: account.id,
+          image: image.trim(),
+        }),
+      });
+
+      const result = await response.json();
+      console.log(`[Fly.io] 更新请求响应:`, result);
+
+      if (result.success) {
+        toast.success(`镜像更新已提交：成功更新 ${result.updated} 个实例，失败 ${result.failed} 个`);
+        this.loadFlyData();
+      } else {
+        toast.error('更新失败: ' + (result.error || '未知错误'));
+        console.error(`[Fly.io] 更新镜像业务失败:`, result);
+      }
+    } catch (error) {
+      toast.error('请求失败: ' + error.message);
+      console.error(`[Fly.io] 更新镜像请求异常:`, error);
+    } finally {
+      store.flyRefreshing = false;
+    }
+  },
+
+  // 一键更新账号下所有应用的镜像
+  async updateAllFlyAppsImage(account) {
+    const confirmed = await store.showConfirm({
+      title: '确认批量更新',
+      message: `确定要为账号 "${account.name}" 下的所有应用触发镜像更新吗？\n\n这相当于对所有应用执行一次 "fly deploy"（默认拉取 :latest 标签）。`,
+      icon: 'fa-layer-group',
+      confirmText: '确定批量更新',
+      confirmClass: 'btn-primary',
+    });
+
+    if (!confirmed) return;
+
+    store.flyRefreshing = true;
+    toast.info('正在触发批量更新，请稍候...');
+
+    try {
+      const response = await fetch(`/api/flyio/accounts/${account.id}/update-all-images`, {
+        method: 'POST',
+        headers: store.getAuthHeaders(),
+        body: JSON.stringify({ image: 'latest' }) // 默认批量更新为 latest
+      });
+
+      const result = await response.json();
+      if (result.success) {
+        toast.success(`批量更新已完成：成功 ${result.updated} 个，失败 ${result.failed} 个`);
+        this.loadFlyData();
+      } else {
+        toast.error('批量更新失败: ' + result.error);
+      }
+    } catch (error) {
+      toast.error('请求异常: ' + error.message);
+    } finally {
+      store.flyRefreshing = false;
     }
   },
 
@@ -456,29 +565,42 @@ export const flyMethods = {
     }
   },
 
-  // 显示日志 (升级为实时事件回溯)
+  // 显示日志 (容器 stdout/stderr + 系统事件)
   async showFlyAppLogs(account, app) {
     this.openLogViewer({
-      title: `系统事件: ${app.name}`,
+      title: `容器日志: ${app.name}`,
       subtitle: `Fly.io / ${account.name}`,
       source: 'fly',
       fetcher: async () => {
         try {
-          const response = await fetch(`/api/flyio/apps/${app.name}/events?accountId=${account.id}`, {
+          // 优先获取容器实时日志 (stdout/stderr)
+          const response = await fetch(`/api/flyio/apps/${app.name}/logs?accountId=${account.id}`, {
             headers: store.getAuthHeaders(),
           });
           const result = await response.json();
 
-          if (result.success && result.data.length > 0) {
-            return result.data.map(e => ({
-              timestamp: e.timestamp,
-              message: `[${e.region}] ${e.message}`,
+          if (result.success && result.data && result.data.length > 0) {
+            return result.data.map(l => ({
+              timestamp: l.timestamp ? new Date(l.timestamp).getTime() : Date.now(),
+              message: l.message,
+              level: l.level,
+              meta: l.instance ? `${l.region} | ${l.instance.substring(0, 8)}` : l.region
             }));
           }
 
-          return [{ timestamp: Date.now(), message: '暂无系统事件日志。' }];
+          // 如果没有容器日志，自动回退到获取系统事件 (Release 记录等)
+          const eventResponse = await fetch(`/api/flyio/apps/${app.name}/events?accountId=${account.id}`, {
+            headers: store.getAuthHeaders(),
+          });
+          const eventResult = await eventResponse.json();
+
+          if (eventResult.success && eventResult.data.length > 0) {
+            return eventResult.data;
+          }
+
+          return [{ timestamp: Date.now(), message: '暂无容器日志或系统事件。' }];
         } catch (e) {
-          return [{ timestamp: Date.now(), message: '获取事件失败: ' + e.message }];
+          return [{ timestamp: Date.now(), message: '获取日志失败: ' + e.message }];
         }
       },
     });

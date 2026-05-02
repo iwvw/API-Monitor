@@ -471,14 +471,32 @@
               <div class="zeabur-account-name">{{ account.name }}</div>
             </div>
           </div>
-          <!-- 新建应用按钮 -->
-          <button
-            class="create-project-btn fly-btn"
-            @click.stop="createFlyApp(account)"
-            style="padding: 4px 10px; font-size: 11px"
-          >
-            <i class="fas fa-plus"></i> 新建应用
-          </button>
+          <!-- 新建应用及刷新按钮 -->
+          <div class="account-actions" style="display: flex; gap: 6px">
+            <button
+              class="btn btn-sm fly-btn"
+              @click.stop="loadFlyData(true)"
+              style="padding: 2px 8px; font-size: 11px; border-radius: 6px"
+              title="手动刷新数据"
+            >
+              <i class="fas fa-sync-alt" :class="{ 'fa-spin': flyRefreshing }"></i> 刷新
+            </button>
+            <button
+              class="btn btn-sm fly-btn"
+              @click.stop="updateAllFlyAppsImage(account)"
+              style="padding: 2px 8px; font-size: 11px; border-radius: 6px; background-color: rgba(59, 130, 246, 0.15); color: #3b82f6"
+              title="更新账号下所有应用镜像"
+            >
+              <i class="fas fa-layer-group"></i> 更新全部
+            </button>
+            <button
+              class="btn btn-sm fly-btn"
+              @click.stop="createFlyApp(account)"
+              style="padding: 2px 8px; font-size: 11px; border-radius: 6px"
+            >
+              <i class="fas fa-plus"></i> 新建应用
+            </button>
+          </div>
         </div>
         <div class="account-card-body">
           <div
@@ -535,17 +553,20 @@
                   </div>
                   <div class="service-actions">
                     <button
-                      @click="restartFlyApp(account, app)"
-                      class="service-btn btn-restart fly-btn"
-                    >
-                      <i class="fas fa-redo"></i>
-                    </button>
-                    <button
                       @click="redeployFlyApp(account, app)"
                       class="service-btn btn-restart fly-btn"
                       style="background-color: rgba(139, 92, 246, 0.2); color: #8b5cf6"
+                      title="重启应用 (Restart All Machines)"
                     >
-                      <i class="fas fa-rocket"></i>
+                      <i class="fas fa-redo-alt"></i>
+                    </button>
+                    <button
+                      @click="updateFlyAppImage(account, app)"
+                      class="service-btn btn-restart fly-btn"
+                      style="background-color: rgba(59, 130, 246, 0.2); color: #3b82f6"
+                      title="更新容器镜像 (Fly Deploy)"
+                    >
+                      <i class="fas fa-ship"></i>
                     </button>
                     <button
                       @click="fetchFlyMachines(account, app)"
