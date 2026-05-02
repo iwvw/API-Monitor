@@ -1135,6 +1135,12 @@ export const hostMethods = {
 
     if (task.state === 'success') {
       this.showGlobalToast(`${actionLabel}成功: ${containerName}`, 'success');
+      
+      // 如果是更新任务成功，清除可更新标记
+      if (task.action === 'container.update' && this.dockerUpdateResults) {
+         this.dockerUpdateResults = this.dockerUpdateResults.filter(r => r.container_id !== task.payload.containerId);
+      }
+
       // Refresh list to update state
       if (this.serverCurrentTab === 'docker') {
         // Debounce refresh to avoid multiple refreshes on batch operations
@@ -1358,15 +1364,22 @@ export const hostMethods = {
 
   formatDockerPorts(container) {
     if (!container) return '-';
-    if (Array.isArray(container.ports) && container.ports.length > 0) {
-      return container.ports.join(', ');
+    let portList = [];
+
+    if (Array.isArray(container.ports)) {
+      portList = container.ports;
+    } else if (typeof container.ports === 'string' && container.ports.trim()) {
+      portList = container.ports.split(',').map(p => p.trim());
+    } else if (typeof container.port === 'string' && container.port.trim()) {
+      portList = [container.port.trim()];
     }
-    if (typeof container.ports === 'string' && container.ports.trim()) {
-      return container.ports;
+
+    if (portList.length > 0) {
+      // 过滤空值并去重
+      const uniquePorts = [...new Set(portList.filter(p => p && p !== '-'))];
+      return uniquePorts.length > 0 ? uniquePorts.join(', ') : '-';
     }
-    if (typeof container.port === 'string' && container.port.trim()) {
-      return container.port;
-    }
+
     return '-';
   },
 

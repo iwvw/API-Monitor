@@ -922,23 +922,109 @@ func (a *AgentClient) handleDockerUpdate(req DockerActionRequest) (string, error
 		imageName = req.Image
 	}
 
-	log.Printf("[Docker] 更新容器: %s (镜像: %s)", containerName, imageName)
+	log.Printf("[Docker] 准备更新容器: %s (镜像: %s)", containerName, imageName)
+
+	// 检查是否是 Docker Compose 管理的容器
+	projectLabel := oldContainer.Config.Labels["com.docker.compose.project"]
+	serviceLabel := oldContainer.Config.Labels["com.docker.compose.service"]
+	workingDir := oldContainer.Config.Labels["com.docker.compose.project.working_dir"]
+	configFile := oldContainer.Config.Labels["com.docker.compose.project.config_files"]
+
+	if projectLabel != "" && serviceLabel != "" {
+		log.Printf("[Docker] 检测到 Compose 容器, 项目: %s, 服务: %s", projectLabel, serviceLabel)
+		
+		// 构建 Compose 命令
+		var composeArgs []string
+		
+		// 尝试使用较新的 docker compose，如果失败降级到 docker-compose
+		composeCmd := "docker"
+		composeArgs = append(composeArgs, "compose")
+		
+		if workingDir != "" {
+			composeArgs = append(composeArgs, "--project-directory", workingDir)
+		}
+		if configFile != "" {
+			// ConfigFiles 可能是逗号分隔的多个文件
+			for _, file := range strings.Split(configFile, ",") {
+				if file != "" {
+					composeArgs = append(composeArgs, "-f", file)
+				}
+			}
+		} else {
+			composeArgs = append(composeArgs, "--project-name", projectLabel)
+		}
+
+		// 1. Pull latest image
+		pullArgs := append(append([]string{}, composeArgs...), "pull", serviceLabel)
+		log.Printf("[Docker] 执行 Compose 拉取: %s %s", composeCmd, strings.Join(pullArgs, " "))
+		
+		// 发送进度提示到前端
+		a.sendTaskProgress(req.ContainerID, "拉取镜像中...", 30)
+		
+		pullExec := exec.Command(composeCmd, pullArgs...)
+		if out, err := pullExec.CombinedOutput(); err != nil {
+			// 如果 docker compose 失败，尝试 docker-compose
+			composeCmd = "docker-compose"
+			pullArgs = append([]string{"pull", serviceLabel})
+			if workingDir != "" {
+				pullArgs = append([]string{"--project-directory", workingDir}, pullArgs...)
+			}
+			if configFile != "" {
+				for _, file := range strings.Split(configFile, ",") {
+					if file != "" {
+						pullArgs = append([]string{"-f", file}, pullArgs...)
+					}
+				}
+			} else {
+				pullArgs = append([]string{"--project-name", projectLabel}, pullArgs...)
+			}
+			
+			pullExec = exec.Command(composeCmd, pullArgs...)
+			if out2, err2 := pullExec.CombinedOutput(); err2 != nil {
+				return "", fmt.Errorf("Compose 拉取镜像失败:\n%s\n%s", string(out), string(out2))
+			}
+		}
+
+		a.sendTaskProgress(req.ContainerID, "重建容器中...", 70)
+
+		// 2. Up -d the service
+		upArgs := append(append([]string{}, composeArgs...), "up", "-d", serviceLabel)
+		log.Printf("[Docker] 执行 Compose 重建: %s %s", composeCmd, strings.Join(upArgs, " "))
+		upExec := exec.Command(composeCmd, upArgs...)
+		if out, err := upExec.CombinedOutput(); err != nil {
+			return "", fmt.Errorf("Compose 重建容器失败: %v, 输出: %s", err, string(out))
+		}
+
+		return fmt.Sprintf("Compose 容器 %s 更新成功", containerName), nil
+	}
+
+	// ==================== 独立容器的更新逻辑 ====================
+	a.sendTaskProgress(req.ContainerID, "拉取镜像中...", 20)
 
 	// 2. 拉取最新镜像
-	// 异步拉取，丢弃输出，直到完成
 	reader, err := cli.ImagePull(ctx, imageName, dockerImage.PullOptions{})
 	if err != nil {
 		return "", fmt.Errorf("拉取镜像失败: %v", err)
 	}
-	io.Copy(io.Discard, reader)
+	// 简单解析拉取进度避免阻塞过久且无反馈
+	buf := make([]byte, 1024)
+	for {
+		_, err := reader.Read(buf)
+		if err != nil {
+			break
+		}
+	}
 	reader.Close()
 
+	a.sendTaskProgress(req.ContainerID, "停止旧容器...", 50)
+
 	// 3. 停止旧容器
-	// 设置超时时间，避免卡死
 	timeout := 30 // seconds
 	if err := cli.ContainerStop(ctx, req.ContainerID, container.StopOptions{Timeout: &timeout}); err != nil {
 		return "", fmt.Errorf("停止容器失败: %v", err)
 	}
+
+	a.sendTaskProgress(req.ContainerID, "重建容器...", 70)
 
 	// 4. 重命名旧容器 (备份)
 	backupName := fmt.Sprintf("%s_bak_%d", containerName, time.Now().Unix())
@@ -946,19 +1032,28 @@ func (a *AgentClient) handleDockerUpdate(req DockerActionRequest) (string, error
 		return "", fmt.Errorf("重命名旧容器失败: %v", err)
 	}
 
-	// 5. 创建新容器 (完全复用旧配置)
+	// 5. 创建新容器 (清理冲突字段)
 	newConfig := oldContainer.Config
 	newConfig.Image = imageName
-	// 清空 hostname，让 Docker 重新生成 (除非显式设置了) -> 保持原样即可，如果原来设置了就保留
-
+	
 	newHostConfig := oldContainer.HostConfig
 	
 	newNetworkingConfig := &network.NetworkingConfig{
 		EndpointsConfig: oldContainer.NetworkSettings.Networks,
 	}
 
-	// 对于非默认网络，需要确保 EndpointsConfig 正确
-	// 注意: ContainerCreate 可能会因为某些只读字段报错，但在实践中复用 Config/HostConfig 通常可行
+	// 清理可能导致冲突的网络别名中的旧短ID
+	shortOldId := oldContainer.ID[:12]
+	for netName, endpoint := range newNetworkingConfig.EndpointsConfig {
+		var newAliases []string
+		for _, alias := range endpoint.Aliases {
+			if alias != shortOldId {
+				newAliases = append(newAliases, alias)
+			}
+		}
+		endpoint.Aliases = newAliases
+		newNetworkingConfig.EndpointsConfig[netName] = endpoint
+	}
 	
 	created, err := cli.ContainerCreate(ctx, newConfig, newHostConfig, newNetworkingConfig, nil, containerName)
 	if err != nil {
@@ -968,6 +1063,8 @@ func (a *AgentClient) handleDockerUpdate(req DockerActionRequest) (string, error
 		cli.ContainerStart(ctx, req.ContainerID, container.StartOptions{})
 		return "", fmt.Errorf("创建新容器失败: %v", err)
 	}
+
+	a.sendTaskProgress(req.ContainerID, "启动新容器...", 90)
 
 	// 6. 启动新容器
 	if err := cli.ContainerStart(ctx, created.ID, container.StartOptions{}); err != nil {
@@ -984,7 +1081,20 @@ func (a *AgentClient) handleDockerUpdate(req DockerActionRequest) (string, error
 		log.Printf("[Docker] 删除旧容器失败 (非致命): %v", err)
 	}
 
+	a.sendTaskProgress(req.ContainerID, "更新完成", 100)
 	return fmt.Sprintf("容器 %s 更新成功", containerName), nil
+}
+
+// sendTaskProgress 向主控发送任务进度 (模拟)
+func (a *AgentClient) sendTaskProgress(containerId string, msg string, progress int) {
+	// 在现有架构下，直接将进度事件发回 Server 端
+	payload := map[string]interface{}{
+		"taskId": containerId, // 暂时用 containerId 关联
+		"message": msg,
+		"progress": progress,
+	}
+	payloadBytes, _ := json.Marshal(payload)
+	a.sendData(26, string(payloadBytes)) // DOCKER_TASK_PROGRESS = 26
 }
 
 // DockerCheckUpdateRequest 检查更新请求
