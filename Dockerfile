@@ -4,9 +4,14 @@
 # 多阶段构建：Builder -> Native Deps Builder -> Runner
 
 # 阶段 1: 构建前端 (Builder) - 始终在构建主机平台运行
-FROM --platform=$BUILDPLATFORM node:20-alpine AS builder
+FROM --platform=$BUILDPLATFORM node:20-slim AS builder
 # 安装构建工具
-RUN apk add --no-cache python3 make g++
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 \
+    make \
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 # 1. 复制依赖定义
@@ -48,9 +53,15 @@ RUN CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o agent-w
 
 # 阶段 3: 预构建生产依赖 (Native Deps Builder)
 # 为目标平台安装原生模块
-FROM --platform=$TARGETPLATFORM node:20-alpine AS deps-builder
+FROM --platform=$TARGETPLATFORM node:20-slim AS deps-builder
 # 安装构建工具 (用于编译 better-sqlite3 等原生模块，以防预编译不可用)
-RUN apk add --no-cache python3 make g++ curl
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 \
+    make \
+    g++ \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 # 复制依赖定义
 COPY package.json package-lock.json ./
@@ -65,7 +76,7 @@ RUN npm install --omit=dev --legacy-peer-deps --ignore-scripts && \
     npm cache clean --force
 
 # 阶段 4: 运行时镜像 (Runner) - 纯净的运行环境
-FROM --platform=$TARGETPLATFORM node:20-alpine AS runner
+FROM --platform=$TARGETPLATFORM node:20-slim AS runner
 
 LABEL org.opencontainers.image.title="API Monitor"
 LABEL org.opencontainers.image.description="API聚合监控面板"
@@ -73,9 +84,13 @@ LABEL org.opencontainers.image.source="https://github.com/iwvw/api-monitor"
 LABEL org.opencontainers.image.licenses="MIT"
 LABEL maintainer="iwvw"
 
-RUN apk add --no-cache curl tini && rm -rf /var/cache/apk/*
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    ca-certificates \
+    tini \
+    && rm -rf /var/lib/apt/lists/*
 
-RUN addgroup -g 1001 -S nodejs && adduser -S nodejs -u 1001
+RUN groupadd -g 1001 nodejs && useradd -m -u 1001 -g nodejs nodejs
 
 WORKDIR /app
 
@@ -111,6 +126,6 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 
 USER nodejs
 
-ENTRYPOINT ["/sbin/tini", "--"]
+ENTRYPOINT ["/usr/bin/tini", "--"]
 
 CMD ["node", "server.js"]
