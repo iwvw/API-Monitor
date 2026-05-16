@@ -162,8 +162,14 @@
     </div>
 
     <!-- 主机卡片列表 -->
-    <div v-for="server in filteredServerList" :key="server.id" class="server-card"
-      :class="{ expanded: isServerExpanded(server.id) }" style="
+    <div v-for="(server, index) in filteredServerList" :key="server.id" class="server-card"
+      :class="{ expanded: isServerExpanded(server.id) }" 
+      :draggable="!serverSearchText.trim() && serverStatusFilter === 'all'"
+      @dragstart="handleServerDragStart(index, $event)"
+      @dragover="handleServerDragOver($event)"
+      @drop="handleServerDrop(index, $event)"
+      @dragend="handleServerDragEnd($event)"
+      style="
         padding: 0;
         margin-bottom: 10px;
         border: 1px solid var(--border-color);
@@ -212,13 +218,26 @@
                   width: 16px;
                   text-align: center;
                 " title="未知系统"></i>
-              <span style="
+              <span v-if="!server.isEditing" @dblclick.stop="startEditServerName(server)" style="
                   font-size: 15px;
                   font-weight: 700;
                   color: var(--text-primary);
                   white-space: nowrap;
                   overflow: hidden;
-                ">{{ server.name }}</span>
+                " title="双击重命名">{{ server.name }}</span>
+              <input v-else v-model="server.editingName" :ref="'serverNameInput_' + server.id"
+                @keyup.enter="renameServer(server)" @keyup.esc="cancelEditServerName(server)" @blur="renameServer(server)"
+                @click.stop style="
+                  font-size: 14px;
+                  font-weight: 700;
+                  background: var(--bg-tertiary);
+                  border: 1px solid var(--server-primary);
+                  color: var(--text-primary);
+                  border-radius: 4px;
+                  padding: 2px 6px;
+                  width: 150px;
+                  outline: none;
+                " />
 
               <!-- Tags (Moved to right of name) -->
               <div v-if="server.tags && server.tags.length > 0" style="display: flex; gap: 4px">

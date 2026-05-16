@@ -13,7 +13,7 @@ const {
 const monitorService = require('./monitor-service');
 const agentService = require('./agent-service');
 const sshService = require('./ssh-service');
-const { ServerMonitorConfig, ServerMetricsHistory } = require('./models');
+const { ServerAccount, ServerMonitorConfig, ServerMetricsHistory } = require('./models');
 const { TaskTypes } = require('./protocol');
 const DockerTaskTypes = TaskTypes; // 兼容已有 Docker 路由代码
 
@@ -228,6 +228,22 @@ router.put('/accounts/:id', (req, res) => {
     const server = serverStorage.update(req.params.id, req.body);
     if (!server) return res.status(404).json({ success: false, error: '服务器不存在' });
     res.json({ success: true, message: '服务器更新成功', data: server });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+/**
+ * 批量重排服务器
+ */
+router.post('/accounts/reorder', (req, res) => {
+  try {
+    const { orderData } = req.body; // [{id, order_index}, ...]
+    if (!orderData || !Array.isArray(orderData)) {
+      return res.status(400).json({ success: false, error: '缺少排序数据' });
+    }
+    const success = ServerAccount.updateOrder(orderData);
+    res.json({ success, message: success ? '重排成功' : '重排失败' });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }

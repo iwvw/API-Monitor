@@ -3531,4 +3531,130 @@ export const hostMethods = {
       this.showGlobalToast('未检测到显卡，无法查看详情', 'warning');
     }
   },
+
+  /**
+   * 开始编辑主机名称
+   */
+  startEditServerName(server) {
+    server.editingName = server.name;
+    server.isEditing = true;
+    this.$nextTick(() => {
+      const input = this.$refs[`serverNameInput_${server.id}`];
+      if (input && input[0]) {
+        input[0].focus();
+        input[0].select();
+      } else if (input) {
+        input.focus();
+        input.select();
+      }
+    });
+  },
+
+  /**
+   * 保存主机名称
+   */
+  async renameServer(server) {
+    if (!server.isEditing) return;
+    const newName = server.editingName?.trim();
+    if (!newName || newName === server.name) {
+      server.isEditing = false;
+      return;
+    }
+
+    try {
+      const response = await fetch(`/api/server/accounts/${server.id}`, {
+        method: 'PUT',
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify({ name: newName }),
+      });
+      const data = await response.json();
+      if (data.success) {
+        server.name = newName;
+        this.showGlobalToast('重命名成功', 'success');
+      } else {
+        this.showGlobalToast('重命名失败: ' + data.error, 'error');
+      }
+    } catch (error) {
+      console.error('重命名失败:', error);
+      this.showGlobalToast('重命名失败', 'error');
+    } finally {
+      server.isEditing = false;
+    }
+  },
+
+  /**
+   * 取消编辑主机名称
+   */
+  cancelEditServerName(server) {
+    server.isEditing = false;
+  },
+
+  // ==================== 主机排序 ====================
+
+  handleServerDragStart(index, event) {
+    // 只有在没有搜索且没有状态过滤时才允许排序
+    if (this.serverSearchText.trim() || this.serverStatusFilter !== 'all') {
+      return;
+    }
+    this.draggedIndex = index;
+    if (event.dataTransfer) {
+      event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.setData('text/plain', index);
+
+      // 设置拖拽预览样式
+      const target = event.currentTarget;
+      target.style.opacity = '0.4';
+      target.classList.add('dragging');
+    }
+  },
+
+  handleServerDragEnd(event) {
+    const target = event.currentTarget;
+    target.style.opacity = '1';
+    target.classList.remove('dragging');
+    this.draggedIndex = null;
+  },
+
+  handleServerDragOver(event) {
+    if (event.preventDefault) {
+      event.preventDefault();
+    }
+    return false;
+  },
+
+  async handleServerDrop(index, event) {
+    if (this.draggedIndex === null || this.draggedIndex === index) return;
+
+    const newList = [...this.serverList];
+    const [removed] = newList.splice(this.draggedIndex, 1);
+    newList.splice(index, 0, removed);
+
+    // 更新本地状态
+    this.serverList = newList;
+
+    // 同步到后端
+    await this.saveServerOrder();
+  },
+
+  async saveServerOrder() {
+    const orderData = this.serverList.map((s, index) => ({
+      id: s.id,
+      order_index: index
+    }));
+
+    try {
+      const response = await fetch('/api/server/accounts/reorder', {
+        method: 'POST',
+        headers: this.getAuthHeaders(),
+        body: JSON.stringify({ orderData })
+      });
+      const data = await response.json();
+      if (!data.success) {
+        this.showGlobalToast('排序保存失败: ' + data.error, 'error');
+      }
+    } catch (error) {
+      console.error('排序保存失败:', error);
+      this.showGlobalToast('排序保存失败', 'error');
+    }
+  },
 };

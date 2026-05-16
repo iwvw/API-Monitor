@@ -21,7 +21,7 @@ class ServerAccount {
   static getAll() {
     const stmt = getStatement(`
             SELECT * FROM server_accounts
-            ORDER BY created_at DESC
+            ORDER BY order_index ASC, created_at DESC
         `);
     const accounts = stmt.all();
 
@@ -74,6 +74,11 @@ class ServerAccount {
     const id = data.id || uuidv4();
     const now = new Date().toISOString();
 
+    // 获取当前最大 order_index
+    const maxOrderStmt = getDb().prepare('SELECT MAX(order_index) as max_order FROM server_accounts');
+    const maxOrder = maxOrderStmt.get().max_order || 0;
+    const orderIndex = data.order_index !== undefined ? data.order_index : maxOrder + 1;
+
     // 加密敏感信息
     const encryptedData = this.encryptSensitiveData(data);
 
@@ -81,8 +86,8 @@ class ServerAccount {
             INSERT INTO server_accounts (
                 id, name, host, port, username, auth_type,
                 password, private_key, passphrase,
-                status, tags, description, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                status, tags, description, order_index, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
 
     stmt.run(
@@ -98,6 +103,7 @@ class ServerAccount {
       data.status || 'unknown',
       data.tags ? JSON.stringify(data.tags) : null,
       data.description || null,
+      orderIndex,
       now,
       now
     );
@@ -137,6 +143,7 @@ class ServerAccount {
                 tags = ?,
                 description = ?,
                 monitor_mode = ?,
+                order_index = ?,
                 updated_at = ?
             WHERE id = ?
         `);
@@ -153,11 +160,34 @@ class ServerAccount {
       data.tags !== undefined ? JSON.stringify(data.tags) : existingRaw.tags,
       data.description !== undefined ? data.description : existing.description,
       data.monitor_mode !== undefined ? data.monitor_mode : existing.monitor_mode || 'agent',
+      data.order_index !== undefined ? data.order_index : existing.order_index || 0,
       now,
       id
     );
 
     return this.getById(id);
+  }
+
+  /**
+   * 批量更新排序
+   * @param {Array} orderData - [{id, order_index}, ...]
+   * @returns {boolean} 是否成功
+   */
+  static updateOrder(orderData) {
+    if (!Array.isArray(orderData)) return false;
+
+    const db = getDb();
+    const stmt = db.prepare('UPDATE server_accounts SET order_index = ? WHERE id = ?');
+
+    const updateBatch = db.transaction(items => {
+      for (const item of items) {
+        stmt.run(item.order_index, item.id);
+      }
+      return items.length;
+    });
+
+    updateBatch(orderData);
+    return true;
   }
 
   /**
@@ -860,6 +890,14 @@ function runMigrations() {
     if (!columns.includes('platform')) {
       db.exec('ALTER TABLE server_metrics_history ADD COLUMN platform TEXT');
       console.log('[Models] 迁移: 添加 platform 列');
+    }
+
+    // 检查 server_accounts 表的 order_index 列是否存在
+    const accountTableInfo = db.prepare('PRAGMA table_info(server_accounts)').all();
+    const accountColumns = accountTableInfo.map(col => col.name);
+    if (!accountColumns.includes('order_index')) {
+      db.exec('ALTER TABLE server_accounts ADD COLUMN order_index INTEGER DEFAULT 0');
+      console.log('[Models] 迁移: 添加 server_accounts.order_index 列');
     }
   } catch (error) {
     console.error('[Models] 迁移失败:', error.message);

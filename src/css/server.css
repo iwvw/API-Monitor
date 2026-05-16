@@ -395,7 +395,7 @@
 
 .server-detail-value {
   font-size: 13px;
-  color: var(--server-primary, #00d4aa);
+  color: var(--text-primary);
   font-weight: 700;
   text-align: right;
   word-break: break-word;
