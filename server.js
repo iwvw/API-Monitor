@@ -46,7 +46,7 @@ const logService = require('./src/services/log-service');
 const metricsService = require('./src/services/metrics-service');
 
 const app = express();
-// 信任代理 (支持 Zeabur/Cloudflare 等反代获取正确的协议和 IP)
+// 信任代理 (支持 Cloudflare 等反代获取正确的协议和 IP)
 app.set('trust proxy', true);
 
 const server = http.createServer(app);
@@ -378,8 +378,6 @@ server.listen(PORT, '0.0.0.0', () => {
     const stats = dbService.getStats();
 
     // 计算总数据量
-    const zeaburAccounts = stats.tables.zeabur_accounts || 0;
-    const zeaburProjects = stats.tables.zeabur_projects || 0;
     const cfAccounts = stats.tables.cf_accounts || 0;
     const cfZones = stats.tables.cf_zones || 0;
     const cfRecords = stats.tables.cf_dns_records || 0;
@@ -389,15 +387,10 @@ server.listen(PORT, '0.0.0.0', () => {
     const sessions = stats.tables.sessions || 0;
     const operationLogs = stats.tables.operation_logs || 0;
 
-    const hasData = zeaburAccounts > 0 || cfAccounts > 0 || openaiEndpoints > 0;
+    const hasData = cfAccounts > 0 || openaiEndpoints > 0;
 
     if (hasData) {
       logger.info('📊 数据库统计信息:');
-
-      // Zeabur 模块
-      if (zeaburAccounts > 0 || zeaburProjects > 0) {
-        logger.groupItem(`Zeabur: ${zeaburAccounts} 个账号, ${zeaburProjects} 个项目`);
-      }
 
       // Cloudflare DNS 模块
       if (cfAccounts > 0 || cfZones > 0 || cfRecords > 0 || cfTemplates > 0) {

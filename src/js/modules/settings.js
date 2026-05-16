@@ -30,17 +30,6 @@ export const settingsMethods = {
           }
 
           // 应用 PaaS 刷新间隔
-          if (settings.zeaburRefreshInterval) {
-            this.zeaburRefreshInterval = settings.zeaburRefreshInterval;
-            this.zeaburRefreshIntervalSec = settings.zeaburRefreshInterval / 1000;
-            if (
-              this.mainActiveTab === 'paas' &&
-              this.paasCurrentPlatform === 'zeabur' &&
-              !this.dataRefreshPaused
-            ) {
-              this.startAutoRefresh();
-            }
-          }
           if (settings.koyebRefreshInterval) {
             this.koyebRefreshInterval = settings.koyebRefreshInterval;
             this.koyebRefreshIntervalSec = settings.koyebRefreshInterval / 1000;
@@ -276,7 +265,6 @@ export const settingsMethods = {
         agentDownloadUrl: this.agentDownloadUrl,
         publicApiUrl: this.publicApiUrl,
         // 刷新间隔设置
-        zeaburRefreshInterval: this.zeaburRefreshInterval,
         koyebRefreshInterval: this.koyebRefreshInterval,
         flyRefreshInterval: this.flyRefreshInterval,
       };

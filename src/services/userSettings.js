@@ -110,7 +110,6 @@ function loadUserSettings() {
 
     return {
       customCss: settings.custom_css || '',
-      zeaburRefreshInterval: settings.zeabur_refresh_interval || 30000,
       koyebRefreshInterval: settings.koyeb_refresh_interval || 30000,
       flyRefreshInterval: settings.fly_refresh_interval || 30000,
       moduleVisibility: visibility,
@@ -143,10 +142,6 @@ function saveUserSettings(settings) {
     // 注意：必须检查 undefined，因为空字符串 "" 是有效值，不能用 || 运算符覆盖
     const dbSettings = {
       custom_css: settings.customCss !== undefined ? settings.customCss : settings.custom_css,
-      zeabur_refresh_interval:
-        settings.zeaburRefreshInterval !== undefined
-          ? settings.zeaburRefreshInterval
-          : settings.zeabur_refresh_interval,
       koyeb_refresh_interval:
         settings.koyebRefreshInterval !== undefined
           ? settings.koyebRefreshInterval
@@ -209,7 +204,6 @@ function saveUserSettings(settings) {
 function getDefaultSettings() {
   return {
     customCss: '',
-    zeaburRefreshInterval: 30000,
     moduleVisibility: {
       paas: true,
       dns: true,

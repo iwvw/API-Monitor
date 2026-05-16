@@ -127,7 +127,6 @@ export const commonMethods = {
     if (this.customDialog) this.customDialog.show = false;
 
     // 各模块账号/资源模态框
-    this.showAddZeaburAccountModal = false;
     this.showAddKoyebAccountModal = false;
     this.showAddFlyAccountModal = false;
     this.showAddDnsAccountModal = false;
@@ -366,8 +365,6 @@ export const commonMethods = {
     localStorage.removeItem('password_time');
 
     // 重置所有模块数据
-    this.accounts = [];
-    this.managedAccounts = [];
     this.dnsAccounts = [];
     this.dnsZones = [];
     this.serverList = [];

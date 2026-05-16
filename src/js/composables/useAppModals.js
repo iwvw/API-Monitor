@@ -15,9 +15,6 @@ export function useAppModals() {
     settings: false,
     logViewer: false,
 
-    // Zeabur
-    addZeaburAccount: false,
-
     // Koyeb
     addKoyebAccount: false,
 

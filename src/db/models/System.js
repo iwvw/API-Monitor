@@ -249,13 +249,12 @@ class UserSettings extends BaseModel {
     }
 
     const defaults = {
-      zeabur: true,
       dns: true,
       openai: true,
       server: true,
       antigravity: true,
     };
-    const defaultOrder = ['zeabur', 'dns', 'openai', 'server', 'antigravity'];
+    const defaultOrder = ['dns', 'openai', 'server', 'antigravity'];
 
     // 解析 JSON 字段并合并默认值
     if (settings.module_visibility) {
@@ -328,7 +327,6 @@ class UserSettings extends BaseModel {
       id: 1,
       custom_css: '',
       module_visibility: JSON.stringify({
-        zeabur: true,
         dns: true,
         openai: true,
         server: true,
@@ -342,7 +340,7 @@ class UserSettings extends BaseModel {
         antigravity: '',
         'gemini-cli': '',
       }),
-      module_order: JSON.stringify(['zeabur', 'dns', 'openai', 'server', 'antigravity']),
+      module_order: JSON.stringify(['dns', 'openai', 'server', 'antigravity']),
       updated_at: new Date().toISOString(),
     };
 

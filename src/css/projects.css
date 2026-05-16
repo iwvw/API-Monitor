@@ -117,12 +117,12 @@
 }
 
 .project-edit-btn {
-  background: rgba(var(--zeabur-secondary-rgb), 0.1);
-  color: var(--zeabur-primary);
+  background: rgba(var(--paas-secondary-rgb), 0.1);
+  color: var(--paas-primary);
 }
 
 .project-edit-btn:hover {
-  background: rgba(var(--zeabur-secondary-rgb), 0.2);
+  background: rgba(var(--paas-secondary-rgb), 0.2);
   transform: scale(1.05);
 }
 
@@ -199,7 +199,7 @@
 
 .mini-card:hover {
   background-color: var(--bg-tertiary);
-  border-color: var(--zeabur-primary);
+  border-color: var(--paas-primary);
 }
 
 .mini-card-icon {
@@ -224,19 +224,19 @@
 .region-card {
   background: linear-gradient(
     135deg,
-    rgba(var(--zeabur-secondary-rgb), 0.1),
-    rgba(var(--zeabur-secondary-rgb), 0.05)
+    rgba(var(--paas-secondary-rgb), 0.1),
+    rgba(var(--paas-secondary-rgb), 0.05)
   );
-  border-color: rgba(var(--zeabur-secondary-rgb), 0.25);
+  border-color: rgba(var(--paas-secondary-rgb), 0.25);
 }
 
 .region-card:hover {
   background: linear-gradient(
     135deg,
-    rgba(var(--zeabur-secondary-rgb), 0.15),
-    rgba(var(--zeabur-secondary-rgb), 0.1)
+    rgba(var(--paas-secondary-rgb), 0.15),
+    rgba(var(--paas-secondary-rgb), 0.1)
   );
-  border-color: var(--zeabur-primary);
+  border-color: var(--paas-primary);
 }
 
 .cost-card {
@@ -284,8 +284,8 @@
 }
 
 .service-item.deploying {
-  background-color: rgba(var(--zeabur-secondary-rgb), 0.1);
-  border-color: rgba(var(--zeabur-secondary-rgb), 0.2);
+  background-color: rgba(var(--paas-secondary-rgb), 0.1);
+  border-color: rgba(var(--paas-secondary-rgb), 0.2);
 }
 
 .service-item.paused {
@@ -340,8 +340,8 @@
 .service-cancel-btn {
   padding: 2px var(--space-xs);
   border: none;
-  background: rgba(var(--zeabur-secondary-rgb), 0.1);
-  color: var(--zeabur-primary);
+  background: rgba(var(--paas-secondary-rgb), 0.1);
+  color: var(--paas-primary);
   border-radius: var(--radius-sm);
   cursor: pointer;
   transition: all 0.2s ease;
@@ -355,7 +355,7 @@
 }
 
 .service-edit-btn:hover {
-  background: rgba(var(--zeabur-secondary-rgb), 0.2);
+  background: rgba(var(--paas-secondary-rgb), 0.2);
   transform: scale(1.05);
 }
 
@@ -394,7 +394,7 @@
 }
 
 .status-deploying {
-  background-color: rgba(var(--zeabur-secondary-rgb), 0.2);
+  background-color: rgba(var(--paas-secondary-rgb), 0.2);
   color: var(--status-deploying);
 }
 
@@ -554,12 +554,12 @@
 }
 
 .btn-logs {
-  background-color: rgba(var(--zeabur-secondary-rgb), 0.2);
-  color: var(--zeabur-primary);
+  background-color: rgba(var(--paas-secondary-rgb), 0.2);
+  color: var(--paas-primary);
 }
 
 .btn-logs:hover {
-  background-color: rgba(var(--zeabur-secondary-rgb), 0.3);
+  background-color: rgba(var(--paas-secondary-rgb), 0.3);
 }
 
 .btn-delete {
@@ -581,12 +581,12 @@
 }
 
 .btn-custom-domain {
-  background-color: rgba(var(--zeabur-secondary-rgb), 0.2);
-  color: var(--zeabur-primary);
+  background-color: rgba(var(--paas-secondary-rgb), 0.2);
+  color: var(--paas-primary);
 }
 
 .btn-custom-domain:hover {
-  background-color: rgba(var(--zeabur-secondary-rgb), 0.3);
+  background-color: rgba(var(--paas-secondary-rgb), 0.3);
 }
 
 /* Domains */
@@ -606,7 +606,7 @@
   padding: var(--space-sm) var(--space-md);
   background-color: var(--bg-secondary);
   border-radius: var(--radius-md);
-  color: var(--zeabur-primary);
+  color: var(--paas-primary);
   text-decoration: none;
   font-size: 13px;
   font-weight: 500;
@@ -625,7 +625,7 @@
 
 .domain-badge {
   flex-shrink: 0;
-  background-color: var(--zeabur-primary);
+  background-color: var(--paas-primary);
   color: white;
   padding: 2px 6px;
   border-radius: var(--radius-md);
@@ -637,7 +637,7 @@
 .create-project-btn {
   padding: var(--space-sm) var(--space-md);
   border: none;
-  background: var(--zeabur-primary);
+  background: var(--paas-primary);
   color: white;
   border-radius: var(--radius-md);
   cursor: pointer;
@@ -648,19 +648,19 @@
   align-items: center;
   justify-content: center;
   gap: 6px;
-  box-shadow: 0 2px 8px rgba(var(--zeabur-secondary-rgb), 0.3);
+  box-shadow: 0 2px 8px rgba(var(--paas-secondary-rgb), 0.3);
   margin-left: var(--space-md);
 }
 
 .create-project-btn:hover {
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(var(--zeabur-secondary-rgb), 0.4);
+  box-shadow: 0 4px 12px rgba(var(--paas-secondary-rgb), 0.4);
   filter: brightness(1.1);
 }
 
 .create-project-btn:active {
   transform: translateY(0);
-  box-shadow: 0 2px 6px rgba(var(--zeabur-secondary-rgb), 0.3);
+  box-shadow: 0 2px 6px rgba(var(--paas-secondary-rgb), 0.3);
 }
 
 .create-service-btn {
@@ -668,7 +668,7 @@
   padding: var(--space-sm) var(--space-lg);
   border: 2px dashed var(--border-color);
   background: var(--bg-secondary);
-  color: var(--zeabur-primary);
+  color: var(--paas-primary);
   border-radius: var(--radius-md);
   cursor: pointer;
   transition: all 0.3s ease;
@@ -683,10 +683,10 @@
 
 .create-service-btn:hover {
   background: var(--bg-tertiary);
-  border-color: var(--zeabur-primary);
+  border-color: var(--paas-primary);
   border-style: solid;
   transform: translateY(-1px);
-  box-shadow: 0 2px 8px rgba(var(--zeabur-secondary-rgb), 0.2);
+  box-shadow: 0 2px 8px rgba(var(--paas-secondary-rgb), 0.2);
 }
 
 .create-service-btn:active {
@@ -705,23 +705,23 @@
   }
 }
 
-/* ====== Zeabur 模块主题色统丢 ====== */
+/* ====== PaaS 模块主题色统丢 ====== */
 
-/* Zeabur 模块主按?*/
-.zeabur-sec-tab .btn-primary {
-  background: var(--zeabur-primary);
-  box-shadow: 0 2px 8px rgba(var(--zeabur-secondary-rgb), 0.3);
+/* PaaS 模块主按?*/
+.paas-sec-tab .btn-primary {
+  background: var(--paas-primary);
+  box-shadow: 0 2px 8px rgba(var(--paas-secondary-rgb), 0.3);
 }
 
-.zeabur-sec-tab .btn-primary:hover {
+.paas-sec-tab .btn-primary:hover {
   filter: brightness(1.1);
-  box-shadow: 0 4px 12px rgba(var(--zeabur-secondary-rgb), 0.4);
+  box-shadow: 0 4px 12px rgba(var(--paas-secondary-rgb), 0.4);
 }
 
-/* Zeabur 子标签页 */
+/* PaaS 子标签页 */
 
-.zeabur-sec-tab .tab-btn.active {
-  background: var(--zeabur-primary) !important;
+.paas-sec-tab .tab-btn.active {
+  background: var(--paas-primary) !important;
 }
 
 /* --- Compact Statistics Styling --- */
@@ -763,9 +763,9 @@
 
   font-size: 16px;
 
-  background: rgba(var(--zeabur-primary-rgb), 0.1);
+  background: rgba(var(--paas-primary-rgb), 0.1);
 
-  color: var(--zeabur-primary);
+  color: var(--paas-primary);
 
   flex-shrink: 0;
 }
@@ -868,7 +868,7 @@
   animation: fadeIn 0.2s ease;
 }
 
-/* PaaS 主标签页样式继承?Zeabur */
+/* PaaS 主标签页样式继承?PaaS */
 .paas-sec-tab .btn-primary {
   background: var(--primary-color);
   box-shadow: 0 2px 8px rgba(var(--primary-rgb), 0.3);
@@ -955,7 +955,7 @@
   /* 减小上下边距以降低高?*/
   background-color: var(--bg-secondary);
   border-radius: var(--radius-md);
-  color: var(--zeabur-primary);
+  color: var(--paas-primary);
   text-decoration: none;
   font-size: 12px;
   /* 略微减小字号 */
@@ -990,8 +990,8 @@
 
 .domain-op-btn:hover {
   background-color: var(--bg-tertiary);
-  color: var(--zeabur-primary);
-  border-color: var(--zeabur-primary);
+  color: var(--paas-primary);
+  border-color: var(--paas-primary);
 }
 
 /* 快添加占位符 */
@@ -1018,6 +1018,6 @@
 
 .btn-quick-add-domain:hover {
   background: rgba(var(--primary-rgb, 0, 212, 170), 0.08);
-  border-color: var(--zeabur-primary);
-  color: var(--zeabur-primary);
+  border-color: var(--paas-primary);
+  color: var(--paas-primary);
 }

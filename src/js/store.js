@@ -41,7 +41,7 @@ export const MODULE_CONFIG = {
     name: 'PaaS',
     shortName: 'PaaS',
     icon: 'fa-cloud',
-    description: 'Zeabur / Koyeb / Fly.io 平台监控',
+    description: 'Koyeb / Fly.io 平台监控',
   },
   dns: {
     name: 'Cloudflare',
@@ -393,21 +393,9 @@ export const store = reactive({
   serverCredentials: [],
   showSSHQuickMenu: false, // SSH 快速连接下拉菜单
 
-  // PaaS 平台监控 (Zeabur + Koyeb + ...)
-  paasCurrentPlatform: 'zeabur', // 'zeabur', 'koyeb', etc.
-  paasCurrentTab: 'zeabur', // 'zeabur', 'koyeb', 'accounts', 'settings'
-
-  // Zeabur 子模块
-  accounts: [],
-  managedAccounts: [],
-  zeaburCurrentTab: 'monitor',
-  loading: false, // Zeabur loading
-  zeaburRefreshInterval: 30000,
-  zeaburRefreshIntervalSec: 30, // 秒（用于表单绑定）
-  refreshCountdown: 30,
-  refreshProgress: 30,
-  dataRefreshPaused: false,
-  projectCosts: {},
+  // PaaS 平台监控 (Koyeb + ...)
+  paasCurrentPlatform: 'koyeb', // 'koyeb', etc.
+  paasCurrentTab: 'koyeb', // 'koyeb', 'accounts', 'settings'
 
   // Koyeb 子模块
   koyebAccounts: [],
@@ -969,7 +957,7 @@ export const store = reactive({
     levelFilter: 'ALL', // ALL, INFO, WARN, ERROR
     wrapText: true,
     fullscreen: false,
-    source: null, // 'zeabur', 'koyeb', 'system', etc.
+    source: null, // 'koyeb', 'system', etc.
     streamActive: false, // 是否正在接收实时流
   },
 

@@ -1,9 +1,9 @@
 ﻿/* OpenAI Module Styles - Model List Only */
 
-/* Models Container & Grid - Matches Zeabur Projects/Services layout */
+/* Models Container & Grid - Matches Projects/Services layout */
 .openai-models-container {
   padding: 0 var(--space-xs) 6px var(--space-xs);
-  /* Tight padding to match Zeabur expansion */
+  /* Tight padding to match PaaS expansion */
   max-height: 2000px;
   opacity: 1;
   transition: all 0.5s cubic-bezier(0.16, 1, 0.3, 1);
@@ -23,7 +23,7 @@
   gap: 6px;
   padding: 6px 6px 0px 6px;
   border-radius: var(--radius-md);
-  /* Removed background/border to match Zeabur's clean look */
+  /* Removed background/border to match PaaS's clean look */
 }
 
 /* Improved Model Tag Styling */
@@ -132,7 +132,7 @@
   transform: scale(1.1);
 }
 
-/* Icon on the right like Zeabur status if preferred, but keep it consistent for now */
+/* Icon on the right like PaaS status if preferred, but keep it consistent for now */
 
 .empty-models {
   padding: var(--space-lg);
@@ -149,8 +149,8 @@
   animation: openaiFadeIn 0.3s ease-out;
 }
 
-/* Model Count Badge (matches Zeabur's compact 28px icon style) */
-.openai-tab-content .zeabur-balance-panel {
+/* Model Count Badge (matches compact 28px icon style) */
+.openai-tab-content .paas-balance-panel {
   display: flex;
   align-items: center;
   background: var(--bg-secondary);
@@ -161,23 +161,23 @@
   transition: all 0.25s ease;
 }
 
-.openai-tab-content .zeabur-balance-panel:hover {
+.openai-tab-content .paas-balance-panel:hover {
   background: rgba(16, 163, 127, 0.05);
   border-color: rgba(16, 163, 127, 0.3);
 }
 
-.openai-tab-content .zeabur-balance-panel:active {
+.openai-tab-content .paas-balance-panel:active {
   transform: translateY(0);
 }
 
-.openai-tab-content .zeabur-balance-item {
+.openai-tab-content .paas-balance-item {
   display: flex;
   align-items: center;
   gap: var(--space-sm);
   padding: 3px var(--space-sm);
 }
 
-.openai-tab-content .zeabur-balance-icon {
+.openai-tab-content .paas-balance-icon {
   width: 28px;
   height: 28px;
   border-radius: 7px;
@@ -189,7 +189,7 @@
   color: #10a37f;
 }
 
-.openai-tab-content .zeabur-balance-icon.refreshing {
+.openai-tab-content .paas-balance-icon.refreshing {
   animation: openaiPulse 0.6s ease-in-out infinite;
 }
 
@@ -205,13 +205,13 @@
   }
 }
 
-.openai-tab-content .zeabur-balance-info {
+.openai-tab-content .paas-balance-info {
   display: flex;
   flex-direction: column;
   min-width: 40px;
 }
 
-.openai-tab-content .zeabur-balance-label {
+.openai-tab-content .paas-balance-label {
   font-size: 10px;
   color: var(--text-tertiary);
   font-weight: 600;
@@ -219,7 +219,7 @@
   line-height: 1;
 }
 
-.openai-tab-content .zeabur-balance-value {
+.openai-tab-content .paas-balance-value {
   font-size: 14px;
   font-weight: 700;
   color: #10a37f;
@@ -2271,7 +2271,7 @@
   gap: var(--space-sm);
 }
 
-.openai-health-check-badge .zeabur-balance-icon {
+.openai-health-check-badge .paas-balance-icon {
   width: 32px;
   height: 32px;
   border-radius: var(--radius-md);
@@ -2281,7 +2281,7 @@
   transition: all 0.2s;
 }
 
-.openai-health-check-badge:hover .zeabur-balance-icon {
+.openai-health-check-badge:hover .paas-balance-icon {
   background: rgba(16, 163, 127, 0.2) !important;
   transform: scale(1.05);
 }

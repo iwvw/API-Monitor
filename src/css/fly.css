@@ -1,9 +1,9 @@
-﻿/* Fly.io 模块专属样式 - 基于 Zeabur/Koyeb 样式 */
+﻿/* Fly.io 模块专属样式 - 基于 PaaS/Koyeb 样式 */
 
 /* 
  * ˵:
  * 这个文件?Fly.io ģṩרʽ֧
- * 主要通过复写基础样式来对?Zeabur ?Koyeb 的视觉效?
+ * 主要通过复写基础样式来对?PaaS ?Koyeb 的视觉效?
  */
 
 :root {
@@ -12,7 +12,7 @@
   --fly-secondary: #d946ef;
 }
 
-/* 双击编辑样式预览 - 应用名称 (对齐 Zeabur/Koyeb) */
+/* 双击编辑样式预览 - 应用名称 (对齐 PaaS/Koyeb) */
 .paas-sec-tab .fly-project-name-text {
   cursor: text;
   user-select: none;

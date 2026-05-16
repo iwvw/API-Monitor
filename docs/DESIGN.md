@@ -1,7 +1,7 @@
 # 🏛️ API Monitor 详细设计文档
 
 ## 项目概述
-API Monitor（内部代号 Gravity Engineering System）是一个全能型的高性能 API 管理与服务器监控聚合网关。系统采用 **单体模块化 (Micro-kernel + Plugin)** 架构，将主机监控、Docker 管理、PaaS 云服务集成（如 Cloudflare、Zeabur、Koyeb 等）、以及 AI 代理（Antigravity / Gemini / OpenAI 格式转换引擎）等多种功能无缝聚合。
+API Monitor（内部代号 Gravity Engineering System）是一个全能型的高性能 API 管理与服务器监控聚合网关。系统采用 **单体模块化 (Micro-kernel + Plugin)** 架构，将主机监控、Docker 管理、PaaS 云服务集成（如 Cloudflare、Koyeb 等）、以及 AI 代理（Antigravity / Gemini / OpenAI 格式转换引擎）等多种功能无缝聚合。
 本项目在提供企业级特性的同时，坚持开箱即用与极简的外部架构依赖，所有状态收敛于内置的高性能 SQLite 引擎，无需引入外部的 Redis 或 MySQL 等高昂运维中间件。
 
 ## 设计理念与原则

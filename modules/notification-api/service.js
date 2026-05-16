@@ -62,7 +62,7 @@ class NotificationService extends EventEmitter {
 
     /**
      * 触发告警 (供其他模块调用)
-     * @param {string} sourceModule - 来源模块 (uptime/server/zeabur/openai)
+     * @param {string} sourceModule - 来源模块 (uptime/server/openai)
      * @param {string} eventType - 事件类型 (down/up/offline/cpu_high/balance_low)
      * @param {object} data - 事件数据
      *

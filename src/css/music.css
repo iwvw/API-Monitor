@@ -1945,7 +1945,7 @@
   -webkit-backdrop-filter: blur(40px) saturate(180%) !important;
 
   box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3) !important;
-  /* Zeabur 风格向上生长动画 */
+  /* PaaS 风格向上生长动画 */
   transition: all 0.6s cubic-bezier(0.32, 0.72, 0, 1) !important;
   transform-origin: bottom center !important;
 
@@ -2435,7 +2435,7 @@
 
 .full-player-fade-enter-active,
 .full-player-fade-leave-active {
-  /* 核心生长动画时间?.6s，贝塞尔曲线复刻 Zeabur 平滑?*/
+  /* 核心生长动画时间?.6s，贝塞尔曲线复刻 PaaS 平滑?*/
   transition:
     transform 0.6s cubic-bezier(0.32, 0.72, 0, 1),
     opacity 0.4s ease !important;
@@ -2443,7 +2443,7 @@
 
 .full-player-fade-enter-from,
 .full-player-fade-leave-to {
-  /* Zeabur 㣺ӵ߶ȣԼ 0.08 比例）开始生?*/
+  /* PaaS 㣺ӵ߶ȣԼ 0.08 比例）开始生?*/
   transform: translateX(-50%) scaleY(0.08) !important;
   opacity: 0;
   transform-origin: bottom center !important;

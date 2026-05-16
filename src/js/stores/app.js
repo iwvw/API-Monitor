@@ -11,7 +11,7 @@ export const MODULE_CONFIG = {
     'gemini-cli': { name: 'GCLI', shortName: 'GCLI', icon: 'fa-terminal', description: 'Gemini CLI API 代理服务' },
     deepseek: { name: 'DeepSeek', shortName: 'DS', icon: 'fa-brain', description: 'DeepSeek API 代理服务' },
     qwen: { name: '通义千问', shortName: 'Qwen', icon: 'fa-magic', description: '通义千问 API 代理服务' },
-    paas: { name: 'PaaS', shortName: 'PaaS', icon: 'fa-cloud', description: 'Zeabur / Koyeb / Fly.io 平台监控' },
+    paas: { name: 'PaaS', shortName: 'PaaS', icon: 'fa-cloud', description: 'Koyeb / Fly.io 平台监控' },
     dns: { name: 'DNS', shortName: 'CF', icon: 'fa-globe', description: 'Cloudflare DNS / Workers / Pages 管理' },
     aliyun: { name: '阿里云', shortName: 'Aliyun', icon: 'fa-cloud', description: '阿里云 DNS / ECS 管理' },
     tencent: { name: '腾讯云', shortName: 'Tencent', icon: 'fa-cloud', description: '腾讯云 DNS / CVM 管理' },

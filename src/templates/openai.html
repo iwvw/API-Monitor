@@ -52,12 +52,12 @@
               transform: isOpenaiEndpointExpanded(endpoint.id) ? 'rotate(90deg)' : 'rotate(0deg)'
             }"></i>
               <!-- 头像 -->
-              <div class="zeabur-account-avatar" style="background: linear-gradient(135deg, #10a37f, #059669)">
+              <div class="paas-account-avatar" style="background: linear-gradient(135deg, #10a37f, #059669)">
                 <span class="avatar-letter">{{ (endpoint.name || 'A').charAt(0).toUpperCase() }}</span>
               </div>
               <!-- 端点信息 -->
-              <div class="zeabur-account-details">
-                <div class="zeabur-account-name">
+              <div class="paas-account-details">
+                <div class="paas-account-name">
                   <span class="ag-status-badge" style="margin-right: 8px; font-size: 10px"
                     :class="endpoint.status === 'valid' ? 'ag-status-online' : (endpoint.status === 'invalid' ? 'ag-status-error' : 'ag-status-unknown')">
                     {{ endpoint.status === 'valid' ? '有效' : (endpoint.status === 'invalid' ? '无效'
@@ -65,7 +65,7 @@
                   </span>
                   {{ endpoint.name || '未命名端点' }}
                 </div>
-                <div class="zeabur-account-email">
+                <div class="paas-account-email">
                   <i class="fas fa-link"></i>
                   {{ maskAddress(endpoint.baseUrl, serverIpDisplayMode) }}
                 </div>

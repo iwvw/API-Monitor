@@ -3,7 +3,7 @@
  */
 
 const path = require('path');
-const { SystemConfig, ZeaburAccount } = require('../db/models');
+const { SystemConfig } = require('../db/models');
 const dbService = require('../db/database');
 const { apiCache } = require('../utils/cache');
 const { hashPasswordSync, isHashed } = require('../utils/password');
@@ -21,68 +21,6 @@ const PASSWORD_FILE = path.join(CONFIG_DIR, 'password.json');
  */
 function ensureConfigDir() {
   // 数据库模式下不再需要，但保留函数以保持兼容性
-}
-
-/**
- * 读取主机存储的账号（从数据库）
- */
-function loadServerAccounts() {
-  try {
-    const accounts = ZeaburAccount.findAll();
-    // 转换字段名以保持向后兼容
-    return accounts.map(acc => ({
-      id: acc.id,
-      name: acc.name,
-      token: acc.token,
-      status: acc.status,
-      email: acc.email,
-      username: acc.username,
-      balance: acc.balance,
-      cost: acc.cost,
-      createdAt: acc.created_at,
-      updatedAt: acc.updated_at,
-    }));
-  } catch (e) {
-    console.error('❌ 读取账号失败:', e.message);
-    return [];
-  }
-}
-
-/**
- * 保存账号到数据库
- */
-function saveServerAccounts(accounts) {
-  try {
-    // 注意：这个函数会完全替换所有账号
-    // 在实际使用中，建议使用更细粒度的操作（添加、更新、删除单个账号）
-    const db = dbService.getDatabase();
-
-    const transaction = db.transaction(() => {
-      // 清空现有账号
-      ZeaburAccount.truncate();
-
-      // 插入新账号
-      accounts.forEach(account => {
-        ZeaburAccount.createAccount({
-          id: account.id,
-          name: account.name,
-          token: account.token,
-          status: account.status || 'active',
-          email: account.email,
-          username: account.username,
-          balance: account.balance || 0,
-          cost: account.cost || 0,
-          created_at: account.createdAt || new Date().toISOString(),
-        });
-      });
-    });
-
-    transaction();
-    return true;
-  } catch (e) {
-    console.error('❌ 保存账号失败:', e.message);
-    return false;
-  }
 }
 
 /**
@@ -173,8 +111,6 @@ module.exports = {
   CONFIG_DIR,
   ACCOUNTS_FILE,
   PASSWORD_FILE,
-  loadServerAccounts,
-  saveServerAccounts,
   loadAdminPassword,
   isPasswordSavedToFile,
   saveAdminPassword,

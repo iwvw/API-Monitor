@@ -55,17 +55,6 @@ export const transitionsMethods = {
     }
   },
 
-  // 切换到 Zeabur 模块
-  switchToZeabur() {
-    this.previousMainTab = this.mainActiveTab;
-    this.mainActiveTab = 'zeabur';
-
-    // 首次切换到 Zeabur 时加载数据
-    if (!this.accounts || this.accounts.length === 0) {
-      this.fetchData();
-    }
-  },
-
   // 平滑滚动到顶部
   smoothScrollToTop() {
     window.scrollTo({
@@ -116,11 +105,6 @@ export const transitionsMethods = {
             this.$nextTick(() => {
               this.scrollToBottom(true, true);
             });
-            break;
-          case 'zeabur':
-            if (!this.accounts || this.accounts.length === 0) {
-              this.fetchData();
-            }
             break;
           case 'antigravity':
             if (!this.antigravityAccounts || this.antigravityAccounts.length === 0) {

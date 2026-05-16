@@ -18,11 +18,11 @@
 ---
 
 **一个全能型的 API 管理与服务器监控面板**。
-主机、实时 终端、Docker、云服务集成，包括 Cloudflare、OpenAI、Zeabur、Koyeb。
+主机、实时 终端、Docker、云服务集成，包括 Cloudflare、OpenAI、Koyeb。
 
 支持Antigravity / Gemini 的模型转 API 调用，有完善的额度使用统计、日志记录、模型列表获取、全链路耗时统计。
 
-[🔵 Docker Hub](https://hub.docker.com/r/iwvw/api-monitor) | [🔴 在线演示 (Demo)](https://api-monitor.zeabur.app/)
+[🔵 Docker Hub](https://hub.docker.com/r/iwvw/api-monitor)
 
 > [!WARNING]
 > 请勿在演示环境中输入真实的敏感数据

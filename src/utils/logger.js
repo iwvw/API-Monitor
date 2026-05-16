@@ -280,7 +280,7 @@ function getModuleColor(module) {
   // 语义化配色映射
   if (mod.includes('servermoni')) return chalk.green; // 监控 - 绿色
   if (mod.includes('ssh')) return chalk.white.bold; // SSH - 粗体白
-  if (mod.includes('zeabur') || mod.includes('paas')) return chalk.cyan; // PaaS - 青色
+  if (mod.includes('paas')) return chalk.cyan; // PaaS - 青色
   if (mod.includes('antigravit')) return chalk.magenta; // Antigravity - 品红
   if (mod.includes('gemini')) return chalk.blueBright; // Gemini - 亮蓝
   if (mod.includes('openai')) return chalk.greenBright; // OpenAI - 亮绿

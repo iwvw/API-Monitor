@@ -56,9 +56,6 @@ export const authMethods = {
         // 根据当前标签页加载对应的数据
         this.$nextTick(() => {
           switch (this.mainActiveTab) {
-            case 'zeabur':
-              this.fetchData();
-              break;
             case 'dns':
               this.loadDnsAccounts();
               this.loadDnsTemplates();
@@ -96,9 +93,6 @@ export const authMethods = {
       // 根据当前标签页加载对应的数据
       this.$nextTick(() => {
         switch (this.mainActiveTab) {
-          case 'zeabur':
-            this.fetchData();
-            break;
           case 'dns':
             this.loadDnsAccounts();
             this.loadDnsTemplates();

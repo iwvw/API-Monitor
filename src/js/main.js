@@ -41,7 +41,6 @@ async function loadLazyCSS() {
     import('../css/deepseek.css'),
     import('../css/openai.css'),
     import('../css/self-h.css'),
-    import('../css/zeabur.css'),
     import('../css/koyeb.css'),
     import('../css/fly.css'),
     import('../css/r2.css'),
@@ -79,7 +78,6 @@ import 'simple-icons-font/font/simple-icons.min.css';
 // 导入功能模块
 import { dashboardMethods } from './modules/dashboard.js';
 import { authMethods } from './modules/auth.js';
-import { zeaburMethods } from './modules/zeabur.js';
 import { renderMarkdown } from './modules/utils.js';
 import { paasMethods } from './modules/paas.js';
 import { koyebMethods } from './modules/koyeb.js';
@@ -238,32 +236,6 @@ const app = createApp({
   },
   data() {
     return {
-      // Zeabur 相关
-      lastUpdate: '--:--:--',
-      newAccount: {
-        name: '',
-        token: '',
-        balance: '',
-      },
-      addingAccount: false,
-      addAccountError: '',
-      addAccountSuccess: '',
-      expandedAccounts: {},
-      refreshInterval: null,
-      navLayout: 'bottom-normal', // top, bottom-normal, bottom
-      agentDownloadUrl: '',
-      publicApiUrl: '',
-      zeaburRefreshInterval: 30000,
-      refreshing: false,
-      lastFetchAt: 0,
-      minFetchInterval: 10000, // Zeabur 数据刷新最小间隔 10 秒
-      // 批量添加
-      batchAccounts: '',
-      maskedBatchAccounts: '',
-      batchAddError: '',
-      batchAddSuccess: '',
-      showAddZeaburAccountModal: false,
-
       // 刷新倒计时
       countdownInterval: null,
 
@@ -861,7 +833,7 @@ const app = createApp({
       return (
         this.showSettingsModal ||
         this.logViewer.visible ||
-        this.showAddZeaburAccountModal ||
+        this.showAddKoyebAccountModal ||
         this.showAddKoyebAccountModal ||
         this.showAddFlyAccountModal ||
         this.showAddDnsAccountModal ||
@@ -1326,14 +1298,7 @@ const app = createApp({
                 this.initDashboard();
                 break;
               case 'paas':
-                if (this.paasCurrentPlatform === 'zeabur') {
-                  if (this.accounts.length === 0) {
-                    this.loadFromZeaburCache();
-                  }
-                  if (!this.dataRefreshPaused) {
-                    this.startAutoRefresh();
-                  }
-                } else if (this.paasCurrentPlatform === 'koyeb') {
+                if (this.paasCurrentPlatform === 'koyeb') {
                   if (this.koyebAccounts.length === 0) {
                     this.loadFromKoyebCache();
                   }
@@ -1483,9 +1448,7 @@ const app = createApp({
               this.initDashboard();
               break;
             case 'paas':
-              if (this.paasCurrentPlatform === 'zeabur') {
-                this.loadFromZeaburCache();
-              } else if (this.paasCurrentPlatform === 'koyeb') {
+              if (this.paasCurrentPlatform === 'koyeb') {
                 this.loadKoyebData();
               } else if (this.paasCurrentPlatform === 'fly') {
                 this.loadFlyData();
@@ -1547,18 +1510,7 @@ const app = createApp({
 
     // PaaS 平台标签页切换监听
     paasCurrentTab(newVal) {
-      if (newVal === 'zeabur') {
-        this.paasCurrentPlatform = 'zeabur';
-        if (this.accounts.length === 0) {
-          this.loadFromZeaburCache();
-        }
-        // 启动 Zeabur 自动刷新
-        if (!this.dataRefreshPaused) {
-          this.startAutoRefresh();
-        }
-        // 停止 Koyeb 自动刷新
-        this.stopKoyebAutoRefresh();
-      } else if (newVal === 'koyeb') {
+      if (newVal === 'koyeb') {
         this.paasCurrentPlatform = 'koyeb';
         // 优先加载缓存
         if (this.koyebAccounts.length === 0) {
@@ -1572,8 +1524,6 @@ const app = createApp({
           this.startKoyebAutoRefresh();
           this.loadKoyebData(); // 立即触发一次
         }
-        // 停止 Zeabur 自动刷新
-        this.stopAutoRefresh();
       } else if (newVal === 'fly') {
         this.paasCurrentPlatform = 'fly';
         // 优先加载缓存
@@ -1589,16 +1539,14 @@ const app = createApp({
           this.loadFlyData(); // 立即触发一次
         }
         // 停止其他自动刷新
-        this.stopAutoRefresh();
         this.stopKoyebAutoRefresh();
       } else {
         // 其他标签页，停止所有自动刷新
-        this.stopAutoRefresh();
         this.stopKoyebAutoRefresh();
         this.stopFlyAutoRefresh();
 
         if (newVal === 'accounts') {
-          // 加载三个平台的账号
+          // 加载账号
           this.loadManagedAccounts();
           if (this.koyebManagedAccounts.length === 0) {
             this.loadKoyebManagedAccounts();
@@ -1625,12 +1573,6 @@ const app = createApp({
     },
 
     // 各种模态框的聚焦处理
-    showAddZeaburAccountModal(newVal) {
-      if (newVal) {
-        this.$nextTick(() => this.focusModalOverlay());
-      }
-    },
-
     showAddKoyebAccountModal(newVal) {
       if (newVal) {
         this.$nextTick(() => this.focusModalOverlay());
@@ -1758,7 +1700,6 @@ const app = createApp({
     // ==================== 功能模块 ====================
     ...dashboardMethods,
     ...authMethods,
-    ...zeaburMethods,
     ...paasMethods,
     ...koyebMethods,
     ...flyMethods,

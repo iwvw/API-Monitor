@@ -5,13 +5,6 @@
     <div class="paas-tabs-scroll-wrapper">
       <button
         class="tab-btn"
-        :class="{ active: paasCurrentTab === 'zeabur' }"
-        @click="paasCurrentTab = 'zeabur'; paasCurrentPlatform = 'zeabur'"
-      >
-        <i class="fas fa-rocket"></i> Zeabur
-      </button>
-      <button
-        class="tab-btn"
         :class="{ active: paasCurrentTab === 'koyeb' }"
         @click="paasCurrentTab = 'koyeb'; paasCurrentPlatform = 'koyeb'"
       >
@@ -44,269 +37,6 @@
     <div class="paas-tabs-spacer"></div>
   </div>
 
-  <!-- ========== Zeabur 服务监控 ========== -->
-  <div v-if="paasCurrentTab === 'zeabur'" class="sub-tab-content quick-fade-in">
-    <div v-if="accounts.length > 0" class="stats-grid">
-      <div class="stat-card">
-        <div
-          class="stat-icon-wrapper"
-          style="background: rgba(var(--primary-rgb), 0.1); color: var(--primary-color)"
-        >
-          <i class="fas fa-user-circle"></i>
-        </div>
-        <div class="stat-content">
-          <div class="stat-label">账号数</div>
-          <div class="stat-value">{{ accounts.length }}</div>
-        </div>
-      </div>
-      <div class="stat-card">
-        <div
-          class="stat-icon-wrapper"
-          style="background: rgba(var(--primary-rgb), 0.1); color: var(--primary-color)"
-        >
-          <i class="fas fa-cube"></i>
-        </div>
-        <div class="stat-content">
-          <div class="stat-label">服务总数</div>
-          <div class="stat-value">{{ totalServices }}</div>
-        </div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-icon-wrapper" style="background: rgba(16, 185, 129, 0.1); color: #10b981">
-          <i class="fas fa-play-circle"></i>
-        </div>
-        <div class="stat-content">
-          <div class="stat-label">运行中</div>
-          <div class="stat-value success">{{ runningServices }}</div>
-        </div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-icon-wrapper" style="background: rgba(245, 158, 11, 0.1); color: #f59e0b">
-          <i class="fas fa-dollar-sign"></i>
-        </div>
-        <div class="stat-content">
-          <div class="stat-label">总费用</div>
-          <div class="stat-value warning">${{ totalCost.toFixed(2) }}</div>
-        </div>
-      </div>
-    </div>
-
-    <div v-if="loading && accounts.length === 0" class="loading">⚡ 正在加载数据...</div>
-
-    <div v-else>
-      <div
-        v-for="account in accounts"
-        :key="account.name"
-        class="account-card"
-        :class="{ 'expanded': isAccountExpanded(account.name) }"
-        style="margin-bottom: 12px"
-      >
-        <div class="account-header" @click="toggleAccount(account.name)">
-          <div class="account-info">
-            <i
-              class="fas fa-chevron-right toggle-icon"
-              :style="{ transform: isAccountExpanded(account.name) ? 'rotate(90deg)' : 'rotate(0deg)' }"
-            ></i>
-            <div class="zeabur-account-avatar">
-              <span class="avatar-letter">{{ account.name.charAt(0).toUpperCase() }}</span>
-            </div>
-            <div class="zeabur-account-details">
-              <div
-                class="zeabur-account-name"
-                v-if="!account.isEditingName"
-                @dblclick.stop="startEditAccountName(account)"
-              >
-                {{ account.name }}
-              </div>
-              <div v-else class="account-name-edit" @click.stop>
-                <input
-                  v-model="account.editingName"
-                  @keyup.enter="saveAccountName(account)"
-                  @keyup.esc="cancelEditAccountName(account)"
-                  @blur="saveAccountName(account)"
-                  class="edit-input"
-                  ref="accountNameInput"
-                />
-              </div>
-              <div v-if="account.data" class="zeabur-account-email">
-                <i class="fas fa-envelope"></i>
-                {{ maskEmail(account.data.email) || account.data.username }}
-              </div>
-            </div>
-          </div>
-          <div class="zeabur-balance-panel">
-            <div class="zeabur-balance-item zeabur-credit">
-              <div class="zeabur-balance-icon"><i class="fas fa-coins"></i></div>
-              <div class="zeabur-balance-info">
-                <span class="zeabur-balance-label">余额</span>
-                <span
-                  class="zeabur-balance-value"
-                  :class="account.data?.credit ? getBalanceClass(account.data.credit) : ''"
-                >
-                  <span v-if="account.data?.credit"
-                    >${{ (account.data.credit / 100).toFixed(2) }}</span
-                  >
-                  <span v-else>-</span>
-                </span>
-              </div>
-            </div>
-            <div class="zeabur-balance-item zeabur-ai">
-              <div class="zeabur-balance-icon"><i class="fas fa-robot"></i></div>
-              <div class="zeabur-balance-info">
-                <span class="zeabur-balance-label">AI Hub</span>
-                <span class="zeabur-balance-value">
-                  {{ account.aihub && account.aihub.balance ? '$' + (account.aihub.balance /
-                  100000).toFixed(2) : '无' }}
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div class="account-card-body">
-          <div
-            v-if="account.projects"
-            class="projects-grid"
-            :class="{ 'collapsed': !isAccountExpanded(account.name) }"
-          >
-            <div v-for="project in account.projects" :key="project._id" class="project-card">
-              <div class="project-header">
-                <div class="project-name-wrapper">
-                  <span class="project-name-icon">📦</span>
-                  <span
-                    v-if="!project.isEditing"
-                    class="project-name-text zeabur-project-name-text"
-                    @dblclick.stop="startEditProjectName(project)"
-                    >{{ project.name }}</span
-                  >
-                  <input
-                    v-else
-                    v-model="project.editingName"
-                    @keyup.enter="saveProjectName(account, project)"
-                    @keyup.esc="cancelEditProjectName(project)"
-                    @blur="saveProjectName(account, project)"
-                    class="project-name-input"
-                  />
-                </div>
-                <div class="project-actions">
-                  <button
-                    v-if="!project.isEditing"
-                    @click="deleteProject(account, project)"
-                    class="project-delete-btn"
-                  >
-                    <i class="fas fa-trash"></i>
-                  </button>
-                </div>
-              </div>
-              <div class="project-mini-cards">
-                <div class="mini-card region-card">
-                  <span class="mini-card-icon">地区📍</span>
-                  <span class="mini-card-value">{{ formatRegion(project.region) }}</span>
-                </div>
-                <div class="mini-card cost-card">
-                  <span class="mini-card-icon">已用💰</span>
-                  <span class="mini-card-value">${{ formatCost(project.cost) }}</span>
-                </div>
-              </div>
-              <div class="services-container">
-                <div
-                  v-for="service in project.services"
-                  :key="service._id"
-                  class="service-item"
-                  :class="'status-' + service.status.toLowerCase()"
-                >
-                  <div class="service-header">
-                    <div class="service-name-container">
-                      <span
-                        v-if="!service.isEditing"
-                        class="service-name zeabur-service-name"
-                        @dblclick.stop="startEditServiceName(service)"
-                        >{{ service.name }}</span
-                      >
-                      <input
-                        v-else
-                        v-model="service.editingName"
-                        @keyup.enter="saveServiceName(account, project, service)"
-                        @keyup.esc="cancelEditServiceName(service)"
-                        @blur="saveServiceName(account, project, service)"
-                        class="service-name-input"
-                      />
-                    </div>
-                    <div :class="['service-status', 'status-' + service.status.toLowerCase()]">
-                      {{ service.status === 'RUNNING' ? '运行中' : service.status === 'SUSPENDED' ?
-                      '已暂停' : service.status }}
-                    </div>
-                  </div>
-                  <div class="service-actions">
-                    <button
-                      v-if="service.status === 'RUNNING'"
-                      @click="pauseService(account, project, service)"
-                      class="service-btn btn-pause"
-                      title="暂停"
-                    >
-                      <i class="fas fa-pause"></i>
-                    </button>
-                    <button
-                      @click="restartService(account, project, service)"
-                      class="service-btn btn-restart"
-                      title="重启"
-                    >
-                      <i class="fas fa-redo"></i>
-                    </button>
-                    <button
-                      @click="showServiceLogs(account, project, service)"
-                      class="service-btn btn-logs"
-                      title="日志"
-                    >
-                      <i class="fas fa-file-alt"></i>
-                    </button>
-                    <button
-                      @click="deleteService(account, project, service)"
-                      class="service-btn btn-delete"
-                      title="删除"
-                    >
-                      <i class="fas fa-trash"></i>
-                    </button>
-                  </div>
-                </div>
-              </div>
-              <div class="domains-container">
-                <!-- 已有域名列表 -->
-                <div
-                  v-for="domainInfo in getProjectDomains(project)"
-                  :key="domainInfo.domain"
-                  class="domain-item-wrapper"
-                >
-                  <div class="domain-link-group">
-                    <a :href="'https://' + domainInfo.domain" target="_blank" class="domain-link">
-                      <i class="fas fa-globe"></i>
-                      <span>{{ domainInfo.domain }}</span>
-                    </a>
-                    <button
-                      class="domain-op-btn edit"
-                      @click.stop="editDomain(account, project, domainInfo)"
-                      title="管理域名"
-                    >
-                      <i class="fas fa-edit"></i>
-                    </button>
-                  </div>
-                </div>
-
-                <!-- 无域名时的快速添加入口 -->
-                <div v-if="getProjectDomains(project).length === 0" class="domain-empty-state">
-                  <button class="btn-quick-add-domain" @click="quickAddDomain(account, project)">
-                    <i class="fas fa-plus-circle"></i>
-                    <span>添加或生成域名</span>
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  </div>
-
   <!-- ========== Koyeb 服务监控 ========== -->
   <div v-if="paasCurrentTab === 'koyeb'" class="sub-tab-content quick-fade-in">
     <div class="info-card">
@@ -331,14 +61,14 @@
               :style="{ transform: isKoyebAccountExpanded(account.name) ? 'rotate(90deg)' : 'rotate(0deg)' }"
             ></i>
             <div
-              class="zeabur-account-avatar koyeb-account-avatar"
+              class="paas-account-avatar koyeb-account-avatar"
               style="background: linear-gradient(135deg, #4f46e5, #7c3aed); margin: 0px"
             >
               <span class="avatar-letter">{{ account.name.charAt(0).toUpperCase() }}</span>
             </div>
-            <div class="zeabur-account-details">
-              <div class="zeabur-account-name">{{ account.name }}</div>
-              <div v-if="account.data" class="zeabur-account-email">
+            <div class="paas-account-details">
+              <div class="paas-account-name">{{ account.name }}</div>
+              <div v-if="account.data" class="paas-account-email">
                 <i class="fas fa-envelope"></i> {{ account.data.email || '-' }}
               </div>
             </div>
@@ -464,11 +194,11 @@
               class="fas fa-chevron-right toggle-icon fly-toggle"
               :style="{ transform: isFlyAccountExpanded(account.name) ? 'rotate(90deg)' : 'rotate(0deg)' }"
             ></i>
-            <div class="zeabur-account-avatar fly-account-avatar">
+            <div class="paas-account-avatar fly-account-avatar">
               <span class="avatar-letter">{{ (account.name || 'F').charAt(0).toUpperCase() }}</span>
             </div>
-            <div class="zeabur-account-details">
-              <div class="zeabur-account-name">{{ account.name }}</div>
+            <div class="paas-account-details">
+              <div class="paas-account-name">{{ account.name }}</div>
             </div>
           </div>
           <!-- 新建应用及刷新按钮 -->
@@ -667,120 +397,10 @@
     </div>
   </div>
 
-  <!-- ========== 账号管理（统一管理 Zeabur + Koyeb + Fly.io） ========== -->
+  <!-- ========== 账号管理（统一管理 Koyeb + Fly.io） ========== -->
   <div v-if="paasCurrentTab === 'accounts'" class="sub-tab-content quick-fade-in">
-    <!-- Zeabur 账号管理 -->
-    <div class="panel">
-      <div class="panel-header">
-        <div class="panel-title">
-          <i class="fas fa-users" style="margin-right: 8px; color: var(--zeabur-primary)"></i>Zeabur
-          账号管理
-        </div>
-        <div style="display: flex; gap: 8px">
-          <button
-            class="btn btn-success paas-control-btn"
-            @click="showAddZeaburAccountModal = true"
-          >
-            <i class="fas fa-plus"></i> 添加
-          </button>
-          <button class="btn btn-secondary paas-control-btn" @click="exportAllAccounts">
-            <i class="fas fa-upload"></i> 导出
-          </button>
-          <button class="btn btn-secondary paas-control-btn" @click="importAllAccounts">
-            <i class="fas fa-download"></i> 导入
-          </button>
-        </div>
-      </div>
-      <div class="table-container">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>备注名称</th>
-              <th>账号邮箱</th>
-              <th class="text-center" style="width: 120px">余额</th>
-              <th class="text-center" style="width: 100px">状态</th>
-              <th class="text-center" style="width: 120px">操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="(account, index) in managedAccounts" :key="'local-' + index">
-              <td><strong>{{ account.name }}</strong></td>
-              <td>
-                <span style="font-size: 13px; color: var(--text-secondary)"
-                  >{{ account.email || '-' }}</span
-                >
-              </td>
-              <td class="text-center">
-                <span style="font-weight: 600; color: var(--info-color)"
-                  >${{ (account.balance || 0).toFixed(2) }}</span
-                >
-              </td>
-              <td class="text-center">
-                <span class="ag-status-badge ag-status-online">正常</span>
-              </td>
-              <td class="actions text-center">
-                <div class="flex-cell">
-                  <button
-                    class="btn btn-icon-refined"
-                    @click="removeAccount(index)"
-                    title="删除账号"
-                    style="color: var(--danger-color)"
-                  >
-                    <i class="fas fa-trash"></i>
-                  </button>
-                </div>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <!-- Zeabur 批量导入 -->
-      <div
-        style="
-          margin-top: 10px;
-          padding: 15px;
-          background: var(--bg-tertiary);
-          border-radius: 12px;
-          border: 1px dashed var(--border-color);
-        "
-      >
-        <div
-          style="
-            font-size: 13px;
-            font-weight: 600;
-            margin-bottom: 10px;
-            color: var(--text-secondary);
-          "
-        >
-          批量添加 Zeabur 账号 (格式: 备注,Sk-Token)
-        </div>
-        <textarea
-          v-model="batchAccounts"
-          class="form-textarea"
-          placeholder="我的账号1,sk-xxxx...
-我的账号2,sk-yyyy..."
-          style="min-height: 80px; font-size: 12px; font-family: var(--font-mono)"
-        ></textarea>
-        <div v-if="batchAddError" class="form-error" style="margin-top: 8px">
-          {{ batchAddError }}
-        </div>
-        <div v-if="batchAddSuccess" class="form-success" style="margin-top: 8px">
-          {{ batchAddSuccess }}
-        </div>
-        <button
-          class="btn btn-primary btn-sm"
-          @click="batchAddAccounts"
-          :disabled="addingAccount"
-          style="width: 100%; margin-top: 12px"
-        >
-          <i class="fas fa-layer-group"></i> 批量验证并添加
-        </button>
-      </div>
-    </div>
-
     <!-- Koyeb 账号管理 -->
-    <div class="panel" style="margin-top: 24px">
+    <div class="panel">
       <div class="panel-header">
         <div class="panel-title">
           <i class="fas fa-users" style="margin-right: 8px; color: #4f46e5"></i>Koyeb 账号管理
@@ -991,22 +611,12 @@
     <div class="panel">
       <div class="panel-header">
         <div style="display: flex; gap: 8px">
-          <button class="btn btn-primary" @click="saveZeaburSettings">
+          <button class="btn btn-primary" @click="savePaasSettings">
             <i class="fas fa-save"></i> 保存配置
           </button>
         </div>
       </div>
       <div style="padding: 15px">
-        <div class="form-group" style="margin-bottom: 16px">
-          <label class="form-label">Zeabur 自动刷新间隔 (秒)</label>
-          <input
-            type="number"
-            v-model="zeaburRefreshIntervalSec"
-            class="form-input"
-            min="5"
-            @change="zeaburRefreshInterval = zeaburRefreshIntervalSec * 1000"
-          />
-        </div>
         <div class="form-group" style="margin-bottom: 16px">
           <label class="form-label">Koyeb 自动刷新间隔 (秒)</label>
           <input

@@ -1996,40 +1996,6 @@
 </div>
 
 <!-- ==================== PaaS 相关模态框 ==================== -->
-<!-- 添加 Zeabur 账号模态框 -->
-<div v-if="showAddZeaburAccountModal" class="modal-overlay" @keydown.esc="showAddZeaburAccountModal = false"
-  @keydown.enter="addAccountToList" tabindex="-1">
-  <div class="modal">
-    <div class="modal-header">
-      <div class="modal-title">添加 Zeabur 账号</div>
-      <button class="modal-close" @click="showAddZeaburAccountModal = false">
-        <i class="fas fa-times"></i>
-      </button>
-    </div>
-    <div class="modal-body">
-      <div class="form-group">
-        <label class="form-label">账号名称 *</label>
-        <input v-model="newAccount.name" class="form-input" placeholder="例如: 我的账号" />
-      </div>
-      <div class="form-group">
-        <label class="form-label">API Token *</label>
-        <input v-model="newAccount.token" type="password" class="form-input" placeholder="sk-xxxxxxxxxxxxxxxx" />
-        <div class="form-help">在 Zeabur 控制台的设置中创建 API Token</div>
-      </div>
-      <div v-if="addAccountError" class="form-error">{{ addAccountError }}</div>
-      <div v-if="addAccountSuccess" class="form-success">{{ addAccountSuccess }}</div>
-      <div style="display: flex; gap: 12px; margin-top: 20px">
-        <button class="btn btn-primary" @click="addAccountToList" :disabled="addingAccount" style="flex: 1">
-          {{ addingAccount ? '验证中...' : '添加账号' }}
-        </button>
-        <button class="btn btn-secondary" @click="showAddZeaburAccountModal = false" style="flex: 1">
-          取消
-        </button>
-      </div>
-    </div>
-  </div>
-</div>
-
 <!-- 添加 Koyeb 账号模态框 -->
 <div v-if="showAddKoyebAccountModal" class="modal-overlay" @keydown.esc="showAddKoyebAccountModal = false"
   tabindex="-1">

@@ -125,11 +125,11 @@
 }
 
 /* ==================== 模块切换动画主题?==================== */
-/* Zeabur 模块 - 紫色主题 */
-.zeabur-sec-tab.slide-in-left,
-.zeabur-sec-tab.slide-in-right,
-.zeabur-sec-tab.slide-out-left,
-.zeabur-sec-tab.slide-out-right {
+/* PaaS 模块 - 紫色主题 */
+.paas-sec-tab.slide-in-left,
+.paas-sec-tab.slide-in-right,
+.paas-sec-tab.slide-out-left,
+.paas-sec-tab.slide-out-right {
   --module-color: rgba(99, 102, 241, 0.06);
 }
 
@@ -328,7 +328,7 @@
   background: var(--bg-tertiary) !important;
 }
 
-/* ===== Zeabur/OpenAPI 模块 - 使用 Grid 0fr->1fr 方案 ===== */
+/* ===== PaaS/OpenAPI 模块 - 使用 Grid 0fr->1fr 方案 ===== */
 .account-card-body {
   display: grid;
   grid-template-rows: 0fr;
@@ -391,7 +391,7 @@
   background: rgba(var(--primary-rgb), 0.15);
 }
 
-/* Zeabur/PaaS 模块箭头 */
+/* PaaS 模块箭头 */
 .paas-sec-tab .toggle-icon {
   background: rgb(99 102 241 / 18%);
   color: #6366f1;

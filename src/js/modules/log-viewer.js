@@ -12,7 +12,8 @@ export const logViewerMethods = {
    * @param {Object} options 配置项
    * @param {string} options.title 标题
    * @param {string} options.subtitle 副标题 (可选)
-   * @param {string} options.source 来源标识 ('zeabur', 'koyeb', 'system')
+   * @param {string} options.source 来源标识 ('koyeb', 'system')
+
    * @param {Function} options.fetcher 初始数据获取函数 (可选)
    * @param {Function} options.streamer 流式连接函数 (可选)
    * @param {Function} options.cleaner 清理函数 (关闭时调用)

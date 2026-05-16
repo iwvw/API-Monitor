@@ -2,7 +2,6 @@
  * 数据库模型统一导出
  */
 
-const { ZeaburAccount, ZeaburProject } = require('../../../modules/zeabur-api/models');
 const {
   CloudflareAccount,
   CloudflareDnsTemplate,
@@ -20,10 +19,6 @@ const {
 } = require('../../../modules/server-api/models');
 
 module.exports = {
-  // Zeabur 模块
-  ZeaburAccount,
-  ZeaburProject,
-
   // Cloudflare 模块
   CloudflareAccount,
   CloudflareDnsTemplate,

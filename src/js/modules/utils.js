@@ -420,7 +420,7 @@ export function maskAddress(address, mode = 'normal') {
 export function formatRegion(region) {
   if (!region) return '未知';
 
-  // 兼容对象格式 (Zeabur) 和字符串格式 (Koyeb)
+  // 兼容对象格式 (PaaS) 和字符串格式 (Koyeb)
   const regionStr = typeof region === 'object' ? region.name || region.id || '' : String(region);
 
   if (!regionStr) return '未知';

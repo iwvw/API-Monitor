@@ -943,7 +943,6 @@ export const totpMethods = {
       ovh: 'si si-ovh',
       oracle: 'si si-oracle',
       sentry: 'si si-sentry',
-      zeabur: 'si si-zeabur',
       cloudways: 'si si-cloudways',
     };
 

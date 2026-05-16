@@ -88,9 +88,9 @@
       <div class="card-main-content">
         <span class="card-label">云应用实例</span>
         <div class="card-value">
-          {{ (dashboardStats.paas.zeabur.running + dashboardStats.paas.koyeb.running +
+          {{ (dashboardStats.paas.koyeb.running +
           dashboardStats.paas.fly.running) }}
-          <span class="card-unit">/ {{ (dashboardStats.paas.zeabur.total + dashboardStats.paas.koyeb.total +
+          <span class="card-unit">/ {{ (dashboardStats.paas.koyeb.total +
             dashboardStats.paas.fly.total) }} 运行中</span>
         </div>
       </div>
@@ -272,22 +272,6 @@
           <h3><i class="fas fa-cubes"></i> 服务 & 工具</h3>
         </div>
         <div class="paas-list">
-          <!-- Zeabur -->
-          <div class="paas-item" @click="mainActiveTab = 'paas'; switchPaasPlatform('zeabur')">
-            <div class="paas-info">
-              <div class="paas-logo-box" style="color: #6366f1">
-                <i class="fas fa-project-diagram"></i>
-              </div>
-              <div class="paas-item-text">
-                <h4>Zeabur</h4>
-                <p>Serverless</p>
-              </div>
-            </div>
-            <div class="paas-status-badge">
-              <div class="status-dot-mini" :class="dashboardStats.paas.zeabur.running > 0 ? 'active' : ''"></div>
-              {{ dashboardStats.paas.zeabur.running }}
-            </div>
-          </div>
           <!-- Koyeb -->
           <div class="paas-item" @click="mainActiveTab = 'paas'; switchPaasPlatform('koyeb')">
             <div class="paas-info">

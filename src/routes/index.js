@@ -802,7 +802,6 @@ function registerRoutes(app) {
 
   // 模块路由映射配置 (精准匹配目录名)
   const moduleRouteMap = {
-    'zeabur-api': '/api/zeabur',
     'koyeb-api': '/api/koyeb',
     'cloudflare-api': '/api/cloudflare',
     'flyio-api': '/api/flyio',

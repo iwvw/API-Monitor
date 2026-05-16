@@ -1657,8 +1657,8 @@ html.single-page-mode [class*='-sec-tabs'] {
     padding: var(--space-xl) !important;
   }
 
-  /* --- Zeabur 组件优化 --- */
-  .zeabur-balance-item {
+  /* --- PaaS 组件优化 --- */
+  .paas-balance-item {
     padding: 0 !important;
   }
 
@@ -1678,7 +1678,7 @@ html.single-page-mode [class*='-sec-tabs'] {
   }
 
   /* --- 隐藏头像 --- */
-  .zeabur-account-avatar,
+  .paas-account-avatar,
   .koyeb-account-avatar,
   .fly-account-avatar,
   .openai-endpoint-avatar,

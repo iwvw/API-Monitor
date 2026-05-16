@@ -607,10 +607,10 @@ export const notificationMethods = {
    */
   getSourceModuleName(module) {
     const names = {
-      uptime: 'Uptime 监控',
-      server: '主机监控',
-      zeabur: 'Zeabur',
+      uptime: 'Uptime',
+      server: 'Host',
       openai: 'OpenAI',
+
     };
     return names[module] || module;
   },

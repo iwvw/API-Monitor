@@ -90,7 +90,7 @@
 }
 
 .record-type.CNAME {
-  background: rgba(var(--zeabur-secondary-rgb), 0.2);
+  background: rgba(var(--paas-secondary-rgb), 0.2);
   color: #a78bfa;
 }
 

@@ -683,14 +683,14 @@ pre,
   --openai-dark: #0d8a6a;
   --paas-color: #6366f1;
 
-  /* Zeabur 模块主题?*/
-  --zeabur-primary: #6366f1;
-  --zeabur-primary-rgb: 99,
+  /* PaaS 模块主题?*/
+  --paas-primary: #6366f1;
+  --paas-primary-rgb: 99,
   102,
   241;
-  --zeabur-primary-hover: #4f46e5;
-  --zeabur-secondary: #8b5cf6;
-  --zeabur-secondary-rgb: 139,
+  --paas-primary-hover: #4f46e5;
+  --paas-secondary: #8b5cf6;
+  --paas-secondary-rgb: 139,
   92,
   246;
 
@@ -1914,16 +1914,16 @@ body.modal-open {
 
 .ai-balance-card {
   background: linear-gradient(135deg,
-      rgba(var(--zeabur-primary-rgb), 0.1),
-      rgba(var(--zeabur-secondary-rgb), 0.1));
-  border-color: rgba(var(--zeabur-primary-rgb), 0.3);
+      rgba(var(--paas-primary-rgb), 0.1),
+      rgba(var(--paas-secondary-rgb), 0.1));
+  border-color: rgba(var(--paas-primary-rgb), 0.3);
 }
 
 .ai-balance-card:hover {
   border-color: var(--primary-color);
   background: linear-gradient(135deg,
-      rgba(var(--zeabur-primary-rgb), 0.15),
-      rgba(var(--zeabur-secondary-rgb), 0.15));
+      rgba(var(--paas-primary-rgb), 0.15),
+      rgba(var(--paas-secondary-rgb), 0.15));
 }
 
 .balance-icon {
@@ -1946,15 +1946,15 @@ body.modal-open {
   color: var(--warning-color);
 }
 
-/* Zeabur Balance Panel - 现代化紧凑徽章设?*/
-.zeabur-balance-panel {
+/* PaaS Balance Panel - 现代化紧凑徽章设?*/
+.paas-balance-panel {
   display: flex;
   align-items: center;
   gap: 0;
   background: linear-gradient(135deg,
-      rgba(var(--zeabur-primary-rgb), 0.08) 0%,
-      rgba(var(--zeabur-secondary-rgb), 0.05) 100%);
-  border: 1px solid rgba(var(--zeabur-primary-rgb), 0.15);
+      rgba(var(--paas-primary-rgb), 0.08) 0%,
+      rgba(var(--paas-secondary-rgb), 0.05) 100%);
+  border: 1px solid rgba(var(--paas-primary-rgb), 0.15);
   border-radius: var(--radius-lg);
   padding: 3px 6px;
   margin: 0;
@@ -1962,30 +1962,30 @@ body.modal-open {
   transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.zeabur-balance-panel:hover {
-  border-color: rgba(var(--zeabur-primary-rgb), 0.35);
+.paas-balance-panel:hover {
+  border-color: rgba(var(--paas-primary-rgb), 0.35);
   background: linear-gradient(135deg,
-      rgba(var(--zeabur-primary-rgb), 0.12) 0%,
-      rgba(var(--zeabur-secondary-rgb), 0.08) 100%);
+      rgba(var(--paas-primary-rgb), 0.12) 0%,
+      rgba(var(--paas-secondary-rgb), 0.08) 100%);
 }
 
-.zeabur-balance-item {
+.paas-balance-item {
   display: flex;
   align-items: center;
   gap: var(--space-sm);
   padding: var(--space-xs);
 }
 
-.zeabur-balance-divider {
+.paas-balance-divider {
   width: 1px;
   height: 28px;
   background: linear-gradient(180deg,
       transparent 0%,
-      rgba(var(--zeabur-primary-rgb), 0.3) 50%,
+      rgba(var(--paas-primary-rgb), 0.3) 50%,
       transparent 100%);
 }
 
-.zeabur-balance-icon {
+.paas-balance-icon {
   width: 28px;
   height: 28px;
   border-radius: var(--radius-md);
@@ -1997,30 +1997,30 @@ body.modal-open {
   transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
-.zeabur-credit .zeabur-balance-icon {
+.paas-credit .paas-balance-icon {
   background: linear-gradient(135deg, rgba(16, 185, 129, 0.2) 0%, rgba(34, 197, 94, 0.15) 100%);
   color: var(--success-color);
 }
 
-.zeabur-aihub .zeabur-balance-icon {
+.paas-aihub .paas-balance-icon {
   background: linear-gradient(135deg,
-      rgba(var(--zeabur-primary-rgb), 0.2) 0%,
-      rgba(var(--zeabur-secondary-rgb), 0.15) 100%);
-  color: var(--zeabur-primary);
+      rgba(var(--paas-primary-rgb), 0.2) 0%,
+      rgba(var(--paas-secondary-rgb), 0.15) 100%);
+  color: var(--paas-primary);
 }
 
-.zeabur-balance-panel:hover .zeabur-balance-icon {
+.paas-balance-panel:hover .paas-balance-icon {
   transform: scale(1.08) rotate(3deg);
 }
 
-.zeabur-balance-info {
+.paas-balance-info {
   display: flex;
   flex-direction: column;
   gap: 1px;
   min-width: 48px;
 }
 
-.zeabur-balance-label {
+.paas-balance-label {
   font-size: 10px;
   font-weight: 600;
   color: var(--text-tertiary);
@@ -2029,7 +2029,7 @@ body.modal-open {
   line-height: 1;
 }
 
-.zeabur-balance-value {
+.paas-balance-value {
   font-size: 15px;
   font-weight: 700;
   color: var(--text-primary);
@@ -2038,34 +2038,34 @@ body.modal-open {
   letter-spacing: -0.3px;
 }
 
-.zeabur-credit .zeabur-balance-value {
+.paas-credit .paas-balance-value {
   color: var(--success-color);
 }
 
-.zeabur-aihub .zeabur-balance-value {
-  color: var(--zeabur-primary);
+.paas-aihub .paas-balance-value {
+  color: var(--paas-primary);
 }
 
-.zeabur-balance-value.low {
+.paas-balance-value.low {
   color: var(--warning-color);
 }
 
-.zeabur-balance-value.critical {
+.paas-balance-value.critical {
   color: var(--danger-color);
 }
 
 /* AI Hub 余额徽章样式 */
-.zeabur-ai .zeabur-balance-icon {
+.paas-ai .paas-balance-icon {
   background: linear-gradient(135deg, rgba(139, 92, 246, 0.2) 0%, rgba(168, 85, 247, 0.15) 100%);
   color: #8b5cf6;
 }
 
-.zeabur-ai .zeabur-balance-value {
+.paas-ai .paas-balance-value {
   color: #8b5cf6;
 }
 
-/* Zeabur Account Info - 现代化账户信息设?*/
-.zeabur-account-info {
+/* PaaS Account Info - 现代化账户信息设?*/
+.paas-account-info {
   display: flex;
   align-items: center;
   gap: var(--space-md);
@@ -2074,48 +2074,48 @@ body.modal-open {
   padding-right: var(--space-sm);
 }
 
-.zeabur-expand-toggle {
+.paas-expand-toggle {
   width: 24px;
   height: 24px;
   display: flex;
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  background: rgba(var(--zeabur-primary-rgb), 0.08);
-  color: var(--zeabur-primary);
+  background: rgba(var(--paas-primary-rgb), 0.08);
+  color: var(--paas-primary);
   font-size: 11px;
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   flex-shrink: 0;
 }
 
-.zeabur-expand-toggle.expanded {
-  background: rgba(var(--zeabur-primary-rgb), 0.15);
+.paas-expand-toggle.expanded {
+  background: rgba(var(--paas-primary-rgb), 0.15);
 }
 
-.zeabur-expand-toggle i {
+.paas-expand-toggle i {
   transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.zeabur-expand-toggle.expanded i {
+.paas-expand-toggle.expanded i {
   transform: rotate(90deg);
 }
 
-.zeabur-account-avatar {
+.paas-account-avatar {
   width: 38px;
   height: 38px;
   border-radius: var(--radius-md);
-  background: linear-gradient(135deg, var(--zeabur-primary) 0%, var(--zeabur-secondary) 100%);
+  background: linear-gradient(135deg, var(--paas-primary) 0%, var(--paas-secondary) 100%);
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  /* box-shadow: 0 3px 10px rgba(var(--zeabur-primary-rgb), 0.25); */
+  /* box-shadow: 0 3px 10px rgba(var(--paas-primary-rgb), 0.25); */
   transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
-.account-card:hover .zeabur-account-avatar {
+.account-card:hover .paas-account-avatar {
   transform: scale(1.01);
-  /* box-shadow: 0 5px 5px rgba(var(--zeabur-primary-rgb), 0.15); */
+  /* box-shadow: 0 5px 5px rgba(var(--paas-primary-rgb), 0.15); */
 }
 
 .avatar-letter {
@@ -2126,14 +2126,14 @@ body.modal-open {
   letter-spacing: 0;
 }
 
-.zeabur-account-details {
+.paas-account-details {
   display: flex;
   flex-direction: column;
   gap: 2px;
   min-width: 0;
 }
 
-.zeabur-account-name {
+.paas-account-name {
   display: flex;
   align-items: center;
   font-size: 15px;
@@ -2144,11 +2144,11 @@ body.modal-open {
   transition: color 0.2s;
 }
 
-.zeabur-account-name:hover {
-  color: var(--zeabur-primary);
+.paas-account-name:hover {
+  color: var(--paas-primary);
 }
 
-.zeabur-account-email {
+.paas-account-email {
   display: flex;
   align-items: baseline;
   gap: 6px;
@@ -2157,23 +2157,23 @@ body.modal-open {
   line-height: 1.2;
 }
 
-.zeabur-account-email i {
+.paas-account-email i {
   font-size: 10px;
   opacity: 0.6;
 }
 
-.zeabur-account-name-edit {
+.paas-account-name-edit {
   display: flex;
   align-items: center;
   gap: 6px;
 }
 
-.zeabur-account-name-edit .edit-input {
+.paas-account-name-edit .edit-input {
   width: 160px;
   padding: var(--space-xs) var(--space-sm);
   font-size: 14px;
   font-weight: 500;
-  border: 1px solid rgba(var(--zeabur-primary-rgb), 0.3);
+  border: 1px solid rgba(var(--paas-primary-rgb), 0.3);
   border-radius: var(--radius-sm);
   background: var(--bg-secondary);
   color: var(--text-primary);
@@ -2181,9 +2181,9 @@ body.modal-open {
   transition: all 0.2s;
 }
 
-.zeabur-account-name-edit .edit-input:focus {
-  border-color: var(--zeabur-primary);
-  box-shadow: 0 0 0 3px rgba(var(--zeabur-primary-rgb), 0.1);
+.paas-account-name-edit .edit-input:focus {
+  border-color: var(--paas-primary);
+  box-shadow: 0 0 0 3px rgba(var(--paas-primary-rgb), 0.1);
 }
 
 .cancel-edit-btn {

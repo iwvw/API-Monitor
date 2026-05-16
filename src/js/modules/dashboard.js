@@ -510,36 +510,10 @@ export const dashboardMethods = {
   },
 
   /**
-   * 获取 PaaS 摘要 (Zeabur, Koyeb, Fly.io)
-   * 优化：三个平台的请求完全并行
+   * 获取 PaaS 摘要 (Koyeb, Fly.io)
+   * 优化：两个平台的请求完全并行
    */
   async fetchPaaSSummary() {
-    const updateZeabur = async () => {
-      try {
-        const res = await fetch('/api/zeabur/projects', { headers: store.getAuthHeaders() });
-        if (res.ok) {
-          const data = await res.json();
-          let appCount = 0;
-          let runningCount = 0;
-          if (Array.isArray(data)) {
-            data.forEach(acc => {
-              if (acc.projects) {
-                acc.projects.forEach(p => {
-                  if (p.services) {
-                    appCount += p.services.length;
-                    runningCount += p.services.filter(s => s.status === 'RUNNING').length;
-                  }
-                });
-              }
-            });
-          }
-          store.dashboardStats.paas.zeabur = { total: appCount, running: runningCount };
-        }
-      } catch (e) {
-        console.error('[Dashboard] Zeabur stats failed:', e);
-      }
-    };
-
     const updateKoyeb = async () => {
       try {
         const res = await fetch('/api/koyeb/data', { headers: store.getAuthHeaders() });
@@ -597,7 +571,7 @@ export const dashboardMethods = {
     };
 
     // Parallel execution with independent cache/store updates
-    await Promise.allSettled([updateZeabur(), updateKoyeb(), updateFly()]);
+    await Promise.allSettled([updateKoyeb(), updateFly()]);
   },
 
   /**
@@ -689,7 +663,6 @@ Object.assign(store, {
     deepseek: { total_calls: 0, success_calls: 0, fail_calls: 0 },
     geminiCli: { total_calls: 0, success_calls: 0, fail_calls: 0 },
     paas: {
-      zeabur: { total: 0, running: 0 },
       koyeb: { total: 0, running: 0 },
       fly: { total: 0, running: 0 },
     },
