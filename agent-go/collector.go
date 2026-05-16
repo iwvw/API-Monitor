@@ -27,7 +27,9 @@ type HostInfo struct {
 	Platform        string   `json:"platform"`
 	PlatformVersion string   `json:"platform_version"`
 	CPU             []string `json:"cpu"`
-	Cores           int      `json:"cores"`
+	Cores           int      `json:"cores"` // 保持兼容，通常映射为逻辑核心
+	LogicalCores    int      `json:"logical_cores"`
+	PhysicalCores   int      `json:"physical_cores"`
 	GPU             []string `json:"gpu"`
 	GPUMemTotal     uint64   `json:"gpu_mem_total"`
 	MemTotal        uint64   `json:"mem_total"`
@@ -148,12 +150,17 @@ func (c *Collector) CollectHostInfo() *HostInfo {
 
 	// CPU 信息
 	logicalCores, _ := cpu.Counts(true)
+	physicalCores, _ := cpu.Counts(false)
+
 	if logicalCores == 0 {
 		logicalCores = runtime.NumCPU()
 	}
+	if physicalCores == 0 {
+		physicalCores = logicalCores // Fallback
+	}
 
 	if cpuInfo, err := cpu.Info(); err == nil && len(cpuInfo) > 0 {
-		cpuDesc := fmt.Sprintf("%s %s %d Core(s)", cpuInfo[0].VendorID, cpuInfo[0].ModelName, logicalCores)
+		cpuDesc := fmt.Sprintf("%s %s %d Core(s)", cpuInfo[0].VendorID, cpuInfo[0].ModelName, physicalCores)
 		info.CPU = []string{strings.TrimSpace(cpuDesc)}
 	} else {
 		// Fallback for Windows (using PowerShell since wmic might be missing)
@@ -168,13 +175,15 @@ func (c *Collector) CollectHostInfo() *HostInfo {
 		}
 
 		if cpuName != "" {
-			info.CPU = []string{fmt.Sprintf("%s %d Core(s)", cpuName, logicalCores)}
+			info.CPU = []string{fmt.Sprintf("%s %d Core(s)", cpuName, physicalCores)}
 		} else {
-			info.CPU = []string{fmt.Sprintf("Unknown CPU %d Core(s)", logicalCores)}
+			info.CPU = []string{fmt.Sprintf("Unknown CPU %d Core(s)", physicalCores)}
 		}
 	}
-	info.Cores = logicalCores
-	fmt.Printf("[Collector] Detected %d cores, Platform: %s\n", logicalCores, info.Platform)
+	info.Cores = logicalCores // 保持逻辑核心数赋值给 Cores 以兼容旧版前端
+	info.LogicalCores = logicalCores
+	info.PhysicalCores = physicalCores
+	fmt.Printf("[Collector] Detected %d physical cores / %d logical threads, Platform: %s\n", physicalCores, logicalCores, info.Platform)
 
 	// 内存信息
 	if memInfo, err := mem.VirtualMemory(); err == nil {

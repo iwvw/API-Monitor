@@ -250,19 +250,26 @@ function stateToFrontendFormat(state, hostInfo = {}) {
   const memUsedMB = Math.round(memUsed / 1024 / 1024);
   const memTotalMB = Math.round(memTotal / 1024 / 1024);
 
+  const cores = (() => {
+    const explicit = safeNumber(hostInfo.cores || hostInfo.Cores);
+    if (explicit > 0) return explicit;
+    // 尝试从 CPU 描述字符串中解析核心数 (例如 "Intel ... 12 Core(s)")
+    if (hostInfo.cpu && hostInfo.cpu.length > 0) {
+      const match = hostInfo.cpu[0].match(/(\d+)\s*Core/i);
+      if (match) return parseInt(match[1]) || 1;
+    }
+    return 0;
+  })();
+
+  const logicalCores = safeNumber(hostInfo.logical_cores || hostInfo.LogicalCores) || cores;
+  const physicalCores = safeNumber(hostInfo.physical_cores || hostInfo.PhysicalCores) || cores;
+
   return {
     cpu_usage: cpu.toFixed(1) + '%',
     load: `${load1.toFixed(2)} ${load5.toFixed(2)} ${load15.toFixed(2)}`,
-    cores: (() => {
-      const explicit = safeNumber(hostInfo.cores || hostInfo.Cores);
-      if (explicit > 0) return explicit;
-      // 尝试从 CPU 描述字符串中解析核心数 (例如 "Intel ... 12 Core(s)")
-      if (hostInfo.cpu && hostInfo.cpu.length > 0) {
-        const match = hostInfo.cpu[0].match(/(\d+)\s*Core/i);
-        if (match) return parseInt(match[1]) || 1;
-      }
-      return 0;
-    })(),
+    cores,
+    logical_cores: logicalCores,
+    physical_cores: physicalCores,
     // 保持前端兼容的格式: "使用量/总量MB"
     mem: `${memUsedMB}/${memTotalMB}MB`,
     mem_usage: `${memUsedMB}/${memTotalMB}MB`,

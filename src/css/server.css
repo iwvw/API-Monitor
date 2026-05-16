@@ -399,7 +399,7 @@
   font-weight: 700;
   text-align: right;
   word-break: break-word;
-  max-width: 70%;
+  max-width: 75%;
 
   /* Limit to 2 lines */
   display: -webkit-box;
@@ -407,6 +407,15 @@
   -webkit-box-orient: vertical;
   overflow: hidden;
   line-height: 1.4;
+}
+
+/* GPU 型号文字优化 */
+.gpu-model-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 65%;
+  /* 为右侧数值留出空间 */
 }
 
 /* 进度?*/

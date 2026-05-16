@@ -61,6 +61,8 @@ router.get('/accounts', (req, res) => {
             cpu: {
               Load: cachedMetrics.load,
               Cores: cachedMetrics.cores,
+              LogicalCores: cachedMetrics.logical_cores,
+              PhysicalCores: cachedMetrics.physical_cores,
               Usage: cachedMetrics.cpu_usage,
             },
             memory: {
@@ -433,6 +435,18 @@ router.post('/info', async (req, res) => {
       return res.json({
         success: true,
         ...metrics,
+        cpu: {
+          Usage: metrics.cpu_usage,
+          Cores: metrics.cores,
+          LogicalCores: metrics.logical_cores,
+          PhysicalCores: metrics.physical_cores,
+          Load: metrics.load,
+        },
+        memory: {
+          Usage: metrics.mem_usage_percent,
+          Total: metrics.mem_total_mb,
+          Used: metrics.mem_used_mb,
+        },
         is_agent: true,
       });
     }
@@ -453,6 +467,8 @@ router.post('/info', async (req, res) => {
       cat /proc/uptime 2>/dev/null | cut -d' ' -f1 || echo "0"
       echo "===CPU==="
       grep -c ^processor /proc/cpuinfo 2>/dev/null || echo "1"
+      echo "===PHYSICAL_CPU==="
+      grep "cpu cores" /proc/cpuinfo | head -1 | awk '{print $4}' || grep -c ^processor /proc/cpuinfo 2>/dev/null || echo "1"
       echo "===LOAD==="
       cat /proc/loadavg 2>/dev/null | cut -d' ' -f1-3 || echo "0 0 0"
       echo "===CPU_USAGE==="
@@ -484,7 +500,8 @@ router.post('/info', async (req, res) => {
 
     const platform = parseSection('SYSTEM') || 'Linux';
     const uptimeSeconds = parseFloat(parseSection('UPTIME')) || 0;
-    const cores = parseInt(parseSection('CPU')) || 1;
+    const logicalCores = parseInt(parseSection('CPU')) || 1;
+    const physicalCores = parseInt(parseSection('PHYSICAL_CPU')) || logicalCores;
     const load = parseSection('LOAD') || '0 0 0';
     const cpuRate = parseFloat(parseSection('CPU_USAGE')) || 0;
 
@@ -513,7 +530,21 @@ router.post('/info', async (req, res) => {
       success: true,
       platform,
       uptime: Math.floor(uptimeSeconds),
-      cores,
+      cores: logicalCores,
+      physical_cores: physicalCores,
+      logical_cores: logicalCores,
+      cpu: {
+        Usage: cpuRate.toFixed(1) + '%',
+        Cores: logicalCores,
+        LogicalCores: logicalCores,
+        PhysicalCores: physicalCores,
+        Load: load,
+      },
+      memory: {
+        Usage: Math.round((mUsed / mTotal) * 100) + '%',
+        Total: fmt(mTotal),
+        Used: fmt(mUsed),
+      },
       load,
       cpu_usage: cpuRate.toFixed(1) + '%',
       mem: `${fmt(mUsed)} / ${fmt(mTotal)}`,
@@ -523,7 +554,7 @@ router.post('/info', async (req, res) => {
         down: fmt(rb) + '/s',
         up: fmt(tb) + '/s',
         rx_speed: fmt(rb) + '/s',
-        tx_speed: fmt(tb) + '/s'
+        tx_speed: fmt(tb) + '/s',
       },
       is_agent: false,
       source: 'ssh',

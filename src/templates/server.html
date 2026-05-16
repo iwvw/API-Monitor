@@ -556,7 +556,12 @@
                     <!-- CPU -->
                     <div v-if="server.info.cpu">
                       <div class="server-detail-item" style="border: none; padding: 2px 0">
-                        <span class="server-detail-label">CPU 负载 ({{ server.info.cpu.Cores || '-' }} 核)</span>
+                        <span class="server-detail-label">
+                          CPU 负载 ({{ server.info.cpu.PhysicalCores && server.info.cpu.LogicalCores &&
+                          server.info.cpu.PhysicalCores !== server.info.cpu.LogicalCores ?
+                          server.info.cpu.PhysicalCores + '核/' + server.info.cpu.LogicalCores + '线程' :
+                          (server.info.cpu.PhysicalCores || server.info.cpu.Cores || '-') + ' 核' }})
+                        </span>
                         <span class="server-detail-value">{{ server.info.cpu.Usage || '0%' }}</span>
                       </div>
                       <div class="progress-bar" style="margin-top: 4px; margin-bottom: 10px">
@@ -751,7 +756,7 @@
                     <!-- GPU 信息：使用 hasGpuData 统一判断 -->
                     <div v-if="hasGpuData(server)">
                       <div class="server-detail-item">
-                        <span class="server-detail-label">
+                        <span class="server-detail-label gpu-model-text" :title="server.info.gpu && server.info.gpu.Model">
                           <i class="fas fa-gamepad" style="margin-right: 4px; color: #76b900"></i>
                           {{ server.info.gpu && server.info.gpu.Model ? server.info.gpu.Model :
                           'GPU' }}
