@@ -1784,13 +1784,9 @@ if ($existingService) {
     Write-Host "🧹 清理旧版 Windows 服务..." -ForegroundColor Yellow
     Stop-Service -Name "APIMonitorAgent" -Force -ErrorAction SilentlyContinue
     Start-Sleep -Seconds 1
-    $oldExe = "$env:ProgramFiles\\APIMonitorAgent\\agent.exe"
-    if (Test-Path $oldExe) {
-        & "$oldExe" svc-uninstall 2>$null
-    } else {
-        sc.exe delete APIMonitorAgent 2>$null
-    }
+    sc.exe delete APIMonitorAgent 2>$null
     Start-Sleep -Seconds 1
+    Remove-Item "$env:ProgramFiles\\APIMonitorAgent" -Recurse -Force -ErrorAction SilentlyContinue
     Write-Host "   ✓ 旧版服务已清理" -ForegroundColor Green
 }
 
