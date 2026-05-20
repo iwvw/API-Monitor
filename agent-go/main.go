@@ -2169,6 +2169,8 @@ func main() {
 
 	// 检查服务管理命令
 	if len(os.Args) > 1 {
+		// 将服务管理命令期间的日志输出重定向到 stdout，防止 PowerShell 2>&1 捕获 stderr 时抛出 NativeCommandError 异常
+		log.SetOutput(os.Stdout)
 		switch os.Args[1] {
 		case "install":
 			if err := InstallService(); err != nil {
