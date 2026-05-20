@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"syscall"
 	"time"
@@ -312,4 +313,66 @@ func IsRunningAsService() bool {
 		return false
 	}
 	return isService
+}
+
+// StopUserAgent 停止其他正在运行的 Agent 实例
+func StopUserAgent() {
+	exePath, err := os.Executable()
+	if err != nil {
+		return
+	}
+	exeName := filepath.Base(exePath)
+	// 使用 taskkill 强制结束除当前进程外的同名进程，过滤进程 PID 避免自杀
+	cmd := exec.Command("taskkill", "/F", "/IM", exeName, "/FI", fmt.Sprintf("PID ne %d", os.Getpid()))
+	cmd.Run()
+}
+
+// InstallUserStartup 将 Agent 设为当前用户开机自启 (通过 HKCU Run 注册表)
+func InstallUserStartup() error {
+	exePath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("获取程序路径失败: %v", err)
+	}
+
+	// 打开注册表当前用户启动项
+	key, err := registry.OpenKey(registry.CURRENT_USER, `Software\Microsoft\Windows\CurrentVersion\Run`, registry.SET_VALUE|registry.QUERY_VALUE)
+	if err != nil {
+		return fmt.Errorf("打开注册表失败: %v", err)
+	}
+	defer key.Close()
+
+	// 写入启动命令，使用双引号包裹路径以防路径中有空格，并加上 -b 参数以后台静默运行
+	cmd := fmt.Sprintf(`"%s" -b`, exePath)
+	err = key.SetStringValue(serviceName, cmd)
+	if err != nil {
+		return fmt.Errorf("写入注册表失败: %v", err)
+	}
+
+	fmt.Println("✅ 成功设置为用户级开机自启!")
+	fmt.Println("   注册表路径: HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run")
+	fmt.Println("   键名:", serviceName)
+	fmt.Println("   启动命令:", cmd)
+	return nil
+}
+
+// UninstallUserStartup 取消当前用户开机自启
+func UninstallUserStartup() error {
+	key, err := registry.OpenKey(registry.CURRENT_USER, `Software\Microsoft\Windows\CurrentVersion\Run`, registry.SET_VALUE)
+	if err != nil {
+		return fmt.Errorf("打开注册表失败: %v", err)
+	}
+	defer key.Close()
+
+	err = key.DeleteValue(serviceName)
+	if err != nil {
+		// 如果键不存在，不当作错误
+		if err == registry.ErrNotExist {
+			fmt.Println("ℹ️ 未发现用户级自启注册表项，无需清理。")
+			return nil
+		}
+		return fmt.Errorf("删除注册表项失败: %v", err)
+	}
+
+	fmt.Println("✅ 已成功取消用户级开机自启")
+	return nil
 }

@@ -33,3 +33,19 @@ func StartService() error {
 func StopService() error {
 	return fmt.Errorf("Windows 服务模式仅在 Windows 平台可用")
 }
+
+// StopUserAgent 非 Windows 平台暂不支持或无需特殊处理
+func StopUserAgent() {
+	// 非 Windows 平台无需处理（由安装脚本或进程信号管理）
+}
+
+// InstallUserStartup 非 Windows 平台暂不支持
+func InstallUserStartup() error {
+	return fmt.Errorf("用户级注册表自启模式仅在 Windows 平台可用")
+}
+
+// UninstallUserStartup 非 Windows 平台暂不支持
+func UninstallUserStartup() error {
+	return fmt.Errorf("用户级注册表自启模式仅在 Windows 平台可用")
+}
+

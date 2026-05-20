@@ -2173,24 +2173,45 @@ func main() {
 		log.SetOutput(os.Stdout)
 		switch os.Args[1] {
 		case "install":
-			if err := InstallService(); err != nil {
+			// 默认使用用户级开机自启 (HKCU Run 注册表)，无需管理员权限
+			StopUserAgent()
+			if err := InstallUserStartup(); err != nil {
 				fmt.Println("❌ 安装失败:", err)
 				os.Exit(1)
 			}
 			return
 		case "uninstall", "remove":
-			if err := UninstallService(); err != nil {
+			StopUserAgent()
+			if err := UninstallUserStartup(); err != nil {
 				fmt.Println("❌ 卸载失败:", err)
 				os.Exit(1)
 			}
 			return
-		case "start":
+		case "stop":
+			fmt.Println("⏹  正在停止 Agent...")
+			StopUserAgent()
+			fmt.Println("✅ Agent 已停止")
+			return
+		case "svc-install":
+			// 保留旧版 Windows 服务安装方式 (需要管理员权限)
+			if err := InstallService(); err != nil {
+				fmt.Println("❌ 服务安装失败:", err)
+				os.Exit(1)
+			}
+			return
+		case "svc-uninstall":
+			if err := UninstallService(); err != nil {
+				fmt.Println("❌ 服务卸载失败:", err)
+				os.Exit(1)
+			}
+			return
+		case "svc-start":
 			if err := StartService(); err != nil {
 				fmt.Println("❌ 启动失败:", err)
 				os.Exit(1)
 			}
 			return
-		case "stop":
+		case "svc-stop":
 			if err := StopService(); err != nil {
 				fmt.Println("❌ 停止失败:", err)
 				os.Exit(1)
@@ -2327,11 +2348,16 @@ func printUsage() {
 	fmt.Println("使用方法:")
 	fmt.Println("  api-monitor-agent [命令] [选项]")
 	fmt.Println()
-	fmt.Println("服务管理命令 (需要管理员权限):")
-	fmt.Println("  install     安装为 Windows 服务 (开机自启)")
-	fmt.Println("  uninstall   卸载 Windows 服务")
-	fmt.Println("  start       启动服务")
-	fmt.Println("  stop        停止服务")
+	fmt.Println("管理命令 (推荐, 无需管理员):")
+	fmt.Println("  install     注册用户级开机自启 (HKCU 注册表)")
+	fmt.Println("  uninstall   取消用户级开机自启")
+	fmt.Println("  stop        停止所有 Agent 实例")
+	fmt.Println()
+	fmt.Println("Windows 服务命令 (需要管理员权限):")
+	fmt.Println("  svc-install     安装为 Windows 服务")
+	fmt.Println("  svc-uninstall   卸载 Windows 服务")
+	fmt.Println("  svc-start       启动 Windows 服务")
+	fmt.Println("  svc-stop        停止 Windows 服务")
 	fmt.Println()
 	fmt.Println("直接运行选项:")
 	fmt.Println("  -s <url>    Dashboard 地址")
@@ -2345,8 +2371,7 @@ func printUsage() {
 	fmt.Println("  将 config.json 放在程序同目录下")
 	fmt.Println()
 	fmt.Println("示例:")
-	fmt.Println("  api-monitor-agent install           # 安装为 Windows 服务 (推荐)")
-	fmt.Println("  api-monitor-agent start             # 启动服务")
+	fmt.Println("  api-monitor-agent install           # 用户级开机自启 (推荐)")
 	fmt.Println("  api-monitor-agent -b                # 后台模式运行 (隐藏窗口)")
 	fmt.Println("  api-monitor-agent -s https://xxx -id abc -k key123")
 }

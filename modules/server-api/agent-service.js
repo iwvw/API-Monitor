@@ -1729,7 +1729,9 @@ fi
   }
 
   /**
-   * 生成 Windows (PowerShell) 安装脚本 - 支持无缝升级
+   * 生成 Windows (PowerShell) 安装脚本 - 用户级部署，无需管理员权限
+   * Agent 安装到 LOCALAPPDATA，使用 HKCU Run 注册表实现开机自启
+   * 运行在用户会话中，100% 继承用户环境 (PATH, SSH, Git 等)
    */
   generateWinInstallScript(serverId, serverUrl) {
     const agentKey = this.getAgentKey(serverId);
@@ -1750,26 +1752,17 @@ fi
 
     return `
 # API Monitor Agent Windows 自动安装/升级脚本 (Go 版)
-# 支持 Windows 服务模式，开机自启，无窗口后台运行
+# 用户级部署，无需管理员权限，登录后自动启动
 $ErrorActionPreference = "Stop"
 
 $SERVER_URL = "${serverUrl}"
 $SERVER_ID = "${serverId}"
 $AGENT_KEY = "${agentKey}"
-$INSTALL_DIR = "$env:ProgramFiles\\APIMonitorAgent"
+$INSTALL_DIR = "$env:LOCALAPPDATA\\APIMonitorAgent"
 $BINARY_URL = "${binaryBaseUrl}/agent-windows-amd64.exe"
-$SERVICE_NAME = "APIMonitorAgent"
 
 Write-Host ">>> API Monitor Agent 安装/升级脚本 (Go 版)" -ForegroundColor Cyan
-Write-Host "    使用 Windows 服务模式，开机自启，无窗口后台运行" -ForegroundColor Gray
-
-# 0. 检查管理员权限
-$isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-if (-not $isAdmin) {
-    Write-Host "❌ 请以管理员身份运行 PowerShell!" -ForegroundColor Red
-    Write-Host "   右键点击 PowerShell -> 以管理员身份运行" -ForegroundColor Yellow
-    exit 1
-}
+Write-Host "    用户级部署，登录后自动启动，完整继承用户环境" -ForegroundColor Gray
 
 # 1. 检测是否为升级安装
 $upgradeMode = $false
@@ -1780,15 +1773,28 @@ if (Test-Path $agentExe) {
     Write-Host ">>> 检测到已安装 Agent，将执行升级..." -ForegroundColor Cyan
 }
 
-# 2. 停止现有服务
-$existingService = Get-Service -Name $SERVICE_NAME -ErrorAction SilentlyContinue
+# 2. 停止现有 Agent 进程
+Write-Host "⏹  停止现有 Agent..." -ForegroundColor Yellow
+Get-Process -Name "agent" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+Start-Sleep -Seconds 1
+
+# 2.1 清理旧版 Windows 服务 (如果存在，从旧版升级)
+$existingService = Get-Service -Name "APIMonitorAgent" -ErrorAction SilentlyContinue
 if ($existingService) {
-    Write-Host "⏹  停止现有服务..." -ForegroundColor Yellow
-    Stop-Service -Name $SERVICE_NAME -Force -ErrorAction SilentlyContinue
-    Start-Sleep -Seconds 2
+    Write-Host "🧹 清理旧版 Windows 服务..." -ForegroundColor Yellow
+    Stop-Service -Name "APIMonitorAgent" -Force -ErrorAction SilentlyContinue
+    Start-Sleep -Seconds 1
+    $oldExe = "$env:ProgramFiles\\APIMonitorAgent\\agent.exe"
+    if (Test-Path $oldExe) {
+        & "$oldExe" svc-uninstall 2>$null
+    } else {
+        sc.exe delete APIMonitorAgent 2>$null
+    }
+    Start-Sleep -Seconds 1
+    Write-Host "   ✓ 旧版服务已清理" -ForegroundColor Green
 }
 
-# 2.1 清理旧版计划任务 (如果存在)
+# 2.2 清理旧版计划任务 (如果存在)
 $oldTask = Get-ScheduledTask -TaskName "APIMonitorAgent" -ErrorAction SilentlyContinue
 if ($oldTask) {
     Write-Host "🧹 清理旧版计划任务..." -ForegroundColor Yellow
@@ -1807,18 +1813,15 @@ Set-Location $INSTALL_DIR
 Write-Host "📥 下载 Agent 二进制文件..." -ForegroundColor Yellow
 $tempExe = Join-Path $INSTALL_DIR "agent.exe.new"
 try {
-    # 使用 TLS 1.2
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
     Invoke-WebRequest -Uri $BINARY_URL -OutFile $tempExe -UseBasicParsing
     
-    # 原子替换
     if (Test-Path $agentExe) { Remove-Item $agentExe -Force }
     Rename-Item $tempExe "agent.exe"
     Write-Host "   ✓ 下载完成" -ForegroundColor Green
 } catch {
     Write-Host "❌ 下载失败: $_" -ForegroundColor Red
     Write-Host "   尝试备用地址..." -ForegroundColor Yellow
-    # 尝试备用地址 (旧格式)
     $BINARY_URL_ALT = "${binaryBaseUrl}/am-agent-win.exe"
     try {
         Invoke-WebRequest -Uri $BINARY_URL_ALT -OutFile $tempExe -UseBasicParsing
@@ -1842,34 +1845,26 @@ $config = @{
     reportInterval = 1500
     reconnectDelay = 4000
 } | ConvertTo-Json -Compress
-# 使用 ASCII 编码避免 UTF-8 BOM (Go json.Unmarshal 不支持 BOM)
 [System.IO.File]::WriteAllText($configPath, $config)
 Write-Host "   ✓ 配置已保存" -ForegroundColor Green
 
-# 6. 卸载旧服务 (如果存在)
-if ($existingService) {
-    Write-Host "🔧 卸载旧服务..." -ForegroundColor Yellow
-    & "$agentExe" uninstall 2>$null
-    Start-Sleep -Seconds 1
-}
-
-# 7. 安装 Windows 服务
-Write-Host "⚙️ 安装 Windows 服务..." -ForegroundColor Yellow
+# 6. 注册用户级开机自启 (HKCU Run 注册表)
+Write-Host "⚙️ 注册用户级开机自启..." -ForegroundColor Yellow
 $installResult = & "$agentExe" install 2>&1
-if ($LASTEXITCODE -ne 0 -and $installResult -notmatch "服务已存在") {
-    Write-Host "❌ 服务安装失败: $installResult" -ForegroundColor Red
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "❌ 注册自启失败: $installResult" -ForegroundColor Red
     exit 1
 }
-Write-Host "   ✓ 服务已安装" -ForegroundColor Green
+Write-Host "   ✓ 开机自启已注册" -ForegroundColor Green
 
-# 8. 启动服务
-Write-Host "🚀 启动服务..." -ForegroundColor Yellow
-& "$agentExe" start 2>&1 | Out-Null
+# 7. 立即以后台模式启动
+Write-Host "🚀 启动 Agent..." -ForegroundColor Yellow
+Start-Process -FilePath "$agentExe" -ArgumentList "-b" -WindowStyle Hidden
 Start-Sleep -Seconds 2
 
-# 9. 检查服务状态
-$service = Get-Service -Name $SERVICE_NAME -ErrorAction SilentlyContinue
-if ($service -and $service.Status -eq "Running") {
+# 8. 验证进程
+$proc = Get-Process -Name "agent" -ErrorAction SilentlyContinue
+if ($proc) {
     Write-Host ""
     Write-Host "================================================" -ForegroundColor Green
     if ($upgradeMode) {
@@ -1880,18 +1875,17 @@ if ($service -and $service.Status -eq "Running") {
     Write-Host "================================================" -ForegroundColor Green
     Write-Host ""
     Write-Host "  安装目录: $INSTALL_DIR" -ForegroundColor White
-    Write-Host "  运行模式: Windows 服务 (开机自启)" -ForegroundColor White
-    Write-Host "  服务名称: $SERVICE_NAME" -ForegroundColor White
+    Write-Host "  运行模式: 用户级后台 (登录自启)" -ForegroundColor White
+    Write-Host "  自启方式: HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run" -ForegroundColor White
     Write-Host ""
     Write-Host "  管理命令:" -ForegroundColor Cyan
-    Write-Host "    查看状态: sc query $SERVICE_NAME" -ForegroundColor Gray
-    Write-Host "    停止服务: sc stop $SERVICE_NAME" -ForegroundColor Gray
-    Write-Host "    启动服务: sc start $SERVICE_NAME" -ForegroundColor Gray
-    Write-Host "    卸载服务: & '$agentExe' uninstall" -ForegroundColor Gray
+    Write-Host "    停止:   & '$agentExe' stop" -ForegroundColor Gray
+    Write-Host "    卸载:   & '$agentExe' uninstall" -ForegroundColor Gray
+    Write-Host "    启动:   Start-Process '$agentExe' -ArgumentList '-b' -WindowStyle Hidden" -ForegroundColor Gray
     Write-Host ""
 } else {
-    Write-Host "❌ 服务启动失败" -ForegroundColor Red
-    Write-Host "   请检查 Windows 事件查看器中的 Application 日志" -ForegroundColor Yellow
+    Write-Host "❌ Agent 启动失败" -ForegroundColor Red
+    Write-Host "   请查看日志: $INSTALL_DIR\\agent.log" -ForegroundColor Yellow
     exit 1
 }
         `.trim();
