@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"syscall"
 	"time"
+	"golang.org/x/sys/windows/registry"
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/eventlog"
 	"golang.org/x/sys/windows/svc/mgr"
@@ -177,6 +178,28 @@ func InstallService() error {
 		return fmt.Errorf("创建服务失败: %v", err)
 	}
 	defer s.Close()
+
+	// 自动注入安装用户的环境上下文，解决 LocalSystem 账户下命令或配置缺失问题
+	k, err := registry.OpenKey(registry.LOCAL_MACHINE, `SYSTEM\CurrentControlSet\Services\`+serviceName, registry.SET_VALUE)
+	if err == nil {
+		defer k.Close()
+		var envs []string
+		keys := []string{"PATH", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "HOMEDRIVE", "HOMEPATH"}
+		for _, key := range keys {
+			if val := os.Getenv(key); val != "" {
+				envs = append(envs, key+"="+val)
+			}
+		}
+		if len(envs) > 0 {
+			if rErr := k.SetStringsValue("Environment", envs); rErr != nil {
+				log.Printf("写入服务环境变量失败: %v", rErr)
+			} else {
+				log.Printf("成功将安装用户的环境变量 (%v) 注入服务注册表", keys)
+			}
+		}
+	} else {
+		log.Printf("打开服务注册表项失败: %v", err)
+	}
 
 	// 配置服务恢复选项：失败后自动重启
 	err = s.SetRecoveryActions([]mgr.RecoveryAction{

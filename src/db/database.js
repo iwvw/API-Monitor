@@ -103,9 +103,50 @@ class DatabaseService {
           const moduleSchemaPath = path.join(modulesDir, moduleName, 'schema.sql');
           if (fs.existsSync(moduleSchemaPath)) {
             try {
-              const moduleSchema = fs.readFileSync(moduleSchemaPath, 'utf8');
-              this.db.exec(moduleSchema);
-              logger.debug(`模块数据库表结构已同步: ${moduleName}`);
+              // 特殊处理 uptime-api 不兼容的旧表结构冲突与自动数据迁移
+              if (moduleName === 'uptime-api') {
+                const tableInfo = this.db.pragma('table_info(uptime_monitors)');
+                if (tableInfo.length > 0) {
+                  const idCol = tableInfo.find(c => c.name === 'id');
+                  const hasConflictingSchema = idCol && idCol.type === 'TEXT';
+                  
+                  if (hasConflictingSchema) {
+                    logger.warn('检测到不兼容的旧版 uptime_monitors 表结构，正在进行重命名备份...');
+                    const timestamp = Date.now();
+                    const backupMonitorsTable = `uptime_monitors_backup_${timestamp}`;
+                    const backupHeartbeatsTable = `uptime_heartbeats_backup_${timestamp}`;
+                    
+                    try { this.db.exec(`ALTER TABLE uptime_monitors RENAME TO ${backupMonitorsTable}`); } catch (e) { logger.error('重命名 uptime_monitors 失败:', e.message); }
+                    try { this.db.exec(`ALTER TABLE uptime_heartbeats RENAME TO ${backupHeartbeatsTable}`); } catch (e) { logger.error('重命名 uptime_heartbeats 失败:', e.message); }
+                    try { this.db.exec(`ALTER TABLE uptime_incidents RENAME TO uptime_incidents_backup_${timestamp}`); } catch (e) { }
+                    logger.success(`不兼容的旧版 Uptime 表已成功备份为 *_backup_${timestamp}`);
+                  }
+                }
+                
+                // 执行标准 Schema 以创建正确的表结构
+                if (!this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name = 'uptime_monitors'").get()) {
+                  const moduleSchema = fs.readFileSync(moduleSchemaPath, 'utf8');
+                  this.db.exec(moduleSchema);
+                  logger.debug(`模块数据库表结构已同步: ${moduleName}`);
+                }
+
+                // 检测是否有未迁移的旧备份表并执行迁移 (过滤掉已迁移过的 _migrated 备份表)
+                const backupTable = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name LIKE 'uptime_monitors_backup_%' AND name NOT LIKE '%_migrated' ORDER BY name DESC LIMIT 1").get();
+                if (backupTable) {
+                  const backupMonitorsTable = backupTable.name;
+                  const timestamp = backupMonitorsTable.replace('uptime_monitors_backup_', '');
+                  const backupHeartbeatsTable = `uptime_heartbeats_backup_${timestamp}`;
+                  
+                  logger.info(`检测到尚未迁移的备份表 ${backupMonitorsTable}，开始自动数据迁移...`);
+                  this.migrateUptimeData(backupMonitorsTable, backupHeartbeatsTable);
+                }
+              }
+
+              if (moduleName !== 'uptime-api') {
+                const moduleSchema = fs.readFileSync(moduleSchemaPath, 'utf8');
+                this.db.exec(moduleSchema);
+                logger.debug(`模块数据库表结构已同步: ${moduleName}`);
+              }
             } catch (err) {
               logger.error(`模块 Schema 初始化失败 (${moduleName}):`, err.message);
               // 继续初始化其他模块
@@ -119,6 +160,111 @@ class DatabaseService {
     } catch (error) {
       logger.error('数据库表结构初始化失败', error.message);
       throw error;
+    }
+  }
+
+  /**
+   * 从旧备份表迁移 Uptime 监控数据到新表结构
+   */
+  migrateUptimeData(backupMonitorsTable, backupHeartbeatsTable) {
+    try {
+      const oldMonitors = this.db.prepare(`SELECT * FROM ${backupMonitorsTable}`).all();
+      if (oldMonitors.length === 0) return;
+
+      logger.info(`正在从旧表迁移 ${oldMonitors.length} 个监控项到新表...`);
+
+      const insertMonitor = this.db.prepare(`
+        INSERT INTO uptime_monitors (name, type, url, hostname, port, interval, timeout, confirm_count, active, method, headers, body, ignore_tls, accepted_status_codes, tags, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      const idMapping = {}; // old_id (TEXT) -> new_id (INTEGER)
+
+      const tx = this.db.transaction(() => {
+        for (const om of oldMonitors) {
+          // Map type-specific fields
+          let hostname = null;
+          let url = om.url;
+          if (om.type === 'ping' || om.type === 'tcp') {
+            hostname = om.url;
+            url = null;
+          }
+
+          // Map confirm_count (old retries)
+          const confirmCount = om.retries !== undefined ? om.retries : 3;
+
+          // Accepted status codes mapping
+          let acceptedStatusCodes = null;
+          if (om.accepted_statuscodes) {
+            try {
+              const parsed = JSON.parse(om.accepted_statuscodes);
+              acceptedStatusCodes = Array.isArray(parsed) ? parsed.join(',') : String(parsed);
+            } catch (e) {
+              acceptedStatusCodes = om.accepted_statuscodes;
+            }
+          }
+
+          const res = insertMonitor.run(
+            om.name,
+            om.type || 'http',
+            url,
+            hostname,
+            om.port,
+            om.interval || 60,
+            om.timeout || 30,
+            confirmCount,
+            om.active !== undefined ? om.active : 1,
+            om.method || 'GET',
+            om.headers,
+            om.body,
+            om.ignore_tls || 0,
+            acceptedStatusCodes,
+            om.tags || '[]',
+            om.created_at || new Date().toISOString(),
+            om.updated_at || new Date().toISOString()
+          );
+
+          idMapping[om.id] = res.lastInsertRowid;
+        }
+      });
+      tx();
+      logger.success(`监控项迁移完成: ${Object.keys(idMapping).length} 个监控项已迁移`);
+
+      // Migrate heartbeats if they exist
+      try {
+        const hasBackupHb = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name = ?").get(backupHeartbeatsTable);
+        if (hasBackupHb) {
+          const oldHeartbeats = this.db.prepare(`SELECT * FROM ${backupHeartbeatsTable}`).all();
+          if (oldHeartbeats.length > 0) {
+            logger.info(`正在迁移 ${oldHeartbeats.length} 条心跳记录...`);
+            const insertHeartbeat = this.db.prepare(`
+              INSERT INTO uptime_heartbeats (monitor_id, status, ping, msg, created_at)
+              VALUES (?, ?, ?, ?, ?)
+            `);
+
+            const hbTx = this.db.transaction(() => {
+              for (const oh of oldHeartbeats) {
+                const newMonitorId = idMapping[oh.monitor_id];
+                if (newMonitorId) {
+                  insertHeartbeat.run(
+                    newMonitorId,
+                    oh.status,
+                    oh.ping || 0,
+                    oh.msg || '',
+                    oh.time || oh.created_at || new Date().toISOString()
+                  );
+                }
+              }
+            });
+            hbTx();
+            logger.success('心跳记录迁移完成');
+          }
+        }
+      } catch (err) {
+        logger.error('心跳记录迁移失败:', err.message);
+      }
+    } catch (migrationErr) {
+      logger.error('监控项数据迁移失败:', migrationErr.message);
     }
   }
 
