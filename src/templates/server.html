@@ -164,7 +164,7 @@
     <!-- 主机卡片列表 -->
     <div v-for="(server, index) in filteredServerList" :key="server.id" class="server-card"
       :class="{ expanded: isServerExpanded(server.id) }" 
-      :draggable="!serverSearchText.trim() && serverStatusFilter === 'all'"
+      :draggable="!serverSearchText.trim() && serverStatusFilter === 'all' && !isServerExpanded(server.id) && !server.isEditing"
       @dragstart="handleServerDragStart(index, $event)"
       @dragover="handleServerDragOver($event)"
       @drop="handleServerDrop(index, $event)"
@@ -286,7 +286,12 @@
                 text-transform: uppercase;
               ">
               <span>GPU</span>
-              <span style="color: #76b900">{{ server.info.gpu.Usage || '0%' }}</span>
+              <span style="display: flex; gap: 4px; align-items: center">
+                <span style="color: #76b900">{{ server.info.gpu.Usage || '0%' }}</span>
+                <span v-if="server.info.gpu.Temp > 0 && isServerExpanded(server.id)" :style="{ color: getTempColor(server.info.gpu.Temp), fontSize: '9px', fontWeight: '800' }">
+                  {{ Math.round(server.info.gpu.Temp) }}°C
+                </span>
+              </span>
             </div>
             <div style="
                 height: 4px;
@@ -315,8 +320,12 @@
                 text-transform: uppercase;
               ">
               <span>CPU</span>
-              <span v-if="server.info && server.info.cpu" style="color: #10b981">{{ parseInt(server.info.cpu.Usage)
-                }}%</span>
+              <span v-if="server.info && server.info.cpu" style="display: flex; gap: 4px; align-items: center">
+                <span style="color: #10b981">{{ parseInt(server.info.cpu.Usage) }}%</span>
+                <span v-if="server.info.cpu.Temp > 0 && isServerExpanded(server.id)" :style="{ color: getTempColor(server.info.cpu.Temp), fontSize: '9px', fontWeight: '800' }">
+                  {{ Math.round(server.info.cpu.Temp) }}°C
+                </span>
+              </span>
             </div>
             <div style="
                 height: 4px;
@@ -581,7 +590,12 @@
                           server.info.cpu.PhysicalCores + '核/' + server.info.cpu.LogicalCores + '线程' :
                           (server.info.cpu.PhysicalCores || server.info.cpu.Cores || '-') + ' 核' }})
                         </span>
-                        <span class="server-detail-value">{{ server.info.cpu.Usage || '0%' }}</span>
+                        <span class="server-detail-value" style="display: flex; gap: 6px; align-items: center; white-space: nowrap; flex-shrink: 0;">
+                          <span v-if="server.info.cpu.Temp > 0" class="badge" :style="{ background: 'rgba(var(--primary-rgb), 0.05)', color: getTempColor(server.info.cpu.Temp), fontSize: '10px', fontWeight: '800', border: '1px solid ' + getTempColor(server.info.cpu.Temp), padding: '1px 5px', borderRadius: '4px', display: 'inline-flex', alignItems: 'center', gap: '3px', whiteSpace: 'nowrap' }">
+                            <i class="fas fa-thermometer-half" style="font-size: 10px;"></i>{{ Math.round(server.info.cpu.Temp) }}°C
+                          </span>
+                          <span style="white-space: nowrap;">{{ server.info.cpu.Usage || '0%' }}</span>
+                        </span>
                       </div>
                       <div class="progress-bar" style="margin-top: 4px; margin-bottom: 10px">
                         <div class="progress-bar-fill"
@@ -593,8 +607,16 @@
                     <!-- MEM -->
                     <div v-if="server.info.memory">
                       <div class="server-detail-item" style="border: none; padding: 2px 0">
-                        <span class="server-detail-label">内存使用 ({{ server.info.memory.Used || '-' }})</span>
-                        <span class="server-detail-value">{{ server.info.memory.Usage || '0%' }}</span>
+                        <span class="server-detail-label">
+                          <i class="fas fa-memory" style="margin-right: 4px; opacity: 0.7"></i>
+                          内存使用
+                        </span>
+                        <span class="server-detail-value" style="font-family: var(--font-mono); font-size: 11px;">
+                          <strong style="color: var(--text-primary)">{{ server.info.memory.Used || '-' }}</strong>
+                          <span style="color: var(--text-tertiary); margin: 0 2px;">/</span>
+                          <span style="color: var(--text-secondary)">{{ server.info.memory.Total || '-' }}</span>
+                          <span style="color: var(--text-tertiary); margin-left: 4px;">({{ server.info.memory.Usage || '0%' }})</span>
+                        </span>
                       </div>
                       <div class="progress-bar" style="margin-top: 4px; margin-bottom: 10px">
                         <div class="progress-bar-fill" :class="getMemoryClass(server.info.memory.Usage)"
@@ -780,19 +802,44 @@
                           {{ server.info.gpu && server.info.gpu.Model ? server.info.gpu.Model :
                           'GPU' }}
                         </span>
-                        <span class="server-detail-value">{{ server.info.gpu && server.info.gpu.Usage ?
-                          server.info.gpu.Usage :
-                          '0%' }}</span>
+                        <span class="server-detail-value" style="display: flex; gap: 6px; align-items: center; white-space: nowrap; flex-shrink: 0;">
+                          <span v-if="server.info.gpu && server.info.gpu.Temp > 0" class="badge" :style="{ background: 'rgba(var(--primary-rgb), 0.05)', color: getTempColor(server.info.gpu.Temp), fontSize: '10px', fontWeight: '800', border: '1px solid ' + getTempColor(server.info.gpu.Temp), padding: '1px 5px', borderRadius: '4px', display: 'inline-flex', alignItems: 'center', gap: '3px', whiteSpace: 'nowrap' }">
+                            <i class="fas fa-thermometer-half" style="font-size: 10px;"></i>{{ Math.round(server.info.gpu.Temp) }}°C
+                          </span>
+                          <span style="white-space: nowrap;">{{ server.info.gpu && server.info.gpu.Usage ? server.info.gpu.Usage : '0%' }}</span>
+                        </span>
                       </div>
                       <div class="progress-bar">
                         <div class="progress-bar-fill" style="background: linear-gradient(90deg, #76b900, #8bc34a)"
                           :style="{ width: (server.info.gpu && server.info.gpu.Usage) || '0%' }"></div>
                       </div>
-                      <div v-if="server.info.gpu && server.info.gpu.Memory" class="server-detail-item"
-                        style="border: none; padding: 4px 0 0 0">
-                        <span class="server-detail-label" style="font-size: 11px; opacity: 0.7">显存 / 功耗</span>
-                        <span class="server-detail-value" style="font-size: 11px; opacity: 0.7">{{
-                          server.info.gpu.Memory }} / {{ server.info.gpu.Power || '0W' }}</span>
+                      <!-- GPU 显存 (带进度条) -->
+                      <div v-if="server.info.gpu && server.info.gpu.Memory && server.info.gpu.Memory.includes('/')" style="margin-top: 10px">
+                        <div class="server-detail-item" style="border: none; padding: 2px 0">
+                          <span class="server-detail-label">
+                            <i class="fas fa-microchip" style="margin-right: 4px; opacity: 0.7"></i>
+                            显存使用
+                          </span>
+                          <span class="server-detail-value" style="font-family: var(--font-mono); font-size: 11px;">
+                            <strong style="color: #76b900">{{ server.info.gpu.Memory.split('/')[0].trim() }}</strong>
+                            <span style="color: var(--text-tertiary); margin: 0 2px;">/</span>
+                            <span style="color: var(--text-secondary)">{{ server.info.gpu.Memory.split('/')[1].trim() }}</span>
+                            <span style="color: var(--text-tertiary); margin-left: 4px;">({{ Math.round(server.info.gpu.Percent || 0) }}%)</span>
+                          </span>
+                        </div>
+                        <div class="progress-bar" style="margin-top: 4px; margin-bottom: 10px">
+                          <div class="progress-bar-fill" style="background: linear-gradient(90deg, #76b900, #8bc34a)"
+                            :style="{ width: (server.info.gpu.Percent || 0) + '%' }"></div>
+                        </div>
+                      </div>
+
+                      <!-- GPU 功耗 -->
+                      <div v-if="server.info.gpu && server.info.gpu.Power" class="server-detail-item" style="border: none; padding: 2px 0 0 0; margin-top: 2px">
+                        <span class="server-detail-label">
+                          <i class="fas fa-bolt" style="margin-right: 4px; color: #eab308"></i>
+                          功耗负载
+                        </span>
+                        <span class="server-detail-value" style="font-family: var(--font-mono); font-weight: 700; color: #eab308; font-size: 11px;">{{ server.info.gpu.Power }}</span>
                       </div>
                     </div>
                     <div v-else class="server-detail-item" style="border: none; opacity: 0.5; padding: 8px 0;">
@@ -2909,6 +2956,12 @@ Web服务器,192.168.1.100,22,root,password123
                     <span class="status-label">使用率</span>
                     <span class="status-value" :style="{ color: getCpuColor(serverStatusData.cpu_usage) }">
                       {{ serverStatusData.cpu_usage || '-' }}
+                    </span>
+                  </div>
+                  <div class="status-item" v-if="serverStatusData.cpu_temp > 0">
+                    <span class="status-label">温度</span>
+                    <span class="status-value" :style="{ color: getTempColor(serverStatusData.cpu_temp) }">
+                      {{ Math.round(serverStatusData.cpu_temp) }}°C
                     </span>
                   </div>
                   <div class="status-progress" v-if="serverStatusData.cpu_usage">

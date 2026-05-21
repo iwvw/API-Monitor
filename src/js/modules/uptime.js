@@ -38,6 +38,7 @@ export const uptimeData = {
   uptimeSearchText: '',
   uptimeLoading: false,
   uptimeSaving: false,
+  selectedMonitorIds: [],
 
   // Socket
   uptimeSocket: null,
@@ -135,6 +136,7 @@ export const uptimeMethods = {
    */
   async loadUptimeMonitors() {
     this.uptimeLoading = true;
+    this.selectedMonitorIds = [];
     try {
       const res = await fetch('/api/uptime/monitors');
       const data = await res.json();
@@ -272,6 +274,7 @@ export const uptimeMethods = {
 
       this.uptimeMonitors = this.uptimeMonitors.filter((m) => m.id !== id);
       delete this.uptimeHeartbeats[id];
+      this.selectedMonitorIds = this.selectedMonitorIds.filter(x => x !== id);
 
       if (this.selectedUptimeMonitor?.id === id) {
         this.selectedUptimeMonitor = null;
@@ -282,6 +285,76 @@ export const uptimeMethods = {
     } catch (error) {
       console.error('删除监测失败:', error);
       this.showToast('删除监测失败', 'error');
+    }
+  },
+
+  /**
+   * 判断当前筛选列表是否全选
+   */
+  isAllUptimeMonitorsSelected() {
+    const filtered = this.getFilteredUptimeMonitors();
+    if (filtered.length === 0) return false;
+    return filtered.every(m => this.selectedMonitorIds.includes(m.id));
+  },
+
+  /**
+   * 切换当前筛选出来的监测目标的选中状态
+   */
+  toggleSelectAllUptimeMonitors() {
+    const filtered = this.getFilteredUptimeMonitors();
+    if (this.isAllUptimeMonitorsSelected()) {
+      // 取消选中当前筛选出的所有监控项
+      const filteredIds = filtered.map(m => m.id);
+      this.selectedMonitorIds = this.selectedMonitorIds.filter(id => !filteredIds.includes(id));
+    } else {
+      // 选中当前筛选出的所有监控项
+      filtered.forEach(m => {
+        if (!this.selectedMonitorIds.includes(m.id)) {
+          this.selectedMonitorIds.push(m.id);
+        }
+      });
+    }
+  },
+
+  /**
+   * 批量删除选中的监测目标
+   */
+  async batchDeleteUptimeMonitors() {
+    if (this.selectedMonitorIds.length === 0) return;
+    if (!confirm(`确定要删除选中的 ${this.selectedMonitorIds.length} 个监测目标吗？`)) return;
+
+    try {
+      const res = await fetch('/api/uptime/monitors/batch-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: this.selectedMonitorIds })
+      });
+      const data = await res.json();
+
+      if (res.ok) {
+        // 从列表过滤掉已删除的监控项
+        const deletedIds = this.selectedMonitorIds;
+        this.uptimeMonitors = this.uptimeMonitors.filter(m => !deletedIds.includes(m.id));
+
+        // 清理心跳数据
+        deletedIds.forEach(id => {
+          delete this.uptimeHeartbeats[id];
+          if (this.selectedUptimeMonitor?.id === id) {
+            this.selectedUptimeMonitor = null;
+          }
+        });
+
+        // 重置选中列表
+        this.selectedMonitorIds = [];
+
+        this.calculateUptimeStats();
+        this.showToast(`成功删除 ${data.count} 个监测目标`, 'success');
+      } else {
+        throw new Error(data.error || 'Unknown error');
+      }
+    } catch (error) {
+      console.error('批量删除监测失败:', error);
+      this.showToast('批量删除监测失败: ' + error.message, 'error');
     }
   },
 

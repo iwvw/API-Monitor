@@ -353,6 +353,17 @@ class AgentService extends EventEmitter {
           gpu_power: parseFloat(frontendMetrics.gpu_power) || 0,
           platform: frontendMetrics.platform || '',
         });
+
+        try {
+          serverStorage.updateStatus(server.id, {
+            status: 'online',
+            last_check_status: 'success',
+            cached_info: frontendMetrics,
+          });
+        } catch (e) {
+          // Ignore
+        }
+
         collected++;
       }
 
@@ -493,6 +504,16 @@ class AgentService extends EventEmitter {
         ...hostInfo,
         received_at: Date.now(),
       });
+
+      try {
+        serverStorage.updateStatus(serverId, {
+          status: 'online',
+          last_check_status: 'success',
+          cached_info: hostInfo,
+        });
+      } catch (err) {
+        // Ignore
+      }
 
       this.log(
         `收到主机信息: ${serverId} (${hostInfo.platform} ${hostInfo.platform_version}), Cores: ${hostInfo.cores}, GPU: ${JSON.stringify(hostInfo.gpu)}, GPU Mem Total: ${hostInfo.gpu_mem_total}`

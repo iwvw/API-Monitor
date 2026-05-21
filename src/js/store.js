@@ -110,12 +110,6 @@ export const MODULE_CONFIG = {
     description: 'AI 对话助手',
   },
 
-  deepseek: {
-    name: 'DeepSeek',
-    shortName: 'DS',
-    icon: 'fa-brain',
-    description: 'DeepSeek API 代理服务',
-  },
   qwen: {
     name: '通义千问',
     shortName: 'Qwen',
@@ -139,7 +133,7 @@ export const MODULE_GROUPS = [
     id: 'api-gateway',
     name: 'API 网关',
     icon: 'fa-bolt',
-    modules: ['openai', 'gemini-cli', 'deepseek', 'qwen'],
+    modules: ['openai', 'gemini-cli', 'qwen'],
   },
   {
     id: 'infrastructure',
@@ -197,7 +191,6 @@ export const store = reactive({
   moduleVisibility: {
     dashboard: true,
     openai: true,
-    deepseek: true,
     qwen: true,
     'gemini-cli': true,
     paas: true,
@@ -216,18 +209,15 @@ export const store = reactive({
   channelEnabled: {
     antigravity: true,
     'gemini-cli': true,
-    deepseek: true,
   },
   channelModelPrefix: {
     antigravity: '',
     'gemini-cli': '',
-    deepseek: '',
   },
   moduleOrder: [
     'dashboard',
     'openai',
     'gemini-cli',
-    'deepseek',
     'qwen',
     'paas',
     'dns',
@@ -755,49 +745,6 @@ export const store = reactive({
   geminiCliQuotaLoading: false, // 额度查询中
   geminiCliQuotaData: [], // 额度数据 [{ accountId, accountName, buckets: [{modelId, remainingFraction, resetTime}] }]
   geminiCliQuotaModels: [], // 额度中出现的所有模型 ID 列表
-
-  // ===== DeepSeek 模块 =====
-  dsCurrentTab: 'models',
-  dsModels: [],
-  dsModelsLoading: false,
-  dsModelRedirects: [],
-  dsNewRedirectSource: '',
-  dsNewRedirectTarget: '',
-  dsEditingRedirectSource: null,
-  dsAccounts: [],
-  dsAccountsLoading: false,
-  dsShowAddAccount: false,
-  dsAccountAddMode: 'password', // 'password' | 'token'
-  dsAccountForm: { name: '', emailOrMobile: '', password: '', token: '' },
-  dsAccountFormError: '',
-  dsAccountAdding: false,
-  dsAccountRefreshing: false,
-  dsLogs: [],
-  dsLogsLoading: false,
-  dsLogFilterModel: '',
-  dsLogFilterAccount: '',
-  dsLogDetailVisible: false,
-  dsLogDetailContent: '',
-  dsLogDetail: null,
-  dsLogDetailShowRaw: false,
-  dsSettingsForm: { API_KEY: '', DEFAULT_TEMPERATURE: '1', DEFAULT_MAX_TOKENS: '131072', SYSTEM_INSTRUCTION: '' },
-  dsSaving: false,
-  dsMatrix: {},
-  dsStats: { total_calls: 0, success_calls: 0, total_tokens: 0 },
-  dsBaseUrl: 'Loading...',
-  dsCurlExample: 'Generating example...',
-
-  // DeepSeek 交互测试 (保留现状供需要时激活)
-  dsTestModel: 'deepseek-chat',
-  dsTestMessage: '你好，测试',
-  dsTestResult: null,
-  dsTesting: false,
-  dsTestStream: true,
-
-  // DeepSeek 模型检测 (对齐 GCLI)
-  dsCheckHistory: { models: [], times: [], matrix: {} },
-  dsChecking: false,
-  dsDisabledCheckModels: [],
 
   // ===== Qwen 模块 =====
   qwenCurrentTab: 'models',

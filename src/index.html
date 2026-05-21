@@ -24,7 +24,6 @@
   <%- cdnStyleTags %>
     <%- cdnScriptTags %>
 
-      <link rel="stylesheet" href="css/deepseek.css" />
       <link rel="stylesheet" href="css/qwen.css" />
       <link rel="stylesheet" href="css/refined-mobile.css" />
 
@@ -214,7 +213,7 @@
             <div class="main-nav-container" :class="[
               {'nav-bottom-fixed': navLayout === 'bottom' || navLayout === 'bottom-normal'},
               {'nav-capsule': navLayout === 'bottom' || navLayout === 'top-capsule'},
-              'theme-' + (mainActiveTab === 'self-h' ? 'self-h' : mainActiveTab === 'gemini-cli' ? 'gemini-cli' : mainActiveTab === 'deepseek' ? 'deepseek' : mainActiveTab === 'dns' ? 'cf-dns' : mainActiveTab)
+              'theme-' + (mainActiveTab === 'self-h' ? 'self-h' : mainActiveTab === 'gemini-cli' ? 'gemini-cli' : mainActiveTab === 'dns' ? 'cf-dns' : mainActiveTab)
             ]">
               <!-- 分组式标签页导航 -->
               <div class="main-tabs main-tabs-grouped" v-if="visibleModulesCount > 1">
@@ -250,11 +249,6 @@
                             <img
                               src="https://img.alicdn.com/imgextra/i1/O1CN01cOgO0228KfUaIUM9k_!!6000000007914-54-tps-150-150.apng"
                               style="width: 14px; height: 14px; margin-right: 8px; vertical-align: -2px; border-radius: 2px;">
-                          </template>
-                          <template v-else-if="module === 'deepseek'">
-                            <img
-                              src="https://fe-static.deepseek.com/chat/favicon.svg"
-                              style="width: 14px; height: 14px; margin-right: 8px; vertical-align: -2px;">
                           </template>
                           <template v-else-if="module === 'gemini-cli'">
                             <img
@@ -482,7 +476,7 @@
             v-if="!singlePageMode && (!isSelfHVideoActive || !isMobile) && (navLayout === 'bottom' || navLayout === 'bottom-normal')"
             class="main-nav-container nav-bottom-fixed" :class="[
               {'nav-capsule': navLayout === 'bottom'},
-              'theme-' + (mainActiveTab === 'self-h' ? 'self-h' : mainActiveTab === 'gemini-cli' ? 'gemini-cli' : mainActiveTab === 'deepseek' ? 'deepseek' : mainActiveTab === 'dns' ? 'cf-dns' : mainActiveTab)
+              'theme-' + (mainActiveTab === 'self-h' ? 'self-h' : mainActiveTab === 'gemini-cli' ? 'gemini-cli' : mainActiveTab === 'dns' ? 'cf-dns' : mainActiveTab)
             ]">
             <div class="main-tabs main-tabs-grouped" v-if="visibleModulesCount > 1">
               <button v-if="moduleVisibility.dashboard" class="nav-group-btn single-module-btn"
@@ -511,11 +505,6 @@
                           <img
                             src="https://img.alicdn.com/imgextra/i1/O1CN01cOgO0228KfUaIUM9k_!!6000000007914-54-tps-150-150.apng"
                             style="width: 14px; height: 14px; margin-right: 8px; vertical-align: -2px; border-radius: 2px;">
-                        </template>
-                        <template v-else-if="module === 'deepseek'">
-                          <img
-                            src="https://fe-static.deepseek.com/chat/favicon.svg"
-                            style="width: 14px; height: 14px; margin-right: 8px; vertical-align: -2px;">
                         </template>
                         <template v-else-if="module === 'gemini-cli'">
                           <img
@@ -571,7 +560,6 @@
           <div id="template-openai" v-show="mainActiveTab === 'openai'"></div>
           <div id="template-antigravity" v-show="mainActiveTab === 'antigravity'"></div>
           <div id="template-gemini-cli" v-show="mainActiveTab === 'gemini-cli'"></div>
-          <div id="template-deepseek" v-show="mainActiveTab === 'deepseek'"></div>
           <div id="template-qwen" v-show="mainActiveTab === 'qwen'"></div>
           <div id="template-server" v-show="mainActiveTab === 'server'"></div>
           <div id="template-aliyun" v-show="mainActiveTab === 'aliyun'"></div>

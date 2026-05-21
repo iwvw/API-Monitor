@@ -34,8 +34,12 @@ router.get('/accounts', (req, res) => {
 
     // 附带后端缓存的最新指标（通过 agentService 获取）
     const serversWithMetrics = servers.map(server => {
-      const cachedMetrics = agentService.getMetrics(server.id);
+      let cachedMetrics = agentService.getMetrics(server.id);
       const isOnline = agentService.isOnline(server.id);
+
+      if (!cachedMetrics && server.cached_info) {
+        cachedMetrics = server.cached_info;
+      }
 
       if (cachedMetrics) {
         // 解析 disk 字符串为结构化对象 (格式: "38G/40G (95%)")
@@ -64,6 +68,7 @@ router.get('/accounts', (req, res) => {
               LogicalCores: cachedMetrics.logical_cores,
               PhysicalCores: cachedMetrics.physical_cores,
               Usage: cachedMetrics.cpu_usage,
+              Temp: cachedMetrics.cpu_temp,
             },
             memory: {
               Usage:
@@ -81,6 +86,7 @@ router.get('/accounts', (req, res) => {
               Usage: cachedMetrics.gpu_usage,
               Memory: cachedMetrics.gpu_mem,
               Power: cachedMetrics.gpu_power,
+              Temp: cachedMetrics.gpu_temp,
             },
             platform: cachedMetrics.platform,
             platformVersion: cachedMetrics.platformVersion,
@@ -457,6 +463,14 @@ router.post('/info', async (req, res) => {
           LogicalCores: metrics.logical_cores,
           PhysicalCores: metrics.physical_cores,
           Load: metrics.load,
+          Temp: metrics.cpu_temp,
+        },
+        gpu: {
+          Model: metrics.gpu_model,
+          Usage: metrics.gpu_usage,
+          Memory: metrics.gpu_mem,
+          Power: metrics.gpu_power,
+          Temp: metrics.gpu_temp,
         },
         memory: {
           Usage: metrics.mem_usage_percent,

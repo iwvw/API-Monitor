@@ -242,6 +242,9 @@ export const metricsMethods = {
       if (!info.cpu) info.cpu = {};
       if (info.cpu.Load !== newCpuLoad) info.cpu.Load = newCpuLoad;
       if (info.cpu.Usage !== newCpuUsage) info.cpu.Usage = newCpuUsage;
+      if (metrics.cpu_temp !== undefined) {
+        if (info.cpu.Temp !== metrics.cpu_temp) info.cpu.Temp = metrics.cpu_temp;
+      }
       // 核心数：仅在有效值时更新，且优先保留较大的历史值（防止单次采样异常）
       if (validNewCores) {
         const existingCores = parseInt(info.cpu.Cores) || 0;
@@ -351,6 +354,9 @@ export const metricsMethods = {
       }
       if (metrics.gpu_power !== undefined) {
         if (info.gpu.Power !== metrics.gpu_power) info.gpu.Power = metrics.gpu_power;
+      }
+      if (metrics.gpu_temp !== undefined) {
+        if (info.gpu.Temp !== metrics.gpu_temp) info.gpu.Temp = metrics.gpu_temp;
       }
       if (metrics.gpu_mem_percent !== undefined) {
         if (info.gpu.Percent !== metrics.gpu_mem_percent)
@@ -490,6 +496,7 @@ export const metricsMethods = {
           Load: item.metrics.load || '-',
           Usage: item.metrics.cpu_usage || '0%',
           Cores: item.metrics.cores || '-',
+          Temp: item.metrics.cpu_temp !== undefined ? item.metrics.cpu_temp : (info.cpu?.Temp || 0),
         };
 
         // 3. 更新内存数据 (逻辑增强：解析 "123/1024MB")
@@ -551,7 +558,29 @@ export const metricsMethods = {
         }
 
         // 7. 更新 GPU 和平台信息
-        info.gpu = item.metrics.gpu;
+        if (item.metrics.gpu !== undefined) {
+          const existingGpu = info.gpu && typeof info.gpu === 'object' ? info.gpu : {};
+          if (typeof item.metrics.gpu === 'object' && item.metrics.gpu !== null) {
+            info.gpu = {
+              Model: item.metrics.gpu.Model || item.metrics.gpu_model || existingGpu.Model || '',
+              Usage: item.metrics.gpu.Usage || item.metrics.gpu_usage || '0%',
+              Memory: item.metrics.gpu.Memory || item.metrics.gpu_mem || '',
+              Power: item.metrics.gpu.Power || item.metrics.gpu_power || '',
+              Temp: item.metrics.gpu.Temp !== undefined ? item.metrics.gpu.Temp : (item.metrics.gpu_temp !== undefined ? item.metrics.gpu_temp : (existingGpu.Temp || 0)),
+              Percent: item.metrics.gpu.Percent !== undefined ? item.metrics.gpu.Percent : (item.metrics.gpu_mem_percent !== undefined ? item.metrics.gpu_mem_percent : (existingGpu.Percent || 0)),
+            };
+          } else {
+            // item.metrics.gpu is a number (usage)
+            info.gpu = {
+              Model: item.metrics.gpu_model || existingGpu.Model || '',
+              Usage: item.metrics.gpu_usage || (typeof item.metrics.gpu === 'number' ? item.metrics.gpu.toFixed(1) + '%' : '0%'),
+              Memory: item.metrics.gpu_mem || existingGpu.Memory || '',
+              Power: item.metrics.gpu_power || existingGpu.Power || '',
+              Temp: item.metrics.gpu_temp !== undefined ? item.metrics.gpu_temp : (existingGpu.Temp || 0),
+              Percent: item.metrics.gpu_mem_percent !== undefined ? item.metrics.gpu_mem_percent : (existingGpu.Percent || 0),
+            };
+          }
+        }
         info.platform = item.metrics.platform;
         info.platformVersion = item.metrics.platformVersion;
         info.uptime = item.metrics.uptime;

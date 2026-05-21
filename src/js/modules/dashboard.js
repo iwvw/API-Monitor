@@ -130,7 +130,6 @@ export const dashboardMethods = {
     // 保存到缓存
     saveToCache({
       servers: store.dashboardStats.servers,
-      deepseek: store.dashboardStats.deepseek,
       geminiCli: store.dashboardStats.geminiCli,
       paas: store.dashboardStats.paas,
       dns: store.dashboardStats.dns,
@@ -164,38 +163,16 @@ export const dashboardMethods = {
   },
 
 
-  /**
-   * 获取 API 网关摘要 (DeepSeek & Gemini CLI)
-   * 优化：两个请求并行执行
-   */
   async fetchApiSummary() {
-    const updateDeepseek = async () => {
-      try {
-        const res = await fetch('/api/deepseek/stats', { headers: store.getAuthHeaders() });
-        if (res.ok) {
-          const data = await res.json();
-          store.dashboardStats.deepseek = data.data || data;
-        }
-      } catch (e) {
-        console.error('[Dashboard] DeepSeek stats failed:', e);
+    try {
+      const res = await fetch('/api/gemini-cli/stats', { headers: store.getAuthHeaders() });
+      if (res.ok) {
+        const data = await res.json();
+        store.dashboardStats.geminiCli = data.data || data;
       }
-    };
-
-    const updateGemini = async () => {
-      try {
-        const res = await fetch('/api/gemini-cli/stats', { headers: store.getAuthHeaders() });
-        if (res.ok) {
-          const data = await res.json();
-          store.dashboardStats.geminiCli = data.data || data;
-        }
-      } catch (e) {
-        console.error('[Dashboard] Gemini stats failed:', e);
-      }
-    };
-
-    // Fire both, don't wait for all to finish before updating individual stats
-    // But await the group to know when API section is fully done (for loading state)
-    await Promise.allSettled([updateDeepseek(), updateGemini()]);
+    } catch (e) {
+      console.error('[Dashboard] Gemini stats failed:', e);
+    }
 
     // 渲染图表
     this.renderApiCharts();
@@ -213,18 +190,8 @@ export const dashboardMethods = {
     }, 100);
   },
 
-  /**
-   * 按调用量排序获取 API 列表
-   */
   getSortedApis() {
     const apis = [
-      {
-        id: 'deepseek',
-        name: 'DeepSeek API',
-        tab: 'deepseek',
-        stats: store.dashboardStats.deepseek,
-        color: '#f97316'
-      },
       {
         id: 'gemini-cli',
         name: 'Gemini CLI',
@@ -233,7 +200,7 @@ export const dashboardMethods = {
         color: '#3b82f6'
       }
     ];
-    return apis.sort((a, b) => (b.stats?.total_calls || 0) - (a.stats?.total_calls || 0));
+    return apis;
   },
 
   /**
@@ -660,7 +627,6 @@ Object.assign(store, {
   dashboardLastUpdate: '',
   dashboardStats: {
     servers: { total: 0, online: 0, offline: 0, error: 0 },
-    deepseek: { total_calls: 0, success_calls: 0, fail_calls: 0 },
     geminiCli: { total_calls: 0, success_calls: 0, fail_calls: 0 },
     paas: {
       koyeb: { total: 0, running: 0 },

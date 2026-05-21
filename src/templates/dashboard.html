@@ -48,7 +48,7 @@
     </div>
 
     <!-- API Stats -->
-    <div class="overview-card api-card" @click="mainActiveTab = 'deepseek'">
+    <div class="overview-card api-card" @click="mainActiveTab = 'gemini-cli'">
       <i class="fas fa-project-diagram card-icon-large"></i>
       <div class="card-top">
         <div class="icon-box"><i class="fas fa-rocket"></i></div>
@@ -59,18 +59,15 @@
       <div class="card-main-content">
         <span class="card-label">调用次数</span>
         <div class="card-value">
-          {{ (dashboardStats.deepseek.total_calls +
-          dashboardStats.geminiCli.total_calls) }}
+          {{ dashboardStats.geminiCli.total_calls }}
           <span class="card-unit">次</span>
         </div>
       </div>
       <div class="card-footer">
         <span class="status-dot-text"
-          :class="(dashboardStats.deepseek.total_calls + dashboardStats.geminiCli.total_calls) > 0 && ((dashboardStats.deepseek.success_calls + dashboardStats.geminiCli.success_calls) / (dashboardStats.deepseek.total_calls + dashboardStats.geminiCli.total_calls)) < 0.9 ? 'status-text-warning' : 'status-text-success'">
-          {{ (dashboardStats.deepseek.total_calls + dashboardStats.geminiCli.total_calls) > 0 ?
-          Math.round(((dashboardStats.deepseek.success_calls +
-          dashboardStats.geminiCli.success_calls) / (dashboardStats.deepseek.total_calls +
-          dashboardStats.geminiCli.total_calls)) * 1000) / 10 + '%' : '-' }} 成功率
+          :class="dashboardStats.geminiCli.total_calls > 0 && (dashboardStats.geminiCli.success_calls / dashboardStats.geminiCli.total_calls) < 0.9 ? 'status-text-warning' : 'status-text-success'">
+          {{ dashboardStats.geminiCli.total_calls > 0 ?
+          Math.round((dashboardStats.geminiCli.success_calls / dashboardStats.geminiCli.total_calls) * 1000) / 10 + '%' : '-' }} 成功率
         </span>
         <i class="fas fa-arrow-right footer-arrow"></i>
       </div>

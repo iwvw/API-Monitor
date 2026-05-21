@@ -270,7 +270,7 @@
             <div class="settings-group">
               <div class="settings-group-title">全局 API & 网络配置</div>
               <div class="settings-description">
-                此处设置的 API 密钥和代理将统一应用于 Antigravity、Gemini CLI 和 DeepSeek 模块。
+                此处设置的 API 密钥和代理将统一应用于 Antigravity、Gemini CLI 和 Qwen 模块。
               </div>
 
               <div class="form-group" style="margin-top: 16px">
@@ -331,14 +331,6 @@
                     <span style="font-size: 13px; font-weight: 500">Gemini CLI</span>
                   </div>
 
-                  <div style="display: flex; align-items: center; gap: 10px">
-                    <label class="switch">
-                      <input type="checkbox" :checked="channelEnabled && channelEnabled['deepseek']"
-                        @change="toggleChannelEnabled('deepseek')" />
-                      <span class="slider round"></span>
-                    </label>
-                    <span style="font-size: 13px; font-weight: 500">DeepSeek</span>
-                  </div>
 
                   <div style="display: flex; align-items: center; gap: 10px">
                     <label class="switch">
@@ -365,10 +357,7 @@
                     <label class="form-label" style="font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; font-weight: 500;">Gemini CLI 前缀</label>
                     <input type="text" class="form-input" v-model="channelModelPrefix['gemini-cli']" @change="saveUserSettingsToServer" placeholder="例如: gcli/" />
                   </div>
-                  <div class="form-group" style="margin-bottom: 0">
-                    <label class="form-label" style="font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; font-weight: 500;">DeepSeek 前缀</label>
-                    <input type="text" class="form-input" v-model="channelModelPrefix['deepseek']" @change="saveUserSettingsToServer" placeholder="例如: ds/" />
-                  </div>
+
                   <div class="form-group" style="margin-bottom: 0">
                     <label class="form-label" style="font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; font-weight: 500;">Qwen 前缀</label>
                     <input type="text" class="form-input" v-model="channelModelPrefix['qwen']" @change="saveUserSettingsToServer" placeholder="例如: qw/" />

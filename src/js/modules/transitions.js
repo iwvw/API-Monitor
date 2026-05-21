@@ -114,9 +114,6 @@ export const transitionsMethods = {
           case 'gemini-cli':
             this.initGeminiCli();
             break;
-          case 'deepseek':
-            this.switchToDeepSeek();
-            break;
         }
       });
     }, 150);

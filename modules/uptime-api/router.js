@@ -72,6 +72,40 @@ router.delete('/monitors/:id', (req, res) => {
     else res.status(404).json({ error: 'Not found' });
 });
 
+// POST /api/uptime/monitors/batch-delete
+router.post('/monitors/batch-delete', (req, res) => {
+    try {
+        const { ids } = req.body;
+        if (!Array.isArray(ids) || ids.length === 0) {
+            return res.status(400).json({ error: 'IDs array is required' });
+        }
+
+        // Stop each monitor in the monitor service
+        for (const id of ids) {
+            monitorService.stopMonitor(id);
+        }
+
+        // Delete from SQLite in chunks to prevent "too many SQL variables" SQLite limit error
+        const db = require('../../src/db/database').getDatabase();
+        
+        const tx = db.transaction(() => {
+            const chunkSize = 500;
+            for (let i = 0; i < ids.length; i += chunkSize) {
+                const chunk = ids.slice(i, i + chunkSize);
+                const placeholders = chunk.map(() => '?').join(',');
+                db.prepare(`DELETE FROM uptime_heartbeats WHERE monitor_id IN (${placeholders})`).run(...chunk);
+                db.prepare(`DELETE FROM uptime_incidents WHERE monitor_id IN (${placeholders})`).run(...chunk);
+                db.prepare(`DELETE FROM uptime_monitors WHERE id IN (${placeholders})`).run(...chunk);
+            }
+        });
+        tx();
+
+        res.json({ success: true, count: ids.length });
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
+});
+
 // POST /api/uptime/monitors/:id/toggle
 router.post('/monitors/:id/toggle', (req, res) => {
     const id = parseInt(req.params.id);

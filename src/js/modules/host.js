@@ -2439,6 +2439,17 @@ export const hostMethods = {
     return '';
   },
 
+  getTempColor(temp) {
+    const t = parseFloat(temp);
+    if (isNaN(t) || t <= 0) return 'var(--text-tertiary)';
+    // HSL-based dynamic premium color: cool green (40C and below) to hot red (80C and above)
+    if (t <= 40) return '#10b981';
+    if (t >= 80) return '#ef4444';
+    const ratio = (t - 40) / 40;
+    const hue = 150 - (ratio * 150);
+    return `hsl(${hue}, 85%, 45%)`;
+  },
+
   /**
    * 检查服务器是否有 GPU 数据
    * 用于控制翻转卡片功能的可用性
@@ -3592,19 +3603,33 @@ export const hostMethods = {
   // ==================== 主机排序 ====================
 
   handleServerDragStart(index, event) {
-    // 只有在没有搜索且没有状态过滤时才允许排序
+    const targetCard = this.serverList[index];
+    if (!targetCard) return;
+
+    const target = event.target;
+    // 如果是子元素交互控件（如输入框、按钮等），或者是从非 header 区域（如展开的详情面板）发起的拖拽，或者卡片正在编辑/展开，直接退出
+    const isInteractive = target.closest('input, textarea, button, a, select, option, i, [contenteditable="true"]');
+    const isFromHeader = target.closest('.server-card-header');
+    
+    if (isInteractive || !isFromHeader || this.isServerExpanded(targetCard.id) || targetCard.isEditing) {
+      return; // 优雅退出，不调用 preventDefault，这样不破坏原生的文本选择、拖拽和交互
+    }
+
+    // 只有在没有搜索、没有状态过滤时才允许拖拽排序
     if (this.serverSearchText.trim() || this.serverStatusFilter !== 'all') {
+      if (event && event.preventDefault) event.preventDefault();
       return;
     }
+
     this.draggedIndex = index;
     if (event.dataTransfer) {
       event.dataTransfer.effectAllowed = 'move';
       event.dataTransfer.setData('text/plain', index);
 
       // 设置拖拽预览样式
-      const target = event.currentTarget;
-      target.style.opacity = '0.4';
-      target.classList.add('dragging');
+      const targetCardEl = event.currentTarget;
+      targetCardEl.style.opacity = '0.4';
+      targetCardEl.classList.add('dragging');
     }
   },
 

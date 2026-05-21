@@ -24,27 +24,23 @@ function loadUserSettings() {
       'self-h': false,
       antigravity: true,
       'gemini-cli': true,
-      deepseek: true,
       qwen: true,
     };
 
     const channelEnabled = settings.channel_enabled || {
       antigravity: true,
       'gemini-cli': true,
-      deepseek: true,
     };
 
     const channelModelPrefix = settings.channel_model_prefix || {
       antigravity: '',
       'gemini-cli': '',
-      deepseek: '',
     };
 
     const order = settings.module_order || [
       'openai',
       'antigravity',
       'gemini-cli',
-      'deepseek',
       'qwen',
       'paas',
       'dns',
@@ -52,10 +48,6 @@ function loadUserSettings() {
       'server',
     ];
 
-    // 确保 gemini-cli 分支等兼容
-    if (!('deepseek' in visibility)) {
-      visibility['deepseek'] = true;
-    }
     if (!('gemini-cli' in visibility)) {
       visibility['gemini-cli'] = true;
     }
@@ -66,31 +58,17 @@ function loadUserSettings() {
       visibility['qwen'] = true;
     }
 
-    if (!('deepseek' in channelEnabled)) {
-      channelEnabled['deepseek'] = true;
-    }
     if (!('qwen' in channelEnabled)) {
       channelEnabled['qwen'] = true;
-    }
-    if (!('deepseek' in channelModelPrefix)) {
-      channelModelPrefix['deepseek'] = '';
     }
     if (!('qwen' in channelModelPrefix)) {
       channelModelPrefix['qwen'] = '';
     }
 
-    if (!order.includes('deepseek')) {
+    if (!order.includes('qwen')) {
       const gcliIdx = order.indexOf('gemini-cli');
       if (gcliIdx !== -1) {
-        order.splice(gcliIdx + 1, 0, 'deepseek');
-      } else {
-        order.push('deepseek');
-      }
-    }
-    if (!order.includes('qwen')) {
-      const dsIdx = order.indexOf('deepseek');
-      if (dsIdx !== -1) {
-        order.splice(dsIdx + 1, 0, 'qwen');
+        order.splice(gcliIdx + 1, 0, 'qwen');
       } else {
         order.push('qwen');
       }
@@ -221,7 +199,7 @@ function getDefaultSettings() {
       antigravity: '',
       'gemini-cli': '',
     },
-    moduleOrder: ['openai', 'antigravity', 'gemini-cli', 'deepseek', 'qwen', 'paas', 'dns', 'self-h', 'server'],
+    moduleOrder: ['openai', 'antigravity', 'gemini-cli', 'qwen', 'paas', 'dns', 'self-h', 'server'],
     load_balancing_strategy: 'random',
     serverIpDisplayMode: 'normal',
     navLayout: 'top',

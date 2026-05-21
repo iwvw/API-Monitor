@@ -68,17 +68,41 @@
         </button>
       </div>
 
-      <div v-else class="uptime-monitor-list">
-        <div v-for="monitor in getFilteredUptimeMonitors()" :key="monitor.id" class="uptime-monitor-card"
-          :class="{ expanded: selectedUptimeMonitor && selectedUptimeMonitor.id === monitor.id }">
+      <div v-else>
+        <!-- 批量操作控制条 -->
+        <div class="uptime-batch-bar">
+          <div class="uptime-batch-left">
+            <label class="form-switch" style="margin: 0; display: inline-flex; align-items: center; gap: 8px;">
+              <input type="checkbox" :checked="isAllUptimeMonitorsSelected()" @change="toggleSelectAllUptimeMonitors" />
+              <span class="switch-track">
+                <span class="switch-knob"></span>
+              </span>
+              <span class="switch-label" style="font-size: 13px; font-weight: 600;">全选 (已选 {{ selectedMonitorIds.length }} 个)</span>
+            </label>
+          </div>
+          <div class="uptime-batch-right">
+            <button v-if="selectedMonitorIds.length > 0" class="btn btn-danger-soft btn-sm" @click="batchDeleteUptimeMonitors" style="color: var(--danger-color); display: flex; align-items: center; gap: 6px;">
+              <i class="fas fa-trash"></i> 批量删除
+            </button>
+          </div>
+        </div>
 
-          <!-- Card Header -->
-          <div class="uptime-monitor-header" @click="selectUptimeMonitor(monitor)">
+        <div class="uptime-monitor-list">
+          <div v-for="monitor in getFilteredUptimeMonitors()" :key="monitor.id" class="uptime-monitor-card"
+            :class="{ expanded: selectedUptimeMonitor && selectedUptimeMonitor.id === monitor.id }">
 
-            <!-- Status Icon (Replaced Line) -->
-            <div class="monitor-status-icon" :class="[getUptimeStatus(monitor)]">
-              <i :class="getUptimeTypeIcon(monitor.type)"></i>
-            </div>
+            <!-- Card Header -->
+            <div class="uptime-monitor-header" @click="selectUptimeMonitor(monitor)">
+
+              <!-- Checkbox for Batch Delete -->
+              <div class="monitor-checkbox-wrapper" @click.stop>
+                <input type="checkbox" :value="monitor.id" v-model="selectedMonitorIds" class="monitor-checkbox" />
+              </div>
+
+              <!-- Status Icon (Replaced Line) -->
+              <div class="monitor-status-icon" :class="[getUptimeStatus(monitor)]">
+                <i :class="getUptimeTypeIcon(monitor.type)"></i>
+              </div>
 
             <!-- Main Info -->
             <div class="monitor-main-info">
@@ -191,6 +215,7 @@
             </div>
           </div>
         </div>
+      </div>
       </div>
     </div>
 

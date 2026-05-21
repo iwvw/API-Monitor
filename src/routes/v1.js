@@ -16,8 +16,6 @@ let agRouter = null;
 let gcliRouter = null;
 const agService = null;
 let agStorage = null;
-let dsRouter = null;
-let dsStorage = null;
 let qwenRouter = null;
 let qwenStorage = null;
 let gcliStorage = null;
@@ -29,18 +27,12 @@ try {
   const gcliPath = path.join(modulesDir, 'gemini-cli-api', 'router.js');
   if (fs.existsSync(gcliPath)) gcliRouter = require(gcliPath);
   
-  const dsPath = path.join(modulesDir, 'deepseek-api', 'router.js');
-  if (fs.existsSync(dsPath)) dsRouter = require(dsPath);
-  
   const qwenPath = path.join(modulesDir, 'qwen-api', 'router.js');
   if (fs.existsSync(qwenPath)) qwenRouter = require(qwenPath);
 
   // 加载存储层用于鉴权
   const agStoragePath = path.join(modulesDir, 'antigravity-api', 'storage.js');
   if (fs.existsSync(agStoragePath)) agStorage = require(agStoragePath);
-
-  const dsStoragePath = path.join(modulesDir, 'deepseek-api', 'storage.js');
-  if (fs.existsSync(dsStoragePath)) dsStorage = require(dsStoragePath);
 
   const qwenStoragePath = path.join(modulesDir, 'qwen-api', 'storage.js');
   if (fs.existsSync(qwenStoragePath)) qwenStorage = require(qwenStoragePath);
@@ -64,9 +56,6 @@ function getGcliModelIds() {
     return [];
 }
 
-// 辅助函数：获取深度搜索可用别名
-const DS_ALIASES = ['gpt-', 'o1', 'o3', 'claude-', 'llama-', 'deepseek-'];
-
 /**
  * API Key 认证中间件
  */
@@ -82,7 +71,6 @@ function requireApiAuth(req, res, next) {
 
     // 检查各渠道 API Key
     if (agStorage && token === agStorage.getSetting('API_KEY')) return next();
-    if (dsStorage && token === dsStorage.getSetting('API_KEY')) return next();
     if (qwenStorage && token === qwenStorage.getSetting('API_KEY')) return next();
     try { if (gcliStorage && token === (gcliStorage.getSettings().API_KEY || '123456')) return next(); } catch(e) {}
   }
@@ -90,7 +78,6 @@ function requireApiAuth(req, res, next) {
   const queryKey = req.query.key;
   if (queryKey) {
     if (agStorage && queryKey === agStorage.getSetting('API_KEY')) return next();
-    if (dsStorage && queryKey === dsStorage.getSetting('API_KEY')) return next();
     if (qwenStorage && queryKey === qwenStorage.getSetting('API_KEY')) return next();
     try { if (gcliStorage && queryKey === (gcliStorage.getSettings().API_KEY || '123456')) return next(); } catch(e) {}
   }
@@ -123,18 +110,7 @@ router.get(['/models', '/model'], requireApiAuth, async (req, res) => {
         } catch(e){}
     }
 
-    // 2. DeepSeek
-    if (channelEnabled['deepseek'] && dsStorage) {
-        const dsMatrixPath = path.join(modulesDir, 'deepseek-api', 'deepseek-models.json');
-        if (fs.existsSync(dsMatrixPath)) {
-            const dsMatrix = JSON.parse(fs.readFileSync(dsMatrixPath, 'utf8'));
-            const prefix = channelModelPrefix['deepseek'] || '';
-            Object.keys(dsMatrix).forEach(id => {
-                if(dsMatrix[id].base) addModels([id], prefix, 'deepseek');
-                if(dsMatrix[id].search) addModels([id + '-search'], prefix, 'deepseek');
-            });
-        }
-    }
+
 
     // 3. Gemini CLI — reuse router.js getAvailableModels() for name consistency
     if (channelEnabled['gemini-cli'] && gcliStorage) {
@@ -201,12 +177,7 @@ const dispatch = async (req, res, next) => {
         req.body.model = fullId.substring(qwenPrefix.length);
         if (channelEnabled['qwen'] && qwenRouter) return qwenRouter(req, res, next);
     }
-    // 检查 DeepSeek 前缀
-    const dsPrefix = channelModelPrefix['deepseek'] || '';
-    if (dsPrefix && fullId.startsWith(dsPrefix)) {
-        req.body.model = fullId.substring(dsPrefix.length);
-        if (channelEnabled['deepseek'] && dsRouter) return dsRouter(req, res, next);
-    }
+
     // 检查 GCLI 前缀
     const gcliPrefix = channelModelPrefix['gemini-cli'] || '';
     if (gcliPrefix && fullId.startsWith(gcliPrefix)) {
@@ -230,12 +201,7 @@ const dispatch = async (req, res, next) => {
         }
     }
 
-    // B. 探测 DeepSeek 归属
-    if (channelEnabled['deepseek'] && dsRouter) {
-        if (fullId.startsWith('deepseek-') || DS_ALIASES.some(p => fullId.startsWith(p))) {
-            return dsRouter(req, res, next);
-        }
-    }
+
 
     // C. 探测 Gemini CLI 归属
     if (channelEnabled['gemini-cli'] && gcliRouter) {
@@ -257,7 +223,6 @@ const dispatch = async (req, res, next) => {
 
   // 默认 Fallback
   if (channelEnabled['qwen'] && qwenRouter) return qwenRouter(req, res, next);
-  if (channelEnabled['deepseek'] && dsRouter) return dsRouter(req, res, next);
   if (channelEnabled['gemini-cli'] && gcliRouter) return gcliRouter(req, res, next);
   if (channelEnabled['antigravity'] && agRouter) return agRouter(req, res, next);
 

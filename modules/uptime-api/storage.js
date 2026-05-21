@@ -65,7 +65,18 @@ class UptimeStorage {
             }
 
             if (oldMonitors.length > 0) {
-                logger.info(`正在迁移 ${oldMonitors.length} 个监控项到 SQLite...`);
+                // 利用 Set 内存去重旧配置插入
+                const uniqueMonitors = [];
+                const seenKeys = new Set();
+                for (const m of oldMonitors) {
+                    const key = `${m.name}|${m.type || 'http'}|${m.url || ''}|${m.hostname || ''}|${m.port || 0}`;
+                    if (!seenKeys.has(key)) {
+                        seenKeys.add(key);
+                        uniqueMonitors.push(m);
+                    }
+                }
+
+                logger.info(`正在迁移 ${uniqueMonitors.length} 个非重复监控项到 SQLite...`);
                 const insert = db.prepare(`
                     INSERT INTO uptime_monitors (id, name, type, url, hostname, port, interval, timeout,
                         confirm_count, active, method, headers, body, ignore_tls, 
@@ -74,7 +85,7 @@ class UptimeStorage {
                 `);
 
                 const tx = db.transaction(() => {
-                    for (const m of oldMonitors) {
+                    for (const m of uniqueMonitors) {
                         insert.run(
                             m.id, m.name, m.type || 'http', m.url || null,
                             m.hostname || null, m.port || null, m.interval || 60,
@@ -89,7 +100,7 @@ class UptimeStorage {
                     }
                 });
                 tx();
-                logger.info(`✅ 迁移完成: ${oldMonitors.length} 个监控项`);
+                logger.info(`✅ 迁移完成: ${uniqueMonitors.length} 个监控项`);
 
                 // 迁移心跳历史
                 this._migrateHeartbeats(oldMonitors);
@@ -168,6 +179,24 @@ class UptimeStorage {
         this._checkColumns();
         this._ensureMigrated();
         const db = getDb();
+
+        // 强唯一去重防护：若相同监控特征的项已在 SQLite 中存在，直接返回已有监控项
+        const existing = db.prepare(`
+            SELECT id FROM uptime_monitors
+            WHERE name = ? AND type = ? AND COALESCE(url, '') = ? AND COALESCE(hostname, '') = ? AND COALESCE(port, 0) = ?
+        `).get(
+            data.name,
+            data.type || 'http',
+            data.url || '',
+            data.hostname || '',
+            data.port || 0
+        );
+
+        if (existing) {
+            logger.info(`检测到重复的监控项: [${data.name}], 返回已存在项 (ID: ${existing.id})`);
+            return this.getById(existing.id);
+        }
+
         const result = db.prepare(`
             INSERT INTO uptime_monitors (name, type, url, hostname, port, interval, timeout,
                 confirm_count, active, method, headers, body, ignore_tls,

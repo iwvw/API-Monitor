@@ -9,7 +9,6 @@ export const MODULE_CONFIG = {
     openai: { name: 'OpenAI', shortName: 'OAI', icon: 'fa-robot', description: 'OpenAI 兼容 API 管理与聊天' },
     antigravity: { name: 'AntiG', shortName: 'AntiG', icon: 'fa-rocket', description: 'Antigravity API 代理服务' },
     'gemini-cli': { name: 'GCLI', shortName: 'GCLI', icon: 'fa-terminal', description: 'Gemini CLI API 代理服务' },
-    deepseek: { name: 'DeepSeek', shortName: 'DS', icon: 'fa-brain', description: 'DeepSeek API 代理服务' },
     qwen: { name: '通义千问', shortName: 'Qwen', icon: 'fa-magic', description: '通义千问 API 代理服务' },
     paas: { name: 'PaaS', shortName: 'PaaS', icon: 'fa-cloud', description: 'Koyeb / Fly.io 平台监控' },
     dns: { name: 'DNS', shortName: 'CF', icon: 'fa-globe', description: 'Cloudflare DNS / Workers / Pages 管理' },
@@ -27,7 +26,7 @@ export const MODULE_CONFIG = {
 
 export const MODULE_GROUPS = [
     { id: 'overview', name: '仪表盘', icon: 'fa-tachometer-alt', modules: ['dashboard'] },
-    { id: 'api-gateway', name: 'API 网关', icon: 'fa-bolt', modules: ['openai', 'gemini-cli', 'deepseek', 'qwen'] },
+    { id: 'api-gateway', name: 'API 网关', icon: 'fa-bolt', modules: ['openai', 'gemini-cli', 'qwen'] },
     { id: 'infrastructure', name: '基础设施', icon: 'fa-cubes', modules: ['paas', 'dns', 'aliyun', 'tencent', 'server'] },
     { id: 'toolbox', name: '工具箱', icon: 'fa-toolbox', modules: ['self-h', 'totp', 'music', 'uptime', 'filebox', 'notification', 'ai-chat'] },
 ];
@@ -40,7 +39,6 @@ export const useAppStore = defineStore('app', {
             dashboard: true,
             openai: true,
             'gemini-cli': true,
-            deepseek: true,
             qwen: true,
             paas: true,
             dns: true,
@@ -56,7 +54,7 @@ export const useAppStore = defineStore('app', {
             'ai-chat': true,
         },
         moduleOrder: [
-            'dashboard', 'openai', 'gemini-cli', 'deepseek', 'qwen', 'paas', 'dns', 'aliyun', 'tencent', 'self-h', 'server', 'totp', 'music', 'uptime', 'filebox', 'notification', 'ai-chat'
+            'dashboard', 'openai', 'gemini-cli', 'qwen', 'paas', 'dns', 'aliyun', 'tencent', 'self-h', 'server', 'totp', 'music', 'uptime', 'filebox', 'notification', 'ai-chat'
         ],
         // 界面设置
         opacity: 100,

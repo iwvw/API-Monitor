@@ -64,6 +64,8 @@ type DockerInfo struct {
 // State 实时状态
 type State struct {
 	CPU            float64    `json:"cpu"`
+	CPUTemp        float64    `json:"cpu_temp"`
+	GPUTemp        float64    `json:"gpu_temp"`
 	MemUsed        uint64     `json:"mem_used"`
 	SwapUsed       uint64     `json:"swap_used"`
 	DiskUsed       uint64     `json:"disk_used"`
@@ -101,6 +103,7 @@ type Collector struct {
 	lastGPUUsage   float64
 	lastGPUMemUsed uint64
 	lastGPUPower   float64
+	lastGPUTemp    float64
 	lastGPUTime    time.Time
 
 	// GPU 采集频率控制
@@ -151,6 +154,24 @@ func (c *Collector) CollectHostInfo() *HostInfo {
 	// CPU 信息
 	logicalCores, _ := cpu.Counts(true)
 	physicalCores, _ := cpu.Counts(false)
+
+	if runtime.GOOS == "windows" {
+		// Use PowerShell fallback to ensure correct physical and logical cores count on Windows
+		cmdCores := exec.Command("powershell", "-NoProfile", "-Command", "Get-CimInstance Win32_Processor | Select-Object -ExpandProperty NumberOfCores")
+		hideWindow(cmdCores)
+		if out, err := cmdCores.Output(); err == nil {
+			if val, err := strconv.Atoi(strings.TrimSpace(string(out))); err == nil && val > 0 {
+				physicalCores = val
+			}
+		}
+		cmdLogical := exec.Command("powershell", "-NoProfile", "-Command", "Get-CimInstance Win32_Processor | Select-Object -ExpandProperty NumberOfLogicalProcessors")
+		hideWindow(cmdLogical)
+		if out, err := cmdLogical.Output(); err == nil {
+			if val, err := strconv.Atoi(strings.TrimSpace(string(out))); err == nil && val > 0 {
+				logicalCores = val
+			}
+		}
+	}
 
 	if logicalCores == 0 {
 		logicalCores = runtime.NumCPU()
@@ -334,13 +355,14 @@ func (c *Collector) CollectState() *State {
 	// Docker 信息采集
 	state.Docker = c.collectDockerInfo()
 	
-	// GPU 使用率、显存与功耗采集 (每次都采集，与 CPU 保持一致的 1.5 秒频率)
-	gpuUsage, gpuMemUsed, gpuPower := c.collectGPUState()
+	// GPU 使用率、显存、功耗与温度采集 (每次都采集，与 CPU 保持一致的 1.5 秒频率)
+	gpuUsage, gpuMemUsed, gpuPower, gpuTemp := c.collectGPUState()
 	// 只有采集到有效数据才更新缓存
-	if gpuUsage > 0 || gpuMemUsed > 0 || gpuPower > 0 {
+	if gpuUsage > 0 || gpuMemUsed > 0 || gpuPower > 0 || gpuTemp > 0 {
 		c.lastGPUUsage = gpuUsage
 		c.lastGPUMemUsed = gpuMemUsed
 		c.lastGPUPower = gpuPower
+		c.lastGPUTemp = gpuTemp
 		c.lastGPUTime = time.Now()
 	}
 
@@ -373,6 +395,10 @@ func (c *Collector) CollectState() *State {
 		state.GPUMemTotal = c.cachedHostInfo.GPUMemTotal
 	}
 	state.GPUPower = c.lastGPUPower
+	
+	// 收集 CPU 与 GPU 温度
+	state.CPUTemp = c.collectCPUTemperature()
+	state.GPUTemp = c.lastGPUTemp
 
 	return state
 }
@@ -560,15 +586,15 @@ func (c *Collector) collectGPUInfoWindows() ([]string, uint64) {
 	return models, totalMem
 }
 
-// collectGPUState 采集 GPU 使用率、显存占用和功耗 (带超时保护)
+// collectGPUState 采集 GPU 使用率、显存占用、功耗和温度 (带超时保护)
 // 支持: NVIDIA (nvidia-smi), AMD (rocm-smi/sysfs), Intel (sysfs/performance counter)
-func (c *Collector) collectGPUState() (float64, uint64, float64) {
+func (c *Collector) collectGPUState() (float64, uint64, float64, float64) {
 	// 1. 首先尝试 NVIDIA GPU (nvidia-smi)
 	nvidiaSmi := c.getNvidiaSmiPath()
 	if nvidiaSmi != "" {
-		usage, mem, power := c.collectNvidiaGPUState(nvidiaSmi)
-		if usage > 0 || mem > 0 {
-			return usage, mem, power
+		usage, mem, power, temp := c.collectNvidiaGPUState(nvidiaSmi)
+		if usage > 0 || mem > 0 || temp > 0 {
+			return usage, mem, power, temp
 		}
 	}
 
@@ -579,7 +605,7 @@ func (c *Collector) collectGPUState() (float64, uint64, float64) {
 		hasGPU := c.cachedHostInfo != nil && len(c.cachedHostInfo.GPU) > 0
 		c.mu.Unlock()
 		if !hasGPU {
-			return 0, 0, 0
+			return 0, 0, 0, 0
 		}
 
 		// Windows: 使用 Performance Counter 采集所有 GPU
@@ -589,63 +615,66 @@ func (c *Collector) collectGPUState() (float64, uint64, float64) {
 		return c.collectGPUStateLinux()
 	}
 
-	return 0, 0, 0
+	return 0, 0, 0, 0
 }
 
 // collectNvidiaGPUState 使用 NVML (优先) 或 nvidia-smi 采集 NVIDIA GPU 状态
-func (c *Collector) collectNvidiaGPUState(nvidiaSmi string) (float64, uint64, float64) {
+func (c *Collector) collectNvidiaGPUState(nvidiaSmi string) (float64, uint64, float64, float64) {
 	// 1. 尝试使用原生 NVML API (性能更高，不产生新进程)
-	if usage, usedMem, power, ok := c.collectNvidiaGPUStateNative(); ok {
-		return usage, usedMem, power
+	if usage, usedMem, power, temp, ok := c.collectNvidiaGPUStateNative(); ok {
+		return usage, usedMem, power, temp
 	}
 
 	// 2. 回退到 nvidia-smi 命令行工具
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, nvidiaSmi, "--query-gpu=utilization.gpu,memory.used,power.draw", "--format=csv,noheader,nounits")
+	cmd := exec.CommandContext(ctx, nvidiaSmi, "--query-gpu=utilization.gpu,memory.used,power.draw,temperature.gpu", "--format=csv,noheader,nounits")
 	hideWindow(cmd)
 	output, err := cmd.Output()
 	if err != nil {
-		return 0, 0, 0
+		return 0, 0, 0, 0
 	}
 
 	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
 	if len(lines) == 0 {
-		return 0, 0, 0
+		return 0, 0, 0, 0
 	}
 
 	var totalUsage float64
 	var totalUsedMem uint64
 	var totalPower float64
+	var totalTemp float64
 	var count int
 
 	for _, line := range lines {
 		parts := strings.Split(line, ",")
-		if len(parts) >= 3 {
+		if len(parts) >= 4 {
 			usage, _ := strconv.ParseFloat(strings.TrimSpace(parts[0]), 64)
 			used, _ := strconv.ParseUint(strings.TrimSpace(parts[1]), 10, 64)
 			power, _ := strconv.ParseFloat(strings.TrimSpace(parts[2]), 64)
+			temp, _ := strconv.ParseFloat(strings.TrimSpace(parts[3]), 64)
 			totalUsage += usage
 			totalUsedMem += used * 1024 * 1024 // MiB 转为 Bytes
 			totalPower += power
+			totalTemp += temp
 			count++
 		}
 	}
 
 	if count == 0 {
-		return 0, 0, 0
+		return 0, 0, 0, 0
 	}
 
-	return totalUsage / float64(count), totalUsedMem, totalPower
+	return totalUsage / float64(count), totalUsedMem, totalPower, totalTemp / float64(count)
 }
 
-// collectGPUStateWindows Windows 下采集 AMD/Intel/NVIDIA GPU 使用率
+// collectGPUStateWindows Windows 下采集 AMD/Intel/NVIDIA GPU 使用率与温度
 // 优先使用 PDH 性能计数器 API，回退到 PowerShell
-func (c *Collector) collectGPUStateWindows() (float64, uint64, float64) {
+func (c *Collector) collectGPUStateWindows() (float64, uint64, float64, float64) {
 	// 1. 尝试使用原生 PDH API (性能极高，无额外进程)
 	if usage, ok := c.collectGPUUsagePDH(); ok {
-		return usage, 0, 0
+		return usage, 0, 0, 0
 	}
 
 	// 2. 回退到 PowerShell (仅在 PDH 失败时使用)
@@ -672,11 +701,11 @@ if ($counters) {
 	}
 
 	usage, _ := strconv.ParseFloat(strings.TrimSpace(string(output)), 64)
-	return usage, 0, 0
+	return usage, 0, 0, 0
 }
 
 // collectGPUStateWindowsLegacy 旧版 Windows GPU 采集 (Windows 10 早期版本)
-func (c *Collector) collectGPUStateWindowsLegacy() (float64, uint64, float64) {
+func (c *Collector) collectGPUStateWindowsLegacy() (float64, uint64, float64, float64) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
@@ -691,37 +720,38 @@ if ($gpu.Average) { [math]::Round($gpu.Average, 1) } else { 0 }
 	hideWindow(cmd)
 	output, err := cmd.Output()
 	if err != nil {
-		return 0, 0, 0
+		return 0, 0, 0, 0
 	}
 
 	usage, _ := strconv.ParseFloat(strings.TrimSpace(string(output)), 64)
-	return usage, 0, 0
+	return usage, 0, 0, 0
 }
 
-// collectGPUStateLinux Linux 下采集 AMD/Intel GPU 使用率
-func (c *Collector) collectGPUStateLinux() (float64, uint64, float64) {
+// collectGPUStateLinux Linux 下采集 AMD/Intel GPU 使用率与温度
+func (c *Collector) collectGPUStateLinux() (float64, uint64, float64, float64) {
 	// 1. 尝试 AMD rocm-smi
-	if usage, mem, power := c.collectAMDGPULinux(); usage > 0 || mem > 0 {
-		return usage, mem, power
+	if usage, mem, power, temp := c.collectAMDGPULinux(); usage > 0 || mem > 0 || temp > 0 {
+		return usage, mem, power, temp
 	}
 
 	// 2. 尝试 AMD/Intel sysfs
 	if usage := c.collectGPUFromSysfs(); usage > 0 {
-		return usage, 0, 0
+		temp := getAMDIntelGPUTempLinux("card0")
+		return usage, 0, 0, temp
 	}
 
 	// 3. 尝试 Intel intel_gpu_top (需要 intel-gpu-tools)
 	if usage := c.collectIntelGPULinux(); usage > 0 {
-		return usage, 0, 0
+		return usage, 0, 0, 0
 	}
 
-	return 0, 0, 0
+	return 0, 0, 0, 0
 }
 
 // collectAMDGPULinux 使用 rocm-smi 采集 AMD GPU
-func (c *Collector) collectAMDGPULinux() (float64, uint64, float64) {
+func (c *Collector) collectAMDGPULinux() (float64, uint64, float64, float64) {
 	if _, err := exec.LookPath("rocm-smi"); err != nil {
-		return 0, 0, 0
+		return 0, 0, 0, 0
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -731,12 +761,12 @@ func (c *Collector) collectAMDGPULinux() (float64, uint64, float64) {
 	cmd := exec.CommandContext(ctx, "rocm-smi", "--showuse", "--csv")
 	output, err := cmd.Output()
 	if err != nil {
-		return 0, 0, 0
+		return 0, 0, 0, 0
 	}
 
 	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
 	if len(lines) < 2 {
-		return 0, 0, 0
+		return 0, 0, 0, 0
 	}
 
 	// 解析 CSV (跳过表头)
@@ -753,9 +783,61 @@ func (c *Collector) collectAMDGPULinux() (float64, uint64, float64) {
 	}
 
 	if count > 0 {
-		return totalUsage / float64(count), 0, 0
+		return totalUsage / float64(count), 0, 0, 0
 	}
-	return 0, 0, 0
+	return 0, 0, 0, 0
+}
+
+// collectCPUTemperature 收集 CPU 实时温度
+func (c *Collector) collectCPUTemperature() float64 {
+	if runtime.GOOS == "windows" {
+		return getCPUTempWindows()
+	}
+	return getCPUTempLinux()
+}
+
+// getCPUTempLinux 获取 Linux 系统下的 CPU 温度
+func getCPUTempLinux() float64 {
+	temps, err := host.SensorsTemperatures()
+	if err == nil && len(temps) > 0 {
+		var maxTemp float64 = 0
+		for _, t := range temps {
+			key := strings.ToLower(t.SensorKey)
+			if strings.Contains(key, "cpu") || strings.Contains(key, "coretemp") || strings.Contains(key, "k10temp") || strings.Contains(key, "zenpower") || strings.Contains(key, "soc") {
+				if t.Temperature > maxTemp && t.Temperature < 150 {
+					maxTemp = t.Temperature
+				}
+			}
+		}
+		if maxTemp > 0 {
+			return maxTemp
+		}
+		// 如果没有匹配到包含 CPU 关键字的传感器，返回最高的一个有效温度
+		for _, t := range temps {
+			if t.Temperature > maxTemp && t.Temperature < 150 {
+				maxTemp = t.Temperature
+			}
+		}
+		return maxTemp
+	}
+	return 0
+}
+
+// getAMDIntelGPUTempLinux 从 Linux sysfs 获取 AMD 或 Intel GPU 的温度
+func getAMDIntelGPUTempLinux(cardName string) float64 {
+	hwmonPath := fmt.Sprintf("/sys/class/drm/%s/device/hwmon", cardName)
+	hwmons, err := os.ReadDir(hwmonPath)
+	if err == nil {
+		for _, hw := range hwmons {
+			tempPath := fmt.Sprintf("%s/%s/temp1_input", hwmonPath, hw.Name())
+			if data, err := os.ReadFile(tempPath); err == nil {
+				if tVal, err := strconv.ParseFloat(strings.TrimSpace(string(data)), 64); err == nil {
+					return tVal / 1000.0 // sysfs 中的单位是毫摄氏度 (millidegrees Celsius)
+				}
+			}
+		}
+	}
+	return 0
 }
 
 // collectGPUFromSysfs 从 Linux sysfs 读取 GPU 使用率
@@ -879,6 +961,6 @@ func (c *Collector) getNvidiaSmiPath() string {
 
 // 废弃旧方法
 func (c *Collector) collectGPUUsage() float64 {
-	u, _, _ := c.collectGPUState()
+	u, _, _, _ := c.collectGPUState()
 	return u
 }

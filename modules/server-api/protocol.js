@@ -109,6 +109,8 @@ const HostStateSchema = {
   udp_conn_count: 0, // UDP 连接数
   process_count: 0, // 进程数
   temperatures: [], // 温度传感器 [{ name, temperature }]
+  cpu_temp: 0, // CPU 温度 (摄氏度)
+  gpu_temp: 0, // GPU 温度 (摄氏度)
   gpu: 0, // GPU 使用率 (0-100)
   docker: {
     installed: false,
@@ -236,6 +238,8 @@ function stateToFrontendFormat(state, hostInfo = {}) {
   const tcpConn = safeNumber(state.tcp_conn_count);
   const udpConn = safeNumber(state.udp_conn_count);
   const uptime = safeNumber(state.uptime);
+  const cpuTemp = safeNumber(state.cpu_temp || state.cpuTemp);
+  const gpuTemp = safeNumber(state.gpu_temp || state.gpuTemp);
 
   // GPU 显存
   const gpuMemUsed = safeNumber(state.gpu_mem_used);
@@ -290,6 +294,8 @@ function stateToFrontendFormat(state, hostInfo = {}) {
       connections: tcpConn + udpConn,
     },
     docker: state.docker || { installed: false, running: 0, stopped: 0, containers: [] },
+    cpu_temp: cpuTemp,
+    gpu_temp: gpuTemp,
     gpu: safeNumber(state.gpu),
     gpu_usage: safeNumber(state.gpu).toFixed(1) + '%',
     // 当 GPU 显存总量无效 (<= 1024 bytes, 即没有真实数据) 时不显示

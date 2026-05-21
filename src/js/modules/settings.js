@@ -45,7 +45,6 @@ export const settingsMethods = {
             'openai',
             'antigravity',
             'gemini-cli',
-            'deepseek',
             'paas',
             'dns',
             'aliyun',
@@ -214,11 +213,10 @@ export const settingsMethods = {
         payload.API_KEY = apiKey;
       }
 
-      // 1. 同步保存到 Antigravity, Gemini CLI 和 DeepSeek
+      // 1. 同步保存到 Antigravity, Gemini CLI 和 Qwen
       const syncTargets = [
         '/api/antigravity/settings',
         '/api/gemini-cli/settings',
-        '/api/deepseek/settings',
         '/api/qwen/settings'
       ];
 

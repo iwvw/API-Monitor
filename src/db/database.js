@@ -171,7 +171,31 @@ class DatabaseService {
       const oldMonitors = this.db.prepare(`SELECT * FROM ${backupMonitorsTable}`).all();
       if (oldMonitors.length === 0) return;
 
-      logger.info(`正在从旧表迁移 ${oldMonitors.length} 个监控项到新表...`);
+      // 使用 Set/Map 对旧版备份表数据进行唯一键查重
+      const uniqueMonitors = [];
+      const seen = new Map(); // uniqueKey -> primaryOm
+      const duplicateOldIds = new Map(); // duplicateOldId -> primaryOldId
+
+      for (const om of oldMonitors) {
+        // 映射类型相关字段以进行精确对比
+        let hostname = null;
+        let url = om.url;
+        if (om.type === 'ping' || om.type === 'tcp') {
+          hostname = om.url;
+          url = null;
+        }
+
+        const key = `${om.name}|${om.type || 'http'}|${url || ''}|${hostname || ''}|${om.port || 0}`;
+        if (!seen.has(key)) {
+          seen.set(key, om);
+          uniqueMonitors.push(om);
+        } else {
+          const primaryOm = seen.get(key);
+          duplicateOldIds.set(om.id, primaryOm.id);
+        }
+      }
+
+      logger.info(`正在从旧表迁移并去重 ${oldMonitors.length} 个监控项，其中非重复监控项有 ${uniqueMonitors.length} 个...`);
 
       const insertMonitor = this.db.prepare(`
         INSERT INTO uptime_monitors (name, type, url, hostname, port, interval, timeout, confirm_count, active, method, headers, body, ignore_tls, accepted_status_codes, tags, created_at, updated_at)
@@ -181,7 +205,7 @@ class DatabaseService {
       const idMapping = {}; // old_id (TEXT) -> new_id (INTEGER)
 
       const tx = this.db.transaction(() => {
-        for (const om of oldMonitors) {
+        for (const om of uniqueMonitors) {
           // Map type-specific fields
           let hostname = null;
           let url = om.url;
@@ -228,7 +252,13 @@ class DatabaseService {
         }
       });
       tx();
-      logger.success(`监控项迁移完成: ${Object.keys(idMapping).length} 个监控项已迁移`);
+
+      // 将重复的旧 ID 映射关系也填充为对应 Primary ID 的新数据库 ID，使对应心跳与 incident 数据无损合并迁移
+      for (const [dupId, primaryId] of duplicateOldIds.entries()) {
+        idMapping[dupId] = idMapping[primaryId];
+      }
+
+      logger.success(`监控项迁移与合并完成: ${uniqueMonitors.length} 个非重复监控项已迁移 (去重合并了 ${duplicateOldIds.size} 个重复监控项)`);
 
       // Migrate heartbeats if they exist
       try {
@@ -257,12 +287,33 @@ class DatabaseService {
               }
             });
             hbTx();
-            logger.success('心跳记录迁移完成');
           }
         }
-      } catch (err) {
-        logger.error('心跳记录迁移失败:', err.message);
+      } catch (e) {
+        logger.warn('心跳记录迁移失败:', e.message);
       }
+
+      // Rename backup tables to mark them as migrated, preventing repeat migrations
+      try {
+        this.db.exec(`ALTER TABLE ${backupMonitorsTable} RENAME TO ${backupMonitorsTable}_migrated`);
+        logger.info(`备份表 ${backupMonitorsTable} 已成功标记为已迁移`);
+      } catch (e) {
+        logger.error(`重命名备份表 ${backupMonitorsTable} 失败:`, e.message);
+      }
+      try {
+        const hasBackupHb = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name = ?").get(backupHeartbeatsTable);
+        if (hasBackupHb) {
+          this.db.exec(`ALTER TABLE ${backupHeartbeatsTable} RENAME TO ${backupHeartbeatsTable}_migrated`);
+          logger.info(`备份表 ${backupHeartbeatsTable} 已成功标记为已迁移`);
+        }
+      } catch (e) {}
+      try {
+        const backupIncidentsTable = backupMonitorsTable.replace('uptime_monitors_backup_', 'uptime_incidents_backup_');
+        const hasBackupInc = this.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name = ?").get(backupIncidentsTable);
+        if (hasBackupInc) {
+          this.db.exec(`ALTER TABLE ${backupIncidentsTable} RENAME TO ${backupIncidentsTable}_migrated`);
+        }
+      } catch (e) {}
     } catch (migrationErr) {
       logger.error('监控项数据迁移失败:', migrationErr.message);
     }

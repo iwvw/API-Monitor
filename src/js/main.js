@@ -38,7 +38,6 @@ async function loadLazyCSS() {
     import('@applemusic-like-lyrics/core/style.css'),
     import('../css/antigravity.css'),
     import('../css/gemini-cli.css'),
-    import('../css/deepseek.css'),
     import('../css/openai.css'),
     import('../css/self-h.css'),
     import('../css/koyeb.css'),
@@ -88,7 +87,6 @@ import { r2Methods } from './modules/r2.js';
 import { openaiMethods } from './modules/openai.js';
 import { antigravityMethods } from './modules/antigravity.js';
 import { geminiCliMethods } from './modules/gemini-cli.js';
-import { deepseekMethods } from './modules/deepseek.js';
 import { settingsMethods } from './modules/settings.js';
 import { systemLogsMethods } from './modules/logs.js';
 import { logViewerMethods } from './modules/log-viewer.js';
@@ -1709,7 +1707,6 @@ const app = createApp({
     ...openaiMethods,
     ...antigravityMethods,
     ...geminiCliMethods,
-    ...deepseekMethods,
     ...qwenMethods,
     ...settingsMethods,
     ...systemLogsMethods,

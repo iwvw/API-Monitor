@@ -1,4 +1,4 @@
-﻿/* ==================== Uptime 监测模块样式 (Standardized) ==================== */
+/* ==================== Uptime 监测模块样式 (Standardized) ==================== */
 
 :root {
     /* Uptime Specific Colors (Color Management Only) */
@@ -203,7 +203,7 @@
 
 .uptime-monitor-header {
     display: grid;
-    grid-template-columns: auto 1fr auto;
+    grid-template-columns: auto auto 1fr auto;
     gap: var(--space-lg);
     align-items: center;
     cursor: pointer;
@@ -638,4 +638,60 @@
     border-radius: var(--radius-lg);
     border: 1px dashed var(--border-color);
     margin: var(--space-xl) 0;
+}
+
+/* ==================== 批量操作样式 (Batch Operations) ==================== */
+.uptime-batch-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: var(--space-md);
+    padding: var(--space-sm) var(--space-lg);
+    background: var(--bg-secondary);
+    border-radius: var(--radius-lg);
+    border: 1px solid var(--border-color);
+    box-shadow: var(--card-shadow);
+    animation: fadeIn 0.3s ease;
+}
+
+.uptime-batch-left {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+}
+
+.uptime-batch-right {
+    display: flex;
+    align-items: center;
+    gap: var(--space-md);
+}
+
+/* Individual Checkbox Wrapper in card header */
+.monitor-checkbox-wrapper {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 4px;
+    padding: 4px;
+    cursor: pointer;
+    transition: transform 0.2s ease;
+}
+
+.monitor-checkbox-wrapper:hover {
+    transform: scale(1.15);
+}
+
+.monitor-checkbox {
+    width: 16px;
+    height: 16px;
+    border-radius: 4px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-primary);
+    cursor: pointer;
+    accent-color: var(--uptime-status-up);
+    transition: all 0.2s ease;
+}
+
+.monitor-checkbox:focus {
+    box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2);
 }
