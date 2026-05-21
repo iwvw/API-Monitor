@@ -327,11 +327,23 @@ func StopUserAgent() {
 	cmd.Run()
 }
 
-// InstallUserStartup 将 Agent 设为当前用户开机自启 (通过 HKCU Run 注册表)
+// InstallUserStartup 将 Agent 设为当前用户开机自启 (通过 HKCU Run 注册表，并利用 launch.vbs 实现完全静默运行，避免开机时黑框闪烁)
 func InstallUserStartup() error {
 	exePath, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("获取程序路径失败: %v", err)
+	}
+	exeDir := filepath.Dir(exePath)
+	vbsPath := filepath.Join(exeDir, "launch.vbs")
+
+	// 生成 launch.vbs，使用 WScript.Shell 的 Run 方法，窗口参数设为 0 (完全隐藏运行且不闪现窗口)
+	vbsContent := fmt.Sprintf(`Set WshShell = CreateObject("WScript.Shell")
+WshShell.Run """%s"" -b", 0, False
+`, exePath)
+
+	err = os.WriteFile(vbsPath, []byte(vbsContent), 0644)
+	if err != nil {
+		return fmt.Errorf("生成 launch.vbs 失败: %v", err)
 	}
 
 	// 打开注册表当前用户启动项
@@ -341,8 +353,8 @@ func InstallUserStartup() error {
 	}
 	defer key.Close()
 
-	// 写入启动命令，使用双引号包裹路径以防路径中有空格，并加上 -b 参数以后台静默运行
-	cmd := fmt.Sprintf(`"%s" -b`, exePath)
+	// 写入启动命令，通过 wscript.exe 调用 launch.vbs (wscript 为 GUI 进程，运行脚本不会显示任何终端窗口)
+	cmd := fmt.Sprintf(`wscript.exe "%s"`, vbsPath)
 	err = key.SetStringValue(serviceName, cmd)
 	if err != nil {
 		return fmt.Errorf("写入注册表失败: %v", err)
@@ -351,12 +363,19 @@ func InstallUserStartup() error {
 	fmt.Println("✅ 成功设置为用户级开机自启!")
 	fmt.Println("   注册表路径: HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run")
 	fmt.Println("   键名:", serviceName)
+	fmt.Println("   自启动脚本:", vbsPath)
 	fmt.Println("   启动命令:", cmd)
 	return nil
 }
 
-// UninstallUserStartup 取消当前用户开机自启
+// UninstallUserStartup 取消当前用户开机自启并清理 launch.vbs
 func UninstallUserStartup() error {
+	exePath, err := os.Executable()
+	if err == nil {
+		vbsPath := filepath.Join(filepath.Dir(exePath), "launch.vbs")
+		os.Remove(vbsPath)
+	}
+
 	key, err := registry.OpenKey(registry.CURRENT_USER, `Software\Microsoft\Windows\CurrentVersion\Run`, registry.SET_VALUE)
 	if err != nil {
 		return fmt.Errorf("打开注册表失败: %v", err)
@@ -373,6 +392,6 @@ func UninstallUserStartup() error {
 		return fmt.Errorf("删除注册表项失败: %v", err)
 	}
 
-	fmt.Println("✅ 已成功取消用户级开机自启")
+	fmt.Println("✅ 已成功取消用户级开机自启且清理了自启脚本")
 	return nil
 }
