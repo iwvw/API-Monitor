@@ -63,6 +63,9 @@ class AgentService extends EventEmitter {
 
     // 记录启动时间，用于抑制启动期间的通知风暴 (60秒静默期)
     this.startupTime = Date.now();
+    
+    // 资源告警活跃状态缓存 (serverId -> Set of active resource alerts)
+    this.activeResourceAlerts = new Map();
   }
 
   /**
@@ -790,13 +793,14 @@ class AgentService extends EventEmitter {
   /**
    * 广播主机状态变更
    */
-  broadcastServerStatus(serverId, status) {
+  broadcastServerStatus(serverId, status, additionalData = {}) {
     if (!this.io) return;
 
     this.io.of('/metrics').to('metrics_room').emit(Events.SERVER_STATUS, {
       serverId,
       status,
       timestamp: Date.now(),
+      ...additionalData
     });
   }
 
@@ -1428,56 +1432,116 @@ class AgentService extends EventEmitter {
 
       const notificationService = require('../notification-api/service');
 
-      // CPU 告警阈值 (80%)
-      if (metrics.cpu > 80) {
-        notificationService.trigger('server', 'cpu_high', {
-          serverId: serverId,
-          serverName: server.name,
-          host: server.host,
-          cpu_usage: metrics.cpu,
-          threshold: 80
-        });
-        logger.warn(`[资源告警] ${server.name} CPU 使用率: ${metrics.cpu}%`);
+      if (!this.activeResourceAlerts.has(serverId)) {
+        this.activeResourceAlerts.set(serverId, new Set());
+      }
+      const activeAlerts = this.activeResourceAlerts.get(serverId);
+
+      // 1. CPU 告警阈值 (80%)
+      const cpuThreshold = 80;
+      const isCpuHigh = metrics.cpu > cpuThreshold;
+      if (isCpuHigh) {
+        if (!activeAlerts.has('cpu')) {
+          activeAlerts.add('cpu');
+          notificationService.trigger('server', 'cpu_high', {
+            serverId: serverId,
+            serverName: server.name,
+            host: server.host,
+            cpu_usage: metrics.cpu,
+            threshold: cpuThreshold
+          });
+          logger.warn(`[资源告警] ${server.name} CPU 使用率: ${metrics.cpu}%`);
+        }
+      } else {
+        if (activeAlerts.has('cpu')) {
+          activeAlerts.delete('cpu');
+          notificationService.trigger('server', 'cpu_normal', {
+            serverId: serverId,
+            serverName: server.name,
+            host: server.host,
+            cpu_usage: metrics.cpu,
+            threshold: cpuThreshold
+          });
+          logger.info(`[资源恢复] ${server.name} CPU 使用率恢复正常: ${metrics.cpu}%`);
+        }
       }
 
-      // 内存告警阈值 (85%)
+      // 2. 内存告警阈值 (85%)
       if (metrics.mem) {
         const memMatch = metrics.mem.match(/(\d+)\/(\d+)/);
         if (memMatch) {
           const memUsed = parseInt(memMatch[1]);
           const memTotal = parseInt(memMatch[2]);
           const memPercent = (memUsed / memTotal) * 100;
+          const memThreshold = 85;
+          const isMemHigh = memPercent > memThreshold;
 
-          if (memPercent > 85) {
-            notificationService.trigger('server', 'memory_high', {
-              serverId: serverId,
-              serverName: server.name,
-              host: server.host,
-              mem_percent: memPercent.toFixed(2),
-              mem_used: memUsed,
-              mem_total: memTotal,
-              threshold: 85
-            });
-            logger.warn(`[资源告警] ${server.name} 内存使用率: ${memPercent.toFixed(2)}%`);
+          if (isMemHigh) {
+            if (!activeAlerts.has('memory')) {
+              activeAlerts.add('memory');
+              notificationService.trigger('server', 'memory_high', {
+                serverId: serverId,
+                serverName: server.name,
+                host: server.host,
+                mem_percent: memPercent.toFixed(2),
+                mem_used: memUsed,
+                mem_total: memTotal,
+                threshold: memThreshold
+              });
+              logger.warn(`[资源告警] ${server.name} 内存使用率: ${memPercent.toFixed(2)}%`);
+            }
+          } else {
+            if (activeAlerts.has('memory')) {
+              activeAlerts.delete('memory');
+              notificationService.trigger('server', 'memory_normal', {
+                serverId: serverId,
+                serverName: server.name,
+                host: server.host,
+                mem_percent: memPercent.toFixed(2),
+                mem_used: memUsed,
+                mem_total: memTotal,
+                threshold: memThreshold
+              });
+              logger.info(`[资源恢复] ${server.name} 内存使用率恢复正常: ${memPercent.toFixed(2)}%`);
+            }
           }
         }
       }
 
-      // 磁盘告警阈值 (90%)
+      // 3. 磁盘告警阈值 (90%)
       if (metrics.disk) {
         const diskMatch = metrics.disk.match(/([.\d]+)%/);
         if (diskMatch) {
           const diskPercent = parseFloat(diskMatch[1]);
-          if (diskPercent > 90) {
-            notificationService.trigger('server', 'disk_high', {
-              serverId: serverId,
-              serverName: server.name,
-              host: server.host,
-              disk_usage: metrics.disk,
-              disk_percent: diskPercent,
-              threshold: 90
-            });
-            logger.warn(`[资源告警] ${server.name} 磁盘使用率: ${diskPercent}%`);
+          const diskThreshold = 90;
+          const isDiskHigh = diskPercent > diskThreshold;
+
+          if (isDiskHigh) {
+            if (!activeAlerts.has('disk')) {
+              activeAlerts.add('disk');
+              notificationService.trigger('server', 'disk_high', {
+                serverId: serverId,
+                serverName: server.name,
+                host: server.host,
+                disk_usage: metrics.disk,
+                disk_percent: diskPercent,
+                threshold: diskThreshold
+              });
+              logger.warn(`[资源告警] ${server.name} 磁盘使用率: ${diskPercent}%`);
+            }
+          } else {
+            if (activeAlerts.has('disk')) {
+              activeAlerts.delete('disk');
+              notificationService.trigger('server', 'disk_normal', {
+                serverId: serverId,
+                serverName: server.name,
+                host: server.host,
+                disk_usage: metrics.disk,
+                disk_percent: diskPercent,
+                threshold: diskThreshold
+              });
+              logger.info(`[资源恢复] ${server.name} 磁盘使用率恢复正常: ${diskPercent}%`);
+            }
           }
         }
       }

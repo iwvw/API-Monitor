@@ -25,16 +25,36 @@ class MonitorService {
   }
 
   /**
-   * 启动监控服务 (已废弃自动拨测，仅保留占位符)
+   * 启动监控服务
    */
   start() {
-    logger.info('监控服务已启动');
+    if (this.isRunning) return;
+
+    const config = ServerMonitorConfig.get();
+    const intervalSec = config?.probe_interval || 60;
+    const intervalMs = intervalSec * 1000;
+
+    logger.info(`监控服务已启动 (探测间隔: ${intervalSec}秒)`);
+    this.isRunning = true;
+
+    // 立即执行一次探测
+    this.probeAllServers();
+
+    // 定时执行探测
+    this.timer = setInterval(() => {
+      this.probeAllServers();
+    }, intervalMs);
   }
 
   /**
    * 停止监控服务
    */
   stop() {
+    if (this.timer) {
+      clearInterval(this.timer);
+      this.timer = null;
+    }
+    this.isRunning = false;
     this.metricsCache.clear();
     logger.info('监控服务已停止');
   }
@@ -83,7 +103,7 @@ class MonitorService {
    * @returns {Promise<Object>} 探测结果
    */
   async probeServer(server, silent = false) {
-    // 纯 Agent 模式，跳过 SSH 相关的后台探测
+    // 纯 Agent 心跳探测模式 (彻底废除 TCP ping 后台探测)
     const agentService = require('./agent-service');
     let agentStatus = { connected: false };
     let agentMetrics = null;
@@ -93,88 +113,80 @@ class MonitorService {
       agentMetrics = agentService.getMetrics(server.id);
     } catch (e) {
       // Fallback if agent service not ready or method missing
-      // console.warn('Agent check failed', e);
     }
 
-    // 状态记录逻辑
-    const oldStatus = server.status;
-    let responseTime = null;
-    let tcpError = null;
-
-    try {
-      // 1. 先用 TCP ping 测量网络延迟
-      responseTime = await this.tcpPing(server.host, server.port || 22);
-    } catch (error) {
-      tcpError = error;
-    }
-
-    // Decision Logic: Agent status takes precedence
-    if (agentStatus.connected && agentMetrics) {
-      const metrics = {
+    if (agentStatus.connected) {
+      // Agent 在线
+      const metrics = agentMetrics ? {
         ...agentMetrics,
         cached_at: new Date().toISOString(),
-      };
+      } : null;
 
-      // 更新内存缓存
-      this.metricsCache.set(server.id, metrics);
+      if (metrics) {
+        // 更新内存缓存
+        this.metricsCache.set(server.id, metrics);
+      }
 
       if (!silent) {
         ServerAccount.updateStatus(server.id, {
           status: 'online',
           last_check_time: new Date().toISOString(),
           last_check_status: 'success',
-          response_time: responseTime || 0, // 0 if TCP failed but Agent is up
+          response_time: 0,
         });
 
-        // Optional: Only log if we haven't logged recently to avoid spam, 
-        // or effectively we log every probe (usually every minute)
+        try {
+          agentService.broadcastServerStatus(server.id, 'online', {
+            responseTime: 0,
+            lastCheckStatus: 'success'
+          });
+        } catch (e) {
+          // ignore
+        }
+
         ServerMonitorLog.create({
           server_id: server.id,
           status: 'success',
-          response_time: responseTime || 0,
+          response_time: 0,
         });
       }
 
-      return { success: true, serverId: server.id, responseTime };
+      return { success: true, serverId: server.id, responseTime: 0 };
 
     } else {
-      // Agent Offline. Depend on TCP.
-      if (!tcpError) {
-        // Agent 未连接，但 TCP 可达 -> Online (SSH/TCP only)
-        if (!silent) {
-          ServerAccount.updateStatus(server.id, {
-            status: 'online',
-            last_check_time: new Date().toISOString(),
-            last_check_status: 'agent_offline', // 标记为 agent 离线但主机在线
-            response_time: responseTime,
-          });
-        }
-        return { success: true, serverId: server.id, error: 'Agent 未连接', responseTime };
-      } else {
-        // Both Failed -> Offline
-        if (!silent) {
-          ServerAccount.updateStatus(server.id, {
-            status: 'offline',
-            last_check_time: new Date().toISOString(),
-            last_check_status: 'failed',
-            response_time: null,
-          });
+      // Agent 离线
+      if (!silent) {
+        ServerAccount.updateStatus(server.id, {
+          status: 'offline',
+          last_check_time: new Date().toISOString(),
+          last_check_status: 'failed',
+          response_time: null,
+        });
 
-          ServerMonitorLog.create({
-            server_id: server.id,
-            status: 'failed',
-            response_time: null,
-            error_message: tcpError.message,
+        try {
+          agentService.broadcastServerStatus(server.id, 'offline', {
+            responseTime: null,
+            lastCheckStatus: 'failed',
+            error: 'Agent 离线'
           });
+        } catch (e) {
+          // ignore
         }
 
-        return {
-          success: false,
-          serverId: server.id,
-          error: tcpError.message,
-          responseTime: null,
-        };
+        ServerMonitorLog.create({
+          server_id: server.id,
+          status: 'failed',
+          response_time: null,
+          error_message: 'Agent 未连接',
+        });
       }
+
+      return {
+        success: false,
+        serverId: server.id,
+        error: 'Agent 未连接',
+        responseTime: null,
+      };
     }
   }
 
@@ -183,33 +195,64 @@ class MonitorService {
    * @param {string} host - 主机地址
    * @param {number} port - 端口号
    * @param {number} timeout - 超时时间(ms)
+   * @param {boolean} checkSSH - 是否验证 SSH 握手标识
    * @returns {Promise<number>} 延迟时间(ms)
    */
-  tcpPing(host, port, timeout = 5000) {
+  tcpPing(host, port, timeout = 5000, checkSSH = false) {
     return new Promise((resolve, reject) => {
       const net = require('net');
       const { performance } = require('perf_hooks');
       const startTime = performance.now();
 
       const socket = new net.Socket();
+      let hasResolved = false;
 
       socket.setNoDelay(true);
       socket.setTimeout(timeout);
 
       socket.on('connect', () => {
-        const latency = Math.round(performance.now() - startTime);
-        socket.destroy();
-        resolve(latency);
+        if (!checkSSH) {
+          const latency = Math.round(performance.now() - startTime);
+          socket.destroy();
+          hasResolved = true;
+          resolve(latency);
+        }
       });
+
+      if (checkSSH) {
+        socket.on('data', (chunk) => {
+          const str = chunk.toString('utf8');
+          if (str.startsWith('SSH-')) {
+            const latency = Math.round(performance.now() - startTime);
+            socket.destroy();
+            if (!hasResolved) {
+              hasResolved = true;
+              resolve(latency);
+            }
+          } else {
+            socket.destroy();
+            if (!hasResolved) {
+              hasResolved = true;
+              reject(new Error('Invalid SSH banner response'));
+            }
+          }
+        });
+      }
 
       socket.on('timeout', () => {
         socket.destroy();
-        reject(new Error('TCP ping timeout'));
+        if (!hasResolved) {
+          hasResolved = true;
+          reject(new Error(checkSSH ? 'SSH handshake timeout' : 'TCP ping timeout'));
+        }
       });
 
       socket.on('error', err => {
         socket.destroy();
-        reject(err);
+        if (!hasResolved) {
+          hasResolved = true;
+          reject(err);
+        }
       });
 
       socket.connect(port, host);
@@ -271,10 +314,6 @@ class MonitorService {
     }
   }
 
-  /**
-   * 获取监控服务状态
-   * @returns {Object} 监控服务状态
-   */
   getStatus() {
     const config = ServerMonitorConfig.get();
     const servers = ServerAccount.getAll();
@@ -284,7 +323,7 @@ class MonitorService {
     const onlineAgents = agentService.getConnectionCount ? agentService.getConnectionCount() : 0;
 
     return {
-      isRunning: onlineAgents > 0,
+      isRunning: this.isRunning,
       interval: (config?.metrics_collect_interval || 300) * 1000, // 转换为毫秒 (历史指标采集间隔)
       cachedServers: this.metricsCache.size,
       activeStreams: onlineAgents,

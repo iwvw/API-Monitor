@@ -380,6 +380,12 @@
             <template v-else-if="ruleForm.source_module === 'server'">
               <option value="offline">主机离线 (Offline)</option>
               <option value="online">主机上线 (Online)</option>
+              <option value="cpu_high">CPU高负载 (CPU High)</option>
+              <option value="cpu_normal">CPU恢复正常 (CPU Normal)</option>
+              <option value="memory_high">内存不足 (Memory High)</option>
+              <option value="memory_normal">内存恢复正常 (Memory Normal)</option>
+              <option value="disk_high">磁盘不足 (Disk High)</option>
+              <option value="disk_normal">磁盘恢复正常 (Disk Normal)</option>
             </template>
             <template v-else>
               <option value="info">常规消息</option>

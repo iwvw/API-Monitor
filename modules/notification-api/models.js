@@ -312,7 +312,6 @@ class AlertStateTrackingModel extends BaseModel {
         if (existing) {
             this.update(existing.id, {
                 consecutive_failures: 0,
-                last_notified_at: null,
             });
             return existing;
         }

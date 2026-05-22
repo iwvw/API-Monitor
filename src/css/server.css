@@ -1,4 +1,4 @@
-﻿.server-list-container {
+.server-list-container {
   overflow: visible;
 }
 
@@ -223,10 +223,10 @@
 .server-status-indicator::after {
   content: '';
   position: absolute;
-  top: -var(--space-xs);
-  left: -var(--space-xs);
-  right: -var(--space-xs);
-  bottom: -var(--space-xs);
+  top: calc(-1 * var(--space-xs));
+  left: calc(-1 * var(--space-xs));
+  right: calc(-1 * var(--space-xs));
+  bottom: calc(-1 * var(--space-xs));
   border-radius: var(--radius-full);
   opacity: 0.3;
 }
@@ -3506,7 +3506,7 @@
 
 .skeleton-chart {
   width: 100%;
-  height: 145px;
+  height: 180px;
   border-radius: var(--radius-lg);
   background: linear-gradient(90deg,
       var(--bg-tertiary) 25%,

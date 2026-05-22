@@ -178,7 +178,7 @@ export const metricsMethods = {
       // 主机状态变更
       socket.on('server:status', data => {
         if (data && data.serverId) {
-          this.updateServerStatus(data.serverId, data.status);
+          this.updateServerStatus(data.serverId, data.status, data);
         }
       });
 
@@ -388,6 +388,64 @@ export const metricsMethods = {
       // 仅在状态变化时更新
       if (server.status !== 'online') server.status = 'online';
       if (server.error !== null) server.error = null;
+
+      // 实时追加数据至缓存并静默重绘图表，解决实时数据更新时历史图表不随之走动的问题
+      if (server.metricsCache) {
+        let cpuUsageNum = parseFloat(metrics.cpu_usage || '0');
+        
+        let memPercent = 0;
+        const memStr = metrics.mem_usage || metrics.mem || '';
+        const memMatch = memStr.match(/(\d+)\/(\d+)MB/);
+        if (memMatch) {
+          memPercent = Math.round((parseInt(memMatch[1]) / parseInt(memMatch[2])) * 100);
+        } else {
+          memPercent = parseFloat(memStr) || 0;
+        }
+
+        let gpuUsageNum = null;
+        if (metrics.gpu_usage !== undefined && metrics.gpu_usage !== null) {
+          gpuUsageNum = parseFloat(metrics.gpu_usage) || 0;
+        }
+
+        let gpuPercent = 0;
+        if (metrics.gpu_mem_percent !== undefined && metrics.gpu_mem_percent !== null) {
+          gpuPercent = parseFloat(metrics.gpu_mem_percent) || 0;
+        } else if (metrics.gpu_mem && metrics.gpu_mem.includes('/')) {
+          const match = metrics.gpu_mem.match(/([\d.]+)\s*(?:GB|MB)\s*\/\s*([\d.]+)\s*(?:GB|MB)/i);
+          if (match) {
+            gpuPercent = Math.round((parseFloat(match[1]) / parseFloat(match[2])) * 100);
+          }
+        }
+
+        let gpuPowerNum = 0;
+        if (metrics.gpu_power !== undefined && metrics.gpu_power !== null) {
+          gpuPowerNum = parseFloat(metrics.gpu_power) || 0;
+        }
+
+        const newRecord = {
+          recorded_at: data.timestamp || new Date().toISOString(),
+          cpu_usage: cpuUsageNum,
+          mem_usage: memPercent,
+          gpu_usage: gpuUsageNum,
+          gpu_mem_used: gpuPercent,
+          gpu_mem_total: 100,
+          gpu_power: gpuPowerNum
+        };
+
+        // 将新指标记录追加至缓存，并防止缓存过度膨胀 (最大限制 300 点)
+        server.metricsCache.push(newRecord);
+        if (server.metricsCache.length > 300) {
+          server.metricsCache.shift();
+        }
+
+        // 如果卡片当前处于展开状态，实时更新图表以展现最新的指标走势
+        if (this.isServerExpanded && this.isServerExpanded(server.id)) {
+          this.renderSingleChart(server.id, server.metricsCache, `metrics-chart-card-${server.id}`);
+          if (server.gpuChartVisible && gpuUsageNum !== null) {
+            this.renderGpuChart(server.id, server.metricsCache, `gpu-chart-${server.id}`);
+          }
+        }
+      }
     } catch (err) {
       console.warn('[Metrics] 数据转换失败:', err, data);
     }
@@ -437,12 +495,20 @@ export const metricsMethods = {
   /**
    * 更新主机状态
    */
-  updateServerStatus(serverId, status) {
+  updateServerStatus(serverId, status, additionalData = {}) {
     const server = this.serverList.find(s => s.id === serverId);
     if (server) {
       server.status = status;
+      if (additionalData.lastCheckStatus !== undefined) {
+        server.last_check_status = additionalData.lastCheckStatus;
+      }
+      if (additionalData.responseTime !== undefined) {
+        server.response_time = additionalData.responseTime;
+      }
       if (status === 'offline') {
-        server.error = 'Agent 离线';
+        server.error = additionalData.error || 'Agent 离线';
+      } else {
+        server.error = null;
       }
     }
   },
@@ -824,7 +890,7 @@ export const metricsMethods = {
     const canvas = document.getElementById(canvasId);
     if (!canvas) {
       // Canvas 不存在，可能动画还没完成，稍后重试
-      if (retryCount < 3) {
+      if (retryCount < 10) {
         setTimeout(() => this.renderSingleChart(serverId, records, canvasId, retryCount + 1), 200);
       }
       return;
@@ -833,7 +899,7 @@ export const metricsMethods = {
     // 检查 canvas 尺寸是否为 0（可能在展开动画中）
     const rect = canvas.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) {
-      if (retryCount < 5) {
+      if (retryCount < 15) {
         // 尺寸为 0，稍后重试
         setTimeout(() => this.renderSingleChart(serverId, records, canvasId, retryCount + 1), 200);
         return;
@@ -850,11 +916,10 @@ export const metricsMethods = {
       (a, b) => new Date(a.recorded_at) - new Date(b.recorded_at)
     );
 
-    // 性能优化：数据点过多时进行降采样 (最多保留 50 个点)
-    const MAX_POINTS = 50;
+    // 使用滑动窗口保留最近的 60 个数据点，保证图表数据平滑流动而不产生下采样抖动
+    const MAX_POINTS = 60;
     if (sortedRecords.length > MAX_POINTS) {
-      const step = Math.ceil(sortedRecords.length / MAX_POINTS);
-      sortedRecords = sortedRecords.filter((_, index) => index % step === 0);
+      sortedRecords = sortedRecords.slice(-MAX_POINTS);
     }
 
     // 准备数据
@@ -1193,21 +1258,42 @@ export const metricsMethods = {
    * @param {Array} records 历史指标
    * @param {string} canvasId 画布 ID
    */
-  async renderGpuChart(serverId, records, canvasId) {
-    if (!window.Chart || !records || records.length === 0) return;
+  async renderGpuChart(serverId, records, canvasId, retryCount = 0) {
+    if (!window.Chart) {
+      const loaded = await this.loadChartJsFallback();
+      if (!loaded) return;
+    }
+    if (!records || records.length === 0) return;
+
     const canvas = document.getElementById(canvasId);
-    if (!canvas) return;
+    if (!canvas) {
+      // Canvas 不存在，可能还在折叠/翻转过渡中，稍后重试
+      if (retryCount < 10) {
+        setTimeout(() => this.renderGpuChart(serverId, records, canvasId, retryCount + 1), 200);
+      }
+      return;
+    }
+
+    // 检查 canvas 尺寸是否为 0
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) {
+      if (retryCount < 15) {
+        setTimeout(() => this.renderGpuChart(serverId, records, canvasId, retryCount + 1), 200);
+        return;
+      }
+      console.warn(`[Charts] Canvas ${canvasId} has zero size after ${retryCount} retries, skipping render`);
+      return;
+    }
 
     // 正序排列
     let sortedRecords = [...records].sort(
       (a, b) => new Date(a.recorded_at) - new Date(b.recorded_at)
     );
 
-    // 降采样
-    const MAX_POINTS = 50;
+    // 使用滑动窗口保留最近的 60 个数据点，保证图表数据平滑流动而不产生下采样抖动
+    const MAX_POINTS = 60;
     if (sortedRecords.length > MAX_POINTS) {
-      const step = Math.ceil(sortedRecords.length / MAX_POINTS);
-      sortedRecords = sortedRecords.filter((_, index) => index % step === 0);
+      sortedRecords = sortedRecords.slice(-MAX_POINTS);
     }
 
     const labels = sortedRecords.map(r => {
@@ -1277,9 +1363,7 @@ export const metricsMethods = {
         maintainAspectRatio: false,
         plugins: {
           legend: {
-            display: true,
-            position: 'top',
-            labels: { boxWidth: 8, padding: 8, font: { size: 9 }, color: '#888' },
+            display: false,
           },
           tooltip: {
             mode: 'index',

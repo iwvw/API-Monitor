@@ -302,6 +302,11 @@
   color: #ef4444;
 }
 
+.trend-badge.warning {
+  background: rgba(245, 158, 11, 0.1);
+  color: #f59e0b;
+}
+
 .trend-badge.neutral {
   background: rgba(59, 130, 246, 0.1);
   color: #3b82f6;
@@ -406,8 +411,8 @@
 
 .card-icon-large {
   position: absolute;
-  right: -var(--space-sm);
-  bottom: -var(--space-sm);
+  right: calc(-1 * var(--space-sm));
+  bottom: calc(-1 * var(--space-sm));
   font-size: 110px;
   opacity: 0.02;
   /* Extremely subtle */

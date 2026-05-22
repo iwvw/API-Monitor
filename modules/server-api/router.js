@@ -418,7 +418,8 @@ router.post('/ping-all', async (req, res) => {
     await Promise.all(
       servers.map(async server => {
         try {
-          const latency = await monitorService.tcpPing(server.host, server.port || 22);
+          const isSSH = server.monitor_mode === 'ssh' || (server.port || 22) === 22;
+          const latency = await monitorService.tcpPing(server.host, server.port || 22, 5000, isSSH);
           // 更新数据库
           serverStorage.updateStatus(server.id, { response_time: latency });
           results.push({ serverId: server.id, latency, success: true });

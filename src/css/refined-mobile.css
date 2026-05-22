@@ -1,4 +1,4 @@
-﻿/* Refined Mobile Adaptation - API Monitor */
+/* Refined Mobile Adaptation - API Monitor */
 
 /* ============================================================
    ҳģʽ (Single Page Mode) - ȫصԪ
@@ -1759,7 +1759,7 @@ html.single-page-mode [class*='-sec-tabs'] {
   overflow-x: auto !important;
   gap: var(--space-lg) !important;
   padding: var(--space-md) var(--space-xl) !important;
-  margin: 0 -var(--space-xl) !important;
+  margin: 0 calc(-1 * var(--space-xl)) !important;
   scroll-snap-type: x mandatory !important;
   scrollbar-width: none !important;
   -webkit-overflow-scrolling: touch !important;

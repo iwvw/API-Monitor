@@ -73,13 +73,29 @@ class NotificationService extends EventEmitter {
         try {
             logger.debug(`触发告警: ${sourceModule}/${eventType}`);
 
-            // 恢复事件：重置对应故障的状态追踪
-            if (eventType === 'up' || eventType === 'online') {
-                const oppositeType = eventType === 'up' ? 'down' : 'offline';
-                const downRules = storage.rule.getBySourceAndEvent(sourceModule, oppositeType);
-                for (const rule of downRules) {
-                    const fingerprint = this.generateFingerprint(rule, data);
-                    storage.stateTracking.reset(rule.id, fingerprint);
+            // 故障/恢复事件：双向重置对应状态的追踪 (解决恢复重置滥用及不完整状态重置问题)
+            const isRecovery = ['up', 'online', 'cpu_normal', 'memory_normal', 'disk_normal'].includes(eventType);
+            const isFailure = ['down', 'offline', 'cpu_high', 'memory_high', 'disk_high'].includes(eventType);
+
+            if (isRecovery || isFailure) {
+                let oppositeType;
+                if (eventType === 'up') oppositeType = 'down';
+                else if (eventType === 'down') oppositeType = 'up';
+                else if (eventType === 'online') oppositeType = 'offline';
+                else if (eventType === 'offline') oppositeType = 'online';
+                else if (eventType === 'cpu_normal') oppositeType = 'cpu_high';
+                else if (eventType === 'cpu_high') oppositeType = 'cpu_normal';
+                else if (eventType === 'memory_normal') oppositeType = 'memory_high';
+                else if (eventType === 'memory_high') oppositeType = 'memory_normal';
+                else if (eventType === 'disk_normal') oppositeType = 'disk_high';
+                else if (eventType === 'disk_high') oppositeType = 'disk_normal';
+
+                if (oppositeType) {
+                    const oppositeRules = storage.rule.getBySourceAndEvent(sourceModule, oppositeType);
+                    for (const rule of oppositeRules) {
+                        const fingerprint = this.generateFingerprint(rule, data);
+                        storage.stateTracking.reset(rule.id, fingerprint);
+                    }
                 }
             }
 
@@ -152,7 +168,7 @@ class NotificationService extends EventEmitter {
         }
 
         // 5. 抖动检测 (Anti-Flapping)
-        const isFlapping = this.detectFlapping(state, rule.event_type);
+        const isFlapping = this.detectFlapping(state, rule.event_type, rule, eventData);
         if (isFlapping) {
             // 如果正在抖动，仅发送特定频率或直接抑制
             logger.debug(`检测到监控项处于抖动状态, 抑制重复变动通知: ${rule.name}`);
@@ -731,17 +747,45 @@ class NotificationService extends EventEmitter {
 
     /**
      * 抖动检测 (Anti-Flapping)
-     * 计算过去 10 次状态变化的频率
+     * 计算过去 10 次状态变化的频率 (统一以 primaryRule 为中心存储以检测 0/1 跳变)
      */
-    detectFlapping(stateRecord, currentEventType) {
+    detectFlapping(stateRecord, currentEventType, rule, eventData) {
         try {
-            const history = JSON.parse(stateRecord.state_history || '[]');
-            const eventVal = (currentEventType === 'up' || currentEventType === 'online') ? 1 : 0;
+            // 获取 primary 规则和对应的 state 记录
+            let primaryRule = rule;
+            let primaryStateRecord = stateRecord;
+            
+            const recoveryToPrimary = {
+                'up': 'down',
+                'online': 'offline',
+                'cpu_normal': 'cpu_high',
+                'memory_normal': 'memory_high',
+                'disk_normal': 'disk_high'
+            };
+            const primaryEventType = recoveryToPrimary[currentEventType] || currentEventType;
+            
+            if (primaryEventType !== currentEventType && rule && eventData) {
+                const primaryRules = storage.rule.getBySourceAndEvent(rule.source_module, primaryEventType);
+                if (primaryRules.length > 0) {
+                    primaryRule = primaryRules[0];
+                    const primaryFingerprint = this.generateFingerprint(primaryRule, eventData);
+                    primaryStateRecord = storage.stateTracking.getState(primaryRule.id, primaryFingerprint);
+                    if (!primaryStateRecord) {
+                        primaryStateRecord = storage.stateTracking.upsert(primaryRule.id, primaryFingerprint, {
+                            metadata: JSON.stringify(eventData)
+                        });
+                    }
+                }
+            }
+
+            const history = JSON.parse(primaryStateRecord.state_history || '[]');
+            const isRecovery = ['up', 'online', 'cpu_normal', 'memory_normal', 'disk_normal'].includes(currentEventType);
+            const eventVal = isRecovery ? 1 : 0;
             const now = Date.now();
 
             // 1. 检查是否处于已锁定的抖动冷静期 (5分钟)
-            if (stateRecord.is_flapping && stateRecord.updated_at) {
-                const lastUpdate = new Date(stateRecord.updated_at).getTime();
+            if (primaryStateRecord.is_flapping && primaryStateRecord.updated_at) {
+                const lastUpdate = new Date(primaryStateRecord.updated_at).getTime();
                 if (now - lastUpdate < 5 * 60 * 1000) {
                     return true;
                 }
@@ -758,14 +802,21 @@ class NotificationService extends EventEmitter {
             }
 
             // 如果 10 次内有 4 次以上跳变，且时间间隔短（如 10 分钟内），判定为抖动
-            const durationMin = (history[history.length - 1].t - history[0].t) / 60000;
+            const durationMin = history.length > 1 ? (history[history.length - 1].t - history[0].t) / 60000 : 0;
             const isFlapping = flips >= 4 && durationMin < 10;
 
-            // 更新到数据库
-            storage.stateTracking.upsert(stateRecord.rule_id, stateRecord.fingerprint, {
+            // 更新到 primary state 数据库中
+            storage.stateTracking.upsert(primaryStateRecord.rule_id, primaryStateRecord.fingerprint, {
                 state_history: JSON.stringify(history),
                 is_flapping: isFlapping ? 1 : 0
             });
+
+            // 如果当前规则是恢复规则，同步更新当前规则的 is_flapping 状态以防状态不一致
+            if (primaryRule.id !== rule.id && stateRecord) {
+                storage.stateTracking.upsert(rule.id, stateRecord.fingerprint, {
+                    is_flapping: isFlapping ? 1 : 0
+                });
+            }
 
             return isFlapping;
         } catch (e) {

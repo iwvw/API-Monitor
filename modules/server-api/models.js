@@ -190,57 +190,34 @@ class ServerAccount {
     return true;
   }
 
-  /**
-   * 更新主机状态
-   * @param {string} id - 主机 ID
-   * @param {Object} statusData - 状态数据
-   * @returns {boolean} 是否更新成功
-   */
   static updateStatus(id, statusData) {
+    const existing = this.getById(id);
+    if (!existing) return false;
+
     const now = new Date().toISOString();
+    const status = statusData.status !== undefined ? statusData.status : existing.status;
+    const lastCheckTime = statusData.last_check_time !== undefined ? statusData.last_check_time : (existing.last_check_time || now);
+    const lastCheckStatus = statusData.last_check_status !== undefined ? statusData.last_check_status : existing.last_check_status;
+    const responseTime = statusData.response_time !== undefined ? statusData.response_time : existing.response_time;
+    const cachedInfo = statusData.cached_info !== undefined ? statusData.cached_info : existing.cached_info;
 
-    // 如果有 cached_info，一并更新
-    if (statusData.cached_info) {
-      const stmt = getStatement(`
-            UPDATE server_accounts
-            SET status = ?,
-                last_check_time = ?,
-                last_check_status = ?,
-                response_time = ?,
-                cached_info = ?,
-                updated_at = ?
-            WHERE id = ?
-        `);
-
-      const result = stmt.run(
-        statusData.status,
-        statusData.last_check_time || now,
-        statusData.last_check_status,
-        statusData.response_time || null,
-        JSON.stringify(statusData.cached_info),
-        now,
-        id
-      );
-
-      return result.changes > 0;
-    }
-
-    // 无 cached_info 时保持原逻辑
     const stmt = getStatement(`
         UPDATE server_accounts
         SET status = ?,
             last_check_time = ?,
             last_check_status = ?,
             response_time = ?,
+            cached_info = ?,
             updated_at = ?
         WHERE id = ?
     `);
 
     const result = stmt.run(
-      statusData.status,
-      statusData.last_check_time || now,
-      statusData.last_check_status,
-      statusData.response_time || null,
+      status,
+      lastCheckTime,
+      lastCheckStatus,
+      responseTime !== undefined && responseTime !== null ? responseTime : null,
+      cachedInfo ? JSON.stringify(cachedInfo) : null,
       now,
       id
     );

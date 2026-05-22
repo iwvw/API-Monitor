@@ -623,9 +623,13 @@ export const notificationMethods = {
       down: '宕机',
       up: '恢复',
       offline: '离线',
+      online: '上线',
       cpu_high: 'CPU高负载',
+      cpu_normal: 'CPU恢复正常',
       memory_high: '内存不足',
+      memory_normal: '内存恢复正常',
       disk_high: '磁盘不足',
+      disk_normal: '磁盘恢复正常',
       balance_low: '余额不足',
       log_too_large: '日志过大',
     };

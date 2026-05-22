@@ -288,9 +288,6 @@
               <span>GPU</span>
               <span style="display: flex; gap: 4px; align-items: center">
                 <span style="color: #76b900">{{ server.info.gpu.Usage || '0%' }}</span>
-                <span v-if="server.info.gpu.Temp > 0 && isServerExpanded(server.id)" :style="{ color: getTempColor(server.info.gpu.Temp), fontSize: '9px', fontWeight: '800' }">
-                  {{ Math.round(server.info.gpu.Temp) }}°C
-                </span>
               </span>
             </div>
             <div style="
@@ -309,7 +306,7 @@
           </div>
 
           <!-- CPU Micro-meter -->
-          <div class="meter-item" style="flex: 1; min-width: 60px; max-width: 80px">
+          <div v-if="server.info && server.info.cpu" class="meter-item" style="flex: 1; min-width: 60px; max-width: 80px">
             <div style="
                 display: flex;
                 justify-content: space-between;
@@ -320,11 +317,8 @@
                 text-transform: uppercase;
               ">
               <span>CPU</span>
-              <span v-if="server.info && server.info.cpu" style="display: flex; gap: 4px; align-items: center">
+              <span style="display: flex; gap: 4px; align-items: center">
                 <span style="color: #10b981">{{ parseInt(server.info.cpu.Usage) }}%</span>
-                <span v-if="server.info.cpu.Temp > 0 && isServerExpanded(server.id)" :style="{ color: getTempColor(server.info.cpu.Temp), fontSize: '9px', fontWeight: '800' }">
-                  {{ Math.round(server.info.cpu.Temp) }}°C
-                </span>
               </span>
             </div>
             <div style="
@@ -333,7 +327,7 @@
                 border-radius: 2px;
                 overflow: hidden;
               ">
-              <div v-if="server.info && server.info.cpu" :style="{ 
+              <div :style="{ 
                   width: server.info.cpu.Usage, height: '100%', 
                   transition: 'width 0.5s ease, background 0.3s ease',
                   background: parseFloat(server.info.cpu.Usage) > 85 ? '#ef4444' : '#10b981',
@@ -343,7 +337,7 @@
           </div>
 
           <!-- MEM Micro-meter -->
-          <div class="meter-item" style="flex: 1; min-width: 60px; max-width: 80px">
+          <div v-if="server.info && server.info.memory" class="meter-item" style="flex: 1; min-width: 60px; max-width: 80px">
             <div style="
                 display: flex;
                 justify-content: space-between;
@@ -354,7 +348,7 @@
                 text-transform: uppercase;
               ">
               <span>MEM</span>
-              <span v-if="server.info && server.info.memory" style="color: #3b82f6">{{
+              <span style="color: #3b82f6">{{
                 parseInt(server.info.memory.Usage) }}%</span>
             </div>
             <div style="
@@ -363,7 +357,7 @@
                 border-radius: 2px;
                 overflow: hidden;
               ">
-              <div v-if="server.info && server.info.memory" :style="{ 
+              <div :style="{ 
                   width: server.info.memory.Usage, height: '100%', 
                   transition: 'width 0.5s ease, background 0.3s ease',
                   background: parseFloat(server.info.memory.Usage) > 85 ? '#ef4444' : '#3b82f6',
@@ -373,7 +367,7 @@
           </div>
 
           <!-- DISK Micro-meter -->
-          <div class="meter-item" style="flex: 1; min-width: 60px; max-width: 80px">
+          <div v-if="server.info && server.info.disk && server.info.disk.length > 0" class="meter-item" style="flex: 1; min-width: 60px; max-width: 80px">
             <div style="
                 display: flex;
                 justify-content: space-between;
@@ -384,7 +378,7 @@
                 text-transform: uppercase;
               ">
               <span>DSK</span>
-              <span v-if="server.info && server.info.disk && server.info.disk.length > 0" style="color: #a855f7">{{
+              <span style="color: #a855f7">{{
                 parseInt(server.info.disk[0].usage) }}%</span>
             </div>
             <div style="
@@ -393,7 +387,7 @@
                 border-radius: 2px;
                 overflow: hidden;
               ">
-              <div v-if="server.info && server.info.disk && server.info.disk.length > 0" :style="{ 
+              <div :style="{ 
                   width: server.info.disk[0].usage, height: '100%', 
                   transition: 'width 0.5s ease, background 0.3s ease',
                   background: parseFloat(server.info.disk[0].usage) > 85 ? '#ef4444' : '#a855f7',
@@ -557,7 +551,7 @@
               <!-- 硬件载荷 / 系统信息 (翻转卡片) -->
               <div class="flip-card" :class="{ 'flipped': server.sysInfoVisible }"
                 @click="server.sysInfoVisible = !server.sysInfoVisible"
-                style="height: 208px; perspective: 1000px; cursor: pointer; margin-bottom: 0" title="点击翻转查看系统信息">
+                style="height: 238px; perspective: 1000px; cursor: pointer; margin-bottom: 0" title="点击翻转查看系统信息">
                 <div class="flip-card-inner" style="
                     position: relative;
                     width: 100%;
@@ -743,7 +737,7 @@
                     </span>
                   </div>
                 </div>
-                <div style="height: 145px; position: relative; border-radius: 12px">
+                <div style="height: 180px; position: relative; border-radius: 12px">
                   <canvas :id="'metrics-chart-card-' + server.id"></canvas>
                   <!-- 无数据状态提示 -->
                   <div v-if="!server.info || server.loading" style="
@@ -767,7 +761,7 @@
               <!-- 翻转卡片：仅在有 GPU 数据时允许翻转 -->
               <div class="flip-card" :class="{ 'flipped': server.gpuChartVisible && hasGpuData(server) }"
                 @click="handleGpuCardClick(server)"
-                :style="{ height: '208px', perspective: '1000px', cursor: 'pointer', marginBottom: 0 }"
+                :style="{ height: '238px', perspective: '1000px', cursor: 'pointer', marginBottom: 0 }"
                 :title="hasGpuData(server) ? '点击翻转查看 GPU 趋势' : '未检测到显卡'">
                 <div class="flip-card-inner" style="
                     position: relative;
@@ -786,7 +780,7 @@
                       overflow: hidden;
                       padding: 12px 16px;
                     ">
-                    <h4>
+                    <h4 style="margin-bottom: 10px">
                       <i class="fas fa-microchip"></i> 计算与存储
                       <!-- 仅在有 GPU 数据时显示翻转提示图标 -->
                       <i v-if="hasGpuData(server)" class="fas fa-sync-alt"
@@ -796,7 +790,7 @@
                     <!-- GPU 信息 -->
                     <!-- GPU 信息：使用 hasGpuData 统一判断 -->
                     <div v-if="hasGpuData(server)">
-                      <div class="server-detail-item">
+                      <div class="server-detail-item" style="border: none; padding: 2px 0">
                         <span class="server-detail-label gpu-model-text" :title="server.info.gpu && server.info.gpu.Model">
                           <i class="fas fa-gamepad" style="margin-right: 4px; color: #76b900"></i>
                           {{ server.info.gpu && server.info.gpu.Model ? server.info.gpu.Model :
@@ -809,12 +803,12 @@
                           <span style="white-space: nowrap;">{{ server.info.gpu && server.info.gpu.Usage ? server.info.gpu.Usage : '0%' }}</span>
                         </span>
                       </div>
-                      <div class="progress-bar">
+                      <div class="progress-bar" style="margin-top: 4px; margin-bottom: 12px">
                         <div class="progress-bar-fill" style="background: linear-gradient(90deg, #76b900, #8bc34a)"
                           :style="{ width: (server.info.gpu && server.info.gpu.Usage) || '0%' }"></div>
                       </div>
                       <!-- GPU 显存 (带进度条) -->
-                      <div v-if="server.info.gpu && server.info.gpu.Memory && server.info.gpu.Memory.includes('/')" style="margin-top: 10px">
+                      <div v-if="server.info.gpu && server.info.gpu.Memory && server.info.gpu.Memory.includes('/')" style="margin-top: 0">
                         <div class="server-detail-item" style="border: none; padding: 2px 0">
                           <span class="server-detail-label">
                             <i class="fas fa-microchip" style="margin-right: 4px; opacity: 0.7"></i>
@@ -827,14 +821,14 @@
                             <span style="color: var(--text-tertiary); margin-left: 4px;">({{ Math.round(server.info.gpu.Percent || 0) }}%)</span>
                           </span>
                         </div>
-                        <div class="progress-bar" style="margin-top: 4px; margin-bottom: 10px">
+                        <div class="progress-bar" style="margin-top: 4px; margin-bottom: 12px">
                           <div class="progress-bar-fill" style="background: linear-gradient(90deg, #76b900, #8bc34a)"
                             :style="{ width: (server.info.gpu.Percent || 0) + '%' }"></div>
                         </div>
                       </div>
 
                       <!-- GPU 功耗 -->
-                      <div v-if="server.info.gpu && server.info.gpu.Power" class="server-detail-item" style="border: none; padding: 2px 0 0 0; margin-top: 2px">
+                      <div v-if="server.info.gpu && server.info.gpu.Power" class="server-detail-item" style="border: none; padding: 2px 0; margin-top: 0; margin-bottom: 6px">
                         <span class="server-detail-label">
                           <i class="fas fa-bolt" style="margin-right: 4px; color: #eab308"></i>
                           功耗负载
@@ -854,8 +848,8 @@
 
                     <!-- 磁盘存储 (底部) -->
                     <div v-if="server.info.disk && server.info.disk.length > 0"
-                      style="margin-top: auto; padding-top: 12px">
-                      <div class="server-detail-item" style="border: none; padding-bottom: 4px">
+                      style="margin-top: auto; padding-top: 8px; border-top: 1px dashed var(--border-color);">
+                      <div class="server-detail-item" style="border: none; padding: 2px 0 4px 0">
                         <span class="server-detail-label">
                           <i class="fas fa-hdd" style="margin-right: 4px"></i>
                           主存储 ({{ server.info.disk[0].usage }})
@@ -863,7 +857,7 @@
                         <span class="server-detail-value" style="font-size: 11px; opacity: 0.8">{{
                           server.info.disk[0].used }} / {{ server.info.disk[0].total }}</span>
                       </div>
-                      <div class="progress-bar">
+                      <div class="progress-bar" style="margin-top: 4px; margin-bottom: 0">
                         <div class="progress-bar-fill" :class="getDiskClass(server.info.disk[0].usage)"
                           :style="{ width: server.info.disk[0].usage }"></div>
                       </div>
@@ -882,11 +876,50 @@
                       overflow: hidden;
                       padding: 12px 16px;
                     ">
-                    <h4 title="点击返回">
-                      <i class="fas fa-chart-area" style="color: #76b900"></i> GPU 趋势
-                      <i class="fas fa-undo" style="font-size: 10px; margin-left: 6px; opacity: 0.5"></i>
-                    </h4>
-                    <div style="height: 165px; position: relative; margin-top: 4px">
+                    <div style="
+                        display: flex;
+                        justify-content: space-between;
+                        align-items: center;
+                        margin-bottom: 10px;
+                      ">
+                      <h4 title="点击返回" style="margin-bottom: 0; cursor: pointer;">
+                        <i class="fas fa-chart-area" style="color: #76b900"></i> GPU 趋势
+                        <i class="fas fa-undo" style="font-size: 10px; margin-left: 6px; opacity: 0.5"></i>
+                      </h4>
+                      <div style="display: flex; gap: 8px">
+                        <span style="
+                            font-size: 10px;
+                            color: #76b900;
+                            display: flex;
+                            align-items: center;
+                            gap: 4px;
+                          ">
+                          <span style="width: 6px; height: 6px; border-radius: 50%; background: #76b900"></span>
+                          GPU
+                        </span>
+                        <span style="
+                            font-size: 10px;
+                            color: #8bc34a;
+                            display: flex;
+                            align-items: center;
+                            gap: 4px;
+                          ">
+                          <span style="width: 6px; height: 6px; border-radius: 50%; background: #8bc34a"></span>
+                          VRAM
+                        </span>
+                        <span style="
+                            font-size: 10px;
+                            color: #ff9800;
+                            display: flex;
+                            align-items: center;
+                            gap: 4px;
+                          ">
+                          <span style="width: 6px; height: 6px; border-radius: 50%; background: #ff9800"></span>
+                          Power
+                        </span>
+                      </div>
+                    </div>
+                    <div style="height: 180px; position: relative; margin-top: 0">
                       <canvas :id="'gpu-chart-' + server.id"></canvas>
                       <div v-if="server.gpuLoading" style="
                           position: absolute;
@@ -927,7 +960,7 @@
               <div class="server-detail-section" style="display: flex; flex-direction: column;">
                 <h4><i class="fas fa-network-wired"></i> 网络速率</h4>
                 <div v-if="server.info.network" style="flex: 1; display: flex; flex-direction: column;">
-                  <div class="server-detail-item">
+                  <div class="server-detail-item" style="border: none; padding: 10px 0 6px 0">
                     <span class="server-detail-label">活跃连接数</span>
                     <span class="server-detail-value" style="
                         font-family: var(--font-mono);
@@ -935,7 +968,7 @@
                         color: var(--paas-primary);
                       ">{{ server.info.network.connections || 0 }}</span>
                   </div>
-                  <div class="server-detail-item" style="padding: 6px 0">
+                  <div class="server-detail-item" style="border: none; padding: 8px 0">
                     <span class="server-detail-label">
                       <i class="fas fa-arrow-up" style="color: #3b82f6; font-size: 10px"></i>
                       上传速度
@@ -945,7 +978,7 @@
                       {{ server.info.network.tx_speed }}
                     </span>
                   </div>
-                  <div class="server-detail-item" style="padding: 6px 0">
+                  <div class="server-detail-item" style="border: none; padding: 8px 0">
                     <span class="server-detail-label">
                       <i class="fas fa-arrow-down" style="color: #10b981; font-size: 10px"></i>
                       下载速度
@@ -961,7 +994,7 @@
 
                   <!-- 累计流量 (沉底) -->
                   <div class="server-detail-item"
-                    style="border: none; padding: 6px 0 0 0; margin-top: auto; border-top: 1px dashed var(--border-color);">
+                    style="border: none; padding: 6px 0 2px 0; margin-top: auto; border-top: 1px dashed var(--border-color); padding-top: 8px;">
                     <span class="server-detail-label" style="font-size: 11px; opacity: 0.7;">累计流量 (上行 / 下行)</span>
                     <span class="server-detail-value" style="font-size: 11px; opacity: 0.7;">{{
                       server.info.network.tx_total }} / {{

@@ -25,7 +25,7 @@
         <div class="icon-box"><i class="fas fa-server"></i></div>
         <div class="card-status-group">
           <span class="trend-badge"
-            :class="dashboardStats.servers.online === dashboardStats.servers.total && dashboardStats.servers.total > 0 ? 'positive' : (dashboardStats.servers.total === 0 ? 'neutral' : 'negative')">
+            :class="dashboardStats.servers.total === 0 ? 'neutral' : (dashboardStats.servers.online === dashboardStats.servers.total ? 'positive' : (dashboardStats.servers.online === 0 ? 'negative' : 'warning'))">
             {{ dashboardStats.servers.online }} / {{ dashboardStats.servers.total }} 在线
           </span>
         </div>
@@ -38,10 +38,11 @@
       </div>
       <div class="card-footer">
         <span class="status-dot-text"
-          :class="dashboardStats.servers.error > 0 ? 'status-text-danger' : (dashboardStats.servers.offline > 0 ? 'status-text-warning' : 'status-text-success')">
-          <template v-if="dashboardStats.servers.error > 0">{{ dashboardStats.servers.error }} 台故障</template>
-          <template v-else-if="dashboardStats.servers.offline > 0">{{ dashboardStats.servers.offline }} 台离线</template>
-          <template v-else>所有系统正常</template>
+          :class="dashboardStats.servers.total === 0 ? 'status-text-neutral' : (dashboardStats.servers.online === dashboardStats.servers.total ? 'status-text-success' : (dashboardStats.servers.online === 0 ? 'status-text-danger' : 'status-text-warning'))">
+          <template v-if="dashboardStats.servers.total === 0">暂无服务器</template>
+          <template v-else-if="dashboardStats.servers.online === dashboardStats.servers.total">所有系统正常</template>
+          <template v-else-if="dashboardStats.servers.online === 0">全部系统离线</template>
+          <template v-else>{{ dashboardStats.servers.offline }} 台离线</template>
         </span>
         <i class="fas fa-arrow-right footer-arrow"></i>
       </div>

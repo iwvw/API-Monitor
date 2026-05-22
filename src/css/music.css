@@ -1,4 +1,4 @@
-﻿/* =========================================
+/* =========================================
    Music Player Module - Apple/Modern Style (Theme Adaptive)
    ========================================= */
 
@@ -851,8 +851,8 @@
 .bar-progress::before {
   content: '';
   position: absolute;
-  top: -var(--space-sm);
-  bottom: -var(--space-sm);
+  top: calc(-1 * var(--space-sm));
+  bottom: calc(-1 * var(--space-sm));
   left: 0;
   right: 0;
 }
@@ -874,7 +874,7 @@
 .bar-fill::after {
   content: '';
   position: absolute;
-  right: -var(--space-xs);
+  right: calc(-1 * var(--space-xs));
   top: 50%;
   transform: translateY(-50%);
   width: 15px;
