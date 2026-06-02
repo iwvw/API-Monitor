@@ -303,93 +303,32 @@ export const sshMethods = {
     });
   },
 
-  /**
-   * 获取终端主题配置 - 支持深色/浅色模式自动切换
-   */
   getTerminalTheme() {
-    // 1. 获取 Body 上的实时计算样式
-    const computedStyle = getComputedStyle(document.body);
-    const bg = computedStyle.getPropertyValue('--bg-primary').trim();
-    const fg = computedStyle.getPropertyValue('--text-primary').trim();
-
-    // 2. 转换颜色为规范的 RGB 格式以便计算亮度
-    const parseToRGB = colorStr => {
-      if (!colorStr) return [255, 255, 255];
-      if (colorStr.startsWith('rgb')) {
-        return colorStr.match(/\d+/g).map(Number);
-      }
-      if (colorStr.startsWith('#')) {
-        let hex = colorStr.substring(1);
-        if (hex.length === 3)
-          hex = hex
-            .split('')
-            .map(s => s + s)
-            .join('');
-        return [
-          parseInt(hex.substring(0, 2), 16),
-          parseInt(hex.substring(2, 4), 16),
-          parseInt(hex.substring(4, 6), 16),
-        ];
-      }
-      return [255, 255, 255];
+    // 强制使用高质量深色主题，因为命令行程序（如 PowerShell、各种 CLI）输出的 ANSI 颜色与真彩色
+    // 是专门为深色背景设计的。在浅色背景下，黄色、绿色、青色等浅色文字会严重失去对比度，导致无法看清。
+    return {
+      background: '#1e1e1e', // VS Code dark theme background
+      foreground: '#c9d1d9', // GitHub dark theme foreground
+      cursor: '#58a6ff',
+      selection: 'rgba(56, 139, 253, 0.4)',
+      selectionBackground: 'rgba(56, 139, 253, 0.4)',
+      black: '#484f58',
+      red: '#ff7b72',
+      green: '#3fb950',
+      yellow: '#d29922',
+      blue: '#58a6ff',
+      magenta: '#bc8cff',
+      cyan: '#39c5cf',
+      white: '#b1bac4',
+      brightBlack: '#6e7681',
+      brightRed: '#ffa198',
+      brightGreen: '#56d364',
+      brightYellow: '#e3b341',
+      brightBlue: '#79c0ff',
+      brightMagenta: '#d3b8ff',
+      brightCyan: '#56d4dd',
+      brightWhite: '#ffffff',
     };
-
-    const rgb = parseToRGB(bg);
-    // 精确亮度计算 (W3C 标准)
-    const brightness = (rgb[0] * 299 + rgb[1] * 587 + rgb[2] * 114) / 1000;
-    const isDark = brightness < 128;
-
-    if (isDark) {
-      // 深色模式 - 高对比度调优
-      return {
-        background: bg || '#0d1117',
-        foreground: '#ffffff',
-        cursor: '#ffffff',
-        selection: 'rgba(56, 139, 253, 0.5)',
-        selectionBackground: 'rgba(56, 139, 253, 0.5)',
-        black: '#000000',
-        red: '#ff6b6b',
-        green: '#4ade80',
-        yellow: '#fbbf24',
-        blue: '#60a5fa',
-        magenta: '#e879f9',
-        cyan: '#22d3ee',
-        white: '#ffffff',
-        brightBlack: '#94a3b8',
-        brightRed: '#f87171',
-        brightGreen: '#4ade80',
-        brightYellow: '#fbbf24',
-        brightBlue: '#60a5fa',
-        brightMagenta: '#e879f9',
-        brightCyan: '#22d3ee',
-        brightWhite: '#ffffff',
-      };
-    } else {
-      // 浅色模式 - 极致对比度 (针对白底黑字优化)
-      return {
-        background: bg || '#ffffff',
-        foreground: '#000000',
-        cursor: '#000000',
-        selection: 'rgba(99, 102, 241, 0.3)',
-        selectionBackground: 'rgba(99, 102, 241, 0.3)',
-        black: '#000000',
-        red: '#b91c1c',
-        green: '#166534',
-        yellow: '#92400e',
-        blue: '#1e40af',
-        magenta: '#701a75',
-        cyan: '#155e75',
-        white: '#1f2937',
-        brightBlack: '#4b5563',
-        brightRed: '#dc2626',
-        brightGreen: '#15803d',
-        brightYellow: '#b45309',
-        brightBlue: '#2563eb',
-        brightMagenta: '#9333ea',
-        brightCyan: '#0891b2',
-        brightWhite: '#6b7280',
-      };
-    }
   },
 
   /**

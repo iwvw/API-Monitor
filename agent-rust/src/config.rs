@@ -1,12 +1,15 @@
 use serde::Deserialize;
 use std::fs::File;
 use std::io::Read;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use clap::Parser;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 pub struct CliArgs {
+    #[arg(help = "Action to perform (install, uninstall, svc-install, svc-uninstall)")]
+    pub action: Option<String>,
+
     #[arg(short = 's', long = "server", help = "Dashboard server URL")]
     pub server_url: Option<String>,
 
@@ -21,6 +24,9 @@ pub struct CliArgs {
 
     #[arg(short = 'd', long = "debug", help = "Enable debug logging")]
     pub debug: bool,
+
+    #[arg(short = 'b', long = "daemon", help = "Run in background daemon mode (Windows)")]
+    pub daemon: bool,
 }
 
 #[derive(Deserialize, Debug, Clone, Default)]
@@ -45,24 +51,22 @@ pub struct Config {
 }
 
 impl Config {
-    pub fn load() -> Result<Self, String> {
-        // 1. Parse CLI arguments
-        let cli = CliArgs::parse();
+    pub fn load(cli: &CliArgs) -> Result<Self, String> {
 
         // 2. Try loading config.json
         let json_config = Self::load_config_json().unwrap_or_default();
 
         // Resolve fields based on precedence: CLI > Env > JsonConfig > Defaults
-        let server_url = cli.server_url
+        let server_url = cli.server_url.clone()
             .or_else(|| std::env::var("API_MONITOR_SERVER").ok())
             .or(json_config.server_url)
             .unwrap_or_else(|| "http://localhost:3000".to_string());
 
-        let server_id = cli.server_id
+        let server_id = cli.server_id.clone()
             .or_else(|| std::env::var("API_MONITOR_SERVER_ID").ok())
             .or(json_config.server_id);
 
-        let agent_key = cli.agent_key
+        let agent_key = cli.agent_key.clone()
             .or_else(|| std::env::var("API_MONITOR_KEY").ok())
             .or(json_config.agent_key);
 
@@ -93,10 +97,15 @@ impl Config {
     }
 
     fn load_config_json() -> Option<JsonConfig> {
-        let paths = vec!["config.json", "../config.json"];
+        let mut paths = vec![PathBuf::from("config.json"), PathBuf::from("../config.json")];
+        if let Ok(exe_path) = std::env::current_exe() {
+            if let Some(exe_dir) = exe_path.parent() {
+                paths.insert(0, exe_dir.join("config.json"));
+            }
+        }
         for path in paths {
-            if Path::new(path).exists() {
-                if let Ok(mut file) = File::open(path) {
+            if path.exists() {
+                if let Ok(mut file) = File::open(&path) {
                     let mut contents = String::new();
                     if file.read_to_string(&mut contents).is_ok() {
                         if let Ok(config) = serde_json::from_str::<JsonConfig>(&contents) {

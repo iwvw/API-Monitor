@@ -11,6 +11,7 @@ pub const EVENT_DASHBOARD_TASK: &str = "dashboard:task";
 pub const EVENT_DASHBOARD_PTY_INPUT: &str = "dashboard:pty_input";
 pub const EVENT_DASHBOARD_PTY_RESIZE: &str = "dashboard:pty_resize";
 pub const EVENT_AGENT_PTY_DATA: &str = "agent:pty_data";
+pub const EVENT_AGENT_TASK_PROGRESS: &str = "agent:task_progress";
 
 #[derive(Serialize, Debug, Clone)]
 pub struct AuthPayload {
@@ -63,6 +64,44 @@ pub struct PtyDataPayload {
     pub data: String,
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct TaskProgress {
+    #[serde(rename = "task_id")]
+    pub task_id: String,
+    pub name: String,
+    pub percentage: i32,
+    pub message: String,
+    #[serde(rename = "detail_msg")]
+    pub detail_msg: String,
+    #[serde(rename = "is_done")]
+    pub is_done: bool,
+    #[serde(rename = "is_error")]
+    pub is_error: bool,
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct DockerCheckUpdateRequest {
+    #[serde(rename = "container_id")]
+    pub container_id: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct DockerImageUpdateStatus {
+    #[serde(rename = "container_id")]
+    pub container_id: String,
+    #[serde(rename = "container_name")]
+    pub container_name: String,
+    pub image: String,
+    #[serde(rename = "current_digest")]
+    pub current_digest: String,
+    #[serde(rename = "latest_digest")]
+    pub latest_digest: String,
+    #[serde(rename = "has_update")]
+    pub has_update: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
 /// Socket.IO Engine.IO & Socket.IO parser
 #[derive(Debug, Clone)]
 pub enum SocketIOMessage {
@@ -77,6 +116,14 @@ pub enum SocketIOMessage {
 pub fn parse_socketio_message(raw: &str) -> SocketIOMessage {
     if raw.is_empty() {
         return SocketIOMessage::Ignored;
+    }
+
+    if raw == "3probe" {
+        return SocketIOMessage::Raw(raw.to_string());
+    }
+
+    if raw.starts_with("40/agent") {
+        return SocketIOMessage::Raw(raw.to_string());
     }
 
     // Engine.IO Packet Type:

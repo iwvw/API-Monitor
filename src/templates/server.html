@@ -47,8 +47,8 @@
                 <div :class="['server-status-indicator', server.status || 'unknown']"></div>
                 <div class="ssh-quick-item-info">
                   <div class="ssh-quick-item-name">{{ server.name }}</div>
-                  <div v-if="server.host && server.host !== '0.0.0.0'" class="ssh-quick-item-host">
-                    {{ server.host }}
+                  <div v-if="(server.host && server.host !== '0.0.0.0') || (server.info && server.info.ip)" class="ssh-quick-item-host">
+                    {{ server.host || server.info.ip }}
                   </div>
                 </div>
                 <i class="fas fa-arrow-right"></i>
@@ -163,13 +163,10 @@
 
     <!-- 主机卡片列表 -->
     <div v-for="(server, index) in filteredServerList" :key="server.id" class="server-card"
-      :class="{ expanded: isServerExpanded(server.id) }" 
+      :class="{ expanded: isServerExpanded(server.id) }"
       :draggable="!serverSearchText.trim() && serverStatusFilter === 'all' && !isServerExpanded(server.id) && !server.isEditing"
-      @dragstart="handleServerDragStart(index, $event)"
-      @dragover="handleServerDragOver($event)"
-      @drop="handleServerDrop(index, $event)"
-      @dragend="handleServerDragEnd($event)"
-      style="
+      @dragstart="handleServerDragStart(index, $event)" @dragover="handleServerDragOver($event)"
+      @drop="handleServerDrop(index, $event)" @dragend="handleServerDragEnd($event)" style="
         padding: 0;
         margin-bottom: 10px;
         border: 1px solid var(--border-color);
@@ -226,8 +223,8 @@
                   overflow: hidden;
                 " title="双击重命名">{{ server.name }}</span>
               <input v-else v-model="server.editingName" :ref="'serverNameInput_' + server.id"
-                @keyup.enter="renameServer(server)" @keyup.esc="cancelEditServerName(server)" @blur="renameServer(server)"
-                @click.stop style="
+                @keyup.enter="renameServer(server)" @keyup.esc="cancelEditServerName(server)"
+                @blur="renameServer(server)" @click.stop style="
                   font-size: 14px;
                   font-weight: 700;
                   background: var(--bg-tertiary);
@@ -306,7 +303,8 @@
           </div>
 
           <!-- CPU Micro-meter -->
-          <div v-if="server.info && server.info.cpu" class="meter-item" style="flex: 1; min-width: 60px; max-width: 80px">
+          <div v-if="server.info && server.info.cpu" class="meter-item"
+            style="flex: 1; min-width: 60px; max-width: 80px">
             <div style="
                 display: flex;
                 justify-content: space-between;
@@ -337,7 +335,8 @@
           </div>
 
           <!-- MEM Micro-meter -->
-          <div v-if="server.info && server.info.memory" class="meter-item" style="flex: 1; min-width: 60px; max-width: 80px">
+          <div v-if="server.info && server.info.memory" class="meter-item"
+            style="flex: 1; min-width: 60px; max-width: 80px">
             <div style="
                 display: flex;
                 justify-content: space-between;
@@ -367,7 +366,8 @@
           </div>
 
           <!-- DISK Micro-meter -->
-          <div v-if="server.info && server.info.disk && server.info.disk.length > 0" class="meter-item" style="flex: 1; min-width: 60px; max-width: 80px">
+          <div v-if="server.info && server.info.disk && server.info.disk.length > 0" class="meter-item"
+            style="flex: 1; min-width: 60px; max-width: 80px">
             <div style="
                 display: flex;
                 justify-content: space-between;
@@ -551,7 +551,8 @@
               <!-- 硬件载荷 / 系统信息 (翻转卡片) -->
               <div class="flip-card" :class="{ 'flipped': server.sysInfoVisible }"
                 @click="server.sysInfoVisible = !server.sysInfoVisible"
-                style="height: 100%; min-height: 215px; perspective: 1000px; cursor: pointer; margin-bottom: 0" title="点击翻转查看系统信息">
+                style="height: 100%; min-height: 215px; perspective: 1000px; cursor: pointer; margin-bottom: 0"
+                title="点击翻转查看系统信息">
                 <div class="flip-card-inner" style="
                     position: relative;
                     width: 100%;
@@ -584,9 +585,12 @@
                           server.info.cpu.PhysicalCores + '核/' + server.info.cpu.LogicalCores + '线程' :
                           (server.info.cpu.PhysicalCores || server.info.cpu.Cores || '-') + ' 核' }})
                         </span>
-                        <span class="server-detail-value" style="display: flex; gap: 6px; align-items: center; white-space: nowrap; flex-shrink: 0;">
-                          <span v-if="server.info.cpu.Temp > 0" class="badge" :style="{ background: 'rgba(var(--primary-rgb), 0.05)', color: getTempColor(server.info.cpu.Temp), fontSize: '10px', fontWeight: '800', border: '1px solid ' + getTempColor(server.info.cpu.Temp), padding: '1px 5px', borderRadius: '4px', display: 'inline-flex', alignItems: 'center', gap: '3px', whiteSpace: 'nowrap' }">
-                            <i class="fas fa-thermometer-half" style="font-size: 10px;"></i>{{ Math.round(server.info.cpu.Temp) }}°C
+                        <span class="server-detail-value"
+                          style="display: flex; gap: 6px; align-items: center; white-space: nowrap; flex-shrink: 0;">
+                          <span v-if="server.info.cpu.Temp > 0" class="badge"
+                            :style="{ background: 'rgba(var(--primary-rgb), 0.05)', color: getTempColor(server.info.cpu.Temp), fontSize: '10px', fontWeight: '800', border: '1px solid ' + getTempColor(server.info.cpu.Temp), padding: '1px 5px', borderRadius: '4px', display: 'inline-flex', alignItems: 'center', gap: '3px', whiteSpace: 'nowrap' }">
+                            <i class="fas fa-thermometer-half" style="font-size: 10px;"></i>{{
+                            Math.round(server.info.cpu.Temp) }}°C
                           </span>
                           <span style="white-space: nowrap;">{{ server.info.cpu.Usage || '0%' }}</span>
                         </span>
@@ -609,7 +613,8 @@
                           <strong style="color: var(--text-primary)">{{ server.info.memory.Used || '-' }}</strong>
                           <span style="color: var(--text-tertiary); margin: 0 2px;">/</span>
                           <span style="color: var(--text-secondary)">{{ server.info.memory.Total || '-' }}</span>
-                          <span style="color: var(--text-tertiary); margin-left: 4px;">({{ server.info.memory.Usage || '0%' }})</span>
+                          <span style="color: var(--text-tertiary); margin-left: 4px;">({{ server.info.memory.Usage ||
+                            '0%' }})</span>
                         </span>
                       </div>
                       <div class="progress-bar" style="margin-top: 4px; margin-bottom: 10px">
@@ -678,7 +683,7 @@
                     <div class="server-detail-item">
                       <span class="server-detail-label"><i class="fas fa-network-wired" style="margin-right: 4px"></i>
                         主机地址</span>
-                      <span class="server-detail-value">{{ server.host || '-' }}</span>
+                      <span class="server-detail-value">{{ server.host || (server.info && server.info.ip) || '-' }}</span>
                     </div>
                     <div v-if="server.agent_port" class="server-detail-item">
                       <span class="server-detail-label">Agent 端口</span>
@@ -780,7 +785,7 @@
                       overflow: hidden;
                       padding: 12px 12px;
                     ">
-                    <h4 style="margin-bottom: 10px">
+                    <h4 style="margin-bottom: 0px">
                       <i class="fas fa-microchip"></i> 计算与存储
                       <!-- 仅在有 GPU 数据时显示翻转提示图标 -->
                       <i v-if="hasGpuData(server)" class="fas fa-sync-alt"
@@ -791,16 +796,21 @@
                     <!-- GPU 信息：使用 hasGpuData 统一判断 -->
                     <div v-if="hasGpuData(server)">
                       <div class="server-detail-item" style="border: none; padding: 2px 0">
-                        <span class="server-detail-label gpu-model-text" :title="server.info.gpu && server.info.gpu.Model">
+                        <span class="server-detail-label gpu-model-text"
+                          :title="server.info.gpu && server.info.gpu.Model">
                           <i class="fas fa-gamepad" style="margin-right: 4px; color: #76b900"></i>
                           {{ server.info.gpu && server.info.gpu.Model ? server.info.gpu.Model :
                           'GPU' }}
                         </span>
-                        <span class="server-detail-value" style="display: flex; gap: 6px; align-items: center; white-space: nowrap; flex-shrink: 0;">
-                          <span v-if="server.info.gpu && server.info.gpu.Temp > 0" class="badge" :style="{ background: 'rgba(var(--primary-rgb), 0.05)', color: getTempColor(server.info.gpu.Temp), fontSize: '10px', fontWeight: '800', border: '1px solid ' + getTempColor(server.info.gpu.Temp), padding: '1px 5px', borderRadius: '4px', display: 'inline-flex', alignItems: 'center', gap: '3px', whiteSpace: 'nowrap' }">
-                            <i class="fas fa-thermometer-half" style="font-size: 10px;"></i>{{ Math.round(server.info.gpu.Temp) }}°C
+                        <span class="server-detail-value"
+                          style="display: flex; gap: 6px; align-items: center; white-space: nowrap; flex-shrink: 0;">
+                          <span v-if="server.info.gpu && server.info.gpu.Temp > 0" class="badge"
+                            :style="{ background: 'rgba(var(--primary-rgb), 0.05)', color: getTempColor(server.info.gpu.Temp), fontSize: '10px', fontWeight: '800', border: '1px solid ' + getTempColor(server.info.gpu.Temp), padding: '1px 5px', borderRadius: '4px', display: 'inline-flex', alignItems: 'center', gap: '3px', whiteSpace: 'nowrap' }">
+                            <i class="fas fa-thermometer-half" style="font-size: 10px;"></i>{{
+                            Math.round(server.info.gpu.Temp) }}°C
                           </span>
-                          <span style="white-space: nowrap;">{{ server.info.gpu && server.info.gpu.Usage ? server.info.gpu.Usage : '0%' }}</span>
+                          <span style="white-space: nowrap;">{{ server.info.gpu && server.info.gpu.Usage ?
+                            server.info.gpu.Usage : '0%' }}</span>
                         </span>
                       </div>
                       <div class="progress-bar" style="margin-top: 4px; margin-bottom: 12px">
@@ -808,8 +818,9 @@
                           :style="{ width: (server.info.gpu && server.info.gpu.Usage) || '0%' }"></div>
                       </div>
                       <!-- GPU 显存 (带进度条) -->
-                      <div v-if="server.info.gpu && server.info.gpu.Memory && server.info.gpu.Memory.includes('/')" style="margin-top: 0">
-                        <div class="server-detail-item" style="border: none; padding: 2px 0">
+                      <div v-if="server.info.gpu && server.info.gpu.Memory && server.info.gpu.Memory.includes('/')"
+                        style="margin-top: 0">
+                        <div class="server-detail-item" style="border: none; padding: 0px 0">
                           <span class="server-detail-label">
                             <i class="fas fa-microchip" style="margin-right: 4px; opacity: 0.7"></i>
                             显存使用
@@ -817,8 +828,10 @@
                           <span class="server-detail-value" style="font-family: var(--font-mono); font-size: 11px;">
                             <strong style="color: #76b900">{{ server.info.gpu.Memory.split('/')[0].trim() }}</strong>
                             <span style="color: var(--text-tertiary); margin: 0 2px;">/</span>
-                            <span style="color: var(--text-secondary)">{{ server.info.gpu.Memory.split('/')[1].trim() }}</span>
-                            <span style="color: var(--text-tertiary); margin-left: 4px;">({{ Math.round(server.info.gpu.Percent || 0) }}%)</span>
+                            <span style="color: var(--text-secondary)">{{ server.info.gpu.Memory.split('/')[1].trim()
+                              }}</span>
+                            <span style="color: var(--text-tertiary); margin-left: 4px;">({{
+                              Math.round(server.info.gpu.Percent || 0) }}%)</span>
                           </span>
                         </div>
                         <div class="progress-bar" style="margin-top: 4px; margin-bottom: 12px">
@@ -828,12 +841,15 @@
                       </div>
 
                       <!-- GPU 功耗 -->
-                      <div v-if="server.info.gpu && server.info.gpu.Power" class="server-detail-item" style="border: none; padding: 2px 0; margin-top: 0; margin-bottom: 3px">
+                      <div v-if="server.info.gpu && server.info.gpu.Power" class="server-detail-item"
+                        style="border: none; padding: 2px 0; margin-top: 0; margin-bottom: 3px">
                         <span class="server-detail-label">
                           <i class="fas fa-bolt" style="margin-right: 4px; color: #eab308"></i>
                           功耗负载
                         </span>
-                        <span class="server-detail-value" style="font-family: var(--font-mono); font-weight: 700; color: #eab308; font-size: 11px;">{{ server.info.gpu.Power }}</span>
+                        <span class="server-detail-value"
+                          style="font-family: var(--font-mono); font-weight: 700; color: #eab308; font-size: 11px;">{{
+                          server.info.gpu.Power }}</span>
                       </div>
                     </div>
                     <div v-else class="server-detail-item" style="border: none; opacity: 0.5; padding: 8px 0;">
@@ -849,7 +865,7 @@
                     <!-- 磁盘存储 (底部) -->
                     <div v-if="server.info.disk && server.info.disk.length > 0"
                       style="margin-top: auto; padding-top: 8px; border-top: 1px dashed var(--border-color);">
-                      <div class="server-detail-item" style="border: none; padding: 2px 0 0px 0">
+                      <div class="server-detail-item" style="border: none; padding: 0px 0 0px 0">
                         <span class="server-detail-label">
                           <i class="fas fa-hdd" style="margin-right: 4px"></i>
                           主存储 ({{ server.info.disk[0].usage }})
@@ -957,8 +973,7 @@
               </div>
 
               <!-- 网络资源 (翻转卡片) -->
-              <div class="flip-card" :class="{ 'flipped': server.netChartVisible }"
-                @click="toggleNetChart(server)"
+              <div class="flip-card" :class="{ 'flipped': server.netChartVisible }" @click="toggleNetChart(server)"
                 :style="{ height: '100%', minHeight: '215px', perspective: '1000px', cursor: 'pointer', marginBottom: 0 }"
                 title="点击翻转查看网络速率趋势">
                 <div class="flip-card-inner" style="
@@ -983,7 +998,8 @@
                       <i class="fas fa-network-wired"></i> 网络速率
                       <i class="fas fa-sync-alt" style="font-size: 10px; margin-left: 6px; opacity: 0.5"></i>
                     </h4>
-                    <div v-if="server.info && server.info.network" style="flex: 1; display: flex; flex-direction: column;">
+                    <div v-if="server.info && server.info.network"
+                      style="flex: 1; display: flex; flex-direction: column;">
                       <div class="server-detail-item" style="border: none; padding: 10px 0 6px 0">
                         <span class="server-detail-label">活跃连接数</span>
                         <span class="server-detail-value" style="
@@ -2324,7 +2340,7 @@
                   <strong>{{ server.name }}</strong>
                 </div>
               </td>
-              <td v-if="server.host && server.host !== '0.0.0.0'">
+              <td v-if="(server.host && server.host !== '0.0.0.0') || (server.info && server.info.ip)">
                 <code style="
                     background: var(--bg-secondary);
                     border: 1px solid var(--border-color);
@@ -2334,7 +2350,7 @@
                     font-family: var(--font-mono);
                     color: var(--text-secondary);
                   ">
-                  {{ formatHost(server.host) }}:{{ server.port }}
+                  {{ formatHost(server.host || server.info.ip) }}{{ server.host ? ':' + server.port : '' }}
                 </code>
               </td>
               <td v-else class="text-secondary" style="font-size: 11px; opacity: 0.5">

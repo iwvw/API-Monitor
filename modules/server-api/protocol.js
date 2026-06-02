@@ -308,6 +308,7 @@ function stateToFrontendFormat(state, hostInfo = {}) {
     platform: hostInfo.platform || '',
     platformVersion: hostInfo.platform_version || hostInfo.platformVersion || '',
     agent_version: hostInfo.agent_version || '',
+    ip: hostInfo.ip || '',
     uptime: formatUptime(uptime),
     timestamp: Date.now(),
   };

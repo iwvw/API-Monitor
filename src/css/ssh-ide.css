@@ -186,7 +186,7 @@
   flex: 1;
   height: 100%;
   overflow: hidden;
-  background: var(--bg-primary);
+  background: #1e1e1e;
   position: relative;
   display: flex;
   flex-direction: column;
@@ -262,7 +262,7 @@
   display: flex;
   flex-direction: column;
   flex: 1;
-  background: var(--bg-primary);
+  background: #1e1e1e;
   position: relative;
   min-height: 150px;
   min-width: 200px;
@@ -372,7 +372,7 @@ div[id^='ssh-terminal-'] {
 }
 
 .xterm-viewport {
-  background-color: var(--bg-primary) !important;
+  background-color: #1e1e1e !important;
   overflow-y: auto !important;
 }
 

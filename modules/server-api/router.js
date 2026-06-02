@@ -91,6 +91,7 @@ router.get('/accounts', (req, res) => {
             platform: cachedMetrics.platform,
             platformVersion: cachedMetrics.platformVersion,
             agentVersion: cachedMetrics.agent_version,
+            ip: cachedMetrics.ip,
             uptime: cachedMetrics.uptime,
             lastUpdate:
               cachedMetrics.lastUpdate ||

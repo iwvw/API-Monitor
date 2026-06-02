@@ -3,6 +3,7 @@
         "data/**/*",
         "agent_debug.log",
         "agent-go/**/*",
+        "agent-rust/**/*",
         "public/agent/**/*",
         "**/*.test.js",
         "**/*.log"

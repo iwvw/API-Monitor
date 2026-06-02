@@ -1690,7 +1690,7 @@ class AgentService extends EventEmitter {
       : `${serverUrl}/agent`;
 
     return `#!/bin/bash
-# API Monitor Agent 自动安装/升级脚本 (Go 版)
+# API Monitor Agent 自动安装/升级脚本 (Rust 版)
 # 支持从旧版 Node.js Agent 无缝升级
 
 # 颜色定义
@@ -1952,7 +1952,7 @@ fi
       : `${serverUrl}/agent`;
 
     return `
-# API Monitor Agent Windows 自动安装/升级脚本 (Go 版)
+# API Monitor Agent Windows 自动安装/升级脚本 (Rust 版)
 # 用户级部署，无需管理员权限，登录后自动启动
 $ErrorActionPreference = "Stop"
 
@@ -1962,7 +1962,7 @@ $AGENT_KEY = "${agentKey}"
 $INSTALL_DIR = "$env:LOCALAPPDATA\\APIMonitorAgent"
 $BINARY_URL = "${binaryBaseUrl}/agent-windows-amd64.exe"
 
-Write-Host ">>> API Monitor Agent 安装/升级脚本 (Go 版)" -ForegroundColor Cyan
+Write-Host ">>> API Monitor Agent 安装/升级脚本 (Rust 版)" -ForegroundColor Cyan
 Write-Host "    用户级部署，登录后自动启动，完整继承用户环境" -ForegroundColor Gray
 
 # 1. 检测是否为升级安装
@@ -2056,7 +2056,7 @@ Write-Host "   ✓ 开机自启已注册" -ForegroundColor Green
 
 # 7. 立即以后台模式启动
 Write-Host "🚀 启动 Agent..." -ForegroundColor Yellow
-Start-Process -FilePath "$agentExe" -ArgumentList "-b" -WindowStyle Hidden
+Start-Process -FilePath "$agentExe" -WorkingDirectory $INSTALL_DIR -ArgumentList "-b" -WindowStyle Hidden
 Start-Sleep -Seconds 2
 
 # 8. 验证进程
