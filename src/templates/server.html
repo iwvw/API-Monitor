@@ -180,7 +180,7 @@
       ">
       <!-- Card Header: Fully Responsive -->
       <div class="server-card-header" @click="toggleServer(server.id)" style="
-          padding: 14px 16px;
+          padding: 10px 10px 10px 20px;
           display: flex;
           flex-wrap: wrap;
           align-items: center;
@@ -568,7 +568,7 @@
                       flex-direction: column;
                       box-sizing: border-box;
                       overflow: hidden;
-                      padding: 12px 16px;
+                      padding: 12px 12px;
                     ">
                     <h4 style="margin-bottom: 10px">
                       <i class="fas fa-microchip"></i> 硬件载荷
@@ -660,7 +660,7 @@
                       flex-direction: column;
                       box-sizing: border-box;
                       overflow: hidden;
-                      padding: 12px 16px;
+                      padding: 12px 12px;
                     ">
                     <h4 style="margin-bottom: 10px">
                       <i class="fas fa-info-circle" style="color: #a855f7"></i> 系统信息
@@ -696,7 +696,7 @@
               </div>
 
               <!-- 监控图表 -->
-              <div class="server-detail-section" style="min-width: 280px; padding: 12px 16px;">
+              <div class="server-detail-section" style="min-width: 280px; padding: 12px 12px;">
                 <div style="
                     display: flex;
                     justify-content: space-between;
@@ -778,7 +778,7 @@
                       flex-direction: column;
                       box-sizing: border-box;
                       overflow: hidden;
-                      padding: 12px 16px;
+                      padding: 12px 12px;
                     ">
                     <h4 style="margin-bottom: 10px">
                       <i class="fas fa-microchip"></i> 计算与存储
@@ -828,7 +828,7 @@
                       </div>
 
                       <!-- GPU 功耗 -->
-                      <div v-if="server.info.gpu && server.info.gpu.Power" class="server-detail-item" style="border: none; padding: 2px 0; margin-top: 0; margin-bottom: 6px">
+                      <div v-if="server.info.gpu && server.info.gpu.Power" class="server-detail-item" style="border: none; padding: 2px 0; margin-top: 0; margin-bottom: 3px">
                         <span class="server-detail-label">
                           <i class="fas fa-bolt" style="margin-right: 4px; color: #eab308"></i>
                           功耗负载
@@ -849,7 +849,7 @@
                     <!-- 磁盘存储 (底部) -->
                     <div v-if="server.info.disk && server.info.disk.length > 0"
                       style="margin-top: auto; padding-top: 8px; border-top: 1px dashed var(--border-color);">
-                      <div class="server-detail-item" style="border: none; padding: 2px 0 4px 0">
+                      <div class="server-detail-item" style="border: none; padding: 2px 0 0px 0">
                         <span class="server-detail-label">
                           <i class="fas fa-hdd" style="margin-right: 4px"></i>
                           主存储 ({{ server.info.disk[0].usage }})
@@ -874,7 +874,7 @@
                       flex-direction: column;
                       box-sizing: border-box;
                       overflow: hidden;
-                      padding: 12px 16px;
+                      padding: 12px 12px;
                     ">
                     <div style="
                         display: flex;
@@ -977,7 +977,7 @@
                       flex-direction: column;
                       box-sizing: border-box;
                       overflow: hidden;
-                      padding: 12px 16px;
+                      padding: 12px 12px;
                     ">
                     <h4 style="margin-bottom: 8px">
                       <i class="fas fa-network-wired"></i> 网络速率
@@ -1016,7 +1016,7 @@
                       <div style="flex: 1"></div>
                       <!-- 累计流量 (沉底) -->
                       <div class="server-detail-item"
-                        style="border: none; padding: 6px 0 2px 0; margin-top: auto; border-top: 1px dashed var(--border-color); padding-top: 8px;">
+                        style="border: none; padding: 6px 0 0px 0; margin-top: auto; border-top: 1px dashed var(--border-color); padding-top: 8px;">
                         <span class="server-detail-label" style="font-size: 11px; opacity: 0.7;">累计流量 (上行 / 下行)</span>
                         <span class="server-detail-value" style="font-size: 11px; opacity: 0.7;">{{
                           server.info.network.tx_total }} / {{
@@ -1051,7 +1051,7 @@
                       flex-direction: column;
                       box-sizing: border-box;
                       overflow: hidden;
-                      padding: 12px 16px;
+                      padding: 12px 12px;
                     ">
                     <div style="
                         display: flex;
