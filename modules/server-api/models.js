@@ -628,8 +628,8 @@ class ServerMetricsHistory {
                 disk_used, disk_total, disk_usage,
                 docker_installed, docker_running, docker_stopped,
                 gpu_usage, gpu_mem_used, gpu_mem_total, gpu_power,
-                platform, recorded_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                platform, net_rx, net_tx, recorded_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
 
     const now = new Date().toISOString();
@@ -652,6 +652,8 @@ class ServerMetricsHistory {
       data.gpu_mem_total || 0,
       data.gpu_power || 0,
       data.platform || '',
+      data.net_rx || 0,
+      data.net_tx || 0,
       now
     );
 
@@ -673,8 +675,8 @@ class ServerMetricsHistory {
                 disk_used, disk_total, disk_usage,
                 docker_installed, docker_running, docker_stopped,
                 gpu_usage, gpu_mem_used, gpu_mem_total, gpu_power,
-                platform, recorded_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                platform, net_rx, net_tx, recorded_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
 
     const now = new Date().toISOString();
@@ -700,6 +702,8 @@ class ServerMetricsHistory {
           data.gpu_mem_total || 0,
           data.gpu_power || 0,
           data.platform || '',
+          data.net_rx || 0,
+          data.net_tx || 0,
           now
         );
       }
@@ -843,7 +847,7 @@ class ServerMetricsHistory {
 function runMigrations() {
   const db = getDb();
 
-  // 检查 server_metrics_history 表的 GPU 列是否存在
+  // 检查 server_metrics_history 表的 GPU 列和网络列是否存在
   try {
     const tableInfo = db.prepare('PRAGMA table_info(server_metrics_history)').all();
     const columns = tableInfo.map(col => col.name);
@@ -867,6 +871,14 @@ function runMigrations() {
     if (!columns.includes('platform')) {
       db.exec('ALTER TABLE server_metrics_history ADD COLUMN platform TEXT');
       console.log('[Models] 迁移: 添加 platform 列');
+    }
+    if (!columns.includes('net_rx')) {
+      db.exec('ALTER TABLE server_metrics_history ADD COLUMN net_rx REAL DEFAULT 0');
+      console.log('[Models] 迁移: 添加 net_rx 列');
+    }
+    if (!columns.includes('net_tx')) {
+      db.exec('ALTER TABLE server_metrics_history ADD COLUMN net_tx REAL DEFAULT 0');
+      console.log('[Models] 迁移: 添加 net_tx 列');
     }
 
     // 检查 server_accounts 表的 order_index 列是否存在

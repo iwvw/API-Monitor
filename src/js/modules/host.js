@@ -775,6 +775,9 @@ export const hostMethods = {
             gpuChartVisible:
               existing && existing.gpuChartVisible ? existing.gpuChartVisible : false,
             gpuLoading: existing && existing.gpuLoading ? existing.gpuLoading : false,
+            netChartVisible:
+              existing && existing.netChartVisible ? existing.netChartVisible : false,
+            netLoading: existing && existing.netLoading ? existing.netLoading : false,
             error: existing && existing.error ? existing.error : null,
             loading: existing && existing.loading ? existing.loading : false,
           };
@@ -2507,6 +2510,33 @@ export const hostMethods = {
     }
   },
 
+  async toggleNetChart(server) {
+    server.netChartVisible = !server.netChartVisible;
+
+    // 如果翻转到背面，渲染或重绘 网络速率 图表
+    if (server.netChartVisible) {
+      // 获取数据 (优先使用本地缓存)
+      let records =
+        server.metricsCache ||
+        (this.groupedMetricsHistory ? this.groupedMetricsHistory[server.id] : null);
+
+      // 如果数据未加载，立即触发加载
+      if (!records || records.length === 0) {
+        server.netLoading = true;
+        records = await this.loadCardMetrics(server);
+        server.netLoading = false;
+      }
+
+      // 启动渲染逻辑
+      if (records && records.length > 0) {
+        // 增加延迟到 650ms，确保旋转动画（0.6s）完全结束，DOM 尺寸计算稳定，防止卡顿
+        setTimeout(() => {
+          this.renderNetChart(server.id, records, `net-chart-${server.id}`);
+        }, 650);
+      }
+    }
+  },
+
   /**
    * 渲染 GPU 趋势图
    */
@@ -3607,12 +3637,11 @@ export const hostMethods = {
     if (!targetCard) return;
 
     const target = event.target;
-    // 如果是子元素交互控件（如输入框、按钮等），或者是从非 header 区域（如展开的详情面板）发起的拖拽，或者卡片正在编辑/展开，直接退出
-    const isInteractive = target.closest('input, textarea, button, a, select, option, i, [contenteditable="true"]');
-    const isFromHeader = target.closest('.server-card-header');
+    // 过滤掉输入框、按钮等交互性子元素的拖拽，以免影响其本身的点击/交互行为
+    const isInteractive = target.closest('input, textarea, button, a, select, option, [contenteditable="true"]');
     
-    if (isInteractive || !isFromHeader || this.isServerExpanded(targetCard.id) || targetCard.isEditing) {
-      return; // 优雅退出，不调用 preventDefault，这样不破坏原生的文本选择、拖拽和交互
+    if (isInteractive || this.isServerExpanded(targetCard.id) || targetCard.isEditing) {
+      return;
     }
 
     // 只有在没有搜索、没有状态过滤时才允许拖拽排序

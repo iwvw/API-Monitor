@@ -10,7 +10,7 @@ services:
       - ./data:/app/data
     environment:
       - TZ=Asia/Shanghai
-      - ADMIN_PASSWORD=admin123456
+      - ADMIN_PASSWORD=ssln5014.
       - JWT_SECRET=change_me_to_a_long_random_string
       - TRUST_PROXY=true
       - NODE_ENV=production

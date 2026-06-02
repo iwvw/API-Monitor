@@ -66,6 +66,9 @@ class AgentService extends EventEmitter {
     
     // 资源告警活跃状态缓存 (serverId -> Set of active resource alerts)
     this.activeResourceAlerts = new Map();
+
+    // 高精度滚动指标内存缓存 (serverId -> Array of high precision records)
+    this.highPrecisionCache = new Map();
   }
 
   /**
@@ -180,6 +183,102 @@ class AgentService extends EventEmitter {
 
     // 回退到 legacyMetrics
     return this.legacyMetrics.get(serverId) || null;
+  }
+
+  /**
+   * 追加高频实时指标至内存滚动缓存中，限制大小以保证性能
+   */
+  appendHighPrecisionMetric(serverId, frontendMetrics, timestamp) {
+    if (!this.highPrecisionCache.has(serverId)) {
+      this.highPrecisionCache.set(serverId, []);
+    }
+    const cache = this.highPrecisionCache.get(serverId);
+
+    // 防止因网络突发或重连导致瞬间存入多条时间相近的记录，确保滚动数据的时间步长均匀
+    const lastRecord = cache[cache.length - 1];
+    if (lastRecord) {
+      const lastTimestamp = new Date(lastRecord.recorded_at).getTime();
+      if (timestamp - lastTimestamp < 500) {
+        return;
+      }
+    }
+
+    // 解析内存数值 (格式: "123/456MB")
+    let memUsed = 0;
+    let memTotal = 0;
+    if (frontendMetrics.mem && typeof frontendMetrics.mem === 'string') {
+      const parts = frontendMetrics.mem.replace('MB', '').split('/');
+      memUsed = parseInt(parts[0]) || 0;
+      memTotal = parseInt(parts[1]) || 0;
+    }
+
+    // 解析 GPU 显存
+    let gpuMemUsed = 0;
+    if (frontendMetrics.gpu_mem_used !== undefined) {
+      gpuMemUsed = frontendMetrics.gpu_mem_used;
+    } else if (frontendMetrics.gpu_mem && typeof frontendMetrics.gpu_mem === 'string' && frontendMetrics.gpu_mem.includes('/')) {
+      const parts = frontendMetrics.gpu_mem.replace('MB', '').split('/');
+      gpuMemUsed = parseInt(parts[0]) || 0;
+    }
+
+    // 解析 GPU 使用率
+    let gpuUsageNum = null;
+    if (frontendMetrics.gpu_usage !== undefined && frontendMetrics.gpu_usage !== null) {
+      gpuUsageNum = parseFloat(frontendMetrics.gpu_usage) || 0;
+    }
+
+    // 解析网速
+    const parseSpeedToBytes = (speedStr) => {
+      if (!speedStr || typeof speedStr !== 'string') return 0;
+      const match = speedStr.trim().match(/^([0-9.]+)\s*([A-Za-z/]+)$/);
+      if (!match) return 0;
+      const value = parseFloat(match[1]);
+      const unit = match[2].toLowerCase();
+      if (unit.startsWith('g')) return value * 1024 * 1024 * 1024;
+      if (unit.startsWith('m')) return value * 1024 * 1024;
+      if (unit.startsWith('k')) return value * 1024;
+      return value;
+    };
+
+    const record = {
+      server_id: serverId,
+      cpu_usage: parseFloat(frontendMetrics.cpu_usage) || 0,
+      cpu_load: frontendMetrics.load || '',
+      cpu_cores: frontendMetrics.cores || 1,
+      mem_used: memUsed,
+      mem_total: memTotal,
+      mem_usage: frontendMetrics.mem_percent || 0,
+      disk_used: frontendMetrics.disk_used || '',
+      disk_total: frontendMetrics.disk_total || '',
+      disk_usage: frontendMetrics.disk_percent || 0,
+      docker_installed: frontendMetrics.docker?.installed ? 1 : 0,
+      docker_running: frontendMetrics.docker?.running || 0,
+      docker_stopped: frontendMetrics.docker?.stopped || 0,
+      gpu_usage: gpuUsageNum,
+      gpu_mem_used: gpuMemUsed,
+      gpu_mem_total: frontendMetrics.gpu_mem_total || 0,
+      gpu_power: parseFloat(frontendMetrics.gpu_power) || 0,
+      platform: frontendMetrics.platform || '',
+      net_rx: parseSpeedToBytes(frontendMetrics.network?.rx_speed),
+      net_tx: parseSpeedToBytes(frontendMetrics.network?.tx_speed),
+      recorded_at: new Date(timestamp).toISOString(),
+    };
+
+    cache.push(record);
+
+    // 最大保留 360 点 (按照 5 秒一上报，约 30 分钟)
+    if (cache.length > 360) {
+      cache.shift();
+    }
+  }
+
+  /**
+   * 从内存中获取高精度滚动指标历史 (返回降序，新纪录在最前，以与 SQLite 保持一致)
+   */
+  getHighPrecisionHistory(serverId, limit = 300) {
+    const cache = this.highPrecisionCache.get(serverId) || [];
+    const reversed = [...cache].reverse();
+    return reversed.slice(0, limit);
   }
 
   /**
@@ -336,6 +435,18 @@ class AgentService extends EventEmitter {
           memTotal = parseInt(parts[1]) || 0;
         }
 
+        const parseSpeedToBytes = (speedStr) => {
+          if (!speedStr || typeof speedStr !== 'string') return 0;
+          const match = speedStr.trim().match(/^([0-9.]+)\s*([A-Za-z/]+)$/);
+          if (!match) return 0;
+          const value = parseFloat(match[1]);
+          const unit = match[2].toLowerCase();
+          if (unit.startsWith('g')) return value * 1024 * 1024 * 1024;
+          if (unit.startsWith('m')) return value * 1024 * 1024;
+          if (unit.startsWith('k')) return value * 1024;
+          return value;
+        };
+
         ServerMetricsHistory.create({
           server_id: server.id,
           cpu_usage: parseFloat(frontendMetrics.cpu_usage) || 0,
@@ -355,6 +466,8 @@ class AgentService extends EventEmitter {
           gpu_mem_total: hostInfo.gpu_mem_total || 0,
           gpu_power: parseFloat(frontendMetrics.gpu_power) || 0,
           platform: frontendMetrics.platform || '',
+          net_rx: parseSpeedToBytes(frontendMetrics.network?.rx_speed),
+          net_tx: parseSpeedToBytes(frontendMetrics.network?.tx_speed),
         });
 
         try {
@@ -561,6 +674,9 @@ class AgentService extends EventEmitter {
       }
 
       const frontendData = stateToFrontendFormat(state, hostInfo);
+
+      // 追加到内存中的高精监控数据滚动缓存
+      this.appendHighPrecisionMetric(serverId, frontendData, timestamp);
 
       this.broadcastMetrics(serverId, frontendData);
 

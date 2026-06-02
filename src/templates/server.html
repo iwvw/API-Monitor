@@ -551,7 +551,7 @@
               <!-- 硬件载荷 / 系统信息 (翻转卡片) -->
               <div class="flip-card" :class="{ 'flipped': server.sysInfoVisible }"
                 @click="server.sysInfoVisible = !server.sysInfoVisible"
-                style="height: 238px; perspective: 1000px; cursor: pointer; margin-bottom: 0" title="点击翻转查看系统信息">
+                style="height: 100%; min-height: 215px; perspective: 1000px; cursor: pointer; margin-bottom: 0" title="点击翻转查看系统信息">
                 <div class="flip-card-inner" style="
                     position: relative;
                     width: 100%;
@@ -696,12 +696,12 @@
               </div>
 
               <!-- 监控图表 -->
-              <div class="server-detail-section" style="min-width: 280px">
+              <div class="server-detail-section" style="min-width: 280px; padding: 12px 16px;">
                 <div style="
                     display: flex;
                     justify-content: space-between;
                     align-items: center;
-                    margin-bottom: 10px;
+                    margin-bottom: 8px;
                   ">
                   <h4 style="margin-bottom: 0"><i class="fas fa-chart-line"></i> 负载趋势</h4>
                   <div style="display: flex; gap: 8px">
@@ -737,7 +737,7 @@
                     </span>
                   </div>
                 </div>
-                <div style="height: 180px; position: relative; border-radius: 12px">
+                <div style="height: 160px; position: relative; border-radius: 12px">
                   <canvas :id="'metrics-chart-card-' + server.id"></canvas>
                   <!-- 无数据状态提示 -->
                   <div v-if="!server.info || server.loading" style="
@@ -761,7 +761,7 @@
               <!-- 翻转卡片：仅在有 GPU 数据时允许翻转 -->
               <div class="flip-card" :class="{ 'flipped': server.gpuChartVisible && hasGpuData(server) }"
                 @click="handleGpuCardClick(server)"
-                :style="{ height: '238px', perspective: '1000px', cursor: 'pointer', marginBottom: 0 }"
+                :style="{ height: '100%', minHeight: '215px', perspective: '1000px', cursor: 'pointer', marginBottom: 0 }"
                 :title="hasGpuData(server) ? '点击翻转查看 GPU 趋势' : '未检测到显卡'">
                 <div class="flip-card-inner" style="
                     position: relative;
@@ -880,7 +880,7 @@
                         display: flex;
                         justify-content: space-between;
                         align-items: center;
-                        margin-bottom: 10px;
+                        margin-bottom: 8px;
                       ">
                       <h4 title="点击返回" style="margin-bottom: 0; cursor: pointer;">
                         <i class="fas fa-chart-area" style="color: #76b900"></i> GPU 趋势
@@ -919,7 +919,7 @@
                         </span>
                       </div>
                     </div>
-                    <div style="height: 180px; position: relative; margin-top: 0">
+                    <div style="height: 160px; position: relative; margin-top: 0">
                       <canvas :id="'gpu-chart-' + server.id"></canvas>
                       <div v-if="server.gpuLoading" style="
                           position: absolute;
@@ -956,49 +956,154 @@
                 </div>
               </div>
 
-              <!-- 网络资源 -->
-              <div class="server-detail-section" style="display: flex; flex-direction: column;">
-                <h4><i class="fas fa-network-wired"></i> 网络速率</h4>
-                <div v-if="server.info.network" style="flex: 1; display: flex; flex-direction: column;">
-                  <div class="server-detail-item" style="border: none; padding: 10px 0 6px 0">
-                    <span class="server-detail-label">活跃连接数</span>
-                    <span class="server-detail-value" style="
-                        font-family: var(--font-mono);
-                        font-weight: 700;
-                        color: var(--paas-primary);
-                      ">{{ server.info.network.connections || 0 }}</span>
-                  </div>
-                  <div class="server-detail-item" style="border: none; padding: 8px 0">
-                    <span class="server-detail-label">
-                      <i class="fas fa-arrow-up" style="color: #3b82f6; font-size: 10px"></i>
-                      上传速度
-                    </span>
-                    <span class="server-detail-value"
-                      style="color: #3b82f6; font-weight: 700; font-family: var(--font-mono)">
-                      {{ server.info.network.tx_speed }}
-                    </span>
-                  </div>
-                  <div class="server-detail-item" style="border: none; padding: 8px 0">
-                    <span class="server-detail-label">
-                      <i class="fas fa-arrow-down" style="color: #10b981; font-size: 10px"></i>
-                      下载速度
-                    </span>
-                    <span class="server-detail-value"
-                      style="color: #10b981; font-weight: 700; font-family: var(--font-mono)">
-                      {{ server.info.network.rx_speed }}
-                    </span>
+              <!-- 网络资源 (翻转卡片) -->
+              <div class="flip-card" :class="{ 'flipped': server.netChartVisible }"
+                @click="toggleNetChart(server)"
+                :style="{ height: '100%', minHeight: '215px', perspective: '1000px', cursor: 'pointer', marginBottom: 0 }"
+                title="点击翻转查看网络速率趋势">
+                <div class="flip-card-inner" style="
+                    position: relative;
+                    width: 100%;
+                    height: 100%;
+                    transition: transform 0.6s;
+                    transform-style: preserve-3d;
+                  ">
+                  <!-- 正面: 网络速率 -->
+                  <div class="flip-card-front server-detail-section" style="
+                      position: absolute;
+                      inset: 0;
+                      backface-visibility: hidden;
+                      display: flex;
+                      flex-direction: column;
+                      box-sizing: border-box;
+                      overflow: hidden;
+                      padding: 12px 16px;
+                    ">
+                    <h4 style="margin-bottom: 8px">
+                      <i class="fas fa-network-wired"></i> 网络速率
+                      <i class="fas fa-sync-alt" style="font-size: 10px; margin-left: 6px; opacity: 0.5"></i>
+                    </h4>
+                    <div v-if="server.info && server.info.network" style="flex: 1; display: flex; flex-direction: column;">
+                      <div class="server-detail-item" style="border: none; padding: 10px 0 6px 0">
+                        <span class="server-detail-label">活跃连接数</span>
+                        <span class="server-detail-value" style="
+                            font-family: var(--font-mono);
+                            font-weight: 700;
+                            color: var(--paas-primary);
+                          ">{{ server.info.network.connections || 0 }}</span>
+                      </div>
+                      <div class="server-detail-item" style="border: none; padding: 8px 0">
+                        <span class="server-detail-label">
+                          <i class="fas fa-arrow-up" style="color: #3b82f6; font-size: 10px"></i>
+                          上传速度
+                        </span>
+                        <span class="server-detail-value"
+                          style="color: #3b82f6; font-weight: 700; font-family: var(--font-mono)">
+                          {{ server.info.network.tx_speed }}
+                        </span>
+                      </div>
+                      <div class="server-detail-item" style="border: none; padding: 8px 0">
+                        <span class="server-detail-label">
+                          <i class="fas fa-arrow-down" style="color: #10b981; font-size: 10px"></i>
+                          下载速度
+                        </span>
+                        <span class="server-detail-value"
+                          style="color: #10b981; font-weight: 700; font-family: var(--font-mono)">
+                          {{ server.info.network.rx_speed }}
+                        </span>
+                      </div>
+                      <!-- 弹性占位 -->
+                      <div style="flex: 1"></div>
+                      <!-- 累计流量 (沉底) -->
+                      <div class="server-detail-item"
+                        style="border: none; padding: 6px 0 2px 0; margin-top: auto; border-top: 1px dashed var(--border-color); padding-top: 8px;">
+                        <span class="server-detail-label" style="font-size: 11px; opacity: 0.7;">累计流量 (上行 / 下行)</span>
+                        <span class="server-detail-value" style="font-size: 11px; opacity: 0.7;">{{
+                          server.info.network.tx_total }} / {{
+                          server.info.network.rx_total }}</span>
+                      </div>
+                    </div>
+                    <!-- 无数据状态提示 -->
+                    <div v-if="!server.info || server.loading" style="
+                        position: absolute;
+                        inset: 0;
+                        display: flex;
+                        flex-direction: column;
+                        align-items: center;
+                        justify-content: center;
+                        color: var(--text-tertiary);
+                        gap: 8px;
+                        background: var(--bg-tertiary);
+                        border-radius: 12px;
+                      ">
+                      <div class="ag-spinner-elegant ag-spinner-elegant-sm"></div>
+                      <span style="font-size: 10px; opacity: 0.6; letter-spacing: 1px">LOADING METRICS</span>
+                    </div>
                   </div>
 
-                  <!-- 弹性占位 -->
-                  <div style="flex: 1"></div>
-
-                  <!-- 累计流量 (沉底) -->
-                  <div class="server-detail-item"
-                    style="border: none; padding: 6px 0 2px 0; margin-top: auto; border-top: 1px dashed var(--border-color); padding-top: 8px;">
-                    <span class="server-detail-label" style="font-size: 11px; opacity: 0.7;">累计流量 (上行 / 下行)</span>
-                    <span class="server-detail-value" style="font-size: 11px; opacity: 0.7;">{{
-                      server.info.network.tx_total }} / {{
-                      server.info.network.rx_total }}</span>
+                  <!-- 背面: 网络速率趋势 -->
+                  <div class="flip-card-back server-detail-section" style="
+                      position: absolute;
+                      inset: 0;
+                      backface-visibility: hidden;
+                      transform: rotateX(180deg);
+                      display: flex;
+                      flex-direction: column;
+                      box-sizing: border-box;
+                      overflow: hidden;
+                      padding: 12px 16px;
+                    ">
+                    <div style="
+                        display: flex;
+                        justify-content: space-between;
+                        align-items: center;
+                        margin-bottom: 8px;
+                      ">
+                      <h4 title="点击返回" style="margin-bottom: 0; cursor: pointer;">
+                        <i class="fas fa-network-wired" style="color: var(--paas-primary)"></i> 网络趋势
+                        <i class="fas fa-undo" style="font-size: 10px; margin-left: 6px; opacity: 0.5"></i>
+                      </h4>
+                      <div style="display: flex; gap: 8px">
+                        <span style="
+                            font-size: 10px;
+                            color: #3b82f6;
+                            display: flex;
+                            align-items: center;
+                            gap: 4px;
+                          ">
+                          <span style="width: 6px; height: 6px; border-radius: 50%; background: #3b82f6"></span>
+                          上传
+                        </span>
+                        <span style="
+                            font-size: 10px;
+                            color: #10b981;
+                            display: flex;
+                            align-items: center;
+                            gap: 4px;
+                          ">
+                          <span style="width: 6px; height: 6px; border-radius: 50%; background: #10b981"></span>
+                          下载
+                        </span>
+                      </div>
+                    </div>
+                    <div style="height: 160px; position: relative; margin-top: 0">
+                      <canvas :id="'net-chart-' + server.id"></canvas>
+                      <div v-if="server.netLoading" style="
+                          position: absolute;
+                          inset: 0;
+                          display: flex;
+                          flex-direction: column;
+                          align-items: center;
+                          justify-content: center;
+                          color: var(--text-tertiary);
+                          gap: 8px;
+                          background: var(--bg-tertiary);
+                          border-radius: 8px;
+                        ">
+                        <div class="ag-spinner-elegant ag-spinner-elegant-sm"></div>
+                        <span style="font-size: 10px; opacity: 0.6">LOADING NETWORK METRICS</span>
+                      </div>
+                    </div>
                   </div>
                 </div>
               </div>

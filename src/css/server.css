@@ -3506,7 +3506,7 @@
 
 .skeleton-chart {
   width: 100%;
-  height: 180px;
+  height: 160px;
   border-radius: var(--radius-lg);
   background: linear-gradient(90deg,
       var(--bg-tertiary) 25%,

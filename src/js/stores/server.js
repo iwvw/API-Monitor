@@ -71,6 +71,8 @@ export const useServerStore = defineStore('server', {
                             metricsCache: existing && existing.metricsCache ? existing.metricsCache : null,
                             gpuChartVisible: existing && existing.gpuChartVisible ? existing.gpuChartVisible : false,
                             gpuLoading: existing && existing.gpuLoading ? existing.gpuLoading : false,
+                            netChartVisible: existing && existing.netChartVisible ? existing.netChartVisible : false,
+                            netLoading: existing && existing.netLoading ? existing.netLoading : false,
                             error: existing && existing.error ? existing.error : null,
                             loading: existing && existing.loading ? existing.loading : false,
                         };

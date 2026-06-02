@@ -113,6 +113,8 @@ CREATE TABLE IF NOT EXISTS server_metrics_history (
     gpu_mem_total INTEGER DEFAULT 0,             -- GPU 显存总量 (MB)
     gpu_power REAL DEFAULT 0,                    -- GPU 功耗 (W)
     platform TEXT,                               -- 平台信息
+    net_rx REAL DEFAULT 0,                       -- 下载速度 (Bytes/s)
+    net_tx REAL DEFAULT 0,                       -- 上传速度 (Bytes/s)
     recorded_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (server_id) REFERENCES server_accounts(id) ON DELETE CASCADE
 );

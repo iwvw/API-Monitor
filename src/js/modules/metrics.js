@@ -217,6 +217,14 @@ export const metricsMethods = {
     const server = this.serverList.find(s => s.id === data.serverId);
     if (!server) return;
 
+    // 全局防抖节流：限制单台主机所有指标（包括卡片头部文字、进度条及折线图）的刷新间隔不低于 500ms，确保整体匀速刷新
+    const now = data.timestamp || Date.now();
+    const lastUpdate = server.lastMetricUpdateTime || 0;
+    if (lastUpdate > 0 && (now - lastUpdate) < 500) {
+      return;
+    }
+    server.lastMetricUpdateTime = now;
+
     try {
       const metrics = data.metrics;
 
@@ -391,7 +399,7 @@ export const metricsMethods = {
 
       // 实时追加数据至缓存并静默重绘图表，解决实时数据更新时历史图表不随之走动的问题
       if (server.metricsCache) {
-        let cpuUsageNum = parseFloat(metrics.cpu_usage || '0');
+        const cpuUsageNum = parseFloat(metrics.cpu_usage || '0');
         
         let memPercent = 0;
         const memStr = metrics.mem_usage || metrics.mem || '';
@@ -422,6 +430,18 @@ export const metricsMethods = {
           gpuPowerNum = parseFloat(metrics.gpu_power) || 0;
         }
 
+        const parseSpeedToBytes = (speedStr) => {
+          if (!speedStr || typeof speedStr !== 'string') return 0;
+          const match = speedStr.trim().match(/^([0-9.]+)\s*([A-Za-z/]+)$/);
+          if (!match) return 0;
+          const value = parseFloat(match[1]);
+          const unit = match[2].toLowerCase();
+          if (unit.startsWith('g')) return value * 1024 * 1024 * 1024;
+          if (unit.startsWith('m')) return value * 1024 * 1024;
+          if (unit.startsWith('k')) return value * 1024;
+          return value;
+        };
+
         const newRecord = {
           recorded_at: data.timestamp || new Date().toISOString(),
           cpu_usage: cpuUsageNum,
@@ -429,7 +449,9 @@ export const metricsMethods = {
           gpu_usage: gpuUsageNum,
           gpu_mem_used: gpuPercent,
           gpu_mem_total: 100,
-          gpu_power: gpuPowerNum
+          gpu_power: gpuPowerNum,
+          net_rx: parseSpeedToBytes(metrics.network?.rx_speed),
+          net_tx: parseSpeedToBytes(metrics.network?.tx_speed)
         };
 
         // 将新指标记录追加至缓存，并防止缓存过度膨胀 (最大限制 300 点)
@@ -443,6 +465,9 @@ export const metricsMethods = {
           this.renderSingleChart(server.id, server.metricsCache, `metrics-chart-card-${server.id}`);
           if (server.gpuChartVisible && gpuUsageNum !== null) {
             this.renderGpuChart(server.id, server.metricsCache, `gpu-chart-${server.id}`);
+          }
+          if (server.netChartVisible) {
+            this.renderNetChart(server.id, server.metricsCache, `net-chart-${server.id}`);
           }
         }
       }
@@ -870,6 +895,8 @@ export const metricsMethods = {
       this.renderSingleChart(serverId, records, `metrics-chart-card-${serverId}`);
       // 卡片背面 GPU 图表 (仅当已翻转或即将渲染时)
       this.renderGpuChart(serverId, records, `gpu-chart-${serverId}`);
+      // 卡片背面 网络趋势图表
+      this.renderNetChart(serverId, records, `net-chart-${serverId}`);
     });
   },
 
@@ -923,10 +950,26 @@ export const metricsMethods = {
     }
 
     // 准备数据
-    const labels = sortedRecords.map(r => {
-      const d = new Date(r.recorded_at);
-      return d.getHours() + ':' + String(d.getMinutes()).padStart(2, '0');
-    });
+    const isHighPrecision = canvasId.includes('card') || canvasId.includes('gpu');
+    let labels;
+
+    if (isHighPrecision) {
+      const total = sortedRecords.length;
+      labels = sortedRecords.map((_, i) => {
+        if (i === total - 1) return '0s';
+        const sec = Math.round((total - 1 - i) * 1.5);
+        if (sec >= 60 && sec % 60 === 0) {
+          return `-${sec / 60}m`;
+        }
+        return `-${sec}s`;
+      });
+    } else {
+      labels = sortedRecords.map(r => {
+        const d = new Date(r.recorded_at);
+        return d.getHours() + ':' + String(d.getMinutes()).padStart(2, '0');
+      });
+    }
+
     const cpuData = sortedRecords.map(r => r.cpu_usage || 0);
     const memData = sortedRecords.map(r => r.mem_usage || 0);
     const gpuData = sortedRecords.map(r => r.gpu_usage || 0);
@@ -940,14 +983,20 @@ export const metricsMethods = {
       existingChart.data.labels = labels;
       existingChart.data.datasets[0].data = cpuData;
       existingChart.data.datasets[1].data = memData;
-      if (hasGpuData && existingChart.data.datasets[2]) {
-        existingChart.data.datasets[2].data = gpuData;
-      } else if (hasGpuData && !existingChart.data.datasets[2]) {
-        // 如果之前没 GPU 现在有了，则还是需要重新创建或者 push 进去
-        existingChart.destroy();
+      
+      if (hasGpuData) {
+        if (existingChart.data.datasets[2]) {
+          existingChart.data.datasets[2].data = gpuData;
+          existingChart.update('none');
+          return;
+        } else {
+          existingChart.destroy();
+        }
       } else {
-        // 正常更新
-        existingChart.update('none'); // 使用 'none' 模式禁用更新动画，防止抖动
+        existingChart.update('none');
+        return;
+      }
+      if (existingChart && !existingChart.destroyed) {
         return;
       }
     }
@@ -1011,7 +1060,15 @@ export const metricsMethods = {
         options: {
           responsive: true,
           maintainAspectRatio: false,
-          animation: { duration: 0 }, // 禁用初始化动画，防止翻转时抽搐
+          animation: { duration: 0 },
+          layout: {
+            padding: {
+              left: 0,
+              right: 2,
+              top: 4,
+              bottom: 0
+            }
+          },
           plugins: {
             legend: { display: false },
             tooltip: {
@@ -1023,22 +1080,41 @@ export const metricsMethods = {
               bodyColor: '#e6edf3',
               borderColor: 'rgba(255, 255, 255, 0.1)',
               borderWidth: 1,
+              callbacks: {
+                title: function(context) {
+                  if (context && context.length > 0) {
+                    const index = context[0].dataIndex;
+                    const record = sortedRecords[index];
+                    if (record) {
+                      const d = new Date(record.recorded_at);
+                      return String(d.getHours()).padStart(2, '0') + ':' +
+                             String(d.getMinutes()).padStart(2, '0') + ':' +
+                             String(d.getSeconds()).padStart(2, '0');
+                    }
+                  }
+                  return '';
+                }
+              }
             },
           },
           scales: {
             x: {
+              type: 'category',
               display: true,
               grid: {
                 display: true,
                 color: 'rgba(255, 255, 255, 0.06)',
                 drawBorder: false,
+                drawTicks: false,
               },
               ticks: {
-                maxRotation: 0,
+                minRotation: isHighPrecision ? 45 : 0,
+                maxRotation: isHighPrecision ? 45 : 0,
                 autoSkip: true,
                 maxTicksLimit: 6,
-                font: { size: 10 },
+                font: { size: isHighPrecision ? 8 : 10 },
                 color: '#6e7681',
+                padding: 2,
               },
             },
             y: {
@@ -1049,11 +1125,13 @@ export const metricsMethods = {
                 display: true,
                 color: 'rgba(255, 255, 255, 0.06)',
                 drawBorder: false,
+                drawTicks: false,
               },
               ticks: {
-                font: { size: 10 },
+                font: { size: isHighPrecision ? 8 : 10 },
                 color: '#6e7681',
                 stepSize: 25,
+                padding: 2,
               },
             },
           },
@@ -1084,6 +1162,20 @@ export const metricsMethods = {
 
     if (!serverId) return [];
 
+    // 优化：如果本地已有指标缓存且 Socket.IO 处于连接状态，直接重绘现有数据，避免重复请求破坏滚动平滑度
+    if (server && server.metricsCache && server.metricsCache.length > 0) {
+      this.$nextTick(() => {
+        this.renderSingleChart(serverId, server.metricsCache, `metrics-chart-card-${serverId}`);
+        if (server.gpuChartVisible) {
+          this.renderGpuChart(serverId, server.metricsCache, `gpu-chart-${serverId}`);
+        }
+        if (server.netChartVisible) {
+          this.renderNetChart(serverId, server.metricsCache, `net-chart-${serverId}`);
+        }
+      });
+      return server.metricsCache;
+    }
+
     try {
       // 计算时间范围
       let startTime = null;
@@ -1111,6 +1203,7 @@ export const metricsMethods = {
         serverId: serverId,
         page: 1,
         pageSize: 300,
+        highPrecision: 'true', // 指示后端优先返回内存高精滚动数据
       });
 
       if (startTime) {
@@ -1125,14 +1218,23 @@ export const metricsMethods = {
       if (data.success && data.data) {
         const records = data.data;
 
-        // 缓存数据到主机对象中
+        // 缓存数据到主机对象中 (正序保存，以确保后续以 push/shift 的方式平滑滚动)
         if (server) {
-          server.metricsCache = records;
+          server.metricsCache = [...records].sort(
+            (a, b) => new Date(a.recorded_at) - new Date(b.recorded_at)
+          );
         }
 
         // 更新正面图表
         this.$nextTick(() => {
-          this.renderSingleChart(serverId, records, `metrics-chart-card-${serverId}`);
+          const cached = server ? server.metricsCache : records;
+          this.renderSingleChart(serverId, cached, `metrics-chart-card-${serverId}`);
+          if (server && server.gpuChartVisible) {
+            this.renderGpuChart(serverId, cached, `gpu-chart-${serverId}`);
+          }
+          if (server && server.netChartVisible) {
+            this.renderNetChart(serverId, cached, `net-chart-${serverId}`);
+          }
         });
 
         return records;
@@ -1296,10 +1398,25 @@ export const metricsMethods = {
       sortedRecords = sortedRecords.slice(-MAX_POINTS);
     }
 
-    const labels = sortedRecords.map(r => {
-      const d = new Date(r.recorded_at);
-      return d.getHours() + ':' + String(d.getMinutes()).padStart(2, '0');
-    });
+    const isHighPrecision = canvasId.includes('card') || canvasId.includes('gpu');
+    let labels;
+
+    if (isHighPrecision) {
+      const total = sortedRecords.length;
+      labels = sortedRecords.map((_, i) => {
+        if (i === total - 1) return '0s';
+        const sec = Math.round((total - 1 - i) * 1.5);
+        if (sec >= 60 && sec % 60 === 0) {
+          return `-${sec / 60}m`;
+        }
+        return `-${sec}s`;
+      });
+    } else {
+      labels = sortedRecords.map(r => {
+        const d = new Date(r.recorded_at);
+        return d.getHours() + ':' + String(d.getMinutes()).padStart(2, '0');
+      });
+    }
 
     // 映射数据 (处理单位: gpu_mem_used 现在在数据库也是 Byte)
     const gpuUsageData = sortedRecords.map(r => r.gpu_usage || 0);
@@ -1322,7 +1439,7 @@ export const metricsMethods = {
     new Chart(canvas, {
       type: 'line',
       data: {
-        labels,
+        labels: labels,
         datasets: [
           {
             label: 'GPU (%)',
@@ -1361,6 +1478,15 @@ export const metricsMethods = {
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        animation: { duration: 0 },
+        layout: {
+          padding: {
+            left: 0,
+            right: 0,
+            top: 4,
+            bottom: 0
+          }
+        },
         plugins: {
           legend: {
             display: false,
@@ -1370,6 +1496,19 @@ export const metricsMethods = {
             intersect: false,
             backgroundColor: 'rgba(13, 17, 23, 0.9)',
             callbacks: {
+              title: function(context) {
+                if (context && context.length > 0) {
+                  const index = context[0].dataIndex;
+                  const record = sortedRecords[index];
+                  if (record) {
+                    const d = new Date(record.recorded_at);
+                    return String(d.getHours()).padStart(2, '0') + ':' +
+                           String(d.getMinutes()).padStart(2, '0') + ':' +
+                           String(d.getSeconds()).padStart(2, '0');
+                  }
+                }
+                return '';
+              },
               label: ctx => {
                 const val = ctx.parsed.y.toFixed(1);
                 const label = ctx.dataset.label;
@@ -1381,9 +1520,20 @@ export const metricsMethods = {
         },
         scales: {
           x: {
+            type: 'category',
             display: true,
-            grid: { display: false },
-            ticks: { font: { size: 9 }, color: '#666', maxTicksLimit: 6 },
+            grid: {
+              display: false,
+              drawTicks: false,
+            },
+            ticks: {
+              minRotation: isHighPrecision ? 45 : 0,
+              maxRotation: isHighPrecision ? 45 : 0,
+              font: { size: isHighPrecision ? 8 : 9 },
+              color: '#6e7681',
+              maxTicksLimit: 6,
+              padding: 2,
+            },
           },
           y: {
             type: 'linear',
@@ -1391,17 +1541,232 @@ export const metricsMethods = {
             position: 'left',
             min: 0,
             max: 100,
-            grid: { color: 'rgba(255, 255, 255, 0.05)' },
-            ticks: { font: { size: 9 }, color: '#666', callback: v => v + '%' },
+            grid: {
+              color: 'rgba(255, 255, 255, 0.05)',
+              drawTicks: false,
+            },
+            ticks: {
+              font: { size: isHighPrecision ? 8 : 9 },
+              color: '#6e7681',
+              callback: v => v + '%',
+              padding: 2,
+            },
           },
           y1: {
             type: 'linear',
             display: true,
             position: 'right',
             min: 0,
-            grid: { drawOnChartArea: false },
-            ticks: { font: { size: 9 }, color: '#ff9800', callback: v => v + 'W' },
+            grid: {
+              drawOnChartArea: false,
+              drawTicks: false,
+            },
+            ticks: {
+              font: { size: isHighPrecision ? 8 : 9 },
+              color: '#ff9800',
+              callback: v => v + 'W',
+              padding: 2,
+            },
           },
+        },
+      },
+    });
+  },
+
+  async renderNetChart(serverId, records, canvasId, retryCount = 0) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) {
+      if (retryCount < 10) {
+        setTimeout(() => this.renderNetChart(serverId, records, canvasId, retryCount + 1), 200);
+      }
+      return;
+    }
+
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) {
+      if (retryCount < 15) {
+        setTimeout(() => this.renderNetChart(serverId, records, canvasId, retryCount + 1), 200);
+        return;
+      }
+      return;
+    }
+
+    // 正序
+    let sortedRecords = [...records].sort(
+      (a, b) => new Date(a.recorded_at) - new Date(b.recorded_at)
+    );
+
+    const MAX_POINTS = 60;
+    if (sortedRecords.length > MAX_POINTS) {
+      sortedRecords = sortedRecords.slice(-MAX_POINTS);
+    }
+
+    const isHighPrecision = canvasId.includes('card') || canvasId.includes('net');
+    let labels;
+
+    if (isHighPrecision) {
+      const total = sortedRecords.length;
+      labels = sortedRecords.map((_, i) => {
+        if (i === total - 1) return '0s';
+        const sec = Math.round((total - 1 - i) * 1.5);
+        if (sec >= 60 && sec % 60 === 0) {
+          return `-${sec / 60}m`;
+        }
+        return `-${sec}s`;
+      });
+    } else {
+      labels = sortedRecords.map(r => {
+        const d = new Date(r.recorded_at);
+        return d.getHours() + ':' + String(d.getMinutes()).padStart(2, '0');
+      });
+    }
+
+    const rxData = sortedRecords.map(r => r.net_rx || 0);
+    const txData = sortedRecords.map(r => r.net_tx || 0);
+
+    const existingChart = Chart.getChart(canvas);
+    if (existingChart) {
+      existingChart.data.labels = labels;
+      existingChart.data.datasets[0].data = txData;
+      existingChart.data.datasets[1].data = rxData;
+      existingChart.update('none');
+      return;
+    }
+
+    new Chart(canvas, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [
+          {
+            label: '上传速度',
+            data: txData,
+            borderColor: '#3b82f6',
+            backgroundColor: 'rgba(59, 130, 246, 0.05)',
+            borderWidth: 2,
+            fill: true,
+            tension: 0.3,
+            pointRadius: 0,
+            pointHoverRadius: 4,
+            spanGaps: true,
+          },
+          {
+            label: '下载速度',
+            data: rxData,
+            borderColor: '#10b981',
+            backgroundColor: 'rgba(16, 185, 129, 0.05)',
+            borderWidth: 2,
+            fill: true,
+            tension: 0.3,
+            pointRadius: 0,
+            pointHoverRadius: 4,
+            spanGaps: true,
+          },
+        ],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        animation: { duration: 0 },
+        layout: {
+          padding: {
+            left: 0,
+            right: 2,
+            top: 4,
+            bottom: 0
+          }
+        },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            mode: 'index',
+            intersect: false,
+            padding: 10,
+            backgroundColor: 'rgba(13, 17, 23, 0.9)',
+            titleColor: '#8b949e',
+            bodyColor: '#e6edf3',
+            borderColor: 'rgba(255, 255, 255, 0.1)',
+            borderWidth: 1,
+            callbacks: {
+              title: function(context) {
+                if (context && context.length > 0) {
+                  const index = context[0].dataIndex;
+                  const record = sortedRecords[index];
+                  if (record) {
+                    const d = new Date(record.recorded_at);
+                    return String(d.getHours()).padStart(2, '0') + ':' +
+                           String(d.getMinutes()).padStart(2, '0') + ':' +
+                           String(d.getSeconds()).padStart(2, '0');
+                  }
+                }
+                return '';
+              },
+              label: function(context) {
+                const label = context.dataset.label || '';
+                const value = context.parsed.y || 0;
+                
+                const formatSpeed = (bytes) => {
+                  if (bytes === 0) return '0 B/s';
+                  const k = 1024;
+                  const sizes = ['B/s', 'KB/s', 'MB/s', 'GB/s'];
+                  const i = Math.floor(Math.log(bytes) / Math.log(k));
+                  const val = bytes / Math.pow(k, i);
+                  return val.toFixed(2) + ' ' + sizes[i];
+                };
+                
+                return `${label}: ${formatSpeed(value)}`;
+              }
+            }
+          },
+        },
+        scales: {
+          x: {
+            type: 'category',
+            display: true,
+            grid: {
+              display: true,
+              color: 'rgba(255, 255, 255, 0.06)',
+              drawBorder: false,
+              drawTicks: false,
+            },
+            ticks: {
+              minRotation: isHighPrecision ? 45 : 0,
+              maxRotation: isHighPrecision ? 45 : 0,
+              autoSkip: true,
+              maxTicksLimit: 6,
+              font: { size: isHighPrecision ? 8 : 10 },
+              color: '#6e7681',
+              padding: 2,
+            },
+          },
+          y: {
+            display: true,
+            min: 0,
+            grid: {
+              display: true,
+              color: 'rgba(255, 255, 255, 0.06)',
+              drawBorder: false,
+              drawTicks: false,
+            },
+            ticks: {
+              font: { size: isHighPrecision ? 8 : 10 },
+              color: '#6e7681',
+              padding: 2,
+              callback: function(value) {
+                if (value === 0) return '0 B/s';
+                const k = 1024;
+                const sizes = ['B/s', 'KB/s', 'MB/s', 'GB/s'];
+                const i = Math.floor(Math.log(value) / Math.log(k));
+                const val = value / Math.pow(k, i);
+                return Math.round(val) + sizes[i];
+              }
+            },
+          },
+        },
+        interaction: {
+          mode: 'nearest',
+          axis: 'x',
+          intersect: false,
         },
       },
     });

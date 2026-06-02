@@ -1783,28 +1783,52 @@ router.put('/monitor/config', (req, res) => {
  */
 router.get('/metrics/history', (req, res) => {
   try {
-    const { serverId, startTime, endTime, page = 1, pageSize = 500, maxPointsPerServer = 100 } = req.query;
+    const { serverId, startTime, endTime, page = 1, pageSize = 500, maxPointsPerServer = 100, highPrecision } = req.query;
 
     const limit = Math.min(parseInt(pageSize) || 500, 10000);
     const offset = ((parseInt(page) || 1) - 1) * limit;
     const maxPoints = Math.min(parseInt(maxPointsPerServer) || 100, 200);
 
-    let records = ServerMetricsHistory.getHistory({
-      serverId: serverId || null,
-      startTime: startTime || null,
-      endTime: endTime || null,
-      limit,
-      offset,
-    });
+    let records;
+    let total;
 
-    const total = ServerMetricsHistory.getCount({
-      serverId: serverId || null,
-      startTime: startTime || null,
-      endTime: endTime || null,
-    });
+    // 如果指定了 highPrecision 且 serverId，优先从内存获取高精历史记录
+    if (highPrecision === 'true' && serverId) {
+      records = agentService.getHighPrecisionHistory(serverId, limit);
+      // 如果内存缓存为空，则降级从数据库查询
+      if (records.length === 0) {
+        records = ServerMetricsHistory.getHistory({
+          serverId: serverId || null,
+          startTime: startTime || null,
+          endTime: endTime || null,
+          limit,
+          offset,
+        });
+        total = ServerMetricsHistory.getCount({
+          serverId: serverId || null,
+          startTime: startTime || null,
+          endTime: endTime || null,
+        });
+      } else {
+        total = records.length;
+      }
+    } else {
+      records = ServerMetricsHistory.getHistory({
+        serverId: serverId || null,
+        startTime: startTime || null,
+        endTime: endTime || null,
+        limit,
+        offset,
+      });
+      total = ServerMetricsHistory.getCount({
+        serverId: serverId || null,
+        startTime: startTime || null,
+        endTime: endTime || null,
+      });
+    }
 
-    // 后端降采样：按主机分组，每个主机最多保留 maxPoints 个数据点
-    if (records.length > 0) {
+    // 后端降采样：按主机分组，每个主机最多保留 maxPoints 个数据点 (非高精度请求时执行)
+    if (highPrecision !== 'true' && records.length > 0) {
       const groupedByServer = {};
 
       // 按主机分组
@@ -1890,6 +1914,18 @@ router.post('/metrics/collect', async (req, res) => {
     for (const server of servers) {
       const metrics = agentService.getMetrics(server.id);
       if (metrics) {
+        const parseSpeedToBytes = (speedStr) => {
+          if (!speedStr || typeof speedStr !== 'string') return 0;
+          const match = speedStr.trim().match(/^([0-9.]+)\s*([A-Za-z/]+)$/);
+          if (!match) return 0;
+          const value = parseFloat(match[1]);
+          const unit = match[2].toLowerCase();
+          if (unit.startsWith('g')) return value * 1024 * 1024 * 1024;
+          if (unit.startsWith('m')) return value * 1024 * 1024;
+          if (unit.startsWith('k')) return value * 1024;
+          return value;
+        };
+
         // 保存到历史记录
         ServerMetricsHistory.create({
           server_id: server.id,
@@ -1910,6 +1946,8 @@ router.post('/metrics/collect', async (req, res) => {
           gpu_mem_total: metrics.gpu_mem_total || 0,
           gpu_power: parseFloat(metrics.gpu_power) || 0,
           platform: metrics.platform || '',
+          net_rx: parseSpeedToBytes(metrics.network?.rx_speed),
+          net_tx: parseSpeedToBytes(metrics.network?.tx_speed),
         });
         collected.push(server.id);
       }
