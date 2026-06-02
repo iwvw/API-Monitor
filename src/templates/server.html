@@ -852,11 +852,59 @@
                           server.info.gpu.Power }}</span>
                       </div>
                     </div>
-                    <div v-else class="server-detail-item" style="border: none; opacity: 0.5; padding: 8px 0;">
-                      <span class="server-detail-label"><i class="fas fa-gamepad" style="margin-right: 4px"></i>
-                        GPU</span>
-                      <span class="server-detail-value"
-                        style="font-size: 11px; color: var(--text-tertiary);">未检测到显卡</span>
+                    <div v-else style="width: 100%">
+                      <div class="server-detail-item" style="border: none; padding: 2px 0;">
+                        <span class="server-detail-label">
+                          <i class="fas fa-gamepad" style="margin-right: 4px; opacity: 0.5"></i>
+                          GPU
+                        </span>
+                        <span class="server-detail-value" style="font-size: 11px; color: var(--text-tertiary);">未检测到显卡 (CPU主机)</span>
+                      </div>
+
+                      <div class="server-detail-item" style="border: none; padding: 2px 0; margin-top: 4px;">
+                        <span class="server-detail-label">
+                          <i class="fas fa-microchip" style="margin-right: 4px; color: #10b981"></i>
+                          处理器
+                        </span>
+                        <span class="server-detail-value" style="font-size: 11px; max-width: 155px; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;" :title="server.info.cpu && server.info.cpu.Model ? server.info.cpu.Model : ''">
+                          {{ server.info.cpu && server.info.cpu.Model ? server.info.cpu.Model : '-' }}
+                        </span>
+                      </div>
+
+                      <div class="server-detail-item" style="border: none; padding: 2px 0; margin-top: 4px;">
+                        <span class="server-detail-label">
+                          <i :class="getOSIcon(server.info.platform || (server.info.system && server.info.system.OS) || 'linux')" :style="{ color: getOSColor(server.info.platform || (server.info.system && server.info.system.OS) || 'linux') }" style="margin-right: 4px;"></i>
+                          操作系统
+                        </span>
+                        <span class="server-detail-value" style="font-size: 11px; max-width: 155px; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;" :title="server.info.platformVersion || (server.info.system && server.info.system.Kernel) || server.info.platform || ''">
+                          {{ server.info.platformVersion || (server.info.system && server.info.system.Kernel) || server.info.platform || '-' }}
+                        </span>
+                      </div>
+
+                      <!-- 存在多磁盘时，在此展示第二块磁盘 -->
+                      <div v-if="server.info.disk && server.info.disk.length > 1" style="margin-top: 6px; padding-top: 6px; border-top: 1px dashed var(--border-color);">
+                        <div class="server-detail-item" style="border: none; padding: 0px 0">
+                          <span class="server-detail-label">
+                            <i class="fas fa-hdd" style="margin-right: 4px; opacity: 0.8"></i>
+                            二级存储 ({{ server.info.disk[1].usage }})
+                          </span>
+                          <span class="server-detail-value" style="font-size: 11px; opacity: 0.8">{{ server.info.disk[1].used }} / {{ server.info.disk[1].total }}</span>
+                        </div>
+                        <div class="progress-bar" style="margin-top: 4px; margin-bottom: 0">
+                          <div class="progress-bar-fill" :class="getDiskClass(server.info.disk[1].usage)" :style="{ width: server.info.disk[1].usage }"></div>
+                        </div>
+                      </div>
+                      
+                      <!-- 只有一块磁盘时，展示系统负载，保持内容紧凑 -->
+                      <div v-else class="server-detail-item" style="border: none; padding: 2px 0; margin-top: 4px;">
+                        <span class="server-detail-label">
+                          <i class="fas fa-tasks" style="margin-right: 4px; color: #a855f7"></i>
+                          系统负载
+                        </span>
+                        <span class="server-detail-value" style="font-size: 11px; font-family: var(--font-mono);">
+                          {{ server.info.cpu && server.info.cpu.Load ? server.info.cpu.Load : '-' }}
+                        </span>
+                      </div>
                     </div>
 
                     <!-- 弹性占位 -->
