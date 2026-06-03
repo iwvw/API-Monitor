@@ -1,0 +1,27 @@
+name: Get Fail Logs
+on:
+  push:
+    branches: [main]
+
+jobs:
+  get-logs:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch Job Logs and Write to Summary
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "## 🔍 GitHub Action 错误日志提取 (Run 26870041400)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          JOBS=$(curl -s -H "Authorization: Bearer $GH_TOKEN" https://api.github.com/repos/iwvw/API-Monitor/actions/runs/26870041400/jobs)
+          FAILED_JOBS_IDS=$(echo "$JOBS" | jq -r '.jobs[] | select(.conclusion=="failure") | .id')
+          
+          for JOB_ID in $FAILED_JOBS_IDS; do
+            JOB_NAME=$(echo "$JOBS" | jq -r ".jobs[] | select(.id==$JOB_ID) | .name")
+            echo "### ❌ Job: $JOB_NAME" >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`text" >> $GITHUB_STEP_SUMMARY
+            curl -s -L -H "Authorization: Bearer $GH_TOKEN" https://api.github.com/repos/iwvw/API-Monitor/actions/jobs/$JOB_ID/logs | tail -n 80 >> $GITHUB_STEP_SUMMARY
+            echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+            echo "" >> $GITHUB_STEP_SUMMARY
+          done
