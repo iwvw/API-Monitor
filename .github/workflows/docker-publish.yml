@@ -67,6 +67,27 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Download prebuilt agent binaries
+        shell: bash
+        run: |
+          VERSION=$(grep '^version' agent-rust/Cargo.toml | head -n1 | cut -d'"' -f2)
+          echo "Downloading agent binaries for version v$VERSION..."
+          mkdir -p agent-rust
+          
+          curl -fsSL -o agent-rust/agent-linux-amd64 "https://github.com/iwvw/API-Monitor/releases/download/v${VERSION}/agent-linux-amd64" || \
+          curl -fsSL -o agent-rust/agent-linux-amd64 "https://github.com/iwvw/API-Monitor/releases/latest/download/agent-linux-amd64" || \
+          echo "Failed to download agent-linux-amd64"
+          
+          curl -fsSL -o agent-rust/agent-linux-arm64 "https://github.com/iwvw/API-Monitor/releases/download/v${VERSION}/agent-linux-arm64" || \
+          curl -fsSL -o agent-rust/agent-linux-arm64 "https://github.com/iwvw/API-Monitor/releases/latest/download/agent-linux-arm64" || \
+          echo "Failed to download agent-linux-arm64"
+          
+          curl -fsSL -o agent-rust/agent-windows-amd64.exe "https://github.com/iwvw/API-Monitor/releases/download/v${VERSION}/agent-windows-amd64.exe" || \
+          curl -fsSL -o agent-rust/agent-windows-amd64.exe "https://github.com/iwvw/API-Monitor/releases/latest/download/agent-windows-amd64.exe" || \
+          echo "Failed to download agent-windows-amd64.exe"
+          
+          ls -lh agent-rust/
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
