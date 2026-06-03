@@ -1,6 +1,6 @@
 {
   "name": "api-monitor",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Multi-api monitoring dashboard",
   "main": "server.js",
   "scripts": {

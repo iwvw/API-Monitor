@@ -1,6 +1,6 @@
 [package]
 name = "api-monitor-agent"
-version = "0.1.2"
+version = "0.1.6"
 edition = "2021"
 
 [dependencies]
