@@ -65,7 +65,7 @@ jobs:
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
           target: ${{ matrix.target }}
-          cache: true
+          cache: false
           cache-workspaces: agent-rust
 
       - name: Install musl-tools (Linux amd64)
