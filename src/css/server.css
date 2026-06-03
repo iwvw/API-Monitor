@@ -3955,7 +3955,6 @@
   gap: var(--space-sm);
 }
 
-/* д (С - ھ//洢) */
 .col-actions-sm {
   flex: 0 0 80px !important;
   /*稍微宽一点以容纳间距*/
@@ -3963,11 +3962,6 @@
   justify-content: flex-end;
   display: flex !important;
   gap: 6px;
-}
-
-/* 特殊列处理：无操作列或自定义 (用于监控等) */
-.col-actions-none {
-  /* 保持 flex 自动 */
 }
 
 .docker-resource-row {
@@ -4576,10 +4570,6 @@
   white-space: nowrap;
 }
 
-.docker-console-view {
-  /* padding: 10px; */
-}
-
 .docker-kpi-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -4650,12 +4640,6 @@
 .docker-container-table-wrap {
   min-width: 0;
 }
-
-.docker-container-row {}
-
-/* .docker-container-row.active {
-  background: linear-gradient(90deg, rgba(var(--primary-rgb), 0.08), transparent);
-} */
 
 .docker-row-title {
   color: var(--text-primary);
