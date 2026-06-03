@@ -40,6 +40,8 @@ FROM --platform=$TARGETPLATFORM rust:slim AS agent-builder
 RUN apt-get update && apt-get install -y --no-install-recommends \
     musl-tools \
     gcc \
+    curl \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 ARG TARGETARCH
@@ -61,17 +63,25 @@ RUN if [ "$TARGETARCH" = "amd64" ]; then \
 
 # 复制真正的源码并执行本机编译
 COPY agent-rust/src ./src
-RUN if [ "$TARGETARCH" = "amd64" ]; then \
+RUN VERSION=$(grep '^version' Cargo.toml | head -n1 | cut -d'"' -f2) && \
+    echo "Extracted Agent Version: $VERSION" && \
+    for file in agent-linux-amd64 agent-linux-arm64 agent-windows-amd64.exe; do \
+        echo "Attempting to download $file from GitHub Releases..." && \
+        curl -fsSL -o "./$file" "https://github.com/iwvw/API-Monitor/releases/download/v$VERSION/$file" || echo "Download failed for $file"; \
+    done && \
+    if [ "$TARGETARCH" = "amd64" ]; then \
         cargo build --release --target x86_64-unknown-linux-musl && \
-        cp target/x86_64-unknown-linux-musl/release/api-monitor-agent ./agent-linux-amd64 && \
-        touch ./agent-linux-arm64 && \
-        touch ./agent-windows-amd64.exe; \
+        cp target/x86_64-unknown-linux-musl/release/api-monitor-agent ./agent-linux-amd64; \
     elif [ "$TARGETARCH" = "arm64" ]; then \
         cargo build --release --target aarch64-unknown-linux-musl && \
-        cp target/aarch64-unknown-linux-musl/release/api-monitor-agent ./agent-linux-arm64 && \
-        touch ./agent-linux-amd64 && \
-        touch ./agent-windows-amd64.exe; \
-    fi
+        cp target/aarch64-unknown-linux-musl/release/api-monitor-agent ./agent-linux-arm64; \
+    fi && \
+    for file in agent-linux-amd64 agent-linux-arm64 agent-windows-amd64.exe; do \
+        if [ ! -f "./$file" ] || [ ! -s "./$file" ]; then \
+            echo "Creating placeholder for missing or empty file: $file" && \
+            touch "./$file"; \
+        fi; \
+    done
 
 # 阶段 3: 预构建生产依赖 (Native Deps Builder)
 # 为目标平台安装原生模块
