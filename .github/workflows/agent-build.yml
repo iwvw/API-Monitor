@@ -1,35 +1,39 @@
 # ===================================
-# API Monitor Rust Agent Build CI/CD
+# API Monitor Rust Agent CI
 # ===================================
 # 触发条件：
 # - 推送到 main 分支（agent-rust 目录有变更）
-# - 创建版本标签（如 v1.0.0）
-# - 手动触发（workflow_dispatch）
+# - PR 中 agent-rust 有变更
+# - 手动触发
+#
+# 功能：
+# - 验证 Agent 在所有目标平台上可以编译
+# - 上传构建产物供测试
+#
+# 注意：发版构建由 release.yml 统一处理
 
-name: Build Rust Agent
+name: Build Rust Agent (CI)
 
 on:
   push:
     branches: [main]
-    tags: ["v*"]
     paths:
       - "agent-rust/**"
       - ".github/workflows/agent-build.yml"
+  pull_request:
+    paths:
+      - "agent-rust/**"
   workflow_dispatch:
-    inputs:
-      version:
-        description: "Agent 版本号"
-        required: false
-        default: "0.1.2"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
     runs-on: ${{ matrix.os }}
 
     strategy:
+      fail-fast: false
       matrix:
         include:
           - target: x86_64-unknown-linux-musl
@@ -54,46 +58,9 @@ jobs:
             use_cross: false
 
     steps:
-      # 检出代码
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 获取版本号
-      - name: Get version
-        id: version
-        shell: bash
-        run: |
-          if [ "${{ github.event.inputs.version }}" != "" ]; then
-            echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
-          elif [[ "${{ github.ref }}" == refs/tags/v* ]]; then
-            echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
-          else
-            echo "version=0.1.2" >> $GITHUB_OUTPUT
-          fi
-
-      # 更新 Cargo.toml 版本以匹配构建的目标版本
-      - name: Update Cargo.toml version
-        shell: bash
-        run: |
-          python -c "
-          import re
-          with open('agent-rust/Cargo.toml', 'r', encoding='utf-8') as f:
-              content = f.read()
-          content = re.sub(r'(?m)^version\s*=\s* Baltimore \".*\"', 'version = \"${{ steps.version.outputs.version }}\"', content, count=1)
-          # Note: fixing the regex search string above, it should be r'(?m)^version\s*=\s*\".*\"'
-          # Let's write correct python code:
-          "
-          python -c "
-          import re
-          with open('agent-rust/Cargo.toml', 'r', encoding='utf-8') as f:
-              content = f.read()
-          content = re.sub(r'(?m)^version\s*=\s*\".*\"', 'version = \"${{ steps.version.outputs.version }}\"', content, count=1)
-          with open('agent-rust/Cargo.toml', 'w', encoding='utf-8') as f:
-              f.write(content)
-          "
-          cat agent-rust/Cargo.toml
-
-      # 设置 Rust 环境与缓存
       - name: Set up Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
         with:
@@ -101,22 +68,19 @@ jobs:
           cache: true
           cache-workspaces: agent-rust
 
-      # 如果是 linux musl 目标，安装 musl-tools 供本地编译使用
-      - name: Install musl-tools (Linux only)
+      - name: Install musl-tools (Linux amd64)
         if: matrix.target == 'x86_64-unknown-linux-musl'
         run: |
           sudo apt-get update
           sudo apt-get install -y musl-tools
 
-      # 如果需要 cross，通过 cargo-binstall 快速安装
-      - name: Install cross (for ARM64 Linux cross-compiling)
+      - name: Install cross (ARM64 Linux)
         if: matrix.use_cross
         shell: bash
         run: |
           curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
           cargo binstall --no-confirm --force cross
 
-      # 执行编译
       - name: Build Agent
         working-directory: agent-rust
         shell: bash
@@ -127,7 +91,6 @@ jobs:
             cargo build --target ${{ matrix.target }} --release
           fi
 
-      # 复制并重命名到统一命名结构目录下
       - name: Copy & Rename Binary
         shell: bash
         run: |
@@ -139,83 +102,25 @@ jobs:
           fi
           ls -lh dist/
 
-      # 上传构建产物
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.output_name }}
           path: dist/${{ matrix.output_name }}
-          retention-days: 30
+          retention-days: 7
 
-  # 创建 Release（仅在 tag 推送时）
-  release:
-    needs: build
-    runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
-
-    steps:
-      - name: Download all artifacts
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-
-      - name: Prepare release assets
-        run: |
-          mkdir -p release
-          # 寻找 artifacts 目录下所有上传的文件并复制到 release 根目录
-          find artifacts -type f -exec cp {} release/ \;
-          ls -la release/
-
-      - name: Create Release
-        uses: softprops/action-gh-release@v1
-        with:
-          files: release/*
-          generate_release_notes: true
-          body: |
-            ## API Monitor Agent ${{ github.ref_name }} (Rust)
-
-            ### 下载
-
-            | 平台 | 架构 | 文件 |
-            |------|------|------|
-            | Linux | amd64 | `agent-linux-amd64` |
-            | Linux | arm64 | `agent-linux-arm64` |
-            | Windows | amd64 | `agent-windows-amd64.exe` |
-            | macOS | amd64 | `agent-darwin-amd64` |
-            | macOS | arm64 | `agent-darwin-arm64` |
-
-            ### 使用方法
-
-            ```bash
-            # 下载
-            wget https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/agent-linux-amd64
-            chmod +x agent-linux-amd64
-
-            # 运行
-            ./agent-linux-amd64 --id <SERVER_ID> -k <AGENT_KEY> -s <SERVER_URL>
-            ```
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  # 输出构建摘要
   summary:
     needs: build
     runs-on: ubuntu-latest
-
     steps:
       - name: Build Summary
         run: |
-          echo "## 🚀 Rust Agent 构建成功" >> $GITHUB_STEP_SUMMARY
+          echo "## ✅ Rust Agent CI 构建成功" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 构建平台" >> $GITHUB_STEP_SUMMARY
-          echo "| 平台 | 架构 |" >> $GITHUB_STEP_SUMMARY
-          echo "|------|------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Linux | amd64 |" >> $GITHUB_STEP_SUMMARY
-          echo "| Linux | arm64 |" >> $GITHUB_STEP_SUMMARY
-          echo "| Windows | amd64 |" >> $GITHUB_STEP_SUMMARY
-          echo "| macOS | amd64 |" >> $GITHUB_STEP_SUMMARY
-          echo "| macOS | arm64 |" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### 下一步" >> $GITHUB_STEP_SUMMARY
-          echo "- 在 Actions 页面下载构建产物" >> $GITHUB_STEP_SUMMARY
-          echo "- 或创建 Release 自动发布" >> $GITHUB_STEP_SUMMARY
+          echo "| 平台 | 架构 | 状态 |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|------|------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Linux | amd64 | ✅ |" >> $GITHUB_STEP_SUMMARY
+          echo "| Linux | arm64 | ✅ |" >> $GITHUB_STEP_SUMMARY
+          echo "| Windows | amd64 | ✅ |" >> $GITHUB_STEP_SUMMARY
+          echo "| macOS | amd64 | ✅ |" >> $GITHUB_STEP_SUMMARY
+          echo "| macOS | arm64 | ✅ |" >> $GITHUB_STEP_SUMMARY

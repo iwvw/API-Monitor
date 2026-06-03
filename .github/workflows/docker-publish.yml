@@ -1,22 +1,22 @@
 # ===================================
-# API Monitor Docker Image CI/CD (Trigger Rebuild)
+# API Monitor Docker 镜像构建（主分支）
 # ===================================
 # 触发条件：
-# - 推送到 main 分支 → latest 标签
-# - 推送到其他分支 → dev 标签
-# - 创建版本标签（如 v1.0.0）
-# - 手动触发（workflow_dispatch）
+# - 推送到 main 分支
+# - 手动触发
 #
-# 构建策略：
-# - amd64 和 arm64 分别在原生 runner 上构建（避免 QEMU 问题）
-# - 使用 docker manifest 合并多架构镜像
+# 功能：
+# - 构建多架构 Docker 镜像（amd64 + arm64）
+# - 推送到 GHCR 和 Docker Hub
+# - 使用最新 Release 的 Agent 二进制
+#
+# 注意：版本发布的 Docker 构建由 release.yml 处理
 
-name: Build and Publish Docker Image
+name: Build Docker Image (Latest)
 
 on:
   push:
-    branches: ["**"] # 所有分支
-    tags: ["v*"]
+    branches: [main]
     paths-ignore:
       - "**.md"
       - "docs/**"
@@ -28,15 +28,10 @@ on:
         description: "镜像标签（可选）"
         required: false
         default: "latest"
-      platforms:
-        description: "构建平台（可选，逗号分隔）"
-        required: false
-        default: "linux/amd64,linux/arm64"
 
 permissions:
   contents: read
   packages: write
-  security-events: write
 
 env:
   IMAGE_NAME: api-monitor
@@ -45,7 +40,7 @@ env:
 
 jobs:
   # ==========================================
-  # 阶段 1: 分架构构建（原生 runner，避免 QEMU）
+  # 阶段 1: 分架构构建
   # ==========================================
   build:
     strategy:
@@ -60,66 +55,31 @@ jobs:
             suffix: arm64
 
     runs-on: ${{ matrix.runner }}
-    outputs:
-      tags: ${{ steps.meta.outputs.tags }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Download prebuilt agent binaries
+      - name: Download agent binaries from latest Release
         shell: bash
         run: |
           VERSION=$(grep '^version' agent-rust/Cargo.toml | head -n1 | cut -d'"' -f2)
-          echo "Target version: v$VERSION"
+          echo "📥 Downloading agent binaries (target: v${VERSION}, fallback: latest)..."
           mkdir -p agent-rust
 
-          download_binary() {
-            local file=$1
-            local url="https://github.com/iwvw/API-Monitor/releases/download/v${VERSION}/${file}"
-            local fallback_url="https://github.com/iwvw/API-Monitor/releases/latest/download/${file}"
-            
-            if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
-              echo "This is a release tag build (${{ github.ref }}). Waiting for ${file} to be uploaded to release v${VERSION}..."
-              # Poll for up to 20 minutes (40 attempts * 30 seconds)
-              for i in {1..40}; do
-                if curl -fsSL -o "agent-rust/${file}" "$url"; then
-                  echo "Successfully downloaded ${file} from release v${VERSION}."
-                  return 0
-                fi
-                rm -f "agent-rust/${file}"
-                echo "Asset ${file} not available yet, waiting 30s ($i/40)..."
-                sleep 30
-              done
-              
-              echo "Timeout waiting for ${file} on release v${VERSION}."
-              echo "Attempting fallback to latest release for ${file}..."
-              if curl -fsSL -o "agent-rust/${file}" "$fallback_url"; then
-                echo "Successfully downloaded ${file} from latest release (fallback)."
-                return 0
-              fi
-              
-              echo "ERROR: Failed to download ${file} for release build!"
-              return 1
-            else
-              echo "This is a branch build. Downloading ${file}..."
-              if curl -fsSL -o "agent-rust/${file}" "$url"; then
-                echo "Successfully downloaded ${file}."
-                return 0
-              elif curl -fsSL -o "agent-rust/${file}" "$fallback_url"; then
-                echo "Successfully downloaded ${file} from latest release (fallback)."
-                return 0
-              else
-                echo "WARNING: Failed to download ${file}. Will proceed with placeholder/local compilation."
-                return 0
-              fi
-            fi
-          }
+          for file in agent-linux-amd64 agent-linux-arm64 agent-windows-amd64.exe; do
+            VERSIONED_URL="https://github.com/${{ github.repository }}/releases/download/v${VERSION}/${file}"
+            LATEST_URL="https://github.com/${{ github.repository }}/releases/latest/download/${file}"
 
-          download_binary "agent-linux-amd64" || exit 1
-          download_binary "agent-linux-arm64" || exit 1
-          download_binary "agent-windows-amd64.exe" || exit 1
-          
+            if curl -fsSL -o "agent-rust/${file}" "$VERSIONED_URL"; then
+              echo "  ✅ ${file} (v${VERSION})"
+            elif curl -fsSL -o "agent-rust/${file}" "$LATEST_URL"; then
+              echo "  ✅ ${file} (latest fallback)"
+            else
+              echo "  ⚠ ${file} not available, creating placeholder"
+              touch "agent-rust/${file}"
+            fi
+          done
           ls -lh agent-rust/
 
       - name: Set up Docker Buildx
@@ -133,13 +93,12 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Login to Docker Hub
-        if: github.event_name != 'pull_request'
         uses: docker/login-action@v3
+        continue-on-error: true
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # 提取元数据（用于生成标签）
       - name: Extract metadata
         id: meta
         uses: docker/metadata-action@v5
@@ -148,21 +107,15 @@ jobs:
             ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
             ${{ env.DOCKERHUB_REPO }}
           tags: |
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') }}
-            type=raw,value=dev,enable=${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/v') }}
-            type=ref,event=branch,enable=${{ github.ref != 'refs/heads/main' }}
-            type=sha,prefix=,enable=${{ github.ref == 'refs/heads/main' }}
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            type=raw,value=${{ github.event.inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag != '' }}
+            type=raw,value=latest
+            type=sha,prefix=
+            type=raw,value=${{ github.event.inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag != '' && github.event.inputs.tag != 'latest' }}
           labels: |
             org.opencontainers.image.title=API Monitor
             org.opencontainers.image.description=API聚合监控面板
             org.opencontainers.image.vendor=iwvw
             maintainer=iwvw
 
-      # 构建并推送单架构镜像（带后缀）
       - name: Build and push by digest
         id: build
         uses: docker/build-push-action@v5
@@ -172,10 +125,9 @@ jobs:
           platforms: ${{ matrix.platform }}
           no-cache: true
           push: true
-          # 同时推送到两个 Registry 的临时架构标签，确保层已就绪，避免合并时跨 Registry 复制层
           tags: |
             ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:build-${{ github.run_id }}-${{ matrix.suffix }}
-            ${{ (github.event_name != 'pull_request' && secrets.DOCKERHUB_TOKEN != '') && format('{0}:build-{1}-{2}', env.DOCKERHUB_REPO, github.run_id, matrix.suffix) || '' }}
+            ${{ env.DOCKERHUB_REPO }}:build-${{ github.run_id }}-${{ matrix.suffix }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=${{ matrix.platform }}
           cache-to: type=gha,mode=max,scope=${{ matrix.platform }}
@@ -221,6 +173,7 @@ jobs:
 
       - name: Login to Docker Hub
         uses: docker/login-action@v3
+        continue-on-error: true
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -233,77 +186,57 @@ jobs:
             ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
             ${{ env.DOCKERHUB_REPO }}
           tags: |
-            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v') }}
-            type=raw,value=dev,enable=${{ github.ref != 'refs/heads/main' && !startsWith(github.ref, 'refs/tags/v') }}
-            type=ref,event=branch,enable=${{ github.ref != 'refs/heads/main' }}
-            type=sha,prefix=,enable=${{ github.ref == 'refs/heads/main' }}
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            type=raw,value=${{ github.event.inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag != '' }}
+            type=raw,value=latest
+            type=sha,prefix=
+            type=raw,value=${{ github.event.inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag != '' && github.event.inputs.tag != 'latest' }}
 
-      # 创建并推送多架构 manifest
       - name: Create and push manifest
         run: |
-          # 读取各架构 digest
           AMD64_DIGEST=$(cat /tmp/digests/amd64)
           ARM64_DIGEST=$(cat /tmp/digests/arm64)
-          
+
           echo "AMD64 Digest: $AMD64_DIGEST"
           echo "ARM64 Digest: $ARM64_DIGEST"
-          
-          # 为每个目标标签创建 manifest
+
           TAGS="${{ steps.meta.outputs.tags }}"
           echo "$TAGS" | while IFS= read -r TAG; do
             [ -z "$TAG" ] && continue
-            
-            # 确定当前标签所属的 Registry 以选择同源的源镜像进行合并（避免跨 Registry 复制 Blob 导致 400 错误）
+
             if [[ "$TAG" == "${{ env.REGISTRY }}"* ]]; then
                SRC_PREFIX="${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}"
             else
                SRC_PREFIX="${{ env.DOCKERHUB_REPO }}"
             fi
-            
-            echo "Creating manifest for: $TAG using source: $SRC_PREFIX"
-            
-            # 增加重试机制，应对 Registry 极端情况下的抖动
+
+            echo "🔗 Creating manifest: $TAG"
             for i in {1..3}; do
               docker buildx imagetools create -t "$TAG" \
                 "${SRC_PREFIX}@${AMD64_DIGEST}" \
                 "${SRC_PREFIX}@${ARM64_DIGEST}" && break || {
                 if [ $i -lt 3 ]; then
-                  echo "Push failed, retrying in 10s ($i/3)..."
+                  echo "  ⚠ Retry in 10s ($i/3)..."
                   sleep 10
                 else
-                  echo "Failed to create manifest for $TAG after 3 attempts."
+                  echo "  ❌ Failed to create manifest for $TAG"
                   exit 1
                 fi
               }
             done
           done
 
-      - name: Image digest
+      - name: Summary
         run: |
           echo "## 🐳 Docker 镜像构建成功" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**镜像标签：**" >> $GITHUB_STEP_SUMMARY
+          echo "**标签：**" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
           echo '```' >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**支持架构：** linux/amd64, linux/arm64" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**拉取命令：**" >> $GITHUB_STEP_SUMMARY
-          echo '```bash' >> $GITHUB_STEP_SUMMARY
-          echo "# 从 GHCR 拉取" >> $GITHUB_STEP_SUMMARY
-          echo "docker pull ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:latest" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "# 从 Docker Hub 拉取" >> $GITHUB_STEP_SUMMARY
-          echo "docker pull ${{ env.DOCKERHUB_REPO }}:latest" >> $GITHUB_STEP_SUMMARY
-          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "**架构**: linux/amd64, linux/arm64" >> $GITHUB_STEP_SUMMARY
 
   # ==========================================
-  # 阶段 3: 清理临时镜像（可选）
+  # 阶段 3: 清理临时镜像
   # ==========================================
   cleanup:
     runs-on: ubuntu-latest
@@ -319,28 +252,5 @@ jobs:
           package-type: container
           min-versions-to-keep: 0
           delete-only-untagged-versions: false
-          # 只删除临时构建标签
           ignore-versions: "^(?!build-${{ github.run_id }}).*$"
         continue-on-error: true
-
-  # ==========================================
-  # 阶段 4: 安全扫描（可选）
-  # ==========================================
-  security-scan:
-    runs-on: ubuntu-latest
-    needs: merge
-    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')
-    continue-on-error: true
-
-    steps:
-      - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:latest
-          format: "sarif"
-          output: "trivy-results.sarif"
-
-      - name: Upload Trivy scan results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@v4
-        with:
-          sarif_file: "trivy-results.sarif"

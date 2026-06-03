@@ -1,14 +1,18 @@
 # ===================================
-# API Monitor 自动发版工作流
+# API Monitor 完整发版流水线
 # ===================================
 # 触发条件：
+# - 推送版本标签 (v*)
 # - 手动触发并指定版本号
-# - 创建版本标签 (v*)
 #
-# 功能：
-# - 自动生成 Release Notes
-# - 创建 GitHub Release
-# - 更新 CHANGELOG.md
+# 流水线顺序（严格依赖链，无竞态）：
+# 1. create-release  → 创建 GitHub Release
+# 2. build-agent     → 编译 5 平台 Rust Agent
+# 3. upload-assets   → 上传 Agent 到 Release
+# 4. build-docker    → 构建多架构 Docker 镜像
+# 5. merge-docker    → 合并多架构 manifest
+# 6. cleanup-docker  → 清理临时镜像
+# 7. security-scan   → 安全扫描
 
 name: Release
 
@@ -30,13 +34,24 @@ on:
 
 permissions:
   contents: write
+  packages: write
+  security-events: write
 
 env:
   GH_TOKEN: ${{ github.token }}
+  IMAGE_NAME: api-monitor
+  REGISTRY: ghcr.io
+  DOCKERHUB_REPO: ${{ github.repository_owner }}/api-monitor
 
 jobs:
-  release:
+  # ==========================================
+  # Phase 1: 创建 GitHub Release
+  # ==========================================
+  create-release:
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      version: ${{ steps.version.outputs.version }}
 
     steps:
       - name: Checkout repository
@@ -44,29 +59,20 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: "npm"
-
-      # 确定版本号
       - name: Determine version
         id: version
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             VERSION="${{ github.event.inputs.version }}"
-            echo "version=v${VERSION}" >> $GITHUB_OUTPUT
-            echo "tag=v${VERSION}" >> $GITHUB_OUTPUT
           else
-            # 从标签获取版本
-            TAG="${{ github.ref_name }}"
-            echo "version=${TAG}" >> $GITHUB_OUTPUT
-            echo "tag=${TAG}" >> $GITHUB_OUTPUT
+            VERSION="${{ github.ref_name }}"
+            VERSION="${VERSION#v}"
           fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+          echo "tag=v${VERSION}" >> $GITHUB_OUTPUT
+          echo "📦 Version: ${VERSION}, Tag: v${VERSION}"
 
-      # 创建标签（仅手动触发时）
-      - name: Create tag
+      - name: Create tag (manual trigger only)
         if: github.event_name == 'workflow_dispatch'
         run: |
           git config user.name "github-actions[bot]"
@@ -74,56 +80,55 @@ jobs:
           git tag -a "${{ steps.version.outputs.tag }}" -m "Release ${{ steps.version.outputs.tag }}"
           git push origin "${{ steps.version.outputs.tag }}"
 
-      # 生成变更日志
       - name: Generate changelog
         id: changelog
         run: |
-          # 获取上一个标签
           PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
           CURRENT_TAG="${{ steps.version.outputs.tag }}"
-          
+
           echo "## 🚀 $CURRENT_TAG 更新内容" > release_notes.md
           echo "" >> release_notes.md
-          
+
           if [ -n "$PREV_TAG" ]; then
             echo "### 📝 提交记录" >> release_notes.md
             echo "" >> release_notes.md
-            
-            # 按类型分类提交
+
             echo "#### ✨ 新功能 (feat)" >> release_notes.md
             git log ${PREV_TAG}..HEAD --pretty=format:"- %s (%h)" --grep="^feat" >> release_notes.md || true
             echo "" >> release_notes.md
-            
+
             echo "#### 🐛 修复 (fix)" >> release_notes.md
             git log ${PREV_TAG}..HEAD --pretty=format:"- %s (%h)" --grep="^fix" >> release_notes.md || true
             echo "" >> release_notes.md
-            
-            echo "#### 📚 文档 (docs)" >> release_notes.md
-            git log ${PREV_TAG}..HEAD --pretty=format:"- %s (%h)" --grep="^docs" >> release_notes.md || true
-            echo "" >> release_notes.md
-            
+
             echo "#### 🔧 其他" >> release_notes.md
-            git log ${PREV_TAG}..HEAD --pretty=format:"- %s (%h)" --grep="^build\|^ci\|^chore\|^refactor\|^perf\|^style\|^test" >> release_notes.md || true
+            git log ${PREV_TAG}..HEAD --pretty=format:"- %s (%h)" --grep="^build\|^ci\|^chore\|^refactor\|^perf\|^style\|^test\|^docs" >> release_notes.md || true
             echo "" >> release_notes.md
           else
             echo "首次发布" >> release_notes.md
           fi
-          
+
           echo "" >> release_notes.md
           echo "---" >> release_notes.md
           echo "" >> release_notes.md
           echo "### 📦 Docker 镜像" >> release_notes.md
           echo '```bash' >> release_notes.md
-          echo "# 从 GitHub Container Registry 拉取" >> release_notes.md
-          echo "docker pull ghcr.io/${{ github.repository_owner }}/api-monitor:$CURRENT_TAG" >> release_notes.md
-          echo "" >> release_notes.md
-          echo "# 从 Docker Hub 拉取" >> release_notes.md
-          echo "docker pull ${{ github.repository_owner }}/api-monitor:$CURRENT_TAG" >> release_notes.md
+          echo "docker pull ghcr.io/${{ github.repository_owner }}/api-monitor:${CURRENT_TAG#v}" >> release_notes.md
+          echo "docker pull ${{ github.repository_owner }}/api-monitor:${CURRENT_TAG#v}" >> release_notes.md
           echo '```' >> release_notes.md
-          
+
+          echo "" >> release_notes.md
+          echo "### 🖥️ Agent 下载" >> release_notes.md
+          echo "| 平台 | 架构 | 文件 |" >> release_notes.md
+          echo "|------|------|------|" >> release_notes.md
+          echo "| Linux | amd64 | agent-linux-amd64 |" >> release_notes.md
+          echo "| Linux | arm64 | agent-linux-arm64 |" >> release_notes.md
+          echo "| Windows | amd64 | agent-windows-amd64.exe |" >> release_notes.md
+          echo "| macOS | amd64 | agent-darwin-amd64 |" >> release_notes.md
+          echo "| macOS | arm64 | agent-darwin-arm64 |" >> release_notes.md
+
           cat release_notes.md
 
-      # 创建 GitHub Release
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
@@ -132,13 +137,359 @@ jobs:
           body_path: release_notes.md
           draft: false
           prerelease: ${{ github.event.inputs.prerelease == 'true' }}
-          generate_release_notes: true
 
-      # 输出摘要
+  # ==========================================
+  # Phase 2: 编译 Rust Agent（5 平台）
+  # ==========================================
+  build-agent:
+    needs: create-release
+    runs-on: ${{ matrix.os }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            output_name: agent-linux-amd64
+            use_cross: false
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-latest
+            output_name: agent-linux-arm64
+            use_cross: true
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            output_name: agent-windows-amd64.exe
+            use_cross: false
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            output_name: agent-darwin-amd64
+            use_cross: false
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            output_name: agent-darwin-arm64
+            use_cross: false
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          target: ${{ matrix.target }}
+          cache: true
+          cache-workspaces: agent-rust
+
+      - name: Install musl-tools (Linux amd64)
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+
+      - name: Install cross (ARM64 Linux)
+        if: matrix.use_cross
+        shell: bash
+        run: |
+          curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
+          cargo binstall --no-confirm --force cross
+
+      - name: Build Agent
+        working-directory: agent-rust
+        shell: bash
+        run: |
+          if [ "${{ matrix.use_cross }}" = "true" ]; then
+            cross build --target ${{ matrix.target }} --release
+          else
+            cargo build --target ${{ matrix.target }} --release
+          fi
+
+      - name: Copy & Rename Binary
+        shell: bash
+        run: |
+          mkdir -p dist
+          if [[ "${{ matrix.target }}" == *"windows"* ]]; then
+            cp agent-rust/target/${{ matrix.target }}/release/api-monitor-agent.exe dist/${{ matrix.output_name }}
+          else
+            cp agent-rust/target/${{ matrix.target }}/release/api-monitor-agent dist/${{ matrix.output_name }}
+          fi
+          ls -lh dist/
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.output_name }}
+          path: dist/${{ matrix.output_name }}
+          retention-days: 7
+
+  # ==========================================
+  # Phase 3: 上传 Agent 到 Release
+  # ==========================================
+  upload-assets:
+    needs: [create-release, build-agent]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download all agent artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: agent-*
+          merge-multiple: true
+
+      - name: List artifacts
+        run: ls -lh artifacts/
+
+      - name: Upload assets to Release
+        run: |
+          TAG="${{ needs.create-release.outputs.tag }}"
+          echo "📦 Uploading assets to release $TAG..."
+          for file in artifacts/*; do
+            FILENAME=$(basename "$file")
+            echo "  ↗ Uploading $FILENAME..."
+            gh release upload "$TAG" "$file" --repo ${{ github.repository }} --clobber
+          done
+          echo "✅ All assets uploaded."
+
+  # ==========================================
+  # Phase 4: 构建多架构 Docker 镜像
+  # ==========================================
+  build-docker:
+    needs: upload-assets
+    runs-on: ${{ matrix.runner }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+            suffix: amd64
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+            suffix: arm64
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download agent binaries from Release
+        shell: bash
+        run: |
+          TAG="${{ needs.upload-assets.outputs.tag || github.ref_name }}"
+          VERSION="${TAG#v}"
+          echo "📥 Downloading agent binaries for v${VERSION}..."
+          mkdir -p agent-rust
+
+          for file in agent-linux-amd64 agent-linux-arm64 agent-windows-amd64.exe; do
+            URL="https://github.com/${{ github.repository }}/releases/download/v${VERSION}/${file}"
+            echo "  ↓ ${file}..."
+            if ! curl -fsSL -o "agent-rust/${file}" "$URL"; then
+              echo "  ⚠ Failed to download ${file}, creating placeholder"
+              touch "agent-rust/${file}"
+            fi
+          done
+          ls -lh agent-rust/
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        continue-on-error: true
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
+            ${{ env.DOCKERHUB_REPO }}
+          tags: |
+            type=raw,value=latest
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+          labels: |
+            org.opencontainers.image.title=API Monitor
+            org.opencontainers.image.description=API聚合监控面板
+            org.opencontainers.image.vendor=iwvw
+            maintainer=iwvw
+
+      - name: Build and push by digest
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          platforms: ${{ matrix.platform }}
+          no-cache: true
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:build-${{ github.run_id }}-${{ matrix.suffix }}
+            ${{ env.DOCKERHUB_REPO }}:build-${{ github.run_id }}-${{ matrix.suffix }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.platform }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.platform }}
+          build-args: |
+            NODE_ENV=production
+
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          echo "${{ steps.build.outputs.digest }}" > /tmp/digests/${{ matrix.suffix }}
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ matrix.suffix }}
+          path: /tmp/digests/*
+          retention-days: 1
+
+  # ==========================================
+  # Phase 5: 合并多架构 manifest
+  # ==========================================
+  merge-docker:
+    needs: build-docker
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        continue-on-error: true
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: |
+            ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
+            ${{ env.DOCKERHUB_REPO }}
+          tags: |
+            type=raw,value=latest
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+
+      - name: Create and push manifest
+        run: |
+          AMD64_DIGEST=$(cat /tmp/digests/amd64)
+          ARM64_DIGEST=$(cat /tmp/digests/arm64)
+
+          echo "AMD64 Digest: $AMD64_DIGEST"
+          echo "ARM64 Digest: $ARM64_DIGEST"
+
+          TAGS="${{ steps.meta.outputs.tags }}"
+          echo "$TAGS" | while IFS= read -r TAG; do
+            [ -z "$TAG" ] && continue
+
+            # 确定 Registry 前缀，使用同源镜像合并（避免跨 Registry 400 错误）
+            if [[ "$TAG" == "${{ env.REGISTRY }}"* ]]; then
+               SRC_PREFIX="${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}"
+            else
+               SRC_PREFIX="${{ env.DOCKERHUB_REPO }}"
+            fi
+
+            echo "🔗 Creating manifest: $TAG"
+
+            for i in {1..3}; do
+              docker buildx imagetools create -t "$TAG" \
+                "${SRC_PREFIX}@${AMD64_DIGEST}" \
+                "${SRC_PREFIX}@${ARM64_DIGEST}" && break || {
+                if [ $i -lt 3 ]; then
+                  echo "  ⚠ Retry in 10s ($i/3)..."
+                  sleep 10
+                else
+                  echo "  ❌ Failed to create manifest for $TAG"
+                  exit 1
+                fi
+              }
+            done
+          done
+
       - name: Summary
         run: |
-          echo "## 🎉 Release ${{ steps.version.outputs.tag }} 创建成功!" >> $GITHUB_STEP_SUMMARY
+          echo "## 🎉 Release 完成" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "- **版本**: ${{ steps.version.outputs.tag }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **预发布**: ${{ github.event.inputs.prerelease || 'false' }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Release 页面**: https://github.com/${{ github.repository }}/releases/tag/${{ steps.version.outputs.tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "### Docker 镜像" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "${{ steps.meta.outputs.tags }}" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**架构**: linux/amd64, linux/arm64" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```bash' >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:latest" >> $GITHUB_STEP_SUMMARY
+          echo "docker pull ${{ env.DOCKERHUB_REPO }}:latest" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+
+  # ==========================================
+  # Phase 6: 清理临时镜像
+  # ==========================================
+  cleanup-docker:
+    needs: merge-docker
+    runs-on: ubuntu-latest
+    if: always()
+    continue-on-error: true
+
+    steps:
+      - name: Delete temporary build images
+        uses: actions/delete-package-versions@v5
+        with:
+          package-name: ${{ env.IMAGE_NAME }}
+          package-type: container
+          min-versions-to-keep: 0
+          delete-only-untagged-versions: false
+          ignore-versions: "^(?!build-${{ github.run_id }}).*$"
+        continue-on-error: true
+
+  # ==========================================
+  # Phase 7: 安全扫描
+  # ==========================================
+  security-scan:
+    needs: merge-docker
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    steps:
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:latest
+          format: "sarif"
+          output: "trivy-results.sarif"
+
+      - name: Upload Trivy scan results
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: "trivy-results.sarif"
