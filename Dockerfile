@@ -36,7 +36,7 @@ ENV PATH=/app/node_modules/.bin:$PATH \
 RUN npm run build
 
 # 阶段 2: 构建 Rust Agent 二进制 (Agent Builder) - 优化为基于 TARGETARCH 进行条件式本机编译，以最大化编译性能并防止复杂的跨平台交叉编译错误
-FROM --platform=$TARGETPLATFORM rust:1.78-slim AS agent-builder
+FROM --platform=$TARGETPLATFORM rust:1.85-slim AS agent-builder
 RUN apt-get update && apt-get install -y --no-install-recommends \
     musl-tools \
     gcc \
