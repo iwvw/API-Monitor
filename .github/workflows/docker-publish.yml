@@ -71,20 +71,54 @@ jobs:
         shell: bash
         run: |
           VERSION=$(grep '^version' agent-rust/Cargo.toml | head -n1 | cut -d'"' -f2)
-          echo "Downloading agent binaries for version v$VERSION..."
+          echo "Target version: v$VERSION"
           mkdir -p agent-rust
-          
-          curl -fsSL -o agent-rust/agent-linux-amd64 "https://github.com/iwvw/API-Monitor/releases/download/v${VERSION}/agent-linux-amd64" || \
-          curl -fsSL -o agent-rust/agent-linux-amd64 "https://github.com/iwvw/API-Monitor/releases/latest/download/agent-linux-amd64" || \
-          echo "Failed to download agent-linux-amd64"
-          
-          curl -fsSL -o agent-rust/agent-linux-arm64 "https://github.com/iwvw/API-Monitor/releases/download/v${VERSION}/agent-linux-arm64" || \
-          curl -fsSL -o agent-rust/agent-linux-arm64 "https://github.com/iwvw/API-Monitor/releases/latest/download/agent-linux-arm64" || \
-          echo "Failed to download agent-linux-arm64"
-          
-          curl -fsSL -o agent-rust/agent-windows-amd64.exe "https://github.com/iwvw/API-Monitor/releases/download/v${VERSION}/agent-windows-amd64.exe" || \
-          curl -fsSL -o agent-rust/agent-windows-amd64.exe "https://github.com/iwvw/API-Monitor/releases/latest/download/agent-windows-amd64.exe" || \
-          echo "Failed to download agent-windows-amd64.exe"
+
+          download_binary() {
+            local file=$1
+            local url="https://github.com/iwvw/API-Monitor/releases/download/v${VERSION}/${file}"
+            local fallback_url="https://github.com/iwvw/API-Monitor/releases/latest/download/${file}"
+            
+            if [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+              echo "This is a release tag build (${{ github.ref }}). Waiting for ${file} to be uploaded to release v${VERSION}..."
+              # Poll for up to 20 minutes (40 attempts * 30 seconds)
+              for i in {1..40}; do
+                if curl -fsSL -o "agent-rust/${file}" "$url"; then
+                  echo "Successfully downloaded ${file} from release v${VERSION}."
+                  return 0
+                fi
+                rm -f "agent-rust/${file}"
+                echo "Asset ${file} not available yet, waiting 30s ($i/40)..."
+                sleep 30
+              done
+              
+              echo "Timeout waiting for ${file} on release v${VERSION}."
+              echo "Attempting fallback to latest release for ${file}..."
+              if curl -fsSL -o "agent-rust/${file}" "$fallback_url"; then
+                echo "Successfully downloaded ${file} from latest release (fallback)."
+                return 0
+              fi
+              
+              echo "ERROR: Failed to download ${file} for release build!"
+              return 1
+            else
+              echo "This is a branch build. Downloading ${file}..."
+              if curl -fsSL -o "agent-rust/${file}" "$url"; then
+                echo "Successfully downloaded ${file}."
+                return 0
+              elif curl -fsSL -o "agent-rust/${file}" "$fallback_url"; then
+                echo "Successfully downloaded ${file} from latest release (fallback)."
+                return 0
+              else
+                echo "WARNING: Failed to download ${file}. Will proceed with placeholder/local compilation."
+                return 0
+              fi
+            fi
+          }
+
+          download_binary "agent-linux-amd64" || exit 1
+          download_binary "agent-linux-arm64" || exit 1
+          download_binary "agent-windows-amd64.exe" || exit 1
           
           ls -lh agent-rust/
 
