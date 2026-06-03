@@ -150,7 +150,7 @@ module.exports = [
       'tmp/**',
       'test/**',
       '*.min.js',
-      'agent-go/**',
+      'agent-rust/**',
       'modules/_template/**', // 模板文件包含占位符语法
       'plugin/**', // 浏览器扩展使用特殊 API
       'src/js/modules/template.js', // 模板文件

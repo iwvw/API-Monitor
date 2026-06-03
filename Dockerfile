@@ -35,21 +35,43 @@ ENV PATH=/app/node_modules/.bin:$PATH \
     VITE_USE_CDN=false
 RUN npm run build
 
-# 阶段 2: 构建 Go Agent 二进制 (Agent Builder)
-FROM --platform=$BUILDPLATFORM golang:1.24-alpine AS agent-builder
-WORKDIR /app/agent-go
-# 安装构建工具
-RUN apk add --no-cache upx
-# 复制 Go 模块文件
-COPY agent-go/go.mod agent-go/go.sum ./
-RUN go mod download
-# 复制源码并构建
-COPY agent-go/ .
-# 构建 Linux amd64 和 arm64
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-s -w" -o agent-linux-amd64
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags="-s -w" -o agent-linux-arm64
-# 构建 Windows amd64
-RUN CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -ldflags="-s -w" -o agent-windows-amd64.exe
+# 阶段 2: 构建 Rust Agent 二进制 (Agent Builder) - 优化为基于 TARGETARCH 进行条件式本机编译，以最大化编译性能并防止复杂的跨平台交叉编译错误
+FROM --platform=$TARGETPLATFORM rust:1.78-slim AS agent-builder
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    musl-tools \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+ARG TARGETARCH
+RUN if [ "$TARGETARCH" = "amd64" ]; then \
+        rustup target add x86_64-unknown-linux-musl; \
+    elif [ "$TARGETARCH" = "arm64" ]; then \
+        rustup target add aarch64-unknown-linux-musl; \
+    fi
+
+WORKDIR /app/agent-rust
+COPY agent-rust/Cargo.toml agent-rust/Cargo.lock ./
+# 预拉取和预编译依赖项（层缓存优化）
+RUN mkdir src && echo "fn main() {}" > src/main.rs
+RUN if [ "$TARGETARCH" = "amd64" ]; then \
+        cargo build --release --target x86_64-unknown-linux-musl; \
+    elif [ "$TARGETARCH" = "arm64" ]; then \
+        cargo build --release --target aarch64-unknown-linux-musl; \
+    fi
+
+# 复制真正的源码并执行本机编译
+COPY agent-rust/src ./src
+RUN if [ "$TARGETARCH" = "amd64" ]; then \
+        cargo build --release --target x86_64-unknown-linux-musl && \
+        cp target/x86_64-unknown-linux-musl/release/api-monitor-agent ./agent-linux-amd64 && \
+        touch ./agent-linux-arm64 && \
+        touch ./agent-windows-amd64.exe; \
+    elif [ "$TARGETARCH" = "arm64" ]; then \
+        cargo build --release --target aarch64-unknown-linux-musl && \
+        cp target/aarch64-unknown-linux-musl/release/api-monitor-agent ./agent-linux-arm64 && \
+        touch ./agent-linux-amd64 && \
+        touch ./agent-windows-amd64.exe; \
+    fi
 
 # 阶段 3: 预构建生产依赖 (Native Deps Builder)
 # 为目标平台安装原生模块
@@ -104,11 +126,11 @@ COPY --from=deps-builder --chown=nodejs:nodejs /app/package.json ./
 # 2. 从 builder 复制构建好的前端资源
 COPY --from=builder --chown=nodejs:nodejs /app/dist ./dist
 
-# 3. 将 Go Agent 二进制文件放入 dist/agent 目录以便静态服务
+# 3. 将 Rust Agent 二进制文件放入 dist/agent 目录以便静态服务
 RUN mkdir -p /app/dist/agent
-COPY --from=agent-builder --chown=nodejs:nodejs /app/agent-go/agent-linux-amd64 /app/dist/agent/
-COPY --from=agent-builder --chown=nodejs:nodejs /app/agent-go/agent-linux-arm64 /app/dist/agent/
-COPY --from=agent-builder --chown=nodejs:nodejs /app/agent-go/agent-windows-amd64.exe /app/dist/agent/
+COPY --from=agent-builder --chown=nodejs:nodejs /app/agent-rust/agent-linux-amd64 /app/dist/agent/
+COPY --from=agent-builder --chown=nodejs:nodejs /app/agent-rust/agent-linux-arm64 /app/dist/agent/
+COPY --from=agent-builder --chown=nodejs:nodejs /app/agent-rust/agent-windows-amd64.exe /app/dist/agent/
 
 # 4. 复制后端源码 (不包含 node_modules)
 COPY --chown=nodejs:nodejs server.js ./

@@ -1,99 +1,149 @@
 # ===================================
-# API Monitor Go Agent Build CI/CD
+# API Monitor Rust Agent Build CI/CD
 # ===================================
 # 触发条件：
-# - 推送到 main 分支（agent-go 目录有变更）
+# - 推送到 main 分支（agent-rust 目录有变更）
 # - 创建版本标签（如 v1.0.0）
 # - 手动触发（workflow_dispatch）
 
-name: Build Go Agent
+name: Build Rust Agent
 
 on:
   push:
     branches: [main]
     tags: ["v*"]
     paths:
-      - "agent-go/**"
+      - "agent-rust/**"
       - ".github/workflows/agent-build.yml"
   workflow_dispatch:
     inputs:
       version:
         description: "Agent 版本号"
         required: false
-        default: "2.0.0"
+        default: "0.1.2"
 
 permissions:
   contents: write
 
-env:
-  GO_VERSION: "1.24"
-
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
 
     strategy:
       matrix:
         include:
-          - goos: linux
-            goarch: amd64
-            suffix: ""
-          - goos: linux
-            goarch: arm64
-            suffix: ""
-          - goos: windows
-            goarch: amd64
-            suffix: ".exe"
-          - goos: darwin
-            goarch: amd64
-            suffix: ""
-          - goos: darwin
-            goarch: arm64
-            suffix: ""
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            output_name: agent-linux-amd64
+            use_cross: false
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-latest
+            output_name: agent-linux-arm64
+            use_cross: true
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            output_name: agent-windows-amd64.exe
+            use_cross: false
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            output_name: agent-darwin-amd64
+            use_cross: false
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            output_name: agent-darwin-arm64
+            use_cross: false
 
     steps:
       # 检出代码
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 设置 Go 环境
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: ${{ env.GO_VERSION }}
-          cache-dependency-path: agent-go/go.sum
-
       # 获取版本号
       - name: Get version
         id: version
+        shell: bash
         run: |
           if [ "${{ github.event.inputs.version }}" != "" ]; then
             echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
           elif [[ "${{ github.ref }}" == refs/tags/v* ]]; then
             echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
           else
-            echo "version=2.0.0-$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+            echo "version=0.1.2" >> $GITHUB_OUTPUT
           fi
 
-      # 构建 Agent
-      - name: Build Agent
-        working-directory: agent-go
-        env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-          CGO_ENABLED: 0
+      # 更新 Cargo.toml 版本以匹配构建的目标版本
+      - name: Update Cargo.toml version
+        shell: bash
         run: |
-          OUTPUT_NAME="agent-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.suffix }}"
-          # 统一编译参数，使用运行时 -b 参数控制后台模式
-          go build -ldflags="-s -w -X main.VERSION=${{ steps.version.outputs.version }}" -o "../dist/${OUTPUT_NAME}"
-          echo "Built: ${OUTPUT_NAME}"
+          python -c "
+          import re
+          with open('agent-rust/Cargo.toml', 'r', encoding='utf-8') as f:
+              content = f.read()
+          content = re.sub(r'(?m)^version\s*=\s* Baltimore \".*\"', 'version = \"${{ steps.version.outputs.version }}\"', content, count=1)
+          # Note: fixing the regex search string above, it should be r'(?m)^version\s*=\s*\".*\"'
+          # Let's write correct python code:
+          "
+          python -c "
+          import re
+          with open('agent-rust/Cargo.toml', 'r', encoding='utf-8') as f:
+              content = f.read()
+          content = re.sub(r'(?m)^version\s*=\s*\".*\"', 'version = \"${{ steps.version.outputs.version }}\"', content, count=1)
+          with open('agent-rust/Cargo.toml', 'w', encoding='utf-8') as f:
+              f.write(content)
+          "
+          cat agent-rust/Cargo.toml
+
+      # 设置 Rust 环境与缓存
+      - name: Set up Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+        with:
+          target: ${{ matrix.target }}
+          cache: true
+
+      # 如果是 linux musl 目标，安装 musl-tools 供本地编译使用
+      - name: Install musl-tools (Linux only)
+        if: matrix.target == 'x86_64-unknown-linux-musl'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+
+      # 如果需要 cross，通过 cargo-binstall 快速安装
+      - name: Install cross (for ARM64 Linux cross-compiling)
+        if: matrix.use_cross
+        shell: bash
+        run: |
+          curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
+          cargo binstall --noconfirm cross
+
+      # 执行编译
+      - name: Build Agent
+        working-directory: agent-rust
+        shell: bash
+        run: |
+          if [ "${{ matrix.use_cross }}" = "true" ]; then
+            cross build --target ${{ matrix.target }} --release
+          else
+            cargo build --target ${{ matrix.target }} --release
+          fi
+
+      # 复制并重命名到统一命名结构目录下
+      - name: Copy & Rename Binary
+        shell: bash
+        run: |
+          mkdir -p dist
+          if [[ "${{ matrix.target }}" == *"windows"* ]]; then
+            cp agent-rust/target/${{ matrix.target }}/release/api-monitor-agent.exe dist/${{ matrix.output_name }}
+          else
+            cp agent-rust/target/${{ matrix.target }}/release/api-monitor-agent dist/${{ matrix.output_name }}
+          fi
+          ls -lh dist/
 
       # 上传构建产物
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: agent-${{ matrix.goos }}-${{ matrix.goarch }}
-          path: dist/agent-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.suffix }}
+          name: ${{ matrix.output_name }}
+          path: dist/${{ matrix.output_name }}
           retention-days: 30
 
   # 创建 Release（仅在 tag 推送时）
@@ -111,6 +161,7 @@ jobs:
       - name: Prepare release assets
         run: |
           mkdir -p release
+          # 寻找 artifacts 目录下所有上传的文件并复制到 release 根目录
           find artifacts -type f -exec cp {} release/ \;
           ls -la release/
 
@@ -120,7 +171,7 @@ jobs:
           files: release/*
           generate_release_notes: true
           body: |
-            ## API Monitor Agent ${{ github.ref_name }}
+            ## API Monitor Agent ${{ github.ref_name }} (Rust)
 
             ### 下载
 
@@ -153,7 +204,7 @@ jobs:
     steps:
       - name: Build Summary
         run: |
-          echo "## 🚀 Go Agent 构建成功" >> $GITHUB_STEP_SUMMARY
+          echo "## 🚀 Rust Agent 构建成功" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### 构建平台" >> $GITHUB_STEP_SUMMARY
           echo "| 平台 | 架构 |" >> $GITHUB_STEP_SUMMARY

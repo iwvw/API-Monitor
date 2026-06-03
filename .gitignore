@@ -17,8 +17,9 @@ accounts.json
 password.json
 sessions.json
 antigravity-accounts-*.json
-agent-go/config.json
-agent-go/*.exe
+agent-rust/config.json
+agent-rust/*.exe
+agent-rust/target/
 docs/MODULE_NAMING.md
 inspect_db.js
 inspect_logs.js

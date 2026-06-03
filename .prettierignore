@@ -12,8 +12,8 @@ data/
 *.min.css
 public/
 
-# Go 项目
-agent-go/
+# Rust 项目
+agent-rust/target/
 
 # 临时文件
 tmp/

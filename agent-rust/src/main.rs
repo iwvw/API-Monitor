@@ -23,7 +23,7 @@ use crate::file_manager::FileManager;
 use crate::pty::PtySession;
 use clap::Parser;
 
-const VERSION: &str = "0.1.2";
+const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 #[tokio::main]
 async fn main() {

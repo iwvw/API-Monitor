@@ -8,7 +8,7 @@
 
 - Node.js >= 18.x
 - npm >= 9.x
-- Go >= 1.21 (仅 Agent 开发需要)
+- Rust >= 1.75 (仅 Agent 开发需要)
 
 ### 本地开发
 
@@ -111,7 +111,7 @@ api-monitor/
 │   ├── music-api/     # 音乐 API
 │   ├── cloudflare-api/# DNS 管理
 │   └── ...
-├── agent-go/          # Go Agent 源码
+├── agent-rust/        # Rust Agent 源码
 └── test/              # 测试文件
 ```
 
