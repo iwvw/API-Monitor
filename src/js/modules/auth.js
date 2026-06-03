@@ -50,9 +50,6 @@ export const authMethods = {
         localStorage.setItem('admin_password', this.setPassword);
         localStorage.setItem('password_time', Date.now().toString());
 
-        await this.loadManagedAccounts();
-        this.loadProjectCosts();
-
         // 根据当前标签页加载对应的数据
         this.$nextTick(() => {
           switch (this.mainActiveTab) {
@@ -87,9 +84,6 @@ export const authMethods = {
   async verifyPassword() {
     const success = await this.authStore.verifyPassword();
     if (success) {
-      await this.loadManagedAccounts();
-      this.loadProjectCosts();
-
       // 根据当前标签页加载对应的数据
       this.$nextTick(() => {
         switch (this.mainActiveTab) {

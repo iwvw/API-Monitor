@@ -547,6 +547,8 @@ const app = createApp({
       serverStatusData: null, // 当前服务器状态数据
       serverStatusLoading: false, // 加载状态
       serverStatusError: '', // 错误信息
+      serverStatusTimer: null, // 自动刷新定时器
+      serverStatusInterval: 5000, // 默认刷新间隔
 
 
       // 终端相关
@@ -1021,8 +1023,6 @@ const app = createApp({
     this.authStore.checkAuth().then(() => {
       if (this.authStore.isAuthenticated) {
         // 关键业务数据
-        this.loadManagedAccounts();
-        this.loadProjectCosts();
         this.loadSnippets();
         this.loadCredentials();
 
@@ -1545,7 +1545,6 @@ const app = createApp({
 
         if (newVal === 'accounts') {
           // 加载账号
-          this.loadManagedAccounts();
           if (this.koyebManagedAccounts.length === 0) {
             this.loadKoyebManagedAccounts();
           }

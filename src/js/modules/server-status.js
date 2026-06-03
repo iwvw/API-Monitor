@@ -9,9 +9,6 @@ import { toast } from './toast.js';
  * 服务器状态方法集合
  */
 export const serverStatusMethods = {
-    serverStatusTimer: null, // 自动刷新定时器
-    serverStatusInterval: 5000, // 默认刷新间隔
-
     /**
      * 切换服务器状态侧栏
      */
