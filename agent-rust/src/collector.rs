@@ -103,8 +103,8 @@ impl Collector {
         let mut total_rx = 0;
         let mut total_tx = 0;
         for (_, interface) in &networks {
-            total_rx += interface.received();
-            total_tx += interface.transmitted();
+            total_rx += interface.total_received();
+            total_tx += interface.total_transmitted();
         }
 
         Collector {
@@ -211,12 +211,12 @@ impl Collector {
         }
 
         // Networks speeds
-        self.networks.refresh_list();
-        let mut current_rx = 0;
-        let mut current_tx = 0;
+        self.networks.refresh();
+        let mut total_rx = 0;
+        let mut total_tx = 0;
         for (_, interface) in &self.networks {
-            current_rx += interface.received();
-            current_tx += interface.transmitted();
+            total_rx += interface.total_received();
+            total_tx += interface.total_transmitted();
         }
 
         let now = Instant::now();
@@ -226,16 +226,16 @@ impl Collector {
         let mut net_out_speed = 0;
         
         if elapsed > 0.0 {
-            if current_rx >= self.last_net_rx {
-                net_in_speed = ((current_rx - self.last_net_rx) as f64 / elapsed) as u64;
+            if total_rx >= self.last_net_rx {
+                net_in_speed = ((total_rx - self.last_net_rx) as f64 / elapsed) as u64;
             }
-            if current_tx >= self.last_net_tx {
-                net_out_speed = ((current_tx - self.last_net_tx) as f64 / elapsed) as u64;
+            if total_tx >= self.last_net_tx {
+                net_out_speed = ((total_tx - self.last_net_tx) as f64 / elapsed) as u64;
             }
         }
         
-        self.last_net_rx = current_rx;
-        self.last_net_tx = current_tx;
+        self.last_net_rx = total_rx;
+        self.last_net_tx = total_tx;
         self.last_net_time = now;
 
         let uptime = System::uptime();
@@ -272,8 +272,8 @@ impl Collector {
             mem_used,
             swap_used,
             disk_used,
-            net_in_transfer: current_rx,
-            net_out_transfer: current_tx,
+            net_in_transfer: total_rx,
+            net_out_transfer: total_tx,
             net_in_speed,
             net_out_speed,
             uptime,
