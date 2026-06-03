@@ -410,7 +410,7 @@ impl Collector {
 
 async fn get_public_ip() -> String {
     let endpoints = vec![
-        "http://ip.sb",
+        "https://ip.sb",
         "https://api.ipify.org",
         "https://icanhazip.com",
     ];
@@ -421,10 +421,12 @@ async fn get_public_ip() -> String {
 
     for endpoint in endpoints {
         if let Ok(resp) = client.get(endpoint).send().await {
-            if let Ok(text) = resp.text().await {
-                let ip = text.trim();
-                if !ip.is_empty() {
-                    return ip.to_string();
+            if resp.status().is_success() {
+                if let Ok(text) = resp.text().await {
+                    let ip = text.trim();
+                    if ip.parse::<std::net::IpAddr>().is_ok() {
+                        return ip.to_string();
+                    }
                 }
             }
         }
