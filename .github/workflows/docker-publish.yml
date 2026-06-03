@@ -1,5 +1,5 @@
 # ===================================
-# API Monitor Docker Image CI/CD
+# API Monitor Docker Image CI/CD (Trigger Rebuild)
 # ===================================
 # 触发条件：
 # - 推送到 main 分支 → latest 标签
