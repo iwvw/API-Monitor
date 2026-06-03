@@ -120,7 +120,7 @@ impl Collector {
             last_gpu_mem_used: 0,
             last_gpu_power: 0.0,
             last_gpu_temp: 0.0,
-            last_gpu_time: Instant::now() - Duration::from_secs(3600), // Ensure immediate first run
+            last_gpu_time: Instant::now().checked_sub(Duration::from_secs(3600)).unwrap_or_else(Instant::now),
         }
     }
 
