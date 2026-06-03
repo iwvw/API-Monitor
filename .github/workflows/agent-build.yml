@@ -81,6 +81,10 @@ jobs:
           curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
           cargo binstall --no-confirm --force cross
 
+      - name: Remove cargo mirror config in CI
+        shell: bash
+        run: rm -f agent-rust/.cargo/config.toml
+
       - name: Build Agent
         working-directory: agent-rust
         shell: bash
