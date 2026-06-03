@@ -1,0 +1,169 @@
+=== Fetching logs for run 26870041400 ===
+========================================
+Logs for Job: build (x86_64-pc-windows-msvc, windows-latest, agent-windows-amd64.exe, false) (79242835782)
+========================================
+2026-06-03T07:25:21.6385685Z     - 1.96.0 x86_64-pc-windows-msvc ac68faa20c58cbccd01ee7208bf3b6e93a7d7f96
+2026-06-03T07:25:21.6386280Z   - CARGO_INCREMENTAL
+2026-06-03T07:25:21.6386663Z   - CARGO_PROFILE_DEV_DEBUG
+2026-06-03T07:25:21.6387066Z   - CARGO_REGISTRIES_CRATES_IO_PROTOCOL
+2026-06-03T07:25:21.6387464Z   - CARGO_TERM_COLOR
+2026-06-03T07:25:21.6387814Z   - CARGO_UNSTABLE_SPARSE_REGISTRY
+2026-06-03T07:25:21.6388259Z   - RUST_BACKTRACE
+2026-06-03T07:25:21.6388566Z   - RUSTFLAGS
+2026-06-03T07:25:21.6388889Z .. Lockfiles considered:
+2026-06-03T07:25:21.6389355Z   - D:\a\API-Monitor\API-Monitor\agent-rust\.cargo\config.toml
+2026-06-03T07:25:21.6390188Z   - D:\a\API-Monitor\API-Monitor\agent-rust\Cargo.lock
+2026-06-03T07:25:21.6390724Z   - D:\a\API-Monitor\API-Monitor\agent-rust\Cargo.toml
+2026-06-03T07:25:21.6391480Z ##[endgroup]
+2026-06-03T07:25:21.6391664Z 
+2026-06-03T07:25:21.6391803Z ... Restoring cache ...
+2026-06-03T07:25:21.9869823Z Cache hit for: v0-rust-build-Windows_NT-x64-471f593e-d6e5de59
+2026-06-03T07:25:22.4258895Z Received 50588337 of 50588337 (100.0%), 126.6 MBs/sec
+2026-06-03T07:25:22.4260828Z Cache Size: ~48 MB (50588337 B)
+2026-06-03T07:25:22.4327325Z [command]"C:\Program Files\Git\usr\bin\tar.exe" -xf D:/a/_temp/05e6283a-ac38-4332-a382-d1eacfd973c2/cache.tzst -P -C D:/a/API-Monitor/API-Monitor --force-local --use-compress-program "zstd -d"
+2026-06-03T07:25:26.6775742Z Cache restored successfully
+2026-06-03T07:25:26.6822913Z Restored from cache key "v0-rust-build-Windows_NT-x64-471f593e-d6e5de59" full match: true.
+2026-06-03T07:25:26.7203959Z ##[group]Run if [ "false" = "true" ]; then
+2026-06-03T07:25:26.7204394Z [36;1mif [ "false" = "true" ]; then[0m
+2026-06-03T07:25:26.7204771Z [36;1m  cross build --target x86_64-pc-windows-msvc --release[0m
+2026-06-03T07:25:26.7205116Z [36;1melse[0m
+2026-06-03T07:25:26.7205415Z [36;1m  cargo build --target x86_64-pc-windows-msvc --release[0m
+2026-06-03T07:25:26.7205752Z [36;1mfi[0m
+2026-06-03T07:25:26.7216433Z shell: C:\Program Files\Git\bin\bash.EXE --noprofile --norc -e -o pipefail {0}
+2026-06-03T07:25:26.7216824Z env:
+2026-06-03T07:25:26.7217027Z   CARGO_INCREMENTAL: 0
+2026-06-03T07:25:26.7217453Z   CARGO_PROFILE_DEV_DEBUG: 0
+2026-06-03T07:25:26.7217701Z   CARGO_TERM_COLOR: always
+2026-06-03T07:25:26.7217925Z   RUST_BACKTRACE: short
+2026-06-03T07:25:26.7218146Z   RUSTFLAGS: -D warnings
+2026-06-03T07:25:26.7218383Z   CARGO_UNSTABLE_SPARSE_REGISTRY: true
+2026-06-03T07:25:26.7218681Z   CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+2026-06-03T07:25:26.7219006Z   CACHE_ON_FAILURE: true
+2026-06-03T07:25:26.7219219Z ##[endgroup]
+2026-06-03T07:25:26.8984173Z [1m[92m    Updating[0m `ustc` index
+2026-06-03T07:26:20.8415983Z [1m[91merror[0m: failed to get `base64` as a dependency of package `api-monitor-agent v0.1.6 (D:\a\API-Monitor\API-Monitor\agent-rust)`
+2026-06-03T07:26:20.8416864Z 
+2026-06-03T07:26:20.8417020Z Caused by:
+2026-06-03T07:26:20.8417357Z   failed to load source for dependency `base64`
+2026-06-03T07:26:20.8417670Z 
+2026-06-03T07:26:20.8417785Z Caused by:
+2026-06-03T07:26:20.8418108Z   unable to update registry `crates-io`
+2026-06-03T07:26:20.8418420Z 
+2026-06-03T07:26:20.8418532Z Caused by:
+2026-06-03T07:26:20.8418857Z   failed to query replaced source registry `crates-io`
+2026-06-03T07:26:20.8419189Z 
+2026-06-03T07:26:20.8419287Z Caused by:
+2026-06-03T07:26:20.8419581Z   download of config.json failed
+2026-06-03T07:26:20.8419828Z 
+2026-06-03T07:26:20.8419949Z Caused by:
+2026-06-03T07:26:20.8420217Z   curl failed
+2026-06-03T07:26:20.8420421Z 
+2026-06-03T07:26:20.8420535Z Caused by:
+2026-06-03T07:26:20.8420987Z   [28] Timeout was reached (Connection timed out after 30002 milliseconds)
+2026-06-03T07:26:20.8529922Z ##[error]Process completed with exit code 101.
+2026-06-03T07:26:20.8838557Z Post job cleanup.
+2026-06-03T07:26:20.8982691Z Post job cleanup.
+2026-06-03T07:26:21.2187173Z Cache up-to-date.
+2026-06-03T07:26:21.2189981Z (node:7020) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-06-03T07:26:21.2190712Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-06-03T07:26:21.2587177Z Post job cleanup.
+2026-06-03T07:26:21.4959671Z [command]"C:\Program Files\Git\bin\git.exe" version
+2026-06-03T07:26:21.5247263Z git version 2.54.0.windows.1
+2026-06-03T07:26:21.5321890Z Temporarily overriding HOME='D:\a\_temp\fa1ed3c7-dbfd-464f-9a04-69ae336a0fe9' before making global git config changes
+2026-06-03T07:26:21.5322637Z Adding repository directory to the temporary git global config as a safe directory
+2026-06-03T07:26:21.5333502Z [command]"C:\Program Files\Git\bin\git.exe" config --global --add safe.directory D:\a\API-Monitor\API-Monitor
+2026-06-03T07:26:21.5671345Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp core\.sshCommand
+2026-06-03T07:26:21.6003094Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :\""
+2026-06-03T07:26:22.1797395Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-06-03T07:26:22.2073816Z http.https://github.com/.extraheader
+2026-06-03T07:26:22.2122527Z [command]"C:\Program Files\Git\bin\git.exe" config --local --unset-all http.https://github.com/.extraheader
+2026-06-03T07:26:22.2436884Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "sh -c \"git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :\""
+2026-06-03T07:26:22.8076946Z [command]"C:\Program Files\Git\bin\git.exe" config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-06-03T07:26:22.8403413Z [command]"C:\Program Files\Git\bin\git.exe" submodule foreach --recursive "git config --local --show-origin --name-only --get-regexp remote.origin.url"
+2026-06-03T07:26:23.4164876Z Cleaning up orphan processes
+2026-06-03T07:26:23.4218819Z ##[warning]Node.js 20 actions are deprecated. The following actions are running on Node.js 20 and may not work as expected: actions/checkout@v4. Actions will be forced to run with Node.js 24 by default starting June 16th, 2026. Node.js 20 will be removed from the runner on September 16th, 2026. Please check if updated versions of these actions are available that support Node.js 24. To opt into Node.js 24 now, set the FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true environment variable on the runner or in your workflow file. Once Node.js 24 becomes the default, you can temporarily opt out by setting ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+
+========================================
+Logs for Job: build (x86_64-apple-darwin, macos-latest, agent-darwin-amd64, false) (79242835789)
+========================================
+2026-06-03T07:25:11.6183800Z   - CARGO_REGISTRIES_CRATES_IO_PROTOCOL
+2026-06-03T07:25:11.6186260Z   - CARGO_TERM_COLOR
+2026-06-03T07:25:11.6186510Z   - CARGO_UNSTABLE_SPARSE_REGISTRY
+2026-06-03T07:25:11.6187810Z   - RUST_BACKTRACE
+2026-06-03T07:25:11.6189370Z   - RUSTFLAGS
+2026-06-03T07:25:11.6189570Z .. Lockfiles considered:
+2026-06-03T07:25:11.6189870Z   - /Users/runner/work/API-Monitor/API-Monitor/agent-rust/.cargo/config.toml
+2026-06-03T07:25:11.6190290Z   - /Users/runner/work/API-Monitor/API-Monitor/agent-rust/Cargo.lock
+2026-06-03T07:25:11.6190660Z   - /Users/runner/work/API-Monitor/API-Monitor/agent-rust/Cargo.toml
+2026-06-03T07:25:11.6191350Z ##[endgroup]
+2026-06-03T07:25:11.6191440Z 
+2026-06-03T07:25:11.6191570Z ... Restoring cache ...
+2026-06-03T07:25:11.8006490Z Cache hit for: v0-rust-build-Darwin-arm64-5b8419e7-1d62e0d2
+2026-06-03T07:25:12.9910870Z Received 33554432 of 170420034 (19.7%), 32.0 MBs/sec
+2026-06-03T07:25:13.9917370Z Received 130023424 of 170420034 (76.3%), 62.0 MBs/sec
+2026-06-03T07:25:14.8653430Z Received 170420034 of 170420034 (100.0%), 56.6 MBs/sec
+2026-06-03T07:25:14.8754220Z Cache Size: ~163 MB (170420034 B)
+2026-06-03T07:25:14.8813920Z [command]/opt/homebrew/bin/gtar -xf /Users/runner/work/_temp/d982bd2e-b486-4d5d-bab4-b7b9daa436a1/cache.tzst -P -C /Users/runner/work/API-Monitor/API-Monitor --delay-directory-restore --use-compress-program unzstd
+2026-06-03T07:25:17.6897300Z Cache restored successfully
+2026-06-03T07:25:17.6990400Z Restored from cache key "v0-rust-build-Darwin-arm64-5b8419e7-1d62e0d2" full match: true.
+2026-06-03T07:25:17.7334370Z ##[group]Run if [ "false" = "true" ]; then
+2026-06-03T07:25:17.7334790Z [36;1mif [ "false" = "true" ]; then[0m
+2026-06-03T07:25:17.7335250Z [36;1m  cross build --target x86_64-apple-darwin --release[0m
+2026-06-03T07:25:17.7335700Z [36;1melse[0m
+2026-06-03T07:25:17.7336180Z [36;1m  cargo build --target x86_64-apple-darwin --release[0m
+2026-06-03T07:25:17.7336580Z [36;1mfi[0m
+2026-06-03T07:25:17.7361700Z shell: /opt/homebrew/bin/bash --noprofile --norc -e -o pipefail {0}
+2026-06-03T07:25:17.7363120Z env:
+2026-06-03T07:25:17.7363400Z   CARGO_INCREMENTAL: 0
+2026-06-03T07:25:17.7363750Z   CARGO_PROFILE_DEV_DEBUG: 0
+2026-06-03T07:25:17.7364050Z   CARGO_TERM_COLOR: always
+2026-06-03T07:25:17.7365210Z   RUST_BACKTRACE: short
+2026-06-03T07:25:17.7366280Z   RUSTFLAGS: -D warnings
+2026-06-03T07:25:17.7366810Z   CARGO_UNSTABLE_SPARSE_REGISTRY: true
+2026-06-03T07:25:17.7367480Z   CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+2026-06-03T07:25:17.7368110Z   CACHE_ON_FAILURE: true
+2026-06-03T07:25:17.7369480Z ##[endgroup]
+2026-06-03T07:25:18.2530370Z [1m[92m    Updating[0m `ustc` index
+2026-06-03T07:25:50.5867920Z [1m[91merror[0m: failed to get `base64` as a dependency of package `api-monitor-agent v0.1.6 (/Users/runner/work/API-Monitor/API-Monitor/agent-rust)`
+2026-06-03T07:25:50.5870980Z 
+2026-06-03T07:25:50.5872280Z Caused by:
+2026-06-03T07:25:50.5873610Z   failed to load source for dependency `base64`
+2026-06-03T07:25:50.5874040Z 
+2026-06-03T07:25:50.5874110Z Caused by:
+2026-06-03T07:25:50.5875870Z   unable to update registry `crates-io`
+2026-06-03T07:25:50.5877760Z 
+2026-06-03T07:25:50.5878110Z Caused by:
+2026-06-03T07:25:50.5878410Z   failed to query replaced source registry `crates-io`
+2026-06-03T07:25:50.5878690Z 
+2026-06-03T07:25:50.5879010Z Caused by:
+2026-06-03T07:25:50.5879530Z   download of config.json failed
+2026-06-03T07:25:50.5881290Z 
+2026-06-03T07:25:50.5882070Z Caused by:
+2026-06-03T07:25:50.5884680Z   curl failed
+2026-06-03T07:25:50.5906300Z 
+2026-06-03T07:25:50.5907330Z Caused by:
+2026-06-03T07:25:50.5907790Z   [28] Timeout was reached (SSL connection timeout)
+2026-06-03T07:25:50.5958030Z ##[error]Process completed with exit code 101.
+2026-06-03T07:25:50.6521980Z Post job cleanup.
+2026-06-03T07:25:50.6714790Z Post job cleanup.
+2026-06-03T07:25:51.1500580Z Cache up-to-date.
+2026-06-03T07:25:51.1536010Z (node:3518) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+2026-06-03T07:25:51.1576480Z (Use `node --trace-deprecation ...` to show where the warning was created)
+2026-06-03T07:25:51.1808340Z Post job cleanup.
+2026-06-03T07:25:51.6092370Z [command]/opt/homebrew/bin/git version
+2026-06-03T07:25:51.6419240Z git version 2.54.0
+2026-06-03T07:25:51.6483690Z Copying '/Users/runner/.gitconfig' to '/Users/runner/work/_temp/ae32a3d8-f9ac-4d13-b2c8-54ea5bbdf815/.gitconfig'
+2026-06-03T07:25:51.6503430Z Temporarily overriding HOME='/Users/runner/work/_temp/ae32a3d8-f9ac-4d13-b2c8-54ea5bbdf815' before making global git config changes
+2026-06-03T07:25:51.6505310Z Adding repository directory to the temporary git global config as a safe directory
+2026-06-03T07:25:51.6524140Z [command]/opt/homebrew/bin/git config --global --add safe.directory /Users/runner/work/API-Monitor/API-Monitor
+2026-06-03T07:25:51.6714940Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp core\.sshCommand
+2026-06-03T07:25:51.6827840Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+2026-06-03T07:25:51.8262760Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+2026-06-03T07:25:51.8326260Z http.https://github.com/.extraheader
+2026-06-03T07:25:51.8335990Z [command]/opt/homebrew/bin/git config --local --unset-all http.https://github.com/.extraheader
+2026-06-03T07:25:51.8415750Z [command]/opt/homebrew/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+2026-06-03T07:25:51.9395850Z [command]/opt/homebrew/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+2026-06-03T07:25:51.9471510Z [command]/opt/homebrew/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+2026-06-03T07:25:52.0889220Z Cleaning up orphan processes
+2026-06-03T07:25:52.7035010Z ##[warning]Node.js 20 actions are deprecated. The following actions are running on Node.js 20 and may not work as expected: actions/checkout@v4. Actions will be forced to run with Node.js 24 by default starting June 16th, 2026. Node.js 20 will be removed from the runner on September 16th, 2026. Please check if updated versions of these actions are available that support Node.js 24. To opt into Node.js 24 now, set the FORCE_JAVASCRIPT_ACTIONS_TO_NODE24=true environment variable on the runner or in your workflow file. Once Node.js 24 becomes the default, you can temporarily opt out by setting ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+
