@@ -155,7 +155,40 @@ impl Collector {
         // Disks total
         self.disks.refresh_list();
         let mut disk_total = 0;
+        let mut seen_devices = Vec::new();
         for disk in &self.disks {
+            let fs = disk.file_system().to_string_lossy().to_lowercase();
+            if fs == "tmpfs"
+                || fs == "overlay"
+                || fs == "devtmpfs"
+                || fs == "proc"
+                || fs == "sysfs"
+                || fs == "cgroup"
+                || fs == "devpts"
+                || fs == "configfs"
+                || fs == "debugfs"
+                || fs == "tracefs"
+                || fs == "hugetlbfs"
+                || fs == "mqueue"
+                || fs == "pstore"
+                || fs == "securityfs"
+                || fs == "fusectl"
+                || fs == "nsfs"
+                || fs == "autofs"
+                || fs == "binfmt_misc"
+                || fs == "squashfs"
+                || fs == "udev"
+                || fs == "iso9660"
+            {
+                continue;
+            }
+            let device_name = disk.name().to_string_lossy().to_string();
+            if device_name.starts_with('/') {
+                if seen_devices.contains(&device_name) {
+                    continue;
+                }
+                seen_devices.push(device_name);
+            }
             disk_total += disk.total_space();
         }
 
@@ -206,7 +239,40 @@ impl Collector {
         // Disk usage
         self.disks.refresh_list();
         let mut disk_used = 0;
+        let mut seen_devices = Vec::new();
         for disk in &self.disks {
+            let fs = disk.file_system().to_string_lossy().to_lowercase();
+            if fs == "tmpfs"
+                || fs == "overlay"
+                || fs == "devtmpfs"
+                || fs == "proc"
+                || fs == "sysfs"
+                || fs == "cgroup"
+                || fs == "devpts"
+                || fs == "configfs"
+                || fs == "debugfs"
+                || fs == "tracefs"
+                || fs == "hugetlbfs"
+                || fs == "mqueue"
+                || fs == "pstore"
+                || fs == "securityfs"
+                || fs == "fusectl"
+                || fs == "nsfs"
+                || fs == "autofs"
+                || fs == "binfmt_misc"
+                || fs == "squashfs"
+                || fs == "udev"
+                || fs == "iso9660"
+            {
+                continue;
+            }
+            let device_name = disk.name().to_string_lossy().to_string();
+            if device_name.starts_with('/') {
+                if seen_devices.contains(&device_name) {
+                    continue;
+                }
+                seen_devices.push(device_name);
+            }
             disk_used += disk.total_space() - disk.available_space();
         }
 
