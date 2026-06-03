@@ -579,7 +579,14 @@ impl DockerBridge {
 
         let mut containers = Vec::new();
 
-        if let Some(ref cid) = req.container_id {
+        let has_specific_container = if let Some(ref cid) = req.container_id {
+            !cid.trim().is_empty()
+        } else {
+            false
+        };
+
+        if has_specific_container {
+            let cid = req.container_id.as_ref().unwrap();
             let c = docker_client.inspect_container(cid, None)
                 .await
                 .map_err(|e| format!("获取容器信息失败: {}", e))?;
