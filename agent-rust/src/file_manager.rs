@@ -1,6 +1,6 @@
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::io::{Read, Write, Seek, SeekFrom};
+use std::io::{Read, Seek, SeekFrom};
 use serde::{Serialize, Deserialize};
 use base64::{Engine as _, engine::general_purpose};
 
@@ -73,6 +73,7 @@ pub struct FileStatRequest {
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 pub struct FileChmodRequest {
     pub path: String,
     pub mode: u32,
@@ -331,14 +332,13 @@ impl FileManager {
             return Err("路径不能为空".to_string());
         }
 
-        let abs_path = resolve_path(&req.path)?;
-
         if cfg!(target_os = "windows") {
             return Err("Windows 系统不支持 chmod 操作".to_string());
         }
 
         #[cfg(unix)]
         {
+            let abs_path = resolve_path(&req.path)?;
             use std::os::unix::fs::PermissionsExt;
             fs::set_permissions(&abs_path, fs::Permissions::from_mode(req.mode))
                 .map_err(|e| format!("修改权限失败: {}", e))?;

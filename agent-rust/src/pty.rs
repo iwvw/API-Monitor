@@ -2,12 +2,14 @@ use std::sync::{Arc, Mutex};
 use std::io::{Read, Write};
 use portable_pty::{PtySize, native_pty_system, CommandBuilder, PtyPair, Child};
 
+#[allow(dead_code)]
 pub struct PtySession {
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
     pair: Mutex<PtyPair>,
     child: Box<dyn Child + Send + Sync>,
 }
 
+#[allow(dead_code)]
 impl PtySession {
     pub fn new(cols: u32, rows: u32) -> Result<Self, String> {
         let pty_system = native_pty_system();
@@ -20,7 +22,8 @@ impl PtySession {
         }).map_err(|e| format!("打开 PTY 失败: {}", e))?;
 
         let shell = detect_shell();
-        let cmd = CommandBuilder::new(shell);
+        #[allow(unused_mut)]
+        let mut cmd = CommandBuilder::new(shell);
         
         #[cfg(unix)]
         cmd.env("TERM", "xterm-256color");

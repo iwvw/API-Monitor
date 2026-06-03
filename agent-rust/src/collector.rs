@@ -3,7 +3,6 @@ use std::time::{Duration, Instant};
 use serde::{Serialize, Deserialize};
 use sysinfo::{System, Disks, Networks, Components};
 
-use crate::config::Config;
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct HostInfo {

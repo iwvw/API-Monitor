@@ -147,7 +147,7 @@ async fn run_client(
     tx.send("2probe".to_string()).await.map_err(|_| "发送升级探针失败")?;
 
     // Wait for 3probe and namespace connect
-    let mut authenticated = Arc::new(tokio::sync::Mutex::new(false));
+    let authenticated = Arc::new(tokio::sync::Mutex::new(false));
 
     // Handle WebSocket receiver loop
     let tx_clone = tx.clone();
@@ -159,7 +159,6 @@ async fn run_client(
     let config_clone = config.clone();
 
     let mut read_task = tokio::spawn(async move {
-        let mut initial_host_sent = false;
 
         while let Some(Ok(Message::Text(text))) = ws_reader.next().await {
             if config_clone.debug && text.as_str() != "2" && text.as_str() != "3" {
@@ -234,7 +233,7 @@ async fn run_client(
                             tokio::spawn(async move {
                                 let start_time = Instant::now();
                                 let mut successful = false;
-                                let mut res_data = String::new();
+                                let res_data;
 
                                 match task.task_type {
                                     1 => { // COMMAND
@@ -783,7 +782,7 @@ async fn handle_docker_rename_container(data: &str) -> Result<String, String> {
     }
 }
 
-async fn handle_upgrade(task_id: &str, config: &Config) {
+async fn handle_upgrade(_task_id: &str, config: &Config) {
     sleep(Duration::from_secs(1)).await;
     println!("[Upgrade] 开始执行升级流程...");
 

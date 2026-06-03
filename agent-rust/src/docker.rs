@@ -8,6 +8,7 @@ use crate::protocol::{DockerCheckUpdateRequest, DockerImageUpdateStatus};
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
+#[allow(dead_code)]
 pub struct DockerActionRequest {
     pub action: String,
     pub container_id: String,
@@ -671,7 +672,7 @@ impl DockerBridge {
         service: &str,
         working_dir: &str,
         config_files: &str,
-        container_name: &str,
+        _container_name: &str,
         update_progress: impl Fn(i32, &str, &str),
     ) -> Result<(), String> {
         update_progress(10, "检测到 Compose 容器，准备拉取镜像...", "");
