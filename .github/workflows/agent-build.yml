@@ -99,6 +99,7 @@ jobs:
         with:
           target: ${{ matrix.target }}
           cache: true
+          cache-workspaces: agent-rust
 
       # 如果是 linux musl 目标，安装 musl-tools 供本地编译使用
       - name: Install musl-tools (Linux only)
@@ -113,7 +114,7 @@ jobs:
         shell: bash
         run: |
           curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cargo-bins/cargo-binstall/main/install-from-binstall-release.sh | bash
-          cargo binstall --noconfirm cross
+          cargo binstall --no-confirm cross
 
       # 执行编译
       - name: Build Agent
