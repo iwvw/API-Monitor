@@ -29,6 +29,7 @@ export const hostMethods = {
       passphrase: '',
       tagsInput: '',
       description: '',
+      country: 'auto',
     };
 
     // 确保凭据列表已加载
@@ -77,6 +78,7 @@ export const hostMethods = {
             passphrase: '',
             tagsInput: Array.isArray(server.tags) ? server.tags.join(',') : '',
             description: server.description || '',
+            country: server.country || '',
           };
           this.showServerModal = true;
         } else {
@@ -266,6 +268,7 @@ export const hostMethods = {
         auth_type: this.serverForm.authType === 'privateKey' ? 'key' : this.serverForm.authType,
         tags: tags,
         description: this.serverForm.description,
+        country: this.serverForm.country || null,
       };
 
       // 只在有值时才发送密码/私钥
@@ -2751,6 +2754,42 @@ export const hostMethods = {
       return 'fab fa-freebsd';
 
     return 'fas fa-server';
+  },
+
+  // 根据国家/地区代码获取国旗 Emoji (用于 select 选项文本等 fallback 场景)
+  getFlagEmoji(country) {
+    if (!country) return '';
+    const code = country.toLowerCase();
+    const flags = {
+      cn: '🇨🇳',
+      hk: '🇭🇰',
+      tw: '🇹🇼',
+      sg: '🇸🇬',
+      jp: '🇯🇵',
+      kr: '🇰🇷',
+      us: '🇺🇸',
+      gb: '🇬🇧',
+      de: '🇩🇪',
+      fr: '🇫🇷',
+      ru: '🇷🇺',
+      ca: '🇨🇦',
+      au: '🇦🇺',
+      nl: '🇳🇱',
+      in: '🇮🇳',
+      vn: '🇻🇳',
+      th: '🇹🇭',
+      my: '🇲🇾',
+    };
+    return flags[code] || '';
+  },
+
+  // 获取服务器的有效国家代码 (处理自动检测/手动指定)
+  getFlagCountry(server) {
+    if (!server) return '';
+    if (server.country === 'auto') {
+      return server.resolved_country || '';
+    }
+    return server.country || '';
   },
 
   // 获取操作系统颜色

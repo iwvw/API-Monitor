@@ -529,9 +529,25 @@ class DatabaseService {
             this.db.exec("ALTER TABLE server_accounts ADD COLUMN monitor_mode TEXT DEFAULT 'ssh'");
             logger.success('server_accounts.monitor_mode 字段添加成功');
           }
+
+          // 添加 country 字段
+          const hasCountry = serverColumns.some(col => col.name === 'country');
+          if (!hasCountry) {
+            logger.info('正在为 server_accounts 表添加 country 字段...');
+            this.db.exec('ALTER TABLE server_accounts ADD COLUMN country TEXT');
+            logger.success('server_accounts.country 字段添加成功');
+          }
+
+          // 添加 resolved_country 字段
+          const hasResolvedCountry = serverColumns.some(col => col.name === 'resolved_country');
+          if (!hasResolvedCountry) {
+            logger.info('正在为 server_accounts 表添加 resolved_country 字段...');
+            this.db.exec('ALTER TABLE server_accounts ADD COLUMN resolved_country TEXT');
+            logger.success('server_accounts.resolved_country 字段添加成功');
+          }
         }
       } catch (err) {
-        logger.error('Server Accounts monitor_mode 迁移失败:', err.message);
+        logger.error('Server Accounts 迁移失败:', err.message);
       }
 
       // Server Metrics History 迁移: 添加 platform 字段

@@ -530,6 +530,9 @@ export const metricsMethods = {
       if (additionalData.responseTime !== undefined) {
         server.response_time = additionalData.responseTime;
       }
+      if (additionalData.resolved_country !== undefined) {
+        server.resolved_country = additionalData.resolved_country;
+      }
       if (status === 'offline') {
         server.error = additionalData.error || 'Agent 离线';
       } else {

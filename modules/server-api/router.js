@@ -205,6 +205,7 @@ router.post('/accounts', (req, res) => {
       passphrase,
       tags,
       description,
+      country,
     } = req.body;
     if (!name || !host || !username || !auth_type) {
       return res.status(400).json({ success: false, error: '缺少必填字段' });
@@ -220,6 +221,7 @@ router.post('/accounts', (req, res) => {
       passphrase,
       tags,
       description,
+      country,
     });
     res.json({ success: true, message: '服务器添加成功', data: server });
   } catch (error) {

@@ -24,10 +24,18 @@
       <div class="card-top">
         <div class="icon-box"><i class="fas fa-server"></i></div>
         <div class="card-status-group">
-          <span class="trend-badge"
-            :class="dashboardStats.servers.total === 0 ? 'neutral' : (dashboardStats.servers.online === dashboardStats.servers.total ? 'positive' : (dashboardStats.servers.online === 0 ? 'negative' : 'warning'))">
-            {{ dashboardStats.servers.online }} / {{ dashboardStats.servers.total }} 在线
-          </span>
+          <div class="status-bar-wrapper">
+            <span class="status-bar-text" :class="dashboardStats.servers.total === 0 ? 'neutral' : (dashboardStats.servers.online === dashboardStats.servers.total ? 'positive' : (dashboardStats.servers.online === 0 ? 'negative' : 'warning'))">
+              {{ dashboardStats.servers.online }}/{{ dashboardStats.servers.total }} 在线
+            </span>
+            <div class="status-segments">
+              <span v-for="i in (dashboardStats.servers.total <= 10 ? dashboardStats.servers.total : 10)" 
+                :key="i" 
+                class="status-segment"
+                :class="i <= (dashboardStats.servers.total <= 10 ? dashboardStats.servers.online : Math.round((dashboardStats.servers.online / (dashboardStats.servers.total || 1)) * 10)) ? 'filled-green' : 'filled-red'">
+              </span>
+            </div>
+          </div>
         </div>
       </div>
       <div class="card-main-content">
@@ -80,7 +88,18 @@
       <div class="card-top">
         <div class="icon-box"><i class="fas fa-cubes"></i></div>
         <div class="card-status-group">
-          <span class="trend-badge tag-badge">PaaS</span>
+          <div class="status-bar-wrapper">
+            <span class="status-bar-text" style="color: #38bdf8;">
+              {{ (dashboardStats.paas.koyeb.running + dashboardStats.paas.fly.running) }}/{{ (dashboardStats.paas.koyeb.total + dashboardStats.paas.fly.total) }} 运行
+            </span>
+            <div class="status-segments">
+              <span v-for="i in ((dashboardStats.paas.koyeb.total + dashboardStats.paas.fly.total) <= 10 ? (dashboardStats.paas.koyeb.total + dashboardStats.paas.fly.total) : 10)" 
+                :key="i" 
+                class="status-segment"
+                :class="{ 'filled-cyan': i <= ((dashboardStats.paas.koyeb.total + dashboardStats.paas.fly.total) <= 10 ? (dashboardStats.paas.koyeb.running + dashboardStats.paas.fly.running) : Math.round(((dashboardStats.paas.koyeb.running + dashboardStats.paas.fly.running) / ((dashboardStats.paas.koyeb.total + dashboardStats.paas.fly.total) || 1)) * 10)) }">
+              </span>
+            </div>
+          </div>
         </div>
       </div>
       <div class="card-main-content">
@@ -124,9 +143,20 @@
       <i class="fas fa-heartbeat card-icon-large"></i>
       <div class="card-top">
         <div class="icon-box"><i class="fas fa-signal"></i></div>
-        <span class="trend-badge" :class="dashboardStats.uptime.down > 0 ? 'negative' : 'positive'">
-          {{ dashboardStats.uptime.up }} / {{ dashboardStats.uptime.total }} 在线
-        </span>
+        <div class="card-status-group">
+          <div class="status-bar-wrapper">
+            <span class="status-bar-text" :class="dashboardStats.uptime.down > 0 ? 'negative' : 'positive'">
+              {{ dashboardStats.uptime.up }}/{{ dashboardStats.uptime.total }} 在线
+            </span>
+            <div class="status-segments">
+              <span v-for="i in (dashboardStats.uptime.total <= 10 ? dashboardStats.uptime.total : 10)" 
+                :key="i" 
+                class="status-segment"
+                :class="i <= (dashboardStats.uptime.total <= 10 ? dashboardStats.uptime.up : Math.round((dashboardStats.uptime.up / (dashboardStats.uptime.total || 1)) * 10)) ? 'filled-purple' : 'filled-red'">
+              </span>
+            </div>
+          </div>
+        </div>
       </div>
       <div class="card-main-content">
         <span class="card-label">服务监控</span>

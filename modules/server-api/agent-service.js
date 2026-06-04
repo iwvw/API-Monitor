@@ -627,6 +627,12 @@ class AgentService extends EventEmitter {
           last_check_status: 'success',
           cached_info: hostInfo,
         });
+
+        // 自动查询 IP 归属地
+        const server = serverStorage.getById(serverId);
+        if (server && server.country === 'auto' && hostInfo.ip) {
+          this.lookupCountryByIP(serverId, hostInfo.ip);
+        }
       } catch (err) {
         // Ignore
       }
@@ -745,6 +751,32 @@ class AgentService extends EventEmitter {
     socket.on('error', err => {
       console.error(`[AgentService] Socket 错误 (${serverId || socket.id}):`, err.message);
     });
+  }
+
+  /**
+   * 根据 IP 获取国家代码并存入数据库
+   */
+  async lookupCountryByIP(serverId, ip) {
+    if (!ip) return;
+    try {
+      const axios = require('axios');
+      const url = `http://ip-api.com/json/${ip}?fields=status,countryCode`;
+      const response = await axios.get(url, { timeout: 5000 });
+      if (response.data && response.data.status === 'success' && response.data.countryCode) {
+        const countryCode = response.data.countryCode.toLowerCase();
+        this.log(`IP 地理位置查询成功: ${ip} -> ${countryCode}`);
+        
+        // 更新数据库中自动检测解析出来的国家代码
+        const server = serverStorage.getById(serverId);
+        if (server && server.country === 'auto') {
+          serverStorage.update(serverId, { resolved_country: countryCode });
+          // 广播最新的已解析国家代码给前端，使其立即刷新渲染
+          this.broadcastServerStatus(serverId, 'online', { resolved_country: countryCode });
+        }
+      }
+    } catch (err) {
+      console.error(`[AgentService] 查询 IP 地理位置失败 (${ip}):`, err.message);
+    }
   }
 
   /**

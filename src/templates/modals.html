@@ -1089,6 +1089,31 @@
               <label><i class="fas fa-id-badge"></i> 实例名称</label>
               <input type="text" v-model="serverForm.name" class="form-input" placeholder="如: 生产环境-网关" required />
             </div>
+            <div class="form-group flex-1">
+              <label><i class="fas fa-globe"></i> 归属国家/地区</label>
+              <select class="form-input" v-model="serverForm.country">
+                <option value="auto">📡 自动探测 (Auto Detect)</option>
+                <option value="">-- 无国旗 --</option>
+                <option value="cn">🇨🇳 中国 (China)</option>
+                <option value="hk">🇭🇰 香港 (Hong Kong)</option>
+                <option value="tw">🇹🇼 台湾 (Taiwan)</option>
+                <option value="sg">🇸🇬 新加坡 (Singapore)</option>
+                <option value="jp">🇯🇵 日本 (Japan)</option>
+                <option value="kr">🇰🇷 韩国 (Korea)</option>
+                <option value="us">🇺🇸 美国 (United States)</option>
+                <option value="gb">🇬🇧 英国 (United Kingdom)</option>
+                <option value="de">🇩🇪 德国 (Germany)</option>
+                <option value="fr">🇫🇷 法国 (France)</option>
+                <option value="ru">🇷🇺 俄罗斯 (Russia)</option>
+                <option value="ca">🇨🇦 加拿大 (Canada)</option>
+                <option value="au">🇦🇺 澳大利亚 (Australia)</option>
+                <option value="nl">🇳🇱 荷兰 (Netherlands)</option>
+                <option value="in">🇮🇳 印度 (India)</option>
+                <option value="vn">🇻🇳 越南 (Vietnam)</option>
+                <option value="th">🇹🇭 泰国 (Thailand)</option>
+                <option value="my">🇲🇾 马来西亚 (Malaysia)</option>
+              </select>
+            </div>
           </div>
 
           <div class="form-row">
@@ -1731,7 +1756,7 @@
                   style="font-size: 10px; color: white"></i>
               </div>
               <div style="flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">
-                <span style="font-size: 13px; font-weight: 600">{{ server.name }}</span>
+                <span style="font-size: 13px; font-weight: 600"><img v-if="getFlagCountry(server)" :src="'https://flagcdn.com/w20/' + getFlagCountry(server).toLowerCase() + '.png'" class="server-flag-icon" :alt="getFlagCountry(server)">{{ server.name }}</span>
               </div>
             </div>
           </div>
@@ -1830,7 +1855,7 @@
             <i class="fas fa-server"></i>
           </div>
           <div class="server-select-info">
-            <div class="server-select-name">{{ server.name }}</div>
+            <div class="server-select-name"><img v-if="getFlagCountry(server)" :src="'https://flagcdn.com/w20/' + getFlagCountry(server).toLowerCase() + '.png'" class="server-flag-icon" :alt="getFlagCountry(server)">{{ server.name }}</div>
             <div class="server-select-host">{{ server.host }}:{{ server.port }}</div>
           </div>
           <div class="server-select-status">
@@ -2719,7 +2744,7 @@
             <i class="fas fa-server"></i>
           </div>
           <div class="server-select-info">
-            <div class="server-select-name">{{ server.name }}</div>
+            <div class="server-select-name"><img v-if="getFlagCountry(server)" :src="'https://flagcdn.com/w20/' + getFlagCountry(server).toLowerCase() + '.png'" class="server-flag-icon" :alt="getFlagCountry(server)">{{ server.name }}</div>
             <div class="server-select-host">{{ server.host }}:{{ server.port }}</div>
           </div>
           <div class="server-select-status">

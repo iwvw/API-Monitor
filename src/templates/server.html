@@ -46,7 +46,7 @@
                 class="ssh-quick-item">
                 <div :class="['server-status-indicator', server.status || 'unknown']"></div>
                 <div class="ssh-quick-item-info">
-                  <div class="ssh-quick-item-name">{{ server.name }}</div>
+                  <div class="ssh-quick-item-name"><img v-if="getFlagCountry(server)" :src="'https://flagcdn.com/w20/' + getFlagCountry(server).toLowerCase() + '.png'" class="server-flag-icon" :alt="getFlagCountry(server)">{{ server.name }}</div>
                   <div v-if="(server.host && server.host !== '0.0.0.0') || (server.info && server.info.ip)" class="ssh-quick-item-host">
                     {{ server.host || server.info.ip }}
                   </div>
@@ -221,7 +221,7 @@
                   color: var(--text-primary);
                   white-space: nowrap;
                   overflow: hidden;
-                " title="双击重命名">{{ server.name }}</span>
+                " title="双击重命名"><img v-if="getFlagCountry(server)" :src="'https://flagcdn.com/w20/' + getFlagCountry(server).toLowerCase() + '.png'" class="server-flag-icon" :alt="getFlagCountry(server)">{{ server.name }}</span>
               <input v-else v-model="server.editingName" :ref="'serverNameInput_' + server.id"
                 @keyup.enter="renameServer(server)" @keyup.esc="cancelEditServerName(server)"
                 @blur="renameServer(server)" @click.stop style="
@@ -238,31 +238,17 @@
 
               <!-- Tags (Moved to right of name) -->
               <div v-if="server.tags && server.tags.length > 0" style="display: flex; gap: 4px">
-                <span v-for="tag in server.tags" :key="tag" style="
-                    font-size: 8px;
-                    padding: 1px 5px;
-                    border-radius: 4px;
-                    background: rgba(var(--primary-rgb), 0.1);
-                    color: var(--primary-color);
-                    border: 1px solid rgba(var(--primary-rgb), 0.2);
-                    font-weight: 600;
-                  ">{{ tag }}</span>
-              </div>
-
-              <!-- Latency Pill Badge -->
-              <div v-if="server.response_time" :style="{
-                display: 'inline-flex',
-                alignItems: 'center',
-                padding: '1px 6px',
-                borderRadius: '20px',
-                fontSize: '9px',
-                fontWeight: '800',
-                fontFamily: 'var(--font-mono)',
-                background: server.response_time < 100 ? 'rgba(16, 185, 129, 0.1)' : (server.response_time < 300 ? 'rgba(245, 158, 11, 0.1)' : 'rgba(239, 68, 68, 0.1)'),
-                color: server.response_time < 100 ? '#10b981' : (server.response_time < 300 ? '#f59e0b' : '#ef4444'),
-                border: '1px solid ' + (server.response_time < 100 ? 'rgba(16, 185, 129, 0.2)' : (server.response_time < 300 ? 'rgba(245, 158, 11, 0.2)' : 'rgba(239, 68, 68, 0.2)'))
-              }">
-                {{ server.response_time }}ms
+                <template v-for="tag in server.tags" :key="tag">
+                  <span v-if="tag !== 'Agent'" style="
+                      font-size: 8px;
+                      padding: 1px 5px;
+                      border-radius: 4px;
+                      background: rgba(var(--primary-rgb), 0.1);
+                      color: var(--primary-color);
+                      border: 1px solid rgba(var(--primary-rgb), 0.2);
+                      font-weight: 600;
+                    ">{{ tag }}</span>
+                </template>
               </div>
             </div>
           </div>
@@ -1427,7 +1413,7 @@
               <select v-model="metricsHistoryFilter.serverId" @change="loadMetricsHistory(1)">
                 <option value="">全部主机</option>
                 <option v-for="server in serverList" :key="server.id" :value="server.id">
-                  {{ server.name }}
+                  {{ getFlagEmoji(getFlagCountry(server)) ? getFlagEmoji(getFlagCountry(server)) + ' ' : '' }}{{ server.name }}
                 </option>
               </select>
               <i class="fas fa-chevron-down"></i>
@@ -2385,7 +2371,7 @@
                     :style="{ color: getOSColor(server.info.platform), fontSize: '14px', width: '16px', textAlign: 'center' }"></i>
                   <i v-else class="fas fa-server"
                     style="font-size: 12px; color: var(--server-primary); opacity: 0.7"></i>
-                  <strong>{{ server.name }}</strong>
+                  <strong><img v-if="getFlagCountry(server)" :src="'https://flagcdn.com/w20/' + getFlagCountry(server).toLowerCase() + '.png'" class="server-flag-icon" :alt="getFlagCountry(server)">{{ server.name }}</strong>
                 </div>
               </td>
               <td v-if="(server.host && server.host !== '0.0.0.0') || (server.info && server.info.ip)">
@@ -2782,7 +2768,7 @@ Web服务器,192.168.1.100,22,root,password123
             @click="tab.isGroup ? switchToSSHTab(tab.sessions[0].id) : switchToSSHTab(tab.id)"
             @dblclick="tab.isGroup ? null : closeSSHSession(tab.id)"
             @mousedown.middle.stop="tab.isGroup ? null : closeSSHSession(tab.id)">
-            <span class="ssh-tab-name">{{ tab.name || tab.server.name }}</span>
+            <span class="ssh-tab-name"><img v-if="tab.server && getFlagCountry(tab.server)" :src="'https://flagcdn.com/w20/' + getFlagCountry(tab.server).toLowerCase() + '.png'" class="server-flag-icon" :alt="getFlagCountry(tab.server)">{{ tab.name || tab.server.name }}</span>
 
             <!-- 聚合组右侧显示分屏数量 -->
             <span v-if="tab.isGroup" style="
@@ -2863,7 +2849,7 @@ Web服务器,192.168.1.100,22,root,password123
               draggable="true" @dragstart="handleTabDragStart(visibleSessionIds[index], $event)"
               @dragend="handleTabDragEnd">
               <span class="ssh-instance-title">
-                <i class="fas fa-terminal"></i> {{
+                <i class="fas fa-terminal"></i> <img v-if="getSessionById(visibleSessionIds[index])?.server && getFlagCountry(getSessionById(visibleSessionIds[index]).server)" :src="'https://flagcdn.com/w20/' + getFlagCountry(getSessionById(visibleSessionIds[index]).server).toLowerCase() + '.png'" class="server-flag-icon" :alt="getFlagCountry(getSessionById(visibleSessionIds[index]).server)">{{
                 getSessionById(visibleSessionIds[index])?.server.name || 'SSH' }}
               </span>
               <div class="ssh-instance-actions">

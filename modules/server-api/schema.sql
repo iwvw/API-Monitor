@@ -19,6 +19,8 @@ CREATE TABLE IF NOT EXISTS server_accounts (
     cached_info TEXT, -- JSON 格式缓存的详细信息（CPU/内存/磁盘）
     tags TEXT, -- JSON 格式存储标签数组
     description TEXT, -- 主机描述
+    country TEXT, -- 归属国家/地区代码
+    resolved_country TEXT, -- 自动识别出的国家代码
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );

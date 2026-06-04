@@ -86,8 +86,8 @@ class ServerAccount {
             INSERT INTO server_accounts (
                 id, name, host, port, username, auth_type,
                 password, private_key, passphrase,
-                status, tags, description, order_index, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                status, tags, description, country, order_index, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
 
     stmt.run(
@@ -103,6 +103,7 @@ class ServerAccount {
       data.status || 'unknown',
       data.tags ? JSON.stringify(data.tags) : null,
       data.description || null,
+      data.country || null,
       orderIndex,
       now,
       now
@@ -143,6 +144,7 @@ class ServerAccount {
                 tags = ?,
                 description = ?,
                 monitor_mode = ?,
+                country = ?,
                 order_index = ?,
                 updated_at = ?
             WHERE id = ?
@@ -160,6 +162,7 @@ class ServerAccount {
       data.tags !== undefined ? JSON.stringify(data.tags) : existingRaw.tags,
       data.description !== undefined ? data.description : existing.description,
       data.monitor_mode !== undefined ? data.monitor_mode : existing.monitor_mode || 'agent',
+      data.country !== undefined ? data.country : existing.country || null,
       data.order_index !== undefined ? data.order_index : existing.order_index || 0,
       now,
       id

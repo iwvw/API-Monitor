@@ -312,6 +312,76 @@
   color: #3b82f6;
 }
 
+/* Status Bar Wrapper (Percentage Bar Style) */
+.status-bar-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.status-bar-text {
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.status-bar-text.positive {
+  color: #34d399; /* Softer green */
+}
+
+.status-bar-text.negative {
+  color: #f87171; /* Softer red */
+}
+
+.status-bar-text.warning {
+  color: #fbbf24; /* Softer orange/yellow */
+}
+
+.status-bar-text.neutral {
+  color: #60a5fa; /* Softer blue */
+}
+
+.status-segments {
+  display: flex;
+  gap: 2px;
+}
+
+.status-segment {
+  width: 6px;
+  height: 3.5px;
+  border-radius: 1px;
+  background-color: rgba(0, 0, 0, 0.08); /* Light mode empty/background */
+  transition: all 0.3s ease;
+}
+
+@media (prefers-color-scheme: dark) {
+  .status-segment {
+    background-color: rgba(255, 255, 255, 0.12); /* Dark mode empty/background */
+  }
+}
+
+[data-theme='dark'] .status-segment {
+  background-color: rgba(255, 255, 255, 0.12); /* Manual dark theme */
+}
+
+/* Softer Theme Colors for Filled Segments (No box-shadow glows) */
+.status-segment.filled-green {
+  background-color: #34d399; /* Soft Emerald */
+}
+
+.status-segment.filled-red {
+  background-color: #f87171; /* Soft Coral Red */
+}
+
+.status-segment.filled-cyan {
+  background-color: #38bdf8; /* Soft Sky Blue/Cyan */
+}
+
+.status-segment.filled-purple {
+  background-color: #a78bfa; /* Soft Lavender Purple */
+}
+
 /* Main Content: Value & Label - Horizontal Balance */
 .card-main-content {
   position: relative;
@@ -1841,3 +1911,16 @@
     font-size: 14px;
   }
 }
+
+/* Server Country Flag Icons */
+.server-flag-icon {
+  width: 16px;
+  height: 11px;
+  object-fit: cover;
+  border-radius: 1.5px;
+  vertical-align: middle;
+  margin-right: 4px;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+  display: inline-block;
+  border: 0.5px solid rgba(0, 0, 0, 0.1);
+}
