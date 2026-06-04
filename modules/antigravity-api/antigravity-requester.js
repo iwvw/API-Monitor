@@ -2,6 +2,8 @@ const { spawn } = require('child_process');
 const os = require('os');
 const path = require('path');
 const fs = require('fs');
+const axios = require('axios');
+const { HttpsProxyAgent } = require('https-proxy-agent');
 
 class AntigravityRequester {
   constructor(options = {}) {
@@ -12,6 +14,7 @@ class AntigravityRequester {
     this.pendingRequests = new Map();
     this.buffer = '';
     this.writeQueue = Promise.resolve();
+    this.useFallback = false;
   }
 
   _getExecutablePath() {
@@ -50,77 +53,88 @@ class AntigravityRequester {
   }
 
   _ensureProcess() {
-    if (this.proc) return;
+    if (this.proc || this.useFallback) return;
 
     if (!fs.existsSync(this.executablePath)) {
-      throw new Error(`Executable not found: ${this.executablePath}`);
+      console.warn(`[AntigravityRequester] Binary not found at ${this.executablePath}, using JS HTTP fallback.`);
+      this.useFallback = true;
+      return;
     }
 
-    this.proc = spawn(this.executablePath, [], {
-      stdio: ['pipe', 'pipe', 'pipe'],
-    });
+    try {
+      this.proc = spawn(this.executablePath, [], {
+        stdio: ['pipe', 'pipe', 'pipe'],
+      });
 
-    if (this.proc.stdin.setDefaultEncoding) {
-      this.proc.stdin.setDefaultEncoding('utf8');
-    }
+      if (this.proc.stdin.setDefaultEncoding) {
+        this.proc.stdin.setDefaultEncoding('utf8');
+      }
 
-    if (this.proc.stdout.setEncoding) {
-      this.proc.stdout.setEncoding('utf8');
-    }
+      if (this.proc.stdout.setEncoding) {
+        this.proc.stdout.setEncoding('utf8');
+      }
 
-    this.proc.stdout.on('data', data => {
-      this.buffer += data.toString();
+      this.proc.stdout.on('data', data => {
+        this.buffer += data.toString();
 
-      setImmediate(() => {
-        const lines = this.buffer.split('\n');
-        this.buffer = lines.pop();
+        setImmediate(() => {
+          const lines = this.buffer.split('\n');
+          this.buffer = lines.pop();
 
-        for (const line of lines) {
-          if (!line.trim()) continue;
-          try {
-            const response = JSON.parse(line);
-            const pending = this.pendingRequests.get(response.id);
-            if (!pending) continue;
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            try {
+              const response = JSON.parse(line);
+              const pending = this.pendingRequests.get(response.id);
+              if (!pending) continue;
 
-            if (pending.streamResponse) {
-              pending.streamResponse._handleChunk(response);
-              if (response.type === 'end' || response.type === 'error') {
-                this.pendingRequests.delete(response.id);
-              }
-            } else {
-              this.pendingRequests.delete(response.id);
-              if (response.ok) {
-                pending.resolve(new AntigravityResponse(response));
+              if (pending.streamResponse) {
+                pending.streamResponse._handleChunk(response);
+                if (response.type === 'end' || response.type === 'error') {
+                  this.pendingRequests.delete(response.id);
+                }
               } else {
-                pending.reject(new Error(response.error || 'Request failed'));
+                this.pendingRequests.delete(response.id);
+                if (response.ok) {
+                  pending.resolve(new AntigravityResponse(response));
+                } else {
+                  pending.reject(new Error(response.error || 'Request failed'));
+                }
               }
+            } catch (e) {
+              console.error('Failed to parse response:', e, 'Line:', line);
             }
-          } catch (e) {
-            console.error('Failed to parse response:', e, 'Line:', line);
+          }
+        });
+      });
+
+      this.proc.stderr.on('data', data => {
+        console.error('AntigravityRequester stderr:', data.toString());
+      });
+
+      this.proc.on('close', () => {
+        this.proc = null;
+        for (const [id, pending] of this.pendingRequests) {
+          if (pending.reject) {
+            pending.reject(new Error('Process closed'));
+          } else if (pending.streamResponse && pending.streamResponse._onError) {
+            pending.streamResponse._onError(new Error('Process closed'));
           }
         }
+        this.pendingRequests.clear();
       });
-    });
-
-    this.proc.stderr.on('data', data => {
-      console.error('AntigravityRequester stderr:', data.toString());
-    });
-
-    this.proc.on('close', () => {
-      this.proc = null;
-      for (const [id, pending] of this.pendingRequests) {
-        if (pending.reject) {
-          pending.reject(new Error('Process closed'));
-        } else if (pending.streamResponse && pending.streamResponse._onError) {
-          pending.streamResponse._onError(new Error('Process closed'));
-        }
-      }
-      this.pendingRequests.clear();
-    });
+    } catch (err) {
+      console.warn(`[AntigravityRequester] Failed to spawn process, using JS HTTP fallback. Error:`, err.message);
+      this.useFallback = true;
+    }
   }
 
   async antigravity_fetch(url, options = {}) {
     this._ensureProcess();
+
+    if (this.useFallback) {
+      return this._fallbackFetch(url, options);
+    }
 
     const id = `req-${++this.requestId}`;
     const request = {
@@ -144,6 +158,10 @@ class AntigravityRequester {
   antigravity_fetchStream(url, options = {}) {
     this._ensureProcess();
 
+    if (this.useFallback) {
+      return this._fallbackFetchStream(url, options);
+    }
+
     const id = `req-${++this.requestId}`;
     const request = {
       id,
@@ -160,6 +178,109 @@ class AntigravityRequester {
     const streamResponse = new StreamResponse(id);
     this.pendingRequests.set(id, { streamResponse });
     this._writeRequest(request);
+
+    return streamResponse;
+  }
+
+  async _fallbackFetch(url, options = {}) {
+    const method = options.method || 'GET';
+    const headers = options.headers || {};
+    const timeout = options.timeout_ms || options.timeout || 30000;
+    const proxy = options.proxy;
+
+    const axiosConfig = {
+      method,
+      url,
+      headers,
+      data: options.body,
+      timeout,
+      responseType: 'arraybuffer',
+      validateStatus: () => true,
+    };
+
+    if (proxy && (proxy.startsWith('http://') || proxy.startsWith('https://'))) {
+      axiosConfig.httpsAgent = new HttpsProxyAgent(proxy);
+      axiosConfig.proxy = false;
+    }
+
+    try {
+      const res = await axios(axiosConfig);
+      const bodyBase64 = Buffer.from(res.data).toString('base64');
+      const responsePayload = {
+        ok: res.status >= 200 && res.status < 300,
+        status: res.status,
+        status_text: res.statusText,
+        url,
+        headers: res.headers,
+        redirected: false,
+        body: bodyBase64,
+        body_encoding: 'base64',
+      };
+      return new AntigravityResponse(responsePayload);
+    } catch (err) {
+      throw new Error(`Fallback fetch failed: ${err.message}`);
+    }
+  }
+
+  _fallbackFetchStream(url, options = {}) {
+    const id = `req-${++this.requestId}`;
+    const streamResponse = new StreamResponse(id);
+
+    const method = options.method || 'GET';
+    const headers = options.headers || {};
+    const timeout = options.timeout_ms || options.timeout || 30000;
+    const proxy = options.proxy;
+
+    const axiosConfig = {
+      method,
+      url,
+      headers,
+      data: options.body,
+      timeout,
+      responseType: 'stream',
+      validateStatus: () => true,
+    };
+
+    if (proxy && (proxy.startsWith('http://') || proxy.startsWith('https://'))) {
+      axiosConfig.httpsAgent = new HttpsProxyAgent(proxy);
+      axiosConfig.proxy = false;
+    }
+
+    axios(axiosConfig)
+      .then(res => {
+        streamResponse._handleChunk({
+          type: 'start',
+          status: res.status,
+          headers: res.headers,
+        });
+
+        res.data.on('data', chunk => {
+          streamResponse._handleChunk({
+            type: 'data',
+            data: chunk.toString('base64'),
+            encoding: 'base64',
+          });
+        });
+
+        res.data.on('end', () => {
+          streamResponse._handleChunk({
+            type: 'end',
+          });
+        });
+
+        res.data.on('error', err => {
+          streamResponse._handleChunk({
+            type: 'error',
+            error: err.message,
+          });
+        });
+      })
+      .catch(err => {
+        streamResponse._handleChunk({
+          type: 'error',
+          error: err.message,
+        });
+      });
 
     return streamResponse;
   }
