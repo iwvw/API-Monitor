@@ -15,7 +15,7 @@ const DEFAULT_CONFIG = {
   MODELS_URL: 'https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:fetchAvailableModels',
   NO_STREAM_URL: 'https://daily-cloudcode-pa.sandbox.googleapis.com/v1internal:generateContent',
   API_HOST: 'daily-cloudcode-pa.sandbox.googleapis.com',
-  USER_AGENT: 'antigravity/1.15.8 (Windows; AMD64)',
+  USER_AGENT: 'antigravity/1.30.0 (Windows; AMD64)',
   // 端点回退顺序：sandbox → daily → prod
   FALLBACK_BASE_URLS: [
     'https://daily-cloudcode-pa.sandbox.googleapis.com',
@@ -236,11 +236,11 @@ async function refreshAllAccounts() {
  */
 function buildHeaders(accessToken) {
   const config = getConfig();
-  let ua = config.USER_AGENT || 'antigravity/1.15.8 (Windows; AMD64)';
+  let ua = config.USER_AGENT || 'antigravity/1.30.0 (Windows; AMD64)';
 
   // 强制检查版本：如果是旧版本或是 GeminiCLI 前缀，强制替换为新版，防止数据库配置坑
-  if (ua.includes('1.11.3') || ua.includes('GeminiCLI') || ua.includes('1.14.')) {
-    ua = 'antigravity/1.15.8 (Windows; AMD64)';
+  if (ua.includes('1.11.3') || ua.includes('GeminiCLI') || ua.includes('1.14.') || ua.includes('1.15.') || ua.includes('1.18.') || ua.includes('1.20.') || ua.includes('1.22.')) {
+    ua = 'antigravity/1.30.0 (Windows; AMD64)';
   }
 
   return {
