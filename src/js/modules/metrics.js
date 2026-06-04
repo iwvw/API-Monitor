@@ -907,6 +907,8 @@ export const metricsMethods = {
    * @param {string} canvasId Canvas 元素 ID
    */
   async renderSingleChart(serverId, records, canvasId, retryCount = 0) {
+    if (document.visibilityState !== 'visible') return;
+
     // 确保 Chart.js 已加载，否则触发回退加载
     if (!window.Chart) {
       const loaded = await this.loadChartJsFallback();
@@ -1361,6 +1363,8 @@ export const metricsMethods = {
    * @param {string} canvasId 画布 ID
    */
   async renderGpuChart(serverId, records, canvasId, retryCount = 0) {
+    if (document.visibilityState !== 'visible') return;
+
     if (!window.Chart) {
       const loaded = await this.loadChartJsFallback();
       if (!loaded) return;
@@ -1574,6 +1578,8 @@ export const metricsMethods = {
   },
 
   async renderNetChart(serverId, records, canvasId, retryCount = 0) {
+    if (document.visibilityState !== 'visible') return;
+
     const canvas = document.getElementById(canvasId);
     if (!canvas) {
       if (retryCount < 10) {

@@ -2541,6 +2541,8 @@ export const hostMethods = {
    * 渲染 GPU 趋势图
    */
   async renderGpuChart(serverId, records = null, canvasId = null, retryCount = 0) {
+    if (document.visibilityState !== 'visible') return;
+
     // 确保 Chart.js 已加载
     if (!window.Chart) {
       console.warn('[GPU Chart] Chart.js 未加载');

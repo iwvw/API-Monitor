@@ -1074,6 +1074,23 @@ const app = createApp({
             if (!this.metricsWsConnected) {
               this.connectMetricsStream();
             }
+            // 页面恢复可见时，立即重绘已展开主机的图表，避免白屏/空白
+            this.$nextTick(() => {
+              if (this.expandedServers && this.expandedServers.length > 0) {
+                this.expandedServers.forEach(serverId => {
+                  const server = this.serverList.find(s => s.id === serverId);
+                  if (server && server.metricsCache && server.metricsCache.length > 0) {
+                    this.renderSingleChart(serverId, server.metricsCache, `metrics-chart-card-${serverId}`);
+                    if (server.gpuChartVisible) {
+                      this.renderGpuChart(serverId, server.metricsCache, `gpu-chart-${serverId}`);
+                    }
+                    if (server.netChartVisible) {
+                      this.renderNetChart(serverId, server.metricsCache, `net-chart-${serverId}`);
+                    }
+                  }
+                });
+              }
+            });
           }
         }
       });
