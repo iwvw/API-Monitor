@@ -87,7 +87,7 @@ class ServerAccount {
                 id, name, host, port, username, auth_type,
                 password, private_key, passphrase,
                 status, tags, description, country, order_index, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
 
     stmt.run(
