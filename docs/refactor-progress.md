@@ -109,6 +109,18 @@ case 'filebox':  return <FileboxPage />;
 
 ---
 
+## 2026-06-05 Runtime Verification Notes
+
+- Fixed NotificationPage runtime blank screen caused by JSX evaluating template placeholders such as `{{variable}}`.
+- Fixed ServerPage render-phase store update warning by syncing `serverList` to Zustand from an effect.
+- Added URL/history synchronization in `MainLayout.jsx`: direct paths such as `/server`, `/notification`, `/openai`, `/gemini-cli`, and `/qwen` now select the matching module, and sidebar navigation pushes browser history.
+- Restored ServerPage add-host Agent path in the add host modal. The Agent tab calls `POST /api/server/agent/quick-install` and shows Linux/Windows install commands using Kumo `Tabs`, `Input`, `Select`, `Textarea`, and `Button`.
+- Fixed API gateway blank screens:
+  - `OpenAIPage.jsx`: replaced missing `Settings` icon reference with `SettingsIcon`.
+  - `GeminiCliPage.jsx`: added missing `Cpu` icon import.
+  - `QwenPage.jsx`: added missing `RefreshCw` icon import.
+- Browser verification passed for `/notification`, `/server`, `/openai`, `/gemini-cli`, and `/qwen` with zero captured console errors after fixes.
+
 ## Git 提交记录
 
 | Hash | 模块 | 日期 |

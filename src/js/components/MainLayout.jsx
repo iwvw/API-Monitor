@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import useStore, { MODULE_GROUPS, MODULE_CONFIG, getModuleName } from '../store.js';
 import DashboardPage from '../pages/DashboardPage.jsx';
 import ServerPage from '../pages/ServerPage.jsx';
@@ -68,6 +68,18 @@ const ICON_MAP = {
   'ai-chat': MessageSquare,
 };
 
+const MODULE_PATHS = Object.keys(MODULE_CONFIG).reduce((paths, moduleId) => {
+  paths[moduleId] = `/${moduleId}`;
+  return paths;
+}, { dashboard: '/dashboard' });
+
+const getPathModule = (pathname) => {
+  const normalized = pathname.replace(/\/+$/, '') || '/';
+  if (normalized === '/') return 'dashboard';
+  const route = normalized.slice(1);
+  return MODULE_CONFIG[route] ? route : null;
+};
+
 // 折叠收起按钮子组件，利用 useSidebar() 获取组件库内部状态
 const SidebarCollapseButton = () => {
   const { open, toggleSidebar } = useSidebar();
@@ -95,6 +107,29 @@ function MainLayout() {
     setTheme,
     logout,
   } = useStore();
+
+  useEffect(() => {
+    const syncTabFromLocation = () => {
+      const routeTab = getPathModule(window.location.pathname);
+      if (!routeTab) return;
+      const currentTab = useStore.getState().mainActiveTab;
+      if (currentTab !== routeTab) {
+        useStore.getState().setMainActiveTab(routeTab);
+      }
+    };
+
+    syncTabFromLocation();
+    window.addEventListener('popstate', syncTabFromLocation);
+    return () => window.removeEventListener('popstate', syncTabFromLocation);
+  }, []);
+
+  const navigateToModule = (module) => {
+    setMainActiveTab(module);
+    const nextPath = MODULE_PATHS[module] || `/${module}`;
+    if (window.location.pathname !== nextPath) {
+      window.history.pushState({ module }, '', nextPath);
+    }
+  };
 
   // 切换主题
   const toggleTheme = () => {
@@ -186,7 +221,7 @@ function MainLayout() {
                       <SidebarMenuItem key={module}>
                         <SidebarMenuButton
                           active={isActive}
-                          onClick={() => setMainActiveTab(module)}
+                          onClick={() => navigateToModule(module)}
                           icon={ModuleIcon}
                           tooltip={config.name}
                         >

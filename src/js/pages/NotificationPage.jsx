@@ -1380,10 +1380,10 @@ function NotificationPage() {
 
             {/* Custom Template Titles */}
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-kumo-subtle">自定义标题模板 (可选，支持 \{{变量}})</label>
+              <label className="text-xs font-semibold text-kumo-subtle">自定义标题模板 (可选，支持 {'{{变量}}'})</label>
               <input
                 type="text"
-                placeholder="例: 🚨 [\{{severity}}] 主机 \{{serverName}} 离线!"
+                placeholder="例: 🚨 [{{severity}}] 主机 {{serverName}} 离线!"
                 value={ruleForm.title_template}
                 onChange={(e) => setRuleForm(prev => ({ ...prev, title_template: e.target.value }))}
                 className="w-full bg-kumo-recessed text-kumo-strong text-sm px-3 py-2 border border-kumo-line rounded-md focus:outline-none focus:border-kumo-brand"
@@ -1394,7 +1394,7 @@ function NotificationPage() {
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-kumo-subtle">自定义内容模板 (可选)</label>
               <textarea
-                placeholder="例: 服务 \{{monitorName}} 无法连通，出错原因: \{{error}}"
+                placeholder="例: 服务 {{monitorName}} 无法连通，出错原因: {{error}}"
                 value={ruleForm.message_template}
                 onChange={(e) => setRuleForm(prev => ({ ...prev, message_template: e.target.value }))}
                 className="w-full bg-kumo-recessed text-kumo-strong text-xs px-3 py-2 border border-kumo-line rounded-md focus:outline-none focus:border-kumo-brand min-h-16"

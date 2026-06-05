@@ -1,6 +1,10 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import useStore from '../store.js';
 import { toast } from '../modules/toast.js';
+import { Button } from '@cloudflare/kumo/components/button';
+import { Input, Textarea } from '@cloudflare/kumo/components/input';
+import { Select } from '@cloudflare/kumo/components/select';
+import { Tabs } from '@cloudflare/kumo/components/tabs';
 import { formatUptime, formatFileSize, formatDateTime, maskAddress } from '../modules/utils.js';
 import Chart from 'chart.js/auto';
 import { Terminal } from '@xterm/xterm';
@@ -39,7 +43,8 @@ import {
   X,
   Reboot,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Copy
 } from '../components/Icons.jsx';
 
 // ==================== 自定义 SVG 小图标 ====================
@@ -306,9 +311,11 @@ function ServerPage() {
   }, []);
   
   // 同步主 store 中 serverList 状态，便于 dashboard 使用
-  const syncStoreServerList = (list) => {
-    useStore.setState({ serverList: list });
-  };
+  useEffect(() => {
+    useStore.setState({ serverList });
+  }, [serverList]);
+
+  const syncStoreServerList = () => {};
   
   // 载入主机列表
   const loadServerList = async () => {
@@ -778,6 +785,10 @@ function ServerPage() {
   // -------------------- 主机增改删操作 --------------------
   
   const openAddServerModal = () => {
+    setServerAddMode('ssh');
+    setQuickDeployName('');
+    setQuickDeployResult(null);
+    setAgentInstallOS('linux');
     setServerForm({
       id: null,
       name: '',
@@ -918,6 +929,54 @@ function ServerPage() {
       setServerModalError('保存异常: ' + e.message);
     } finally {
       setServerModalSaving(false);
+    }
+  };
+
+  const generateQuickInstallCommand = async () => {
+    const name = quickDeployName.trim();
+    if (!name) {
+      setServerModalError('Server name is required');
+      return;
+    }
+
+    setServerModalSaving(true);
+    setServerModalError('');
+    setQuickDeployResult(null);
+
+    try {
+      const response = await fetch('/api/server/agent/quick-install', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name })
+      });
+      const data = await response.json();
+
+      if (data.success) {
+        setQuickDeployResult(data.data);
+        toast.success(data.data?.isNew ? 'Agent host created' : 'Agent install command generated');
+        loadServerList();
+      } else {
+        setServerModalError(data.error || 'Failed to generate Agent install command');
+      }
+    } catch (e) {
+      setServerModalError('Agent quick install request failed: ' + e.message);
+    } finally {
+      setServerModalSaving(false);
+    }
+  };
+
+  const copyQuickDeployCommand = async () => {
+    const command = agentInstallOS === 'linux'
+      ? quickDeployResult?.installCommand
+      : quickDeployResult?.winInstallCommand;
+
+    if (!command) return;
+
+    try {
+      await navigator.clipboard.writeText(command);
+      toast.success('Install command copied');
+    } catch (e) {
+      setServerModalError('Copy failed: ' + e.message);
     }
   };
   
@@ -2937,6 +2996,23 @@ function ServerPage() {
             </div>
             
             <div className="p-4 flex-1 overflow-y-auto max-h-[70vh] flex flex-col gap-4 text-xs">
+              {serverModalMode === 'add' && (
+                <Tabs
+                  size="sm"
+                  value={serverAddMode}
+                  onValueChange={(value) => {
+                    setServerAddMode(value);
+                    setServerModalError('');
+                  }}
+                  tabs={[
+                    { value: 'ssh', label: 'SSH' },
+                    { value: 'agent', label: 'Agent' },
+                  ]}
+                />
+              )}
+
+              {serverModalMode === 'edit' || serverAddMode === 'ssh' ? (
+                <>
               <div className="grid grid-cols-2 gap-4">
                 <div className="flex flex-col gap-1.5">
                   <label className="font-semibold text-kumo-subtle">主机名称 (别名)</label>
@@ -3088,6 +3164,54 @@ function ServerPage() {
                 />
               </div>
               
+                </>
+              ) : (
+                <div className="flex flex-col gap-4">
+                  <Input
+                    label="Host name"
+                    size="sm"
+                    value={quickDeployName}
+                    onChange={(e) => setQuickDeployName(e.target.value)}
+                    placeholder="prod-agent-01"
+                  />
+
+                  <div className="rounded-lg border border-kumo-line bg-kumo-recessed/35 p-3 text-[11px] leading-relaxed text-kumo-subtle">
+                    Agent mode creates or reuses a host record, then returns install commands for the target machine.
+                  </div>
+
+                  {quickDeployResult && (
+                    <div className="flex flex-col gap-3">
+                      <Select
+                        label="Install target"
+                        size="sm"
+                        value={agentInstallOS}
+                        onValueChange={setAgentInstallOS}
+                        items={[
+                          { value: 'linux', label: 'Linux / macOS' },
+                          { value: 'windows', label: 'Windows PowerShell' },
+                        ]}
+                      />
+                      <Textarea
+                        label="Install command"
+                        value={agentInstallOS === 'linux' ? quickDeployResult.installCommand || '' : quickDeployResult.winInstallCommand || ''}
+                        readOnly
+                        className="min-h-24 font-mono text-[11px]"
+                      />
+                      <div className="grid grid-cols-2 gap-2 text-[11px] text-kumo-subtle">
+                        <div className="rounded-md border border-kumo-line bg-kumo-base p-2">
+                          <div className="font-semibold text-kumo-strong">Server ID</div>
+                          <div className="mt-1 font-mono">{quickDeployResult.serverId}</div>
+                        </div>
+                        <div className="rounded-md border border-kumo-line bg-kumo-base p-2">
+                          <div className="font-semibold text-kumo-strong">API URL</div>
+                          <div className="mt-1 truncate font-mono" title={quickDeployResult.apiUrl}>{quickDeployResult.apiUrl}</div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {serverModalError && (
                 <div className="text-xs text-kumo-danger font-bold bg-kumo-danger/10 border border-kumo-danger/20 p-2.5 rounded">
                   {serverModalError}
@@ -3096,17 +3220,41 @@ function ServerPage() {
             </div>
             
             <div className="bg-kumo-recessed/25 px-4 py-3 border-t border-kumo-line flex justify-end gap-2.5">
+              {serverModalMode === 'add' && serverAddMode === 'agent' ? (
+                <>
+                  {quickDeployResult && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      icon={<Copy className="w-3.5 h-3.5" />}
+                      onClick={copyQuickDeployCommand}
+                    >
+                      Copy command
+                    </Button>
+                  )}
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="primary"
+                    loading={serverModalSaving}
+                    onClick={generateQuickInstallCommand}
+                  >
+                    Generate Agent command
+                  </Button>
+                </>
+              ) : null}
               <button
                 onClick={testServerConnection}
                 disabled={serverModalSaving}
-                className="px-3.5 py-1.5 border border-kumo-line rounded-lg text-xs font-semibold hover:bg-kumo-recessed cursor-pointer"
+                className={`px-3.5 py-1.5 border border-kumo-line rounded-lg text-xs font-semibold hover:bg-kumo-recessed cursor-pointer ${serverModalMode === 'add' && serverAddMode === 'agent' ? 'hidden' : ''}`}
               >
                 连接测试
               </button>
               <button
                 onClick={saveServer}
                 disabled={serverModalSaving}
-                className="px-4 py-1.5 bg-kumo-brand text-kumo-inverse hover:bg-kumo-brand-hover rounded-lg text-xs font-bold cursor-pointer"
+                className={`px-4 py-1.5 bg-kumo-brand text-kumo-inverse hover:bg-kumo-brand-hover rounded-lg text-xs font-bold cursor-pointer ${serverModalMode === 'add' && serverAddMode === 'agent' ? 'hidden' : ''}`}
               >
                 {serverModalSaving ? '保存中...' : '确认保存'}
               </button>

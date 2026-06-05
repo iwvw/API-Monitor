@@ -4,6 +4,7 @@ import { Button } from '@cloudflare/kumo/components/button';
 import { Dialog } from '@cloudflare/kumo/components/dialog';
 import { formatDateTime } from '../modules/utils.js';
 import {
+  Cpu,
   Server,
   Users,
   MessageSquare,

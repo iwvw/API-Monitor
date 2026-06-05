@@ -11,6 +11,7 @@ import {
   Plus,
   Trash,
   RotateCw,
+  RefreshCw,
   Search,
   Upload,
   Download,

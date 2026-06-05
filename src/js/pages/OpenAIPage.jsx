@@ -32,6 +32,7 @@ import {
   Plug,
   Brain,
   Sliders,
+  Settings as SettingsIcon,
   Copy,
   AlertTriangle
 } from '../components/Icons.jsx';
@@ -2861,7 +2862,7 @@ function OpenAIPage() {
           {/* Header */}
           <div className="p-4 border-b border-kumo-line flex items-center justify-between">
             <h3 className="text-sm font-bold text-kumo-strong flex items-center gap-1.5">
-              <Settings className="w-4 h-4 text-kumo-brand animate-spin-slow" />
+              <SettingsIcon className="w-4 h-4 text-kumo-brand animate-spin-slow" />
               对话参数设置
             </h3>
             <button
