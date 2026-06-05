@@ -15,7 +15,8 @@ import {
   SidebarMenu,
   SidebarMenuItem,
   SidebarMenuButton,
-  SidebarTrigger
+  SidebarTrigger,
+  useSidebar
 } from "@cloudflare/kumo/components/sidebar";
 import {
   LayoutDashboard,
@@ -36,7 +37,9 @@ import {
   Sun,
   Moon,
   LogOut,
-  Menu
+  Menu,
+  ChevronLeft,
+  ChevronRight
 } from './Icons.jsx';
 
 // 图标映射配置
@@ -57,6 +60,23 @@ const ICON_MAP = {
   filebox: FolderOpen,
   notification: Bell,
   'ai-chat': MessageSquare,
+};
+
+// 折叠收起按钮子组件，利用 useSidebar() 获取组件库内部状态
+const SidebarCollapseButton = () => {
+  const { open, toggleSidebar } = useSidebar();
+  const IconComponent = open ? ChevronLeft : ChevronRight;
+  return (
+    <SidebarMenuItem>
+      <SidebarMenuButton
+        onClick={toggleSidebar}
+        icon={IconComponent}
+        tooltip={open ? '收起导航' : '展开导航'}
+      >
+        收起导航
+      </SidebarMenuButton>
+    </SidebarMenuItem>
+  );
 };
 
 function MainLayout() {
@@ -186,12 +206,10 @@ function MainLayout() {
                 安全退出
               </SidebarMenuButton>
             </SidebarMenuItem>
-          </SidebarMenu>
 
-          {/* 折叠切换按钮 */}
-          <div className="flex justify-center w-full mt-1">
-            <SidebarTrigger />
-          </div>
+            {/* 折叠切换按钮 */}
+            <SidebarCollapseButton />
+          </SidebarMenu>
         </SidebarFooter>
       </Sidebar>
 
