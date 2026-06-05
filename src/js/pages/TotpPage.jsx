@@ -1111,7 +1111,7 @@ function TotpPage() {
               )}
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3">
               {filteredAccounts.map((account, index) => {
                 const isFirstOfPlatform =
                   index === 0 ||
@@ -1133,26 +1133,26 @@ function TotpPage() {
                 return (
                   <React.Fragment key={account.id}>
                     {showHeader && (
-                      <div className="col-span-full border-b border-kumo-line pb-1.5 mt-4 flex items-center justify-between">
+                      <div className="col-span-full border-b border-kumo-line pb-1 mt-3 flex items-center justify-between">
                         {!totpSettings.hidePlatformText ? (
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-1.5">
                             <span
-                              className="w-5 h-5 flex items-center justify-center rounded text-sm bg-kumo-recessed"
+                              className="w-4.5 h-4.5 flex items-center justify-center rounded text-xs bg-kumo-recessed"
                               style={{ color: getIssuerColor(account.issuer) }}
                             >
                               <i className={getIssuerIcon(account.issuer)} />
                             </span>
-                            <span className="text-sm font-bold text-kumo-strong">
+                            <span className="text-xs font-bold text-kumo-strong">
                               {account.issuer || '未知平台'}
                             </span>
-                            <span className="text-[10px] text-kumo-subtle bg-kumo-recessed px-1.5 py-0.5 rounded border border-kumo-line ml-1 font-medium">
+                            <span className="text-[9px] text-kumo-subtle bg-kumo-recessed px-1 py-0.5 rounded border border-kumo-line ml-1 font-medium">
                               {platformCounts[(account.issuer || '').toLowerCase()]} 个账号
                             </span>
                           </div>
                         ) : (
-                          <div className="flex items-center gap-2">
-                            <span className="w-2.5 h-2.5 rounded-full" style={{ background: getIssuerColor(account.issuer) }} />
-                            <span className="text-xs text-kumo-subtle font-medium">
+                          <div className="flex items-center gap-1.5">
+                            <span className="w-2 h-2 rounded-full" style={{ background: getIssuerColor(account.issuer) }} />
+                            <span className="text-[10px] text-kumo-subtle font-medium">
                               {platformCounts[(account.issuer || '').toLowerCase()]} 个账号
                             </span>
                           </div>
@@ -1165,61 +1165,61 @@ function TotpPage() {
                       onMouseLeave={() => handleCardMouseLeave(account.id)}
                       onClick={() => copyCodeToClipboard(account)}
                       style={{ '--card-accent': issuerColor }}
-                      className="group/card relative flex flex-col justify-between bg-kumo-base border border-kumo-line hover:border-kumo-brand rounded-lg p-5 cursor-pointer shadow-sm hover:shadow transition-all min-h-[148px]"
+                      className="group/card relative flex flex-col justify-between bg-kumo-base border border-kumo-line hover:border-kumo-brand rounded-lg p-3.5 cursor-pointer shadow-sm hover:shadow transition-all min-h-[116px]"
                     >
                       {/* Action buttons (overlay/hover) */}
-                      <div className="absolute right-3 top-3 opacity-0 group-hover/card:opacity-100 flex items-center gap-1.5 transition-opacity bg-kumo-base pl-2 py-0.5 rounded-md z-10">
+                      <div className="absolute right-2 top-2 opacity-0 group-hover/card:opacity-100 flex items-center gap-1 transition-opacity bg-kumo-base pl-1.5 py-0.5 rounded-md z-10">
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
                             handleOpenEditAccount(account);
                           }}
-                          className="w-6 h-6 flex items-center justify-center rounded hover:bg-kumo-recessed text-kumo-subtle hover:text-kumo-strong"
+                          className="w-5 h-5 flex items-center justify-center rounded hover:bg-kumo-recessed text-kumo-subtle hover:text-kumo-strong"
                           title="编辑"
                         >
-                          <Edit className="w-3.5 h-3.5" />
+                          <Edit className="w-3 h-3" />
                         </button>
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
                             handleDeleteAccount(account);
                           }}
-                          className="w-6 h-6 flex items-center justify-center rounded hover:bg-kumo-danger/10 text-kumo-subtle hover:text-kumo-danger"
+                          className="w-5 h-5 flex items-center justify-center rounded hover:bg-kumo-danger/10 text-kumo-subtle hover:text-kumo-danger"
                           title="删除"
                         >
-                          <Trash className="w-3.5 h-3.5" />
+                          <Trash className="w-3 h-3" />
                         </button>
                       </div>
 
                       {/* Header */}
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-2">
                         <div
-                          className="w-8 h-8 rounded-lg flex items-center justify-center text-white text-base flex-shrink-0"
+                          className="w-7 h-7 rounded-md flex items-center justify-center text-white text-sm flex-shrink-0"
                           style={{ background: getIssuerColor(account.issuer) }}
                         >
                           <i className={getIssuerIcon(account.issuer)} />
                         </div>
-                        <div className="min-w-0">
-                          <h4 className="text-xs font-bold text-kumo-strong truncate">
+                        <div className="min-w-0 flex-1">
+                          <h4 className="text-[11px] font-semibold text-kumo-strong truncate leading-tight">
                             {account.issuer}
                           </h4>
-                          <p className="text-[10px] text-kumo-subtle truncate max-w-[160px]">
+                          <p className="text-[9px] text-kumo-subtle truncate max-w-[130px] leading-tight">
                             {totpSettings.maskAccount ? maskEmail(account.account) : account.account}
                           </p>
                         </div>
                       </div>
 
                       {/* Code Area */}
-                      <div className="mt-4 flex flex-col justify-end">
+                      <div className="mt-2.5 flex flex-col justify-end">
                         <div
-                          className={`text-2xl font-bold tracking-wide select-all font-mono ${
+                          className={`text-xl font-bold tracking-wide select-all font-mono leading-none ${
                             remaining <= 5 ? 'text-kumo-danger animate-pulse' : 'text-kumo-strong'
                           }`}
                         >
                           {formatTotpCode(account, codeDetail.code)}
                         </div>
 
-                        <div className="mt-2.5 flex items-center justify-between text-[10px] text-kumo-subtle font-mono">
+                        <div className="mt-2 flex items-center justify-between text-[9px] text-kumo-subtle font-mono">
                           {account.otp_type === 'hotp' ? (
                             <div className="flex items-center gap-1.5 w-full justify-between">
                               <span>#{codeDetail.counter || 0}</span>
@@ -1228,15 +1228,15 @@ function TotpPage() {
                                   e.stopPropagation();
                                   incrementHotp(account);
                                 }}
-                                className="px-2 py-0.5 border border-kumo-line rounded hover:bg-kumo-recessed text-kumo-strong cursor-pointer flex items-center gap-1"
+                                className="px-1.5 py-0.5 border border-kumo-line rounded hover:bg-kumo-recessed text-kumo-strong cursor-pointer flex items-center gap-0.5 text-[9px]"
                               >
-                                <RefreshCw className="w-3 h-3" />
+                                <RefreshCw className="w-2.5 h-2.5" />
                                 <span>递增</span>
                               </button>
                             </div>
                           ) : (
-                            <div className="flex items-center gap-2 w-full">
-                              <div className="flex-1 h-1.5 bg-kumo-recessed rounded-full overflow-hidden">
+                            <div className="flex items-center gap-1.5 w-full">
+                              <div className="flex-1 h-1 bg-kumo-recessed rounded-full overflow-hidden">
                                 <div
                                   className={`h-full rounded-full ${remaining === period ? '' : 'transition-all duration-1000 ease-linear'}`}
                                   style={{
@@ -1245,7 +1245,7 @@ function TotpPage() {
                                   }}
                                 />
                               </div>
-                              <span className="w-6 text-right select-none">{remaining}s</span>
+                              <span className="w-5 text-right select-none">{remaining}s</span>
                             </div>
                           )}
                         </div>
@@ -1333,10 +1333,10 @@ function TotpPage() {
 
       {/* ==================== 3. 选项设置 ==================== */}
       {totpCurrentTab === 'settings' && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 quick-fade-in">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 quick-fade-in">
           {/* Settings Options (Span 2) */}
-          <div className="lg:col-span-2 bg-kumo-base border border-kumo-line rounded-lg shadow-sm p-6 space-y-6">
-            <h3 className="text-sm font-semibold text-kumo-strong border-b border-kumo-line pb-3 select-none">
+          <div className="lg:col-span-2 bg-kumo-base border border-kumo-line rounded-lg shadow-sm p-5 space-y-5">
+            <h3 className="text-sm font-semibold text-kumo-strong border-b border-kumo-line pb-2.5 select-none">
               安全与显示配置
             </h3>
 
@@ -1447,9 +1447,9 @@ function TotpPage() {
           </div>
 
           {/* Right Column: Browser Extension Helper Card */}
-          <div className="bg-kumo-base border border-kumo-line rounded-lg shadow-sm p-6 flex flex-col justify-between">
-            <div className="space-y-4">
-              <h3 className="text-sm font-semibold text-kumo-strong border-b border-kumo-line pb-3 select-none flex items-center gap-2">
+          <div className="bg-kumo-base border border-kumo-line rounded-lg shadow-sm p-5 flex flex-col justify-between">
+            <div className="space-y-3.5">
+              <h3 className="text-sm font-semibold text-kumo-strong border-b border-kumo-line pb-2.5 select-none flex items-center gap-2">
                 <Bot className="w-4 h-4 text-kumo-brand" />
                 浏览器插件助手
               </h3>
@@ -1457,9 +1457,9 @@ function TotpPage() {
                 下载安装 2FA 浏览器插件，在 PC 端登录账号需要验证码时可一键实现自动检索与快捷填充。
               </p>
 
-              <div className="p-4 bg-kumo-recessed/60 border border-kumo-line rounded-lg flex items-start gap-3 mt-4">
-                <div className="w-10 h-10 rounded-md bg-white flex items-center justify-center shadow-sm flex-shrink-0">
-                  <img src="https://cdn.simpleicons.org/blueprint" className="w-7 h-7" alt="Extension" />
+              <div className="p-3 bg-kumo-recessed/60 border border-kumo-line rounded-lg flex items-start gap-3 mt-3">
+                <div className="w-9 h-9 rounded-md bg-white flex items-center justify-center shadow-sm flex-shrink-0">
+                  <img src="https://cdn.simpleicons.org/blueprint" className="w-6 h-6" alt="Extension" />
                 </div>
                 <div className="min-w-0">
                   <h4 className="text-xs font-bold text-kumo-strong">API Monitor 2FA 助手</h4>
@@ -1468,7 +1468,7 @@ function TotpPage() {
               </div>
             </div>
 
-            <div className="space-y-2 mt-6">
+            <div className="space-y-2 mt-5">
               <a
                 href="/api/totp/extension/download"
                 className="w-full flex items-center justify-center gap-2 h-9 border border-kumo-line rounded-lg text-xs font-semibold text-kumo-strong hover:bg-kumo-recessed text-decoration-none transition-colors"

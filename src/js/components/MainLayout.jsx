@@ -149,7 +149,7 @@ function MainLayout() {
                         <SidebarMenuButton
                           active={isActive}
                           onClick={() => setMainActiveTab(module)}
-                          icon={<ModuleIcon className="w-4 h-4" />}
+                          icon={ModuleIcon}
                           tooltip={config.name}
                         >
                           {config.name}
@@ -169,7 +169,7 @@ function MainLayout() {
             <SidebarMenuItem>
               <SidebarMenuButton
                 onClick={toggleTheme}
-                icon={theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+                icon={theme === 'dark' ? Sun : Moon}
                 tooltip={theme === 'dark' ? '日间模式' : '夜间模式'}
               >
                 {theme === 'dark' ? '日间模式' : '夜间模式'}
@@ -180,7 +180,7 @@ function MainLayout() {
               <SidebarMenuButton
                 onClick={logout}
                 className="text-kumo-danger hover:bg-kumo-danger/10"
-                icon={<LogOut className="w-4 h-4" />}
+                icon={LogOut}
                 tooltip="安全退出"
               >
                 安全退出
