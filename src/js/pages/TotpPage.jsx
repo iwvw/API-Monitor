@@ -352,7 +352,11 @@ function TotpPage() {
     }
   };
 
+  const isRefreshingRef = useRef(false);
+
   const refreshCodes = async () => {
+    if (isRefreshingRef.current) return;
+    isRefreshingRef.current = true;
     try {
       const res = await fetch('/api/totp/codes', { headers: getAuthHeaders() });
       const data = await res.json();
@@ -361,6 +365,8 @@ function TotpPage() {
       }
     } catch (e) {
       console.error('刷新验证码失败:', e);
+    } finally {
+      isRefreshingRef.current = false;
     }
   };
 
@@ -405,26 +411,31 @@ function TotpPage() {
 
   useEffect(() => {
     const timer = setInterval(() => {
-      let needRefresh = false;
       setTotpCodes((prevCodes) => {
         const updated = {};
+        let needRefresh = false;
+        let changed = false;
         for (const id in prevCodes) {
           const item = prevCodes[id];
           if (item.remaining !== undefined && item.remaining > 0) {
-            updated[id] = { ...item, remaining: item.remaining - 1 };
-            if (updated[id].remaining <= 0) {
+            const nextRemaining = item.remaining - 1;
+            updated[id] = { ...item, remaining: nextRemaining };
+            changed = true;
+            if (nextRemaining <= 0) {
               needRefresh = true;
             }
           } else {
             updated[id] = item;
           }
         }
-        return updated;
+        
+        if (needRefresh) {
+          Promise.resolve().then(() => {
+            refreshCodes();
+          });
+        }
+        return changed ? updated : prevCodes;
       });
-
-      if (needRefresh) {
-        refreshCodes();
-      }
     }, 1000);
 
     return () => clearInterval(timer);
@@ -962,14 +973,20 @@ function TotpPage() {
   };
 
   // Helper formats code displaying
-  const formatTotpCode = (accountId, code) => {
-    if (!code) return '000 000';
+  const formatTotpCode = (account, code) => {
+    const digits = account.digits || 6;
+    const isRevealed = revealedCodes[account.id] || false;
     
-    const isRevealed = revealedCodes[accountId] || false;
     if (totpSettings.hideCode && !isRevealed) {
-      return '••••••';
+      if (digits === 8) return '•••• ••••';
+      return '••• •••';
     }
 
+    if (!code) {
+      if (digits === 8) return '0000 0000';
+      return '000 000';
+    }
+    
     const cleanCode = code.replace(/\s/g, '');
     if (cleanCode.length === 6) {
       return cleanCode.slice(0, 3) + ' ' + cleanCode.slice(3);
@@ -1199,7 +1216,7 @@ function TotpPage() {
                             remaining <= 5 ? 'text-kumo-danger animate-pulse' : 'text-kumo-strong'
                           }`}
                         >
-                          {formatTotpCode(account.id, codeDetail.code)}
+                          {formatTotpCode(account, codeDetail.code)}
                         </div>
 
                         <div className="mt-2.5 flex items-center justify-between text-[10px] text-kumo-subtle font-mono">
@@ -1221,7 +1238,7 @@ function TotpPage() {
                             <div className="flex items-center gap-2 w-full">
                               <div className="flex-1 h-1.5 bg-kumo-recessed rounded-full overflow-hidden">
                                 <div
-                                  className="h-full rounded-full transition-all duration-1000 ease-linear"
+                                  className={`h-full rounded-full ${remaining === period ? '' : 'transition-all duration-1000 ease-linear'}`}
                                   style={{
                                     width: `${ratio}%`,
                                     background: issuerColor,
