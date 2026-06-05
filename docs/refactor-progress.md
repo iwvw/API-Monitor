@@ -119,6 +119,7 @@ case 'filebox':  return <FileboxPage />;
 | 113addb | FileboxPage 页面实现 | 2026-06-05 |
 | 2831052 | 核心基础及 Auth, Dashboard, Server 迁移 | 2026-06-05 |
 | 1f6c2cb | 侧边栏折叠修复及 2FA 紧凑化调整 | 2026-06-05 |
+| 885886a | 侧边栏折叠按钮固定（左侧对齐）调整 | 2026-06-05 |
 | (待填充) | UptimePage | - |
 | (待填充) | NotificationPage | - |
 
