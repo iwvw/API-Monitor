@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
 import { toast } from '../modules/toast.js';
 import { Button } from '@cloudflare/kumo/components/button';
+import { Input } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
+import { Tabs } from '@cloudflare/kumo/components/tabs';
 import useStore from '../store.js';
 import { Settings, Lock, Shield, LayoutDashboard, Globe, Sun } from '../components/Icons.jsx';
 
@@ -54,35 +56,21 @@ function SettingsPage() {
 
       <div className="flex flex-col md:flex-row gap-6">
         {/* Sidebar Tabs */}
-        <div className="w-full md:w-64 shrink-0 flex flex-col gap-1">
-          <button
-            onClick={() => setActiveTab('general')}
-            className={`flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors ${activeTab === 'general' ? 'bg-kumo-recessed text-kumo-strong' : 'text-kumo-subtle hover:bg-kumo-recessed/50 hover:text-kumo-strong'}`}
-          >
-            <LayoutDashboard className="w-4 h-4" />
-            常规设置
-          </button>
-          <button
-            onClick={() => setActiveTab('security')}
-            className={`flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors ${activeTab === 'security' ? 'bg-kumo-recessed text-kumo-strong' : 'text-kumo-subtle hover:bg-kumo-recessed/50 hover:text-kumo-strong'}`}
-          >
-            <Shield className="w-4 h-4" />
-            安全与认证
-          </button>
-          <button
-            onClick={() => setActiveTab('appearance')}
-            className={`flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors ${activeTab === 'appearance' ? 'bg-kumo-recessed text-kumo-strong' : 'text-kumo-subtle hover:bg-kumo-recessed/50 hover:text-kumo-strong'}`}
-          >
-            <Sun className="w-4 h-4" />
-            外观主题
-          </button>
-          <button
-            onClick={() => setActiveTab('network')}
-            className={`flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-semibold transition-colors ${activeTab === 'network' ? 'bg-kumo-recessed text-kumo-strong' : 'text-kumo-subtle hover:bg-kumo-recessed/50 hover:text-kumo-strong'}`}
-          >
-            <Globe className="w-4 h-4" />
-            网络与代理
-          </button>
+        <div className="w-full md:w-64 shrink-0">
+          <Tabs
+            variant="segmented"
+            size="sm"
+            value={activeTab}
+            onValueChange={setActiveTab}
+            className="w-full"
+            listClassName="w-full"
+            tabs={[
+              { value: 'general', label: <span className="inline-flex items-center gap-2"><LayoutDashboard className="w-4 h-4" />常规设置</span> },
+              { value: 'security', label: <span className="inline-flex items-center gap-2"><Shield className="w-4 h-4" />安全与认证</span> },
+              { value: 'appearance', label: <span className="inline-flex items-center gap-2"><Sun className="w-4 h-4" />外观主题</span> },
+              { value: 'network', label: <span className="inline-flex items-center gap-2"><Globe className="w-4 h-4" />网络与代理</span> },
+            ]}
+          />
         </div>
 
         {/* Content Area */}
@@ -137,35 +125,32 @@ function SettingsPage() {
                 </h3>
                 
                 <div className="grid gap-3 max-w-md">
-                  <div className="space-y-1">
-                    <label className="text-[11px] font-bold text-kumo-subtle">当前密码</label>
-                    <input
-                      type="password"
-                      value={passwordForm.old}
-                      onChange={(e) => setPasswordForm({ ...passwordForm, old: e.target.value })}
-                      className="w-full bg-kumo-base text-kumo-strong border border-kumo-line rounded p-2 text-xs focus:outline-none focus:border-kumo-brand"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[11px] font-bold text-kumo-subtle">新密码</label>
-                    <input
-                      type="password"
-                      value={passwordForm.new}
-                      onChange={(e) => setPasswordForm({ ...passwordForm, new: e.target.value })}
-                      className="w-full bg-kumo-base text-kumo-strong border border-kumo-line rounded p-2 text-xs focus:outline-none focus:border-kumo-brand"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <label className="text-[11px] font-bold text-kumo-subtle">确认新密码</label>
-                    <input
-                      type="password"
-                      value={passwordForm.confirm}
-                      onChange={(e) => setPasswordForm({ ...passwordForm, confirm: e.target.value })}
-                      className="w-full bg-kumo-base text-kumo-strong border border-kumo-line rounded p-2 text-xs focus:outline-none focus:border-kumo-brand"
-                    />
-                  </div>
+                  <Input
+                    label="当前密码"
+                    type="password"
+                    size="sm"
+                    value={passwordForm.old}
+                    onChange={(e) => setPasswordForm({ ...passwordForm, old: e.target.value })}
+                    className="w-full"
+                  />
+                  <Input
+                    label="新密码"
+                    type="password"
+                    size="sm"
+                    value={passwordForm.new}
+                    onChange={(e) => setPasswordForm({ ...passwordForm, new: e.target.value })}
+                    className="w-full"
+                  />
+                  <Input
+                    label="确认新密码"
+                    type="password"
+                    size="sm"
+                    value={passwordForm.confirm}
+                    onChange={(e) => setPasswordForm({ ...passwordForm, confirm: e.target.value })}
+                    className="w-full"
+                  />
                   <div className="pt-2">
-                    <Button onClick={handlePasswordChange} className="h-8 text-xs bg-kumo-brand hover:bg-kumo-brand/90 text-white">
+                    <Button variant="primary" size="sm" onClick={handlePasswordChange}>
                       更新密码
                     </Button>
                   </div>

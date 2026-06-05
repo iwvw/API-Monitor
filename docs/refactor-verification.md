@@ -60,3 +60,17 @@
 - 后续风险：
   - `DnsPage.jsx` 仍需补完 DNS Records 详情、新增、编辑、删除和 Quick Switch 旧逻辑。
   - 其他页面仍有大量原生 `<button>/<select>/<input>/<textarea>` 需要后续收敛。
+
+### 2026-06-06 小页面 Kumo-only 控件收敛
+
+- 任务：收敛低风险页面中的原生表单和按钮。
+- 修改范围：
+  - `src/js/pages/AuthPage.jsx`
+  - `src/js/pages/DashboardPage.jsx`
+  - `src/js/pages/SettingsPage.jsx`
+- 构建结果：`npm run build` 通过；仅有 Vite chunk size 警告。
+- 静态扫描：上述 3 个页面中 `<button>`、`<select>`、`<input>`、`<textarea>` 已清零。
+- 浏览器验证：待全路由 smoke 阶段执行。
+- console error：待浏览器 smoke 执行后记录。
+- Kumo-only 例外：无新增例外。
+- 后续风险：`SettingsPage` 已从自绘侧边 tab 切换为 Kumo `Tabs`，后续浏览器 smoke 需确认窄屏下标签滚动表现。

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Button } from '@cloudflare/kumo/components/button';
 import useStore from '../store.js';
 import {
   Server,
@@ -319,14 +320,15 @@ function DashboardPage() {
             </div>
           )}
           
-          <button
+          <Button
             onClick={() => fetchDashboardStats(true)}
-            disabled={loading}
-            className="flex items-center gap-2 px-3 py-1.5 bg-kumo-base hover:bg-kumo-recessed border border-kumo-line rounded-md text-xs text-kumo-strong cursor-pointer disabled:opacity-50 transition-colors"
+            variant="secondary"
+            size="sm"
+            loading={loading}
           >
-            <RefreshCw className={`w-3.5 h-3.5 ${loading ? 'animate-spin' : ''}`} />
+            {!loading && <RefreshCw className="w-3.5 h-3.5" />}
             <span>刷新数据</span>
-          </button>
+          </Button>
         </div>
       </div>
 

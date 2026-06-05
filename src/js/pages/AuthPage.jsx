@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { Button } from '@cloudflare/kumo/components/button';
+import { Input } from '@cloudflare/kumo/components/input';
 import useStore from '../store.js';
 import {
   Rocket,
@@ -9,7 +11,6 @@ import {
   AlertTriangle,
   LogIn,
   ChevronLeft,
-  RefreshCw,
   Shield,
   ArrowRight
 } from '../components/Icons.jsx';
@@ -109,8 +110,9 @@ function AuthPage() {
                 <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-kumo-subtle text-xs flex items-center">
                   <Key className="w-4 h-4" />
                 </span>
-                <input
+                <Input
                   type="password"
+                  aria-label="设置密码"
                   className="w-full bg-kumo-recessed text-kumo-strong text-sm pl-9 pr-4 py-2 border border-kumo-line rounded-md focus:outline-none focus:border-kumo-brand"
                   placeholder="设置新密码 (6 位以上)"
                   value={newPassword}
@@ -126,8 +128,9 @@ function AuthPage() {
                 <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-kumo-subtle text-xs flex items-center">
                   <CheckDouble className="w-4 h-4" />
                 </span>
-                <input
+                <Input
                   type="password"
+                  aria-label="确认密码"
                   className="w-full bg-kumo-recessed text-kumo-strong text-sm pl-9 pr-4 py-2 border border-kumo-line rounded-md focus:outline-none focus:border-kumo-brand"
                   placeholder="再次确认密码"
                   value={confirmPassword}
@@ -144,14 +147,16 @@ function AuthPage() {
               </div>
             )}
 
-            <button
+            <Button
               type="submit"
-              disabled={setupLoading}
-              className="w-full h-10 bg-kumo-brand hover:bg-kumo-brand-hover text-white text-sm font-semibold rounded-md flex items-center justify-center gap-2 cursor-pointer transition-colors"
+              variant="primary"
+              size="lg"
+              loading={setupLoading}
+              className="w-full justify-center"
             >
-              {setupLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <span>开始使用</span>}
+              <span>开始使用</span>
               {!setupLoading && <ArrowRight className="w-4 h-4" />}
-            </button>
+            </Button>
           </form>
         </div>
       </div>
@@ -190,8 +195,9 @@ function AuthPage() {
                 <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-kumo-subtle text-xs flex items-center">
                   <Lock className="w-4 h-4" />
                 </span>
-                <input
+                <Input
                   type="password"
+                  aria-label="管理员密码"
                   className="w-full bg-kumo-recessed text-kumo-strong text-sm pl-9 pr-4 py-2 border border-kumo-line rounded-md focus:outline-none focus:border-kumo-brand"
                   placeholder="请输入管理员密码"
                   value={loginPassword}
@@ -211,8 +217,9 @@ function AuthPage() {
                 <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-kumo-subtle text-xs flex items-center">
                   <Key className="w-4 h-4" />
                 </span>
-                <input
+                <Input
                   type="text"
+                  aria-label="6 位双因素验证码"
                   maxLength={6}
                   className="w-full bg-kumo-recessed text-kumo-strong text-sm pl-9 pr-4 py-2 border border-kumo-line rounded-md focus:outline-none focus:border-kumo-brand tracking-widest text-center"
                   placeholder="000000"
@@ -235,26 +242,30 @@ function AuthPage() {
 
           {/* 主动作按钮 */}
           {!loginRequire2FA && (
-            <button
+            <Button
               type="submit"
-              disabled={loginLoading}
-              className="w-full h-10 bg-kumo-brand hover:bg-kumo-brand-hover text-white text-sm font-semibold rounded-md flex items-center justify-center gap-2 cursor-pointer transition-colors"
+              variant="primary"
+              size="lg"
+              loading={loginLoading}
+              className="w-full justify-center"
             >
-              {loginLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : <span>立即进入</span>}
+              <span>立即进入</span>
               {!loginLoading && <LogIn className="w-4 h-4" />}
-            </button>
+            </Button>
           )}
 
           {/* 返回密码输入按钮 (仅在 2FA 阶段显示) */}
           {loginRequire2FA && (
-            <button
+            <Button
               type="button"
               onClick={cancelLogin2FA}
-              className="w-full h-10 bg-kumo-recessed hover:bg-kumo-recessed/60 text-kumo-strong text-sm font-semibold border border-kumo-line rounded-md flex items-center justify-center gap-2 cursor-pointer transition-colors"
+              variant="secondary"
+              size="lg"
+              className="w-full justify-center"
             >
               <ChevronLeft className="w-4 h-4" />
               <span>返回修改</span>
-            </button>
+            </Button>
           )}
         </form>
       </div>

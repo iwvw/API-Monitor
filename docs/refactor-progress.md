@@ -214,3 +214,9 @@ case 'self-h':   return <SelfHPage />;
   - 账号弹窗原生 `input` 改为 Kumo `Input`
   - 账号操作原生 icon button 改为 Kumo `Button`
   - Zones、Tunnels、Accounts 表格接入 Kumo `Table.ResizeHandle`
+- `AuthPage.jsx`、`DashboardPage.jsx`、`SettingsPage.jsx` 已完成 Kumo-only 控件收敛：
+  - 登录/首次设置密码表单改用 Kumo `Input` 和 `Button`
+  - 控制台刷新动作改用 Kumo `Button`
+  - 设置页自绘 tab button 改用 Kumo `Tabs`
+  - 设置页密码输入改用 Kumo `Input`
+  - 上述 3 个页面的 `<button>`、`<select>`、`<input>`、`<textarea>` 静态扫描已清零
