@@ -32,7 +32,8 @@ import {
   Plug,
   Brain,
   Sliders,
-  Copy
+  Copy,
+  AlertTriangle
 } from '../components/Icons.jsx';
 
 function OpenAIPage() {
