@@ -69,8 +69,8 @@ toast.info('提示...');
 |------|------|------|------|
 | TOTP (2FA) | `pages/TotpPage.jsx` | ✅ 完成 | 验证码列表 + 分组 + 设置 |
 | Filebox (文件柜) | `pages/FileboxPage.jsx` | ✅ 完成 | 文件列表 + 上传 + 分享链接 |
-| Uptime (监测) | pages/UptimePage.jsx | ⬜ 待开始 | 监测列表 + 添加 + 统计报表 |
-| Notification (通知) | pages/NotificationPage.jsx | ⬜ 待开始 | 渠道 + 告警规则 + 历史 + 配置 |
+| Uptime (监测) | pages/UptimePage.jsx | ✅ 完成 | 监测列表 + 添加 + 统计报表 |
+| Notification (通知) | pages/NotificationPage.jsx | ✅ 完成 | 渠道 + 告警规则 + 历史 + 配置 |
 
 ### Wave 2 — API 网关
 | 模块 | 文件 | 状态 | 说明 |
@@ -120,8 +120,7 @@ case 'filebox':  return <FileboxPage />;
 | 2831052 | 核心基础及 Auth, Dashboard, Server 迁移 | 2026-06-05 |
 | 1f6c2cb | 侧边栏折叠修复及 2FA 紧凑化调整 | 2026-06-05 |
 | 885886a | 侧边栏折叠按钮固定（左侧对齐）调整 | 2026-06-05 |
-| (待填充) | UptimePage | - |
-| (待填充) | NotificationPage | - |
+| d3d7233 | UptimePage & NotificationPage 页面实现 | 2026-06-05 |
 
 ---
 
