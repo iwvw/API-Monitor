@@ -4,6 +4,8 @@ import Chart from 'chart.js/auto';
 import { toast } from '../modules/toast.js';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Checkbox } from '@cloudflare/kumo/components/checkbox';
+import { Input } from '@cloudflare/kumo/components/input';
+import { Tabs } from '@cloudflare/kumo/components/tabs';
 import {
   Activity,
   Plus,
@@ -725,41 +727,23 @@ function UptimePage() {
     <div className="space-y-6 pb-20">
       {/* ==================== 顶部 Tab 导航 ==================== */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b border-kumo-line pb-4 gap-4">
-        <div className="flex border border-kumo-line rounded-lg p-0.5 bg-kumo-recessed select-none">
-          <button
-            onClick={() => setUptimeCurrentTab('list')}
-            className={`flex items-center gap-2 px-4 py-1.5 rounded-md text-xs font-semibold cursor-pointer transition-colors ${
-              uptimeCurrentTab === 'list'
-                ? 'bg-kumo-base text-kumo-strong shadow-sm'
-                : 'text-kumo-subtle hover:text-kumo-strong'
-            }`}
-          >
-            <Activity className="w-3.5 h-3.5" />
-            <span>仪表盘</span>
-          </button>
-          <button
-            onClick={handleOpenAdd}
-            className={`flex items-center gap-2 px-4 py-1.5 rounded-md text-xs font-semibold cursor-pointer transition-colors ${
-              uptimeCurrentTab === 'add'
-                ? 'bg-kumo-base text-kumo-strong shadow-sm'
-                : 'text-kumo-subtle hover:text-kumo-strong'
-            }`}
-          >
-            <Plus className="w-3.5 h-3.5" />
-            <span>添加监测</span>
-          </button>
-          <button
-            onClick={() => setUptimeCurrentTab('stats')}
-            className={`flex items-center gap-2 px-4 py-1.5 rounded-md text-xs font-semibold cursor-pointer transition-colors ${
-              uptimeCurrentTab === 'stats'
-                ? 'bg-kumo-base text-kumo-strong shadow-sm'
-                : 'text-kumo-subtle hover:text-kumo-strong'
-            }`}
-          >
-            <TrendingUp className="w-3.5 h-3.5" />
-            <span>统计报表</span>
-          </button>
-        </div>
+        <Tabs
+          variant="segmented"
+          size="sm"
+          value={uptimeCurrentTab}
+          onValueChange={(value) => {
+            if (value === 'add') {
+              handleOpenAdd();
+              return;
+            }
+            setUptimeCurrentTab(value);
+          }}
+          tabs={[
+            { value: 'list', label: <span className="inline-flex items-center gap-1.5"><Activity className="w-3.5 h-3.5" />仪表盘</span> },
+            { value: 'add', label: <span className="inline-flex items-center gap-1.5"><Plus className="w-3.5 h-3.5" />添加监测</span> },
+            { value: 'stats', label: <span className="inline-flex items-center gap-1.5"><TrendingUp className="w-3.5 h-3.5" />统计报表</span> },
+          ]}
+        />
 
         {uptimeCurrentTab === 'list' && (
           <div className="flex items-center gap-2 w-full md:w-auto">
@@ -768,8 +752,9 @@ function UptimePage() {
               <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-kumo-subtle">
                 <Search className="w-3.5 h-3.5" />
               </span>
-              <input
+              <Input
                 type="text"
+                aria-label="搜索监测目标"
                 placeholder="搜索监测目标..."
                 value={uptimeSearchText}
                 onChange={(e) => setUptimeSearchText(e.target.value)}
@@ -789,55 +774,50 @@ function UptimePage() {
         <div className="space-y-4 quick-fade-in">
           {/* 可用状态概览胶囊栏 */}
           <div className="flex flex-wrap items-center gap-2 pb-2">
-            <button
+            <Button
               onClick={() => setUptimeStatusFilter(null)}
-              className={`px-3 py-1 rounded-full text-xs font-semibold border cursor-pointer transition-all ${
-                uptimeStatusFilter === null
-                  ? 'bg-kumo-brand/10 border-kumo-brand text-kumo-brand'
-                  : 'bg-kumo-base border-kumo-line text-kumo-subtle hover:text-kumo-strong'
-              }`}
+              variant={uptimeStatusFilter === null ? 'primary' : 'secondary'}
+              size="sm"
             >
               全部 ({uptimeMonitors.length})
-            </button>
-            <button
+            </Button>
+            <Button
               onClick={() => setUptimeStatusFilter('up')}
-              className={`px-3 py-1 rounded-full text-xs font-semibold border cursor-pointer transition-all ${
-                uptimeStatusFilter === 'up'
-                  ? 'bg-kumo-success/10 border-kumo-success text-kumo-success'
-                  : 'bg-kumo-base border-kumo-line text-kumo-subtle hover:text-kumo-strong'
-              }`}
+              variant="secondary"
+              size="sm"
+              className={uptimeStatusFilter === 'up' ? 'text-kumo-success ring-kumo-success/30 bg-kumo-success/10' : ''}
             >
               正常 ({uptimeStats.up})
-            </button>
-            <button
+            </Button>
+            <Button
               onClick={() => setUptimeStatusFilter('down')}
-              className={`px-3 py-1 rounded-full text-xs font-semibold border cursor-pointer transition-all ${
-                uptimeStatusFilter === 'down'
-                  ? 'bg-kumo-danger/10 border-kumo-danger text-kumo-danger'
-                  : 'bg-kumo-base border-kumo-line text-kumo-subtle hover:text-kumo-strong'
-              }`}
+              variant="secondary"
+              size="sm"
+              className={uptimeStatusFilter === 'down' ? 'text-kumo-danger ring-kumo-danger/30 bg-kumo-danger/10' : ''}
             >
               故障 ({uptimeStats.down})
-            </button>
-            <button
+            </Button>
+            <Button
               onClick={() => setUptimeStatusFilter('pending')}
-              className={`px-3 py-1 rounded-full text-xs font-semibold border cursor-pointer transition-all ${
-                uptimeStatusFilter === 'pending'
-                  ? 'bg-kumo-warning/10 border-kumo-warning text-kumo-warning'
-                  : 'bg-kumo-base border-kumo-line text-kumo-subtle hover:text-kumo-strong'
-              }`}
+              variant="secondary"
+              size="sm"
+              className={uptimeStatusFilter === 'pending' ? 'text-kumo-warning ring-kumo-warning/30 bg-kumo-warning/10' : ''}
             >
               等待 ({uptimeStats.pending})
-            </button>
+            </Button>
 
-            <button
+            <Button
               onClick={loadUptimeMonitors}
-              disabled={uptimeLoading}
-              className="ml-auto w-8 h-8 flex items-center justify-center border border-kumo-line rounded-lg bg-kumo-base text-kumo-subtle hover:text-kumo-strong transition-colors cursor-pointer"
+              loading={uptimeLoading}
+              variant="secondary"
+              size="sm"
+              shape="square"
+              aria-label="刷新监测目标"
+              className="ml-auto"
               title="刷新"
             >
-              <RotateCw className={`w-3.5 h-3.5 ${uptimeLoading ? 'animate-spin' : ''}`} />
-            </button>
+              {!uptimeLoading && <RotateCw className="w-3.5 h-3.5" />}
+            </Button>
           </div>
 
           {uptimeLoading && uptimeMonitors.length === 0 ? (
@@ -1038,74 +1018,70 @@ function UptimePage() {
             {/* 监控类型选择 (Full Width) */}
             <div className="md:col-span-12 space-y-1.5">
               <label className="text-xs font-semibold text-kumo-subtle">监测类型</label>
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-                {[
-                  { id: 'http', label: 'HTTP(s)' },
-                  { id: 'keyword', label: '网页关键词' },
-                  { id: 'tcp', label: 'TCP 端口' },
-                  { id: 'ping', label: 'ICMP Ping' },
-                  { id: 'dns', label: 'DNS 解析' }
-                ].map((type) => (
-                  <button
-                    key={type.id}
-                    onClick={() => setUptimeForm(prev => ({ ...prev, type: type.id }))}
-                    className={`py-2 px-3 border rounded-lg text-xs font-semibold cursor-pointer transition-colors ${
-                      uptimeForm.type === type.id
-                        ? 'border-kumo-brand bg-kumo-brand/10 text-kumo-brand'
-                        : 'border-kumo-line bg-kumo-recessed text-kumo-subtle hover:text-kumo-strong'
-                    }`}
-                  >
-                    {type.label}
-                  </button>
-                ))}
-              </div>
+              <Tabs
+                variant="segmented"
+                size="sm"
+                value={uptimeForm.type}
+                onValueChange={(value) => setUptimeForm(prev => ({ ...prev, type: value }))}
+                tabs={[
+                  { value: 'http', label: 'HTTP(s)' },
+                  { value: 'keyword', label: '网页关键词' },
+                  { value: 'tcp', label: 'TCP 端口' },
+                  { value: 'ping', label: 'ICMP Ping' },
+                  { value: 'dns', label: 'DNS 解析' },
+                ]}
+              />
             </div>
 
             {/* 目标显示名称 */}
-            <div className="md:col-span-4 space-y-1.5">
-              <label className="text-xs font-semibold text-kumo-subtle">显示名称 *</label>
-              <input
+            <div className="md:col-span-4">
+              <Input
+                label="显示名称 *"
                 type="text"
+                size="sm"
                 placeholder="e.g. 生产数据库端口"
                 value={uptimeForm.name}
                 onChange={(e) => setUptimeForm(prev => ({ ...prev, name: e.target.value }))}
-                className="w-full bg-kumo-recessed text-kumo-strong text-xs px-3 py-2 border border-kumo-line rounded-md focus:outline-none focus:border-kumo-brand"
+                className="w-full"
               />
             </div>
 
             {/* 地址输入域 */}
             {['http', 'keyword'].includes(uptimeForm.type) ? (
-              <div className="md:col-span-8 space-y-1.5">
-                <label className="text-xs font-semibold text-kumo-subtle">请求 URL *</label>
-                <input
+              <div className="md:col-span-8">
+                <Input
+                  label="请求 URL *"
                   type="text"
+                  size="sm"
                   placeholder="https://api.domain.com/v1/health"
                   value={uptimeForm.url}
                   onChange={(e) => setUptimeForm(prev => ({ ...prev, url: e.target.value }))}
-                  className="w-full bg-kumo-recessed text-kumo-strong text-xs px-3 py-2 border border-kumo-line rounded-md focus:outline-none focus:border-kumo-brand"
+                  className="w-full"
                 />
               </div>
             ) : (
               <>
-                <div className={`${uptimeForm.type === 'tcp' ? 'md:col-span-6' : 'md:col-span-8'} space-y-1.5`}>
-                  <label className="text-xs font-semibold text-kumo-subtle">主机 Hostname / IP *</label>
-                  <input
+                <div className={uptimeForm.type === 'tcp' ? 'md:col-span-6' : 'md:col-span-8'}>
+                  <Input
+                    label="主机 Hostname / IP *"
                     type="text"
+                    size="sm"
                     placeholder="e.g. 192.168.1.100 or db.server.internal"
                     value={uptimeForm.hostname}
                     onChange={(e) => setUptimeForm(prev => ({ ...prev, hostname: e.target.value }))}
-                    className="w-full bg-kumo-recessed text-kumo-strong text-xs px-3 py-2 border border-kumo-line rounded-md focus:outline-none focus:border-kumo-brand"
+                    className="w-full"
                   />
                 </div>
                 {uptimeForm.type === 'tcp' && (
-                  <div className="md:col-span-2 space-y-1.5">
-                    <label className="text-xs font-semibold text-kumo-subtle">连接端口 *</label>
-                    <input
+                  <div className="md:col-span-2">
+                    <Input
+                      label="连接端口 *"
                       type="number"
+                      size="sm"
                       placeholder="3306"
                       value={uptimeForm.port}
                       onChange={(e) => setUptimeForm(prev => ({ ...prev, port: parseInt(e.target.value) || 0 }))}
-                      className="w-full bg-kumo-recessed text-kumo-strong text-xs px-3 py-2 border border-kumo-line rounded-md focus:outline-none focus:border-kumo-brand font-mono"
+                      className="w-full font-mono"
                     />
                   </div>
                 )}
@@ -1113,24 +1089,26 @@ function UptimePage() {
             )}
 
             {/* 监测频率与重试参数 */}
-            <div className="md:col-span-6 space-y-1.5">
-              <label className="text-xs font-semibold text-kumo-subtle">检测频率 (秒)</label>
-              <input
+            <div className="md:col-span-6">
+              <Input
+                label="检测频率 (秒)"
                 type="number"
+                size="sm"
                 min="20"
                 value={uptimeForm.interval}
                 onChange={(e) => setUptimeForm(prev => ({ ...prev, interval: parseInt(e.target.value) || 60 }))}
-                className="w-full bg-kumo-recessed text-kumo-strong text-xs px-3 py-2 border border-kumo-line rounded-md focus:outline-none focus:border-kumo-brand font-mono"
+                className="w-full font-mono"
               />
             </div>
-            <div className="md:col-span-6 space-y-1.5">
-              <label className="text-xs font-semibold text-kumo-subtle">重试次数</label>
-              <input
+            <div className="md:col-span-6">
+              <Input
+                label="重试次数"
                 type="number"
+                size="sm"
                 min="0"
                 value={uptimeForm.retries}
                 onChange={(e) => setUptimeForm(prev => ({ ...prev, retries: parseInt(e.target.value) || 0 }))}
-                className="w-full bg-kumo-recessed text-kumo-strong text-xs px-3 py-2 border border-kumo-line rounded-md focus:outline-none focus:border-kumo-brand font-mono"
+                className="w-full font-mono"
               />
             </div>
 
@@ -1144,14 +1122,15 @@ function UptimePage() {
 
             {/* 证书过期设置 */}
             {['http'].includes(uptimeForm.type) && (
-              <div className="md:col-span-6 space-y-1.5">
-                <label className="text-xs font-semibold text-kumo-subtle">SSL 证书到期提醒 (天)</label>
-                <input
+              <div className="md:col-span-6">
+                <Input
+                  label="SSL 证书到期提醒 (天)"
                   type="number"
+                  size="sm"
                   placeholder="7"
                   value={uptimeForm.expiryNotification}
                   onChange={(e) => setUptimeForm(prev => ({ ...prev, expiryNotification: parseInt(e.target.value) || 7 }))}
-                  className="w-full bg-kumo-recessed text-kumo-strong text-xs px-3 py-2 border border-kumo-line rounded-md focus:outline-none focus:border-kumo-brand font-mono"
+                  className="w-full font-mono"
                 />
               </div>
             )}
@@ -1169,14 +1148,15 @@ function UptimePage() {
 
             {/* 网页关键字匹配 */}
             {uptimeForm.type === 'keyword' && (
-              <div className="md:col-span-12 space-y-1.5">
-                <label className="text-xs font-semibold text-kumo-subtle">关键字匹配 (网页中必须包含此文字) *</label>
-                <input
+              <div className="md:col-span-12">
+                <Input
+                  label="关键字匹配 (网页中必须包含此文字) *"
                   type="text"
+                  size="sm"
                   placeholder="e.g. success or 正常"
                   value={uptimeForm.keyword}
                   onChange={(e) => setUptimeForm(prev => ({ ...prev, keyword: e.target.value }))}
-                  className="w-full bg-kumo-recessed text-kumo-strong text-xs px-3 py-2 border border-kumo-line rounded-md focus:outline-none focus:border-kumo-brand"
+                  className="w-full"
                 />
               </div>
             )}
@@ -1218,14 +1198,15 @@ function UptimePage() {
             </div>
 
             {/* 标签管理 */}
-            <div className="md:col-span-12 space-y-1.5">
-              <label className="text-xs font-semibold text-kumo-subtle">分组标签 (Tags)</label>
-              <input
+            <div className="md:col-span-12">
+              <Input
+                label="分组标签 (Tags)"
                 type="text"
+                size="sm"
                 placeholder="prod, api, test (逗号或空格分割)"
                 value={uptimeForm.tagsInput}
                 onChange={(e) => setUptimeForm(prev => ({ ...prev, tagsInput: e.target.value }))}
-                className="w-full bg-kumo-recessed text-kumo-strong text-xs px-3 py-2 border border-kumo-line rounded-md focus:outline-none focus:border-kumo-brand"
+                className="w-full"
               />
             </div>
           </div>

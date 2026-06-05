@@ -87,3 +87,14 @@
 - console error：待浏览器 smoke 执行后记录。
 - Kumo-only 例外：无新增例外。
 - 后续风险：两个页面的云资源操作仍依赖真实账号/API，后续 smoke 以空状态和控制台错误检查为主。
+
+### 2026-06-06 UptimePage Kumo-only 控件收敛
+
+- 任务：收敛 Uptime 监测页面中的原生导航、过滤、搜索和表单输入。
+- 修改范围：`src/js/pages/UptimePage.jsx`
+- 构建结果：`npm run build` 通过；仅有 Vite chunk size 警告。
+- 静态扫描：`UptimePage.jsx` 中 `<button>`、`<select>`、`<input>`、`<textarea>` 已清零。
+- 浏览器验证：待全路由 smoke 阶段执行。
+- console error：待浏览器 smoke 执行后记录。
+- Kumo-only 例外：无新增例外。
+- 后续风险：Chart.js 图表和 socket 心跳逻辑未改动，后续 smoke 需确认切换到添加/统计标签不会产生控制台错误。

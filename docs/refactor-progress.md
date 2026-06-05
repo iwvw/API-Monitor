@@ -226,3 +226,8 @@ case 'self-h':   return <SelfHPage />;
   - 实例操作与账号操作图标按钮改为 Kumo `Button`
   - 账号弹窗输入改为 Kumo `Input` / `Textarea`
   - 上述 2 个页面的 `<button>`、`<select>`、`<input>`、`<textarea>` 静态扫描已清零
+- `UptimePage.jsx` 已完成 Kumo-only 控件收敛：
+  - 顶部导航、监测类型选择改为 Kumo `Tabs`
+  - 搜索和新增/编辑表单输入改为 Kumo `Input`
+  - 状态过滤、刷新动作改为 Kumo `Button`
+  - 该页面 `<button>`、`<select>`、`<input>`、`<textarea>` 静态扫描已清零
