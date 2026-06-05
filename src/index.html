@@ -2,96 +2,33 @@
 <html lang="zh-CN">
 
 <head>
-  <script>
-    (function () {
-      var match = location.pathname.match(/^\/s\/([^/]+)/i);
-      if (match) {
-        document.documentElement.classList.add('single-page-mode');
-      }
-    })();
-  </script>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>API Monitor</title>
   <link rel="icon" type="image/svg+xml" href="/logo.svg" />
   <link rel="shortcut icon" href="/logo.svg" />
   <link rel="apple-touch-icon" href="/logo.svg" />
-  <meta name="theme-color" content="#0d1117" />
+  <meta name="theme-color" content="Canvas" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="mobile-web-app-capable" content="yes" />
 
-  <%- cdnStyleTags %>
-    <%- cdnScriptTags %>
+  <style>
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+    }
 
-      <link rel="stylesheet" href="css/qwen.css" />
-      <link rel="stylesheet" href="css/refined-mobile.css" />
-
-      <style>
-        :root {
-          --bg-primary: #111827;
-          --bg-secondary: #1f2937;
-          --text-primary: #f9fafb;
-          --border-color: #374151;
-        }
-
-        @media (prefers-color-scheme: light) {
-          :root {
-            --bg-primary: #f4f6f8;
-            --bg-secondary: #f9fafb;
-            --text-primary: #4e4e4e;
-            --border-color: #dedede;
-          }
-        }
-
-        *,
-        *::before,
-        *::after {
-          box-sizing: border-box;
-          margin: 0;
-          padding: 0;
-        }
-
-        html,
-        body {
-          height: 100%;
-          width: 100%;
-        }
-
-        body {
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-          background-color: var(--bg-primary);
-          color: var(--text-primary);
-          -webkit-font-smoothing: antialiased;
-        }
-
-        [v-cloak] {
-          display: none !important;
-        }
-
-        .app-wrapper:not(.app-reveal) {
-          visibility: hidden !important;
-        }
-
-        html.single-page-mode .header,
-        html.single-page-mode .top-nav-bar,
-        html.single-page-mode .nav-brand,
-        html.single-page-mode .main-nav-container,
-        html.single-page-mode .main-tabs,
-        html.single-page-mode .main-tabs-grouped,
-        html.single-page-mode .nav-group,
-        html.single-page-mode .nav-group-btn,
-        html.single-page-mode .nav-settings-btn {
-          display: none !important;
-          visibility: hidden !important;
-        }
-      </style>
+    html,
+    body {
+      height: 100%;
+      width: 100%;
+    }
+  </style>
 </head>
 
 <body ontouchstart="">
-  <!-- 自定义 CSS -->
-  <style id="custom-css"></style>
-
   <!-- 应用加载屏 -->
   <div id="app-loading" style="
         position: fixed;
@@ -105,7 +42,7 @@
         justify-content: center;
         align-items: center;
         transition: opacity 0.3s ease-out;
-        background: #0d1117;
+        background: var(--color-kumo-canvas, Canvas);
       ">
     <img src="/logo.svg" alt="Loading..." style="
           width: 64px;
@@ -156,21 +93,28 @@
     <script>
       // 立即执行的主题检测脚本
       (function () {
+        var savedTheme = localStorage.getItem('app_theme');
         var isDark =
-          window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+          savedTheme === 'dark' ||
+          (savedTheme !== 'light' &&
+            window.matchMedia &&
+            window.matchMedia('(prefers-color-scheme: dark)').matches);
         var loader = document.getElementById('app-loading');
         var track = document.getElementById('loading-progress-track');
         var bar = document.getElementById('loading-progress-bar');
 
         function applyTheme(dark) {
+          document.documentElement.classList.toggle('dark', dark);
+          document.documentElement.classList.toggle('light', !dark);
+          document.documentElement.dataset.mode = dark ? 'dark' : 'light';
           if (loader) {
-            loader.style.background = dark ? '#0d1117' : '#f6f8fa';
+            loader.style.background = 'var(--color-kumo-canvas, Canvas)';
           }
           if (track) {
-            track.style.background = dark ? 'rgba(88, 166, 255, 0.1)' : 'rgba(31, 111, 235, 0.1)';
+            track.style.background = 'color-mix(in oklch, var(--color-kumo-brand, Highlight) 12%, transparent)';
           }
           if (bar) {
-            bar.style.background = dark ? '#58a6ff' : '#1f6feb';
+            bar.style.background = 'var(--color-kumo-brand, Highlight)';
           }
         }
 
@@ -188,423 +132,16 @@
     </script>
   </div>
 
-  <div id="app" v-cloak>
-    <!-- 认证模块 -->
-    <div id="template-auth"></div>
-    <div id="template-welcome"></div>
+  <!-- React 挂载点 -->
+  <div id="root"></div>
 
-    <!-- 主界面布局 -->
-    <div v-if="isAuthenticated" class="app-wrapper no-sidebar nav-layout-top"
-      :class="[{ 'settings-active-context': showSettingsModal, 'app-reveal': appRevealed, 'app-ready': appReady }, 'nav-layout-' + navLayout]">
-      <!-- 主内容区 -->
-      <main class="app-main">
-        <div v-if="isAuthenticated" class="container layout-top" :class="'layout-' + navLayout">
-          <!-- 顶部导航栏 -->
-          <div class="top-nav-bar"
-            v-if="!singlePageMode && (!isSelfHVideoActive || !isMobile) && (isMobile || (navLayout !== 'bottom' && navLayout !== 'bottom-normal'))">
-            <!-- Logo 区域 -->
-            <div class="nav-brand" @click="showSettingsModal = true" style="cursor: pointer; user-select: none;"
-              title="点击打开设置">
-              <img src="./logo.svg" class="nav-logo" alt="Logo" />
-              <span class="nav-title">API Monitor</span>
-            </div>
-
-            <!-- 主导航容器 -->
-            <div class="main-nav-container" :class="[
-              {'nav-bottom-fixed': navLayout === 'bottom' || navLayout === 'bottom-normal'},
-              {'nav-capsule': navLayout === 'bottom' || navLayout === 'top-capsule'},
-              'theme-' + (mainActiveTab === 'self-h' ? 'self-h' : mainActiveTab === 'gemini-cli' ? 'gemini-cli' : mainActiveTab === 'dns' ? 'cf-dns' : mainActiveTab)
-            ]">
-              <!-- 分组式标签页导航 -->
-              <div class="main-tabs main-tabs-grouped" v-if="visibleModulesCount > 1">
-                <!-- 首页按钮 -->
-                <button v-if="moduleVisibility.dashboard" class="nav-group-btn single-module-btn"
-                  :class="{ 'active': mainActiveTab === 'dashboard' }" @click="handleGroupModuleClick('dashboard')">
-                  <i class="fas fa-tachometer-alt"></i>
-                  <span class="group-name">仪表盘</span>
-                </button>
-
-                <template v-for="group in moduleGroups" :key="group.id">
-                  <div v-if="group.id !== 'overview' && getVisibleModulesInGroup(group.modules).length > 0"
-                    class="nav-group"
-                    :class="{ 'expanded': navGroupExpanded === group.id, 'has-active': isGroupActive(group.modules) }">
-                    <!-- 分组按钮 -->
-                    <button class="nav-group-btn" :class="{ 'active': isGroupActive(group.modules) }"
-                      @click="toggleNavGroup(group.id)" @mouseenter="handleGroupHover(group.id)"
-                      @mouseleave="handleGroupLeave">
-                      <i class="fas" :class="group.icon"></i>
-                      <span class="group-name">{{ group.name }}</span>
-                      <i class="fas fa-chevron-down group-arrow"></i>
-                    </button>
-                    <!-- 下拉菜单 -->
-                    <transition name="main-nav-dropdown">
-                      <div v-show="navGroupExpanded === group.id" class="nav-group-dropdown"
-                        @mouseenter="cancelGroupLeave" @mouseleave="handleGroupLeave">
-                        <button v-for="module in getVisibleModulesInGroup(group.modules)" :key="module"
-                          class="dropdown-item" :class="[
-                                { 'active': mainActiveTab === module },
-                                module + '-tab'
-                              ]" @click="handleGroupModuleClick(module)">
-                          <template v-if="module === 'qwen'">
-                            <img
-                              src="https://img.alicdn.com/imgextra/i1/O1CN01cOgO0228KfUaIUM9k_!!6000000007914-54-tps-150-150.apng"
-                              style="width: 14px; height: 14px; margin-right: 8px; vertical-align: -2px; border-radius: 2px;">
-                          </template>
-                          <template v-else-if="module === 'gemini-cli'">
-                            <img
-                              src="https://gemini-pro.cn/gemini-color.png"
-                              style="width: 14px; height: 14px; margin-right: 8px; vertical-align: -2px;">
-                          </template>
-                          <template v-else-if="module === 'dns'">
-                            <svg style="width: 18px; height: auto; margin-right: 8px; vertical-align: -1px;" viewBox="0 0 256 117" aria-hidden="true">
-                              <path fill="#FBAD41" d="M205.52 50.813c-.858 0-1.705.03-2.551.058q-.207.012-.398.094a1.42 1.42 0 0 0-.92.994l-3.628 12.672c-1.565 5.449-.983 10.48 1.646 14.174c2.41 3.416 6.42 5.421 11.289 5.655l19.679 1.194c.585.03 1.092.312 1.4.776a1.92 1.92 0 0 1 .2 1.692a2.5 2.5 0 0 1-2.134 1.662l-20.448 1.193c-11.11.515-23.062 9.58-27.255 20.633l-1.474 3.9a1.092 1.092 0 0 0 .967 1.49h70.425a1.87 1.87 0 0 0 1.81-1.365A51.2 51.2 0 0 0 256 101.828c0-28.16-22.582-50.984-50.449-50.984"/>
-                              <path fill="#F6821F" d="m174.782 115.362l1.303-4.583c1.568-5.449.987-10.48-1.639-14.173c-2.418-3.417-6.424-5.422-11.296-5.656l-92.312-1.193a1.82 1.82 0 0 1-1.459-.776a1.92 1.92 0 0 1-.203-1.693a2.5 2.5 0 0 1 2.154-1.662l93.173-1.193c11.063-.511 23.015-9.58 27.208-20.633l5.313-14.04c.214-.596.27-1.238.156-1.86C191.126 20.51 166.91 0 137.96 0C111.269 0 88.626 17.403 80.5 41.596a27 27 0 0 0-19.156-5.359C48.549 37.524 38.25 47.946 36.979 60.88a27.9 27.9 0 0 0 .702 9.642C16.773 71.145 0 88.454 0 109.726c0 1.923.137 3.818.413 5.667c.115.897.879 1.57 1.783 1.568h170.48a2.22 2.22 0 0 0 2.106-1.63"/>
-                            </svg>
-                          </template>
-                          <template v-else-if="module === 'aliyun'">
-                            <svg style="width: 14px; height: 14px; margin-right: 8px; vertical-align: -2px;" viewBox="0 0 24 24">
-                              <path fill="#ea580c" d="M9.514 5.14H4.68A3.68 3.68 0 0 0 1 8.82v6.358a3.68 3.68 0 0 0 3.68 3.68h4.85L8.36 17.2l-3.538-1.08a1.54 1.54 0 0 1-1.07-1.472V9.37a1.53 1.53 0 0 1 1.07-1.47l3.536-1.104zm9.825 0h-4.85l1.17 1.656L19.195 7.9a1.53 1.53 0 0 1 1.067 1.471v5.277a1.535 1.535 0 0 1-1.067 1.472L15.66 17.2l-1.17 1.656h4.85a3.66 3.66 0 0 0 3.66-3.68V8.82a3.68 3.68 0 0 0-3.66-3.68m-3.672 5.998h-7.33v1.652h7.33z"/>
-                            </svg>
-                          </template>
-                          <template v-else-if="module === 'openai'">
-                            <svg style="width: 14px; height: 14px; margin-right: 8px; vertical-align: -2px;" viewBox="0 0 24 24">
-                              <path fill="#059669" d="m14.805 10.482l.375-.65zm-8.162-5.32l-.65-.374zm6.18-1.656l.375-.65zm2.463.46v-.75zm4.525 4.525h.75zm.832 2.363l.65-.375zm-1.656 6.182l.375.65zm-1.63 1.901l.65.375zm-6.18 1.657l-.375.65zm-2.463-.46v.75ZM4.19 15.559h-.75zm-.832-2.363l-.65.375zm1.656-6.18l-.375-.65zm10.117-.01l.374-.65l-.374-.216l-.376.216zm2.76 5.207h.75v-.433l-.375-.216ZM9.195 6.817l-.375-.65a.75.75 0 0 0-.375.65zm5.61 10.364l.375.65a.75.75 0 0 0 .375-.65zm-5.845-.134l-.375.649a.75.75 0 0 0 .75 0ZM6.11 11.89h-.75a.75.75 0 0 0 .374.65ZM12 8.812l-.375.65l2.805 1.62l.375-.65l.375-.65l-2.805-1.62zm2.805 1.62h-.75v3.24h1.5v-3.24zm0 3.24l-.375-.65l-2.805 1.62l.375.65l.375.649l2.805-1.62ZM12 15.292l.375-.65l-2.805-1.62l-.375.65l-.375.65l2.805 1.619zm-2.805-1.62h.75v-3.24h-1.5v3.24zm0-3.24l.375.65l2.805-1.62l-.375-.65l-.375-.65l-2.805 1.62zm-2.552-5.32l.65.376a3.775 3.775 0 0 1 5.155-1.382l.375-.65l.375-.65a5.275 5.275 0 0 0-7.205 1.932zm6.18-1.656l-.375.65q.441.256.786.603l.53-.53l.53-.53a5.3 5.3 0 0 0-1.096-.842zm.941.723l.252.706a3.8 3.8 0 0 1 1.27-.219v-1.5c-.621 0-1.219.108-1.774.307zm1.522-.263v.75a3.775 3.775 0 0 1 3.775 3.775h1.5a5.275 5.275 0 0 0-5.275-5.275zm4.525 4.525h-.75q-.002.511-.13.983l.724.194l.724.195a5.3 5.3 0 0 0 .182-1.372zm-.156 1.177l-.486.572c.321.272.602.603.825.99l.65-.376l.649-.375a5.3 5.3 0 0 0-1.152-1.382zm.988 1.186l-.65.375a3.775 3.775 0 0 1-1.381 5.157l.375.65l.375.65a5.275 5.275 0 0 0 1.93-7.207zm-1.656 6.182l-.375-.65c-.293.17-.6.293-.916.377l.194.725l.194.725c.435-.117.866-.29 1.277-.528zm-1.097.452l-.738-.135a3.8 3.8 0 0 1-.444 1.21l.65.374l.649.375c.31-.538.515-1.11.62-1.69zm-.533 1.45l-.65-.376a3.775 3.775 0 0 1-5.155 1.382l-.375.65l-.375.65a5.275 5.275 0 0 0 7.205-1.932zm-6.18 1.656l.375-.65a3.8 3.8 0 0 1-.787-.604l-.53.53l-.532.53c.32.32.688.606 1.099.843zm-.943-.724l-.252-.706a3.8 3.8 0 0 1-1.268.22v1.5a5.3 5.3 0 0 0 1.772-.308zm-1.52.264v-.75a3.775 3.775 0 0 1-3.775-3.775h-1.5a5.275 5.275 0 0 0 5.275 5.275zM4.19 15.559h.75q.001-.512.13-.983l-.725-.194l-.724-.195a5.3 5.3 0 0 0-.18 1.372zm.155-1.177l.486-.572c-.32-.272-.6-.603-.823-.99l-.65.376l-.65.375c.31.537.703 1 1.151 1.382zm-1.87-1.186l.65-.375a3.774 3.774 0 0 1 1.38-5.156l-.374-.65l-.375-.65a5.274 5.274 0 0 0-1.93 7.206zm1.656-6.18l.375.649a3.8 3.8 0 0 1 .915-.38l-.194-.724l-.194-.725a5.3 5.3 0 0 0-1.277.53zm1.096-.455l.738.135c.075-.413.222-.821.445-1.208l-.649-.375l-.65-.375a5.3 5.3 0 0 0-.622 1.688zM12 8.812l.375.65l1.565-.903l1.565-.904l-.376-.65l-.374-.649l-1.565.903l-1.565.904zm2.805 1.62l-.375.65l3.085 1.78l.375-.649l.375-.65l-3.085-1.78zm3.085 7.006h.75v-5.225h-1.5v5.225zm-8.695-7.006h.75V6.817h-1.5v3.615zm5.61 3.24h-.75v3.509h1.5v-3.51zM12 15.292l-.375-.65l-3.04 1.755l.375.65l.375.649l3.04-1.755zM6.11 6.56h-.75v5.33h1.5V6.56zm3.085 7.11l.375-.649l-3.086-1.781l-.375.65l-.375.649L8.82 14.32zm5.935-3.665l-.376.65l4.526 2.612l.375-.65l.375-.65l-4.526-2.612zm-5.935-.189l.375.65l4.57-2.639l-.376-.65l-.375-.649l-4.57 2.639zm1.04 13.003l.374.65l4.571-2.64l-.375-.65l-.375-.649l-4.57 2.64zm-5.89-5.438l-.376.65l4.616 2.664l.375-.65l.375-.649l-4.616-2.665z"/>
-                            </svg>
-                          </template>
-                          <template v-else-if="module === 'tencent'">
-                            <svg style="width: 14px; height: 14px; margin-right: 8px; vertical-align: -2px;" viewBox="0 0 24 24">
-                              <path fill="#0284c7" d="M17.5 21H11v-2h7.723zM9 21H6.5l-1.223-2H9zm8-4H9v-2h8zm2.944 0H19v-2h2.167zM7 17H4.056l-1.223-2H7zm16-5l-.611 1H14v-2h8.389zm-11 1H1.611L1 12l.611-1H12zm9.167-4H2.833l1.223-2h15.888zm-2.444-4H16V3h1.5zM14 5H5.277L6.5 3H14z"/>
-                            </svg>
-                          </template>
-                          <template v-else-if="module === 'server'">
-                            <svg style="width: 14px; height: 14px; margin-right: 8px; vertical-align: -2px;" viewBox="0 0 24 24">
-                              <path fill="currentColor" fill-rule="evenodd" d="M2.586 3.586C2 4.172 2 5.114 2 7s0 2.828.586 3.414S4.114 11 6 11h12c1.886 0 2.828 0 3.414-.586S22 8.886 22 7s0-2.828-.586-3.414S19.886 3 18 3H6c-1.886 0-2.828 0-3.414.586M9 8.75A.75.75 0 0 1 8.25 8V6a.75.75 0 0 1 1.5 0v2a.75.75 0 0 1-.75.75m4.5-2.5a.75.75 0 0 0 0 1.5H18a.75.75 0 0 0 0-1.5zM6 8.75A.75.75 0 0 1 5.25 8V6a.75.75 0 0 1 1.5 0v2a.75.75 0 0 1-.75.75m-3.414 4.836C2 14.172 2 15.114 2 17s0 2.828.586 3.414S4.114 21 6 21h12c1.886 0 2.828 0 3.414-.586S22 18.886 22 17s0-2.828-.586-3.414S19.886 13 18 13H6c-1.886 0-2.828 0-3.414.586M12.75 17a.75.75 0 0 1 .75-.75H18a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1-.75-.75m-7.5 1a.75.75 0 0 0 1.5 0v-2a.75.75 0 0 0-1.5 0zm3.75.75a.75.75 0 0 1-.75-.75v-2a.75.75 0 0 1 1.5 0v2a.75.75 0 0 1-.75.75" clip-rule="evenodd"/>
-                            </svg>
-                          </template>
-                          <template v-else-if="module === 'paas'">
-                            <svg style="width: 14px; height: 14px; margin-right: 8px; vertical-align: -2px;" viewBox="0 0 24 24">
-                              <defs><path id="IconifyPaaS" fill="#ea580c" d="M20.654 16.88c-.111-1.057-.958-1.88-1.987-1.88c-.845 0-1.568.555-1.861 1.34a2.22 2.22 0 0 0-.015 1.513a1.46 1.46 0 0 0-1.4.49A1.63 1.63 0 0 0 15 19.412c0 .877.672 1.588 1.5 1.588H20c1.105 0 2-.948 2-2.118c0-.927-.562-1.714-1.346-2.001"/></defs>
-                              <path fill="#ea580c" fill-rule="evenodd" d="M3.172 19.828C4.343 21 6.229 21 10 21h3.93a3.17 3.17 0 0 1-.43-1.588c0-.816.32-1.592.857-2.162H13.5a.75.75 0 0 1 0-1.5h1.928c.511-1.29 1.727-2.25 3.239-2.25c1.56 0 2.81 1.028 3.288 2.38l.014.01C22 15.074 22 14.12 22 13v-.25H2V13c0 3.771 0 5.657 1.172 6.828M6 18.25a.75.75 0 0 1-.75-.75v-2a.75.75 0 0 1 1.5 0v2a.75.75 0 0 1-.75.75m3 0a.75.75 0 0 1-.75-.75v-2a.75.75 0 0 1 1.5 0v2a.75.75 0 0 1-.75.75M3.172 4.172C2 5.343 2 7.229 2 11v.25h20V11c0-3.771 0-5.657-1.172-6.828S17.771 3 14 3h-4C6.229 3 4.343 3 3.172 4.172M9 9.25a.75.75 0 0 1-.75-.75v-2a.75.75 0 0 1 1.5 0v2a.75.75 0 0 1-.75.75M5.25 8.5a.75.75 0 0 0 1.5 0v-2a.75.75 0 0 0-1.5 0zm7.5-1a.75.75 0 0 1 .75-.75H18a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1-.75-.75" clip-rule="evenodd"/>
-                              <use href="#IconifyPaaS" fill-rule="evenodd" clip-rule="evenodd"/>
-                            </svg>
-                          </template>
-                          <i v-else class="fas" :class="getModuleIcon(module)"></i>
-                          <span>{{ getModuleName(module) }}</span>
-                        </button>
-                      </div>
-                    </transition>
-                  </div>
-                </template>
-
-                <!-- 导航栏设置按钮（全平台） -->
-                <button class="nav-settings-btn" :class="{ active: showSettingsModal }"
-                  @click="showSettingsModal = !showSettingsModal" title="系统设置">
-                  <i class="fas fa-cog"></i>
-                  <span class="group-name">设置</span>
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <!-- 迷你播放器 -->
-          <div
-            v-if="isMobile && musicCurrentSong && !musicShowFullPlayer && (mainActiveTab === 'music' || mainActiveTab === 'dashboard')"
-            class="mini-player" @click="musicShowFullPlayer = true">
-            <img :src="musicCurrentSong.cover + '?param=100y100'" class="mini-player-cover" alt="cover" width="40"
-              height="40" />
-            <div class="mini-player-info">
-              <div class="mini-player-title">{{ musicCurrentSong.name }}</div>
-              <div class="mini-player-artist">{{ musicCurrentSong.artists }}</div>
-            </div>
-            <div class="mini-player-controls">
-              <button class="mini-player-btn" @click.stop="musicTogglePlay">
-                <i :class="musicPlaying ? 'fas fa-pause' : 'fas fa-play'"></i>
-              </button>
-              <button class="mini-player-btn" @click.stop="playNext">
-                <i class="fas fa-forward"></i>
-              </button>
-            </div>
-          </div>
-
-          <!-- 移动端全屏播放器 -->
-          <transition name="mobile-player-slide">
-            <div v-if="isMobile && musicShowFullPlayer && musicCurrentSong" class="mobile-full-player"
-              :class="{ 'mfp-playlist-active': mfpPlaylistMode }">
-              <!-- 背景模糊层 -->
-              <div class="mfp-bg" :style="{ backgroundImage: 'url(' + musicCurrentSong.cover + ')' }"></div>
-
-              <!-- 主内容 -->
-              <div class="mfp-content">
-                <!-- 单一封面 -->
-                <div class="mfp-cover-container" :class="{ 'compact': mfpLyricsMode || mfpPlaylistMode }">
-                  <transition name="mfp-cover-slide" mode="out-in">
-                    <img :src="musicCurrentSong.cover + '?param=600y600'" class="mfp-cover" alt="cover"
-                      :key="musicCurrentSong.id" draggable="false" @dragstart.prevent @contextmenu.prevent
-                      @click="if(mfpLyricsMode || mfpPlaylistMode) { mfpLyricsMode = false; mfpPlaylistMode = false; } else { mfpLyricsMode = true; mfpMountLyrics(); }" />
-                  </transition>
-                </div>
-
-                <!-- 歌曲信息 -->
-                <div class="mfp-info-container" :class="{ 'compact': mfpLyricsMode || mfpPlaylistMode }">
-                  <div class="mfp-title">{{ musicCurrentSong.name }}</div>
-                  <div class="mfp-artist">{{ musicCurrentSong.artists }}</div>
-                </div>
-
-                <!-- 歌词区域 -->
-                <transition name="mfp-fade">
-                  <div class="mfp-lyrics-area" v-show="mfpLyricsMode">
-                    <div class="mfp-lyrics-container" ref="mfpLyricsContainer">
-                      <div v-for="(line, index) in musicLyrics" :key="index" class="mfp-lyric-line"
-                        :class="{ 'active': musicCurrentLyricIndex === index, 'is-interlude': line.isInterlude }"
-                        @click="musicSeekToLyric(line.time)">
-                        <div class="mfp-line-text">
-                          <template v-if="line.isInterlude">
-                            <div class="mfp-interlude-dots">
-                              <span class="mfp-dot"
-                                :class="{ 'active': musicCurrentLyricIndex === index && (line.duration - (musicCurrentLyricPercent / 100 * line.duration)) <= 6000 }"></span>
-                              <span class="mfp-dot"
-                                :class="{ 'active': musicCurrentLyricIndex === index && (line.duration - (musicCurrentLyricPercent / 100 * line.duration)) <= 4000 }"></span>
-                              <span class="mfp-dot"
-                                :class="{ 'active': musicCurrentLyricIndex === index && (line.duration - (musicCurrentLyricPercent / 100 * line.duration)) <= 2000 }"></span>
-                            </div>
-                          </template>
-                          <template v-else-if="musicCurrentLyricIndex === index">
-                            <span v-for="(char, cIdx) in musicSplitLyricText(line.text)" :key="cIdx" class="mfp-char"
-                              :class="{ 'active': (cIdx / musicSplitLyricText(line.text).length) * 100 <= musicCurrentLyricPercent }">
-                              {{ char }}
-                            </span>
-                          </template>
-                          <template v-else> {{ line.text }} </template>
-                        </div>
-                        <div v-if="line.trans" class="mfp-line-trans">{{ line.trans }}</div>
-                      </div>
-                      <!-- 底部留白，确保最后一句能滚到中间 -->
-                      <div class="mfp-lyric-padding"></div>
-                    </div>
-                  </div>
-                </transition>
-
-                <transition name="mfp-fade">
-                  <div class="mfp-playlist-area" v-show="mfpPlaylistMode">
-                    <div class="mfp-playlist-container">
-                      <div class="mfp-playlist-header">待播清单</div>
-                      <div class="mfp-playlist-list">
-                        <div v-for="(song, index) in musicPlaylist" :key="index" class="mfp-playlist-item"
-                          :class="{ 'active': musicCurrentSong && song.id === musicCurrentSong.id }"
-                          @click="musicPlay(song)">
-                          <img :src="song.cover + '?param=100y100'" class="mfp-pi-cover" />
-                          <div class="mfp-pi-info">
-                            <div class="mfp-pi-title">{{ song.name }}</div>
-                            <div class="mfp-pi-artist">{{ song.artists }}</div>
-                          </div>
-                          <div v-if="musicCurrentSong && song.id === musicCurrentSong.id" class="mfp-pi-playing">
-                            <i class="fas fa-volume-up"></i>
-                          </div>
-                        </div>
-                      </div>
-                      <div class="mfp-lyric-padding"></div>
-                    </div>
-                  </div>
-                </transition>
-
-                <!-- 底部固定区域 -->
-                <div class="mfp-bottom-fixed">
-                  <!-- 进度条 -->
-                  <transition name="mfp-fade">
-                    <div class="mfp-progress-wrapper">
-                      <div class="mfp-progress-track" @mousedown="musicStartDrag($event)"
-                        @touchstart.prevent="musicStartDrag($event)">
-                        <div class="mfp-progress-fill" :style="{ width: musicProgress + '%' }"></div>
-                      </div>
-                      <div class="mfp-time">
-                        <span>{{ Math.floor(musicCurrentTime / 60) }}:{{
-                          String(Math.floor(musicCurrentTime % 60)).padStart(2, '0') }}</span>
-                        <span>-{{ Math.floor((musicDuration - musicCurrentTime) / 60) }}:{{
-                          String(Math.floor((musicDuration - musicCurrentTime) % 60)).padStart(2,
-                          '0') }}</span>
-                      </div>
-                    </div>
-                  </transition>
-
-                  <!-- 控制按钮 -->
-                  <div class="mfp-controls">
-                    <!-- 左侧：随机/顺序 切换 -->
-                    <button class="mfp-btn mfp-mode-btn active" @click="musicToggleShuffleAndOrder" title="播放模式">
-                      <i v-if="musicShuffleEnabled" class="fas fa-random"></i>
-                      <i v-else class="fas fa-long-arrow-alt-right"></i>
-                    </button>
-
-                    <button class="mfp-btn" @click="playPrevious">
-                      <i class="fas fa-backward"></i>
-                    </button>
-                    <button class="mfp-btn mfp-play-btn" @click="musicTogglePlay">
-                      <i :class="musicPlaying ? 'fas fa-pause' : 'fas fa-play'"></i>
-                    </button>
-                    <button class="mfp-btn" @click="playNext">
-                      <i class="fas fa-forward"></i>
-                    </button>
-
-                    <!-- 右侧：列表循环/单曲循环 切换 -->
-                    <button class="mfp-btn mfp-mode-btn active" @click="musicToggleRepeatModes" title="循环模式">
-                      <i v-if="musicRepeatMode === 'one'" class="fas fa-redo-alt mfp-repeat-one"></i>
-                      <i v-else class="fas fa-redo"></i>
-                    </button>
-                  </div>
-
-                  <!-- 底部功能按钮 -->
-                  <div class="mfp-bottom-actions">
-                    <button class="mfp-action-btn" :class="{ 'active': mfpLyricsMode }"
-                      @click.stop="mfpLyricsMode = !mfpLyricsMode; mfpPlaylistMode = false; if(mfpLyricsMode) mfpMountLyrics()"
-                      title="歌词">
-                      <i class="fas fa-comment-dots"></i>
-                    </button>
-                    <button class="mfp-action-btn" @click="musicShowFullPlayer = false" title="收起">
-                      <i class="fas fa-chevron-down"></i>
-                    </button>
-                    <button class="mfp-action-btn" :class="{ 'active': mfpPlaylistMode }"
-                      @click.stop="if(!mfpPlaylistMode) { mfpPlaylistMode = true; mfpLyricsMode = false; mfpScrollToCurrentSong(); } else { mfpPlaylistMode = false; }"
-                      title="播放列表">
-                      <i class="fas fa-list"></i>
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </transition>
-
-          <div
-            v-if="!singlePageMode && (!isSelfHVideoActive || !isMobile) && (navLayout === 'bottom' || navLayout === 'bottom-normal')"
-            class="main-nav-container nav-bottom-fixed" :class="[
-              {'nav-capsule': navLayout === 'bottom'},
-              'theme-' + (mainActiveTab === 'self-h' ? 'self-h' : mainActiveTab === 'gemini-cli' ? 'gemini-cli' : mainActiveTab === 'dns' ? 'cf-dns' : mainActiveTab)
-            ]">
-            <div class="main-tabs main-tabs-grouped" v-if="visibleModulesCount > 1">
-              <button v-if="moduleVisibility.dashboard" class="nav-group-btn single-module-btn"
-                :class="{ 'active': mainActiveTab === 'dashboard' }" @click="handleGroupModuleClick('dashboard')">
-                <i class="fas fa-tachometer-alt"></i>
-                <span class="group-name">仪表盘</span>
-              </button>
-              <template v-for="group in moduleGroups" :key="group.id">
-                <div v-if="group.id !== 'overview' && getVisibleModulesInGroup(group.modules).length > 0"
-                  class="nav-group"
-                  :class="{ 'expanded': navGroupExpanded === group.id, 'has-active': isGroupActive(group.modules) }">
-                  <button class="nav-group-btn" :class="{ 'active': isGroupActive(group.modules) }"
-                    @click="toggleNavGroup(group.id)" @mouseenter="handleGroupHover(group.id)"
-                    @mouseleave="handleGroupLeave">
-                    <i class="fas" :class="group.icon"></i>
-                    <span class="group-name">{{ group.name }}</span>
-                    <i class="fas fa-chevron-down group-arrow"></i>
-                  </button>
-                  <transition name="main-nav-dropdown">
-                    <div v-show="navGroupExpanded === group.id" class="nav-group-dropdown"
-                      @mouseenter="cancelGroupLeave" @mouseleave="handleGroupLeave">
-                      <button v-for="module in getVisibleModulesInGroup(group.modules)" :key="module"
-                        class="dropdown-item" :class="[{ 'active': mainActiveTab === module }, module + '-tab']"
-                        @click="handleGroupModuleClick(module)">
-                        <template v-if="module === 'qwen'">
-                          <img
-                            src="https://img.alicdn.com/imgextra/i1/O1CN01cOgO0228KfUaIUM9k_!!6000000007914-54-tps-150-150.apng"
-                            style="width: 14px; height: 14px; margin-right: 8px; vertical-align: -2px; border-radius: 2px;">
-                        </template>
-                        <template v-else-if="module === 'gemini-cli'">
-                          <img
-                            src="https://gemini-pro.cn/gemini-color.png"
-                            style="width: 14px; height: 14px; margin-right: 8px; vertical-align: -2px;">
-                        </template>
-                        <template v-else-if="module === 'dns'">
-                          <svg style="width: 18px; height: auto; margin-right: 8px; vertical-align: -1px;" viewBox="0 0 256 117" aria-hidden="true">
-                            <path fill="#FBAD41" d="M205.52 50.813c-.858 0-1.705.03-2.551.058q-.207.012-.398.094a1.42 1.42 0 0 0-.92.994l-3.628 12.672c-1.565 5.449-.983 10.48 1.646 14.174c2.41 3.416 6.42 5.421 11.289 5.655l19.679 1.194c.585.03 1.092.312 1.4.776a1.92 1.92 0 0 1 .2 1.692a2.5 2.5 0 0 1-2.134 1.662l-20.448 1.193c-11.11.515-23.062 9.58-27.255 20.633l-1.474 3.9a1.092 1.092 0 0 0 .967 1.49h70.425a1.87 1.87 0 0 0 1.81-1.365A51.2 51.2 0 0 0 256 101.828c0-28.16-22.582-50.984-50.449-50.984"/>
-                            <path fill="#F6821F" d="m174.782 115.362l1.303-4.583c1.568-5.449.987-10.48-1.639-14.173c-2.418-3.417-6.424-5.422-11.296-5.656l-92.312-1.193a1.82 1.82 0 0 1-1.459-.776a1.92 1.92 0 0 1-.203-1.693a2.5 2.5 0 0 1 2.154-1.662l93.173-1.193c11.063-.511 23.015-9.58 27.208-20.633l5.313-14.04c.214-.596.27-1.238.156-1.86C191.126 20.51 166.91 0 137.96 0C111.269 0 88.626 17.403 80.5 41.596a27 27 0 0 0-19.156-5.359C48.549 37.524 38.25 47.946 36.979 60.88a27.9 27.9 0 0 0 .702 9.642C16.773 71.145 0 88.454 0 109.726c0 1.923.137 3.818.413 5.667c.115.897.879 1.57 1.783 1.568h170.48a2.22 2.22 0 0 0 2.106-1.63"/>
-                          </svg>
-                        </template>
-                        <template v-else-if="module === 'aliyun'">
-                          <svg style="width: 14px; height: 14px; margin-right: 8px; vertical-align: -2px;" viewBox="0 0 24 24">
-                            <path fill="#ea580c" d="M9.514 5.14H4.68A3.68 3.68 0 0 0 1 8.82v6.358a3.68 3.68 0 0 0 3.68 3.68h4.85L8.36 17.2l-3.538-1.08a1.54 1.54 0 0 1-1.07-1.472V9.37a1.53 1.53 0 0 1 1.07-1.47l3.536-1.104zm9.825 0h-4.85l1.17 1.656L19.195 7.9a1.53 1.53 0 0 1 1.067 1.471v5.277a1.535 1.535 0 0 1-1.067 1.472L15.66 17.2l-1.17 1.656h4.85a3.66 3.66 0 0 0 3.66-3.68V8.82a3.68 3.68 0 0 0-3.66-3.68m-3.672 5.998h-7.33v1.652h7.33z"/>
-                          </svg>
-                        </template>
-                        <template v-else-if="module === 'tencent'">
-                          <svg style="width: 14px; height: 14px; margin-right: 8px; vertical-align: -2px;" viewBox="0 0 24 24">
-                            <path fill="#0284c7" d="M17.5 21H11v-2h7.723zM9 21H6.5l-1.223-2H9zm8-4H9v-2h8zm2.944 0H19v-2h2.167zM7 17H4.056l-1.223-2H7zm16-5l-.611 1H14v-2h8.389zm-11 1H1.611L1 12l.611-1H12zm9.167-4H2.833l1.223-2h15.888zm-2.444-4H16V3h1.5zM14 5H5.277L6.5 3H14z"/>
-                          </svg>
-                        </template>
-                        <template v-else-if="module === 'server'">
-                          <svg style="width: 14px; height: 14px; margin-right: 8px; vertical-align: -2px;" viewBox="0 0 24 24">
-                            <path fill="currentColor" fill-rule="evenodd" d="M2.586 3.586C2 4.172 2 5.114 2 7s0 2.828.586 3.414S4.114 11 6 11h12c1.886 0 2.828 0 3.414-.586S22 8.886 22 7s0-2.828-.586-3.414S19.886 3 18 3H6c-1.886 0-2.828 0-3.414.586M9 8.75A.75.75 0 0 1 8.25 8V6a.75.75 0 0 1 1.5 0v2a.75.75 0 0 1-.75.75m4.5-2.5a.75.75 0 0 0 0 1.5H18a.75.75 0 0 0 0-1.5zM6 8.75A.75.75 0 0 1 5.25 8V6a.75.75 0 0 1 1.5 0v2a.75.75 0 0 1-.75.75m-3.414 4.836C2 14.172 2 15.114 2 17s0 2.828.586 3.414S4.114 21 6 21h12c1.886 0 2.828 0 3.414-.586S22 18.886 22 17s0-2.828-.586-3.414S19.886 13 18 13H6c-1.886 0-2.828 0-3.414.586M12.75 17a.75.75 0 0 1 .75-.75H18a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1-.75-.75m-7.5 1a.75.75 0 0 0 1.5 0v-2a.75.75 0 0 0-1.5 0zm3.75.75a.75.75 0 0 1-.75-.75v-2a.75.75 0 0 1 1.5 0v2a.75.75 0 0 1-.75.75" clip-rule="evenodd"/>
-                          </svg>
-                        </template>
-                        <template v-else-if="module === 'paas'">
-                          <svg style="width: 14px; height: 14px; margin-right: 8px; vertical-align: -2px;" viewBox="0 0 24 24">
-                            <defs><path id="IconifyPaaS_Mobile" fill="#ea580c" d="M20.654 16.88c-.111-1.057-.958-1.88-1.987-1.88c-.845 0-1.568.555-1.861 1.34a2.22 2.22 0 0 0-.015 1.513a1.46 1.46 0 0 0-1.4.49A1.63 1.63 0 0 0 15 19.412c0 .877.672 1.588 1.5 1.588H20c1.105 0 2-.948 2-2.118c0-.927-.562-1.714-1.346-2.001"/></defs>
-                            <path fill="#ea580c" fill-rule="evenodd" d="M3.172 19.828C4.343 21 6.229 21 10 21h3.93a3.17 3.17 0 0 1-.43-1.588c0-.816.32-1.592.857-2.162H13.5a.75.75 0 0 1 0-1.5h1.928c.511-1.29 1.727-2.25 3.239-2.25c1.56 0 2.81 1.028 3.288 2.38l.014.01C22 15.074 22 14.12 22 13v-.25H2V13c0 3.771 0 5.657 1.172 6.828M6 18.25a.75.75 0 0 1-.75-.75v-2a.75.75 0 0 1 1.5 0v2a.75.75 0 0 1-.75.75m3 0a.75.75 0 0 1-.75-.75v-2a.75.75 0 0 1 1.5 0v2a.75.75 0 0 1-.75.75M3.172 4.172C2 5.343 2 7.229 2 11v.25h20V11c0-3.771 0-5.657-1.172-6.828S17.771 3 14 3h-4C6.229 3 4.343 3 3.172 4.172M9 9.25a.75.75 0 0 1-.75-.75v-2a.75.75 0 0 1 1.5 0v2a.75.75 0 0 1-.75.75M5.25 8.5a.75.75 0 0 0 1.5 0v-2a.75.75 0 0 0-1.5 0zm7.5-1a.75.75 0 0 1 .75-.75H18a.75.75 0 0 1 0 1.5h-4.5a.75.75 0 0 1-.75-.75" clip-rule="evenodd"/>
-                            <use href="#IconifyPaaS_Mobile" fill-rule="evenodd" clip-rule="evenodd"/>
-                          </svg>
-                        </template>
-                        <i v-else class="fas" :class="getModuleIcon(module)"></i>
-                        <span>{{ getModuleName(module) }}</span>
-                      </button>
-                    </div>
-                  </transition>
-                </div>
-              </template>
-              <button class="nav-settings-btn" :class="{ active: showSettingsModal }"
-                @click="showSettingsModal = !showSettingsModal" title="系统设置">
-                <i class="fas fa-cog"></i>
-                <span class="group-name">设置</span>
-              </button>
-            </div>
-          </div>
-
-          <div id="template-dashboard" v-show="mainActiveTab === 'dashboard'"></div>
-          <div id="template-paas" v-show="mainActiveTab === 'paas'"></div>
-          <div id="template-dns" v-show="mainActiveTab === 'dns'"></div>
-          <div id="template-openai" v-show="mainActiveTab === 'openai'"></div>
-          <div id="template-antigravity" v-show="mainActiveTab === 'antigravity'"></div>
-          <div id="template-gemini-cli" v-show="mainActiveTab === 'gemini-cli'"></div>
-          <div id="template-qwen" v-show="mainActiveTab === 'qwen'"></div>
-          <div id="template-server" v-show="mainActiveTab === 'server'"></div>
-          <div id="template-aliyun" v-show="mainActiveTab === 'aliyun'"></div>
-          <div id="template-tencent" v-show="mainActiveTab === 'tencent'"></div>
-          <div id="template-self-h" v-show="mainActiveTab === 'self-h'"></div>
-          <div id="template-totp" v-show="mainActiveTab === 'totp'"></div>
-          <div id="template-music" v-show="mainActiveTab === 'music'"></div>
-          <div id="template-uptime" v-show="mainActiveTab === 'uptime'"></div>
-          <div id="template-filebox" v-show="mainActiveTab === 'filebox'"></div>
-          <div id="template-notification" v-show="mainActiveTab === 'notification'"></div>
-          <div id="template-music-v2" v-show="mainActiveTab === 'music-v2'"></div>
-          <div id="template-ai-chat" v-show="mainActiveTab === 'ai-chat'"></div>
-          <div id="template-bookmarks" v-show="mainActiveTab === 'bookmarks'"></div>
-        </div>
-
-        <div v-else class="guest-placeholder">
-          <i class="fas fa-lock"></i>
-          <p>请登录以访问控制台</p>
-          <button class="btn btn-primary mt-3" @click="showLoginModal = true">立即登录</button>
-        </div>
-      </main>
-    </div>
-
-    <!-- 全局音乐播放栏 (省略部分以节省空间) -->
-    <div v-if="mainActiveTab === 'music'" class="music-bottom-bar" :class="{ 'expanded': musicShowFullPlayer }">
-      <!-- [音乐逻辑完整保留] -->
-      <div class="bar-click-layer" v-if="musicCurrentSong" @click="musicToggleFullPlayer()"></div>
-      <div class="bar-progress" @mousedown="musicStartDrag($event)" @touchstart.passive="musicStartDrag($event)">
-        <div class="bar-fill" :style="{ width: musicProgress + '%' }"></div>
-      </div>
-      <!-- ... -->
-    </div>
-
-    <!-- 全局组件占位符 -->
-    <div id="template-settings"></div>
-    <div id="template-modals"></div>
-
-    <!-- 终端 DOM 仓库：不可见时暂存 xterm 实例，防止 Vue 重渲染时销毁节点 -->
-    <div id="ssh-terminal-warehouse"
-      style="visibility:hidden!important;position:absolute!important;left:-9999px!important;top:-9999px!important;width:100px;height:100px;overflow:hidden;pointer-events:none">
-    </div>
+  <!-- 动态终端 DOM 暂存仓库 -->
+  <div id="ssh-terminal-warehouse"
+    style="visibility:hidden!important;position:absolute!important;left:-9999px!important;top:-9999px!important;width:100px;height:100px;overflow:hidden;pointer-events:none">
   </div>
 
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
-  <script type="module" src="/js/main.js"></script>
+  <script type="module" src="/js/main.jsx"></script>
 </body>
 
 </html>

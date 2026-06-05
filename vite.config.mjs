@@ -1,9 +1,9 @@
 import { defineConfig, loadEnv } from 'vite';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { createHtmlPlugin } from 'vite-plugin-html';
+import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
 import { visualizer } from 'rollup-plugin-visualizer';
-import { getAllCdnUrls, getExternals, getGlobals } from './cdn.config.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -12,37 +12,12 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   const isProduction = mode === 'production';
 
-  // CDN 配置
-  const useCdn = env.VITE_USE_CDN === 'true';
-  const cdnProvider = env.VITE_CDN_PROVIDER || 'npmmirror';
-  const cdnData = useCdn ? getAllCdnUrls(cdnProvider) : { js: [], css: [] };
-
-  // Rollup 外部依赖配置 (如果启用 CDN)
-  const externalDeps = useCdn ? getExternals() : [];
-  const globals = useCdn ? getGlobals() : {};
-
   return {
     root: 'src',
     base: '/',
     plugins: [
-      createHtmlPlugin({
-        minify: isProduction,
-        inject: {
-          data: {
-            title: 'API Monitor',
-            // 注入 CDN 资源
-            cdnScriptTags: cdnData.js
-              .map(item => `<script src="${item.url}" defer crossorigin="anonymous"></script>`)
-              .join('\n    '),
-            cdnStyleTags: cdnData.css
-              .map(
-                url =>
-                  `<link rel="stylesheet" href="${url}" media="print" onload="this.media='all'; this.onload=null;">`
-              )
-              .join('\n    '),
-          },
-        },
-      }),
+      react(),
+      tailwindcss(),
       // 构建分析插件 (输出到 dist/stats.html)
       visualizer({
         filename: 'dist/stats.html',
@@ -58,15 +33,17 @@ export default defineConfig(({ mode }) => {
       sourcemap: !isProduction,
       minify: isProduction ? 'terser' : false,
       rollupOptions: {
-        external: externalDeps,
         output: {
-          globals: globals,
           // 代码分割策略
           manualChunks: id => {
             if (id.includes('node_modules')) {
-              // 防御性检查：已被标记为外部依赖的包（CDN 引用）不参与分包
-              if (externalDeps.some(dep => id.includes(`/node_modules/${dep}/`) || id.includes(`/node_modules/${dep.replace('/', '+')}/`))) {
-                return;
+              // React 核心库
+              if (
+                id.includes('react') ||
+                id.includes('react-dom') ||
+                id.includes('scheduler')
+              ) {
+                return 'vendor-react';
               }
               // 终端组件
               if (id.includes('@xterm')) {
@@ -85,13 +62,13 @@ export default defineConfig(({ mode }) => {
               if (id.includes('@pixi') || id.includes('pixi-filters')) {
                 return 'vendor-pixi';
               }
-              // 其他大型工具库
+              // 其他大型工具库与状态管理
               if (
                 id.includes('axios') ||
                 id.includes('marked') ||
                 id.includes('dompurify') ||
                 id.includes('uuid') ||
-                id.includes('vue')
+                id.includes('zustand')
               ) {
                 return 'vendor-utils';
               }
@@ -105,31 +82,12 @@ export default defineConfig(({ mode }) => {
           // 生产环境移除 console.log/debug，保留 error/warn 用于线上排障
           pure_funcs: isProduction ? ['console.log', 'console.debug'] : [],
         },
-        mangle: {
-          reserved: ['compile', 'compileToFunction', 'baseCompile'], // 保留编译器函数名
-        },
       },
-    },
-    // 强制预构建 Vue 编译器
-    optimizeDeps: {
-      include: ['vue', '@vue/compiler-dom', '@vue/compiler-core'],
     },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, './src'),
-        // 关键：确保支持在 HTML 中直接写模板 (Runtime Compilation)
-        // 必须使用 esm-bundler 版本，它会自动引入 @vue/compiler-dom
-        // esm-browser 版本不包含编译器，会导致 compiler-30 错误
-        vue: 'vue/dist/vue.esm-browser.js',
       },
-    },
-    define: {
-      __USE_CDN__: JSON.stringify(useCdn),
-      __CDN_PROVIDER__: JSON.stringify(cdnProvider),
-      // Vue 特性标志，消除控制台警告
-      __VUE_OPTIONS_API__: JSON.stringify(true),
-      __VUE_PROD_DEVTOOLS__: JSON.stringify(false),
-      __VUE_PROD_HYDRATION_MISMATCH_DETAILS__: JSON.stringify(false),
     },
     server: {
       host: true, // 监听所有网络接口，允许手机访问
@@ -137,7 +95,6 @@ export default defineConfig(({ mode }) => {
       hmr: {
         protocol: 'ws',
         host: 'localhost',
-        port: 5173,
       },
       // 文件系统访问控制：阻止 dev server 暴露后端源代码
       fs: {
