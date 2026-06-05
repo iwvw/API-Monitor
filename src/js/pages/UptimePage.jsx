@@ -3,6 +3,7 @@ import { io } from 'socket.io-client';
 import Chart from 'chart.js/auto';
 import { toast } from '../modules/toast.js';
 import { Button } from '@cloudflare/kumo/components/button';
+import { Checkbox } from '@cloudflare/kumo/components/checkbox';
 import {
   Activity,
   Plus,
@@ -721,7 +722,7 @@ function UptimePage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pb-20">
       {/* ==================== 顶部 Tab 导航 ==================== */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b border-kumo-line pb-4 gap-4">
         <div className="flex border border-kumo-line rounded-lg p-0.5 bg-kumo-recessed select-none">
@@ -860,15 +861,11 @@ function UptimePage() {
             <div className="space-y-3">
               {/* 批量控制条 */}
               <div className="flex items-center justify-between bg-kumo-recessed/30 border border-kumo-line rounded-lg px-4 py-2.5">
-                <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-kumo-strong select-none">
-                  <input
-                    type="checkbox"
-                    checked={isAllSelected}
-                    onChange={handleToggleSelectAll}
-                    className="rounded border-kumo-line text-kumo-brand focus:ring-kumo-brand"
-                  />
-                  <span>全选 (已选 {selectedMonitorIds.length} 个)</span>
-                </label>
+                <Checkbox
+                  checked={isAllSelected}
+                  onCheckedChange={handleToggleSelectAll}
+                  label={`全选 (已选 ${selectedMonitorIds.length} 个)`}
+                />
                 {selectedMonitorIds.length > 0 && (
                   <Button
                     variant="destructive"
@@ -936,18 +933,15 @@ function UptimePage() {
                       >
                         {/* 左侧选择复选框 & 图标 & 核心信息 */}
                         <div className="flex items-center gap-3 min-w-0 flex-1">
-                          <input
-                            type="checkbox"
+                          <Checkbox
                             checked={selectedMonitorIds.includes(monitor.id)}
-                            onChange={(e) => {
-                              e.stopPropagation();
-                              const isChecked = e.target.checked;
+                            onCheckedChange={(checked) => {
                               setSelectedMonitorIds(prev =>
-                                isChecked ? [...prev, monitor.id] : prev.filter(id => id !== monitor.id)
+                                checked ? [...prev, monitor.id] : prev.filter(id => id !== monitor.id)
                               );
                             }}
                             onClick={(e) => e.stopPropagation()}
-                            className="rounded border-kumo-line text-kumo-brand focus:ring-kumo-brand"
+                            aria-label={`选择监测目标: ${monitor.name}`}
                           />
 
                           {/* 类型图标 */}
@@ -1165,15 +1159,11 @@ function UptimePage() {
             {/* 忽略 TLS 选项 */}
             {['http', 'keyword'].includes(uptimeForm.type) && (
               <div className="md:col-span-6 flex items-end pb-2">
-                <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-kumo-strong select-none">
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     checked={uptimeForm.ignoreTls}
-                    onChange={(e) => setUptimeForm(prev => ({ ...prev, ignoreTls: e.target.checked }))}
-                    className="rounded border-kumo-line text-kumo-brand focus:ring-kumo-brand"
+                    onCheckedChange={(checked) => setUptimeForm(prev => ({ ...prev, ignoreTls: checked }))}
+                    label="忽略不可信或自签名 TLS 证书"
                   />
-                  <span>忽略不可信或自签名 TLS 证书</span>
-                </label>
               </div>
             )}
 
@@ -1202,25 +1192,20 @@ function UptimePage() {
             <div className="md:col-span-12 space-y-2">
               <div className="flex flex-wrap gap-4 p-3.5 bg-kumo-recessed/50 border border-kumo-line rounded-lg">
                 {notificationChannels.filter(c => c.enabled).map((channel) => (
-                  <label key={channel.id} className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-kumo-strong select-none">
-                    <input
-                      type="checkbox"
-                      value={channel.id}
+                    <Checkbox
+                      key={channel.id}
                       checked={uptimeForm.notificationChannels.includes(channel.id)}
-                      onChange={(e) => {
-                        const isChecked = e.target.checked;
+                      onCheckedChange={(checked) => {
                         const id = channel.id;
                         setUptimeForm(prev => ({
                           ...prev,
-                          notificationChannels: isChecked
+                          notificationChannels: checked
                             ? [...prev.notificationChannels, id]
                             : prev.notificationChannels.filter(x => x !== id)
                         }));
                       }}
-                      className="rounded border-kumo-line text-kumo-brand focus:ring-kumo-brand"
+                      label={`${channel.name} (${channel.type === 'email' ? '邮箱' : 'TG'})`}
                     />
-                    <span>{channel.name} ({channel.type === 'email' ? '邮箱' : 'TG'})</span>
-                  </label>
                 ))}
 
                 {notificationChannels.filter(c => c.enabled).length === 0 && (

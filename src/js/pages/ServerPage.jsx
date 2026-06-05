@@ -5,6 +5,9 @@ import { Button } from '@cloudflare/kumo/components/button';
 import { Input, Textarea } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
 import { Tabs } from '@cloudflare/kumo/components/tabs';
+import { Table } from '@cloudflare/kumo/components/table';
+import { SkeletonLine } from '@cloudflare/kumo/components/loader';
+import useTableResize from '../composables/useTableResize.js';
 import { formatUptime, formatFileSize, formatDateTime, maskAddress } from '../modules/utils.js';
 import Chart from 'chart.js/auto';
 import { Terminal } from '@xterm/xterm';
@@ -269,6 +272,10 @@ function ServerPage() {
   const socketRef = useRef(null);
   const visibleSessionIdsRef = useRef([]);
   const sshSyncEnabledRef = useRef(false);
+
+  const [historyColWidths, startHistoryResize] = useTableResize([180, 150, 100, 100, 100, 150]);
+  const [dockerColWidths, startDockerResize] = useTableResize([180, 220, 100, 180, 120]);
+  const [imagesColWidths, startImagesResize] = useTableResize([250, 100, 100, 150, 100]);
 
   useEffect(() => {
     visibleSessionIdsRef.current = visibleSessionIds;
@@ -1922,7 +1929,7 @@ function ServerPage() {
   }, [serverList]);
   
   return (
-    <div className="flex flex-col gap-6 w-full max-w-7xl mx-auto px-1">
+    <div className="flex flex-col gap-6 w-full max-w-7xl mx-auto px-1 pb-20">
       {/* 顶部标签导航 */}
       <div className="flex flex-wrap items-center justify-between border-b border-kumo-line pb-3 gap-4">
         <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-thin">
@@ -2379,38 +2386,87 @@ function ServerPage() {
           {/* 数据大列表表格 */}
           <div className="bg-kumo-base border border-kumo-line rounded-lg overflow-hidden shadow-xs">
             {metricsHistoryLoading ? (
-              <div className="p-16 text-center text-xs text-kumo-subtle">
-                正在检索监控历史记录...
-              </div>
+              <Table layout="fixed">
+                <colgroup>
+                  {historyColWidths.map((width, idx) => (
+                    <col key={idx} style={{ width }} />
+                  ))}
+                </colgroup>
+                <Table.Header>
+                  <Table.Row className="bg-kumo-recessed/45 border-b border-kumo-line font-bold text-kumo-strong">
+                    <Table.Head className="p-3">记录时间</Table.Head>
+                    <Table.Head className="p-3">主机</Table.Head>
+                    <Table.Head className="p-3 text-center">CPU 使用率</Table.Head>
+                    <Table.Head className="p-3 text-center">内存使用率</Table.Head>
+                    <Table.Head className="p-3 text-center">磁盘使用率</Table.Head>
+                    <Table.Head className="p-3">系统负载</Table.Head>
+                  </Table.Row>
+                </Table.Header>
+                <Table.Body>
+                  {[...Array(5)].map((_, idx) => (
+                    <Table.Row key={idx} className="border-b border-kumo-line">
+                      <Table.Cell className="p-3"><SkeletonLine className="w-32 h-4" /></Table.Cell>
+                      <Table.Cell className="p-3"><SkeletonLine className="w-24 h-4" /></Table.Cell>
+                      <Table.Cell className="p-3 text-center"><SkeletonLine className="w-12 h-4 mx-auto" /></Table.Cell>
+                      <Table.Cell className="p-3 text-center"><SkeletonLine className="w-12 h-4 mx-auto" /></Table.Cell>
+                      <Table.Cell className="p-3 text-center"><SkeletonLine className="w-12 h-4 mx-auto" /></Table.Cell>
+                      <Table.Cell className="p-3"><SkeletonLine className="w-16 h-4" /></Table.Cell>
+                    </Table.Row>
+                  ))}
+                </Table.Body>
+              </Table>
             ) : metricsHistoryList.length === 0 ? (
               <div className="p-16 text-center text-xs text-kumo-subtle">
                 暂无历史记录指标
               </div>
             ) : (
-              <table className="w-full text-left border-collapse text-xs">
-                <thead>
-                  <tr className="bg-kumo-recessed/45 border-b border-kumo-line font-bold text-kumo-strong">
-                    <th className="p-3">记录时间</th>
-                    <th className="p-3">主机</th>
-                    <th className="p-3 text-center">CPU 使用率</th>
-                    <th className="p-3 text-center">内存使用率</th>
-                    <th className="p-3 text-center">磁盘使用率</th>
-                    <th className="p-3">系统负载</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {metricsHistoryList.map(rec => (
-                    <tr key={rec.id} className="border-b border-kumo-line hover:bg-kumo-recessed/15">
-                      <td className="p-3 font-semibold text-kumo-strong">{formatDateTime(rec.recorded_at)}</td>
-                      <td className="p-3">{rec.server_name}</td>
-                      <td className="p-3 text-center font-bold text-kumo-success">{rec.cpu_usage?.toFixed(1)}%</td>
-                      <td className="p-3 text-center font-bold text-kumo-info">{rec.mem_usage?.toFixed(1)}%</td>
-                      <td className="p-3 text-center">{rec.disk_usage?.toFixed(1)}%</td>
-                      <td className="p-3"><code className="bg-kumo-recessed px-1.5 py-0.5 rounded font-mono text-[10px]">{rec.cpu_load || '-'}</code></td>
-                    </tr>
+              <Table layout="fixed">
+                <colgroup>
+                  {historyColWidths.map((width, idx) => (
+                    <col key={idx} style={{ width }} />
                   ))}
-                </tbody>
-              </table>
+                </colgroup>
+                <Table.Header>
+                  <Table.Row className="bg-kumo-recessed/45 border-b border-kumo-line font-bold text-kumo-strong">
+                    <Table.Head className="p-3 relative">
+                      记录时间
+                      <Table.ResizeHandle onMouseDown={(e) => startHistoryResize(0, e)} />
+                    </Table.Head>
+                    <Table.Head className="p-3 relative">
+                      主机
+                      <Table.ResizeHandle onMouseDown={(e) => startHistoryResize(1, e)} />
+                    </Table.Head>
+                    <Table.Head className="p-3 text-center relative">
+                      CPU 使用率
+                      <Table.ResizeHandle onMouseDown={(e) => startHistoryResize(2, e)} />
+                    </Table.Head>
+                    <Table.Head className="p-3 text-center relative">
+                      内存使用率
+                      <Table.ResizeHandle onMouseDown={(e) => startHistoryResize(3, e)} />
+                    </Table.Head>
+                    <Table.Head className="p-3 text-center relative">
+                      磁盘使用率
+                      <Table.ResizeHandle onMouseDown={(e) => startHistoryResize(4, e)} />
+                    </Table.Head>
+                    <Table.Head className="p-3 relative">
+                      系统负载
+                      <Table.ResizeHandle onMouseDown={(e) => startHistoryResize(5, e)} />
+                    </Table.Head>
+                  </Table.Row>
+                </Table.Header>
+                <Table.Body>
+                  {metricsHistoryList.map(rec => (
+                    <Table.Row key={rec.id} className="border-b border-kumo-line hover:bg-kumo-recessed/15">
+                      <Table.Cell className="p-3 font-semibold text-kumo-strong">{formatDateTime(rec.recorded_at)}</Table.Cell>
+                      <Table.Cell className="p-3">{rec.server_name}</Table.Cell>
+                      <Table.Cell className="p-3 text-center font-bold text-kumo-success">{rec.cpu_usage?.toFixed(1)}%</Table.Cell>
+                      <Table.Cell className="p-3 text-center font-bold text-kumo-info">{rec.mem_usage?.toFixed(1)}%</Table.Cell>
+                      <Table.Cell className="p-3 text-center">{rec.disk_usage?.toFixed(1)}%</Table.Cell>
+                      <Table.Cell className="p-3"><code className="bg-kumo-recessed px-1.5 py-0.5 rounded font-mono text-[10px]">{rec.cpu_load || '-'}</code></Table.Cell>
+                    </Table.Row>
+                  ))}
+                </Table.Body>
+              </Table>
             )}
           </div>
         </div>
@@ -2476,9 +2532,15 @@ function ServerPage() {
           
           {/* 内容区域 */}
           {dockerResourceLoading ? (
-            <div className="p-16 text-center text-xs text-kumo-subtle flex flex-col items-center gap-2">
-              <div className="w-5 h-5 border-2 border-kumo-brand border-t-transparent rounded-full animate-spin"></div>
-              <span>正在拉取最新容器资源表...</span>
+            <div className="bg-kumo-base border border-kumo-line rounded-lg overflow-hidden p-4 shadow-xs">
+              <div className="space-y-4">
+                {[...Array(3)].map((_, i) => (
+                  <div key={i} className="space-y-2">
+                    <SkeletonLine className="w-1/4 h-5" />
+                    <SkeletonLine className="w-full h-12 rounded-lg" />
+                  </div>
+                ))}
+              </div>
             </div>
           ) : (
             <div className="flex flex-col gap-4">
@@ -2502,47 +2564,69 @@ function ServerPage() {
                             暂无运行中容器
                           </div>
                         ) : (
-                          <table className="w-full text-left border-collapse text-xs">
-                            <thead>
-                              <tr className="border-b border-kumo-line text-kumo-subtle font-bold">
-                                <th className="p-2">名称</th>
-                                <th className="p-2">镜像</th>
-                                <th className="p-2">状态</th>
-                                <th className="p-2">端口映射</th>
-                                <th className="p-2 text-right">操作</th>
-                              </tr>
-                            </thead>
-                            <tbody>
+                          <Table layout="fixed">
+                            <colgroup>
+                              {dockerColWidths.map((width, idx) => (
+                                <col key={idx} style={{ width }} />
+                              ))}
+                            </colgroup>
+                            <Table.Header>
+                              <Table.Row className="border-b border-kumo-line text-kumo-subtle font-bold">
+                                <Table.Head className="p-2 relative">
+                                  名称
+                                  <Table.ResizeHandle onMouseDown={(e) => startDockerResize(0, e)} />
+                                </Table.Head>
+                                <Table.Head className="p-2 relative">
+                                  镜像
+                                  <Table.ResizeHandle onMouseDown={(e) => startDockerResize(1, e)} />
+                                </Table.Head>
+                                <Table.Head className="p-2 relative">
+                                  状态
+                                  <Table.ResizeHandle onMouseDown={(e) => startDockerResize(2, e)} />
+                                </Table.Head>
+                                <Table.Head className="p-2 relative">
+                                  端口映射
+                                  <Table.ResizeHandle onMouseDown={(e) => startDockerResize(3, e)} />
+                                </Table.Head>
+                                <Table.Head className="p-2 text-right relative">
+                                  操作
+                                  <Table.ResizeHandle onMouseDown={(e) => startDockerResize(4, e)} />
+                                </Table.Head>
+                              </Table.Row>
+                            </Table.Header>
+                            <Table.Body>
                               {server.resources.containers.map(c => (
-                                <tr key={c.id} className="border-b border-kumo-line hover:bg-kumo-recessed/10">
-                                  <td className="p-2 font-bold text-kumo-strong">{c.name}</td>
-                                  <td className="p-2 truncate max-w-[200px]" title={c.image}>{c.image}</td>
-                                  <td className="p-2">
+                                <Table.Row key={c.id} className="border-b border-kumo-line hover:bg-kumo-recessed/10">
+                                  <Table.Cell className="p-2 font-bold text-kumo-strong truncate">{c.name}</Table.Cell>
+                                  <Table.Cell className="p-2 truncate" title={c.image}>{c.image}</Table.Cell>
+                                  <Table.Cell className="p-2">
                                     <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${c.state === 'running' ? 'bg-kumo-success/15 text-kumo-success' : 'bg-kumo-danger/15 text-kumo-danger'}`}>
                                       {c.state}
                                     </span>
-                                  </td>
-                                  <td className="p-2 font-mono text-[11px] text-kumo-subtle">{c.ports || '-'}</td>
-                                  <td className="p-2 text-right flex items-center justify-end gap-1.5">
-                                    <button
-                                      onClick={() => submitDockerTask(c.state === 'running' ? 'container.stop' : 'container.start', { serverId: server.id, containerId: c.id, containerName: c.name })}
-                                      className={`p-1.5 rounded cursor-pointer ${c.state === 'running' ? 'hover:bg-kumo-danger/10 text-kumo-danger' : 'hover:bg-kumo-success/10 text-kumo-success'}`}
-                                      title={c.state === 'running' ? '停止' : '启动'}
-                                    >
-                                      {c.state === 'running' ? <PauseIcon /> : <PlayIcon />}
-                                    </button>
-                                    <button
-                                      onClick={() => submitDockerTask('container.restart', { serverId: server.id, containerId: c.id, containerName: c.name })}
-                                      className="p-1.5 rounded hover:bg-kumo-recessed text-kumo-subtle cursor-pointer"
-                                      title="重启"
-                                    >
-                                      <RestartIcon />
-                                    </button>
-                                  </td>
-                                </tr>
+                                  </Table.Cell>
+                                  <Table.Cell className="p-2 font-mono text-[11px] text-kumo-subtle truncate">{c.ports || '-'}</Table.Cell>
+                                  <Table.Cell className="p-2 text-right">
+                                    <div className="flex items-center justify-end gap-1.5">
+                                      <button
+                                        onClick={() => submitDockerTask(c.state === 'running' ? 'container.stop' : 'container.start', { serverId: server.id, containerId: c.id, containerName: c.name })}
+                                        className={`p-1.5 rounded cursor-pointer ${c.state === 'running' ? 'hover:bg-kumo-danger/10 text-kumo-danger' : 'hover:bg-kumo-success/10 text-kumo-success'}`}
+                                        title={c.state === 'running' ? '停止' : '启动'}
+                                      >
+                                        {c.state === 'running' ? <PauseIcon /> : <PlayIcon />}
+                                      </button>
+                                      <button
+                                        onClick={() => submitDockerTask('container.restart', { serverId: server.id, containerId: c.id, containerName: c.name })}
+                                        className="p-1.5 rounded hover:bg-kumo-recessed text-kumo-subtle cursor-pointer"
+                                        title="重启"
+                                      >
+                                        <RestartIcon />
+                                      </button>
+                                    </div>
+                                  </Table.Cell>
+                                </Table.Row>
                               ))}
-                            </tbody>
-                          </table>
+                            </Table.Body>
+                          </Table>
                         )}
                       </div>
                     </div>
@@ -2595,35 +2679,55 @@ function ServerPage() {
               {/* 3. 镜像管理 */}
               {dockerSubTab === 'images' && (
                 <div className="bg-kumo-base border border-kumo-line rounded-lg overflow-hidden p-2 shadow-xs">
-                  <table className="w-full text-left border-collapse text-xs">
-                    <thead>
-                      <tr className="bg-kumo-recessed/25 border-b border-kumo-line font-bold">
-                        <th className="p-2.5">镜像仓库</th>
-                        <th className="p-2.5">标签</th>
-                        <th className="p-2.5">大小</th>
-                        <th className="p-2.5">所在主机</th>
-                        <th className="p-2.5 text-right">操作</th>
-                      </tr>
-                    </thead>
-                    <tbody>
+                  <Table layout="fixed">
+                    <colgroup>
+                      {imagesColWidths.map((width, idx) => (
+                        <col key={idx} style={{ width }} />
+                      ))}
+                    </colgroup>
+                    <Table.Header>
+                      <Table.Row className="bg-kumo-recessed/25 border-b border-kumo-line font-bold">
+                        <Table.Head className="p-2.5 relative">
+                          镜像仓库
+                          <Table.ResizeHandle onMouseDown={(e) => startImagesResize(0, e)} />
+                        </Table.Head>
+                        <Table.Head className="p-2.5 relative">
+                          标签
+                          <Table.ResizeHandle onMouseDown={(e) => startImagesResize(1, e)} />
+                        </Table.Head>
+                        <Table.Head className="p-2.5 relative">
+                          大小
+                          <Table.ResizeHandle onMouseDown={(e) => startImagesResize(2, e)} />
+                        </Table.Head>
+                        <Table.Head className="p-2.5 relative">
+                          所在主机
+                          <Table.ResizeHandle onMouseDown={(e) => startImagesResize(3, e)} />
+                        </Table.Head>
+                        <Table.Head className="p-2.5 text-right relative">
+                          操作
+                          <Table.ResizeHandle onMouseDown={(e) => startImagesResize(4, e)} />
+                        </Table.Head>
+                      </Table.Row>
+                    </Table.Header>
+                    <Table.Body>
                       {dockerImages.map((img, i) => (
-                        <tr key={img.id + i} className="border-b border-kumo-line hover:bg-kumo-recessed/10">
-                          <td className="p-2.5 font-bold text-kumo-strong">{img.repository}</td>
-                          <td className="p-2.5"><span className="px-1.5 py-0.5 rounded bg-kumo-recessed font-mono text-[10px]">{img.tag}</span></td>
-                          <td className="p-2.5 text-kumo-subtle">{img.size}</td>
-                          <td className="p-2.5">{img.serverName}</td>
-                          <td className="p-2.5 text-right">
+                        <Table.Row key={img.id + i} className="border-b border-kumo-line hover:bg-kumo-recessed/10">
+                          <Table.Cell className="p-2.5 font-bold text-kumo-strong truncate">{img.repository}</Table.Cell>
+                          <Table.Cell className="p-2.5"><span className="px-1.5 py-0.5 rounded bg-kumo-recessed font-mono text-[10px]">{img.tag}</span></Table.Cell>
+                          <Table.Cell className="p-2.5 text-kumo-subtle truncate">{img.size}</Table.Cell>
+                          <Table.Cell className="p-2.5 truncate">{img.serverName}</Table.Cell>
+                          <Table.Cell className="p-2.5 text-right">
                             <button
                               onClick={() => submitDockerTask('image.remove', { serverId: img.serverId, imageId: img.id })}
                               className="p-1 hover:bg-kumo-danger/10 text-kumo-danger rounded cursor-pointer"
                             >
                               <TrashIcon />
                             </button>
-                          </td>
-                        </tr>
+                          </Table.Cell>
+                        </Table.Row>
                       ))}
-                    </tbody>
-                  </table>
+                    </Table.Body>
+                  </Table>
                 </div>
               )}
             </div>

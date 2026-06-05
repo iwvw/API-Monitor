@@ -36,7 +36,7 @@
 | 操作按钮 | Kumo `Button` |
 | 文本输入 | Kumo `Input` |
 | 多行输入 | Kumo `Textarea` |
-| 下拉选择 | Kumo `Select` |
+| 下拉选择 | Kumo `Select`，隐藏标签时使用 `aria-label`，不要使用已弃用的 `hideLabel` |
 | 标签切换 | Kumo `Tabs` |
 | 表格 | Kumo `Table` |
 | 表格拖动 | Kumo `Table.ResizeHandle` |

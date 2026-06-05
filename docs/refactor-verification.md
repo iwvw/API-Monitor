@@ -46,3 +46,17 @@
 - 后续风险：
   - 工作区仍有多页 React 迁移和 ai-chat 删除改动，需要分任务提交。
   - 旧 Vue 文件仍保留为参考，后续阶段统一删除或归档。
+
+### 2026-06-06 DnsPage Kumo-only 控件收敛
+
+- 任务：将 `DnsPage.jsx` 的明显原生 UI 控件替换为 Kumo 组件。
+- 修改范围：
+  - `src/js/pages/DnsPage.jsx`
+  - `src/js/composables/useTableResize.js`
+- 构建结果：`npm run build` 通过；仅有 Vite chunk size 警告。
+- 浏览器验证：待全路由 smoke 阶段执行。
+- console error：待浏览器 smoke 执行后记录。
+- Kumo-only 例外：无新增例外。
+- 后续风险：
+  - `DnsPage.jsx` 仍需补完 DNS Records 详情、新增、编辑、删除和 Quick Switch 旧逻辑。
+  - 其他页面仍有大量原生 `<button>/<select>/<input>/<textarea>` 需要后续收敛。

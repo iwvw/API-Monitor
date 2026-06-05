@@ -193,6 +193,13 @@ export const Menu = (props) => (
   </IconWrapper>
 );
 
+export const Clock = (props) => (
+  <IconWrapper {...props}>
+    <circle cx="12" cy="12" r="10" />
+    <polyline points="12 6 12 12 16 14" />
+  </IconWrapper>
+);
+
 export const ChevronLeft = (props) => (
   <IconWrapper {...props}>
     <polyline points="15 18 9 12 15 6" />
@@ -557,6 +564,150 @@ export const Sliders = (props) => (
     <line x1="18" x2="22" y1="16" y2="16" />
   </IconWrapper>
 );
+
+export const Layers = (props) => (
+  <IconWrapper {...props}>
+    <polygon points="12 2 2 7 12 12 22 7 12 2" />
+    <polyline points="2 17 12 22 22 17" />
+    <polyline points="2 12 12 17 22 12" />
+  </IconWrapper>
+);
+
+export const Square = (props) => (
+  <IconWrapper {...props}>
+    <rect width="18" height="18" x="3" y="3" rx="2" />
+  </IconWrapper>
+);
+
+export const Hexagon = (props) => (
+  <IconWrapper {...props}>
+    <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+  </IconWrapper>
+);
+
+export const MoreVertical = (props) => (
+  <IconWrapper {...props}>
+    <circle cx="12" cy="12" r="1" />
+    <circle cx="12" cy="5" r="1" />
+    <circle cx="12" cy="19" r="1" />
+  </IconWrapper>
+);
+
+export const SkipBack = (props) => (
+  <IconWrapper {...props}>
+    <polygon points="19 20 9 12 19 4 19 20" />
+    <line x1="5" x2="5" y1="19" y2="5" />
+  </IconWrapper>
+);
+
+export const SkipForward = (props) => (
+  <IconWrapper {...props}>
+    <polygon points="5 4 15 12 5 20 5 4" />
+    <line x1="19" x2="19" y1="5" y2="19" />
+  </IconWrapper>
+);
+
+export const Repeat = (props) => (
+  <IconWrapper {...props}>
+    <polyline points="17 1 21 5 17 9" />
+    <path d="M3 11V9a4 4 0 0 1 4-4h14" />
+    <polyline points="7 23 3 19 7 15" />
+    <path d="M21 13v2a4 4 0 0 1-4 4H3" />
+  </IconWrapper>
+);
+
+export const Repeat1 = (props) => (
+  <IconWrapper {...props}>
+    <path d="m17 1 4 4-4 4" />
+    <path d="M3 11V9a4 4 0 0 1 4-4h14" />
+    <path d="m7 23-4-4 4-4" />
+    <path d="M21 13v2a4 4 0 0 1-4 4H3" />
+    <path d="M11 10h1v4" />
+  </IconWrapper>
+);
+
+export const Shuffle = (props) => (
+  <IconWrapper {...props}>
+    <polyline points="16 3 21 3 21 8" />
+    <line x1="4" x2="21" y1="20" y2="3" />
+    <polyline points="21 16 21 21 16 21" />
+    <line x1="15" x2="21" y1="15" y2="21" />
+    <line x1="4" x2="9" y1="4" y2="9" />
+  </IconWrapper>
+);
+
+export const Volume2 = (props) => (
+  <IconWrapper {...props}>
+    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+    <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+    <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
+  </IconWrapper>
+);
+
+export const VolumeX = (props) => (
+  <IconWrapper {...props}>
+    <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+    <line x1="22" x2="16" y1="9" y2="15" />
+    <line x1="16" x2="22" y1="9" y2="15" />
+  </IconWrapper>
+);
+
+export const Compass = (props) => (
+  <IconWrapper {...props}>
+    <circle cx="12" cy="12" r="10" />
+    <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76" />
+  </IconWrapper>
+);
+
+export const Home = (props) => (
+  <IconWrapper {...props}>
+    <path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+    <polyline points="9 22 9 12 15 12 15 22" />
+  </IconWrapper>
+);
+
+export const User = (props) => (
+  <IconWrapper {...props}>
+    <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
+    <circle cx="12" cy="7" r="4" />
+  </IconWrapper>
+);
+
+export const ListMusic = (props) => (
+  <IconWrapper {...props}>
+    <path d="M21 15V6" />
+    <path d="M18.5 18a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z" />
+    <path d="M12 12H3" />
+    <path d="M16 6H3" />
+    <path d="M12 18H3" />
+  </IconWrapper>
+);
+
+export const Maximize2 = (props) => (
+  <IconWrapper {...props}>
+    <polyline points="15 3 21 3 21 9" />
+    <polyline points="9 21 3 21 3 15" />
+    <line x1="21" x2="14" y1="3" y2="10" />
+    <line x1="3" x2="10" y1="21" y2="14" />
+  </IconWrapper>
+);
+
+export const ExternalLink = (props) => (
+  <IconWrapper {...props}>
+    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+    <polyline points="15 3 21 3 21 9" />
+    <line x1="10" x2="21" y1="14" y2="3" />
+  </IconWrapper>
+);
+
+export const ArrowLeft = (props) => (
+  <IconWrapper {...props}>
+    <line x1="19" x2="5" y1="12" y2="12" />
+    <polyline points="12 19 5 12 12 5" />
+  </IconWrapper>
+);
+
+
 
 
 

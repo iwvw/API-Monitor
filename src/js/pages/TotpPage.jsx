@@ -3,6 +3,8 @@ import jsQR from 'jsqr';
 import { toast } from '../modules/toast.js';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Dialog } from '@cloudflare/kumo/components/dialog';
+import { Switch } from '@cloudflare/kumo/components/switch';
+import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import {
   Key,
   FolderOpen,
@@ -1010,7 +1012,7 @@ function TotpPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pb-20">
       {/* ==================== 顶部 Tab 导航 ==================== */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b border-kumo-line pb-4 gap-4">
         <div className="flex border border-kumo-line rounded-lg p-0.5 bg-kumo-recessed select-none">
@@ -1094,9 +1096,22 @@ function TotpPage() {
       {totpCurrentTab === 'accounts' && (
         <div className="quick-fade-in">
           {totpLoading ? (
-            <div className="flex flex-col items-center justify-center py-20 text-kumo-subtle">
-              <RefreshCw className="w-8 h-8 animate-spin text-kumo-brand mb-4" />
-              <span>数据加载中...</span>
+            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3">
+              {[...Array(6)].map((_, i) => (
+                <div key={i} className="bg-kumo-base border border-kumo-line rounded-lg p-3.5 space-y-4">
+                  <div className="flex items-center gap-2">
+                    <SkeletonLine className="w-7 h-7 rounded-md" />
+                    <div className="flex-1 space-y-1.5">
+                      <SkeletonLine className="w-1/2 h-3" />
+                      <SkeletonLine className="w-3/4 h-2" />
+                    </div>
+                  </div>
+                  <div className="space-y-1.5">
+                    <SkeletonLine className="w-full h-6" />
+                    <SkeletonLine className="w-1/3 h-2" />
+                  </div>
+                </div>
+              ))}
             </div>
           ) : filteredAccounts.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20 text-kumo-subtle border border-dashed border-kumo-line rounded-xl bg-kumo-recessed/10">
@@ -1348,11 +1363,10 @@ function TotpPage() {
                   对邮箱或长账号名称进行脱敏隐藏保护，避免屏幕泄露。
                 </p>
               </div>
-              <input
-                type="checkbox"
-                checked={totpSettings.maskAccount}
-                onChange={(e) => updateSetting('maskAccount', e.target.checked)}
-                className="w-9 h-5 bg-kumo-recessed border border-kumo-line rounded-full cursor-pointer focus:outline-none appearance-none checked:bg-kumo-brand relative before:absolute before:left-0.5 before:top-0.5 before:w-4 before:h-4 before:bg-white before:rounded-full before:transition-transform checked:before:translate-x-4 border-box"
+              <Switch
+                checked={!!totpSettings.maskAccount}
+                onCheckedChange={(checked) => updateSetting('maskAccount', checked)}
+                size="sm"
               />
             </div>
 
@@ -1364,11 +1378,10 @@ function TotpPage() {
                   隐藏验证码数值，仅在悬浮或点击复制时显示，防止身旁窥屏。
                 </p>
               </div>
-              <input
-                type="checkbox"
-                checked={totpSettings.hideCode}
-                onChange={(e) => updateSetting('hideCode', e.target.checked)}
-                className="w-9 h-5 bg-kumo-recessed border border-kumo-line rounded-full cursor-pointer focus:outline-none appearance-none checked:bg-kumo-brand relative before:absolute before:left-0.5 before:top-0.5 before:w-4 before:h-4 before:bg-white before:rounded-full before:transition-transform checked:before:translate-x-4 border-box"
+              <Switch
+                checked={!!totpSettings.hideCode}
+                onCheckedChange={(checked) => updateSetting('hideCode', checked)}
+                size="sm"
               />
             </div>
 
@@ -1380,11 +1393,10 @@ function TotpPage() {
                   将相同发行商（如 Google, GitHub）下的账号汇聚在一起分组显示。
                 </p>
               </div>
-              <input
-                type="checkbox"
-                checked={totpSettings.groupByPlatform}
-                onChange={(e) => updateSetting('groupByPlatform', e.target.checked)}
-                className="w-9 h-5 bg-kumo-recessed border border-kumo-line rounded-full cursor-pointer focus:outline-none appearance-none checked:bg-kumo-brand relative before:absolute before:left-0.5 before:top-0.5 before:w-4 before:h-4 before:bg-white before:rounded-full before:transition-transform checked:before:translate-x-4 border-box"
+              <Switch
+                checked={!!totpSettings.groupByPlatform}
+                onCheckedChange={(checked) => updateSetting('groupByPlatform', checked)}
+                size="sm"
               />
             </div>
 
@@ -1396,11 +1408,10 @@ function TotpPage() {
                   扫码或选取二维码图片后自动读取数据入库，不需要手动核对表单保存。
                 </p>
               </div>
-              <input
-                type="checkbox"
-                checked={totpSettings.autoSave}
-                onChange={(e) => updateSetting('autoSave', e.target.checked)}
-                className="w-9 h-5 bg-kumo-recessed border border-kumo-line rounded-full cursor-pointer focus:outline-none appearance-none checked:bg-kumo-brand relative before:absolute before:left-0.5 before:top-0.5 before:w-4 before:h-4 before:bg-white before:rounded-full before:transition-transform checked:before:translate-x-4 border-box"
+              <Switch
+                checked={!!totpSettings.autoSave}
+                onCheckedChange={(checked) => updateSetting('autoSave', checked)}
+                size="sm"
               />
             </div>
 
@@ -1412,11 +1423,10 @@ function TotpPage() {
                   开启后添加账号弹窗默认直接使用锁定的选项，不用每次手动选。
                 </p>
               </div>
-              <input
-                type="checkbox"
-                checked={totpSettings.lockInputMode}
-                onChange={(e) => updateSetting('lockInputMode', e.target.checked)}
-                className="w-9 h-5 bg-kumo-recessed border border-kumo-line rounded-full cursor-pointer focus:outline-none appearance-none checked:bg-kumo-brand relative before:absolute before:left-0.5 before:top-0.5 before:w-4 before:h-4 before:bg-white before:rounded-full before:transition-transform checked:before:translate-x-4 border-box"
+              <Switch
+                checked={!!totpSettings.lockInputMode}
+                onCheckedChange={(checked) => updateSetting('lockInputMode', checked)}
+                size="sm"
               />
             </div>
 
@@ -1792,9 +1802,9 @@ function TotpPage() {
           )}
 
           <div className="flex justify-end gap-3 mt-6">
-            <Dialog.Close>
-              <Button onClick={() => stopQrScan()}>取消</Button>
-            </Dialog.Close>
+            <Dialog.Close asChild>
+  <Button onClick={() => stopQrScan()}>取消</Button>
+</Dialog.Close>
 
             {accountModalMode === 'add' && accountAddTab === 'scan' ? (
               <Button
@@ -1850,9 +1860,9 @@ function TotpPage() {
           </div>
 
           <div className="flex justify-end gap-3 mt-6">
-            <Dialog.Close>
-              <Button>取消</Button>
-            </Dialog.Close>
+            <Dialog.Close asChild>
+  <Button>取消</Button>
+</Dialog.Close>
             <Button variant="primary" onClick={handleSaveGroup}>
               保存分组
             </Button>
@@ -1883,9 +1893,9 @@ function TotpPage() {
           </div>
 
           <div className="flex justify-end gap-3 mt-6">
-            <Dialog.Close>
-              <Button>关闭</Button>
-            </Dialog.Close>
+            <Dialog.Close asChild>
+  <Button>关闭</Button>
+</Dialog.Close>
             <Button variant="primary" onClick={copyExportedUris}>
               复制到剪贴板
             </Button>

@@ -3,6 +3,10 @@
 @import "tailwindcss";
 
 /* ==================== Base Resets ==================== */
+html {
+  font-size: 15px; /* Make the UI slightly more compact globally */
+}
+
 :root {
   color-scheme: light dark;
 }
@@ -26,6 +30,13 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+/* Kumo Sidebar: center collapsed base icons in the icon rail.
+   Kumo's bundled -3px translate is tuned for its default sizing; this app uses
+   a compact 15px root font, so derive the offset from the actual content width. */
+aside[data-sidebar='sidebar'][data-state='collapsed'] [data-sidebar='menu-button'][data-size='base'] > div {
+  translate: calc((100% - 1rem) / 2) 0 !important;
+}
+
 /* Custom Scrollbar */
 .scrollbar-thin::-webkit-scrollbar {
   width: 5px;
@@ -41,5 +52,3 @@ body {
 .scrollbar-thin::-webkit-scrollbar-thumb:hover {
   background: var(--text-color-kumo-subtle);
 }
-
-

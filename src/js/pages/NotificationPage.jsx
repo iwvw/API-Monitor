@@ -2,6 +2,9 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { toast } from '../modules/toast.js';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Dialog } from '@cloudflare/kumo/components/dialog';
+import { Switch } from '@cloudflare/kumo/components/switch';
+import { Checkbox } from '@cloudflare/kumo/components/checkbox';
+import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import {
   Bell,
   Plus,
@@ -560,7 +563,7 @@ function NotificationPage() {
   }, [notificationHistory, notificationHistoryFilter]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pb-20">
       {/* ==================== 顶部 Tab 导航 ==================== */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b border-kumo-line pb-4 gap-4">
         <div className="flex border border-kumo-line rounded-lg p-0.5 bg-kumo-recessed select-none">
@@ -627,9 +630,19 @@ function NotificationPage() {
       {notificationCurrentTab === 'channels' && (
         <div className="space-y-4 quick-fade-in">
           {notificationLoading && notificationChannels.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-20 text-kumo-subtle">
-              <RotateCw className="w-8 h-8 animate-spin text-kumo-brand mb-4" />
-              <span>载入通道中...</span>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+              {[...Array(4)].map((_, i) => (
+                <div key={i} className="bg-kumo-base border border-kumo-line rounded-lg p-4 space-y-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <SkeletonLine className="w-8 h-8 rounded-lg" />
+                    <div className="flex-1 space-y-1.5">
+                      <SkeletonLine className="w-1/2 h-3.5" />
+                      <SkeletonLine className="w-1/3 h-2.5" />
+                    </div>
+                  </div>
+                  <SkeletonLine className="w-full h-1" />
+                </div>
+              ))}
             </div>
           ) : notificationChannels.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20 text-kumo-subtle border border-dashed border-kumo-line rounded-xl bg-kumo-recessed/10">
@@ -731,9 +744,19 @@ function NotificationPage() {
           </div>
 
           {notificationLoading && notificationRules.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-20 text-kumo-subtle">
-              <RotateCw className="w-8 h-8 animate-spin text-kumo-brand mb-4" />
-              <span>载入规则中...</span>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {[...Array(3)].map((_, i) => (
+                <div key={i} className="bg-kumo-base border border-kumo-line rounded-lg p-4 space-y-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <SkeletonLine className="w-8 h-8 rounded-lg" />
+                    <div className="flex-1 space-y-1.5">
+                      <SkeletonLine className="w-2/3 h-3.5" />
+                      <SkeletonLine className="w-1/3 h-2.5" />
+                    </div>
+                  </div>
+                  <SkeletonLine className="w-full h-1" />
+                </div>
+              ))}
             </div>
           ) : filteredRules.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20 text-kumo-subtle border border-dashed border-kumo-line rounded-xl bg-kumo-recessed/10">
@@ -877,9 +900,16 @@ function NotificationPage() {
           </div>
 
           {notificationLoading && notificationHistory.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-20 text-kumo-subtle">
-              <RotateCw className="w-8 h-8 animate-spin text-kumo-brand mb-4" />
-              <span>加载日志中...</span>
+            <div className="space-y-3">
+              {[...Array(3)].map((_, i) => (
+                <div key={i} className="bg-kumo-base border border-kumo-line rounded-lg p-4 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <SkeletonLine className="w-1/4 h-3.5" />
+                    <SkeletonLine className="w-1/6 h-2.5" />
+                  </div>
+                  <SkeletonLine className="w-full h-12 rounded-md" />
+                </div>
+              ))}
             </div>
           ) : filteredHistory.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20 text-kumo-subtle border border-dashed border-kumo-line rounded-xl bg-kumo-recessed/10">
@@ -993,11 +1023,10 @@ function NotificationPage() {
                 <h4 className="text-xs font-semibold text-kumo-strong">启用通知聚合机制</h4>
                 <p className="text-[10px] text-kumo-subtle leading-tight select-none">勾选此项后，系统将自动汇总相同设备或接口的告警，聚合后统一发送。</p>
               </div>
-              <input
-                type="checkbox"
+              <Switch
                 checked={!!notificationGlobalConfig.enable_batch}
-                onChange={(e) => setNotificationGlobalConfig(prev => ({ ...prev, enable_batch: e.target.checked }))}
-                className="w-9 h-5 bg-kumo-recessed border border-kumo-line rounded-full cursor-pointer focus:outline-none appearance-none checked:bg-kumo-brand relative before:absolute before:left-0.5 before:top-0.5 before:w-4 before:h-4 before:bg-white before:rounded-full before:transition-transform checked:before:translate-x-4 border-box"
+                onCheckedChange={(checked) => setNotificationGlobalConfig(prev => ({ ...prev, enable_batch: checked }))}
+                size="sm"
               />
             </div>
           </div>
@@ -1192,19 +1221,18 @@ function NotificationPage() {
             {/* Status enable toggle */}
             <div className="flex items-center justify-between border-t border-kumo-line pt-4 select-none">
               <span className="text-xs font-semibold text-kumo-strong">启用此通知渠道</span>
-              <input
-                type="checkbox"
-                checked={channelForm.enabled}
-                onChange={(e) => setChannelForm(prev => ({ ...prev, enabled: e.target.checked }))}
-                className="w-9 h-5 bg-kumo-recessed border border-kumo-line rounded-full cursor-pointer focus:outline-none appearance-none checked:bg-kumo-brand relative before:absolute before:left-0.5 before:top-0.5 before:w-4 before:h-4 before:bg-white before:rounded-full before:transition-transform checked:before:translate-x-4 border-box"
+              <Switch
+                checked={!!channelForm.enabled}
+                onCheckedChange={(checked) => setChannelForm(prev => ({ ...prev, enabled: checked }))}
+                size="sm"
               />
             </div>
           </div>
 
           <div className="flex justify-end gap-3 mt-6 border-t border-kumo-line pt-4 select-none">
-            <Dialog.Close>
-              <Button>取消</Button>
-            </Dialog.Close>
+            <Dialog.Close asChild>
+  <Button>取消</Button>
+</Dialog.Close>
             <Button variant="primary" onClick={handleSaveChannel} loading={notificationSaving} icon={<Save className="w-3.5 h-3.5" />}>
               保存渠道
             </Button>
@@ -1296,25 +1324,20 @@ function NotificationPage() {
               <label className="text-xs font-semibold text-kumo-subtle">发送通知的渠道 *</label>
               <div className="flex flex-wrap gap-2.5 p-3.5 bg-kumo-recessed/50 border border-kumo-line rounded-lg">
                 {notificationChannels.filter(c => c.enabled).map((channel) => (
-                  <label key={channel.id} className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-kumo-strong select-none">
-                    <input
-                      type="checkbox"
-                      value={channel.id}
-                      checked={ruleForm.channels.includes(channel.id)}
-                      onChange={(e) => {
-                        const isChecked = e.target.checked;
-                        const id = channel.id;
-                        setRuleForm(prev => ({
-                          ...prev,
-                          channels: isChecked
-                            ? [...prev.channels, id]
-                            : prev.channels.filter(x => x !== id)
-                        }));
-                      }}
-                      className="rounded border-kumo-line text-kumo-brand focus:ring-kumo-brand"
-                    />
-                    <span>{channel.name}</span>
-                  </label>
+                  <Checkbox
+                    key={channel.id}
+                    checked={ruleForm.channels.includes(channel.id)}
+                    onCheckedChange={(checked) => {
+                      const id = channel.id;
+                      setRuleForm(prev => ({
+                        ...prev,
+                        channels: checked
+                          ? [...prev.channels, id]
+                          : prev.channels.filter(x => x !== id)
+                      }));
+                    }}
+                    label={channel.name}
+                  />
                 ))}
               </div>
             </div>
@@ -1355,25 +1378,20 @@ function NotificationPage() {
               <label className="text-xs font-semibold text-kumo-subtle">首选失败时的备用通知渠道</label>
               <div className="flex flex-wrap gap-2.5 p-3.5 bg-kumo-recessed/50 border border-kumo-line rounded-lg">
                 {notificationChannels.filter(c => c.enabled).map((channel) => (
-                  <label key={`backup_${channel.id}`} className="flex items-center gap-2 cursor-pointer text-xs font-semibold text-kumo-strong select-none">
-                    <input
-                      type="checkbox"
-                      value={channel.id}
-                      checked={ruleForm.backup_channels.includes(channel.id)}
-                      onChange={(e) => {
-                        const isChecked = e.target.checked;
-                        const id = channel.id;
-                        setRuleForm(prev => ({
-                          ...prev,
-                          backup_channels: isChecked
-                            ? [...prev.backup_channels, id]
-                            : prev.backup_channels.filter(x => x !== id)
-                        }));
-                      }}
-                      className="rounded border-kumo-line text-kumo-brand focus:ring-kumo-brand"
-                    />
-                    <span>{channel.name}</span>
-                  </label>
+                  <Checkbox
+                    key={`backup_${channel.id}`}
+                    checked={ruleForm.backup_channels.includes(channel.id)}
+                    onCheckedChange={(checked) => {
+                      const id = channel.id;
+                      setRuleForm(prev => ({
+                        ...prev,
+                        backup_channels: checked
+                          ? [...prev.backup_channels, id]
+                          : prev.backup_channels.filter(x => x !== id)
+                      }));
+                    }}
+                    label={channel.name}
+                  />
                 ))}
               </div>
             </div>
@@ -1415,19 +1433,18 @@ function NotificationPage() {
             {/* Rule Status Switch */}
             <div className="flex items-center justify-between border-t border-kumo-line pt-4 select-none">
               <span className="text-xs font-semibold text-kumo-strong">启用此告警规则</span>
-              <input
-                type="checkbox"
-                checked={ruleForm.enabled}
-                onChange={(e) => setRuleForm(prev => ({ ...prev, enabled: e.target.checked }))}
-                className="w-9 h-5 bg-kumo-recessed border border-kumo-line rounded-full cursor-pointer focus:outline-none appearance-none checked:bg-kumo-brand relative before:absolute before:left-0.5 before:top-0.5 before:w-4 before:h-4 before:bg-white before:rounded-full before:transition-transform checked:before:translate-x-4 border-box"
+              <Switch
+                checked={!!ruleForm.enabled}
+                onCheckedChange={(checked) => setRuleForm(prev => ({ ...prev, enabled: checked }))}
+                size="sm"
               />
             </div>
           </div>
 
           <div className="flex justify-end gap-3 mt-6 border-t border-kumo-line pt-4 select-none">
-            <Dialog.Close>
-              <Button>取消</Button>
-            </Dialog.Close>
+            <Dialog.Close asChild>
+  <Button>取消</Button>
+</Dialog.Close>
             <Button variant="primary" onClick={handleSaveRule} loading={notificationSaving} icon={<Save className="w-3.5 h-3.5" />}>
               保存规则
             </Button>

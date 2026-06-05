@@ -2,6 +2,11 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { toast } from '../modules/toast.js';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Dialog } from '@cloudflare/kumo/components/dialog';
+import { Switch } from '@cloudflare/kumo/components/switch';
+import { Checkbox } from '@cloudflare/kumo/components/checkbox';
+import { Table } from '@cloudflare/kumo/components/table';
+import { SkeletonLine } from '@cloudflare/kumo/components/loader';
+import useTableResize from '../composables/useTableResize.js';
 import { formatDateTime } from '../modules/utils.js';
 import {
   Cpu,
@@ -39,6 +44,10 @@ import {
 
 function AntigravityPage() {
   const [activeTab, setActiveTab] = useState('quotas'); // 'quotas' | 'matrix' | 'accounts' | 'logs' | 'settings'
+  const [quotaColWidths, startQuotaResize] = useTableResize([400, 150, 250, 180, 80]);
+  const [matrixColWidths, startMatrixResize] = useTableResize([400, 144, 144, 144]);
+  const [accountsColWidths, startAccountsResize] = useTableResize([50, 150, 320, 200, 100, 80, 120]);
+  const [logsColWidths, startLogsResize] = useTableResize([150, 150, 140, 200, 70, 80, 60]);
 
   // Authentication helper
   const getAuthHeaders = useCallback(() => {
@@ -1074,7 +1083,7 @@ function AntigravityPage() {
   }, [activeTab, loadAccounts, loadQuotas, loadMatrix, loadCheckHistory, loadAutoCheckSettings, loadLogs, loadSettings, loadRedirects]);
 
   return (
-    <div className="space-y-6 flex flex-col h-full min-h-[75vh]">
+    <div className="space-y-6 flex flex-col pb-20">
       {/* Sub Tabs */}
       <div className="flex border border-kumo-line rounded-lg p-0.5 bg-kumo-recessed self-start select-none">
         <button
@@ -1223,11 +1232,10 @@ function AntigravityPage() {
                                   <span className="font-mono font-bold" style={{ color: getAgQuotaColor(m.remaining) }}>
                                     {m.remaining}%
                                   </span>
-                                  <input
-                                    type="checkbox"
+                                  <Switch
+                                    size="sm"
                                     checked={m.enabled !== false}
-                                    onChange={() => toggleModelStatus(m.id, m.enabled !== false)}
-                                    className="w-8 h-4 bg-kumo-recessed border border-kumo-line rounded-full cursor-pointer focus:outline-none appearance-none checked:bg-kumo-brand relative before:absolute before:left-0.5 before:top-0.5 before:w-3 before:h-3 before:bg-white before:rounded-full before:transition-transform checked:before:translate-x-4 border-box"
+                                    onCheckedChange={() => toggleModelStatus(m.id, m.enabled !== false)}
                                   />
                                 </div>
                               </div>
@@ -1243,59 +1251,87 @@ function AntigravityPage() {
               {/* List View */}
               {quotaViewMode === 'list' && (
                 <div className="bg-kumo-base border border-kumo-line rounded-lg shadow-sm overflow-hidden">
-                  <div className="overflow-x-auto">
-                    <table className="w-full border-collapse text-left text-xs">
-                      <thead>
-                        <tr className="border-b border-kumo-line bg-kumo-recessed/20">
-                          <th className="p-3 font-semibold text-kumo-strong">模型 ID</th>
-                          <th className="p-3 font-semibold text-kumo-strong">分组</th>
-                          <th className="p-3 font-semibold text-kumo-strong" style={{ width: '250px' }}>剩余配额</th>
-                          <th className="p-3 font-semibold text-kumo-strong text-center" style={{ width: '180px' }}>重置时间</th>
-                          <th className="p-3 font-semibold text-kumo-strong text-center w-20">启用状态</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-kumo-line">
-                        {getOrderedAllModelsList().map(m => (
-                          <tr key={m.id} className="hover:bg-kumo-recessed/5">
-                            <td className="p-3 font-mono font-semibold text-kumo-strong">{m.id}</td>
-                            <td className="p-3 text-kumo-subtle">
-                              {m.groupIcon} {m.groupName}
-                            </td>
-                            <td className="p-3">
-                              <div className="flex items-center gap-3">
-                                <div className="flex-1 bg-kumo-recessed/60 h-2 rounded-full overflow-hidden">
-                                  <div
-                                    className="h-full rounded-full transition-all"
-                                    style={{ width: `${m.remaining}%`, backgroundColor: getAgQuotaColor(m.remaining) }}
-                                  />
-                                </div>
-                                <span className="font-mono font-bold w-8 text-right" style={{ color: getAgQuotaColor(m.remaining) }}>
-                                  {m.remaining}%
-                                </span>
-                              </div>
-                            </td>
-                            <td className="p-3 text-center text-kumo-subtle text-[10px] font-mono">
-                              {m.resetTime ? (
-                                <div>
-                                  <div>{formatDisplayDate(m.resetTime)}</div>
-                                  <div className="opacity-70">({formatResetCountdown(m.resetTime)})</div>
-                                </div>
-                              ) : '-'}
-                            </td>
-                            <td className="p-3 text-center">
-                              <input
-                                type="checkbox"
-                                checked={m.enabled !== false}
-                                onChange={() => toggleModelStatus(m.id, m.enabled !== false)}
-                                className="w-8 h-4 bg-kumo-recessed border border-kumo-line rounded-full cursor-pointer focus:outline-none appearance-none checked:bg-kumo-brand relative before:absolute before:left-0.5 before:top-0.5 before:w-3 before:h-3 before:bg-white before:rounded-full before:transition-transform checked:before:translate-x-4 border-box animate-none"
-                              />
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
+                   <div className="overflow-x-auto">
+                     <Table layout="fixed">
+                       <colgroup>
+                         {quotaColWidths.map((w, idx) => (
+                           <col key={idx} style={{ width: w }} />
+                         ))}
+                       </colgroup>
+                       <Table.Header variant="compact">
+                         <Table.Row>
+                           <Table.Head className="relative group pr-6">
+                             模型 ID
+                             <Table.ResizeHandle onMouseDown={(e) => startQuotaResize(0, e)} />
+                           </Table.Head>
+                           <Table.Head className="relative group pr-6">
+                             分组
+                             <Table.ResizeHandle onMouseDown={(e) => startQuotaResize(1, e)} />
+                           </Table.Head>
+                           <Table.Head className="relative group pr-6">
+                             剩余配额
+                             <Table.ResizeHandle onMouseDown={(e) => startQuotaResize(2, e)} />
+                           </Table.Head>
+                           <Table.Head className="text-center relative group pr-6">
+                             重置时间
+                             <Table.ResizeHandle onMouseDown={(e) => startQuotaResize(3, e)} />
+                           </Table.Head>
+                           <Table.Head className="text-center">启用状态</Table.Head>
+                         </Table.Row>
+                       </Table.Header>
+                       <Table.Body>
+                         {quotasLoading && Object.keys(quotas).length === 0 ? (
+                           [...Array(5)].map((_, i) => (
+                             <Table.Row key={i}>
+                               <Table.Cell><SkeletonLine className="w-48 h-4" /></Table.Cell>
+                               <Table.Cell><SkeletonLine className="w-24 h-4" /></Table.Cell>
+                               <Table.Cell><SkeletonLine className="w-32 h-4" /></Table.Cell>
+                               <Table.Cell className="text-center"><SkeletonLine className="w-24 h-4 mx-auto" /></Table.Cell>
+                               <Table.Cell className="text-center"><SkeletonLine className="w-8 h-4 mx-auto" /></Table.Cell>
+                             </Table.Row>
+                           ))
+                         ) : getOrderedAllModelsList().map(m => (
+                           <Table.Row key={m.id} className="hover:bg-kumo-recessed/5">
+                             <Table.Cell className="font-mono font-semibold text-kumo-strong">{m.id}</Table.Cell>
+                             <Table.Cell className="text-kumo-subtle">
+                               {m.groupIcon} {m.groupName}
+                             </Table.Cell>
+                             <Table.Cell>
+                               <div className="flex items-center gap-3">
+                                 <div className="flex-1 bg-kumo-recessed/60 h-2 rounded-full overflow-hidden">
+                                   <div
+                                     className="h-full rounded-full transition-all"
+                                     style={{ width: `${m.remaining}%`, backgroundColor: getAgQuotaColor(m.remaining) }}
+                                   />
+                                 </div>
+                                 <span className="font-mono font-bold w-8 text-right" style={{ color: getAgQuotaColor(m.remaining) }}>
+                                   {m.remaining}%
+                                 </span>
+                               </div>
+                             </Table.Cell>
+                             <Table.Cell className="text-center text-kumo-subtle text-[10px] font-mono">
+                               {m.resetTime ? (
+                                 <div>
+                                   <div>{formatDisplayDate(m.resetTime)}</div>
+                                   <div className="opacity-70">({formatResetCountdown(m.resetTime)})</div>
+                                 </div>
+                               ) : '-'}
+                             </Table.Cell>
+                             <Table.Cell className="text-center">
+                               <div className="flex justify-center">
+                                 <Switch
+                                   size="sm"
+                                   checked={m.enabled !== false}
+                                   onCheckedChange={() => toggleModelStatus(m.id, m.enabled !== false)}
+                                 />
+                               </div>
+                             </Table.Cell>
+                           </Table.Row>
+                         ))}
+                       </Table.Body>
+                     </Table>
+                   </div>
+                 </div>
               )}
             </>
           )}
@@ -1323,102 +1359,109 @@ function AntigravityPage() {
           </div>
 
           <div className="bg-kumo-base border border-kumo-line rounded-lg shadow-sm overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full border-collapse text-left text-xs">
-                <thead>
-                  <tr className="border-b border-kumo-line bg-kumo-recessed/20">
-                    <th className="p-3 font-semibold text-kumo-strong">内部模型 ID (点击切换整行)</th>
-                    <th className="p-3 font-semibold text-kumo-strong text-center w-36">
-                      <button
-                        onClick={() => toggleMatrixColumn('base')}
-                        className="font-bold flex items-center justify-center gap-2 mx-auto hover:text-kumo-brand cursor-pointer"
-                      >
-                        <span>基础功能</span>
-                        <input
-                          type="checkbox"
-                          checked={isMatrixColumnAllChecked('base')}
-                          readOnly
-                          className="pointer-events-none w-3.5 h-3.5 rounded border border-kumo-line accent-kumo-brand"
-                        />
-                      </button>
-                    </th>
-                    <th className="p-3 font-semibold text-kumo-strong text-center w-36">
-                      <button
-                        onClick={() => toggleMatrixColumn('fakeStream')}
-                        className="font-bold flex items-center justify-center gap-2 mx-auto hover:text-kumo-brand cursor-pointer"
-                      >
-                        <span>假流</span>
-                        <input
-                          type="checkbox"
-                          checked={isMatrixColumnAllChecked('fakeStream')}
-                          readOnly
-                          className="pointer-events-none w-3.5 h-3.5 rounded border border-kumo-line accent-kumo-brand"
-                        />
-                      </button>
-                    </th>
-                    <th className="p-3 font-semibold text-kumo-strong text-center w-36">
-                      <button
-                        onClick={() => toggleMatrixColumn('antiTrunc')}
-                        className="font-bold flex items-center justify-center gap-2 mx-auto hover:text-kumo-brand cursor-pointer"
-                      >
-                        <span>流抗</span>
-                        <input
-                          type="checkbox"
-                          checked={isMatrixColumnAllChecked('antiTrunc')}
-                          readOnly
-                          className="pointer-events-none w-3.5 h-3.5 rounded border border-kumo-line accent-kumo-brand"
-                        />
-                      </button>
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-kumo-line">
-                  {getMatrixList().length === 0 ? (
-                    <tr>
-                      <td colSpan={4} className="p-8 text-center text-kumo-subtle">
-                        暂无配置数据，请先在「额度使用」页中启用需要配对的官网模型。
-                      </td>
-                    </tr>
-                  ) : (
-                    getMatrixList().map(row => (
-                      <tr key={row.id} className="hover:bg-kumo-recessed/5">
-                        <td
-                          className="p-3 font-mono font-semibold text-kumo-strong cursor-pointer select-none hover:text-kumo-brand"
-                          onClick={() => toggleMatrixRow(row.id)}
-                          title="双击切换整行开关"
-                        >
-                          {row.id}
-                        </td>
-                        <td className="p-3 text-center">
-                          <input
-                            type="checkbox"
-                            checked={!!row.base}
-                            onChange={() => toggleMatrixCell(row.id, 'base')}
-                            className="w-8 h-4 bg-kumo-recessed border border-kumo-line rounded-full cursor-pointer focus:outline-none appearance-none checked:bg-kumo-brand relative before:absolute before:left-0.5 before:top-0.5 before:w-3 before:h-3 before:bg-white before:rounded-full before:transition-transform checked:before:translate-x-4 border-box"
-                          />
-                        </td>
-                        <td className="p-3 text-center">
-                          <input
-                            type="checkbox"
-                            checked={!!row.fakeStream}
-                            onChange={() => toggleMatrixCell(row.id, 'fakeStream')}
-                            className="w-8 h-4 bg-kumo-recessed border border-kumo-line rounded-full cursor-pointer focus:outline-none appearance-none checked:bg-kumo-brand relative before:absolute before:left-0.5 before:top-0.5 before:w-3 before:h-3 before:bg-white before:rounded-full before:transition-transform checked:before:translate-x-4 border-box"
-                          />
-                        </td>
-                        <td className="p-3 text-center">
-                          <input
-                            type="checkbox"
-                            checked={!!row.antiTrunc}
-                            onChange={() => toggleMatrixCell(row.id, 'antiTrunc')}
-                            className="w-8 h-4 bg-kumo-recessed border border-kumo-line rounded-full cursor-pointer focus:outline-none appearance-none checked:bg-kumo-brand relative before:absolute before:left-0.5 before:top-0.5 before:w-3 before:h-3 before:bg-white before:rounded-full before:transition-transform checked:before:translate-x-4 border-box"
-                          />
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+             <div className="overflow-x-auto">
+               <Table layout="fixed">
+                 <colgroup>
+                   {matrixColWidths.map((w, idx) => (
+                     <col key={idx} style={{ width: w }} />
+                   ))}
+                 </colgroup>
+                 <Table.Header variant="compact">
+                   <Table.Row>
+                     <Table.Head className="relative group pr-6">
+                       内部模型 ID (点击切换整行)
+                       <Table.ResizeHandle onMouseDown={(e) => startMatrixResize(0, e)} />
+                     </Table.Head>
+                     <Table.Head className="text-center relative group pr-6">
+                       <div className="flex items-center justify-center gap-2">
+                         <Checkbox
+                           checked={isMatrixColumnAllChecked('base')}
+                           onCheckedChange={() => toggleMatrixColumn('base')}
+                           label="基础功能"
+                         />
+                       </div>
+                       <Table.ResizeHandle onMouseDown={(e) => startMatrixResize(1, e)} />
+                     </Table.Head>
+                     <Table.Head className="text-center relative group pr-6">
+                       <div className="flex items-center justify-center gap-2">
+                         <Checkbox
+                           checked={isMatrixColumnAllChecked('fakeStream')}
+                           onCheckedChange={() => toggleMatrixColumn('fakeStream')}
+                           label="假流"
+                         />
+                       </div>
+                       <Table.ResizeHandle onMouseDown={(e) => startMatrixResize(2, e)} />
+                     </Table.Head>
+                     <Table.Head className="text-center">
+                       <div className="flex items-center justify-center gap-2">
+                         <Checkbox
+                           checked={isMatrixColumnAllChecked('antiTrunc')}
+                           onCheckedChange={() => toggleMatrixColumn('antiTrunc')}
+                           label="流抗"
+                         />
+                       </div>
+                     </Table.Head>
+                   </Table.Row>
+                 </Table.Header>
+                 <Table.Body>
+                   {matrixLoading ? (
+                     [...Array(5)].map((_, i) => (
+                       <Table.Row key={i}>
+                         <Table.Cell><SkeletonLine className="w-48 h-4" /></Table.Cell>
+                         <Table.Cell className="text-center"><SkeletonLine className="w-8 h-4 mx-auto" /></Table.Cell>
+                         <Table.Cell className="text-center"><SkeletonLine className="w-8 h-4 mx-auto" /></Table.Cell>
+                         <Table.Cell className="text-center"><SkeletonLine className="w-8 h-4 mx-auto" /></Table.Cell>
+                       </Table.Row>
+                     ))
+                   ) : getMatrixList().length === 0 ? (
+                     <Table.Row>
+                       <Table.Cell colSpan={4} className="p-8 text-center text-kumo-subtle">
+                         暂无配置数据，请先在「额度使用」页中启用需要配对的官网模型。
+                       </Table.Cell>
+                     </Table.Row>
+                   ) : (
+                     getMatrixList().map(row => (
+                       <Table.Row key={row.id} className="hover:bg-kumo-recessed/5">
+                         <Table.Cell
+                           className="p-3 font-mono font-semibold text-kumo-strong cursor-pointer select-none hover:text-kumo-brand"
+                           onClick={() => toggleMatrixRow(row.id)}
+                           title="双击切换整行开关"
+                         >
+                           {row.id}
+                         </Table.Cell>
+                         <Table.Cell className="text-center">
+                           <div className="flex justify-center">
+                             <Switch
+                               size="sm"
+                               checked={!!row.base}
+                               onCheckedChange={() => toggleMatrixCell(row.id, 'base')}
+                             />
+                           </div>
+                         </Table.Cell>
+                         <Table.Cell className="text-center">
+                           <div className="flex justify-center">
+                             <Switch
+                               size="sm"
+                               checked={!!row.fakeStream}
+                               onCheckedChange={() => toggleMatrixCell(row.id, 'fakeStream')}
+                             />
+                           </div>
+                         </Table.Cell>
+                         <Table.Cell className="text-center">
+                           <div className="flex justify-center">
+                             <Switch
+                               size="sm"
+                               checked={!!row.antiTrunc}
+                               onCheckedChange={() => toggleMatrixCell(row.id, 'antiTrunc')}
+                             />
+                           </div>
+                         </Table.Cell>
+                       </Table.Row>
+                     ))
+                   )}
+                 </Table.Body>
+               </Table>
+             </div>
           </div>
         </div>
       )}
@@ -1498,15 +1541,11 @@ function AntigravityPage() {
                       onChange={(e) => setAgCustomProjectId(e.target.value)}
                       className="bg-kumo-base text-kumo-strong text-[11px] px-2.5 py-1 border border-kumo-line rounded flex-1 focus:outline-none"
                     />
-                    <label className="flex items-center gap-1.5 text-xs text-kumo-subtle select-none cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={agAllowRandomProjectId}
-                        onChange={(e) => setAgAllowRandomProjectId(e.target.checked)}
-                        className="rounded border-kumo-line"
-                      />
-                      <span>允许随机 ID</span>
-                    </label>
+                    <Checkbox
+                      checked={agAllowRandomProjectId}
+                      onCheckedChange={setAgAllowRandomProjectId}
+                      label="允许随机 ID"
+                    />
                   </div>
                 </div>
               </div>
@@ -1519,106 +1558,125 @@ function AntigravityPage() {
             </div>
           )}
 
-          {/* Accounts list Table */}
-          <div className="bg-kumo-base border border-kumo-line rounded-lg shadow-sm overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full border-collapse text-left text-xs">
-                <thead>
-                  <tr className="border-b border-kumo-line bg-kumo-recessed/20">
-                    <th className="p-3 font-semibold text-kumo-strong w-12 text-center">#</th>
-                    <th className="p-3 font-semibold text-kumo-strong">备注名称</th>
-                    <th className="p-3 font-semibold text-kumo-strong" style={{ minWidth: '280px' }}>核心模型配额简图</th>
-                    <th className="p-3 font-semibold text-kumo-strong">关联邮箱</th>
-                    <th className="p-3 font-semibold text-kumo-strong text-center" style={{ width: '100px' }}>成功 / 失败数</th>
-                    <th className="p-3 font-semibold text-kumo-strong text-center w-24">状态</th>
-                    <th className="p-3 font-semibold text-kumo-strong text-center w-28">操作</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-kumo-line">
-                  {accounts.length === 0 ? (
-                    <tr>
-                      <td colSpan={7} className="p-8 text-center text-kumo-subtle">
-                        当前暂无绑定的服务凭证。
-                      </td>
-                    </tr>
-                  ) : (
-                    accounts.map((acc, idx) => (
-                      <tr key={acc.id} className="hover:bg-kumo-recessed/5">
-                        <td className="p-3 text-center text-kumo-subtle font-semibold">{idx + 1}</td>
-                        <td className="p-3 font-bold text-kumo-strong">{acc.name || '未命名'}</td>
-                        <td className="p-3">
-                          <div className="grid grid-cols-2 gap-2 text-[10px]">
-                            {getAccountQuotaDisplay(acc.quotas).map(q => (
-                              <div key={q.key} className="flex items-center gap-1.5 bg-kumo-recessed/35 p-1 rounded border border-kumo-line/50">
-                                <span className="font-semibold text-kumo-subtle scale-90 origin-left">{q.label}</span>
-                                <div className="flex-1 bg-kumo-recessed h-1 rounded overflow-hidden">
-                                  <div
-                                    className="h-full rounded-full transition-all"
-                                    style={{ width: `${q.percent}%`, backgroundColor: getAgQuotaColor(q.percent) }}
-                                  />
-                                </div>
-                                <span className="font-bold scale-90" style={{ color: getAgQuotaColor(q.percent) }}>
-                                  {q.percent}%
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        </td>
-                        <td className="p-3 font-mono text-kumo-subtle text-[11px]">{acc.email || '-'}</td>
-                        <td className="p-3 text-center">
-                          <div className="flex justify-center items-center gap-1 font-semibold">
-                            <span className="text-kumo-success">{acc.success_count || 0}</span>
-                            <span className="text-kumo-subtle">/</span>
-                            <span className="text-kumo-danger">{acc.error_count || 0}</span>
-                          </div>
-                        </td>
-                        <td className="p-3 text-center">
-                          <span
-                            className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
-                              acc.status === 'online'
-                                ? 'bg-kumo-success/10 text-kumo-success border-kumo-success/20'
-                                : acc.status === 'error'
-                                ? 'bg-kumo-danger/10 text-kumo-danger border-kumo-danger/20'
-                                : 'bg-kumo-recessed text-kumo-subtle border-kumo-line'
-                            }`}
-                          >
-                            {acc.status === 'online' ? '在线' : acc.status === 'error' ? '异常' : '未知'}
-                          </span>
-                        </td>
-                        <td className="p-3">
-                          <div className="flex justify-center gap-2">
-                            <button
-                              onClick={() => toggleAccountEnabled(acc.id, acc.enable)}
-                              className={`p-1.5 rounded hover:bg-kumo-recessed transition-colors ${
-                                acc.enable !== false ? 'text-kumo-success' : 'text-kumo-subtle'
-                              }`}
-                              title={acc.enable !== false ? '禁用' : '启用'}
-                            >
-                              <Check className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => openEditAccountModal(acc)}
-                              className="p-1.5 rounded hover:bg-kumo-recessed text-kumo-subtle hover:text-kumo-strong transition-colors"
-                              title="编辑"
-                            >
-                              <Edit className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => deleteAccount(acc.id, acc.name)}
-                              className="p-1.5 rounded hover:bg-kumo-danger/10 text-kumo-subtle hover:text-kumo-danger transition-colors"
-                              title="删除"
-                            >
-                              <Trash className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
+             {/* Accounts list Table */}
+             <div className="bg-kumo-base border border-kumo-line rounded-lg shadow-sm overflow-hidden">
+               <div className="overflow-x-auto">
+                 <Table layout="fixed">
+                   <colgroup>
+                     {accountsColWidths.map((w, idx) => (
+                       <col key={idx} style={{ width: w }} />
+                     ))}
+                   </colgroup>
+                   <Table.Header variant="compact">
+                     <Table.Row>
+                       <Table.Head className="text-center relative group pr-6">
+                         #
+                         <Table.ResizeHandle onMouseDown={(e) => startAccountsResize(0, e)} />
+                       </Table.Head>
+                       <Table.Head className="relative group pr-6">
+                         备注名称
+                         <Table.ResizeHandle onMouseDown={(e) => startAccountsResize(1, e)} />
+                       </Table.Head>
+                       <Table.Head className="relative group pr-6">
+                         核心模型配额简图
+                         <Table.ResizeHandle onMouseDown={(e) => startAccountsResize(2, e)} />
+                       </Table.Head>
+                       <Table.Head className="relative group pr-6">
+                         关联邮箱
+                         <Table.ResizeHandle onMouseDown={(e) => startAccountsResize(3, e)} />
+                       </Table.Head>
+                       <Table.Head className="text-center relative group pr-6">
+                         成功 / 失败数
+                         <Table.ResizeHandle onMouseDown={(e) => startAccountsResize(4, e)} />
+                       </Table.Head>
+                       <Table.Head className="text-center relative group pr-6">
+                         状态
+                         <Table.ResizeHandle onMouseDown={(e) => startAccountsResize(5, e)} />
+                       </Table.Head>
+                       <Table.Head className="text-center">操作</Table.Head>
+                     </Table.Row>
+                   </Table.Header>
+                   <Table.Body>
+                     {accounts.length === 0 ? (
+                       <Table.Row>
+                         <Table.Cell colSpan={7} className="p-8 text-center text-kumo-subtle">
+                           当前暂无绑定的服务凭证。
+                         </Table.Cell>
+                       </Table.Row>
+                     ) : (
+                       accounts.map((acc, idx) => (
+                         <Table.Row key={acc.id} className="hover:bg-kumo-recessed/5">
+                           <Table.Cell className="text-center text-kumo-subtle font-semibold">{idx + 1}</Table.Cell>
+                           <Table.Cell className="font-bold text-kumo-strong">{acc.name || '未命名'}</Table.Cell>
+                           <Table.Cell>
+                             <div className="grid grid-cols-2 gap-2 text-[10px]">
+                               {getAccountQuotaDisplay(acc.quotas).map(q => (
+                                 <div key={q.key} className="flex items-center gap-1.5 bg-kumo-recessed/35 p-1 rounded border border-kumo-line/50">
+                                   <span className="font-semibold text-kumo-subtle scale-90 origin-left">{q.label}</span>
+                                   <div className="flex-1 bg-kumo-recessed h-1 rounded overflow-hidden">
+                                     <div
+                                       className="h-full rounded-full transition-all"
+                                       style={{ width: `${q.percent}%`, backgroundColor: getAgQuotaColor(q.percent) }}
+                                     />
+                                   </div>
+                                   <span className="font-bold scale-90" style={{ color: getAgQuotaColor(q.percent) }}>
+                                     {q.percent}%
+                                   </span>
+                                 </div>
+                               ))}
+                             </div>
+                           </Table.Cell>
+                           <Table.Cell className="font-mono text-kumo-subtle text-[11px]">{acc.email || '-'}</Table.Cell>
+                           <Table.Cell className="text-center">
+                             <div className="flex justify-center items-center gap-1 font-semibold">
+                               <span className="text-kumo-success">{acc.success_count || 0}</span>
+                               <span className="text-kumo-subtle">/</span>
+                               <span className="text-kumo-danger">{acc.error_count || 0}</span>
+                             </div>
+                           </Table.Cell>
+                           <Table.Cell className="text-center">
+                             <span
+                               className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                                 acc.status === 'online'
+                                   ? 'bg-kumo-success/10 text-kumo-success border-kumo-success/20'
+                                   : acc.status === 'error'
+                                   ? 'bg-kumo-danger/10 text-kumo-danger border-kumo-danger/20'
+                                   : 'bg-kumo-recessed text-kumo-subtle border-kumo-line'
+                               }`}
+                             >
+                               {acc.status === 'online' ? '在线' : acc.status === 'error' ? '异常' : '未知'}
+                             </span>
+                           </Table.Cell>
+                           <Table.Cell>
+                             <div className="flex justify-center gap-2">
+                               <Switch
+                                 size="sm"
+                                 checked={acc.enable !== false}
+                                 onCheckedChange={() => toggleAccountEnabled(acc.id, acc.enable)}
+                               />
+                               <button
+                                 onClick={() => openEditAccountModal(acc)}
+                                 className="p-1.5 rounded hover:bg-kumo-recessed text-kumo-subtle hover:text-kumo-strong transition-colors"
+                                 title="编辑"
+                               >
+                                 <Edit className="w-4 h-4" />
+                               </button>
+                               <button
+                                 onClick={() => deleteAccount(acc.id, acc.name)}
+                                 className="p-1.5 rounded hover:bg-kumo-danger/10 text-kumo-subtle hover:text-kumo-danger transition-colors"
+                                 title="删除"
+                               >
+                                 <Trash className="w-4 h-4" />
+                               </button>
+                             </div>
+                           </Table.Cell>
+                         </Table.Row>
+                       ))
+                     )}
+                   </Table.Body>
+                 </Table>
+               </div>
+             </div>
 
           {/* Health check section */}
           <div className="bg-kumo-base border border-kumo-line rounded-lg shadow-sm p-4 space-y-4">
@@ -1628,15 +1686,11 @@ function AntigravityPage() {
                 模型健康检测系统
               </h4>
               <div className="flex flex-wrap items-center gap-2.5 text-xs">
-                <label className="flex items-center gap-1.5 text-xs text-kumo-subtle select-none cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={autoCheck}
-                    onChange={handleToggleAutoCheck}
-                    className="rounded border-kumo-line"
-                  />
-                  <span>定时检测</span>
-                </label>
+                <Checkbox
+                  checked={autoCheck}
+                  onCheckedChange={handleToggleAutoCheck}
+                  label="定时检测"
+                />
 
                 <select
                   value={autoCheckInterval}
@@ -1660,71 +1714,70 @@ function AntigravityPage() {
             </div>
 
             {/* Check history Matrix */}
-            {checkHistory && checkHistory.models && checkHistory.models.length > 0 ? (
-              <div className="overflow-x-auto">
-                <table className="w-full border-collapse text-left text-xs">
-                  <thead>
-                    <tr className="border-b border-kumo-line bg-kumo-recessed/20 font-mono text-[10px]">
-                      <th className="p-2 font-semibold text-kumo-strong" style={{ width: '200px' }}>测试模型</th>
-                      {checkHistory.times.slice().reverse().map(t => (
-                        <th key={t} className="p-2 font-semibold text-kumo-strong text-center whitespace-nowrap min-w-20">
-                          {formatDateTime(t * 1000).substring(5, 16)}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-kumo-line font-mono text-[11px]">
-                    {checkHistory.models.map(model => (
-                      <tr key={model} className="hover:bg-kumo-recessed/5">
-                        <td className="p-2">
-                          <div className="flex items-center gap-1.5">
-                            <input
-                              type="checkbox"
-                              checked={!disabledCheckModels.includes(model)}
-                              onChange={() => handleToggleCheckModel(model)}
-                              className="rounded border-kumo-line"
-                            />
-                            <span className={disabledCheckModels.includes(model) ? 'opacity-40 line-through' : 'text-kumo-strong'}>
-                              {model}
-                            </span>
-                          </div>
-                        </td>
-                        {checkHistory.times.slice().reverse().map(time => {
-                          const item = checkHistory.matrix[model]?.[time];
-                          return (
-                            <td key={time} className="p-2 text-center whitespace-nowrap">
-                              {item ? (
-                                <div className="flex justify-center gap-1">
-                                  {accounts.map((acc, nIdx) => {
-                                    const acNum = nIdx + 1;
-                                    return (
-                                      <span
-                                        key={acNum}
-                                        className={`w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold select-none transition-all cursor-help ${getCheckBadgeClass(
-                                          item,
-                                          acNum
-                                        )}`}
-                                        title={getCheckBadgeTitle(item, acNum)}
-                                      >
-                                        {acNum}
-                                      </span>
-                                    );
-                                  })}
-                                </div>
-                              ) : (
-                                <span className="text-kumo-subtle">-</span>
-                              )}
-                            </td>
-                          );
-                        })}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <div className="text-center p-8 text-kumo-subtle text-xs">暂无历史检测结果。</div>
-            )}
+             {checkHistory && checkHistory.models && checkHistory.models.length > 0 ? (
+               <div className="overflow-x-auto">
+                 <Table>
+                   <Table.Header variant="compact">
+                     <Table.Row className="font-mono text-[10px]">
+                       <Table.Head className="w-52">测试模型</Table.Head>
+                       {checkHistory.times.slice().reverse().map(t => (
+                         <Table.Head key={t} className="text-center whitespace-nowrap min-w-20">
+                           {formatDateTime(t * 1000).substring(5, 16)}
+                         </Table.Head>
+                       ))}
+                     </Table.Row>
+                   </Table.Header>
+                   <Table.Body className="font-mono text-[11px]">
+                     {checkHistory.models.map(model => (
+                       <Table.Row key={model} className="hover:bg-kumo-recessed/5">
+                         <Table.Cell>
+                           <div className="flex items-center gap-1.5">
+                             <Checkbox
+                               checked={!disabledCheckModels.includes(model)}
+                               onCheckedChange={() => handleToggleCheckModel(model)}
+                               aria-label={`检测 ${model}`}
+                             />
+                             <span className={disabledCheckModels.includes(model) ? 'opacity-40 line-through' : 'text-kumo-strong'}>
+                               {model}
+                             </span>
+                           </div>
+                         </Table.Cell>
+                         {checkHistory.times.slice().reverse().map(time => {
+                           const item = checkHistory.matrix[model]?.[time];
+                           return (
+                             <Table.Cell key={time} className="text-center whitespace-nowrap">
+                               {item ? (
+                                 <div className="flex justify-center gap-1">
+                                   {accounts.map((acc, nIdx) => {
+                                     const acNum = nIdx + 1;
+                                     return (
+                                       <span
+                                         key={acNum}
+                                         className={`w-4 h-4 rounded-full flex items-center justify-center text-[9px] font-bold select-none transition-all cursor-help ${getCheckBadgeClass(
+                                           item,
+                                           acNum
+                                         )}`}
+                                         title={getCheckBadgeTitle(item, acNum)}
+                                       >
+                                         {acNum}
+                                       </span>
+                                     );
+                                   })}
+                                 </div>
+                               ) : (
+                                 <span className="text-kumo-subtle">-</span>
+                               )}
+                             </Table.Cell>
+                           );
+                         })}
+                       </Table.Row>
+                     ))}
+                   </Table.Body>
+                 </Table>
+               </div>
+             ) : (
+               <div className="text-center p-8 text-kumo-subtle text-xs">暂无历史检测结果。</div>
+             )}
           </div>
         </div>
       )}
@@ -1773,30 +1826,65 @@ function AntigravityPage() {
 
           <div className="bg-kumo-base border border-kumo-line rounded-lg shadow-sm overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="w-full border-collapse text-left text-xs">
-                <thead>
-                  <tr className="border-b border-kumo-line bg-kumo-recessed/20">
-                    <th className="p-3 font-semibold text-kumo-strong text-center" style={{ width: '150px' }}>调用时间</th>
-                    <th className="p-3 font-semibold text-kumo-strong">网关备注</th>
-                    <th className="p-3 font-semibold text-kumo-strong text-center" style={{ width: '140px' }}>调用模型</th>
-                    <th className="p-3 font-semibold text-kumo-strong">请求路径</th>
-                    <th className="p-3 font-semibold text-kumo-strong text-center" style={{ width: '70px' }}>状态</th>
-                    <th className="p-3 font-semibold text-kumo-strong text-center" style={{ width: '80px' }}>耗时</th>
-                    <th className="p-3 font-semibold text-kumo-strong text-center w-16">操作</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-kumo-line">
-                  {filteredLogs.length === 0 ? (
-                    <tr>
-                      <td colSpan={7} className="p-10 text-center text-kumo-subtle">
+              <Table layout="fixed">
+                <colgroup>
+                  {logsColWidths.map((w, idx) => (
+                    <col key={idx} style={{ width: w }} />
+                  ))}
+                </colgroup>
+                <Table.Header variant="compact">
+                  <Table.Row>
+                    <Table.Head className="text-center relative group pr-6">
+                      调用时间
+                      <Table.ResizeHandle onMouseDown={(e) => startLogsResize(0, e)} />
+                    </Table.Head>
+                    <Table.Head className="relative group pr-6">
+                      网关备注
+                      <Table.ResizeHandle onMouseDown={(e) => startLogsResize(1, e)} />
+                    </Table.Head>
+                    <Table.Head className="text-center relative group pr-6">
+                      调用模型
+                      <Table.ResizeHandle onMouseDown={(e) => startLogsResize(2, e)} />
+                    </Table.Head>
+                    <Table.Head className="relative group pr-6">
+                      请求路径
+                      <Table.ResizeHandle onMouseDown={(e) => startLogsResize(3, e)} />
+                    </Table.Head>
+                    <Table.Head className="text-center relative group pr-6">
+                      状态
+                      <Table.ResizeHandle onMouseDown={(e) => startLogsResize(4, e)} />
+                    </Table.Head>
+                    <Table.Head className="text-center relative group pr-6">
+                      耗时
+                      <Table.ResizeHandle onMouseDown={(e) => startLogsResize(5, e)} />
+                    </Table.Head>
+                    <Table.Head className="text-center w-16">操作</Table.Head>
+                  </Table.Row>
+                </Table.Header>
+                <Table.Body>
+                  {logsLoading ? (
+                    [...Array(5)].map((_, i) => (
+                      <Table.Row key={i}>
+                        <Table.Cell><SkeletonLine className="w-24 h-4 mx-auto" /></Table.Cell>
+                        <Table.Cell><SkeletonLine className="w-20 h-4" /></Table.Cell>
+                        <Table.Cell><SkeletonLine className="w-24 h-4 mx-auto" /></Table.Cell>
+                        <Table.Cell><SkeletonLine className="w-40 h-4" /></Table.Cell>
+                        <Table.Cell><SkeletonLine className="w-12 h-4 mx-auto" /></Table.Cell>
+                        <Table.Cell><SkeletonLine className="w-16 h-4 mx-auto" /></Table.Cell>
+                        <Table.Cell><SkeletonLine className="w-8 h-4 mx-auto" /></Table.Cell>
+                      </Table.Row>
+                    ))
+                  ) : filteredLogs.length === 0 ? (
+                    <Table.Row>
+                      <Table.Cell colSpan={7} className="p-10 text-center text-kumo-subtle">
                         未查询到可用调用历史。
-                      </td>
-                    </tr>
+                      </Table.Cell>
+                    </Table.Row>
                   ) : (
                     filteredLogs.map((log) => (
-                      <tr key={log.id} className="hover:bg-kumo-recessed/5">
-                        <td className="p-3 text-center text-kumo-subtle font-mono">{formatDateTime(log.timestamp)}</td>
-                        <td className="p-3 font-bold text-kumo-strong">
+                      <Table.Row key={log.id} className="hover:bg-kumo-recessed/5">
+                        <Table.Cell className="text-center text-kumo-subtle font-mono">{formatDateTime(log.timestamp)}</Table.Cell>
+                        <Table.Cell className="font-bold text-kumo-strong">
                           <div className="flex items-center gap-1">
                             <span>{log.accountName || 'System'}</span>
                             {log.isBalanced && (
@@ -1805,17 +1893,17 @@ function AntigravityPage() {
                               </span>
                             )}
                           </div>
-                        </td>
-                        <td className="p-3 text-center font-mono text-kumo-subtle">{log.model || '-'}</td>
-                        <td className="p-3">
+                        </Table.Cell>
+                        <Table.Cell className="text-center font-mono text-kumo-subtle">{log.model || '-'}</Table.Cell>
+                        <Table.Cell>
                           <div className="flex items-center gap-1.5 font-mono">
                             <span className="px-1 py-0.2 rounded text-[9px] bg-kumo-brand/10 text-kumo-brand border border-kumo-brand/20 font-bold uppercase">
                               {log.method || 'POST'}
                             </span>
                             <span className="truncate text-kumo-strong max-w-[200px]" title={log.path}>{log.path}</span>
                           </div>
-                        </td>
-                        <td className="p-3 text-center">
+                        </Table.Cell>
+                        <Table.Cell className="text-center">
                           <span
                             className={`px-2 py-0.5 rounded text-[10px] font-bold ${
                               log.statusCode >= 200 && log.statusCode < 300
@@ -1825,21 +1913,21 @@ function AntigravityPage() {
                           >
                             {log.statusCode || 200}
                           </span>
-                        </td>
-                        <td className="p-3 text-center font-mono font-semibold text-kumo-strong">{log.durationMs}ms</td>
-                        <td className="p-3 text-center">
+                        </Table.Cell>
+                        <Table.Cell className="text-center font-mono font-semibold text-kumo-strong">{log.durationMs}ms</Table.Cell>
+                        <Table.Cell className="text-center">
                           <button
                             onClick={() => showLogDetail(log)}
                             className="p-1 hover:bg-kumo-recessed rounded text-kumo-subtle hover:text-kumo-strong transition-colors"
                           >
                             <Eye className="w-4 h-4" />
                           </button>
-                        </td>
-                      </tr>
+                        </Table.Cell>
+                      </Table.Row>
                     ))
                   )}
-                </tbody>
-              </table>
+                </Table.Body>
+              </Table>
             </div>
           </div>
         </div>
@@ -2187,9 +2275,9 @@ function AntigravityPage() {
             </div>
 
             <div className="flex justify-end gap-3 pt-2">
-              <Dialog.Close>
-                <Button>取消</Button>
-              </Dialog.Close>
+              <Dialog.Close asChild>
+  <Button>取消</Button>
+</Dialog.Close>
               <Button variant="primary" disabled={manualSaving} onClick={saveManualAccount}>
                 {manualSaving ? '录入中...' : '录入凭证'}
               </Button>
@@ -2240,9 +2328,9 @@ function AntigravityPage() {
             </div>
 
             <div className="flex justify-end gap-3 pt-2">
-              <Dialog.Close>
-                <Button>取消</Button>
-              </Dialog.Close>
+              <Dialog.Close asChild>
+  <Button>取消</Button>
+</Dialog.Close>
               <Button variant="primary" disabled={accountSaving} onClick={saveEditingAccount}>
                 保存
               </Button>
@@ -2301,11 +2389,10 @@ function AntigravityPage() {
               {/* Raw JSON switch */}
               <div className="flex justify-between items-center bg-kumo-recessed/10 p-2 border border-kumo-line rounded-lg">
                 <span className="font-bold text-kumo-strong">显示原始完整 JSON 报文</span>
-                <input
-                  type="checkbox"
+                <Switch
+                  size="sm"
                   checked={logDetailRaw}
-                  onChange={(e) => setLogDetailRaw(e.target.checked)}
-                  className="w-8 h-4 bg-kumo-recessed border border-kumo-line rounded-full cursor-pointer focus:outline-none appearance-none checked:bg-kumo-brand relative before:absolute before:left-0.5 before:top-0.5 before:w-3 before:h-3 before:bg-white before:rounded-full before:transition-transform checked:before:translate-x-4 border-box"
+                  onCheckedChange={(checked) => setLogDetailRaw(checked)}
                 />
               </div>
 

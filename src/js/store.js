@@ -14,6 +14,12 @@ export const MODULE_CONFIG = {
     icon: 'fa-tachometer-alt',
     description: '系统状态与数据概览',
   },
+  settings: {
+    name: '系统设置',
+    shortName: 'Settings',
+    icon: 'fa-cog',
+    description: '全局配置、安全认证与外观主题',
+  },
   openai: {
     name: 'OpenAI',
     shortName: 'OAI',
@@ -98,12 +104,6 @@ export const MODULE_CONFIG = {
     icon: 'fa-bell',
     description: '通知渠道与告警规则管理',
   },
-  'ai-chat': {
-    name: 'AI Chat',
-    shortName: 'Chat',
-    icon: 'fa-comments',
-    description: 'AI 对话助手',
-  },
   qwen: {
     name: '通义千问',
     shortName: 'Qwen',
@@ -124,7 +124,7 @@ export const MODULE_GROUPS = [
     id: 'api-gateway',
     name: 'API 网关',
     icon: 'fa-bolt',
-    modules: ['openai', 'gemini-cli', 'qwen'],
+    modules: ['openai', 'gemini-cli', 'qwen', 'antigravity'],
   },
   {
     id: 'infrastructure',
@@ -136,7 +136,7 @@ export const MODULE_GROUPS = [
     id: 'toolbox',
     name: '工具箱',
     icon: 'fa-toolbox',
-    modules: ['self-h', 'totp', 'music', 'uptime', 'filebox', 'notification', 'ai-chat'],
+    modules: ['self-h', 'totp', 'music', 'uptime', 'filebox', 'notification'],
   },
 ];
 
@@ -152,28 +152,50 @@ export function getModuleIcon(moduleId) {
   return config ? config.icon : 'fa-cube';
 }
 
-export const applyThemeMode = (theme) => {
-  if (typeof document === 'undefined') return;
+const THEME_STORAGE_KEY = 'app_theme_mode';
+const LEGACY_THEME_STORAGE_KEY = 'app_theme';
 
-  const root = document.documentElement;
-  root.classList.toggle('dark', theme === 'dark');
-  root.classList.toggle('light', theme === 'light');
-  root.dataset.mode = theme;
-};
+export const THEME_MODE_OPTIONS = ['auto', 'light', 'dark'];
 
-// ==================== Zustand Store ====================
-const getInitialTheme = () => {
-  try {
-    const saved = localStorage.getItem('app_theme');
-    if (saved === 'dark' || saved === 'light') return saved;
-    if (typeof window !== 'undefined' && window.matchMedia) {
-      return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-    }
-  } catch (e) {
-    console.error('Failed to get initial theme:', e);
+export const getSystemTheme = () => {
+  if (typeof window !== 'undefined' && window.matchMedia) {
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   }
   return 'dark';
 };
+
+export const resolveThemeMode = (themeMode) => {
+  if (themeMode === 'light' || themeMode === 'dark') return themeMode;
+  return getSystemTheme();
+};
+
+export const applyThemeMode = (themeMode) => {
+  if (typeof document === 'undefined') return;
+
+  const effectiveTheme = resolveThemeMode(themeMode);
+  const root = document.documentElement;
+  root.classList.toggle('dark', effectiveTheme === 'dark');
+  root.classList.toggle('light', effectiveTheme === 'light');
+  root.dataset.mode = effectiveTheme;
+  root.dataset.theme = effectiveTheme;
+  root.dataset.themeMode = themeMode;
+};
+
+// ==================== Zustand Store ====================
+const getInitialThemeMode = () => {
+  try {
+    const savedMode = localStorage.getItem(THEME_STORAGE_KEY);
+    if (THEME_MODE_OPTIONS.includes(savedMode)) return savedMode;
+
+    const legacyTheme = localStorage.getItem(LEGACY_THEME_STORAGE_KEY);
+    if (legacyTheme === 'dark' || legacyTheme === 'light') return legacyTheme;
+  } catch (e) {
+    console.error('Failed to get initial theme mode:', e);
+  }
+  return 'auto';
+};
+
+const initialThemeMode = getInitialThemeMode();
 
 const useStore = create((set, get) => ({
   // --- 1. 认证状态 ---
@@ -191,7 +213,8 @@ const useStore = create((set, get) => ({
   // --- 2. 界面与布局状态 ---
   mainActiveTab: 'dashboard',
   sidebarCollapsed: false,
-  theme: getInitialTheme(),
+  themeMode: initialThemeMode,
+  theme: resolveThemeMode(initialThemeMode),
   navGroupExpanded: null,
   
   // --- 3. 页面数据占位 ---
@@ -199,21 +222,73 @@ const useStore = create((set, get) => ({
   dnsZones: [],
   dnsRecords: [],
 
-  // --- 4. 修改状态的方法 ---
+  // --- 4. 音乐播放器状态 ---
+  musicPlaylist: [],
+  musicCurrentIndex: -1,
+  musicCurrentSong: null,
+  musicPlaying: false,
+  musicBuffering: false,
+  musicCurrentTime: 0,
+  musicDuration: 0,
+  musicProgress: 0,
+  musicVolume: 80,
+  musicRepeatMode: 'all', // 'all' | 'one' | 'none'
+  musicShuffleEnabled: false,
+  musicLyrics: [],
+  musicLyricsTranslation: [],
+  musicCurrentLyricIndex: -1,
+  musicCurrentLyricText: '',
+  musicCurrentLyricTranslation: '',
+  musicNextLyricText: '',
+  musicNextLyricTranslation: '',
+  musicShowFullPlayer: false,
+  musicIsDragging: false,
+  musicUser: null,
+  musicShowLoginModal: false,
+  musicCurrentTab: 'home',
+  musicSearchKeyword: '',
+  musicSearchResults: [],
+  musicSearchPlaylists: [],
+  musicSearchArtists: [],
+  musicSearchType: 'songs',
+  musicSearchOffset: 0,
+  musicSearchHasMore: true,
+  musicSearchLoading: false,
+  musicSearchLoadingMore: false,
+  musicMyPlaylists: [],
+  musicCurrentPlaylistDetail: null,
+  musicVirtualScrollTop: 0,
+  musicPlaylistContainerHeight: 0,
+  musicVirtualStartIndex: 0,
+  musicPlaylistVisibleCount: 50,
+  musicShowDetail: false,
+  mfpLyricsMode: false,
+  musicWidgetLoading: false,
+  musicMuted: false,
+
+  // --- 5. 修改状态的方法 ---
   setMainActiveTab: (tab) => set({ mainActiveTab: tab }),
   setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
   setNavGroupExpanded: (group) => set({ navGroupExpanded: group }),
   
-  setTheme: (theme, persist = true) => {
+  setThemeMode: (themeMode, persist = true) => {
+    const normalizedMode = THEME_MODE_OPTIONS.includes(themeMode) ? themeMode : 'auto';
+    const effectiveTheme = resolveThemeMode(normalizedMode);
+
     if (persist) {
       try {
-        localStorage.setItem('app_theme', theme);
+        localStorage.setItem(THEME_STORAGE_KEY, normalizedMode);
+        localStorage.removeItem(LEGACY_THEME_STORAGE_KEY);
       } catch (e) {
-        console.error('Failed to save theme:', e);
+        console.error('Failed to save theme mode:', e);
       }
     }
-    applyThemeMode(theme);
-    set({ theme });
+    applyThemeMode(normalizedMode);
+    set({ themeMode: normalizedMode, theme: effectiveTheme });
+  },
+
+  setTheme: (theme, persist = true) => {
+    get().setThemeMode(theme, persist);
   },
 
   setLoginPassword: (password) => set({ loginPassword: password }),
@@ -370,5 +445,21 @@ const useStore = create((set, get) => ({
     toastManager.success('已安全登出');
   },
 }));
+
+export const store = new Proxy({}, {
+  get(target, prop) {
+    if (prop === 'getAuthHeaders') {
+      return () => ({
+        'Content-Type': 'application/json',
+        'x-admin-password': localStorage.getItem('admin_password') || useStore.getState().loginPassword || '',
+      });
+    }
+    return useStore.getState()[prop];
+  },
+  set(target, prop, value) {
+    useStore.setState({ [prop]: value });
+    return true;
+  }
+});
 
 export default useStore;

@@ -2,6 +2,11 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { toast } from '../modules/toast.js';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Dialog } from '@cloudflare/kumo/components/dialog';
+import { Switch } from '@cloudflare/kumo/components/switch';
+import { Checkbox } from '@cloudflare/kumo/components/checkbox';
+import { Table } from '@cloudflare/kumo/components/table';
+import { SkeletonLine } from '@cloudflare/kumo/components/loader';
+import useTableResize from '../composables/useTableResize.js';
 import { formatDateTime } from '../modules/utils.js';
 import {
   Cpu,
@@ -34,6 +39,9 @@ import {
 
 function QwenPage() {
   const [activeTab, setActiveTab] = useState('models'); // 'models' | 'accounts' | 'logs' | 'settings'
+  const [matrixColWidths, startMatrixResize] = useTableResize([400, 150, 100]);
+  const [accountsColWidths, startAccountsResize] = useTableResize([150, 250, 150, 120]);
+  const [logsColWidths, startLogsResize] = useTableResize([150, 150, 140, 200, 70, 80, 80, 60]);
 
   // Authentication helper
   const getAuthHeaders = useCallback(() => {
@@ -474,7 +482,7 @@ function QwenPage() {
   }, [activeTab, loadStats, loadMatrix, loadAccounts, loadLogs, loadSettings, loadRedirects]);
 
   return (
-    <div className="space-y-6 flex flex-col h-full min-h-[75vh]">
+    <div className="space-y-6 flex flex-col pb-20">
       {/* Sub Tabs */}
       <div className="flex border border-kumo-line rounded-lg p-0.5 bg-kumo-recessed self-start select-none">
         <button
@@ -582,39 +590,59 @@ function QwenPage() {
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full border-collapse text-left text-xs">
-                <thead>
-                  <tr className="border-b border-kumo-line bg-kumo-recessed/20">
-                    <th className="p-3 font-semibold text-kumo-strong w-1/2">模型 ID</th>
-                    <th className="p-3 font-semibold text-kumo-strong">数据源</th>
-                    <th className="p-3 font-semibold text-kumo-strong text-center w-28">启用状态</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-kumo-line">
-                  {Object.keys(matrix).length === 0 ? (
-                    <tr>
-                      <td colSpan={3} className="p-8 text-center text-kumo-subtle">
+              <Table layout="fixed">
+                <colgroup>
+                  {matrixColWidths.map((w, idx) => (
+                    <col key={idx} style={{ width: w }} />
+                  ))}
+                </colgroup>
+                <Table.Header variant="compact">
+                  <Table.Row>
+                    <Table.Head className="relative group pr-6">
+                      模型 ID
+                      <Table.ResizeHandle onMouseDown={(e) => startMatrixResize(0, e)} />
+                    </Table.Head>
+                    <Table.Head className="relative group pr-6">
+                      数据源
+                      <Table.ResizeHandle onMouseDown={(e) => startMatrixResize(1, e)} />
+                    </Table.Head>
+                    <Table.Head className="text-center">启用状态</Table.Head>
+                  </Table.Row>
+                </Table.Header>
+                <Table.Body>
+                  {matrixLoading ? (
+                    [...Array(5)].map((_, i) => (
+                      <Table.Row key={i}>
+                        <Table.Cell><SkeletonLine className="w-48 h-4" /></Table.Cell>
+                        <Table.Cell><SkeletonLine className="w-20 h-4" /></Table.Cell>
+                        <Table.Cell className="text-center"><SkeletonLine className="w-8 h-4 mx-auto" /></Table.Cell>
+                      </Table.Row>
+                    ))
+                  ) : Object.keys(matrix).length === 0 ? (
+                    <Table.Row>
+                      <Table.Cell colSpan={3} className="p-8 text-center text-kumo-subtle">
                         暂无模型配置数据，请尝试同步云端。
-                      </td>
-                    </tr>
+                      </Table.Cell>
+                    </Table.Row>
                   ) : (
                     Object.entries(matrix).map(([id, config]) => (
-                      <tr key={id} className="hover:bg-kumo-recessed/5">
-                        <td className="p-3 font-mono font-semibold text-kumo-strong">{id}</td>
-                        <td className="p-3 text-kumo-subtle font-mono text-[10px]">Official API</td>
-                        <td className="p-3 text-center">
-                          <input
-                            type="checkbox"
-                            checked={!!config.enabled}
-                            onChange={(e) => updateMatrixItem(id, 'enabled', e.target.checked)}
-                            className="w-8 h-4 bg-kumo-recessed border border-kumo-line rounded-full cursor-pointer focus:outline-none appearance-none checked:bg-kumo-brand relative before:absolute before:left-0.5 before:top-0.5 before:w-3 before:h-3 before:bg-white before:rounded-full before:transition-transform checked:before:translate-x-4 border-box"
-                          />
-                        </td>
-                      </tr>
+                      <Table.Row key={id} className="hover:bg-kumo-recessed/5">
+                        <Table.Cell className="font-mono font-semibold text-kumo-strong">{id}</Table.Cell>
+                        <Table.Cell className="text-kumo-subtle font-mono text-[10px]">Official API</Table.Cell>
+                        <Table.Cell className="text-center">
+                          <div className="flex justify-center">
+                            <Switch
+                              size="sm"
+                              checked={!!config.enabled}
+                              onCheckedChange={(checked) => updateMatrixItem(id, 'enabled', checked)}
+                            />
+                          </div>
+                        </Table.Cell>
+                      </Table.Row>
                     ))
                   )}
-                </tbody>
-              </table>
+                </Table.Body>
+              </Table>
             </div>
           </div>
         </div>
@@ -643,30 +671,53 @@ function QwenPage() {
           {/* Accounts list table */}
           <div className="bg-kumo-base border border-kumo-line rounded-lg shadow-sm overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="w-full border-collapse text-left text-xs">
-                <thead>
-                  <tr className="border-b border-kumo-line bg-kumo-recessed/20">
-                    <th className="p-3 font-semibold text-kumo-strong">标识名称</th>
-                    <th className="p-3 font-semibold text-kumo-strong">凭证指纹</th>
-                    <th className="p-3 font-semibold text-kumo-strong w-36">状态</th>
-                    <th className="p-3 font-semibold text-kumo-strong text-center w-28">操作</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-kumo-line">
-                  {accounts.length === 0 ? (
-                    <tr>
-                      <td colSpan={4} className="p-8 text-center text-kumo-subtle">
+              <Table layout="fixed">
+                <colgroup>
+                  {accountsColWidths.map((w, idx) => (
+                    <col key={idx} style={{ width: w }} />
+                  ))}
+                </colgroup>
+                <Table.Header variant="compact">
+                  <Table.Row>
+                    <Table.Head className="relative group pr-6">
+                      标识名称
+                      <Table.ResizeHandle onMouseDown={(e) => startAccountsResize(0, e)} />
+                    </Table.Head>
+                    <Table.Head className="relative group pr-6">
+                      凭证指纹
+                      <Table.ResizeHandle onMouseDown={(e) => startAccountsResize(1, e)} />
+                    </Table.Head>
+                    <Table.Head className="relative group pr-6">
+                      状态
+                      <Table.ResizeHandle onMouseDown={(e) => startAccountsResize(2, e)} />
+                    </Table.Head>
+                    <Table.Head className="text-center">操作</Table.Head>
+                  </Table.Row>
+                </Table.Header>
+                <Table.Body>
+                  {accountsLoading ? (
+                    [...Array(2)].map((_, i) => (
+                      <Table.Row key={i}>
+                        <Table.Cell><SkeletonLine className="w-24 h-4" /></Table.Cell>
+                        <Table.Cell><SkeletonLine className="w-40 h-4" /></Table.Cell>
+                        <Table.Cell><SkeletonLine className="w-12 h-4" /></Table.Cell>
+                        <Table.Cell className="text-center"><SkeletonLine className="w-16 h-4 mx-auto" /></Table.Cell>
+                      </Table.Row>
+                    ))
+                  ) : accounts.length === 0 ? (
+                    <Table.Row>
+                      <Table.Cell colSpan={4} className="p-8 text-center text-kumo-subtle">
                         暂无可用凭证，请点击「添加凭证」提交配置。
-                      </td>
-                    </tr>
+                      </Table.Cell>
+                    </Table.Row>
                   ) : (
                     accounts.map((acc) => (
-                      <tr key={acc.id} className="hover:bg-kumo-recessed/5">
-                        <td className="p-3 font-bold text-kumo-strong">{acc.name || 'Default'}</td>
-                        <td className="p-3 font-mono text-kumo-subtle text-[10px]">
+                      <Table.Row key={acc.id} className="hover:bg-kumo-recessed/5">
+                        <Table.Cell className="font-bold text-kumo-strong">{acc.name || 'Default'}</Table.Cell>
+                        <Table.Cell className="font-mono text-kumo-subtle text-[10px]">
                           <code>{acc.token ? acc.token.substring(0, 24) : '---'}...</code>
-                        </td>
-                        <td className="p-3">
+                        </Table.Cell>
+                        <Table.Cell>
                           <span
                             className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
                               acc.status === 'online'
@@ -678,8 +729,8 @@ function QwenPage() {
                           >
                             {acc.status === 'online' ? '在线' : acc.status === 'error' ? '异常' : '未知'}
                           </span>
-                        </td>
-                        <td className="p-3">
+                        </Table.Cell>
+                        <Table.Cell>
                           <div className="flex justify-center gap-2">
                             <button
                               onClick={() => toggleAccountEnabled(acc.id)}
@@ -698,12 +749,12 @@ function QwenPage() {
                               <Trash className="w-4 h-4" />
                             </button>
                           </div>
-                        </td>
-                      </tr>
+                        </Table.Cell>
+                      </Table.Row>
                     ))
                   )}
-                </tbody>
-              </table>
+                </Table.Body>
+              </Table>
             </div>
           </div>
         </div>
@@ -753,45 +804,84 @@ function QwenPage() {
 
           <div className="bg-kumo-base border border-kumo-line rounded-lg shadow-sm overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="w-full border-collapse text-left text-xs">
-                <thead>
-                  <tr className="border-b border-kumo-line bg-kumo-recessed/20">
-                    <th className="p-3 font-semibold text-kumo-strong text-center" style={{ width: '150px' }}>调用时间</th>
-                    <th className="p-3 font-semibold text-kumo-strong">账号备注</th>
-                    <th className="p-3 font-semibold text-kumo-strong text-center" style={{ width: '140px' }}>调用模型</th>
-                    <th className="p-3 font-semibold text-kumo-strong">接口路径</th>
-                    <th className="p-3 font-semibold text-kumo-strong text-center" style={{ width: '70px' }}>状态</th>
-                    <th className="p-3 font-semibold text-kumo-strong text-center" style={{ width: '80px' }}>耗时</th>
-                    <th className="p-3 font-semibold text-kumo-strong text-center" style={{ width: '80px' }}>首字时间</th>
-                    <th className="p-3 font-semibold text-kumo-strong text-center w-16">操作</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-kumo-line">
-                  {filteredLogs.length === 0 ? (
-                    <tr>
-                      <td colSpan={8} className="p-10 text-center text-kumo-subtle">
+              <Table layout="fixed">
+                <colgroup>
+                  {logsColWidths.map((w, idx) => (
+                    <col key={idx} style={{ width: w }} />
+                  ))}
+                </colgroup>
+                <Table.Header variant="compact">
+                  <Table.Row>
+                    <Table.Head className="text-center relative group pr-6">
+                      调用时间
+                      <Table.ResizeHandle onMouseDown={(e) => startLogsResize(0, e)} />
+                    </Table.Head>
+                    <Table.Head className="relative group pr-6">
+                      账号备注
+                      <Table.ResizeHandle onMouseDown={(e) => startLogsResize(1, e)} />
+                    </Table.Head>
+                    <Table.Head className="text-center relative group pr-6">
+                      调用模型
+                      <Table.ResizeHandle onMouseDown={(e) => startLogsResize(2, e)} />
+                    </Table.Head>
+                    <Table.Head className="relative group pr-6">
+                      接口路径
+                      <Table.ResizeHandle onMouseDown={(e) => startLogsResize(3, e)} />
+                    </Table.Head>
+                    <Table.Head className="text-center relative group pr-6">
+                      状态
+                      <Table.ResizeHandle onMouseDown={(e) => startLogsResize(4, e)} />
+                    </Table.Head>
+                    <Table.Head className="text-center relative group pr-6">
+                      耗时
+                      <Table.ResizeHandle onMouseDown={(e) => startLogsResize(5, e)} />
+                    </Table.Head>
+                    <Table.Head className="text-center relative group pr-6">
+                      首字时间
+                      <Table.ResizeHandle onMouseDown={(e) => startLogsResize(6, e)} />
+                    </Table.Head>
+                    <Table.Head className="text-center w-16">操作</Table.Head>
+                  </Table.Row>
+                </Table.Header>
+                <Table.Body>
+                  {logsLoading ? (
+                    [...Array(5)].map((_, i) => (
+                      <Table.Row key={i}>
+                        <Table.Cell className="text-center"><SkeletonLine className="w-24 h-4 mx-auto" /></Table.Cell>
+                        <Table.Cell><SkeletonLine className="w-20 h-4" /></Table.Cell>
+                        <Table.Cell className="text-center"><SkeletonLine className="w-24 h-4 mx-auto" /></Table.Cell>
+                        <Table.Cell><SkeletonLine className="w-40 h-4" /></Table.Cell>
+                        <Table.Cell className="text-center"><SkeletonLine className="w-12 h-4 mx-auto" /></Table.Cell>
+                        <Table.Cell className="text-center"><SkeletonLine className="w-16 h-4 mx-auto" /></Table.Cell>
+                        <Table.Cell className="text-center"><SkeletonLine className="w-16 h-4 mx-auto" /></Table.Cell>
+                        <Table.Cell className="text-center"><SkeletonLine className="w-8 h-4 mx-auto" /></Table.Cell>
+                      </Table.Row>
+                    ))
+                  ) : filteredLogs.length === 0 ? (
+                    <Table.Row>
+                      <Table.Cell colSpan={8} className="p-10 text-center text-kumo-subtle">
                         尚无可用调用记录。
-                      </td>
-                    </tr>
+                      </Table.Cell>
+                    </Table.Row>
                   ) : (
                     filteredLogs.map((log) => (
-                      <tr key={log.id} className="hover:bg-kumo-recessed/5">
-                        <td className="p-3 text-center text-kumo-subtle font-mono">{formatDateTime(log.created_at)}</td>
-                        <td className="p-3 font-bold text-kumo-strong">
+                      <Table.Row key={log.id} className="hover:bg-kumo-recessed/5">
+                        <Table.Cell className="text-center text-kumo-subtle font-mono">{formatDateTime(log.created_at)}</Table.Cell>
+                        <Table.Cell className="font-bold text-kumo-strong">
                           <div className="flex items-center gap-1">
                             <span>{log.account_name || log.account_id || '-'}</span>
                           </div>
-                        </td>
-                        <td className="p-3 text-center font-mono text-kumo-subtle">{log.model || '-'}</td>
-                        <td className="p-3">
+                        </Table.Cell>
+                        <Table.Cell className="text-center font-mono text-kumo-subtle">{log.model || '-'}</Table.Cell>
+                        <Table.Cell>
                           <div className="flex items-center gap-1.5 font-mono">
                             <span className="px-1 py-0.2 rounded text-[9px] bg-kumo-brand/10 text-kumo-brand border border-kumo-brand/20 font-bold uppercase">
                               POST
                             </span>
                             <span className="truncate text-kumo-strong">/v1/chat/completions</span>
                           </div>
-                        </td>
-                        <td className="p-3 text-center">
+                        </Table.Cell>
+                        <Table.Cell className="text-center">
                           <span
                             className={`px-2 py-0.5 rounded text-[10px] font-bold ${getLogStatusClass(
                               log.status_code || (log.status === 'success' ? 200 : 500)
@@ -799,24 +889,24 @@ function QwenPage() {
                           >
                             {log.status_code || (log.status === 'success' ? 200 : 500)}
                           </span>
-                        </td>
-                        <td className="p-3 text-center font-mono font-semibold text-kumo-strong">{log.duration}ms</td>
-                        <td className="p-3 text-center font-mono text-kumo-success">
+                        </Table.Cell>
+                        <Table.Cell className="text-center font-mono font-semibold text-kumo-strong">{log.duration}ms</Table.Cell>
+                        <Table.Cell className="text-center font-mono text-kumo-success">
                           {log.first_token_time_ms != null ? `${log.first_token_time_ms}ms` : '-'}
-                        </td>
-                        <td className="p-3 text-center">
+                        </Table.Cell>
+                        <Table.Cell className="text-center">
                           <button
                             onClick={() => showLogDetailDialog(log)}
                             className="p-1 hover:bg-kumo-recessed rounded text-kumo-subtle hover:text-kumo-strong transition-colors"
                           >
                             <Eye className="w-4 h-4" />
                           </button>
-                        </td>
-                      </tr>
+                        </Table.Cell>
+                      </Table.Row>
                     ))
                   )}
-                </tbody>
-              </table>
+                </Table.Body>
+              </Table>
             </div>
           </div>
         </div>
@@ -1075,9 +1165,9 @@ function QwenPage() {
             </div>
 
             <div className="flex justify-end gap-3 pt-2">
-              <Dialog.Close>
-                <Button>取消</Button>
-              </Dialog.Close>
+              <Dialog.Close asChild>
+  <Button>取消</Button>
+</Dialog.Close>
               <Button variant="primary" disabled={accountSaving} onClick={addQwenAccount}>
                 {accountSaving ? '提交中...' : '提交入库'}
               </Button>
@@ -1133,11 +1223,10 @@ function QwenPage() {
               {/* Mode Raw toggle */}
               <div className="flex justify-between items-center bg-kumo-recessed/10 p-2 border border-kumo-line rounded-lg">
                 <span className="font-bold text-kumo-strong">以原始 JSON 视图显示</span>
-                <input
-                  type="checkbox"
+                <Switch
                   checked={logDetailShowRaw}
-                  onChange={(e) => setLogDetailShowRaw(e.target.checked)}
-                  className="w-8 h-4 bg-kumo-recessed border border-kumo-line rounded-full cursor-pointer focus:outline-none appearance-none checked:bg-kumo-brand relative before:absolute before:left-0.5 before:top-0.5 before:w-3 before:h-3 before:bg-white before:rounded-full before:transition-transform checked:before:translate-x-4 border-box"
+                  onCheckedChange={setLogDetailShowRaw}
+                  size="sm"
                 />
               </div>
 

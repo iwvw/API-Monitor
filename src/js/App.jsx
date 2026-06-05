@@ -4,7 +4,7 @@ import AuthPage from './pages/AuthPage.jsx';
 import MainLayout from './components/MainLayout.jsx';
 
 function App() {
-  const { isAuthenticated, checkAuth, isCheckingAuth, theme } = useStore();
+  const { isAuthenticated, checkAuth, isCheckingAuth, themeMode } = useStore();
 
   // 挂载时自动运行初始身份校验
   useEffect(() => {
@@ -13,8 +13,8 @@ function App() {
 
   // 同步主题至 html class
   useEffect(() => {
-    applyThemeMode(theme);
-  }, [theme]);
+    applyThemeMode(themeMode);
+  }, [themeMode]);
 
   // 监听系统主题变化（仅在用户未锁定自定义主题时生效）
   useEffect(() => {
@@ -22,11 +22,12 @@ function App() {
 
     const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
     const handleChange = (e) => {
-      const saved = localStorage.getItem('app_theme');
-      if (saved === 'dark' || saved === 'light') return; // 用户已手动锁定主题，退出跟随
+      const currentMode = useStore.getState().themeMode;
+      if (currentMode !== 'auto') return;
 
       const newTheme = e.matches ? 'dark' : 'light';
-      useStore.getState().setTheme(newTheme, false); // 仅内存更新以跟随系统，不写入持久化锁
+      applyThemeMode('auto');
+      useStore.setState({ theme: newTheme });
     };
 
     if (mediaQuery.addEventListener) {

@@ -10,20 +10,17 @@ import OpenAIPage from '../pages/OpenAIPage.jsx';
 import GeminiCliPage from '../pages/GeminiCliPage.jsx';
 import QwenPage from '../pages/QwenPage.jsx';
 import AntigravityPage from '../pages/AntigravityPage.jsx';
+import PaasPage from '../pages/PaasPage.jsx';
+import DnsPage from '../pages/DnsPage.jsx';
+import AliyunPage from '../pages/AliyunPage.jsx';
+import TencentPage from '../pages/TencentPage.jsx';
+import SettingsPage from '../pages/SettingsPage.jsx';
+import SelfHPage from '../pages/SelfHPage.jsx';
+import MusicPage from '../pages/MusicPage.jsx';
 import {
   Sidebar,
-  SidebarProvider,
-  SidebarHeader,
-  SidebarContent,
-  SidebarFooter,
-  SidebarGroup,
-  SidebarGroupLabel,
-  SidebarMenu,
-  SidebarMenuItem,
-  SidebarMenuButton,
-  SidebarTrigger,
   useSidebar
-} from "@cloudflare/kumo/components/sidebar";
+} from '@cloudflare/kumo/components/sidebar';
 import {
   LayoutDashboard,
   Bot,
@@ -39,13 +36,9 @@ import {
   Activity,
   FolderOpen,
   Bell,
-  MessageSquare,
-  Sun,
-  Moon,
   LogOut,
-  Menu,
-  ChevronLeft,
-  ChevronRight
+  Hexagon,
+  Settings
 } from './Icons.jsx';
 
 // 图标映射配置
@@ -57,7 +50,7 @@ const ICON_MAP = {
   paas: Cloud,
   dns: Globe,
   aliyun: Database,
-  tencent: Database,
+  tencent: Hexagon,
   server: Server,
   'self-h': HardDrive,
   totp: ShieldCheck,
@@ -65,7 +58,6 @@ const ICON_MAP = {
   uptime: Activity,
   filebox: FolderOpen,
   notification: Bell,
-  'ai-chat': MessageSquare,
 };
 
 const MODULE_PATHS = Object.keys(MODULE_CONFIG).reduce((paths, moduleId) => {
@@ -80,22 +72,41 @@ const getPathModule = (pathname) => {
   return MODULE_CONFIG[route] ? route : null;
 };
 
-// 折叠收起按钮子组件，利用 useSidebar() 获取组件库内部状态
-const SidebarCollapseButton = () => {
-  const { open, toggleSidebar } = useSidebar();
-  const IconComponent = open ? ChevronLeft : ChevronRight;
+const useMobileClosingNavigation = (onNavigate) => {
+  const { isMobile, setOpenMobile } = useSidebar();
+
+  return (module) => {
+    onNavigate(module);
+    if (isMobile) setOpenMobile(false);
+  };
+};
+
+const SidebarModuleButton = ({ module, active, icon: IconComponent, onNavigate }) => {
+  const navigateAndClose = useMobileClosingNavigation(onNavigate);
+  const config = MODULE_CONFIG[module];
+  if (!config) return null;
+
   return (
-    <SidebarMenuItem>
-      <SidebarMenuButton
-        onClick={toggleSidebar}
-        icon={IconComponent}
-        tooltip={open ? '收起导航' : '展开导航'}
-      >
-        收起导航
-      </SidebarMenuButton>
-    </SidebarMenuItem>
+    <Sidebar.MenuButton
+      active={active}
+      aria-current={active ? 'page' : undefined}
+      onClick={() => navigateAndClose(module)}
+      icon={IconComponent}
+      tooltip={config.name}
+    >
+      {config.name}
+    </Sidebar.MenuButton>
   );
 };
+
+const SidebarBrand = () => (
+  <div className="flex w-full min-w-0 items-center gap-2 px-3 transition-[padding] duration-(--sidebar-animation-duration) ease-(--sidebar-easing) group-data-[state=collapsed]/sidebar:px-2">
+    <img src="/logo.svg" className="size-4 shrink-0 object-contain" alt="" />
+    <span className="flex-1 truncate text-sm font-semibold text-kumo-strong">
+      API Monitor
+    </span>
+  </div>
+);
 
 function MainLayout() {
   const {
@@ -103,8 +114,6 @@ function MainLayout() {
     setMainActiveTab,
     sidebarCollapsed,
     setSidebarCollapsed,
-    theme,
-    setTheme,
     logout,
   } = useStore();
 
@@ -131,11 +140,6 @@ function MainLayout() {
     }
   };
 
-  // 切换主题
-  const toggleTheme = () => {
-    setTheme(theme === 'dark' ? 'light' : 'dark');
-  };
-
   // 渲染当前模块页
   const renderActivePage = () => {
     switch (mainActiveTab) {
@@ -149,6 +153,14 @@ function MainLayout() {
         return <QwenPage />;
       case 'antigravity':
         return <AntigravityPage />;
+      case 'paas':
+        return <PaasPage />;
+      case 'dns':
+        return <DnsPage />;
+      case 'aliyun':
+        return <AliyunPage />;
+      case 'tencent':
+        return <TencentPage />;
       case 'server':
         return <ServerPage />;
       case 'totp':
@@ -159,6 +171,12 @@ function MainLayout() {
         return <UptimePage />;
       case 'notification':
         return <NotificationPage />;
+      case 'settings':
+        return <SettingsPage />;
+      case 'self-h':
+        return <SelfHPage />;
+      case 'music':
+        return <MusicPage />;
       default:
         const ActiveIcon = ICON_MAP[mainActiveTab] || Server;
         return (
@@ -178,100 +196,76 @@ function MainLayout() {
   };
 
   return (
-    <SidebarProvider
-      open={!sidebarCollapsed}
+    <Sidebar.Provider
+      defaultOpen={!sidebarCollapsed}
       onOpenChange={(open) => setSidebarCollapsed(!open)}
       className="flex h-screen w-screen overflow-hidden bg-kumo-canvas text-kumo-default"
     >
       {/* ==================== 1. 侧边栏 (Sidebar) ==================== */}
-      <Sidebar className="border-r border-kumo-line bg-kumo-base">
+      <Sidebar>
         {/* 顶部 Logo */}
-        <SidebarHeader className="h-14 flex items-center px-4 border-b border-kumo-line">
-          <div className="flex items-center overflow-hidden">
-            <img src="/logo.svg" className="w-6 h-6 flex-shrink-0" alt="Logo" />
-            <span className="font-bold text-sm text-kumo-strong tracking-wide whitespace-nowrap ml-2.5">
-              API Monitor
-            </span>
-          </div>
-        </SidebarHeader>
+        <Sidebar.Header>
+          <SidebarBrand />
+        </Sidebar.Header>
 
         {/* 导航栏项 */}
-        <SidebarContent>
+        <Sidebar.Content>
           {MODULE_GROUPS.map((group) => {
-            const isOverview = group.id === 'overview';
+            const groupLabel = group.id === 'overview' ? '总览' : group.name;
 
             return (
-              <SidebarGroup key={group.id} className="space-y-1">
-                {/* 菜单组标题 */}
-                {!isOverview && (
-                  <SidebarGroupLabel>
-                    {group.name}
-                  </SidebarGroupLabel>
-                )}
-
-                <SidebarMenu>
-                  {group.modules.map((module) => {
-                    const isActive = mainActiveTab === module;
-                    const config = MODULE_CONFIG[module];
-                    if (!config) return null;
-
-                    const ModuleIcon = ICON_MAP[module] || Server;
-
-                    return (
-                      <SidebarMenuItem key={module}>
-                        <SidebarMenuButton
-                          active={isActive}
-                          onClick={() => navigateToModule(module)}
-                          icon={ModuleIcon}
-                          tooltip={config.name}
-                        >
-                          {config.name}
-                        </SidebarMenuButton>
-                      </SidebarMenuItem>
-                    );
-                  })}
-                </SidebarMenu>
-              </SidebarGroup>
+              <Sidebar.Group key={group.id}>
+                <Sidebar.GroupLabel>{groupLabel}</Sidebar.GroupLabel>
+                <Sidebar.Menu>
+                  {group.modules.map((module) => (
+                    <SidebarModuleButton
+                      key={module}
+                      module={module}
+                      active={mainActiveTab === module}
+                      icon={ICON_MAP[module] || Server}
+                      onNavigate={navigateToModule}
+                    />
+                  ))}
+                </Sidebar.Menu>
+              </Sidebar.Group>
             );
           })}
-        </SidebarContent>
+          <Sidebar.Group>
+            <Sidebar.GroupLabel>系统</Sidebar.GroupLabel>
+            <Sidebar.Menu>
+              <SidebarModuleButton
+                module="settings"
+                active={mainActiveTab === 'settings'}
+                icon={Settings}
+                onNavigate={navigateToModule}
+              />
 
-        {/* 底部功能栏 */}
-        <SidebarFooter className="border-t border-kumo-line flex flex-col p-2 gap-1 bg-kumo-base h-auto">
-          <SidebarMenu className="w-full">
-            <SidebarMenuItem>
-              <SidebarMenuButton
-                onClick={toggleTheme}
-                icon={theme === 'dark' ? Sun : Moon}
-                tooltip={theme === 'dark' ? '日间模式' : '夜间模式'}
-              >
-                {theme === 'dark' ? '日间模式' : '夜间模式'}
-              </SidebarMenuButton>
-            </SidebarMenuItem>
-
-            <SidebarMenuItem>
-              <SidebarMenuButton
+              <Sidebar.MenuButton
                 onClick={logout}
                 className="text-kumo-danger hover:bg-kumo-danger/10"
                 icon={LogOut}
                 tooltip="安全退出"
               >
                 安全退出
-              </SidebarMenuButton>
-            </SidebarMenuItem>
+              </Sidebar.MenuButton>
+            </Sidebar.Menu>
+          </Sidebar.Group>
+        </Sidebar.Content>
 
-            {/* 折叠切换按钮 */}
-            <SidebarCollapseButton />
-          </SidebarMenu>
-        </SidebarFooter>
+        {/* 底部功能栏 */}
+        <Sidebar.Footer className="px-0!">
+          <div className="flex w-[var(--sidebar-width-icon)] shrink-0 justify-center">
+            <Sidebar.Trigger />
+          </div>
+        </Sidebar.Footer>
       </Sidebar>
 
       {/* ==================== 2. 主页面区 (Main Panel) ==================== */}
       <div className="flex-1 flex flex-col h-full overflow-hidden">
         {/* 顶部导航 */}
-        <header className="h-14 bg-kumo-base border-b border-kumo-line flex items-center justify-between px-6 flex-shrink-0">
+        <header className="h-[58px] bg-kumo-base border-b border-kumo-line flex items-center justify-between px-6 flex-shrink-0">
           <div className="flex items-center gap-3.5">
-            <SidebarTrigger className="lg:hidden" />
+            <Sidebar.Trigger className="md:hidden" />
             
             <div className="flex items-center gap-1.5 text-xs text-kumo-subtle font-medium select-none">
               <span>DSUK</span>
@@ -291,11 +285,11 @@ function MainLayout() {
         </header>
 
         {/* 主内容画布 */}
-        <main className="flex-1 overflow-y-auto p-6 lg:p-8 scrollbar-thin">
+        <main className="flex-1 overflow-y-auto p-4 lg:p-8 scrollbar-thin">
           {renderActivePage()}
         </main>
       </div>
-    </SidebarProvider>
+    </Sidebar.Provider>
   );
 }
 

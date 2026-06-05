@@ -1,7 +1,12 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { Switch } from '@cloudflare/kumo/components/switch';
 import { toast } from '../modules/toast.js';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Dialog } from '@cloudflare/kumo/components/dialog';
+import { Table } from '@cloudflare/kumo/components/table';
+import { SkeletonLine } from '@cloudflare/kumo/components/loader';
+import { Autocomplete } from '@cloudflare/kumo/components/autocomplete';
+import useTableResize from '../composables/useTableResize.js';
 import useStore from '../store.js';
 import { renderMarkdown, formatDateTime } from '../modules/utils.js';
 import {
@@ -39,6 +44,7 @@ import {
 
 function OpenAIPage() {
   const { theme } = useStore();
+  const [colWidths, startResize] = useTableResize([150, 250, 150, 80, 80, 100, 120]);
 
   // Tab State
   const [activeTab, setActiveTab] = useState('endpoints'); // 'endpoints' | 'accounts' | 'chat'
@@ -736,36 +742,19 @@ function OpenAIPage() {
   };
 
   // ==================== 4. Personas State ====================
-  const [personas, setPersonas] = useState([]);
+  const [personas, setPersonas] = useState([{ id: 1, name: '默认助手', icon: 'fa-robot', system_prompt: '你是一个有用的 AI 助手。', is_default: 1 }]);
   const [currentPersonaId, setCurrentPersonaId] = useState(null);
   const [showPersonaDropdown, setShowPersonaDropdown] = useState(false);
   const [personaModalOpen, setPersonaModalOpen] = useState(false);
   const [editingPersona, setEditingPersona] = useState(null);
   const [personaForm, setPersonaForm] = useState({ name: '', icon: 'fa-robot', systemPrompt: '' });
 
-  const loadPersonas = useCallback(async () => {
-    try {
-      const response = await fetch('/api/chat/personas', {
-        headers: getAuthHeaders(),
-      });
-      const data = await response.json();
-      if (data.success && Array.isArray(data.data)) {
-        setPersonas(data.data);
-        if (data.data.length > 0) {
-          const def = data.data.find(p => p.is_default);
-          if (def) {
-            setCurrentPersonaId(def.id);
-            setOpenaiChatSystemPrompt(def.system_prompt);
-          } else {
-            setCurrentPersonaId(data.data[0].id);
-            setOpenaiChatSystemPrompt(data.data[0].system_prompt);
-          }
-        }
-      }
-    } catch (e) {
-      console.error('Failed to load personas:', e);
+  const loadPersonas = useCallback(() => {
+    if (personas.length > 0 && !currentPersonaId) {
+      setCurrentPersonaId(personas[0].id);
+      setOpenaiChatSystemPrompt(personas[0].system_prompt);
     }
-  }, [getAuthHeaders]);
+  }, [personas, currentPersonaId]);
 
   useEffect(() => {
     loadPersonas();
@@ -862,22 +851,9 @@ function OpenAIPage() {
   const abortControllerRef = useRef(null);
   const messagesEndRef = useRef(null);
 
-  const loadSessions = useCallback(async () => {
-    setChatHistoryLoading(true);
-    try {
-      const response = await fetch('/api/chat/sessions', {
-        headers: getAuthHeaders(),
-      });
-      const data = await response.json();
-      if (data.success && Array.isArray(data.data)) {
-        setSessions(data.data);
-      }
-    } catch (e) {
-      console.error('Failed to load chat history:', e);
-    } finally {
-      setChatHistoryLoading(false);
-    }
-  }, [getAuthHeaders]);
+  const loadSessions = useCallback(() => {
+    // In-memory sessions are already in state
+  }, []);
 
   useEffect(() => {
     if (activeTab === 'chat') {
@@ -1673,7 +1649,7 @@ function OpenAIPage() {
   };
 
   return (
-    <div className="space-y-6 flex flex-col h-full min-h-[75vh]">
+    <div className="space-y-6 flex flex-col pb-20">
       {/* Tab Navigation */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-kumo-line pb-4 gap-4 select-none">
         <div className="flex border border-kumo-line rounded-lg p-0.5 bg-kumo-recessed">
@@ -1736,9 +1712,18 @@ function OpenAIPage() {
 
           <div className="space-y-3">
             {endpointsLoading ? (
-              <div className="text-center py-12 text-kumo-subtle">
-                <RotateCw className="w-8 h-8 animate-spin mx-auto mb-3" />
-                <span>加载中...</span>
+              <div className="space-y-3">
+                {[...Array(2)].map((_, i) => (
+                  <div key={i} className="bg-kumo-base border border-kumo-line rounded-lg p-4 space-y-3">
+                    <div className="flex items-center gap-3">
+                      <SkeletonLine className="w-10 h-10 rounded-lg" />
+                      <div className="flex-1 space-y-1.5">
+                        <SkeletonLine className="w-1/4 h-3.5" />
+                        <SkeletonLine className="w-1/2 h-2.5" />
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
             ) : endpoints.length === 0 ? (
               <div className="text-center py-12 bg-kumo-base border border-kumo-line rounded-lg text-kumo-subtle">
@@ -1929,31 +1914,66 @@ function OpenAIPage() {
 
           {/* Table */}
           <div className="bg-kumo-base border border-kumo-line rounded-lg shadow-sm overflow-x-auto">
-            <table className="w-full border-collapse text-left text-xs">
-              <thead>
-                <tr className="border-b border-kumo-line bg-kumo-recessed/20">
-                  <th className="p-3 font-semibold text-kumo-strong">名称</th>
-                  <th className="p-3 font-semibold text-kumo-strong">API 地址</th>
-                  <th className="p-3 font-semibold text-kumo-strong">API Key</th>
-                  <th className="p-3 font-semibold text-kumo-strong text-center">状态</th>
-                  <th className="p-3 font-semibold text-kumo-strong text-center">启用</th>
-                  <th className="p-3 font-semibold text-kumo-strong text-center">模型数量</th>
-                  <th className="p-3 font-semibold text-kumo-strong text-center">操作</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-kumo-line">
-                {endpoints.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="p-8 text-center text-kumo-subtle">
+            <Table layout="fixed">
+              <colgroup>
+                {colWidths.map((w, idx) => (
+                  <col key={idx} style={{ width: w }} />
+                ))}
+              </colgroup>
+              <Table.Header variant="compact">
+                <Table.Row>
+                  <Table.Head className="relative group pr-6">
+                    名称
+                    <Table.ResizeHandle onMouseDown={(e) => startResize(0, e)} />
+                  </Table.Head>
+                  <Table.Head className="relative group pr-6">
+                    API 地址
+                    <Table.ResizeHandle onMouseDown={(e) => startResize(1, e)} />
+                  </Table.Head>
+                  <Table.Head className="relative group pr-6">
+                    API Key
+                    <Table.ResizeHandle onMouseDown={(e) => startResize(2, e)} />
+                  </Table.Head>
+                  <Table.Head className="text-center relative group pr-6">
+                    状态
+                    <Table.ResizeHandle onMouseDown={(e) => startResize(3, e)} />
+                  </Table.Head>
+                  <Table.Head className="text-center relative group pr-6">
+                    启用
+                    <Table.ResizeHandle onMouseDown={(e) => startResize(4, e)} />
+                  </Table.Head>
+                  <Table.Head className="text-center relative group pr-6">
+                    模型数量
+                    <Table.ResizeHandle onMouseDown={(e) => startResize(5, e)} />
+                  </Table.Head>
+                  <Table.Head className="text-center">操作</Table.Head>
+                </Table.Row>
+              </Table.Header>
+              <Table.Body>
+                {endpointsLoading ? (
+                  [...Array(3)].map((_, i) => (
+                    <Table.Row key={i}>
+                      <Table.Cell><SkeletonLine className="w-20 h-4" /></Table.Cell>
+                      <Table.Cell><SkeletonLine className="w-40 h-4" /></Table.Cell>
+                      <Table.Cell><SkeletonLine className="w-32 h-4" /></Table.Cell>
+                      <Table.Cell className="text-center"><SkeletonLine className="w-12 h-4 mx-auto" /></Table.Cell>
+                      <Table.Cell className="text-center"><SkeletonLine className="w-8 h-4 mx-auto" /></Table.Cell>
+                      <Table.Cell className="text-center"><SkeletonLine className="w-6 h-4 mx-auto" /></Table.Cell>
+                      <Table.Cell><SkeletonLine className="w-24 h-4 mx-auto" /></Table.Cell>
+                    </Table.Row>
+                  ))
+                ) : endpoints.length === 0 ? (
+                  <Table.Row>
+                    <Table.Cell colSpan={7} className="p-8 text-center text-kumo-subtle">
                       暂无 API 账号，点击上方按钮添加
-                    </td>
-                  </tr>
+                    </Table.Cell>
+                  </Table.Row>
                 ) : (
                   endpoints.map((endpoint) => (
-                    <tr key={endpoint.id} className="hover:bg-kumo-recessed/5">
-                      <td className="p-3 font-bold text-kumo-strong">{endpoint.name || '未命名'}</td>
-                      <td className="p-3 font-mono">{maskAddress(endpoint.baseUrl)}</td>
-                      <td className="p-3">
+                    <Table.Row key={endpoint.id} className="hover:bg-kumo-recessed/5">
+                      <Table.Cell className="font-bold text-kumo-strong">{endpoint.name || '未命名'}</Table.Cell>
+                      <Table.Cell className="font-mono">{maskAddress(endpoint.baseUrl)}</Table.Cell>
+                      <Table.Cell>
                         <div className="flex items-center gap-1.5 font-mono">
                           <span>{endpoint.showKey ? endpoint.apiKey : maskApiKey(endpoint.apiKey)}</span>
                           <button
@@ -1967,8 +1987,8 @@ function OpenAIPage() {
                             {endpoint.showKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
                           </button>
                         </div>
-                      </td>
-                      <td className="p-3 text-center">
+                      </Table.Cell>
+                      <Table.Cell className="text-center">
                         <span
                           className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
                             endpoint.status === 'valid'
@@ -1980,19 +2000,18 @@ function OpenAIPage() {
                         >
                           {endpoint.status === 'valid' ? '有效' : endpoint.status === 'invalid' ? '无效' : '未验证'}
                         </span>
-                      </td>
-                      <td className="p-3 text-center">
-                        <input
-                          type="checkbox"
+                      </Table.Cell>
+                      <Table.Cell className="text-center">
+                        <Switch
                           checked={!!endpoint.enabled}
-                          onChange={() => toggleEndpointEnabled(endpoint)}
-                          className="w-8 h-4 bg-kumo-recessed border border-kumo-line rounded-full cursor-pointer focus:outline-none appearance-none checked:bg-kumo-brand relative before:absolute before:left-0.5 before:top-0.5 before:w-3 before:h-3 before:bg-white before:rounded-full before:transition-transform checked:before:translate-x-4 border-box"
+                          onCheckedChange={() => toggleEndpointEnabled(endpoint)}
+                          size="sm"
                         />
-                      </td>
-                      <td className="p-3 text-center text-kumo-strong font-semibold">
+                      </Table.Cell>
+                      <Table.Cell className="text-center text-kumo-strong font-semibold">
                         {endpoint.models ? endpoint.models.length : 0}
-                      </td>
-                      <td className="p-3">
+                      </Table.Cell>
+                      <Table.Cell>
                         <div className="flex justify-center gap-1.5">
                           <button
                             onClick={() => verifyEndpoint(endpoint)}
@@ -2023,12 +2042,12 @@ function OpenAIPage() {
                             <Trash className="w-3.5 h-3.5" />
                           </button>
                         </div>
-                      </td>
-                    </tr>
+                      </Table.Cell>
+                    </Table.Row>
                   ))
                 )}
-              </tbody>
-            </table>
+              </Table.Body>
+            </Table>
           </div>
 
           {/* Batch add panel */}
@@ -2302,86 +2321,68 @@ function OpenAIPage() {
                   )}
                 </div>
 
-                {/* Model Selector Dropdown with search */}
+                {/* Model Selector Autocomplete */}
                 <div className="relative">
-                  <div
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setShowModelDropdown(!showModelDropdown);
-                      setShowPersonaDropdown(false);
-                      setShowEndpointDropdown(false);
-                      setDropdownModelSearch('');
-                    }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 border border-kumo-line rounded-lg text-xs cursor-pointer bg-kumo-base hover:bg-kumo-recessed/50 text-kumo-strong font-semibold select-none max-w-[200px]"
+                  <Autocomplete
+                    items={chatDropdownFilteredModels}
+                    onValueChange={(modelId) => selectChatModel(modelId)}
+                    filter={null}
+                    className="w-full max-w-[220px]"
                   >
-                    <Bot className="w-3.5 h-3.5 text-kumo-brand" />
-                    <span className="truncate">{chatModel || '选择模型'}</span>
-                    <ChevronDown className="w-3.5 h-3.5 text-kumo-subtle" />
-                  </div>
-
-                  {showModelDropdown && (
-                    <div
-                      onClick={(e) => e.stopPropagation()}
-                      className="absolute left-0 mt-1.5 w-64 bg-kumo-base border border-kumo-line rounded-lg shadow-lg py-1 z-30 text-xs"
-                    >
-                      <div className="p-2 border-b border-kumo-line flex items-center gap-1 bg-kumo-recessed/35">
-                        <Search className="w-3.5 h-3.5 text-kumo-subtle" />
-                        <input
-                          type="text"
-                          value={dropdownModelSearch}
-                          onChange={(e) => setDropdownModelSearch(e.target.value)}
-                          placeholder="搜索模型..."
-                          className="w-full bg-transparent border-0 focus:outline-none text-xs"
-                        />
-                      </div>
-                      <div className="max-h-60 overflow-y-auto py-1">
-                        {/* Pinned Models group */}
+                    <Autocomplete.InputGroup
+                      placeholder={chatModel || '选择模型'}
+                      className="h-8 text-xs font-semibold"
+                      value={dropdownModelSearch}
+                      onValueChange={setDropdownModelSearch}
+                      icon={Bot}
+                    />
+                    <Autocomplete.Content className="w-72">
+                      <Autocomplete.List>
                         {pinnedModels.length > 0 && !dropdownModelSearch && (
-                          <>
-                            <div className="px-3 py-1 text-[10px] font-bold text-kumo-brand flex items-center gap-1">
+                          <Autocomplete.Group>
+                            <Autocomplete.GroupLabel className="flex items-center gap-1.5 text-kumo-brand">
                               <Star className="w-3 h-3 fill-yellow-400 stroke-yellow-400" />
-                              <span>已收藏</span>
-                            </div>
-                            {pinnedModels
-                              .filter((id) => chatDropdownFilteredModels.some((m) => m.id === id))
-                              .map((id) => (
-                                <div
-                                  key={`pinned-${id}`}
-                                  onClick={() => selectChatModel(id)}
-                                  className={`px-3 py-1.5 cursor-pointer hover:bg-kumo-recessed/50 flex items-center justify-between ${
-                                    chatModel === id ? 'text-kumo-brand font-bold bg-kumo-brand/5' : 'text-kumo-strong'
-                                  }`}
+                              已收藏
+                            </Autocomplete.GroupLabel>
+                            <Autocomplete.Collection
+                              items={chatDropdownFilteredModels.filter((m) => pinnedModels.includes(m.id))}
+                            >
+                              {(model) => (
+                                <Autocomplete.Item
+                                  key={`pinned-${model.id}`}
+                                  value={model.id}
+                                  className="flex items-center justify-between"
                                 >
-                                  <span className="truncate">{id}</span>
-                                  {chatModel === id && <Check className="w-3.5 h-3.5 text-kumo-brand" />}
-                                </div>
-                              ))}
-                            <div className="border-t border-kumo-line my-1" />
-                            <div className="px-3 py-1 text-[10px] font-bold text-kumo-subtle">所有模型</div>
-                          </>
+                                  <span className="truncate">{model.id}</span>
+                                  {chatModel === model.id && <Check className="w-3.5 h-3.5 text-kumo-brand" />}
+                                </Autocomplete.Item>
+                              )}
+                            </Autocomplete.Collection>
+                          </Autocomplete.Group>
                         )}
 
-                        {chatDropdownFilteredModels.length === 0 ? (
-                          <div className="text-center py-4 text-kumo-subtle">无匹配模型</div>
-                        ) : (
-                          chatDropdownFilteredModels
-                            .filter((m) => !(pinnedModels.includes(m.id) && !dropdownModelSearch))
-                            .map((model) => (
-                              <div
+                        <Autocomplete.Group>
+                          <Autocomplete.GroupLabel>
+                            {pinnedModels.length > 0 && !dropdownModelSearch ? '所有模型' : '匹配模型'}
+                          </Autocomplete.GroupLabel>
+                          <Autocomplete.Collection
+                            items={chatDropdownFilteredModels.filter((m) => !(pinnedModels.includes(m.id) && !dropdownModelSearch))}
+                          >
+                            {(model) => (
+                              <Autocomplete.Item
                                 key={model.id}
-                                onClick={() => selectChatModel(model.id)}
-                                className={`px-3 py-1.5 cursor-pointer hover:bg-kumo-recessed/50 flex items-center justify-between ${
-                                  chatModel === model.id ? 'text-kumo-brand font-bold bg-kumo-brand/5' : 'text-kumo-strong'
-                                }`}
+                                value={model.id}
+                                className="flex items-center justify-between"
                               >
                                 <span className="truncate">{model.id}</span>
                                 {chatModel === model.id && <Check className="w-3.5 h-3.5 text-kumo-brand" />}
-                              </div>
-                            ))
-                        )}
-                      </div>
-                    </div>
-                  )}
+                              </Autocomplete.Item>
+                            )}
+                          </Autocomplete.Collection>
+                        </Autocomplete.Group>
+                      </Autocomplete.List>
+                    </Autocomplete.Content>
+                  </Autocomplete>
                 </div>
 
                 {/* Operations */}
@@ -2718,9 +2719,9 @@ function OpenAIPage() {
             )}
 
             <div className="flex justify-end gap-3 pt-2">
-              <Dialog.Close>
-                <Button>取消</Button>
-              </Dialog.Close>
+              <Dialog.Close asChild>
+  <Button>取消</Button>
+</Dialog.Close>
               <Button variant="primary" disabled={endpointSaving} onClick={saveEndpoint}>
                 {endpointSaving ? '保存中...' : '保存端点'}
               </Button>
@@ -2776,11 +2777,10 @@ function OpenAIPage() {
 
             <div className="flex items-center justify-between text-xs">
               <span className="font-semibold text-kumo-strong">并发检测</span>
-              <input
-                type="checkbox"
+              <Switch
                 checked={healthCheckForm.concurrency}
-                onChange={(e) => setHealthCheckForm({ ...healthCheckForm, concurrency: e.target.checked })}
-                className="w-8 h-4 bg-kumo-recessed border border-kumo-line rounded-full cursor-pointer focus:outline-none appearance-none checked:bg-kumo-brand relative before:absolute before:left-0.5 before:top-0.5 before:w-3 before:h-3 before:bg-white before:rounded-full before:transition-transform checked:before:translate-x-4 border-box"
+                onCheckedChange={(checked) => setHealthCheckForm({ ...healthCheckForm, concurrency: checked })}
+                size="sm"
               />
             </div>
 
@@ -2800,9 +2800,9 @@ function OpenAIPage() {
             </div>
 
             <div className="flex justify-end gap-3 pt-2">
-              <Dialog.Close>
-                <Button>取消</Button>
-              </Dialog.Close>
+              <Dialog.Close asChild>
+  <Button>取消</Button>
+</Dialog.Close>
               <Button variant="primary" onClick={startBatchHealthCheck}>
                 开始检测
               </Button>
@@ -2845,9 +2845,9 @@ function OpenAIPage() {
             </div>
 
             <div className="flex justify-end gap-3 pt-2">
-              <Dialog.Close>
-                <Button>取消</Button>
-              </Dialog.Close>
+              <Dialog.Close asChild>
+  <Button>取消</Button>
+</Dialog.Close>
               <Button variant="primary" onClick={savePersona}>
                 保存人设
               </Button>
@@ -2966,14 +2966,13 @@ function OpenAIPage() {
                 <div className="border border-kumo-line rounded-lg p-4 bg-kumo-recessed/25 space-y-3">
                   <div className="flex justify-between items-center text-xs">
                     <span className="font-bold text-kumo-strong">开启 AI 对话自动命名</span>
-                    <input
-                      type="checkbox"
+                    <Switch
                       checked={openaiAutoTitleEnabled}
-                      onChange={(e) => {
-                        setOpenaiAutoTitleEnabled(e.target.checked);
-                        saveAutoTitleSettings(e.target.checked, openaiTitleModels);
+                      onCheckedChange={(checked) => {
+                        setOpenaiAutoTitleEnabled(checked);
+                        saveAutoTitleSettings(checked, openaiTitleModels);
                       }}
-                      className="w-8 h-4 bg-kumo-recessed border border-kumo-line rounded-full cursor-pointer focus:outline-none appearance-none checked:bg-kumo-brand relative before:absolute before:left-0.5 before:top-0.5 before:w-3 before:h-3 before:bg-white before:rounded-full before:transition-transform checked:before:translate-x-4 border-box"
+                      size="sm"
                     />
                   </div>
 
@@ -3072,11 +3071,10 @@ function OpenAIPage() {
 
                 <div className="flex justify-between items-center text-xs">
                   <span className="font-semibold text-kumo-strong">显示已隐藏的模型</span>
-                  <input
-                    type="checkbox"
+                  <Switch
                     checked={openaiShowHiddenModels}
-                    onChange={(e) => setOpenaiShowHiddenModels(e.target.checked)}
-                    className="w-8 h-4 bg-kumo-recessed border border-kumo-line rounded-full cursor-pointer focus:outline-none appearance-none checked:bg-kumo-brand relative before:absolute before:left-0.5 before:top-0.5 before:w-3 before:h-3 before:bg-white before:rounded-full before:transition-transform checked:before:translate-x-4 border-box"
+                    onCheckedChange={setOpenaiShowHiddenModels}
+                    size="sm"
                   />
                 </div>
 

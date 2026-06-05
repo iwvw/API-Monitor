@@ -203,3 +203,14 @@ case 'self-h':   return <SelfHPage />;
 - React 构建入口为 `src/index.html` 中的 `/js/main.jsx`；旧 `src/js/main.js` 未被当前 Vite 入口引用，暂作为旧实现参考处理。
 - 当前主页面文件存在：Dashboard、Server、TOTP、Filebox、Uptime、Notification、OpenAI、Gemini CLI、Qwen、Antigravity、PaaS、DNS、Aliyun、Tencent、Settings、Self-H、Music。
 - Cloudflare DNS 仍是优先补完模块。
+
+## 2026-06-06 Kumo-only 收敛记录
+
+- 已核准 `E:\Code\kumo` / `@cloudflare/kumo` v2.5.0 的实际组件导出：`Button`、`Input`、`Select`、`Tabs`、`Table.ResizeHandle`、`Dialog`、`Checkbox`、`Switch`、`Toasty`、`Autocomplete`、`Sidebar` 均可用。
+- Kumo `Select.hideLabel` 已被上游标记 deprecated；后续隐藏标签统一使用 `aria-label`。
+- `DnsPage.jsx` 已完成第一轮 Kumo-only 控件收敛：
+  - 顶部原生 tab button 改为 Kumo `Tabs`
+  - 账号选择原生 `select` 改为 Kumo `Select`
+  - 账号弹窗原生 `input` 改为 Kumo `Input`
+  - 账号操作原生 icon button 改为 Kumo `Button`
+  - Zones、Tunnels、Accounts 表格接入 Kumo `Table.ResizeHandle`

@@ -4,6 +4,8 @@ import QRCode from 'qrcode';
 import { toast } from '../modules/toast.js';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Dialog } from '@cloudflare/kumo/components/dialog';
+import { Switch } from '@cloudflare/kumo/components/switch';
+import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import { formatFileSize, formatDateTime } from '../modules/utils.js';
 import {
   Send,
@@ -361,7 +363,7 @@ function FileboxPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 pb-20">
       {/* ==================== 顶部 Tab 导航 ==================== */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b border-kumo-line pb-4 gap-4">
         <div className="flex border border-kumo-line rounded-lg p-0.5 bg-kumo-recessed select-none">
@@ -598,11 +600,10 @@ function FileboxPage() {
 
               <div className="flex items-center gap-2.5 text-xs">
                 <span className="font-semibold text-kumo-subtle">阅后即焚</span>
-                <input
-                  type="checkbox"
+                <Switch
                   checked={burnAfterReading}
-                  onChange={(e) => setBurnAfterReading(e.target.checked)}
-                  className="w-9 h-5 bg-kumo-recessed border border-kumo-line rounded-full cursor-pointer focus:outline-none appearance-none checked:bg-kumo-brand relative before:absolute before:left-0.5 before:top-0.5 before:w-4 before:h-4 before:bg-white before:rounded-full before:transition-transform checked:before:translate-x-4 border-box"
+                  onCheckedChange={setBurnAfterReading}
+                  size="sm"
                 />
               </div>
             </div>
@@ -763,8 +764,19 @@ function FileboxPage() {
             </div>
 
             {historyLoading ? (
-              <div className="flex flex-col items-center justify-center py-12 text-kumo-subtle">
-                <RefreshCw className="w-8 h-8 animate-spin text-kumo-brand" />
+              <div className="space-y-3.5">
+                {[...Array(3)].map((_, i) => (
+                  <div key={i} className="flex justify-between items-center py-3">
+                    <div className="flex items-center gap-3 flex-1">
+                      <SkeletonLine className="w-8 h-8 rounded-lg" />
+                      <div className="flex-1 space-y-1.5">
+                        <SkeletonLine className="w-1/3 h-3.5" />
+                        <SkeletonLine className="w-1/2 h-2.5" />
+                      </div>
+                    </div>
+                    <SkeletonLine className="w-12 h-6 rounded" />
+                  </div>
+                ))}
               </div>
             ) : serverHistory.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-kumo-subtle">
@@ -870,7 +882,7 @@ function FileboxPage() {
               )}
 
               <div className="flex justify-end gap-3 pt-2">
-                <Dialog.Close>
+                <Dialog.Close asChild>
                   <Button>关闭</Button>
                 </Dialog.Close>
                 {retrievedEntry.type === 'file' ? (
