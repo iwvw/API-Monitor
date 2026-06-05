@@ -231,3 +231,10 @@ case 'self-h':   return <SelfHPage />;
   - 搜索和新增/编辑表单输入改为 Kumo `Input`
   - 状态过滤、刷新动作改为 Kumo `Button`
   - 该页面 `<button>`、`<select>`、`<input>`、`<textarea>` 静态扫描已清零
+- `FileboxPage.jsx` 已完成 Kumo-only 控件收敛：
+  - 顶部导航和分享类型切换改为 Kumo `Tabs`
+  - 取件码、隐藏文件选择输入改为 Kumo `Input`
+  - 分享文本改为 Kumo `Textarea`
+  - 有效期选择改为 Kumo `Select`
+  - 历史操作与上传取消动作改为 Kumo `Button`
+  - 该页面 JSX `<button>`、`<select>`、`<input>`、`<textarea>` 静态扫描已清零
