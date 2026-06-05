@@ -3,6 +3,7 @@ import useStore, { MODULE_GROUPS, MODULE_CONFIG, getModuleName } from '../store.
 import DashboardPage from '../pages/DashboardPage.jsx';
 import ServerPage from '../pages/ServerPage.jsx';
 import TotpPage from '../pages/TotpPage.jsx';
+import FileboxPage from '../pages/FileboxPage.jsx';
 import {
   Sidebar,
   SidebarProvider,
@@ -83,6 +84,8 @@ function MainLayout() {
         return <ServerPage />;
       case 'totp':
         return <TotpPage />;
+      case 'filebox':
+        return <FileboxPage />;
       default:
         const ActiveIcon = ICON_MAP[mainActiveTab] || Server;
         return (
