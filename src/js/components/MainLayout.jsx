@@ -4,6 +4,8 @@ import DashboardPage from '../pages/DashboardPage.jsx';
 import ServerPage from '../pages/ServerPage.jsx';
 import TotpPage from '../pages/TotpPage.jsx';
 import FileboxPage from '../pages/FileboxPage.jsx';
+import UptimePage from '../pages/UptimePage.jsx';
+import NotificationPage from '../pages/NotificationPage.jsx';
 import {
   Sidebar,
   SidebarProvider,
@@ -106,6 +108,10 @@ function MainLayout() {
         return <TotpPage />;
       case 'filebox':
         return <FileboxPage />;
+      case 'uptime':
+        return <UptimePage />;
+      case 'notification':
+        return <NotificationPage />;
       default:
         const ActiveIcon = ICON_MAP[mainActiveTab] || Server;
         return (
