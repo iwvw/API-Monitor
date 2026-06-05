@@ -220,3 +220,9 @@ case 'self-h':   return <SelfHPage />;
   - 设置页自绘 tab button 改用 Kumo `Tabs`
   - 设置页密码输入改用 Kumo `Input`
   - 上述 3 个页面的 `<button>`、`<select>`、`<input>`、`<textarea>` 静态扫描已清零
+- `AliyunPage.jsx`、`TencentPage.jsx` 已完成 Kumo-only 控件收敛：
+  - 顶部自绘 tab button 改为 Kumo `Tabs`
+  - 云账号选择原生 `select` 改为 Kumo `Select`
+  - 实例操作与账号操作图标按钮改为 Kumo `Button`
+  - 账号弹窗输入改为 Kumo `Input` / `Textarea`
+  - 上述 2 个页面的 `<button>`、`<select>`、`<input>`、`<textarea>` 静态扫描已清零

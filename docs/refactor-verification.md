@@ -74,3 +74,16 @@
 - console error：待浏览器 smoke 执行后记录。
 - Kumo-only 例外：无新增例外。
 - 后续风险：`SettingsPage` 已从自绘侧边 tab 切换为 Kumo `Tabs`，后续浏览器 smoke 需确认窄屏下标签滚动表现。
+
+### 2026-06-06 云厂商页面 Kumo-only 控件收敛
+
+- 任务：收敛阿里云、腾讯云页面中的原生 tab、select、按钮和表单输入。
+- 修改范围：
+  - `src/js/pages/AliyunPage.jsx`
+  - `src/js/pages/TencentPage.jsx`
+- 构建结果：`npm run build` 通过；仅有 Vite chunk size 警告。
+- 静态扫描：上述 2 个页面中 `<button>`、`<select>`、`<input>`、`<textarea>` 已清零。
+- 浏览器验证：待全路由 smoke 阶段执行。
+- console error：待浏览器 smoke 执行后记录。
+- Kumo-only 例外：无新增例外。
+- 后续风险：两个页面的云资源操作仍依赖真实账号/API，后续 smoke 以空状态和控制台错误检查为主。

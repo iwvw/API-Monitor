@@ -2,7 +2,10 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { toast } from '../modules/toast.js';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Dialog } from '@cloudflare/kumo/components/dialog';
+import { Input, Textarea } from '@cloudflare/kumo/components/input';
+import { Select } from '@cloudflare/kumo/components/select';
 import { Table } from '@cloudflare/kumo/components/table';
+import { Tabs } from '@cloudflare/kumo/components/tabs';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import useTableResize from '../composables/useTableResize.js';
 import useStore from '../store.js';
@@ -275,50 +278,32 @@ function TencentPage() {
     <div className="flex flex-col gap-6 w-full max-w-7xl mx-auto px-1 pb-20">
       {/* Header Tabs */}
       <div className="flex flex-wrap items-center justify-between border-b border-kumo-line pb-3 gap-4">
-        <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-thin">
-          <button
-            onClick={() => setActiveTab('dns')}
-            className={`flex h-8 items-center gap-2 px-3.5 rounded-lg text-xs font-semibold cursor-pointer transition-colors leading-none ${activeTab === 'dns' ? 'bg-kumo-recessed text-kumo-strong' : 'text-kumo-subtle hover:text-kumo-strong hover:bg-kumo-recessed/60'}`}
-          >
-            <Globe className="w-4 h-4" />
-            DNS 解析
-          </button>
-          <button
-            onClick={() => setActiveTab('cvm')}
-            className={`flex h-8 items-center gap-2 px-3.5 rounded-lg text-xs font-semibold cursor-pointer transition-colors leading-none ${activeTab === 'cvm' ? 'bg-kumo-recessed text-kumo-strong' : 'text-kumo-subtle hover:text-kumo-strong hover:bg-kumo-recessed/60'}`}
-          >
-            <Server className="w-4 h-4" />
-            CVM 实例
-          </button>
-          <button
-            onClick={() => setActiveTab('lighthouse')}
-            className={`flex h-8 items-center gap-2 px-3.5 rounded-lg text-xs font-semibold cursor-pointer transition-colors leading-none ${activeTab === 'lighthouse' ? 'bg-kumo-recessed text-kumo-strong' : 'text-kumo-subtle hover:text-kumo-strong hover:bg-kumo-recessed/60'}`}
-          >
-            <Cloud className="w-4 h-4" />
-            轻量服务器
-          </button>
-          <button
-            onClick={() => setActiveTab('accounts')}
-            className={`flex h-8 items-center gap-2 px-3.5 rounded-lg text-xs font-semibold cursor-pointer transition-colors leading-none ${activeTab === 'accounts' ? 'bg-kumo-recessed text-kumo-strong' : 'text-kumo-subtle hover:text-kumo-strong hover:bg-kumo-recessed/60'}`}
-          >
-            <Settings className="w-4 h-4" />
-            账号管理
-          </button>
+        <div className="min-w-0">
+          <Tabs
+            variant="segmented"
+            size="sm"
+            value={activeTab}
+            onValueChange={setActiveTab}
+            tabs={[
+              { value: 'dns', label: <span className="inline-flex items-center gap-1.5"><Globe className="w-4 h-4" />DNS 解析</span> },
+              { value: 'cvm', label: <span className="inline-flex items-center gap-1.5"><Server className="w-4 h-4" />CVM 实例</span> },
+              { value: 'lighthouse', label: <span className="inline-flex items-center gap-1.5"><Cloud className="w-4 h-4" />轻量服务器</span> },
+              { value: 'accounts', label: <span className="inline-flex items-center gap-1.5"><Settings className="w-4 h-4" />账号管理</span> },
+            ]}
+          />
         </div>
 
         {activeTab !== 'accounts' && (
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2">
               <span className="text-xs text-kumo-subtle font-medium">账号</span>
-              <select
+              <Select
+                aria-label="腾讯云账号"
+                size="sm"
                 value={selectedAccountId}
-                onChange={(e) => setSelectedAccountId(e.target.value)}
-                className="h-8 border border-kumo-line rounded-lg px-2.5 bg-kumo-base text-xs font-semibold focus:outline-none focus:border-kumo-brand"
-              >
-                {accounts.map((acc) => (
-                  <option key={acc.id} value={acc.id}>{acc.name}</option>
-                ))}
-              </select>
+                onValueChange={setSelectedAccountId}
+                items={accounts.map((acc) => ({ value: String(acc.id), label: acc.name }))}
+              />
             </div>
             <Button
               onClick={refreshData}
@@ -499,26 +484,38 @@ function TencentPage() {
                       
                       <div className="flex items-center justify-between gap-2 mt-auto pt-1">
                         <div className="flex gap-1.5">
-                          <button
+                          <Button
                             onClick={() => handleInstanceAction('cvm', inst, 'START')}
                             disabled={inst.InstanceState === 'RUNNING'}
-                            className="p-1.5 rounded bg-kumo-recessed border border-kumo-line text-kumo-success disabled:opacity-30 hover:bg-kumo-success/10 transition-colors"
+                            variant="secondary"
+                            size="sm"
+                            shape="square"
+                            aria-label="启动 CVM 实例"
+                            className="text-kumo-success hover:bg-kumo-success/10"
                           >
                             <Play className="w-3.5 h-3.5" />
-                          </button>
-                          <button
+                          </Button>
+                          <Button
                             onClick={() => handleInstanceAction('cvm', inst, 'STOP')}
                             disabled={inst.InstanceState === 'STOPPED'}
-                            className="p-1.5 rounded bg-kumo-recessed border border-kumo-line text-kumo-danger disabled:opacity-30 hover:bg-kumo-danger/10 transition-colors"
+                            variant="secondary"
+                            size="sm"
+                            shape="square"
+                            aria-label="停止 CVM 实例"
+                            className="text-kumo-danger hover:bg-kumo-danger/10"
                           >
                             <Square className="w-3.5 h-3.5" />
-                          </button>
-                          <button
+                          </Button>
+                          <Button
                             onClick={() => handleInstanceAction('cvm', inst, 'REBOOT')}
-                            className="p-1.5 rounded bg-kumo-recessed border border-kumo-line text-kumo-brand hover:bg-kumo-brand/10 transition-colors"
+                            variant="secondary"
+                            size="sm"
+                            shape="square"
+                            aria-label="重启 CVM 实例"
+                            className="text-kumo-brand hover:bg-kumo-brand/10"
                           >
                             <RotateCw className="w-3.5 h-3.5" />
-                          </button>
+                          </Button>
                         </div>
                         <Button className="h-7 text-[10px] px-2.5 border border-kumo-line bg-kumo-recessed hover:bg-kumo-base font-bold">
                           监控详情
@@ -571,26 +568,38 @@ function TencentPage() {
                       
                       <div className="flex items-center justify-between gap-2 mt-auto pt-1">
                         <div className="flex gap-1.5">
-                          <button
+                          <Button
                             onClick={() => handleInstanceAction('lighthouse', inst, 'START')}
                             disabled={inst.InstanceState === 'RUNNING'}
-                            className="p-1.5 rounded bg-kumo-recessed border border-kumo-line text-kumo-success disabled:opacity-30 hover:bg-kumo-success/10 transition-colors"
+                            variant="secondary"
+                            size="sm"
+                            shape="square"
+                            aria-label="启动轻量服务器"
+                            className="text-kumo-success hover:bg-kumo-success/10"
                           >
                             <Play className="w-3.5 h-3.5" />
-                          </button>
-                          <button
+                          </Button>
+                          <Button
                             onClick={() => handleInstanceAction('lighthouse', inst, 'STOP')}
                             disabled={inst.InstanceState === 'STOPPED'}
-                            className="p-1.5 rounded bg-kumo-recessed border border-kumo-line text-kumo-danger disabled:opacity-30 hover:bg-kumo-danger/10 transition-colors"
+                            variant="secondary"
+                            size="sm"
+                            shape="square"
+                            aria-label="停止轻量服务器"
+                            className="text-kumo-danger hover:bg-kumo-danger/10"
                           >
                             <Square className="w-3.5 h-3.5" />
-                          </button>
-                          <button
+                          </Button>
+                          <Button
                             onClick={() => handleInstanceAction('lighthouse', inst, 'REBOOT')}
-                            className="p-1.5 rounded bg-kumo-recessed border border-kumo-line text-kumo-brand hover:bg-kumo-brand/10 transition-colors"
+                            variant="secondary"
+                            size="sm"
+                            shape="square"
+                            aria-label="重启轻量服务器"
+                            className="text-kumo-brand hover:bg-kumo-brand/10"
                           >
                             <RotateCw className="w-3.5 h-3.5" />
-                          </button>
+                          </Button>
                         </div>
                         <Button className="h-7 text-[10px] px-2.5 border border-kumo-line bg-kumo-recessed hover:bg-kumo-base font-bold">
                           管理详情
@@ -662,18 +671,26 @@ function TencentPage() {
                             <Table.Cell className="p-4 text-kumo-subtle truncate max-w-xs">{acc.description || '-'}</Table.Cell>
                             <Table.Cell className="p-4 text-center">
                               <div className="flex justify-center gap-2">
-                                <button
+                                <Button
                                   onClick={() => openEditModal(acc)}
-                                  className="p-1.5 text-kumo-subtle hover:text-kumo-brand bg-kumo-recessed/50 border border-kumo-line rounded"
+                                  variant="secondary"
+                                  size="sm"
+                                  shape="square"
+                                  aria-label="编辑腾讯云账号"
+                                  className="text-kumo-subtle hover:text-kumo-brand"
                                 >
                                   <Settings className="w-3.5 h-3.5" />
-                                </button>
-                                <button
+                                </Button>
+                                <Button
                                   onClick={() => deleteAccount(acc.id)}
-                                  className="p-1.5 text-kumo-danger hover:bg-kumo-danger/10 bg-kumo-recessed/50 border border-kumo-line rounded"
+                                  variant="secondary-destructive"
+                                  size="sm"
+                                  shape="square"
+                                  aria-label="删除腾讯云账号"
+                                  className="hover:bg-kumo-danger/10"
                                 >
                                   <Trash className="w-3.5 h-3.5" />
-                                </button>
+                                </Button>
                               </div>
                             </Table.Cell>
                           </Table.Row>
@@ -699,59 +716,54 @@ function TencentPage() {
           </Dialog.Description>
           
           <div className="space-y-4">
-            <div className="space-y-1">
-              <label className="text-[11px] font-bold text-kumo-subtle">备注名称</label>
-              <input
-                type="text"
-                value={accountForm.name}
-                onChange={(e) => setAccountForm({ ...accountForm, name: e.target.value })}
-                placeholder="我的腾讯云生产环境"
-                className="w-full bg-kumo-base text-kumo-strong border border-kumo-line rounded p-2 text-xs focus:outline-none focus:border-kumo-brand"
-              />
-            </div>
+            <Input
+              label="备注名称"
+              type="text"
+              size="sm"
+              value={accountForm.name}
+              onChange={(e) => setAccountForm({ ...accountForm, name: e.target.value })}
+              placeholder="我的腾讯云生产环境"
+              className="w-full"
+            />
             
             <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-1">
-                <label className="text-[11px] font-bold text-kumo-subtle">Secret ID</label>
-                <input
-                  type="text"
-                  value={accountForm.secretId}
-                  onChange={(e) => setAccountForm({ ...accountForm, secretId: e.target.value })}
-                  placeholder="AKID..."
-                  className="w-full bg-kumo-base text-kumo-strong border border-kumo-line rounded p-2 text-xs font-mono focus:outline-none focus:border-kumo-brand"
-                />
-              </div>
-              <div className="space-y-1">
-                <label className="text-[11px] font-bold text-kumo-subtle">默认地域 ID</label>
-                <input
-                  type="text"
-                  value={accountForm.regionId}
-                  onChange={(e) => setAccountForm({ ...accountForm, regionId: e.target.value })}
-                  placeholder="ap-guangzhou"
-                  className="w-full bg-kumo-base text-kumo-strong border border-kumo-line rounded p-2 text-xs font-mono focus:outline-none focus:border-kumo-brand"
-                />
-              </div>
-            </div>
-            
-            <div className="space-y-1">
-              <label className="text-[11px] font-bold text-kumo-subtle">Secret Key</label>
-              <input
-                type="password"
-                value={accountForm.secretKey}
-                onChange={(e) => setAccountForm({ ...accountForm, secretKey: e.target.value })}
-                placeholder={editingAccount ? '(不修改请留空)' : '请输入 SecretKey'}
-                className="w-full bg-kumo-base text-kumo-strong border border-kumo-line rounded p-2 text-xs font-mono focus:outline-none focus:border-kumo-brand"
+              <Input
+                label="Secret ID"
+                type="text"
+                size="sm"
+                value={accountForm.secretId}
+                onChange={(e) => setAccountForm({ ...accountForm, secretId: e.target.value })}
+                placeholder="AKID..."
+                className="w-full font-mono"
+              />
+              <Input
+                label="默认地域 ID"
+                type="text"
+                size="sm"
+                value={accountForm.regionId}
+                onChange={(e) => setAccountForm({ ...accountForm, regionId: e.target.value })}
+                placeholder="ap-guangzhou"
+                className="w-full font-mono"
               />
             </div>
 
-            <div className="space-y-1">
-              <label className="text-[11px] font-bold text-kumo-subtle">账号描述</label>
-              <textarea
-                value={accountForm.description}
-                onChange={(e) => setAccountForm({ ...accountForm, description: e.target.value })}
-                className="w-full bg-kumo-base text-kumo-strong border border-kumo-line rounded p-2 text-xs focus:outline-none focus:border-kumo-brand min-h-[60px]"
-              />
-            </div>
+            <Input
+              label="Secret Key"
+              type="password"
+              size="sm"
+              value={accountForm.secretKey}
+              onChange={(e) => setAccountForm({ ...accountForm, secretKey: e.target.value })}
+              placeholder={editingAccount ? '(不修改请留空)' : '请输入 SecretKey'}
+              className="w-full font-mono"
+            />
+
+            <Textarea
+              label="账号描述"
+              size="sm"
+              value={accountForm.description}
+              onChange={(e) => setAccountForm({ ...accountForm, description: e.target.value })}
+              className="w-full min-h-[60px]"
+            />
 
             <div className="flex justify-end gap-2 pt-2">
               <Dialog.Close asChild>
