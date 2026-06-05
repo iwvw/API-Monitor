@@ -114,7 +114,8 @@ case 'filebox':  return <FileboxPage />;
 | Hash | 模块 | 日期 |
 |------|------|------|
 | 1ae0849 | MainLayout 侧边栏动画修复 | 2026-06-05 |
-| 16eea3a | TotpPage | 2026-06-05 |
+| 16eea3a | TotpPage 页面实现 | 2026-06-05 |
+| 9be6579 | TotpPage 刷新与跳动修复 | 2026-06-05 |
 | (待填充) | FileboxPage | - |
 | (待填充) | UptimePage | - |
 | (待填充) | NotificationPage | - |
