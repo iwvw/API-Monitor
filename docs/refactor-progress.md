@@ -75,10 +75,10 @@ toast.info('提示...');
 ### Wave 2 — API 网关
 | 模块 | 文件 | 状态 | 说明 |
 |------|------|------|------|
-| OpenAI | `pages/OpenAIPage.jsx` | ⬜ 待开始 | API Key 管理 + 对话测试 |
-| GeminiCLI | `pages/GeminiCliPage.jsx` | ⬜ 待开始 | API 代理配置 + 日志统计 |
-| Qwen (通义) | `pages/QwenPage.jsx` | ⬜ 待开始 | 通义千问 API 代理 |
-| Antigravity | `pages/AntigravityPage.jsx` | ⬜ 待开始 | Antigravity 代理服务 |
+| OpenAI | `pages/OpenAIPage.jsx` | ✅ 完成 | API Key 管理 + 对话测试 |
+| GeminiCLI | `pages/GeminiCliPage.jsx` | ✅ 完成 | API 代理配置 + 日志统计 |
+| Qwen (通义) | `pages/QwenPage.jsx` | ✅ 完成 | 通义千问 API 代理 |
+| Antigravity | `pages/AntigravityPage.jsx` | ✅ 完成 | Antigravity 代理服务 |
 
 ### Wave 3 — 基础设施
 | 模块 | 文件 | 状态 | 说明 |
@@ -113,6 +113,11 @@ case 'filebox':  return <FileboxPage />;
 
 | Hash | 模块 | 日期 |
 |------|------|------|
+| d8ecd4f | Wave 2 路由与图标集成 | 2026-06-05 |
+| bc623b2 | AntigravityPage 页面实现 | 2026-06-05 |
+| eca17ab | QwenPage 页面实现 | 2026-06-05 |
+| d2c223c | GeminiCliPage 页面实现 | 2026-06-05 |
+| 5306ffa | OpenAIPage 页面实现 | 2026-06-05 |
 | 1ae0849 | MainLayout 侧边栏动画修复 | 2026-06-05 |
 | 16eea3a | TotpPage 页面实现 | 2026-06-05 |
 | 9be6579 | TotpPage 刷新与跳动修复 | 2026-06-05 |
