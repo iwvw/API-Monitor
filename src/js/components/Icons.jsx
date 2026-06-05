@@ -435,4 +435,131 @@ export const ChevronUp = (props) => (
   </IconWrapper>
 );
 
+export const Users = (props) => (
+  <IconWrapper {...props}>
+    <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
+    <circle cx="9" cy="7" r="4" />
+    <path d="M22 21v-2a4 4 0 0 0-3-3.87" />
+    <path d="M16 3.13a4 4 0 0 1 0 7.75" />
+  </IconWrapper>
+);
+
+export const Eye = (props) => (
+  <IconWrapper {...props}>
+    <path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0z" />
+    <circle cx="12" cy="12" r="3" />
+  </IconWrapper>
+);
+
+export const EyeOff = (props) => (
+  <IconWrapper {...props}>
+    <path d="M9.88 9.88a3 3 0 1 0 4.24 4.24" />
+    <path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68" />
+    <path d="M6.61 6.61A13.52 13.52 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61" />
+    <line x1="2" x2="22" y1="2" y2="22" />
+  </IconWrapper>
+);
+
+export const Copy = (props) => (
+  <IconWrapper {...props}>
+    <rect width="14" height="14" x="8" y="8" rx="2" ry="2" />
+    <path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2" />
+  </IconWrapper>
+);
+
+export const Plug = (props) => (
+  <IconWrapper {...props}>
+    <path d="M12 2v8M18 12a6 6 0 0 1-12 0v-2h12v2zm-6 6v4" />
+  </IconWrapper>
+);
+
+export const Brain = (props) => (
+  <IconWrapper {...props}>
+    <path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.44 2.5 2.5 0 0 1 0-3.12 3 3 0 0 1 0-4.88 2.5 2.5 0 0 1 0-3.12A2.5 2.5 0 0 1 9.5 2Z" />
+    <path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.44 2.5 2.5 0 0 0 0-3.12 3 3 0 0 0 0-4.88 2.5 2.5 0 0 0 0-3.12A2.5 2.5 0 0 0 14.5 2Z" />
+  </IconWrapper>
+);
+
+export const Image = (props) => (
+  <IconWrapper {...props}>
+    <rect width="18" height="18" x="3" y="3" rx="2" ry="2" />
+    <circle cx="9" cy="9" r="2" />
+    <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
+  </IconWrapper>
+);
+
+export const Star = (props) => (
+  <IconWrapper {...props}>
+    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+  </IconWrapper>
+);
+
+export const Pin = (props) => (
+  <IconWrapper {...props}>
+    <line x1="12" x2="12" y1="17" y2="22" />
+    <path d="M5 12h14M12 5v7M8 5h8" />
+  </IconWrapper>
+);
+
+export const Check = (props) => (
+  <IconWrapper {...props}>
+    <polyline points="20 6 9 17 4 12" />
+  </IconWrapper>
+);
+
+export const Paperclip = (props) => (
+  <IconWrapper {...props}>
+    <path d="m21.44 11.05-9.19 9.19a6 6 0 0 1-8.49-8.49l8.57-8.57A4 4 0 1 1 18 8.84l-8.59 8.57a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+  </IconWrapper>
+);
+
+export const PieChart = (props) => (
+  <IconWrapper {...props}>
+    <path d="M21.21 15.89A10 10 0 1 1 8 2.83" />
+    <path d="M22 12A10 10 0 0 0 12 2v10z" />
+  </IconWrapper>
+);
+
+export const Heart = (props) => (
+  <IconWrapper {...props}>
+    <path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7Z" />
+  </IconWrapper>
+);
+
+export const Grid = (props) => (
+  <IconWrapper {...props}>
+    <rect width="7" height="7" x="3" y="3" rx="1" />
+    <rect width="7" height="7" x="14" y="3" rx="1" />
+    <rect width="7" height="7" x="14" y="14" rx="1" />
+    <rect width="7" height="7" x="3" y="14" rx="1" />
+  </IconWrapper>
+);
+
+export const Google = (props) => (
+  <IconWrapper {...props}>
+    <path d="M20.21 10.15H11.5v3.7h5.12a4.43 4.43 0 0 1-1.89 2.92v2.42h3.06c1.79-1.64 2.82-4.07 2.82-6.94a6.6 6.6 0 0 1-.4-2.1Z" />
+    <path d="M11.5 22c2.84 0 5.21-.94 6.95-2.56l-3.06-2.42c-.85.57-1.94.9-3.89.9c-3 0-5.54-2-6.44-4.72H1.9v2.5A10.5 10.5 0 0 0 11.5 22Z" />
+    <path d="M5.06 13.2a6.3 6.3 0 0 1 0-3.9v-2.5H1.9a10.5 10.5 0 0 0 0 8.9Z" />
+    <path d="M11.5 5.8a5.7 5.7 0 0 1 4.03 1.58l3-3A10.5 10.5 0 0 0 1.9 6.8l3.16 2.5c.9-2.72 3.44-4.72 6.44-4.72Z" />
+  </IconWrapper>
+);
+
+export const Sliders = (props) => (
+  <IconWrapper {...props}>
+    <line x1="4" x2="4" y1="21" y2="14" />
+    <line x1="4" x2="4" y1="10" y2="3" />
+    <line x1="12" x2="12" y1="21" y2="12" />
+    <line x1="12" x2="12" y1="8" y2="3" />
+    <line x1="20" x2="20" y1="21" y2="16" />
+    <line x1="20" x2="20" y1="12" y2="3" />
+    <line x1="2" x2="6" y1="14" y2="14" />
+    <line x1="10" x2="14" y1="8" y2="8" />
+    <line x1="18" x2="22" y1="16" y2="16" />
+  </IconWrapper>
+);
+
+
+
+
+
 

@@ -6,6 +6,10 @@ import TotpPage from '../pages/TotpPage.jsx';
 import FileboxPage from '../pages/FileboxPage.jsx';
 import UptimePage from '../pages/UptimePage.jsx';
 import NotificationPage from '../pages/NotificationPage.jsx';
+import OpenAIPage from '../pages/OpenAIPage.jsx';
+import GeminiCliPage from '../pages/GeminiCliPage.jsx';
+import QwenPage from '../pages/QwenPage.jsx';
+import AntigravityPage from '../pages/AntigravityPage.jsx';
 import {
   Sidebar,
   SidebarProvider,
@@ -102,6 +106,14 @@ function MainLayout() {
     switch (mainActiveTab) {
       case 'dashboard':
         return <DashboardPage />;
+      case 'openai':
+        return <OpenAIPage />;
+      case 'gemini-cli':
+        return <GeminiCliPage />;
+      case 'qwen':
+        return <QwenPage />;
+      case 'antigravity':
+        return <AntigravityPage />;
       case 'server':
         return <ServerPage />;
       case 'totp':
