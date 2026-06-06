@@ -631,18 +631,35 @@ function ServerPage() {
         }
         
         // GPU
-        if (metrics.gpu !== undefined) {
+        if (
+          metrics.gpu !== undefined ||
+          metrics.gpu_usage !== undefined ||
+          metrics.gpu_mem !== undefined ||
+          metrics.gpu_mem_percent !== undefined ||
+          metrics.gpu_model !== undefined ||
+          metrics.gpu_power !== undefined ||
+          metrics.gpu_temp !== undefined
+        ) {
           const existingGpu = info.gpu || {};
-          if (typeof metrics.gpu === 'object' && metrics.gpu !== null) {
-            info.gpu = {
-              Model: metrics.gpu.Model || metrics.gpu_model || existingGpu.Model || '',
-              Usage: metrics.gpu.Usage || metrics.gpu_usage || '0%',
-              Memory: metrics.gpu.Memory || metrics.gpu_mem || '',
-              Power: metrics.gpu.Power || metrics.gpu_power || '',
-              Temp: metrics.gpu.Temp !== undefined ? metrics.gpu.Temp : (metrics.gpu_temp !== undefined ? metrics.gpu_temp : (existingGpu.Temp || 0)),
-              Percent: metrics.gpu.Percent !== undefined ? metrics.gpu.Percent : (metrics.gpu_mem_percent !== undefined ? metrics.gpu_mem_percent : (existingGpu.Percent || 0))
-            };
-          }
+          const pushedGpu = typeof metrics.gpu === 'object' && metrics.gpu !== null ? metrics.gpu : {};
+          const pushedGpuUsage = typeof metrics.gpu === 'number' ? `${metrics.gpu.toFixed(1)}%` : undefined;
+          const pushedGpuPercent = pushedGpu.Percent !== undefined
+            ? pushedGpu.Percent
+            : (
+                metrics.gpu_mem_percent !== undefined ||
+                metrics.gpu_mem_used !== undefined ||
+                metrics.gpu_mem_total !== undefined
+                  ? getGpuMemPercent(metrics)
+                  : existingGpu.Percent
+              );
+          info.gpu = {
+            Model: pushedGpu.Model || metrics.gpu_model || existingGpu.Model || '',
+            Usage: pushedGpu.Usage || metrics.gpu_usage || pushedGpuUsage || existingGpu.Usage || '0%',
+            Memory: pushedGpu.Memory || metrics.gpu_mem || existingGpu.Memory || '',
+            Power: pushedGpu.Power || metrics.gpu_power || existingGpu.Power || '',
+            Temp: pushedGpu.Temp !== undefined ? pushedGpu.Temp : (metrics.gpu_temp !== undefined ? metrics.gpu_temp : (existingGpu.Temp || 0)),
+            Percent: pushedGpuPercent !== undefined ? pushedGpuPercent : 0,
+          };
         }
         
         // Docker
@@ -677,10 +694,17 @@ function ServerPage() {
           recorded_at: now,
           cpu_usage: parseFloat(metrics.cpu_usage || '0'),
           mem_usage: info.memory ? parseFloat(info.memory.Usage) : 0,
-          gpu_usage: info.gpu ? parseFloat(info.gpu.Usage) : null,
-          gpu_mem_used: info.gpu ? parseFloat(info.gpu.Percent) : 0,
-          gpu_mem_total: 100,
-          gpu_power: info.gpu ? parseFloat(info.gpu.Power) : 0,
+          gpu_usage: metrics.gpu_usage !== undefined
+            ? toNumber(metrics.gpu_usage, 0)
+            : (typeof metrics.gpu === 'number' ? metrics.gpu : (info.gpu ? toNumber(info.gpu.Usage, 0) : null)),
+          gpu_mem_percent: getGpuMemPercent({
+            gpu_mem_percent: metrics.gpu_mem_percent !== undefined ? metrics.gpu_mem_percent : info.gpu?.Percent,
+            gpu_mem_used: metrics.gpu_mem_used,
+            gpu_mem_total: metrics.gpu_mem_total,
+          }),
+          gpu_mem_used: metrics.gpu_mem_used ?? 0,
+          gpu_mem_total: metrics.gpu_mem_total ?? 0,
+          gpu_power: metrics.gpu_power !== undefined ? toNumber(metrics.gpu_power, 0) : (info.gpu ? toNumber(info.gpu.Power, 0) : 0),
           net_rx: parseSpeedToBytes(metrics.network?.rx_speed),
           net_tx: parseSpeedToBytes(metrics.network?.tx_speed)
         };
@@ -2979,9 +3003,9 @@ function ServerPage() {
                                 {cardView.gpu === 'detail' ? (
                                   hasGpuData ? (
                                     <div className="text-xs flex flex-col gap-2">
-                                      <div className="flex justify-between gap-3">
-                                        <span className="text-kumo-subtle font-medium truncate">型号</span>
-                                        <span className="text-kumo-strong font-semibold truncate max-w-52" title={server.info?.gpu?.Model}>{server.info?.gpu?.Model || 'GPU'}</span>
+                                      <div className="grid grid-cols-[3rem_minmax(0,1fr)] gap-3 items-start">
+                                        <span className="text-kumo-subtle font-medium">型号</span>
+                                        <span className="text-kumo-strong font-semibold text-right whitespace-normal break-words leading-relaxed" title={server.info?.gpu?.Model}>{server.info?.gpu?.Model || 'GPU'}</span>
                                       </div>
                                       <div className="flex justify-between gap-3">
                                         <span className="text-kumo-subtle font-medium">使用率</span>

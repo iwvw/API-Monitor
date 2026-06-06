@@ -270,8 +270,9 @@ function resolveGpuMemoryPercent(metrics = {}) {
 
 function buildGpuInfo(metrics = {}) {
   const source = metrics && typeof metrics === 'object' ? metrics : {};
+  const modelFromArray = Array.isArray(source.gpu) ? source.gpu.filter(Boolean).join(' / ') : '';
   return {
-    Model: source.gpu_model || source.gpu?.Model || '',
+    Model: source.gpu_model || source.gpu?.Model || modelFromArray || '',
     Usage: source.gpu_usage || source.gpu?.Usage || '0%',
     Memory: source.gpu_mem || source.gpu?.Memory || '',
     Power: source.gpu_power || source.gpu?.Power || '',
@@ -427,7 +428,7 @@ function stateToFrontendFormat(state, hostInfo = {}) {
     gpu_mem_total: gpuMemTotal,
     gpu_mem_percent: gpuMemTotal > 1024 ? gpuMemPercent : 0,
     gpu_power: safeNumber(state.gpu_power).toFixed(0) + 'W',
-    gpu_model: Array.isArray(hostInfo.gpu) && hostInfo.gpu.length > 0 ? hostInfo.gpu[0] : '',
+    gpu_model: Array.isArray(hostInfo.gpu) && hostInfo.gpu.length > 0 ? hostInfo.gpu.filter(Boolean).join(' / ') : '',
     platform: hostInfo.platform || '',
     platformVersion: hostInfo.platform_version || hostInfo.platformVersion || '',
     agent_version: hostInfo.agent_version || '',

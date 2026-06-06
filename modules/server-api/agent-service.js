@@ -278,6 +278,7 @@ class AgentService extends EventEmitter {
       docker_running: frontendMetrics.docker?.running || 0,
       docker_stopped: frontendMetrics.docker?.stopped || 0,
       gpu_usage: gpuUsageNum,
+      gpu_mem_percent: frontendMetrics.gpu_mem_percent || 0,
       gpu_mem_used: gpuMemUsed,
       gpu_mem_total: frontendMetrics.gpu_mem_total || 0,
       gpu_power: parseFloat(frontendMetrics.gpu_power) || 0,
@@ -430,7 +431,7 @@ class AgentService extends EventEmitter {
         const frontendMetrics = stateToFrontendFormat(state, hostInfo);
 
         // 生成数据指纹用于去重 (使用关键指标)
-        const dataFingerprint = `${server.id}:${frontendMetrics.cpu_usage}:${frontendMetrics.mem_percent}:${frontendMetrics.gpu_usage}:${frontendMetrics.gpu_power}:${frontendMetrics.load}`;
+        const dataFingerprint = `${server.id}:${frontendMetrics.cpu_usage}:${frontendMetrics.mem_percent}:${frontendMetrics.gpu_usage}:${frontendMetrics.gpu_mem_used}:${frontendMetrics.gpu_mem_percent}:${frontendMetrics.gpu_power}:${frontendMetrics.gpu_temp}:${frontendMetrics.load}`;
 
         // 初始化去重缓存
         if (!this.lastHistoryFingerprints) {

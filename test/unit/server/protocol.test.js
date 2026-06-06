@@ -33,4 +33,24 @@ describe('server protocol GPU metrics', () => {
 
     expect(metrics.gpu_mem_percent).toBeCloseTo(12.35, 2);
   });
+
+  it('keeps all GPU model names from host info', () => {
+    const metrics = protocol.stateToFrontendFormat(
+      {
+        cpu: 1,
+        mem_used: 1024,
+        disk_used: 1024,
+        gpu: 38,
+        gpu_mem_used: 1012 * 1024 * 1024,
+      },
+      {
+        mem_total: 2048,
+        disk_total: 4096,
+        gpu_mem_total: 8 * 1024 * 1024 * 1024,
+        gpu: ['NVIDIA RTX 4090 D', 'NVIDIA RTX 4080 SUPER'],
+      },
+    );
+
+    expect(metrics.gpu_model).toBe('NVIDIA RTX 4090 D / NVIDIA RTX 4080 SUPER');
+  });
 });
