@@ -427,6 +427,7 @@ function registerRoutes(app) {
       if (!server) return res.status(404).json({ success: false, error: '主机不存在' });
 
       const serverUrl = getPublicServerUrl(req);
+      const agentKey = agentService.getAgentKey(serverId);
       const installUrl = `${serverUrl}/api/server/agent/install/${serverId}`;
 
       res.json({
@@ -435,9 +436,9 @@ function registerRoutes(app) {
           serverId,
           serverName: server.name,
           installCommand: `curl -fsSL ${installUrl} | sudo bash`,
-          winInstallCommand: `powershell -c "irm ${serverUrl}/api/server/agent/install/win/${serverId} | iex"`,
+          winInstallCommand: `powershell -c "irm ${serverUrl}/api/server/agent/install/win/${serverId}/${agentKey} | iex"`,
           apiUrl: serverUrl,
-          agentKey: agentService.getAgentKey(serverId),
+          agentKey,
         },
       });
     } catch (error) {

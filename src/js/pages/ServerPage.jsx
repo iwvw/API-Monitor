@@ -1078,10 +1078,8 @@ function ServerPage() {
     const configuredOrigin = normalizeOrigin(publicApiUrl);
     if (configuredOrigin) return configuredOrigin;
 
-    if (agentInstallHostType === 'ip' && agentModalData.apiUrl) {
-      const modalOrigin = normalizeOrigin(agentModalData.apiUrl);
-      if (modalOrigin) return modalOrigin;
-    }
+    const modalOrigin = normalizeOrigin(agentModalData.apiUrl);
+    if (modalOrigin) return modalOrigin;
 
     return normalizeOrigin(`${agentInstallProtocol}://${window.location.host}`);
   };
