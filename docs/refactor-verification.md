@@ -109,3 +109,14 @@
 - console error：待浏览器 smoke 执行后记录。
 - Kumo-only 例外：二维码生成参数仍保留黑白色值，这是 QRCode 输出规范色，不属于 UI 主题色。
 - 后续风险：Kumo `Input type="file"` 作为隐藏文件选择入口使用，后续 smoke 需确认点击拖拽区域仍能打开系统文件选择器。
+
+### 2026-06-06 SelfHPage Kumo-only 控件收敛
+
+- 任务：收敛自托管页面中的 OpenList 控件、文件操作按钮、右键菜单和定时任务表单。
+- 修改范围：`src/js/pages/SelfHPage.jsx`
+- 构建结果：`npm run build` 通过；仅有 Vite chunk size 警告。
+- 静态扫描：`SelfHPage.jsx` 中 JSX `<button>`、`<select>`、`<input>`、`<textarea>` 与 `appearance-none` 已清零。
+- 浏览器验证：待全路由 smoke 阶段执行。
+- console error：待浏览器 smoke 执行后记录。
+- Kumo-only 例外：无新增例外。
+- 后续风险：OpenList 文件操作和 cron 执行依赖真实后端数据，后续 smoke 需重点检查空状态、弹窗打开、定时任务表单切换和右键菜单交互。

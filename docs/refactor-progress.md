@@ -238,3 +238,10 @@ case 'self-h':   return <SelfHPage />;
   - 有效期选择改为 Kumo `Select`
   - 历史操作与上传取消动作改为 Kumo `Button`
   - 该页面 JSX `<button>`、`<select>`、`<input>`、`<textarea>` 静态扫描已清零
+- `SelfHPage.jsx` 已完成 Kumo-only 控件收敛：
+  - 顶部子导航、文件布局切换和定时任务类型切换改为 Kumo `Tabs`
+  - OpenList 实例选择、定时任务周期/周几/每月日期选择改为 Kumo `Select`
+  - OpenList 实例表单、图片预览尺寸、定时任务名称/cron/时间输入改为 Kumo `Input`
+  - 定时任务命令/URL 改为 Kumo `Textarea`
+  - 文件面包屑、README 关闭、定时任务操作、右键菜单动作改为 Kumo `Button`
+  - 该页面 JSX `<button>`、`<select>`、`<input>`、`<textarea>` 和 `appearance-none` 静态扫描已清零

@@ -2,11 +2,13 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { toast } from '../modules/toast.js';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Dialog } from '@cloudflare/kumo/components/dialog';
+import { Input, Textarea } from '@cloudflare/kumo/components/input';
 import { Table } from '@cloudflare/kumo/components/table';
 import { Switch } from '@cloudflare/kumo/components/switch';
 import { Checkbox } from '@cloudflare/kumo/components/checkbox';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import { Select } from '@cloudflare/kumo/components/select';
+import { Tabs } from '@cloudflare/kumo/components/tabs';
 import useTableResize from '../composables/useTableResize.js';
 import useStore from '../store.js';
 import { renderMarkdown, formatDateTime } from '../modules/utils.js';
@@ -784,44 +786,30 @@ function SelfHPage() {
     <div className="flex flex-col gap-6 w-full max-w-7xl mx-auto px-1">
       {/* Sec Tab Header */}
       <div className="flex flex-wrap items-center justify-between border-b border-kumo-line pb-3 gap-4">
-        <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-thin">
-          <button
-            onClick={() => setSubTab('files')}
-            className={`flex h-8 items-center gap-2 px-3.5 rounded-lg text-xs font-semibold cursor-pointer transition-colors leading-none ${subTab === 'files' ? 'bg-kumo-recessed text-kumo-strong' : 'text-kumo-subtle hover:text-kumo-strong hover:bg-kumo-recessed/60'}`}
-          >
-            <FolderOpen className="w-4 h-4" />
-            文件列表
-          </button>
-          <button
-            onClick={() => setSubTab('settings')}
-            className={`flex h-8 items-center gap-2 px-3.5 rounded-lg text-xs font-semibold cursor-pointer transition-colors leading-none ${subTab === 'settings' ? 'bg-kumo-recessed text-kumo-strong' : 'text-kumo-subtle hover:text-kumo-strong hover:bg-kumo-recessed/60'}`}
-          >
-            <Settings className="w-4 h-4" />
-            配置
-          </button>
-          <button
-            onClick={() => setSubTab('cron')}
-            className={`flex h-8 items-center gap-2 px-3.5 rounded-lg text-xs font-semibold cursor-pointer transition-colors leading-none ${subTab === 'cron' ? 'bg-kumo-recessed text-kumo-strong' : 'text-kumo-subtle hover:text-kumo-strong hover:bg-kumo-recessed/60'}`}
-          >
-            <Clock className="w-4 h-4" />
-            定时任务
-          </button>
-        </div>
+        <Tabs
+          variant="segmented"
+          size="sm"
+          value={subTab}
+          onValueChange={setSubTab}
+          tabs={[
+            { value: 'files', label: <span className="inline-flex items-center gap-1.5"><FolderOpen className="w-4 h-4" />文件列表</span> },
+            { value: 'settings', label: <span className="inline-flex items-center gap-1.5"><Settings className="w-4 h-4" />配置</span> },
+            { value: 'cron', label: <span className="inline-flex items-center gap-1.5"><Clock className="w-4 h-4" />定时任务</span> },
+          ]}
+        />
 
         {subTab === 'files' && currentAccount && (
           <div className="flex items-center gap-3">
             {accounts.length > 1 && (
               <div className="flex items-center gap-2">
                 <span className="text-xs text-kumo-subtle font-medium">实例</span>
-                <select
-                  value={currentAccount.id}
-                  onChange={(e) => handleSelectAccount(accounts.find(a => String(a.id) === e.target.value))}
-                  className="h-8 border border-kumo-line rounded-lg px-2.5 bg-kumo-base text-xs font-semibold focus:outline-none focus:border-kumo-brand"
-                >
-                  {accounts.map((acc) => (
-                    <option key={acc.id} value={acc.id}>{acc.name}</option>
-                  ))}
-                </select>
+                <Select
+                  aria-label="OpenList 实例"
+                  size="sm"
+                  value={String(currentAccount.id)}
+                  onValueChange={(value) => handleSelectAccount(accounts.find(a => String(a.id) === value))}
+                  items={accounts.map((acc) => ({ value: String(acc.id), label: acc.name }))}
+                />
               </div>
             )}
             <Button
@@ -856,42 +844,45 @@ function SelfHPage() {
                 <div className="bg-kumo-base border border-kumo-line rounded-lg p-3 flex flex-wrap justify-between items-center gap-4 shadow-sm">
                   {/* Left: Path Breadcrumbs */}
                   <div className="flex items-center gap-1 flex-wrap text-xs text-kumo-default font-semibold">
-                    <button
+                    <Button
                       onClick={() => loadFiles('/')}
-                      className="hover:text-kumo-brand flex items-center p-1 rounded hover:bg-kumo-recessed"
+                      variant="ghost"
+                      size="sm"
+                      className="hover:text-kumo-brand"
                     >
                       <Folder className="w-4 h-4 mr-1 text-warning" />
                       Home
-                    </button>
+                    </Button>
                     {pathParts.map((part, idx) => (
                       <React.Fragment key={part.path}>
                         <ChevronRight className="w-3.5 h-3.5 text-kumo-subtle" />
-                        <button
+                        <Button
                           onClick={() => loadFiles(part.path)}
-                          className={`hover:text-kumo-brand p-1 rounded hover:bg-kumo-recessed ${idx === pathParts.length - 1 ? 'text-kumo-strong font-bold' : ''}`}
+                          variant="ghost"
+                          size="sm"
+                          className={`hover:text-kumo-brand ${idx === pathParts.length - 1 ? 'text-kumo-strong font-bold' : ''}`}
                         >
                           {part.name}
-                        </button>
+                        </Button>
                       </React.Fragment>
                     ))}
                   </div>
 
                   {/* Right: Actions */}
                   <div className="flex items-center gap-2">
-                    <div className="flex items-center border border-kumo-line rounded-lg overflow-hidden bg-kumo-recessed">
-                      <button
-                        onClick={() => { setLayoutMode('list'); localStorage.setItem('openListLayoutMode', 'list'); }}
-                        className={`p-1.5 hover:text-kumo-strong transition-colors ${layoutMode === 'list' ? 'bg-kumo-base text-kumo-brand shadow-sm font-bold' : 'text-kumo-subtle'}`}
-                      >
-                        <Sliders className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => { setLayoutMode('grid'); localStorage.setItem('openListLayoutMode', 'grid'); }}
-                        className={`p-1.5 hover:text-kumo-strong transition-colors ${layoutMode === 'grid' ? 'bg-kumo-base text-kumo-brand shadow-sm font-bold' : 'text-kumo-subtle'}`}
-                      >
-                        <Grid className="w-4 h-4" />
-                      </button>
-                    </div>
+                    <Tabs
+                      variant="segmented"
+                      size="sm"
+                      value={layoutMode}
+                      onValueChange={(value) => {
+                        setLayoutMode(value);
+                        localStorage.setItem('openListLayoutMode', value);
+                      }}
+                      tabs={[
+                        { value: 'list', label: <Sliders className="w-4 h-4" /> },
+                        { value: 'grid', label: <Grid className="w-4 h-4" /> },
+                      ]}
+                    />
                     <Button onClick={mkdirOpenList} className="h-8 text-xs flex items-center gap-1">
                       <Plus className="w-3.5 h-3.5" />
                       <span>新建文件夹</span>
@@ -1041,9 +1032,16 @@ function SelfHPage() {
                         <FileText className="w-4 h-4 text-kumo-brand" />
                         README.md
                       </span>
-                      <button onClick={() => setReadmeVisible(false)} className="text-kumo-subtle hover:text-kumo-strong">
+                      <Button
+                        onClick={() => setReadmeVisible(false)}
+                        variant="ghost"
+                        size="sm"
+                        shape="square"
+                        aria-label="隐藏 README"
+                        className="text-kumo-subtle hover:text-kumo-strong"
+                      >
                         <X className="w-4 h-4" />
-                      </button>
+                      </Button>
                     </div>
                     <div
                       className="text-xs text-kumo-default leading-relaxed prose prose-invert max-w-none"
@@ -1117,36 +1115,33 @@ function SelfHPage() {
                 添加新实例
               </h3>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="space-y-1">
-                  <label className="text-[11px] font-bold text-kumo-subtle">名称</label>
-                  <input
-                    type="text"
-                    value={newAccForm.name}
-                    onChange={(e) => setNewAccForm({ ...newAccForm, name: e.target.value })}
-                    placeholder="生产环境 AList"
-                    className="w-full bg-kumo-base text-kumo-strong border border-kumo-line rounded p-2 text-xs focus:outline-none focus:border-kumo-brand"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[11px] font-bold text-kumo-subtle">API 接口地址</label>
-                  <input
-                    type="text"
-                    value={newAccForm.api_url}
-                    onChange={(e) => setNewAccForm({ ...newAccForm, api_url: e.target.value })}
-                    placeholder="https://alist.example.com"
-                    className="w-full bg-kumo-base text-kumo-strong border border-kumo-line rounded p-2 text-xs font-mono focus:outline-none focus:border-kumo-brand"
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="text-[11px] font-bold text-kumo-subtle">认证 Token</label>
-                  <input
-                    type="password"
-                    value={newAccForm.api_token}
-                    onChange={(e) => setNewAccForm({ ...newAccForm, api_token: e.target.value })}
-                    placeholder="alist-token-..."
-                    className="w-full bg-kumo-base text-kumo-strong border border-kumo-line rounded p-2 text-xs font-mono focus:outline-none focus:border-kumo-brand"
-                  />
-                </div>
+                <Input
+                  label="名称"
+                  type="text"
+                  size="sm"
+                  value={newAccForm.name}
+                  onChange={(e) => setNewAccForm({ ...newAccForm, name: e.target.value })}
+                  placeholder="生产环境 AList"
+                  className="w-full"
+                />
+                <Input
+                  label="API 接口地址"
+                  type="text"
+                  size="sm"
+                  value={newAccForm.api_url}
+                  onChange={(e) => setNewAccForm({ ...newAccForm, api_url: e.target.value })}
+                  placeholder="https://alist.example.com"
+                  className="w-full font-mono"
+                />
+                <Input
+                  label="认证 Token"
+                  type="password"
+                  size="sm"
+                  value={newAccForm.api_token}
+                  onChange={(e) => setNewAccForm({ ...newAccForm, api_token: e.target.value })}
+                  placeholder="alist-token-..."
+                  className="w-full font-mono"
+                />
               </div>
               <div className="flex justify-end">
                 <Button variant="primary" onClick={handleAddAccount} className="text-xs h-8">
@@ -1174,14 +1169,15 @@ function SelfHPage() {
                   <span className="text-[10px] text-kumo-subtle">在图片悬停预览时的最大边长像素限制</span>
                 </div>
                 <div className="flex items-center gap-3 w-full md:w-auto">
-                  <input
+                  <Input
                     type="range"
+                    aria-label="图片预览尺寸"
                     min="300"
                     max="1200"
                     step="50"
                     value={previewSize}
                     onChange={(e) => setPreviewSize(parseInt(e.target.value))}
-                    className="w-40 accent-kumo-brand h-1 bg-kumo-recessed rounded-lg appearance-none cursor-pointer"
+                    className="w-40 accent-kumo-brand"
                   />
                   <Button onClick={handleSavePreferences} className="h-7 text-[10px] px-2.5">
                     保存偏好
@@ -1259,34 +1255,50 @@ function SelfHPage() {
                           <Table.Cell className="p-4 font-mono text-[10px] truncate" title={task.command}>{task.command}</Table.Cell>
                           <Table.Cell className="p-4 text-center">
                             <div className="flex justify-center gap-1.5">
-                              <button
+                              <Button
                                 onClick={() => handleRunCronTask(task)}
-                                className="p-1.5 bg-kumo-recessed border border-kumo-line rounded text-kumo-success hover:bg-kumo-success/10"
+                                variant="secondary"
+                                size="sm"
+                                shape="square"
+                                aria-label="立即执行定时任务"
+                                className="text-kumo-success hover:bg-kumo-success/10"
                                 title="立即执行"
                               >
                                 <Play className="w-3.5 h-3.5" />
-                              </button>
-                              <button
+                              </Button>
+                              <Button
                                 onClick={() => handleToggleCronTask(task)}
-                                className="p-1.5 bg-kumo-recessed border border-kumo-line rounded text-kumo-brand hover:bg-kumo-brand/10"
+                                variant="secondary"
+                                size="sm"
+                                shape="square"
+                                aria-label={task.enabled ? '暂停定时任务' : '恢复定时任务'}
+                                className="text-kumo-brand hover:bg-kumo-brand/10"
                                 title={task.enabled ? '暂停' : '恢复'}
                               >
                                 <Pause className="w-3.5 h-3.5" />
-                              </button>
-                              <button
+                              </Button>
+                              <Button
                                 onClick={() => openCronEditModal(task)}
-                                className="p-1.5 bg-kumo-recessed border border-kumo-line rounded text-kumo-subtle hover:text-kumo-strong"
+                                variant="secondary"
+                                size="sm"
+                                shape="square"
+                                aria-label="编辑定时任务"
+                                className="text-kumo-subtle hover:text-kumo-strong"
                                 title="编辑"
                               >
                                 <Edit className="w-3.5 h-3.5" />
-                              </button>
-                              <button
+                              </Button>
+                              <Button
                                 onClick={() => handleDeleteCronTask(task)}
-                                className="p-1.5 bg-kumo-recessed border border-kumo-line rounded text-kumo-danger hover:bg-kumo-danger/10"
+                                variant="secondary-destructive"
+                                size="sm"
+                                shape="square"
+                                aria-label="删除定时任务"
+                                className="hover:bg-kumo-danger/10"
                                 title="删除"
                               >
                                 <Trash className="w-3.5 h-3.5" />
-                              </button>
+                              </Button>
                             </div>
                           </Table.Cell>
                         </Table.Row>
@@ -1359,49 +1371,57 @@ function SelfHPage() {
           className="fixed bg-kumo-base border border-kumo-line shadow-xl rounded-lg py-1.5 w-40 z-50 text-xs text-kumo-default font-semibold"
           onClick={(e) => e.stopPropagation()}
         >
-          <button
+          <Button
             onClick={() => {
               setContextMenu(prev => ({ ...prev, visible: false }));
               handleOpenFile(contextMenu.file);
             }}
-            className="w-full text-left px-4 py-2 hover:bg-kumo-recessed flex items-center gap-2"
+            variant="ghost"
+            size="sm"
+            className="w-full justify-start px-4 py-2 text-left hover:bg-kumo-recessed"
           >
             <FolderOpen className="w-3.5 h-3.5 text-warning" />
             <span>{contextMenu.file?.is_dir ? '打开' : '查看详情'}</span>
-          </button>
+          </Button>
           {!contextMenu.file?.is_dir && (
-            <button
+            <Button
               onClick={() => {
                 setContextMenu(prev => ({ ...prev, visible: false }));
                 downloadFile(contextMenu.file);
               }}
-              className="w-full text-left px-4 py-2 hover:bg-kumo-recessed flex items-center gap-2"
+              variant="ghost"
+              size="sm"
+              className="w-full justify-start px-4 py-2 text-left hover:bg-kumo-recessed"
             >
               <Download className="w-3.5 h-3.5" />
               <span>下载</span>
-            </button>
+            </Button>
           )}
           <div className="border-t border-kumo-line my-1" />
-          <button
+          <Button
             onClick={() => {
               setContextMenu(prev => ({ ...prev, visible: false }));
               renameFile(contextMenu.file);
             }}
-            className="w-full text-left px-4 py-2 hover:bg-kumo-recessed flex items-center gap-2"
+            variant="ghost"
+            size="sm"
+            className="w-full justify-start px-4 py-2 text-left hover:bg-kumo-recessed"
           >
             <Edit className="w-3.5 h-3.5" />
             <span>重命名</span>
-          </button>
-          <button
+          </Button>
+          <Button
             onClick={() => {
               setContextMenu(prev => ({ ...prev, visible: false }));
               deleteFile(contextMenu.file);
             }}
-            className="w-full text-left px-4 py-2 hover:bg-kumo-recessed flex items-center gap-2 text-kumo-danger hover:bg-kumo-danger/10"
+            variant="ghost"
+            size="sm"
+            className="w-full justify-start px-4 py-2 text-left text-kumo-danger hover:bg-kumo-danger/10"
           >
             <Trash className="w-3.5 h-3.5" />
             <span>删除</span>
-          </button>
+          </Button>
         </div>
       )}
 
@@ -1482,16 +1502,15 @@ function SelfHPage() {
           </Dialog.Title>
 
           <div className="space-y-4">
-            <div className="space-y-1">
-              <label className="text-[11px] font-bold text-kumo-subtle">任务名称</label>
-              <input
-                type="text"
-                value={cronForm.name}
-                onChange={(e) => setCronForm({ ...cronForm, name: e.target.value })}
-                placeholder="例如：每日数据库备份"
-                className="w-full bg-kumo-base text-kumo-strong border border-kumo-line rounded p-2 text-xs focus:outline-none focus:border-kumo-brand"
-              />
-            </div>
+            <Input
+              label="任务名称"
+              type="text"
+              size="sm"
+              value={cronForm.name}
+              onChange={(e) => setCronForm({ ...cronForm, name: e.target.value })}
+              placeholder="例如：每日数据库备份"
+              className="w-full"
+            />
 
             <div className="space-y-2">
               <div className="flex items-center gap-2">
@@ -1504,12 +1523,14 @@ function SelfHPage() {
 
               {cronForm.useCustom ? (
                 <div className="space-y-1">
-                  <input
+                  <Input
+                    aria-label="Cron 表达式"
                     type="text"
+                    size="sm"
                     value={cronForm.schedule}
                     onChange={(e) => setCronForm({ ...cronForm, schedule: e.target.value })}
                     placeholder="分 时 日 月 周，例如: 0 0 * * *"
-                    className="w-full bg-kumo-base text-kumo-strong border border-kumo-line rounded p-2 text-xs font-mono focus:outline-none focus:border-kumo-brand"
+                    className="w-full font-mono"
                   />
                   <p className="text-[9px] text-kumo-subtle">标准 Crontab 表达式支持：分、时、日、月、周</p>
                 </div>
@@ -1517,55 +1538,59 @@ function SelfHPage() {
                 <div className="bg-kumo-recessed/50 border border-kumo-line rounded p-3 space-y-3">
                   <div className="flex flex-wrap items-center gap-2 text-xs">
                     <span>频率:</span>
-                    <select
+                    <Select
+                      aria-label="频率"
+                      size="sm"
                       value={cronForm.periodType}
-                      onChange={(e) => setCronForm({ ...cronForm, periodType: e.target.value })}
-                      className="border border-kumo-line rounded px-1.5 py-0.5 bg-kumo-base text-xs font-semibold focus:outline-none"
-                    >
-                      <option value="minute">每分钟</option>
-                      <option value="hour">每小时</option>
-                      <option value="day">每天</option>
-                      <option value="week">每周</option>
-                      <option value="month">每月</option>
-                    </select>
+                      onValueChange={(value) => setCronForm({ ...cronForm, periodType: value })}
+                      items={[
+                        { value: 'minute', label: '每分钟' },
+                        { value: 'hour', label: '每小时' },
+                        { value: 'day', label: '每天' },
+                        { value: 'week', label: '每周' },
+                        { value: 'month', label: '每月' },
+                      ]}
+                    />
 
                     {cronForm.periodType === 'week' && (
-                      <select
+                      <Select
+                        aria-label="周几"
+                        size="sm"
                         value={cronForm.weekday}
-                        onChange={(e) => setCronForm({ ...cronForm, weekday: e.target.value })}
-                        className="border border-kumo-line rounded px-1.5 py-0.5 bg-kumo-base text-xs font-semibold focus:outline-none"
-                      >
-                        <option value="1">周一</option>
-                        <option value="2">周二</option>
-                        <option value="3">周三</option>
-                        <option value="4">周四</option>
-                        <option value="5">周五</option>
-                        <option value="6">周六</option>
-                        <option value="0">周日</option>
-                      </select>
+                        onValueChange={(value) => setCronForm({ ...cronForm, weekday: value })}
+                        items={[
+                          { value: '1', label: '周一' },
+                          { value: '2', label: '周二' },
+                          { value: '3', label: '周三' },
+                          { value: '4', label: '周四' },
+                          { value: '5', label: '周五' },
+                          { value: '6', label: '周六' },
+                          { value: '0', label: '周日' },
+                        ]}
+                      />
                     )}
 
                     {cronForm.periodType === 'month' && (
-                      <select
+                      <Select
+                        aria-label="每月日期"
+                        size="sm"
                         value={cronForm.dayOfMonth}
-                        onChange={(e) => setCronForm({ ...cronForm, dayOfMonth: parseInt(e.target.value) })}
-                        className="border border-kumo-line rounded px-1.5 py-0.5 bg-kumo-base text-xs font-semibold focus:outline-none"
-                      >
-                        {[...Array(31)].map((_, i) => (
-                          <option key={i + 1} value={i + 1}>{i + 1}日</option>
-                        ))}
-                      </select>
+                        onValueChange={(value) => setCronForm({ ...cronForm, dayOfMonth: parseInt(value, 10) })}
+                        items={[...Array(31)].map((_, i) => ({ value: i + 1, label: `${i + 1}日` }))}
+                      />
                     )}
 
                     {['day', 'week', 'month'].includes(cronForm.periodType) && (
                       <>
-                        <input
+                        <Input
+                          aria-label="小时"
                           type="number"
+                          size="sm"
                           min="0"
                           max="23"
                           value={cronForm.hour}
-                          onChange={(e) => setCronForm({ ...cronForm, hour: parseInt(e.target.value) })}
-                          className="border border-kumo-line rounded w-10 text-center bg-kumo-base"
+                          onChange={(e) => setCronForm({ ...cronForm, hour: parseInt(e.target.value, 10) })}
+                          className="w-14 text-center"
                         />
                         <span>时</span>
                       </>
@@ -1573,13 +1598,15 @@ function SelfHPage() {
 
                     {['hour', 'day', 'week', 'month'].includes(cronForm.periodType) && (
                       <>
-                        <input
+                        <Input
+                          aria-label="分钟"
                           type="number"
+                          size="sm"
                           min="0"
                           max="59"
                           value={cronForm.minute}
-                          onChange={(e) => setCronForm({ ...cronForm, minute: parseInt(e.target.value) })}
-                          className="border border-kumo-line rounded w-10 text-center bg-kumo-base"
+                          onChange={(e) => setCronForm({ ...cronForm, minute: parseInt(e.target.value, 10) })}
+                          className="w-14 text-center"
                         />
                         <span>分</span>
                       </>
@@ -1594,43 +1621,26 @@ function SelfHPage() {
 
             <div className="space-y-1">
               <label className="text-[11px] font-bold text-kumo-subtle block">任务类型</label>
-              <div className="flex gap-4">
-                <label className="flex items-center gap-1.5 text-xs cursor-pointer">
-                  <input
-                    type="radio"
-                    name="cron_type"
-                    value="shell"
-                    checked={cronForm.type === 'shell'}
-                    onChange={() => setCronForm({ ...cronForm, type: 'shell' })}
-                    className="accent-kumo-brand"
-                  />
-                  Shell 命令行
-                </label>
-                <label className="flex items-center gap-1.5 text-xs cursor-pointer">
-                  <input
-                    type="radio"
-                    name="cron_type"
-                    value="http"
-                    checked={cronForm.type === 'http'}
-                    onChange={() => setCronForm({ ...cronForm, type: 'http' })}
-                    className="accent-kumo-brand"
-                  />
-                  HTTP 请求 (GET)
-                </label>
-              </div>
-            </div>
-
-            <div className="space-y-1">
-              <label className="text-[11px] font-bold text-kumo-subtle">
-                {cronForm.type === 'http' ? 'HTTP 请求 URL 地址' : 'Shell 执行命令'}
-              </label>
-              <textarea
-                value={cronForm.command}
-                onChange={(e) => setCronForm({ ...cronForm, command: e.target.value })}
-                placeholder={cronForm.type === 'http' ? 'https://example.com/api/backup-trigger' : 'bash /data/scripts/backup.sh'}
-                className="w-full bg-kumo-base text-kumo-strong border border-kumo-line rounded p-2 text-xs font-mono focus:outline-none focus:border-kumo-brand min-h-[70px]"
+              <Tabs
+                variant="segmented"
+                size="sm"
+                value={cronForm.type}
+                onValueChange={(value) => setCronForm({ ...cronForm, type: value })}
+                tabs={[
+                  { value: 'shell', label: 'Shell 命令行' },
+                  { value: 'http', label: 'HTTP 请求 (GET)' },
+                ]}
               />
             </div>
+
+            <Textarea
+              label={cronForm.type === 'http' ? 'HTTP 请求 URL 地址' : 'Shell 执行命令'}
+              size="sm"
+              value={cronForm.command}
+              onChange={(e) => setCronForm({ ...cronForm, command: e.target.value })}
+              placeholder={cronForm.type === 'http' ? 'https://example.com/api/backup-trigger' : 'bash /data/scripts/backup.sh'}
+              className="w-full font-mono min-h-[70px]"
+            />
 
             <div className="flex items-center gap-2 py-1">
               <Switch
