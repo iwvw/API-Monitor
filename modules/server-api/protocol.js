@@ -236,6 +236,50 @@ function normalizeNetworkMetrics(network = {}) {
   };
 }
 
+function parsePercentValue(value, defaultVal = null) {
+  if (value === null || value === undefined || value === '') return defaultVal;
+  const parsed = typeof value === 'number' ? value : parseFloat(String(value));
+  return Number.isFinite(parsed) ? parsed : defaultVal;
+}
+
+function resolveGpuMemoryPercent(metrics = {}) {
+  if (!metrics || typeof metrics !== 'object') return 0;
+
+  const explicitPercent = parsePercentValue(metrics.gpu_mem_percent ?? metrics.gpu?.Percent);
+  if (explicitPercent !== null) {
+    return Math.max(0, Math.min(100, explicitPercent));
+  }
+
+  const used = parseByteValue(metrics.gpu_mem_used, null);
+  const total = parseByteValue(metrics.gpu_mem_total, null);
+  if (used !== null && total !== null && total > 0) {
+    return Math.max(0, Math.min(100, (used / total) * 100));
+  }
+
+  if (typeof metrics.gpu_mem === 'string' && metrics.gpu_mem.includes('/')) {
+    const [rawUsed, rawTotal] = metrics.gpu_mem.split('/');
+    const textUsed = parseByteValue(rawUsed, null);
+    const textTotal = parseByteValue(rawTotal, null);
+    if (textUsed !== null && textTotal !== null && textTotal > 0) {
+      return Math.max(0, Math.min(100, (textUsed / textTotal) * 100));
+    }
+  }
+
+  return 0;
+}
+
+function buildGpuInfo(metrics = {}) {
+  const source = metrics && typeof metrics === 'object' ? metrics : {};
+  return {
+    Model: source.gpu_model || source.gpu?.Model || '',
+    Usage: source.gpu_usage || source.gpu?.Usage || '0%',
+    Memory: source.gpu_mem || source.gpu?.Memory || '',
+    Power: source.gpu_power || source.gpu?.Power || '',
+    Temp: source.gpu_temp !== undefined ? source.gpu_temp : source.gpu?.Temp,
+    Percent: resolveGpuMemoryPercent(source),
+  };
+}
+
 function normalizeFrontendMetrics(metrics = {}) {
   if (!metrics || typeof metrics !== 'object') return metrics;
   const normalized = {
@@ -246,6 +290,8 @@ function normalizeFrontendMetrics(metrics = {}) {
   if (metrics.network) {
     normalized.network = normalizeNetworkMetrics(metrics.network);
   }
+
+  normalized.gpu_mem_percent = resolveGpuMemoryPercent(normalized);
 
   return normalized;
 }
@@ -406,6 +452,8 @@ module.exports = {
   normalizeByteText,
   normalizeNetworkMetrics,
   normalizeFrontendMetrics,
+  resolveGpuMemoryPercent,
+  buildGpuInfo,
   sanitizeIp,
   sanitizeHostInfo,
   validateHostState,

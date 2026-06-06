@@ -14,7 +14,7 @@ const monitorService = require('./monitor-service');
 const agentService = require('./agent-service');
 const sshService = require('./ssh-service');
 const { ServerAccount, ServerMonitorConfig, ServerMetricsHistory } = require('./models');
-const { TaskTypes, normalizeFrontendMetrics, normalizeNetworkMetrics } = require('./protocol');
+const { TaskTypes, buildGpuInfo, normalizeFrontendMetrics, normalizeNetworkMetrics } = require('./protocol');
 const DockerTaskTypes = TaskTypes; // 兼容已有 Docker 路由代码
 
 // ==================== 主机凭据接口 ====================
@@ -82,13 +82,7 @@ router.get('/accounts', (req, res) => {
             disk: diskArray,
             docker: cachedMetrics.docker,
             network: cachedMetrics.network,
-            gpu: {
-              Model: cachedMetrics.gpu_model,
-              Usage: cachedMetrics.gpu_usage,
-              Memory: cachedMetrics.gpu_mem,
-              Power: cachedMetrics.gpu_power,
-              Temp: cachedMetrics.gpu_temp,
-            },
+            gpu: buildGpuInfo(cachedMetrics),
             platform: cachedMetrics.platform,
             platformVersion: cachedMetrics.platformVersion,
             agentVersion: cachedMetrics.agent_version,
@@ -470,13 +464,7 @@ router.post('/info', async (req, res) => {
           Load: metrics.load,
           Temp: metrics.cpu_temp,
         },
-        gpu: {
-          Model: metrics.gpu_model,
-          Usage: metrics.gpu_usage,
-          Memory: metrics.gpu_mem,
-          Power: metrics.gpu_power,
-          Temp: metrics.gpu_temp,
-        },
+        gpu: buildGpuInfo(metrics),
         memory: {
           Usage: metrics.mem_usage_percent,
           Total: metrics.mem_total_mb,

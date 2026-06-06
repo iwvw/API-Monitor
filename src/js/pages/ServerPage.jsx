@@ -202,6 +202,22 @@ const formatBytesSpeed = (bytes) => {
   return `${Math.round(value)} B/s`;
 };
 
+const clampPercent = (value) => Math.max(0, Math.min(100, value));
+
+const getGpuMemPercent = (record = {}) => {
+  if (record.gpu_mem_percent !== null && record.gpu_mem_percent !== undefined) {
+    return clampPercent(toNumber(record.gpu_mem_percent, 0));
+  }
+
+  const used = toNumber(record.gpu_mem_used, NaN);
+  const total = toNumber(record.gpu_mem_total, NaN);
+  if (Number.isFinite(used) && Number.isFinite(total) && total > 0) {
+    return clampPercent((used / total) * 100);
+  }
+
+  return Number.isFinite(used) && used >= 0 && used <= 100 ? used : 0;
+};
+
 const normalizeByteText = (value, fallback = '0 B') => {
   if (value === null || value === undefined) return fallback;
   const raw = String(value).trim();
@@ -2674,7 +2690,7 @@ function ServerPage() {
                 const hasGpuData = !!server.info?.gpu?.Model || records.some(r => r.gpu_usage !== null && r.gpu_usage !== undefined && toNumber(r.gpu_usage, 0) > 0);
                 const gpuSeries = getMetricSeries(records, [
                   { name: 'GPU', color: gpuColor, value: r => toNumber(r.gpu_usage, 0) },
-                  { name: 'VRAM', color: vramColor, value: r => toNumber(r.gpu_mem_used ?? r.gpu_mem_percent, 0) },
+                  { name: 'VRAM', color: vramColor, value: getGpuMemPercent },
                   { name: 'Power (W)', color: powerColor, value: r => toNumber(r.gpu_power, 0) },
                 ]);
                 const netSeries = getMetricSeries(records, [
@@ -2997,7 +3013,7 @@ function ServerPage() {
                                   <div className="flex flex-col gap-2">
                                     <div className="flex flex-wrap items-center gap-3">
                                       <ChartLegend.SmallItem name="GPU" color={gpuColor} value={getLatestMetricValue(records, r => toNumber(r.gpu_usage, 0), v => `${v.toFixed(1)}%`)} />
-                                      <ChartLegend.SmallItem name="VRAM" color={vramColor} value={getLatestMetricValue(records, r => toNumber(r.gpu_mem_used ?? r.gpu_mem_percent, 0), v => `${v.toFixed(1)}%`)} />
+                                      <ChartLegend.SmallItem name="VRAM" color={vramColor} value={getLatestMetricValue(records, getGpuMemPercent, v => `${v.toFixed(1)}%`)} />
                                       <ChartLegend.SmallItem name="Power" color={powerColor} value={getLatestMetricValue(records, r => toNumber(r.gpu_power, 0), v => `${v.toFixed(1)}W`)} />
                                     </div>
                                     <TimeseriesChart
