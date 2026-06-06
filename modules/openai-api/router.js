@@ -584,9 +584,9 @@ router.post(
       }
 
       // 检查并转换本地图片路径为 Base64，以兼容公网 API
-      // 优化：如果是内部模块 (Gemini CLI / Antigravity) 或目标是本地服务器，它们支持直接读取本地文件路径，无需转换
+      // 优化：如果是内部模块 (Gemini CLI) 或目标是本地服务器，它们支持直接读取本地文件路径，无需转换
       // 这样可以避免下游日志中出现巨大的 Base64 字符串，且能正确显示图片路径
-      const isInternalModule = fullUrl.includes('gemini-cli') || fullUrl.includes('antigravity');
+      const isInternalModule = fullUrl.includes('gemini-cli');
 
       // 检查是否为本地地址（localhost/127.0.0.1/内网地址），本地模块可以直接读取文件
       const isLocalEndpoint = /^https?:\/\/(localhost|127\.0\.0\.1|0\.0\.0\.0|192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)/i.test(fullUrl);

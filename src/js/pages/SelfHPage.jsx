@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { toast } from '../modules/toast.js';
+import { dialog } from '../modules/dialog.js';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Dialog } from '@cloudflare/kumo/components/dialog';
 import { Input, Textarea } from '@cloudflare/kumo/components/input';
@@ -11,6 +12,7 @@ import { Select } from '@cloudflare/kumo/components/select';
 import { Tabs } from '@cloudflare/kumo';
 import useTableResize from '../composables/useTableResize.js';
 import useStore from '../store.js';
+import { MODULE_TABS_PROPS, TOOL_TABS_PROPS } from '../modules/kumoTabs.js';
 import { renderMarkdown, formatDateTime } from '../modules/utils.js';
 import {
   FolderOpen,
@@ -282,7 +284,9 @@ function SelfHPage() {
 
   // Create Folder
   const mkdirOpenList = async () => {
-    const name = window.prompt('新建文件夹名称:');
+    const name = await dialog.prompt({
+      message: '新建文件夹名称:',
+    });
     if (!name) return;
     try {
       const response = await fetch(`/api/openlist/${currentAccount.id}/proxy/fs/mkdir`, {
@@ -347,7 +351,7 @@ function SelfHPage() {
   };
 
   const deleteFile = async (file) => {
-    if (!window.confirm(`确认删除 "${file.name}" 吗？`)) return;
+    if (!(await dialog.confirm(`确认删除 "${file.name}" 吗？`))) return;
     try {
       const response = await fetch(`/api/openlist/${currentAccount.id}/proxy/fs/remove`, {
         method: 'POST',
@@ -370,7 +374,10 @@ function SelfHPage() {
   };
 
   const renameFile = async (file) => {
-    const newName = window.prompt('请输入新名称:', file.name);
+    const newName = await dialog.prompt({
+      message: '请输入新名称:',
+      defaultValue: file.name,
+    });
     if (!newName || newName === file.name) return;
     try {
       const response = await fetch(`/api/openlist/${currentAccount.id}/proxy/fs/rename`, {
@@ -472,7 +479,7 @@ function SelfHPage() {
   };
 
   const handleDeleteAccount = async (id) => {
-    if (!window.confirm('确认删除此 OpenList 实例配置吗？')) return;
+    if (!(await dialog.confirm('确认删除此 OpenList 实例配置吗？'))) return;
     try {
       const response = await fetch(`/api/openlist/manage-accounts/${id}`, {
         method: 'DELETE',
@@ -506,7 +513,7 @@ function SelfHPage() {
         if (result.status === 'online') {
           toast.success(`连接成功！用户: ${result.user?.username || '未知'}`);
         } else if (result.status === 'auth_failed') {
-          toast.warning('认证失败，请检查 Token');
+          toast.warning('认证失败，请检查令牌');
         } else {
           toast.error('测试失败: ' + (result.error || '服务离线'));
         }
@@ -608,7 +615,7 @@ function SelfHPage() {
   };
 
   const handleDeleteCronTask = async (task) => {
-    if (!window.confirm(`确认删除定时任务 "${task.name}" 吗？`)) return;
+    if (!(await dialog.confirm(`确认删除定时任务 "${task.name}" 吗？`))) return;
     try {
       const res = await fetch(`/api/cron/tasks/${task.id}`, {
         method: 'DELETE',
@@ -625,7 +632,7 @@ function SelfHPage() {
   };
 
   const handleClearCronLogs = async () => {
-    if (!window.confirm('确认清理 7 天前的所有运行日志吗？')) return;
+    if (!(await dialog.confirm('确认清理 7 天前的所有运行日志吗？'))) return;
     try {
       const res = await fetch('/api/cron/logs?days=7', {
         method: 'DELETE',
@@ -787,8 +794,7 @@ function SelfHPage() {
       {/* Sec Tab Header */}
       <div className="flex flex-wrap items-center justify-between border-b border-kumo-line pb-3 gap-4">
         <Tabs
-          variant="segmented"
-          size="sm"
+          {...MODULE_TABS_PROPS}
           value={subTab}
           onValueChange={setSubTab}
           tabs={[
@@ -871,8 +877,7 @@ function SelfHPage() {
                   {/* Right: Actions */}
                   <div className="flex items-center gap-2">
                     <Tabs
-                      variant="segmented"
-                      size="sm"
+                      {...TOOL_TABS_PROPS}
                       value={layoutMode}
                       onValueChange={(value) => {
                         setLayoutMode(value);
@@ -1134,7 +1139,7 @@ function SelfHPage() {
                   className="w-full font-mono"
                 />
                 <Input
-                  label="认证 Token"
+                  label="认证令牌"
                   type="password"
                   size="sm"
                   value={newAccForm.api_token}
@@ -1453,11 +1458,18 @@ function SelfHPage() {
                 <Download className="w-3.5 h-3.5" />
                 <span>下载</span>
               </Button>
-              <Dialog.Close asChild>
-  <Button className="h-8 border border-kumo-line bg-kumo-recessed text-xs flex items-center justify-center p-2">
-                  <X className="w-4 h-4" />
-                </Button>
-</Dialog.Close>
+              <Dialog.Close
+                render={(props) => (
+                  <Button
+                    {...props}
+                    variant="secondary"
+                    shape="square"
+                    className="h-8 border border-kumo-line bg-kumo-recessed text-xs flex items-center justify-center p-2"
+                  >
+                    <X className="w-4 h-4" />
+                  </Button>
+                )}
+              />
             </div>
           </div>
           <div className="relative min-h-[300px] bg-kumo-recessed rounded border border-kumo-line flex items-center justify-center overflow-hidden">
@@ -1487,9 +1499,13 @@ function SelfHPage() {
           </Dialog.Title>
           <div>{detailModal.content}</div>
           <div className="flex justify-end pt-2">
-            <Dialog.Close asChild>
-  <Button className="text-xs h-8">关闭</Button>
-</Dialog.Close>
+            <Dialog.Close
+              render={(props) => (
+                <Button {...props} variant="secondary" className="text-xs h-8">
+                  关闭
+                </Button>
+              )}
+            />
           </div>
         </Dialog>
       </Dialog.Root>
@@ -1622,8 +1638,7 @@ function SelfHPage() {
             <div className="space-y-1">
               <label className="text-[11px] font-bold text-kumo-subtle block">任务类型</label>
               <Tabs
-                variant="segmented"
-                size="sm"
+                {...TOOL_TABS_PROPS}
                 value={cronForm.type}
                 onValueChange={(value) => setCronForm({ ...cronForm, type: value })}
                 tabs={[
@@ -1651,9 +1666,17 @@ function SelfHPage() {
             </div>
 
             <div className="flex justify-end gap-2 pt-2">
-              <Dialog.Close asChild>
-  <Button className="border border-kumo-line bg-kumo-recessed text-xs h-8">取消</Button>
-</Dialog.Close>
+              <Dialog.Close
+                render={(props) => (
+                  <Button
+                    {...props}
+                    variant="secondary"
+                    className="border border-kumo-line bg-kumo-recessed text-xs h-8"
+                  >
+                    取消
+                  </Button>
+                )}
+              />
               <Button variant="primary" onClick={handleSaveCronTask} className="text-xs h-8">
                 保存任务
               </Button>

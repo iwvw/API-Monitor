@@ -352,3 +352,10 @@ chore(refactor): finalize Kumo React migration
 6. 更新文档。
 7. 一个 commit 对应一个任务。
 8. 不留下临时脚本、tmp 文件、staged/unstaged 混合状态、文档已完成但代码未完成的记录。
+
+## 最新收口备注（2026-06-06）
+
+- Cloudflare React 页面已完成主要后端接口覆盖和 Kumo `Table` 验证，下一步优先补自动化 smoke，而不是继续手工点检同一页面。
+- Dialog 迁移重点已完成：React 页面旧 `asChild` 写法已清零，Cloudflare 关闭后空节点问题已修。
+- 页面底部间距策略已调整：由 `MainLayout` 统一控制，普通页面不要再补 `pb-20`；只有固定底部播放器等真实遮挡场景才保留额外避让。
+- 全站中文化已做第一轮可见文本收敛，后续应通过浏览器文本扫描逐路由补漏；旧 Vue 文件若确认废弃，应在阶段 6 统一删除或归档。

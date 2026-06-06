@@ -1,11 +1,23 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { io } from 'socket.io-client';
-import Chart from 'chart.js/auto';
+import * as echarts from 'echarts/core';
+import { LineChart } from 'echarts/charts';
+import {
+  AriaComponent,
+  AxisPointerComponent,
+  BrushComponent,
+  GridComponent,
+  ToolboxComponent,
+  TooltipComponent,
+} from 'echarts/components';
+import { CanvasRenderer } from 'echarts/renderers';
 import { toast } from '../modules/toast.js';
+import { dialog } from '../modules/dialog.js';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Checkbox } from '@cloudflare/kumo/components/checkbox';
 import { Input } from '@cloudflare/kumo/components/input';
-import { Tabs } from '@cloudflare/kumo';
+import { Tabs, TimeseriesChart } from '@cloudflare/kumo';
+import { MODULE_TABS_PROPS, TOOL_TABS_PROPS } from '../modules/kumoTabs.js';
 import {
   Activity,
   Plus,
@@ -26,6 +38,17 @@ import {
   Info
 } from '../components/Icons.jsx';
 
+echarts.use([
+  LineChart,
+  AxisPointerComponent,
+  BrushComponent,
+  GridComponent,
+  ToolboxComponent,
+  TooltipComponent,
+  CanvasRenderer,
+  AriaComponent,
+]);
+
 // ==================== 样式辅助 ====================
 const getKumoToken = (tokenName, fallback) => {
   if (typeof window === 'undefined') return fallback;
@@ -42,7 +65,7 @@ const getKumoChartColors = () => ({
 });
 
 // ==================== UptimeMonitorDetails 子组件 ====================
-// 使用独立的子组件以隔离 Chart.js 的生命周期，并在折叠/销毁时自动清理 canvas
+// 使用独立的子组件隔离 Kumo TimeseriesChart，在折叠/销毁时由组件自身清理 ECharts 实例
 function UptimeMonitorDetails({
   monitor,
   heartbeats = [],
@@ -53,9 +76,6 @@ function UptimeMonitorDetails({
   onDelete,
   formatDateTime
 }) {
-  const canvasRef = useRef(null);
-  const chartInstanceRef = useRef(null);
-
   // 处理心跳时间范围标签
   const getHeartbeatTimeLabel = () => {
     if (heartbeats.length === 0) return '--';
@@ -72,67 +92,18 @@ function UptimeMonitorDetails({
     return `${Math.floor(seconds / 86400)}天`;
   };
 
-  // 渲染/更新 Chart.js
-  useEffect(() => {
-    if (!canvasRef.current) return;
-
-    // 获取并格式化前 60 个历史点 (反转以便从左往右按时间升序)
-    const chartPoints = [...heartbeats].slice(0, 60).reverse();
-    const labels = chartPoints.map(b => {
-      const d = new Date(b.time);
-      return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}`;
-    });
-    const pings = chartPoints.map(b => b.ping || 0);
-
+  const chartData = useMemo(() => {
     const colors = getKumoChartColors();
-
-    if (chartInstanceRef.current) {
-      chartInstanceRef.current.data.labels = labels;
-      chartInstanceRef.current.data.datasets[0].data = pings;
-      chartInstanceRef.current.update('none');
-    } else {
-      chartInstanceRef.current = new Chart(canvasRef.current, {
-        type: 'line',
-        data: {
-          labels,
-          datasets: [{
-            label: '响应时间 (ms)',
-            data: pings,
-            borderColor: colors.success,
-            backgroundColor: 'transparent',
-            borderWidth: 1.5,
-            tension: 0.3,
-            pointRadius: 0,
-            pointHoverRadius: 4
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          animation: false,
-          plugins: { legend: { display: false } },
-          scales: {
-            x: { display: false },
-            y: {
-              beginAtZero: true,
-              grid: { color: 'rgba(156, 163, 175, 0.1)' },
-              ticks: { font: { size: 9 } }
-            }
-          }
-        }
-      });
-    }
+    return [{
+      name: '响应时间',
+      color: colors.success,
+      data: [...heartbeats]
+        .slice(0, 60)
+        .reverse()
+        .map((beat) => [new Date(beat.time).getTime(), Number(beat.ping) || 0])
+        .filter(([timestamp]) => Number.isFinite(timestamp)),
+    }];
   }, [heartbeats]);
-
-  // 组件卸载销毁图表
-  useEffect(() => {
-    return () => {
-      if (chartInstanceRef.current) {
-        chartInstanceRef.current.destroy();
-        chartInstanceRef.current = null;
-      }
-    };
-  }, []);
 
   // 生成 60 颗心跳丸
   const detailedBeats = useMemo(() => {
@@ -194,7 +165,21 @@ function UptimeMonitorDetails({
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
         {/* 图表主栏 (Span 3) */}
         <div className="lg:col-span-3 bg-kumo-base border border-kumo-line rounded-lg p-3 h-36 relative">
-          <canvas ref={canvasRef}></canvas>
+          <TimeseriesChart
+            echarts={echarts}
+            data={chartData}
+            height={120}
+            yAxisName="ms"
+            yAxisTickFormat={(value) => `${Math.round(value)}ms`}
+            tooltipValueFormat={(value) => `${Math.round(value)} ms`}
+            xAxisTickFormat={(timestamp) => {
+              const date = new Date(timestamp);
+              return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+            }}
+            tooltipMode="single"
+            gradient
+            ariaDescription="Uptime monitor response time history"
+          />
         </div>
 
         {/* 右侧可用率统计指标 */}
@@ -545,7 +530,7 @@ function UptimePage() {
   };
 
   const handleDeleteMonitor = async (id) => {
-    if (!confirm('确定要删除此监测目标吗？')) return;
+    if (!(await dialog.confirm('确定要删除此监测目标吗？'))) return;
     try {
       const res = await fetch(`/api/uptime/monitors/${id}`, {
         method: 'DELETE',
@@ -588,7 +573,7 @@ function UptimePage() {
 
   const handleBatchDelete = async () => {
     if (selectedMonitorIds.length === 0) return;
-    if (!confirm(`确定要删除选中的 ${selectedMonitorIds.length} 个监测目标吗？`)) return;
+    if (!(await dialog.confirm(`确定要删除选中的 ${selectedMonitorIds.length} 个监测目标吗？`))) return;
 
     try {
       const res = await fetch('/api/uptime/monitors/batch-delete', {
@@ -724,12 +709,11 @@ function UptimePage() {
   };
 
   return (
-    <div className="space-y-6 pb-20">
+    <div className="space-y-6">
       {/* ==================== 顶部 Tab 导航 ==================== */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b border-kumo-line pb-4 gap-4">
+      <div className="flex flex-wrap items-center justify-between border-b border-kumo-line pb-3 gap-4">
         <Tabs
-          variant="segmented"
-          size="sm"
+          {...MODULE_TABS_PROPS}
           value={uptimeCurrentTab}
           onValueChange={(value) => {
             if (value === 'add') {
@@ -1019,8 +1003,7 @@ function UptimePage() {
             <div className="md:col-span-12 space-y-1.5">
               <label className="text-xs font-semibold text-kumo-subtle">监测类型</label>
               <Tabs
-                variant="segmented"
-                size="sm"
+                {...TOOL_TABS_PROPS}
                 value={uptimeForm.type}
                 onValueChange={(value) => setUptimeForm(prev => ({ ...prev, type: value }))}
                 tabs={[
@@ -1039,7 +1022,7 @@ function UptimePage() {
                 label="显示名称 *"
                 type="text"
                 size="sm"
-                placeholder="e.g. 生产数据库端口"
+                placeholder="例如：生产数据库端口"
                 value={uptimeForm.name}
                 onChange={(e) => setUptimeForm(prev => ({ ...prev, name: e.target.value }))}
                 className="w-full"
@@ -1063,10 +1046,10 @@ function UptimePage() {
               <>
                 <div className={uptimeForm.type === 'tcp' ? 'md:col-span-6' : 'md:col-span-8'}>
                   <Input
-                    label="主机 Hostname / IP *"
+                    label="主机名 / IP *"
                     type="text"
                     size="sm"
-                    placeholder="e.g. 192.168.1.100 or db.server.internal"
+                    placeholder="例如：192.168.1.100 或 db.server.internal"
                     value={uptimeForm.hostname}
                     onChange={(e) => setUptimeForm(prev => ({ ...prev, hostname: e.target.value }))}
                     className="w-full"
@@ -1091,7 +1074,7 @@ function UptimePage() {
             {/* 监测频率与重试参数 */}
             <div className="md:col-span-6">
               <Input
-                label="检测频率 (秒)"
+                label="检测频率（秒）"
                 type="number"
                 size="sm"
                 min="20"
@@ -1124,7 +1107,7 @@ function UptimePage() {
             {['http'].includes(uptimeForm.type) && (
               <div className="md:col-span-6">
                 <Input
-                  label="SSL 证书到期提醒 (天)"
+                  label="SSL 证书到期提醒（天）"
                   type="number"
                   size="sm"
                   placeholder="7"
@@ -1150,10 +1133,10 @@ function UptimePage() {
             {uptimeForm.type === 'keyword' && (
               <div className="md:col-span-12">
                 <Input
-                  label="关键字匹配 (网页中必须包含此文字) *"
+                  label="关键字匹配（网页中必须包含此文字）*"
                   type="text"
                   size="sm"
-                  placeholder="e.g. success or 正常"
+                  placeholder="例如：success 或 正常"
                   value={uptimeForm.keyword}
                   onChange={(e) => setUptimeForm(prev => ({ ...prev, keyword: e.target.value }))}
                   className="w-full"

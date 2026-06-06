@@ -1,692 +1,2649 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { toast } from '../modules/toast.js';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { LayerCard, Tabs } from '@cloudflare/kumo';
+import { Badge } from '@cloudflare/kumo/components/badge';
 import { Button } from '@cloudflare/kumo/components/button';
+import { Checkbox } from '@cloudflare/kumo/components/checkbox';
 import { Dialog } from '@cloudflare/kumo/components/dialog';
-import { Input } from '@cloudflare/kumo/components/input';
+import { Input, Textarea } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
 import { Table } from '@cloudflare/kumo/components/table';
-import { Tabs } from '@cloudflare/kumo';
-import { Checkbox } from '@cloudflare/kumo/components/checkbox';
+import { Switch } from '@cloudflare/kumo/components/switch';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import useTableResize from '../composables/useTableResize.js';
+import { MODULE_TABS_PROPS } from '../modules/kumoTabs.js';
+import { toast } from '../modules/toast.js';
+import { dialog } from '../modules/dialog.js';
 import {
-  Globe,
-  Settings,
-  Plus,
-  Trash,
-  RefreshCw,
-  Server,
+  ArrowLeft,
+  Box,
+  Check,
   Cloud,
-  Layers,
-  Terminal,
+  Copy,
   Database,
+  Download,
+  Edit,
+  ExternalLink,
+  Eye,
+  EyeOff,
+  FileText,
+  Folder,
+  Globe,
+  Key,
+  Layers,
   Lock,
-  Box
+  Plus,
+  RefreshCw,
+  Save,
+  Search,
+  Settings,
+  Shield,
+  Terminal,
+  Trash,
+  Upload,
+  X,
 } from '../components/Icons.jsx';
 
-const CLOUDFLARE_TABS = [
-  { value: 'zones', label: <span className="inline-flex items-center gap-1.5"><Globe className="w-3.5 h-3.5" />Websites</span> },
-  { value: 'workers', label: <span className="inline-flex items-center gap-1.5"><Terminal className="w-3.5 h-3.5" />Workers</span> },
-  { value: 'pages', label: <span className="inline-flex items-center gap-1.5"><Layers className="w-3.5 h-3.5" />Pages</span> },
-  { value: 'r2', label: <span className="inline-flex items-center gap-1.5"><Database className="w-3.5 h-3.5" />R2</span> },
-  { value: 'tunnels', label: <span className="inline-flex items-center gap-1.5"><Lock className="w-3.5 h-3.5" />Zero Trust</span> },
-  { value: 'accounts', label: <span className="inline-flex items-center gap-1.5"><Settings className="w-3.5 h-3.5" />Accounts</span> },
+const RECORD_TYPE_OPTIONS = ['A', 'AAAA', 'CNAME', 'TXT', 'MX', 'NS', 'SRV', 'CAA', 'PTR'];
+const SSL_MODES = [
+  { value: 'off', label: '关闭' },
+  { value: 'flexible', label: '灵活' },
+  { value: 'full', label: '完全' },
+  { value: 'strict', label: '严格' },
 ];
 
+const CLOUDFLARE_TABS = [
+  { value: 'dns', label: <span className="inline-flex items-center gap-1.5"><Globe className="h-3.5 w-3.5" />域名与 DNS</span> },
+  { value: 'workers', label: <span className="inline-flex items-center gap-1.5"><Terminal className="h-3.5 w-3.5" />Workers</span> },
+  { value: 'pages', label: <span className="inline-flex items-center gap-1.5"><Layers className="h-3.5 w-3.5" />Pages</span> },
+  { value: 'r2', label: <span className="inline-flex items-center gap-1.5"><Database className="h-3.5 w-3.5" />R2 存储</span> },
+  { value: 'tunnels', label: <span className="inline-flex items-center gap-1.5"><Lock className="h-3.5 w-3.5" />Tunnel</span> },
+  { value: 'templates', label: <span className="inline-flex items-center gap-1.5"><FileText className="h-3.5 w-3.5" />DNS 模板</span> },
+  { value: 'accounts', label: <span className="inline-flex items-center gap-1.5"><Settings className="h-3.5 w-3.5" />账号</span> },
+];
+
+const EMPTY_ACCOUNT_FORM = {
+  name: '',
+  email: '',
+  apiToken: '',
+  skipVerify: false,
+};
+
+const EMPTY_ZONE_FORM = {
+  name: '',
+  jumpStart: false,
+};
+
+const EMPTY_RECORD_FORM = {
+  type: 'A',
+  name: '@',
+  content: '',
+  ttl: 1,
+  proxied: false,
+  priority: 10,
+};
+
+const EMPTY_TEMPLATE_FORM = {
+  name: '',
+  description: '',
+  type: 'A',
+  recordName: '@',
+  content: '',
+  ttl: 1,
+  proxied: false,
+  priority: 10,
+};
+
+const EMPTY_WORKER_FORM = {
+  name: '',
+  script: 'export default {\n  async fetch(request, env, ctx) {\n    return new Response("Hello Cloudflare Workers");\n  },\n};',
+};
+
+const EMPTY_TUNNEL_CONFIG = JSON.stringify(
+  {
+    ingress: [
+      { hostname: 'app.example.com', service: 'http://localhost:8080' },
+      { service: 'http_status:404' },
+    ],
+  },
+  null,
+  2
+);
+
+function formatDate(value) {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '-';
+  return date.toLocaleString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function formatBytes(bytes) {
+  const value = Number(bytes || 0);
+  if (value >= 1024 ** 3) return `${(value / 1024 ** 3).toFixed(2)} GB`;
+  if (value >= 1024 ** 2) return `${(value / 1024 ** 2).toFixed(2)} MB`;
+  if (value >= 1024) return `${(value / 1024).toFixed(2)} KB`;
+  return `${value} B`;
+}
+
+function formatNumber(value) {
+  const number = Number(value || 0);
+  if (number >= 1000000) return `${(number / 1000000).toFixed(1)}M`;
+  if (number >= 1000) return `${(number / 1000).toFixed(1)}K`;
+  return String(number);
+}
+
+function recordShortName(name, zoneName) {
+  if (!name || !zoneName) return name || '@';
+  if (name === zoneName) return '@';
+  const suffix = `.${zoneName}`;
+  return name.endsWith(suffix) ? name.slice(0, -suffix.length) : name;
+}
+
+function zoneStatusLabel(status) {
+  const map = {
+    active: '已激活',
+    pending: '待验证',
+    initializing: '初始化中',
+    moved: '已迁移',
+    deleted: '已删除',
+  };
+  return map[status] || status || '未知';
+}
+
+function tunnelStatusLabel(status, connections = []) {
+  if (connections.length > 0) return '已连接';
+  const map = {
+    active: '已连接',
+    healthy: '健康',
+    inactive: '未连接',
+    down: '离线',
+    degraded: '降级',
+  };
+  return map[status] || status || '未知';
+}
+
+function statusVariant(status) {
+  if (['active', 'healthy', 'success', 'finished', 'ok'].includes(status)) return 'success';
+  if (['error', 'failed', 'down'].includes(status)) return 'error';
+  if (['pending', 'initializing', 'queued', 'building', 'degraded'].includes(status)) return 'warning';
+  return 'outline';
+}
+
+function downloadJson(filename, payload) {
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+function parseJsonInput(input, fallbackKey) {
+  const parsed = JSON.parse(input);
+  if (Array.isArray(parsed)) return parsed;
+  if (fallbackKey && Array.isArray(parsed[fallbackKey])) return parsed[fallbackKey];
+  return parsed;
+}
+
 function DnsPage() {
-  const [activeTab, setActiveTab] = useState('zones'); // 'zones' | 'workers' | 'pages' | 'r2' | 'tunnels' | 'accounts'
-  
-  // Accounts state
+  const [activeTab, setActiveTab] = useState('dns');
   const [accounts, setAccounts] = useState([]);
   const [selectedAccountId, setSelectedAccountId] = useState('');
-  
-  // Data state
   const [zones, setZones] = useState([]);
+  const [selectedZoneId, setSelectedZoneId] = useState('');
+  const [records, setRecords] = useState([]);
+  const [recordTypes, setRecordTypes] = useState(RECORD_TYPE_OPTIONS);
+  const [templates, setTemplates] = useState([]);
   const [workers, setWorkers] = useState([]);
+  const [workerSubdomain, setWorkerSubdomain] = useState('');
   const [pages, setPages] = useState([]);
   const [r2Buckets, setR2Buckets] = useState([]);
+  const [r2SelectedBucket, setR2SelectedBucket] = useState(null);
+  const [r2Objects, setR2Objects] = useState([]);
+  const [r2Prefixes, setR2Prefixes] = useState([]);
+  const [r2CurrentPrefix, setR2CurrentPrefix] = useState('');
   const [tunnels, setTunnels] = useState([]);
-  const [loadingData, setLoadingData] = useState(false);
-  const [refreshing, setRefreshing] = useState(false);
+  const [sslInfo, setSslInfo] = useState(null);
+  const [analytics, setAnalytics] = useState(null);
+  const [analyticsRange, setAnalyticsRange] = useState('24h');
+  const [selectedRecordIds, setSelectedRecordIds] = useState([]);
+  const [selectedR2Objects, setSelectedR2Objects] = useState([]);
+  const [accountTokens, setAccountTokens] = useState({});
+  const [loading, setLoading] = useState({});
+  const [recordFilter, setRecordFilter] = useState({ type: '', name: '' });
+  const [quickSwitch, setQuickSwitch] = useState({ type: 'A', name: '@', newContent: '' });
+  const [modal, setModal] = useState({ type: null, data: null });
+  const [accountForm, setAccountForm] = useState(EMPTY_ACCOUNT_FORM);
+  const [zoneForm, setZoneForm] = useState(EMPTY_ZONE_FORM);
+  const [recordForm, setRecordForm] = useState(EMPTY_RECORD_FORM);
+  const [templateForm, setTemplateForm] = useState(EMPTY_TEMPLATE_FORM);
+  const [workerForm, setWorkerForm] = useState(EMPTY_WORKER_FORM);
+  const [workerRouteState, setWorkerRouteState] = useState({ worker: null, routes: [], form: { id: '', pattern: '', script: '' } });
+  const [workerDomainState, setWorkerDomainState] = useState({ worker: null, domains: [], hostname: '', environment: 'production' });
+  const [workerAnalyticsState, setWorkerAnalyticsState] = useState({ worker: null, analytics: null });
+  const [pagesDeployState, setPagesDeployState] = useState({ project: null, deployments: [] });
+  const [pagesDomainState, setPagesDomainState] = useState({ project: null, domains: [], domain: '' });
+  const [r2BucketForm, setR2BucketForm] = useState({ name: '', location: 'auto' });
+  const [importState, setImportState] = useState({ kind: '', text: '', overwrite: false });
+  const [tunnelForm, setTunnelForm] = useState({ name: '' });
+  const [tunnelTokenState, setTunnelTokenState] = useState({ tunnel: null, token: '' });
+  const [tunnelConfigState, setTunnelConfigState] = useState({ tunnel: null, text: EMPTY_TUNNEL_CONFIG });
+  const [tunnelConnectionState, setTunnelConnectionState] = useState({ tunnel: null, connections: [] });
 
-  const [zoneColWidths, startZoneResize] = useTableResize([260, 120, 120, 140]);
-  const [tunnelColWidths, startTunnelResize] = useTableResize([260, 120, 140, 140]);
-  const [accountColWidths, startAccountResize] = useTableResize([220, 260, 120, 140]);
+  const [zoneColWidths, startZoneResize] = useTableResize([260, 110, 110, 230, 160]);
+  const [recordColWidths, startRecordResize] = useTableResize([48, 88, 180, 360, 90, 90, 170, 150]);
+  const [workerColWidths, startWorkerResize] = useTableResize([260, 160, 180, 280]);
+  const [pageColWidths, startPageResize] = useTableResize([240, 220, 150, 150, 220]);
+  const [r2ColWidths, startR2Resize] = useTableResize([48, 360, 120, 180, 150]);
+  const [tunnelColWidths, startTunnelResize] = useTableResize([260, 120, 100, 180, 240]);
+  const [templateColWidths, startTemplateResize] = useTableResize([220, 90, 260, 120, 180]);
+  const [accountColWidths, startAccountResize] = useTableResize([220, 260, 240, 170, 190]);
 
-  // Modal states
-  const [showAddAccountModal, setShowAddAccountModal] = useState(false);
-  const [editingAccount, setEditingAccount] = useState(null);
-  const [accountForm, setAccountForm] = useState({
-    name: '',
-    email: '',
-    apiToken: '',
-    skipVerify: false
-  });
-  const [submittingAccount, setSubmittingAccount] = useState(false);
+  const selectedAccount = useMemo(
+    () => accounts.find((account) => String(account.id) === String(selectedAccountId)) || null,
+    [accounts, selectedAccountId]
+  );
 
-  const getAuthHeaders = useCallback(() => {
-    const password = localStorage.getItem('admin_password') || '';
-    return {
-      'Content-Type': 'application/json',
-      'x-admin-password': password,
-    };
+  const selectedZone = useMemo(
+    () => zones.find((zone) => zone.id === selectedZoneId) || null,
+    [zones, selectedZoneId]
+  );
+
+  const selectedRecords = useMemo(
+    () => records.filter((record) => selectedRecordIds.includes(record.id)),
+    [records, selectedRecordIds]
+  );
+
+  const setLoadingKey = useCallback((key, value) => {
+    setLoading((prev) => ({ ...prev, [key]: value }));
   }, []);
 
-  // ==================== Account Management ====================
-  const loadAccounts = useCallback(async () => {
-    try {
-      const response = await fetch('/api/cloudflare/accounts', { headers: getAuthHeaders() });
-      const data = await response.json();
-      if (Array.isArray(data)) {
-        setAccounts(data);
-        if (data.length > 0 && !selectedAccountId) {
-          setSelectedAccountId(String(data[0].id));
-        }
-      }
-    } catch (e) {
-      toast.error('加载 Cloudflare 账号失败');
-    }
-  }, [getAuthHeaders, selectedAccountId]);
+  const getAuthHeaders = useCallback(() => ({
+    'Content-Type': 'application/json',
+    'x-admin-password': localStorage.getItem('admin_password') || '',
+  }), []);
 
-  const handleAddAccount = async () => {
-    if (!accountForm.name || !accountForm.apiToken) {
-      toast.warning('名称和 API Token/Key 必填');
+  const cfApi = useCallback(async (path, options = {}) => {
+    const headers = {
+      ...getAuthHeaders(),
+      ...(options.headers || {}),
+    };
+    const response = await fetch(`/api/cloudflare${path}`, {
+      ...options,
+      headers,
+    });
+    const text = await response.text();
+    const data = text ? JSON.parse(text) : {};
+    if (!response.ok || data.error) {
+      throw new Error(data.error || data.message || `请求失败：${response.status}`);
+    }
+    return data;
+  }, [getAuthHeaders]);
+
+  const copyText = useCallback(async (text, message = '已复制到剪贴板') => {
+    await navigator.clipboard.writeText(text || '');
+    toast.success(message);
+  }, []);
+
+  const closeModal = useCallback(() => {
+    setModal({ type: null, data: null });
+  }, []);
+
+  const loadAccounts = useCallback(async () => {
+    setLoadingKey('accounts', true);
+    try {
+      const data = await cfApi('/accounts');
+      const list = Array.isArray(data) ? data : [];
+      setAccounts(list);
+      setSelectedAccountId((prev) => {
+        if (prev && list.some((account) => String(account.id) === String(prev))) return prev;
+        return list[0] ? String(list[0].id) : '';
+      });
+    } catch (error) {
+      toast.error(`加载 Cloudflare 账号失败：${error.message}`);
+    } finally {
+      setLoadingKey('accounts', false);
+    }
+  }, [cfApi, setLoadingKey]);
+
+  const loadRecordTypes = useCallback(async () => {
+    try {
+      const data = await cfApi('/record-types');
+      if (Array.isArray(data) && data.length > 0) setRecordTypes(data);
+    } catch (error) {
+      setRecordTypes(RECORD_TYPE_OPTIONS);
+    }
+  }, [cfApi]);
+
+  const loadTemplates = useCallback(async () => {
+    setLoadingKey('templates', true);
+    try {
+      const data = await cfApi('/templates');
+      setTemplates(Array.isArray(data) ? data : []);
+    } catch (error) {
+      toast.error(`加载 DNS 模板失败：${error.message}`);
+    } finally {
+      setLoadingKey('templates', false);
+    }
+  }, [cfApi, setLoadingKey]);
+
+  const loadZones = useCallback(async (accountId = selectedAccountId) => {
+    if (!accountId) {
+      setZones([]);
+      setSelectedZoneId('');
       return;
     }
-    setSubmittingAccount(true);
+    setLoadingKey('zones', true);
     try {
-      const isEdit = !!editingAccount;
-      const url = isEdit ? `/api/cloudflare/accounts/${editingAccount.id}` : '/api/cloudflare/accounts';
-      const method = isEdit ? 'PUT' : 'POST';
+      const data = await cfApi(`/accounts/${accountId}/zones`);
+      const list = data.zones || [];
+      setZones(list);
+      setSelectedZoneId((prev) => (prev && list.some((zone) => zone.id === prev) ? prev : ''));
+    } catch (error) {
+      toast.error(`加载域名失败：${error.message}`);
+    } finally {
+      setLoadingKey('zones', false);
+    }
+  }, [cfApi, selectedAccountId, setLoadingKey]);
 
-      const response = await fetch(url, {
-        method,
-        headers: getAuthHeaders(),
-        body: JSON.stringify(accountForm),
-      });
-      const result = await response.json();
-      if (result.success || result.account) {
-        toast.success(isEdit ? '账号已更新' : '账号已添加');
-        setShowAddAccountModal(false);
-        setEditingAccount(null);
-        setAccountForm({ name: '', email: '', apiToken: '', skipVerify: false });
-        loadAccounts();
-      } else {
-        toast.error(result.error || '操作失败');
+  const loadRecords = useCallback(async (zoneId = selectedZoneId, options = recordFilter) => {
+    if (!selectedAccountId || !zoneId) {
+      setRecords([]);
+      return;
+    }
+    const params = new URLSearchParams();
+    if (options.type) params.set('type', options.type);
+    if (options.name) params.set('name', options.name);
+
+    setLoadingKey('records', true);
+    try {
+      const query = params.toString();
+      const data = await cfApi(
+        `/accounts/${selectedAccountId}/zones/${zoneId}/records${query ? `?${query}` : ''}`
+      );
+      setRecords(data.records || []);
+      setSelectedRecordIds([]);
+    } catch (error) {
+      toast.error(`加载 DNS 记录失败：${error.message}`);
+    } finally {
+      setLoadingKey('records', false);
+    }
+  }, [cfApi, recordFilter, selectedAccountId, selectedZoneId, setLoadingKey]);
+
+  const loadSsl = useCallback(async (zoneId = selectedZoneId) => {
+    if (!selectedAccountId || !zoneId) {
+      setSslInfo(null);
+      return;
+    }
+    setLoadingKey('ssl', true);
+    try {
+      const data = await cfApi(`/accounts/${selectedAccountId}/zones/${zoneId}/ssl`);
+      setSslInfo(data.ssl || null);
+    } catch (error) {
+      setSslInfo(null);
+    } finally {
+      setLoadingKey('ssl', false);
+    }
+  }, [cfApi, selectedAccountId, selectedZoneId, setLoadingKey]);
+
+  const loadAnalytics = useCallback(async (range = analyticsRange, zoneId = selectedZoneId) => {
+    if (!selectedAccountId || !zoneId) {
+      setAnalytics(null);
+      return;
+    }
+    setLoadingKey('analytics', true);
+    try {
+      const data = await cfApi(`/accounts/${selectedAccountId}/zones/${zoneId}/analytics?timeRange=${range}`);
+      setAnalytics(data.analytics || null);
+      setAnalyticsRange(range);
+    } catch (error) {
+      setAnalytics(null);
+    } finally {
+      setLoadingKey('analytics', false);
+    }
+  }, [analyticsRange, cfApi, selectedAccountId, selectedZoneId, setLoadingKey]);
+
+  const selectZone = useCallback((zone) => {
+    setSelectedZoneId(zone.id);
+    setRecords([]);
+    setSelectedRecordIds([]);
+    loadRecords(zone.id);
+    loadSsl(zone.id);
+    loadAnalytics(analyticsRange, zone.id);
+  }, [analyticsRange, loadAnalytics, loadRecords, loadSsl]);
+
+  const loadWorkers = useCallback(async () => {
+    if (!selectedAccountId) {
+      setWorkers([]);
+      return;
+    }
+    setLoadingKey('workers', true);
+    try {
+      const data = await cfApi(`/accounts/${selectedAccountId}/workers`);
+      setWorkers(data.workers || []);
+      setWorkerSubdomain(data.subdomain || '');
+    } catch (error) {
+      toast.error(`加载 Workers 失败：${error.message}`);
+    } finally {
+      setLoadingKey('workers', false);
+    }
+  }, [cfApi, selectedAccountId, setLoadingKey]);
+
+  const loadPages = useCallback(async () => {
+    if (!selectedAccountId) {
+      setPages([]);
+      return;
+    }
+    setLoadingKey('pages', true);
+    try {
+      const data = await cfApi(`/accounts/${selectedAccountId}/pages`);
+      setPages(data.projects || []);
+    } catch (error) {
+      toast.error(`加载 Pages 失败：${error.message}`);
+    } finally {
+      setLoadingKey('pages', false);
+    }
+  }, [cfApi, selectedAccountId, setLoadingKey]);
+
+  const loadR2Buckets = useCallback(async () => {
+    if (!selectedAccountId) {
+      setR2Buckets([]);
+      return;
+    }
+    setLoadingKey('r2', true);
+    try {
+      const data = await cfApi(`/accounts/${selectedAccountId}/r2/buckets`);
+      setR2Buckets(data.buckets || []);
+    } catch (error) {
+      toast.error(`加载 R2 存储桶失败：${error.message}`);
+    } finally {
+      setLoadingKey('r2', false);
+    }
+  }, [cfApi, selectedAccountId, setLoadingKey]);
+
+  const loadR2Objects = useCallback(async (bucketName = r2SelectedBucket?.name, prefix = r2CurrentPrefix) => {
+    if (!selectedAccountId || !bucketName) return;
+    setLoadingKey('r2Objects', true);
+    try {
+      const params = new URLSearchParams({ delimiter: '/', limit: '1000' });
+      if (prefix) params.set('prefix', prefix);
+      const data = await cfApi(
+        `/accounts/${selectedAccountId}/r2/buckets/${encodeURIComponent(bucketName)}/objects?${params.toString()}`
+      );
+      setR2Objects(data.objects || []);
+      setR2Prefixes(data.delimited_prefixes || []);
+      setR2CurrentPrefix(prefix || '');
+      setSelectedR2Objects([]);
+    } catch (error) {
+      toast.error(`加载 R2 对象失败：${error.message}`);
+    } finally {
+      setLoadingKey('r2Objects', false);
+    }
+  }, [cfApi, r2CurrentPrefix, r2SelectedBucket, selectedAccountId, setLoadingKey]);
+
+  const loadTunnels = useCallback(async () => {
+    if (!selectedAccountId) {
+      setTunnels([]);
+      return;
+    }
+    setLoadingKey('tunnels', true);
+    try {
+      const data = await cfApi(`/accounts/${selectedAccountId}/tunnels`);
+      setTunnels(data.tunnels || []);
+    } catch (error) {
+      toast.error(`加载 Tunnel 失败：${error.message}`);
+    } finally {
+      setLoadingKey('tunnels', false);
+    }
+  }, [cfApi, selectedAccountId, setLoadingKey]);
+
+  const refreshCurrentTab = useCallback(() => {
+    if (activeTab === 'dns') {
+      loadZones();
+      if (selectedZoneId) {
+        loadRecords();
+        loadSsl();
+        loadAnalytics();
       }
-    } catch (e) {
-      toast.error('请求失败: ' + e.message);
-    } finally {
-      setSubmittingAccount(false);
-    }
-  };
-
-  const deleteAccount = async (id) => {
-    if (!window.confirm('确定要删除此 Cloudflare 账号吗？')) return;
-    try {
-      const response = await fetch(`/api/cloudflare/accounts/${id}`, {
-        method: 'DELETE',
-        headers: getAuthHeaders(),
-      });
-      const result = await response.json();
-      if (result.success) {
-        toast.success('账号已删除');
-        if (selectedAccountId === String(id)) setSelectedAccountId('');
-        loadAccounts();
-      }
-    } catch (e) {
-      toast.error('删除失败');
-    }
-  };
-
-  const openEditModal = (acc) => {
-    setEditingAccount(acc);
-    setAccountForm({
-      name: acc.name,
-      email: acc.email || '',
-      apiToken: '', // 不回显 Token
-      skipVerify: false
-    });
-    setShowAddAccountModal(true);
-  };
-
-  // ==================== Data Loading ====================
-  const loadZones = useCallback(async (accountId) => {
-    setLoadingData(true);
-    try {
-      const response = await fetch(`/api/cloudflare/accounts/${accountId}/zones`, { headers: getAuthHeaders() });
-      const result = await response.json();
-      setZones(result.zones || []);
-    } catch (e) {
-      toast.error('加载域名列表失败');
-    } finally {
-      setLoadingData(false);
-    }
-  }, [getAuthHeaders]);
-
-  const loadWorkers = useCallback(async (accountId) => {
-    setLoadingData(true);
-    try {
-      const response = await fetch(`/api/cloudflare/accounts/${accountId}/workers`, { headers: getAuthHeaders() });
-      const result = await response.json();
-      setWorkers(result.workers || []);
-    } catch (e) {
-      toast.error('加载 Workers 失败');
-    } finally {
-      setLoadingData(false);
-    }
-  }, [getAuthHeaders]);
-
-  const loadPages = useCallback(async (accountId) => {
-    setLoadingData(true);
-    try {
-      const response = await fetch(`/api/cloudflare/accounts/${accountId}/pages`, { headers: getAuthHeaders() });
-      const result = await response.json();
-      setPages(result.projects || []);
-    } catch (e) {
-      toast.error('加载 Pages 失败');
-    } finally {
-      setLoadingData(false);
-    }
-  }, [getAuthHeaders]);
-
-  const loadR2 = useCallback(async (accountId) => {
-    setLoadingData(true);
-    try {
-      const response = await fetch(`/api/cloudflare/accounts/${accountId}/r2/buckets`, { headers: getAuthHeaders() });
-      const result = await response.json();
-      setR2Buckets(result.buckets || []);
-    } catch (e) {
-      toast.error('加载 R2 失败');
-    } finally {
-      setLoadingData(false);
-    }
-  }, [getAuthHeaders]);
-
-  const loadTunnels = useCallback(async (accountId) => {
-    setLoadingData(true);
-    try {
-      const response = await fetch(`/api/cloudflare/accounts/${accountId}/tunnels`, { headers: getAuthHeaders() });
-      const result = await response.json();
-      setTunnels(result.tunnels || []);
-    } catch (e) {
-      toast.error('加载 Tunnels 失败');
-    } finally {
-      setLoadingData(false);
-    }
-  }, [getAuthHeaders]);
-
-  const refreshData = useCallback(() => {
-    if (!selectedAccountId) return;
-    setRefreshing(true);
-    if (activeTab === 'zones') loadZones(selectedAccountId).then(() => setRefreshing(false));
-    else if (activeTab === 'workers') loadWorkers(selectedAccountId).then(() => setRefreshing(false));
-    else if (activeTab === 'pages') loadPages(selectedAccountId).then(() => setRefreshing(false));
-    else if (activeTab === 'r2') loadR2(selectedAccountId).then(() => setRefreshing(false));
-    else if (activeTab === 'tunnels') loadTunnels(selectedAccountId).then(() => setRefreshing(false));
-    else setRefreshing(false);
-  }, [activeTab, selectedAccountId, loadZones, loadWorkers, loadPages, loadR2, loadTunnels]);
+    } else if (activeTab === 'workers') loadWorkers();
+    else if (activeTab === 'pages') loadPages();
+    else if (activeTab === 'r2') {
+      loadR2Buckets();
+      if (r2SelectedBucket) loadR2Objects(r2SelectedBucket.name, r2CurrentPrefix);
+    } else if (activeTab === 'tunnels') loadTunnels();
+    else if (activeTab === 'templates') loadTemplates();
+    else if (activeTab === 'accounts') loadAccounts();
+  }, [
+    activeTab,
+    loadAccounts,
+    loadAnalytics,
+    loadPages,
+    loadR2Buckets,
+    loadR2Objects,
+    loadRecords,
+    loadSsl,
+    loadTemplates,
+    loadTunnels,
+    loadWorkers,
+    loadZones,
+    r2CurrentPrefix,
+    r2SelectedBucket,
+    selectedZoneId,
+  ]);
 
   useEffect(() => {
     loadAccounts();
-  }, [loadAccounts]);
+    loadRecordTypes();
+    loadTemplates();
+  }, [loadAccounts, loadRecordTypes, loadTemplates]);
 
   useEffect(() => {
-    if (selectedAccountId && activeTab !== 'accounts') {
-      if (activeTab === 'zones') loadZones(selectedAccountId);
-      else if (activeTab === 'workers') loadWorkers(selectedAccountId);
-      else if (activeTab === 'pages') loadPages(selectedAccountId);
-      else if (activeTab === 'r2') loadR2(selectedAccountId);
-      else if (activeTab === 'tunnels') loadTunnels(selectedAccountId);
+    if (!selectedAccountId) return;
+    if (activeTab === 'dns') loadZones(selectedAccountId);
+    if (activeTab === 'workers') loadWorkers();
+    if (activeTab === 'pages') loadPages();
+    if (activeTab === 'r2') loadR2Buckets();
+    if (activeTab === 'tunnels') loadTunnels();
+  }, [activeTab, loadPages, loadR2Buckets, loadTunnels, loadWorkers, loadZones, selectedAccountId]);
+
+  const openAccountModal = (account = null) => {
+    setModal({ type: 'account', data: account });
+    setAccountForm(account
+      ? { name: account.name || '', email: account.email || '', apiToken: '', skipVerify: false }
+      : EMPTY_ACCOUNT_FORM);
+  };
+
+  const saveAccount = async () => {
+    if (!accountForm.name.trim() || (!modal.data && !accountForm.apiToken.trim())) {
+      toast.warning('请填写账号名称和 API 令牌');
+      return;
     }
-  }, [activeTab, selectedAccountId, loadZones, loadWorkers, loadPages, loadR2, loadTunnels]);
+    setLoadingKey('saveAccount', true);
+    try {
+      const isEdit = Boolean(modal.data);
+      await cfApi(isEdit ? `/accounts/${modal.data.id}` : '/accounts', {
+        method: isEdit ? 'PUT' : 'POST',
+        body: JSON.stringify(accountForm),
+      });
+      toast.success(isEdit ? '账号已更新' : '账号已添加');
+      closeModal();
+      loadAccounts();
+    } catch (error) {
+      toast.error(`保存账号失败：${error.message}`);
+    } finally {
+      setLoadingKey('saveAccount', false);
+    }
+  };
+
+  const deleteAccount = async (account) => {
+    if (!(await dialog.confirm(`确定要删除 Cloudflare 账号“${account.name}”吗？`))) return;
+    try {
+      await cfApi(`/accounts/${account.id}`, { method: 'DELETE' });
+      toast.success('账号已删除');
+      setSelectedAccountId((prev) => (String(prev) === String(account.id) ? '' : prev));
+      loadAccounts();
+    } catch (error) {
+      toast.error(`删除账号失败：${error.message}`);
+    }
+  };
+
+  const verifyAccount = async (account) => {
+    setLoadingKey(`verify-${account.id}`, true);
+    try {
+      const result = await cfApi(`/accounts/${account.id}/verify`, { method: 'POST' });
+      if (result.valid) toast.success('账号令牌有效');
+      else toast.error(`账号令牌无效：${result.error || '未知错误'}`);
+    } catch (error) {
+      toast.error(`验证失败：${error.message}`);
+    } finally {
+      setLoadingKey(`verify-${account.id}`, false);
+    }
+  };
+
+  const toggleAccountToken = async (account) => {
+    if (accountTokens[account.id]) {
+      setAccountTokens((prev) => ({ ...prev, [account.id]: '' }));
+      return;
+    }
+    try {
+      const data = await cfApi(`/accounts/${account.id}/token`);
+      setAccountTokens((prev) => ({ ...prev, [account.id]: data.apiToken || '' }));
+    } catch (error) {
+      toast.error(`获取令牌失败：${error.message}`);
+    }
+  };
+
+  const exportAccounts = async () => {
+    try {
+      const data = await cfApi('/export/accounts');
+      downloadJson(`cloudflare-accounts-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.json`, {
+        version: '1.0',
+        exportTime: new Date().toISOString(),
+        accounts: Array.isArray(data) ? data : data.accounts || [],
+      });
+      toast.success('账号已导出');
+    } catch (error) {
+      toast.error(`导出账号失败：${error.message}`);
+    }
+  };
+
+  const openImportModal = (kind) => {
+    setImportState({ kind, text: '', overwrite: false });
+    setModal({ type: 'import', data: { kind } });
+  };
+
+  const submitImport = async () => {
+    try {
+      if (importState.kind === 'accounts') {
+        const accountsToImport = parseJsonInput(importState.text, 'accounts');
+        if (!Array.isArray(accountsToImport)) throw new Error('导入内容必须是账号数组或包含 accounts 的对象');
+        await cfApi('/import/accounts', {
+          method: 'POST',
+          body: JSON.stringify({ accounts: accountsToImport, overwrite: importState.overwrite }),
+        });
+        toast.success(`已导入 ${accountsToImport.length} 个账号`);
+        loadAccounts();
+      } else if (importState.kind === 'templates') {
+        const templatesToImport = parseJsonInput(importState.text, 'templates');
+        if (!Array.isArray(templatesToImport)) throw new Error('导入内容必须是模板数组或包含 templates 的对象');
+        await cfApi('/import/templates', {
+          method: 'POST',
+          body: JSON.stringify({ templates: templatesToImport, overwrite: importState.overwrite }),
+        });
+        toast.success(`已导入 ${templatesToImport.length} 个模板`);
+        loadTemplates();
+      } else if (importState.kind === 'records') {
+        if (!selectedAccountId || !selectedZoneId) throw new Error('请先选择域名');
+        const recordsToImport = parseJsonInput(importState.text, 'records');
+        if (!Array.isArray(recordsToImport)) throw new Error('导入内容必须是记录数组或包含 records 的对象');
+        const result = await cfApi(`/accounts/${selectedAccountId}/zones/${selectedZoneId}/batch`, {
+          method: 'POST',
+          body: JSON.stringify({ records: recordsToImport }),
+        });
+        toast.success(`导入完成：成功 ${result.created || 0} 条，失败 ${result.failed || 0} 条`);
+        loadRecords();
+      }
+      closeModal();
+    } catch (error) {
+      toast.error(`导入失败：${error.message}`);
+    }
+  };
+
+  const openZoneModal = () => {
+    setZoneForm(EMPTY_ZONE_FORM);
+    setModal({ type: 'zone', data: null });
+  };
+
+  const saveZone = async () => {
+    if (!selectedAccountId) {
+      toast.warning('请先选择 Cloudflare 账号');
+      return;
+    }
+    if (!zoneForm.name.trim()) {
+      toast.warning('请填写域名');
+      return;
+    }
+    setLoadingKey('saveZone', true);
+    try {
+      await cfApi(`/accounts/${selectedAccountId}/zones`, {
+        method: 'POST',
+        body: JSON.stringify(zoneForm),
+      });
+      toast.success('域名已添加');
+      closeModal();
+      loadZones();
+    } catch (error) {
+      toast.error(`添加域名失败：${error.message}`);
+    } finally {
+      setLoadingKey('saveZone', false);
+    }
+  };
+
+  const deleteZone = async (zone = selectedZone) => {
+    if (!zone || !selectedAccountId) return;
+    if (!(await dialog.confirm(`确定要从 Cloudflare 删除域名“${zone.name}”吗？此操作不可恢复。`))) return;
+    try {
+      await cfApi(`/accounts/${selectedAccountId}/zones/${zone.id}`, { method: 'DELETE' });
+      toast.success('域名已删除');
+      setSelectedZoneId('');
+      setRecords([]);
+      loadZones();
+    } catch (error) {
+      toast.error(`删除域名失败：${error.message}`);
+    }
+  };
+
+  const purgeZoneCache = async () => {
+    if (!selectedZoneId) {
+      toast.warning('请先选择域名');
+      return;
+    }
+    if (!(await dialog.confirm(`确定要清除“${selectedZone?.name}”的全部 CDN 缓存吗？`))) return;
+    setLoadingKey('purge', true);
+    try {
+      await cfApi(`/accounts/${selectedAccountId}/zones/${selectedZoneId}/purge`, {
+        method: 'POST',
+        body: JSON.stringify({ purge_everything: true }),
+      });
+      toast.success('缓存已清除');
+    } catch (error) {
+      toast.error(`清除缓存失败：${error.message}`);
+    } finally {
+      setLoadingKey('purge', false);
+    }
+  };
+
+  const updateSslMode = async (mode) => {
+    if (!selectedZoneId) return;
+    setLoadingKey('ssl', true);
+    try {
+      const data = await cfApi(`/accounts/${selectedAccountId}/zones/${selectedZoneId}/ssl`, {
+        method: 'PATCH',
+        body: JSON.stringify({ mode }),
+      });
+      setSslInfo((prev) => ({ ...(prev || {}), ...(data.ssl || {}) }));
+      toast.success('SSL 模式已更新');
+    } catch (error) {
+      toast.error(`更新 SSL 模式失败：${error.message}`);
+    } finally {
+      setLoadingKey('ssl', false);
+    }
+  };
+
+  const openRecordModal = (record = null) => {
+    setRecordForm(record
+      ? {
+        type: record.type || 'A',
+        name: recordShortName(record.name, selectedZone?.name),
+        content: record.content || '',
+        ttl: record.ttl || 1,
+        proxied: Boolean(record.proxied),
+        priority: record.priority || 10,
+      }
+      : EMPTY_RECORD_FORM);
+    setModal({ type: 'record', data: record });
+  };
+
+  const saveRecord = async () => {
+    if (!selectedZoneId) {
+      toast.warning('请先选择域名');
+      return;
+    }
+    if (!recordForm.name.trim() || !recordForm.content.trim()) {
+      toast.warning('请填写记录名称和内容');
+      return;
+    }
+    const payload = {
+      ...recordForm,
+      ttl: Number(recordForm.ttl) || 1,
+      priority: Number(recordForm.priority) || 10,
+    };
+    setLoadingKey('saveRecord', true);
+    try {
+      const isEdit = Boolean(modal.data);
+      await cfApi(
+        isEdit
+          ? `/accounts/${selectedAccountId}/zones/${selectedZoneId}/records/${modal.data.id}`
+          : `/accounts/${selectedAccountId}/zones/${selectedZoneId}/records`,
+        {
+          method: isEdit ? 'PUT' : 'POST',
+          body: JSON.stringify(payload),
+        }
+      );
+      toast.success(isEdit ? '记录已更新' : '记录已添加');
+      closeModal();
+      loadRecords();
+    } catch (error) {
+      toast.error(`保存记录失败：${error.message}`);
+    } finally {
+      setLoadingKey('saveRecord', false);
+    }
+  };
+
+  const deleteRecord = async (record) => {
+    if (!(await dialog.confirm(`确定要删除记录“${record.name}”吗？`))) return;
+    try {
+      await cfApi(`/accounts/${selectedAccountId}/zones/${selectedZoneId}/records/${record.id}`, {
+        method: 'DELETE',
+      });
+      toast.success('记录已删除');
+      loadRecords();
+    } catch (error) {
+      toast.error(`删除记录失败：${error.message}`);
+    }
+  };
+
+  const batchDeleteRecords = async () => {
+    if (selectedRecordIds.length === 0) return;
+    if (!(await dialog.confirm(`确定要删除选中的 ${selectedRecordIds.length} 条 DNS 记录吗？`))) return;
+    setLoadingKey('batchDeleteRecords', true);
+    try {
+      await Promise.all(selectedRecords.map((record) => cfApi(
+        `/accounts/${selectedAccountId}/zones/${selectedZoneId}/records/${record.id}`,
+        { method: 'DELETE' }
+      )));
+      toast.success('选中记录已删除');
+      loadRecords();
+    } catch (error) {
+      toast.error(`批量删除失败：${error.message}`);
+    } finally {
+      setLoadingKey('batchDeleteRecords', false);
+    }
+  };
+
+  const runQuickSwitch = async () => {
+    if (!selectedZoneId) {
+      toast.warning('请先选择域名');
+      return;
+    }
+    if (!quickSwitch.name.trim() || !quickSwitch.newContent.trim()) {
+      toast.warning('请填写记录名称和新内容');
+      return;
+    }
+    setLoadingKey('quickSwitch', true);
+    try {
+      const result = await cfApi(`/accounts/${selectedAccountId}/zones/${selectedZoneId}/switch`, {
+        method: 'POST',
+        body: JSON.stringify(quickSwitch),
+      });
+      toast.success(`已切换 ${result.updated || 0} 条记录`);
+      loadRecords();
+    } catch (error) {
+      toast.error(`快速切换失败：${error.message}`);
+    } finally {
+      setLoadingKey('quickSwitch', false);
+    }
+  };
+
+  const exportRecords = () => {
+    if (!selectedZoneId) {
+      toast.warning('请先选择域名');
+      return;
+    }
+    downloadJson(`dns-${selectedZone?.name || selectedZoneId}-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.json`, {
+      version: '1.0',
+      exportTime: new Date().toISOString(),
+      zoneName: selectedZone?.name,
+      zoneId: selectedZoneId,
+      records: records.map((record) => ({
+        type: record.type,
+        name: recordShortName(record.name, selectedZone?.name),
+        content: record.content,
+        ttl: record.ttl,
+        proxied: Boolean(record.proxied),
+        priority: record.priority,
+      })),
+    });
+    toast.success('DNS 记录已导出');
+  };
+
+  const openTemplateModal = (template = null) => {
+    const firstRecord = template?.records?.[0] || template || {};
+    setTemplateForm(template
+      ? {
+        name: template.name || '',
+        description: template.description || '',
+        type: firstRecord.type || 'A',
+        recordName: firstRecord.name || '@',
+        content: firstRecord.content || '',
+        ttl: firstRecord.ttl || 1,
+        proxied: Boolean(firstRecord.proxied),
+        priority: firstRecord.priority || 10,
+      }
+      : EMPTY_TEMPLATE_FORM);
+    setModal({ type: 'template', data: template });
+  };
+
+  const saveTemplate = async () => {
+    if (!templateForm.name.trim() || !templateForm.content.trim()) {
+      toast.warning('请填写模板名称和记录内容');
+      return;
+    }
+    const payload = {
+      name: templateForm.name,
+      description: templateForm.description,
+      records: [{
+        type: templateForm.type,
+        name: templateForm.recordName || '@',
+        content: templateForm.content,
+        ttl: Number(templateForm.ttl) || 1,
+        proxied: Boolean(templateForm.proxied),
+        priority: Number(templateForm.priority) || 10,
+      }],
+    };
+    setLoadingKey('saveTemplate', true);
+    try {
+      const isEdit = Boolean(modal.data);
+      await cfApi(isEdit ? `/templates/${modal.data.id}` : '/templates', {
+        method: isEdit ? 'PUT' : 'POST',
+        body: JSON.stringify(payload),
+      });
+      toast.success(isEdit ? '模板已更新' : '模板已添加');
+      closeModal();
+      loadTemplates();
+    } catch (error) {
+      toast.error(`保存模板失败：${error.message}`);
+    } finally {
+      setLoadingKey('saveTemplate', false);
+    }
+  };
+
+  const deleteTemplate = async (template) => {
+    if (!(await dialog.confirm(`确定要删除模板“${template.name}”吗？`))) return;
+    try {
+      await cfApi(`/templates/${template.id}`, { method: 'DELETE' });
+      toast.success('模板已删除');
+      loadTemplates();
+    } catch (error) {
+      toast.error(`删除模板失败：${error.message}`);
+    }
+  };
+
+  const applyTemplate = async (template) => {
+    if (!selectedZoneId) {
+      toast.warning('请先在“域名与 DNS”中选择域名');
+      return;
+    }
+    const recordName = await dialog.prompt({
+      message: '请输入应用到 DNS 的记录名称，留空使用模板中的名称',
+      defaultValue: '',
+    });
+    if (recordName === null) return;
+    try {
+      const result = await cfApi(`/templates/${template.id}/apply`, {
+        method: 'POST',
+        body: JSON.stringify({ accountId: selectedAccountId, zoneId: selectedZoneId, recordName: recordName.trim() || undefined }),
+      });
+      toast.success(`模板已应用：成功 ${result.created || 0} 条，失败 ${result.failed || 0} 条`);
+      loadRecords();
+    } catch (error) {
+      toast.error(`应用模板失败：${error.message}`);
+    }
+  };
+
+  const openWorkerModal = async (worker = null) => {
+    setLoadingKey('workerScript', Boolean(worker));
+    setModal({ type: 'worker', data: worker });
+    if (!worker) {
+      setWorkerForm(EMPTY_WORKER_FORM);
+      return;
+    }
+    try {
+      const data = await cfApi(`/accounts/${selectedAccountId}/workers/${encodeURIComponent(worker.name)}`);
+      setWorkerForm({ name: worker.name, script: data.worker?.script || '' });
+    } catch (error) {
+      toast.error(`加载 Worker 脚本失败：${error.message}`);
+      setWorkerForm({ name: worker.name, script: '' });
+    } finally {
+      setLoadingKey('workerScript', false);
+    }
+  };
+
+  const saveWorker = async () => {
+    if (!workerForm.name.trim() || !workerForm.script.trim()) {
+      toast.warning('请填写 Worker 名称和脚本内容');
+      return;
+    }
+    setLoadingKey('saveWorker', true);
+    try {
+      await cfApi(`/accounts/${selectedAccountId}/workers/${encodeURIComponent(workerForm.name.trim())}`, {
+        method: 'PUT',
+        body: JSON.stringify({ script: workerForm.script }),
+      });
+      toast.success('Worker 已保存');
+      closeModal();
+      loadWorkers();
+    } catch (error) {
+      toast.error(`保存 Worker 失败：${error.message}`);
+    } finally {
+      setLoadingKey('saveWorker', false);
+    }
+  };
+
+  const deleteWorker = async (worker) => {
+    if (!(await dialog.confirm(`确定要删除 Worker“${worker.name}”吗？`))) return;
+    try {
+      await cfApi(`/accounts/${selectedAccountId}/workers/${encodeURIComponent(worker.name)}`, {
+        method: 'DELETE',
+      });
+      toast.success('Worker 已删除');
+      loadWorkers();
+    } catch (error) {
+      toast.error(`删除 Worker 失败：${error.message}`);
+    }
+  };
+
+  const toggleWorkerSubdomain = async (worker, enabled) => {
+    try {
+      await cfApi(`/accounts/${selectedAccountId}/workers/${encodeURIComponent(worker.name)}/toggle`, {
+        method: 'POST',
+        body: JSON.stringify({ enabled }),
+      });
+      toast.success(enabled ? 'Worker 子域名访问已启用' : 'Worker 子域名访问已停用');
+    } catch (error) {
+      toast.error(`切换 Worker 状态失败：${error.message}`);
+    }
+  };
+
+  const openWorkerRoutesModal = async (worker) => {
+    if (!selectedZoneId) {
+      toast.warning('请先在“域名与 DNS”中选择用于路由的域名');
+      return;
+    }
+    setWorkerRouteState({ worker, routes: [], form: { id: '', pattern: '', script: worker.name } });
+    setModal({ type: 'workerRoutes', data: worker });
+    setLoadingKey('workerRoutes', true);
+    try {
+      const data = await cfApi(`/accounts/${selectedAccountId}/zones/${selectedZoneId}/workers/routes`);
+      setWorkerRouteState((prev) => ({
+        ...prev,
+        routes: (data.routes || []).filter((route) => !route.script || route.script === worker.name),
+      }));
+    } catch (error) {
+      toast.error(`加载 Worker 路由失败：${error.message}`);
+    } finally {
+      setLoadingKey('workerRoutes', false);
+    }
+  };
+
+  const saveWorkerRoute = async () => {
+    const form = workerRouteState.form;
+    if (!form.pattern.trim() || !form.script.trim()) {
+      toast.warning('请填写路由规则和 Worker 名称');
+      return;
+    }
+    setLoadingKey('saveWorkerRoute', true);
+    try {
+      await cfApi(
+        form.id
+          ? `/accounts/${selectedAccountId}/zones/${selectedZoneId}/workers/routes/${form.id}`
+          : `/accounts/${selectedAccountId}/zones/${selectedZoneId}/workers/routes`,
+        {
+          method: form.id ? 'PUT' : 'POST',
+          body: JSON.stringify({ pattern: form.pattern, script: form.script }),
+        }
+      );
+      toast.success(form.id ? 'Worker 路由已更新' : 'Worker 路由已添加');
+      openWorkerRoutesModal(workerRouteState.worker);
+    } catch (error) {
+      toast.error(`保存 Worker 路由失败：${error.message}`);
+    } finally {
+      setLoadingKey('saveWorkerRoute', false);
+    }
+  };
+
+  const deleteWorkerRoute = async (route) => {
+    if (!(await dialog.confirm(`确定要删除路由“${route.pattern}”吗？`))) return;
+    try {
+      await cfApi(`/accounts/${selectedAccountId}/zones/${selectedZoneId}/workers/routes/${route.id}`, {
+        method: 'DELETE',
+      });
+      toast.success('Worker 路由已删除');
+      openWorkerRoutesModal(workerRouteState.worker);
+    } catch (error) {
+      toast.error(`删除 Worker 路由失败：${error.message}`);
+    }
+  };
+
+  const openWorkerDomainsModal = async (worker) => {
+    setWorkerDomainState({ worker, domains: [], hostname: '', environment: 'production' });
+    setModal({ type: 'workerDomains', data: worker });
+    setLoadingKey('workerDomains', true);
+    try {
+      const data = await cfApi(`/accounts/${selectedAccountId}/workers/${encodeURIComponent(worker.name)}/domains`);
+      setWorkerDomainState((prev) => ({ ...prev, domains: data.domains || [] }));
+    } catch (error) {
+      toast.error(`加载 Worker 域名失败：${error.message}`);
+    } finally {
+      setLoadingKey('workerDomains', false);
+    }
+  };
+
+  const addWorkerDomain = async () => {
+    if (!workerDomainState.hostname.trim()) {
+      toast.warning('请填写域名');
+      return;
+    }
+    setLoadingKey('saveWorkerDomain', true);
+    try {
+      await cfApi(`/accounts/${selectedAccountId}/workers/${encodeURIComponent(workerDomainState.worker.name)}/domains`, {
+        method: 'POST',
+        body: JSON.stringify({
+          hostname: workerDomainState.hostname.trim(),
+          environment: workerDomainState.environment || 'production',
+        }),
+      });
+      toast.success('Worker 域名已添加');
+      openWorkerDomainsModal(workerDomainState.worker);
+    } catch (error) {
+      toast.error(`添加 Worker 域名失败：${error.message}`);
+    } finally {
+      setLoadingKey('saveWorkerDomain', false);
+    }
+  };
+
+  const deleteWorkerDomain = async (domain) => {
+    if (!(await dialog.confirm(`确定要删除 Worker 域名“${domain.hostname}”吗？`))) return;
+    try {
+      await cfApi(
+        `/accounts/${selectedAccountId}/workers/${encodeURIComponent(workerDomainState.worker.name)}/domains/${domain.id}`,
+        { method: 'DELETE' }
+      );
+      toast.success('Worker 域名已删除');
+      openWorkerDomainsModal(workerDomainState.worker);
+    } catch (error) {
+      toast.error(`删除 Worker 域名失败：${error.message}`);
+    }
+  };
+
+  const openWorkerAnalyticsModal = async (worker) => {
+    setWorkerAnalyticsState({ worker, analytics: null });
+    setModal({ type: 'workerAnalytics', data: worker });
+    setLoadingKey('workerAnalytics', true);
+    try {
+      const data = await cfApi(`/accounts/${selectedAccountId}/workers/${encodeURIComponent(worker.name)}/analytics`);
+      setWorkerAnalyticsState({ worker, analytics: data.analytics || {} });
+    } catch (error) {
+      toast.error(`加载 Worker 统计失败：${error.message}`);
+    } finally {
+      setLoadingKey('workerAnalytics', false);
+    }
+  };
+
+  const deletePagesProject = async (project) => {
+    if (!(await dialog.confirm(`确定要删除 Pages 项目“${project.name}”吗？`))) return;
+    try {
+      await cfApi(`/accounts/${selectedAccountId}/pages/${encodeURIComponent(project.name)}`, {
+        method: 'DELETE',
+      });
+      toast.success('Pages 项目已删除');
+      loadPages();
+    } catch (error) {
+      toast.error(`删除 Pages 项目失败：${error.message}`);
+    }
+  };
+
+  const openPagesDeploymentsModal = async (project) => {
+    setPagesDeployState({ project, deployments: [] });
+    setModal({ type: 'pagesDeployments', data: project });
+    setLoadingKey('pagesDeployments', true);
+    try {
+      const data = await cfApi(`/accounts/${selectedAccountId}/pages/${encodeURIComponent(project.name)}/deployments`);
+      setPagesDeployState({ project, deployments: data.deployments || [] });
+    } catch (error) {
+      toast.error(`加载 Pages 部署失败：${error.message}`);
+    } finally {
+      setLoadingKey('pagesDeployments', false);
+    }
+  };
+
+  const deletePagesDeployment = async (deployment) => {
+    if (!(await dialog.confirm(`确定要删除该 Pages 部署吗？`))) return;
+    try {
+      await cfApi(
+        `/accounts/${selectedAccountId}/pages/${encodeURIComponent(pagesDeployState.project.name)}/deployments/${deployment.id}`,
+        { method: 'DELETE' }
+      );
+      toast.success('Pages 部署已删除');
+      openPagesDeploymentsModal(pagesDeployState.project);
+    } catch (error) {
+      toast.error(`删除 Pages 部署失败：${error.message}`);
+    }
+  };
+
+  const openPagesDomainsModal = async (project) => {
+    setPagesDomainState({ project, domains: [], domain: '' });
+    setModal({ type: 'pagesDomains', data: project });
+    setLoadingKey('pagesDomains', true);
+    try {
+      const data = await cfApi(`/accounts/${selectedAccountId}/pages/${encodeURIComponent(project.name)}/domains`);
+      setPagesDomainState((prev) => ({ ...prev, domains: data.domains || [] }));
+    } catch (error) {
+      toast.error(`加载 Pages 域名失败：${error.message}`);
+    } finally {
+      setLoadingKey('pagesDomains', false);
+    }
+  };
+
+  const addPagesDomain = async () => {
+    if (!pagesDomainState.domain.trim()) {
+      toast.warning('请填写域名');
+      return;
+    }
+    setLoadingKey('savePagesDomain', true);
+    try {
+      await cfApi(`/accounts/${selectedAccountId}/pages/${encodeURIComponent(pagesDomainState.project.name)}/domains`, {
+        method: 'POST',
+        body: JSON.stringify({ domain: pagesDomainState.domain.trim() }),
+      });
+      toast.success('Pages 域名已添加');
+      openPagesDomainsModal(pagesDomainState.project);
+    } catch (error) {
+      toast.error(`添加 Pages 域名失败：${error.message}`);
+    } finally {
+      setLoadingKey('savePagesDomain', false);
+    }
+  };
+
+  const deletePagesDomain = async (domain) => {
+    if (!(await dialog.confirm(`确定要删除 Pages 域名“${domain.name}”吗？`))) return;
+    try {
+      await cfApi(
+        `/accounts/${selectedAccountId}/pages/${encodeURIComponent(pagesDomainState.project.name)}/domains/${encodeURIComponent(domain.name)}`,
+        { method: 'DELETE' }
+      );
+      toast.success('Pages 域名已删除');
+      openPagesDomainsModal(pagesDomainState.project);
+    } catch (error) {
+      toast.error(`删除 Pages 域名失败：${error.message}`);
+    }
+  };
+
+  const createR2Bucket = async () => {
+    if (!r2BucketForm.name.trim()) {
+      toast.warning('请填写存储桶名称');
+      return;
+    }
+    setLoadingKey('saveR2Bucket', true);
+    try {
+      await cfApi(`/accounts/${selectedAccountId}/r2/buckets`, {
+        method: 'POST',
+        body: JSON.stringify(r2BucketForm),
+      });
+      toast.success('R2 存储桶已创建');
+      closeModal();
+      setR2BucketForm({ name: '', location: 'auto' });
+      loadR2Buckets();
+    } catch (error) {
+      toast.error(`创建 R2 存储桶失败：${error.message}`);
+    } finally {
+      setLoadingKey('saveR2Bucket', false);
+    }
+  };
+
+  const deleteR2Bucket = async (bucket) => {
+    if (!(await dialog.confirm(`确定要删除 R2 存储桶“${bucket.name}”吗？`))) return;
+    try {
+      await cfApi(`/accounts/${selectedAccountId}/r2/buckets/${encodeURIComponent(bucket.name)}`, {
+        method: 'DELETE',
+      });
+      toast.success('R2 存储桶已删除');
+      if (r2SelectedBucket?.name === bucket.name) {
+        setR2SelectedBucket(null);
+        setR2Objects([]);
+        setR2Prefixes([]);
+      }
+      loadR2Buckets();
+    } catch (error) {
+      toast.error(`删除 R2 存储桶失败：${error.message}`);
+    }
+  };
+
+  const selectR2Bucket = async (bucket) => {
+    setR2SelectedBucket(bucket);
+    setR2CurrentPrefix('');
+    await loadR2Objects(bucket.name, '');
+  };
+
+  const deleteR2Object = async (objectKey) => {
+    if (!(await dialog.confirm(`确定要删除对象“${objectKey}”吗？`))) return;
+    try {
+      await cfApi(
+        `/accounts/${selectedAccountId}/r2/buckets/${encodeURIComponent(r2SelectedBucket.name)}/objects/${encodeURIComponent(objectKey)}`,
+        { method: 'DELETE' }
+      );
+      toast.success('R2 对象已删除');
+      loadR2Objects();
+    } catch (error) {
+      toast.error(`删除 R2 对象失败：${error.message}`);
+    }
+  };
+
+  const batchDeleteR2Objects = async () => {
+    if (selectedR2Objects.length === 0) return;
+    if (!(await dialog.confirm(`确定要删除选中的 ${selectedR2Objects.length} 个 R2 对象吗？`))) return;
+    setLoadingKey('batchDeleteR2', true);
+    try {
+      await Promise.all(selectedR2Objects.map((objectKey) => cfApi(
+        `/accounts/${selectedAccountId}/r2/buckets/${encodeURIComponent(r2SelectedBucket.name)}/objects/${encodeURIComponent(objectKey)}`,
+        { method: 'DELETE' }
+      )));
+      toast.success('选中的 R2 对象已删除');
+      loadR2Objects();
+    } catch (error) {
+      toast.error(`批量删除 R2 对象失败：${error.message}`);
+    } finally {
+      setLoadingKey('batchDeleteR2', false);
+    }
+  };
+
+  const downloadR2Object = async (objectKey) => {
+    try {
+      const data = await cfApi(
+        `/accounts/${selectedAccountId}/r2/buckets/${encodeURIComponent(r2SelectedBucket.name)}/objects/${encodeURIComponent(objectKey)}/download-info`
+      );
+      if (data.publicUrl) {
+        window.open(data.publicUrl, '_blank', 'noopener,noreferrer');
+      } else {
+        toast.warning('该对象没有公开访问地址，可在 R2 绑定公开域名后再下载');
+      }
+    } catch (error) {
+      toast.error(`获取下载信息失败：${error.message}`);
+    }
+  };
+
+  const createTunnel = async () => {
+    if (!tunnelForm.name.trim()) {
+      toast.warning('请填写 Tunnel 名称');
+      return;
+    }
+    setLoadingKey('saveTunnel', true);
+    try {
+      await cfApi(`/accounts/${selectedAccountId}/tunnels`, {
+        method: 'POST',
+        body: JSON.stringify({ name: tunnelForm.name.trim() }),
+      });
+      toast.success('Tunnel 已创建');
+      closeModal();
+      setTunnelForm({ name: '' });
+      loadTunnels();
+    } catch (error) {
+      toast.error(`创建 Tunnel 失败：${error.message}`);
+    } finally {
+      setLoadingKey('saveTunnel', false);
+    }
+  };
+
+  const renameTunnel = async (tunnel) => {
+    const name = await dialog.prompt({
+      message: '请输入新的 Tunnel 名称',
+      defaultValue: tunnel.name,
+    });
+    if (!name || name === tunnel.name) return;
+    try {
+      await cfApi(`/accounts/${selectedAccountId}/tunnels/${tunnel.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ name }),
+      });
+      toast.success('Tunnel 已重命名');
+      loadTunnels();
+    } catch (error) {
+      toast.error(`重命名 Tunnel 失败：${error.message}`);
+    }
+  };
+
+  const deleteTunnel = async (tunnel) => {
+    if (!(await dialog.confirm(`确定要删除 Tunnel“${tunnel.name}”吗？`))) return;
+    try {
+      await cfApi(`/accounts/${selectedAccountId}/tunnels/${tunnel.id}`, { method: 'DELETE' });
+      toast.success('Tunnel 已删除');
+      loadTunnels();
+    } catch (error) {
+      toast.error(`删除 Tunnel 失败：${error.message}`);
+    }
+  };
+
+  const openTunnelTokenModal = async (tunnel) => {
+    setTunnelTokenState({ tunnel, token: '' });
+    setModal({ type: 'tunnelToken', data: tunnel });
+    setLoadingKey('tunnelToken', true);
+    try {
+      const data = await cfApi(`/accounts/${selectedAccountId}/tunnels/${tunnel.id}/token`);
+      setTunnelTokenState({ tunnel, token: data.token || '' });
+    } catch (error) {
+      toast.error(`获取 Tunnel 令牌失败：${error.message}`);
+    } finally {
+      setLoadingKey('tunnelToken', false);
+    }
+  };
+
+  const openTunnelConfigModal = async (tunnel) => {
+    setTunnelConfigState({ tunnel, text: EMPTY_TUNNEL_CONFIG });
+    setModal({ type: 'tunnelConfig', data: tunnel });
+    setLoadingKey('tunnelConfig', true);
+    try {
+      const data = await cfApi(`/accounts/${selectedAccountId}/tunnels/${tunnel.id}/configuration`);
+      setTunnelConfigState({ tunnel, text: JSON.stringify(data.config || { ingress: [] }, null, 2) });
+    } catch (error) {
+      toast.error(`加载 Tunnel 配置失败：${error.message}`);
+    } finally {
+      setLoadingKey('tunnelConfig', false);
+    }
+  };
+
+  const saveTunnelConfig = async () => {
+    try {
+      const config = JSON.parse(tunnelConfigState.text);
+      await cfApi(`/accounts/${selectedAccountId}/tunnels/${tunnelConfigState.tunnel.id}/configuration`, {
+        method: 'PUT',
+        body: JSON.stringify({ config }),
+      });
+      toast.success('Tunnel 配置已保存');
+      closeModal();
+    } catch (error) {
+      toast.error(`保存 Tunnel 配置失败：${error.message}`);
+    }
+  };
+
+  const openTunnelConnectionsModal = async (tunnel) => {
+    setTunnelConnectionState({ tunnel, connections: [] });
+    setModal({ type: 'tunnelConnections', data: tunnel });
+    setLoadingKey('tunnelConnections', true);
+    try {
+      const data = await cfApi(`/accounts/${selectedAccountId}/tunnels/${tunnel.id}/connections`);
+      setTunnelConnectionState({ tunnel, connections: data.connections || [] });
+    } catch (error) {
+      toast.error(`加载 Tunnel 连接失败：${error.message}`);
+    } finally {
+      setLoadingKey('tunnelConnections', false);
+    }
+  };
+
+  const cleanupTunnelConnections = async (tunnel, clientId = '') => {
+    const message = clientId ? '确定要清理该连接吗？' : `确定要清理 Tunnel“${tunnel.name}”的全部连接吗？`;
+    if (!(await dialog.confirm(message))) return;
+    try {
+      await cfApi(
+        `/accounts/${selectedAccountId}/tunnels/${tunnel.id}/connections${clientId ? `?clientId=${encodeURIComponent(clientId)}` : ''}`,
+        { method: 'DELETE' }
+      );
+      toast.success('Tunnel 连接已清理');
+      openTunnelConnectionsModal(tunnel);
+      loadTunnels();
+    } catch (error) {
+      toast.error(`清理 Tunnel 连接失败：${error.message}`);
+    }
+  };
+
+  const toggleRecordSelection = (recordId, checked) => {
+    setSelectedRecordIds((prev) => {
+      if (checked) return prev.includes(recordId) ? prev : [...prev, recordId];
+      return prev.filter((id) => id !== recordId);
+    });
+  };
+
+  const toggleR2Selection = (objectKey, checked) => {
+    setSelectedR2Objects((prev) => {
+      if (checked) return prev.includes(objectKey) ? prev : [...prev, objectKey];
+      return prev.filter((key) => key !== objectKey);
+    });
+  };
+
+  const r2Rows = [
+    ...r2Prefixes.map((prefix) => ({ key: prefix, name: prefix.slice(r2CurrentPrefix.length).replace(/\/$/, ''), isFolder: true })),
+    ...r2Objects.map((object) => ({
+      ...object,
+      key: object.key || object.name,
+      name: (object.key || object.name || '').slice(r2CurrentPrefix.length) || object.key || object.name,
+      isFolder: false,
+    })),
+  ];
 
   return (
-    <div className="flex flex-col gap-6 w-full px-1">
-      {/* 顶部：提供商卡片 */}
-      <div className="flex flex-wrap items-center justify-between border-b border-kumo-line pb-3 gap-4">
+    <div className="flex w-full flex-col gap-6 px-1">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-kumo-line pb-3">
         <Tabs
+          {...MODULE_TABS_PROPS}
           value={activeTab}
           onValueChange={setActiveTab}
           tabs={CLOUDFLARE_TABS}
-          size="sm"
-          className="max-w-full"
-          listClassName="overflow-x-auto scrollbar-thin"
         />
 
-        {activeTab !== 'accounts' && (
-          <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2">
+          {!['accounts', 'templates'].includes(activeTab) && (
             <Select
               aria-label="选择 Cloudflare 账号"
-              size="sm"
-              className="w-44"
-              placeholder="选择账号"
               value={selectedAccountId || null}
               onValueChange={(value) => setSelectedAccountId(value ? String(value) : '')}
+              placeholder="选择账号"
+              className="w-48"
             >
-              {accounts.map((acc) => (
-                <Select.Option key={acc.id} value={String(acc.id)}>
-                  {acc.name}
+              {accounts.map((account) => (
+                <Select.Option key={account.id} value={String(account.id)}>
+                  {account.name}
                 </Select.Option>
               ))}
             </Select>
-            <Button
-              onClick={refreshData}
-              disabled={refreshing || !selectedAccountId}
-              shape="square"
-              size="sm"
-              aria-label="刷新 Cloudflare 数据"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
-            </Button>
-          </div>
-        )}
+          )}
+          <Button
+            size="sm"
+            shape="square"
+            variant="secondary"
+            onClick={refreshCurrentTab}
+            aria-label="刷新当前 Cloudflare 数据"
+          >
+            <RefreshCw className={`h-4 w-4 ${Object.values(loading).some(Boolean) ? 'animate-spin' : ''}`} />
+          </Button>
+        </div>
       </div>
 
-      {/* Content Area */}
-      <div className="min-h-[400px]">
-        {/* 1. Zones Tab */}
-        {activeTab === 'zones' && (
-          <div className="bg-kumo-base border border-kumo-line rounded-lg shadow-sm overflow-hidden">
-            {loadingData ? (
-              <Table layout="fixed">
-                <colgroup>
-                  {zoneColWidths.map((width, index) => (
-                    <col key={index} style={{ width }} />
-                  ))}
-                </colgroup>
-                <Table.Header>
-                  <Table.Row className="bg-kumo-recessed/40 border-b border-kumo-line font-bold text-kumo-subtle">
-                    <Table.Head className="p-4">Domain</Table.Head>
-                    <Table.Head className="p-4">Status</Table.Head>
-                    <Table.Head className="p-4">Type</Table.Head>
-                    <Table.Head className="p-4 text-center">Action</Table.Head>
-                  </Table.Row>
-                </Table.Header>
-                <Table.Body>
-                  {[...Array(5)].map((_, idx) => (
-                    <Table.Row key={idx} className="border-b border-kumo-line">
-                      <Table.Cell className="p-4"><SkeletonLine className="w-48 h-4" /></Table.Cell>
-                      <Table.Cell className="p-4"><SkeletonLine className="w-16 h-4" /></Table.Cell>
-                      <Table.Cell className="p-4"><SkeletonLine className="w-12 h-4" /></Table.Cell>
-                      <Table.Cell className="p-4 text-center"><SkeletonLine className="w-20 h-4 mx-auto" /></Table.Cell>
-                    </Table.Row>
-                  ))}
-                </Table.Body>
-              </Table>
-            ) : (
-              <Table layout="fixed">
-                <colgroup>
-                  {zoneColWidths.map((width, index) => (
-                    <col key={index} style={{ width }} />
-                  ))}
-                </colgroup>
-                <Table.Header>
-                  <Table.Row className="bg-kumo-recessed/40 border-b border-kumo-line font-bold text-kumo-subtle">
-                    <Table.Head className="relative p-4 pr-6">
-                      Domain
-                      <Table.ResizeHandle onMouseDown={(e) => startZoneResize(0, e)} />
-                    </Table.Head>
-                    <Table.Head className="relative p-4 pr-6">
-                      Status
-                      <Table.ResizeHandle onMouseDown={(e) => startZoneResize(1, e)} />
-                    </Table.Head>
-                    <Table.Head className="relative p-4 pr-6">
-                      Type
-                      <Table.ResizeHandle onMouseDown={(e) => startZoneResize(2, e)} />
-                    </Table.Head>
-                    <Table.Head className="p-4 text-center">Action</Table.Head>
-                  </Table.Row>
-                </Table.Header>
-                <Table.Body>
-                  {zones.length === 0 ? (
+      {!selectedAccountId && !['accounts', 'templates'].includes(activeTab) ? (
+        <LayerCard className="p-8">
+          <div className="flex flex-col items-center gap-3 text-center text-sm text-kumo-subtle">
+            <Cloud className="h-10 w-10 text-kumo-subtle" />
+            <div>尚未配置 Cloudflare 账号，请先在“账号”中添加 API 令牌。</div>
+            <Button size="sm" onClick={() => setActiveTab('accounts')}>
+              去添加账号
+            </Button>
+          </div>
+        </LayerCard>
+      ) : (
+        <>
+          {activeTab === 'dns' && (
+            <div className="flex flex-col gap-5">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Button size="sm" onClick={openZoneModal}>
+                    <Plus className="h-4 w-4" />
+                    添加域名
+                  </Button>
+                  {selectedZone && (
+                    <>
+                      <Button size="sm" variant="secondary" onClick={purgeZoneCache} disabled={loading.purge}>
+                        <Shield className="h-4 w-4" />
+                        清除缓存
+                      </Button>
+                      <Button size="sm" variant="secondary-destructive" onClick={() => deleteZone(selectedZone)}>
+                        <Trash className="h-4 w-4" />
+                        删除域名
+                      </Button>
+                    </>
+                  )}
+                </div>
+                {selectedAccount && (
+                  <div className="text-xs text-kumo-subtle">
+                    当前账号：<span className="font-medium text-kumo-strong">{selectedAccount.name}</span>
+                  </div>
+                )}
+              </div>
+
+              <LayerCard className="overflow-x-auto p-0">
+                <Table layout="fixed">
+                  <colgroup>
+                    {zoneColWidths.map((width, index) => <col key={index} style={{ width }} />)}
+                  </colgroup>
+                  <Table.Header variant="compact">
                     <Table.Row>
-                      <Table.Cell colSpan={4} className="p-12 text-center text-kumo-subtle">No domains found</Table.Cell>
+                      <Table.Head className="relative pr-6">
+                        域名
+                        <Table.ResizeHandle onMouseDown={(e) => startZoneResize(0, e)} onTouchStart={(e) => startZoneResize(0, e)} />
+                      </Table.Head>
+                      <Table.Head className="relative pr-6">
+                        状态
+                        <Table.ResizeHandle onMouseDown={(e) => startZoneResize(1, e)} onTouchStart={(e) => startZoneResize(1, e)} />
+                      </Table.Head>
+                      <Table.Head className="relative pr-6">
+                        类型
+                        <Table.ResizeHandle onMouseDown={(e) => startZoneResize(2, e)} onTouchStart={(e) => startZoneResize(2, e)} />
+                      </Table.Head>
+                      <Table.Head className="relative pr-6">
+                        名称服务器
+                        <Table.ResizeHandle onMouseDown={(e) => startZoneResize(3, e)} onTouchStart={(e) => startZoneResize(3, e)} />
+                      </Table.Head>
+                      <Table.Head className="text-right">操作</Table.Head>
                     </Table.Row>
-                  ) : (
-                    zones.map((zone) => (
-                      <Table.Row key={zone.id} className="border-b border-kumo-line last:border-0 hover:bg-kumo-recessed/10 transition-colors">
-                        <Table.Cell className="p-4 font-bold text-kumo-strong">{zone.name}</Table.Cell>
-                        <Table.Cell className="p-4">
-                          <span className={`px-2 py-0.5 rounded border text-[10px] font-bold ${zone.status === 'active' ? 'bg-kumo-success/10 border-kumo-success/20 text-kumo-success' : 'bg-kumo-warning/10 border-kumo-warning/20 text-kumo-warning'}`}>
-                            {zone.status === 'active' ? 'Active' : 'Pending'}
-                          </span>
-                        </Table.Cell>
-                        <Table.Cell className="p-4 text-kumo-subtle">{zone.type}</Table.Cell>
-                        <Table.Cell className="p-4 text-center">
-                          <Button className="text-[10px] h-7 px-2 border border-kumo-line bg-kumo-recessed/50 hover:bg-kumo-brand/10 hover:text-kumo-brand">
-                            Manage DNS
-                          </Button>
+                  </Table.Header>
+                  <Table.Body>
+                    {loading.zones ? (
+                      Array.from({ length: 4 }).map((_, index) => (
+                        <Table.Row key={index}>
+                          <Table.Cell><SkeletonLine className="h-4 w-44" /></Table.Cell>
+                          <Table.Cell><SkeletonLine className="h-4 w-16" /></Table.Cell>
+                          <Table.Cell><SkeletonLine className="h-4 w-14" /></Table.Cell>
+                          <Table.Cell><SkeletonLine className="h-4 w-52" /></Table.Cell>
+                          <Table.Cell><SkeletonLine className="ml-auto h-4 w-24" /></Table.Cell>
+                        </Table.Row>
+                      ))
+                    ) : zones.length === 0 ? (
+                      <Table.Row>
+                        <Table.Cell colSpan={5} className="py-10 text-center text-kumo-subtle">
+                          当前账号下没有域名。
                         </Table.Cell>
                       </Table.Row>
-                    ))
-                  )}
-                </Table.Body>
-              </Table>
-            )}
-          </div>
-        )}
-
-        {/* 2. Workers Tab */}
-        {activeTab === 'workers' && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {loadingData ? (
-              [...Array(6)].map((_, idx) => (
-                <div key={idx} className="bg-kumo-base border border-kumo-line rounded-lg p-4 shadow-sm flex flex-col gap-3">
-                  <SkeletonLine className="w-1/2 h-4" />
-                  <SkeletonLine className="w-1/3 h-3" />
-                  <SkeletonLine className="w-16 h-7 rounded mt-auto" />
-                </div>
-              ))
-            ) : workers.length === 0 ? (
-              <div className="col-span-full p-20 text-center text-kumo-subtle bg-kumo-base border border-kumo-line rounded-lg">No workers found</div>
-            ) : (
-              workers.map((worker) => (
-                <div key={worker.id} className="bg-kumo-base border border-kumo-line rounded-lg p-4 shadow-sm hover:border-kumo-brand transition-all flex flex-col gap-3">
-                  <div className="flex justify-between items-start">
-                    <div className="flex flex-col min-w-0">
-                      <span className="text-xs font-bold text-kumo-strong truncate">{worker.name}</span>
-                      <span className="text-[10px] text-kumo-subtle font-mono">{new Date(worker.modifiedOn).toLocaleDateString()}</span>
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between mt-auto pt-1">
-                    <Button className="h-7 text-[10px] px-2.5 border border-kumo-line bg-kumo-recessed hover:bg-kumo-base font-bold">
-                      Edit Code
-                    </Button>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        )}
-
-        {/* 3. Pages Tab */}
-        {activeTab === 'pages' && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {loadingData ? (
-              [...Array(6)].map((_, idx) => (
-                <div key={idx} className="bg-kumo-base border border-kumo-line rounded-lg p-4 shadow-sm flex flex-col gap-3">
-                  <SkeletonLine className="w-2/3 h-4" />
-                  <SkeletonLine className="w-1/2 h-3" />
-                  <div className="border-t border-kumo-line/50 pt-2 space-y-1">
-                    <SkeletonLine className="w-full h-3" />
-                    <SkeletonLine className="w-1/3 h-3" />
-                  </div>
-                </div>
-              ))
-            ) : pages.length === 0 ? (
-              <div className="col-span-full p-20 text-center text-kumo-subtle bg-kumo-base border border-kumo-line rounded-lg">No pages found</div>
-            ) : (
-              pages.map((page) => (
-                <div key={page.name} className="bg-kumo-base border border-kumo-line rounded-lg p-4 shadow-sm hover:border-kumo-brand transition-all flex flex-col gap-3">
-                  <div className="flex justify-between items-start">
-                    <div className="flex flex-col min-w-0">
-                      <span className="text-xs font-bold text-kumo-strong truncate">{page.name}</span>
-                      <span className="text-[10px] text-kumo-brand hover:underline cursor-pointer truncate">{page.subdomain}</span>
-                    </div>
-                  </div>
-                  <div className="flex flex-col gap-1 text-[10px] text-kumo-subtle border-t border-kumo-line/50 pt-2">
-                    <span>Production: {page.productionBranch || '-'}</span>
-                    <span>Status: {page.latestDeployment?.status || '-'}</span>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
-        )}
-
-        {/* 4. R2 Tab */}
-        {activeTab === 'r2' && (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {loadingData ? (
-              [...Array(6)].map((_, idx) => (
-                <div key={idx} className="bg-kumo-base border border-kumo-line rounded-lg p-4 shadow-sm flex items-center gap-3">
-                  <SkeletonLine className="w-5 h-5 rounded-full" />
-                  <div className="flex-1 space-y-2">
-                    <SkeletonLine className="w-1/2 h-4" />
-                    <SkeletonLine className="w-1/3 h-3" />
-                  </div>
-                </div>
-              ))
-            ) : r2Buckets.length === 0 ? (
-              <div className="col-span-full p-20 text-center text-kumo-subtle bg-kumo-base border border-kumo-line rounded-lg">No R2 buckets found</div>
-            ) : (
-              r2Buckets.map((bucket) => (
-                <div key={bucket.name} className="bg-kumo-base border border-kumo-line rounded-lg p-4 shadow-sm hover:border-kumo-brand transition-all flex flex-col gap-3">
-                  <div className="flex items-center gap-2">
-                    <Box className="w-5 h-5 text-kumo-brand" />
-                    <span className="text-xs font-bold text-kumo-strong truncate">{bucket.name}</span>
-                  </div>
-                  <span className="text-[10px] text-kumo-subtle">Created: {new Date(bucket.creation_date).toLocaleDateString()}</span>
-                </div>
-              ))
-            )}
-          </div>
-        )}
-
-        {/* 5. Tunnels Tab */}
-        {activeTab === 'tunnels' && (
-          <div className="bg-kumo-base border border-kumo-line rounded-lg shadow-sm overflow-hidden">
-            {loadingData ? (
-              <Table layout="fixed">
-                <colgroup>
-                  {tunnelColWidths.map((width, index) => (
-                    <col key={index} style={{ width }} />
-                  ))}
-                </colgroup>
-                <Table.Header>
-                  <Table.Row className="bg-kumo-recessed/40 border-b border-kumo-line font-bold text-kumo-subtle">
-                    <Table.Head className="p-4">Name</Table.Head>
-                    <Table.Head className="p-4">Status</Table.Head>
-                    <Table.Head className="p-4">Connections</Table.Head>
-                    <Table.Head className="p-4 text-center">Action</Table.Head>
-                  </Table.Row>
-                </Table.Header>
-                <Table.Body>
-                  {[...Array(4)].map((_, idx) => (
-                    <Table.Row key={idx} className="border-b border-kumo-line">
-                      <Table.Cell className="p-4"><SkeletonLine className="w-36 h-4" /></Table.Cell>
-                      <Table.Cell className="p-4"><SkeletonLine className="w-16 h-4" /></Table.Cell>
-                      <Table.Cell className="p-4"><SkeletonLine className="w-8 h-4" /></Table.Cell>
-                      <Table.Cell className="p-4 text-center"><SkeletonLine className="w-16 h-4 mx-auto" /></Table.Cell>
-                    </Table.Row>
-                  ))}
-                </Table.Body>
-              </Table>
-            ) : (
-              <Table layout="fixed">
-                <colgroup>
-                  {tunnelColWidths.map((width, index) => (
-                    <col key={index} style={{ width }} />
-                  ))}
-                </colgroup>
-                <Table.Header>
-                  <Table.Row className="bg-kumo-recessed/40 border-b border-kumo-line font-bold text-kumo-subtle">
-                    <Table.Head className="relative p-4 pr-6">
-                      Name
-                      <Table.ResizeHandle onMouseDown={(e) => startTunnelResize(0, e)} />
-                    </Table.Head>
-                    <Table.Head className="relative p-4 pr-6">
-                      Status
-                      <Table.ResizeHandle onMouseDown={(e) => startTunnelResize(1, e)} />
-                    </Table.Head>
-                    <Table.Head className="relative p-4 pr-6">
-                      Connections
-                      <Table.ResizeHandle onMouseDown={(e) => startTunnelResize(2, e)} />
-                    </Table.Head>
-                    <Table.Head className="p-4 text-center">Action</Table.Head>
-                  </Table.Row>
-                </Table.Header>
-                <Table.Body>
-                  {tunnels.length === 0 ? (
-                    <Table.Row>
-                      <Table.Cell colSpan={4} className="p-12 text-center text-kumo-subtle">No tunnels found</Table.Cell>
-                    </Table.Row>
-                  ) : (
-                    tunnels.map((tunnel) => (
-                      <Table.Row key={tunnel.id} className="border-b border-kumo-line last:border-0 hover:bg-kumo-recessed/10 transition-colors">
-                        <Table.Cell className="p-4 font-bold text-kumo-strong">{tunnel.name}</Table.Cell>
-                        <Table.Cell className="p-4">
-                          <span className={`px-2 py-0.5 rounded border text-[10px] font-bold ${tunnel.status === 'healthy' ? 'bg-kumo-success/10 border-kumo-success/20 text-kumo-success' : 'bg-kumo-danger/10 border-kumo-danger/20 text-kumo-danger'}`}>
-                            {tunnel.status}
-                          </span>
+                    ) : zones.map((zone) => (
+                      <Table.Row key={zone.id} variant={zone.id === selectedZoneId ? 'selected' : 'default'}>
+                        <Table.Cell>
+                          <div className="flex flex-col">
+                            <span className="font-medium text-kumo-strong">{zone.name}</span>
+                            <span className="text-xs text-kumo-subtle">{zone.id}</span>
+                          </div>
                         </Table.Cell>
-                        <Table.Cell className="p-4 text-kumo-default">{tunnel.connections?.length || 0}</Table.Cell>
-                        <Table.Cell className="p-4 text-center">
-                          <Button className="text-[10px] h-7 px-2 border border-kumo-line bg-kumo-recessed/50 hover:bg-kumo-brand/10 hover:text-kumo-brand">
-                            Configure
-                          </Button>
+                        <Table.Cell>
+                          <Badge variant={statusVariant(zone.status)}>{zoneStatusLabel(zone.status)}</Badge>
                         </Table.Cell>
-                      </Table.Row>
-                    ))
-                  )}
-                </Table.Body>
-              </Table>
-            )}
-          </div>
-        )}
-
-        {/* 6. Accounts Tab */}
-        {activeTab === 'accounts' && (
-          <div className="space-y-4">
-            <div className="flex justify-between items-center">
-              <h3 className="text-sm font-bold text-kumo-strong">Cloudflare 账号</h3>
-              <Button
-                onClick={() => {
-                  setEditingAccount(null);
-                  setAccountForm({ name: '', email: '', apiToken: '', skipVerify: false });
-                  setShowAddAccountModal(true);
-                }}
-                className="h-8 text-xs flex items-center gap-1.5"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>添加账号</span>
-              </Button>
-            </div>
-
-            <div className="bg-kumo-base border border-kumo-line rounded-lg shadow-sm overflow-hidden">
-              <Table layout="fixed">
-                <colgroup>
-                  {accountColWidths.map((width, index) => (
-                    <col key={index} style={{ width }} />
-                  ))}
-                </colgroup>
-                <Table.Header>
-                  <Table.Row className="bg-kumo-recessed/40 border-b border-kumo-line font-bold text-kumo-subtle">
-                    <Table.Head className="relative p-4 pr-6">
-                      备注名称
-                      <Table.ResizeHandle onMouseDown={(e) => startAccountResize(0, e)} />
-                    </Table.Head>
-                    <Table.Head className="relative p-4 pr-6">
-                      Email
-                      <Table.ResizeHandle onMouseDown={(e) => startAccountResize(1, e)} />
-                    </Table.Head>
-                    <Table.Head className="relative p-4 pr-6">
-                      状态
-                      <Table.ResizeHandle onMouseDown={(e) => startAccountResize(2, e)} />
-                    </Table.Head>
-                    <Table.Head className="p-4 text-center">操作</Table.Head>
-                  </Table.Row>
-                </Table.Header>
-                <Table.Body>
-                  {accounts.length === 0 ? (
-                    <Table.Row>
-                      <Table.Cell colSpan={4} className="p-12 text-center text-kumo-subtle">尚未配置任何账号</Table.Cell>
-                    </Table.Row>
-                  ) : (
-                    accounts.map((acc) => (
-                      <Table.Row key={acc.id} className="border-b border-kumo-line last:border-0 hover:bg-kumo-recessed/10">
-                        <Table.Cell className="p-4 font-bold text-kumo-strong">{acc.name}</Table.Cell>
-                        <Table.Cell className="p-4 text-kumo-default">{acc.email || '-'}</Table.Cell>
-                        <Table.Cell className="p-4">
-                          <span className="px-2 py-0.5 rounded border bg-kumo-success/10 border-kumo-success/20 text-kumo-success text-[10px] font-bold">已连接</span>
+                        <Table.Cell>{zone.type || '-'}</Table.Cell>
+                        <Table.Cell>
+                          <div className="truncate text-xs text-kumo-subtle" title={(zone.nameServers || []).join(', ')}>
+                            {(zone.nameServers || []).join(', ') || '-'}
+                          </div>
                         </Table.Cell>
-                        <Table.Cell className="p-4 text-center">
-                          <div className="flex justify-center gap-2">
-                            <Button
-                              onClick={() => openEditModal(acc)}
-                              shape="square"
-                              size="sm"
-                              variant="secondary"
-                              aria-label={`编辑 ${acc.name}`}
-                            >
-                              <Settings className="w-3.5 h-3.5" />
+                        <Table.Cell className="text-right">
+                          <div className="inline-flex gap-2">
+                            <Button size="sm" variant="secondary" onClick={() => selectZone(zone)}>
+                              {zone.id === selectedZoneId ? <Check className="h-4 w-4" /> : <Search className="h-4 w-4" />}
+                              {zone.id === selectedZoneId ? '已选择' : '管理'}
                             </Button>
-                            <Button
-                              onClick={() => deleteAccount(acc.id)}
-                              shape="square"
-                              size="sm"
-                              variant="secondary-destructive"
-                              aria-label={`删除 ${acc.name}`}
-                            >
-                              <Trash className="w-3.5 h-3.5" />
+                            <Button size="sm" variant="secondary-destructive" onClick={() => deleteZone(zone)} aria-label={`删除 ${zone.name}`}>
+                              <Trash className="h-4 w-4" />
                             </Button>
                           </div>
                         </Table.Cell>
                       </Table.Row>
-                    ))
-                  )}
+                    ))}
+                  </Table.Body>
+                </Table>
+              </LayerCard>
+
+              {selectedZone && (
+                <>
+                  <div className="grid grid-cols-1 gap-3 lg:grid-cols-4">
+                    <LayerCard className="p-4">
+                      <div className="text-xs text-kumo-subtle">SSL 模式</div>
+                      <div className="mt-2 flex items-center gap-2">
+                        <Select
+                          value={sslInfo?.mode || null}
+                          onValueChange={(value) => updateSslMode(String(value))}
+                          placeholder={loading.ssl ? '加载中' : '选择模式'}
+                          className="w-full"
+                        >
+                          {SSL_MODES.map((mode) => (
+                            <Select.Option key={mode.value} value={mode.value}>{mode.label}</Select.Option>
+                          ))}
+                        </Select>
+                      </div>
+                    </LayerCard>
+                    <LayerCard className="p-4">
+                      <div className="text-xs text-kumo-subtle">请求量</div>
+                      <div className="mt-2 text-xl font-semibold text-kumo-strong">{formatNumber(analytics?.requests)}</div>
+                    </LayerCard>
+                    <LayerCard className="p-4">
+                      <div className="text-xs text-kumo-subtle">带宽</div>
+                      <div className="mt-2 text-xl font-semibold text-kumo-strong">{formatBytes(analytics?.bandwidth)}</div>
+                    </LayerCard>
+                    <LayerCard className="p-4">
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          <div className="text-xs text-kumo-subtle">缓存命中率</div>
+                          <div className="mt-2 text-xl font-semibold text-kumo-strong">{analytics?.cacheHitRate ?? 0}%</div>
+                        </div>
+                        <Select value={analyticsRange} onValueChange={(value) => loadAnalytics(String(value))} className="w-24">
+                          <Select.Option value="24h">24 小时</Select.Option>
+                          <Select.Option value="7d">7 天</Select.Option>
+                          <Select.Option value="30d">30 天</Select.Option>
+                        </Select>
+                      </div>
+                    </LayerCard>
+                  </div>
+
+                  <LayerCard className="p-4">
+                    <div className="flex flex-wrap items-end gap-2">
+                      <Select
+                        label="记录类型"
+                        value={quickSwitch.type}
+                        onValueChange={(value) => setQuickSwitch((prev) => ({ ...prev, type: String(value) }))}
+                        className="w-28"
+                      >
+                        {recordTypes.map((type) => <Select.Option key={type} value={type}>{type}</Select.Option>)}
+                      </Select>
+                      <Input
+                        label="记录名称"
+                        value={quickSwitch.name}
+                        onChange={(event) => setQuickSwitch((prev) => ({ ...prev, name: event.target.value }))}
+                        placeholder="@ 或 www"
+                        className="w-44"
+                      />
+                      <Input
+                        label="新内容"
+                        value={quickSwitch.newContent}
+                        onChange={(event) => setQuickSwitch((prev) => ({ ...prev, newContent: event.target.value }))}
+                        placeholder="IP 或域名"
+                        className="min-w-72 flex-1"
+                      />
+                      <Button size="sm" onClick={runQuickSwitch} disabled={loading.quickSwitch}>
+                        快速切换
+                      </Button>
+                    </div>
+                  </LayerCard>
+
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Input
+                        aria-label="按名称筛选 DNS 记录"
+                        value={recordFilter.name}
+                        onChange={(event) => setRecordFilter((prev) => ({ ...prev, name: event.target.value }))}
+                        placeholder="筛选名称"
+                        className="w-48"
+                      />
+                      <Select
+                        aria-label="按类型筛选 DNS 记录"
+                        value={recordFilter.type || null}
+                        onValueChange={(value) => setRecordFilter((prev) => ({ ...prev, type: value ? String(value) : '' }))}
+                        placeholder="全部类型"
+                        className="w-36"
+                      >
+                        {recordTypes.map((type) => <Select.Option key={type} value={type}>{type}</Select.Option>)}
+                      </Select>
+                      <Button size="sm" variant="secondary" onClick={() => loadRecords(selectedZoneId, recordFilter)}>
+                        查询
+                      </Button>
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button size="sm" onClick={() => openRecordModal()}>
+                        <Plus className="h-4 w-4" />
+                        添加记录
+                      </Button>
+                      <Button size="sm" variant="secondary" onClick={exportRecords}>
+                        <Download className="h-4 w-4" />
+                        导出
+                      </Button>
+                      <Button size="sm" variant="secondary" onClick={() => openImportModal('records')}>
+                        <Upload className="h-4 w-4" />
+                        导入
+                      </Button>
+                      {selectedRecordIds.length > 0 && (
+                        <Button size="sm" variant="secondary-destructive" onClick={batchDeleteRecords}>
+                          <Trash className="h-4 w-4" />
+                          删除 {selectedRecordIds.length}
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+
+                  <LayerCard className="overflow-x-auto p-0">
+                    <Table layout="fixed">
+                      <colgroup>
+                        {recordColWidths.map((width, index) => <col key={index} style={{ width }} />)}
+                      </colgroup>
+                      <Table.Header variant="compact">
+                        <Table.Row>
+                          <Table.CheckHead
+                            checked={records.length > 0 && selectedRecordIds.length === records.length}
+                            indeterminate={selectedRecordIds.length > 0 && selectedRecordIds.length < records.length}
+                            onCheckedChange={(checked) => setSelectedRecordIds(checked ? records.map((record) => record.id) : [])}
+                            aria-label="全选 DNS 记录"
+                          />
+                          <Table.Head className="relative pr-6">类型<Table.ResizeHandle onMouseDown={(e) => startRecordResize(1, e)} onTouchStart={(e) => startRecordResize(1, e)} /></Table.Head>
+                          <Table.Head className="relative pr-6">名称<Table.ResizeHandle onMouseDown={(e) => startRecordResize(2, e)} onTouchStart={(e) => startRecordResize(2, e)} /></Table.Head>
+                          <Table.Head className="relative pr-6">内容<Table.ResizeHandle onMouseDown={(e) => startRecordResize(3, e)} onTouchStart={(e) => startRecordResize(3, e)} /></Table.Head>
+                          <Table.Head className="relative pr-6">TTL<Table.ResizeHandle onMouseDown={(e) => startRecordResize(4, e)} onTouchStart={(e) => startRecordResize(4, e)} /></Table.Head>
+                          <Table.Head className="relative pr-6">代理<Table.ResizeHandle onMouseDown={(e) => startRecordResize(5, e)} onTouchStart={(e) => startRecordResize(5, e)} /></Table.Head>
+                          <Table.Head className="relative pr-6">更新时间<Table.ResizeHandle onMouseDown={(e) => startRecordResize(6, e)} onTouchStart={(e) => startRecordResize(6, e)} /></Table.Head>
+                          <Table.Head className="text-right">操作</Table.Head>
+                        </Table.Row>
+                      </Table.Header>
+                      <Table.Body>
+                        {loading.records ? (
+                          Array.from({ length: 5 }).map((_, index) => (
+                            <Table.Row key={index}>
+                              <Table.Cell colSpan={8}><SkeletonLine className="h-4 w-full" /></Table.Cell>
+                            </Table.Row>
+                          ))
+                        ) : records.length === 0 ? (
+                          <Table.Row>
+                            <Table.Cell colSpan={8} className="py-10 text-center text-kumo-subtle">
+                              当前域名没有匹配的 DNS 记录。
+                            </Table.Cell>
+                          </Table.Row>
+                        ) : records.map((record) => (
+                          <Table.Row key={record.id} variant={selectedRecordIds.includes(record.id) ? 'selected' : 'default'}>
+                            <Table.CheckCell
+                              checked={selectedRecordIds.includes(record.id)}
+                              onCheckedChange={(checked) => toggleRecordSelection(record.id, Boolean(checked))}
+                              aria-label={`选择 ${record.name}`}
+                            />
+                            <Table.Cell><Badge variant="outline">{record.type}</Badge></Table.Cell>
+                            <Table.Cell className="font-medium text-kumo-strong">{recordShortName(record.name, selectedZone.name)}</Table.Cell>
+                            <Table.Cell><div className="truncate font-mono text-xs" title={record.content}>{record.content}</div></Table.Cell>
+                            <Table.Cell>{record.ttl === 1 ? '自动' : record.ttl}</Table.Cell>
+                            <Table.Cell><Badge variant={record.proxied ? 'success' : 'outline'}>{record.proxied ? '开启' : '关闭'}</Badge></Table.Cell>
+                            <Table.Cell>{formatDate(record.modifiedOn)}</Table.Cell>
+                            <Table.Cell className="text-right">
+                              <div className="inline-flex gap-2">
+                                <Button size="sm" shape="square" variant="secondary" onClick={() => openRecordModal(record)} aria-label={`编辑 ${record.name}`}>
+                                  <Edit className="h-4 w-4" />
+                                </Button>
+                                <Button size="sm" shape="square" variant="secondary-destructive" onClick={() => deleteRecord(record)} aria-label={`删除 ${record.name}`}>
+                                  <Trash className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </Table.Cell>
+                          </Table.Row>
+                        ))}
+                      </Table.Body>
+                    </Table>
+                  </LayerCard>
+                </>
+              )}
+            </div>
+          )}
+
+          {activeTab === 'workers' && (
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="text-sm text-kumo-subtle">
+                  {workerSubdomain ? <>默认子域名：<span className="font-mono text-kumo-strong">{workerSubdomain}.workers.dev</span></> : 'Workers 默认子域名未返回'}
+                </div>
+                <Button size="sm" onClick={() => openWorkerModal()}>
+                  <Plus className="h-4 w-4" />
+                  新建 Worker
+                </Button>
+              </div>
+              <LayerCard className="overflow-x-auto p-0">
+                <Table layout="fixed">
+                  <colgroup>{workerColWidths.map((width, index) => <col key={index} style={{ width }} />)}</colgroup>
+                  <Table.Header variant="compact">
+                    <Table.Row>
+                      <Table.Head className="relative pr-6">名称<Table.ResizeHandle onMouseDown={(e) => startWorkerResize(0, e)} onTouchStart={(e) => startWorkerResize(0, e)} /></Table.Head>
+                      <Table.Head className="relative pr-6">创建时间<Table.ResizeHandle onMouseDown={(e) => startWorkerResize(1, e)} onTouchStart={(e) => startWorkerResize(1, e)} /></Table.Head>
+                      <Table.Head className="relative pr-6">更新时间<Table.ResizeHandle onMouseDown={(e) => startWorkerResize(2, e)} onTouchStart={(e) => startWorkerResize(2, e)} /></Table.Head>
+                      <Table.Head className="text-right">操作</Table.Head>
+                    </Table.Row>
+                  </Table.Header>
+                  <Table.Body>
+                    {loading.workers ? (
+                      Array.from({ length: 4 }).map((_, index) => <Table.Row key={index}><Table.Cell colSpan={4}><SkeletonLine className="h-4 w-full" /></Table.Cell></Table.Row>)
+                    ) : workers.length === 0 ? (
+                      <Table.Row><Table.Cell colSpan={4} className="py-10 text-center text-kumo-subtle">没有 Workers。</Table.Cell></Table.Row>
+                    ) : workers.map((worker) => (
+                      <Table.Row key={worker.id || worker.name}>
+                        <Table.Cell className="font-medium text-kumo-strong">{worker.name}</Table.Cell>
+                        <Table.Cell>{formatDate(worker.createdOn)}</Table.Cell>
+                        <Table.Cell>{formatDate(worker.modifiedOn)}</Table.Cell>
+                        <Table.Cell className="text-right">
+                          <div className="inline-flex flex-wrap justify-end gap-2">
+                            <Button size="sm" variant="secondary" onClick={() => openWorkerModal(worker)}>代码</Button>
+                            <Button size="sm" variant="secondary" onClick={() => openWorkerRoutesModal(worker)}>路由</Button>
+                            <Button size="sm" variant="secondary" onClick={() => openWorkerDomainsModal(worker)}>域名</Button>
+                            <Button size="sm" variant="secondary" onClick={() => openWorkerAnalyticsModal(worker)}>统计</Button>
+                            <Button size="sm" variant="secondary" onClick={() => toggleWorkerSubdomain(worker, true)}>启用</Button>
+                            <Button size="sm" variant="secondary-destructive" onClick={() => deleteWorker(worker)} aria-label={`删除 ${worker.name}`}><Trash className="h-4 w-4" /></Button>
+                          </div>
+                        </Table.Cell>
+                      </Table.Row>
+                    ))}
+                  </Table.Body>
+                </Table>
+              </LayerCard>
+            </div>
+          )}
+
+          {activeTab === 'pages' && (
+            <LayerCard className="overflow-x-auto p-0">
+              <Table layout="fixed">
+                <colgroup>{pageColWidths.map((width, index) => <col key={index} style={{ width }} />)}</colgroup>
+                <Table.Header variant="compact">
+                  <Table.Row>
+                    <Table.Head className="relative pr-6">项目<Table.ResizeHandle onMouseDown={(e) => startPageResize(0, e)} onTouchStart={(e) => startPageResize(0, e)} /></Table.Head>
+                    <Table.Head className="relative pr-6">访问地址<Table.ResizeHandle onMouseDown={(e) => startPageResize(1, e)} onTouchStart={(e) => startPageResize(1, e)} /></Table.Head>
+                    <Table.Head className="relative pr-6">生产分支<Table.ResizeHandle onMouseDown={(e) => startPageResize(2, e)} onTouchStart={(e) => startPageResize(2, e)} /></Table.Head>
+                    <Table.Head className="relative pr-6">最新部署<Table.ResizeHandle onMouseDown={(e) => startPageResize(3, e)} onTouchStart={(e) => startPageResize(3, e)} /></Table.Head>
+                    <Table.Head className="text-right">操作</Table.Head>
+                  </Table.Row>
+                </Table.Header>
+                <Table.Body>
+                  {loading.pages ? (
+                    Array.from({ length: 4 }).map((_, index) => <Table.Row key={index}><Table.Cell colSpan={5}><SkeletonLine className="h-4 w-full" /></Table.Cell></Table.Row>)
+                  ) : pages.length === 0 ? (
+                    <Table.Row><Table.Cell colSpan={5} className="py-10 text-center text-kumo-subtle">没有 Pages 项目。</Table.Cell></Table.Row>
+                  ) : pages.map((project) => (
+                    <Table.Row key={project.name}>
+                      <Table.Cell className="font-medium text-kumo-strong">{project.name}</Table.Cell>
+                      <Table.Cell>
+                        {project.subdomain ? (
+                          <Button size="sm" variant="secondary" onClick={() => window.open(`https://${project.subdomain}`, '_blank', 'noopener,noreferrer')}>
+                            <ExternalLink className="h-4 w-4" />
+                            打开
+                          </Button>
+                        ) : '-'}
+                      </Table.Cell>
+                      <Table.Cell>{project.productionBranch || '-'}</Table.Cell>
+                      <Table.Cell>
+                        <Badge variant={statusVariant(project.latestDeployment?.status)}>
+                          {project.latestDeployment?.status || '未知'}
+                        </Badge>
+                      </Table.Cell>
+                      <Table.Cell className="text-right">
+                        <div className="inline-flex flex-wrap justify-end gap-2">
+                          <Button size="sm" variant="secondary" onClick={() => openPagesDeploymentsModal(project)}>部署</Button>
+                          <Button size="sm" variant="secondary" onClick={() => openPagesDomainsModal(project)}>域名</Button>
+                          <Button size="sm" variant="secondary-destructive" onClick={() => deletePagesProject(project)}><Trash className="h-4 w-4" /></Button>
+                        </div>
+                      </Table.Cell>
+                    </Table.Row>
+                  ))}
                 </Table.Body>
               </Table>
+            </LayerCard>
+          )}
+
+          {activeTab === 'r2' && (
+            <div className="flex flex-col gap-4">
+              {!r2SelectedBucket ? (
+                <>
+                  <div className="flex justify-end">
+                    <Button size="sm" onClick={() => { setR2BucketForm({ name: '', location: 'auto' }); setModal({ type: 'r2Bucket', data: null }); }}>
+                      <Plus className="h-4 w-4" />
+                      创建存储桶
+                    </Button>
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+                    {loading.r2 ? Array.from({ length: 6 }).map((_, index) => (
+                      <LayerCard key={index} className="p-4"><SkeletonLine className="h-5 w-40" /></LayerCard>
+                    )) : r2Buckets.length === 0 ? (
+                      <LayerCard className="p-8 text-center text-kumo-subtle md:col-span-2 xl:col-span-3">没有 R2 存储桶。</LayerCard>
+                    ) : r2Buckets.map((bucket) => (
+                      <LayerCard key={bucket.name} className="p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 font-medium text-kumo-strong">
+                              <Box className="h-4 w-4" />
+                              <span className="truncate">{bucket.name}</span>
+                            </div>
+                            <div className="mt-2 text-xs text-kumo-subtle">创建时间：{formatDate(bucket.creation_date || bucket.created_at)}</div>
+                          </div>
+                          <div className="flex gap-2">
+                            <Button size="sm" variant="secondary" onClick={() => selectR2Bucket(bucket)}>浏览</Button>
+                            <Button size="sm" shape="square" variant="secondary-destructive" onClick={() => deleteR2Bucket(bucket)} aria-label={`删除 ${bucket.name}`}>
+                              <Trash className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </div>
+                      </LayerCard>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Button size="sm" variant="secondary" onClick={() => { setR2SelectedBucket(null); setR2Objects([]); setR2Prefixes([]); }}>
+                        <ArrowLeft className="h-4 w-4" />
+                        返回存储桶
+                      </Button>
+                      <span className="text-sm font-medium text-kumo-strong">{r2SelectedBucket.name}</span>
+                      <Button size="sm" variant="secondary" onClick={() => loadR2Objects(r2SelectedBucket.name, '')}>
+                        根目录
+                      </Button>
+                      {r2CurrentPrefix && (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => {
+                            const parent = r2CurrentPrefix.split('/').filter(Boolean).slice(0, -1).join('/');
+                            loadR2Objects(r2SelectedBucket.name, parent ? `${parent}/` : '');
+                          }}
+                        >
+                          上一级
+                        </Button>
+                      )}
+                    </div>
+                    {selectedR2Objects.length > 0 && (
+                      <Button size="sm" variant="secondary-destructive" onClick={batchDeleteR2Objects}>
+                        <Trash className="h-4 w-4" />
+                        删除 {selectedR2Objects.length}
+                      </Button>
+                    )}
+                  </div>
+                  <LayerCard className="overflow-x-auto p-0">
+                    <Table layout="fixed">
+                      <colgroup>{r2ColWidths.map((width, index) => <col key={index} style={{ width }} />)}</colgroup>
+                      <Table.Header variant="compact">
+                        <Table.Row>
+                          <Table.CheckHead
+                            checked={r2Objects.length > 0 && selectedR2Objects.length === r2Objects.length}
+                            indeterminate={selectedR2Objects.length > 0 && selectedR2Objects.length < r2Objects.length}
+                            onCheckedChange={(checked) => setSelectedR2Objects(checked ? r2Objects.map((object) => object.key || object.name) : [])}
+                            aria-label="全选 R2 对象"
+                          />
+                          <Table.Head className="relative pr-6">名称<Table.ResizeHandle onMouseDown={(e) => startR2Resize(1, e)} onTouchStart={(e) => startR2Resize(1, e)} /></Table.Head>
+                          <Table.Head className="relative pr-6">大小<Table.ResizeHandle onMouseDown={(e) => startR2Resize(2, e)} onTouchStart={(e) => startR2Resize(2, e)} /></Table.Head>
+                          <Table.Head className="relative pr-6">修改时间<Table.ResizeHandle onMouseDown={(e) => startR2Resize(3, e)} onTouchStart={(e) => startR2Resize(3, e)} /></Table.Head>
+                          <Table.Head className="text-right">操作</Table.Head>
+                        </Table.Row>
+                      </Table.Header>
+                      <Table.Body>
+                        {loading.r2Objects ? (
+                          Array.from({ length: 5 }).map((_, index) => <Table.Row key={index}><Table.Cell colSpan={5}><SkeletonLine className="h-4 w-full" /></Table.Cell></Table.Row>)
+                        ) : r2Rows.length === 0 ? (
+                          <Table.Row><Table.Cell colSpan={5} className="py-10 text-center text-kumo-subtle">当前目录为空。</Table.Cell></Table.Row>
+                        ) : r2Rows.map((row) => (
+                          <Table.Row key={row.key}>
+                            {row.isFolder ? (
+                              <Table.Cell />
+                            ) : (
+                              <Table.CheckCell
+                                checked={selectedR2Objects.includes(row.key)}
+                                onCheckedChange={(checked) => toggleR2Selection(row.key, Boolean(checked))}
+                                aria-label={`选择 ${row.key}`}
+                              />
+                            )}
+                            <Table.Cell>
+                              <div className="flex items-center gap-2 font-medium text-kumo-strong">
+                                {row.isFolder ? <Folder className="h-4 w-4" /> : <FileText className="h-4 w-4" />}
+                                <span className="truncate">{row.name || row.key}</span>
+                              </div>
+                            </Table.Cell>
+                            <Table.Cell>{row.isFolder ? '-' : formatBytes(row.size)}</Table.Cell>
+                            <Table.Cell>{row.isFolder ? '-' : formatDate(row.uploaded || row.last_modified)}</Table.Cell>
+                            <Table.Cell className="text-right">
+                              {row.isFolder ? (
+                                <Button size="sm" variant="secondary" onClick={() => loadR2Objects(r2SelectedBucket.name, row.key)}>进入</Button>
+                              ) : (
+                                <div className="inline-flex gap-2">
+                                  <Button size="sm" shape="square" variant="secondary" onClick={() => downloadR2Object(row.key)} aria-label={`下载 ${row.key}`}>
+                                    <Download className="h-4 w-4" />
+                                  </Button>
+                                  <Button size="sm" shape="square" variant="secondary-destructive" onClick={() => deleteR2Object(row.key)} aria-label={`删除 ${row.key}`}>
+                                    <Trash className="h-4 w-4" />
+                                  </Button>
+                                </div>
+                              )}
+                            </Table.Cell>
+                          </Table.Row>
+                        ))}
+                      </Table.Body>
+                    </Table>
+                  </LayerCard>
+                </>
+              )}
             </div>
-          </div>
-        )}
-      </div>
+          )}
 
-      {/* Add/Edit Account Modal */}
-      <Dialog.Root open={showAddAccountModal} onOpenChange={setShowAddAccountModal}>
-        <Dialog className="p-6 sm:max-w-md bg-kumo-base border border-kumo-line rounded-lg shadow-xl">
-          <Dialog.Title className="text-sm font-bold text-kumo-strong mb-1">
-            {editingAccount ? '编辑 Cloudflare 账号' : '添加 Cloudflare 账号'}
-          </Dialog.Title>
-          <Dialog.Description className="text-xs text-kumo-subtle mb-4">
-            请输入您的 Cloudflare API Token 或 Global API Key。推荐使用受限制的 API Token。
-          </Dialog.Description>
-          
-          <div className="space-y-4">
-            <Input
-              label="备注名称"
-              size="sm"
-              value={accountForm.name}
-              onChange={(e) => setAccountForm({ ...accountForm, name: e.target.value })}
-              placeholder="我的 Cloudflare"
-            />
-
-            <Input
-              label="Email（如果使用 Global Key 则必填）"
-              size="sm"
-              type="email"
-              value={accountForm.email}
-              onChange={(e) => setAccountForm({ ...accountForm, email: e.target.value })}
-              placeholder="example@cloudflare.com"
-            />
-
-            <Input
-              label="API Token / Global API Key"
-              size="sm"
-              type="password"
-              value={accountForm.apiToken}
-              onChange={(e) => setAccountForm({ ...accountForm, apiToken: e.target.value })}
-              placeholder={editingAccount ? '(不修改请留空)' : '请输入 Token 或 Key'}
-              className="font-mono"
-            />
-
-            <Checkbox
-              checked={accountForm.skipVerify}
-              onCheckedChange={(checked) => setAccountForm({ ...accountForm, skipVerify: checked })}
-              label="跳过 API 验证 (仅用于离线添加)"
-            />
-
-            <div className="flex justify-end gap-2 pt-2">
-              <Dialog.Close render={(props) => (
-                <Button {...props} variant="secondary" size="sm">取消</Button>
-              )} />
-              <Button onClick={handleAddAccount} loading={submittingAccount} size="sm">
-                {submittingAccount ? '验证中...' : '保存账号'}
-              </Button>
+          {activeTab === 'tunnels' && (
+            <div className="flex flex-col gap-4">
+              <div className="flex justify-end">
+                <Button size="sm" onClick={() => { setTunnelForm({ name: '' }); setModal({ type: 'tunnelCreate', data: null }); }}>
+                  <Plus className="h-4 w-4" />
+                  创建 Tunnel
+                </Button>
+              </div>
+              <LayerCard className="overflow-x-auto p-0">
+                <Table layout="fixed">
+                  <colgroup>{tunnelColWidths.map((width, index) => <col key={index} style={{ width }} />)}</colgroup>
+                  <Table.Header variant="compact">
+                    <Table.Row>
+                      <Table.Head className="relative pr-6">名称<Table.ResizeHandle onMouseDown={(e) => startTunnelResize(0, e)} onTouchStart={(e) => startTunnelResize(0, e)} /></Table.Head>
+                      <Table.Head className="relative pr-6">状态<Table.ResizeHandle onMouseDown={(e) => startTunnelResize(1, e)} onTouchStart={(e) => startTunnelResize(1, e)} /></Table.Head>
+                      <Table.Head className="relative pr-6">连接<Table.ResizeHandle onMouseDown={(e) => startTunnelResize(2, e)} onTouchStart={(e) => startTunnelResize(2, e)} /></Table.Head>
+                      <Table.Head className="relative pr-6">创建时间<Table.ResizeHandle onMouseDown={(e) => startTunnelResize(3, e)} onTouchStart={(e) => startTunnelResize(3, e)} /></Table.Head>
+                      <Table.Head className="text-right">操作</Table.Head>
+                    </Table.Row>
+                  </Table.Header>
+                  <Table.Body>
+                    {loading.tunnels ? (
+                      Array.from({ length: 4 }).map((_, index) => <Table.Row key={index}><Table.Cell colSpan={5}><SkeletonLine className="h-4 w-full" /></Table.Cell></Table.Row>)
+                    ) : tunnels.length === 0 ? (
+                      <Table.Row><Table.Cell colSpan={5} className="py-10 text-center text-kumo-subtle">没有 Tunnel。</Table.Cell></Table.Row>
+                    ) : tunnels.map((tunnel) => (
+                      <Table.Row key={tunnel.id}>
+                        <Table.Cell>
+                          <div className="flex flex-col">
+                            <span className="font-medium text-kumo-strong">{tunnel.name}</span>
+                            <span className="text-xs text-kumo-subtle">{tunnel.id}</span>
+                          </div>
+                        </Table.Cell>
+                        <Table.Cell><Badge variant={statusVariant(tunnel.status)}>{tunnelStatusLabel(tunnel.status, tunnel.connections || [])}</Badge></Table.Cell>
+                        <Table.Cell>{tunnel.connections?.length || 0}</Table.Cell>
+                        <Table.Cell>{formatDate(tunnel.createdAt)}</Table.Cell>
+                        <Table.Cell className="text-right">
+                          <div className="inline-flex flex-wrap justify-end gap-2">
+                            <Button size="sm" variant="secondary" onClick={() => openTunnelTokenModal(tunnel)}>令牌</Button>
+                            <Button size="sm" variant="secondary" onClick={() => openTunnelConfigModal(tunnel)}>配置</Button>
+                            <Button size="sm" variant="secondary" onClick={() => openTunnelConnectionsModal(tunnel)}>连接</Button>
+                            <Button size="sm" shape="square" variant="secondary" onClick={() => renameTunnel(tunnel)} aria-label={`重命名 ${tunnel.name}`}><Edit className="h-4 w-4" /></Button>
+                            <Button size="sm" shape="square" variant="secondary-destructive" onClick={() => deleteTunnel(tunnel)} aria-label={`删除 ${tunnel.name}`}><Trash className="h-4 w-4" /></Button>
+                          </div>
+                        </Table.Cell>
+                      </Table.Row>
+                    ))}
+                  </Table.Body>
+                </Table>
+              </LayerCard>
             </div>
-          </div>
+          )}
+
+          {activeTab === 'templates' && (
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button size="sm" variant="secondary" onClick={() => openImportModal('templates')}><Upload className="h-4 w-4" />导入模板</Button>
+                <Button size="sm" variant="secondary" onClick={() => downloadJson(`cloudflare-dns-templates-${Date.now()}.json`, { version: '1.0', templates })}><Download className="h-4 w-4" />导出模板</Button>
+                <Button size="sm" onClick={() => openTemplateModal()}><Plus className="h-4 w-4" />添加模板</Button>
+              </div>
+              <LayerCard className="overflow-x-auto p-0">
+                <Table layout="fixed">
+                  <colgroup>{templateColWidths.map((width, index) => <col key={index} style={{ width }} />)}</colgroup>
+                  <Table.Header variant="compact">
+                    <Table.Row>
+                      <Table.Head className="relative pr-6">名称<Table.ResizeHandle onMouseDown={(e) => startTemplateResize(0, e)} onTouchStart={(e) => startTemplateResize(0, e)} /></Table.Head>
+                      <Table.Head className="relative pr-6">记录数<Table.ResizeHandle onMouseDown={(e) => startTemplateResize(1, e)} onTouchStart={(e) => startTemplateResize(1, e)} /></Table.Head>
+                      <Table.Head className="relative pr-6">描述<Table.ResizeHandle onMouseDown={(e) => startTemplateResize(2, e)} onTouchStart={(e) => startTemplateResize(2, e)} /></Table.Head>
+                      <Table.Head className="relative pr-6">更新时间<Table.ResizeHandle onMouseDown={(e) => startTemplateResize(3, e)} onTouchStart={(e) => startTemplateResize(3, e)} /></Table.Head>
+                      <Table.Head className="text-right">操作</Table.Head>
+                    </Table.Row>
+                  </Table.Header>
+                  <Table.Body>
+                    {templates.length === 0 ? (
+                      <Table.Row><Table.Cell colSpan={5} className="py-10 text-center text-kumo-subtle">没有 DNS 模板。</Table.Cell></Table.Row>
+                    ) : templates.map((template) => (
+                      <Table.Row key={template.id}>
+                        <Table.Cell className="font-medium text-kumo-strong">{template.name}</Table.Cell>
+                        <Table.Cell>{template.records?.length || 0}</Table.Cell>
+                        <Table.Cell><div className="truncate">{template.description || '-'}</div></Table.Cell>
+                        <Table.Cell>{formatDate(template.updatedAt || template.createdAt)}</Table.Cell>
+                        <Table.Cell className="text-right">
+                          <div className="inline-flex gap-2">
+                            <Button size="sm" variant="secondary" onClick={() => applyTemplate(template)}>应用</Button>
+                            <Button size="sm" shape="square" variant="secondary" onClick={() => openTemplateModal(template)} aria-label={`编辑 ${template.name}`}><Edit className="h-4 w-4" /></Button>
+                            <Button size="sm" shape="square" variant="secondary-destructive" onClick={() => deleteTemplate(template)} aria-label={`删除 ${template.name}`}><Trash className="h-4 w-4" /></Button>
+                          </div>
+                        </Table.Cell>
+                      </Table.Row>
+                    ))}
+                  </Table.Body>
+                </Table>
+              </LayerCard>
+            </div>
+          )}
+
+          {activeTab === 'accounts' && (
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-wrap justify-end gap-2">
+                <Button size="sm" variant="secondary" onClick={exportAccounts}><Download className="h-4 w-4" />导出账号</Button>
+                <Button size="sm" variant="secondary" onClick={() => openImportModal('accounts')}><Upload className="h-4 w-4" />导入账号</Button>
+                <Button size="sm" onClick={() => openAccountModal()}><Plus className="h-4 w-4" />添加账号</Button>
+              </div>
+              <LayerCard className="overflow-x-auto p-0">
+                <Table layout="fixed">
+                  <colgroup>{accountColWidths.map((width, index) => <col key={index} style={{ width }} />)}</colgroup>
+                  <Table.Header variant="compact">
+                    <Table.Row>
+                      <Table.Head className="relative pr-6">备注名称<Table.ResizeHandle onMouseDown={(e) => startAccountResize(0, e)} onTouchStart={(e) => startAccountResize(0, e)} /></Table.Head>
+                      <Table.Head className="relative pr-6">邮箱<Table.ResizeHandle onMouseDown={(e) => startAccountResize(1, e)} onTouchStart={(e) => startAccountResize(1, e)} /></Table.Head>
+                      <Table.Head className="relative pr-6">令牌<Table.ResizeHandle onMouseDown={(e) => startAccountResize(2, e)} onTouchStart={(e) => startAccountResize(2, e)} /></Table.Head>
+                      <Table.Head className="relative pr-6">最后使用<Table.ResizeHandle onMouseDown={(e) => startAccountResize(3, e)} onTouchStart={(e) => startAccountResize(3, e)} /></Table.Head>
+                      <Table.Head className="text-right">操作</Table.Head>
+                    </Table.Row>
+                  </Table.Header>
+                  <Table.Body>
+                    {accounts.length === 0 ? (
+                      <Table.Row><Table.Cell colSpan={5} className="py-10 text-center text-kumo-subtle">尚未配置 Cloudflare 账号。</Table.Cell></Table.Row>
+                    ) : accounts.map((account) => (
+                      <Table.Row key={account.id}>
+                        <Table.Cell className="font-medium text-kumo-strong">{account.name}</Table.Cell>
+                        <Table.Cell>{account.email || '-'}</Table.Cell>
+                        <Table.Cell>
+                          <div className="flex items-center gap-2">
+                            <code className="truncate text-xs">{accountTokens[account.id] || (account.hasToken ? '••••••••••••••••' : '-')}</code>
+                            {account.hasToken && (
+                              <Button size="sm" shape="square" variant="secondary" onClick={() => toggleAccountToken(account)} aria-label="显示或隐藏令牌">
+                                {accountTokens[account.id] ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                              </Button>
+                            )}
+                          </div>
+                        </Table.Cell>
+                        <Table.Cell>{formatDate(account.lastUsed)}</Table.Cell>
+                        <Table.Cell className="text-right">
+                          <div className="inline-flex gap-2">
+                            <Button size="sm" shape="square" variant="secondary" onClick={() => verifyAccount(account)} aria-label={`验证 ${account.name}`}><Shield className="h-4 w-4" /></Button>
+                            <Button size="sm" shape="square" variant="secondary" onClick={() => openAccountModal(account)} aria-label={`编辑 ${account.name}`}><Edit className="h-4 w-4" /></Button>
+                            <Button size="sm" shape="square" variant="secondary-destructive" onClick={() => deleteAccount(account)} aria-label={`删除 ${account.name}`}><Trash className="h-4 w-4" /></Button>
+                          </div>
+                        </Table.Cell>
+                      </Table.Row>
+                    ))}
+                  </Table.Body>
+                </Table>
+              </LayerCard>
+            </div>
+          )}
+        </>
+      )}
+
+      <Dialog.Root open={Boolean(modal.type)} onOpenChange={(open) => { if (!open) closeModal(); }}>
+        {modal.type && (
+        <Dialog className="max-h-[85vh] w-[min(920px,calc(100vw-2rem))] overflow-y-auto rounded-lg border border-kumo-line bg-kumo-base p-6 shadow-xl">
+          {modal.type === 'account' && (
+            <div className="flex flex-col gap-4">
+              <Dialog.Title className="text-base font-semibold text-kumo-strong">
+                {modal.data ? '编辑 Cloudflare 账号' : '添加 Cloudflare 账号'}
+              </Dialog.Title>
+              <Dialog.Description className="text-sm text-kumo-subtle">
+                API 令牌可使用受限令牌；全局 API 密钥需要填写邮箱。
+              </Dialog.Description>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <Input label="备注名称" value={accountForm.name} onChange={(event) => setAccountForm((prev) => ({ ...prev, name: event.target.value }))} placeholder="生产账号" />
+                <Input label="邮箱" type="email" value={accountForm.email} onChange={(event) => setAccountForm((prev) => ({ ...prev, email: event.target.value }))} placeholder="name@example.com" />
+              </div>
+              <Input
+                label="API 令牌 / 全局 API 密钥"
+                type="password"
+                value={accountForm.apiToken}
+                onChange={(event) => setAccountForm((prev) => ({ ...prev, apiToken: event.target.value }))}
+                placeholder={modal.data ? '不修改请留空' : '请输入令牌或密钥'}
+                className="font-mono"
+              />
+              <Checkbox
+                checked={accountForm.skipVerify}
+                onCheckedChange={(checked) => setAccountForm((prev) => ({ ...prev, skipVerify: Boolean(checked) }))}
+                label="跳过 API 验证"
+              />
+              <div className="flex justify-end gap-2">
+                <Button size="sm" variant="secondary" onClick={closeModal}>取消</Button>
+                <Button size="sm" onClick={saveAccount} disabled={loading.saveAccount}>
+                  <Save className="h-4 w-4" />
+                  保存账号
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {modal.type === 'zone' && (
+            <div className="flex flex-col gap-4">
+              <Dialog.Title className="text-base font-semibold text-kumo-strong">添加域名</Dialog.Title>
+              <Input label="域名" value={zoneForm.name} onChange={(event) => setZoneForm((prev) => ({ ...prev, name: event.target.value }))} placeholder="example.com" />
+              <div className="flex items-center justify-between rounded-md border border-kumo-line p-3">
+                <div>
+                  <div className="text-sm font-medium text-kumo-strong">自动扫描现有 DNS 记录</div>
+                  <div className="text-xs text-kumo-subtle">对应 Cloudflare jump_start 参数。</div>
+                </div>
+                <Switch checked={zoneForm.jumpStart} onCheckedChange={(checked) => setZoneForm((prev) => ({ ...prev, jumpStart: Boolean(checked) }))} />
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button size="sm" variant="secondary" onClick={closeModal}>取消</Button>
+                <Button size="sm" onClick={saveZone} disabled={loading.saveZone}>
+                  <Plus className="h-4 w-4" />
+                  添加
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {modal.type === 'record' && (
+            <div className="flex flex-col gap-4">
+              <Dialog.Title className="text-base font-semibold text-kumo-strong">
+                {modal.data ? '编辑 DNS 记录' : '添加 DNS 记录'}
+              </Dialog.Title>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                <Select label="类型" value={recordForm.type} onValueChange={(value) => setRecordForm((prev) => ({ ...prev, type: String(value) }))}>
+                  {recordTypes.map((type) => <Select.Option key={type} value={type}>{type}</Select.Option>)}
+                </Select>
+                <Input label="名称" value={recordForm.name} onChange={(event) => setRecordForm((prev) => ({ ...prev, name: event.target.value }))} placeholder="@ 或 www" />
+                <Input label="TTL" type="number" value={String(recordForm.ttl)} onChange={(event) => setRecordForm((prev) => ({ ...prev, ttl: event.target.value }))} />
+              </div>
+              <Input label="内容" value={recordForm.content} onChange={(event) => setRecordForm((prev) => ({ ...prev, content: event.target.value }))} placeholder="IP、域名或文本内容" />
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <Input label="优先级" type="number" value={String(recordForm.priority)} onChange={(event) => setRecordForm((prev) => ({ ...prev, priority: event.target.value }))} />
+                <div className="flex items-center justify-between rounded-md border border-kumo-line p-3">
+                  <div>
+                    <div className="text-sm font-medium text-kumo-strong">代理流量</div>
+                    <div className="text-xs text-kumo-subtle">开启 Cloudflare 橙云代理。</div>
+                  </div>
+                  <Switch checked={recordForm.proxied} onCheckedChange={(checked) => setRecordForm((prev) => ({ ...prev, proxied: Boolean(checked) }))} />
+                </div>
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button size="sm" variant="secondary" onClick={closeModal}>取消</Button>
+                <Button size="sm" onClick={saveRecord} disabled={loading.saveRecord}>
+                  <Save className="h-4 w-4" />
+                  保存记录
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {modal.type === 'template' && (
+            <div className="flex flex-col gap-4">
+              <Dialog.Title className="text-base font-semibold text-kumo-strong">
+                {modal.data ? '编辑 DNS 模板' : '添加 DNS 模板'}
+              </Dialog.Title>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <Input label="模板名称" value={templateForm.name} onChange={(event) => setTemplateForm((prev) => ({ ...prev, name: event.target.value }))} placeholder="默认 A 记录" />
+                <Input label="描述" value={templateForm.description} onChange={(event) => setTemplateForm((prev) => ({ ...prev, description: event.target.value }))} placeholder="可选" />
+              </div>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+                <Select label="类型" value={templateForm.type} onValueChange={(value) => setTemplateForm((prev) => ({ ...prev, type: String(value) }))}>
+                  {recordTypes.map((type) => <Select.Option key={type} value={type}>{type}</Select.Option>)}
+                </Select>
+                <Input label="记录名称" value={templateForm.recordName} onChange={(event) => setTemplateForm((prev) => ({ ...prev, recordName: event.target.value }))} />
+                <Input label="TTL" type="number" value={String(templateForm.ttl)} onChange={(event) => setTemplateForm((prev) => ({ ...prev, ttl: event.target.value }))} />
+                <Input label="优先级" type="number" value={String(templateForm.priority)} onChange={(event) => setTemplateForm((prev) => ({ ...prev, priority: event.target.value }))} />
+              </div>
+              <Input label="内容" value={templateForm.content} onChange={(event) => setTemplateForm((prev) => ({ ...prev, content: event.target.value }))} />
+              <Checkbox
+                checked={templateForm.proxied}
+                onCheckedChange={(checked) => setTemplateForm((prev) => ({ ...prev, proxied: Boolean(checked) }))}
+                label="默认开启代理"
+              />
+              <div className="flex justify-end gap-2">
+                <Button size="sm" variant="secondary" onClick={closeModal}>取消</Button>
+                <Button size="sm" onClick={saveTemplate} disabled={loading.saveTemplate}>
+                  <Save className="h-4 w-4" />
+                  保存模板
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {modal.type === 'worker' && (
+            <div className="flex flex-col gap-4">
+              <Dialog.Title className="text-base font-semibold text-kumo-strong">
+                {modal.data ? `编辑 Worker：${modal.data.name}` : '新建 Worker'}
+              </Dialog.Title>
+              {!modal.data && (
+                <Input label="Worker 名称" value={workerForm.name} onChange={(event) => setWorkerForm((prev) => ({ ...prev, name: event.target.value }))} placeholder="my-worker" />
+              )}
+              {modal.data && <Input label="Worker 名称" value={workerForm.name} readOnly />}
+              {loading.workerScript ? (
+                <SkeletonLine className="h-64 w-full" />
+              ) : (
+                <Textarea
+                  label="脚本内容"
+                  value={workerForm.script}
+                  onChange={(event) => setWorkerForm((prev) => ({ ...prev, script: event.target.value }))}
+                  className="min-h-96 font-mono text-xs"
+                />
+              )}
+              <div className="flex justify-end gap-2">
+                <Button size="sm" variant="secondary" onClick={closeModal}>取消</Button>
+                <Button size="sm" onClick={saveWorker} disabled={loading.saveWorker}>
+                  <Save className="h-4 w-4" />
+                  保存 Worker
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {modal.type === 'workerRoutes' && (
+            <div className="flex flex-col gap-4">
+              <Dialog.Title className="text-base font-semibold text-kumo-strong">Worker 路由：{workerRouteState.worker?.name}</Dialog.Title>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_220px_auto]">
+                <Input
+                  label="路由规则"
+                  value={workerRouteState.form.pattern}
+                  onChange={(event) => setWorkerRouteState((prev) => ({ ...prev, form: { ...prev.form, pattern: event.target.value } }))}
+                  placeholder="example.com/*"
+                />
+                <Input
+                  label="Worker"
+                  value={workerRouteState.form.script}
+                  onChange={(event) => setWorkerRouteState((prev) => ({ ...prev, form: { ...prev.form, script: event.target.value } }))}
+                />
+                <div className="flex items-end">
+                  <Button size="sm" onClick={saveWorkerRoute} disabled={loading.saveWorkerRoute}>
+                    {workerRouteState.form.id ? '更新路由' : '添加路由'}
+                  </Button>
+                </div>
+              </div>
+              <LayerCard className="overflow-x-auto p-0">
+                <Table>
+                  <Table.Header variant="compact">
+                    <Table.Row>
+                      <Table.Head>规则</Table.Head>
+                      <Table.Head>Worker</Table.Head>
+                      <Table.Head className="text-right">操作</Table.Head>
+                    </Table.Row>
+                  </Table.Header>
+                  <Table.Body>
+                    {workerRouteState.routes.length === 0 ? (
+                      <Table.Row><Table.Cell colSpan={3} className="py-8 text-center text-kumo-subtle">没有 Worker 路由。</Table.Cell></Table.Row>
+                    ) : workerRouteState.routes.map((route) => (
+                      <Table.Row key={route.id}>
+                        <Table.Cell>{route.pattern}</Table.Cell>
+                        <Table.Cell>{route.script || '-'}</Table.Cell>
+                        <Table.Cell className="text-right">
+                          <div className="inline-flex gap-2">
+                            <Button size="sm" shape="square" variant="secondary" onClick={() => setWorkerRouteState((prev) => ({ ...prev, form: { id: route.id, pattern: route.pattern, script: route.script || workerRouteState.worker?.name || '' } }))}>
+                              <Edit className="h-4 w-4" />
+                            </Button>
+                            <Button size="sm" shape="square" variant="secondary-destructive" onClick={() => deleteWorkerRoute(route)}>
+                              <Trash className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </Table.Cell>
+                      </Table.Row>
+                    ))}
+                  </Table.Body>
+                </Table>
+              </LayerCard>
+            </div>
+          )}
+
+          {modal.type === 'workerDomains' && (
+            <div className="flex flex-col gap-4">
+              <Dialog.Title className="text-base font-semibold text-kumo-strong">Worker 自定义域名：{workerDomainState.worker?.name}</Dialog.Title>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_180px_auto]">
+                <Input label="域名" value={workerDomainState.hostname} onChange={(event) => setWorkerDomainState((prev) => ({ ...prev, hostname: event.target.value }))} placeholder="worker.example.com" />
+                <Input label="环境" value={workerDomainState.environment} onChange={(event) => setWorkerDomainState((prev) => ({ ...prev, environment: event.target.value }))} />
+                <div className="flex items-end"><Button size="sm" onClick={addWorkerDomain}>添加域名</Button></div>
+              </div>
+              <LayerCard className="overflow-x-auto p-0">
+                <Table>
+                  <Table.Header variant="compact">
+                    <Table.Row><Table.Head>域名</Table.Head><Table.Head>环境</Table.Head><Table.Head>Zone</Table.Head><Table.Head className="text-right">操作</Table.Head></Table.Row>
+                  </Table.Header>
+                  <Table.Body>
+                    {workerDomainState.domains.length === 0 ? (
+                      <Table.Row><Table.Cell colSpan={4} className="py-8 text-center text-kumo-subtle">没有自定义域名。</Table.Cell></Table.Row>
+                    ) : workerDomainState.domains.map((domain) => (
+                      <Table.Row key={domain.id}>
+                        <Table.Cell>{domain.hostname}</Table.Cell>
+                        <Table.Cell>{domain.environment || '-'}</Table.Cell>
+                        <Table.Cell>{domain.zoneName || domain.zoneId || '-'}</Table.Cell>
+                        <Table.Cell className="text-right"><Button size="sm" variant="secondary-destructive" onClick={() => deleteWorkerDomain(domain)}><Trash className="h-4 w-4" /></Button></Table.Cell>
+                      </Table.Row>
+                    ))}
+                  </Table.Body>
+                </Table>
+              </LayerCard>
+            </div>
+          )}
+
+          {modal.type === 'workerAnalytics' && (
+            <div className="flex flex-col gap-4">
+              <Dialog.Title className="text-base font-semibold text-kumo-strong">Worker 统计：{workerAnalyticsState.worker?.name}</Dialog.Title>
+              {loading.workerAnalytics ? (
+                <SkeletonLine className="h-64 w-full" />
+              ) : (
+                <Textarea label="统计数据" value={JSON.stringify(workerAnalyticsState.analytics || {}, null, 2)} readOnly className="min-h-80 font-mono text-xs" />
+              )}
+              <div className="flex justify-end"><Button size="sm" variant="secondary" onClick={closeModal}>关闭</Button></div>
+            </div>
+          )}
+
+          {modal.type === 'pagesDeployments' && (
+            <div className="flex flex-col gap-4">
+              <Dialog.Title className="text-base font-semibold text-kumo-strong">Pages 部署：{pagesDeployState.project?.name}</Dialog.Title>
+              <LayerCard className="overflow-x-auto p-0">
+                <Table>
+                  <Table.Header variant="compact">
+                    <Table.Row><Table.Head>地址</Table.Head><Table.Head>环境</Table.Head><Table.Head>状态</Table.Head><Table.Head>创建时间</Table.Head><Table.Head className="text-right">操作</Table.Head></Table.Row>
+                  </Table.Header>
+                  <Table.Body>
+                    {pagesDeployState.deployments.length === 0 ? (
+                      <Table.Row><Table.Cell colSpan={5} className="py-8 text-center text-kumo-subtle">没有部署记录。</Table.Cell></Table.Row>
+                    ) : pagesDeployState.deployments.map((deployment) => (
+                      <Table.Row key={deployment.id}>
+                        <Table.Cell><div className="truncate">{deployment.url || '-'}</div></Table.Cell>
+                        <Table.Cell>{deployment.environment || '-'}</Table.Cell>
+                        <Table.Cell><Badge variant={statusVariant(deployment.status)}>{deployment.status || '未知'}</Badge></Table.Cell>
+                        <Table.Cell>{formatDate(deployment.createdOn)}</Table.Cell>
+                        <Table.Cell className="text-right">
+                          <div className="inline-flex gap-2">
+                            {deployment.url && <Button size="sm" shape="square" variant="secondary" onClick={() => window.open(deployment.url, '_blank', 'noopener,noreferrer')}><ExternalLink className="h-4 w-4" /></Button>}
+                            <Button size="sm" shape="square" variant="secondary-destructive" onClick={() => deletePagesDeployment(deployment)}><Trash className="h-4 w-4" /></Button>
+                          </div>
+                        </Table.Cell>
+                      </Table.Row>
+                    ))}
+                  </Table.Body>
+                </Table>
+              </LayerCard>
+            </div>
+          )}
+
+          {modal.type === 'pagesDomains' && (
+            <div className="flex flex-col gap-4">
+              <Dialog.Title className="text-base font-semibold text-kumo-strong">Pages 自定义域名：{pagesDomainState.project?.name}</Dialog.Title>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_auto]">
+                <Input label="域名" value={pagesDomainState.domain} onChange={(event) => setPagesDomainState((prev) => ({ ...prev, domain: event.target.value }))} placeholder="www.example.com" />
+                <div className="flex items-end"><Button size="sm" onClick={addPagesDomain}>添加域名</Button></div>
+              </div>
+              <LayerCard className="overflow-x-auto p-0">
+                <Table>
+                  <Table.Header variant="compact">
+                    <Table.Row><Table.Head>域名</Table.Head><Table.Head>状态</Table.Head><Table.Head>验证状态</Table.Head><Table.Head>创建时间</Table.Head><Table.Head className="text-right">操作</Table.Head></Table.Row>
+                  </Table.Header>
+                  <Table.Body>
+                    {pagesDomainState.domains.length === 0 ? (
+                      <Table.Row><Table.Cell colSpan={5} className="py-8 text-center text-kumo-subtle">没有自定义域名。</Table.Cell></Table.Row>
+                    ) : pagesDomainState.domains.map((domain) => (
+                      <Table.Row key={domain.id || domain.name}>
+                        <Table.Cell>{domain.name}</Table.Cell>
+                        <Table.Cell><Badge variant={statusVariant(domain.status)}>{domain.status || '未知'}</Badge></Table.Cell>
+                        <Table.Cell>{domain.validationStatus || '-'}</Table.Cell>
+                        <Table.Cell>{formatDate(domain.createdOn)}</Table.Cell>
+                        <Table.Cell className="text-right"><Button size="sm" variant="secondary-destructive" onClick={() => deletePagesDomain(domain)}><Trash className="h-4 w-4" /></Button></Table.Cell>
+                      </Table.Row>
+                    ))}
+                  </Table.Body>
+                </Table>
+              </LayerCard>
+            </div>
+          )}
+
+          {modal.type === 'r2Bucket' && (
+            <div className="flex flex-col gap-4">
+              <Dialog.Title className="text-base font-semibold text-kumo-strong">创建 R2 存储桶</Dialog.Title>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <Input label="存储桶名称" value={r2BucketForm.name} onChange={(event) => setR2BucketForm((prev) => ({ ...prev, name: event.target.value }))} placeholder="my-bucket" />
+                <Input label="位置" value={r2BucketForm.location} onChange={(event) => setR2BucketForm((prev) => ({ ...prev, location: event.target.value }))} placeholder="auto" />
+              </div>
+              <div className="flex justify-end gap-2">
+                <Button size="sm" variant="secondary" onClick={closeModal}>取消</Button>
+                <Button size="sm" onClick={createR2Bucket} disabled={loading.saveR2Bucket}>创建</Button>
+              </div>
+            </div>
+          )}
+
+          {modal.type === 'import' && (
+            <div className="flex flex-col gap-4">
+              <Dialog.Title className="text-base font-semibold text-kumo-strong">
+                导入{importState.kind === 'accounts' ? '账号' : importState.kind === 'templates' ? '模板' : 'DNS 记录'}
+              </Dialog.Title>
+              <Textarea
+                label="JSON 内容"
+                value={importState.text}
+                onChange={(event) => setImportState((prev) => ({ ...prev, text: event.target.value }))}
+                className="min-h-80 font-mono text-xs"
+                placeholder='{"records":[{"type":"A","name":"@","content":"1.1.1.1","ttl":1,"proxied":false}]}'
+              />
+              {importState.kind !== 'records' && (
+                <Checkbox
+                  checked={importState.overwrite}
+                  onCheckedChange={(checked) => setImportState((prev) => ({ ...prev, overwrite: Boolean(checked) }))}
+                  label="覆盖现有数据"
+                />
+              )}
+              <div className="flex justify-end gap-2">
+                <Button size="sm" variant="secondary" onClick={closeModal}>取消</Button>
+                <Button size="sm" onClick={submitImport}><Upload className="h-4 w-4" />导入</Button>
+              </div>
+            </div>
+          )}
+
+          {modal.type === 'tunnelCreate' && (
+            <div className="flex flex-col gap-4">
+              <Dialog.Title className="text-base font-semibold text-kumo-strong">创建 Tunnel</Dialog.Title>
+              <Input label="Tunnel 名称" value={tunnelForm.name} onChange={(event) => setTunnelForm({ name: event.target.value })} placeholder="my-tunnel" />
+              <div className="flex justify-end gap-2">
+                <Button size="sm" variant="secondary" onClick={closeModal}>取消</Button>
+                <Button size="sm" onClick={createTunnel} disabled={loading.saveTunnel}>创建</Button>
+              </div>
+            </div>
+          )}
+
+          {modal.type === 'tunnelToken' && (
+            <div className="flex flex-col gap-4">
+              <Dialog.Title className="text-base font-semibold text-kumo-strong">Tunnel 令牌：{tunnelTokenState.tunnel?.name}</Dialog.Title>
+              {loading.tunnelToken ? (
+                <SkeletonLine className="h-28 w-full" />
+              ) : (
+                <>
+                  <Textarea label="令牌" value={tunnelTokenState.token} readOnly className="min-h-32 font-mono text-xs" />
+                  <div className="flex flex-wrap gap-2">
+                    <Button size="sm" onClick={() => copyText(tunnelTokenState.token, '令牌已复制')}><Copy className="h-4 w-4" />复制令牌</Button>
+                    <Button size="sm" variant="secondary" onClick={() => copyText(`cloudflared tunnel run --token ${tunnelTokenState.token}`, '运行命令已复制')}><Terminal className="h-4 w-4" />复制命令</Button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {modal.type === 'tunnelConfig' && (
+            <div className="flex flex-col gap-4">
+              <Dialog.Title className="text-base font-semibold text-kumo-strong">Tunnel 配置：{tunnelConfigState.tunnel?.name}</Dialog.Title>
+              {loading.tunnelConfig ? (
+                <SkeletonLine className="h-80 w-full" />
+              ) : (
+                <Textarea
+                  label="配置 JSON"
+                  value={tunnelConfigState.text}
+                  onChange={(event) => setTunnelConfigState((prev) => ({ ...prev, text: event.target.value }))}
+                  className="min-h-96 font-mono text-xs"
+                />
+              )}
+              <div className="flex justify-end gap-2">
+                <Button size="sm" variant="secondary" onClick={closeModal}>取消</Button>
+                <Button size="sm" onClick={saveTunnelConfig}><Save className="h-4 w-4" />保存配置</Button>
+              </div>
+            </div>
+          )}
+
+          {modal.type === 'tunnelConnections' && (
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <Dialog.Title className="text-base font-semibold text-kumo-strong">Tunnel 连接：{tunnelConnectionState.tunnel?.name}</Dialog.Title>
+                <Button size="sm" variant="secondary-destructive" onClick={() => cleanupTunnelConnections(tunnelConnectionState.tunnel)}>
+                  清理全部连接
+                </Button>
+              </div>
+              <LayerCard className="overflow-x-auto p-0">
+                <Table>
+                  <Table.Header variant="compact">
+                    <Table.Row><Table.Head>客户端</Table.Head><Table.Head>版本</Table.Head><Table.Head>架构</Table.Head><Table.Head>边缘节点</Table.Head><Table.Head>连接时间</Table.Head><Table.Head className="text-right">操作</Table.Head></Table.Row>
+                  </Table.Header>
+                  <Table.Body>
+                    {tunnelConnectionState.connections.length === 0 ? (
+                      <Table.Row><Table.Cell colSpan={6} className="py-8 text-center text-kumo-subtle">没有活动连接。</Table.Cell></Table.Row>
+                    ) : tunnelConnectionState.connections.map((connection) => (
+                      <Table.Row key={connection.id || connection.clientId}>
+                        <Table.Cell><code className="text-xs">{connection.clientId || connection.id || '-'}</code></Table.Cell>
+                        <Table.Cell>{connection.clientVersion || '-'}</Table.Cell>
+                        <Table.Cell>{connection.arch || '-'}</Table.Cell>
+                        <Table.Cell>{connection.coloName || '-'}</Table.Cell>
+                        <Table.Cell>{formatDate(connection.connectedAt)}</Table.Cell>
+                        <Table.Cell className="text-right">
+                          <Button size="sm" variant="secondary-destructive" onClick={() => cleanupTunnelConnections(tunnelConnectionState.tunnel, connection.clientId || connection.id)}>
+                            清理
+                          </Button>
+                        </Table.Cell>
+                      </Table.Row>
+                    ))}
+                  </Table.Body>
+                </Table>
+              </LayerCard>
+            </div>
+          )}
         </Dialog>
+        )}
       </Dialog.Root>
     </div>
   );

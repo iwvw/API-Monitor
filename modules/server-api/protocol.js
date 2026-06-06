@@ -4,6 +4,8 @@
 
 // ==================== 事件类型 ====================
 
+const net = require('net');
+
 const Events = {
   // Agent -> Dashboard
   AGENT_CONNECT: 'agent:connect', // Agent 连接认证
@@ -162,12 +164,90 @@ const TaskResultSchema = {
  * @param {number} decimals
  * @returns {string}
  */
+function toFiniteNumber(value, defaultVal = 0) {
+  const num = Number(value);
+  return Number.isFinite(num) ? num : defaultVal;
+}
+
+function parseByteValue(value, defaultVal = 0) {
+  if (typeof value === 'number') {
+    return Number.isFinite(value) && value > 0 ? value : defaultVal;
+  }
+
+  if (typeof value !== 'string') return defaultVal;
+
+  const raw = value.trim();
+  if (!raw || raw === '-' || raw.toLowerCase() === 'nan') return defaultVal;
+
+  const match = raw.replace(/,/g, '').match(/^([0-9]+(?:\.[0-9]+)?)\s*([KMGTPE]?I?B?)?(?:\/s)?$/i);
+  if (!match) return defaultVal;
+
+  const amount = Number(match[1]);
+  if (!Number.isFinite(amount)) return defaultVal;
+
+  const unit = (match[2] || 'B').toUpperCase().replace('IB', 'B');
+  const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB'];
+  const normalizedUnit = unit.length === 1 && unit !== 'B' ? `${unit}B` : unit;
+  const power = units.indexOf(normalizedUnit);
+
+  return amount * Math.pow(1024, power >= 0 ? power : 0);
+}
+
 function formatBytes(bytes, decimals = 2) {
+  bytes = Math.max(0, toFiniteNumber(bytes, 0));
   if (bytes === 0) return '0 B';
   const k = 1024;
   const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  const i = Math.min(sizes.length - 1, Math.floor(Math.log(bytes) / Math.log(k)));
   return parseFloat((bytes / Math.pow(k, i)).toFixed(decimals)) + ' ' + sizes[i];
+}
+
+function normalizeByteText(value, fallback = '0 B') {
+  const bytes = parseByteValue(value, null);
+  if (bytes === null) return fallback;
+  return formatBytes(bytes);
+}
+
+function sanitizeIp(value) {
+  if (typeof value !== 'string') return '';
+  const ip = value.trim();
+  return net.isIP(ip) ? ip : '';
+}
+
+function sanitizeHostInfo(hostInfo = {}) {
+  if (!hostInfo || typeof hostInfo !== 'object') return {};
+  return {
+    ...hostInfo,
+    ip: sanitizeIp(hostInfo.ip),
+  };
+}
+
+function normalizeNetworkMetrics(network = {}) {
+  const source = network && typeof network === 'object' ? network : {};
+  return {
+    ...source,
+    rx_speed: source.rx_speed || source.down || '0 B/s',
+    tx_speed: source.tx_speed || source.up || '0 B/s',
+    down: source.down || source.rx_speed || '0 B/s',
+    up: source.up || source.tx_speed || '0 B/s',
+    rx_total: normalizeByteText(source.rx_total),
+    tx_total: normalizeByteText(source.tx_total),
+    connections: Math.max(0, Math.round(toFiniteNumber(source.connections, 0))),
+  };
+}
+
+function normalizeFrontendMetrics(metrics = {}) {
+  if (!metrics || typeof metrics !== 'object') return metrics;
+  const normalized = {
+    ...metrics,
+    ip: sanitizeIp(metrics.ip),
+  };
+
+  if (metrics.network) {
+    normalized.network = normalizeNetworkMetrics(metrics.network);
+  }
+
+  return normalized;
 }
 
 /**
@@ -218,10 +298,7 @@ function validateHostState(state) {
  */
 function stateToFrontendFormat(state, hostInfo = {}) {
   // 确保数值有效
-  const safeNumber = (val, defaultVal = 0) => {
-    const num = Number(val);
-    return isNaN(num) || !isFinite(num) ? defaultVal : num;
-  };
+  const safeNumber = (val, defaultVal = 0) => toFiniteNumber(val, defaultVal);
 
   const cpu = safeNumber(state.cpu);
   const memUsed = safeNumber(state.mem_used);
@@ -284,7 +361,7 @@ function stateToFrontendFormat(state, hostInfo = {}) {
     disk_total: formatBytes(diskTotal),
     disk_usage: `${formatBytes(diskUsed)}/${formatBytes(diskTotal)} (${diskPercent.toFixed(0)}%)`,
     disk_percent: diskPercent,
-    network: {
+    network: normalizeNetworkMetrics({
       rx_speed: formatSpeed(netInSpeed),
       tx_speed: formatSpeed(netOutSpeed),
       down: formatSpeed(netInSpeed),
@@ -292,7 +369,7 @@ function stateToFrontendFormat(state, hostInfo = {}) {
       rx_total: formatBytes(netInTransfer),
       tx_total: formatBytes(netOutTransfer),
       connections: tcpConn + udpConn,
-    },
+    }),
     docker: state.docker || { installed: false, running: 0, stopped: 0, containers: [] },
     cpu_temp: cpuTemp,
     gpu_temp: gpuTemp,
@@ -308,7 +385,7 @@ function stateToFrontendFormat(state, hostInfo = {}) {
     platform: hostInfo.platform || '',
     platformVersion: hostInfo.platform_version || hostInfo.platformVersion || '',
     agent_version: hostInfo.agent_version || '',
-    ip: hostInfo.ip || '',
+    ip: sanitizeIp(hostInfo.ip),
     uptime: formatUptime(uptime),
     timestamp: Date.now(),
   };
@@ -325,6 +402,12 @@ module.exports = {
   formatBytes,
   formatSpeed,
   formatUptime,
+  parseByteValue,
+  normalizeByteText,
+  normalizeNetworkMetrics,
+  normalizeFrontendMetrics,
+  sanitizeIp,
+  sanitizeHostInfo,
   validateHostState,
   stateToFrontendFormat,
 };

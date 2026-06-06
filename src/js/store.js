@@ -4,19 +4,20 @@
  */
 
 import { create } from 'zustand';
+import { dialog } from './modules/dialog.js';
 import toastManager from './modules/toast.js';
 
 // ==================== 模块元数据配置 ====================
 export const MODULE_CONFIG = {
   dashboard: {
     name: '仪表盘',
-    shortName: 'Dash',
+    shortName: '总览',
     icon: 'fa-tachometer-alt',
     description: '系统状态与数据概览',
   },
   settings: {
     name: '系统设置',
-    shortName: 'Settings',
+    shortName: '设置',
     icon: 'fa-cog',
     description: '全局配置、安全认证与外观主题',
   },
@@ -25,12 +26,6 @@ export const MODULE_CONFIG = {
     shortName: 'OAI',
     icon: 'fa-robot',
     description: 'OpenAI 兼容 API 管理与聊天',
-  },
-  antigravity: {
-    name: 'AntiG',
-    shortName: 'AntiG',
-    icon: 'fa-rocket',
-    description: 'Antigravity API 代理服务',
   },
   'gemini-cli': {
     name: 'GCLI',
@@ -52,19 +47,19 @@ export const MODULE_CONFIG = {
   },
   aliyun: {
     name: '阿里云',
-    shortName: 'Aliyun',
+    shortName: '阿里',
     icon: 'fa-cloud',
     description: '阿里云 DNS / ECS 管理',
   },
   'self-h': {
-    name: 'SelfH',
-    shortName: 'Self-H',
+    name: '自建服务',
+    shortName: '自建',
     icon: 'fa-server',
     description: '自建服务管理',
   },
   tencent: {
     name: '腾讯云',
-    shortName: 'Tencent',
+    shortName: '腾讯',
     icon: 'fa-hdd',
     description: '腾讯云 DNS / CVM 管理',
   },
@@ -75,38 +70,38 @@ export const MODULE_CONFIG = {
     description: '主机实例管理与终端监控',
   },
   totp: {
-    name: '2FA',
+    name: '双因子认证',
     shortName: '2FA',
     icon: 'fa-shield-alt',
     description: 'TOTP 验证器',
   },
   music: {
-    name: 'Music',
-    shortName: 'Music',
+    name: '音乐',
+    shortName: '音乐',
     icon: 'fa-music',
     description: '网易云音乐播放器',
   },
   uptime: {
-    name: 'Uptime',
-    shortName: 'Uptime',
+    name: '可用性监测',
+    shortName: '监控',
     icon: 'fa-heartbeat',
     description: '站点与服务可用性监测',
   },
   filebox: {
     name: '文件柜',
-    shortName: 'FileBox',
+    shortName: '文件',
     icon: 'fa-box-open',
     description: '文件分享与暂存',
   },
   notification: {
     name: '通知',
-    shortName: 'Alerts',
+    shortName: '通知',
     icon: 'fa-bell',
     description: '通知渠道与告警规则管理',
   },
   qwen: {
     name: '通义千问',
-    shortName: 'Qwen',
+    shortName: '千问',
     icon: 'fa-magic',
     description: '通义千问 API 代理服务',
   },
@@ -124,7 +119,7 @@ export const MODULE_GROUPS = [
     id: 'api-gateway',
     name: 'API 网关',
     icon: 'fa-bolt',
-    modules: ['openai', 'gemini-cli', 'qwen', 'antigravity'],
+    modules: ['openai', 'gemini-cli', 'qwen'],
   },
   {
     id: 'infrastructure',
@@ -158,6 +153,108 @@ const PAGE_WIDTH_STORAGE_KEY = 'app_page_width_mode';
 
 export const THEME_MODE_OPTIONS = ['auto', 'light', 'dark'];
 export const PAGE_WIDTH_OPTIONS = ['standard', 'wide', 'full'];
+
+export const DEFAULT_TOTP_SETTINGS = {
+  hideCode: false,
+  allowRevealCode: true,
+  groupByPlatform: true,
+  showPlatformHeaders: true,
+  hidePlatformText: false,
+  maskAccount: false,
+  autoSave: true,
+  lockInputMode: false,
+  defaultInputMode: 'scan',
+};
+
+export const DEFAULT_MODULE_ORDER = MODULE_GROUPS.flatMap((group) => group.modules);
+
+export const DEFAULT_MODULE_VISIBILITY = DEFAULT_MODULE_ORDER.reduce((acc, moduleId) => {
+  acc[moduleId] = true;
+  return acc;
+}, {});
+
+export const DEFAULT_CHANNEL_ENABLED = {
+  'gemini-cli': true,
+  qwen: true,
+};
+
+export const DEFAULT_CHANNEL_MODEL_PREFIX = {
+  'gemini-cli': '',
+  qwen: '',
+};
+
+const getAuthHeaders = () => ({
+  'Content-Type': 'application/json',
+  'x-admin-password': localStorage.getItem('admin_password') || useStore.getState().loginPassword || '',
+});
+
+export const applyCustomCss = (css = '') => {
+  if (typeof document === 'undefined') return;
+
+  let style = document.getElementById('custom-css-dynamic');
+  if (!style) {
+    style = document.createElement('style');
+    style.id = 'custom-css-dynamic';
+    document.head.appendChild(style);
+  }
+  style.textContent = css || '';
+};
+
+export const normalizeUserSettings = (settings = {}) => {
+  const validModules = new Set(DEFAULT_MODULE_ORDER);
+  const savedOrder = Array.isArray(settings.moduleOrder)
+    ? settings.moduleOrder.filter((moduleId) => validModules.has(moduleId))
+    : [];
+  const moduleOrder = [
+    ...savedOrder,
+    ...DEFAULT_MODULE_ORDER.filter((moduleId) => !savedOrder.includes(moduleId)),
+  ];
+
+  const rawVisibility = settings.moduleVisibility || {};
+  const moduleVisibility = DEFAULT_MODULE_ORDER.reduce((acc, moduleId) => {
+    acc[moduleId] = moduleId === 'dashboard' ? true : rawVisibility[moduleId] !== false;
+    return acc;
+  }, {});
+
+  const rawChannelEnabled = {
+    ...DEFAULT_CHANNEL_ENABLED,
+    ...(settings.channelEnabled || {}),
+  };
+  const rawChannelModelPrefix = {
+    ...DEFAULT_CHANNEL_MODEL_PREFIX,
+    ...(settings.channelModelPrefix || {}),
+  };
+  const allowedChannels = new Set(Object.keys(DEFAULT_CHANNEL_ENABLED));
+  const channelEnabled = Object.fromEntries(
+    Object.entries(rawChannelEnabled).filter(([channel]) => allowedChannels.has(channel))
+  );
+  const channelModelPrefix = Object.fromEntries(
+    Object.entries(rawChannelModelPrefix).filter(([channel]) => allowedChannels.has(channel))
+  );
+
+  return {
+    customCss: settings.customCss || '',
+    koyebRefreshInterval: Number(settings.koyebRefreshInterval) || 30000,
+    flyRefreshInterval: Number(settings.flyRefreshInterval) || 30000,
+    moduleVisibility,
+    channelEnabled,
+    channelModelPrefix,
+    moduleOrder,
+    load_balancing_strategy: settings.load_balancing_strategy || 'random',
+    serverIpDisplayMode: settings.serverIpDisplayMode || 'normal',
+    vibrationEnabled: settings.vibrationEnabled !== undefined ? Boolean(settings.vibrationEnabled) : true,
+    navLayout: settings.navLayout || 'top',
+    totpSettings: {
+      ...DEFAULT_TOTP_SETTINGS,
+      ...(settings.totpSettings || {}),
+      defaultInputMode: ['scan', 'upload', 'manual'].includes(settings.totpSettings?.defaultInputMode)
+        ? settings.totpSettings.defaultInputMode
+        : DEFAULT_TOTP_SETTINGS.defaultInputMode,
+    },
+    agentDownloadUrl: settings.agentDownloadUrl || '',
+    publicApiUrl: settings.publicApiUrl || '',
+  };
+};
 
 export const getSystemTheme = () => {
   if (typeof window !== 'undefined' && window.matchMedia) {
@@ -231,6 +328,26 @@ const useStore = create((set, get) => ({
   theme: resolveThemeMode(initialThemeMode),
   pageWidthMode: initialPageWidthMode,
   navGroupExpanded: null,
+  userSettingsLoaded: false,
+  userSettingsLoading: false,
+  customCss: '',
+  moduleVisibility: DEFAULT_MODULE_VISIBILITY,
+  moduleOrder: DEFAULT_MODULE_ORDER,
+  channelEnabled: DEFAULT_CHANNEL_ENABLED,
+  channelModelPrefix: DEFAULT_CHANNEL_MODEL_PREFIX,
+  loadBalancingStrategy: 'random',
+  serverIpDisplayMode: 'normal',
+  vibrationEnabled: true,
+  navLayout: 'top',
+  totpSettings: DEFAULT_TOTP_SETTINGS,
+  agentDownloadUrl: '',
+  publicApiUrl: '',
+  koyebRefreshInterval: 30000,
+  flyRefreshInterval: 30000,
+
+  showAlert: (message, title) => dialog.alert(message, title),
+  showConfirm: (options) => dialog.confirm(options),
+  showPrompt: (options) => dialog.prompt(options),
   
   // --- 3. 页面数据占位 ---
   serverList: [],
@@ -315,6 +432,48 @@ const useStore = create((set, get) => ({
 
   setTheme: (theme, persist = true) => {
     get().setThemeMode(theme, persist);
+  },
+
+  applyUserSettings: (settings) => {
+    const normalized = normalizeUserSettings(settings);
+    applyCustomCss(normalized.customCss);
+    set({
+      userSettingsLoaded: true,
+      customCss: normalized.customCss,
+      moduleVisibility: normalized.moduleVisibility,
+      moduleOrder: normalized.moduleOrder,
+      channelEnabled: normalized.channelEnabled,
+      channelModelPrefix: normalized.channelModelPrefix,
+      loadBalancingStrategy: normalized.load_balancing_strategy,
+      serverIpDisplayMode: normalized.serverIpDisplayMode,
+      vibrationEnabled: normalized.vibrationEnabled,
+      navLayout: normalized.navLayout,
+      totpSettings: normalized.totpSettings,
+      agentDownloadUrl: normalized.agentDownloadUrl,
+      publicApiUrl: normalized.publicApiUrl,
+      koyebRefreshInterval: normalized.koyebRefreshInterval,
+      flyRefreshInterval: normalized.flyRefreshInterval,
+    });
+    return normalized;
+  },
+
+  loadUserSettings: async () => {
+    set({ userSettingsLoading: true });
+    try {
+      const response = await fetch('/api/settings', {
+        headers: getAuthHeaders(),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) {
+        throw new Error(result.error || 'Failed to load settings');
+      }
+      return get().applyUserSettings(result.data || {});
+    } catch (error) {
+      console.error('Failed to load user settings:', error);
+      return null;
+    } finally {
+      set({ userSettingsLoading: false });
+    }
   },
 
   setLoginPassword: (password) => set({ loginPassword: password }),
@@ -475,10 +634,7 @@ const useStore = create((set, get) => ({
 export const store = new Proxy({}, {
   get(target, prop) {
     if (prop === 'getAuthHeaders') {
-      return () => ({
-        'Content-Type': 'application/json',
-        'x-admin-password': localStorage.getItem('admin_password') || useStore.getState().loginPassword || '',
-      });
+      return getAuthHeaders;
     }
     return useStore.getState()[prop];
   },

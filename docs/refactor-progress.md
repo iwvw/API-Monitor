@@ -1,5 +1,18 @@
 # UI 重构进度追踪
 
+## 2026-06-06 SettingsPage 后端接口对接
+
+- `src/js/pages/SettingsPage.jsx` 已按旧前端设置页和后端接口重写：
+  - 对接 `/api/settings` 完整读写：模块显隐/顺序、渠道开关、模型前缀、负载均衡、主机地址显示、振动、导航布局、TOTP 偏好、PaaS 刷新间隔、Public API URL、Agent 下载 URL、自定义 CSS。
+  - 对接 `/api/gemini-cli/settings` 与 `/api/qwen/settings`：API_KEY、PROXY、SYSTEM_INSTRUCTION 的全局同步。
+  - 对接 `/api/auth/change-password` 和 `/api/auth/2fa/*`。
+  - 对接数据库维护接口：导出、导入、统计、分析、VACUUM、清理日志、清理聊天消息。
+  - 对接日志接口：日志保留设置、系统日志、审计日志、app.log 读取/清空、立即执行日志限制。
+- `src/js/store.js` 新增 `normalizeUserSettings`、`loadUserSettings`、`applyUserSettings`，前端导航使用后端模块顺序和可见性；渠道和模块均按白名单过滤，不恢复已删除模块。
+- `src/js/components/MainLayout.jsx` 已在登录后加载用户设置，并按模块设置过滤侧栏；系统设置入口固定保留。
+- `src/js/pages/PaasPage.jsx` 与 `src/js/pages/TotpPage.jsx` 的局部设置保存改为 `PATCH /api/settings`，避免局部保存覆盖完整用户设置。
+- `SettingsPage.jsx` 静态扫描已确认无原生 `<button>/<select>/<input>/<textarea>`，表格使用 Kumo `Table`。
+
 > 后续执行计划见 `docs/refactor-next.md`。Kumo-only 硬性规则见 `docs/KUMO_MIGRATION_RULES.md`。验收记录见 `docs/refactor-verification.md`。
 > 最新约束：不新增自写 UI 组件，已有本地 UI 包装组件也要逐步替换为直接使用 Kumo。
 
@@ -180,10 +193,12 @@ case 'self-h':   return <SelfHPage />;
 5. 开关按钮样式仍旧为自绘，同时扫描全局自绘组件，需要更改为kumo组件 ✅ 已修复
     - 已核实 OpenAI、Gemini CLI、Qwen、Antigravity、TOTP、Filebox、Notification 等页面均已切换为 Kumo `Switch` / `Checkbox`
 6. 许多表格样式的内容宽度不合理，要加入拖动柄来自定义 部分完成
-    - 已有拖动柄：OpenAI、Gemini CLI、Qwen、Antigravity、Server、Aliyun、Tencent、Self-H
-    - 仍需复核或补齐：Dns、Music、PaaS、TOTP
+    - 已有拖动柄：OpenAI、Gemini CLI、Qwen、Server、Aliyun、Tencent、Self-H、Cloudflare
+    - Cloudflare 表格拖动已在浏览器验证，首列可从 `260px` 拖到 `320px`
+    - 仍需复核或补齐：Music、PaaS、TOTP
 7. 所有页面底部没有留空隙，导致元素底部贴边 ✅ 已修复
-    - `MainLayout` 主内容区域已有 `pb-16 lg:pb-24`，且各模块根容器已补齐 `pb-20/pb-32`
+    - `MainLayout` 主内容区域统一 `p-4 lg:p-8`，顶部与底部间距一致
+    - 普通页面根容器已移除额外 `pb-20`，避免底部大于顶部；Music 保留播放器避让留白
 8. 主机实例管理功能缺失，没有完全对接原有后台管理的后端，主机列表和后台管理要分开，和原前端逻辑保持一致 ✅ 已修复
     - 主机实例的组件要和其它页面保持一致，例如 flex flex-wrap items-center justify-between border-b border-kumo-line pb-3 gap-4
 9. 所有页面加入骨架屏 ✅ 已修复
@@ -193,7 +208,8 @@ case 'self-h':   return <SelfHPage />;
 12. 多个 agent 分头修改导致前端样式风格不统一：按钮高度、间距、表格、弹窗、toast、switch/checkbox 等需要按 Kumo 官方组件和统一密度规范收敛
     - 主题切换已收敛到设置页，侧栏不再保留独立切换按钮；设置页使用 Kumo `Select`，支持跟随系统/浅色/深色
     - API 网关子标签必须直接使用 Kumo `Tabs`，不再使用本地 `ModuleTabs` 包装组件
-    - 侧栏已按 Kumo Sidebar 官方 Basic 结构重构：`GroupLabel` 只作为组标题，模块入口全部使用同级 `Sidebar.MenuButton`，移除重复组标题、二级子菜单和边缘 `Sidebar.Rail`，并恢复 Antigravity 到 API 网关导航
+    - 侧栏已按 Kumo Sidebar 官方 Basic 结构重构：`GroupLabel` 只作为组标题，模块入口全部使用同级 `Sidebar.MenuButton`，移除重复组标题、二级子菜单和边缘 `Sidebar.Rail`
+    - AntiG / Antigravity 前端入口已移除；GCLI 保留，GCLI 内部 OAuth 的 `Google Antigravity` 提示按依赖事实保留
 13. 不同模块页面宽度不统一，且无法调节 ✅ 已修复
     - `MainLayout` 已接管统一页面宽度，支持 `标准 / 宽屏 / 全宽` 三档 Kumo `Tabs` 切换并持久化到 localStorage
     - 已移除主要页面根容器的局部 `max-w-7xl/max-w-4xl mx-auto` 限制，避免模块自行锁死宽度
@@ -208,7 +224,7 @@ case 'self-h':   return <SelfHPage />;
 - 已删除未跟踪临时文件：`fix-switches*.js`、`old_diff*.txt`、`tmp_index.html`、`tmp_openai_fix.js`。
 - 已删除未被引用的本地 UI 包装组件 `src/js/components/ModuleTabs.jsx`，后续直接使用 Kumo `Tabs`。
 - React 构建入口为 `src/index.html` 中的 `/js/main.jsx`；旧 `src/js/main.js` 未被当前 Vite 入口引用，暂作为旧实现参考处理。
-- 当前主页面文件存在：Dashboard、Server、TOTP、Filebox、Uptime、Notification、OpenAI、Gemini CLI、Qwen、Antigravity、PaaS、DNS、Aliyun、Tencent、Settings、Self-H、Music。
+- 当前主页面文件存在：Dashboard、Server、TOTP、Filebox、Uptime、Notification、OpenAI、Gemini CLI、Qwen、PaaS、DNS、Aliyun、Tencent、Settings、Self-H、Music。
 - Cloudflare DNS 仍是优先补完模块。
 
 ## 2026-06-06 Kumo-only 收敛记录
@@ -260,3 +276,14 @@ case 'self-h':   return <SelfHPage />;
   - 定时任务命令/URL 改为 Kumo `Textarea`
   - 文件面包屑、README 关闭、定时任务操作、右键菜单动作改为 Kumo `Button`
   - 该页面 JSX `<button>`、`<select>`、`<input>`、`<textarea>` 和 `appearance-none` 静态扫描已清零
+
+## 2026-06-06 Cloudflare / Dialog / 间距 / 中文化收尾
+
+- `DnsPage.jsx` 已扩展为 Cloudflare 综合管理页，覆盖账号、域名与 DNS、Workers、Pages、R2、Tunnel、DNS 模板等后端接口入口。
+- Cloudflare 表格按 Kumo `Table` 标准实现，并接入 `Table.ResizeHandle`；浏览器验证首列表格列宽可从 `260px` 拖到 `320px`。
+- `useTableResize.js` 已支持 mouse/touch 拖动，拖动期间设置 `col-resize` 和禁用文本选择，结束后清理监听。
+- React 页面中的 `Dialog.Close asChild` 已迁移为 Kumo `Dialog.Close render={(props) => ...}` 写法。
+- `DnsPage.jsx` 通用 Dialog 改为仅在 `modal.type` 存在时挂载，避免关闭后残留不可见但可接收指针事件的空 Dialog 节点。
+- `MainLayout` 主内容内层从 `h-full` 改为 `min-h-full`；普通页面移除根容器额外 `pb-20`，Settings 浏览器测得顶部/底部间距同为 `30px`。
+- 可见中文化已补一轮：导航、总览卡片说明、设置页公网 API 字段、PaaS/通知/OpenAI/GCLI/Qwen 等可见令牌和参数文案已改中文。
+- AntiG / Antigravity 模块入口已从 React 导航和页面中移除；GCLI 依赖的 requester 与 OAuth 文案继续保留。

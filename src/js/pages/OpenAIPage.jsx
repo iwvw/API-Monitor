@@ -1,13 +1,18 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Switch } from '@cloudflare/kumo/components/switch';
 import { toast } from '../modules/toast.js';
+import { dialog } from '../modules/dialog.js';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Dialog } from '@cloudflare/kumo/components/dialog';
+import { Input, Textarea } from '@cloudflare/kumo/components/input';
+import { Select } from '@cloudflare/kumo/components/select';
 import { Table } from '@cloudflare/kumo/components/table';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import { Autocomplete } from '@cloudflare/kumo/components/autocomplete';
+import { Tabs } from '@cloudflare/kumo';
 import useTableResize from '../composables/useTableResize.js';
 import useStore from '../store.js';
+import { MODULE_TABS_PROPS, TOOL_TABS_PROPS } from '../modules/kumoTabs.js';
 import { renderMarkdown, formatDateTime } from '../modules/utils.js';
 import {
   Server,
@@ -281,7 +286,7 @@ function OpenAIPage() {
   };
 
   const deleteEndpoint = async (endpoint) => {
-    if (!window.confirm(`确定要删除端点 "${endpoint.name || endpoint.baseUrl}" 吗？`)) {
+    if (!(await dialog.confirm(`确定要删除端点 "${endpoint.name || endpoint.baseUrl}" 吗？`))) {
       return;
     }
     try {
@@ -374,8 +379,8 @@ function OpenAIPage() {
     }
   };
 
-  const importEndpoints = () => {
-    if (!window.confirm('确认导入？导入端点将添加到现有列表中。')) {
+  const importEndpoints = async () => {
+    if (!(await dialog.confirm('确认导入？导入端点将添加到现有列表中。'))) {
       return;
     }
     const input = document.createElement('input');
@@ -816,7 +821,7 @@ function OpenAIPage() {
   };
 
   const deletePersona = async (personaId) => {
-    if (!window.confirm('确定要删除这个 AI 人设吗？')) {
+    if (!(await dialog.confirm('确定要删除这个 AI 人设吗？'))) {
       return;
     }
     try {
@@ -961,7 +966,7 @@ function OpenAIPage() {
 
   const deleteSession = async (sessionId, e) => {
     if (e) e.stopPropagation();
-    if (!window.confirm('确定要删除这个对话吗？此操作不可撤销。')) return;
+    if (!(await dialog.confirm('确定要删除这个对话吗？此操作不可撤销。'))) return;
     try {
       const response = await fetch(`/api/chat/sessions/${sessionId}`, {
         method: 'DELETE',
@@ -983,7 +988,7 @@ function OpenAIPage() {
 
   const deleteSelectedSessions = async () => {
     if (selectedSessionIds.length === 0) return;
-    if (!window.confirm(`确定要删除选中的 ${selectedSessionIds.length} 个对话吗？`)) return;
+    if (!(await dialog.confirm(`确定要删除选中的 ${selectedSessionIds.length} 个对话吗？`))) return;
     try {
       const response = await fetch('/api/chat/sessions', {
         method: 'DELETE',
@@ -1007,7 +1012,7 @@ function OpenAIPage() {
 
   const clearAllSessions = async () => {
     if (sessions.length === 0) return;
-    if (!window.confirm('确定要清空所有聊天历史吗？此操作不可撤销。')) return;
+    if (!(await dialog.confirm('确定要清空所有聊天历史吗？此操作不可撤销。'))) return;
     try {
       const response = await fetch('/api/chat/sessions', {
         method: 'DELETE',
@@ -1649,44 +1654,19 @@ function OpenAIPage() {
   };
 
   return (
-    <div className="space-y-6 flex flex-col pb-20">
+    <div className="space-y-6 flex flex-col">
       {/* Tab Navigation */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-kumo-line pb-4 gap-4 select-none">
-        <div className="flex border border-kumo-line rounded-lg p-0.5 bg-kumo-recessed">
-          <button
-            onClick={() => setActiveTab('endpoints')}
-            className={`flex items-center gap-2 px-4 py-1.5 rounded-md text-xs font-semibold cursor-pointer transition-colors ${
-              activeTab === 'endpoints'
-                ? 'bg-kumo-base text-kumo-strong shadow-sm'
-                : 'text-kumo-subtle hover:text-kumo-strong'
-            }`}
-          >
-            <Server className="w-3.5 h-3.5" />
-            <span>API 端点</span>
-          </button>
-          <button
-            onClick={() => setActiveTab('accounts')}
-            className={`flex items-center gap-2 px-4 py-1.5 rounded-md text-xs font-semibold cursor-pointer transition-colors ${
-              activeTab === 'accounts'
-                ? 'bg-kumo-base text-kumo-strong shadow-sm'
-                : 'text-kumo-subtle hover:text-kumo-strong'
-            }`}
-          >
-            <Users className="w-3.5 h-3.5" />
-            <span>账号管理</span>
-          </button>
-          <button
-            onClick={() => setActiveTab('chat')}
-            className={`flex items-center gap-2 px-4 py-1.5 rounded-md text-xs font-semibold cursor-pointer transition-colors ${
-              activeTab === 'chat'
-                ? 'bg-kumo-base text-kumo-strong shadow-sm'
-                : 'text-kumo-subtle hover:text-kumo-strong'
-            }`}
-          >
-            <MessageSquare className="w-3.5 h-3.5" />
-            <span>对话</span>
-          </button>
-        </div>
+      <div className="flex flex-wrap items-center justify-between border-b border-kumo-line pb-3 gap-4 select-none">
+        <Tabs
+          {...MODULE_TABS_PROPS}
+          value={activeTab}
+          onValueChange={setActiveTab}
+          tabs={[
+            { value: 'endpoints', label: <span className="inline-flex items-center gap-1.5"><Server className="w-3.5 h-3.5" />API 端点</span> },
+            { value: 'accounts', label: <span className="inline-flex items-center gap-1.5"><Users className="w-3.5 h-3.5" />账号管理</span> },
+            { value: 'chat', label: <span className="inline-flex items-center gap-1.5"><MessageSquare className="w-3.5 h-3.5" />对话</span> },
+          ]}
+        />
       </div>
 
       {/* ==================== 1. API 端点 Tab ==================== */}
@@ -1779,7 +1759,11 @@ function OpenAIPage() {
                       </div>
 
                       <div className="flex items-center gap-3">
-                        <button
+                        <Button
+                          shape="square"
+                          size="sm"
+                          variant="ghost"
+                          aria-label="模型健康检测"
                           onClick={(e) => {
                             e.stopPropagation();
                             openHealthCheckForEndpoint(endpoint.id);
@@ -1788,8 +1772,12 @@ function OpenAIPage() {
                           title="模型健康检测"
                         >
                           <Activity className="w-4 h-4" />
-                        </button>
-                        <button
+                        </Button>
+                        <Button
+                          shape="square"
+                          size="sm"
+                          variant="ghost"
+                          aria-label="刷新模型列表"
                           onClick={(e) => {
                             e.stopPropagation();
                             refreshEndpointModels(endpoint);
@@ -1798,7 +1786,7 @@ function OpenAIPage() {
                           title="刷新模型列表"
                         >
                           <RefreshCw className={`w-4 h-4 ${endpoint.refreshing ? 'animate-spin' : ''}`} />
-                        </button>
+                        </Button>
                         <span className="text-[11px] bg-kumo-recessed border border-kumo-line px-2 py-0.5 rounded text-kumo-strong font-semibold select-none">
                           模型: {endpoint.models ? endpoint.models.length : 0}
                         </span>
@@ -1850,7 +1838,11 @@ function OpenAIPage() {
                                       {modelId}
                                     </span>
                                   </div>
-                                  <button
+                                  <Button
+                                    shape="square"
+                                    size="xs"
+                                    variant="ghost"
+                                    aria-label="复制模型名称"
                                     onClick={() => {
                                       navigator.clipboard.writeText(modelId);
                                       toast.success('已复制模型名称');
@@ -1859,7 +1851,7 @@ function OpenAIPage() {
                                     title="复制名称"
                                   >
                                     <Copy className="w-3.5 h-3.5" />
-                                  </button>
+                                  </Button>
                                 </div>
                               );
                             })}
@@ -1976,7 +1968,11 @@ function OpenAIPage() {
                       <Table.Cell>
                         <div className="flex items-center gap-1.5 font-mono">
                           <span>{endpoint.showKey ? endpoint.apiKey : maskApiKey(endpoint.apiKey)}</span>
-                          <button
+                          <Button
+                            shape="square"
+                            size="sm"
+                            variant="ghost"
+                            aria-label={endpoint.showKey ? '隐藏 API Key' : '显示 API Key'}
                             onClick={() =>
                               setEndpoints(prev =>
                                 prev.map(e => e.id === endpoint.id ? { ...e, showKey: !e.showKey } : e)
@@ -1985,7 +1981,7 @@ function OpenAIPage() {
                             className="p-1 hover:bg-kumo-recessed rounded text-kumo-subtle"
                           >
                             {endpoint.showKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                          </button>
+                          </Button>
                         </div>
                       </Table.Cell>
                       <Table.Cell className="text-center">
@@ -2013,34 +2009,50 @@ function OpenAIPage() {
                       </Table.Cell>
                       <Table.Cell>
                         <div className="flex justify-center gap-1.5">
-                          <button
+                          <Button
+                            shape="square"
+                            size="sm"
+                            variant="ghost"
+                            aria-label="验证连接"
                             onClick={() => verifyEndpoint(endpoint)}
                             className="p-1.5 hover:bg-kumo-brand/10 hover:text-kumo-brand rounded text-kumo-subtle"
                             title="验证连接"
                           >
                             <Plug className="w-3.5 h-3.5" />
-                          </button>
-                          <button
+                          </Button>
+                          <Button
+                            shape="square"
+                            size="sm"
+                            variant="ghost"
+                            aria-label="健康检测"
                             onClick={() => openHealthCheckForEndpoint(endpoint.id)}
                             className="p-1.5 hover:bg-kumo-brand/10 hover:text-kumo-brand rounded text-kumo-subtle"
                             title="健康检测"
                           >
                             <Activity className="w-3.5 h-3.5" />
-                          </button>
-                          <button
+                          </Button>
+                          <Button
+                            shape="square"
+                            size="sm"
+                            variant="ghost"
+                            aria-label="编辑配置"
                             onClick={() => openEditEndpointModal(endpoint)}
                             className="p-1.5 hover:bg-kumo-brand/10 hover:text-kumo-brand rounded text-kumo-subtle"
                             title="编辑配置"
                           >
                             <Edit className="w-3.5 h-3.5" />
-                          </button>
-                          <button
+                          </Button>
+                          <Button
+                            shape="square"
+                            size="sm"
+                            variant="ghost"
+                            aria-label="删除端点"
                             onClick={() => deleteEndpoint(endpoint)}
                             className="p-1.5 hover:bg-kumo-danger/10 hover:text-kumo-danger rounded text-kumo-subtle"
                             title="删除账号"
                           >
                             <Trash className="w-3.5 h-3.5" />
-                          </button>
+                          </Button>
                         </div>
                       </Table.Cell>
                     </Table.Row>
@@ -2059,7 +2071,8 @@ function OpenAIPage() {
             <p className="text-[11px] text-kumo-subtle leading-relaxed">
               每行一个端点，格式：<code>名称:API地址:API_Key</code>
             </p>
-            <textarea
+            <Textarea
+              aria-label="批量添加端点"
               value={batchText}
               onChange={(e) => setBatchText(e.target.value)}
               placeholder="每行一个：名称:https://api.example.com:sk-xxx"
@@ -2103,43 +2116,56 @@ function OpenAIPage() {
               </span>
               <div className="flex gap-1.5">
                 {sessions.length > 0 && (
-                  <button
+                  <Button
+                    shape="square"
+                    size="xs"
+                    variant="ghost"
+                    aria-label={selectedSessionIds.length === sessions.length ? '取消全选会话' : '全选会话'}
                     onClick={toggleSelectAllSessions}
                     className="p-1 hover:bg-kumo-recessed rounded text-kumo-subtle hover:text-kumo-strong"
                     title={selectedSessionIds.length === sessions.length ? '取消全选' : '全选'}
                   >
                     <Check className={`w-3.5 h-3.5 ${selectedSessionIds.length === sessions.length ? 'text-kumo-brand' : ''}`} />
-                  </button>
+                  </Button>
                 )}
                 {selectedSessionIds.length > 0 ? (
-                  <button
+                  <Button
+                    shape="square"
+                    size="xs"
+                    variant="ghost"
+                    aria-label="删除选中会话"
                     onClick={deleteSelectedSessions}
                     className="p-1 hover:bg-kumo-danger/10 rounded text-kumo-danger"
                     title="删除选中"
                   >
                     <Trash className="w-3.5 h-3.5" />
-                  </button>
+                  </Button>
                 ) : (
                   sessions.length > 0 && (
-                    <button
+                    <Button
+                      shape="square"
+                      size="xs"
+                      variant="ghost"
+                      aria-label="清空历史会话"
                       onClick={clearAllSessions}
                       className="p-1 hover:bg-kumo-danger/10 rounded text-kumo-subtle hover:text-kumo-danger"
                       title="清空历史"
                     >
                       <Trash className="w-3.5 h-3.5" />
-                    </button>
+                    </Button>
                   )
                 )}
               </div>
             </div>
 
-            <button
+            <Button
+              variant="secondary"
               onClick={() => createSession(true)}
               className="m-3 py-2 px-4 border border-dashed border-kumo-brand/40 hover:border-kumo-brand hover:bg-kumo-brand/5 text-kumo-brand font-semibold text-xs rounded-lg flex items-center justify-center gap-1.5 transition-all cursor-pointer"
             >
               <Plus className="w-4 h-4" />
               <span>新对话</span>
-            </button>
+            </Button>
 
             <div className="flex-1 overflow-y-auto divide-y divide-kumo-line/50 p-2 space-y-1">
               {chatHistoryLoading && sessions.length === 0 ? (
@@ -2165,7 +2191,11 @@ function OpenAIPage() {
                     </div>
 
                     <div className="flex items-center gap-1">
-                      <button
+                      <Button
+                        shape="square"
+                        size="xs"
+                        variant="ghost"
+                        aria-label="选择会话"
                         onClick={(e) => toggleSessionSelection(session.id, e)}
                         className="p-0.5 hover:bg-kumo-recessed rounded text-kumo-subtle opacity-0 group-hover:opacity-100 md:opacity-100"
                       >
@@ -2174,13 +2204,17 @@ function OpenAIPage() {
                             selectedSessionIds.includes(session.id) ? 'text-kumo-brand' : 'opacity-30'
                           }`}
                         />
-                      </button>
-                      <button
+                      </Button>
+                      <Button
+                        shape="square"
+                        size="xs"
+                        variant="ghost"
+                        aria-label="删除会话"
                         onClick={(e) => deleteSession(session.id, e)}
                         className="p-0.5 hover:bg-kumo-danger/10 rounded text-kumo-subtle hover:text-kumo-danger opacity-0 group-hover:opacity-100"
                       >
                         <Trash className="w-3.5 h-3.5" />
-                      </button>
+                      </Button>
                     </div>
                   </div>
                 ))
@@ -2386,15 +2420,23 @@ function OpenAIPage() {
                 </div>
 
                 {/* Operations */}
-                <button
+                <Button
+                  shape="square"
+                  size="sm"
+                  variant="ghost"
+                  aria-label="刷新模型列表"
                   onClick={() => loadAllModels(false)}
                   disabled={chatLoading}
                   className="p-1.5 hover:bg-kumo-recessed rounded text-kumo-subtle hover:text-kumo-strong transition-colors"
                   title="刷新模型列表"
                 >
                   <RefreshCw className={`w-4 h-4 ${chatLoading ? 'animate-spin' : ''}`} />
-                </button>
-                <button
+                </Button>
+                <Button
+                  shape="square"
+                  size="sm"
+                  variant="ghost"
+                  aria-label={pinnedModels.includes(chatModel) ? '取消收藏当前模型' : '收藏当前模型'}
                   onClick={() => togglePinModel(chatModel)}
                   disabled={!chatModel}
                   className={`p-1.5 hover:bg-kumo-recessed rounded transition-colors ${
@@ -2403,8 +2445,12 @@ function OpenAIPage() {
                   title={pinnedModels.includes(chatModel) ? '取消收藏' : '收藏当前模型'}
                 >
                   <Star className={`w-4 h-4 ${pinnedModels.includes(chatModel) ? 'fill-yellow-500' : ''}`} />
-                </button>
-                <button
+                </Button>
+                <Button
+                  shape="square"
+                  size="sm"
+                  variant="ghost"
+                  aria-label={chatModel === defaultChatModel ? '当前为默认模型' : '设为默认模型'}
                   onClick={handleSetDefaultModel}
                   disabled={!chatModel}
                   className={`p-1.5 hover:bg-kumo-recessed rounded transition-colors ${
@@ -2413,7 +2459,7 @@ function OpenAIPage() {
                   title={chatModel === defaultChatModel ? '当前为默认模型' : '设为默认模型'}
                 >
                   <Pin className="w-4 h-4" />
-                </button>
+                </Button>
               </div>
 
               <div className="flex gap-1.5">
@@ -2479,20 +2525,28 @@ function OpenAIPage() {
 
                           {/* Message actions */}
                           <div className="flex items-center gap-1 ml-2 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
-                            <button
+                            <Button
+                              shape="square"
+                              size="xs"
+                              variant="ghost"
+                              aria-label="重新生成消息"
                               onClick={() => regenerateChat(index)}
                               className="p-1 hover:bg-kumo-recessed rounded text-kumo-subtle"
                               title="重新生成"
                             >
                               <RotateCw className="w-3 h-3" />
-                            </button>
-                            <button
+                            </Button>
+                            <Button
+                              shape="square"
+                              size="xs"
+                              variant="ghost"
+                              aria-label="删除消息"
                               onClick={() => deleteChatMessage(index)}
                               className="p-1 hover:bg-kumo-danger/10 rounded text-kumo-subtle hover:text-kumo-danger"
                               title="删除消息"
                             >
                               <Trash className="w-3 h-3" />
-                            </button>
+                            </Button>
                           </div>
                         </div>
 
@@ -2570,14 +2624,16 @@ function OpenAIPage() {
                   <div className="bg-kumo-recessed/60 text-kumo-strong p-3 rounded-lg border border-kumo-line space-y-1">
                     <div className="flex items-center justify-between border-b border-kumo-line pb-1.5 mb-2 gap-8">
                       <span className="font-bold text-kumo-strong">哈基喵</span>
-                      <button
+                      <Button
+                        size="sm"
+                        variant="secondary-destructive"
                         onClick={stopGenerating}
                         className="p-1 hover:bg-kumo-danger/15 rounded text-kumo-danger flex items-center gap-1 font-semibold"
                         title="停止生成"
                       >
                         <X className="w-3 h-3" />
                         <span>停止</span>
-                      </button>
+                      </Button>
                     </div>
                     <div className="flex space-x-1 py-1.5">
                       <div className="w-2 h-2 bg-kumo-brand rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
@@ -2598,19 +2654,24 @@ function OpenAIPage() {
                   {attachments.map((file, idx) => (
                     <div key={idx} className="relative w-16 h-16 rounded border border-kumo-line overflow-hidden bg-kumo-recessed">
                       <img src={file.url} alt="preview" className="w-full h-full object-cover" />
-                      <button
+                      <Button
+                        shape="circle"
+                        size="xs"
+                        variant="ghost"
+                        aria-label="移除附件"
                         onClick={() => removeAttachment(idx)}
                         className="absolute top-0.5 right-0.5 p-0.5 bg-black/70 rounded-full text-white hover:bg-black"
                       >
                         <X className="w-3 h-3" />
-                      </button>
+                      </Button>
                     </div>
                   ))}
                 </div>
               )}
 
               <div className="flex items-center gap-2">
-                <input
+                <Input
+                  aria-label="上传图片"
                   type="file"
                   ref={fileInputRef}
                   onChange={handleFileChange}
@@ -2618,15 +2679,20 @@ function OpenAIPage() {
                   multiple
                   className="hidden"
                 />
-                <button
+                <Button
+                  shape="square"
+                  size="sm"
+                  variant="ghost"
+                  aria-label="上传图片"
                   onClick={() => fileInputRef.current?.click()}
                   className="p-2 hover:bg-kumo-recessed rounded text-kumo-subtle hover:text-kumo-strong"
                   title="上传图片"
                 >
                   <Paperclip className="w-4 h-4" />
-                </button>
+                </Button>
 
-                <textarea
+                <Textarea
+                  aria-label="聊天消息"
                   ref={textareaRef}
                   value={messageInput}
                   onChange={(e) => setMessageInput(e.target.value)}
@@ -2672,7 +2738,8 @@ function OpenAIPage() {
           <div className="space-y-4">
             <div className="space-y-1">
               <label className="text-xs font-semibold text-kumo-strong">名称</label>
-              <input
+              <Input
+                aria-label="端点名称"
                 type="text"
                 value={endpointForm.name}
                 onChange={(e) => setEndpointForm({ ...endpointForm, name: e.target.value })}
@@ -2683,7 +2750,8 @@ function OpenAIPage() {
 
             <div className="space-y-1">
               <label className="text-xs font-semibold text-kumo-strong">API 接口地址 (Base URL)</label>
-              <input
+              <Input
+                aria-label="API 接口地址"
                 type="text"
                 value={endpointForm.baseUrl}
                 onChange={(e) => setEndpointForm({ ...endpointForm, baseUrl: e.target.value })}
@@ -2694,7 +2762,8 @@ function OpenAIPage() {
 
             <div className="space-y-1">
               <label className="text-xs font-semibold text-kumo-strong">API Key</label>
-              <input
+              <Input
+                aria-label="API Key"
                 type="password"
                 value={endpointForm.apiKey}
                 onChange={(e) => setEndpointForm({ ...endpointForm, apiKey: e.target.value })}
@@ -2705,7 +2774,8 @@ function OpenAIPage() {
 
             <div className="space-y-1">
               <label className="text-xs font-semibold text-kumo-strong">备注</label>
-              <input
+              <Input
+                aria-label="备注"
                 type="text"
                 value={endpointForm.notes}
                 onChange={(e) => setEndpointForm({ ...endpointForm, notes: e.target.value })}
@@ -2719,9 +2789,13 @@ function OpenAIPage() {
             )}
 
             <div className="flex justify-end gap-3 pt-2">
-              <Dialog.Close asChild>
-  <Button>取消</Button>
-</Dialog.Close>
+              <Dialog.Close
+                render={(props) => (
+                  <Button {...props} variant="secondary">
+                    取消
+                  </Button>
+                )}
+              />
               <Button variant="primary" disabled={endpointSaving} onClick={saveEndpoint}>
                 {endpointSaving ? '保存中...' : '保存端点'}
               </Button>
@@ -2746,13 +2820,15 @@ function OpenAIPage() {
                 <AlertTriangle className="w-3.5 h-3.5" />
                 警告
               </p>
-              <p>健康检测需要向 API 发送真实请求，按Token/次收费的模型可能会产生小额账单，请谨慎使用。</p>
+              <p>健康检测需要向 API 发送真实请求，按令牌或次数收费的模型可能会产生小额账单，请谨慎使用。</p>
             </div>
 
             <div className="flex items-center justify-between text-xs">
               <span className="font-semibold text-kumo-strong">使用密钥</span>
               <div className="flex border border-kumo-line rounded bg-kumo-recessed p-0.5">
-                <button
+                <Button
+                  size="sm"
+                  variant={healthCheckForm.useKey === 'single' ? 'secondary' : 'ghost'}
                   onClick={() => setHealthCheckForm({ ...healthCheckForm, useKey: 'single' })}
                   className={`px-3 py-1 rounded text-[10px] font-semibold cursor-pointer ${
                     healthCheckForm.useKey === 'single'
@@ -2761,8 +2837,10 @@ function OpenAIPage() {
                   }`}
                 >
                   单个
-                </button>
-                <button
+                </Button>
+                <Button
+                  size="sm"
+                  variant={healthCheckForm.useKey === 'all' ? 'secondary' : 'ghost'}
                   onClick={() => setHealthCheckForm({ ...healthCheckForm, useKey: 'all' })}
                   className={`px-3 py-1 rounded text-[10px] font-semibold cursor-pointer ${
                     healthCheckForm.useKey === 'all'
@@ -2771,7 +2849,7 @@ function OpenAIPage() {
                   }`}
                 >
                   所有
-                </button>
+                </Button>
               </div>
             </div>
 
@@ -2787,7 +2865,8 @@ function OpenAIPage() {
             <div className="flex items-center justify-between text-xs">
               <span className="font-semibold text-kumo-strong">超时限制</span>
               <div className="flex items-center gap-1.5">
-                <input
+                <Input
+                  aria-label="健康检测超时限制"
                   type="number"
                   value={healthCheckForm.timeout}
                   onChange={(e) => setHealthCheckForm({ ...healthCheckForm, timeout: Number(e.target.value) })}
@@ -2800,9 +2879,13 @@ function OpenAIPage() {
             </div>
 
             <div className="flex justify-end gap-3 pt-2">
-              <Dialog.Close asChild>
-  <Button>取消</Button>
-</Dialog.Close>
+              <Dialog.Close
+                render={(props) => (
+                  <Button {...props} variant="secondary">
+                    取消
+                  </Button>
+                )}
+              />
               <Button variant="primary" onClick={startBatchHealthCheck}>
                 开始检测
               </Button>
@@ -2824,7 +2907,8 @@ function OpenAIPage() {
           <div className="space-y-4">
             <div className="space-y-1">
               <label className="text-xs font-semibold text-kumo-strong">人设名称</label>
-              <input
+              <Input
+                aria-label="人设名称"
                 type="text"
                 value={personaForm.name}
                 onChange={(e) => setPersonaForm({ ...personaForm, name: e.target.value })}
@@ -2834,8 +2918,9 @@ function OpenAIPage() {
             </div>
 
             <div className="space-y-1">
-              <label className="text-xs font-semibold text-kumo-strong">系统提示词 (System Prompt)</label>
-              <textarea
+              <label className="text-xs font-semibold text-kumo-strong">系统提示词</label>
+              <Textarea
+                aria-label="系统提示词"
                 value={personaForm.systemPrompt}
                 onChange={(e) => setPersonaForm({ ...personaForm, systemPrompt: e.target.value })}
                 placeholder="定义 AI 的行为指南或任务边界..."
@@ -2845,9 +2930,13 @@ function OpenAIPage() {
             </div>
 
             <div className="flex justify-end gap-3 pt-2">
-              <Dialog.Close asChild>
-  <Button>取消</Button>
-</Dialog.Close>
+              <Dialog.Close
+                render={(props) => (
+                  <Button {...props} variant="secondary">
+                    取消
+                  </Button>
+                )}
+              />
               <Button variant="primary" onClick={savePersona}>
                 保存人设
               </Button>
@@ -2865,36 +2954,31 @@ function OpenAIPage() {
               <SettingsIcon className="w-4 h-4 text-kumo-brand animate-spin-slow" />
               对话参数设置
             </h3>
-            <button
+            <Button
+              shape="square"
+              size="sm"
+              variant="ghost"
+              aria-label="关闭对话参数设置"
               onClick={() => setShowHChatSettingsModal(false)}
               className="p-1 hover:bg-kumo-recessed rounded text-kumo-subtle"
             >
               <X className="w-4 h-4" />
-            </button>
+            </Button>
           </div>
 
           {/* Setting Tabs Navigation */}
-          <div className="flex border-b border-kumo-line bg-kumo-recessed/20 p-1 select-none">
-            <button
-              onClick={() => setOpenaiSettingsTab('general')}
-              className={`flex-1 py-1.5 text-[11px] font-semibold rounded-md transition-colors cursor-pointer text-center ${
-                openaiSettingsTab === 'general'
-                  ? 'bg-kumo-base text-kumo-strong shadow-sm'
-                  : 'text-kumo-subtle hover:text-kumo-strong'
-              }`}
-            >
-              通用
-            </button>
-            <button
-              onClick={() => setOpenaiSettingsTab('models')}
-              className={`flex-1 py-1.5 text-[11px] font-semibold rounded-md transition-colors cursor-pointer text-center ${
-                openaiSettingsTab === 'models'
-                  ? 'bg-kumo-base text-kumo-strong shadow-sm'
-                  : 'text-kumo-subtle hover:text-kumo-strong'
-              }`}
-            >
-              模型管理
-            </button>
+          <div className="border-b border-kumo-line bg-kumo-recessed/20 p-2 select-none">
+            <Tabs
+              {...TOOL_TABS_PROPS}
+              value={openaiSettingsTab}
+              onValueChange={setOpenaiSettingsTab}
+              className="w-full"
+              listClassName="w-full"
+              tabs={[
+                { value: 'general', label: '通用' },
+                { value: 'models', label: '模型管理' },
+              ]}
+            />
           </div>
 
           {/* Modal Body */}
@@ -2903,8 +2987,9 @@ function OpenAIPage() {
               <div className="space-y-4">
                 {/* System prompt */}
                 <div className="space-y-1">
-                  <label className="text-xs font-semibold text-kumo-strong">系统提示词 (System Prompt)</label>
-                  <textarea
+                  <label className="text-xs font-semibold text-kumo-strong">系统提示词</label>
+                  <Textarea
+                    aria-label="对话系统提示词"
                     value={openaiChatSystemPrompt}
                     onChange={(e) => setOpenaiChatSystemPrompt(e.target.value)}
                     rows={3}
@@ -2917,10 +3002,11 @@ function OpenAIPage() {
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-1">
                     <div className="flex justify-between items-center text-xs">
-                      <label className="font-semibold text-kumo-strong">随机性 (Temperature)</label>
+                      <label className="font-semibold text-kumo-strong">随机性</label>
                       <span className="font-mono text-kumo-brand font-bold">{openaiChatSettings.temperature}</span>
                     </div>
-                    <input
+                    <Input
+                      aria-label="随机性"
                       type="range"
                       min={0}
                       max={2}
@@ -2934,14 +3020,15 @@ function OpenAIPage() {
                   </div>
 
                   <div className="space-y-1">
-                    <label className="text-xs font-semibold text-kumo-strong block">回复长度 (Max Tokens)</label>
-                    <input
+                    <label className="text-xs font-semibold text-kumo-strong block">回复长度（最大令牌数）</label>
+                    <Input
+                      aria-label="回复长度"
                       type="number"
                       value={openaiChatSettings.max_tokens}
                       onChange={(e) =>
                         setOpenaiChatSettings({ ...openaiChatSettings, max_tokens: Number(e.target.value) })
                       }
-                      placeholder="e.g. 2000"
+                      placeholder="例如 2000"
                       className="w-full bg-kumo-recessed text-kumo-strong text-xs px-3 py-1.5 border border-kumo-line rounded-lg focus:outline-none focus:border-kumo-brand text-center"
                     />
                   </div>
@@ -2993,27 +3080,35 @@ function OpenAIPage() {
                               {idx + 1}
                             </span>
                             <span className="max-w-[120px] truncate">{m}</span>
-                            <button onClick={() => removeTitleModel(m)} className="hover:text-kumo-danger">
+                            <Button
+                              shape="square"
+                              size="xs"
+                              variant="ghost"
+                              aria-label="移除标题模型"
+                              onClick={() => removeTitleModel(m)}
+                              className="hover:text-kumo-danger"
+                            >
                               <X className="w-3 h-3" />
-                            </button>
+                            </Button>
                           </div>
                         ))}
                       </div>
 
                       {/* Add title model select */}
                       <div className="flex gap-2">
-                        <select
+                        <Select
+                          aria-label="添加标题模型"
                           value={openaiTitleModelToAdd}
-                          onChange={(e) => setOpenaiTitleModelToAdd(e.target.value)}
+                          onValueChange={(value) => setOpenaiTitleModelToAdd(String(value))}
                           className="flex-1 bg-kumo-base text-kumo-strong text-xs border border-kumo-line rounded-lg p-1.5 focus:outline-none focus:ring-1 focus:ring-kumo-brand"
                         >
-                          <option value="">添加模型...</option>
+                          <Select.Option value="">添加模型...</Select.Option>
                           {filteredTitleModelOptions().map((m) => (
-                            <option key={m.id} value={m.id}>
+                            <Select.Option key={m.id} value={m.id}>
                               {m.id} ({m.owned_by})
-                            </option>
+                            </Select.Option>
                           ))}
-                        </select>
+                        </Select>
                         <Button onClick={addTitleModel} disabled={!openaiTitleModelToAdd}>
                           添加
                         </Button>
@@ -3046,7 +3141,8 @@ function OpenAIPage() {
                 <div className="flex gap-2 items-center text-xs">
                   <div className="flex-1 flex items-center gap-1.5 px-3 py-1.5 border border-kumo-line rounded-lg bg-kumo-recessed/50">
                     <Search className="w-3.5 h-3.5 text-kumo-subtle" />
-                    <input
+                    <Input
+                      aria-label="搜索模型"
                       type="text"
                       value={openaiModelSearch}
                       onChange={(e) => setOpenaiModelSearch(e.target.value)}
@@ -3055,18 +3151,20 @@ function OpenAIPage() {
                     />
                   </div>
 
-                  <select
+                  <Select
+                    aria-label="模型端点筛选"
+                    size="sm"
                     value={openaiSelectedEndpointId}
-                    onChange={(e) => setOpenaiSelectedEndpointId(e.target.value)}
+                    onValueChange={(value) => setOpenaiSelectedEndpointId(String(value))}
                     className="bg-kumo-base text-kumo-strong border border-kumo-line rounded-lg p-1.5 focus:outline-none text-xs"
                   >
-                    <option value="">所有端点</option>
+                    <Select.Option value="">所有端点</Select.Option>
                     {endpoints.map((ep) => (
-                      <option key={ep.id} value={ep.id}>
+                      <Select.Option key={ep.id} value={ep.id}>
                         {ep.name}
-                      </option>
+                      </Select.Option>
                     ))}
-                  </select>
+                  </Select>
                 </div>
 
                 <div className="flex justify-between items-center text-xs">
@@ -3099,7 +3197,11 @@ function OpenAIPage() {
                           </div>
 
                           <div className="flex gap-1">
-                            <button
+                            <Button
+                              shape="square"
+                              size="sm"
+                              variant="ghost"
+                              aria-label={isPinned ? '取消收藏模型' : '收藏模型'}
                               onClick={() => togglePinModel(model.id)}
                               className={`p-1.5 hover:bg-kumo-recessed rounded transition-colors ${
                                 isPinned ? 'text-yellow-500' : 'text-kumo-subtle hover:text-kumo-strong'
@@ -3107,8 +3209,12 @@ function OpenAIPage() {
                               title={isPinned ? '取消收藏' : '收藏'}
                             >
                               <Star className={`w-3.5 h-3.5 ${isPinned ? 'fill-yellow-500' : ''}`} />
-                            </button>
-                            <button
+                            </Button>
+                            <Button
+                              shape="square"
+                              size="sm"
+                              variant="ghost"
+                              aria-label={isHidden ? '显示模型' : '隐藏模型'}
                               onClick={() => toggleHideModel(model.id)}
                               className={`p-1.5 hover:bg-kumo-recessed rounded transition-colors ${
                                 isHidden ? 'text-kumo-brand' : 'text-kumo-subtle hover:text-kumo-strong'
@@ -3116,7 +3222,7 @@ function OpenAIPage() {
                               title={isHidden ? '显示' : '隐藏'}
                             >
                               {isHidden ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                            </button>
+                            </Button>
                           </div>
                         </div>
                       );

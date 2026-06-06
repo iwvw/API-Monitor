@@ -1,174 +1,1362 @@
-import React, { useState } from 'react';
-import { toast } from '../modules/toast.js';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Badge } from '@cloudflare/kumo/components/badge';
 import { Button } from '@cloudflare/kumo/components/button';
-import { Input } from '@cloudflare/kumo/components/input';
+import { Input, Textarea } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
-import { Tabs } from '@cloudflare/kumo';
-import useStore from '../store.js';
-import { Settings, Lock, Shield, LayoutDashboard, Globe, Sun } from '../components/Icons.jsx';
+import { Switch } from '@cloudflare/kumo/components/switch';
+import { Table } from '@cloudflare/kumo/components/table';
+import { LayerCard, Tabs } from '@cloudflare/kumo';
+import { toast } from '../modules/toast.js';
+import useStore, {
+  DEFAULT_MODULE_ORDER,
+  MODULE_CONFIG,
+  MODULE_GROUPS,
+  applyCustomCss,
+  normalizeUserSettings,
+} from '../store.js';
+import { MODULE_TABS_PROPS } from '../modules/kumoTabs.js';
+import {
+  Activity,
+  Bell,
+  Check,
+  Database,
+  Download,
+  Eye,
+  EyeOff,
+  FileText,
+  Globe,
+  HardDrive,
+  LayoutDashboard,
+  Lock,
+  RefreshCw,
+  Save,
+  Settings,
+  Shield,
+  Sun,
+  Terminal,
+  Trash,
+  Upload,
+} from '../components/Icons.jsx';
+
+const SETTINGS_TABS = [
+  { value: 'general', label: <span className="inline-flex items-center gap-1.5"><LayoutDashboard className="h-4 w-4" />常规</span> },
+  { value: 'api', label: <span className="inline-flex items-center gap-1.5"><Terminal className="h-4 w-4" />API</span> },
+  { value: 'modules', label: <span className="inline-flex items-center gap-1.5"><Activity className="h-4 w-4" />模块</span> },
+  { value: 'security', label: <span className="inline-flex items-center gap-1.5"><Shield className="h-4 w-4" />安全</span> },
+  { value: 'database', label: <span className="inline-flex items-center gap-1.5"><Database className="h-4 w-4" />数据库</span> },
+  { value: 'logs', label: <span className="inline-flex items-center gap-1.5"><FileText className="h-4 w-4" />日志</span> },
+  { value: 'appearance', label: <span className="inline-flex items-center gap-1.5"><Sun className="h-4 w-4" />外观</span> },
+  { value: 'about', label: <span className="inline-flex items-center gap-1.5"><Settings className="h-4 w-4" />关于</span> },
+];
+
+const THEME_OPTIONS = [
+  { value: 'auto', label: '跟随系统' },
+  { value: 'light', label: '浅色' },
+  { value: 'dark', label: '深色' },
+];
+
+const PAGE_WIDTH_OPTIONS = [
+  { value: 'standard', label: '标准' },
+  { value: 'wide', label: '宽屏' },
+  { value: 'full', label: '全宽' },
+];
+
+const LOAD_BALANCING_OPTIONS = [
+  { value: 'random', label: '随机' },
+  { value: 'round_robin', label: '轮询' },
+];
+
+const SERVER_IP_DISPLAY_OPTIONS = [
+  { value: 'normal', label: '明文' },
+  { value: 'masked', label: '打码' },
+  { value: 'hidden', label: '隐藏' },
+];
+
+const NAV_LAYOUT_OPTIONS = [
+  { value: 'top', label: '顶部' },
+  { value: 'bottom-normal', label: '底部' },
+  { value: 'bottom', label: '胶囊底栏' },
+];
+
+const TOTP_INPUT_MODE_OPTIONS = [
+  { value: 'scan', label: '扫码导入' },
+  { value: 'upload', label: '上传二维码' },
+  { value: 'manual', label: '手动录入' },
+];
+
+const CHANNELS = [
+  { id: 'gemini-cli', label: 'GCLI' },
+  { id: 'qwen', label: '通义千问' },
+];
+
+const GROUP_LABELS = {
+  overview: '总览',
+  'api-gateway': 'API 网关',
+  infrastructure: '基础设施',
+  toolbox: '工具箱',
+};
+
+const getAuthHeaders = () => ({
+  'Content-Type': 'application/json',
+  'x-admin-password': localStorage.getItem('admin_password') || useStore.getState().loginPassword || '',
+});
+
+const getUploadHeaders = () => ({
+  'x-admin-password': localStorage.getItem('admin_password') || useStore.getState().loginPassword || '',
+});
+
+const formatFileSize = (bytes) => {
+  const size = Number(bytes) || 0;
+  if (size >= 1024 * 1024 * 1024) return `${(size / 1024 / 1024 / 1024).toFixed(2)} GB`;
+  if (size >= 1024 * 1024) return `${(size / 1024 / 1024).toFixed(2)} MB`;
+  if (size >= 1024) return `${(size / 1024).toFixed(2)} KB`;
+  return `${size} B`;
+};
+
+const toInt = (value, fallback = 0) => {
+  const parsed = parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const moveItem = (items, fromIndex, toIndex) => {
+  const next = [...items];
+  const [item] = next.splice(fromIndex, 1);
+  next.splice(toIndex, 0, item);
+  return next;
+};
+
+const moduleRows = DEFAULT_MODULE_ORDER.map((moduleId) => {
+  const group = MODULE_GROUPS.find((item) => item.modules.includes(moduleId));
+  return {
+    id: moduleId,
+    groupId: group?.id || 'other',
+    groupName: GROUP_LABELS[group?.id] || group?.name || '其他',
+    config: MODULE_CONFIG[moduleId] || { name: moduleId, icon: 'fa-cube' },
+  };
+});
+
+function SectionHeader({ title, description, actions }) {
+  return (
+    <div className="flex flex-col gap-3 border-b border-kumo-line p-5 sm:flex-row sm:items-start sm:justify-between">
+      <div className="min-w-0">
+        <h2 className="text-base font-bold text-kumo-strong">{title}</h2>
+        {description && <p className="mt-1 text-xs leading-relaxed text-kumo-subtle">{description}</p>}
+      </div>
+      {actions && <div className="flex shrink-0 flex-wrap gap-2">{actions}</div>}
+    </div>
+  );
+}
+
+function FieldRow({ title, description, children }) {
+  return (
+    <div className="grid gap-3 border-b border-kumo-line px-5 py-4 last:border-b-0 md:grid-cols-[minmax(0,1fr)_minmax(16rem,22rem)] md:items-center">
+      <div className="min-w-0">
+        <div className="text-sm font-semibold text-kumo-strong">{title}</div>
+        {description && <div className="mt-1 text-xs leading-relaxed text-kumo-subtle">{description}</div>}
+      </div>
+      <div className="min-w-0">{children}</div>
+    </div>
+  );
+}
+
+function StatCard({ label, value, hint, icon: Icon }) {
+  return (
+    <LayerCard className="p-5">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <div className="text-[11px] font-semibold uppercase tracking-normal text-kumo-subtle">{label}</div>
+          <div className="mt-2 truncate text-lg font-bold text-kumo-strong">{value}</div>
+          {hint && <div className="mt-1 text-xs text-kumo-subtle">{hint}</div>}
+        </div>
+        {Icon && (
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-kumo-line bg-kumo-recessed text-kumo-brand">
+            <Icon className="h-4 w-4" />
+          </div>
+        )}
+      </div>
+    </LayerCard>
+  );
+}
+
+function ToggleLine({ title, description, checked, onCheckedChange, disabled = false }) {
+  return (
+    <div className="flex items-start justify-between gap-4 border-b border-kumo-line py-4 last:border-b-0">
+      <div className="min-w-0">
+        <div className="text-sm font-semibold text-kumo-strong">{title}</div>
+        {description && <div className="mt-1 text-xs leading-relaxed text-kumo-subtle">{description}</div>}
+      </div>
+      <Switch checked={checked} onCheckedChange={onCheckedChange} disabled={disabled} />
+    </div>
+  );
+}
 
 function SettingsPage() {
-  const { themeMode, theme, setThemeMode } = useStore();
-  const [activeTab, setActiveTab] = useState('general');
-  const [passwordForm, setPasswordForm] = useState({ old: '', new: '', confirm: '' });
+  const {
+    themeMode,
+    theme,
+    setThemeMode,
+    pageWidthMode,
+    setPageWidthMode,
+    applyUserSettings,
+    loadUserSettings,
+    logout,
+    isDemoMode,
+  } = useStore();
 
-  const handlePasswordChange = async () => {
-    if (!passwordForm.old || !passwordForm.new || !passwordForm.confirm) {
-      return toast.warning('请填写所有密码字段');
+  const fileInputRef = useRef(null);
+  const [activeTab, setActiveTab] = useState('general');
+  const [settings, setSettings] = useState(() => normalizeUserSettings());
+  const [settingsLoading, setSettingsLoading] = useState(true);
+  const [settingsSaving, setSettingsSaving] = useState(false);
+
+  const [globalApiForm, setGlobalApiForm] = useState({
+    API_KEY: '',
+    PROXY: '',
+    SYSTEM_INSTRUCTION: '',
+  });
+  const [globalApiSaving, setGlobalApiSaving] = useState(false);
+
+  const [passwordForm, setPasswordForm] = useState({
+    oldPassword: '',
+    newPassword: '',
+    confirmPassword: '',
+  });
+  const [passwordSaving, setPasswordSaving] = useState(false);
+
+  const [twoFA, setTwoFA] = useState({
+    enabled: false,
+    setupMode: false,
+    disableMode: false,
+    loading: false,
+    secret: '',
+    qrCode: '',
+    token: '',
+    disablePassword: '',
+    error: '',
+  });
+
+  const [dbStats, setDbStats] = useState(null);
+  const [dbAnalysis, setDbAnalysis] = useState(null);
+  const [databaseBusy, setDatabaseBusy] = useState(false);
+  const [chatCleanup, setChatCleanup] = useState({ keepDays: 7, keepSessions: 10 });
+
+  const [logSettings, setLogSettings] = useState({
+    days: 0,
+    count: 0,
+    dbSizeMB: 0,
+    logFileSizeMB: 10,
+  });
+  const [logFileInfo, setLogFileInfo] = useState(null);
+  const [systemLogs, setSystemLogs] = useState([]);
+  const [operationLogs, setOperationLogs] = useState([]);
+  const [rawLog, setRawLog] = useState('');
+  const [logsBusy, setLogsBusy] = useState(false);
+
+  const currentOrigin = useMemo(() => {
+    if (typeof window === 'undefined') return 'http://localhost';
+    return window.location.origin;
+  }, []);
+
+  const tableRows = useMemo(() => {
+    if (dbAnalysis?.tables?.length) return dbAnalysis.tables;
+    return Object.entries(dbStats?.tables || {}).map(([table, rows]) => ({ table, rows }));
+  }, [dbAnalysis, dbStats]);
+
+  const patchSettings = useCallback((patch) => {
+    setSettings((prev) => normalizeUserSettings({ ...prev, ...patch }));
+  }, []);
+
+  const updateTotpSetting = useCallback((key, value) => {
+    setSettings((prev) => normalizeUserSettings({
+      ...prev,
+      totpSettings: {
+        ...prev.totpSettings,
+        [key]: value,
+      },
+    }));
+  }, []);
+
+  const fetchSettings = useCallback(async () => {
+    const response = await fetch('/api/settings', { headers: getAuthHeaders() });
+    const result = await response.json();
+    if (!response.ok || !result.success) throw new Error(result.error || '加载用户设置失败');
+    const normalized = normalizeUserSettings(result.data || {});
+    setSettings(normalized);
+    applyUserSettings(normalized);
+    return normalized;
+  }, [applyUserSettings]);
+
+  const fetchDbState = useCallback(async () => {
+    const [statsResponse, analysisResponse] = await Promise.all([
+      fetch('/api/settings/database-stats', { headers: getAuthHeaders() }),
+      fetch('/api/settings/database-analysis', { headers: getAuthHeaders() }),
+    ]);
+
+    const statsResult = await statsResponse.json();
+    if (statsResult.success) setDbStats(statsResult.data);
+
+    const analysisResult = await analysisResponse.json();
+    if (analysisResult.success) setDbAnalysis(analysisResult.data);
+  }, []);
+
+  const fetchLogState = useCallback(async () => {
+    const [logSettingsResponse, sysLogsResponse, operationLogsResponse] = await Promise.all([
+      fetch('/api/settings/log-settings', { headers: getAuthHeaders() }),
+      fetch('/api/settings/sys-logs', { headers: getAuthHeaders() }),
+      fetch('/api/settings/operation-logs', { headers: getAuthHeaders() }),
+    ]);
+
+    const logSettingsResult = await logSettingsResponse.json();
+    if (logSettingsResult.success) {
+      setLogSettings(logSettingsResult.data);
+      setLogFileInfo(logSettingsResult.fileInfo || null);
     }
-    if (passwordForm.new !== passwordForm.confirm) {
-      return toast.error('两次输入的新密码不一致');
+
+    const sysLogsResult = await sysLogsResponse.json();
+    if (sysLogsResult.success) {
+      setSystemLogs(sysLogsResult.data || []);
+      setLogFileInfo(sysLogsResult.fileInfo || logSettingsResult.fileInfo || null);
     }
+
+    const operationLogsResult = await operationLogsResponse.json();
+    if (operationLogsResult.success) {
+      setOperationLogs(operationLogsResult.data || []);
+    }
+  }, []);
+
+  const fetchTwoFAStatus = useCallback(async () => {
+    const response = await fetch('/api/auth/2fa/status', { headers: getAuthHeaders() });
+    const result = await response.json();
+    if (result.success) {
+      setTwoFA((prev) => ({ ...prev, enabled: !!result.enabled }));
+    }
+  }, []);
+
+  const fetchGlobalApiSettings = useCallback(async () => {
+    const [gcliResponse, qwenResponse] = await Promise.all([
+      fetch('/api/gemini-cli/settings', { headers: getAuthHeaders() }),
+      fetch('/api/qwen/settings', { headers: getAuthHeaders() }),
+    ]);
+
+    const gcli = gcliResponse.ok ? await gcliResponse.json() : {};
+    const qwen = qwenResponse.ok ? await qwenResponse.json() : {};
+
+    setGlobalApiForm({
+      API_KEY: gcli.API_KEY || qwen.API_KEY || '',
+      PROXY: gcli.PROXY || '',
+      SYSTEM_INSTRUCTION: gcli.SYSTEM_INSTRUCTION || qwen.SYSTEM_INSTRUCTION || '',
+    });
+  }, []);
+
+  const refreshAll = useCallback(async (showFeedback = false) => {
+    setSettingsLoading(true);
     try {
-      const response = await fetch('/api/auth/password', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-admin-password': localStorage.getItem('admin_password') || ''
-        },
-        body: JSON.stringify({ oldPassword: passwordForm.old, newPassword: passwordForm.new })
+      await Promise.all([
+        fetchSettings(),
+        fetchGlobalApiSettings(),
+        fetchDbState(),
+        fetchLogState(),
+        fetchTwoFAStatus(),
+      ]);
+      if (showFeedback) toast.success('设置已刷新');
+    } catch (error) {
+      toast.error(error.message || '加载设置失败');
+    } finally {
+      setSettingsLoading(false);
+    }
+  }, [fetchDbState, fetchGlobalApiSettings, fetchLogState, fetchSettings, fetchTwoFAStatus]);
+
+  useEffect(() => {
+    refreshAll(false);
+  }, [refreshAll]);
+
+  const persistSettings = async (nextSettings = settings, successMessage = '设置已保存') => {
+    const normalized = normalizeUserSettings(nextSettings);
+    setSettingsSaving(true);
+    try {
+      const response = await fetch('/api/settings', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(normalized),
       });
       const result = await response.json();
-      if (result.success) {
-        toast.success('密码修改成功，请重新登录');
-        setTimeout(() => {
-          useStore.getState().logout();
-        }, 1500);
-      } else {
-        toast.error(result.error || '修改密码失败');
-      }
-    } catch (e) {
-      toast.error('请求失败: ' + e.message);
+      if (!response.ok || !result.success) throw new Error(result.error || '保存设置失败');
+
+      setSettings(normalized);
+      applyUserSettings(normalized);
+      applyCustomCss(normalized.customCss);
+      toast.success(successMessage);
+      return true;
+    } catch (error) {
+      toast.error(error.message || '保存设置失败');
+      return false;
+    } finally {
+      setSettingsSaving(false);
     }
   };
 
+  const saveGlobalApiSettings = async () => {
+    setGlobalApiSaving(true);
+    try {
+      const payload = {
+        API_KEY: globalApiForm.API_KEY || '',
+        PROXY: globalApiForm.PROXY || '',
+        SYSTEM_INSTRUCTION: globalApiForm.SYSTEM_INSTRUCTION || '',
+      };
+
+      const [gcliResponse, qwenResponse] = await Promise.all([
+        fetch('/api/gemini-cli/settings', {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: JSON.stringify(payload),
+        }),
+        fetch('/api/qwen/settings', {
+          method: 'POST',
+          headers: getAuthHeaders(),
+          body: JSON.stringify({
+            API_KEY: payload.API_KEY,
+            SYSTEM_INSTRUCTION: payload.SYSTEM_INSTRUCTION,
+          }),
+        }),
+      ]);
+
+      if (!gcliResponse.ok || !qwenResponse.ok) throw new Error('同步 GCLI/Qwen 配置失败');
+      await persistSettings(settings, '全局 API 配置已保存');
+    } catch (error) {
+      toast.error(error.message || '保存全局 API 配置失败');
+    } finally {
+      setGlobalApiSaving(false);
+    }
+  };
+
+  const changePassword = async () => {
+    if (passwordForm.newPassword.length < 6) {
+      toast.warning('新密码至少需要 6 位');
+      return;
+    }
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      toast.error('两次输入的新密码不一致');
+      return;
+    }
+
+    setPasswordSaving(true);
+    try {
+      const response = await fetch('/api/auth/change-password', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          oldPassword: passwordForm.oldPassword,
+          newPassword: passwordForm.newPassword,
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.error || result.msg || '修改密码失败');
+
+      toast.success('密码已修改，请重新登录');
+      setPasswordForm({ oldPassword: '', newPassword: '', confirmPassword: '' });
+      setTimeout(() => logout(), 1200);
+    } catch (error) {
+      toast.error(error.message || '修改密码失败');
+    } finally {
+      setPasswordSaving(false);
+    }
+  };
+
+  const start2FASetup = async () => {
+    setTwoFA((prev) => ({ ...prev, loading: true, error: '' }));
+    try {
+      const response = await fetch('/api/auth/2fa/setup', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.error || '获取 2FA 二维码失败');
+
+      setTwoFA((prev) => ({
+        ...prev,
+        setupMode: true,
+        secret: result.secret,
+        qrCode: result.qrCode,
+        token: '',
+        error: '',
+      }));
+    } catch (error) {
+      setTwoFA((prev) => ({ ...prev, error: error.message || '获取 2FA 二维码失败' }));
+      toast.error(error.message || '获取 2FA 二维码失败');
+    } finally {
+      setTwoFA((prev) => ({ ...prev, loading: false }));
+    }
+  };
+
+  const confirm2FASetup = async () => {
+    if (!/^\d{6}$/.test(twoFA.token)) {
+      setTwoFA((prev) => ({ ...prev, error: '请输入 6 位验证码' }));
+      return;
+    }
+
+    setTwoFA((prev) => ({ ...prev, loading: true, error: '' }));
+    try {
+      const response = await fetch('/api/auth/2fa/enable', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ secret: twoFA.secret, token: twoFA.token }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.error || '启用 2FA 失败');
+
+      setTwoFA((prev) => ({
+        ...prev,
+        enabled: true,
+        setupMode: false,
+        secret: '',
+        qrCode: '',
+        token: '',
+        error: '',
+      }));
+      toast.success('2FA 已启用');
+    } catch (error) {
+      setTwoFA((prev) => ({ ...prev, error: error.message || '启用 2FA 失败' }));
+    } finally {
+      setTwoFA((prev) => ({ ...prev, loading: false }));
+    }
+  };
+
+  const disable2FA = async () => {
+    if (!twoFA.disablePassword) {
+      setTwoFA((prev) => ({ ...prev, error: '请输入当前密码' }));
+      return;
+    }
+
+    setTwoFA((prev) => ({ ...prev, loading: true, error: '' }));
+    try {
+      const response = await fetch('/api/auth/2fa/disable', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ password: twoFA.disablePassword }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.error || '禁用 2FA 失败');
+
+      setTwoFA((prev) => ({
+        ...prev,
+        enabled: false,
+        disableMode: false,
+        disablePassword: '',
+        error: '',
+      }));
+      toast.success('2FA 已禁用');
+    } catch (error) {
+      setTwoFA((prev) => ({ ...prev, error: error.message || '禁用 2FA 失败' }));
+    } finally {
+      setTwoFA((prev) => ({ ...prev, loading: false }));
+    }
+  };
+
+  const saveLogSettings = async () => {
+    setLogsBusy(true);
+    try {
+      const response = await fetch('/api/settings/log-settings', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(logSettings),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.error || '保存日志设置失败');
+      setLogFileInfo(result.fileInfo || logFileInfo);
+      toast.success('日志保留设置已保存');
+    } catch (error) {
+      toast.error(error.message || '保存日志设置失败');
+    } finally {
+      setLogsBusy(false);
+    }
+  };
+
+  const postSettingsAction = async (path, successMessage, refresh = null, body = undefined) => {
+    setLogsBusy(true);
+    setDatabaseBusy(true);
+    try {
+      const response = await fetch(path, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.error || '操作失败');
+      toast.success(successMessage || result.message || '操作完成');
+      if (refresh) await refresh();
+    } catch (error) {
+      toast.error(error.message || '操作失败');
+    } finally {
+      setLogsBusy(false);
+      setDatabaseBusy(false);
+    }
+  };
+
+  const exportDatabase = () => {
+    window.location.href = '/api/settings/export-database';
+  };
+
+  const importDatabase = () => {
+    if (!fileInputRef.current) {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.db';
+      input.onchange = async (event) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+
+        const formData = new FormData();
+        formData.append('database', file);
+        setDatabaseBusy(true);
+        try {
+          const response = await fetch('/api/settings/import-database', {
+            method: 'POST',
+            headers: getUploadHeaders(),
+            body: formData,
+          });
+          const result = await response.json();
+          if (!response.ok || !result.success) throw new Error(result.error || '导入数据库失败');
+          toast.success('数据库已导入，页面将刷新');
+          setTimeout(() => window.location.reload(), 800);
+        } catch (error) {
+          toast.error(error.message || '导入数据库失败');
+        } finally {
+          setDatabaseBusy(false);
+          input.value = '';
+        }
+      };
+      fileInputRef.current = input;
+    }
+    fileInputRef.current.click();
+  };
+
+  const loadRawLogFile = async () => {
+    setLogsBusy(true);
+    try {
+      const response = await fetch('/api/settings/app-log-file', { headers: getAuthHeaders() });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.error || '读取日志文件失败');
+      setRawLog(result.data || '');
+      toast.success('日志文件已读取');
+    } catch (error) {
+      toast.error(error.message || '读取日志文件失败');
+    } finally {
+      setLogsBusy(false);
+    }
+  };
+
+  const setAllModulesVisibility = (visible) => {
+    const moduleVisibility = DEFAULT_MODULE_ORDER.reduce((acc, moduleId) => {
+      acc[moduleId] = moduleId === 'dashboard' ? true : visible;
+      return acc;
+    }, {});
+    patchSettings({ moduleVisibility });
+  };
+
+  const toggleModule = (moduleId, checked) => {
+    patchSettings({
+      moduleVisibility: {
+        ...settings.moduleVisibility,
+        [moduleId]: moduleId === 'dashboard' ? true : checked,
+      },
+    });
+  };
+
+  const reorderModule = (moduleId, direction) => {
+    const index = settings.moduleOrder.indexOf(moduleId);
+    const nextIndex = index + direction;
+    if (index < 0 || nextIndex < 0 || nextIndex >= settings.moduleOrder.length) return;
+    patchSettings({ moduleOrder: moveItem(settings.moduleOrder, index, nextIndex) });
+  };
+
   return (
-    <div className="flex flex-col gap-6 w-full pb-20">
-      <div className="flex items-center gap-3 border-b border-kumo-line pb-4">
-        <div className="w-10 h-10 rounded-full bg-kumo-recessed border border-kumo-line flex items-center justify-center text-kumo-brand">
-          <Settings className="w-5 h-5" />
+    <div className="flex w-full flex-col gap-6">
+      <div className="flex flex-col gap-4 border-b border-kumo-line pb-4 lg:flex-row lg:items-end lg:justify-between">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-kumo-line bg-kumo-recessed text-kumo-brand">
+            <Settings className="h-5 w-5" />
+          </div>
+          <div className="min-w-0">
+            <h1 className="text-lg font-bold text-kumo-strong">系统设置</h1>
+            <p className="text-xs text-kumo-subtle">全局配置、安全认证、数据维护与前端显示偏好</p>
+          </div>
         </div>
-        <div>
-          <h1 className="text-lg font-bold text-kumo-strong">系统设置</h1>
-          <p className="text-xs text-kumo-subtle">管理 API Monitor 的全局配置和安全选项</p>
+
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          <Button
+            onClick={() => refreshAll(true)}
+            loading={settingsLoading}
+            icon={<RefreshCw className="h-4 w-4" />}
+          >
+            刷新
+          </Button>
+          <Button
+            variant="primary"
+            onClick={() => persistSettings()}
+            loading={settingsSaving}
+            icon={<Save className="h-4 w-4" />}
+          >
+            保存用户设置
+          </Button>
         </div>
       </div>
 
-      <div className="flex flex-col md:flex-row gap-6">
-        {/* Sidebar Tabs */}
-        <div className="w-full md:w-64 shrink-0">
-          <Tabs
-            variant="segmented"
-            size="sm"
-            value={activeTab}
-            onValueChange={setActiveTab}
-            className="w-full"
-            listClassName="w-full"
-            tabs={[
-              { value: 'general', label: <span className="inline-flex items-center gap-2"><LayoutDashboard className="w-4 h-4" />常规设置</span> },
-              { value: 'security', label: <span className="inline-flex items-center gap-2"><Shield className="w-4 h-4" />安全与认证</span> },
-              { value: 'appearance', label: <span className="inline-flex items-center gap-2"><Sun className="w-4 h-4" />外观主题</span> },
-              { value: 'network', label: <span className="inline-flex items-center gap-2"><Globe className="w-4 h-4" />网络与代理</span> },
-            ]}
+      <Tabs
+        {...MODULE_TABS_PROPS}
+        value={activeTab}
+        onValueChange={setActiveTab}
+        tabs={SETTINGS_TABS}
+      />
+
+      {activeTab === 'general' && (
+        <div className="grid gap-4 lg:grid-cols-4">
+          <StatCard label="运行状态" value="正常" hint={settingsLoading ? '同步中' : '已连接后端'} icon={Check} />
+          <StatCard label="公网入口" value={settings.publicApiUrl || currentOrigin} hint="/api 自动拼接" icon={Globe} />
+          <StatCard label="数据库大小" value={formatFileSize(dbStats?.dbSize)} hint={dbStats?.dbPath || '等待统计'} icon={Database} />
+          <StatCard label="日志文件" value={logFileInfo?.sizeFormatted || `${logSettings.logFileSizeMB || 10} MB 上限`} hint="app.log" icon={FileText} />
+
+          <LayerCard className="lg:col-span-2">
+            <SectionHeader title="公网访问与 Agent" description="这些值会被后端用于生成 Agent 安装命令、下载地址和对外 API 连接配置。" />
+            <FieldRow title="公网 API 地址" description="主控端可从公网访问时填写，留空则使用当前访问来源。">
+              <Input
+                label="公网 API 地址"
+                value={settings.publicApiUrl}
+                onChange={(e) => patchSettings({ publicApiUrl: e.target.value })}
+                placeholder="https://monitor.example.com"
+              />
+            </FieldRow>
+            <FieldRow title="Agent 下载目录" description="留空使用主控端内置 /agent 目录；自定义时填写目录 URL，不填写文件名。">
+              <Input
+                label="Agent 下载目录"
+                value={settings.agentDownloadUrl}
+                onChange={(e) => patchSettings({ agentDownloadUrl: e.target.value })}
+                placeholder="https://cdn.example.com/agent"
+              />
+            </FieldRow>
+          </LayerCard>
+
+          <LayerCard className="lg:col-span-2">
+            <SectionHeader title="运行偏好" description="这些设置会同步给对应业务页面和后端用户设置表。" />
+            <FieldRow title="主机地址显示" description="控制主机实例页和安装命令中的地址脱敏策略。">
+              <Select
+                label="主机地址显示"
+                value={settings.serverIpDisplayMode}
+                onValueChange={(value) => patchSettings({ serverIpDisplayMode: String(value) })}
+                items={SERVER_IP_DISPLAY_OPTIONS}
+              />
+            </FieldRow>
+            <FieldRow title="PaaS 自动刷新" description="Koyeb 和 Fly.io 状态拉取间隔，单位秒。">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <Input
+                  label="Koyeb 秒数"
+                  type="number"
+                  min="5"
+                  value={Math.round(settings.koyebRefreshInterval / 1000)}
+                  onChange={(e) => patchSettings({ koyebRefreshInterval: Math.max(5, toInt(e.target.value, 30)) * 1000 })}
+                />
+                <Input
+                  label="Fly.io 秒数"
+                  type="number"
+                  min="5"
+                  value={Math.round(settings.flyRefreshInterval / 1000)}
+                  onChange={(e) => patchSettings({ flyRefreshInterval: Math.max(5, toInt(e.target.value, 30)) * 1000 })}
+                />
+              </div>
+            </FieldRow>
+          </LayerCard>
+        </div>
+      )}
+
+      {activeTab === 'api' && (
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_24rem]">
+          <LayerCard>
+            <SectionHeader
+              title="全局 API 与网络"
+              description="保存时会同步到 GCLI 与通义千问模块，并保留用户设置里的负载均衡和渠道开关。"
+              actions={
+                <Button
+                  variant="primary"
+                  onClick={saveGlobalApiSettings}
+                  loading={globalApiSaving || settingsSaving}
+                  icon={<Save className="h-4 w-4" />}
+                >
+                  保存 API 配置
+                </Button>
+              }
+            />
+            <div className="grid gap-4 p-5">
+              <Input
+                label="API_KEY"
+                type="password"
+                value={globalApiForm.API_KEY}
+                onChange={(e) => setGlobalApiForm((prev) => ({ ...prev, API_KEY: e.target.value }))}
+                placeholder="留空则不启用全局访问密钥"
+                className="font-mono"
+              />
+              <Input
+                label="PROXY"
+                value={globalApiForm.PROXY}
+                onChange={(e) => setGlobalApiForm((prev) => ({ ...prev, PROXY: e.target.value }))}
+                placeholder="http://127.0.0.1:7890"
+                className="font-mono"
+              />
+              <Textarea
+                label="SYSTEM_INSTRUCTION"
+                value={globalApiForm.SYSTEM_INSTRUCTION}
+                onChange={(e) => setGlobalApiForm((prev) => ({ ...prev, SYSTEM_INSTRUCTION: e.target.value }))}
+                className="min-h-28 font-mono text-sm"
+              />
+              <Select
+                label="负载均衡策略"
+                value={settings.load_balancing_strategy}
+                onValueChange={(value) => patchSettings({ load_balancing_strategy: String(value) })}
+                items={LOAD_BALANCING_OPTIONS}
+              />
+            </div>
+          </LayerCard>
+
+          <LayerCard className="p-5">
+            <h2 className="text-base font-bold text-kumo-strong">渠道开关</h2>
+            <div className="mt-2 text-xs leading-relaxed text-kumo-subtle">这里只控制 v1 兼容入口的渠道分发，不删除各模块页面本身。</div>
+            <div className="mt-4">
+              {CHANNELS.map((channel) => (
+                <ToggleLine
+                  key={channel.id}
+                  title={channel.label}
+                  description={`模型前缀: ${settings.channelModelPrefix[channel.id] || '无'}`}
+                  checked={settings.channelEnabled[channel.id] !== false}
+                  onCheckedChange={(checked) => patchSettings({
+                    channelEnabled: {
+                      ...settings.channelEnabled,
+                      [channel.id]: checked,
+                    },
+                  })}
+                />
+              ))}
+            </div>
+            <div className="mt-5 grid gap-4">
+              {CHANNELS.map((channel) => (
+                <Input
+                  key={channel.id}
+                  label={`${channel.label} 模型前缀`}
+                  value={settings.channelModelPrefix[channel.id] || ''}
+                  onChange={(e) => patchSettings({
+                    channelModelPrefix: {
+                      ...settings.channelModelPrefix,
+                      [channel.id]: e.target.value,
+                    },
+                  })}
+                  placeholder={channel.id === 'gemini-cli' ? 'gcli/' : 'qw/'}
+                />
+              ))}
+            </div>
+          </LayerCard>
+        </div>
+      )}
+
+      {activeTab === 'modules' && (
+        <LayerCard className="overflow-x-auto p-0">
+          <SectionHeader
+            title="功能模块"
+            description="模块顺序和显隐会立即影响左侧导航；系统设置入口固定显示。"
+            actions={
+              <>
+                <Button onClick={() => setAllModulesVisibility(true)} icon={<Eye className="h-4 w-4" />}>显示全部</Button>
+                <Button onClick={() => setAllModulesVisibility(false)} icon={<EyeOff className="h-4 w-4" />}>隐藏可选模块</Button>
+              </>
+            }
           />
-        </div>
+          <Table layout="fixed">
+            <colgroup>
+              <col className="w-[82px]" />
+              <col />
+              <col className="w-[150px]" />
+              <col className="w-[120px]" />
+              <col className="w-[150px]" />
+            </colgroup>
+            <Table.Header>
+              <Table.Row>
+                <Table.Head>顺序</Table.Head>
+                <Table.Head>模块</Table.Head>
+                <Table.Head>分组</Table.Head>
+                <Table.Head>可见</Table.Head>
+                <Table.Head>排序</Table.Head>
+              </Table.Row>
+            </Table.Header>
+            <Table.Body>
+              {settings.moduleOrder.map((moduleId, index) => {
+                const row = moduleRows.find((item) => item.id === moduleId);
+                if (!row) return null;
 
-        {/* Content Area */}
-        <div className="flex-1 bg-kumo-base border border-kumo-line rounded-lg shadow-sm p-6">
-          {activeTab === 'general' && (
-            <div className="space-y-6">
-              <h2 className="text-base font-bold text-kumo-strong border-b border-kumo-line pb-2">常规设置</h2>
-              
-              <div className="p-10 text-center border border-dashed border-kumo-line rounded-lg text-kumo-subtle text-xs">
-                全局常规配置功能开发中...
+                return (
+                  <Table.Row key={moduleId}>
+                    <Table.Cell className="font-mono text-xs text-kumo-subtle">{index + 1}</Table.Cell>
+                    <Table.Cell>
+                      <div className="flex min-w-0 items-center gap-3">
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-kumo-line bg-kumo-recessed text-kumo-brand">
+                          <i className={`fas ${row.config.icon || 'fa-cube'} text-xs`} />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-semibold text-kumo-strong">{row.config.name}</div>
+                          <div className="truncate text-xs text-kumo-subtle">{row.config.description}</div>
+                        </div>
+                      </div>
+                    </Table.Cell>
+                    <Table.Cell><Badge variant="outline">{row.groupName}</Badge></Table.Cell>
+                    <Table.Cell>
+                      <Switch
+                        checked={settings.moduleVisibility[moduleId] !== false}
+                        onCheckedChange={(checked) => toggleModule(moduleId, checked)}
+                        disabled={moduleId === 'dashboard'}
+                        aria-label={`切换 ${row.config.name}`}
+                      />
+                    </Table.Cell>
+                    <Table.Cell>
+                      <div className="flex gap-2">
+                        <Button size="sm" onClick={() => reorderModule(moduleId, -1)} disabled={index === 0}>上移</Button>
+                        <Button size="sm" onClick={() => reorderModule(moduleId, 1)} disabled={index === settings.moduleOrder.length - 1}>下移</Button>
+                      </div>
+                    </Table.Cell>
+                  </Table.Row>
+                );
+              })}
+            </Table.Body>
+          </Table>
+        </LayerCard>
+      )}
+
+      {activeTab === 'security' && (
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_24rem]">
+          <LayerCard>
+            <SectionHeader title="管理员密码" description="后端接口为 /api/auth/change-password，修改成功后会退出当前会话。" />
+            <div className="grid max-w-xl gap-4 p-5">
+              <Input
+                label="当前密码"
+                type="password"
+                value={passwordForm.oldPassword}
+                onChange={(e) => setPasswordForm((prev) => ({ ...prev, oldPassword: e.target.value }))}
+                disabled={isDemoMode}
+                autoComplete="current-password"
+              />
+              <Input
+                label="新密码"
+                type="password"
+                value={passwordForm.newPassword}
+                onChange={(e) => setPasswordForm((prev) => ({ ...prev, newPassword: e.target.value }))}
+                disabled={isDemoMode}
+                autoComplete="new-password"
+              />
+              <Input
+                label="确认新密码"
+                type="password"
+                value={passwordForm.confirmPassword}
+                onChange={(e) => setPasswordForm((prev) => ({ ...prev, confirmPassword: e.target.value }))}
+                disabled={isDemoMode}
+                autoComplete="new-password"
+              />
+              <div>
+                <Button variant="primary" onClick={changePassword} loading={passwordSaving} disabled={isDemoMode}>
+                  更新密码
+                </Button>
               </div>
             </div>
-          )}
+          </LayerCard>
 
-          {activeTab === 'appearance' && (
-            <div className="space-y-6">
-              <h2 className="text-base font-bold text-kumo-strong border-b border-kumo-line pb-2">外观主题</h2>
-
-              <div className="flex flex-col gap-4">
-                <div className="flex flex-col gap-1">
-                  <h3 className="text-sm font-semibold text-kumo-strong">颜色模式</h3>
-                  <p className="text-xs text-kumo-subtle">
-                    当前生效为{theme === 'dark' ? '深色' : '浅色'}主题，可手动锁定或跟随系统。
-                  </p>
-                </div>
-
-                <div className="max-w-xs">
-                  <Select
-                    label="主题模式"
-                    size="sm"
-                    value={themeMode}
-                    onValueChange={setThemeMode}
-                    items={[
-                      { value: 'auto', label: '跟随系统' },
-                      { value: 'light', label: '浅色主题' },
-                      { value: 'dark', label: '深色主题' },
-                    ]}
-                  />
-                </div>
+          <LayerCard className="p-5">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <h2 className="text-base font-bold text-kumo-strong">双因子认证</h2>
+                <p className="mt-1 text-xs text-kumo-subtle">当前登录保护状态</p>
               </div>
+              <Badge variant={twoFA.enabled ? 'success' : 'warning'}>
+                {twoFA.enabled ? '已启用' : '未启用'}
+              </Badge>
             </div>
-          )}
 
-          {activeTab === 'security' && (
-            <div className="space-y-6">
-              <h2 className="text-base font-bold text-kumo-strong border-b border-kumo-line pb-2">安全与认证</h2>
-              
-              <div className="space-y-4">
-                <h3 className="text-sm font-semibold text-kumo-strong flex items-center gap-2">
-                  <Lock className="w-4 h-4" />
-                  修改管理员密码
-                </h3>
-                
-                <div className="grid gap-3 max-w-md">
-                  <Input
-                    label="当前密码"
-                    type="password"
-                    size="sm"
-                    value={passwordForm.old}
-                    onChange={(e) => setPasswordForm({ ...passwordForm, old: e.target.value })}
-                    className="w-full"
-                  />
-                  <Input
-                    label="新密码"
-                    type="password"
-                    size="sm"
-                    value={passwordForm.new}
-                    onChange={(e) => setPasswordForm({ ...passwordForm, new: e.target.value })}
-                    className="w-full"
-                  />
-                  <Input
-                    label="确认新密码"
-                    type="password"
-                    size="sm"
-                    value={passwordForm.confirm}
-                    onChange={(e) => setPasswordForm({ ...passwordForm, confirm: e.target.value })}
-                    className="w-full"
-                  />
-                  <div className="pt-2">
-                    <Button variant="primary" size="sm" onClick={handlePasswordChange}>
-                      更新密码
-                    </Button>
+            {twoFA.error && (
+              <div className="mt-4 rounded-md border border-kumo-danger/20 bg-kumo-danger/10 px-3 py-2 text-xs text-kumo-danger">
+                {twoFA.error}
+              </div>
+            )}
+
+            {!twoFA.enabled && !twoFA.setupMode && (
+              <Button className="mt-5 w-full" variant="primary" onClick={start2FASetup} loading={twoFA.loading} disabled={isDemoMode}>
+                启用 2FA
+              </Button>
+            )}
+
+            {twoFA.setupMode && (
+              <div className="mt-5 grid gap-4">
+                {twoFA.qrCode && (
+                  <div className="flex justify-center rounded-lg border border-kumo-line bg-white p-4">
+                    <img src={twoFA.qrCode} alt="2FA QR Code" className="h-44 w-44" />
                   </div>
+                )}
+                <Input label="手动密钥" value={twoFA.secret} readOnly className="font-mono" />
+                <Input
+                  label="6 位验证码"
+                  value={twoFA.token}
+                  onChange={(e) => setTwoFA((prev) => ({ ...prev, token: e.target.value.replace(/\D/g, '').slice(0, 6) }))}
+                  placeholder="000000"
+                  className="font-mono"
+                />
+                <div className="flex gap-2">
+                  <Button onClick={() => setTwoFA((prev) => ({ ...prev, setupMode: false, token: '', error: '' }))}>取消</Button>
+                  <Button variant="primary" onClick={confirm2FASetup} loading={twoFA.loading}>确认启用</Button>
                 </div>
               </div>
-            </div>
-          )}
+            )}
 
-          {activeTab === 'network' && (
-            <div className="space-y-6">
-              <h2 className="text-base font-bold text-kumo-strong border-b border-kumo-line pb-2">网络与代理</h2>
-              <div className="p-10 text-center border border-dashed border-kumo-line rounded-lg text-kumo-subtle text-xs">
-                全局代理配置功能开发中...
+            {twoFA.enabled && !twoFA.disableMode && (
+              <Button className="mt-5 w-full" variant="secondary-destructive" onClick={() => setTwoFA((prev) => ({ ...prev, disableMode: true, error: '' }))} disabled={isDemoMode}>
+                禁用 2FA
+              </Button>
+            )}
+
+            {twoFA.disableMode && (
+              <div className="mt-5 grid gap-4">
+                <Input
+                  label="当前密码"
+                  type="password"
+                  value={twoFA.disablePassword}
+                  onChange={(e) => setTwoFA((prev) => ({ ...prev, disablePassword: e.target.value }))}
+                  autoComplete="current-password"
+                />
+                <div className="flex gap-2">
+                  <Button onClick={() => setTwoFA((prev) => ({ ...prev, disableMode: false, disablePassword: '', error: '' }))}>取消</Button>
+                  <Button variant="destructive" onClick={disable2FA} loading={twoFA.loading}>确认禁用</Button>
+                </div>
+              </div>
+            )}
+          </LayerCard>
+        </div>
+      )}
+
+      {activeTab === 'database' && (
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_24rem]">
+          <LayerCard className="overflow-x-auto p-0">
+            <SectionHeader
+              title="数据库统计"
+              description={dbStats?.dbPath || 'SQLite 数据文件'}
+              actions={
+                <Button onClick={fetchDbState} loading={databaseBusy} icon={<RefreshCw className="h-4 w-4" />}>刷新统计</Button>
+              }
+            />
+            <Table layout="fixed">
+              <colgroup>
+                <col />
+                <col className="w-[120px]" />
+                <col className="w-[140px]" />
+                <col className="w-[140px]" />
+              </colgroup>
+              <Table.Header>
+                <Table.Row>
+                  <Table.Head>表名</Table.Head>
+                  <Table.Head>记录数</Table.Head>
+                  <Table.Head>估算大小</Table.Head>
+                  <Table.Head>平均行大小</Table.Head>
+                </Table.Row>
+              </Table.Header>
+              <Table.Body>
+                {tableRows.length === 0 ? (
+                  <Table.Row>
+                    <Table.Cell colSpan={4} className="p-8 text-center text-kumo-subtle">暂无统计数据</Table.Cell>
+                  </Table.Row>
+                ) : tableRows.map((row) => (
+                  <Table.Row key={row.table}>
+                    <Table.Cell className="font-mono text-xs text-kumo-strong">{row.table}</Table.Cell>
+                    <Table.Cell className="font-mono text-xs">{row.rows ?? '-'}</Table.Cell>
+                    <Table.Cell className="font-mono text-xs">{row.estimatedSizeMB ? `${row.estimatedSizeMB} MB` : '-'}</Table.Cell>
+                    <Table.Cell className="font-mono text-xs">{row.avgRowSizeBytes ? formatFileSize(row.avgRowSizeBytes) : '-'}</Table.Cell>
+                  </Table.Row>
+                ))}
+              </Table.Body>
+            </Table>
+          </LayerCard>
+
+          <div className="grid gap-4">
+            <LayerCard className="p-5">
+              <h2 className="text-base font-bold text-kumo-strong">备份与恢复</h2>
+              <div className="mt-4 grid gap-2">
+                <Button onClick={exportDatabase} icon={<Download className="h-4 w-4" />}>导出数据库</Button>
+                <Button onClick={importDatabase} loading={databaseBusy} icon={<Upload className="h-4 w-4" />}>导入数据库</Button>
+              </div>
+            </LayerCard>
+
+            <LayerCard className="p-5">
+              <h2 className="text-base font-bold text-kumo-strong">维护操作</h2>
+              <div className="mt-4 grid gap-2">
+                <Button onClick={() => postSettingsAction('/api/settings/vacuum-database', '数据库已压缩', fetchDbState)} loading={databaseBusy}>
+                  压缩数据库
+                </Button>
+                <Button
+                  variant="secondary-destructive"
+                  onClick={() => postSettingsAction('/api/settings/clear-logs', '数据库日志已清理', fetchDbState)}
+                  loading={databaseBusy}
+                  icon={<Trash className="h-4 w-4" />}
+                >
+                  清理数据库日志
+                </Button>
+              </div>
+            </LayerCard>
+
+            <LayerCard className="p-5">
+              <h2 className="text-base font-bold text-kumo-strong">聊天消息清理</h2>
+              <div className="mt-4 grid gap-3">
+                <Input
+                  label="保留天数"
+                  type="number"
+                  min="0"
+                  value={chatCleanup.keepDays}
+                  onChange={(e) => setChatCleanup((prev) => ({ ...prev, keepDays: Math.max(0, toInt(e.target.value, 7)) }))}
+                />
+                <Input
+                  label="保留会话数"
+                  type="number"
+                  min="1"
+                  value={chatCleanup.keepSessions}
+                  onChange={(e) => setChatCleanup((prev) => ({ ...prev, keepSessions: Math.max(1, toInt(e.target.value, 10)) }))}
+                />
+                <Button
+                  variant="secondary-destructive"
+                  onClick={() => postSettingsAction('/api/settings/clear-chat-messages', '聊天消息已清理', fetchDbState, chatCleanup)}
+                  loading={databaseBusy}
+                >
+                  执行清理
+                </Button>
+              </div>
+            </LayerCard>
+          </div>
+        </div>
+      )}
+
+      {activeTab === 'logs' && (
+        <div className="grid gap-4">
+          <LayerCard>
+            <SectionHeader
+              title="日志保留"
+              description="0 表示不限制；文件大小限制会同步到运行时 logger。"
+              actions={
+                <>
+                  <Button onClick={saveLogSettings} loading={logsBusy} icon={<Save className="h-4 w-4" />}>保存日志设置</Button>
+                  <Button onClick={() => postSettingsAction('/api/settings/enforce-log-limits', '日志限制已执行', fetchLogState)} loading={logsBusy}>立即执行限制</Button>
+                </>
+              }
+            />
+            <div className="grid gap-4 p-5 md:grid-cols-4">
+              <Input label="保留天数" type="number" min="0" value={logSettings.days} onChange={(e) => setLogSettings((prev) => ({ ...prev, days: Math.max(0, toInt(e.target.value, 0)) }))} />
+              <Input label="单表最大条数" type="number" min="0" value={logSettings.count} onChange={(e) => setLogSettings((prev) => ({ ...prev, count: Math.max(0, toInt(e.target.value, 0)) }))} />
+              <Input label="数据库最大 MB" type="number" min="0" value={logSettings.dbSizeMB} onChange={(e) => setLogSettings((prev) => ({ ...prev, dbSizeMB: Math.max(0, toInt(e.target.value, 0)) }))} />
+              <Input label="app.log 最大 MB" type="number" min="1" value={logSettings.logFileSizeMB} onChange={(e) => setLogSettings((prev) => ({ ...prev, logFileSizeMB: Math.max(1, toInt(e.target.value, 10)) }))} />
+            </div>
+          </LayerCard>
+
+          <div className="grid gap-4 xl:grid-cols-2">
+            <LayerCard className="overflow-x-auto p-0">
+              <SectionHeader
+                title="系统日志"
+                description={logFileInfo?.path || '最近运行日志'}
+                actions={
+                  <>
+                    <Button onClick={fetchLogState} loading={logsBusy} icon={<RefreshCw className="h-4 w-4" />}>刷新日志</Button>
+                    <Button variant="secondary-destructive" onClick={() => postSettingsAction('/api/settings/clear-app-logs', 'app.log 已清空', fetchLogState)} loading={logsBusy}>清空文件</Button>
+                  </>
+                }
+              />
+              <Table layout="fixed">
+                <colgroup>
+                  <col className="w-[90px]" />
+                  <col className="w-[90px]" />
+                  <col className="w-[120px]" />
+                  <col />
+                </colgroup>
+                <Table.Header>
+                  <Table.Row>
+                    <Table.Head>时间</Table.Head>
+                    <Table.Head>级别</Table.Head>
+                    <Table.Head>模块</Table.Head>
+                    <Table.Head>消息</Table.Head>
+                  </Table.Row>
+                </Table.Header>
+                <Table.Body>
+                  {systemLogs.slice(0, 80).map((log, index) => (
+                    <Table.Row key={`${log.time}-${index}`}>
+                      <Table.Cell className="font-mono text-xs">{log.time}</Table.Cell>
+                      <Table.Cell><Badge variant={log.level === 'ERROR' ? 'error' : log.level === 'WARN' ? 'warning' : 'outline'}>{log.level}</Badge></Table.Cell>
+                      <Table.Cell className="font-mono text-xs text-kumo-subtle">{log.module}</Table.Cell>
+                      <Table.Cell className="truncate text-xs">{log.message}</Table.Cell>
+                    </Table.Row>
+                  ))}
+                  {systemLogs.length === 0 && (
+                    <Table.Row>
+                      <Table.Cell colSpan={4} className="p-8 text-center text-kumo-subtle">暂无系统日志</Table.Cell>
+                    </Table.Row>
+                  )}
+                </Table.Body>
+              </Table>
+            </LayerCard>
+
+            <LayerCard className="overflow-x-auto p-0">
+              <SectionHeader title="审计日志" description="最近 100 条操作记录" />
+              <Table layout="fixed">
+                <colgroup>
+                  <col className="w-[170px]" />
+                  <col className="w-[150px]" />
+                  <col className="w-[130px]" />
+                  <col />
+                </colgroup>
+                <Table.Header>
+                  <Table.Row>
+                    <Table.Head>时间</Table.Head>
+                    <Table.Head>操作</Table.Head>
+                    <Table.Head>对象</Table.Head>
+                    <Table.Head>Trace</Table.Head>
+                  </Table.Row>
+                </Table.Header>
+                <Table.Body>
+                  {operationLogs.slice(0, 100).map((log) => (
+                    <Table.Row key={log.id}>
+                      <Table.Cell className="font-mono text-xs">{log.created_at}</Table.Cell>
+                      <Table.Cell><Badge variant="outline">{log.operation_type}</Badge></Table.Cell>
+                      <Table.Cell className="font-mono text-xs">{log.table_name}</Table.Cell>
+                      <Table.Cell className="truncate font-mono text-xs text-kumo-subtle">{log.trace_id || '-'}</Table.Cell>
+                    </Table.Row>
+                  ))}
+                  {operationLogs.length === 0 && (
+                    <Table.Row>
+                      <Table.Cell colSpan={4} className="p-8 text-center text-kumo-subtle">暂无审计日志</Table.Cell>
+                    </Table.Row>
+                  )}
+                </Table.Body>
+              </Table>
+            </LayerCard>
+          </div>
+
+          <LayerCard>
+            <SectionHeader
+              title="app.log 文件"
+              description="读取后显示文件末尾 500 行。"
+              actions={<Button onClick={loadRawLogFile} loading={logsBusy}>读取文件</Button>}
+            />
+            <div className="p-5">
+              <Textarea label="app.log 内容" value={rawLog} readOnly className="min-h-64 font-mono text-xs" />
+            </div>
+          </LayerCard>
+        </div>
+      )}
+
+      {activeTab === 'appearance' && (
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_24rem]">
+          <LayerCard>
+            <SectionHeader title="界面外观" description={`当前生效主题: ${theme === 'dark' ? '深色' : '浅色'}`} />
+            <FieldRow title="主题模式" description="浏览器本地偏好，切换后立即生效。">
+              <Select label="主题模式" value={themeMode} onValueChange={(value) => setThemeMode(String(value))} items={THEME_OPTIONS} />
+            </FieldRow>
+            <FieldRow title="页面宽度" description="浏览器本地偏好，顶部宽度切换器也会同步。">
+              <Select label="页面宽度" value={pageWidthMode} onValueChange={(value) => setPageWidthMode(String(value))} items={PAGE_WIDTH_OPTIONS} />
+            </FieldRow>
+            <FieldRow title="导航布局" description="兼容旧移动端导航偏好。">
+              <Select label="导航布局" value={settings.navLayout} onValueChange={(value) => patchSettings({ navLayout: String(value) })} items={NAV_LAYOUT_OPTIONS} />
+            </FieldRow>
+            <FieldRow title="触感反馈" description="移动端交互振动开关。">
+              <Switch checked={settings.vibrationEnabled} onCheckedChange={(checked) => patchSettings({ vibrationEnabled: checked })} />
+            </FieldRow>
+          </LayerCard>
+
+          <LayerCard className="p-5">
+            <h2 className="text-base font-bold text-kumo-strong">TOTP 显示偏好</h2>
+            <div className="mt-2 text-xs leading-relaxed text-kumo-subtle">这些选项会被 2FA 工具页读取。</div>
+            <div className="mt-4">
+              <ToggleLine title="账号名称打码" checked={!!settings.totpSettings.maskAccount} onCheckedChange={(checked) => updateTotpSetting('maskAccount', checked)} />
+              <ToggleLine title="遮挡验证码" checked={!!settings.totpSettings.hideCode} onCheckedChange={(checked) => updateTotpSetting('hideCode', checked)} />
+              <ToggleLine title="允许悬浮显示验证码" checked={!!settings.totpSettings.allowRevealCode} onCheckedChange={(checked) => updateTotpSetting('allowRevealCode', checked)} />
+              <ToggleLine title="按平台分组" checked={!!settings.totpSettings.groupByPlatform} onCheckedChange={(checked) => updateTotpSetting('groupByPlatform', checked)} />
+              <ToggleLine title="显示平台标题" checked={!!settings.totpSettings.showPlatformHeaders} onCheckedChange={(checked) => updateTotpSetting('showPlatformHeaders', checked)} />
+              <ToggleLine title="隐藏平台文字" checked={!!settings.totpSettings.hidePlatformText} onCheckedChange={(checked) => updateTotpSetting('hidePlatformText', checked)} />
+              <ToggleLine title="扫码后自动导入" checked={!!settings.totpSettings.autoSave} onCheckedChange={(checked) => updateTotpSetting('autoSave', checked)} />
+              <ToggleLine title="锁定默认录入方式" checked={!!settings.totpSettings.lockInputMode} onCheckedChange={(checked) => updateTotpSetting('lockInputMode', checked)} />
+            </div>
+            <div className="mt-4">
+              <Select
+                label="默认录入方式"
+                value={settings.totpSettings.defaultInputMode}
+                onValueChange={(value) => updateTotpSetting('defaultInputMode', String(value))}
+                items={TOTP_INPUT_MODE_OPTIONS}
+              />
+            </div>
+          </LayerCard>
+
+          <LayerCard className="xl:col-span-2">
+            <SectionHeader
+              title="自定义 CSS"
+              description="应用会立即注入当前页面，保存后写入后端用户设置。"
+              actions={
+                <>
+                  <Button onClick={() => applyCustomCss(settings.customCss)}>预览</Button>
+                  <Button variant="secondary-destructive" onClick={() => {
+                    patchSettings({ customCss: '' });
+                    applyCustomCss('');
+                  }}>清空</Button>
+                </>
+              }
+            />
+            <div className="p-5">
+              <Textarea
+                label="CSS"
+                value={settings.customCss}
+                onChange={(e) => patchSettings({ customCss: e.target.value })}
+                placeholder="/* 在此输入自定义 CSS */"
+                className="min-h-64 font-mono text-sm"
+              />
+            </div>
+          </LayerCard>
+        </div>
+      )}
+
+      {activeTab === 'about' && (
+        <div className="grid gap-4 lg:grid-cols-3">
+          <LayerCard className="p-6 lg:col-span-2">
+            <div className="flex items-center gap-4">
+              <img src="/logo.svg" alt="" className="h-12 w-12 object-contain" />
+              <div>
+                <h2 className="text-xl font-bold text-kumo-strong">API Monitor</h2>
+                <p className="mt-1 text-xs text-kumo-subtle">React 19 + Kumo 前端重构分支</p>
               </div>
             </div>
-          )}
+            <div className="mt-6 grid gap-3 sm:grid-cols-2">
+              <div className="rounded-lg border border-kumo-line bg-kumo-recessed p-4">
+                <div className="text-xs text-kumo-subtle">当前源</div>
+                <div className="mt-1 truncate font-mono text-sm text-kumo-strong">{currentOrigin}</div>
+              </div>
+              <div className="rounded-lg border border-kumo-line bg-kumo-recessed p-4">
+                <div className="text-xs text-kumo-subtle">API 地址</div>
+                <div className="mt-1 truncate font-mono text-sm text-kumo-strong">{`${currentOrigin}/api`}</div>
+              </div>
+            </div>
+          </LayerCard>
+
+          <LayerCard className="p-6">
+            <h2 className="text-base font-bold text-kumo-strong">已对接接口</h2>
+            <div className="mt-4 grid gap-2 text-xs text-kumo-default">
+              {[
+                '/api/settings',
+                '/api/settings/log-settings',
+                '/api/settings/database-stats',
+                '/api/settings/database-analysis',
+                '/api/auth/change-password',
+                '/api/auth/2fa/*',
+                '/api/gemini-cli/settings',
+                '/api/qwen/settings',
+              ].map((item) => (
+                <div key={item} className="flex items-center gap-2">
+                  <Check className="h-3.5 w-3.5 text-kumo-success" />
+                  <span className="font-mono">{item}</span>
+                </div>
+              ))}
+            </div>
+          </LayerCard>
         </div>
-      </div>
+      )}
     </div>
   );
 }

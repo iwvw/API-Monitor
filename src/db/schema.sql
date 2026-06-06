@@ -54,6 +54,6 @@ INSERT OR IGNORE INTO user_settings (id, custom_css, module_visibility, module_o
 VALUES (
     1,
     '',
-    '{"openai":true,"antigravity":true,"gemini-cli":true,"dns":true,"server":true}',
-    '["openai","antigravity","gemini-cli","dns","server"]'
+    '{"openai":true,"gemini-cli":true,"dns":true,"server":true}',
+    '["openai","gemini-cli","dns","server"]'
 );

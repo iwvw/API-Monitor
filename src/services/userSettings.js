@@ -22,24 +22,20 @@ function loadUserSettings() {
       openai: true,
       server: true,
       'self-h': false,
-      antigravity: true,
       'gemini-cli': true,
       qwen: true,
     };
 
     const channelEnabled = settings.channel_enabled || {
-      antigravity: true,
       'gemini-cli': true,
     };
 
     const channelModelPrefix = settings.channel_model_prefix || {
-      antigravity: '',
       'gemini-cli': '',
     };
 
     const order = settings.module_order || [
       'openai',
-      'antigravity',
       'gemini-cli',
       'qwen',
       'paas',
@@ -47,6 +43,11 @@ function loadUserSettings() {
       'self-h',
       'server',
     ];
+
+    delete visibility.antigravity;
+    delete channelEnabled.antigravity;
+    delete channelModelPrefix.antigravity;
+    const filteredOrder = order.filter(module => module !== 'antigravity');
 
     if (!('gemini-cli' in visibility)) {
       visibility['gemini-cli'] = true;
@@ -65,24 +66,24 @@ function loadUserSettings() {
       channelModelPrefix['qwen'] = '';
     }
 
-    if (!order.includes('qwen')) {
-      const gcliIdx = order.indexOf('gemini-cli');
+    if (!filteredOrder.includes('qwen')) {
+      const gcliIdx = filteredOrder.indexOf('gemini-cli');
       if (gcliIdx !== -1) {
-        order.splice(gcliIdx + 1, 0, 'qwen');
+        filteredOrder.splice(gcliIdx + 1, 0, 'qwen');
       } else {
-        order.push('qwen');
+        filteredOrder.push('qwen');
       }
     }
-    if (!order.includes('gemini-cli')) {
-      order.push('gemini-cli');
+    if (!filteredOrder.includes('gemini-cli')) {
+      filteredOrder.push('gemini-cli');
     }
-    if (!order.includes('self-h')) {
+    if (!filteredOrder.includes('self-h')) {
       // 插入到 server 之前，如果存在的话
-      const serverIdx = order.indexOf('server');
+      const serverIdx = filteredOrder.indexOf('server');
       if (serverIdx !== -1) {
-        order.splice(serverIdx, 0, 'self-h');
+        filteredOrder.splice(serverIdx, 0, 'self-h');
       } else {
-        order.push('self-h');
+        filteredOrder.push('self-h');
       }
     }
 
@@ -93,7 +94,7 @@ function loadUserSettings() {
       moduleVisibility: visibility,
       channelEnabled: channelEnabled,
       channelModelPrefix: channelModelPrefix,
-      moduleOrder: order,
+      moduleOrder: filteredOrder,
       load_balancing_strategy: settings.load_balancing_strategy || 'random',
       serverIpDisplayMode: settings.server_ip_display_mode || 'normal',
       vibrationEnabled:
@@ -188,18 +189,15 @@ function getDefaultSettings() {
       openai: true,
       server: true,
       'self-h': false,
-      antigravity: true,
       'gemini-cli': true,
     },
     channelEnabled: {
-      antigravity: true,
       'gemini-cli': true,
     },
     channelModelPrefix: {
-      antigravity: '',
       'gemini-cli': '',
     },
-    moduleOrder: ['openai', 'antigravity', 'gemini-cli', 'qwen', 'paas', 'dns', 'self-h', 'server'],
+    moduleOrder: ['openai', 'gemini-cli', 'qwen', 'paas', 'dns', 'self-h', 'server'],
     load_balancing_strategy: 'random',
     serverIpDisplayMode: 'normal',
     navLayout: 'top',

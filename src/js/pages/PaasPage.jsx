@@ -1,10 +1,15 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { toast } from '../modules/toast.js';
+import { dialog } from '../modules/dialog.js';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Dialog } from '@cloudflare/kumo/components/dialog';
+import { Input, Textarea } from '@cloudflare/kumo/components/input';
+import { Select } from '@cloudflare/kumo/components/select';
 import { Table } from '@cloudflare/kumo/components/table';
 import { Checkbox } from '@cloudflare/kumo/components/checkbox';
+import { Tabs } from '@cloudflare/kumo';
 import useStore from '../store.js';
+import { MODULE_TABS_PROPS } from '../modules/kumoTabs.js';
 import {
   Server,
   Users,
@@ -95,7 +100,7 @@ function PaasPage() {
         flyRefreshInterval: flyIntervalSec * 1000,
       };
       const response = await fetch('/api/settings', {
-        method: 'POST',
+        method: 'PATCH',
         headers: getAuthHeaders(),
         body: JSON.stringify(settings),
       });
@@ -366,7 +371,7 @@ function PaasPage() {
   };
 
   const redeployKoyebService = async (account, app, service) => {
-    if (!window.confirm(`确认重新部署 Koyeb 服务 "${service.name}" 吗？`)) return;
+    if (!(await dialog.confirm(`确认重新部署 Koyeb 服务 "${service.name}" 吗？`))) return;
     try {
       const response = await fetch(`/api/koyeb/services/${service._id}/redeploy`, {
         method: 'POST',
@@ -747,7 +752,7 @@ function PaasPage() {
 
   // Fly.io Service Operations
   const redeployFlyApp = async (account, app) => {
-    if (!window.confirm(`确认重启 Fly.io 应用 "${app.name}" 吗？（触发一次重新部署）`)) return;
+    if (!(await dialog.confirm(`确认重启 Fly.io 应用 "${app.name}" 吗？（触发一次重新部署）`))) return;
     try {
       const response = await fetch(`/api/flyio/apps/${app.name}/redeploy`, {
         method: 'POST',
@@ -788,12 +793,12 @@ function PaasPage() {
       suggestedImage = currentImage + ':latest';
     }
 
-    const newImage = window.prompt(
-      currentImage
+    const newImage = await dialog.prompt({
+      message: currentImage
         ? `当前正在运行：\n${currentImage}\n\n请输入新容器镜像：`
         : '未能检测到当前运行的镜像。请输入完整的容器镜像地址：',
-      suggestedImage || currentImage
-    );
+      defaultValue: suggestedImage || currentImage,
+    });
 
     if (newImage === null || newImage.trim() === '') return;
 
@@ -820,7 +825,7 @@ function PaasPage() {
   };
 
   const updateAllFlyAppsImage = async (account) => {
-    if (!window.confirm(`确定要为 Fly.io 账号 "${account.name}" 下的所有应用批量更新最新镜像吗？`)) return;
+    if (!(await dialog.confirm(`确定要为 Fly.io 账号 "${account.name}" 下的所有应用批量更新最新镜像吗？`))) return;
     toast.info('正在提交批量更新，请稍候...');
     try {
       const response = await fetch(`/api/flyio/accounts/${account.id}/update-all-images`, {
@@ -1016,7 +1021,9 @@ function PaasPage() {
   };
 
   const createFlyApp = async (account) => {
-    const name = window.prompt('请输入新应用名称 (留空将自动生成)：');
+    const name = await dialog.prompt({
+      message: '请输入新应用名称 (留空将自动生成)：',
+    });
     if (name === null) return;
     try {
       const response = await fetch('/api/flyio/apps', {
@@ -1040,7 +1047,7 @@ function PaasPage() {
   };
 
   const deleteFlyApp = async (account, app) => {
-    if (!window.confirm(`确定要永久删除 Fly.io 应用 "${app.name}" 吗？此操作会销毁所有底层的机器并且不可逆！`)) return;
+    if (!(await dialog.confirm(`确定要永久删除 Fly.io 应用 "${app.name}" 吗？此操作会销毁所有底层的机器并且不可逆！`))) return;
     try {
       const response = await fetch(`/api/flyio/apps/${app.name}`, {
         method: 'DELETE',
@@ -1143,7 +1150,7 @@ function PaasPage() {
 
   const addKoyebAccount = async () => {
     if (!newKoyebName.trim() || !newKoyebToken.trim()) {
-      setKoyebAddAccountError('请填写备注名称和 API Token');
+      setKoyebAddAccountError('请填写备注名称和 API 令牌');
       return;
     }
     setKoyebAddingAccount(true);
@@ -1176,7 +1183,7 @@ function PaasPage() {
   };
 
   const removeKoyebAccount = async (id) => {
-    if (!window.confirm('确认删除此 Koyeb 账号吗？')) return;
+    if (!(await dialog.confirm('确认删除此 Koyeb 账号吗？'))) return;
     try {
       const response = await fetch(`/api/koyeb/accounts/${id}`, {
         method: 'DELETE',
@@ -1313,7 +1320,7 @@ function PaasPage() {
   // Fly.io Accounts Operations
   const addFlyAccount = async () => {
     if (!newFlyName.trim() || !newFlyToken.trim()) {
-      setFlyAddAccountError('请填写备注名称和 API Token');
+      setFlyAddAccountError('请填写备注名称和 API 令牌');
       return;
     }
     setFlyAddingAccount(true);
@@ -1346,7 +1353,7 @@ function PaasPage() {
   };
 
   const removeFlyAccount = async (id, name) => {
-    if (!window.confirm(`确认删除 Fly.io 账号 "${name}" 吗？`)) return;
+    if (!(await dialog.confirm(`确认删除 Fly.io 账号 "${name}" 吗？`))) return;
     try {
       const response = await fetch(`/api/flyio/accounts/${id}`, {
         method: 'DELETE',
@@ -1454,8 +1461,8 @@ function PaasPage() {
     toast.success('Fly.io 账号导出成功');
   };
 
-  const importFlyAccounts = () => {
-    if (!window.confirm('导入账号将覆盖当前 Fly.io 账号配置，是否继续？')) return;
+  const importFlyAccounts = async () => {
+    if (!(await dialog.confirm('导入账号将覆盖当前 Fly.io 账号配置，是否继续？'))) return;
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.json';
@@ -1543,7 +1550,7 @@ function PaasPage() {
   }, [activeTab, flyAutoPaused, flyIntervalSec, loadFlyData]);
 
   return (
-    <div className="space-y-6 pb-20">
+    <div className="space-y-6">
       {/* Tab bar header */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-kumo-line pb-4">
         <div>
@@ -1555,70 +1562,49 @@ function PaasPage() {
             <div className="flex items-center gap-2 text-xs bg-kumo-recessed border border-kumo-line rounded px-3 py-1.5 font-semibold text-kumo-strong">
               <RefreshCw className={`w-3.5 h-3.5 ${koyebRefreshing ? 'animate-spin' : ''}`} />
               <span>{koyebCountdown} 秒后刷新</span>
-              <button onClick={() => setKoyebAutoPaused(!koyebAutoPaused)} className="hover:text-kumo-brand">
+              <Button
+                shape="square"
+                size="xs"
+                variant="ghost"
+                aria-label={koyebAutoPaused ? '恢复 Koyeb 自动刷新' : '暂停 Koyeb 自动刷新'}
+                onClick={() => setKoyebAutoPaused(!koyebAutoPaused)}
+                className="hover:text-kumo-brand"
+              >
                 {koyebAutoPaused ? <Play className="w-3.5 h-3.5" /> : <Pause className="w-3.5 h-3.5" />}
-              </button>
+              </Button>
             </div>
           )}
           {activeTab === 'fly' && (
             <div className="flex items-center gap-2 text-xs bg-kumo-recessed border border-kumo-line rounded px-3 py-1.5 font-semibold text-kumo-strong">
               <RefreshCw className={`w-3.5 h-3.5 ${flyRefreshing ? 'animate-spin' : ''}`} />
               <span>{flyCountdown} 秒后刷新</span>
-              <button onClick={() => setFlyAutoPaused(!flyAutoPaused)} className="hover:text-kumo-brand">
+              <Button
+                shape="square"
+                size="xs"
+                variant="ghost"
+                aria-label={flyAutoPaused ? '恢复 Fly 自动刷新' : '暂停 Fly 自动刷新'}
+                onClick={() => setFlyAutoPaused(!flyAutoPaused)}
+                className="hover:text-kumo-brand"
+              >
                 {flyAutoPaused ? <Play className="w-3.5 h-3.5" /> : <Pause className="w-3.5 h-3.5" />}
-              </button>
+              </Button>
             </div>
           )}
         </div>
       </div>
 
       {/* Main Tabs Navigation */}
-      <div className="flex border-b border-kumo-line">
-        <button
-          className={`px-4 py-2.5 text-xs font-bold border-b-2 -mb-[2px] transition-colors flex items-center gap-2 ${
-            activeTab === 'koyeb'
-              ? 'border-kumo-brand text-kumo-strong'
-              : 'border-transparent text-kumo-subtle hover:text-kumo-default'
-          }`}
-          onClick={() => setActiveTab('koyeb')}
-        >
-          <Database className="w-4 h-4 text-indigo-500" />
-          <span>Koyeb</span>
-        </button>
-        <button
-          className={`px-4 py-2.5 text-xs font-bold border-b-2 -mb-[2px] transition-colors flex items-center gap-2 ${
-            activeTab === 'fly'
-              ? 'border-kumo-brand text-kumo-strong'
-              : 'border-transparent text-kumo-subtle hover:text-kumo-default'
-          }`}
-          onClick={() => setActiveTab('fly')}
-        >
-          <Rocket className="w-4 h-4 text-violet-500" />
-          <span>Fly.io</span>
-        </button>
-        <button
-          className={`px-4 py-2.5 text-xs font-bold border-b-2 -mb-[2px] transition-colors flex items-center gap-2 ${
-            activeTab === 'accounts'
-              ? 'border-kumo-brand text-kumo-strong'
-              : 'border-transparent text-kumo-subtle hover:text-kumo-default'
-          }`}
-          onClick={() => setActiveTab('accounts')}
-        >
-          <Users className="w-4 h-4 text-emerald-500" />
-          <span>账号管理</span>
-        </button>
-        <button
-          className={`px-4 py-2.5 text-xs font-bold border-b-2 -mb-[2px] transition-colors flex items-center gap-2 ${
-            activeTab === 'settings'
-              ? 'border-kumo-brand text-kumo-strong'
-              : 'border-transparent text-kumo-subtle hover:text-kumo-default'
-          }`}
-          onClick={() => setActiveTab('settings')}
-        >
-          <Settings className="w-4 h-4" />
-          <span>模块配置</span>
-        </button>
-      </div>
+      <Tabs
+        {...MODULE_TABS_PROPS}
+        value={activeTab}
+        onValueChange={setActiveTab}
+        tabs={[
+          { value: 'koyeb', label: <span className="inline-flex items-center gap-1.5"><Database className="w-4 h-4 text-indigo-500" />Koyeb</span> },
+          { value: 'fly', label: <span className="inline-flex items-center gap-1.5"><Rocket className="w-4 h-4 text-violet-500" />Fly.io</span> },
+          { value: 'accounts', label: <span className="inline-flex items-center gap-1.5"><Users className="w-4 h-4 text-emerald-500" />账号管理</span> },
+          { value: 'settings', label: <span className="inline-flex items-center gap-1.5"><Settings className="w-4 h-4" />模块配置</span> },
+        ]}
+      />
 
       {/* ==================== Koyeb Tab Content ==================== */}
       {activeTab === 'koyeb' && (
@@ -1641,7 +1627,7 @@ function PaasPage() {
             </div>
           ) : koyebAccounts.length === 0 ? (
             <div className="bg-kumo-base border border-kumo-line rounded-lg p-12 text-center text-kumo-subtle text-xs">
-              暂无配置 Koyeb 账号。请前往“账号管理”添加账号 API Token。
+              暂无配置 Koyeb 账号。请前往“账号管理”添加账号 API 令牌。
             </div>
           ) : (
             <div className="space-y-4">
@@ -1692,7 +1678,8 @@ function PaasPage() {
                                   <div className="flex items-center gap-1.5 flex-1 min-w-0">
                                     <span className="text-base">📦</span>
                                     {app.isEditing ? (
-                                      <input
+                                      <Input
+                                        aria-label="Koyeb 应用名称"
                                         type="text"
                                         value={app.editingName}
                                         onChange={(e) => {
@@ -1732,7 +1719,8 @@ function PaasPage() {
                                       <div className="flex justify-between items-start">
                                         <div className="flex-1 min-w-0">
                                           {service.isEditing ? (
-                                            <input
+                                            <Input
+                                              aria-label="Koyeb 服务名称"
                                               type="text"
                                               value={service.editingName}
                                               onChange={(e) => {
@@ -1773,34 +1761,50 @@ function PaasPage() {
 
                                       {/* Actions */}
                                       <div className="flex justify-end gap-1.5 pt-1">
-                                        <button
+                                        <Button
+                                          shape="square"
+                                          size="sm"
+                                          variant="ghost"
+                                          aria-label="重启服务"
                                           onClick={() => restartKoyebService(account, app, service)}
                                           title="重启服务"
                                           className="p-1 hover:bg-kumo-recessed rounded text-kumo-subtle hover:text-kumo-brand border border-kumo-line"
                                         >
                                           <RefreshCw className="w-3.5 h-3.5" />
-                                        </button>
-                                        <button
+                                        </Button>
+                                        <Button
+                                          shape="square"
+                                          size="sm"
+                                          variant="ghost"
+                                          aria-label="重新部署服务"
                                           onClick={() => redeployKoyebService(account, app, service)}
                                           title="重新部署"
                                           className="p-1 hover:bg-kumo-recessed rounded text-kumo-subtle hover:text-indigo-500 border border-kumo-line"
                                         >
                                           <Rocket className="w-3.5 h-3.5" />
-                                        </button>
-                                        <button
+                                        </Button>
+                                        <Button
+                                          shape="square"
+                                          size="sm"
+                                          variant="ghost"
+                                          aria-label="查看服务实例"
                                           onClick={() => fetchKoyebServiceInstances(account, service)}
                                           title="查看实例"
                                           className="p-1 hover:bg-kumo-recessed rounded text-kumo-subtle hover:text-violet-500 border border-kumo-line"
                                         >
                                           <Server className={`w-3.5 h-3.5 ${service.loadingInstances ? 'animate-spin' : ''}`} />
-                                        </button>
-                                        <button
+                                        </Button>
+                                        <Button
+                                          shape="square"
+                                          size="sm"
+                                          variant="ghost"
+                                          aria-label="查看服务日志"
                                           onClick={() => showKoyebServiceLogs(account, app, service)}
                                           title="查看日志"
                                           className="p-1 hover:bg-kumo-recessed rounded text-kumo-subtle hover:text-emerald-500 border border-kumo-line"
                                         >
                                           <FileText className="w-3.5 h-3.5" />
-                                        </button>
+                                        </Button>
                                       </div>
 
                                       {/* Service Instances */}
@@ -1808,7 +1812,7 @@ function PaasPage() {
                                         <div className="mt-2 border-t border-kumo-line pt-2 text-[10px] space-y-1 bg-kumo-recessed/30 p-2 rounded">
                                           <div className="font-bold text-kumo-subtle flex justify-between">
                                             <span>实例列表 ({service.instances.length})</span>
-                                            <button onClick={() => {
+                                            <Button size="xs" variant="ghost" onClick={() => {
                                               setKoyebAccounts(prev => prev.map(acc => ({
                                                 ...acc,
                                                 projects: acc.projects.map(p => ({
@@ -1819,7 +1823,7 @@ function PaasPage() {
                                                   })
                                                 }))
                                               })));
-                                            }} className="text-kumo-danger hover:underline">关闭</button>
+                                            }} className="text-kumo-danger hover:underline">关闭</Button>
                                           </div>
                                           {service.instances.map(inst => (
                                             <div key={inst.id} className="flex justify-between items-center py-0.5 border-b border-kumo-line last:border-0">
@@ -1870,7 +1874,7 @@ function PaasPage() {
             </div>
           ) : flyAccounts.length === 0 ? (
             <div className="bg-kumo-base border border-kumo-line rounded-lg p-12 text-center text-kumo-subtle text-xs">
-              暂无配置 Fly.io 账号。请前往“账号管理”添加账号 API Token。
+              暂无配置 Fly.io 账号。请前往“账号管理”添加账号 API 令牌。
             </div>
           ) : (
             <div className="space-y-4">
@@ -1893,19 +1897,23 @@ function PaasPage() {
                         </div>
                       </div>
                       <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                        <button
+                        <Button
+                          size="xs"
+                          variant="secondary"
                           onClick={() => updateAllFlyAppsImage(account)}
                           className="px-2 py-1 text-[10px] font-semibold bg-indigo-500/10 text-indigo-500 hover:bg-indigo-500/20 border border-indigo-500/20 rounded-lg flex items-center gap-1"
                         >
                           批量更新
-                        </button>
-                        <button
+                        </Button>
+                        <Button
+                          size="xs"
+                          variant="secondary"
                           onClick={() => createFlyApp(account)}
                           className="px-2 py-1 text-[10px] font-semibold bg-violet-500/10 text-violet-500 hover:bg-violet-500/20 border border-violet-500/20 rounded-lg flex items-center gap-1"
                         >
                           <Plus className="w-3 h-3" />
                           <span>新建应用</span>
-                        </button>
+                        </Button>
                       </div>
                     </div>
 
@@ -1927,7 +1935,8 @@ function PaasPage() {
                                   <div className="flex items-center gap-1.5 flex-1 min-w-0">
                                     <span className="text-base">✈️</span>
                                     {app.isEditing ? (
-                                      <input
+                                      <Input
+                                        aria-label="Fly 应用名称"
                                         type="text"
                                         value={app.editingName}
                                         onChange={(e) => {
@@ -1958,12 +1967,16 @@ function PaasPage() {
                                       </span>
                                     )}
                                   </div>
-                                  <button
+                                  <Button
+                                    shape="square"
+                                    size="sm"
+                                    variant="ghost"
+                                    aria-label="删除 Fly 应用"
                                     onClick={() => deleteFlyApp(account, app)}
                                     className="p-1 text-kumo-subtle hover:text-kumo-danger hover:bg-kumo-recessed rounded"
                                   >
                                     <Trash className="w-3.5 h-3.5" />
-                                  </button>
+                                  </Button>
                                 </div>
 
                                 {/* Main application service card */}
@@ -1979,41 +1992,61 @@ function PaasPage() {
 
                                   {/* App actions */}
                                   <div className="flex justify-end gap-1.5 pt-1">
-                                    <button
+                                    <Button
+                                      shape="square"
+                                      size="sm"
+                                      variant="ghost"
+                                      aria-label="重启应用"
                                       onClick={() => redeployFlyApp(account, app)}
                                       title="重启应用"
                                       className="p-1 hover:bg-kumo-recessed rounded text-kumo-subtle hover:text-kumo-brand border border-kumo-line"
                                     >
                                       <RefreshCw className="w-3.5 h-3.5" />
-                                    </button>
-                                    <button
+                                    </Button>
+                                    <Button
+                                      shape="square"
+                                      size="sm"
+                                      variant="ghost"
+                                      aria-label="更新容器镜像"
                                       onClick={() => updateFlyAppImage(account, app)}
                                       title="更新容器镜像"
                                       className="p-1 hover:bg-kumo-recessed rounded text-kumo-subtle hover:text-violet-500 border border-kumo-line"
                                     >
                                       <Rocket className="w-3.5 h-3.5" />
-                                    </button>
-                                    <button
+                                    </Button>
+                                    <Button
+                                      shape="square"
+                                      size="sm"
+                                      variant="ghost"
+                                      aria-label="查看机器实例"
                                       onClick={() => fetchFlyMachines(account, app)}
                                       title="查看机器/实例"
                                       className="p-1 hover:bg-kumo-recessed rounded text-kumo-subtle hover:text-indigo-500 border border-kumo-line"
                                     >
                                       <Server className={`w-3.5 h-3.5 ${app.loadingMachines ? 'animate-spin' : ''}`} />
-                                    </button>
-                                    <button
+                                    </Button>
+                                    <Button
+                                      shape="square"
+                                      size="sm"
+                                      variant="ghost"
+                                      aria-label="查看运行日志"
                                       onClick={() => showFlyAppLogs(account, app)}
                                       title="查看运行日志"
                                       className="p-1 hover:bg-kumo-recessed rounded text-kumo-subtle hover:text-emerald-500 border border-kumo-line"
                                     >
                                       <FileText className="w-3.5 h-3.5" />
-                                    </button>
-                                    <button
+                                    </Button>
+                                    <Button
+                                      shape="square"
+                                      size="sm"
+                                      variant="ghost"
+                                      aria-label="查看应用配置"
                                       onClick={() => viewFlyConfig(account, app)}
                                       title="查看应用配置"
                                       className="p-1 hover:bg-kumo-recessed rounded text-kumo-subtle hover:text-slate-500 border border-kumo-line"
                                     >
                                       <Terminal className="w-3.5 h-3.5" />
-                                    </button>
+                                    </Button>
                                   </div>
 
                                   {/* Machines container */}
@@ -2021,7 +2054,7 @@ function PaasPage() {
                                     <div className="mt-2 border-t border-kumo-line pt-2 text-[10px] space-y-1 bg-kumo-recessed/30 p-2 rounded">
                                       <div className="font-bold text-kumo-subtle flex justify-between">
                                         <span>运 (Machines - {app.machines.length})</span>
-                                        <button onClick={() => {
+                                        <Button size="xs" variant="ghost" onClick={() => {
                                           setFlyAccounts(prev => prev.map(acc => ({
                                             ...acc,
                                             projects: acc.projects.map(p => {
@@ -2029,7 +2062,7 @@ function PaasPage() {
                                               return { ...p, showMachines: false };
                                             })
                                           })));
-                                        }} className="text-kumo-danger hover:underline">关闭</button>
+                                        }} className="text-kumo-danger hover:underline">关闭</Button>
                                       </div>
                                       {app.machines.map(m => (
                                         <div key={m.id} className="flex justify-between items-center py-0.5 border-b border-kumo-line last:border-0">
@@ -2148,12 +2181,16 @@ function PaasPage() {
                           </span>
                         </Table.Cell>
                         <Table.Cell className="p-3 text-center">
-                          <button
+                          <Button
+                            shape="square"
+                            size="sm"
+                            variant="ghost"
+                            aria-label="删除 Koyeb 账号"
                             onClick={() => removeKoyebAccount(account.id)}
                             className="p-1.5 text-kumo-danger hover:bg-kumo-recessed rounded"
                           >
                             <Trash className="w-4 h-4" />
-                          </button>
+                          </Button>
                         </Table.Cell>
                       </Table.Row>
                     ))
@@ -2167,7 +2204,8 @@ function PaasPage() {
               <div className="text-xs font-bold text-kumo-strong">
                 批量添加 Koyeb 账号 (格式: 备注,koyeb_api_token)
               </div>
-              <textarea
+              <Textarea
+                aria-label="批量添加 Koyeb 账号"
                 value={koyebBatchText}
                 onChange={(e) => setKoyebBatchText(e.target.value)}
                 placeholder="我的Koyeb1,koyeb_xxxx&#10;我的Koyeb2,koyeb_yyyy"
@@ -2244,12 +2282,16 @@ function PaasPage() {
                           </span>
                         </Table.Cell>
                         <Table.Cell className="p-3 text-center">
-                          <button
+                          <Button
+                            shape="square"
+                            size="sm"
+                            variant="ghost"
+                            aria-label="删除 Fly 账号"
                             onClick={() => removeFlyAccount(account.id, account.name)}
                             className="p-1.5 text-kumo-danger hover:bg-kumo-recessed rounded"
                           >
                             <Trash className="w-4 h-4" />
-                          </button>
+                          </Button>
                         </Table.Cell>
                       </Table.Row>
                     ))
@@ -2261,9 +2303,10 @@ function PaasPage() {
             {/* Batch add Fly */}
             <div className="border border-kumo-line border-dashed rounded-lg p-4 bg-kumo-recessed/20 space-y-3">
               <div className="text-xs font-bold text-kumo-strong">
-                批量添加 Fly.io 账号 (格式: 备注:Fly-Token)
+                批量添加 Fly.io 账号（格式：备注:Fly-令牌）
               </div>
-              <textarea
+              <Textarea
+                aria-label="批量添加 Fly.io 账号"
                 value={flyBatchText}
                 onChange={(e) => setFlyBatchText(e.target.value)}
                 placeholder="我的Fly1:flyv1_xxxx&#10;我的Fly2:flyv1_yyyy"
@@ -2309,7 +2352,8 @@ function PaasPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-1.5">
               <label className="text-xs font-bold text-kumo-strong">Koyeb 自动刷新间隔 (秒)</label>
-              <input
+              <Input
+                aria-label="Koyeb 自动刷新间隔"
                 type="number"
                 min="5"
                 value={koyebIntervalSec}
@@ -2319,7 +2363,8 @@ function PaasPage() {
             </div>
             <div className="space-y-1.5">
               <label className="text-xs font-bold text-kumo-strong">Fly.io 自动刷新间隔 (秒)</label>
-              <input
+              <Input
+                aria-label="Fly.io 自动刷新间隔"
                 type="number"
                 min="5"
                 value={flyIntervalSec}
@@ -2345,7 +2390,8 @@ function PaasPage() {
           <div className="space-y-4">
             <div className="space-y-1">
               <label className="text-[11px] font-bold text-kumo-subtle">备注名称</label>
-              <input
+              <Input
+                aria-label="Koyeb 备注名称"
                 type="text"
                 value={newKoyebName}
                 onChange={(e) => setNewKoyebName(e.target.value)}
@@ -2354,8 +2400,9 @@ function PaasPage() {
               />
             </div>
             <div className="space-y-1">
-              <label className="text-[11px] font-bold text-kumo-subtle">API Token</label>
-              <input
+              <label className="text-[11px] font-bold text-kumo-subtle">API 令牌</label>
+              <Input
+                aria-label="Koyeb API 令牌"
                 type="password"
                 value={newKoyebToken}
                 onChange={(e) => setNewKoyebToken(e.target.value)}
@@ -2369,9 +2416,17 @@ function PaasPage() {
               </div>
             )}
             <div className="flex justify-end gap-2 pt-2">
-              <Dialog.Close asChild>
-  <Button className="border border-kumo-line bg-kumo-recessed text-xs">取消</Button>
-</Dialog.Close>
+              <Dialog.Close
+                render={(props) => (
+                  <Button
+                    {...props}
+                    variant="secondary"
+                    className="border border-kumo-line bg-kumo-recessed text-xs"
+                  >
+                    取消
+                  </Button>
+                )}
+              />
               <Button onClick={addKoyebAccount} disabled={koyebAddingAccount} className="text-xs">
                 {koyebAddingAccount ? '正在验证并添加...' : '确定添加'}
               </Button>
@@ -2392,7 +2447,8 @@ function PaasPage() {
           <div className="space-y-4">
             <div className="space-y-1">
               <label className="text-[11px] font-bold text-kumo-subtle">备注名称</label>
-              <input
+              <Input
+                aria-label="Fly.io 备注名称"
                 type="text"
                 value={newFlyName}
                 onChange={(e) => setNewFlyName(e.target.value)}
@@ -2401,8 +2457,9 @@ function PaasPage() {
               />
             </div>
             <div className="space-y-1">
-              <label className="text-[11px] font-bold text-kumo-subtle">API Token</label>
-              <input
+              <label className="text-[11px] font-bold text-kumo-subtle">API 令牌</label>
+              <Input
+                aria-label="Fly.io API 令牌"
                 type="password"
                 value={newFlyToken}
                 onChange={(e) => setNewFlyToken(e.target.value)}
@@ -2416,9 +2473,17 @@ function PaasPage() {
               </div>
             )}
             <div className="flex justify-end gap-2 pt-2">
-              <Dialog.Close asChild>
-  <Button className="border border-kumo-line bg-kumo-recessed text-xs">取消</Button>
-</Dialog.Close>
+              <Dialog.Close
+                render={(props) => (
+                  <Button
+                    {...props}
+                    variant="secondary"
+                    className="border border-kumo-line bg-kumo-recessed text-xs"
+                  >
+                    取消
+                  </Button>
+                )}
+              />
               <Button onClick={addFlyAccount} disabled={flyAddingAccount} className="text-xs">
                 {flyAddingAccount ? '正在验证并添加...' : '确定添加'}
               </Button>
@@ -2436,16 +2501,24 @@ function PaasPage() {
               <Dialog.Title className="text-sm font-bold text-kumo-strong">{logTitle}</Dialog.Title>
               {logSubtitle && <p className="text-[10px] text-kumo-subtle mt-0.5">{logSubtitle}</p>}
             </div>
-            <button onClick={() => setLogViewerOpen(false)} className="text-kumo-subtle hover:text-kumo-default">
+            <Button
+              shape="square"
+              size="sm"
+              variant="ghost"
+              aria-label="关闭日志查看器"
+              onClick={() => setLogViewerOpen(false)}
+              className="text-kumo-subtle hover:text-kumo-default"
+            >
               <X className="w-4 h-4" />
-            </button>
+            </Button>
           </div>
 
           {/* Log Controls */}
           <div className="p-3 border-b border-kumo-line flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 text-xs bg-kumo-base">
             <div className="flex items-center gap-2 w-full sm:w-auto">
               <Search className="w-3.5 h-3.5 text-kumo-subtle" />
-              <input
+              <Input
+                aria-label="搜索日志消息"
                 type="text"
                 value={logFilterText}
                 onChange={(e) => setLogFilterText(e.target.value)}
@@ -2454,17 +2527,19 @@ function PaasPage() {
               />
             </div>
             <div className="flex flex-wrap items-center gap-2 text-[10px]">
-              <select
+              <Select
+                aria-label="日志级别筛选"
+                size="sm"
                 value={logLevelFilter}
-                onChange={(e) => setLogLevelFilter(e.target.value)}
+                onValueChange={(value) => setLogLevelFilter(String(value))}
                 className="bg-kumo-recessed border border-kumo-line rounded px-2 py-1 text-kumo-strong font-semibold"
               >
-                <option value="ALL">全部级别</option>
-                <option value="INFO">INFO</option>
-                <option value="WARN">WARN</option>
-                <option value="ERROR">ERROR</option>
-                <option value="DEBUG">DEBUG</option>
-              </select>
+                <Select.Option value="ALL">全部级别</Select.Option>
+                <Select.Option value="INFO">INFO</Select.Option>
+                <Select.Option value="WARN">WARN</Select.Option>
+                <Select.Option value="ERROR">ERROR</Select.Option>
+                <Select.Option value="DEBUG">DEBUG</Select.Option>
+              </Select>
 
               <Checkbox
                 checked={logWrapText}
@@ -2478,20 +2553,24 @@ function PaasPage() {
                 label="滚动到底部"
               />
 
-              <button
+              <Button
+                size="sm"
+                variant="secondary-destructive"
                 onClick={() => setLogs([])}
                 className="px-2 py-1 border border-kumo-line rounded hover:bg-kumo-recessed text-kumo-danger font-semibold"
               >
                 清空
-              </button>
+              </Button>
 
-              <button
+              <Button
+                size="sm"
+                variant="primary"
                 onClick={downloadLogs}
                 className="px-2 py-1 bg-kumo-brand text-white rounded hover:bg-kumo-brand/90 font-semibold flex items-center gap-1"
               >
                 <Download className="w-3 h-3" />
                 <span>下载日志</span>
-              </button>
+              </Button>
             </div>
           </div>
 

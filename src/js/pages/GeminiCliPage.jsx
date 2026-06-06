@@ -1,12 +1,17 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { toast } from '../modules/toast.js';
+import { dialog } from '../modules/dialog.js';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Dialog } from '@cloudflare/kumo/components/dialog';
+import { Input, Textarea } from '@cloudflare/kumo/components/input';
+import { Select } from '@cloudflare/kumo/components/select';
 import { Switch } from '@cloudflare/kumo/components/switch';
 import { Checkbox } from '@cloudflare/kumo/components/checkbox';
 import { Table } from '@cloudflare/kumo/components/table';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
+import { Tabs } from '@cloudflare/kumo';
 import useTableResize from '../composables/useTableResize.js';
+import { MODULE_TABS_PROPS } from '../modules/kumoTabs.js';
 import { formatDateTime } from '../modules/utils.js';
 import {
   Cpu,
@@ -350,7 +355,7 @@ function GeminiCliPage() {
 
   const saveAccount = async () => {
     if (!accountForm.name || !accountForm.client_id || !accountForm.refresh_token) {
-      setAccountFormError('请填写名称、Client ID 和 Refresh Token');
+      setAccountFormError('请填写名称、Client ID 和刷新令牌');
       return;
     }
     setAccountSaving(true);
@@ -385,7 +390,7 @@ function GeminiCliPage() {
 
   const fetchEmailInfo = async () => {
     if (!accountForm.client_id || !accountForm.client_secret || !accountForm.refresh_token) {
-      toast.error('请填写 Client ID, Secret 和 Refresh Token');
+      toast.error('请填写 Client ID、Secret 和刷新令牌');
       return;
     }
     setAccountSaving(true);
@@ -418,7 +423,7 @@ function GeminiCliPage() {
   };
 
   const deleteAccount = async (account) => {
-    if (!window.confirm(`确定要删除账号 "${account.name}" 吗？`)) {
+    if (!(await dialog.confirm(`确定要删除账号 "${account.name}" 吗？`))) {
       return;
     }
     try {
@@ -515,7 +520,7 @@ function GeminiCliPage() {
           toast.error('保存 OAuth 账号失败: ' + (err.error || '未知错误'));
         }
       } else {
-        toast.error(result.error || '交换 Token 失败');
+        toast.error(result.error || '交换令牌失败');
       }
     } catch (error) {
       toast.error('请求失败: ' + error.message);
@@ -799,7 +804,7 @@ function GeminiCliPage() {
   };
 
   const clearCheckHistory = async () => {
-    if (!window.confirm('确定要清空所有健康检测历史吗？')) return;
+    if (!(await dialog.confirm('确定要清空所有健康检测历史吗？'))) return;
     try {
       const response = await fetch('/api/gemini-cli/models/check-history/clear', {
         method: 'POST',
@@ -927,7 +932,7 @@ function GeminiCliPage() {
   };
 
   const clearLogs = async () => {
-    if (!window.confirm('确定要清空所有 Gemini CLI 调用日志吗？')) return;
+    if (!(await dialog.confirm('确定要清空所有 Gemini CLI 调用日志吗？'))) return;
     try {
       const response = await fetch('/api/gemini-cli/logs', {
         method: 'DELETE',
@@ -1088,7 +1093,7 @@ function GeminiCliPage() {
   };
 
   const deleteRedirectRule = async (sourceModel) => {
-    if (!window.confirm(`确认删除源模型 "${sourceModel}" 的重定向规则吗？`)) return;
+    if (!(await dialog.confirm(`确认删除源模型 "${sourceModel}" 的重定向规则吗？`))) return;
     try {
       const response = await fetch(`/api/gemini-cli/models/redirects/${encodeURIComponent(sourceModel)}`, {
         method: 'DELETE',
@@ -1139,55 +1144,20 @@ function GeminiCliPage() {
   }, [activeTab, loadMatrix, loadStats, loadAccounts, loadQuotas, loadCheckSettings, loadCheckHistory, loadSettings, loadLogs, loadRedirects]);
 
   return (
-    <div className="space-y-6 flex flex-col pb-20">
+    <div className="space-y-6 flex flex-col">
       {/* Sub Tabs */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-kumo-line pb-4 gap-4 select-none">
-        <div className="flex border border-kumo-line rounded-lg p-0.5 bg-kumo-recessed">
-          <button
-            onClick={() => setActiveTab('models')}
-            className={`flex items-center gap-2 px-4 py-1.5 rounded-md text-xs font-semibold cursor-pointer transition-colors ${
-              activeTab === 'models'
-                ? 'bg-kumo-base text-kumo-strong shadow-sm'
-                : 'text-kumo-subtle hover:text-kumo-strong'
-            }`}
-          >
-            <Cpu className="w-3.5 h-3.5" />
-            <span>模型矩阵</span>
-          </button>
-          <button
-            onClick={() => setActiveTab('accounts')}
-            className={`flex items-center gap-2 px-4 py-1.5 rounded-md text-xs font-semibold cursor-pointer transition-colors ${
-              activeTab === 'accounts'
-                ? 'bg-kumo-base text-kumo-strong shadow-sm'
-                : 'text-kumo-subtle hover:text-kumo-strong'
-            }`}
-          >
-            <Users className="w-3.5 h-3.5" />
-            <span>账号与检测</span>
-          </button>
-          <button
-            onClick={() => setActiveTab('logs')}
-            className={`flex items-center gap-2 px-4 py-1.5 rounded-md text-xs font-semibold cursor-pointer transition-colors ${
-              activeTab === 'logs'
-                ? 'bg-kumo-base text-kumo-strong shadow-sm'
-                : 'text-kumo-subtle hover:text-kumo-strong'
-            }`}
-          >
-            <History className="w-3.5 h-3.5" />
-            <span>调用日志</span>
-          </button>
-          <button
-            onClick={() => setActiveTab('settings')}
-            className={`flex items-center gap-2 px-4 py-1.5 rounded-md text-xs font-semibold cursor-pointer transition-colors ${
-              activeTab === 'settings'
-                ? 'bg-kumo-base text-kumo-strong shadow-sm'
-                : 'text-kumo-subtle hover:text-kumo-strong'
-            }`}
-          >
-            <SettingsIcon className="w-3.5 h-3.5" />
-            <span>模块配置</span>
-          </button>
-        </div>
+      <div className="flex flex-wrap items-center justify-between border-b border-kumo-line pb-3 gap-4 select-none">
+        <Tabs
+          {...MODULE_TABS_PROPS}
+          value={activeTab}
+          onValueChange={setActiveTab}
+          tabs={[
+            { value: 'models', label: <span className="inline-flex items-center gap-1.5"><Cpu className="w-3.5 h-3.5" />模型矩阵</span> },
+            { value: 'accounts', label: <span className="inline-flex items-center gap-1.5"><Users className="w-3.5 h-3.5" />账号与检测</span> },
+            { value: 'logs', label: <span className="inline-flex items-center gap-1.5"><History className="w-3.5 h-3.5" />调用日志</span> },
+            { value: 'settings', label: <span className="inline-flex items-center gap-1.5"><SettingsIcon className="w-3.5 h-3.5" />模块配置</span> },
+          ]}
+        />
       </div>
 
       {/* ==================== 1. 模型矩阵 Tab ==================== */}
@@ -1207,7 +1177,7 @@ function GeminiCliPage() {
               </div>
               <div className="bg-kumo-base p-4 border border-kumo-line rounded-lg shadow-sm flex items-center justify-between">
                 <div>
-                  <span className="text-[10px] font-bold text-kumo-subtle block uppercase">消耗 Token</span>
+                  <span className="text-[10px] font-bold text-kumo-subtle block">消耗令牌</span>
                   <span className="text-xl font-bold text-kumo-strong">{formatTokens(stats.total_tokens || 0)}</span>
                 </div>
                 <div className="p-2 bg-kumo-brand/10 rounded-lg text-kumo-brand">
@@ -1468,9 +1438,16 @@ function GeminiCliPage() {
                   <Globe className="w-4 h-4 text-kumo-brand" />
                   连接 Google 账号 (OAuth2 授权验证)
                 </h4>
-                <button onClick={() => setShowOAuthExpand(false)} className="text-kumo-subtle hover:text-kumo-strong">
+                <Button
+                  shape="square"
+                  size="sm"
+                  variant="ghost"
+                  aria-label="关闭 OAuth 面板"
+                  onClick={() => setShowOAuthExpand(false)}
+                  className="text-kumo-subtle hover:text-kumo-strong"
+                >
                   <X className="w-4 h-4" />
-                </button>
+                </Button>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -1499,7 +1476,8 @@ function GeminiCliPage() {
                   <p className="text-[11px] text-kumo-subtle leading-relaxed">
                     请将您在授权完成重定向后浏览器地址栏中的完整 URL 粘贴在下方。
                   </p>
-                  <textarea
+                  <Textarea
+                    aria-label="OAuth 回调 URL"
                     value={oauthReturnUrl}
                     onChange={(e) => setOauthReturnUrl(e.target.value)}
                     placeholder="粘贴以 http:// 或 https:// 开头的完整回调 URL..."
@@ -1513,7 +1491,8 @@ function GeminiCliPage() {
               <div className="bg-kumo-recessed/20 p-3 rounded-lg border border-kumo-line flex flex-wrap gap-4 items-center justify-between text-xs">
                 <div className="flex items-center gap-2">
                   <span className="font-semibold text-kumo-strong">自定义 Project ID (可选)</span>
-                  <input
+                  <Input
+                    aria-label="自定义 Project ID"
                     type="text"
                     value={customProjectId}
                     onChange={(e) => setCustomProjectId(e.target.value)}
@@ -1632,7 +1611,11 @@ function GeminiCliPage() {
                         </Table.Cell>
                         <Table.Cell>
                           <div className="flex justify-center gap-2">
-                            <button
+                            <Button
+                              shape="square"
+                              size="sm"
+                              variant="ghost"
+                              aria-label={account.enable ? '禁用账号' : '启用账号'}
                               onClick={() => toggleAccountEnabled(account)}
                               className={`p-1.5 rounded hover:bg-kumo-recessed transition-colors ${
                                 account.enable ? 'text-kumo-success' : 'text-kumo-subtle'
@@ -1640,21 +1623,29 @@ function GeminiCliPage() {
                               title={account.enable ? '禁用账号' : '启用账号'}
                             >
                               <Check className="w-4 h-4" />
-                            </button>
-                            <button
+                            </Button>
+                            <Button
+                              shape="square"
+                              size="sm"
+                              variant="ghost"
+                              aria-label="编辑账号"
                               onClick={() => openEditAccountModal(account)}
                               className="p-1.5 rounded hover:bg-kumo-recessed text-kumo-subtle hover:text-kumo-strong transition-colors"
                               title="编辑"
                             >
                               <Edit className="w-4 h-4" />
-                            </button>
-                            <button
+                            </Button>
+                            <Button
+                              shape="square"
+                              size="sm"
+                              variant="ghost"
+                              aria-label="删除账号"
                               onClick={() => deleteAccount(account)}
                               className="p-1.5 rounded hover:bg-kumo-danger/10 text-kumo-subtle hover:text-kumo-danger transition-colors"
                               title="删除"
                             >
                               <Trash className="w-4 h-4" />
-                            </button>
+                            </Button>
                           </div>
                         </Table.Cell>
                       </Table.Row>
@@ -1769,16 +1760,18 @@ function GeminiCliPage() {
                     size="sm"
                   />
                   <span className="text-kumo-strong font-semibold">开启定时检测</span>
-                  <select
+                  <Select
+                    aria-label="定时检测间隔"
+                    size="sm"
                     value={autoCheckInterval}
-                    onChange={(e) => handleIntervalChange(Number(e.target.value))}
-                    className="bg-kumo-base text-kumo-strong border border-kumo-line rounded px-2 py-0.5 text-xs font-semibold"
+                    onValueChange={(value) => handleIntervalChange(Number(value))}
+                    className="font-semibold"
                   >
-                    <option value="1800000">30分钟</option>
-                    <option value="3600000">1小时</option>
-                    <option value="7200000">2小时</option>
-                    <option value="14400000">4小时</option>
-                  </select>
+                    <Select.Option value={1800000}>30分钟</Select.Option>
+                    <Select.Option value={3600000}>1小时</Select.Option>
+                    <Select.Option value={7200000}>2小时</Select.Option>
+                    <Select.Option value={14400000}>4小时</Select.Option>
+                  </Select>
                 </div>
 
                 <div className="w-px h-4 bg-kumo-line" />
@@ -1880,27 +1873,31 @@ function GeminiCliPage() {
               日志管理
             </h3>
             <div className="flex flex-wrap gap-2 text-xs">
-              <select
+              <Select
+                aria-label="日志账号筛选"
+                size="sm"
                 value={logFilterAccount}
-                onChange={(e) => setLogFilterAccount(e.target.value)}
-                className="bg-kumo-base text-kumo-strong border border-kumo-line rounded px-2 py-1 font-semibold focus:outline-none"
+                onValueChange={(value) => setLogFilterAccount(String(value))}
+                className="font-semibold"
               >
-                <option value="">全部账号</option>
+                <Select.Option value="">全部账号</Select.Option>
                 {accounts.filter(a => a.enable).map(a => (
-                  <option key={a.id} value={a.id}>{a.name || a.id}</option>
+                  <Select.Option key={a.id} value={a.id}>{a.name || a.id}</Select.Option>
                 ))}
-              </select>
+              </Select>
 
-              <select
+              <Select
+                aria-label="日志模型筛选"
+                size="sm"
                 value={logFilterModel}
-                onChange={(e) => setLogFilterModel(e.target.value)}
-                className="bg-kumo-base text-kumo-strong border border-kumo-line rounded px-2 py-1 font-semibold focus:outline-none"
+                onValueChange={(value) => setLogFilterModel(String(value))}
+                className="font-semibold"
               >
-                <option value="">全部模型</option>
+                <Select.Option value="">全部模型</Select.Option>
                 {logModelsList.map(m => (
-                  <option key={m} value={m}>{m}</option>
+                  <Select.Option key={m} value={m}>{m}</Select.Option>
                 ))}
-              </select>
+              </Select>
 
               <Button onClick={() => loadLogs(true)} disabled={logsLoading} className="flex items-center gap-1">
                 <RefreshCw className={`w-3.5 h-3.5 ${logsLoading ? 'animate-spin' : ''}`} />
@@ -2005,12 +2002,16 @@ function GeminiCliPage() {
                           {log.firstTokenTimeMs != null ? `${log.firstTokenTimeMs}ms` : '-'}
                         </Table.Cell>
                         <Table.Cell className="text-center">
-                          <button
+                          <Button
+                            shape="square"
+                            size="sm"
+                            variant="ghost"
+                            aria-label="查看日志详情"
                             onClick={() => viewLogDetail(log)}
                             className="p-1 hover:bg-kumo-recessed rounded text-kumo-subtle hover:text-kumo-strong transition-colors"
                           >
                             <Eye className="w-4 h-4" />
-                          </button>
+                          </Button>
                         </Table.Cell>
                       </Table.Row>
                     ))
@@ -2049,8 +2050,9 @@ function GeminiCliPage() {
                 </h4>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   <div className="space-y-1">
-                    <label className="text-xs font-semibold text-kumo-strong">默认温度 (Temperature)</label>
-                    <input
+                    <label className="text-xs font-semibold text-kumo-strong">默认温度</label>
+                    <Input
+                      aria-label="默认温度"
                       type="number"
                       step={0.1}
                       min={0}
@@ -2062,7 +2064,8 @@ function GeminiCliPage() {
                   </div>
                   <div className="space-y-1">
                     <label className="text-xs font-semibold text-kumo-strong">默认 top_p</label>
-                    <input
+                    <Input
+                      aria-label="默认 top_p"
                       type="number"
                       step={0.01}
                       min={0}
@@ -2074,7 +2077,8 @@ function GeminiCliPage() {
                   </div>
                   <div className="space-y-1">
                     <label className="text-xs font-semibold text-kumo-strong">默认 top_k</label>
-                    <input
+                    <Input
+                      aria-label="默认 top_k"
                       type="number"
                       value={settingsForm.DEFAULT_TOP_K}
                       onChange={(e) => setSettingsForm({ ...settingsForm, DEFAULT_TOP_K: Number(e.target.value) })}
@@ -2082,8 +2086,9 @@ function GeminiCliPage() {
                     />
                   </div>
                   <div className="space-y-1">
-                    <label className="text-xs font-semibold text-kumo-strong">默认最大 Tokens</label>
-                    <input
+                    <label className="text-xs font-semibold text-kumo-strong">默认最大令牌数</label>
+                    <Input
+                      aria-label="默认最大令牌数"
                       type="number"
                       value={settingsForm.DEFAULT_MAX_TOKENS}
                       onChange={(e) => setSettingsForm({ ...settingsForm, DEFAULT_MAX_TOKENS: Number(e.target.value) })}
@@ -2101,7 +2106,8 @@ function GeminiCliPage() {
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <div className="space-y-1">
                     <label className="text-xs font-semibold text-kumo-strong">每小时调用次数上限</label>
-                    <input
+                    <Input
+                      aria-label="每小时调用次数上限"
                       type="number"
                       value={settingsForm.CREDENTIAL_MAX_USAGE_PER_HOUR}
                       onChange={(e) => setSettingsForm({ ...settingsForm, CREDENTIAL_MAX_USAGE_PER_HOUR: Number(e.target.value) })}
@@ -2110,7 +2116,8 @@ function GeminiCliPage() {
                   </div>
                   <div className="space-y-1">
                     <label className="text-xs font-semibold text-kumo-strong">请求超时时间 (s)</label>
-                    <input
+                    <Input
+                      aria-label="请求超时时间"
                       type="number"
                       value={settingsForm.TIMEOUT}
                       onChange={(e) => setSettingsForm({ ...settingsForm, TIMEOUT: Number(e.target.value) })}
@@ -2119,7 +2126,8 @@ function GeminiCliPage() {
                   </div>
                   <div className="space-y-1">
                     <label className="text-xs font-semibold text-kumo-strong">调用日志保留天数</label>
-                    <input
+                    <Input
+                      aria-label="调用日志保留天数"
                       type="number"
                       value={settingsForm.LOG_RETENTION_DAYS}
                       onChange={(e) => setSettingsForm({ ...settingsForm, LOG_RETENTION_DAYS: Number(e.target.value) })}
@@ -2132,7 +2140,7 @@ function GeminiCliPage() {
               {/* Model Redirect (Aliases) */}
               <div className="space-y-4">
                 <h4 className="text-xs font-bold text-kumo-brand uppercase border-b border-kumo-line pb-1">
-                  3. 模型重定向与别名路由 (Model Redirects)
+                  3. 模型重定向与别名路由
                 </h4>
                 <p className="text-[10px] text-kumo-subtle">
                   您可以将外部系统调用的模型名称重定向为底层的真实部署模型（如将 <code>gpt-4o</code> 路由到真实的 <code>gemini-1.5-pro</code>）。
@@ -2155,14 +2163,16 @@ function GeminiCliPage() {
                           <div className="flex items-center gap-2 min-w-0 flex-1">
                             {isEditing ? (
                               <div className="flex items-center gap-1.5 flex-1 min-w-0">
-                                <input
+                                <Input
+                                  aria-label="源模型名称"
                                   type="text"
                                   value={newRedirectSource}
                                   onChange={(e) => setNewRedirectSource(e.target.value)}
                                   className="w-1/2 bg-kumo-base text-kumo-strong px-2 py-0.5 border border-kumo-line rounded"
                                 />
                                 <ArrowRight className="w-3.5 h-3.5 text-kumo-subtle flex-shrink-0" />
-                                <input
+                                <Input
+                                  aria-label="真实路由模型"
                                   type="text"
                                   value={newRedirectTarget}
                                   onChange={(e) => setNewRedirectTarget(e.target.value)}
@@ -2185,24 +2195,36 @@ function GeminiCliPage() {
                           <div className="flex gap-1 ml-3">
                             {isEditing ? (
                               <>
-                                <button
+                                <Button
+                                  shape="square"
+                                  size="sm"
+                                  variant="ghost"
+                                  aria-label="确认保存重定向"
                                   onClick={() => addRedirectRule(newRedirectSource, newRedirectTarget)}
                                   className="p-1 bg-kumo-success/15 hover:bg-kumo-success/25 rounded text-kumo-success"
                                   title="确认保存"
                                 >
                                   <Check className="w-3.5 h-3.5" />
-                                </button>
-                                <button
+                                </Button>
+                                <Button
+                                  shape="square"
+                                  size="sm"
+                                  variant="ghost"
+                                  aria-label="取消编辑重定向"
                                   onClick={() => setEditingRedirectSource(null)}
                                   className="p-1 bg-kumo-recessed rounded text-kumo-subtle"
                                   title="取消"
                                 >
                                   <X className="w-3.5 h-3.5" />
-                                </button>
+                                </Button>
                               </>
                             ) : (
                               <>
-                                <button
+                                <Button
+                                  shape="square"
+                                  size="sm"
+                                  variant="ghost"
+                                  aria-label="编辑重定向"
                                   onClick={() => {
                                     setEditingRedirectSource(r.source_model);
                                     setNewRedirectSource(r.source_model);
@@ -2212,14 +2234,18 @@ function GeminiCliPage() {
                                   title="编辑"
                                 >
                                   <Edit className="w-3.5 h-3.5" />
-                                </button>
-                                <button
+                                </Button>
+                                <Button
+                                  shape="square"
+                                  size="sm"
+                                  variant="ghost"
+                                  aria-label="删除重定向"
                                   onClick={() => deleteRedirectRule(r.source_model)}
                                   className="p-1 hover:bg-kumo-danger/10 rounded text-kumo-subtle hover:text-kumo-danger"
                                   title="删除"
                                 >
                                   <Trash className="w-3.5 h-3.5" />
-                                </button>
+                                </Button>
                               </>
                             )}
                           </div>
@@ -2232,17 +2258,19 @@ function GeminiCliPage() {
                 {/* Form to add redirection */}
                 {!editingRedirectSource && (
                   <div className="flex flex-wrap gap-2.5 items-center p-4 bg-kumo-brand/5 border border-dashed border-kumo-brand/20 rounded-lg">
-                    <input
+                    <Input
+                      aria-label="源模型名称"
                       type="text"
-                      placeholder="源模型名称 (e.g. gpt-4o)"
+                      placeholder="源模型名称（例如 gpt-4o）"
                       value={newRedirectSource}
                       onChange={(e) => setNewRedirectSource(e.target.value)}
                       className="bg-kumo-base text-kumo-strong text-xs px-3 py-2 border border-kumo-line rounded-lg focus:outline-none focus:border-kumo-brand flex-1 min-w-[140px] font-mono"
                     />
                     <ArrowRight className="w-4 h-4 text-kumo-subtle" />
-                    <input
+                    <Input
+                      aria-label="真实路由模型"
                       type="text"
-                      placeholder="真实路由模型 (e.g. gemini-1.5-pro)"
+                      placeholder="真实路由模型（例如 gemini-1.5-pro）"
                       value={newRedirectTarget}
                       onChange={(e) => setNewRedirectTarget(e.target.value)}
                       className="bg-kumo-base text-kumo-strong text-xs px-3 py-2 border border-kumo-line rounded-lg focus:outline-none focus:border-kumo-brand flex-1 min-w-[140px] font-mono"
@@ -2311,13 +2339,14 @@ function GeminiCliPage() {
             {editingAccount ? '编辑 Gemini 账号凭证' : '手动添加 Gemini 账号'}
           </Dialog.Title>
           <Dialog.Description className="text-xs text-kumo-subtle mb-4">
-            手动配置 Google Cloud Application Client 凭证及 Refresh Token。
+            手动配置 Google Cloud Application Client 凭证及刷新令牌。
           </Dialog.Description>
 
           <div className="space-y-4">
             <div className="space-y-1">
               <label className="text-xs font-semibold text-kumo-strong">备注名称</label>
-              <input
+              <Input
+                aria-label="备注名称"
                 type="text"
                 value={accountForm.name}
                 onChange={(e) => setAccountForm({ ...accountForm, name: e.target.value })}
@@ -2328,7 +2357,8 @@ function GeminiCliPage() {
 
             <div className="space-y-1">
               <label className="text-xs font-semibold text-kumo-strong">OAuth Client ID</label>
-              <input
+              <Input
+                aria-label="OAuth Client ID"
                 type="text"
                 value={accountForm.client_id}
                 onChange={(e) => setAccountForm({ ...accountForm, client_id: e.target.value })}
@@ -2339,7 +2369,8 @@ function GeminiCliPage() {
 
             <div className="space-y-1">
               <label className="text-xs font-semibold text-kumo-strong">OAuth Client Secret</label>
-              <input
+              <Input
+                aria-label="OAuth Client Secret"
                 type="password"
                 value={accountForm.client_secret}
                 onChange={(e) => setAccountForm({ ...accountForm, client_secret: e.target.value })}
@@ -2349,12 +2380,13 @@ function GeminiCliPage() {
             </div>
 
             <div className="space-y-1">
-              <label className="text-xs font-semibold text-kumo-strong">OAuth Refresh Token</label>
-              <input
+              <label className="text-xs font-semibold text-kumo-strong">OAuth 刷新令牌</label>
+              <Input
+                aria-label="OAuth 刷新令牌"
                 type="password"
                 value={accountForm.refresh_token}
                 onChange={(e) => setAccountForm({ ...accountForm, refresh_token: e.target.value })}
-                placeholder="刷新 Token"
+                placeholder="刷新令牌"
                 className="w-full bg-kumo-recessed text-kumo-strong text-xs px-3 py-2 border border-kumo-line rounded-lg focus:outline-none focus:border-kumo-brand font-mono"
               />
             </div>
@@ -2362,7 +2394,8 @@ function GeminiCliPage() {
             <div className="space-y-1">
               <label className="text-xs font-semibold text-kumo-strong">谷歌邮箱 (Email)</label>
               <div className="flex gap-2">
-                <input
+                <Input
+                  aria-label="谷歌邮箱"
                   type="text"
                   value={accountForm.email}
                   onChange={(e) => setAccountForm({ ...accountForm, email: e.target.value })}
@@ -2377,7 +2410,8 @@ function GeminiCliPage() {
 
             <div className="space-y-1">
               <label className="text-xs font-semibold text-kumo-strong">绑定 Project ID</label>
-              <input
+              <Input
+                aria-label="绑定 Project ID"
                 type="text"
                 value={accountForm.project_id}
                 onChange={(e) => setAccountForm({ ...accountForm, project_id: e.target.value })}
@@ -2391,9 +2425,13 @@ function GeminiCliPage() {
             )}
 
             <div className="flex justify-end gap-3 pt-2">
-              <Dialog.Close asChild>
-  <Button>取消</Button>
-</Dialog.Close>
+              <Dialog.Close
+                render={(props) => (
+                  <Button {...props} variant="secondary">
+                    取消
+                  </Button>
+                )}
+              />
               <Button variant="primary" disabled={accountSaving} onClick={saveAccount}>
                 {accountSaving ? '保存中...' : '确认保存'}
               </Button>
@@ -2408,9 +2446,16 @@ function GeminiCliPage() {
           {/* Header */}
           <div className="p-4 border-b border-kumo-line flex items-center justify-between">
             <h3 className="text-sm font-bold text-kumo-strong">调用日志详细分析</h3>
-            <button onClick={() => setLogDetailOpen(false)} className="p-1 hover:bg-kumo-recessed rounded text-kumo-subtle">
+            <Button
+              shape="square"
+              size="sm"
+              variant="ghost"
+              aria-label="关闭日志详情"
+              onClick={() => setLogDetailOpen(false)}
+              className="p-1 hover:bg-kumo-recessed rounded text-kumo-subtle"
+            >
               <X className="w-4 h-4" />
-            </button>
+            </Button>
           </div>
 
           {/* Details Body */}

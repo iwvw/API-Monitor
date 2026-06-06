@@ -321,6 +321,7 @@ router.delete('/accounts/:accountId/zones/:zoneId', async (req, res) => {
     }
 
     storage.touchAccount(accountId);
+    const auth = account.email ? { email: account.email, key: account.apiToken } : account.apiToken;
     const result = await cfApi.deleteZone(auth, zoneId);
 
     logger.info(`鍩熷悕鍒犻櫎鎴愬姛: Zone ID ${zoneId}`);
@@ -517,7 +518,8 @@ router.post('/accounts/:accountId/zones/:zoneId/switch', async (req, res) => {
     }
 
     storage.touchAccount(accountId);
-    const updated = await cfApi.switchDnsContent(account.apiToken, zoneId, type, name, newContent);
+    const auth = account.email ? { email: account.email, key: account.apiToken } : account.apiToken;
+    const updated = await cfApi.switchDnsContent(auth, zoneId, type, name, newContent);
 
     res.json({
       success: true,
@@ -551,11 +553,8 @@ router.post('/accounts/:accountId/zones/:zoneId/batch', async (req, res) => {
     }
 
     storage.touchAccount(accountId);
-    const { results, errors } = await cfApi.batchCreateDnsRecords(
-      account.apiToken,
-      zoneId,
-      records
-    );
+    const auth = account.email ? { email: account.email, key: account.apiToken } : account.apiToken;
+    const { results, errors } = await cfApi.batchCreateDnsRecords(auth, zoneId, records);
 
     res.json({
       success: errors.length === 0,
@@ -759,21 +758,22 @@ router.get('/templates', (req, res) => {
 router.post('/templates', (req, res) => {
   try {
     const { name, type, content, proxied, ttl, priority, description } = req.body;
+    const records = Array.isArray(req.body.records)
+      ? req.body.records
+      : type && content
+        ? [{ type, name: req.body.recordName || '@', content, proxied, ttl, priority }]
+        : [];
 
-    if (!name || !type || !content) {
+    if (!name || records.length === 0) {
       return res.status(400).json({
-        error: '名称、类型、内容必填',
+        error: '名称和至少一条记录必填',
       });
     }
 
     const template = storage.addTemplate({
       name,
-      type,
-      content,
-      proxied,
-      ttl,
-      priority,
       description,
+      records,
     });
 
     res.json({ success: true, template });
@@ -788,7 +788,19 @@ router.post('/templates', (req, res) => {
 router.put('/templates/:id', (req, res) => {
   try {
     const { id } = req.params;
-    const updated = storage.updateTemplate(id, req.body);
+    const { type, content, proxied, ttl, priority } = req.body;
+    const updates = { ...req.body };
+    if (!Array.isArray(updates.records) && type && content) {
+      updates.records = [{ type, name: req.body.recordName || '@', content, proxied, ttl, priority }];
+    }
+    delete updates.type;
+    delete updates.content;
+    delete updates.proxied;
+    delete updates.ttl;
+    delete updates.priority;
+    delete updates.recordName;
+
+    const updated = storage.updateTemplate(id, updates);
 
     if (!updated) {
       return res.status(404).json({
@@ -830,8 +842,8 @@ router.post('/templates/:templateId/apply', async (req, res) => {
     const { templateId } = req.params;
     const { accountId, zoneId, recordName } = req.body;
 
-    if (!accountId || !zoneId || !recordName) {
-      return res.status(400).json({ error: 'accountId, zoneId, recordName 蹇呭～' });
+    if (!accountId || !zoneId) {
+      return res.status(400).json({ error: 'accountId 和 zoneId 必填' });
     }
 
     const account = storage.getAccountById(accountId);
@@ -848,23 +860,34 @@ router.post('/templates/:templateId/apply', async (req, res) => {
     }
 
     storage.touchAccount(accountId);
-    const record = await cfApi.createDnsRecord(account.apiToken, zoneId, {
-      type: template.type,
-      name: recordName,
-      content: template.content,
-      ttl: template.ttl,
-      proxied: template.proxied,
-      priority: template.priority,
-    });
+    const auth = account.email ? { email: account.email, key: account.apiToken } : account.apiToken;
+    const templateRecords = Array.isArray(template.records)
+      ? template.records
+      : template.type && template.content
+        ? [template]
+        : [];
+
+    if (templateRecords.length === 0) {
+      return res.status(400).json({ error: '模板没有可应用的记录' });
+    }
+
+    const records = templateRecords.map(record => ({
+      type: record.type,
+      name: recordName || record.name || '@',
+      content: record.content,
+      ttl: record.ttl,
+      proxied: record.proxied,
+      priority: record.priority,
+    }));
+
+    const { results, errors } = await cfApi.batchCreateDnsRecords(auth, zoneId, records);
 
     res.json({
-      success: true,
-      record: {
-        id: record.id,
-        type: record.type,
-        name: record.name,
-        content: record.content,
-      },
+      success: errors.length === 0,
+      created: results.length,
+      failed: errors.length,
+      results,
+      errors,
     });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -1058,7 +1081,7 @@ router.put('/accounts/:id/workers/:scriptName', async (req, res) => {
     const cfAccountId = await cfApi.getAccountId(auth);
     logger.info(`CF Account ID: ${cfAccountId}`);
 
-    const result = await cfApi.putWorkerScript(account.apiToken, cfAccountId, scriptName, script, {
+    const result = await cfApi.putWorkerScript(auth, cfAccountId, scriptName, script, {
       bindings,
       compatibility_date,
     });
@@ -1131,6 +1154,7 @@ router.get('/accounts/:accountId/zones/:zoneId/workers/routes', async (req, res)
     }
 
     storage.touchAccount(accountId);
+    const auth = account.email ? { email: account.email, key: account.apiToken } : account.apiToken;
     const routes = await cfApi.listWorkerRoutes(auth, zoneId);
 
     res.json({
@@ -1163,6 +1187,7 @@ router.post('/accounts/:accountId/zones/:zoneId/workers/routes', async (req, res
     }
 
     storage.touchAccount(accountId);
+    const auth = account.email ? { email: account.email, key: account.apiToken } : account.apiToken;
     const route = await cfApi.createWorkerRoute(auth, zoneId, pattern, script);
 
     res.json({
@@ -1192,6 +1217,7 @@ router.put('/accounts/:accountId/zones/:zoneId/workers/routes/:routeId', async (
     }
 
     storage.touchAccount(accountId);
+    const auth = account.email ? { email: account.email, key: account.apiToken } : account.apiToken;
     const route = await cfApi.updateWorkerRoute(auth, zoneId, routeId, pattern, script);
 
     res.json({
@@ -1219,6 +1245,7 @@ router.delete('/accounts/:accountId/zones/:zoneId/workers/routes/:routeId', asyn
     }
 
     storage.touchAccount(accountId);
+    const auth = account.email ? { email: account.email, key: account.apiToken } : account.apiToken;
     await cfApi.deleteWorkerRoute(auth, zoneId, routeId);
 
     res.json({ success: true });

@@ -1,12 +1,15 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { toast } from '../modules/toast.js';
+import { dialog } from '../modules/dialog.js';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Dialog } from '@cloudflare/kumo/components/dialog';
+import { Input, Textarea } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
 import { Switch } from '@cloudflare/kumo/components/switch';
 import { Checkbox } from '@cloudflare/kumo/components/checkbox';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import { Tabs } from '@cloudflare/kumo';
+import { MODULE_TABS_PROPS } from '../modules/kumoTabs.js';
 import {
   Bell,
   Plus,
@@ -271,7 +274,7 @@ function NotificationPage() {
     } else if (channelForm.type === 'telegram') {
       const config = channelForm.config;
       if (!config.bot_token || !config.chat_id) {
-        toast.warning('请填写完整的 Telegram Bot Token 与 Chat ID');
+        toast.warning('请填写完整的 Telegram Bot 令牌与 Chat ID');
         return;
       }
     }
@@ -307,7 +310,7 @@ function NotificationPage() {
   };
 
   const handleDeleteChannel = async (id) => {
-    if (!confirm('确定要删除此通知渠道吗？该操作不可逆！')) return;
+    if (!(await dialog.confirm('确定要删除此通知渠道吗？该操作不可逆！'))) return;
     try {
       const res = await fetch(`/api/notification/channels/${id}`, {
         method: 'DELETE',
@@ -461,7 +464,7 @@ function NotificationPage() {
   };
 
   const handleDeleteRule = async (id) => {
-    if (!confirm('确定要删除此告警规则吗？')) return;
+    if (!(await dialog.confirm('确定要删除此告警规则吗？'))) return;
     try {
       const res = await fetch(`/api/notification/rules/${id}`, {
         method: 'DELETE',
@@ -512,7 +515,7 @@ function NotificationPage() {
 
   // ==================== 4. 历史记录与全局设置 ====================
   const handleClearHistory = async () => {
-    if (!confirm('确定要清空所有通知历史记录吗？清空后将无法找回！')) return;
+    if (!(await dialog.confirm('确定要清空所有通知历史记录吗？清空后将无法找回！'))) return;
     try {
       const res = await fetch('/api/notification/history', {
         method: 'DELETE',
@@ -565,12 +568,11 @@ function NotificationPage() {
   }, [notificationHistory, notificationHistoryFilter]);
 
   return (
-    <div className="space-y-6 pb-20">
+    <div className="space-y-6">
       {/* ==================== 顶部 Tab 导航 ==================== */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b border-kumo-line pb-4 gap-4">
+      <div className="flex flex-wrap items-center justify-between border-b border-kumo-line pb-3 gap-4">
         <Tabs
-          variant="segmented"
-          size="sm"
+          {...MODULE_TABS_PROPS}
           value={notificationCurrentTab}
           onValueChange={setNotificationCurrentTab}
           tabs={[
@@ -984,7 +986,8 @@ function NotificationPage() {
             {/* Base URL */}
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-kumo-subtle">看板基准 URL (用于生成通知卡片链接)</label>
-              <input
+              <Input
+                aria-label="看板基准 URL"
                 type="text"
                 placeholder="https://monitor.domain.com"
                 value={notificationGlobalConfig.base_url || ''}
@@ -998,7 +1001,8 @@ function NotificationPage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 border-t border-kumo-line pt-4">
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-kumo-subtle">全局限频阀值 (条 / 小时)</label>
-                <input
+                <Input
+                  aria-label="全局限频阀值"
                   type="number"
                   value={notificationGlobalConfig.global_rate_limit_per_hour || 100}
                   onChange={(e) => setNotificationGlobalConfig(prev => ({ ...prev, global_rate_limit_per_hour: parseInt(e.target.value) || 0 }))}
@@ -1009,7 +1013,8 @@ function NotificationPage() {
 
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-kumo-subtle">消息聚合归并时间 (秒)</label>
-                <input
+                <Input
+                  aria-label="消息聚合归并时间"
                   type="number"
                   value={notificationGlobalConfig.batch_interval_seconds || 30}
                   onChange={(e) => setNotificationGlobalConfig(prev => ({ ...prev, batch_interval_seconds: parseInt(e.target.value) || 0 }))}
@@ -1055,23 +1060,25 @@ function NotificationPage() {
             {/* Channel Type */}
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-kumo-subtle">渠道类型</label>
-              <select
+              <Select
+                aria-label="渠道类型"
                 value={channelForm.type}
                 disabled={channelForm.id !== null}
-                onChange={(e) => setChannelForm(prev => ({ ...prev, type: e.target.value }))}
+                onValueChange={(value) => setChannelForm(prev => ({ ...prev, type: String(value) }))}
                 className="w-full bg-kumo-recessed text-kumo-strong text-sm px-3 py-2 border border-kumo-line rounded-md focus:outline-none focus:border-kumo-brand"
               >
-                <option value="email">Email 邮件</option>
-                <option value="telegram">Telegram Bot</option>
-              </select>
+                <Select.Option value="email">电子邮件</Select.Option>
+                <Select.Option value="telegram">Telegram Bot</Select.Option>
+              </Select>
             </div>
 
             {/* Channel Name */}
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-kumo-subtle">显示名称 *</label>
-              <input
+              <Input
+                aria-label="显示名称"
                 type="text"
-                placeholder="e.g. 运维值班邮箱"
+                placeholder="例如：运维值班邮箱"
                 value={channelForm.name}
                 onChange={(e) => setChannelForm(prev => ({ ...prev, name: e.target.value }))}
                 className="w-full bg-kumo-recessed text-kumo-strong text-sm px-3 py-2 border border-kumo-line rounded-md focus:outline-none focus:border-kumo-brand"
@@ -1083,7 +1090,8 @@ function NotificationPage() {
               <>
                 <div className="space-y-1.5">
                   <label className="text-xs font-semibold text-kumo-subtle">SMTP 主机服务器地址 *</label>
-                  <input
+                  <Input
+                    aria-label="SMTP 主机服务器地址"
                     type="text"
                     placeholder="smtp.gmail.com or smtp.exmail.qq.com"
                     value={channelForm.config.host}
@@ -1098,7 +1106,8 @@ function NotificationPage() {
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
                     <label className="text-xs font-semibold text-kumo-subtle">连接端口</label>
-                    <input
+                    <Input
+                      aria-label="连接端口"
                       type="number"
                       placeholder="465"
                       value={channelForm.config.port}
@@ -1109,23 +1118,25 @@ function NotificationPage() {
 
                   <div className="space-y-1.5">
                     <label className="text-xs font-semibold text-kumo-subtle">加密安全协议</label>
-                    <select
+                    <Select
+                      aria-label="加密安全协议"
                       value={channelForm.config.secure ? 'ssl' : 'tls'}
-                      onChange={(e) => setChannelForm(prev => ({
+                      onValueChange={(value) => setChannelForm(prev => ({
                         ...prev,
-                        config: { ...prev.config, secure: e.target.value === 'ssl' }
+                        config: { ...prev.config, secure: String(value) === 'ssl' }
                       }))}
                       className="w-full bg-kumo-recessed text-kumo-strong text-sm px-3 py-2 border border-kumo-line rounded-md focus:outline-none focus:border-kumo-brand"
                     >
-                      <option value="tls">STARTTLS / TLS (587)</option>
-                      <option value="ssl">SSL (465)</option>
-                    </select>
+                      <Select.Option value="tls">STARTTLS / TLS（587）</Select.Option>
+                      <Select.Option value="ssl">SSL（465）</Select.Option>
+                    </Select>
                   </div>
                 </div>
 
                 <div className="space-y-1.5">
                   <label className="text-xs font-semibold text-kumo-subtle">发件账户邮箱账号 *</label>
-                  <input
+                  <Input
+                    aria-label="发件账户邮箱账号"
                     type="email"
                     placeholder="account@gmail.com"
                     value={channelForm.config.auth.user}
@@ -1141,8 +1152,9 @@ function NotificationPage() {
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-kumo-subtle">SMTP 授权口令 / App密码 *</label>
-                  <input
+                  <label className="text-xs font-semibold text-kumo-subtle">SMTP 授权口令 / 应用密码 *</label>
+                  <Input
+                    aria-label="SMTP 授权口令"
                     type="password"
                     placeholder="your_smtp_app_password"
                     value={channelForm.config.auth.pass}
@@ -1158,8 +1170,9 @@ function NotificationPage() {
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-kumo-subtle">发件人昵称称号 (可选)</label>
-                  <input
+                  <label className="text-xs font-semibold text-kumo-subtle">发件人昵称（可选）</label>
+                  <Input
+                    aria-label="发件人昵称"
                     type="text"
                     placeholder="API Monitor Alerter"
                     value={channelForm.config.sender_name}
@@ -1173,7 +1186,8 @@ function NotificationPage() {
 
                 <div className="space-y-1.5">
                   <label className="text-xs font-semibold text-kumo-subtle">收件目的邮箱 *</label>
-                  <input
+                  <Input
+                    aria-label="收件目的邮箱"
                     type="email"
                     placeholder="recipient@domain.com"
                     value={channelForm.config.to}
@@ -1191,8 +1205,9 @@ function NotificationPage() {
             {channelForm.type === 'telegram' && (
               <>
                 <div className="space-y-1.5">
-                  <label className="text-xs font-semibold text-kumo-subtle">Telegram Bot Token *</label>
-                  <input
+                  <label className="text-xs font-semibold text-kumo-subtle">Telegram Bot 令牌 *</label>
+                  <Input
+                    aria-label="Telegram Bot 令牌"
                     type="text"
                     placeholder="123456789:ABCDefgh..."
                     value={channelForm.config.bot_token}
@@ -1206,9 +1221,10 @@ function NotificationPage() {
 
                 <div className="space-y-1.5">
                   <label className="text-xs font-semibold text-kumo-subtle">接收目标 Chat ID *</label>
-                  <input
+                  <Input
+                    aria-label="接收目标 Chat ID"
                     type="text"
-                    placeholder="e.g. 123456789 or -100987654321"
+                    placeholder="例如：123456789 或 -100987654321"
                     value={channelForm.config.chat_id}
                     onChange={(e) => setChannelForm(prev => ({
                       ...prev,
@@ -1232,9 +1248,13 @@ function NotificationPage() {
           </div>
 
           <div className="flex justify-end gap-3 mt-6 border-t border-kumo-line pt-4 select-none">
-            <Dialog.Close asChild>
-  <Button>取消</Button>
-</Dialog.Close>
+            <Dialog.Close
+              render={(props) => (
+                <Button {...props} variant="secondary">
+                  取消
+                </Button>
+              )}
+            />
             <Button variant="primary" onClick={handleSaveChannel} loading={notificationSaving} icon={<Save className="w-3.5 h-3.5" />}>
               保存渠道
             </Button>
@@ -1256,9 +1276,10 @@ function NotificationPage() {
             {/* Rule Name */}
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-kumo-subtle">规则名称 *</label>
-              <input
+              <Input
+                aria-label="规则名称"
                 type="text"
-                placeholder="e.g. 数据库故障告警"
+                placeholder="例如：数据库故障告警"
                 value={ruleForm.name}
                 onChange={(e) => setRuleForm(prev => ({ ...prev, name: e.target.value }))}
                 className="w-full bg-kumo-recessed text-kumo-strong text-sm px-3 py-2 border border-kumo-line rounded-md focus:outline-none focus:border-kumo-brand"
@@ -1269,56 +1290,59 @@ function NotificationPage() {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-kumo-subtle">来源监控模块</label>
-                <select
+                <Select
+                  aria-label="来源监控模块"
                   value={ruleForm.source_module}
-                  onChange={(e) => handleSourceModuleChange(e.target.value)}
+                  onValueChange={(value) => handleSourceModuleChange(String(value))}
                   className="w-full bg-kumo-recessed text-kumo-strong text-sm px-3 py-2 border border-kumo-line rounded-md focus:outline-none focus:border-kumo-brand"
                 >
-                  <option value="uptime">Uptime 监测</option>
-                  <option value="server">Host 主机管理</option>
-                </select>
+                  <Select.Option value="uptime">Uptime 监测</Select.Option>
+                  <Select.Option value="server">Host 主机管理</Select.Option>
+                </Select>
               </div>
 
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-kumo-subtle">触发事件类型</label>
-                <select
+                <Select
+                  aria-label="触发事件类型"
                   value={ruleForm.event_type}
-                  onChange={(e) => setRuleForm(prev => ({ ...prev, event_type: e.target.value }))}
+                  onValueChange={(value) => setRuleForm(prev => ({ ...prev, event_type: String(value) }))}
                   className="w-full bg-kumo-recessed text-kumo-strong text-sm px-3 py-2 border border-kumo-line rounded-md focus:outline-none focus:border-kumo-brand"
                 >
                   {ruleForm.source_module === 'uptime' ? (
                     <>
-                      <option value="down">服务下线宕机 (Down)</option>
-                      <option value="up">服务恢复正常 (Up)</option>
+                      <Select.Option value="down">服务下线宕机 (Down)</Select.Option>
+                      <Select.Option value="up">服务恢复正常 (Up)</Select.Option>
                     </>
                   ) : (
                     <>
-                      <option value="offline">主机离线 (Offline)</option>
-                      <option value="online">主机恢复上线 (Online)</option>
-                      <option value="cpu_high">CPU 高负载 (&gt;90%)</option>
-                      <option value="cpu_normal">CPU 负载恢复</option>
-                      <option value="memory_high">内存不足 (&gt;90%)</option>
-                      <option value="memory_normal">内存占用恢复</option>
-                      <option value="disk_high">磁盘空间告急 (&gt;90%)</option>
-                      <option value="disk_normal">磁盘占用恢复</option>
+                      <Select.Option value="offline">主机离线 (Offline)</Select.Option>
+                      <Select.Option value="online">主机恢复上线 (Online)</Select.Option>
+                      <Select.Option value="cpu_high">CPU 高负载 (&gt;90%)</Select.Option>
+                      <Select.Option value="cpu_normal">CPU 负载恢复</Select.Option>
+                      <Select.Option value="memory_high">内存不足 (&gt;90%)</Select.Option>
+                      <Select.Option value="memory_normal">内存占用恢复</Select.Option>
+                      <Select.Option value="disk_high">磁盘空间告急 (&gt;90%)</Select.Option>
+                      <Select.Option value="disk_normal">磁盘占用恢复</Select.Option>
                     </>
                   )}
-                </select>
+                </Select>
               </div>
             </div>
 
             {/* Severity Level */}
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-kumo-subtle">告警紧急级别</label>
-              <select
+              <Select
+                aria-label="告警紧急级别"
                 value={ruleForm.severity}
-                onChange={(e) => setRuleForm(prev => ({ ...prev, severity: e.target.value }))}
+                onValueChange={(value) => setRuleForm(prev => ({ ...prev, severity: String(value) }))}
                 className="w-full bg-kumo-recessed text-kumo-strong text-sm px-3 py-2 border border-kumo-line rounded-md focus:outline-none focus:border-kumo-brand"
               >
-                <option value="info">常规通知 (Info)</option>
-                <option value="warning">重要警告 (Warning)</option>
-                <option value="critical">紧急呼叫 (Critical)</option>
-              </select>
+                <Select.Option value="info">常规通知 (Info)</Select.Option>
+                <Select.Option value="warning">重要警告 (Warning)</Select.Option>
+                <Select.Option value="critical">紧急呼叫 (Critical)</Select.Option>
+              </Select>
             </div>
 
             {/* Target Delivery Channels Checkboxes */}
@@ -1348,7 +1372,8 @@ function NotificationPage() {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-kumo-subtle">累计触发次数再告警</label>
-                <input
+                <Input
+                  aria-label="累计触发次数再告警"
                   type="number"
                   min="1"
                   value={ruleForm.suppression.repeat_count}
@@ -1362,7 +1387,8 @@ function NotificationPage() {
 
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-kumo-subtle">冷却静默期 (分钟)</label>
-                <input
+                <Input
+                  aria-label="冷却静默期"
                   type="number"
                   min="0"
                   value={ruleForm.suppression.silence_minutes}
@@ -1401,7 +1427,8 @@ function NotificationPage() {
             {/* Custom Template Titles */}
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-kumo-subtle">自定义标题模板 (可选，支持 {'{{变量}}'})</label>
-              <input
+              <Input
+                aria-label="自定义标题模板"
                 type="text"
                 placeholder="例: 🚨 [{{severity}}] 主机 {{serverName}} 离线!"
                 value={ruleForm.title_template}
@@ -1413,7 +1440,8 @@ function NotificationPage() {
             {/* Custom Template Content */}
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-kumo-subtle">自定义内容模板 (可选)</label>
-              <textarea
+              <Textarea
+                aria-label="自定义内容模板"
                 placeholder="例: 服务 {{monitorName}} 无法连通，出错原因: {{error}}"
                 value={ruleForm.message_template}
                 onChange={(e) => setRuleForm(prev => ({ ...prev, message_template: e.target.value }))}
@@ -1424,7 +1452,8 @@ function NotificationPage() {
             {/* Quiet until */}
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-kumo-subtle">手动全局静默直至 (在此时间前屏蔽此规则)</label>
-              <input
+              <Input
+                aria-label="手动全局静默直至"
                 type="datetime-local"
                 value={ruleForm.quiet_until}
                 onChange={(e) => setRuleForm(prev => ({ ...prev, quiet_until: e.target.value }))}
@@ -1444,9 +1473,13 @@ function NotificationPage() {
           </div>
 
           <div className="flex justify-end gap-3 mt-6 border-t border-kumo-line pt-4 select-none">
-            <Dialog.Close asChild>
-  <Button>取消</Button>
-</Dialog.Close>
+            <Dialog.Close
+              render={(props) => (
+                <Button {...props} variant="secondary">
+                  取消
+                </Button>
+              )}
+            />
             <Button variant="primary" onClick={handleSaveRule} loading={notificationSaving} icon={<Save className="w-3.5 h-3.5" />}>
               保存规则
             </Button>

@@ -1,6 +1,6 @@
 /**
  * 统一的 OpenAI 兼容接口 (/v1)
- * 根据全局配置动态分发请求到 Antigravity, Gemini CLI, DeepSeek 或 Qwen
+ * 根据全局配置动态分发请求到 Gemini CLI 或 Qwen
  */
 
 const express = require('express');
@@ -12,18 +12,12 @@ const { getSession, getSessionById } = require('../services/session');
 
 // 动态加载模块路由和服务
 const modulesDir = path.join(__dirname, '../../modules');
-let agRouter = null;
 let gcliRouter = null;
-const agService = null;
-let agStorage = null;
 let qwenRouter = null;
 let qwenStorage = null;
 let gcliStorage = null;
 
 try {
-  const agPath = path.join(modulesDir, 'antigravity-api', 'router.js');
-  if (fs.existsSync(agPath)) agRouter = require(agPath);
-  
   const gcliPath = path.join(modulesDir, 'gemini-cli-api', 'router.js');
   if (fs.existsSync(gcliPath)) gcliRouter = require(gcliPath);
   
@@ -31,9 +25,6 @@ try {
   if (fs.existsSync(qwenPath)) qwenRouter = require(qwenPath);
 
   // 加载存储层用于鉴权
-  const agStoragePath = path.join(modulesDir, 'antigravity-api', 'storage.js');
-  if (fs.existsSync(agStoragePath)) agStorage = require(agStoragePath);
-
   const qwenStoragePath = path.join(modulesDir, 'qwen-api', 'storage.js');
   if (fs.existsSync(qwenStoragePath)) qwenStorage = require(qwenStoragePath);
 
@@ -70,14 +61,12 @@ function requireApiAuth(req, res, next) {
     if (sessionById) return next();
 
     // 检查各渠道 API Key
-    if (agStorage && token === agStorage.getSetting('API_KEY')) return next();
     if (qwenStorage && token === qwenStorage.getSetting('API_KEY')) return next();
     try { if (gcliStorage && token === (gcliStorage.getSettings().API_KEY || '123456')) return next(); } catch(e) {}
   }
 
   const queryKey = req.query.key;
   if (queryKey) {
-    if (agStorage && queryKey === agStorage.getSetting('API_KEY')) return next();
     if (qwenStorage && queryKey === qwenStorage.getSetting('API_KEY')) return next();
     try { if (gcliStorage && queryKey === (gcliStorage.getSettings().API_KEY || '123456')) return next(); } catch(e) {}
   }
@@ -101,16 +90,6 @@ router.get(['/models', '/model'], requireApiAuth, async (req, res) => {
             allModelsMap.set(id, { id, object: 'model', created: now, owned_by: owner });
         });
     };
-
-    // 1. Antigravity
-    if (channelEnabled['antigravity'] && agStorage) {
-        try {
-            const agService = require(path.join(modulesDir, 'antigravity-api', 'antigravity-service.js'));
-            addModels(agService.getAvailableModels(''), channelModelPrefix['antigravity'] || '', 'google');
-        } catch(e){}
-    }
-
-
 
     // 3. Gemini CLI — reuse router.js getAvailableModels() for name consistency
     if (channelEnabled['gemini-cli'] && gcliStorage) {
@@ -184,13 +163,6 @@ const dispatch = async (req, res, next) => {
         req.body.model = fullId.substring(gcliPrefix.length);
         if (channelEnabled['gemini-cli'] && gcliRouter) return gcliRouter(req, res, next);
     }
-    // 检查 Antigravity 前缀
-    const agPrefix = channelModelPrefix['antigravity'] || '';
-    if (agPrefix && fullId.startsWith(agPrefix)) {
-        req.body.model = fullId.substring(agPrefix.length);
-        if (channelEnabled['antigravity'] && agRouter) return agRouter(req, res, next);
-    }
-
     // 优先级 2: 智能探测 (无前缀或前缀不匹配)
     // A. 探测 Qwen 归属
     if (channelEnabled['qwen'] && qwenStorage && qwenRouter) {
@@ -212,19 +184,11 @@ const dispatch = async (req, res, next) => {
         }
     }
 
-    // D. 探测 Antigravity 归属
-    if (channelEnabled['antigravity'] && agRouter) {
-        // 如果是 google 系模型但没被 GCLI 命中，交给 Antigravity
-        if (fullId.includes('gemini-') || fullId.includes('google')) {
-            return agRouter(req, res, next);
-        }
-    }
   }
 
   // 默认 Fallback
   if (channelEnabled['qwen'] && qwenRouter) return qwenRouter(req, res, next);
   if (channelEnabled['gemini-cli'] && gcliRouter) return gcliRouter(req, res, next);
-  if (channelEnabled['antigravity'] && agRouter) return agRouter(req, res, next);
 
   next();
 };

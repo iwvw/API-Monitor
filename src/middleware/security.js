@@ -22,8 +22,8 @@ function configureHelmet(options = {}) {
                     defaultSrc: ["'self'"],
                     scriptSrc: [
                         "'self'",
-                        "'unsafe-inline'", // Vue 需要
-                        "'unsafe-eval'", // Vue 开发模式需要
+                        "'unsafe-inline'", // React/Kumo runtime and inline bootstrap compatibility
+                        "'unsafe-eval'", // Some bundled dev/runtime integrations require eval-compatible CSP
                         'https://cdn.jsdelivr.net',
                         'https://unpkg.com',
                         'https://cdnjs.cloudflare.com',

@@ -252,14 +252,14 @@ class UserSettings extends BaseModel {
       dns: true,
       openai: true,
       server: true,
-      antigravity: true,
     };
-    const defaultOrder = ['dns', 'openai', 'server', 'antigravity'];
+    const defaultOrder = ['dns', 'openai', 'server'];
 
     // 解析 JSON 字段并合并默认值
     if (settings.module_visibility) {
       const parsed = JSON.parse(settings.module_visibility);
       settings.module_visibility = { ...defaults, ...parsed };
+      delete settings.module_visibility.antigravity;
     } else {
       settings.module_visibility = defaults;
     }
@@ -268,19 +268,18 @@ class UserSettings extends BaseModel {
       const parsed = JSON.parse(settings.channel_enabled);
       // 确保都有值
       settings.channel_enabled = {
-        antigravity: true,
         'gemini-cli': true,
         ...parsed,
       };
+      delete settings.channel_enabled.antigravity;
     } else {
       settings.channel_enabled = {
-        antigravity: true,
         'gemini-cli': true,
       };
     }
 
     if (settings.module_order) {
-      const parsed = JSON.parse(settings.module_order);
+      const parsed = JSON.parse(settings.module_order).filter(module => module !== 'antigravity');
       // 确保所有默认模块都在顺序列表中
       const missing = defaultOrder.filter(m => !parsed.includes(m));
       settings.module_order = [...parsed, ...missing];
@@ -292,10 +291,11 @@ class UserSettings extends BaseModel {
       try {
         settings.channel_model_prefix = JSON.parse(settings.channel_model_prefix);
       } catch (e) {
-        settings.channel_model_prefix = { antigravity: '', 'gemini-cli': '' };
+        settings.channel_model_prefix = { 'gemini-cli': '' };
       }
+      delete settings.channel_model_prefix.antigravity;
     } else {
-      settings.channel_model_prefix = { antigravity: '', 'gemini-cli': '' };
+      settings.channel_model_prefix = { 'gemini-cli': '' };
     }
 
     if (!settings.load_balancing_strategy) {
@@ -330,17 +330,14 @@ class UserSettings extends BaseModel {
         dns: true,
         openai: true,
         server: true,
-        antigravity: true,
       }),
       channel_enabled: JSON.stringify({
-        antigravity: true,
         'gemini-cli': true,
       }),
       channel_model_prefix: JSON.stringify({
-        antigravity: '',
         'gemini-cli': '',
       }),
-      module_order: JSON.stringify(['dns', 'openai', 'server', 'antigravity']),
+      module_order: JSON.stringify(['dns', 'openai', 'server']),
       updated_at: new Date().toISOString(),
     };
 

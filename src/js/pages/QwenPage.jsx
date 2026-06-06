@@ -1,12 +1,17 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { toast } from '../modules/toast.js';
+import { dialog } from '../modules/dialog.js';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Dialog } from '@cloudflare/kumo/components/dialog';
+import { Input, Textarea } from '@cloudflare/kumo/components/input';
+import { Select } from '@cloudflare/kumo/components/select';
 import { Switch } from '@cloudflare/kumo/components/switch';
 import { Checkbox } from '@cloudflare/kumo/components/checkbox';
 import { Table } from '@cloudflare/kumo/components/table';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
+import { Tabs } from '@cloudflare/kumo';
 import useTableResize from '../composables/useTableResize.js';
+import { MODULE_TABS_PROPS } from '../modules/kumoTabs.js';
 import { formatDateTime } from '../modules/utils.js';
 import {
   Cpu,
@@ -221,7 +226,7 @@ function QwenPage() {
   };
 
   const deleteAccount = async (id) => {
-    if (!window.confirm('确定要删除此凭证吗？此操作不可恢复。')) return;
+    if (!(await dialog.confirm('确定要删除此凭证吗？此操作不可恢复。'))) return;
     try {
       const response = await fetch(`/api/qwen/accounts/${id}`, {
         method: 'DELETE',
@@ -268,7 +273,7 @@ function QwenPage() {
   }, [getAuthHeaders]);
 
   const clearLogs = async () => {
-    if (!window.confirm('确定要清空 Qwen 的所有调用日志吗？')) return;
+    if (!(await dialog.confirm('确定要清空 Qwen 的所有调用日志吗？'))) return;
     try {
       const response = await fetch('/api/qwen/logs', {
         method: 'DELETE',
@@ -437,7 +442,7 @@ function QwenPage() {
   };
 
   const removeRedirectRule = async (sourceModel) => {
-    if (!window.confirm(`确认删除 ${sourceModel} 的重定向别名规则吗？`)) return;
+    if (!(await dialog.confirm(`确认删除 ${sourceModel} 的重定向别名规则吗？`))) return;
     try {
       const response = await fetch(`/api/qwen/models/redirects/${encodeURIComponent(sourceModel)}`, {
         method: 'DELETE',
@@ -482,53 +487,20 @@ function QwenPage() {
   }, [activeTab, loadStats, loadMatrix, loadAccounts, loadLogs, loadSettings, loadRedirects]);
 
   return (
-    <div className="space-y-6 flex flex-col pb-20">
+    <div className="space-y-6 flex flex-col">
       {/* Sub Tabs */}
-      <div className="flex border border-kumo-line rounded-lg p-0.5 bg-kumo-recessed self-start select-none">
-        <button
-          onClick={() => setActiveTab('models')}
-          className={`flex items-center gap-2 px-4 py-1.5 rounded-md text-xs font-semibold cursor-pointer transition-colors ${
-            activeTab === 'models'
-              ? 'bg-kumo-base text-kumo-strong shadow-sm'
-              : 'text-kumo-subtle hover:text-kumo-strong'
-          }`}
-        >
-          <Cpu className="w-3.5 h-3.5" />
-          <span>模型矩阵</span>
-        </button>
-        <button
-          onClick={() => setActiveTab('accounts')}
-          className={`flex items-center gap-2 px-4 py-1.5 rounded-md text-xs font-semibold cursor-pointer transition-colors ${
-            activeTab === 'accounts'
-              ? 'bg-kumo-base text-kumo-strong shadow-sm'
-              : 'text-kumo-subtle hover:text-kumo-strong'
-          }`}
-        >
-          <Users className="w-3.5 h-3.5" />
-          <span>凭证管理</span>
-        </button>
-        <button
-          onClick={() => setActiveTab('logs')}
-          className={`flex items-center gap-2 px-4 py-1.5 rounded-md text-xs font-semibold cursor-pointer transition-colors ${
-            activeTab === 'logs'
-              ? 'bg-kumo-base text-kumo-strong shadow-sm'
-              : 'text-kumo-subtle hover:text-kumo-strong'
-          }`}
-        >
-          <History className="w-3.5 h-3.5" />
-          <span>调用日志</span>
-        </button>
-        <button
-          onClick={() => setActiveTab('settings')}
-          className={`flex items-center gap-2 px-4 py-1.5 rounded-md text-xs font-semibold cursor-pointer transition-colors ${
-            activeTab === 'settings'
-              ? 'bg-kumo-base text-kumo-strong shadow-sm'
-              : 'text-kumo-subtle hover:text-kumo-strong'
-          }`}
-        >
-          <SettingsIcon className="w-3.5 h-3.5" />
-          <span>模块配置</span>
-        </button>
+      <div className="flex flex-wrap items-center justify-between border-b border-kumo-line pb-3 gap-4 select-none">
+        <Tabs
+          {...MODULE_TABS_PROPS}
+          value={activeTab}
+          onValueChange={setActiveTab}
+          tabs={[
+            { value: 'models', label: <span className="inline-flex items-center gap-1.5"><Cpu className="w-3.5 h-3.5" />模型矩阵</span> },
+            { value: 'accounts', label: <span className="inline-flex items-center gap-1.5"><Users className="w-3.5 h-3.5" />凭证管理</span> },
+            { value: 'logs', label: <span className="inline-flex items-center gap-1.5"><History className="w-3.5 h-3.5" />调用日志</span> },
+            { value: 'settings', label: <span className="inline-flex items-center gap-1.5"><SettingsIcon className="w-3.5 h-3.5" />模块配置</span> },
+          ]}
+        />
       </div>
 
       {/* ==================== 1. 模型矩阵 Tab ==================== */}
@@ -548,7 +520,7 @@ function QwenPage() {
               </div>
               <div className="bg-kumo-base p-4 border border-kumo-line rounded-lg shadow-sm flex items-center justify-between">
                 <div>
-                  <span className="text-[10px] font-bold text-kumo-subtle block uppercase">消耗 Token</span>
+                  <span className="text-[10px] font-bold text-kumo-subtle block">消耗令牌</span>
                   <span className="text-xl font-bold text-kumo-strong">{formatTokens(stats.total_tokens || 0)}</span>
                 </div>
                 <div className="p-2 bg-kumo-brand/10 rounded-lg text-kumo-brand">
@@ -732,7 +704,11 @@ function QwenPage() {
                         </Table.Cell>
                         <Table.Cell>
                           <div className="flex justify-center gap-2">
-                            <button
+                            <Button
+                              shape="square"
+                              size="sm"
+                              variant="ghost"
+                              aria-label={acc.enable !== false ? '禁用账号' : '启用账号'}
                               onClick={() => toggleAccountEnabled(acc.id)}
                               className={`p-1.5 rounded hover:bg-kumo-recessed transition-colors ${
                                 acc.enable !== false ? 'text-kumo-success' : 'text-kumo-subtle'
@@ -740,14 +716,18 @@ function QwenPage() {
                               title={acc.enable !== false ? '禁用' : '启用'}
                             >
                               <Check className="w-4 h-4" />
-                            </button>
-                            <button
+                            </Button>
+                            <Button
+                              shape="square"
+                              size="sm"
+                              variant="ghost"
+                              aria-label="删除账号"
                               onClick={() => deleteAccount(acc.id)}
                               className="p-1.5 rounded hover:bg-kumo-danger/10 text-kumo-subtle hover:text-kumo-danger transition-colors"
                               title="删除"
                             >
                               <Trash className="w-4 h-4" />
-                            </button>
+                            </Button>
                           </div>
                         </Table.Cell>
                       </Table.Row>
@@ -769,27 +749,31 @@ function QwenPage() {
               历史调用日志
             </h3>
             <div className="flex flex-wrap gap-2 text-xs">
-              <select
+              <Select
+                aria-label="日志账号筛选"
+                size="sm"
                 value={logFilterAccount}
-                onChange={(e) => setLogFilterAccount(e.target.value)}
-                className="bg-kumo-base text-kumo-strong border border-kumo-line rounded px-2 py-1 font-semibold focus:outline-none"
+                onValueChange={(value) => setLogFilterAccount(String(value))}
+                className="font-semibold"
               >
-                <option value="">全部账号</option>
+                <Select.Option value="">全部账号</Select.Option>
                 {accounts.filter(a => a.enable !== false).map(a => (
-                  <option key={a.id} value={a.id}>{a.name || a.id}</option>
+                  <Select.Option key={a.id} value={a.id}>{a.name || a.id}</Select.Option>
                 ))}
-              </select>
+              </Select>
 
-              <select
+              <Select
+                aria-label="日志模型筛选"
+                size="sm"
                 value={logFilterModel}
-                onChange={(e) => setLogFilterModel(e.target.value)}
-                className="bg-kumo-base text-kumo-strong border border-kumo-line rounded px-2 py-1 font-semibold focus:outline-none"
+                onValueChange={(value) => setLogFilterModel(String(value))}
+                className="font-semibold"
               >
-                <option value="">全部模型</option>
+                <Select.Option value="">全部模型</Select.Option>
                 {getLogModelsList.map(m => (
-                  <option key={m} value={m}>{m}</option>
+                  <Select.Option key={m} value={m}>{m}</Select.Option>
                 ))}
-              </select>
+              </Select>
 
               <Button onClick={() => loadLogs(true)} disabled={logsLoading} className="flex items-center gap-1">
                 <RefreshCw className={`w-3.5 h-3.5 ${logsLoading ? 'animate-spin' : ''}`} />
@@ -895,12 +879,16 @@ function QwenPage() {
                           {log.first_token_time_ms != null ? `${log.first_token_time_ms}ms` : '-'}
                         </Table.Cell>
                         <Table.Cell className="text-center">
-                          <button
+                          <Button
+                            shape="square"
+                            size="sm"
+                            variant="ghost"
+                            aria-label="查看日志详情"
                             onClick={() => showLogDetailDialog(log)}
                             className="p-1 hover:bg-kumo-recessed rounded text-kumo-subtle hover:text-kumo-strong transition-colors"
                           >
                             <Eye className="w-4 h-4" />
-                          </button>
+                          </Button>
                         </Table.Cell>
                       </Table.Row>
                     ))
@@ -935,28 +923,34 @@ function QwenPage() {
               <div className="space-y-1">
                 <label className="text-xs font-semibold text-kumo-strong block">API 访问密钥 (API_KEY)</label>
                 <div className="relative">
-                  <input
+                  <Input
+                    aria-label="API 访问密钥"
                     type={showApiKey ? 'text' : 'password'}
                     value={settingsForm.API_KEY}
                     onChange={(e) => setSettingsForm({ ...settingsForm, API_KEY: e.target.value })}
                     placeholder="留空则不启用外部接口鉴权"
                     className="w-full bg-kumo-recessed text-kumo-strong text-xs px-3 py-2 pr-10 border border-kumo-line rounded-lg focus:outline-none focus:border-kumo-brand font-mono"
                   />
-                  <button
+                  <Button
+                    shape="square"
+                    size="sm"
+                    variant="ghost"
+                    aria-label={showApiKey ? '隐藏 API 访问密钥' : '显示 API 访问密钥'}
                     onClick={() => setShowApiKey(!showApiKey)}
                     className="absolute right-3 top-2.5 text-kumo-subtle hover:text-kumo-strong"
                   >
                     {showApiKey ? <Eye className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
+                  </Button>
                 </div>
               </div>
 
               <div className="space-y-1">
                 <label className="text-xs font-semibold text-kumo-strong block">全局系统指令 (Global System Instruction)</label>
-                <textarea
+                <Textarea
+                  aria-label="全局系统指令"
                   value={settingsForm.SYSTEM_INSTRUCTION}
                   onChange={(e) => setSettingsForm({ ...settingsForm, SYSTEM_INSTRUCTION: e.target.value })}
-                  placeholder="设置后将作为 System Prompt 注入到每次 Qwen 的对话之中..."
+                  placeholder="设置后将作为系统提示词注入到每次 Qwen 对话中..."
                   rows={3}
                   className="w-full bg-kumo-recessed text-kumo-strong text-xs p-3 border border-kumo-line rounded-lg focus:outline-none focus:border-kumo-brand font-mono resize-y"
                 />
@@ -988,14 +982,16 @@ function QwenPage() {
                       <div className="flex items-center gap-2 min-w-0 flex-1">
                         {isEditing ? (
                           <div className="flex items-center gap-1.5 flex-1 min-w-0 font-mono">
-                            <input
+                            <Input
+                              aria-label="源别名模型"
                               type="text"
                               value={newRedirectSource}
                               onChange={(e) => setNewRedirectSource(e.target.value)}
                               className="w-1/2 bg-kumo-base text-kumo-strong px-2 py-0.5 border border-kumo-line rounded"
                             />
                             <ArrowRight className="w-3.5 h-3.5 text-kumo-subtle flex-shrink-0" />
-                            <input
+                            <Input
+                              aria-label="重定向目标模型"
                               type="text"
                               value={newRedirectTarget}
                               onChange={(e) => setNewRedirectTarget(e.target.value)}
@@ -1018,24 +1014,36 @@ function QwenPage() {
                       <div className="flex gap-1 ml-3">
                         {isEditing ? (
                           <>
-                            <button
+                            <Button
+                              shape="square"
+                              size="sm"
+                              variant="ghost"
+                              aria-label="保存重定向"
                               onClick={addRedirectRule}
                               className="p-1 bg-kumo-success/15 hover:bg-kumo-success/25 rounded text-kumo-success"
                               title="保存"
                             >
                               <Check className="w-3.5 h-3.5" />
-                            </button>
-                            <button
+                            </Button>
+                            <Button
+                              shape="square"
+                              size="sm"
+                              variant="ghost"
+                              aria-label="取消编辑重定向"
                               onClick={() => setEditingRedirectSource(null)}
                               className="p-1 bg-kumo-recessed rounded text-kumo-subtle"
                               title="取消"
                             >
                               <X className="w-3.5 h-3.5" />
-                            </button>
+                            </Button>
                           </>
                         ) : (
                           <>
-                            <button
+                            <Button
+                              shape="square"
+                              size="sm"
+                              variant="ghost"
+                              aria-label="编辑重定向"
                               onClick={() => {
                                 setEditingRedirectSource(r.source_model);
                                 setNewRedirectSource(r.source_model);
@@ -1045,14 +1053,18 @@ function QwenPage() {
                               title="编辑"
                             >
                               <Edit className="w-3.5 h-3.5" />
-                            </button>
-                            <button
+                            </Button>
+                            <Button
+                              shape="square"
+                              size="sm"
+                              variant="ghost"
+                              aria-label="删除重定向"
                               onClick={() => removeRedirectRule(r.source_model)}
                               className="p-1 hover:bg-kumo-danger/10 rounded text-kumo-subtle hover:text-kumo-danger"
                               title="删除"
                             >
                               <Trash className="w-3.5 h-3.5" />
-                            </button>
+                            </Button>
                           </>
                         )}
                       </div>
@@ -1065,7 +1077,8 @@ function QwenPage() {
             {/* Redirection add input */}
             {!editingRedirectSource && (
               <div className="flex flex-wrap gap-2.5 items-center p-4 bg-kumo-brand/5 border border-dashed border-kumo-brand/20 rounded-lg">
-                <input
+                <Input
+                  aria-label="源别名模型"
                   type="text"
                   placeholder="源别名模型 (例如: gpt-3.5-turbo)"
                   value={newRedirectSource}
@@ -1073,7 +1086,8 @@ function QwenPage() {
                   className="bg-kumo-base text-kumo-strong text-xs px-3 py-2 border border-kumo-line rounded-lg focus:outline-none focus:border-kumo-brand flex-1 min-w-[140px] font-mono"
                 />
                 <ArrowRight className="w-4 h-4 text-kumo-subtle" />
-                <input
+                <Input
+                  aria-label="实际重定向目标"
                   type="text"
                   placeholder="实际重定向目标 (例如: qwen-plus)"
                   value={newRedirectTarget}
@@ -1144,7 +1158,8 @@ function QwenPage() {
 
             <div className="space-y-1">
               <label className="text-xs font-semibold text-kumo-strong">凭证备注</label>
-              <input
+              <Input
+                aria-label="凭证备注"
                 type="text"
                 value={accountForm.name}
                 onChange={(e) => setAccountForm({ ...accountForm, name: e.target.value })}
@@ -1155,7 +1170,8 @@ function QwenPage() {
 
             <div className="space-y-1">
               <label className="text-xs font-semibold text-kumo-strong">Cookie 内容</label>
-              <textarea
+              <Textarea
+                aria-label="Cookie 内容"
                 value={accountForm.token}
                 onChange={(e) => setAccountForm({ ...accountForm, token: e.target.value })}
                 placeholder="粘贴全量 Cookie 字符串..."
@@ -1165,9 +1181,13 @@ function QwenPage() {
             </div>
 
             <div className="flex justify-end gap-3 pt-2">
-              <Dialog.Close asChild>
-  <Button>取消</Button>
-</Dialog.Close>
+              <Dialog.Close
+                render={(props) => (
+                  <Button {...props} variant="secondary">
+                    取消
+                  </Button>
+                )}
+              />
               <Button variant="primary" disabled={accountSaving} onClick={addQwenAccount}>
                 {accountSaving ? '提交中...' : '提交入库'}
               </Button>
@@ -1182,9 +1202,16 @@ function QwenPage() {
           {/* Header */}
           <div className="p-4 border-b border-kumo-line flex items-center justify-between">
             <h3 className="text-sm font-bold text-kumo-strong">Qwen 调用详情</h3>
-            <button onClick={() => setLogDetailOpen(false)} className="p-1 hover:bg-kumo-recessed rounded text-kumo-subtle">
+            <Button
+              shape="square"
+              size="sm"
+              variant="ghost"
+              aria-label="关闭日志详情"
+              onClick={() => setLogDetailOpen(false)}
+              className="p-1 hover:bg-kumo-recessed rounded text-kumo-subtle"
+            >
               <X className="w-4 h-4" />
-            </button>
+            </Button>
           </div>
 
           {/* Details Body */}
@@ -1215,7 +1242,7 @@ function QwenPage() {
                   <span className="text-kumo-strong font-semibold">{logDetail.model || '-'}</span>
                 </div>
                 <div>
-                  <span className="text-kumo-subtle font-bold block">Token 消耗</span>
+                  <span className="text-kumo-subtle font-bold block">令牌消耗</span>
                   <span className="text-kumo-strong font-bold">{logDetail.tokens || 0} tokens</span>
                 </div>
               </div>

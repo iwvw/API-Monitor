@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import QRCode from 'qrcode';
 import { toast } from '../modules/toast.js';
+import { dialog } from '../modules/dialog.js';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Dialog } from '@cloudflare/kumo/components/dialog';
 import { Input, Textarea } from '@cloudflare/kumo/components/input';
@@ -9,6 +10,7 @@ import { Select } from '@cloudflare/kumo/components/select';
 import { Switch } from '@cloudflare/kumo/components/switch';
 import { Tabs } from '@cloudflare/kumo';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
+import { MODULE_TABS_PROPS, TOOL_TABS_PROPS } from '../modules/kumoTabs.js';
 import { formatFileSize, formatDateTime } from '../modules/utils.js';
 import {
   Send,
@@ -312,7 +314,7 @@ function FileboxPage() {
   };
 
   const handleDeleteEntry = async (code) => {
-    if (!confirm(`确定要删除取件码为 "${code}" 的分享吗？`)) {
+    if (!(await dialog.confirm(`确定要删除取件码为 "${code}" 的分享吗？`))) {
       return;
     }
 
@@ -366,12 +368,11 @@ function FileboxPage() {
   };
 
   return (
-    <div className="space-y-6 pb-20">
+    <div className="space-y-6">
       {/* ==================== 顶部 Tab 导航 ==================== */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b border-kumo-line pb-4 gap-4">
+      <div className="flex flex-wrap items-center justify-between border-b border-kumo-line pb-3 gap-4">
         <Tabs
-          variant="segmented"
-          size="sm"
+          {...MODULE_TABS_PROPS}
           value={activeTab}
           onValueChange={setActiveTab}
           tabs={[
@@ -437,8 +438,7 @@ function FileboxPage() {
 
           <div className="max-w-xs mb-5">
             <Tabs
-              variant="segmented"
-              size="sm"
+              {...TOOL_TABS_PROPS}
               value={shareType}
               onValueChange={setShareType}
               tabs={[
@@ -881,9 +881,13 @@ function FileboxPage() {
               )}
 
               <div className="flex justify-end gap-3 pt-2">
-                <Dialog.Close asChild>
-                  <Button>关闭</Button>
-                </Dialog.Close>
+                <Dialog.Close
+                  render={(props) => (
+                    <Button {...props} variant="secondary">
+                      关闭
+                    </Button>
+                  )}
+                />
                 {retrievedEntry.type === 'file' ? (
                   <Button variant="primary" onClick={() => triggerDownload(retrievedEntry.code)}>
                     下载文件

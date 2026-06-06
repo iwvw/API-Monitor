@@ -270,7 +270,6 @@ app.use(errorHandler);
 // 路径直接使用 mainActiveTab 值
 const spaRoutes = [
   '/openai',
-  '/antigravity',
   '/gemini-cli',
   '/paas',
   '/dns',

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { toast } from '../modules/toast.js';
+import { dialog } from '../modules/dialog.js';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Dialog } from '@cloudflare/kumo/components/dialog';
 import { Input, Textarea } from '@cloudflare/kumo/components/input';
@@ -9,6 +10,7 @@ import { Tabs } from '@cloudflare/kumo';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import useTableResize from '../composables/useTableResize.js';
 import useStore from '../store.js';
+import { MODULE_TABS_PROPS } from '../modules/kumoTabs.js';
 import {
   Database,
   Globe,
@@ -129,7 +131,7 @@ function TencentPage() {
   };
 
   const deleteAccount = async (id) => {
-    if (!window.confirm('确定要删除此腾讯云账号吗？')) return;
+    if (!(await dialog.confirm('确定要删除此腾讯云账号吗？'))) return;
     try {
       const response = await fetch(`/api/tencent/accounts/${id}`, {
         method: 'DELETE',
@@ -231,7 +233,7 @@ function TencentPage() {
     const endpoint = isLighthouse ? 'lighthouse' : 'cvm';
     const actionText = action === 'START' ? '启动' : action === 'STOP' ? '停止' : '重启';
     
-    if (!window.confirm(`确认${actionText}实例 ${instance.InstanceName || instance.InstanceId} 吗？`)) return;
+    if (!(await dialog.confirm(`确认${actionText}实例 ${instance.InstanceName || instance.InstanceId} 吗？`))) return;
 
     try {
       const response = await fetch(`/api/tencent/accounts/${selectedAccountId}/${endpoint}/${instance.InstanceId}/control`, {
@@ -275,13 +277,12 @@ function TencentPage() {
   };
 
   return (
-    <div className="flex flex-col gap-6 w-full px-1 pb-20">
+    <div className="flex flex-col gap-6 w-full px-1">
       {/* Header Tabs */}
       <div className="flex flex-wrap items-center justify-between border-b border-kumo-line pb-3 gap-4">
-        <div className="min-w-0">
+        <div className="min-w-0 w-full md:w-auto">
           <Tabs
-            variant="segmented"
-            size="sm"
+            {...MODULE_TABS_PROPS}
             value={activeTab}
             onValueChange={setActiveTab}
             tabs={[
@@ -766,9 +767,17 @@ function TencentPage() {
             />
 
             <div className="flex justify-end gap-2 pt-2">
-              <Dialog.Close asChild>
-  <Button className="border border-kumo-line bg-kumo-recessed text-xs h-8">取消</Button>
-</Dialog.Close>
+              <Dialog.Close
+                render={(props) => (
+                  <Button
+                    {...props}
+                    variant="secondary"
+                    className="border border-kumo-line bg-kumo-recessed text-xs h-8"
+                  >
+                    取消
+                  </Button>
+                )}
+              />
               <Button onClick={handleAddAccount} disabled={submittingAccount} className="text-xs h-8">
                 {submittingAccount ? '提交中...' : '保存账号'}
               </Button>

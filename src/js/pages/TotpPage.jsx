@@ -1,10 +1,15 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import jsQR from 'jsqr';
 import { toast } from '../modules/toast.js';
+import { dialog } from '../modules/dialog.js';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Dialog } from '@cloudflare/kumo/components/dialog';
+import { Input, Textarea } from '@cloudflare/kumo/components/input';
+import { Select } from '@cloudflare/kumo/components/select';
 import { Switch } from '@cloudflare/kumo/components/switch';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
+import { Tabs } from '@cloudflare/kumo';
+import { MODULE_TABS_PROPS, TOOL_TABS_PROPS } from '../modules/kumoTabs.js';
 import {
   Key,
   FolderOpen,
@@ -376,23 +381,10 @@ function TotpPage() {
   const saveSettingsToServer = async (newSettings) => {
     try {
       const headers = getAuthHeaders();
-      const settingsRes = await fetch('/api/settings', { headers });
-      const settingsResult = await settingsRes.json();
-      
-      let currentSettings = {};
-      if (settingsResult.success && settingsResult.data) {
-        currentSettings = settingsResult.data;
-      }
-
-      const payload = {
-        ...currentSettings,
-        totpSettings: newSettings,
-      };
-
       await fetch('/api/settings', {
-        method: 'POST',
+        method: 'PATCH',
         headers,
-        body: JSON.stringify(payload),
+        body: JSON.stringify({ totpSettings: newSettings }),
       });
     } catch (e) {
       console.error('保存设置失败:', e);
@@ -609,7 +601,7 @@ function TotpPage() {
   };
 
   const handleDeleteAccount = async (account) => {
-    if (!confirm(`确定要删除 "${account.issuer}" 的账号吗？`)) {
+    if (!(await dialog.confirm(`确定要删除 "${account.issuer}" 的账号吗？`))) {
       return;
     }
 
@@ -875,7 +867,7 @@ function TotpPage() {
   };
 
   const handleDeleteGroup = async (group) => {
-    if (!confirm(`确定要删除分组 "${group.name}" 吗？分组内的账号不会被删除。`)) {
+    if (!(await dialog.confirm(`确定要删除分组 "${group.name}" 吗？分组内的账号不会被删除。`))) {
       return;
     }
 
@@ -1012,65 +1004,42 @@ function TotpPage() {
   };
 
   return (
-    <div className="space-y-6 pb-20">
+    <div className="space-y-6">
       {/* ==================== 顶部 Tab 导航 ==================== */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b border-kumo-line pb-4 gap-4">
-        <div className="flex border border-kumo-line rounded-lg p-0.5 bg-kumo-recessed select-none">
-          <button
-            onClick={() => setTotpCurrentTab('accounts')}
-            className={`flex items-center gap-2 px-4 py-1.5 rounded-md text-xs font-semibold cursor-pointer transition-colors ${
-              totpCurrentTab === 'accounts'
-                ? 'bg-kumo-base text-kumo-strong shadow-sm'
-                : 'text-kumo-subtle hover:text-kumo-strong'
-            }`}
-          >
-            <Key className="w-3.5 h-3.5" />
-            <span>验证码</span>
-          </button>
-          <button
-            onClick={() => setTotpCurrentTab('groups')}
-            className={`flex items-center gap-2 px-4 py-1.5 rounded-md text-xs font-semibold cursor-pointer transition-colors ${
-              totpCurrentTab === 'groups'
-                ? 'bg-kumo-base text-kumo-strong shadow-sm'
-                : 'text-kumo-subtle hover:text-kumo-strong'
-            }`}
-          >
-            <FolderOpen className="w-3.5 h-3.5" />
-            <span>分组</span>
-          </button>
-          <button
-            onClick={() => setTotpCurrentTab('settings')}
-            className={`flex items-center gap-2 px-4 py-1.5 rounded-md text-xs font-semibold cursor-pointer transition-colors ${
-              totpCurrentTab === 'settings'
-                ? 'bg-kumo-base text-kumo-strong shadow-sm'
-                : 'text-kumo-subtle hover:text-kumo-strong'
-            }`}
-          >
-            <Settings className="w-3.5 h-3.5" />
-            <span>设置</span>
-          </button>
-        </div>
+        <Tabs
+          {...MODULE_TABS_PROPS}
+          value={totpCurrentTab}
+          onValueChange={setTotpCurrentTab}
+          tabs={[
+            { value: 'accounts', label: <span className="inline-flex items-center gap-1.5"><Key className="w-3.5 h-3.5" />验证码</span> },
+            { value: 'groups', label: <span className="inline-flex items-center gap-1.5"><FolderOpen className="w-3.5 h-3.5" />分组</span> },
+            { value: 'settings', label: <span className="inline-flex items-center gap-1.5"><Settings className="w-3.5 h-3.5" />设置</span> },
+          ]}
+        />
 
         {totpCurrentTab === 'accounts' && (
           <div className="flex items-center gap-2 w-full md:w-auto">
-            <select
+            <Select
+              aria-label="TOTP 分组筛选"
+              size="sm"
               value={totpFilterGroup}
-              onChange={(e) => setTotpFilterGroup(e.target.value)}
-              className="bg-kumo-base text-kumo-strong border border-kumo-line rounded-md text-xs px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-kumo-brand"
+              onValueChange={(value) => setTotpFilterGroup(String(value))}
             >
-              <option value="">全部分组</option>
+              <Select.Option value="">全部分组</Select.Option>
               {totpGroups.map((g) => (
-                <option key={g.id} value={g.id}>
+                <Select.Option key={g.id} value={String(g.id)}>
                   {g.name}
-                </option>
+                </Select.Option>
               ))}
-            </select>
+            </Select>
 
             <div className="relative flex-1 md:w-48">
               <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-kumo-subtle">
                 <Search className="w-3.5 h-3.5" />
               </span>
-              <input
+              <Input
+                aria-label="搜索 TOTP 账号"
                 type="text"
                 placeholder="搜索账号..."
                 value={totpSearchQuery}
@@ -1184,7 +1153,11 @@ function TotpPage() {
                     >
                       {/* Action buttons (overlay/hover) */}
                       <div className="absolute right-2 top-2 opacity-0 group-hover/card:opacity-100 flex items-center gap-1 transition-opacity bg-kumo-base pl-1.5 py-0.5 rounded-md z-10">
-                        <button
+                        <Button
+                          shape="square"
+                          size="xs"
+                          variant="ghost"
+                          aria-label="编辑账号"
                           onClick={(e) => {
                             e.stopPropagation();
                             handleOpenEditAccount(account);
@@ -1193,8 +1166,12 @@ function TotpPage() {
                           title="编辑"
                         >
                           <Edit className="w-3 h-3" />
-                        </button>
-                        <button
+                        </Button>
+                        <Button
+                          shape="square"
+                          size="xs"
+                          variant="ghost"
+                          aria-label="删除账号"
                           onClick={(e) => {
                             e.stopPropagation();
                             handleDeleteAccount(account);
@@ -1203,7 +1180,7 @@ function TotpPage() {
                           title="删除"
                         >
                           <Trash className="w-3 h-3" />
-                        </button>
+                        </Button>
                       </div>
 
                       {/* Header */}
@@ -1238,7 +1215,9 @@ function TotpPage() {
                           {account.otp_type === 'hotp' ? (
                             <div className="flex items-center gap-1.5 w-full justify-between">
                               <span>#{codeDetail.counter || 0}</span>
-                              <button
+                              <Button
+                                size="xs"
+                                variant="secondary"
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   incrementHotp(account);
@@ -1247,7 +1226,7 @@ function TotpPage() {
                               >
                                 <RefreshCw className="w-2.5 h-2.5" />
                                 <span>递增</span>
-                              </button>
+                              </Button>
                             </div>
                           ) : (
                             <div className="flex items-center gap-1.5 w-full">
@@ -1321,20 +1300,28 @@ function TotpPage() {
                       </td>
                       <td className="py-3 px-6 text-center">
                         <div className="flex items-center justify-center gap-2">
-                          <button
+                          <Button
+                            shape="square"
+                            size="sm"
+                            variant="ghost"
+                            aria-label="编辑分组"
                             onClick={() => handleOpenEditGroup(group)}
                             className="w-7 h-7 flex items-center justify-center rounded hover:bg-kumo-recessed text-kumo-subtle hover:text-kumo-strong cursor-pointer"
                             title="编辑"
                           >
                             <Edit className="w-3.5 h-3.5" />
-                          </button>
-                          <button
+                          </Button>
+                          <Button
+                            shape="square"
+                            size="sm"
+                            variant="ghost"
+                            aria-label="删除分组"
                             onClick={() => handleDeleteGroup(group)}
                             className="w-7 h-7 flex items-center justify-center rounded hover:bg-kumo-danger/10 text-kumo-danger cursor-pointer"
                             title="删除"
                           >
                             <Trash className="w-3.5 h-3.5" />
-                          </button>
+                          </Button>
                         </div>
                       </td>
                     </tr>
@@ -1433,20 +1420,28 @@ function TotpPage() {
             {totpSettings.lockInputMode && (
               <div className="pl-4 pt-3 flex items-center justify-between">
                 <label className="text-xs font-medium text-kumo-subtle">默认录入模式</label>
-                <select
+                <Select
+                  aria-label="默认录入模式"
+                  size="sm"
                   value={totpSettings.defaultInputMode}
-                  onChange={(e) => updateSetting('defaultInputMode', e.target.value)}
-                  className="bg-kumo-base text-kumo-strong border border-kumo-line rounded-md text-xs px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-kumo-brand"
+                  onValueChange={(value) => updateSetting('defaultInputMode', String(value))}
                 >
-                  <option value="scan">扫描二维码</option>
-                  <option value="upload">上传二维码</option>
-                  <option value="manual">手动录入表单</option>
-                </select>
+                  <Select.Option value="scan">扫描二维码</Select.Option>
+                  <Select.Option value="upload">上传二维码</Select.Option>
+                  <Select.Option value="manual">手动录入表单</Select.Option>
+                </Select>
               </div>
             )}
 
             <div className="border-t border-kumo-line pt-5 flex items-center gap-3">
-              <Button onClick={() => importUrisDirectly(prompt('请输入批量导入的 otpauth:// 链接列表 (每行一条)') || '')}>
+              <Button
+                onClick={async () => {
+                  const uris = await dialog.prompt({
+                    message: '请输入批量导入的 otpauth:// 链接列表 (每行一条)',
+                  });
+                  importUrisDirectly(uris || '');
+                }}
+              >
                 批量导入 URI
               </Button>
               <Button onClick={handleExportAccounts}>批量导出备份</Button>
@@ -1533,33 +1528,19 @@ function TotpPage() {
           </Dialog.Description>
 
           {accountModalMode === 'add' && (
-            <div className="flex border-b border-kumo-line mb-4 select-none">
-              <button
-                onClick={() => {
+            <div className="mb-4">
+              <Tabs
+                {...TOOL_TABS_PROPS}
+                value={accountAddTab}
+                onValueChange={(value) => {
                   stopQrScan();
-                  setAccountAddTab('scan');
+                  setAccountAddTab(value);
                 }}
-                className={`pb-2 px-4 text-xs font-semibold border-b-2 cursor-pointer transition-colors ${
-                  accountAddTab === 'scan'
-                    ? 'border-kumo-brand text-kumo-strong'
-                    : 'border-transparent text-kumo-subtle hover:text-kumo-strong'
-                }`}
-              >
-                扫码导入
-              </button>
-              <button
-                onClick={() => {
-                  stopQrScan();
-                  setAccountAddTab('manual');
-                }}
-                className={`pb-2 px-4 text-xs font-semibold border-b-2 cursor-pointer transition-colors ${
-                  accountAddTab === 'manual'
-                    ? 'border-kumo-brand text-kumo-strong'
-                    : 'border-transparent text-kumo-subtle hover:text-kumo-strong'
-                }`}
-              >
-                手动录入
-              </button>
+                tabs={[
+                  { value: 'scan', label: '扫码导入' },
+                  { value: 'manual', label: '手动录入' },
+                ]}
+              />
             </div>
           )}
 
@@ -1577,7 +1558,8 @@ function TotpPage() {
                   <Button onClick={() => fileInputRef.current?.click()} icon={<Upload className="w-3.5 h-3.5" />}>
                     上传二维码图片
                   </Button>
-                  <input
+                  <Input
+                    aria-label="上传二维码图片"
                     type="file"
                     ref={fileInputRef}
                     accept="image/*"
@@ -1623,7 +1605,8 @@ function TotpPage() {
                   <label className="text-xs font-semibold text-kumo-subtle">
                     批量 OTP Auth URIs 导入 (每行一条)
                   </label>
-                  <textarea
+                  <Textarea
+                    aria-label="批量 OTP Auth URIs"
                     rows={4}
                     placeholder="otpauth://totp/GitHub:user@example.com?secret=XXXX..."
                     value={importUris}
@@ -1638,8 +1621,9 @@ function TotpPage() {
                 <div className="space-y-1.5">
                   <label className="text-xs font-semibold text-kumo-subtle">验证码类型</label>
                   <div className="flex gap-2">
-                    <button
+                    <Button
                       type="button"
+                      variant={accountForm.otp_type === 'totp' ? 'primary' : 'secondary'}
                       onClick={() => setAccountForm((prev) => ({ ...prev, otp_type: 'totp' }))}
                       className={`flex-1 py-1.5 rounded border text-xs font-semibold transition-colors cursor-pointer ${
                         accountForm.otp_type === 'totp'
@@ -1648,9 +1632,10 @@ function TotpPage() {
                       }`}
                     >
                       TOTP (基于时间)
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                       type="button"
+                      variant={accountForm.otp_type === 'hotp' ? 'primary' : 'secondary'}
                       onClick={() => setAccountForm((prev) => ({ ...prev, otp_type: 'hotp' }))}
                       className={`flex-1 py-1.5 rounded border text-xs font-semibold transition-colors cursor-pointer ${
                         accountForm.otp_type === 'hotp'
@@ -1659,13 +1644,14 @@ function TotpPage() {
                       }`}
                     >
                       HOTP (基于计数)
-                    </button>
+                    </Button>
                   </div>
                 </div>
 
                 <div className="space-y-1.5">
                   <label className="text-xs font-semibold text-kumo-subtle">发行商 / 服务商</label>
-                  <input
+                  <Input
+                    aria-label="发行商"
                     type="text"
                     placeholder="如: GitHub, Microsoft"
                     value={accountForm.issuer}
@@ -1676,7 +1662,8 @@ function TotpPage() {
 
                 <div className="space-y-1.5">
                   <label className="text-xs font-semibold text-kumo-subtle">账户名 / 标识</label>
-                  <input
+                  <Input
+                    aria-label="账户名"
                     type="text"
                     placeholder="如: user@example.com"
                     value={accountForm.account}
@@ -1688,7 +1675,8 @@ function TotpPage() {
                 <div className="space-y-1.5">
                   <label className="text-xs font-semibold text-kumo-subtle">密钥 (Base32)</label>
                   <div className="relative">
-                    <input
+                    <Input
+                      aria-label="TOTP 密钥"
                       type={totpShowSecret ? 'text' : 'password'}
                       placeholder="JBSWY3DPEHPK3PXP"
                       disabled={accountModalMode === 'edit'}
@@ -1696,30 +1684,34 @@ function TotpPage() {
                       onChange={(e) => setAccountForm((prev) => ({ ...prev, secret: e.target.value }))}
                       className="w-full bg-kumo-recessed text-kumo-strong text-sm pl-3 pr-10 py-2 border border-kumo-line rounded-md focus:outline-none focus:border-kumo-brand disabled:opacity-60"
                     />
-                    <button
+                    <Button
                       type="button"
+                      size="xs"
+                      variant="ghost"
+                      aria-label={totpShowSecret ? '隐藏密钥' : '显示密钥'}
                       onClick={toggleSecretVisibility}
                       className="absolute right-3 top-1/2 -translate-y-1/2 text-kumo-subtle hover:text-kumo-strong cursor-pointer"
                     >
                       {totpShowSecret ? '隐藏' : '显示'}
-                    </button>
+                    </Button>
                   </div>
                 </div>
 
                 <div className="space-y-1.5">
                   <label className="text-xs font-semibold text-kumo-subtle">关联分组</label>
-                  <select
+                  <Select
+                    aria-label="关联分组"
                     value={accountForm.group_id}
-                    onChange={(e) => setAccountForm((prev) => ({ ...prev, group_id: e.target.value }))}
+                    onValueChange={(value) => setAccountForm((prev) => ({ ...prev, group_id: String(value) }))}
                     className="w-full bg-kumo-recessed text-kumo-strong text-sm px-3 py-2 border border-kumo-line rounded-md focus:outline-none focus:border-kumo-brand"
                   >
-                    <option value="">无分组</option>
+                    <Select.Option value="">无分组</Select.Option>
                     {totpGroups.map((g) => (
-                      <option key={g.id} value={g.id}>
+                      <Select.Option key={g.id} value={String(g.id)}>
                         {g.name}
-                      </option>
+                      </Select.Option>
                     ))}
-                  </select>
+                  </Select>
                 </div>
 
                 {/* Advanced parameters */}
@@ -1730,45 +1722,52 @@ function TotpPage() {
                   <div className="pt-3 grid grid-cols-3 gap-3">
                     <div className="space-y-1">
                       <label className="font-semibold">加密算法</label>
-                      <select
+                      <Select
+                        aria-label="加密算法"
+                        size="sm"
                         value={accountForm.algorithm}
-                        onChange={(e) => setAccountForm((prev) => ({ ...prev, algorithm: e.target.value }))}
+                        onValueChange={(value) => setAccountForm((prev) => ({ ...prev, algorithm: String(value) }))}
                         className="w-full bg-kumo-recessed text-kumo-strong border border-kumo-line rounded p-1 focus:outline-none"
                       >
-                        <option value="SHA1">SHA1</option>
-                        <option value="SHA256">SHA256</option>
-                        <option value="SHA512">SHA512</option>
-                      </select>
+                        <Select.Option value="SHA1">SHA1</Select.Option>
+                        <Select.Option value="SHA256">SHA256</Select.Option>
+                        <Select.Option value="SHA512">SHA512</Select.Option>
+                      </Select>
                     </div>
 
                     <div className="space-y-1">
                       <label className="font-semibold">码位长度</label>
-                      <select
+                      <Select
+                        aria-label="码位长度"
+                        size="sm"
                         value={accountForm.digits}
-                        onChange={(e) => setAccountForm((prev) => ({ ...prev, digits: e.target.value }))}
+                        onValueChange={(value) => setAccountForm((prev) => ({ ...prev, digits: String(value) }))}
                         className="w-full bg-kumo-recessed text-kumo-strong border border-kumo-line rounded p-1 focus:outline-none"
                       >
-                        <option value="6">6 位</option>
-                        <option value="8">8 位</option>
-                      </select>
+                        <Select.Option value="6">6 位</Select.Option>
+                        <Select.Option value="8">8 位</Select.Option>
+                      </Select>
                     </div>
 
                     {accountForm.otp_type === 'totp' ? (
                       <div className="space-y-1">
                         <label className="font-semibold">周期数 (s)</label>
-                        <select
+                        <Select
+                          aria-label="周期数"
+                          size="sm"
                           value={accountForm.period}
-                          onChange={(e) => setAccountForm((prev) => ({ ...prev, period: e.target.value }))}
+                          onValueChange={(value) => setAccountForm((prev) => ({ ...prev, period: String(value) }))}
                           className="w-full bg-kumo-recessed text-kumo-strong border border-kumo-line rounded p-1 focus:outline-none"
                         >
-                          <option value="30">30 秒</option>
-                          <option value="60">60 秒</option>
-                        </select>
+                          <Select.Option value="30">30 秒</Select.Option>
+                          <Select.Option value="60">60 秒</Select.Option>
+                        </Select>
                       </div>
                     ) : (
                       <div className="space-y-1">
                         <label className="font-semibold">计数起始</label>
-                        <input
+                        <Input
+                          aria-label="计数起始"
                           type="number"
                           value={accountForm.counter}
                           onChange={(e) => setAccountForm((prev) => ({ ...prev, counter: e.target.value }))}
@@ -1779,7 +1778,8 @@ function TotpPage() {
 
                     <div className="col-span-full pt-2 flex items-center gap-2">
                       <label className="font-semibold whitespace-nowrap">自定义色值:</label>
-                      <input
+                      <Input
+                        aria-label="自定义色值"
                         type="color"
                         value={accountForm.color || '#8b5cf6'}
                         onChange={(e) => setAccountForm((prev) => ({ ...prev, color: e.target.value }))}
@@ -1802,9 +1802,20 @@ function TotpPage() {
           )}
 
           <div className="flex justify-end gap-3 mt-6">
-            <Dialog.Close asChild>
-  <Button onClick={() => stopQrScan()}>取消</Button>
-</Dialog.Close>
+            <Dialog.Close
+              render={(props) => (
+                <Button
+                  {...props}
+                  variant="secondary"
+                  onClick={(event) => {
+                    props.onClick?.(event);
+                    stopQrScan();
+                  }}
+                >
+                  取消
+                </Button>
+              )}
+            />
 
             {accountModalMode === 'add' && accountAddTab === 'scan' ? (
               <Button
@@ -1836,7 +1847,8 @@ function TotpPage() {
           <div className="space-y-4">
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-kumo-subtle">分组名称</label>
-              <input
+              <Input
+                aria-label="分组名称"
                 type="text"
                 placeholder="如: 财务, 工作, 个人"
                 value={groupForm.name}
@@ -1848,7 +1860,8 @@ function TotpPage() {
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-kumo-subtle">卡片标识色值</label>
               <div className="flex items-center gap-3">
-                <input
+                <Input
+                  aria-label="卡片标识色值"
                   type="color"
                   value={groupForm.color}
                   onChange={(e) => setGroupForm((prev) => ({ ...prev, color: e.target.value }))}
@@ -1860,9 +1873,13 @@ function TotpPage() {
           </div>
 
           <div className="flex justify-end gap-3 mt-6">
-            <Dialog.Close asChild>
-  <Button>取消</Button>
-</Dialog.Close>
+            <Dialog.Close
+              render={(props) => (
+                <Button {...props} variant="secondary">
+                  取消
+                </Button>
+              )}
+            />
             <Button variant="primary" onClick={handleSaveGroup}>
               保存分组
             </Button>
@@ -1881,7 +1898,8 @@ function TotpPage() {
           </Dialog.Description>
 
           <div className="space-y-1.5">
-            <textarea
+            <Textarea
+              aria-label="导出的 OTP Auth URI"
               readOnly
               rows={8}
               value={exportUris}
@@ -1893,9 +1911,13 @@ function TotpPage() {
           </div>
 
           <div className="flex justify-end gap-3 mt-6">
-            <Dialog.Close asChild>
-  <Button>关闭</Button>
-</Dialog.Close>
+            <Dialog.Close
+              render={(props) => (
+                <Button {...props} variant="secondary">
+                  关闭
+                </Button>
+              )}
+            />
             <Button variant="primary" onClick={copyExportedUris}>
               复制到剪贴板
             </Button>

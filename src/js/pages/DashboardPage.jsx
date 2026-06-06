@@ -303,7 +303,7 @@ function DashboardPage() {
   };
 
   return (
-    <div className="space-y-6 pb-20">
+    <div className="space-y-6">
       
       {/* ==================== Header ==================== */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -577,7 +577,7 @@ function DashboardPage() {
                 </div>
                 <div>
                   <h4 className="text-xs font-bold text-kumo-strong group-hover:text-kumo-brand transition-colors">Koyeb</h4>
-                  <p className="text-[10px] text-kumo-subtle mt-0.5">Edge Compute App Services</p>
+                  <p className="text-[10px] text-kumo-subtle mt-0.5">边缘计算应用服务</p>
                 </div>
               </div>
               <div className="flex items-center gap-2 text-xs font-semibold text-kumo-strong tabular-nums bg-kumo-base border border-kumo-line px-2 py-0.5 rounded">
@@ -597,7 +597,7 @@ function DashboardPage() {
                 </div>
                 <div>
                   <h4 className="text-xs font-bold text-kumo-strong group-hover:text-kumo-brand transition-colors">Fly.io</h4>
-                  <p className="text-[10px] text-kumo-subtle mt-0.5">Global Micro VM Machines</p>
+                  <p className="text-[10px] text-kumo-subtle mt-0.5">全球微型虚拟机</p>
                 </div>
               </div>
               <div className="flex items-center gap-2 text-xs font-semibold text-kumo-strong tabular-nums bg-kumo-base border border-kumo-line px-2 py-0.5 rounded">
@@ -617,7 +617,7 @@ function DashboardPage() {
                 </div>
                 <div>
                   <h4 className="text-xs font-bold text-kumo-strong group-hover:text-kumo-brand transition-colors">2FA 安全令牌</h4>
-                  <p className="text-[10px] text-kumo-subtle mt-0.5">OTP Auth Accounts</p>
+                  <p className="text-[10px] text-kumo-subtle mt-0.5">OTP 动态验证码账号</p>
                 </div>
               </div>
               <div className="flex items-center gap-2 text-xs font-semibold text-kumo-strong tabular-nums bg-kumo-base border border-kumo-line px-2 py-0.5 rounded">
@@ -637,7 +637,7 @@ function DashboardPage() {
                 </div>
                 <div>
                   <h4 className="text-xs font-bold text-kumo-strong group-hover:text-kumo-brand transition-colors">文件分享柜</h4>
-                  <p className="text-[10px] text-kumo-subtle mt-0.5">File & Snippet Sharing Box</p>
+                  <p className="text-[10px] text-kumo-subtle mt-0.5">文件与片段分享柜</p>
                 </div>
               </div>
               <div className="flex items-center gap-2 text-xs font-semibold text-kumo-strong tabular-nums bg-kumo-base border border-kumo-line px-2 py-0.5 rounded">

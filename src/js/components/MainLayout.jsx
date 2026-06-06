@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useMemo } from 'react';
 import useStore, { MODULE_GROUPS, MODULE_CONFIG, getModuleName } from '../store.js';
 import DashboardPage from '../pages/DashboardPage.jsx';
 import ServerPage from '../pages/ServerPage.jsx';
@@ -9,7 +9,6 @@ import NotificationPage from '../pages/NotificationPage.jsx';
 import OpenAIPage from '../pages/OpenAIPage.jsx';
 import GeminiCliPage from '../pages/GeminiCliPage.jsx';
 import QwenPage from '../pages/QwenPage.jsx';
-import AntigravityPage from '../pages/AntigravityPage.jsx';
 import PaasPage from '../pages/PaasPage.jsx';
 import DnsPage from '../pages/DnsPage.jsx';
 import AliyunPage from '../pages/AliyunPage.jsx';
@@ -22,6 +21,7 @@ import {
   useSidebar
 } from '@cloudflare/kumo/components/sidebar';
 import { Tabs } from '@cloudflare/kumo';
+import { TOOL_TABS_PROPS } from '../modules/kumoTabs.js';
 import {
   LayoutDashboard,
   Bot,
@@ -123,9 +123,28 @@ function MainLayout() {
     setSidebarCollapsed,
     pageWidthMode,
     setPageWidthMode,
+    moduleVisibility,
+    moduleOrder,
+    userSettingsLoaded,
+    loadUserSettings,
     logout,
   } = useStore();
   const pageWidthClass = PAGE_WIDTH_CLASSES[pageWidthMode] || PAGE_WIDTH_CLASSES.standard;
+
+  const visibleModuleGroups = useMemo(() => {
+    return MODULE_GROUPS.map((group) => ({
+      ...group,
+      modules: moduleOrder.filter(
+        (moduleId) => group.modules.includes(moduleId) && moduleVisibility[moduleId] !== false
+      ),
+    })).filter((group) => group.modules.length > 0);
+  }, [moduleOrder, moduleVisibility]);
+
+  useEffect(() => {
+    if (!userSettingsLoaded) {
+      loadUserSettings();
+    }
+  }, [loadUserSettings, userSettingsLoaded]);
 
   useEffect(() => {
     const syncTabFromLocation = () => {
@@ -150,6 +169,18 @@ function MainLayout() {
     }
   };
 
+  useEffect(() => {
+    if (!userSettingsLoaded || mainActiveTab === 'settings') return;
+    if (moduleVisibility[mainActiveTab] !== false) return;
+
+    const nextModule = moduleOrder.find((moduleId) => moduleVisibility[moduleId] !== false) || 'dashboard';
+    setMainActiveTab(nextModule);
+    const nextPath = MODULE_PATHS[nextModule] || `/${nextModule}`;
+    if (window.location.pathname !== nextPath) {
+      window.history.replaceState({ module: nextModule }, '', nextPath);
+    }
+  }, [mainActiveTab, moduleOrder, moduleVisibility, setMainActiveTab, userSettingsLoaded]);
+
   // 渲染当前模块页
   const renderActivePage = () => {
     switch (mainActiveTab) {
@@ -161,8 +192,6 @@ function MainLayout() {
         return <GeminiCliPage />;
       case 'qwen':
         return <QwenPage />;
-      case 'antigravity':
-        return <AntigravityPage />;
       case 'paas':
         return <PaasPage />;
       case 'dns':
@@ -209,6 +238,7 @@ function MainLayout() {
     <Sidebar.Provider
       defaultOpen={!sidebarCollapsed}
       onOpenChange={(open) => setSidebarCollapsed(!open)}
+      style={{ '--sidebar-width': '14rem' }}
       className="flex h-screen w-screen overflow-hidden bg-kumo-canvas text-kumo-default"
     >
       {/* ==================== 1. 侧边栏 (Sidebar) ==================== */}
@@ -220,7 +250,7 @@ function MainLayout() {
 
         {/* 导航栏项 */}
         <Sidebar.Content>
-          {MODULE_GROUPS.map((group) => {
+          {visibleModuleGroups.map((group) => {
             const groupLabel = group.id === 'overview' ? '总览' : group.name;
 
             return (
@@ -288,7 +318,7 @@ function MainLayout() {
 
           <div className="flex items-center gap-4">
             <Tabs
-              variant="segmented"
+              {...TOOL_TABS_PROPS}
               size="sm"
               value={pageWidthMode}
               onValueChange={setPageWidthMode}
@@ -307,7 +337,7 @@ function MainLayout() {
 
         {/* 主内容画布 */}
         <main className="flex-1 overflow-y-auto p-4 lg:p-8 scrollbar-thin">
-          <div className={`mx-auto flex h-full w-full min-w-0 flex-col ${pageWidthClass}`}>
+          <div className={`mx-auto flex min-h-full w-full min-w-0 flex-col ${pageWidthClass}`}>
             {renderActivePage()}
           </div>
         </main>

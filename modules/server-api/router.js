@@ -14,7 +14,7 @@ const monitorService = require('./monitor-service');
 const agentService = require('./agent-service');
 const sshService = require('./ssh-service');
 const { ServerAccount, ServerMonitorConfig, ServerMetricsHistory } = require('./models');
-const { TaskTypes } = require('./protocol');
+const { TaskTypes, normalizeFrontendMetrics, normalizeNetworkMetrics } = require('./protocol');
 const DockerTaskTypes = TaskTypes; // 兼容已有 Docker 路由代码
 
 // ==================== 主机凭据接口 ====================
@@ -42,6 +42,7 @@ router.get('/accounts', (req, res) => {
       }
 
       if (cachedMetrics) {
+        cachedMetrics = normalizeFrontendMetrics(cachedMetrics);
         // 解析 disk 字符串为结构化对象 (格式: "38G/40G (95%)")
         let diskArray = [];
         if (cachedMetrics.disk && typeof cachedMetrics.disk === 'string') {
@@ -584,12 +585,12 @@ router.post('/info', async (req, res) => {
       mem: `${fmt(mUsed)} / ${fmt(mTotal)}`,
       mem_percent: Math.round((mUsed / mTotal) * 100),
       disk: `${fmt(dUsed)} / ${fmt(dTotal)} (${dPerc})`,
-      network: {
+      network: normalizeNetworkMetrics({
         down: fmt(rb) + '/s',
         up: fmt(tb) + '/s',
         rx_speed: fmt(rb) + '/s',
         tx_speed: fmt(tb) + '/s',
-      },
+      }),
       is_agent: false,
       source: 'ssh',
     });

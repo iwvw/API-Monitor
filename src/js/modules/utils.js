@@ -112,13 +112,6 @@ export function renderMarkdown(text) {
  * @param {string} type - 提示类型 (success, error, warning, info)
  */
 export function showToast(message, type = 'info') {
-  // 优先使用 Vue 的全局 Toast 系统
-  if (window.vueApp && window.vueApp.showGlobalToast) {
-    window.vueApp.showGlobalToast(message, type);
-    return;
-  }
-
-  // 使用新的Toast系统
   return newShowToast(message, type);
 }
 

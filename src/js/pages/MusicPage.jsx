@@ -4,6 +4,7 @@ import toastManager from '../modules/toast.js';
 import { Button } from "@cloudflare/kumo/components/button";
 import { Input } from "@cloudflare/kumo/components/input";
 import { Tabs } from "@cloudflare/kumo";
+import { MODULE_TABS_PROPS, TOOL_TABS_PROPS } from '../modules/kumoTabs.js';
 import { Dialog } from "@cloudflare/kumo/components/dialog";
 import { SkeletonLine } from "@cloudflare/kumo/components/loader";
 import { Table } from "@cloudflare/kumo/components/table";
@@ -1035,8 +1036,7 @@ const MusicPage = () => {
       <div className="flex items-center gap-4">
         <h2 className="text-xl font-bold text-kumo-strong whitespace-nowrap">搜索: {musicSearchKeyword}</h2>
         <Tabs
-          variant="segmented"
-          size="sm"
+          {...TOOL_TABS_PROPS}
           value={musicSearchType}
           onValueChange={(v) => {
             useStore.setState({ musicSearchType: v });
@@ -1244,8 +1244,7 @@ const MusicPage = () => {
             </Button>
           )}
           <Tabs
-            variant="segmented"
-            size="sm"
+            {...MODULE_TABS_PROPS}
             value={musicCurrentTab}
             onValueChange={(v) => {
               useStore.setState({ musicCurrentTab: v, musicShowDetail: false });
@@ -1335,8 +1334,8 @@ const MusicPage = () => {
       </div>
 
       {/* Login Modal */}
-      <Dialog open={musicShowLoginModal} onOpenChange={(o) => useStore.setState({ musicShowLoginModal: o })}>
-        <DialogContent className="max-w-xs p-0 overflow-hidden rounded-3xl border-kumo-line bg-kumo-base shadow-2xl">
+      <Dialog.Root open={musicShowLoginModal} onOpenChange={(o) => useStore.setState({ musicShowLoginModal: o })}>
+        <Dialog className="max-w-xs p-0 overflow-hidden rounded-3xl border-kumo-line bg-kumo-base shadow-2xl">
           <div className="bg-gradient-to-br from-kumo-brand/10 to-transparent p-6 text-center border-b border-kumo-line/50">
             <h2 className="text-lg font-bold text-kumo-strong">网易云音乐登录</h2>
             <p className="text-[11px] text-kumo-subtle mt-1">安全扫码，极速同步</p>
@@ -1372,8 +1371,8 @@ const MusicPage = () => {
           <div className="p-4 bg-kumo-recessed/50 text-center border-t border-kumo-line/30">
             <Button variant="ghost" size="sm" className="text-[10px] text-kumo-subtle" onClick={() => useStore.setState({ musicShowLoginModal: false })}>取消登录</Button>
           </div>
-        </DialogContent>
-      </Dialog>
+        </Dialog>
+      </Dialog.Root>
 
       {/* Playback Control Bar */}
       <div className="fixed bottom-6 left-1/2 -translate-x-1/2 w-[95%] max-w-5xl z-30">

@@ -2,7 +2,7 @@ const axios = require('axios');
 const { HttpsProxyAgent } = require('https-proxy-agent');
 const { createLogger } = require('../../src/utils/logger');
 const logger = createLogger('GCLI-Client');
-const AntigravityRequester = require('../antigravity-api/antigravity-requester');
+const AntigravityRequester = require('./antigravity-requester');
 const path = require('path');
 const os = require('os');
 const { PassThrough } = require('stream');
@@ -22,9 +22,9 @@ class GeminiCliClient {
     // Canonical endpoint (aligned with CLIProxyAPI: cloudcode-pa only, no daily/sandbox)
     this.codeAssistEndpoint = 'https://cloudcode-pa.googleapis.com/v1internal';
 
-    // 初始化 Requester (借用 Antigravity 的二进制)
+    // 初始化 Requester (GCLI 内置 requester 二进制)
     this.requester = new AntigravityRequester({
-      binPath: path.join(__dirname, '../antigravity-api/bin'),
+      binPath: path.join(__dirname, 'bin'),
     });
 
     // 内存缓存，提升首字响应速度 (TTFB)

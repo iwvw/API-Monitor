@@ -8,11 +8,34 @@ const path = require('path');
 const EventEmitter = require('events');
 const { Server: SocketIOServer } = require('socket.io');
 const { serverStorage } = require('./storage');
-const { Events, TaskTypes, validateHostState, stateToFrontendFormat } = require('./protocol');
+const {
+  Events,
+  TaskTypes,
+  validateHostState,
+  stateToFrontendFormat,
+  normalizeNetworkMetrics,
+  sanitizeHostInfo,
+} = require('./protocol');
 const { ServerMetricsHistory, ServerMonitorConfig } = require('./models');
 const userSettings = require('../../src/services/userSettings');
 const { createLogger } = require('../../src/utils/logger');
 const logger = createLogger('AgentService');
+
+function normalizeOriginUrl(value) {
+  const raw = String(value || '').trim().replace(/\/+$/, '');
+  if (!raw) return '';
+
+  try {
+    const url = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `https://${raw}`);
+    if (url.protocol === 'http:' && url.port === '443') {
+      url.protocol = 'https:';
+      url.port = '';
+    }
+    return url.origin;
+  } catch (error) {
+    return raw;
+  }
+}
 
 class AgentService extends EventEmitter {
   constructor() {
@@ -616,8 +639,10 @@ class AgentService extends EventEmitter {
     socket.on(Events.AGENT_HOST_INFO, hostInfo => {
       if (!authenticated) return;
 
+      const safeHostInfo = sanitizeHostInfo(hostInfo);
+
       this.hostInfoCache.set(serverId, {
-        ...hostInfo,
+        ...safeHostInfo,
         received_at: Date.now(),
       });
 
@@ -625,13 +650,13 @@ class AgentService extends EventEmitter {
         serverStorage.updateStatus(serverId, {
           status: 'online',
           last_check_status: 'success',
-          cached_info: hostInfo,
+          cached_info: safeHostInfo,
         });
 
         // 自动查询 IP 归属地
         const server = serverStorage.getById(serverId);
-        if (server && server.country === 'auto' && hostInfo.ip) {
-          this.lookupCountryByIP(serverId, hostInfo.ip);
+        if (server && server.country === 'auto' && safeHostInfo.ip) {
+          this.lookupCountryByIP(serverId, safeHostInfo.ip);
         }
       } catch (err) {
         // Ignore
@@ -1536,13 +1561,13 @@ class AgentService extends EventEmitter {
       disk_usage: metrics.disk,
       load: metrics.load || '0 0 0',
       cores: parseInt(metrics.cores) || 1,
-      network: {
+      network: normalizeNetworkMetrics({
         rx_speed: metrics.rx_speed || '0 B/s',
         tx_speed: metrics.tx_speed || '0 B/s',
         rx_total: metrics.rx_total || '0 B',
         tx_total: metrics.tx_total || '0 B',
         connections: parseInt(metrics.connections) || 0,
-      },
+      }),
       docker: {
         installed: metrics.docker_installed === true || metrics.docker_installed === 'true',
         running: parseInt(metrics.docker_running) || 0,
@@ -1704,6 +1729,7 @@ class AgentService extends EventEmitter {
    * 生成新版 Agent 安装脚本 (Go Agent) - 支持无缝升级
    */
   generateInstallScript(serverId, serverUrl) {
+    serverUrl = normalizeOriginUrl(serverUrl);
     const agentKey = this.getAgentKey(serverId);
     const $ = '$'; // 用于在模板字符串中输出 $
 
@@ -1967,6 +1993,7 @@ fi
    * 运行在用户会话中，100% 继承用户环境 (PATH, SSH, Git 等)
    */
   generateWinInstallScript(serverId, serverUrl) {
+    serverUrl = normalizeOriginUrl(serverUrl);
     const agentKey = this.getAgentKey(serverId);
 
     // 读取用户设置的自定义下载地址

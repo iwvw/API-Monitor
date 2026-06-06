@@ -1,5 +1,41 @@
 # 重构验收记录
 
+## 2026-06-06 Kumo-only 完全收口
+
+- 任务：完成剩余 Kumo-only 控件迁移，迁移 Uptime 图表，清理旧 Vue/原生前端，仅保留 React + Kumo 入口。
+- 修改范围：
+  - `src/js/pages/UptimePage.jsx`：从 Chart.js canvas 生命周期迁移到 Kumo `TimeseriesChart` + ECharts。
+  - `src/js/pages/OpenAIPage.jsx`、`GeminiCliPage.jsx`、`QwenPage.jsx`、`PaasPage.jsx`、`NotificationPage.jsx`、`TotpPage.jsx`、`ServerPage.jsx`：剩余原生 `button/select/input/textarea` 全部替换为 Kumo `Button/Input/Textarea/Select` 或 Kumo Button 分段控件。
+  - 删除旧 Vue 前端入口与资产：`src/js/main.js`、`src/js/template-loader.js`、`src/templates/`、旧 `src/js/modules/*.js`、旧 `src/js/stores/`、未引用旧 composables、旧 `src/css/*.css`。
+  - 保留 React 运行时 helper：`src/js/modules/dialog.js`、`toast.js`、`utils.js`、`kumoTabs.js` 和 `src/js/composables/useTableResize.js`。
+  - 移除 `chart.js`、`vue`、`pinia` 依赖；React 入口显式加载 `@xterm/xterm/css/xterm.css`。
+- 静态扫描：
+  - `rg -n --pcre2 '<(?-i:button|select|input|textarea)\b' src/js/pages src/js/components -S`：0 命中。
+  - `rg -n "chart\.js|new Chart|Chart\." src package.json package-lock.json -S`：0 命中。
+  - `rg -n "\b(vue|pinia|chart\.js)\b|from 'vue'|createApp\(|new Vue|window\.vueApp" package.json package-lock.json src -S`：0 命中。
+  - 旧入口扫描仅保留 `src/index.html` 的 `/js/main.jsx`。
+- 构建结果：`npm run build` 通过；仅保留 Vite chunk size warning。
+- Kumo-only 例外：无新增例外。
+- 浏览器验证：本段仅记录静态与构建验收；全路由 browser smoke 仍建议在最终发布前单独执行。
+
+## 2026-06-06 SettingsPage 接口对接验证
+
+- 任务：补齐系统设置页与后端/旧前端设置接口的对接，并让 React 导航读取模块显隐和顺序。
+- 修改范围：
+  - `src/js/pages/SettingsPage.jsx`
+  - `src/js/store.js`
+  - `src/js/components/MainLayout.jsx`
+  - `src/js/pages/PaasPage.jsx`
+  - `src/js/pages/TotpPage.jsx`
+  - `docs/refactor-progress.md`
+- 构建结果：`npm run build` 通过；仅保留 Vite chunk size warning。
+- 静态扫描：
+  - `SettingsPage.jsx` 中 `<button>/<select>/<input>/<textarea>` 为 0。
+  - `DialogContent`、`TabsList`、`TabsTrigger`、`@cloudflare/kumo/components/tabs` 为 0。
+  - React 导航/设置扫描未发现已删除模块；仅 `GeminiCliPage.jsx` 保留 GCLI OAuth 文案里的 `Google Antigravity`。
+- Kumo-only 例外：无新增例外。
+- 后续风险：仍需浏览器 smoke 确认 `/settings` 各 tab 的接口返回状态，以及 `/music` 白屏修复在当前 dev server 中已生效。
+
 本文档记录 Kumo-only React 重构期间的构建、浏览器、路由和例外验证结果。
 
 ## 验收规则
@@ -146,3 +182,43 @@
 - console error：待浏览器 smoke 执行后记录。
 - Kumo-only 例外：无新增例外。
 - 后续风险：顶部栏宽度切换在极窄移动端需 smoke 确认是否需要隐藏或折叠；`selectedValue` 仅适合 uncontrolled 初始值，受控业务标签页继续使用 `value/onValueChange`。
+
+### 2026-06-06 Cloudflare / Dialog / 间距 / 中文化验证
+
+- 构建：`npm run build` 通过；仅有 Vite chunk size 警告。
+- 静态扫描：
+  - React 源码中 `Dialog.Close asChild`、`DialogContent`、`TabsList`、`TabsTrigger`、`@cloudflare/kumo/components/tabs` 已清零。
+  - 普通 React 页面根容器 `pb-20/pb-16/pb-24` 已清零；Music 保留固定播放器避让。
+- 浏览器验证：
+  - `/dns` 可渲染真实 Cloudflare 域名列表；页面文本未出现 AntiG / Antigravity 导航入口。
+  - 顶部宽度切换 Tabs 为 sm 尺寸，高约 `24px`；Cloudflare 业务 Tabs 为正常尺寸，高约 `34px`。
+  - Cloudflare `Table.ResizeHandle` 存在，拖动后首列从 `260px` 变为 `320px`。
+  - Cloudflare “添加域名” Dialog 可打开，关闭后无残留 `role="dialog"` 节点。
+  - `/music` 不白屏，未出现 `DialogContent is not defined`。
+  - `/settings` 顶部/底部内容间距均为 `30px`，未出现 `Public API URL` 和 AntiG 文案。
+- 控制台：
+  - `/dns` console error：0。
+  - `/music` console error：0。
+  - `/settings` console error：0。
+- 仍需后续扩大验证：
+  - 全主路由自动 smoke 尚未落地。
+  - 旧 Vue 参考文件和 `src/js/modules/*.js` 仍可能包含英文或 Antigravity 文案，但当前 React 入口不依赖旧 UI。
+
+### 2026-06-06 ServerPage 主机实例展开与 Agent 功能补齐
+
+- 任务：对照旧前端补齐主机实例列表展开/收起、Agent 部署/批量部署/升级入口，并将图表迁移到 Kumo Charts / ECharts。
+- 修改范围：
+  - `src/js/pages/ServerPage.jsx`
+  - `package.json`
+  - `package-lock.json`
+- 构建结果：`npm run build` 通过；仅保留 Vite chunk size warning。
+- 浏览器验证：
+  - `/server` 可正常渲染主机实例列表，控制台 error 为 0。
+  - 顶部工具条包含升级 Agent、批量部署、刷新、导出、导入、探测、新增主机。
+  - IP 显示模式切换已恢复为 Kumo `Tabs`：明文 / 打码 / 隐藏。
+  - 主机展开区可渲染系统/负载、CPU/内存 Kumo `TimeseriesChart`、GPU、网络和 Docker 面板。
+  - Kumo `Dialog` 验证通过：升级 Agent、批量部署 Agent、导入主机、单机部署 Agent 均可打开并关闭。
+- Kumo-only 例外：无新增例外；新增控件使用 Kumo `Button` / `Tabs` / `Dialog` / `Checkbox` / `Input` / `Textarea` / `Meter` / `TimeseriesChart`。
+- 后续风险：
+  - 单机/批量 Agent 的实际安装、卸载、升级动作依赖真实 SSH/Agent 环境，本次只做非破坏性打开与状态验证。
+  - `ServerPage.jsx` 仍有历史管理/终端区域的原生表单控件，未纳入本次主机列表展开补齐范围。

@@ -20,6 +20,55 @@ const { createLogger } = require('../utils/logger');
 
 const logger = createLogger('Router');
 
+function getForwardedProtocol(req) {
+  const cfVisitor = req.get('cf-visitor');
+  if (cfVisitor) {
+    try {
+      const parsed = JSON.parse(cfVisitor);
+      if (parsed?.scheme) return parsed.scheme;
+    } catch (error) {
+      // Ignore malformed proxy metadata.
+    }
+  }
+
+  const forwardedProto = req.get('x-forwarded-proto');
+  if (forwardedProto) {
+    return forwardedProto.split(',')[0].trim();
+  }
+
+  return req.protocol;
+}
+
+function normalizeOriginUrl(value) {
+  const raw = String(value || '').trim().replace(/\/+$/, '');
+  if (!raw) return '';
+
+  const withProtocol = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `https://${raw}`;
+  try {
+    const url = new URL(withProtocol);
+    if (url.protocol === 'http:' && url.port === '443') {
+      url.protocol = 'https:';
+      url.port = '';
+    }
+    return url.origin;
+  } catch (error) {
+    return '';
+  }
+}
+
+function getRequestOrigin(req) {
+  const protocol = getForwardedProtocol(req);
+  const host = req.get('host');
+  return normalizeOriginUrl(`${protocol}://${host}`);
+}
+
+function getPublicServerUrl(req) {
+  const settings = loadUserSettings();
+  return normalizeOriginUrl(settings.publicApiUrl)
+    || normalizeOriginUrl(process.env.API_PUBLIC_URL)
+    || getRequestOrigin(req);
+}
+
 /**
  * 注册所有路由
  */
@@ -86,9 +135,7 @@ function registerRoutes(app) {
     const stats = agentService.getConnectionStats
       ? agentService.getConnectionStats()
       : { online: 0 };
-    const protocol = req.protocol;
-    const host = req.get('host');
-    const baseUrl = `${protocol}://${host}`;
+    const baseUrl = getPublicServerUrl(req);
 
     res.json({
       success: true,
@@ -149,9 +196,7 @@ function registerRoutes(app) {
         return res.status(404).send('# Error: Server not found');
       }
 
-      const protocol = req.protocol;
-      const host = req.get('host');
-      const serverUrl = `${protocol}://${host}`;
+      const serverUrl = getPublicServerUrl(req);
 
       const script = agentService.generateInstallScript(serverId, serverUrl);
 
@@ -172,18 +217,7 @@ function registerRoutes(app) {
         return res.status(404).send('# Error: Server not found');
       }
 
-      const settings = loadUserSettings();
-      let serverUrl = settings.publicApiUrl;
-
-      if (!serverUrl || serverUrl.trim() === '') {
-        serverUrl = process.env.API_PUBLIC_URL;
-      }
-
-      if (!serverUrl || serverUrl.trim() === '') {
-        const protocol = req.protocol;
-        const host = req.get('host');
-        serverUrl = `${protocol}://${host}`;
-      }
+      const serverUrl = getPublicServerUrl(req);
 
       const script = agentService.generateWinInstallScript(serverId, serverUrl);
 
@@ -212,18 +246,7 @@ function registerRoutes(app) {
       }
 
       // 修正: 确保 serverUrl 使用正确协议 (优先使用 用户设置 > API_PUBLIC_URL > 请求检测)
-      const settings = loadUserSettings();
-      let serverUrl = settings.publicApiUrl;
-
-      if (!serverUrl || serverUrl.trim() === '') {
-        serverUrl = process.env.API_PUBLIC_URL;
-      }
-
-      if (!serverUrl || serverUrl.trim() === '') {
-        const protocol = req.protocol;
-        const host = req.get('host');
-        serverUrl = `${protocol}://${host}`;
-      }
+      const serverUrl = getPublicServerUrl(req);
 
       const script = agentService.generateInstallScript(serverId, serverUrl);
 
@@ -251,18 +274,7 @@ function registerRoutes(app) {
       }
 
       // 修正: 确保 serverUrl 使用正确协议 (优先使用 用户设置 > API_PUBLIC_URL > 请求检测)
-      const settings = loadUserSettings();
-      let serverUrl = settings.publicApiUrl;
-
-      if (!serverUrl || serverUrl.trim() === '') {
-        serverUrl = process.env.API_PUBLIC_URL;
-      }
-
-      if (!serverUrl || serverUrl.trim() === '') {
-        const protocol = req.protocol;
-        const host = req.get('host');
-        serverUrl = `${protocol}://${host}`;
-      }
+      const serverUrl = getPublicServerUrl(req);
 
       const script = agentService.generateWinInstallScript(serverId, serverUrl);
 
@@ -325,18 +337,7 @@ function registerRoutes(app) {
       }
 
       // 生成安装命令 (优先使用 用户设置 > API_PUBLIC_URL > 请求检测)
-      const settings = loadUserSettings();
-      let serverUrl = settings.publicApiUrl;
-
-      if (!serverUrl || serverUrl.trim() === '') {
-        serverUrl = process.env.API_PUBLIC_URL;
-      }
-
-      if (!serverUrl || serverUrl.trim() === '') {
-        const protocol = req.protocol;
-        const host = req.get('host');
-        serverUrl = `${protocol}://${host}`;
-      }
+      const serverUrl = getPublicServerUrl(req);
 
       const agentKey = agentService.getAgentKey(server.id);
 
@@ -406,9 +407,7 @@ function registerRoutes(app) {
       }
 
       // 生成安装脚本
-      const protocol = req.protocol;
-      const host = req.get('host');
-      const serverUrl = `${protocol}://${host}`;
+      const serverUrl = getPublicServerUrl(req);
       const script = agentService.generateInstallScript(server.id, serverUrl);
 
       res.setHeader('Content-Type', 'text/plain; charset=utf-8');
@@ -427,9 +426,7 @@ function registerRoutes(app) {
       const server = serverStorage.getById(serverId);
       if (!server) return res.status(404).json({ success: false, error: '主机不存在' });
 
-      const protocol = req.protocol;
-      const host = req.get('host');
-      const serverUrl = `${protocol}://${host}`;
+      const serverUrl = getPublicServerUrl(req);
       const installUrl = `${serverUrl}/api/server/agent/install/${serverId}`;
 
       res.json({
@@ -485,9 +482,7 @@ function registerRoutes(app) {
       // 如果 Agent 不在线或发送失败，尝试 SSH 安装
       logger.info(`[Auto-Install] 开始安装 Agent (SSH): ${server.name} (${serverId})`);
 
-      const protocol = req.protocol;
-      const host = req.get('host');
-      const serverUrl = `${protocol}://${host}`;
+      const serverUrl = getPublicServerUrl(req);
       const script = agentService.generateInstallScript(serverId, serverUrl);
 
       // 120秒超时，下载+安装需要时间
@@ -590,7 +585,6 @@ function registerRoutes(app) {
     'openai-api': '/api/openai',
     'openlist-api': '/api/openlist',
     'server-api': '/api/server',
-    'antigravity-api': '/api/antigravity',
     'gemini-cli-api': '/api/gemini-cli',
     'qwen-api': '/api/qwen',
     'totp-api': '/api/totp',
@@ -615,7 +609,7 @@ function registerRoutes(app) {
           const routePath = moduleRouteMap[moduleName] || `/api/${moduleName.replace('-api', '')}`;
 
           // 根据模块特性决定是否应用认证中间件
-          if (moduleName === 'antigravity-api' || moduleName === 'gemini-cli-api' || moduleName === 'qwen-api' || moduleName === 'filebox-api') {
+          if (moduleName === 'gemini-cli-api' || moduleName === 'qwen-api' || moduleName === 'filebox-api') {
             app.use(routePath, moduleRouter);
           } else {
             // 模块路由优先挂载
