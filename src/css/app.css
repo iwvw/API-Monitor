@@ -9,6 +9,8 @@ html {
 
 :root {
   color-scheme: light dark;
+  --app-terminal-bg: var(--color-kumo-neutral-1000, #050505);
+  --app-terminal-fg: var(--color-kumo-neutral-50, #f8f8f8);
 }
 
 :root[data-mode='light'] {
@@ -104,6 +106,24 @@ body {
   max-width: 100%;
 }
 
+.app-terminal-surface {
+  background-color: var(--app-terminal-bg);
+  color: var(--app-terminal-fg);
+}
+
+.app-terminal-surface .xterm {
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  padding: 0.5rem;
+}
+
+.app-terminal-surface .xterm,
+.app-terminal-surface .xterm-viewport,
+.app-terminal-surface .xterm-screen {
+  background-color: var(--app-terminal-bg) !important;
+}
+
 table th,
 table td {
   white-space: nowrap;
@@ -112,13 +132,6 @@ table td {
 table th > *,
 table td > * {
   min-width: 0;
-}
-
-/* Kumo Sidebar: center collapsed base icons in the icon rail.
-   Kumo's bundled -3px translate is tuned for its default sizing; this app uses
-   a compact 15px root font, so derive the offset from the actual content width. */
-aside[data-sidebar='sidebar'][data-state='collapsed'] [data-sidebar='menu-button'][data-size='base'] > div {
-  translate: calc((100% - 1rem) / 2) 0 !important;
 }
 
 /* Custom Scrollbar */

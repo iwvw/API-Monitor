@@ -291,20 +291,53 @@ function parseTemperatureValue(value) {
 }
 
 function collectTemperatureReadings(input, parentName = '') {
-  if (!Array.isArray(input)) return [];
-
+  if (input === null || input === undefined) return [];
   const readings = [];
-  for (const sensor of input) {
+
+  const entries = Array.isArray(input)
+    ? input.map(sensor => ({ key: '', sensor }))
+    : typeof input === 'object'
+      ? Object.entries(input).map(([key, sensor]) => ({ key, sensor }))
+      : [{ key: '', sensor: input }];
+
+  const scalarKeys = new Set([
+    'name',
+    'Name',
+    'label',
+    'Label',
+    'sensor',
+    'Sensor',
+    'type',
+    'Type',
+    'temperature',
+    'Temperature',
+    'temp',
+    'Temp',
+    'current',
+    'Current',
+    'value',
+    'Value',
+    'entries',
+    'Sensors',
+    'sensors',
+    'values',
+    'children',
+  ]);
+
+  for (const { key, sensor } of entries) {
     if (sensor === null || sensor === undefined) continue;
+
+    const keyName = Number.isInteger(Number(key)) ? '' : key;
+    const scopedName = [parentName, keyName].filter(Boolean).join(' ');
 
     if (typeof sensor !== 'object') {
       const value = parseTemperatureValue(sensor);
-      if (value !== null) readings.push({ name: parentName, value });
+      if (value !== null) readings.push({ name: scopedName, value });
       continue;
     }
 
     const ownName = [
-      parentName,
+      scopedName,
       sensor.name ?? sensor.Name ?? sensor.label ?? sensor.Label ?? sensor.sensor ?? sensor.Sensor ?? sensor.type ?? sensor.Type,
     ].filter(Boolean).join(' ');
     const value = parseTemperatureValue(
@@ -314,6 +347,13 @@ function collectTemperatureReadings(input, parentName = '') {
 
     for (const key of ['entries', 'Sensors', 'sensors', 'values', 'children']) {
       readings.push(...collectTemperatureReadings(sensor[key], ownName));
+    }
+
+    for (const [nestedKey, nestedValue] of Object.entries(sensor)) {
+      if (scalarKeys.has(nestedKey)) continue;
+      if (nestedValue && typeof nestedValue === 'object') {
+        readings.push(...collectTemperatureReadings(nestedValue, [ownName, nestedKey].filter(Boolean).join(' ')));
+      }
     }
   }
 
@@ -338,15 +378,26 @@ function resolveCpuTemperature(metrics = {}) {
     metrics.cpuTemp,
     metrics.cpu_temperature,
     metrics.cpuTemperature,
+    metrics.cpu_temperature_celsius,
+    metrics.cpuTemperatureCelsius,
+    metrics.cpu_temp_c,
+    metrics.cpu?.Temperature,
     metrics.cpu?.Temp,
     metrics.cpu?.temp,
+    metrics.cpu?.temperature,
   ];
   for (const source of explicitSources) {
     const explicit = parseTemperatureValue(source);
     if (explicit !== null) return explicit;
   }
 
-  const readings = collectTemperatureReadings(metrics.temperatures || metrics.temperature_sensors || metrics.sensors);
+  const readings = [
+    ...collectTemperatureReadings(metrics.temperatures),
+    ...collectTemperatureReadings(metrics.temperature_sensors),
+    ...collectTemperatureReadings(metrics.temperatureSensors),
+    ...collectTemperatureReadings(metrics.sensors),
+    ...collectTemperatureReadings(metrics.thermal),
+  ];
   const ranked = readings
     .map(reading => ({ ...reading, rank: getCpuTemperatureRank(reading.name) }))
     .filter(reading => reading.rank > 0)

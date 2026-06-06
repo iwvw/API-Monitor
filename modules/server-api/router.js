@@ -13,6 +13,7 @@ const {
 const monitorService = require('./monitor-service');
 const agentService = require('./agent-service');
 const sshService = require('./ssh-service');
+const { getServerCapabilities, hasSshConfig } = require('./capabilities');
 const { ServerAccount, ServerMonitorConfig, ServerMetricsHistory } = require('./models');
 const { TaskTypes, buildGpuInfo, normalizeFrontendMetrics, normalizeNetworkMetrics, resolveCpuTemperature } = require('./protocol');
 const DockerTaskTypes = TaskTypes; // 兼容已有 Docker 路由代码
@@ -36,6 +37,7 @@ router.get('/accounts', (req, res) => {
     const serversWithMetrics = servers.map(server => {
       let cachedMetrics = agentService.getMetrics(server.id);
       const isOnline = agentService.isOnline(server.id);
+      const capabilities = getServerCapabilities(server, { agentOnline: isOnline });
 
       if (!cachedMetrics && server.cached_info) {
         cachedMetrics = server.cached_info;
@@ -61,6 +63,7 @@ router.get('/accounts', (req, res) => {
 
         return {
           ...server,
+          ...capabilities,
           status: isOnline ? 'online' : server.status || 'offline', // 动态设置在线状态
           info: {
             cpu: {
@@ -99,6 +102,7 @@ router.get('/accounts', (req, res) => {
       // 没有缓存指标时，根据 Agent 连接状态判断
       return {
         ...server,
+        ...capabilities,
         status: isOnline ? 'online' : server.status || 'offline',
       };
     });
@@ -625,6 +629,17 @@ function toTaskData(data) {
   return JSON.stringify(data);
 }
 
+function getDockerContainerState(container = {}) {
+  const state = String(container.state ?? container.State ?? '').toLowerCase();
+  const status = String(container.status ?? container.Status ?? '').toLowerCase();
+  if (state === 'paused' || status.includes('paused')) return 'paused';
+  if (state === 'restarting' || status.includes('restarting')) return 'restarting';
+  if (state === 'running' || (status.includes('up') && !status.includes('paused'))) return 'running';
+  if (state === 'dead' || status.includes('dead')) return 'dead';
+  if (state === 'exited' || state === 'created' || state === 'stopped' || status.includes('exited')) return 'stopped';
+  return state || 'unknown';
+}
+
 function buildDockerV2Task(action, payload = {}) {
   const defaultTimeoutMs = 60000;
 
@@ -689,6 +704,7 @@ function buildDockerV2Task(action, payload = {}) {
         data: {
           container_id: payload.containerId || '',
         },
+        agentTimeoutSec: 180,
         timeoutMs: 180000,
       };
     case 'container.create':
@@ -877,16 +893,24 @@ async function loadDockerOverviewForServer(server) {
       runAgentTask(DockerTaskTypes.DOCKER_COMPOSE_LIST),
     ]);
 
+    const containers = Array.isArray(docker.containers) ? docker.containers : [];
+    const inferredRunning = containers.filter(container => getDockerContainerState(container) === 'running').length;
+    const inferredStopped = containers.filter(container => {
+      const state = getDockerContainerState(container);
+      return state === 'stopped' || state === 'dead' || state === 'unknown';
+    }).length;
+    const dockerResourceReachable = imagesRes.ok || networksRes.ok || volumesRes.ok || statsRes.ok || composeRes.ok;
+
     return {
       serverId,
       serverName,
       host,
       online: true,
       docker: {
-        installed: !!docker.installed,
-        running: docker.running || 0,
-        stopped: docker.stopped || 0,
-        containers: Array.isArray(docker.containers) ? docker.containers : [],
+        installed: !!docker.installed || dockerResourceReachable || containers.length > 0,
+        running: inferredRunning || docker.running || 0,
+        stopped: inferredStopped || docker.stopped || 0,
+        containers,
       },
       resources: {
         images: toArraySafe(imagesRes.data),
@@ -1700,6 +1724,9 @@ router.post('/ssh/exec', async (req, res) => {
 
     const server = serverStorage.getById(serverId);
     if (!server) return res.status(404).json({ success: false, error: '服务器不存在' });
+    if (!hasSshConfig(server)) {
+      return res.status(400).json({ success: false, error: 'SSH 主机或凭据不完整' });
+    }
 
     const result = await sshService.executeCommand(serverId, server, command);
     res.json(result);

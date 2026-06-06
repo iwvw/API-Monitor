@@ -98,4 +98,30 @@ describe('server protocol temperature metrics', () => {
 
     expect(metrics.cpu_temp).toBe(61);
   });
+
+  it('derives CPU temperature from psutil-style sensor maps', () => {
+    const metrics = protocol.normalizeFrontendMetrics({
+      temperatures: {
+        nvme: [{ label: 'Composite', current: 42 }],
+        coretemp: [
+          { label: 'Core 0', current: 53 },
+          { label: 'Package id 0', current: 67.4 },
+        ],
+      },
+    });
+
+    expect(metrics.cpu_temp).toBe(67.4);
+  });
+
+  it('derives CPU temperature from nested CPU sensor objects', () => {
+    const metrics = protocol.normalizeFrontendMetrics({
+      sensors: {
+        cpu: {
+          package: { current: '59.5 C' },
+        },
+      },
+    });
+
+    expect(metrics.cpu_temp).toBe(59.5);
+  });
 });

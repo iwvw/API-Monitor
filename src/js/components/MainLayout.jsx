@@ -106,9 +106,11 @@ const SidebarModuleButton = ({ module, active, icon: IconComponent, onNavigate }
 };
 
 const SidebarBrand = () => (
-  <div className="flex w-full min-w-0 items-center gap-2 px-3 transition-[padding] duration-(--sidebar-animation-duration) ease-(--sidebar-easing) group-data-[state=collapsed]/sidebar:px-2">
-    <img src="/logo.svg" className="size-4 shrink-0 object-contain" alt="" />
-    <span className="flex-1 truncate text-sm font-semibold text-kumo-strong">
+  <div className="flex w-full min-w-0 items-center gap-2">
+    <span className="flex size-8.5 shrink-0 items-center justify-center">
+      <img src="/logo.svg" className="size-5 shrink-0 object-contain" alt="" />
+    </span>
+    <span className="min-w-0 truncate text-sm font-semibold text-kumo-strong">
       API Monitor
     </span>
   </div>
@@ -237,7 +239,7 @@ function MainLayout() {
     <Sidebar.Provider
       defaultOpen={!sidebarCollapsed}
       onOpenChange={(open) => setSidebarCollapsed(!open)}
-      style={{ '--sidebar-width': '14rem' }}
+      style={{ '--sidebar-width': '14rem', '--sidebar-width-icon': '54px' }}
       className="flex h-screen w-screen overflow-hidden bg-kumo-canvas text-kumo-default"
     >
       {/* ==================== 1. 侧边栏 (Sidebar) ==================== */}
@@ -292,10 +294,8 @@ function MainLayout() {
         </Sidebar.Content>
 
         {/* 底部功能栏 */}
-        <Sidebar.Footer className="px-0!">
-          <div className="flex w-[var(--sidebar-width-icon)] shrink-0 justify-center">
-            <Sidebar.Trigger />
-          </div>
+        <Sidebar.Footer className="px-[11px]!">
+          <Sidebar.Trigger />
         </Sidebar.Footer>
       </Sidebar>
 

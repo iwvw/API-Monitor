@@ -3,6 +3,7 @@ import useStore from '../store.js';
 import { toast } from '../modules/toast.js';
 import { dialog } from '../modules/dialog.js';
 import { Button, LinkButton } from '@cloudflare/kumo/components/button';
+import { Badge } from '@cloudflare/kumo/components/badge';
 import { ContextMenu } from '@cloudflare/kumo/primitives/context-menu';
 import { Dialog } from '@cloudflare/kumo/components/dialog';
 import { Input, Textarea } from '@cloudflare/kumo/components/input';
@@ -15,6 +16,7 @@ import { AnimatedCollapse, DeferredRender } from '../components/AnimatedCollapse
 import useTableResize from '../composables/useTableResize.js';
 import { formatUptime, formatFileSize, formatDateTime, maskAddress, parseSpeed } from '../modules/utils.js';
 import { MODULE_TABS_PROPS, TOOL_TABS_PROPS } from '../modules/kumoTabs.js';
+import { canOpenTerminal, isAgentServer, resolveTerminalProtocol } from '../modules/serverTerminal.js';
 import * as echarts from 'echarts/core';
 import { LineChart } from 'echarts/charts';
 import {
@@ -167,8 +169,8 @@ const getKumoToken = (tokenName, fallback) => {
 };
 
 const getKumoTerminalTheme = () => ({
-  background: getKumoToken('--color-kumo-recessed', 'Canvas'),
-  foreground: getKumoToken('--text-color-kumo-strong', 'CanvasText'),
+  background: getKumoToken('--app-terminal-bg', getKumoToken('--color-kumo-neutral-1000', '#050505')),
+  foreground: getKumoToken('--app-terminal-fg', getKumoToken('--color-kumo-neutral-50', '#f8f8f8')),
   cursor: getKumoToken('--color-kumo-brand', 'Highlight'),
 });
 
@@ -299,6 +301,125 @@ const getCpuTemp = (record = {}) => firstPositiveNumber([
   record.cpu?.Temp,
 ]);
 
+const SERVER_CHART_HISTORY_LIMIT = 180;
+const serverMetricsHistoryCache = new Map();
+
+const parseSpeedToBytes = (speedStr) => {
+  if (!speedStr) return 0;
+  const match = String(speedStr).trim().match(/^([0-9.]+)\s*([A-Za-z/]+)$/);
+  if (!match) return 0;
+  const val = parseFloat(match[1]);
+  const unit = match[2].toLowerCase();
+  if (unit.startsWith('g')) return val * 1024 * 1024 * 1024;
+  if (unit.startsWith('m')) return val * 1024 * 1024;
+  if (unit.startsWith('k')) return val * 1024;
+  return val;
+};
+
+const parseMemoryUsagePercent = (metrics = {}, info = {}) => {
+  const explicit = toNumber(metrics.mem_percent ?? metrics.mem_usage_percent, NaN);
+  if (Number.isFinite(explicit)) return explicit;
+
+  const infoUsage = toNumber(info?.memory?.Usage, NaN);
+  if (Number.isFinite(infoUsage)) return infoUsage;
+
+  const memUsage = metrics.mem_usage || metrics.mem;
+  if (typeof memUsage === 'string') {
+    const match = memUsage.match(/(\d+(?:\.\d+)?)\/(\d+(?:\.\d+)?)MB/i);
+    if (match) {
+      const used = parseFloat(match[1]);
+      const total = parseFloat(match[2]);
+      if (Number.isFinite(used) && Number.isFinite(total) && total > 0) {
+        return (used / total) * 100;
+      }
+    }
+  }
+
+  return 0;
+};
+
+const parseGpuMemoryValue = (metrics = {}, index) => {
+  if (index === 0 && metrics.gpu_mem_used !== undefined) return metrics.gpu_mem_used;
+  if (index === 1 && metrics.gpu_mem_total !== undefined) return metrics.gpu_mem_total;
+
+  const raw = metrics.gpu_mem;
+  if (typeof raw !== 'string' || !raw.includes('/')) return 0;
+  const parts = raw.replace(/MB/gi, '').split('/');
+  return toNumber(parts[index], 0);
+};
+
+const getCachedServerMetricHistory = (serverId) => {
+  const cached = serverMetricsHistoryCache.get(String(serverId));
+  return cached && cached.length > 0 ? cached : null;
+};
+
+const mergeServerMetricHistory = (serverId, ...recordGroups) => {
+  const id = String(serverId || '');
+  if (!id) return [];
+
+  const normalized = recordGroups
+    .flatMap(group => (Array.isArray(group) ? group : []))
+    .map(record => {
+      if (!record) return null;
+      const ts = toTimestamp(record._ts || record.recorded_at || record.timestamp || record.time, NaN);
+      if (!Number.isFinite(ts)) return null;
+      return {
+        ...record,
+        _ts: ts,
+        recorded_at: record.recorded_at || new Date(ts).toISOString(),
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a._ts - b._ts);
+
+  const coalesced = [];
+  normalized.forEach(record => {
+    const last = coalesced[coalesced.length - 1];
+    if (last && Math.abs(record._ts - last._ts) < 500) {
+      coalesced[coalesced.length - 1] = {
+        ...last,
+        ...record,
+        _ts: record._ts,
+        recorded_at: record.recorded_at,
+      };
+      return;
+    }
+    coalesced.push(record);
+  });
+
+  const trimmed = coalesced.slice(-SERVER_CHART_HISTORY_LIMIT);
+  serverMetricsHistoryCache.set(id, trimmed);
+  return trimmed;
+};
+
+const buildMetricHistoryRecord = (metrics = {}, info = {}, timestamp = Date.now()) => {
+  const ts = toTimestamp(timestamp, Date.now());
+  const gpuMemUsed = parseGpuMemoryValue(metrics, 0);
+  const gpuMemTotal = parseGpuMemoryValue(metrics, 1);
+
+  return {
+    recorded_at: new Date(ts).toISOString(),
+    cpu_usage: toNumber(metrics.cpu_usage ?? metrics.cpu, 0),
+    cpu_temp: getCpuTemp({ ...metrics, cpu: info?.cpu }),
+    mem_usage: parseMemoryUsagePercent(metrics, info),
+    gpu_usage: metrics.gpu_usage !== undefined
+      ? toNumber(metrics.gpu_usage, 0)
+      : (typeof metrics.gpu === 'number' ? metrics.gpu : (info?.gpu ? toNumber(info.gpu.Usage, 0) : null)),
+    gpu_mem_percent: getGpuMemPercent({
+      gpu_mem_percent: metrics.gpu_mem_percent !== undefined ? metrics.gpu_mem_percent : info?.gpu?.Percent,
+      gpu_mem_used: gpuMemUsed,
+      gpu_mem_total: gpuMemTotal,
+    }),
+    gpu_mem_used: gpuMemUsed,
+    gpu_mem_total: gpuMemTotal,
+    gpu_power: metrics.gpu_power !== undefined ? toNumber(metrics.gpu_power, 0) : (info?.gpu ? toNumber(info.gpu.Power, 0) : 0),
+    gpu_temp: getGpuTemp({ ...metrics, gpu: info?.gpu }),
+    net_rx: parseSpeedToBytes(metrics.network?.rx_speed),
+    net_tx: parseSpeedToBytes(metrics.network?.tx_speed),
+    _ts: ts,
+  };
+};
+
 const normalizeByteText = (value, fallback = '0 B') => {
   if (value === null || value === undefined) return fallback;
   const raw = String(value).trim();
@@ -347,6 +468,12 @@ const normalizeDockerOverviewServer = (server = {}) => {
   const containers = asArray(resources.containers).length > 0
     ? asArray(resources.containers)
     : asArray(docker.containers);
+  const images = asArray(resources.images);
+  const networks = asArray(resources.networks);
+  const volumes = asArray(resources.volumes);
+  const stats = asArray(resources.stats);
+  const composeProjects = asArray(resources.composeProjects || resources.compose?.projects);
+  const hasDockerResources = containers.length > 0 || images.length > 0 || networks.length > 0 || volumes.length > 0 || stats.length > 0 || composeProjects.length > 0;
 
   return {
     ...server,
@@ -354,16 +481,17 @@ const normalizeDockerOverviewServer = (server = {}) => {
     name: server.serverName || server.name || '未知主机',
     docker: {
       ...docker,
+      installed: !!docker.installed || hasDockerResources,
       containers,
     },
     resources: {
       ...resources,
       containers,
-      images: asArray(resources.images),
-      networks: asArray(resources.networks),
-      volumes: asArray(resources.volumes),
-      stats: asArray(resources.stats),
-      composeProjects: asArray(resources.composeProjects || resources.compose?.projects),
+      images,
+      networks,
+      volumes,
+      stats,
+      composeProjects,
     },
   };
 };
@@ -513,6 +641,7 @@ function ServerPage() {
   const [draggedSessionId, setDraggedSessionId] = useState(null);
   const [dropHint, setDropHint] = useState('');
   const [dropTargetId, setDropTargetId] = useState(null);
+  const [quickCommandInput, setQuickCommandInput] = useState('');
   
   // 终端侧边栏控制
   const [showSftpSidebar, setShowSftpSidebar] = useState(false);
@@ -547,10 +676,13 @@ function ServerPage() {
   const terminalDOMElements = useRef({});
   const sshSessionRefs = useRef({});
   const warehouseRef = useRef(null);
+  const sftpUploadInputRef = useRef(null);
   const dockerTaskStreamRef = useRef(null);
+  const terminalResizeTimers = useRef({});
   const socketRef = useRef(null);
   const visibleSessionIdsRef = useRef([]);
   const sshSyncEnabledRef = useRef(false);
+  const sftpPathByServerRef = useRef({});
 
   const [historyColWidths, startHistoryResize] = useTableResize([180, 150, 100, 100, 100, 150]);
   const [dockerColWidths, startDockerResize] = useTableResize([180, 220, 100, 180, 120]);
@@ -562,6 +694,17 @@ function ServerPage() {
   useEffect(() => {
     visibleSessionIdsRef.current = visibleSessionIds;
   }, [visibleSessionIds]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => syncTerminalDOM(), 80);
+    return () => clearTimeout(timer);
+  }, [visibleSessionIds, sshViewLayout, showServerStatusSidebar, showSftpSidebar]);
+
+  useEffect(() => {
+    if (showSftpSidebar && activeSSHSessionId) {
+      syncSftpToSession(activeSSHSessionId);
+    }
+  }, [activeSSHSessionId, showSftpSidebar]);
 
   useEffect(() => {
     sshSyncEnabledRef.current = sshSyncEnabled;
@@ -582,6 +725,8 @@ function ServerPage() {
       if (dockerTaskStreamRef.current) {
         dockerTaskStreamRef.current.close();
       }
+      Object.values(terminalResizeTimers.current).forEach(timer => clearTimeout(timer));
+      terminalResizeTimers.current = {};
       // 销毁所有终端实例
       Object.keys(sshSessionRefs.current).forEach(id => {
         const session = sshSessionRefs.current[id];
@@ -600,6 +745,18 @@ function ServerPage() {
   }, [serverList]);
 
   const syncStoreServerList = () => {};
+
+  const mergeTerminalCapabilities = (server, agentOnline) => {
+    const hasSshTransport = server.ssh_configured === true || server.terminal_transports?.includes('ssh');
+    const terminalTransports = agentOnline ? ['agent'] : [];
+    if (hasSshTransport) terminalTransports.push('ssh');
+
+    return {
+      agent_online: agentOnline,
+      terminal_transports: terminalTransports,
+      preferred_terminal_transport: terminalTransports[0] || null,
+    };
+  };
   
   // 载入主机列表
   const loadServerList = async () => {
@@ -612,10 +769,11 @@ function ServerPage() {
           const prevMap = new Map(prev.map(s => [s.id, s]));
           const updated = data.data.map(server => {
             const existing = prevMap.get(server.id);
+            const cachedMetrics = existing?.metricsCache || getCachedServerMetricHistory(server.id);
             return {
               ...server,
               info: server.info || existing?.info || null,
-              metricsCache: existing?.metricsCache || null,
+              metricsCache: cachedMetrics || null,
               metricsLoading: existing?.metricsLoading || false,
               gpuChartVisible: existing?.gpuChartVisible || false,
               gpuLoading: existing?.gpuLoading || false,
@@ -682,8 +840,10 @@ function ServerPage() {
           setServerList(prev => {
             const updated = prev.map(s => {
               if (s.id === data.serverId) {
+                const agentOnline = data.status === 'online';
                 return {
                   ...s,
+                  ...mergeTerminalCapabilities(s, agentOnline),
                   status: data.status,
                   response_time: data.responseTime || s.response_time,
                   error: data.status === 'offline' ? (data.error || 'Agent 离线') : null
@@ -706,12 +866,18 @@ function ServerPage() {
   // 处理实时推送的主机指标
   const handleSingleMetricUpdate = (data) => {
     const { serverId, metrics, timestamp } = data;
+    const now = timestamp || Date.now();
+    mergeServerMetricHistory(
+      serverId,
+      getCachedServerMetricHistory(serverId) || [],
+      [buildMetricHistoryRecord(metrics, null, now)]
+    );
+
     setServerList(prev => {
       const updated = prev.map(server => {
         if (server.id !== serverId) return server;
         
         // 防抖限制刷新间隔 >500ms
-        const now = timestamp || Date.now();
         const lastUpdate = server.lastMetricUpdateTime || 0;
         if (lastUpdate > 0 && (now - lastUpdate) < 500) {
           return server;
@@ -728,13 +894,14 @@ function ServerPage() {
         // CPU
         const logicalCores = parseInt(metrics.logical_cores) || parseInt(metrics.cores) || parseInt(info.cpu?.LogicalCores) || parseInt(info.cpu?.Cores) || 0;
         const physicalCores = parseInt(metrics.physical_cores) || parseInt(info.cpu?.PhysicalCores) || logicalCores || 0;
+        const resolvedCpuTemp = getCpuTemp({ ...metrics, cpu: info.cpu });
         info.cpu = {
           Load: metrics.load || '-',
           Usage: metrics.cpu_usage || '0%',
           Cores: logicalCores || info.cpu.Cores || '-',
           LogicalCores: logicalCores || info.cpu?.LogicalCores || info.cpu?.Cores || '-',
           PhysicalCores: physicalCores || info.cpu?.PhysicalCores || info.cpu?.Cores || '-',
-          Temp: metrics.cpu_temp !== undefined ? metrics.cpu_temp : (info.cpu?.Temp || 0)
+          Temp: resolvedCpuTemp > 0 ? resolvedCpuTemp : (info.cpu?.Temp || 0)
         };
         
         // Memory
@@ -817,45 +984,16 @@ function ServerPage() {
         info.uptime = metrics.uptime || info.uptime;
         
         // 增量追加指标趋势缓存
-        let cache = server.metricsCache ? [...server.metricsCache] : [];
-        const parseSpeedToBytes = (speedStr) => {
-          if (!speedStr) return 0;
-          const match = speedStr.trim().match(/^([0-9.]+)\s*([A-Za-z/]+)$/);
-          if (!match) return 0;
-          const val = parseFloat(match[1]);
-          const unit = match[2].toLowerCase();
-          if (unit.startsWith('g')) return val * 1024 * 1024 * 1024;
-          if (unit.startsWith('m')) return val * 1024 * 1024;
-          if (unit.startsWith('k')) return val * 1024;
-          return val;
-        };
-        
-        const newRecord = {
-          recorded_at: now,
-          cpu_usage: parseFloat(metrics.cpu_usage || '0'),
-          cpu_temp: getCpuTemp({ ...metrics, cpu: info.cpu }),
-          mem_usage: info.memory ? parseFloat(info.memory.Usage) : 0,
-          gpu_usage: metrics.gpu_usage !== undefined
-            ? toNumber(metrics.gpu_usage, 0)
-            : (typeof metrics.gpu === 'number' ? metrics.gpu : (info.gpu ? toNumber(info.gpu.Usage, 0) : null)),
-          gpu_mem_percent: getGpuMemPercent({
-            gpu_mem_percent: metrics.gpu_mem_percent !== undefined ? metrics.gpu_mem_percent : info.gpu?.Percent,
-            gpu_mem_used: metrics.gpu_mem_used,
-            gpu_mem_total: metrics.gpu_mem_total,
-          }),
-          gpu_mem_used: metrics.gpu_mem_used ?? 0,
-          gpu_mem_total: metrics.gpu_mem_total ?? 0,
-          gpu_power: metrics.gpu_power !== undefined ? toNumber(metrics.gpu_power, 0) : (info.gpu ? toNumber(info.gpu.Power, 0) : 0),
-          gpu_temp: getGpuTemp({ ...metrics, gpu: info.gpu }),
-          net_rx: parseSpeedToBytes(metrics.network?.rx_speed),
-          net_tx: parseSpeedToBytes(metrics.network?.tx_speed)
-        };
-        
-        cache.push(newRecord);
-        if (cache.length > 60) cache.shift();
+        const cache = mergeServerMetricHistory(
+          serverId,
+          getCachedServerMetricHistory(serverId) || [],
+          server.metricsCache || [],
+          [buildMetricHistoryRecord(metrics, info, now)]
+        );
         
         return {
           ...server,
+          ...mergeTerminalCapabilities(server, true),
           info,
           status: 'online',
           error: null,
@@ -872,7 +1010,12 @@ function ServerPage() {
     const { silent = false } = options;
     setServerList(prev => prev.map(s => (
       s.id === serverId
-        ? { ...s, metricsLoading: true, error: silent ? s.error : null }
+        ? {
+            ...s,
+            metricsCache: s.metricsCache || getCachedServerMetricHistory(serverId) || null,
+            metricsLoading: silent && (s.metricsCache?.length || getCachedServerMetricHistory(serverId)?.length) ? false : true,
+            error: silent ? s.error : null,
+          }
         : s
     )));
 
@@ -880,7 +1023,7 @@ function ServerPage() {
       const params = new URLSearchParams({
         serverId,
         page: 1,
-        pageSize: 60,
+        pageSize: SERVER_CHART_HISTORY_LIMIT,
         highPrecision: 'true'
       });
       const response = await fetch(`/api/server/metrics/history?${params}`);
@@ -889,12 +1032,17 @@ function ServerPage() {
         throw new Error(data.error || '指标历史加载失败');
       }
       const sorted = [...(data.data || [])].sort((a, b) => new Date(a.recorded_at) - new Date(b.recorded_at));
+      const merged = mergeServerMetricHistory(
+        serverId,
+        sorted,
+        getCachedServerMetricHistory(serverId) || []
+      );
       setServerList(prev => prev.map(s => (
         s.id === serverId
-          ? { ...s, metricsCache: sorted, metricsLoading: false, error: null }
+          ? { ...s, metricsCache: merged, metricsLoading: false, error: null }
           : s
       )));
-      return sorted;
+      return merged;
     } catch (e) {
       setServerList(prev => prev.map(s => (
         s.id === serverId
@@ -966,9 +1114,13 @@ function ServerPage() {
           network: prev[serverId]?.network || 'detail',
         }
       }));
+      const cachedMetrics = server.metricsCache || getCachedServerMetricHistory(serverId);
+      if (cachedMetrics?.length) {
+        loadCardMetrics(serverId, { silent: true });
+      }
       await Promise.all([
         server.info ? Promise.resolve(server.info) : loadServerInfo(serverId, { force: false }),
-        server.metricsCache ? Promise.resolve(server.metricsCache) : loadCardMetrics(serverId, { silent: !!server.info }),
+        cachedMetrics ? Promise.resolve(cachedMetrics) : loadCardMetrics(serverId, { silent: !!server.info }),
       ]);
     }
   };
@@ -1469,11 +1621,53 @@ function ServerPage() {
   };
 
   const getDockerContainerState = (container) => {
-    const state = String(container?.state || '').toLowerCase();
-    const status = String(container?.status || '');
-    if (state === 'paused' || status.includes('Paused')) return 'paused';
-    if (state === 'running' || (status.includes('Up') && !status.includes('Paused'))) return 'running';
-    return 'stopped';
+    const state = String(container?.state ?? container?.State ?? '').toLowerCase();
+    const status = String(container?.status ?? container?.Status ?? '').toLowerCase();
+    if (state === 'paused' || status.includes('paused')) return 'paused';
+    if (state === 'restarting' || status.includes('restarting')) return 'restarting';
+    if (state === 'running' || (status.includes('up') && !status.includes('paused'))) return 'running';
+    if (state === 'dead' || status.includes('dead')) return 'dead';
+    if (state === 'exited' || state === 'created' || state === 'stopped' || status.includes('exited')) return 'stopped';
+    return state || 'unknown';
+  };
+
+  const getDockerContainerId = (container) => (
+    String(container?.id || container?.ID || container?.Id || container?.container_id || container?.ContainerID || '')
+  );
+
+  const getDockerContainerName = (container) => {
+    const names = container?.names || container?.Names;
+    if (Array.isArray(names) && names.length > 0) return String(names[0]).replace(/^\/+/, '');
+    return String(container?.name || container?.Name || container?.container_name || getDockerContainerId(container).slice(0, 12) || '-').replace(/^\/+/, '');
+  };
+
+  const getDockerContainerImage = (container) => (
+    String(container?.image || container?.Image || container?.imageName || container?.ImageName || '-')
+  );
+
+  const getDockerContainerPorts = (container) => {
+    const ports = container?.ports ?? container?.Ports ?? container?.portMappings;
+    if (typeof ports === 'string') return ports || '-';
+    if (Array.isArray(ports)) {
+      const formatted = ports.map(port => {
+        if (typeof port === 'string') return port;
+        const privatePort = port.PrivatePort ?? port.privatePort ?? port.containerPort;
+        const publicPort = port.PublicPort ?? port.publicPort ?? port.hostPort;
+        const type = port.Type ?? port.type ?? 'tcp';
+        if (publicPort && privatePort) return `${publicPort}:${privatePort}/${type}`;
+        if (privatePort) return `${privatePort}/${type}`;
+        return '';
+      }).filter(Boolean);
+      return formatted.length > 0 ? formatted.join(', ') : '-';
+    }
+    return '-';
+  };
+
+  const getDockerStateBadge = (state) => {
+    if (state === 'running') return { variant: 'success', label: '运行' };
+    if (state === 'paused' || state === 'restarting') return { variant: 'warning', label: state === 'paused' ? '暂停' : '重启中' };
+    if (state === 'stopped' || state === 'dead') return { variant: 'error', label: state === 'dead' ? '异常' : '停止' };
+    return { variant: 'neutral', label: '未知' };
   };
 
   const openBatchAgentModal = () => {
@@ -2217,11 +2411,13 @@ function ServerPage() {
       return;
     }
     
-    const sessionId = 'session_' + Date.now();
-    let type = 'ssh';
-    if (server.monitor_mode === 'agent' || (server.status === 'online' && !server.host)) {
-      type = 'agent';
+    const type = resolveTerminalProtocol(server);
+    if (!type) {
+      toast.warning('该主机当前没有可用的终端传输');
+      return;
     }
+
+    const sessionId = 'session_' + Date.now();
     
     const newSession = {
       id: sessionId,
@@ -2257,15 +2453,32 @@ function ServerPage() {
     
     setServerCurrentTab('terminal');
     setActiveSSHSessionId(sessionId);
+    if (showSftpSidebar) syncSftpToSession(sessionId);
     
     if (sshGroupState && sshGroupState.ids.includes(sessionId)) {
       // 如果属于原分屏组，恢复该分屏状态
-      setVisibleSessionIds([...sshGroupState.ids]);
-      setSshViewLayout(sshGroupState.layout);
-      setSshSplitSide(sshGroupState.side);
+      const knownSessionIds = new Set(sshSessions.map(session => session.id));
+      const groupIds = sshGroupState.ids.filter(id => knownSessionIds.has(id));
+      if (groupIds.length > 1 && groupIds.includes(sessionId)) {
+        const nextLayout = getTerminalLayoutForSessionIds(groupIds, sshGroupState.layout);
+        const nextSide = nextLayout === 'single' ? '' : sshGroupState.side;
+        visibleSessionIdsRef.current = groupIds;
+        setVisibleSessionIds(groupIds);
+        setSshViewLayout(nextLayout);
+        setSshSplitSide(nextSide);
+        setSshGroupState({ ids: groupIds, layout: nextLayout, side: nextSide });
+      } else {
+        visibleSessionIdsRef.current = [sessionId];
+        setVisibleSessionIds([sessionId]);
+        setSshViewLayout('single');
+        setSshSplitSide('');
+        setSshGroupState(null);
+      }
     } else {
+      visibleSessionIdsRef.current = [sessionId];
       setVisibleSessionIds([sessionId]);
       setSshViewLayout('single');
+      setSshSplitSide('');
     }
     
     setTimeout(() => {
@@ -2273,6 +2486,95 @@ function ServerPage() {
       const instance = sshSessionRefs.current[sessionId];
       if (instance?.terminal) instance.terminal.focus();
     }, 100);
+  };
+
+  const activateSSHSession = (sessionId) => {
+    setActiveSSHSessionId(sessionId);
+    if (showSftpSidebar) syncSftpToSession(sessionId);
+    setTimeout(() => {
+      syncTerminalDOM();
+      sshSessionRefs.current[sessionId]?.terminal?.focus();
+    }, 80);
+  };
+
+  const syncSftpToSession = (sessionId) => {
+    const session = sshSessions.find(item => item.id === sessionId);
+    const serverId = session?.server?.id;
+    if (!serverId) return;
+    const lastPath = sftpPathByServerRef.current[serverId] || '.';
+    if (sftpServerId === serverId && sftpCurrentPath === lastPath) return;
+    loadSftpDirectory(serverId, lastPath);
+  };
+
+  const sendTerminalCommand = (sessionId, command) => {
+    const text = String(command || '').trim();
+    if (!sessionId || !text) return;
+
+    const payload = `${text}\r`;
+    const sendToSession = (targetId) => {
+      const target = sshSessionRefs.current[targetId];
+      if (target?.ws?.readyState === WebSocket.OPEN) {
+        target.ws.send(JSON.stringify({ type: 'input', data: payload }));
+        target.terminal?.focus();
+      }
+    };
+
+    sendToSession(sessionId);
+    if (sshSyncEnabledRef.current && visibleSessionIdsRef.current.includes(sessionId)) {
+      visibleSessionIdsRef.current.forEach(targetId => {
+        if (targetId !== sessionId) sendToSession(targetId);
+      });
+    }
+  };
+
+  const runQuickCommand = (command) => {
+    sendTerminalCommand(activeSSHSessionId, command);
+    setQuickCommandInput('');
+  };
+
+  const getTerminalLayoutForSessionIds = (ids, preferredLayout = sshViewLayout) => {
+    if (ids.length <= 1) return 'single';
+    if (ids.length > 2) return 'grid';
+    return preferredLayout === 'split-v' ? 'split-v' : 'split-h';
+  };
+
+  const fitTerminalSession = (sessionId, notifyBackend = true) => {
+    const inst = sshSessionRefs.current[sessionId];
+    const termEl = terminalDOMElements.current[sessionId];
+    if (!inst?.fit || !inst?.terminal || !termEl) return;
+
+    const rect = termEl.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0 || termEl.parentElement === warehouseRef.current) return;
+
+    const prevCols = inst.terminal.cols;
+    const prevRows = inst.terminal.rows;
+    try {
+      inst.fit.fit();
+      inst.terminal?.refresh?.(0, Math.max(0, inst.terminal.rows - 1));
+    } catch (e) {
+      return;
+    }
+
+    const cols = inst.terminal.cols;
+    const rows = inst.terminal.rows;
+    const sizeChanged = prevCols !== cols || prevRows !== rows;
+    const backendSizeChanged = inst.lastResizeCols !== cols || inst.lastResizeRows !== rows;
+    if (notifyBackend && (sizeChanged || backendSizeChanged) && inst.ws?.readyState === WebSocket.OPEN) {
+      inst.lastResizeCols = cols;
+      inst.lastResizeRows = rows;
+      inst.ws.send(JSON.stringify({ type: 'resize', cols, rows }));
+    }
+  };
+
+  const scheduleTerminalFit = (sessionId, delay = 60) => {
+    if (!sessionId) return;
+    if (terminalResizeTimers.current[sessionId]) {
+      clearTimeout(terminalResizeTimers.current[sessionId]);
+    }
+    terminalResizeTimers.current[sessionId] = setTimeout(() => {
+      delete terminalResizeTimers.current[sessionId];
+      fitTerminalSession(sessionId);
+    }, delay);
   };
   
   // 归还 DOM 元素到仓库
@@ -2295,8 +2597,10 @@ function ServerPage() {
     ws.onopen = () => {
       ws.send(JSON.stringify({
         type: 'connect',
+        sessionId,
         serverId: sessionMeta.server.id,
         protocol: sessionMeta.type,
+        lastSeq: sshSessionRefs.current[sessionId]?.lastSeq || 0,
         cols: terminal.cols,
         rows: terminal.rows
       }));
@@ -2316,16 +2620,27 @@ function ServerPage() {
         const msg = JSON.parse(e.data);
         if (msg.type === 'connected') {
           setSshSessions(prev => prev.map(s => s.id === sessionId ? { ...s, connected: true } : s));
-          terminal.clear();
-          terminal.writeln(`\x1b[1;32m已成功连接到主服务器\x1b[0m`);
-          setTimeout(() => sshSessionRefs.current[sessionId]?.fit?.fit(), 100);
+          if (!msg.resumed) {
+            terminal.clear();
+          }
+          terminal.writeln(`\x1b[1;32m${msg.resumed ? '已恢复终端会话' : '已成功连接到终端'}\x1b[0m`);
+          scheduleTerminalFit(sessionId, 100);
+        } else if (msg.type === 'history') {
+          const session = sshSessionRefs.current[sessionId];
+          if (session && msg.toSeq) session.lastSeq = Math.max(session.lastSeq || 0, msg.toSeq);
+          terminal.write(msg.data || '');
         } else if (msg.type === 'output') {
+          const session = sshSessionRefs.current[sessionId];
+          if (session && msg.seq) session.lastSeq = Math.max(session.lastSeq || 0, msg.seq);
           terminal.write(msg.data);
         } else if (msg.type === 'error') {
           terminal.writeln(`\n\x1b[1;31m错误: ${msg.message}\x1b[0m`);
         } else if (msg.type === 'disconnected') {
           setSshSessions(prev => prev.map(s => s.id === sessionId ? { ...s, connected: false } : s));
           terminal.writeln(`\n\x1b[1;31m连接已从远端断开: ${msg.message || ''}\x1b[0m`);
+        } else if (msg.type === 'detached') {
+          setSshSessions(prev => prev.map(s => s.id === sessionId ? { ...s, connected: false } : s));
+          terminal.writeln(`\n\x1b[1;33m${msg.message || '终端已在新的窗口恢复'}\x1b[0m`);
         }
       } catch (err) {
         console.error(err);
@@ -2355,7 +2670,7 @@ function ServerPage() {
     // 创建全局唯一的终端包装 div
     const container = document.createElement('div');
     container.id = 'ssh-terminal-' + sessionId;
-    container.className = 'w-full h-full p-2 bg-kumo-recessed overflow-hidden';
+    container.className = 'app-terminal-surface h-full w-full overflow-hidden';
     terminalDOMElements.current[sessionId] = container;
     if (!warehouseRef.current) return;
     warehouseRef.current.appendChild(container);
@@ -2367,7 +2682,7 @@ function ServerPage() {
       fontSize: 14,
       fontFamily: 'Consolas, "Courier New", monospace',
       theme: terminalTheme,
-      scrollback: 5000,
+      scrollback: 10000,
       allowProposedApi: true
     });
     
@@ -2378,6 +2693,11 @@ function ServerPage() {
     terminal.open(container);
     terminal.writeln(`\x1b[1;33m正在尝试建立与 ${sessionMeta.server.name} 的连接...\x1b[0m`);
     
+    const resizeObserver = typeof ResizeObserver !== 'undefined'
+      ? new ResizeObserver(() => scheduleTerminalFit(sessionId, 80))
+      : null;
+    if (resizeObserver) resizeObserver.observe(container);
+
     sshSessionRefs.current[sessionId] = {
       id: sessionId,
       terminal,
@@ -2386,7 +2706,11 @@ function ServerPage() {
       connected: false,
       sessionMeta,
       inputDisposable: null,
-      heartbeatInterval: null
+      heartbeatInterval: null,
+      resizeObserver,
+      lastResizeCols: 0,
+      lastResizeRows: 0,
+      lastSeq: 0
     };
 
     const ws = createSSHSocket(sessionId, sessionMeta, terminal);
@@ -2413,24 +2737,21 @@ function ServerPage() {
     // 初始化时同步 DOM
     setTimeout(() => {
       syncTerminalDOM();
-      fitAddon.fit();
+      scheduleTerminalFit(sessionId, 40);
     }, 100);
   };
   
   // 重新计算并挂载活动终端到 static slots 静态槽位上
   const syncTerminalDOM = () => {
-    const slots = visibleSessionIds;
+    const slots = visibleSessionIdsRef.current;
     slots.forEach((id, index) => {
       const slotDiv = document.getElementById(`ssh-slot-idx-${index}`);
       const termEl = terminalDOMElements.current[id];
       if (slotDiv && termEl && termEl.parentElement !== slotDiv) {
         slotDiv.appendChild(termEl);
-        const inst = sshSessionRefs.current[id];
-        if (inst && inst.fit) {
-          setTimeout(() => {
-            try { inst.fit.fit(); } catch(e){}
-          }, 150);
-        }
+      }
+      if (slotDiv && termEl && termEl.parentElement === slotDiv) {
+        scheduleTerminalFit(id, 120);
       }
     });
   };
@@ -2441,9 +2762,19 @@ function ServerPage() {
     
     const session = sshSessionRefs.current[sessionId];
     if (session) {
+      if (terminalResizeTimers.current[sessionId]) {
+        clearTimeout(terminalResizeTimers.current[sessionId]);
+        delete terminalResizeTimers.current[sessionId];
+      }
       if (session.heartbeatInterval) clearInterval(session.heartbeatInterval);
       if (session.inputDisposable) session.inputDisposable.dispose();
-      if (session.ws) session.ws.close();
+      if (session.resizeObserver) session.resizeObserver.disconnect();
+      if (session.ws) {
+        if (session.ws.readyState === WebSocket.OPEN) {
+          session.ws.send(JSON.stringify({ type: 'disconnect' }));
+        }
+        session.ws.close();
+      }
       if (session.terminal) session.terminal.dispose();
       delete sshSessionRefs.current[sessionId];
     }
@@ -2455,18 +2786,61 @@ function ServerPage() {
     }
     
     const remaining = sshSessions.filter(s => s.id !== sessionId);
+    const remainingIds = new Set(remaining.map(s => s.id));
+    const remainsVisible = visibleSessionIds.filter(id => id !== sessionId && remainingIds.has(id));
+    const nextActiveId = activeSSHSessionId === sessionId
+      ? (remainsVisible[remainsVisible.length - 1] || remaining[remaining.length - 1]?.id || '')
+      : activeSSHSessionId;
+    const nextVisibleIds = remainsVisible.length > 0 ? remainsVisible : (nextActiveId ? [nextActiveId] : []);
+    const nextLayout = getTerminalLayoutForSessionIds(nextVisibleIds, sshViewLayout);
+    const nextSide = nextLayout === 'single' ? '' : sshSplitSide;
+
     setSshSessions(remaining);
-    
-    const remainsVisible = visibleSessionIds.filter(id => id !== sessionId);
-    setVisibleSessionIds(remainsVisible);
-    
+    visibleSessionIdsRef.current = nextVisibleIds;
+    setVisibleSessionIds(nextVisibleIds);
+    setSshViewLayout(nextLayout);
+    setSshSplitSide(nextSide);
+    setSshGroupState(nextVisibleIds.length > 1 ? { ids: nextVisibleIds, layout: nextLayout, side: nextSide } : null);
+
     if (remaining.length === 0) {
       setActiveSSHSessionId('');
       setServerCurrentTab('list');
-    } else if (activeSSHSessionId === sessionId) {
-      const next = remaining[remaining.length - 1];
-      switchToSSHTab(next.id);
+    } else {
+      setActiveSSHSessionId(nextActiveId);
+      setServerCurrentTab('terminal');
+      if (showSftpSidebar && nextActiveId) syncSftpToSession(nextActiveId);
+      setTimeout(() => {
+        syncTerminalDOM();
+        sshSessionRefs.current[nextActiveId]?.terminal?.focus();
+      }, 100);
     }
+  };
+
+  const removeSSHSessionFromView = (sessionId) => {
+    if (visibleSessionIds.length <= 1) {
+      closeSSHSession(sessionId);
+      return;
+    }
+
+    const nextVisibleIds = visibleSessionIds.filter(id => id !== sessionId);
+    const nextLayout = getTerminalLayoutForSessionIds(nextVisibleIds, sshViewLayout);
+    const nextSide = nextLayout === 'single' ? '' : sshSplitSide;
+    const nextActiveId = activeSSHSessionId === sessionId
+      ? (nextVisibleIds[nextVisibleIds.length - 1] || '')
+      : activeSSHSessionId;
+
+    visibleSessionIdsRef.current = nextVisibleIds;
+    setVisibleSessionIds(nextVisibleIds);
+    setSshViewLayout(nextLayout);
+    setSshSplitSide(nextSide);
+    setSshGroupState(nextVisibleIds.length > 1 ? { ids: nextVisibleIds, layout: nextLayout, side: nextSide } : null);
+    setActiveSSHSessionId(nextActiveId);
+    if (showSftpSidebar && nextActiveId) syncSftpToSession(nextActiveId);
+
+    setTimeout(() => {
+      syncTerminalDOM();
+      sshSessionRefs.current[nextActiveId]?.terminal?.focus();
+    }, 100);
   };
   
   // 重新连接
@@ -2483,8 +2857,7 @@ function ServerPage() {
       session.ws.close();
     }
 
-    session.terminal.clear();
-    session.terminal.writeln(`\x1b[1;33m正在重新连接终端...\x1b[0m`);
+    session.terminal.writeln(`\r\n\x1b[1;33m正在恢复终端会话...\x1b[0m`);
     setSshSessions(prev => prev.map(s => s.id === sessionId ? { ...s, connected: false } : s));
 
     const nextWs = createSSHSocket(sessionId, session.sessionMeta, session.terminal);
@@ -2507,6 +2880,7 @@ function ServerPage() {
         setSftpFiles(data.data || []);
         setSftpCurrentPath(data.path);
         setSftpServerId(serverId);
+        sftpPathByServerRef.current[serverId] = data.path;
         
         // 构建路径导航
         const parts = data.path.split('/').filter(Boolean);
@@ -2603,46 +2977,115 @@ function ServerPage() {
       }
     }
     setSftpUploading(false);
+    e.target.value = '';
     toast.success(`成功上传 ${ok} 个文件`);
     loadSftpDirectory(sftpServerId, sftpCurrentPath);
   };
   
   // -------------------- 拖拽放置分屏逻辑 --------------------
-  const handleTerminalDragStart = (id) => {
+  const handleTerminalDragStart = (event, id) => {
+    if (event?.dataTransfer) {
+      event.dataTransfer.effectAllowed = 'move';
+      event.dataTransfer.setData('text/plain', id);
+    }
     setDraggedSessionId(id);
+    setDropTargetId(null);
+    setDropHint('');
   };
   
   const handleTerminalDragOver = (e, targetId) => {
     e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+    const sourceId = draggedSessionId || e.dataTransfer?.getData('text/plain') || '';
+    if (!sourceId || sourceId === targetId) {
+      setDropTargetId(null);
+      setDropHint('');
+      return;
+    }
     setDropTargetId(targetId);
+    setDropHint(getDropPosition(e));
+  };
+
+  const handleTerminalDragLeave = (e, targetId) => {
+    const nextTarget = e.relatedTarget;
+    if (nextTarget instanceof Node && e.currentTarget.contains(nextTarget)) return;
+    if (dropTargetId === targetId) {
+      setDropTargetId(null);
+      setDropHint('');
+    }
   };
   
-  const triggerSplitPane = (targetId, position) => {
-    if (!draggedSessionId || draggedSessionId === targetId) return;
-    
-    let updated = visibleSessionIds.filter(id => id !== draggedSessionId);
-    const idx = updated.indexOf(targetId);
-    if (position === 'center') {
-      // 替换
-      updated[idx] = draggedSessionId;
-      setSshViewLayout('single');
-    } else {
-      // 分割
-      if (position === 'left' || position === 'top') {
-        updated.splice(idx, 0, draggedSessionId);
-      } else {
-        updated.splice(idx + 1, 0, draggedSessionId);
-      }
-      setSshViewLayout(updated.length > 2 ? 'grid' : (position === 'top' || position === 'bottom' ? 'split-v' : 'split-h'));
+  const getSplitSourceSessionId = (targetId) => {
+    if (draggedSessionId && draggedSessionId !== targetId) return draggedSessionId;
+    if (activeSSHSessionId && activeSSHSessionId !== targetId) return activeSSHSessionId;
+    return (
+      sshSessions.find(session => session.id !== targetId && !visibleSessionIds.includes(session.id))?.id ||
+      sshSessions.find(session => session.id !== targetId)?.id ||
+      ''
+    );
+  };
+
+  const getDropPosition = (event) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const x = rect.width ? (event.clientX - rect.left) / rect.width : 0.5;
+    const y = rect.height ? (event.clientY - rect.top) / rect.height : 0.5;
+    if (y < 0.22) return 'top';
+    if (y > 0.78) return 'bottom';
+    return x < 0.5 ? 'left' : 'right';
+  };
+
+  const getTerminalDropPreviewStyle = (position) => {
+    const gap = '0.5rem';
+    switch (position) {
+      case 'left':
+        return { left: gap, right: '50%', top: gap, bottom: gap };
+      case 'right':
+        return { left: '50%', right: gap, top: gap, bottom: gap };
+      case 'top':
+        return { left: gap, right: gap, top: gap, bottom: '50%' };
+      case 'bottom':
+        return { left: gap, right: gap, top: '50%', bottom: gap };
+      default:
+        return { left: gap, right: gap, top: gap, bottom: gap };
     }
-    
+  };
+
+  const triggerSplitPane = (targetId, position, sourceId = getSplitSourceSessionId(targetId)) => {
+    if (!sourceId || sourceId === targetId) return;
+
+    const currentVisibleIds = visibleSessionIds.length > 0 ? visibleSessionIds : [targetId];
+    const updated = currentVisibleIds.filter(id => id !== sourceId);
+    const idx = Math.max(updated.indexOf(targetId), 0);
+    let nextLayout = 'single';
+    let nextSide = '';
+
+    if (position === 'center') {
+      updated[idx] = sourceId;
+    } else {
+      if (position === 'left' || position === 'top') {
+        updated.splice(idx, 0, sourceId);
+      } else {
+        updated.splice(idx + 1, 0, sourceId);
+      }
+      nextLayout = updated.length > 2 ? 'grid' : (position === 'top' || position === 'bottom' ? 'split-v' : 'split-h');
+      nextSide = position;
+    }
+
+    visibleSessionIdsRef.current = updated;
     setVisibleSessionIds(updated);
+    setSshViewLayout(nextLayout);
+    setSshSplitSide(nextSide);
+    setSshGroupState(updated.length > 1 ? { ids: updated, layout: nextLayout, side: nextSide } : null);
+    setActiveSSHSessionId(sourceId);
+    if (showSftpSidebar) syncSftpToSession(sourceId);
     setDraggedSessionId(null);
     setDropTargetId(null);
     setDropHint('');
-    
-    // 延迟同步 DOM 尺寸
-    setTimeout(() => syncTerminalDOM(), 100);
+
+    setTimeout(() => {
+      syncTerminalDOM();
+      sshSessionRefs.current[sourceId]?.terminal?.focus();
+    }, 100);
   };
   
   // -------------------- 计算过滤列表 --------------------
@@ -2672,7 +3115,13 @@ function ServerPage() {
   }, [serverList]);
   
   return (
-    <div className="flex flex-col gap-6 w-full px-1">
+    <div
+      className={
+        serverCurrentTab === 'terminal'
+          ? 'flex h-[calc(100dvh-90px)] min-h-0 w-full min-w-0 flex-col gap-3 overflow-hidden px-1 lg:h-[calc(100dvh-122px)]'
+          : 'flex w-full flex-col gap-6 px-1'
+      }
+    >
       {/* 顶部标签导航 */}
       <div className="flex flex-wrap items-center justify-between border-b border-kumo-line pb-3 gap-4">
         <div className="min-w-0 w-full min-[450px]:w-auto">
@@ -2873,6 +3322,8 @@ function ServerPage() {
                 const txTotal = getByteParts(server.info?.network?.tx_total);
                 const rxTotal = getByteParts(server.info?.network?.rx_total);
                 const chartLoading = !!server.metricsLoading;
+                const terminalProtocol = resolveTerminalProtocol(server);
+                const terminalLabel = terminalProtocol === 'agent' ? 'Agent 终端' : 'SSH 终端';
                 
                 return (
                   <ContextMenu.Root key={server.id}>
@@ -2918,7 +3369,7 @@ function ServerPage() {
                                 {t}
                               </span>
                             ))}
-                            {(server.monitor_mode === 'agent' || server.host === '0.0.0.0' || server.tags?.includes('Agent')) && (
+                            {isAgentServer(server) && (
                               <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-kumo-brand/10 text-kumo-brand">Agent</span>
                             )}
                           </div>
@@ -2993,11 +3444,11 @@ function ServerPage() {
                           <Button
                             shape="square" size="sm"
                             variant="secondary"
-                            title="SSH 连接"
-                            aria-label="SSH 连接"
+                            title={terminalProtocol ? terminalLabel : '终端不可用'}
+                            aria-label={terminalProtocol ? terminalLabel : '终端不可用'}
                             icon={<TerminalIcon className="w-3.5 h-3.5" />}
                             onClick={() => openSSHTerminal(server)}
-                            disabled={server.status !== 'online'}
+                            disabled={!canOpenTerminal(server)}
                             className="h-9 w-9 p-0 sm:h-8 sm:w-8"
                           />
                         </div>
@@ -3295,10 +3746,10 @@ function ServerPage() {
                                   }}
                                 >
                                   <span className="text-xs font-bold text-kumo-strong">Docker 容器</span>
-                                  <span className="flex min-w-0 items-center gap-2 text-[10px] font-medium text-kumo-subtle">
-                                    <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-kumo-success"></span>{runningContainers || server.info.docker.runningCount || 0} 运行</span>
-                                    {pausedContainers > 0 && <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-kumo-warning"></span>{pausedContainers} 暂停</span>}
-                                    {(stoppedContainers > 0 || server.info.docker.stoppedCount > 0) && <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-kumo-danger"></span>{stoppedContainers || server.info.docker.stoppedCount} 停止</span>}
+                                  <span className="flex min-w-0 items-center gap-1.5">
+                                    <Badge variant="success" appearance="dot">{runningContainers || server.info.docker.runningCount || 0} 运行</Badge>
+                                    {pausedContainers > 0 && <Badge variant="warning" appearance="dot">{pausedContainers} 暂停</Badge>}
+                                    {(stoppedContainers > 0 || server.info.docker.stoppedCount > 0) && <Badge variant="error" appearance="dot">{stoppedContainers || server.info.docker.stoppedCount} 停止</Badge>}
                                     {dockerExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
                                   </span>
                                 </Button>
@@ -3308,34 +3759,60 @@ function ServerPage() {
                                     <div className="grid grid-cols-2 gap-1.5 pt-1 sm:grid-cols-3 sm:gap-2 md:grid-cols-4 lg:grid-cols-6">
                                       {dockerContainers.map(c => {
                                         const state = getDockerContainerState(c);
+                                        const stateBadge = getDockerStateBadge(state);
+                                        const containerId = getDockerContainerId(c);
+                                        const containerName = getDockerContainerName(c);
+                                        const containerImage = getDockerContainerImage(c);
                                         return (
-                                          <div key={c.id} className="flex items-center justify-between rounded border border-kumo-line bg-kumo-canvas/45 p-1.5 text-[11px] hover:border-kumo-interact sm:p-2">
-                                            <div className="flex items-center gap-1.5 min-w-0 mr-2">
-                                              <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${state === 'running' ? 'bg-kumo-success animate-pulse' : state === 'paused' ? 'bg-kumo-warning' : 'bg-kumo-fill'}`}></span>
-                                              <span className="truncate font-semibold text-kumo-strong" title={c.name}>{c.name}</span>
+                                          <div key={containerId || `${server.id}-${containerName}`} className="flex items-center justify-between rounded-md border border-kumo-line bg-kumo-canvas/45 p-1.5 text-[11px] hover:border-kumo-interact sm:p-2">
+                                            <div className="mr-2 flex min-w-0 items-center gap-1.5">
+                                              <Badge variant={stateBadge.variant} appearance="dot" className="hidden min-[520px]:inline-flex">{stateBadge.label}</Badge>
+                                              <span className="truncate font-semibold text-kumo-strong" title={containerName}>{containerName}</span>
                                             </div>
                                             <div className="flex items-center gap-1 flex-shrink-0">
                                               <Button
                                                 shape="square" size="sm"
-                                                variant="ghost"
+                                                variant="secondary"
                                                 aria-label={state === 'running' ? '暂停容器' : state === 'paused' ? '恢复容器' : '启动容器'}
                                                 title={state === 'running' ? '暂停' : state === 'paused' ? '恢复' : '启动'}
                                                 icon={state === 'running' ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3" />}
                                                 onClick={(event) => {
                                                   event.stopPropagation();
                                                   const action = state === 'running' ? 'container.pause' : state === 'paused' ? 'container.unpause' : 'container.start';
-                                                  submitDockerTask(action, { serverId: server.id, containerId: c.id, containerName: c.name });
+                                                  submitDockerTask(action, { serverId: server.id, containerId, containerName, image: containerImage });
                                                 }}
                                               />
                                               <Button
                                                 shape="square" size="sm"
-                                                variant="ghost"
+                                                variant="secondary"
                                                 aria-label="重启容器"
                                                 title="重启"
                                                 icon={<RotateCw className="w-3 h-3" />}
                                                 onClick={(event) => {
                                                   event.stopPropagation();
-                                                  submitDockerTask('container.restart', { serverId: server.id, containerId: c.id, containerName: c.name });
+                                                  submitDockerTask('container.restart', { serverId: server.id, containerId, containerName, image: containerImage });
+                                                }}
+                                              />
+                                              <Button
+                                                shape="square" size="sm"
+                                                variant="secondary"
+                                                aria-label="检测镜像更新"
+                                                title="检测更新"
+                                                icon={<Search className="w-3 h-3" />}
+                                                onClick={(event) => {
+                                                  event.stopPropagation();
+                                                  submitDockerTask('container.checkUpdates', { serverId: server.id, containerId, containerName, image: containerImage });
+                                                }}
+                                              />
+                                              <Button
+                                                shape="square" size="sm"
+                                                variant="primary"
+                                                aria-label="一键更新容器"
+                                                title="一键更新"
+                                                icon={<Download className="w-3 h-3" />}
+                                                onClick={(event) => {
+                                                  event.stopPropagation();
+                                                  submitDockerTask('container.update', { serverId: server.id, containerId, containerName, image: containerImage });
                                                 }}
                                               />
                                             </div>
@@ -3615,7 +4092,6 @@ function ServerPage() {
                 value={dockerSelectedServer}
                 onValueChange={(value) => setDockerSelectedServer(String(value))}
                 placeholder="全部 Docker 主机"
-                className="border border-kumo-line rounded-lg px-2.5 py-1 bg-kumo-base text-xs focus:outline-none"
                 items={[
                   { value: '', label: '全部 Docker 主机' },
                   ...serverList
@@ -3716,42 +4192,61 @@ function ServerPage() {
                               </Table.Row>
                             </Table.Header>
                             <Table.Body>
-                              {server.resources.containers.map(c => (
-                                <Table.Row key={c.id} className="border-b border-kumo-line hover:bg-kumo-recessed/10">
-                                  <Table.Cell className="p-2 font-bold text-kumo-strong truncate">{c.name}</Table.Cell>
-                                  <Table.Cell className="p-2 truncate" title={c.image}>{c.image}</Table.Cell>
+                              {server.resources.containers.map(c => {
+                                const state = getDockerContainerState(c);
+                                const stateBadge = getDockerStateBadge(state);
+                                const containerId = getDockerContainerId(c);
+                                const containerName = getDockerContainerName(c);
+                                const containerImage = getDockerContainerImage(c);
+                                const containerPorts = getDockerContainerPorts(c);
+                                const toggleAction = state === 'running' ? 'container.stop' : 'container.start';
+                                return (
+                                <Table.Row key={containerId || `${server.id}-${containerName}`} className="border-b border-kumo-line hover:bg-kumo-recessed/10">
+                                  <Table.Cell className="p-2 font-bold text-kumo-strong truncate" title={containerName}>{containerName}</Table.Cell>
+                                  <Table.Cell className="p-2 truncate" title={containerImage}>{containerImage}</Table.Cell>
                                   <Table.Cell className="p-2">
-                                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${c.state === 'running' ? 'bg-kumo-success/15 text-kumo-success' : 'bg-kumo-danger/15 text-kumo-danger'}`}>
-                                      {c.state}
-                                    </span>
+                                    <Badge variant={stateBadge.variant} appearance="dot">{stateBadge.label}</Badge>
                                   </Table.Cell>
-                                  <Table.Cell className="p-2 font-mono text-[11px] text-kumo-subtle truncate">{c.ports || '-'}</Table.Cell>
+                                  <Table.Cell className="p-2 font-mono text-[11px] text-kumo-subtle truncate" title={containerPorts}>{containerPorts}</Table.Cell>
                                   <Table.Cell className="p-2 text-right">
                                     <div className="flex items-center justify-end gap-1.5">
                                       <Button
                                         shape="square" size="sm"
-                                        variant="ghost"
-                                        aria-label={c.state === 'running' ? '停止容器' : '启动容器'}
-                                        onClick={() => submitDockerTask(c.state === 'running' ? 'container.stop' : 'container.start', { serverId: server.id, containerId: c.id, containerName: c.name })}
-                                        className={`p-1.5 rounded cursor-pointer ${c.state === 'running' ? 'hover:bg-kumo-danger/10 text-kumo-danger' : 'hover:bg-kumo-success/10 text-kumo-success'}`}
-                                        title={c.state === 'running' ? '停止' : '启动'}
-                                      >
-                                        {c.state === 'running' ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
-                                      </Button>
+                                        variant={state === 'running' ? 'secondary-destructive' : 'secondary'}
+                                        icon={state === 'running' ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+                                        aria-label={state === 'running' ? '停止容器' : '启动容器'}
+                                        onClick={() => submitDockerTask(toggleAction, { serverId: server.id, containerId, containerName, image: containerImage })}
+                                        title={state === 'running' ? '停止' : '启动'}
+                                      />
                                       <Button
                                         shape="square" size="sm"
-                                        variant="ghost"
+                                        variant="secondary"
+                                        icon={<RotateCw className="h-3.5 w-3.5" />}
                                         aria-label="重启容器"
-                                        onClick={() => submitDockerTask('container.restart', { serverId: server.id, containerId: c.id, containerName: c.name })}
-                                        className="rounded hover:bg-kumo-recessed text-kumo-subtle cursor-pointer"
+                                        onClick={() => submitDockerTask('container.restart', { serverId: server.id, containerId, containerName, image: containerImage })}
                                         title="重启"
-                                      >
-                                        <RotateCw className="h-3.5 w-3.5" />
-                                      </Button>
+                                      />
+                                      <Button
+                                        shape="square" size="sm"
+                                        variant="secondary"
+                                        icon={<Search className="h-3.5 w-3.5" />}
+                                        aria-label="检测镜像更新"
+                                        onClick={() => submitDockerTask('container.checkUpdates', { serverId: server.id, containerId, containerName, image: containerImage })}
+                                        title="检测更新"
+                                      />
+                                      <Button
+                                        shape="square" size="sm"
+                                        variant="primary"
+                                        icon={<Download className="h-3.5 w-3.5" />}
+                                        aria-label="一键更新容器"
+                                        onClick={() => submitDockerTask('container.update', { serverId: server.id, containerId, containerName, image: containerImage })}
+                                        title="一键更新"
+                                      />
                                     </div>
                                   </Table.Cell>
                                 </Table.Row>
-                              ))}
+                                );
+                              })}
                             </Table.Body>
                           </Table>
                           )}
@@ -4240,210 +4735,411 @@ function ServerPage() {
       )}
       
       {/* ==================== 5. SSH 终端 (多分屏支持) ==================== */}
-      {serverCurrentTab === 'terminal' && (
-        <div className="flex flex-col bg-kumo-canvas border border-kumo-line rounded-lg overflow-hidden w-full h-[70vh] shadow-lg">
-          {/* 终端顶部操作与标签栏 */}
-          <div className="flex items-center justify-between bg-kumo-base border-b border-kumo-line px-3 py-2 text-xs">
-            <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-thin max-w-lg">
-              {sshSessions.map(sess => (
-                <div
-                  key={sess.id}
-                  onClick={() => switchToSSHTab(sess.id)}
-                  className={`flex items-center gap-2 px-3 py-1.5 rounded cursor-pointer font-semibold ${activeSSHSessionId === sess.id ? 'bg-kumo-recessed text-kumo-strong' : 'text-kumo-subtle hover:bg-kumo-recessed hover:text-kumo-strong'}`}
-                >
-                  <span className="w-1.5 h-1.5 rounded-full bg-kumo-success"></span>
-                  <span className="truncate max-w-[80px]">{sess.name}</span>
-                  <Button
-                    shape="square" size="sm"
-                    variant="ghost"
-                    aria-label="关闭 SSH 会话"
-                    onClick={e => {
-                      e.stopPropagation();
-                      closeSSHSession(sess.id);
+      {serverCurrentTab === 'terminal' && (() => {
+        const activeSession = sshSessions.find(s => s.id === activeSSHSessionId);
+        const activeServer = activeSession?.server;
+        const activeInfo = activeServer?.info || {};
+        const resourceMetrics = [
+          {
+            label: 'CPU',
+            value: activeInfo.cpu?.Usage || '-',
+            width: activeInfo.cpu?.Usage || '0%',
+            valueClassName: 'text-kumo-success',
+            barClassName: 'bg-kumo-success',
+          },
+          {
+            label: 'Mem',
+            value: activeInfo.memory?.Usage || '-',
+            width: activeInfo.memory?.Usage || '0%',
+            valueClassName: 'text-kumo-info',
+            barClassName: 'bg-kumo-info',
+          },
+          {
+            label: 'Disk',
+            value: activeInfo.disk?.[0]?.usage || '-',
+            width: activeInfo.disk?.[0]?.usage || '0%',
+            valueClassName: 'text-kumo-brand',
+            barClassName: 'bg-kumo-brand',
+          },
+          {
+            label: 'GPU',
+            value: activeInfo.gpu?.Usage || '-',
+            width: activeInfo.gpu?.Usage || '0%',
+            valueClassName: 'text-kumo-warning',
+            barClassName: 'bg-kumo-warning',
+          },
+        ];
+        const isWindowsTerminal = String(activeInfo.platform || activeServer?.platform || '').toLowerCase().includes('win');
+        const quickCommands = isWindowsTerminal
+          ? ['dir', 'ipconfig', 'Get-Process | Select-Object -First 10', 'Get-Location']
+          : ['pwd', 'ls -la', 'df -h', 'docker ps'];
+
+        return (
+          <div className="flex min-h-0 w-full flex-1 flex-col overflow-hidden rounded-lg border border-kumo-line bg-kumo-base">
+            <div className="flex min-h-11 items-center justify-between gap-3 border-b border-kumo-line bg-kumo-base px-3 py-2 text-xs">
+              <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto scrollbar-thin">
+                {sshSessions.map(sess => (
+                    <div
+                      key={sess.id}
+                      draggable
+                      onDragStart={event => handleTerminalDragStart(event, sess.id)}
+                    onDragEnd={() => {
+                      setDraggedSessionId(null);
+                      setDropTargetId(null);
+                      setDropHint('');
                     }}
-                    className="hover:text-kumo-danger font-bold text-[10px]"
+                    className={`flex h-7 shrink-0 items-center rounded-md border ${
+                      activeSSHSessionId === sess.id
+                        ? 'border-kumo-brand/60 bg-kumo-recessed text-kumo-strong'
+                        : 'border-kumo-line bg-kumo-base text-kumo-subtle'
+                    }`}
                   >
-                    ×
-                  </Button>
-                </div>
-              ))}
-            </div>
-            
-            <div className="flex items-center gap-2 text-kumo-strong">
-              <Button size="sm"
-                variant={sshSyncEnabled ? 'primary' : 'secondary'}
-                onClick={() => setSshSyncEnabled(prev => !prev)}
-                className={`px-2 py-1 rounded text-[10px] font-bold cursor-pointer transition-colors ${sshSyncEnabled ? 'bg-kumo-brand text-kumo-inverse' : 'border border-kumo-line text-kumo-subtle hover:bg-kumo-recessed hover:text-kumo-strong'}`}
-                title="开启多终端广播同步输入模式"
-              >
-                📣 广播输入: {sshSyncEnabled ? '开' : '关'}
-              </Button>
-               
-              <Button size="sm"
-                variant="secondary"
-                onClick={() => reconnectSSHSession(activeSSHSessionId)}
-                className="border border-kumo-line hover:bg-kumo-recessed rounded text-[10px] font-bold cursor-pointer"
-                title="重新连接终端"
-              >
-                重连
-              </Button>
-            </div>
-          </div>
-          
-          {/* 分屏网格主展示区 */}
-          <div className="flex-1 relative flex">
-            {/* 网格网格系统 */}
-            <div
-              className={`flex-1 grid gap-1.5 p-1.5 bg-kumo-recessed ${
-                sshViewLayout === 'split-h' ? 'grid-cols-2' :
-                sshViewLayout === 'split-v' ? 'grid-rows-2' :
-                sshViewLayout === 'grid' ? 'grid-cols-2 grid-rows-2' : 'grid-cols-1'
-              }`}
-            >
-              {visibleSessionIds.map((id, index) => (
-                <div
-                  key={id}
-                  id={`ssh-slot-idx-${index}`}
-                  onDragOver={e => handleTerminalDragOver(e, id)}
-                  onDrop={e => triggerSplitPane(id, 'right')}
-                  className={`w-full h-full border ${activeSSHSessionId === id ? 'border-kumo-brand/60' : 'border-kumo-line'} rounded-sm overflow-hidden bg-kumo-base relative`}
-                >
-                  {/* 分割与拖拽锚点标题 */}
-                  <div
-                    draggable
-                    onDragStart={() => handleTerminalDragStart(id)}
-                    className="bg-kumo-recessed px-2 py-1.5 text-[10px] text-kumo-subtle font-mono select-none flex items-center justify-between cursor-move"
-                  >
-                    <span>🖥️ {sshSessions.find(s => s.id === id)?.name || 'SSH'}</span>
-                    <div className="flex gap-2">
-                      <Button size="sm"
-                        variant="ghost"
-                        onClick={() => triggerSplitPane(id, 'right')}
-                        className="hover:text-kumo-strong"
-                        title="左右分割"
-                      >
-                        [|]
-                      </Button>
-                      <Button
-                        shape="square" size="sm"
-                        variant="ghost"
-                        aria-label="关闭终端"
-                        onClick={() => closeSSHSession(id)}
-                        className="hover:text-kumo-danger"
-                      >
-                        ×
-                      </Button>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (visibleSessionIds.includes(sess.id)) {
+                          activateSSHSession(sess.id);
+                        } else {
+                          switchToSSHTab(sess.id);
+                        }
+                      }}
+                      className="flex h-full min-w-0 items-center gap-1.5 px-2 text-[11px] font-semibold"
+                    >
+                      <span className={`h-1.5 w-1.5 rounded-full ${sess.connected ? 'bg-kumo-success' : 'bg-kumo-warning'}`}></span>
+                      <span className="max-w-28 truncate">{sess.name}</span>
+                      <span className="text-[9px] uppercase text-kumo-subtle">{sess.type}</span>
+                    </button>
+                    <Button
+                      shape="square" size="sm"
+                      variant="ghost"
+                      icon={<X className="h-3 w-3" />}
+                      aria-label="关闭终端会话"
+                      title="关闭终端会话"
+                      onClick={e => {
+                        e.stopPropagation();
+                        closeSSHSession(sess.id);
+                      }}
+                      className="hover:text-kumo-danger"
+                    />
                   </div>
-                  
-                  {/* 此处会在 syncTerminalDOM 中动态 append xterm.js 容器 */}
-                </div>
-              ))}
+                ))}
+              </div>
+
+              <div className="flex shrink-0 items-center gap-1.5">
+                <Button
+                  size="sm"
+                  variant={sshSyncEnabled ? 'primary' : 'secondary'}
+                  icon={<Send className="h-3.5 w-3.5" />}
+                  onClick={() => setSshSyncEnabled(prev => !prev)}
+                  title="同步输入"
+                >
+                  同步{sshSyncEnabled ? '开' : '关'}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  icon={<RefreshCw className="h-3.5 w-3.5" />}
+                  onClick={() => reconnectSSHSession(activeSSHSessionId)}
+                  disabled={!activeSSHSessionId}
+                  title="恢复连接"
+                >
+                  重连
+                </Button>
+              </div>
             </div>
-            
-            {/* SFTP 文件管理系统抽屉面板 */}
-            {showSftpSidebar && (
-              <div className="w-80 border-l border-kumo-line bg-kumo-base p-3 flex flex-col gap-3 text-xs">
-                <div className="flex items-center justify-between border-b border-kumo-line pb-2">
-                  <span className="font-bold text-kumo-strong flex items-center gap-1.5">
-                    📁 SFTP 文件管理柜
-                  </span>
-                  <Button
-                    shape="square" size="sm"
-                    variant="ghost"
-                    aria-label="关闭 SFTP 面板"
-                    onClick={() => setShowSftpSidebar(false)}
-                    className="text-kumo-subtle hover:text-kumo-strong"
+
+            <div className="flex min-h-0 flex-1">
+              <div className="flex min-w-0 flex-1 flex-col">
+                <div className="flex min-h-0 flex-1">
+                  <div
+                    className={`grid min-w-0 flex-1 gap-1.5 bg-kumo-recessed p-1.5 ${
+                      sshViewLayout === 'split-h' ? 'grid-cols-2' :
+                      sshViewLayout === 'split-v' ? 'grid-rows-2' :
+                      sshViewLayout === 'grid' ? 'grid-cols-2 grid-rows-2' : 'grid-cols-1'
+                    }`}
                   >
-                    ×
-                  </Button>
-                </div>
-                
-                <div className="flex items-center gap-1 bg-kumo-recessed p-1.5 rounded text-[10px] text-kumo-subtle font-mono truncate">
-                  <span>路径: {sftpCurrentPath}</span>
-                </div>
-                
-                {/* 目录面包屑导航 */}
-                <div className="flex items-center gap-1.5 text-[10px] overflow-x-auto whitespace-nowrap scrollbar-thin">
-                  {sftpBreadcrumbs.map((crumb, idx) => (
-                    <React.Fragment key={crumb.path}>
-                      <span
-                        onClick={() => loadSftpDirectory(sftpServerId, crumb.path)}
-                        className="cursor-pointer hover:text-kumo-brand"
-                      >
-                        {crumb.name}
-                      </span>
-                      {idx < sftpBreadcrumbs.length - 1 && <span className="opacity-40">/</span>}
-                    </React.Fragment>
-                  ))}
-                </div>
-                
-                {/* 文件与目录树列表 */}
-                <div className="flex-1 overflow-y-auto flex flex-col gap-1.5 scrollbar-thin pr-1.5">
-                  {sftpLoading ? (
-                    <div className="py-8 text-center text-[10px] text-kumo-subtle">
-                      读取远程目录中...
-                    </div>
-                  ) : sftpFiles.length === 0 ? (
-                    <div className="py-8 text-center text-[10px] text-kumo-subtle">
-                      当前目录为空
-                    </div>
-                  ) : (
-                    sftpFiles.map(file => (
-                      <div
-                        key={file.path}
-                        onClick={() => handleSftpFileClick(file)}
-                        className="flex items-center justify-between p-1.5 border border-kumo-line rounded bg-kumo-recessed hover:border-kumo-brand/60 cursor-pointer"
-                      >
-                        <div className="flex items-center gap-2 truncate">
-                          <span>{file.isDirectory ? '📁' : '📄'}</span>
-                          <span className="text-kumo-strong truncate font-semibold" title={file.name}>{file.name}</span>
+                    {visibleSessionIds.map((id, index) => {
+                      const slotSession = sshSessions.find(s => s.id === id);
+                      const showDropPreview = dropTargetId === id && dropHint && draggedSessionId && draggedSessionId !== id;
+                      return (
+                        <div
+                          key={id}
+                          onMouseDown={() => activateSSHSession(id)}
+                          onDragOver={e => handleTerminalDragOver(e, id)}
+                          onDragLeave={e => handleTerminalDragLeave(e, id)}
+                          onDrop={e => {
+                            e.preventDefault();
+                            const sourceId = draggedSessionId || e.dataTransfer?.getData('text/plain') || undefined;
+                            triggerSplitPane(id, getDropPosition(e), sourceId);
+                            setDropTargetId(null);
+                            setDropHint('');
+                          }}
+                          className={`relative flex h-full w-full flex-col overflow-hidden rounded-md border bg-kumo-base ${
+                            activeSSHSessionId === id ? 'border-kumo-interact' : 'border-kumo-line'
+                          }`}
+                        >
+                          <div
+                            draggable
+                            onDragStart={event => handleTerminalDragStart(event, id)}
+                            className="flex h-8 cursor-move select-none items-center justify-between border-b border-kumo-line bg-kumo-base px-2 text-[10px] text-kumo-subtle"
+                          >
+                            <button
+                              type="button"
+                              onClick={() => activateSSHSession(id)}
+                              className="flex min-w-0 items-center gap-1.5 font-semibold text-kumo-strong"
+                            >
+                              <TerminalIcon className="h-3.5 w-3.5 shrink-0" />
+                              <span className="truncate">{slotSession?.name || 'Terminal'}</span>
+                            </button>
+                            <div className="flex items-center gap-1">
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => triggerSplitPane(id, 'right')}
+                                title="左右分屏"
+                              >
+                                Split
+                              </Button>
+                              <Button
+                                shape="square" size="sm"
+                                variant="ghost"
+                                icon={<X className="h-3 w-3" />}
+                                aria-label="关闭终端"
+                                title="关闭终端"
+                                onClick={event => {
+                                  event.stopPropagation();
+                                  removeSSHSessionFromView(id);
+                                }}
+                                className="hover:text-kumo-danger"
+                              />
+                            </div>
+                          </div>
+                          <div id={`ssh-slot-idx-${index}`} className="app-terminal-surface min-h-0 flex-1 overflow-hidden" />
+                          {showDropPreview && (
+                            <div
+                              className="pointer-events-none absolute z-20 rounded-md border border-dashed border-kumo-brand bg-kumo-brand/10 ring-1 ring-kumo-brand/25"
+                              style={getTerminalDropPreviewStyle(dropHint)}
+                            />
+                          )}
                         </div>
-                        <span className="text-[9px] text-kumo-subtle">{file.isDirectory ? '目录' : formatFileSize(file.size)}</span>
+                      );
+                    })}
+                  </div>
+
+                  {showServerStatusSidebar && (
+                    <div className="w-52 shrink-0 border-l border-kumo-line bg-kumo-base p-2.5 text-xs">
+                      <div className="mb-2.5 flex items-center justify-between border-b border-kumo-line pb-2">
+                        <span className="text-[11px] font-bold text-kumo-strong">资源监控</span>
+                        <Button
+                          shape="square" size="sm"
+                          variant="ghost"
+                          icon={<X className="h-3 w-3" />}
+                          aria-label="关闭资源监控"
+                          title="关闭资源监控"
+                          onClick={() => setShowServerStatusSidebar(false)}
+                        />
                       </div>
-                    ))
+                      <div className="mb-2.5 min-w-0 rounded-md border border-kumo-line bg-kumo-recessed/25 p-2">
+                        <div className="truncate text-[11px] font-semibold text-kumo-strong">{activeSession?.name || '-'}</div>
+                        <div className="mt-1 truncate font-mono text-[10px] text-kumo-subtle">{activeServer?.host || 'Agent'}</div>
+                      </div>
+                      <div className="flex flex-col gap-2.5">
+                        {resourceMetrics.map(metric => {
+                          const label = metric.label === 'Mem' ? 'Memory' : metric.label;
+                          return (
+                            <div key={metric.label} className="min-w-0">
+                              <div className="mb-1 flex items-center justify-between gap-2 text-[10px]">
+                                <span className="font-semibold text-kumo-subtle">{label}</span>
+                                <span className={`font-mono font-bold ${metric.valueClassName}`}>{metric.value}</span>
+                              </div>
+                              <div className="h-1.5 overflow-hidden rounded-full border border-kumo-line bg-kumo-recessed">
+                                <div className={`h-full ${metric.barClassName}`} style={{ width: metric.width }} />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {activeInfo.network && (
+                        <div className="mt-3 flex flex-col gap-2 border-t border-kumo-line pt-3 text-[10px]">
+                          <div className="rounded-md border border-kumo-line bg-kumo-recessed/30 p-2">
+                            <div className="text-kumo-subtle">Upload</div>
+                            <div className="mt-1 truncate font-mono font-semibold text-kumo-info">{activeInfo.network.tx_speed || '-'}</div>
+                          </div>
+                          <div className="rounded-md border border-kumo-line bg-kumo-recessed/30 p-2">
+                            <div className="text-kumo-subtle">Download</div>
+                            <div className="mt-1 truncate font-mono font-semibold text-kumo-success">{activeInfo.network.rx_speed || '-'}</div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   )}
                 </div>
-                
-                {/* 底部 SFTP 动作 */}
-                <div className="flex gap-2 border-t border-kumo-line pt-2">
-                  <label className="flex-1 py-1.5 bg-kumo-recessed hover:bg-kumo-fill border border-kumo-line rounded text-center text-[10px] font-bold cursor-pointer">
-                    <Input size="sm" aria-label="上传 SFTP 文件" type="file" className="hidden" onChange={handleSftpUpload} multiple />
-                    上传文件
-                  </label>
-                  <Button size="sm"
-                    variant="secondary"
-                    onClick={() => loadSftpDirectory(sftpServerId, sftpCurrentPath)}
-                    className="flex-1 border border-kumo-line text-kumo-subtle hover:text-kumo-strong hover:bg-kumo-recessed rounded text-[10px] font-bold cursor-pointer"
+
+                <div className="grid shrink-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-x-2 gap-y-1.5 border-t border-kumo-line bg-kumo-base px-2.5 py-1.5 text-xs lg:grid-cols-[auto_minmax(0,1fr)_minmax(240px,320px)]">
+                  <span className="flex h-6.5 shrink-0 items-center whitespace-nowrap text-[11px] font-semibold text-kumo-subtle">快捷命令</span>
+                  <div className="-m-px min-w-0 overflow-x-auto p-px scrollbar-thin">
+                    <div className="flex min-w-max items-center gap-1.5 px-px pb-1 pt-px lg:min-w-0">
+                      {quickCommands.map(command => (
+                        <Button
+                          key={command}
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={() => runQuickCommand(command)}
+                          disabled={!activeSSHSessionId}
+                          className="shrink-0"
+                          title={command}
+                        >
+                          <span className="block max-w-36 truncate font-mono">{command}</span>
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                  <form
+                    className="col-span-2 flex min-w-0 items-center gap-1.5 lg:col-span-1"
+                    onSubmit={event => {
+                      event.preventDefault();
+                      const command = quickCommandInput.trim();
+                      if (command) runQuickCommand(command);
+                    }}
                   >
-                    刷新
-                  </Button>
+                    <Input
+                      size="sm"
+                      aria-label="自定义快捷命令"
+                      value={quickCommandInput}
+                      onChange={event => setQuickCommandInput(event.target.value)}
+                      placeholder="输入命令"
+                      className="min-w-0 flex-1 font-mono"
+                    />
+                    <Button
+                      type="submit"
+                      size="sm"
+                      variant="primary"
+                      icon={<Send className="h-3.5 w-3.5" />}
+                      className="shrink-0"
+                      disabled={!activeSSHSessionId || !quickCommandInput.trim()}
+                    >
+                      执行
+                    </Button>
+                  </form>
                 </div>
+
+                {showSftpSidebar && (
+                  <div className="h-56 shrink-0 border-t border-kumo-line bg-kumo-base p-3 text-xs">
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <FolderOpen className="h-4 w-4 text-kumo-subtle" />
+                        <span className="font-bold text-kumo-strong">SFTP</span>
+                        <span className="truncate font-mono text-[10px] text-kumo-subtle">{sftpCurrentPath}</span>
+                      </div>
+                      <div className="flex shrink-0 items-center gap-1.5">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          icon={<Upload className="h-3.5 w-3.5" />}
+                          onClick={() => sftpUploadInputRef.current?.click()}
+                          disabled={!sftpServerId || sftpUploading}
+                        >
+                          上传
+                        </Button>
+                        <input
+                          ref={sftpUploadInputRef}
+                          aria-label="上传 SFTP 文件"
+                          type="file"
+                          className="hidden"
+                          onChange={handleSftpUpload}
+                          multiple
+                        />
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          icon={<RefreshCw className="h-3.5 w-3.5" />}
+                          onClick={() => loadSftpDirectory(sftpServerId, sftpCurrentPath)}
+                          loading={sftpLoading || sftpUploading}
+                        >
+                          刷新
+                        </Button>
+                        <Button
+                          shape="square" size="sm"
+                          variant="ghost"
+                          icon={<X className="h-3 w-3" />}
+                          aria-label="关闭 SFTP"
+                          title="关闭 SFTP"
+                          onClick={() => setShowSftpSidebar(false)}
+                        />
+                      </div>
+                    </div>
+                    <div className="mb-2 flex items-center gap-1.5 overflow-x-auto whitespace-nowrap text-[10px] scrollbar-thin">
+                      {sftpBreadcrumbs.map((crumb, idx) => (
+                        <React.Fragment key={crumb.path}>
+                          <button
+                            type="button"
+                            onClick={() => loadSftpDirectory(sftpServerId, crumb.path)}
+                            className="rounded px-1 py-0.5 font-semibold text-kumo-subtle hover:bg-kumo-recessed hover:text-kumo-strong"
+                          >
+                            {crumb.name}
+                          </button>
+                          {idx < sftpBreadcrumbs.length - 1 && <span className="opacity-40">/</span>}
+                        </React.Fragment>
+                      ))}
+                    </div>
+                    <div className="grid max-h-36 grid-cols-2 gap-1.5 overflow-y-auto pr-1 scrollbar-thin md:grid-cols-4 xl:grid-cols-6">
+                      {sftpLoading ? (
+                        <div className="col-span-full py-8 text-center text-[10px] text-kumo-subtle">读取远程目录中...</div>
+                      ) : sftpError ? (
+                        <div className="col-span-full rounded-md border border-kumo-danger/30 bg-kumo-danger/10 p-2 text-[10px] text-kumo-danger">{sftpError}</div>
+                      ) : sftpFiles.length === 0 ? (
+                        <div className="col-span-full py-8 text-center text-[10px] text-kumo-subtle">当前目录为空</div>
+                      ) : (
+                        sftpFiles.map(file => (
+                          <button
+                            key={file.path}
+                            type="button"
+                            onClick={() => handleSftpFileClick(file)}
+                            className="flex min-w-0 items-center justify-between gap-2 rounded-md border border-kumo-line bg-kumo-recessed/35 px-2 py-1.5 text-left hover:border-kumo-brand/60 hover:bg-kumo-recessed"
+                          >
+                            <span className="flex min-w-0 items-center gap-1.5">
+                              {file.isDirectory ? <Folder className="h-3.5 w-3.5 shrink-0" /> : <FileText className="h-3.5 w-3.5 shrink-0" />}
+                              <span className="truncate text-[11px] font-semibold text-kumo-strong" title={file.name}>{file.name}</span>
+                            </span>
+                            <span className="shrink-0 text-[9px] text-kumo-subtle">{file.isDirectory ? '目录' : formatFileSize(file.size)}</span>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
-            )}
-            
-            {/* 右侧终端小功能栏 */}
-            <div className="w-11 border-l border-kumo-line bg-kumo-base flex flex-col items-center py-3.5 gap-4 text-kumo-subtle">
-              <Button
-                shape="square" size="sm"
-                variant="ghost"
-                aria-label="目录文件管理 SFTP"
-                onClick={() => {
-                  setShowSftpSidebar(prev => !prev);
-                  if (!showSftpSidebar && activeSSHSessionId) {
-                    const serverId = sshSessions.find(s => s.id === activeSSHSessionId)?.server.id;
-                    if (serverId) loadSftpDirectory(serverId, '.');
-                  }
-                }}
-                className={`p-1.5 rounded hover:text-kumo-strong cursor-pointer ${showSftpSidebar ? 'text-kumo-strong bg-kumo-recessed' : ''}`}
-                title="目录文件管理 SFTP"
-              >
-                <FolderOpen className="w-4 h-4" />
-              </Button>
+
+              <div className="flex w-11 shrink-0 flex-col items-center gap-3 border-l border-kumo-line bg-kumo-base py-3 text-kumo-subtle">
+                <Button
+                  shape="square" size="sm"
+                  variant={showServerStatusSidebar ? 'secondary' : 'ghost'}
+                  icon={<Activity className="h-4 w-4" />}
+                  aria-label="资源监控"
+                  title="资源监控"
+                  onClick={() => setShowServerStatusSidebar(prev => !prev)}
+                />
+                <Button
+                  shape="square" size="sm"
+                  variant={showSftpSidebar ? 'secondary' : 'ghost'}
+                  icon={<FolderOpen className="h-4 w-4" />}
+                  aria-label="SFTP 文件浏览"
+                  title="SFTP 文件浏览"
+                  onClick={() => {
+                    setShowSftpSidebar(prev => !prev);
+                    if (!showSftpSidebar && activeSSHSessionId) {
+                      const serverId = sshSessions.find(s => s.id === activeSSHSessionId)?.server.id;
+                      if (serverId) loadSftpDirectory(serverId, '.');
+                    }
+                  }}
+                />
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
       
       {/* ==================== xterm.js 实例静默挂载的仓库 ==================== */}
       <div ref={warehouseRef} className="hidden absolute -top-[9999px]" id="ssh-terminal-warehouse"></div>

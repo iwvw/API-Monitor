@@ -145,8 +145,11 @@ function collectMetrics() {
           serverName: server.name,
           metrics: {
             cpu_usage: metrics.cpu_usage || '0%',
+            cpu_temp: metrics.cpu_temp || 0,
             load: metrics.load || '0 0 0',
             cores: metrics.cores || '-',
+            physical_cores: metrics.physical_cores || metrics.cores || '-',
+            logical_cores: metrics.logical_cores || metrics.cores || '-',
             mem_usage: metrics.mem_usage || metrics.mem || '0/0MB',
             disk_usage: metrics.disk_usage || metrics.disk || '-/- (0%)',
             network: metrics.network || {
