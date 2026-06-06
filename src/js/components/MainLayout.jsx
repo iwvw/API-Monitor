@@ -20,8 +20,7 @@ import {
   Sidebar,
   useSidebar
 } from '@cloudflare/kumo/components/sidebar';
-import { Tabs } from '@cloudflare/kumo';
-import { TOOL_TABS_PROPS } from '../modules/kumoTabs.js';
+import AppPageHeader, { AppBreadcrumbs } from './AppPageHeader.jsx';
 import {
   LayoutDashboard,
   Bot,
@@ -303,23 +302,20 @@ function MainLayout() {
       {/* ==================== 2. 主页面区 (Main Panel) ==================== */}
       <div className="flex-1 flex flex-col h-full overflow-hidden">
         {/* 顶部导航 */}
-        <header className="h-[58px] bg-kumo-base border-b border-kumo-line flex items-center justify-between px-6 flex-shrink-0">
-          <div className="flex items-center gap-3.5">
+        <header className="min-h-[58px] flex-shrink-0 border-b border-kumo-line bg-kumo-base px-3 py-2 min-[450px]:px-4 md:px-6 flex items-center">
+          <div className="flex min-w-0 flex-1 items-center gap-3.5">
             <Sidebar.Trigger className="md:hidden" />
-            
-            <div className="flex items-center gap-1.5 text-xs text-kumo-subtle font-medium select-none">
-              <span>DSUK</span>
-              <span className="text-kumo-subtle/40">/</span>
-              <span className="text-kumo-strong font-semibold">
-                {getModuleName(mainActiveTab)}
-              </span>
-            </div>
-          </div>
 
-          <div className="flex items-center gap-4">
-            <Tabs
-              {...TOOL_TABS_PROPS}
-              size="sm"
+            <AppPageHeader
+              className="min-[450px]:flex-row min-[450px]:items-center min-[450px]:justify-between"
+              spacing="compact"
+              breadcrumbs={(
+                <AppBreadcrumbs size="sm" className="mr-0">
+                  <AppBreadcrumbs.Link href={MODULE_PATHS.dashboard}>DSUK</AppBreadcrumbs.Link>
+                  <AppBreadcrumbs.Separator />
+                  <AppBreadcrumbs.Current>{getModuleName(mainActiveTab)}</AppBreadcrumbs.Current>
+                </AppBreadcrumbs>
+              )}
               value={pageWidthMode}
               onValueChange={setPageWidthMode}
               tabs={[
@@ -327,11 +323,13 @@ function MainLayout() {
                 { value: 'wide', label: '宽屏' },
                 { value: 'full', label: '全宽' },
               ]}
-            />
-            <div className="flex items-center gap-1.5 text-[11px] text-kumo-success bg-kumo-success/10 px-2 py-0.5 rounded-md border border-kumo-success/20">
-              <span className="w-1 h-1 rounded-full bg-current animate-pulse"></span>
-              系统正常运行
-            </div>
+            >
+              <div className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border border-kumo-success/20 bg-kumo-success/10 px-2 py-0.5 text-[11px] text-kumo-success">
+                <span className="w-1 h-1 rounded-full bg-current animate-pulse"></span>
+                <span className="hidden min-[520px]:inline">系统正常运行</span>
+                <span className="min-[520px]:hidden">正常</span>
+              </div>
+            </AppPageHeader>
           </div>
         </header>
 

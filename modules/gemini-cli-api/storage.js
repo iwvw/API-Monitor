@@ -544,6 +544,60 @@ function clearModelCheckHistory() {
   }
 }
 
+const TREND_HOURS = 24;
+const HOUR_MS = 60 * 60 * 1000;
+
+function toSqliteHour(date) {
+  const year = date.getUTCFullYear();
+  const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(date.getUTCDate()).padStart(2, '0');
+  const hour = String(date.getUTCHours()).padStart(2, '0');
+  return `${year}-${month}-${day} ${hour}:00:00`;
+}
+
+function formatTrendLabel(date) {
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const hour = String(date.getHours()).padStart(2, '0');
+  return `${month}-${day} ${hour}:00`;
+}
+
+function getHourlyTrend(db) {
+  const now = new Date();
+  const currentHour = new Date(Date.UTC(
+    now.getUTCFullYear(),
+    now.getUTCMonth(),
+    now.getUTCDate(),
+    now.getUTCHours()
+  ));
+  const startHour = new Date(currentHour.getTime() - (TREND_HOURS - 1) * HOUR_MS);
+
+  const rows = db.prepare(`
+            SELECT 
+                strftime('%Y-%m-%d %H:00:00', created_at) as hour,
+                COUNT(*) as total,
+                SUM(CASE WHEN status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END) as success
+            FROM gemini_cli_logs
+            WHERE created_at >= ?
+            GROUP BY hour
+            ORDER BY hour ASC
+        `).all(toSqliteHour(startHour));
+  const rowByHour = new Map(rows.map(row => [row.hour, row]));
+
+  return Array.from({ length: TREND_HOURS }, (_, index) => {
+    const bucket = new Date(startHour.getTime() + index * HOUR_MS);
+    const key = toSqliteHour(bucket);
+    const row = rowByHour.get(key);
+    return {
+      date: formatTrendLabel(bucket),
+      bucket: key,
+      timestamp: bucket.getTime(),
+      total: row?.total || 0,
+      success: row?.success || 0
+    };
+  });
+}
+
 /**
  * 获取统计信息
  */
@@ -562,17 +616,7 @@ function getStats() {
 
         const accounts = getAccounts();
 
-        // 获取最近 14 天的趋势数据
-        const dailyTrend = db.prepare(`
-            SELECT 
-                strftime('%Y-%m-%d', datetime(created_at, 'localtime')) as date,
-                COUNT(*) as total,
-                SUM(CASE WHEN status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END) as success
-            FROM gemini_cli_logs
-            WHERE created_at >= datetime('now', '-14 days', 'localtime')
-            GROUP BY date
-            ORDER BY date ASC
-        `).all();
+        const hourlyTrend = getHourlyTrend(db);
 
         return {
             total_calls: stats.total_calls || 0,
@@ -581,7 +625,7 @@ function getStats() {
             total_tokens: stats.total_tokens || 0,
             avg_duration: Math.round(stats.avg_duration || 0),
             success_rate: stats.total_calls > 0 ? ((stats.success_calls / stats.total_calls) * 100).toFixed(1) : '0.0',
-            daily_trend: dailyTrend || [],
+            daily_trend: hourlyTrend,
             accounts: {
                 total: accounts.length,
                 online: accounts.filter(a => a.status === 'online').length,

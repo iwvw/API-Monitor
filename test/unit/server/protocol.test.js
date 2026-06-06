@@ -54,3 +54,48 @@ describe('server protocol GPU metrics', () => {
     expect(metrics.gpu_model).toBe('NVIDIA RTX 4090 D / NVIDIA RTX 4080 SUPER');
   });
 });
+
+describe('server protocol temperature metrics', () => {
+  it('derives CPU temperature from package sensors', () => {
+    const metrics = protocol.stateToFrontendFormat(
+      {
+        cpu: 12,
+        mem_used: 1024,
+        disk_used: 1024,
+        temperatures: [
+          { name: 'NVMe Composite', temperature: 41 },
+          { name: 'Package id 0', temperature: 64.5 },
+        ],
+      },
+      {
+        mem_total: 2048,
+        disk_total: 4096,
+      },
+    );
+
+    expect(metrics.cpu_temp).toBe(64.5);
+  });
+
+  it('prefers valid CPU temperature fallback when cpu_temp is zero', () => {
+    expect(protocol.resolveCpuTemperature({
+      cpu_temp: 0,
+      cpuTemp: 58.2,
+    })).toBe(58.2);
+  });
+
+  it('normalizes frontend metrics with CPU temperature sensors', () => {
+    const metrics = protocol.normalizeFrontendMetrics({
+      temperatures: [
+        {
+          name: 'coretemp',
+          entries: [
+            { label: 'Core 0', current: 51 },
+            { label: 'Package id 0', current: 61 },
+          ],
+        },
+      ],
+    });
+
+    expect(metrics.cpu_temp).toBe(61);
+  });
+});

@@ -6,4 +6,5 @@ export const MODULE_TABS_PROPS = {
 
 export const TOOL_TABS_PROPS = {
   variant: 'segmented',
+  size: 'sm',
 };

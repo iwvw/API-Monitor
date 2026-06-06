@@ -30,6 +30,90 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+.quick-fade-in {
+  animation: app-quick-fade-in 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.motion-pop-in {
+  animation: app-pop-in 140ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  transform-origin: top;
+}
+
+.app-collapse-panel {
+  height: var(--collapsible-panel-height);
+  overflow: hidden;
+  opacity: 1;
+  transform: translateY(0);
+  transition:
+    height 190ms cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 150ms ease-out,
+    transform 190ms cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: height, opacity, transform;
+}
+
+.app-collapse-panel[data-starting-style],
+.app-collapse-panel[data-ending-style] {
+  height: 0;
+  opacity: 0;
+  transform: translateY(-3px);
+}
+
+.app-collapse-panel[hidden] {
+  display: block !important;
+  height: 0;
+  visibility: hidden;
+}
+
+@keyframes app-quick-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes app-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-2px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .quick-fade-in,
+  .motion-pop-in {
+    animation: none;
+  }
+
+  .app-collapse-panel {
+    transition: none;
+    transform: none;
+  }
+}
+
+.agent-command-textarea {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
+table th,
+table td {
+  white-space: nowrap;
+}
+
+table th > *,
+table td > * {
+  min-width: 0;
+}
+
 /* Kumo Sidebar: center collapsed base icons in the icon rail.
    Kumo's bundled -3px translate is tuned for its default sizing; this app uses
    a compact 15px root font, so derive the offset from the actual content width. */

@@ -11,6 +11,7 @@ import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import useTableResize from '../composables/useTableResize.js';
 import useStore from '../store.js';
 import { MODULE_TABS_PROPS } from '../modules/kumoTabs.js';
+import { handleEditableRowDoubleClick } from '../modules/tableInteractions.js';
 import {
   Database,
   Globe,
@@ -296,8 +297,7 @@ function AliyunPage() {
             <div className="flex items-center gap-2">
               <span className="text-xs text-kumo-subtle font-medium">账号</span>
               <Select
-                aria-label="阿里云账号"
-                size="sm"
+                aria-label="阿里云账号" size="sm"
                 value={selectedAccountId}
                 onValueChange={setSelectedAccountId}
                 items={accounts.map((acc) => ({ value: String(acc.id), label: acc.name }))}
@@ -306,10 +306,12 @@ function AliyunPage() {
             <Button
               onClick={refreshData}
               disabled={refreshing || !selectedAccountId}
-              className="h-8 px-2.5 flex items-center justify-center bg-kumo-base border border-kumo-line text-kumo-strong hover:bg-kumo-recessed"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
-            </Button>
+              variant="secondary" size="sm"
+              shape="square"
+              aria-label="刷新"
+              title="刷新"
+              icon={<RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />}
+            />
           </div>
         )}
       </div>
@@ -429,7 +431,7 @@ function AliyunPage() {
                           </Table.Cell>
                           <Table.Cell className="p-4 text-kumo-subtle truncate max-w-xs">{dom.Remark || '-'}</Table.Cell>
                           <Table.Cell className="p-4 text-center">
-                            <Button className="text-[10px] h-7 px-2 border border-kumo-line bg-kumo-recessed/50 hover:bg-kumo-brand/10 hover:text-kumo-brand">
+                            <Button size="sm" className="text-[10px] border border-kumo-line bg-kumo-recessed/50 hover:bg-kumo-brand/10 hover:text-kumo-brand">
                               管理解析
                             </Button>
                           </Table.Cell>
@@ -485,8 +487,7 @@ function AliyunPage() {
                           <Button
                             onClick={() => handleInstanceAction('ecs', inst, 'start')}
                             disabled={inst.Status === 'Running'}
-                            variant="secondary"
-                            size="sm"
+                            variant="secondary" size="sm"
                             shape="square"
                             aria-label="启动 ECS 实例"
                             className="text-kumo-success hover:bg-kumo-success/10"
@@ -496,8 +497,7 @@ function AliyunPage() {
                           <Button
                             onClick={() => handleInstanceAction('ecs', inst, 'stop')}
                             disabled={inst.Status === 'Stopped'}
-                            variant="secondary"
-                            size="sm"
+                            variant="secondary" size="sm"
                             shape="square"
                             aria-label="停止 ECS 实例"
                             className="text-kumo-danger hover:bg-kumo-danger/10"
@@ -506,8 +506,7 @@ function AliyunPage() {
                           </Button>
                           <Button
                             onClick={() => handleInstanceAction('ecs', inst, 'reboot')}
-                            variant="secondary"
-                            size="sm"
+                            variant="secondary" size="sm"
                             shape="square"
                             aria-label="重启 ECS 实例"
                             className="text-kumo-brand hover:bg-kumo-brand/10"
@@ -515,7 +514,7 @@ function AliyunPage() {
                             <RotateCw className="w-3.5 h-3.5" />
                           </Button>
                         </div>
-                        <Button className="h-7 text-[10px] px-2.5 border border-kumo-line bg-kumo-recessed hover:bg-kumo-base font-bold">
+                        <Button size="sm" className="text-[10px] border border-kumo-line bg-kumo-recessed hover:bg-kumo-base font-bold">
                           监控详情
                         </Button>
                       </div>
@@ -569,8 +568,7 @@ function AliyunPage() {
                           <Button
                             onClick={() => handleInstanceAction('swas', inst, 'start')}
                             disabled={inst.Status === 'Running'}
-                            variant="secondary"
-                            size="sm"
+                            variant="secondary" size="sm"
                             shape="square"
                             aria-label="启动轻量服务器"
                             className="text-kumo-success hover:bg-kumo-success/10"
@@ -580,8 +578,7 @@ function AliyunPage() {
                           <Button
                             onClick={() => handleInstanceAction('swas', inst, 'stop')}
                             disabled={inst.Status === 'Stopped'}
-                            variant="secondary"
-                            size="sm"
+                            variant="secondary" size="sm"
                             shape="square"
                             aria-label="停止轻量服务器"
                             className="text-kumo-danger hover:bg-kumo-danger/10"
@@ -590,8 +587,7 @@ function AliyunPage() {
                           </Button>
                           <Button
                             onClick={() => handleInstanceAction('swas', inst, 'reboot')}
-                            variant="secondary"
-                            size="sm"
+                            variant="secondary" size="sm"
                             shape="square"
                             aria-label="重启轻量服务器"
                             className="text-kumo-brand hover:bg-kumo-brand/10"
@@ -599,7 +595,7 @@ function AliyunPage() {
                             <RotateCw className="w-3.5 h-3.5" />
                           </Button>
                         </div>
-                        <Button className="h-7 text-[10px] px-2.5 border border-kumo-line bg-kumo-recessed hover:bg-kumo-base font-bold">
+                        <Button size="sm" className="text-[10px] border border-kumo-line bg-kumo-recessed hover:bg-kumo-base font-bold">
                           管理详情
                         </Button>
                       </div>
@@ -614,13 +610,13 @@ function AliyunPage() {
               <div className="space-y-4">
                 <div className="flex justify-between items-center">
                   <h3 className="text-sm font-bold text-kumo-strong">阿里云账号列表</h3>
-                  <Button
+                  <Button size="sm"
                     onClick={() => {
                       setEditingAccount(null);
                       setAccountForm({ name: '', accessKeyId: '', accessKeySecret: '', regionId: 'cn-hangzhou', description: '' });
                       setShowAddAccountModal(true);
                     }}
-                    className="h-8 text-xs flex items-center gap-1.5"
+                    className="text-xs flex items-center gap-1.5"
                   >
                     <Plus className="w-3.5 h-3.5" />
                     <span>添加账号</span>
@@ -662,7 +658,12 @@ function AliyunPage() {
                         </Table.Row>
                       ) : (
                         accounts.map((acc) => (
-                          <Table.Row key={acc.id} className="border-b border-kumo-line last:border-0 hover:bg-kumo-recessed/10">
+                          <Table.Row
+                            key={acc.id}
+                            className="border-b border-kumo-line last:border-0 hover:bg-kumo-recessed/10 cursor-pointer"
+                            title="双击编辑账号"
+                            onDoubleClick={(event) => handleEditableRowDoubleClick(event, () => openEditModal(acc))}
+                          >
                             <Table.Cell className="p-4 font-bold text-kumo-strong">{acc.name}</Table.Cell>
                             <Table.Cell className="p-4 font-mono text-kumo-default">{acc.accessKeyId}</Table.Cell>
                             <Table.Cell className="p-4 text-kumo-default">{acc.regionId}</Table.Cell>
@@ -671,8 +672,7 @@ function AliyunPage() {
                               <div className="flex justify-center gap-2">
                                 <Button
                                   onClick={() => openEditModal(acc)}
-                                  variant="secondary"
-                                  size="sm"
+                                  variant="secondary" size="sm"
                                   shape="square"
                                   aria-label="编辑阿里云账号"
                                   className="text-kumo-subtle hover:text-kumo-brand"
@@ -681,8 +681,7 @@ function AliyunPage() {
                                 </Button>
                                 <Button
                                   onClick={() => deleteAccount(acc.id)}
-                                  variant="secondary-destructive"
-                                  size="sm"
+                                  variant="secondary-destructive" size="sm"
                                   shape="square"
                                   aria-label="删除阿里云账号"
                                   className="hover:bg-kumo-danger/10"
@@ -716,8 +715,7 @@ function AliyunPage() {
           <div className="space-y-4">
             <Input
               label="备注名称"
-              type="text"
-              size="sm"
+              type="text" size="sm"
               value={accountForm.name}
               onChange={(e) => setAccountForm({ ...accountForm, name: e.target.value })}
               placeholder="我的阿里云生产环境"
@@ -727,8 +725,7 @@ function AliyunPage() {
             <div className="grid grid-cols-2 gap-4">
               <Input
                 label="AccessKey ID"
-                type="text"
-                size="sm"
+                type="text" size="sm"
                 value={accountForm.accessKeyId}
                 onChange={(e) => setAccountForm({ ...accountForm, accessKeyId: e.target.value })}
                 placeholder="LTAI..."
@@ -736,8 +733,7 @@ function AliyunPage() {
               />
               <Input
                 label="默认地域 ID"
-                type="text"
-                size="sm"
+                type="text" size="sm"
                 value={accountForm.regionId}
                 onChange={(e) => setAccountForm({ ...accountForm, regionId: e.target.value })}
                 placeholder="cn-hangzhou"
@@ -747,8 +743,7 @@ function AliyunPage() {
 
             <Input
               label="AccessKey Secret"
-              type="password"
-              size="sm"
+              type="password" size="sm"
               value={accountForm.accessKeySecret}
               onChange={(e) => setAccountForm({ ...accountForm, accessKeySecret: e.target.value })}
               placeholder={editingAccount ? '(不修改请留空)' : '请输入 Secret'}
@@ -766,16 +761,16 @@ function AliyunPage() {
             <div className="flex justify-end gap-2 pt-2">
               <Dialog.Close
                 render={(props) => (
-                  <Button
+                  <Button size="sm"
                     {...props}
                     variant="secondary"
-                    className="border border-kumo-line bg-kumo-recessed text-xs h-8"
+                    className="border border-kumo-line bg-kumo-recessed text-xs"
                   >
                     取消
                   </Button>
                 )}
               />
-              <Button onClick={handleAddAccount} disabled={submittingAccount} className="text-xs h-8">
+              <Button size="sm" onClick={handleAddAccount} disabled={submittingAccount} className="text-xs">
                 {submittingAccount ? '提交中...' : '保存账号'}
               </Button>
             </div>

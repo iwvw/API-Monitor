@@ -8,9 +8,10 @@ import { Dialog } from '@cloudflare/kumo/components/dialog';
 import { Input, Textarea } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
 import { Checkbox } from '@cloudflare/kumo/components/checkbox';
-import { ChartLegend, ChartPalette, Meter, Tabs, TimeseriesChart } from '@cloudflare/kumo';
+import { ChartLegend, ChartPalette, ClipboardText, Meter, Tabs, TimeseriesChart } from '@cloudflare/kumo';
 import { Table } from '@cloudflare/kumo/components/table';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
+import { AnimatedCollapse, DeferredRender } from '../components/AnimatedCollapse.jsx';
 import useTableResize from '../composables/useTableResize.js';
 import { formatUptime, formatFileSize, formatDateTime, maskAddress, parseSpeed } from '../modules/utils.js';
 import { MODULE_TABS_PROPS, TOOL_TABS_PROPS } from '../modules/kumoTabs.js';
@@ -62,7 +63,7 @@ import {
   Reboot,
   ChevronDown,
   ChevronUp,
-  Copy
+  Star
 } from '../components/Icons.jsx';
 
 echarts.use([
@@ -76,44 +77,33 @@ echarts.use([
   AriaComponent,
 ]);
 
-// ==================== 自定义 SVG 小图标 ====================
-const TrashIcon = (props) => (
-  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
-    <path d="M3 6h18M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2M10 11v6M14 11v6"/>
-  </svg>
-);
+function ChartBoundaryBox({ className = '', children }) {
+  const [boundary, setBoundary] = useState(null);
+  return (
+    <div ref={setBoundary} className={className}>
+      {typeof children === 'function' ? children(boundary) : children}
+    </div>
+  );
+}
 
-const EditIcon = (props) => (
-  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
-    <path d="M12 20h9M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/>
-  </svg>
-);
-
-const PlayIcon = (props) => (
-  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
-    <polygon points="6 3 20 12 6 21 6 3"/>
-  </svg>
-);
-
-const PauseIcon = (props) => (
-  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
-    <rect width="4" height="16" x="6" y="4" rx="1"/><rect width="4" height="16" x="14" y="4" rx="1"/>
-  </svg>
-);
-
-const RestartIcon = (props) => (
-  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
-    <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
-    <path d="M3 3v5h5M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/>
-    <path d="M16 16h5v5"/>
-  </svg>
-);
-
-const StarIcon = (props) => (
-  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...props}>
-    <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
-  </svg>
-);
+function ChartWarmupSkeleton({ height = 130 }) {
+  return (
+    <div
+      aria-hidden="true"
+      className="flex flex-col justify-end gap-2 overflow-hidden rounded-md border border-kumo-line/70 bg-kumo-recessed/35 p-3"
+      style={{ height }}
+    >
+      <SkeletonLine className="h-3 w-1/3" />
+      <SkeletonLine className="h-16 w-full rounded" />
+      <div className="grid grid-cols-4 gap-2">
+        <SkeletonLine className="h-2 w-full" />
+        <SkeletonLine className="h-2 w-full" />
+        <SkeletonLine className="h-2 w-full" />
+        <SkeletonLine className="h-2 w-full" />
+      </div>
+    </div>
+  );
+}
 
 // OS 平台图标及颜色计算
 const getOSIconClass = (platform) => {
@@ -128,6 +118,40 @@ const getOSIconClass = (platform) => {
   if (p.includes('redhat') || p.includes('rhel')) return 'fab fa-redhat text-kumo-danger';
   return 'fab fa-linux text-kumo-subtle';
 };
+
+function CompactMetricBar({ label, value, valueClassName, barClassName, width = '0%' }) {
+  return (
+    <div className="flex min-w-0 flex-col gap-1 rounded-md border border-kumo-line/70 bg-kumo-recessed/25 px-2 py-1 sm:w-14 sm:border-0 sm:bg-transparent sm:px-0 sm:py-0">
+      <div className="flex min-w-0 items-center justify-between gap-1">
+        <span className="truncate">{label}</span>
+        <span className={`shrink-0 font-bold ${valueClassName}`}>{value}</span>
+      </div>
+      <div className="h-1.5 overflow-hidden rounded-full border border-kumo-line/70 bg-kumo-recessed">
+        <div className={`h-full ${barClassName}`} style={{ width }}></div>
+      </div>
+    </div>
+  );
+}
+
+function useMediaQuery(query) {
+  const getMatches = () => (
+    typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+      ? window.matchMedia(query).matches
+      : false
+  );
+  const [matches, setMatches] = useState(getMatches);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return undefined;
+    const mediaQuery = window.matchMedia(query);
+    const handleChange = () => setMatches(mediaQuery.matches);
+    handleChange();
+    mediaQuery.addEventListener('change', handleChange);
+    return () => mediaQuery.removeEventListener('change', handleChange);
+  }, [query]);
+
+  return matches;
+}
 
 const getFlagCountry = (server) => {
   if (server.country && server.country !== 'auto') {
@@ -194,12 +218,47 @@ const formatChartTime = (timestamp) => {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`;
 };
 
+const formatCompactChartTime = (timestamp) => {
+  const d = new Date(timestamp);
+  if (Number.isNaN(d.getTime())) return '';
+  return `${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`;
+};
+
+const formatPercentAxis = (value) => {
+  const number = toNumber(value, 0);
+  return `${Number.isInteger(number) ? number : number.toFixed(1)}%`;
+};
+
+const formatCompactPercentAxis = (value) => `${Math.round(toNumber(value, 0))}%`;
+
+const formatNumberAxis = (value) => {
+  const number = toNumber(value, 0);
+  return Number.isInteger(number) ? String(number) : number.toFixed(1);
+};
+
+const formatCompactNumberAxis = (value) => {
+  const number = toNumber(value, 0);
+  const abs = Math.abs(number);
+  if (abs >= 1000) return `${(number / 1000).toFixed(abs >= 10000 ? 0 : 1)}k`;
+  return `${Math.round(number)}`;
+};
+
 const formatBytesSpeed = (bytes) => {
   const value = toNumber(bytes, 0);
   if (value >= 1024 * 1024 * 1024) return `${(value / (1024 * 1024 * 1024)).toFixed(1)} GB/s`;
   if (value >= 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(1)} MB/s`;
   if (value >= 1024) return `${(value / 1024).toFixed(1)} KB/s`;
   return `${Math.round(value)} B/s`;
+};
+
+const formatCompactBytesSpeed = (bytes) => {
+  const value = toNumber(bytes, 0);
+  const abs = Math.abs(value);
+  const sign = value < 0 ? '-' : '';
+  if (abs >= 1024 * 1024 * 1024) return `${sign}${(abs / (1024 * 1024 * 1024)).toFixed(abs >= 10 * 1024 * 1024 * 1024 ? 0 : 1)}G/s`;
+  if (abs >= 1024 * 1024) return `${sign}${(abs / (1024 * 1024)).toFixed(abs >= 10 * 1024 * 1024 ? 0 : 1)}M/s`;
+  if (abs >= 1024) return `${sign}${(abs / 1024).toFixed(abs >= 10 * 1024 ? 0 : 1)}K/s`;
+  return `${Math.round(value)}B/s`;
 };
 
 const clampPercent = (value) => Math.max(0, Math.min(100, value));
@@ -217,6 +276,28 @@ const getGpuMemPercent = (record = {}) => {
 
   return Number.isFinite(used) && used >= 0 && used <= 100 ? used : 0;
 };
+
+const firstPositiveNumber = (values = []) => {
+  for (const value of values) {
+    const parsed = toNumber(value, NaN);
+    if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  }
+  return 0;
+};
+
+const getGpuTemp = (record = {}) => firstPositiveNumber([
+  record.gpu_temp,
+  record.gpu_temperature,
+  record.gpuTemp,
+  record.gpu?.Temp,
+]);
+
+const getCpuTemp = (record = {}) => firstPositiveNumber([
+  record.cpu_temp,
+  record.cpu_temperature,
+  record.cpuTemp,
+  record.cpu?.Temp,
+]);
 
 const normalizeByteText = (value, fallback = '0 B') => {
   if (value === null || value === undefined) return fallback;
@@ -257,9 +338,60 @@ const getHostAddress = (server, mode = 'normal') => {
   return mode === 'normal' ? address : maskAddress(address, mode);
 };
 
+const asArray = (value) => (Array.isArray(value) ? value : []);
+
+const normalizeDockerOverviewServer = (server = {}) => {
+  const serverId = String(server.serverId || server.id || '');
+  const resources = server.resources || {};
+  const docker = server.docker || {};
+  const containers = asArray(resources.containers).length > 0
+    ? asArray(resources.containers)
+    : asArray(docker.containers);
+
+  return {
+    ...server,
+    id: serverId,
+    name: server.serverName || server.name || '未知主机',
+    docker: {
+      ...docker,
+      containers,
+    },
+    resources: {
+      ...resources,
+      containers,
+      images: asArray(resources.images),
+      networks: asArray(resources.networks),
+      volumes: asArray(resources.volumes),
+      stats: asArray(resources.stats),
+      composeProjects: asArray(resources.composeProjects || resources.compose?.projects),
+    },
+  };
+};
+
+const getComposeProjectName = (project = {}) => (
+  project.Name || project.name || project.Project || project.project || '-'
+);
+
+const getComposeConfigFiles = (project = {}) => (
+  project.ConfigFiles || project.configFiles || project.config_file || project.configFile || ''
+);
+
+const getComposeStatus = (project = {}) => (
+  String(project.Status || project.status || '-')
+);
+
 // ==================== 主 React 组件 ====================
 function ServerPage() {
   const { setMainActiveTab, theme, publicApiUrl } = useStore();
+  const isCompactViewport = useMediaQuery('(max-width: 640px)');
+  const expandedMainChartHeight = isCompactViewport ? 112 : 150;
+  const expandedSubChartHeight = isCompactViewport ? 104 : 130;
+  const expandedChartXAxisTickCount = isCompactViewport ? 3 : 5;
+  const expandedChartYAxisTickCount = isCompactViewport ? 3 : 4;
+  const expandedChartXAxisTickFormat = isCompactViewport ? formatCompactChartTime : formatChartTime;
+  const expandedPercentAxisTickFormat = isCompactViewport ? formatCompactPercentAxis : formatPercentAxis;
+  const expandedNumberAxisTickFormat = isCompactViewport ? formatCompactNumberAxis : formatNumberAxis;
+  const expandedSpeedAxisTickFormat = isCompactViewport ? formatCompactBytesSpeed : formatBytesSpeed;
   
   // 核心标签页状态
   const [serverCurrentTab, setServerCurrentTab] = useState('list'); // 'list', 'history', 'docker', 'management', 'terminal'
@@ -423,6 +555,9 @@ function ServerPage() {
   const [historyColWidths, startHistoryResize] = useTableResize([180, 150, 100, 100, 100, 150]);
   const [dockerColWidths, startDockerResize] = useTableResize([180, 220, 100, 180, 120]);
   const [imagesColWidths, startImagesResize] = useTableResize([250, 100, 100, 150, 100]);
+  const [networksColWidths, startNetworksResize] = useTableResize([180, 180, 120, 120, 150, 100]);
+  const [volumesColWidths, startVolumesResize] = useTableResize([240, 140, 120, 150, 100]);
+  const [statsColWidths, startStatsResize] = useTableResize([180, 120, 160, 120, 120, 150]);
 
   useEffect(() => {
     visibleSessionIdsRef.current = visibleSessionIds;
@@ -481,6 +616,7 @@ function ServerPage() {
               ...server,
               info: server.info || existing?.info || null,
               metricsCache: existing?.metricsCache || null,
+              metricsLoading: existing?.metricsLoading || false,
               gpuChartVisible: existing?.gpuChartVisible || false,
               gpuLoading: existing?.gpuLoading || false,
               netChartVisible: existing?.netChartVisible || false,
@@ -590,10 +726,14 @@ function ServerPage() {
         };
         
         // CPU
+        const logicalCores = parseInt(metrics.logical_cores) || parseInt(metrics.cores) || parseInt(info.cpu?.LogicalCores) || parseInt(info.cpu?.Cores) || 0;
+        const physicalCores = parseInt(metrics.physical_cores) || parseInt(info.cpu?.PhysicalCores) || logicalCores || 0;
         info.cpu = {
           Load: metrics.load || '-',
           Usage: metrics.cpu_usage || '0%',
-          Cores: parseInt(metrics.cores) || info.cpu.Cores || '-',
+          Cores: logicalCores || info.cpu.Cores || '-',
+          LogicalCores: logicalCores || info.cpu?.LogicalCores || info.cpu?.Cores || '-',
+          PhysicalCores: physicalCores || info.cpu?.PhysicalCores || info.cpu?.Cores || '-',
           Temp: metrics.cpu_temp !== undefined ? metrics.cpu_temp : (info.cpu?.Temp || 0)
         };
         
@@ -693,6 +833,7 @@ function ServerPage() {
         const newRecord = {
           recorded_at: now,
           cpu_usage: parseFloat(metrics.cpu_usage || '0'),
+          cpu_temp: getCpuTemp({ ...metrics, cpu: info.cpu }),
           mem_usage: info.memory ? parseFloat(info.memory.Usage) : 0,
           gpu_usage: metrics.gpu_usage !== undefined
             ? toNumber(metrics.gpu_usage, 0)
@@ -705,6 +846,7 @@ function ServerPage() {
           gpu_mem_used: metrics.gpu_mem_used ?? 0,
           gpu_mem_total: metrics.gpu_mem_total ?? 0,
           gpu_power: metrics.gpu_power !== undefined ? toNumber(metrics.gpu_power, 0) : (info.gpu ? toNumber(info.gpu.Power, 0) : 0),
+          gpu_temp: getGpuTemp({ ...metrics, gpu: info.gpu }),
           net_rx: parseSpeedToBytes(metrics.network?.rx_speed),
           net_tx: parseSpeedToBytes(metrics.network?.tx_speed)
         };
@@ -728,9 +870,11 @@ function ServerPage() {
   
   const loadCardMetrics = async (serverId, options = {}) => {
     const { silent = false } = options;
-    if (!silent) {
-      setServerList(prev => prev.map(s => s.id === serverId ? { ...s, loading: true, error: null } : s));
-    }
+    setServerList(prev => prev.map(s => (
+      s.id === serverId
+        ? { ...s, metricsLoading: true, error: silent ? s.error : null }
+        : s
+    )));
 
     try {
       const params = new URLSearchParams({
@@ -745,10 +889,18 @@ function ServerPage() {
         throw new Error(data.error || '指标历史加载失败');
       }
       const sorted = [...(data.data || [])].sort((a, b) => new Date(a.recorded_at) - new Date(b.recorded_at));
-      setServerList(prev => prev.map(s => s.id === serverId ? { ...s, metricsCache: sorted, loading: false, error: null } : s));
+      setServerList(prev => prev.map(s => (
+        s.id === serverId
+          ? { ...s, metricsCache: sorted, metricsLoading: false, error: null }
+          : s
+      )));
       return sorted;
     } catch (e) {
-      setServerList(prev => prev.map(s => s.id === serverId ? { ...s, loading: false, error: e.message } : s));
+      setServerList(prev => prev.map(s => (
+        s.id === serverId
+          ? { ...s, metricsLoading: false, error: silent ? s.error : e.message }
+          : s
+      )));
       return [];
     }
   };
@@ -1004,21 +1156,6 @@ function ServerPage() {
     }
   };
 
-  const copyQuickDeployCommand = async () => {
-    const command = agentInstallOS === 'linux'
-      ? quickDeployResult?.installCommand
-      : quickDeployResult?.winInstallCommand;
-
-    if (!command) return;
-
-    try {
-      await navigator.clipboard.writeText(command);
-      toast.success('Install command copied');
-    } catch (e) {
-      setServerModalError('Copy failed: ' + e.message);
-    }
-  };
-
   const showAgentInstallModal = async (serverId) => {
     const server = serverList.find(s => s.id === serverId);
     if (!server) {
@@ -1097,17 +1234,6 @@ function ServerPage() {
       return `curl -fsSL ${baseUrl}/linux/${agentModalData.serverId}/${agentModalData.agentKey} | bash`;
     }
     return `powershell -c "irm ${baseUrl}/win/${agentModalData.serverId}/${agentModalData.agentKey} | iex"`;
-  };
-
-  const copyAgentCommand = async () => {
-    const command = getAgentInstallCommand(agentInstallOS);
-    if (!command) return;
-    try {
-      await navigator.clipboard.writeText(command);
-      toast.success('Agent 安装命令已复制');
-    } catch (e) {
-      toast.error('复制失败');
-    }
   };
 
   const regenerateAgentKey = async () => {
@@ -2036,28 +2162,47 @@ function ServerPage() {
       const response = await fetch('/api/server/v2/docker/overview' + (dockerSelectedServer ? `?serverId=${dockerSelectedServer}` : ''));
       const data = await response.json();
       if (data.success) {
-        const servers = (data.data?.servers || []).filter(s => s.docker?.installed);
+        const servers = (data.data?.servers || [])
+          .map(normalizeDockerOverviewServer)
+          .filter(s => s.docker?.installed);
         setDockerOverviewServers(servers);
-        
-        // 分发子模块资源
-        if (dockerSubTab === 'images') {
-          setDockerImages(servers.flatMap(s => (s.resources?.images || []).map(img => ({ ...img, serverName: s.name, serverId: s.id }))));
-        } else if (dockerSubTab === 'networks') {
-          setDockerNetworks(servers.flatMap(s => (s.resources?.networks || []).map(n => ({ ...n, serverName: s.name, serverId: s.id }))));
-        } else if (dockerSubTab === 'volumes') {
-          setDockerVolumes(servers.flatMap(s => (s.resources?.volumes || []).map(v => ({ ...v, serverName: s.name, serverId: s.id }))));
-        } else if (dockerSubTab === 'stats') {
-          setDockerStats(servers.flatMap(s => (s.resources?.stats || []).map(stat => ({ ...stat, serverName: s.name, serverId: s.id }))));
-        } else if (dockerSubTab === 'compose') {
-          setDockerComposeProjects(servers.flatMap(s => (s.resources?.compose?.projects || []).map(p => ({ ...p, serverName: s.name, serverId: s.id }))));
-        }
+
+        setDockerImages(servers.flatMap(s => s.resources.images.map(img => ({ ...img, serverName: s.name, serverId: s.id }))));
+        setDockerNetworks(servers.flatMap(s => s.resources.networks.map(n => ({ ...n, serverName: s.name, serverId: s.id }))));
+        setDockerVolumes(servers.flatMap(s => s.resources.volumes.map(v => ({ ...v, serverName: s.name, serverId: s.id }))));
+        setDockerStats(servers.flatMap(s => s.resources.stats.map(stat => ({ ...stat, serverName: s.name, serverId: s.id }))));
+        setDockerComposeProjects(servers.flatMap(s => s.resources.composeProjects.map(p => ({ ...p, serverName: s.name, serverId: s.id }))));
+      } else {
+        setDockerOverviewServers([]);
+        setDockerImages([]);
+        setDockerNetworks([]);
+        setDockerVolumes([]);
+        setDockerStats([]);
+        setDockerComposeProjects([]);
       }
     } catch (e) {
       console.error(e);
+      setDockerOverviewServers([]);
+      setDockerImages([]);
+      setDockerNetworks([]);
+      setDockerVolumes([]);
+      setDockerStats([]);
+      setDockerComposeProjects([]);
     } finally {
       setDockerResourceLoading(false);
     }
   };
+
+  const visibleDockerContainerServers = useMemo(() => {
+    if (dockerSelectedServer) return dockerOverviewServers;
+    return dockerOverviewServers.filter(server => asArray(server.resources?.containers).length > 0);
+  }, [dockerOverviewServers, dockerSelectedServer]);
+
+  const renderDockerEmptyState = (message) => (
+    <div className="bg-kumo-base border border-kumo-line rounded-lg p-10 text-center text-xs text-kumo-subtle shadow-xs">
+      {message}
+    </div>
+  );
   
   // -------------------- SSH / Agent 嵌入式终端与多分屏 --------------------
   
@@ -2530,23 +2675,24 @@ function ServerPage() {
     <div className="flex flex-col gap-6 w-full px-1">
       {/* 顶部标签导航 */}
       <div className="flex flex-wrap items-center justify-between border-b border-kumo-line pb-3 gap-4">
-        <div className="min-w-0 w-full md:w-auto">
+        <div className="min-w-0 w-full min-[450px]:w-auto">
           <Tabs
             {...MODULE_TABS_PROPS}
             value={serverCurrentTab}
             onValueChange={setServerCurrentTab}
             tabs={[
-              { value: 'list', label: <span className="inline-flex items-center gap-1.5"><Server className="w-4 h-4" />主机实例管理</span> },
-              { value: 'history', label: <span className="inline-flex items-center gap-1.5"><History className="w-4 h-4" />历史趋势</span> },
+              { value: 'list', label: <span className="inline-flex items-center gap-1.5"><Server className="w-4 h-4" /><span className="hidden sm:inline">主机实例管理</span><span className="sm:hidden">主机</span></span> },
+              { value: 'history', label: <span className="inline-flex items-center gap-1.5"><History className="w-4 h-4" /><span className="hidden sm:inline">历史趋势</span><span className="sm:hidden">趋势</span></span> },
               { value: 'docker', label: <span className="inline-flex items-center gap-1.5"><Box className="w-4 h-4" />Docker</span> },
-              { value: 'management', label: <span className="inline-flex items-center gap-1.5"><Settings className="w-4 h-4" />后台管理</span> },
+              { value: 'management', label: <span className="inline-flex items-center gap-1.5"><Settings className="w-4 h-4" /><span className="hidden sm:inline">后台管理</span><span className="sm:hidden">管理</span></span> },
               ...(sshSessions.length > 0
                 ? [{
                     value: 'terminal',
                     label: (
                       <span className="inline-flex items-center gap-1.5">
                         <TerminalIcon className="w-4 h-4" />
-                        SSH 终端
+                        <span className="hidden sm:inline">SSH 终端</span>
+                        <span className="sm:hidden">SSH</span>
                         <span className="rounded bg-kumo-brand/10 px-1.5 py-0.5 text-[10px] font-bold text-kumo-brand">
                           {sshSessions.length}
                         </span>
@@ -2559,30 +2705,29 @@ function ServerPage() {
         </div>
         
         {/* 右侧快速连接 */}
-        <div className="flex items-center gap-2">
+        <div className="flex w-full items-center justify-end gap-2 min-[450px]:w-auto">
           {serverCurrentTab === 'list' && (
-            <div className="flex flex-wrap items-center justify-end gap-2">
-              <Button
-                size="sm"
+            <div className="flex items-center justify-end gap-2">
+              <Button size="sm"
                 variant="secondary"
                 icon={<Upload className="w-3.5 h-3.5" />}
                 onClick={openUpgradeModal}
                 title="升级所有在线 Agent"
+                className="hidden md:inline-flex"
               >
                 升级 Agent
               </Button>
-              <Button
-                size="sm"
+              <Button size="sm"
                 variant="secondary"
                 icon={<Shield className="w-3.5 h-3.5" />}
                 onClick={openBatchAgentModal}
                 title="批量部署 Agent"
+                className="hidden md:inline-flex"
               >
                 批量部署
               </Button>
               <Button
-                shape="square"
-                size="sm"
+                shape="square" size="sm"
                 variant="secondary"
                 icon={<RefreshCw className="w-3.5 h-3.5" />}
                 onClick={loadServerList}
@@ -2590,35 +2735,34 @@ function ServerPage() {
                 title="刷新列表"
                 aria-label="刷新列表"
               />
-              <Button
-                size="sm"
+              <Button size="sm"
                 variant="secondary"
                 icon={<Upload className="w-3.5 h-3.5" />}
                 onClick={exportServers}
                 title="导出主机配置"
+                className="hidden md:inline-flex"
               >
                 导出
               </Button>
-              <Button
-                size="sm"
+              <Button size="sm"
                 variant="secondary"
                 icon={<Download className="w-3.5 h-3.5" />}
                 onClick={openImportServerModal}
                 title="导入主机配置"
+                className="hidden md:inline-flex"
               >
                 导入
               </Button>
-              <Button
-                size="sm"
+              <Button size="sm"
                 variant="secondary"
                 icon={<RotateCw className="w-3.5 h-3.5" />}
                 onClick={probeAllServers}
                 title="触发所有主机探测"
+                className="hidden sm:inline-flex"
               >
                 探测
               </Button>
-              <Button
-                size="sm"
+              <Button size="sm"
                 variant="primary"
                 icon={<Plus className="w-3.5 h-3.5" />}
                 onClick={openAddServerModal}
@@ -2633,16 +2777,9 @@ function ServerPage() {
       {/* ==================== 1. 主机实例管理 ==================== */}
       {serverCurrentTab === 'list' && (
         <div className="flex flex-col gap-4">
-          <div className="flex flex-col gap-1">
-            <h2 className="text-base font-bold text-kumo-strong">主机实例管理</h2>
-            <p className="text-xs text-kumo-subtle">
-              管理主机实例的状态探测、SSH 连接、编辑与删除操作。
-            </p>
-          </div>
-
           {/* 控制过滤器栏 */}
-          <div className="flex flex-col gap-3 bg-kumo-base border border-kumo-line p-3.5 rounded-md shadow-sm lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-col gap-3 rounded-md border border-kumo-line/90 bg-kumo-base p-3 shadow-sm ring-1 ring-kumo-line/25 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
               <Tabs
                 {...TOOL_TABS_PROPS}
                 value={serverStatusFilter}
@@ -2665,13 +2802,12 @@ function ServerPage() {
               />
             </div>
             
-            <div className="relative w-full sm:w-72">
+            <div className="relative w-full lg:w-72">
               <Search className="pointer-events-none absolute left-3 top-1/2 z-1 h-3.5 w-3.5 -translate-y-1/2 text-kumo-subtle" />
               <Input
                 type="text"
                 placeholder="搜索主机名称、IP 或标签..."
-                aria-label="搜索主机"
-                size="sm"
+                aria-label="搜索主机" size="sm"
                 value={serverSearchText}
                 onChange={e => setServerSearchText(e.target.value)}
                 className="w-full pl-9"
@@ -2700,20 +2836,27 @@ function ServerPage() {
                 const records = normalizeMetricRecords(server.metricsCache || []);
                 const cpuColor = ChartPalette.semantic('Success', isDarkMode);
                 const memColor = ChartPalette.categorical(0, isDarkMode);
+                const cpuTempColor = ChartPalette.semantic('Attention', isDarkMode);
                 const gpuColor = ChartPalette.semantic('Warning', isDarkMode);
                 const vramColor = ChartPalette.categorical(4, isDarkMode);
                 const powerColor = ChartPalette.categorical(5, isDarkMode);
+                const gpuTempColor = ChartPalette.semantic('Attention', isDarkMode);
                 const txColor = ChartPalette.categorical(0, isDarkMode);
                 const rxColor = ChartPalette.semantic('Success', isDarkMode);
                 const cpuMemSeries = getMetricSeries(records, [
-                  { name: 'CPU', color: cpuColor, value: r => toNumber(r.cpu_usage, 0) },
-                  { name: 'Memory', color: memColor, value: r => toNumber(r.mem_usage, 0) },
+                  { name: 'CPU (%)', color: cpuColor, value: r => toNumber(r.cpu_usage, 0) },
+                  { name: 'Memory (%)', color: memColor, value: r => toNumber(r.mem_usage, 0) },
+                  { name: 'CPU Temp (°C)', color: cpuTempColor, value: getCpuTemp },
                 ]);
-                const hasGpuData = !!server.info?.gpu?.Model || records.some(r => r.gpu_usage !== null && r.gpu_usage !== undefined && toNumber(r.gpu_usage, 0) > 0);
+                const hasGpuData = !!server.info?.gpu?.Model || records.some(r => (
+                  (r.gpu_usage !== null && r.gpu_usage !== undefined && toNumber(r.gpu_usage, 0) > 0)
+                  || getGpuTemp(r) > 0
+                ));
                 const gpuSeries = getMetricSeries(records, [
                   { name: 'GPU', color: gpuColor, value: r => toNumber(r.gpu_usage, 0) },
                   { name: 'VRAM', color: vramColor, value: getGpuMemPercent },
                   { name: 'Power (W)', color: powerColor, value: r => toNumber(r.gpu_power, 0) },
+                  { name: 'Temp (°C)', color: gpuTempColor, value: getGpuTemp },
                 ]);
                 const netSeries = getMetricSeries(records, [
                   { name: 'Upload', color: txColor, value: r => toNumber(r.net_tx, 0) },
@@ -2729,6 +2872,7 @@ function ServerPage() {
                 const canDrag = !serverSearchText.trim() && serverStatusFilter === 'all' && !isExpanded;
                 const txTotal = getByteParts(server.info?.network?.tx_total);
                 const rxTotal = getByteParts(server.info?.network?.rx_total);
+                const chartLoading = !!server.metricsLoading;
                 
                 return (
                   <ContextMenu.Root key={server.id}>
@@ -2738,13 +2882,13 @@ function ServerPage() {
                     onDragOver={handleServerDragOver}
                     onDrop={(event) => handleServerDrop(server.id, event)}
                     onDragEnd={() => setDraggedServerId(null)}
-                    className={`bg-kumo-base border rounded-lg transition-all duration-200 ${isExpanded ? 'border-kumo-brand/60 shadow-md' : 'border-kumo-line hover:border-kumo-interact'} ${draggedServerId === server.id ? 'opacity-50' : ''}`}
+                    className={`bg-kumo-base border rounded-lg transition-all duration-200 ${isExpanded ? 'border-kumo-brand/70 shadow-md ring-1 ring-kumo-brand/20' : 'border-kumo-line/90 shadow-xs hover:border-kumo-interact hover:shadow-sm'} ${draggedServerId === server.id ? 'opacity-50' : ''}`}
                   >
                     <div
                       onClick={() => toggleServerExpand(server.id)}
-                      className="flex flex-wrap items-center justify-between p-3.5 cursor-pointer gap-4"
+                      className="grid min-h-[56px] grid-cols-[minmax(0,1fr)_2.25rem] items-center gap-x-3 gap-y-2 px-3 py-2.5 cursor-pointer sm:flex sm:flex-nowrap sm:justify-between sm:gap-2.5 sm:py-2"
                     >
-                      <div className="flex items-center gap-3.5 min-w-0">
+                      <div className="order-1 flex min-w-0 items-center gap-3">
                         <span className="relative flex h-2 w-2 rounded-full">
                           <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${server.status === 'online' ? 'bg-kumo-success' : 'bg-kumo-danger'}`}></span>
                           <span className={`relative inline-flex rounded-full h-2 w-2 ${server.status === 'online' ? 'bg-kumo-success' : 'bg-kumo-danger'}`}></span>
@@ -2781,51 +2925,49 @@ function ServerPage() {
                         </div>
                       </div>
                       
-                      <div className="flex flex-wrap items-center gap-5 ml-auto">
+                      <div className="contents sm:order-2 sm:ml-auto sm:flex sm:shrink-0 sm:flex-nowrap sm:items-center sm:gap-2.5">
                         {server.status === 'online' && server.info && (
-                          <div className="flex items-center gap-4 text-[10px] font-semibold text-kumo-subtle">
+                          <div className="order-3 col-span-2 grid w-full grid-cols-4 gap-1.5 text-[10px] font-semibold text-kumo-subtle sm:order-none sm:col-span-1 sm:flex sm:h-9 sm:w-auto sm:items-center sm:gap-2.5">
                             {hasGpuData && (
-                              <div className="flex flex-col gap-1 w-14">
-                                <div className="flex justify-between">
-                                  <span>GPU</span>
-                                  <span className="text-kumo-warning font-bold">{parseInt(server.info.gpu?.Usage || '0')}%</span>
-                                </div>
-                                <div className="h-1 bg-kumo-recessed rounded-full overflow-hidden">
-                                  <div className="h-full bg-kumo-warning" style={{ width: server.info.gpu?.Usage || '0%' }}></div>
-                                </div>
-                              </div>
+                              <CompactMetricBar
+                                label="GPU"
+                                value={`${parseInt(server.info.gpu?.Usage || '0')}%`}
+                                valueClassName="text-kumo-warning"
+                                barClassName="bg-kumo-warning"
+                                width={server.info.gpu?.Usage || '0%'}
+                              />
                             )}
-                            <div className="flex flex-col gap-1 w-14">
-                              <div className="flex justify-between">
-                                <span>CPU</span>
-                                <span className="text-kumo-success font-bold">{parseInt(server.info.cpu?.Usage || '0')}%</span>
-                              </div>
-                              <div className="h-1 bg-kumo-recessed rounded-full overflow-hidden">
-                                <div className="h-full bg-kumo-success" style={{ width: server.info.cpu?.Usage || '0%' }}></div>
-                              </div>
-                            </div>
-                            <div className="flex flex-col gap-1 w-14">
-                              <div className="flex justify-between">
-                                <span>Mem</span>
-                                <span className="text-kumo-info font-bold">{parseInt(server.info.memory?.Usage || '0')}%</span>
-                              </div>
-                              <div className="h-1 bg-kumo-recessed rounded-full overflow-hidden">
-                                <div className="h-full bg-kumo-info" style={{ width: server.info.memory?.Usage || '0%' }}></div>
-                              </div>
-                            </div>
+                            <CompactMetricBar
+                              label="CPU"
+                              value={`${parseInt(server.info.cpu?.Usage || '0')}%`}
+                              valueClassName="text-kumo-success"
+                              barClassName="bg-kumo-success"
+                              width={server.info.cpu?.Usage || '0%'}
+                            />
+                            <CompactMetricBar
+                              label="Mem"
+                              value={`${parseInt(server.info.memory?.Usage || '0')}%`}
+                              valueClassName="text-kumo-info"
+                              barClassName="bg-kumo-info"
+                              width={server.info.memory?.Usage || '0%'}
+                            />
                             {server.info.disk?.[0] && (
-                              <div className="flex flex-col gap-1 w-14">
-                                <div className="flex justify-between">
-                                  <span>Disk</span>
-                                  <span className="text-kumo-brand font-bold">{parseInt(server.info.disk[0].usage || '0')}%</span>
-                                </div>
-                                <div className="h-1 bg-kumo-recessed rounded-full overflow-hidden">
-                                  <div className="h-full bg-kumo-brand" style={{ width: server.info.disk[0].usage || '0%' }}></div>
-                                </div>
+                              <CompactMetricBar
+                                label="Disk"
+                                value={`${parseInt(server.info.disk[0].usage || '0')}%`}
+                                valueClassName="text-kumo-brand"
+                                barClassName="bg-kumo-brand"
+                                width={server.info.disk[0].usage || '0%'}
+                              />
+                            )}
+                            {!hasGpuData && server.info.network && (
+                              <div className="flex min-w-0 flex-col justify-center rounded-md border border-kumo-line/70 bg-kumo-recessed/25 px-2 py-1 font-mono leading-[1.2] tabular-nums sm:hidden">
+                                <span className="truncate text-kumo-info">&uarr; {tx.num}{tx.unit}</span>
+                                <span className="truncate text-kumo-success">&darr; {rx.num}{rx.unit}</span>
                               </div>
                             )}
                             {server.info.network && (
-                              <div className="flex w-[132px] min-h-9 shrink-0 flex-col justify-center gap-px rounded-md border border-kumo-line bg-kumo-recessed/35 px-[5px] py-0 text-[10px] font-bold leading-[1.3] tabular-nums">
+                              <div className="hidden h-8 w-[126px] shrink-0 flex-col justify-center gap-px rounded-md border border-kumo-line bg-kumo-recessed/35 px-[5px] py-0 text-[10px] font-bold leading-[1.2] tabular-nums sm:flex">
                                 <span className="flex items-center justify-between whitespace-nowrap font-mono text-kumo-info">
                                   <span className="flex flex-1 items-center">
                                     <span className="w-2 text-center opacity-70">&uarr;</span>
@@ -2847,24 +2989,24 @@ function ServerPage() {
                           </div>
                         )}
                         
-                        <div className="flex items-center gap-1.5" onClick={e => e.stopPropagation()}>
+                        <div className="order-2 flex items-center justify-end gap-1.5 sm:order-none" onClick={e => e.stopPropagation()}>
                           <Button
-                            shape="square"
-                            size="sm"
+                            shape="square" size="sm"
                             variant="secondary"
                             title="SSH 连接"
                             aria-label="SSH 连接"
                             icon={<TerminalIcon className="w-3.5 h-3.5" />}
                             onClick={() => openSSHTerminal(server)}
                             disabled={server.status !== 'online'}
+                            className="h-9 w-9 p-0 sm:h-8 sm:w-8"
                           />
                         </div>
                       </div>
                     </div>
                     
-                    {isExpanded && (
-                      <div className="border-t border-kumo-line p-4 bg-kumo-canvas/45 rounded-b-lg">
-                        {server.loading ? (
+                    <AnimatedCollapse open={isExpanded}>
+                      <div className="rounded-b-lg border-t border-kumo-line/90 bg-kumo-canvas/45 p-2.5 sm:p-4">
+                        {server.loading && !server.info ? (
                           <div className="space-y-2 py-8">
                             <SkeletonLine className="h-4 w-1/3 mx-auto" />
                             <SkeletonLine className="h-4 w-1/2 mx-auto" />
@@ -2874,10 +3016,10 @@ function ServerPage() {
                             {server.error}
                           </div>
                         ) : (
-                          <div className="flex flex-col gap-4">
-                            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                              <div className="bg-kumo-base border border-kumo-line p-4 rounded-lg flex flex-col gap-3 shadow-xs">
-                                <div className="flex items-center justify-between gap-2 border-b border-kumo-line pb-2">
+                          <div className="flex flex-col gap-3 sm:gap-4">
+                            <div className="grid grid-cols-1 gap-3 md:grid-cols-3 md:gap-4">
+                              <div className="flex flex-col gap-2 rounded-lg border border-kumo-line bg-kumo-base p-3 shadow-xs sm:gap-3 sm:p-4">
+                                <div className="flex items-center justify-between gap-2 border-b border-kumo-line pb-1.5 sm:pb-2">
                                   <h4 className="text-xs font-bold text-kumo-strong">系统与载荷</h4>
                                   <Tabs
                                     {...TOOL_TABS_PROPS}
@@ -2891,10 +3033,10 @@ function ServerPage() {
                                 </div>
 
                                 {cardView.system === 'load' ? (
-                                  <div className="text-xs flex flex-col gap-2">
-                                    <div className="flex justify-between gap-3">
+                                  <div className="flex flex-col gap-1.5 text-[11px] leading-5 sm:gap-2 sm:text-xs">
+                                    <div className="grid grid-cols-[5rem_minmax(0,1fr)] items-start gap-2 sm:flex sm:justify-between sm:gap-3">
                                       <span className="text-kumo-subtle font-medium">CPU 负载</span>
-                                      <span className="text-kumo-strong font-semibold">
+                                      <span className="text-right font-semibold text-kumo-strong">
                                         {server.info?.cpu?.PhysicalCores && server.info?.cpu?.LogicalCores && server.info.cpu.PhysicalCores !== server.info.cpu.LogicalCores
                                           ? `${server.info.cpu.PhysicalCores}核/${server.info.cpu.LogicalCores}线程`
                                           : `${server.info?.cpu?.PhysicalCores || server.info?.cpu?.Cores || '-'} 核`}
@@ -2902,229 +3044,258 @@ function ServerPage() {
                                       </span>
                                     </div>
                                     {toNumber(server.info?.cpu?.Temp, 0) > 0 && (
-                                      <div className="flex justify-between gap-3">
+                                      <div className="grid grid-cols-[5rem_minmax(0,1fr)] items-start gap-2 sm:flex sm:justify-between sm:gap-3">
                                         <span className="text-kumo-subtle font-medium">CPU 温度</span>
-                                        <span className={`font-semibold ${getTempColorClass(server.info.cpu.Temp)}`}>{Math.round(toNumber(server.info.cpu.Temp))}°C</span>
+                                        <span className={`text-right font-semibold ${getTempColorClass(server.info.cpu.Temp)}`}>{Math.round(toNumber(server.info.cpu.Temp))}°C</span>
                                       </div>
                                     )}
-                                    <div className="flex justify-between gap-3">
+                                    <div className="grid grid-cols-[5rem_minmax(0,1fr)] items-start gap-2 sm:flex sm:justify-between sm:gap-3">
                                       <span className="text-kumo-subtle font-medium">内存使用</span>
-                                      <span className="text-kumo-strong font-semibold">{server.info?.memory?.Used || '-'} / {server.info?.memory?.Total || '-'} ({server.info?.memory?.Usage || '0%'})</span>
+                                      <span className="text-right font-semibold text-kumo-strong">{server.info?.memory?.Used || '-'} / {server.info?.memory?.Total || '-'} ({server.info?.memory?.Usage || '0%'})</span>
                                     </div>
-                                    <div className="flex justify-between gap-3">
+                                    <div className="grid grid-cols-[5rem_minmax(0,1fr)] items-start gap-2 sm:flex sm:justify-between sm:gap-3">
                                       <span className="text-kumo-subtle font-medium">系统负载</span>
-                                      <span className="text-kumo-strong font-semibold font-mono">{server.info?.cpu?.Load || '-'}</span>
+                                      <span className="text-right font-mono font-semibold text-kumo-strong">{server.info?.cpu?.Load || '-'}</span>
                                     </div>
-                                    <div className="flex justify-between gap-3">
+                                    <div className="grid grid-cols-[5rem_minmax(0,1fr)] items-start gap-2 sm:flex sm:justify-between sm:gap-3">
                                       <span className="text-kumo-subtle font-medium">在线时间</span>
-                                      <span className="text-kumo-strong font-semibold">{formatUptime(server.info?.uptime || server.info?.system?.Uptime)}</span>
+                                      <span className="text-right font-semibold text-kumo-strong">{formatUptime(server.info?.uptime || server.info?.system?.Uptime)}</span>
                                     </div>
                                     {(server.info?.disk || []).slice(0, 2).map((disk, idx) => (
-                                      <div key={`${server.id}-disk-${idx}`} className="border-t border-kumo-line/70 pt-2">
-                                        <div className="flex justify-between gap-3">
+                                      <div key={`${server.id}-disk-${idx}`} className="border-t border-kumo-line/70 pt-1.5 sm:pt-2">
+                                        <div className="grid grid-cols-[5rem_minmax(0,1fr)] items-start gap-2 sm:flex sm:justify-between sm:gap-3">
                                           <span className="text-kumo-subtle font-medium">{idx === 0 ? '主存储' : '二级存储'} ({disk.usage || '-'})</span>
-                                          <span className="text-kumo-strong font-semibold">{disk.used || '-'} / {disk.total || '-'}</span>
+                                          <span className="text-right font-semibold text-kumo-strong">{disk.used || '-'} / {disk.total || '-'}</span>
                                         </div>
-                                        <div className="mt-1 h-1.5 bg-kumo-recessed rounded-full overflow-hidden">
+                                        <div className="mt-1 h-1.5 overflow-hidden rounded-full border border-kumo-line/70 bg-kumo-recessed sm:h-2">
                                           <div className="h-full bg-kumo-brand" style={{ width: disk.usage || '0%' }}></div>
                                         </div>
                                       </div>
                                     ))}
                                   </div>
                                 ) : (
-                                  <div className="text-xs flex flex-col gap-2">
-                                    <div className="flex justify-between gap-3">
+                                  <div className="flex flex-col gap-1.5 text-[11px] leading-5 sm:gap-2 sm:text-xs">
+                                    <div className="grid grid-cols-[5rem_minmax(0,1fr)] items-start gap-2 sm:flex sm:justify-between sm:gap-3">
                                       <span className="text-kumo-subtle font-medium">操作系统</span>
-                                      <span className="text-kumo-strong font-semibold">{server.info?.platform || '-'}</span>
+                                      <span className="text-right font-semibold text-kumo-strong">{server.info?.platform || '-'}</span>
                                     </div>
-                                    <div className="flex justify-between gap-3">
+                                    <div className="grid grid-cols-[5rem_minmax(0,1fr)] items-start gap-2 sm:flex sm:justify-between sm:gap-3">
                                       <span className="text-kumo-subtle font-medium">系统版本</span>
-                                      <span className="text-kumo-strong font-semibold truncate max-w-44">{server.info?.platformVersion || server.info?.system?.Kernel || '-'}</span>
+                                      <span className="max-w-44 truncate text-right font-semibold text-kumo-strong">{server.info?.platformVersion || server.info?.system?.Kernel || '-'}</span>
                                     </div>
-                                    <div className="flex justify-between gap-3">
+                                    <div className="grid grid-cols-[5rem_minmax(0,1fr)] items-start gap-2 sm:flex sm:justify-between sm:gap-3">
                                       <span className="text-kumo-subtle font-medium">主机地址</span>
-                                      <span className="text-kumo-strong font-semibold font-mono">{getHostAddress(server, serverIpDisplayMode)}</span>
+                                      <span className="text-right font-mono font-semibold text-kumo-strong">{getHostAddress(server, serverIpDisplayMode)}</span>
                                     </div>
-                                    <div className="flex justify-between gap-3">
+                                    <div className="grid grid-cols-[5rem_minmax(0,1fr)] items-start gap-2 sm:flex sm:justify-between sm:gap-3">
                                       <span className="text-kumo-subtle font-medium">Agent 端口</span>
-                                      <span className="text-kumo-strong font-semibold">{server.agent_port || '-'}</span>
+                                      <span className="text-right font-semibold text-kumo-strong">{server.agent_port || '-'}</span>
                                     </div>
-                                    <div className="flex justify-between gap-3">
+                                    <div className="grid grid-cols-[5rem_minmax(0,1fr)] items-start gap-2 sm:flex sm:justify-between sm:gap-3">
                                       <span className="text-kumo-subtle font-medium">监控模式</span>
-                                      <span className="text-kumo-strong font-semibold">{server.monitor_mode || '-'}</span>
+                                      <span className="text-right font-semibold text-kumo-strong">{server.monitor_mode || '-'}</span>
                                     </div>
-                                    <div className="flex justify-between gap-3">
+                                    <div className="grid grid-cols-[5rem_minmax(0,1fr)] items-start gap-2 sm:flex sm:justify-between sm:gap-3">
                                       <span className="text-kumo-subtle font-medium">响应延迟</span>
-                                      <span className="text-kumo-success font-semibold">{server.response_time || '-'}ms</span>
+                                      <span className="text-right font-semibold text-kumo-success">{server.response_time || '-'}ms</span>
                                     </div>
                                   </div>
                                 )}
                               </div>
                               
-                              <div className="md:col-span-2 bg-kumo-base border border-kumo-line p-4 rounded-lg flex flex-col gap-2 shadow-xs">
-                                <div className="flex items-center justify-between gap-2 border-b border-kumo-line pb-2">
-                                  <h4 className="text-xs font-bold text-kumo-strong">CPU / 内存趋势</h4>
-                                  <div className="flex flex-wrap items-center gap-3">
-                                    <ChartLegend.SmallItem name="CPU" color={cpuColor} value={`${parseInt(server.info?.cpu?.Usage || '0')}%`} />
-                                    <ChartLegend.SmallItem name="Memory" color={memColor} value={`${parseInt(server.info?.memory?.Usage || '0')}%`} />
-                                  </div>
-                                </div>
-                                <TimeseriesChart
-                                  echarts={echarts}
-                                  data={cpuMemSeries}
-                                  height={150}
-                                  isDarkMode={isDarkMode}
-                                  gradient
-                                  loading={server.loading}
-                                  xAxisTickFormat={formatChartTime}
-                                  yAxisTickFormat={(value) => `${value}%`}
-                                  tooltipValueFormat={(value) => `${value.toFixed(1)}%`}
-                                  ariaDescription={`${server.name} CPU and memory usage trend`}
-                                />
-                              </div>
+                              <ChartBoundaryBox className="md:col-span-2 flex flex-col gap-2 rounded-lg border border-kumo-line bg-kumo-base p-3 shadow-xs sm:p-4">
+                                {(tooltipBoundary) => (
+                                  <>
+                                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-kumo-line pb-1.5 sm:pb-2">
+                                      <h4 className="text-xs font-bold text-kumo-strong">CPU / 内存趋势</h4>
+                                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                                        <ChartLegend.SmallItem name="CPU" color={cpuColor} value={`${parseInt(server.info?.cpu?.Usage || '0')}%`} />
+                                        <ChartLegend.SmallItem name="Memory" color={memColor} value={`${parseInt(server.info?.memory?.Usage || '0')}%`} />
+                                        <ChartLegend.SmallItem name="Temp" color={cpuTempColor} value={getLatestMetricValue(records, getCpuTemp, v => `${v.toFixed(1)}°C`)} />
+                                      </div>
+                                    </div>
+                                    <DeferredRender open={isExpanded} fallback={<ChartWarmupSkeleton height={expandedMainChartHeight} />}>
+                                      <TimeseriesChart
+                                        echarts={echarts}
+                                        data={cpuMemSeries}
+                                        height={expandedMainChartHeight}
+                                        isDarkMode={isDarkMode}
+                                        gradient
+                                        loading={chartLoading}
+                                        tooltipBoundary={tooltipBoundary ?? undefined}
+                                        xAxisTickCount={expandedChartXAxisTickCount}
+                                        yAxisTickCount={expandedChartYAxisTickCount}
+                                        xAxisTickFormat={expandedChartXAxisTickFormat}
+                                        yAxisTickFormat={expandedNumberAxisTickFormat}
+                                        tooltipValueFormat={(value) => value.toFixed(1)}
+                                        ariaDescription={`${server.name} CPU and memory usage trend`}
+                                      />
+                                    </DeferredRender>
+                                  </>
+                                )}
+                              </ChartBoundaryBox>
                             </div>
-                            
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              <div className="bg-kumo-base border border-kumo-line p-4 rounded-lg flex flex-col gap-3 shadow-xs">
-                                <div className="flex items-center justify-between gap-2 border-b border-kumo-line pb-2">
-                                  <h4 className="text-xs font-bold text-kumo-strong">GPU</h4>
-                                  <Tabs
-                                    {...TOOL_TABS_PROPS}
-                                    value={cardView.gpu}
-                                    onValueChange={(value) => setCardView(server.id, 'gpu', value)}
-                                    tabs={[
-                                      { value: 'detail', label: '详情' },
-                                      { value: 'chart', label: '趋势' },
-                                    ]}
-                                  />
-                                </div>
-                                {cardView.gpu === 'detail' ? (
-                                  hasGpuData ? (
-                                    <div className="text-xs flex flex-col gap-2">
-                                      <div className="grid grid-cols-[3rem_minmax(0,1fr)] gap-3 items-start">
-                                        <span className="text-kumo-subtle font-medium">型号</span>
-                                        <span className="text-kumo-strong font-semibold text-right whitespace-normal break-words leading-relaxed" title={server.info?.gpu?.Model}>{server.info?.gpu?.Model || 'GPU'}</span>
-                                      </div>
-                                      <div className="flex justify-between gap-3">
-                                        <span className="text-kumo-subtle font-medium">使用率</span>
-                                        <span className="text-kumo-strong font-semibold">{server.info?.gpu?.Usage || '0%'}</span>
-                                      </div>
-                                      {toNumber(server.info?.gpu?.Temp, 0) > 0 && (
-                                        <div className="flex justify-between gap-3">
-                                          <span className="text-kumo-subtle font-medium">温度</span>
-                                          <span className={`font-semibold ${getTempColorClass(server.info.gpu.Temp)}`}>{Math.round(toNumber(server.info.gpu.Temp))}°C</span>
-                                        </div>
-                                      )}
-                                      {server.info?.gpu?.Memory && (
-                                        <div className="flex justify-between gap-3">
-                                          <span className="text-kumo-subtle font-medium">显存</span>
-                                          <span className="text-kumo-strong font-semibold">{server.info.gpu.Memory} ({Math.round(toNumber(server.info.gpu.Percent, 0))}%)</span>
-                                        </div>
-                                      )}
-                                      {server.info?.gpu?.Power && (
-                                        <div className="flex justify-between gap-3">
-                                          <span className="text-kumo-subtle font-medium">功耗</span>
-                                          <span className="text-kumo-warning font-semibold">{server.info.gpu.Power}</span>
-                                        </div>
-                                      )}
-                                    </div>
-                                  ) : (
-                                    <div className="py-6 text-center text-xs text-kumo-subtle">未检测到 GPU 数据</div>
-                                  )
-                                ) : (
-                                  <div className="flex flex-col gap-2">
-                                    <div className="flex flex-wrap items-center gap-3">
-                                      <ChartLegend.SmallItem name="GPU" color={gpuColor} value={getLatestMetricValue(records, r => toNumber(r.gpu_usage, 0), v => `${v.toFixed(1)}%`)} />
-                                      <ChartLegend.SmallItem name="VRAM" color={vramColor} value={getLatestMetricValue(records, getGpuMemPercent, v => `${v.toFixed(1)}%`)} />
-                                      <ChartLegend.SmallItem name="Power" color={powerColor} value={getLatestMetricValue(records, r => toNumber(r.gpu_power, 0), v => `${v.toFixed(1)}W`)} />
-                                    </div>
-                                    <TimeseriesChart
-                                      echarts={echarts}
-                                      data={gpuSeries}
-                                      height={130}
-                                      isDarkMode={isDarkMode}
-                                      gradient
-                                      loading={server.loading}
-                                      xAxisTickFormat={formatChartTime}
-                                      tooltipValueFormat={(value) => value.toFixed(1)}
-                                      ariaDescription={`${server.name} GPU usage, VRAM, and power trend`}
-                                    />
-                                  </div>
-                                )}
-                              </div>
 
-                              <div className="bg-kumo-base border border-kumo-line p-4 rounded-lg flex flex-col gap-3 shadow-xs">
-                                <div className="flex items-center justify-between gap-2 border-b border-kumo-line pb-2">
-                                  <h4 className="text-xs font-bold text-kumo-strong">网络</h4>
-                                  <Tabs
-                                    {...TOOL_TABS_PROPS}
-                                    value={cardView.network}
-                                    onValueChange={(value) => setCardView(server.id, 'network', value)}
-                                    tabs={[
-                                      { value: 'detail', label: '详情' },
-                                      { value: 'chart', label: '趋势' },
-                                    ]}
-                                  />
-                                </div>
-                                {cardView.network === 'detail' ? (
-                                  <div className="text-xs flex flex-col gap-2">
-                                    <div className="flex justify-between gap-3">
-                                      <span className="text-kumo-subtle font-medium">活跃连接数</span>
-                                      <span className="text-kumo-strong font-semibold">{server.info?.network?.connections || 0}</span>
+                            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 md:gap-4">
+                              <ChartBoundaryBox className="flex flex-col gap-2 rounded-lg border border-kumo-line bg-kumo-base p-3 shadow-xs sm:gap-3 sm:p-4">
+                                {(tooltipBoundary) => (
+                                  <>
+                                    <div className="flex items-center justify-between gap-2 border-b border-kumo-line pb-1.5 sm:pb-2">
+                                      <h4 className="text-xs font-bold text-kumo-strong">GPU</h4>
+                                      <Tabs
+                                        {...TOOL_TABS_PROPS}
+                                        value={cardView.gpu}
+                                        onValueChange={(value) => setCardView(server.id, 'gpu', value)}
+                                        tabs={[
+                                          { value: 'detail', label: '详情' },
+                                          { value: 'chart', label: '趋势' },
+                                        ]}
+                                      />
                                     </div>
-                                    <div className="flex justify-between gap-3">
-                                      <span className="text-kumo-subtle font-medium">上传速度</span>
-                                      <span className="text-kumo-info font-semibold">{server.info?.network?.tx_speed || '0 B/s'}</span>
-                                    </div>
-                                    <div className="flex justify-between gap-3">
-                                      <span className="text-kumo-subtle font-medium">下载速度</span>
-                                      <span className="text-kumo-success font-semibold">{server.info?.network?.rx_speed || '0 B/s'}</span>
-                                    </div>
-                                    <div className="flex justify-between gap-3">
-                                      <span className="text-kumo-subtle font-medium">累计流量</span>
-                                      <span className="grid w-[168px] grid-cols-2 gap-2 text-right font-mono text-[11px] font-semibold tabular-nums">
-                                        <span className="text-kumo-info" title={txTotal.text}>&uarr; {txTotal.text}</span>
-                                        <span className="text-kumo-success" title={rxTotal.text}>&darr; {rxTotal.text}</span>
-                                      </span>
-                                    </div>
-                                  </div>
-                                ) : (
-                                  <div className="flex flex-col gap-2">
-                                    <div className="flex flex-wrap items-center gap-3">
-                                      <ChartLegend.SmallItem name="Upload" color={txColor} value={getLatestMetricValue(records, r => toNumber(r.net_tx, 0), formatBytesSpeed)} />
-                                      <ChartLegend.SmallItem name="Download" color={rxColor} value={getLatestMetricValue(records, r => toNumber(r.net_rx, 0), formatBytesSpeed)} />
-                                    </div>
-                                    <TimeseriesChart
-                                      echarts={echarts}
-                                      data={netSeries}
-                                      height={130}
-                                      isDarkMode={isDarkMode}
-                                      gradient
-                                      loading={server.loading}
-                                      xAxisTickFormat={formatChartTime}
-                                      yAxisTickFormat={formatBytesSpeed}
-                                      tooltipValueFormat={formatBytesSpeed}
-                                      ariaDescription={`${server.name} network upload and download speed trend`}
-                                    />
-                                  </div>
+                                    {cardView.gpu === 'detail' ? (
+                                      hasGpuData ? (
+                                        <div className="flex flex-col gap-1.5 text-[11px] leading-5 sm:gap-2 sm:text-xs">
+                                          <div className="grid grid-cols-[3rem_minmax(0,1fr)] items-center gap-2 sm:gap-3">
+                                            <span className="text-kumo-subtle font-medium">型号</span>
+                                            <span className="truncate text-right font-semibold text-kumo-strong" title={server.info?.gpu?.Model}>{server.info?.gpu?.Model || 'GPU'}</span>
+                                          </div>
+                                          <div className="grid grid-cols-[3rem_minmax(0,1fr)] items-center gap-2 sm:flex sm:justify-between sm:gap-3">
+                                            <span className="text-kumo-subtle font-medium">使用率</span>
+                                            <span className="text-right font-semibold text-kumo-strong">{server.info?.gpu?.Usage || '0%'}</span>
+                                          </div>
+                                          {toNumber(server.info?.gpu?.Temp, 0) > 0 && (
+                                            <div className="grid grid-cols-[3rem_minmax(0,1fr)] items-center gap-2 sm:flex sm:justify-between sm:gap-3">
+                                              <span className="text-kumo-subtle font-medium">温度</span>
+                                              <span className={`text-right font-semibold ${getTempColorClass(server.info.gpu.Temp)}`}>{Math.round(toNumber(server.info.gpu.Temp))}°C</span>
+                                            </div>
+                                          )}
+                                          {server.info?.gpu?.Memory && (
+                                            <div className="grid grid-cols-[3rem_minmax(0,1fr)] items-center gap-2 sm:flex sm:justify-between sm:gap-3">
+                                              <span className="text-kumo-subtle font-medium">显存</span>
+                                              <span className="text-right font-semibold text-kumo-strong">{server.info.gpu.Memory} ({Math.round(toNumber(server.info.gpu.Percent, 0))}%)</span>
+                                            </div>
+                                          )}
+                                          {server.info?.gpu?.Power && (
+                                            <div className="grid grid-cols-[3rem_minmax(0,1fr)] items-center gap-2 sm:flex sm:justify-between sm:gap-3">
+                                              <span className="text-kumo-subtle font-medium">功耗</span>
+                                              <span className="text-right font-semibold text-kumo-warning">{server.info.gpu.Power}</span>
+                                            </div>
+                                          )}
+                                        </div>
+                                      ) : (
+                                        <div className="py-4 text-center text-xs text-kumo-subtle sm:py-6">未检测到 GPU 数据</div>
+                                      )
+                                    ) : (
+                                      <div className="flex flex-col gap-2">
+                                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                                          <ChartLegend.SmallItem name="GPU" color={gpuColor} value={getLatestMetricValue(records, r => toNumber(r.gpu_usage, 0), v => `${v.toFixed(1)}%`)} />
+                                          <ChartLegend.SmallItem name="VRAM" color={vramColor} value={getLatestMetricValue(records, getGpuMemPercent, v => `${v.toFixed(1)}%`)} />
+                                          <ChartLegend.SmallItem name="Power" color={powerColor} value={getLatestMetricValue(records, r => toNumber(r.gpu_power, 0), v => `${v.toFixed(1)}W`)} />
+                                          <ChartLegend.SmallItem name="Temp" color={gpuTempColor} value={getLatestMetricValue(records, getGpuTemp, v => `${v.toFixed(1)}°C`)} />
+                                        </div>
+                                        <DeferredRender open={isExpanded} fallback={<ChartWarmupSkeleton height={expandedSubChartHeight} />}>
+                                          <TimeseriesChart
+                                            echarts={echarts}
+                                            data={gpuSeries}
+                                            height={expandedSubChartHeight}
+                                            isDarkMode={isDarkMode}
+                                            gradient
+                                            loading={chartLoading}
+                                            tooltipBoundary={tooltipBoundary ?? undefined}
+                                            xAxisTickCount={expandedChartXAxisTickCount}
+                                            yAxisTickCount={expandedChartYAxisTickCount}
+                                            xAxisTickFormat={expandedChartXAxisTickFormat}
+                                            yAxisTickFormat={expandedNumberAxisTickFormat}
+                                            tooltipValueFormat={(value) => value.toFixed(1)}
+                                            ariaDescription={`${server.name} GPU usage, VRAM, and power trend`}
+                                          />
+                                        </DeferredRender>
+                                      </div>
+                                    )}
+                                  </>
                                 )}
-                              </div>
+                              </ChartBoundaryBox>
+
+                              <ChartBoundaryBox className="flex flex-col gap-2 rounded-lg border border-kumo-line bg-kumo-base p-3 shadow-xs sm:gap-3 sm:p-4">
+                                {(tooltipBoundary) => (
+                                  <>
+                                    <div className="flex items-center justify-between gap-2 border-b border-kumo-line pb-1.5 sm:pb-2">
+                                      <h4 className="text-xs font-bold text-kumo-strong">网络</h4>
+                                      <Tabs
+                                        {...TOOL_TABS_PROPS}
+                                        value={cardView.network}
+                                        onValueChange={(value) => setCardView(server.id, 'network', value)}
+                                        tabs={[
+                                          { value: 'detail', label: '详情' },
+                                          { value: 'chart', label: '趋势' },
+                                        ]}
+                                      />
+                                    </div>
+                                    {cardView.network === 'detail' ? (
+                                      <div className="flex flex-col gap-1.5 text-[11px] leading-5 sm:gap-2 sm:text-xs">
+                                        <div className="grid grid-cols-[5rem_minmax(0,1fr)] items-center gap-2 sm:flex sm:justify-between sm:gap-3">
+                                          <span className="text-kumo-subtle font-medium">活跃连接数</span>
+                                          <span className="text-right font-semibold text-kumo-strong">{server.info?.network?.connections || 0}</span>
+                                        </div>
+                                        <div className="grid grid-cols-[5rem_minmax(0,1fr)] items-center gap-2 sm:flex sm:justify-between sm:gap-3">
+                                          <span className="text-kumo-subtle font-medium">上传速度</span>
+                                          <span className="text-right font-semibold text-kumo-info">{server.info?.network?.tx_speed || '0 B/s'}</span>
+                                        </div>
+                                        <div className="grid grid-cols-[5rem_minmax(0,1fr)] items-center gap-2 sm:flex sm:justify-between sm:gap-3">
+                                          <span className="text-kumo-subtle font-medium">下载速度</span>
+                                          <span className="text-right font-semibold text-kumo-success">{server.info?.network?.rx_speed || '0 B/s'}</span>
+                                        </div>
+                                        <div className="grid grid-cols-[5rem_minmax(0,1fr)] items-center gap-2 sm:flex sm:justify-between sm:gap-3">
+                                          <span className="text-kumo-subtle font-medium">累计流量</span>
+                                          <span className="grid min-w-0 grid-cols-2 gap-2 text-right font-mono text-[11px] font-semibold tabular-nums sm:w-[168px]">
+                                            <span className="truncate text-kumo-info" title={txTotal.text}>&uarr; {txTotal.text}</span>
+                                            <span className="truncate text-kumo-success" title={rxTotal.text}>&darr; {rxTotal.text}</span>
+                                          </span>
+                                        </div>
+                                      </div>
+                                    ) : (
+                                      <div className="flex flex-col gap-2">
+                                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                                          <ChartLegend.SmallItem name="Upload" color={txColor} value={getLatestMetricValue(records, r => toNumber(r.net_tx, 0), formatBytesSpeed)} />
+                                          <ChartLegend.SmallItem name="Download" color={rxColor} value={getLatestMetricValue(records, r => toNumber(r.net_rx, 0), formatBytesSpeed)} />
+                                        </div>
+                                        <DeferredRender open={isExpanded} fallback={<ChartWarmupSkeleton height={expandedSubChartHeight} />}>
+                                          <TimeseriesChart
+                                            echarts={echarts}
+                                            data={netSeries}
+                                            height={expandedSubChartHeight}
+                                            isDarkMode={isDarkMode}
+                                            gradient
+                                            loading={chartLoading}
+                                            tooltipBoundary={tooltipBoundary ?? undefined}
+                                            xAxisTickCount={expandedChartXAxisTickCount}
+                                            yAxisTickCount={expandedChartYAxisTickCount}
+                                            xAxisTickFormat={expandedChartXAxisTickFormat}
+                                            yAxisTickFormat={expandedSpeedAxisTickFormat}
+                                            tooltipValueFormat={formatBytesSpeed}
+                                            ariaDescription={`${server.name} network upload and download speed trend`}
+                                          />
+                                        </DeferredRender>
+                                      </div>
+                                    )}
+                                  </>
+                                )}
+                              </ChartBoundaryBox>
                             </div>
 
                             {server.info?.docker?.installed && (
-                              <div className="bg-kumo-base border border-kumo-line p-4 rounded-lg flex flex-col gap-2.5 shadow-xs">
+                              <div className="flex flex-col gap-2 rounded-lg border border-kumo-line bg-kumo-base p-3 shadow-xs sm:gap-2.5 sm:p-4">
                                 <Button
                                   type="button"
-                                  variant="ghost"
-                                  size="sm"
-                                  className="w-full justify-between border-b border-kumo-line pb-2 text-left"
+                                  variant="ghost" size="sm"
+                                  className="w-full justify-between border-b border-kumo-line pb-1.5 text-left sm:pb-2"
                                   onClick={(event) => {
                                     event.stopPropagation();
                                     toggleDockerPanel(server.id);
                                   }}
                                 >
                                   <span className="text-xs font-bold text-kumo-strong">Docker 容器</span>
-                                  <span className="flex items-center gap-2 text-[10px] font-medium text-kumo-subtle">
+                                  <span className="flex min-w-0 items-center gap-2 text-[10px] font-medium text-kumo-subtle">
                                     <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-kumo-success"></span>{runningContainers || server.info.docker.runningCount || 0} 运行</span>
                                     {pausedContainers > 0 && <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-kumo-warning"></span>{pausedContainers} 暂停</span>}
                                     {(stoppedContainers > 0 || server.info.docker.stoppedCount > 0) && <span className="flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-kumo-danger"></span>{stoppedContainers || server.info.docker.stoppedCount} 停止</span>}
@@ -3132,21 +3303,20 @@ function ServerPage() {
                                   </span>
                                 </Button>
 
-                                {dockerExpanded && (
-                                  dockerContainers.length > 0 ? (
-                                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2 pt-1">
+                                <AnimatedCollapse open={dockerExpanded}>
+                                  {dockerContainers.length > 0 ? (
+                                    <div className="grid grid-cols-2 gap-1.5 pt-1 sm:grid-cols-3 sm:gap-2 md:grid-cols-4 lg:grid-cols-6">
                                       {dockerContainers.map(c => {
                                         const state = getDockerContainerState(c);
                                         return (
-                                          <div key={c.id} className="flex items-center justify-between p-2 rounded border text-[11px] bg-kumo-canvas/45 border-kumo-line hover:border-kumo-interact">
+                                          <div key={c.id} className="flex items-center justify-between rounded border border-kumo-line bg-kumo-canvas/45 p-1.5 text-[11px] hover:border-kumo-interact sm:p-2">
                                             <div className="flex items-center gap-1.5 min-w-0 mr-2">
                                               <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${state === 'running' ? 'bg-kumo-success animate-pulse' : state === 'paused' ? 'bg-kumo-warning' : 'bg-kumo-fill'}`}></span>
                                               <span className="truncate font-semibold text-kumo-strong" title={c.name}>{c.name}</span>
                                             </div>
                                             <div className="flex items-center gap-1 flex-shrink-0">
                                               <Button
-                                                shape="square"
-                                                size="xs"
+                                                shape="square" size="sm"
                                                 variant="ghost"
                                                 aria-label={state === 'running' ? '暂停容器' : state === 'paused' ? '恢复容器' : '启动容器'}
                                                 title={state === 'running' ? '暂停' : state === 'paused' ? '恢复' : '启动'}
@@ -3158,8 +3328,7 @@ function ServerPage() {
                                                 }}
                                               />
                                               <Button
-                                                shape="square"
-                                                size="xs"
+                                                shape="square" size="sm"
                                                 variant="ghost"
                                                 aria-label="重启容器"
                                                 title="重启"
@@ -3176,19 +3345,19 @@ function ServerPage() {
                                     </div>
                                   ) : (
                                     <div className="text-center py-4 text-xs text-kumo-subtle">暂无容器</div>
-                                  )
-                                )}
+                                  )}
+                                </AnimatedCollapse>
                               </div>
                             )}
                           </div>
                         )}
                       </div>
-                    )}
+                    </AnimatedCollapse>
                     </ContextMenu.Trigger>
 
                     <ContextMenu.Portal>
                       <ContextMenu.Positioner sideOffset={6}>
-                        <ContextMenu.Popup className="z-50 min-w-40 overflow-hidden rounded-lg border border-kumo-line bg-kumo-control p-1.5 text-kumo-default shadow-lg outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95">
+                        <ContextMenu.Popup className="motion-pop-in z-50 min-w-40 overflow-hidden rounded-lg border border-kumo-line bg-kumo-control p-1.5 text-kumo-default shadow-lg outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95">
                           <ContextMenu.Item
                             className="relative flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-hidden select-none focus:text-kumo-default focus:ring-kumo-focus/50 focus-visible:ring-2 focus-visible:ring-kumo-brand data-disabled:pointer-events-none data-disabled:opacity-50 data-highlighted:bg-kumo-overlay"
                             disabled={server.status !== 'online' || server.loading}
@@ -3272,8 +3441,7 @@ function ServerPage() {
             <div className="flex items-center gap-2">
               <div className="flex items-center gap-1 bg-kumo-recessed/50 p-1 rounded-lg">
                 {['1h', '6h', '24h', '7d'].map(range => (
-                  <Button
-                    size="xs"
+                  <Button size="sm"
                     variant={metricsHistoryTimeRange === range ? 'secondary' : 'ghost'}
                     key={range}
                     onClick={() => setMetricsHistoryTimeRange(range)}
@@ -3284,20 +3452,18 @@ function ServerPage() {
                 ))}
               </div>
               
-              <Button
-                size="sm"
+              <Button size="sm"
                 variant="secondary"
                 onClick={triggerManualCollect}
-                className="flex items-center gap-1 px-3 py-1 border border-kumo-line rounded-lg text-xs bg-kumo-base hover:bg-kumo-recessed/30 cursor-pointer font-semibold"
+                className="flex items-center gap-1 border border-kumo-line rounded-lg text-xs bg-kumo-base hover:bg-kumo-recessed/30 cursor-pointer font-semibold"
               >
                 立即采集
               </Button>
               
-              <Button
-                size="sm"
+              <Button size="sm"
                 variant="secondary-destructive"
                 onClick={clearMetricsHistory}
-                className="flex items-center gap-1 px-3 py-1 border border-kumo-danger/30 text-kumo-danger rounded-lg text-xs bg-kumo-base hover:bg-kumo-danger/10 cursor-pointer font-semibold"
+                className="flex items-center gap-1 border border-kumo-danger/30 text-kumo-danger rounded-lg text-xs bg-kumo-base hover:bg-kumo-danger/10 cursor-pointer font-semibold"
               >
                 清空数据
               </Button>
@@ -3306,17 +3472,16 @@ function ServerPage() {
             <div className="flex items-center gap-2">
               <span className="text-xs text-kumo-subtle font-medium">过滤主机</span>
               <Select
-                aria-label="过滤主机"
-                size="sm"
+                aria-label="过滤主机" size="sm"
                 value={metricsHistoryFilter.serverId}
                 onValueChange={(value) => setMetricsHistoryFilter({ serverId: String(value) })}
+                placeholder="全部主机"
                 className="border border-kumo-line rounded-lg px-2.5 py-1 bg-kumo-base text-xs focus:outline-none"
-              >
-                <Select.Option value="">全部主机</Select.Option>
-                {serverList.map(s => (
-                  <Select.Option key={s.id} value={s.id}>{s.name}</Select.Option>
-                ))}
-              </Select>
+                items={[
+                  { value: '', label: '全部主机' },
+                  ...serverList.map(s => ({ value: String(s.id), label: s.name || s.id })),
+                ]}
+              />
             </div>
           </div>
           
@@ -3446,17 +3611,18 @@ function ServerPage() {
             <div className="flex items-center gap-2">
               <span className="text-xs text-kumo-subtle font-medium">选择主机</span>
               <Select
-                aria-label="选择 Docker 主机"
-                size="sm"
+                aria-label="选择 Docker 主机" size="sm"
                 value={dockerSelectedServer}
                 onValueChange={(value) => setDockerSelectedServer(String(value))}
+                placeholder="全部 Docker 主机"
                 className="border border-kumo-line rounded-lg px-2.5 py-1 bg-kumo-base text-xs focus:outline-none"
-              >
-                <Select.Option value="">全部 Docker 主机</Select.Option>
-                {serverList.filter(s => s.status === 'online').map(s => (
-                  <Select.Option key={s.id} value={s.id}>{s.name}</Select.Option>
-                ))}
-              </Select>
+                items={[
+                  { value: '', label: '全部 Docker 主机' },
+                  ...serverList
+                    .filter(s => s.status === 'online')
+                    .map(s => ({ value: String(s.id), label: s.name || s.id })),
+                ]}
+              />
             </div>
           </div>
           
@@ -3464,7 +3630,7 @@ function ServerPage() {
           {dockerTasks.length > 0 && (
             <div className="bg-kumo-recessed border border-kumo-line p-3 rounded-lg text-xs font-mono text-kumo-default flex flex-col gap-1.5 shadow-xs">
               <div className="flex justify-between border-b border-kumo-line pb-1.5 mb-1">
-                <span className="font-bold text-kumo-brand">🔄 后台 Docker 任务流水</span>
+                <span className="inline-flex items-center gap-1.5 font-bold text-kumo-brand"><Activity className="h-3.5 w-3.5" />后台 Docker 任务流水</span>
                 <span className="text-[10px] text-kumo-subtle">SSE 实时长连接</span>
               </div>
               <div className="max-h-24 overflow-y-auto flex flex-col gap-1">
@@ -3497,23 +3663,28 @@ function ServerPage() {
               {/* 1. 容器管理 */}
               {dockerSubTab === 'containers' && (
                 <div className="flex flex-col gap-3">
-                  {dockerOverviewServers.map(server => (
-                    <div key={server.id} className="bg-kumo-base border border-kumo-line rounded-lg overflow-hidden shadow-xs">
-                      <div className="bg-kumo-recessed/35 p-3 border-b border-kumo-line flex items-center justify-between">
-                        <span className="text-xs font-bold text-kumo-strong flex items-center gap-2">
-                          <span>🐳</span> {server.name}
-                        </span>
-                        <span className="px-1.5 py-0.5 rounded text-[10px] bg-kumo-brand/10 text-kumo-brand font-bold">
-                          {server.resources?.containers?.length || 0} 个容器
-                        </span>
-                      </div>
-                      
-                      <div className="p-2">
-                        {(!server.resources?.containers || server.resources.containers.length === 0) ? (
-                          <div className="p-8 text-center text-xs text-kumo-subtle">
-                            暂无运行中容器
-                          </div>
-                        ) : (
+                  {dockerOverviewServers.length === 0 ? (
+                    renderDockerEmptyState('未检测到可用的 Docker 主机')
+                  ) : visibleDockerContainerServers.length === 0 ? (
+                    renderDockerEmptyState('当前筛选下没有容器')
+                  ) : (
+                    visibleDockerContainerServers.map(server => (
+                      <div key={server.id} className="bg-kumo-base border border-kumo-line rounded-lg overflow-hidden shadow-xs">
+                        <div className="bg-kumo-recessed/35 p-3 border-b border-kumo-line flex items-center justify-between">
+                          <span className="text-xs font-bold text-kumo-strong flex items-center gap-2">
+                            <Box className="h-3.5 w-3.5" /> {server.name}
+                          </span>
+                          <span className="px-1.5 py-0.5 rounded text-[10px] bg-kumo-brand/10 text-kumo-brand font-bold">
+                            {server.resources.containers.length} 个容器
+                          </span>
+                        </div>
+
+                        <div className="p-2">
+                          {server.resources.containers.length === 0 ? (
+                            <div className="p-8 text-center text-xs text-kumo-subtle">
+                              当前主机没有容器
+                            </div>
+                          ) : (
                           <Table layout="fixed">
                             <colgroup>
                               {dockerColWidths.map((width, idx) => (
@@ -3558,26 +3729,24 @@ function ServerPage() {
                                   <Table.Cell className="p-2 text-right">
                                     <div className="flex items-center justify-end gap-1.5">
                                       <Button
-                                        shape="square"
-                                        size="sm"
+                                        shape="square" size="sm"
                                         variant="ghost"
                                         aria-label={c.state === 'running' ? '停止容器' : '启动容器'}
                                         onClick={() => submitDockerTask(c.state === 'running' ? 'container.stop' : 'container.start', { serverId: server.id, containerId: c.id, containerName: c.name })}
                                         className={`p-1.5 rounded cursor-pointer ${c.state === 'running' ? 'hover:bg-kumo-danger/10 text-kumo-danger' : 'hover:bg-kumo-success/10 text-kumo-success'}`}
                                         title={c.state === 'running' ? '停止' : '启动'}
                                       >
-                                        {c.state === 'running' ? <PauseIcon /> : <PlayIcon />}
+                                        {c.state === 'running' ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
                                       </Button>
                                       <Button
-                                        shape="square"
-                                        size="sm"
+                                        shape="square" size="sm"
                                         variant="ghost"
                                         aria-label="重启容器"
                                         onClick={() => submitDockerTask('container.restart', { serverId: server.id, containerId: c.id, containerName: c.name })}
-                                        className="p-1.5 rounded hover:bg-kumo-recessed text-kumo-subtle cursor-pointer"
+                                        className="rounded hover:bg-kumo-recessed text-kumo-subtle cursor-pointer"
                                         title="重启"
                                       >
-                                        <RestartIcon />
+                                        <RotateCw className="h-3.5 w-3.5" />
                                       </Button>
                                     </div>
                                   </Table.Cell>
@@ -3585,10 +3754,11 @@ function ServerPage() {
                               ))}
                             </Table.Body>
                           </Table>
-                        )}
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    ))
+                  )}
                 </div>
               )}
               
@@ -3601,99 +3771,296 @@ function ServerPage() {
                     </div>
                   ) : (
                     <div className="flex flex-col gap-3">
-                      {dockerComposeProjects.map(proj => (
-                        <div key={proj.Name} className="flex justify-between items-center p-3 border border-kumo-line rounded-lg bg-kumo-canvas/15 hover:border-kumo-brand/50">
-                          <div className="flex flex-col gap-0.5">
-                            <span className="text-xs font-bold text-kumo-strong">{proj.Name}</span>
-                            <span className="text-[10px] text-kumo-subtle truncate max-w-[400px]">{proj.ConfigFiles}</span>
-                          </div>
-                          
-                          <div className="flex items-center gap-3">
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${proj.Status?.includes('running') ? 'bg-kumo-success/15 text-kumo-success' : 'bg-kumo-danger/15 text-kumo-danger'}`}>
-                              {proj.Status}
-                            </span>
-                            <div className="flex gap-1">
-                              <Button
-                                size="xs"
-                                variant="primary"
-                                onClick={() => submitDockerTask('compose.up', { serverId: proj.serverId, projectName: proj.Name })}
-                                className="p-1 px-2.5 rounded bg-kumo-brand text-kumo-inverse text-[10px] font-semibold cursor-pointer"
-                              >
-                                Up 启动
-                              </Button>
-                              <Button
-                                size="xs"
-                                variant="secondary"
-                                onClick={() => submitDockerTask('compose.down', { serverId: proj.serverId, projectName: proj.Name })}
-                                className="p-1 px-2.5 rounded border border-kumo-line text-kumo-subtle text-[10px] hover:bg-kumo-recessed/45 cursor-pointer"
-                              >
-                                Down 停止
-                              </Button>
+                      {dockerComposeProjects.map(proj => {
+                        const projectName = getComposeProjectName(proj);
+                        const configFiles = getComposeConfigFiles(proj);
+                        const status = getComposeStatus(proj);
+                        const composePayload = { serverId: proj.serverId, project: projectName, configFile: configFiles };
+                        return (
+                          <div key={`${proj.serverId}-${projectName}-${configFiles}`} className="flex justify-between items-center p-3 border border-kumo-line rounded-lg bg-kumo-canvas/15 hover:border-kumo-brand/50">
+                            <div className="flex flex-col gap-0.5 min-w-0">
+                              <span className="text-xs font-bold text-kumo-strong truncate">{projectName}</span>
+                              <span className="text-[10px] text-kumo-subtle truncate max-w-[400px]" title={configFiles}>{configFiles || '-'}</span>
+                            </div>
+
+                            <div className="flex items-center gap-3">
+                              <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${status.includes('running') ? 'bg-kumo-success/15 text-kumo-success' : 'bg-kumo-danger/15 text-kumo-danger'}`}>
+                                {status}
+                              </span>
+                              <div className="flex gap-1">
+                                <Button size="sm"
+                                  variant="primary"
+                                  onClick={() => submitDockerTask('compose.up', composePayload)}
+                                  className="rounded bg-kumo-brand text-kumo-inverse text-[10px] font-semibold cursor-pointer"
+                                >
+                                  Up 启动
+                                </Button>
+                                <Button size="sm"
+                                  variant="secondary"
+                                  onClick={() => submitDockerTask('compose.down', composePayload)}
+                                  className="rounded border border-kumo-line text-kumo-subtle text-[10px] hover:bg-kumo-recessed/45 cursor-pointer"
+                                >
+                                  Down 停止
+                                </Button>
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </div>
               )}
-              
+
               {/* 3. 镜像管理 */}
               {dockerSubTab === 'images' && (
                 <div className="bg-kumo-base border border-kumo-line rounded-lg overflow-hidden p-2 shadow-xs">
-                  <Table layout="fixed">
-                    <colgroup>
-                      {imagesColWidths.map((width, idx) => (
-                        <col key={idx} style={{ width }} />
-                      ))}
-                    </colgroup>
-                    <Table.Header>
-                      <Table.Row className="bg-kumo-recessed/25 border-b border-kumo-line font-bold">
-                        <Table.Head className="p-2.5 relative">
-                          镜像仓库
-                          <Table.ResizeHandle onMouseDown={(e) => startImagesResize(0, e)} />
-                        </Table.Head>
-                        <Table.Head className="p-2.5 relative">
-                          标签
-                          <Table.ResizeHandle onMouseDown={(e) => startImagesResize(1, e)} />
-                        </Table.Head>
-                        <Table.Head className="p-2.5 relative">
-                          大小
-                          <Table.ResizeHandle onMouseDown={(e) => startImagesResize(2, e)} />
-                        </Table.Head>
-                        <Table.Head className="p-2.5 relative">
-                          所在主机
-                          <Table.ResizeHandle onMouseDown={(e) => startImagesResize(3, e)} />
-                        </Table.Head>
-                        <Table.Head className="p-2.5 text-right relative">
-                          操作
-                          <Table.ResizeHandle onMouseDown={(e) => startImagesResize(4, e)} />
-                        </Table.Head>
-                      </Table.Row>
-                    </Table.Header>
-                    <Table.Body>
-                      {dockerImages.map((img, i) => (
-                        <Table.Row key={img.id + i} className="border-b border-kumo-line hover:bg-kumo-recessed/10">
-                          <Table.Cell className="p-2.5 font-bold text-kumo-strong truncate">{img.repository}</Table.Cell>
-                          <Table.Cell className="p-2.5"><span className="px-1.5 py-0.5 rounded bg-kumo-recessed font-mono text-[10px]">{img.tag}</span></Table.Cell>
-                          <Table.Cell className="p-2.5 text-kumo-subtle truncate">{img.size}</Table.Cell>
-                          <Table.Cell className="p-2.5 truncate">{img.serverName}</Table.Cell>
-                          <Table.Cell className="p-2.5 text-right">
-                            <Button
-                              shape="square"
-                              size="sm"
-                              variant="ghost"
-                              aria-label="删除镜像"
-                              onClick={() => submitDockerTask('image.remove', { serverId: img.serverId, imageId: img.id })}
-                              className="p-1 hover:bg-kumo-danger/10 text-kumo-danger rounded cursor-pointer"
-                            >
-                              <TrashIcon />
-                            </Button>
-                          </Table.Cell>
+                  {dockerImages.length === 0 ? (
+                    <div className="p-12 text-center text-xs text-kumo-subtle">当前主机中未检索到镜像</div>
+                  ) : (
+                    <Table layout="fixed">
+                      <colgroup>
+                        {imagesColWidths.map((width, idx) => (
+                          <col key={idx} style={{ width }} />
+                        ))}
+                      </colgroup>
+                      <Table.Header>
+                        <Table.Row className="bg-kumo-recessed/25 border-b border-kumo-line font-bold">
+                          <Table.Head className="p-2.5 relative">
+                            镜像仓库
+                            <Table.ResizeHandle onMouseDown={(e) => startImagesResize(0, e)} />
+                          </Table.Head>
+                          <Table.Head className="p-2.5 relative">
+                            标签
+                            <Table.ResizeHandle onMouseDown={(e) => startImagesResize(1, e)} />
+                          </Table.Head>
+                          <Table.Head className="p-2.5 relative">
+                            大小
+                            <Table.ResizeHandle onMouseDown={(e) => startImagesResize(2, e)} />
+                          </Table.Head>
+                          <Table.Head className="p-2.5 relative">
+                            所在主机
+                            <Table.ResizeHandle onMouseDown={(e) => startImagesResize(3, e)} />
+                          </Table.Head>
+                          <Table.Head className="p-2.5 text-right relative">
+                            操作
+                            <Table.ResizeHandle onMouseDown={(e) => startImagesResize(4, e)} />
+                          </Table.Head>
                         </Table.Row>
-                      ))}
-                    </Table.Body>
-                  </Table>
+                      </Table.Header>
+                      <Table.Body>
+                        {dockerImages.map((img, i) => (
+                          <Table.Row key={`${img.serverId}-${img.id}-${i}`} className="border-b border-kumo-line hover:bg-kumo-recessed/10">
+                            <Table.Cell className="p-2.5 font-bold text-kumo-strong truncate">{img.repository}</Table.Cell>
+                            <Table.Cell className="p-2.5"><span className="px-1.5 py-0.5 rounded bg-kumo-recessed font-mono text-[10px]">{img.tag}</span></Table.Cell>
+                            <Table.Cell className="p-2.5 text-kumo-subtle truncate">{img.size}</Table.Cell>
+                            <Table.Cell className="p-2.5 truncate">{img.serverName}</Table.Cell>
+                            <Table.Cell className="p-2.5 text-right">
+                              <Button
+                                shape="square" size="sm"
+                                variant="ghost"
+                                aria-label="删除镜像"
+                                onClick={() => submitDockerTask('image.remove', { serverId: img.serverId, image: img.id })}
+                                className="hover:bg-kumo-danger/10 text-kumo-danger rounded cursor-pointer"
+                              >
+                                <Trash className="h-3.5 w-3.5" />
+                              </Button>
+                            </Table.Cell>
+                          </Table.Row>
+                        ))}
+                      </Table.Body>
+                    </Table>
+                  )}
+                </div>
+              )}
+
+              {/* 4. 网络管理 */}
+              {dockerSubTab === 'networks' && (
+                <div className="bg-kumo-base border border-kumo-line rounded-lg overflow-hidden p-2 shadow-xs">
+                  {dockerNetworks.length === 0 ? (
+                    <div className="p-12 text-center text-xs text-kumo-subtle">当前主机中未检索到 Docker 网络</div>
+                  ) : (
+                    <Table layout="fixed">
+                      <colgroup>
+                        {networksColWidths.map((width, idx) => (
+                          <col key={idx} style={{ width }} />
+                        ))}
+                      </colgroup>
+                      <Table.Header>
+                        <Table.Row className="bg-kumo-recessed/25 border-b border-kumo-line font-bold">
+                          <Table.Head className="p-2.5 relative">
+                            名称
+                            <Table.ResizeHandle onMouseDown={(e) => startNetworksResize(0, e)} />
+                          </Table.Head>
+                          <Table.Head className="p-2.5 relative">
+                            ID
+                            <Table.ResizeHandle onMouseDown={(e) => startNetworksResize(1, e)} />
+                          </Table.Head>
+                          <Table.Head className="p-2.5 relative">
+                            驱动
+                            <Table.ResizeHandle onMouseDown={(e) => startNetworksResize(2, e)} />
+                          </Table.Head>
+                          <Table.Head className="p-2.5 relative">
+                            范围
+                            <Table.ResizeHandle onMouseDown={(e) => startNetworksResize(3, e)} />
+                          </Table.Head>
+                          <Table.Head className="p-2.5 relative">
+                            所在主机
+                            <Table.ResizeHandle onMouseDown={(e) => startNetworksResize(4, e)} />
+                          </Table.Head>
+                          <Table.Head className="p-2.5 text-right relative">
+                            操作
+                            <Table.ResizeHandle onMouseDown={(e) => startNetworksResize(5, e)} />
+                          </Table.Head>
+                        </Table.Row>
+                      </Table.Header>
+                      <Table.Body>
+                        {dockerNetworks.map((network, i) => {
+                          const isBuiltinNetwork = ['bridge', 'host', 'none'].includes(network.name);
+                          return (
+                            <Table.Row key={`${network.serverId}-${network.id || network.name}-${i}`} className="border-b border-kumo-line hover:bg-kumo-recessed/10">
+                              <Table.Cell className="p-2.5 font-bold text-kumo-strong truncate">{network.name}</Table.Cell>
+                              <Table.Cell className="p-2.5 font-mono text-[11px] text-kumo-subtle truncate">{network.id || '-'}</Table.Cell>
+                              <Table.Cell className="p-2.5">{network.driver || '-'}</Table.Cell>
+                              <Table.Cell className="p-2.5">{network.scope || '-'}</Table.Cell>
+                              <Table.Cell className="p-2.5 truncate">{network.serverName}</Table.Cell>
+                              <Table.Cell className="p-2.5 text-right">
+                                <Button
+                                  shape="square" size="sm"
+                                  variant="ghost"
+                                  aria-label="删除网络"
+                                  disabled={isBuiltinNetwork}
+                                  onClick={() => submitDockerTask('network.remove', { serverId: network.serverId, name: network.name })}
+                                  className="hover:bg-kumo-danger/10 text-kumo-danger rounded cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
+                                >
+                                  <Trash className="h-3.5 w-3.5" />
+                                </Button>
+                              </Table.Cell>
+                            </Table.Row>
+                          );
+                        })}
+                      </Table.Body>
+                    </Table>
+                  )}
+                </div>
+              )}
+
+              {/* 5. 存储卷管理 */}
+              {dockerSubTab === 'volumes' && (
+                <div className="bg-kumo-base border border-kumo-line rounded-lg overflow-hidden p-2 shadow-xs">
+                  {dockerVolumes.length === 0 ? (
+                    <div className="p-12 text-center text-xs text-kumo-subtle">当前主机中未检索到 Docker 存储卷</div>
+                  ) : (
+                    <Table layout="fixed">
+                      <colgroup>
+                        {volumesColWidths.map((width, idx) => (
+                          <col key={idx} style={{ width }} />
+                        ))}
+                      </colgroup>
+                      <Table.Header>
+                        <Table.Row className="bg-kumo-recessed/25 border-b border-kumo-line font-bold">
+                          <Table.Head className="p-2.5 relative">
+                            名称
+                            <Table.ResizeHandle onMouseDown={(e) => startVolumesResize(0, e)} />
+                          </Table.Head>
+                          <Table.Head className="p-2.5 relative">
+                            驱动
+                            <Table.ResizeHandle onMouseDown={(e) => startVolumesResize(1, e)} />
+                          </Table.Head>
+                          <Table.Head className="p-2.5 relative">
+                            范围
+                            <Table.ResizeHandle onMouseDown={(e) => startVolumesResize(2, e)} />
+                          </Table.Head>
+                          <Table.Head className="p-2.5 relative">
+                            所在主机
+                            <Table.ResizeHandle onMouseDown={(e) => startVolumesResize(3, e)} />
+                          </Table.Head>
+                          <Table.Head className="p-2.5 text-right relative">
+                            操作
+                            <Table.ResizeHandle onMouseDown={(e) => startVolumesResize(4, e)} />
+                          </Table.Head>
+                        </Table.Row>
+                      </Table.Header>
+                      <Table.Body>
+                        {dockerVolumes.map((volume, i) => (
+                          <Table.Row key={`${volume.serverId}-${volume.name}-${i}`} className="border-b border-kumo-line hover:bg-kumo-recessed/10">
+                            <Table.Cell className="p-2.5 font-bold text-kumo-strong truncate">{volume.name}</Table.Cell>
+                            <Table.Cell className="p-2.5">{volume.driver || '-'}</Table.Cell>
+                            <Table.Cell className="p-2.5">{volume.scope || '-'}</Table.Cell>
+                            <Table.Cell className="p-2.5 truncate">{volume.serverName}</Table.Cell>
+                            <Table.Cell className="p-2.5 text-right">
+                              <Button
+                                shape="square" size="sm"
+                                variant="ghost"
+                                aria-label="删除存储卷"
+                                onClick={() => submitDockerTask('volume.remove', { serverId: volume.serverId, name: volume.name })}
+                                className="hover:bg-kumo-danger/10 text-kumo-danger rounded cursor-pointer"
+                              >
+                                <Trash className="h-3.5 w-3.5" />
+                              </Button>
+                            </Table.Cell>
+                          </Table.Row>
+                        ))}
+                      </Table.Body>
+                    </Table>
+                  )}
+                </div>
+              )}
+
+              {/* 6. 实时统计 */}
+              {dockerSubTab === 'stats' && (
+                <div className="bg-kumo-base border border-kumo-line rounded-lg overflow-hidden p-2 shadow-xs">
+                  {dockerStats.length === 0 ? (
+                    <div className="p-12 text-center text-xs text-kumo-subtle">当前主机中未检索到 Docker 资源统计</div>
+                  ) : (
+                    <Table layout="fixed">
+                      <colgroup>
+                        {statsColWidths.map((width, idx) => (
+                          <col key={idx} style={{ width }} />
+                        ))}
+                      </colgroup>
+                      <Table.Header>
+                        <Table.Row className="bg-kumo-recessed/25 border-b border-kumo-line font-bold">
+                          <Table.Head className="p-2.5 relative">
+                            容器
+                            <Table.ResizeHandle onMouseDown={(e) => startStatsResize(0, e)} />
+                          </Table.Head>
+                          <Table.Head className="p-2.5 relative">
+                            CPU
+                            <Table.ResizeHandle onMouseDown={(e) => startStatsResize(1, e)} />
+                          </Table.Head>
+                          <Table.Head className="p-2.5 relative">
+                            内存
+                            <Table.ResizeHandle onMouseDown={(e) => startStatsResize(2, e)} />
+                          </Table.Head>
+                          <Table.Head className="p-2.5 relative">
+                            内存占比
+                            <Table.ResizeHandle onMouseDown={(e) => startStatsResize(3, e)} />
+                          </Table.Head>
+                          <Table.Head className="p-2.5 relative">
+                            网络 IO
+                            <Table.ResizeHandle onMouseDown={(e) => startStatsResize(4, e)} />
+                          </Table.Head>
+                          <Table.Head className="p-2.5 relative">
+                            所在主机
+                            <Table.ResizeHandle onMouseDown={(e) => startStatsResize(5, e)} />
+                          </Table.Head>
+                        </Table.Row>
+                      </Table.Header>
+                      <Table.Body>
+                        {dockerStats.map((stat, i) => (
+                          <Table.Row key={`${stat.serverId}-${stat.container_id || stat.name}-${i}`} className="border-b border-kumo-line hover:bg-kumo-recessed/10">
+                            <Table.Cell className="p-2.5 font-bold text-kumo-strong truncate" title={stat.container_id || stat.name}>{stat.name || stat.container_id || '-'}</Table.Cell>
+                            <Table.Cell className="p-2.5 font-mono text-kumo-success">{stat.cpu_percent || '-'}</Table.Cell>
+                            <Table.Cell className="p-2.5 font-mono text-kumo-default">{stat.mem_usage || '-'}</Table.Cell>
+                            <Table.Cell className="p-2.5 font-mono text-kumo-info">{stat.mem_percent || '-'}</Table.Cell>
+                            <Table.Cell className="p-2.5 font-mono text-[11px] text-kumo-subtle truncate">{stat.net_io || '-'}</Table.Cell>
+                            <Table.Cell className="p-2.5 truncate">{stat.serverName}</Table.Cell>
+                          </Table.Row>
+                        ))}
+                      </Table.Body>
+                    </Table>
+                  )}
                 </div>
               )}
             </div>
@@ -3718,8 +4085,7 @@ function ServerPage() {
                 </label>
                 <div className="flex flex-wrap gap-2">
                   {[1, 2, 5, 10, 15, 30, 60].map(m => (
-                    <Button
-                      size="sm"
+                    <Button size="sm"
                       variant={metricsCollectInterval === m ? 'primary' : 'secondary'}
                       key={m}
                       onClick={() => updateMetricsCollectInterval(m)}
@@ -3736,7 +4102,7 @@ function ServerPage() {
                   <span>历史数据保留期限</span>
                   <span className="text-kumo-brand">{monitorConfig.metrics_retention_days} 天</span>
                 </label>
-                <Input
+                <Input size="sm"
                   aria-label="历史数据保留期限"
                   type="range"
                   min="1"
@@ -3762,11 +4128,11 @@ function ServerPage() {
               />
               {serverBatchError && <div className="text-xs text-kumo-danger font-bold">{serverBatchError}</div>}
               {serverBatchSuccess && <div className="text-xs text-kumo-success font-bold">{serverBatchSuccess}</div>}
-              <Button
+              <Button size="sm"
                 variant="primary"
                 onClick={batchAddServers}
                 disabled={serverAddingBatch}
-                className="w-full py-2 bg-kumo-brand text-kumo-inverse hover:bg-kumo-brand-hover rounded-lg text-xs font-semibold cursor-pointer disabled:opacity-50"
+                className="w-full bg-kumo-brand text-kumo-inverse hover:bg-kumo-brand-hover rounded-lg text-xs font-semibold cursor-pointer disabled:opacity-50"
               >
                 {serverAddingBatch ? '正在同步提交...' : '确认批量录入'}
               </Button>
@@ -3781,11 +4147,10 @@ function ServerPage() {
                 <h3 className="text-sm font-bold text-kumo-strong">
                   🔑 预设 SSH 凭据库
                 </h3>
-                <Button
-                  size="xs"
+                <Button size="sm"
                   variant="primary"
                   onClick={() => setShowAddCredentialModal(true)}
-                  className="px-2 py-1 bg-kumo-brand text-kumo-inverse rounded text-[10px] font-bold cursor-pointer"
+                  className="bg-kumo-brand text-kumo-inverse rounded text-[10px] font-bold cursor-pointer"
                 >
                   添加凭据
                 </Button>
@@ -3809,27 +4174,25 @@ function ServerPage() {
                       <div className="flex gap-1.5">
                         {!cred.is_default && (
                           <Button
-                            shape="square"
-                            size="xs"
+                            shape="square" size="sm"
                             variant="ghost"
                             aria-label="设为默认凭据"
                             onClick={() => setDefaultCredential(cred.id)}
-                            className="p-1 hover:bg-kumo-recessed rounded text-kumo-subtle cursor-pointer"
+                            className="hover:bg-kumo-recessed rounded text-kumo-subtle cursor-pointer"
                             title="设为默认"
                           >
-                            <StarIcon />
+                            <Star className="h-3.5 w-3.5" />
                           </Button>
                         )}
                         <Button
-                          shape="square"
-                          size="xs"
+                          shape="square" size="sm"
                           variant="ghost"
                           aria-label="删除凭据"
                           onClick={() => deleteCredential(cred.id)}
-                          className="p-1 hover:bg-kumo-danger/10 text-kumo-danger rounded cursor-pointer"
-                          title="删除"
-                        >
-                          <TrashIcon />
+                            className="hover:bg-kumo-danger/10 text-kumo-danger rounded cursor-pointer"
+                            title="删除"
+                          >
+                          <Trash className="h-3.5 w-3.5" />
                         </Button>
                       </div>
                     </div>
@@ -3848,25 +4211,23 @@ function ServerPage() {
                 <p>您可以通过导出功能将本地所有注册的主机信息（包含凭据、地址等）打包备份为 JSON 配置文件。在此之后，您可以在其他节点通过导入快速恢复完整的拓扑结构。</p>
                 
                 <div className="flex gap-3 mt-2">
-                  <Button
-                    size="sm"
+                  <Button size="sm"
                     variant="secondary"
                     onClick={exportServers}
-                    className="flex items-center gap-1 px-4 py-2 border border-kumo-line rounded-lg bg-kumo-base hover:bg-kumo-recessed/45 font-semibold text-kumo-strong cursor-pointer"
+                    className="flex items-center gap-1 border border-kumo-line rounded-lg bg-kumo-base hover:bg-kumo-recessed/45 font-semibold text-kumo-strong cursor-pointer"
                   >
                     <Upload className="w-3.5 h-3.5" />
                     导出主机备份 (JSON)
                   </Button>
                   
-                  <Button
-                    size="sm"
+                  <Button size="sm"
                     variant="secondary"
                     onClick={() => {
                       setImportPreview(null);
                       setImportModalError('');
                       setShowImportServerModal(true);
                     }}
-                    className="flex items-center gap-1 px-4 py-2 border border-kumo-line rounded-lg bg-kumo-base hover:bg-kumo-recessed/45 font-semibold text-kumo-strong cursor-pointer"
+                    className="flex items-center gap-1 border border-kumo-line rounded-lg bg-kumo-base hover:bg-kumo-recessed/45 font-semibold text-kumo-strong cursor-pointer"
                   >
                     <Download className="w-3.5 h-3.5" />
                     导入主机配置文件
@@ -3893,8 +4254,7 @@ function ServerPage() {
                   <span className="w-1.5 h-1.5 rounded-full bg-kumo-success"></span>
                   <span className="truncate max-w-[80px]">{sess.name}</span>
                   <Button
-                    shape="square"
-                    size="xs"
+                    shape="square" size="sm"
                     variant="ghost"
                     aria-label="关闭 SSH 会话"
                     onClick={e => {
@@ -3910,8 +4270,7 @@ function ServerPage() {
             </div>
             
             <div className="flex items-center gap-2 text-kumo-strong">
-              <Button
-                size="xs"
+              <Button size="sm"
                 variant={sshSyncEnabled ? 'primary' : 'secondary'}
                 onClick={() => setSshSyncEnabled(prev => !prev)}
                 className={`px-2 py-1 rounded text-[10px] font-bold cursor-pointer transition-colors ${sshSyncEnabled ? 'bg-kumo-brand text-kumo-inverse' : 'border border-kumo-line text-kumo-subtle hover:bg-kumo-recessed hover:text-kumo-strong'}`}
@@ -3920,11 +4279,10 @@ function ServerPage() {
                 📣 广播输入: {sshSyncEnabled ? '开' : '关'}
               </Button>
                
-              <Button
-                size="xs"
+              <Button size="sm"
                 variant="secondary"
                 onClick={() => reconnectSSHSession(activeSSHSessionId)}
-                className="px-2 py-1 border border-kumo-line hover:bg-kumo-recessed rounded text-[10px] font-bold cursor-pointer"
+                className="border border-kumo-line hover:bg-kumo-recessed rounded text-[10px] font-bold cursor-pointer"
                 title="重新连接终端"
               >
                 重连
@@ -3958,8 +4316,7 @@ function ServerPage() {
                   >
                     <span>🖥️ {sshSessions.find(s => s.id === id)?.name || 'SSH'}</span>
                     <div className="flex gap-2">
-                      <Button
-                        size="xs"
+                      <Button size="sm"
                         variant="ghost"
                         onClick={() => triggerSplitPane(id, 'right')}
                         className="hover:text-kumo-strong"
@@ -3968,8 +4325,7 @@ function ServerPage() {
                         [|]
                       </Button>
                       <Button
-                        shape="square"
-                        size="xs"
+                        shape="square" size="sm"
                         variant="ghost"
                         aria-label="关闭终端"
                         onClick={() => closeSSHSession(id)}
@@ -3993,8 +4349,7 @@ function ServerPage() {
                     📁 SFTP 文件管理柜
                   </span>
                   <Button
-                    shape="square"
-                    size="xs"
+                    shape="square" size="sm"
                     variant="ghost"
                     aria-label="关闭 SFTP 面板"
                     onClick={() => setShowSftpSidebar(false)}
@@ -4053,14 +4408,13 @@ function ServerPage() {
                 {/* 底部 SFTP 动作 */}
                 <div className="flex gap-2 border-t border-kumo-line pt-2">
                   <label className="flex-1 py-1.5 bg-kumo-recessed hover:bg-kumo-fill border border-kumo-line rounded text-center text-[10px] font-bold cursor-pointer">
-                    <Input aria-label="上传 SFTP 文件" type="file" className="hidden" onChange={handleSftpUpload} multiple />
+                    <Input size="sm" aria-label="上传 SFTP 文件" type="file" className="hidden" onChange={handleSftpUpload} multiple />
                     上传文件
                   </label>
-                  <Button
-                    size="xs"
+                  <Button size="sm"
                     variant="secondary"
                     onClick={() => loadSftpDirectory(sftpServerId, sftpCurrentPath)}
-                    className="flex-1 py-1.5 border border-kumo-line text-kumo-subtle hover:text-kumo-strong hover:bg-kumo-recessed rounded text-[10px] font-bold cursor-pointer"
+                    className="flex-1 border border-kumo-line text-kumo-subtle hover:text-kumo-strong hover:bg-kumo-recessed rounded text-[10px] font-bold cursor-pointer"
                   >
                     刷新
                   </Button>
@@ -4071,8 +4425,7 @@ function ServerPage() {
             {/* 右侧终端小功能栏 */}
             <div className="w-11 border-l border-kumo-line bg-kumo-base flex flex-col items-center py-3.5 gap-4 text-kumo-subtle">
               <Button
-                shape="square"
-                size="sm"
+                shape="square" size="sm"
                 variant="ghost"
                 aria-label="目录文件管理 SFTP"
                 onClick={() => {
@@ -4109,8 +4462,7 @@ function ServerPage() {
                     {...props}
                     type="button"
                     variant="secondary"
-                    shape="square"
-                    size="sm"
+                    shape="square" size="sm"
                     icon={<X className="h-3.5 w-3.5" />}
                     aria-label="关闭"
                   />
@@ -4139,7 +4491,7 @@ function ServerPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div className="flex flex-col gap-1.5">
                   <label className="font-semibold text-kumo-subtle">主机名称 (别名)</label>
-                  <Input
+                  <Input size="sm"
                     aria-label="主机名称"
                     type="text"
                     value={serverForm.name}
@@ -4150,26 +4502,27 @@ function ServerPage() {
                 </div>
                 <div className="flex flex-col gap-1.5">
                   <label className="font-semibold text-kumo-subtle">地区 / 归属国家 (Flags)</label>
-                  <Select
+                  <Select size="sm"
                     aria-label="地区归属国家"
                     value={serverForm.country}
                     onValueChange={(value) => setServerForm(prev => ({ ...prev, country: String(value) }))}
                     className="px-3 py-2 border border-kumo-line rounded-lg bg-kumo-control focus:outline-none focus:border-kumo-brand"
-                  >
-                    <Select.Option value="auto">自动探测</Select.Option>
-                    <Select.Option value="CN">中国 (CN)</Select.Option>
-                    <Select.Option value="US">美国 (US)</Select.Option>
-                    <Select.Option value="HK">香港 (HK)</Select.Option>
-                    <Select.Option value="JP">日本 (JP)</Select.Option>
-                    <Select.Option value="SG">新加坡 (SG)</Select.Option>
-                  </Select>
+                    items={[
+                      { value: 'auto', label: '自动探测' },
+                      { value: 'CN', label: '中国 (CN)' },
+                      { value: 'US', label: '美国 (US)' },
+                      { value: 'HK', label: '香港 (HK)' },
+                      { value: 'JP', label: '日本 (JP)' },
+                      { value: 'SG', label: '新加坡 (SG)' },
+                    ]}
+                  />
                 </div>
               </div>
               
               <div className="grid grid-cols-3 gap-4">
                 <div className="col-span-2 flex flex-col gap-1.5">
                   <label className="font-semibold text-kumo-subtle">连接地址 (IP / Host)</label>
-                  <Input
+                  <Input size="sm"
                     aria-label="连接地址"
                     type="text"
                     value={serverForm.host}
@@ -4180,7 +4533,7 @@ function ServerPage() {
                 </div>
                 <div className="flex flex-col gap-1.5">
                   <label className="font-semibold text-kumo-subtle">端口</label>
-                  <Input
+                  <Input size="sm"
                     aria-label="端口"
                     type="number"
                     value={serverForm.port}
@@ -4193,24 +4546,27 @@ function ServerPage() {
               
               <div className="flex flex-col gap-2">
                 <label className="font-semibold text-kumo-subtle">选择凭据预设进行快速填充</label>
-                <Select
+                <Select size="sm"
                   aria-label="选择凭据预设"
                   value={selectedCredentialId}
                   onValueChange={(value) => applyCredential(String(value))}
+                  placeholder="-- 手动录入 --"
                   className="px-3 py-2 border border-kumo-line rounded-lg bg-kumo-control focus:outline-none"
-                >
-                  <Select.Option value="">-- 手动录入 --</Select.Option>
-                  {serverCredentials.map(c => (
-                    <Select.Option key={c.id} value={c.id}>{c.name} ({c.username})</Select.Option>
-                  ))}
-                </Select>
+                  items={[
+                    { value: '', label: '-- 手动录入 --' },
+                    ...serverCredentials.map(c => ({
+                      value: String(c.id),
+                      label: `${c.name} (${c.username})`,
+                    })),
+                  ]}
+                />
               </div>
               
               <div className="border-t border-kumo-line pt-3 flex flex-col gap-3">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-kumo-subtle">登录用户名</label>
-                    <Input
+                    <Input size="sm"
                       aria-label="登录用户名"
                       type="text"
                       value={serverForm.username}
@@ -4222,15 +4578,13 @@ function ServerPage() {
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-kumo-subtle">身份验证方案</label>
                     <div className="flex gap-2 py-1">
-                      <Button
-                        size="sm"
+                      <Button size="sm"
                         variant={serverForm.authType === 'password' ? 'primary' : 'secondary'}
                         onClick={() => setServerForm(prev => ({ ...prev, authType: 'password' }))}
                       >
                         密码验证
                       </Button>
-                      <Button
-                        size="sm"
+                      <Button size="sm"
                         variant={serverForm.authType === 'privateKey' ? 'primary' : 'secondary'}
                         onClick={() => setServerForm(prev => ({ ...prev, authType: 'privateKey' }))}
                       >
@@ -4243,7 +4597,7 @@ function ServerPage() {
                 {serverForm.authType === 'password' ? (
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-kumo-subtle">连接密码</label>
-                    <Input
+                    <Input size="sm"
                       aria-label="连接密码"
                       type="password"
                       value={serverForm.password}
@@ -4266,7 +4620,7 @@ function ServerPage() {
                     </div>
                     <div className="flex flex-col gap-1.5">
                       <label className="font-semibold text-kumo-subtle">密钥口令 (密码保护短语，若有)</label>
-                      <Input
+                      <Input size="sm"
                         aria-label="密钥口令"
                         type="password"
                         value={serverForm.passphrase}
@@ -4281,7 +4635,7 @@ function ServerPage() {
               
               <div className="flex flex-col gap-1.5">
                 <label className="font-semibold text-kumo-subtle">自定义主机标签 (逗号分隔)</label>
-                <Input
+                <Input size="sm"
                   aria-label="自定义主机标签"
                   type="text"
                   value={serverForm.tagsInput}
@@ -4295,8 +4649,7 @@ function ServerPage() {
               ) : (
                 <div className="flex flex-col gap-4">
                   <Input
-                    label="Host name"
-                    size="sm"
+                    label="Host name" size="sm"
                     value={quickDeployName}
                     onChange={(e) => setQuickDeployName(e.target.value)}
                     placeholder="prod-agent-01"
@@ -4309,8 +4662,7 @@ function ServerPage() {
                   {quickDeployResult && (
                     <div className="flex flex-col gap-3">
                       <Select
-                        label="Install target"
-                        size="sm"
+                        label="Install target" size="sm"
                         value={agentInstallOS}
                         onValueChange={setAgentInstallOS}
                         items={[
@@ -4318,11 +4670,12 @@ function ServerPage() {
                           { value: 'windows', label: 'Windows PowerShell' },
                         ]}
                       />
-                      <Textarea
-                        label="Install command"
-                        value={agentInstallOS === 'linux' ? quickDeployResult.installCommand || '' : quickDeployResult.winInstallCommand || ''}
-                        readOnly
-                        className="min-h-24 font-mono text-[11px]"
+                      <ClipboardText
+                        size="sm"
+                        text={agentInstallOS === 'linux' ? quickDeployResult.installCommand || '' : quickDeployResult.winInstallCommand || ''}
+                        className="w-full"
+                        tooltip={{ text: 'Copy command', copiedText: 'Install command copied', side: 'top' }}
+                        labels={{ copyAction: 'Copy install command' }}
                       />
                       <div className="grid grid-cols-2 gap-2 text-[11px] text-kumo-subtle">
                         <div className="rounded-md border border-kumo-line bg-kumo-base p-2">
@@ -4349,20 +4702,8 @@ function ServerPage() {
             <div className="bg-kumo-recessed/25 px-4 py-3 border-t border-kumo-line flex justify-end gap-2.5">
               {serverModalMode === 'add' && serverAddMode === 'agent' ? (
                 <>
-                  {quickDeployResult && (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="secondary"
-                      icon={<Copy className="w-3.5 h-3.5" />}
-                      onClick={copyQuickDeployCommand}
-                    >
-                      Copy command
-                    </Button>
-                  )}
                   <Button
-                    type="button"
-                    size="sm"
+                    type="button" size="sm"
                     variant="primary"
                     loading={serverModalSaving}
                     onClick={generateQuickInstallCommand}
@@ -4371,7 +4712,7 @@ function ServerPage() {
                   </Button>
                 </>
               ) : null}
-              <Button
+              <Button size="sm"
                 variant="secondary"
                 onClick={testServerConnection}
                 disabled={serverModalSaving}
@@ -4379,7 +4720,7 @@ function ServerPage() {
               >
                 连接测试
               </Button>
-              <Button
+              <Button size="sm"
                 variant="primary"
                 onClick={saveServer}
                 disabled={serverModalSaving}
@@ -4405,8 +4746,7 @@ function ServerPage() {
                     {...props}
                     type="button"
                     variant="secondary"
-                    shape="square"
-                    size="sm"
+                    shape="square" size="sm"
                     icon={<X className="h-3.5 w-3.5" />}
                     aria-label="关闭"
                   />
@@ -4417,7 +4757,7 @@ function ServerPage() {
             <div className="p-4 flex flex-col gap-4 text-xs">
               <div className="flex flex-col gap-1.5">
                 <label className="font-semibold text-kumo-subtle font-medium">凭据别名</label>
-                <Input
+                <Input size="sm"
                   aria-label="凭据别名"
                   type="text"
                   value={credForm.name}
@@ -4429,7 +4769,7 @@ function ServerPage() {
               
               <div className="flex flex-col gap-1.5">
                 <label className="font-semibold text-kumo-subtle">用户登录名</label>
-                <Input
+                <Input size="sm"
                   aria-label="用户登录名"
                   type="text"
                   value={credForm.username}
@@ -4441,21 +4781,22 @@ function ServerPage() {
               
               <div className="flex flex-col gap-1.5">
                 <label className="font-semibold text-kumo-subtle font-medium">登录凭据模式</label>
-                <Select
+                <Select size="sm"
                   aria-label="登录凭据模式"
                   value={credForm.auth_type}
                   onValueChange={(value) => setCredForm(prev => ({ ...prev, auth_type: String(value) }))}
                   className="px-3 py-2 border border-kumo-line rounded-lg bg-kumo-control"
-                >
-                  <Select.Option value="password">明文密码</Select.Option>
-                  <Select.Option value="key">私钥证书 (RSA / OpenSSH)</Select.Option>
-                </Select>
+                  items={[
+                    { value: 'password', label: '明文密码' },
+                    { value: 'key', label: '私钥证书 (RSA / OpenSSH)' },
+                  ]}
+                />
               </div>
               
               {credForm.auth_type === 'password' ? (
                 <div className="flex flex-col gap-1.5">
                   <label className="font-semibold text-kumo-subtle">默认登录密码</label>
-                  <Input
+                  <Input size="sm"
                     aria-label="默认登录密码"
                     type="password"
                     value={credForm.password}
@@ -4478,7 +4819,7 @@ function ServerPage() {
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-kumo-subtle">证书保护密码短语 (口令)</label>
-                    <Input
+                    <Input size="sm"
                       aria-label="证书保护密码短语"
                       type="password"
                       value={credForm.passphrase}
@@ -4492,8 +4833,8 @@ function ServerPage() {
             </div>
             
             <div className="bg-kumo-recessed/25 px-4 py-3 border-t border-kumo-line flex justify-end gap-2 text-xs">
-              <Button variant="secondary" onClick={() => setShowAddCredentialModal(false)} className="px-3.5 py-1.5 border border-kumo-line rounded-lg cursor-pointer">取消</Button>
-              <Button variant="primary" onClick={addCredential} className="px-4 py-1.5 bg-kumo-brand text-kumo-inverse rounded-lg font-bold cursor-pointer">确认保存</Button>
+              <Button size="sm" variant="secondary" onClick={() => setShowAddCredentialModal(false)} className="border border-kumo-line rounded-lg cursor-pointer">取消</Button>
+              <Button size="sm" variant="primary" onClick={addCredential} className="bg-kumo-brand text-kumo-inverse rounded-lg font-bold cursor-pointer">确认保存</Button>
             </div>
         </Dialog>
       </Dialog.Root>
@@ -4512,8 +4853,7 @@ function ServerPage() {
                     {...props}
                     type="button"
                     variant="secondary"
-                    shape="square"
-                    size="sm"
+                    shape="square" size="sm"
                     icon={<X className="h-3.5 w-3.5" />}
                     aria-label="关闭"
                   />
@@ -4524,7 +4864,7 @@ function ServerPage() {
             <div className="p-4 flex flex-col gap-4 text-xs">
               <div className="flex flex-col gap-1.5">
                 <label className="font-semibold text-kumo-subtle font-medium">选择备份 JSON 文件</label>
-                <Input
+                <Input size="sm"
                   aria-label="选择备份 JSON 文件"
                   type="file"
                   onChange={e => {
@@ -4549,12 +4889,12 @@ function ServerPage() {
             </div>
             
             <div className="bg-kumo-recessed/25 px-4 py-3 border-t border-kumo-line flex justify-end gap-2 text-xs">
-              <Button variant="secondary" onClick={() => setShowImportServerModal(false)} className="px-3.5 py-1.5 border border-kumo-line rounded-lg cursor-pointer">取消</Button>
-              <Button
+              <Button size="sm" variant="secondary" onClick={() => setShowImportServerModal(false)} className="border border-kumo-line rounded-lg cursor-pointer">取消</Button>
+              <Button size="sm"
                 variant="primary"
                 onClick={confirmImportServers}
                 disabled={importModalSaving || !importPreview}
-                className="px-4 py-1.5 bg-kumo-brand text-kumo-inverse rounded-lg font-bold cursor-pointer disabled:opacity-50"
+                className="bg-kumo-brand text-kumo-inverse rounded-lg font-bold cursor-pointer disabled:opacity-50"
               >
                 {importModalSaving ? '恢复中...' : '确认恢复导入'}
               </Button>
@@ -4582,8 +4922,7 @@ function ServerPage() {
                   {...props}
                   type="button"
                   variant="secondary"
-                  shape="square"
-                  size="sm"
+                  shape="square" size="sm"
                   icon={<X className="h-3.5 w-3.5" />}
                   aria-label="关闭"
                 />
@@ -4606,11 +4945,13 @@ function ServerPage() {
                 </div>
 
                 <div className="flex flex-col gap-3">
-                  <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
                     <div className="font-semibold text-kumo-subtle">安装命令</div>
-                    <div className="flex flex-wrap items-center gap-2">
+                    <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-3">
                       <Tabs
                         {...TOOL_TABS_PROPS}
+                        className="w-full"
+                        listClassName="w-full"
                         value={agentInstallProtocol}
                         onValueChange={setAgentInstallProtocol}
                         tabs={[
@@ -4620,6 +4961,8 @@ function ServerPage() {
                       />
                       <Tabs
                         {...TOOL_TABS_PROPS}
+                        className="w-full"
+                        listClassName="w-full"
                         value={agentInstallHostType}
                         onValueChange={setAgentInstallHostType}
                         tabs={[
@@ -4629,6 +4972,8 @@ function ServerPage() {
                       />
                       <Tabs
                         {...TOOL_TABS_PROPS}
+                        className="w-full"
+                        listClassName="w-full"
                         value={agentInstallOS}
                         onValueChange={setAgentInstallOS}
                         tabs={[
@@ -4639,29 +4984,17 @@ function ServerPage() {
                     </div>
                   </div>
 
-                  <div className="relative">
-                    <Textarea
-                      aria-label="Agent 安装命令"
-                      value={getAgentInstallCommand(agentInstallOS)}
-                      readOnly
-                      className="min-h-24 pr-10 font-mono text-[11px]"
-                    />
-                    <Button
-                      shape="square"
-                      size="sm"
-                      variant="secondary"
-                      icon={<Copy className="h-3.5 w-3.5" />}
-                      aria-label="复制 Agent 安装命令"
-                      title="复制"
-                      onClick={copyAgentCommand}
-                      className="absolute right-2 top-2"
-                    />
-                  </div>
+                  <ClipboardText
+                    size="sm"
+                    text={getAgentInstallCommand(agentInstallOS)}
+                    className="w-full"
+                    tooltip={{ text: '复制', copiedText: 'Agent 安装命令已复制', side: 'top' }}
+                    labels={{ copyAction: '复制 Agent 安装命令' }}
+                  />
                 </div>
 
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-                  <LinkButton
-                    size="sm"
+                  <LinkButton size="sm"
                     variant="secondary"
                     href={`${getAgentBaseApiUrl() || agentModalData.apiUrl}/agent/agent-linux-amd64`}
                     target="_blank"
@@ -4672,8 +5005,7 @@ function ServerPage() {
                   >
                     Linux x64
                   </LinkButton>
-                  <LinkButton
-                    size="sm"
+                  <LinkButton size="sm"
                     variant="secondary"
                     href={`${getAgentBaseApiUrl() || agentModalData.apiUrl}/agent/agent-windows-amd64.exe`}
                     target="_blank"
@@ -4687,11 +5019,15 @@ function ServerPage() {
                 </div>
 
                 {agentModalData.agentKey && (
-                  <div className="rounded-md border border-kumo-line bg-kumo-base p-3 font-mono text-[11px] text-kumo-subtle">
-                    {agentInstallOS === 'linux'
+                  <ClipboardText
+                    size="sm"
+                    text={agentInstallOS === 'linux'
                       ? `chmod +x agent-linux-amd64 && ./agent-linux-amd64 service install --url ${getAgentBaseApiUrl()} --key ${agentModalData.agentKey}`
                       : `.\\agent-windows-amd64.exe service install --url ${getAgentBaseApiUrl()} --key ${agentModalData.agentKey}`}
-                  </div>
+                    className="w-full"
+                    tooltip={{ text: '复制', copiedText: '手动安装命令已复制', side: 'top' }}
+                    labels={{ copyAction: '复制手动安装命令' }}
+                  />
                 )}
 
                 {agentInstallLog && (
@@ -4699,7 +5035,7 @@ function ServerPage() {
                     label="安装日志"
                     value={agentInstallLog}
                     readOnly
-                    className={`min-h-40 font-mono text-[11px] ${
+                    className={`agent-command-textarea min-h-40 resize-none font-mono text-[11px] leading-5 ${
                       agentInstallResult === 'success'
                         ? 'ring-kumo-success/40'
                         : agentInstallResult === 'error'
@@ -4719,8 +5055,7 @@ function ServerPage() {
           <div className="flex flex-col gap-3 border-t border-kumo-line bg-kumo-recessed/25 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
             <div className="flex flex-wrap items-center gap-2">
               <Button
-                type="button"
-                size="sm"
+                type="button" size="sm"
                 variant="secondary-destructive"
                 icon={<Trash className="h-3.5 w-3.5" />}
                 disabled={!agentModalData || agentInstallLoading || agentInstalling}
@@ -4729,8 +5064,7 @@ function ServerPage() {
                 卸载
               </Button>
               <Button
-                type="button"
-                size="sm"
+                type="button" size="sm"
                 variant="secondary"
                 icon={<Key className="h-3.5 w-3.5" />}
                 disabled={!agentModalData || agentInstallLoading || agentInstalling}
@@ -4747,16 +5081,14 @@ function ServerPage() {
                 onCheckedChange={(checked) => setAgentForceSsh(Boolean(checked))}
               />
               <Button
-                type="button"
-                size="sm"
+                type="button" size="sm"
                 variant="secondary"
                 onClick={() => setShowAgentModal(false)}
               >
                 关闭
               </Button>
               <Button
-                type="button"
-                size="sm"
+                type="button" size="sm"
                 variant="primary"
                 icon={<Play className="h-3.5 w-3.5" />}
                 loading={agentInstalling}
@@ -4790,8 +5122,7 @@ function ServerPage() {
                   {...props}
                   type="button"
                   variant="secondary"
-                  shape="square"
-                  size="sm"
+                  shape="square" size="sm"
                   icon={<X className="h-3.5 w-3.5" />}
                   aria-label="关闭"
                   disabled={agentInstallLoading}
@@ -4809,10 +5140,10 @@ function ServerPage() {
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="font-semibold text-kumo-strong">目标主机</div>
                 <div className="flex items-center gap-2">
-                  <Button type="button" size="xs" variant="secondary" onClick={selectAllBatchServers} disabled={agentInstallLoading}>
+                  <Button type="button" size="sm" variant="secondary" onClick={selectAllBatchServers} disabled={agentInstallLoading}>
                     全选
                   </Button>
-                  <Button type="button" size="xs" variant="secondary" onClick={() => setSelectedBatchServers([])} disabled={agentInstallLoading}>
+                  <Button type="button" size="sm" variant="secondary" onClick={() => setSelectedBatchServers([])} disabled={agentInstallLoading}>
                     清空
                   </Button>
                 </div>
@@ -4898,8 +5229,7 @@ function ServerPage() {
             </div>
             <div className="flex justify-end gap-2">
               <Button
-                type="button"
-                size="sm"
+                type="button" size="sm"
                 variant="secondary"
                 disabled={agentInstallLoading}
                 onClick={() => setShowBatchAgentModal(false)}
@@ -4907,8 +5237,7 @@ function ServerPage() {
                 关闭
               </Button>
               <Button
-                type="button"
-                size="sm"
+                type="button" size="sm"
                 variant="primary"
                 icon={<Play className="h-3.5 w-3.5" />}
                 loading={agentInstallLoading}
@@ -4941,8 +5270,7 @@ function ServerPage() {
                   {...props}
                   type="button"
                   variant="secondary"
-                  shape="square"
-                  size="sm"
+                  shape="square" size="sm"
                   icon={<X className="h-3.5 w-3.5" />}
                   aria-label="关闭"
                 />
@@ -5005,16 +5333,14 @@ function ServerPage() {
             </div>
             <div className="flex justify-end gap-2">
               <Button
-                type="button"
-                size="sm"
+                type="button" size="sm"
                 variant="secondary"
                 onClick={() => setShowUpgradeModal(false)}
               >
                 {upgrading ? '后台运行' : '关闭'}
               </Button>
               <Button
-                type="button"
-                size="sm"
+                type="button" size="sm"
                 variant="primary"
                 icon={<Upload className="h-3.5 w-3.5" />}
                 loading={upgrading}
@@ -5046,8 +5372,7 @@ function ServerPage() {
                     {...props}
                     type="button"
                     variant="secondary"
-                    shape="square"
-                    size="sm"
+                    shape="square" size="sm"
                     icon={<X className="h-3.5 w-3.5" />}
                     aria-label="关闭"
                   />
@@ -5067,12 +5392,12 @@ function ServerPage() {
             </div>
             
             <div className="bg-kumo-recessed px-4 py-3 border-t border-kumo-line flex justify-end gap-2">
-              <Button variant="secondary" onClick={() => setShowSftpEditorModal(false)} className="px-3.5 py-1.5 border border-kumo-line rounded cursor-pointer hover:bg-kumo-fill">取消</Button>
-              <Button
+              <Button size="sm" variant="secondary" onClick={() => setShowSftpEditorModal(false)} className="border border-kumo-line rounded cursor-pointer hover:bg-kumo-fill">取消</Button>
+              <Button size="sm"
                 variant="primary"
                 onClick={saveSftpEditedFile}
                 disabled={sftpSaving}
-                className="px-4 py-1.5 bg-kumo-brand text-kumo-inverse rounded font-bold cursor-pointer disabled:opacity-50"
+                className="bg-kumo-brand text-kumo-inverse rounded font-bold cursor-pointer disabled:opacity-50"
               >
                 {sftpSaving ? '正在写入保存...' : '保存文件'}
               </Button>

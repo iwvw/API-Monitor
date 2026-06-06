@@ -517,15 +517,36 @@ class DatabaseService {
       try {
         const metricsColumns = this.db.pragma('table_info(server_metrics_history)');
         if (metricsColumns.length > 0) {
+          const hasCpuThreads = metricsColumns.some(col => col.name === 'cpu_threads');
+          if (!hasCpuThreads) {
+            logger.info('Adding server_metrics_history.cpu_threads column...');
+            this.db.exec('ALTER TABLE server_metrics_history ADD COLUMN cpu_threads INTEGER DEFAULT 0');
+            logger.success('server_metrics_history.cpu_threads column added');
+          }
+
+          const hasCpuTemp = metricsColumns.some(col => col.name === 'cpu_temp');
+          if (!hasCpuTemp) {
+            logger.info('Adding server_metrics_history.cpu_temp column...');
+            this.db.exec('ALTER TABLE server_metrics_history ADD COLUMN cpu_temp REAL DEFAULT 0');
+            logger.success('server_metrics_history.cpu_temp column added');
+          }
+
           const hasPlatform = metricsColumns.some(col => col.name === 'platform');
           if (!hasPlatform) {
             logger.info('正在为 server_metrics_history 表添加 platform 字段...');
             this.db.exec('ALTER TABLE server_metrics_history ADD COLUMN platform TEXT');
             logger.success('server_metrics_history.platform 字段添加成功');
           }
+
+          const hasGpuTemp = metricsColumns.some(col => col.name === 'gpu_temp');
+          if (!hasGpuTemp) {
+            logger.info('Adding server_metrics_history.gpu_temp column...');
+            this.db.exec('ALTER TABLE server_metrics_history ADD COLUMN gpu_temp REAL DEFAULT 0');
+            logger.success('server_metrics_history.gpu_temp column added');
+          }
         }
       } catch (err) {
-        logger.error('Server Metrics History platform 迁移失败:', err.message);
+        logger.error('Server Metrics History migration failed:', err.message);
       }
 
       // Music Settings 迁移: 创建 music_settings 表存储 Cookie

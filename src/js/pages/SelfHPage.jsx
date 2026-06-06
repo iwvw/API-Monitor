@@ -13,6 +13,7 @@ import { Tabs } from '@cloudflare/kumo';
 import useTableResize from '../composables/useTableResize.js';
 import useStore from '../store.js';
 import { MODULE_TABS_PROPS, TOOL_TABS_PROPS } from '../modules/kumoTabs.js';
+import { handleEditableRowDoubleClick } from '../modules/tableInteractions.js';
 import { renderMarkdown, formatDateTime } from '../modules/utils.js';
 import {
   FolderOpen,
@@ -810,18 +811,17 @@ function SelfHPage() {
               <div className="flex items-center gap-2">
                 <span className="text-xs text-kumo-subtle font-medium">实例</span>
                 <Select
-                  aria-label="OpenList 实例"
-                  size="sm"
+                  aria-label="OpenList 实例" size="sm"
                   value={String(currentAccount.id)}
                   onValueChange={(value) => handleSelectAccount(accounts.find(a => String(a.id) === value))}
                   items={accounts.map((acc) => ({ value: String(acc.id), label: acc.name }))}
                 />
               </div>
             )}
-            <Button
+            <Button size="sm"
               onClick={() => loadFiles(currentPath, true)}
               disabled={loadingFiles}
-              className="h-8 px-2.5 flex items-center justify-center bg-kumo-base border border-kumo-line text-kumo-strong hover:bg-kumo-recessed"
+              className="flex items-center justify-center bg-kumo-base border border-kumo-line text-kumo-strong hover:bg-kumo-recessed"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${loadingFiles ? 'animate-spin' : ''}`} />
             </Button>
@@ -839,7 +839,7 @@ function SelfHPage() {
                 <Plug className="w-10 h-10 text-kumo-subtle" />
                 <h4 className="text-sm font-bold text-kumo-strong">尚未连接 OpenList 实例</h4>
                 <p className="text-xs text-kumo-subtle">请前往配置页面添加并连接一个 OpenList 文件存储服务。</p>
-                <Button variant="primary" onClick={() => setSubTab('settings')} className="flex items-center gap-1">
+                <Button size="sm" variant="primary" onClick={() => setSubTab('settings')} className="flex items-center gap-1">
                   <Plus className="w-4 h-4" />
                   <span>前往配置</span>
                 </Button>
@@ -852,8 +852,7 @@ function SelfHPage() {
                   <div className="flex items-center gap-1 flex-wrap text-xs text-kumo-default font-semibold">
                     <Button
                       onClick={() => loadFiles('/')}
-                      variant="ghost"
-                      size="sm"
+                      variant="ghost" size="sm"
                       className="hover:text-kumo-brand"
                     >
                       <Folder className="w-4 h-4 mr-1 text-warning" />
@@ -864,8 +863,7 @@ function SelfHPage() {
                         <ChevronRight className="w-3.5 h-3.5 text-kumo-subtle" />
                         <Button
                           onClick={() => loadFiles(part.path)}
-                          variant="ghost"
-                          size="sm"
+                          variant="ghost" size="sm"
                           className={`hover:text-kumo-brand ${idx === pathParts.length - 1 ? 'text-kumo-strong font-bold' : ''}`}
                         >
                           {part.name}
@@ -888,7 +886,7 @@ function SelfHPage() {
                         { value: 'grid', label: <Grid className="w-4 h-4" /> },
                       ]}
                     />
-                    <Button onClick={mkdirOpenList} className="h-8 text-xs flex items-center gap-1">
+                    <Button size="sm" onClick={mkdirOpenList} className="text-xs flex items-center gap-1">
                       <Plus className="w-3.5 h-3.5" />
                       <span>新建文件夹</span>
                     </Button>
@@ -1039,8 +1037,7 @@ function SelfHPage() {
                       </span>
                       <Button
                         onClick={() => setReadmeVisible(false)}
-                        variant="ghost"
-                        size="sm"
+                        variant="ghost" size="sm"
                         shape="square"
                         aria-label="隐藏 README"
                         className="text-kumo-subtle hover:text-kumo-strong"
@@ -1080,26 +1077,23 @@ function SelfHPage() {
                       <p className="text-[10px] text-kumo-subtle truncate mt-1">{acc.api_url}</p>
                     </div>
                     <div className="flex gap-2">
-                      <Button
-                        size="sm"
+                      <Button size="sm"
                         disabled={currentAccount?.id === acc.id}
                         onClick={() => handleSelectAccount(acc)}
                         className={`h-7 px-2 ${currentAccount?.id === acc.id ? 'bg-kumo-success/15 text-kumo-success border border-kumo-success/20' : 'bg-kumo-base border border-kumo-line'}`}
                       >
                         <Check className="w-3.5 h-3.5" />
                       </Button>
-                      <Button
-                        size="sm"
+                      <Button size="sm"
                         disabled={testingAccId === acc.id}
                         onClick={() => handleTestAccount(acc.id)}
-                        className="h-7 px-2 bg-kumo-base border border-kumo-line"
+                        className="bg-kumo-base border border-kumo-line"
                       >
                         <Plug className={`w-3.5 h-3.5 ${testingAccId === acc.id ? 'animate-spin' : ''}`} />
                       </Button>
-                      <Button
-                        size="sm"
+                      <Button size="sm"
                         onClick={() => handleDeleteAccount(acc.id)}
-                        className="h-7 px-2 bg-kumo-base border border-kumo-line text-kumo-danger hover:bg-kumo-danger/10"
+                        className="bg-kumo-base border border-kumo-line text-kumo-danger hover:bg-kumo-danger/10"
                       >
                         <Trash className="w-3.5 h-3.5" />
                       </Button>
@@ -1122,8 +1116,7 @@ function SelfHPage() {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <Input
                   label="名称"
-                  type="text"
-                  size="sm"
+                  type="text" size="sm"
                   value={newAccForm.name}
                   onChange={(e) => setNewAccForm({ ...newAccForm, name: e.target.value })}
                   placeholder="生产环境 AList"
@@ -1131,8 +1124,7 @@ function SelfHPage() {
                 />
                 <Input
                   label="API 接口地址"
-                  type="text"
-                  size="sm"
+                  type="text" size="sm"
                   value={newAccForm.api_url}
                   onChange={(e) => setNewAccForm({ ...newAccForm, api_url: e.target.value })}
                   placeholder="https://alist.example.com"
@@ -1140,8 +1132,7 @@ function SelfHPage() {
                 />
                 <Input
                   label="认证令牌"
-                  type="password"
-                  size="sm"
+                  type="password" size="sm"
                   value={newAccForm.api_token}
                   onChange={(e) => setNewAccForm({ ...newAccForm, api_token: e.target.value })}
                   placeholder="alist-token-..."
@@ -1149,7 +1140,7 @@ function SelfHPage() {
                 />
               </div>
               <div className="flex justify-end">
-                <Button variant="primary" onClick={handleAddAccount} className="text-xs h-8">
+                <Button size="sm" variant="primary" onClick={handleAddAccount} className="text-xs">
                   保存并连接
                 </Button>
               </div>
@@ -1174,7 +1165,7 @@ function SelfHPage() {
                   <span className="text-[10px] text-kumo-subtle">在图片悬停预览时的最大边长像素限制</span>
                 </div>
                 <div className="flex items-center gap-3 w-full md:w-auto">
-                  <Input
+                  <Input size="sm"
                     type="range"
                     aria-label="图片预览尺寸"
                     min="300"
@@ -1184,7 +1175,7 @@ function SelfHPage() {
                     onChange={(e) => setPreviewSize(parseInt(e.target.value))}
                     className="w-40 accent-kumo-brand"
                   />
-                  <Button onClick={handleSavePreferences} className="h-7 text-[10px] px-2.5">
+                  <Button size="sm" onClick={handleSavePreferences} className="text-[10px]">
                     保存偏好
                   </Button>
                 </div>
@@ -1203,7 +1194,7 @@ function SelfHPage() {
                   <Clock className="w-4 h-4 text-kumo-brand" />
                   定时任务列表
                 </h3>
-                <Button variant="primary" onClick={() => openCronEditModal()} className="h-8 text-xs flex items-center gap-1">
+                <Button size="sm" variant="primary" onClick={() => openCronEditModal()} className="text-xs flex items-center gap-1">
                   <Plus className="w-3.5 h-3.5" />
                   <span>添加任务</span>
                 </Button>
@@ -1249,7 +1240,9 @@ function SelfHPage() {
                       {cronTasks.map((task) => (
                         <Table.Row
                           key={task.id}
-                          className={`border-b border-kumo-line last:border-0 hover:bg-kumo-recessed/10 transition-colors ${!task.enabled ? 'opacity-50' : ''}`}
+                          className={`border-b border-kumo-line last:border-0 hover:bg-kumo-recessed/10 transition-colors cursor-pointer ${!task.enabled ? 'opacity-50' : ''}`}
+                          title="双击编辑定时任务"
+                          onDoubleClick={(event) => handleEditableRowDoubleClick(event, () => openCronEditModal(task))}
                         >
                           <Table.Cell className="p-4 font-bold text-kumo-strong flex items-center gap-2">
                             <span className={`w-2 h-2 rounded-full ${task.enabled ? 'bg-kumo-success' : 'bg-kumo-subtle'}`} />
@@ -1262,8 +1255,7 @@ function SelfHPage() {
                             <div className="flex justify-center gap-1.5">
                               <Button
                                 onClick={() => handleRunCronTask(task)}
-                                variant="secondary"
-                                size="sm"
+                                variant="secondary" size="sm"
                                 shape="square"
                                 aria-label="立即执行定时任务"
                                 className="text-kumo-success hover:bg-kumo-success/10"
@@ -1273,8 +1265,7 @@ function SelfHPage() {
                               </Button>
                               <Button
                                 onClick={() => handleToggleCronTask(task)}
-                                variant="secondary"
-                                size="sm"
+                                variant="secondary" size="sm"
                                 shape="square"
                                 aria-label={task.enabled ? '暂停定时任务' : '恢复定时任务'}
                                 className="text-kumo-brand hover:bg-kumo-brand/10"
@@ -1284,8 +1275,7 @@ function SelfHPage() {
                               </Button>
                               <Button
                                 onClick={() => openCronEditModal(task)}
-                                variant="secondary"
-                                size="sm"
+                                variant="secondary" size="sm"
                                 shape="square"
                                 aria-label="编辑定时任务"
                                 className="text-kumo-subtle hover:text-kumo-strong"
@@ -1295,8 +1285,7 @@ function SelfHPage() {
                               </Button>
                               <Button
                                 onClick={() => handleDeleteCronTask(task)}
-                                variant="secondary-destructive"
-                                size="sm"
+                                variant="secondary-destructive" size="sm"
                                 shape="square"
                                 aria-label="删除定时任务"
                                 className="hover:bg-kumo-danger/10"
@@ -1322,11 +1311,11 @@ function SelfHPage() {
                   任务运行日志
                 </h3>
                 <div className="flex gap-2">
-                  <Button onClick={loadCronLogs} className="h-8 text-xs flex items-center gap-1">
+                  <Button size="sm" onClick={loadCronLogs} className="text-xs flex items-center gap-1">
                     <RefreshCw className="w-3.5 h-3.5" />
                     <span>刷新日志</span>
                   </Button>
-                  <Button onClick={handleClearCronLogs} className="h-8 text-xs bg-kumo-base border border-kumo-line text-kumo-danger hover:bg-kumo-danger/10 flex items-center gap-1">
+                  <Button size="sm" onClick={handleClearCronLogs} className="text-xs bg-kumo-base border border-kumo-line text-kumo-danger hover:bg-kumo-danger/10 flex items-center gap-1">
                     <Trash className="w-3.5 h-3.5" />
                     <span>清理7天前</span>
                   </Button>
@@ -1373,7 +1362,7 @@ function SelfHPage() {
       {contextMenu.visible && (
         <div
           style={{ left: contextMenu.x, top: contextMenu.y }}
-          className="fixed bg-kumo-base border border-kumo-line shadow-xl rounded-lg py-1.5 w-40 z-50 text-xs text-kumo-default font-semibold"
+          className="motion-pop-in fixed bg-kumo-base border border-kumo-line shadow-xl rounded-lg py-1.5 w-40 z-50 text-xs text-kumo-default font-semibold"
           onClick={(e) => e.stopPropagation()}
         >
           <Button
@@ -1381,9 +1370,8 @@ function SelfHPage() {
               setContextMenu(prev => ({ ...prev, visible: false }));
               handleOpenFile(contextMenu.file);
             }}
-            variant="ghost"
-            size="sm"
-            className="w-full justify-start px-4 py-2 text-left hover:bg-kumo-recessed"
+            variant="ghost" size="sm"
+            className="w-full justify-start text-left hover:bg-kumo-recessed"
           >
             <FolderOpen className="w-3.5 h-3.5 text-warning" />
             <span>{contextMenu.file?.is_dir ? '打开' : '查看详情'}</span>
@@ -1394,9 +1382,8 @@ function SelfHPage() {
                 setContextMenu(prev => ({ ...prev, visible: false }));
                 downloadFile(contextMenu.file);
               }}
-              variant="ghost"
-              size="sm"
-              className="w-full justify-start px-4 py-2 text-left hover:bg-kumo-recessed"
+              variant="ghost" size="sm"
+              className="w-full justify-start text-left hover:bg-kumo-recessed"
             >
               <Download className="w-3.5 h-3.5" />
               <span>下载</span>
@@ -1408,9 +1395,8 @@ function SelfHPage() {
               setContextMenu(prev => ({ ...prev, visible: false }));
               renameFile(contextMenu.file);
             }}
-            variant="ghost"
-            size="sm"
-            className="w-full justify-start px-4 py-2 text-left hover:bg-kumo-recessed"
+            variant="ghost" size="sm"
+            className="w-full justify-start text-left hover:bg-kumo-recessed"
           >
             <Edit className="w-3.5 h-3.5" />
             <span>重命名</span>
@@ -1420,9 +1406,8 @@ function SelfHPage() {
               setContextMenu(prev => ({ ...prev, visible: false }));
               deleteFile(contextMenu.file);
             }}
-            variant="ghost"
-            size="sm"
-            className="w-full justify-start px-4 py-2 text-left text-kumo-danger hover:bg-kumo-danger/10"
+            variant="ghost" size="sm"
+            className="w-full justify-start text-left text-kumo-danger hover:bg-kumo-danger/10"
           >
             <Trash className="w-3.5 h-3.5" />
             <span>删除</span>
@@ -1436,7 +1421,7 @@ function SelfHPage() {
           <div className="flex justify-between items-center">
             <span className="text-xs font-bold text-kumo-strong truncate max-w-md">{imagePreview.filename}</span>
             <div className="flex gap-2">
-              <Button
+              <Button size="sm"
                 onClick={async () => {
                   try {
                     const response = await fetch(imagePreview.url);
@@ -1453,18 +1438,18 @@ function SelfHPage() {
                     window.open(imagePreview.url, '_blank');
                   }
                 }}
-                className="h-8 text-xs flex items-center gap-1.5"
+                className="text-xs flex items-center gap-1.5"
               >
                 <Download className="w-3.5 h-3.5" />
                 <span>下载</span>
               </Button>
               <Dialog.Close
                 render={(props) => (
-                  <Button
+                  <Button size="sm"
                     {...props}
                     variant="secondary"
                     shape="square"
-                    className="h-8 border border-kumo-line bg-kumo-recessed text-xs flex items-center justify-center p-2"
+                    className="border border-kumo-line bg-kumo-recessed text-xs flex items-center justify-center"
                   >
                     <X className="w-4 h-4" />
                   </Button>
@@ -1501,7 +1486,7 @@ function SelfHPage() {
           <div className="flex justify-end pt-2">
             <Dialog.Close
               render={(props) => (
-                <Button {...props} variant="secondary" className="text-xs h-8">
+                <Button size="sm" {...props} variant="secondary" className="text-xs">
                   关闭
                 </Button>
               )}
@@ -1520,8 +1505,7 @@ function SelfHPage() {
           <div className="space-y-4">
             <Input
               label="任务名称"
-              type="text"
-              size="sm"
+              type="text" size="sm"
               value={cronForm.name}
               onChange={(e) => setCronForm({ ...cronForm, name: e.target.value })}
               placeholder="例如：每日数据库备份"
@@ -1541,8 +1525,7 @@ function SelfHPage() {
                 <div className="space-y-1">
                   <Input
                     aria-label="Cron 表达式"
-                    type="text"
-                    size="sm"
+                    type="text" size="sm"
                     value={cronForm.schedule}
                     onChange={(e) => setCronForm({ ...cronForm, schedule: e.target.value })}
                     placeholder="分 时 日 月 周，例如: 0 0 * * *"
@@ -1555,8 +1538,7 @@ function SelfHPage() {
                   <div className="flex flex-wrap items-center gap-2 text-xs">
                     <span>频率:</span>
                     <Select
-                      aria-label="频率"
-                      size="sm"
+                      aria-label="频率" size="sm"
                       value={cronForm.periodType}
                       onValueChange={(value) => setCronForm({ ...cronForm, periodType: value })}
                       items={[
@@ -1570,8 +1552,7 @@ function SelfHPage() {
 
                     {cronForm.periodType === 'week' && (
                       <Select
-                        aria-label="周几"
-                        size="sm"
+                        aria-label="周几" size="sm"
                         value={cronForm.weekday}
                         onValueChange={(value) => setCronForm({ ...cronForm, weekday: value })}
                         items={[
@@ -1588,8 +1569,7 @@ function SelfHPage() {
 
                     {cronForm.periodType === 'month' && (
                       <Select
-                        aria-label="每月日期"
-                        size="sm"
+                        aria-label="每月日期" size="sm"
                         value={cronForm.dayOfMonth}
                         onValueChange={(value) => setCronForm({ ...cronForm, dayOfMonth: parseInt(value, 10) })}
                         items={[...Array(31)].map((_, i) => ({ value: i + 1, label: `${i + 1}日` }))}
@@ -1600,8 +1580,7 @@ function SelfHPage() {
                       <>
                         <Input
                           aria-label="小时"
-                          type="number"
-                          size="sm"
+                          type="number" size="sm"
                           min="0"
                           max="23"
                           value={cronForm.hour}
@@ -1616,8 +1595,7 @@ function SelfHPage() {
                       <>
                         <Input
                           aria-label="分钟"
-                          type="number"
-                          size="sm"
+                          type="number" size="sm"
                           min="0"
                           max="59"
                           value={cronForm.minute}
@@ -1668,16 +1646,16 @@ function SelfHPage() {
             <div className="flex justify-end gap-2 pt-2">
               <Dialog.Close
                 render={(props) => (
-                  <Button
+                  <Button size="sm"
                     {...props}
                     variant="secondary"
-                    className="border border-kumo-line bg-kumo-recessed text-xs h-8"
+                    className="border border-kumo-line bg-kumo-recessed text-xs"
                   >
                     取消
                   </Button>
                 )}
               />
-              <Button variant="primary" onClick={handleSaveCronTask} className="text-xs h-8">
+              <Button size="sm" variant="primary" onClick={handleSaveCronTask} className="text-xs">
                 保存任务
               </Button>
             </div>

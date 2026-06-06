@@ -79,8 +79,7 @@ function GlobalDialogHost() {
                   {...props}
                   type="button"
                   variant="secondary"
-                  shape="square"
-                  size="sm"
+                  shape="square" size="sm"
                   icon={<X className="h-3.5 w-3.5" />}
                   aria-label="关闭"
                   onClick={handleCancel}
@@ -90,7 +89,7 @@ function GlobalDialogHost() {
           </div>
 
           {request.type === 'prompt' ? (
-            <Input
+            <Input size="sm"
               autoFocus
               aria-label={options.placeholder || options.title}
               placeholder={options.placeholder}
@@ -106,8 +105,7 @@ function GlobalDialogHost() {
                   <Button
                     {...props}
                     type="button"
-                    variant="secondary"
-                    size="sm"
+                    variant="secondary" size="sm"
                     onClick={handleCancel}
                   >
                     {options.cancelText}
@@ -117,8 +115,7 @@ function GlobalDialogHost() {
             ) : null}
             <Button
               type="submit"
-              variant={getConfirmVariant(request)}
-              size="sm"
+              variant={getConfirmVariant(request)} size="sm"
               autoFocus={request.type !== 'prompt'}
             >
               {options.confirmText}

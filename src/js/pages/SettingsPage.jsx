@@ -72,12 +72,6 @@ const SERVER_IP_DISPLAY_OPTIONS = [
   { value: 'hidden', label: '隐藏' },
 ];
 
-const NAV_LAYOUT_OPTIONS = [
-  { value: 'top', label: '顶部' },
-  { value: 'bottom-normal', label: '底部' },
-  { value: 'bottom', label: '胶囊底栏' },
-];
-
 const TOTP_INPUT_MODE_OPTIONS = [
   { value: 'scan', label: '扫码导入' },
   { value: 'upload', label: '上传二维码' },
@@ -238,7 +232,6 @@ function SettingsPage() {
   const [dbStats, setDbStats] = useState(null);
   const [dbAnalysis, setDbAnalysis] = useState(null);
   const [databaseBusy, setDatabaseBusy] = useState(false);
-  const [chatCleanup, setChatCleanup] = useState({ keepDays: 7, keepSessions: 10 });
 
   const [logSettings, setLogSettings] = useState({
     days: 0,
@@ -683,14 +676,14 @@ function SettingsPage() {
         </div>
 
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-          <Button
+          <Button size="sm"
             onClick={() => refreshAll(true)}
             loading={settingsLoading}
             icon={<RefreshCw className="h-4 w-4" />}
           >
             刷新
           </Button>
-          <Button
+          <Button size="sm"
             variant="primary"
             onClick={() => persistSettings()}
             loading={settingsSaving}
@@ -718,7 +711,7 @@ function SettingsPage() {
           <LayerCard className="lg:col-span-2">
             <SectionHeader title="公网访问与 Agent" description="这些值会被后端用于生成 Agent 安装命令、下载地址和对外 API 连接配置。" />
             <FieldRow title="公网 API 地址" description="主控端可从公网访问时填写，留空则使用当前访问来源。">
-              <Input
+              <Input size="sm"
                 label="公网 API 地址"
                 value={settings.publicApiUrl}
                 onChange={(e) => patchSettings({ publicApiUrl: e.target.value })}
@@ -726,7 +719,7 @@ function SettingsPage() {
               />
             </FieldRow>
             <FieldRow title="Agent 下载目录" description="留空使用主控端内置 /agent 目录；自定义时填写目录 URL，不填写文件名。">
-              <Input
+              <Input size="sm"
                 label="Agent 下载目录"
                 value={settings.agentDownloadUrl}
                 onChange={(e) => patchSettings({ agentDownloadUrl: e.target.value })}
@@ -738,7 +731,7 @@ function SettingsPage() {
           <LayerCard className="lg:col-span-2">
             <SectionHeader title="运行偏好" description="这些设置会同步给对应业务页面和后端用户设置表。" />
             <FieldRow title="主机地址显示" description="控制主机实例页和安装命令中的地址脱敏策略。">
-              <Select
+              <Select size="sm"
                 label="主机地址显示"
                 value={settings.serverIpDisplayMode}
                 onValueChange={(value) => patchSettings({ serverIpDisplayMode: String(value) })}
@@ -747,14 +740,14 @@ function SettingsPage() {
             </FieldRow>
             <FieldRow title="PaaS 自动刷新" description="Koyeb 和 Fly.io 状态拉取间隔，单位秒。">
               <div className="grid gap-3 sm:grid-cols-2">
-                <Input
+                <Input size="sm"
                   label="Koyeb 秒数"
                   type="number"
                   min="5"
                   value={Math.round(settings.koyebRefreshInterval / 1000)}
                   onChange={(e) => patchSettings({ koyebRefreshInterval: Math.max(5, toInt(e.target.value, 30)) * 1000 })}
                 />
-                <Input
+                <Input size="sm"
                   label="Fly.io 秒数"
                   type="number"
                   min="5"
@@ -774,7 +767,7 @@ function SettingsPage() {
               title="全局 API 与网络"
               description="保存时会同步到 GCLI 与通义千问模块，并保留用户设置里的负载均衡和渠道开关。"
               actions={
-                <Button
+                <Button size="sm"
                   variant="primary"
                   onClick={saveGlobalApiSettings}
                   loading={globalApiSaving || settingsSaving}
@@ -785,7 +778,7 @@ function SettingsPage() {
               }
             />
             <div className="grid gap-4 p-5">
-              <Input
+              <Input size="sm"
                 label="API_KEY"
                 type="password"
                 value={globalApiForm.API_KEY}
@@ -793,7 +786,7 @@ function SettingsPage() {
                 placeholder="留空则不启用全局访问密钥"
                 className="font-mono"
               />
-              <Input
+              <Input size="sm"
                 label="PROXY"
                 value={globalApiForm.PROXY}
                 onChange={(e) => setGlobalApiForm((prev) => ({ ...prev, PROXY: e.target.value }))}
@@ -806,7 +799,7 @@ function SettingsPage() {
                 onChange={(e) => setGlobalApiForm((prev) => ({ ...prev, SYSTEM_INSTRUCTION: e.target.value }))}
                 className="min-h-28 font-mono text-sm"
               />
-              <Select
+              <Select size="sm"
                 label="负载均衡策略"
                 value={settings.load_balancing_strategy}
                 onValueChange={(value) => patchSettings({ load_balancing_strategy: String(value) })}
@@ -836,7 +829,7 @@ function SettingsPage() {
             </div>
             <div className="mt-5 grid gap-4">
               {CHANNELS.map((channel) => (
-                <Input
+                <Input size="sm"
                   key={channel.id}
                   label={`${channel.label} 模型前缀`}
                   value={settings.channelModelPrefix[channel.id] || ''}
@@ -861,8 +854,8 @@ function SettingsPage() {
             description="模块顺序和显隐会立即影响左侧导航；系统设置入口固定显示。"
             actions={
               <>
-                <Button onClick={() => setAllModulesVisibility(true)} icon={<Eye className="h-4 w-4" />}>显示全部</Button>
-                <Button onClick={() => setAllModulesVisibility(false)} icon={<EyeOff className="h-4 w-4" />}>隐藏可选模块</Button>
+                <Button size="sm" onClick={() => setAllModulesVisibility(true)} icon={<Eye className="h-4 w-4" />}>显示全部</Button>
+                <Button size="sm" onClick={() => setAllModulesVisibility(false)} icon={<EyeOff className="h-4 w-4" />}>隐藏可选模块</Button>
               </>
             }
           />
@@ -930,7 +923,7 @@ function SettingsPage() {
           <LayerCard>
             <SectionHeader title="管理员密码" description="后端接口为 /api/auth/change-password，修改成功后会退出当前会话。" />
             <div className="grid max-w-xl gap-4 p-5">
-              <Input
+              <Input size="sm"
                 label="当前密码"
                 type="password"
                 value={passwordForm.oldPassword}
@@ -938,7 +931,7 @@ function SettingsPage() {
                 disabled={isDemoMode}
                 autoComplete="current-password"
               />
-              <Input
+              <Input size="sm"
                 label="新密码"
                 type="password"
                 value={passwordForm.newPassword}
@@ -946,7 +939,7 @@ function SettingsPage() {
                 disabled={isDemoMode}
                 autoComplete="new-password"
               />
-              <Input
+              <Input size="sm"
                 label="确认新密码"
                 type="password"
                 value={passwordForm.confirmPassword}
@@ -955,7 +948,7 @@ function SettingsPage() {
                 autoComplete="new-password"
               />
               <div>
-                <Button variant="primary" onClick={changePassword} loading={passwordSaving} disabled={isDemoMode}>
+                <Button size="sm" variant="primary" onClick={changePassword} loading={passwordSaving} disabled={isDemoMode}>
                   更新密码
                 </Button>
               </div>
@@ -980,7 +973,7 @@ function SettingsPage() {
             )}
 
             {!twoFA.enabled && !twoFA.setupMode && (
-              <Button className="mt-5 w-full" variant="primary" onClick={start2FASetup} loading={twoFA.loading} disabled={isDemoMode}>
+              <Button size="sm" className="mt-5 w-full" variant="primary" onClick={start2FASetup} loading={twoFA.loading} disabled={isDemoMode}>
                 启用 2FA
               </Button>
             )}
@@ -992,8 +985,8 @@ function SettingsPage() {
                     <img src={twoFA.qrCode} alt="2FA QR Code" className="h-44 w-44" />
                   </div>
                 )}
-                <Input label="手动密钥" value={twoFA.secret} readOnly className="font-mono" />
-                <Input
+                <Input size="sm" label="手动密钥" value={twoFA.secret} readOnly className="font-mono" />
+                <Input size="sm"
                   label="6 位验证码"
                   value={twoFA.token}
                   onChange={(e) => setTwoFA((prev) => ({ ...prev, token: e.target.value.replace(/\D/g, '').slice(0, 6) }))}
@@ -1001,21 +994,21 @@ function SettingsPage() {
                   className="font-mono"
                 />
                 <div className="flex gap-2">
-                  <Button onClick={() => setTwoFA((prev) => ({ ...prev, setupMode: false, token: '', error: '' }))}>取消</Button>
-                  <Button variant="primary" onClick={confirm2FASetup} loading={twoFA.loading}>确认启用</Button>
+                  <Button size="sm" onClick={() => setTwoFA((prev) => ({ ...prev, setupMode: false, token: '', error: '' }))}>取消</Button>
+                  <Button size="sm" variant="primary" onClick={confirm2FASetup} loading={twoFA.loading}>确认启用</Button>
                 </div>
               </div>
             )}
 
             {twoFA.enabled && !twoFA.disableMode && (
-              <Button className="mt-5 w-full" variant="secondary-destructive" onClick={() => setTwoFA((prev) => ({ ...prev, disableMode: true, error: '' }))} disabled={isDemoMode}>
+              <Button size="sm" className="mt-5 w-full" variant="secondary-destructive" onClick={() => setTwoFA((prev) => ({ ...prev, disableMode: true, error: '' }))} disabled={isDemoMode}>
                 禁用 2FA
               </Button>
             )}
 
             {twoFA.disableMode && (
               <div className="mt-5 grid gap-4">
-                <Input
+                <Input size="sm"
                   label="当前密码"
                   type="password"
                   value={twoFA.disablePassword}
@@ -1023,8 +1016,8 @@ function SettingsPage() {
                   autoComplete="current-password"
                 />
                 <div className="flex gap-2">
-                  <Button onClick={() => setTwoFA((prev) => ({ ...prev, disableMode: false, disablePassword: '', error: '' }))}>取消</Button>
-                  <Button variant="destructive" onClick={disable2FA} loading={twoFA.loading}>确认禁用</Button>
+                  <Button size="sm" onClick={() => setTwoFA((prev) => ({ ...prev, disableMode: false, disablePassword: '', error: '' }))}>取消</Button>
+                  <Button size="sm" variant="destructive" onClick={disable2FA} loading={twoFA.loading}>确认禁用</Button>
                 </div>
               </div>
             )}
@@ -1033,13 +1026,13 @@ function SettingsPage() {
       )}
 
       {activeTab === 'database' && (
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_24rem]">
+        <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1fr)_22rem]">
           <LayerCard className="overflow-x-auto p-0">
             <SectionHeader
               title="数据库统计"
               description={dbStats?.dbPath || 'SQLite 数据文件'}
               actions={
-                <Button onClick={fetchDbState} loading={databaseBusy} icon={<RefreshCw className="h-4 w-4" />}>刷新统计</Button>
+                <Button size="sm" onClick={fetchDbState} loading={databaseBusy} icon={<RefreshCw className="h-4 w-4" />}>刷新统计</Button>
               }
             />
             <Table layout="fixed">
@@ -1074,55 +1067,29 @@ function SettingsPage() {
             </Table>
           </LayerCard>
 
-          <div className="grid gap-4">
-            <LayerCard className="p-5">
+          <div className="grid content-start gap-3">
+            <LayerCard className="p-4">
               <h2 className="text-base font-bold text-kumo-strong">备份与恢复</h2>
-              <div className="mt-4 grid gap-2">
-                <Button onClick={exportDatabase} icon={<Download className="h-4 w-4" />}>导出数据库</Button>
-                <Button onClick={importDatabase} loading={databaseBusy} icon={<Upload className="h-4 w-4" />}>导入数据库</Button>
+              <div className="mt-3 grid gap-2">
+                <Button size="sm" className="justify-start" onClick={exportDatabase} icon={<Download className="h-4 w-4" />}>导出数据库</Button>
+                <Button size="sm" className="justify-start" onClick={importDatabase} loading={databaseBusy} icon={<Upload className="h-4 w-4" />}>导入数据库</Button>
               </div>
             </LayerCard>
 
-            <LayerCard className="p-5">
+            <LayerCard className="p-4">
               <h2 className="text-base font-bold text-kumo-strong">维护操作</h2>
-              <div className="mt-4 grid gap-2">
-                <Button onClick={() => postSettingsAction('/api/settings/vacuum-database', '数据库已压缩', fetchDbState)} loading={databaseBusy}>
+              <div className="mt-3 grid gap-2">
+                <Button size="sm" className="justify-start" onClick={() => postSettingsAction('/api/settings/vacuum-database', '数据库已压缩', fetchDbState)} loading={databaseBusy}>
                   压缩数据库
                 </Button>
-                <Button
+                <Button size="sm"
+                  className="justify-start"
                   variant="secondary-destructive"
                   onClick={() => postSettingsAction('/api/settings/clear-logs', '数据库日志已清理', fetchDbState)}
                   loading={databaseBusy}
                   icon={<Trash className="h-4 w-4" />}
                 >
                   清理数据库日志
-                </Button>
-              </div>
-            </LayerCard>
-
-            <LayerCard className="p-5">
-              <h2 className="text-base font-bold text-kumo-strong">聊天消息清理</h2>
-              <div className="mt-4 grid gap-3">
-                <Input
-                  label="保留天数"
-                  type="number"
-                  min="0"
-                  value={chatCleanup.keepDays}
-                  onChange={(e) => setChatCleanup((prev) => ({ ...prev, keepDays: Math.max(0, toInt(e.target.value, 7)) }))}
-                />
-                <Input
-                  label="保留会话数"
-                  type="number"
-                  min="1"
-                  value={chatCleanup.keepSessions}
-                  onChange={(e) => setChatCleanup((prev) => ({ ...prev, keepSessions: Math.max(1, toInt(e.target.value, 10)) }))}
-                />
-                <Button
-                  variant="secondary-destructive"
-                  onClick={() => postSettingsAction('/api/settings/clear-chat-messages', '聊天消息已清理', fetchDbState, chatCleanup)}
-                  loading={databaseBusy}
-                >
-                  执行清理
                 </Button>
               </div>
             </LayerCard>
@@ -1138,16 +1105,16 @@ function SettingsPage() {
               description="0 表示不限制；文件大小限制会同步到运行时 logger。"
               actions={
                 <>
-                  <Button onClick={saveLogSettings} loading={logsBusy} icon={<Save className="h-4 w-4" />}>保存日志设置</Button>
-                  <Button onClick={() => postSettingsAction('/api/settings/enforce-log-limits', '日志限制已执行', fetchLogState)} loading={logsBusy}>立即执行限制</Button>
+                  <Button size="sm" onClick={saveLogSettings} loading={logsBusy} icon={<Save className="h-4 w-4" />}>保存日志设置</Button>
+                  <Button size="sm" onClick={() => postSettingsAction('/api/settings/enforce-log-limits', '日志限制已执行', fetchLogState)} loading={logsBusy}>立即执行限制</Button>
                 </>
               }
             />
             <div className="grid gap-4 p-5 md:grid-cols-4">
-              <Input label="保留天数" type="number" min="0" value={logSettings.days} onChange={(e) => setLogSettings((prev) => ({ ...prev, days: Math.max(0, toInt(e.target.value, 0)) }))} />
-              <Input label="单表最大条数" type="number" min="0" value={logSettings.count} onChange={(e) => setLogSettings((prev) => ({ ...prev, count: Math.max(0, toInt(e.target.value, 0)) }))} />
-              <Input label="数据库最大 MB" type="number" min="0" value={logSettings.dbSizeMB} onChange={(e) => setLogSettings((prev) => ({ ...prev, dbSizeMB: Math.max(0, toInt(e.target.value, 0)) }))} />
-              <Input label="app.log 最大 MB" type="number" min="1" value={logSettings.logFileSizeMB} onChange={(e) => setLogSettings((prev) => ({ ...prev, logFileSizeMB: Math.max(1, toInt(e.target.value, 10)) }))} />
+              <Input size="sm" label="保留天数" type="number" min="0" value={logSettings.days} onChange={(e) => setLogSettings((prev) => ({ ...prev, days: Math.max(0, toInt(e.target.value, 0)) }))} />
+              <Input size="sm" label="单表最大条数" type="number" min="0" value={logSettings.count} onChange={(e) => setLogSettings((prev) => ({ ...prev, count: Math.max(0, toInt(e.target.value, 0)) }))} />
+              <Input size="sm" label="数据库最大 MB" type="number" min="0" value={logSettings.dbSizeMB} onChange={(e) => setLogSettings((prev) => ({ ...prev, dbSizeMB: Math.max(0, toInt(e.target.value, 0)) }))} />
+              <Input size="sm" label="app.log 最大 MB" type="number" min="1" value={logSettings.logFileSizeMB} onChange={(e) => setLogSettings((prev) => ({ ...prev, logFileSizeMB: Math.max(1, toInt(e.target.value, 10)) }))} />
             </div>
           </LayerCard>
 
@@ -1158,8 +1125,8 @@ function SettingsPage() {
                 description={logFileInfo?.path || '最近运行日志'}
                 actions={
                   <>
-                    <Button onClick={fetchLogState} loading={logsBusy} icon={<RefreshCw className="h-4 w-4" />}>刷新日志</Button>
-                    <Button variant="secondary-destructive" onClick={() => postSettingsAction('/api/settings/clear-app-logs', 'app.log 已清空', fetchLogState)} loading={logsBusy}>清空文件</Button>
+                    <Button size="sm" onClick={fetchLogState} loading={logsBusy} icon={<RefreshCw className="h-4 w-4" />}>刷新日志</Button>
+                    <Button size="sm" variant="secondary-destructive" onClick={() => postSettingsAction('/api/settings/clear-app-logs', 'app.log 已清空', fetchLogState)} loading={logsBusy}>清空文件</Button>
                   </>
                 }
               />
@@ -1236,7 +1203,7 @@ function SettingsPage() {
             <SectionHeader
               title="app.log 文件"
               description="读取后显示文件末尾 500 行。"
-              actions={<Button onClick={loadRawLogFile} loading={logsBusy}>读取文件</Button>}
+              actions={<Button size="sm" onClick={loadRawLogFile} loading={logsBusy}>读取文件</Button>}
             />
             <div className="p-5">
               <Textarea label="app.log 内容" value={rawLog} readOnly className="min-h-64 font-mono text-xs" />
@@ -1250,13 +1217,10 @@ function SettingsPage() {
           <LayerCard>
             <SectionHeader title="界面外观" description={`当前生效主题: ${theme === 'dark' ? '深色' : '浅色'}`} />
             <FieldRow title="主题模式" description="浏览器本地偏好，切换后立即生效。">
-              <Select label="主题模式" value={themeMode} onValueChange={(value) => setThemeMode(String(value))} items={THEME_OPTIONS} />
+              <Select size="sm" label="主题模式" value={themeMode} onValueChange={(value) => setThemeMode(String(value))} items={THEME_OPTIONS} />
             </FieldRow>
             <FieldRow title="页面宽度" description="浏览器本地偏好，顶部宽度切换器也会同步。">
-              <Select label="页面宽度" value={pageWidthMode} onValueChange={(value) => setPageWidthMode(String(value))} items={PAGE_WIDTH_OPTIONS} />
-            </FieldRow>
-            <FieldRow title="导航布局" description="兼容旧移动端导航偏好。">
-              <Select label="导航布局" value={settings.navLayout} onValueChange={(value) => patchSettings({ navLayout: String(value) })} items={NAV_LAYOUT_OPTIONS} />
+              <Select size="sm" label="页面宽度" value={pageWidthMode} onValueChange={(value) => setPageWidthMode(String(value))} items={PAGE_WIDTH_OPTIONS} />
             </FieldRow>
             <FieldRow title="触感反馈" description="移动端交互振动开关。">
               <Switch checked={settings.vibrationEnabled} onCheckedChange={(checked) => patchSettings({ vibrationEnabled: checked })} />
@@ -1277,7 +1241,7 @@ function SettingsPage() {
               <ToggleLine title="锁定默认录入方式" checked={!!settings.totpSettings.lockInputMode} onCheckedChange={(checked) => updateTotpSetting('lockInputMode', checked)} />
             </div>
             <div className="mt-4">
-              <Select
+              <Select size="sm"
                 label="默认录入方式"
                 value={settings.totpSettings.defaultInputMode}
                 onValueChange={(value) => updateTotpSetting('defaultInputMode', String(value))}
@@ -1292,8 +1256,8 @@ function SettingsPage() {
               description="应用会立即注入当前页面，保存后写入后端用户设置。"
               actions={
                 <>
-                  <Button onClick={() => applyCustomCss(settings.customCss)}>预览</Button>
-                  <Button variant="secondary-destructive" onClick={() => {
+                  <Button size="sm" onClick={() => applyCustomCss(settings.customCss)}>预览</Button>
+                  <Button size="sm" variant="secondary-destructive" onClick={() => {
                     patchSettings({ customCss: '' });
                     applyCustomCss('');
                   }}>清空</Button>

@@ -1,144 +1,100 @@
 # 贡献指南
 
-感谢你对 API Monitor 项目的关注！我们欢迎所有形式的贡献。
+感谢你参与 API Monitor。当前项目已经收口到 React + Kumo 前端和 Express + SQLite 后端，贡献时请优先遵守现有模块边界与 Kumo-only UI 规则。
 
-## 🚀 快速开始
+## 环境要求
 
-### 环境要求
+- Node.js 20 LTS 或更高版本。
+- npm 9 或更高版本。
+- Rust 1.75 或更高版本，仅在维护 `agent-rust/` 时需要。
+- SQLite 使用内置 `better-sqlite3`，本地开发不需要额外数据库服务。
 
-- Node.js >= 18.x
-- npm >= 9.x
-- Rust >= 1.75 (仅 Agent 开发需要)
-
-### 本地开发
+## 本地开发
 
 ```bash
-# 1. 克隆项目
 git clone https://github.com/iwvw/api-monitor.git
 cd api-monitor
-
-# 2. 安装依赖
 npm install
-
-# 3. 启动开发服务器
 npm run dev
 ```
 
-访问 `http://localhost:5173` 查看前端，API 服务运行在 `http://localhost:3000`。
-
----
-
-## 📋 代码规范
-
-### 代码风格
-
-本项目使用 ESLint + Prettier 进行代码检查和格式化：
+开发模式会同时启动后端 Express 和前端 Vite。生产模式可使用：
 
 ```bash
-# 检查代码
+npm run build
+npm start
+```
+
+## 常用命令
+
+```bash
 npm run lint
-
-# 自动修复
 npm run lint:fix
-
-# 格式化代码
-npm run format
+npm run build
+npm run test
+npm run format:check
 ```
 
-### 提交规范
+前端样式或交互改动至少运行 `npm run lint` 与 `npm run build`。涉及路由、弹窗、表格、图表、导航、移动端布局时，还应做浏览器验证并更新 [refactor-verification.md](./refactor-verification.md)。
 
-请使用 [Conventional Commits](https://www.conventionalcommits.org/zh-hans/) 格式：
+## 代码规范
 
-```
-<type>(<scope>): <subject>
+- 前端基础 UI 必须优先使用 `@cloudflare/kumo`。
+- 不新增自绘 Button、Input、Select、Tabs、Table、Dialog、Toast、Checkbox、Switch、Sidebar、Loader 等 UI 组件。
+- 不硬编码主题色，使用 `bg-kumo-*`、`text-kumo-*`、`border-kumo-*`、`ring-kumo-*` 等 token。
+- 按钮默认使用 `size="sm"`；与 Input、Select、Tabs 同排时保持高度一致。
+- 删除确认优先迁移到 Kumo `DeleteResource`。
+- 表格内容默认不换行，数据密集表格优先支持 `Table.ResizeHandle`。
+- 图表使用 Kumo Chart 系列，颜色使用 `ChartPalette`，加载期使用 `loading` 骨架。
 
-<body>
-```
+详细 UI 约束见 [KUMO_MIGRATION_RULES.md](./KUMO_MIGRATION_RULES.md)。
 
-**类型 (type)**:
+## 项目结构
 
-- `feat`: 新功能
-- `fix`: 修复 bug
-- `docs`: 文档更新
-- `style`: 代码格式（不影响功能）
-- `refactor`: 重构（既不是新功能也不是修复）
-- `perf`: 性能优化
-- `test`: 测试相关
-- `chore`: 构建/工具变更
-
-**示例**:
-
-```
-feat(music): 添加歌词同步功能
-
-- 支持 LRC 格式解析
-- 添加歌词滚动动画
-```
-
----
-
-## 🔀 Pull Request 流程
-
-1. **Fork** 项目到你的 GitHub 账号
-2. 创建特性分支: `git checkout -b feat/my-feature`
-3. 提交更改: `git commit -m 'feat: 添加新功能'`
-4. 推送分支: `git push origin feat/my-feature`
-5. 提交 **Pull Request**
-
-### PR 检查清单
-
-- [ ] 代码通过 `npm run lint`
-- [ ] 代码通过 `npm run build`
-- [ ] 更新相关文档
-- [ ] 添加必要的测试
-
----
-
-## 📁 项目结构
-
-```
+```text
 api-monitor/
-├── server.js          # 服务端入口
+├── server.js              # Express 入口
 ├── src/
-│   ├── js/            # 前端 JavaScript
-│   ├── css/           # 样式文件
-│   ├── db/            # 数据库相关
-│   ├── middleware/    # Express 中间件
-│   ├── routes/        # API 路由
-│   ├── services/      # 业务服务
-│   └── utils/         # 工具函数
-├── modules/           # 功能模块
-│   ├── music-api/     # 音乐 API
-│   ├── cloudflare-api/# DNS 管理
-│   └── ...
-├── agent-rust/        # Rust Agent 源码
-└── test/              # 测试文件
+│   ├── js/                # React 前端
+│   │   ├── components/    # 壳层与少量业务辅助组件
+│   │   ├── pages/         # 主页面
+│   │   ├── modules/       # 前端运行时 helper
+│   │   └── store.js       # Zustand 全局状态
+│   ├── css/app.css        # Tailwind/Kumo 样式入口
+│   ├── db/                # SQLite 初始化与模型
+│   ├── routes/            # 核心 API 路由
+│   ├── services/          # 核心服务
+│   └── utils/             # 工具函数
+├── modules/               # 可插拔业务模块
+├── agent-rust/            # Agent 源码
+├── docs/                  # 项目文档
+└── test/                  # 测试
 ```
 
----
+## 提交规范
 
-## 🐛 报告 Bug
+使用 Conventional Commits：
 
-请通过 [GitHub Issues](https://github.com/iwvw/api-monitor/issues) 报告问题，包含以下信息：
+```text
+feat(server): add host metric endpoint
+fix(ui): align compact toolbar controls
+docs(kumo): update component registry notes
+```
 
-1. **环境**: 操作系统、Node.js 版本、浏览器
-2. **复现步骤**: 详细的操作步骤
-3. **预期行为**: 你期望发生什么
-4. **实际行为**: 实际发生了什么
-5. **截图/日志**: 如有相关截图或错误日志
+常用类型：
 
----
+- `feat`：新功能。
+- `fix`：修复问题。
+- `docs`：文档更新。
+- `refactor`：重构。
+- `perf`：性能优化。
+- `test`：测试。
+- `chore`：工具、依赖或构建变更。
 
-## 💡 功能建议
+## PR 检查清单
 
-欢迎在 [GitHub Discussions](https://github.com/iwvw/api-monitor/discussions) 提出新功能建议。
-
----
-
-## 📜 许可证
-
-通过贡献代码，你同意你的贡献将按照项目的 [MIT 许可证](LICENSE) 进行授权。
-
----
-
-感谢你的贡献！🎉
+- [ ] 已运行必要的 lint/build/test。
+- [ ] UI 改动符合 Kumo-only 规则。
+- [ ] 相关文档已更新。
+- [ ] 未回退或覆盖他人的未提交改动。
+- [ ] 没有留下临时脚本、调试输出或无关文件。

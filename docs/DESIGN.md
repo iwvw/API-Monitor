@@ -1,49 +1,96 @@
-# 🏛️ API Monitor 详细设计文档
+# API Monitor 设计文档
 
-## 项目概述
-API Monitor（内部代号 Gravity Engineering System）是一个全能型的高性能 API 管理与服务器监控聚合网关。系统采用 **单体模块化 (Micro-kernel + Plugin)** 架构，将主机监控、Docker 管理、PaaS 云服务集成（如 Cloudflare、Koyeb 等）、以及 AI 代理（Antigravity / Gemini / OpenAI 格式转换引擎）等多种功能无缝聚合。
-本项目在提供企业级特性的同时，坚持开箱即用与极简的外部架构依赖，所有状态收敛于内置的高性能 SQLite 引擎，无需引入外部的 Redis 或 MySQL 等高昂运维中间件。
+最后更新：2026-06-07
 
-## 设计理念与原则
+API Monitor 是一个单体模块化的 API 管理、云服务管理与主机监控面板。当前技术主线是 **Express + React 19 + Zustand + @cloudflare/kumo 2.5.0 + Tailwind CSS v4 + SQLite**。
 
-### 1. 微内核与高拓展性 (Micro-kernel & Plugin)
-- **核心基建层 (Core)**: 位于 `src/` 中，只负责最底层的通信协议解析、全局数据库连接、会话鉴权拦截 (Session / JWT / TOTP)、以及请求级的分级限流，不涉及任何具体的业务逻辑。
-- **模块自治层 (Modules)**: 业务逻辑被高度解耦成独立的模块。每个模块都有独立的路由定义 (`router.js`)、专有的独立存储层 (`storage.js`) 乃至独有的数据库表声明 (`schema.sql`)，可随时插拔和独立演进。
+## 架构概览
 
-### 2. 轻量化与内置生态
-- 坚决杜绝不必要的外部中间件。所有的强一致配置和弱一致缓存数据，皆通过精心调优过 WAL 模式的 `better-sqlite3` 实现纯内存级高速读写。对边缘计算环境及微型机器（如 1C1G 小主机）极度友好。
-- 前后端保持在统一的 Monorepo 中（Vue 3 + Express），部署交付目标为轻量级且极易配置的单 Docker 镜像。
+系统由三层组成：
 
-## 目录与架构映射
+1. 核心层：`src/`，负责应用入口、鉴权、中间件、全局数据库、系统设置、日志、健康检查和统一路由挂载。
+2. 模块层：`modules/*-api/`，每个业务域独立维护 router、storage、schema 和服务逻辑。
+3. 前端层：`src/js/`，React 单页应用，`MainLayout` 负责侧边栏、顶栏、页面宽度和路由状态，页面组件负责各自业务。
 
-本系统逻辑严格映射到了物理的目录层级中：
-- `src/`: 核心引擎（内核）。包含 `db/` (全局 DB 初始化，事务管理)， `middleware/` (Helmet、Auth 拦截器等中间件层)，以及 `routes/index.js` (模块统一挂载与 API 入口点)。
-- `modules/`: 所有的业务抽象。
-  - 命名格式统一约束为 `{product|feature}-api/`（如 `cloudflare-api`, `server-api`）。保证系统在不断横向扩展时依然保持极小的心智负担和统一的开发直觉。
-- `data/`: 持久化状态及所有运行时动态数据的孤岛挂载点（含 `data.db` 核心库及滚动日志系统）。
+```mermaid
+flowchart LR
+  Browser["React + Kumo Frontend"] --> Express["Express Server"]
+  Express --> Core["src/routes + src/services"]
+  Core --> DB["SQLite / better-sqlite3"]
+  Core --> Modules["modules/*-api"]
+  Modules --> DB
+  Modules --> External["Cloud / AI / Music / Host APIs"]
+  Agent["Host Agent"] --> ServerAPI["modules/server-api"]
+  ServerAPI --> DB
+  ServerAPI --> Browser
+```
 
-## 核心通信协同模型与业务抽象
+## 核心层
 
-### 1. 探针与主机监控模型 (Server-API)
-通过底层的长连接体系架构，系统提供全实时的服务器远端监控及 Web SSH 终端无感交互。
-- **通信通道隔断**: 使用 Socket.IO 提供全双工实时通信网络。通道空间严格依据业务场景垂直切割，例如 `/server` (用于高频的资源探针性能数据流推送)、`/terminal` (结合 xterm.js 实现的高响应低延迟双向 SSH 字节流)、`/logs` (针对业务应用或 Docker 的实时日志拖拉)。
-- **被动聚合控制**: 由 Go 或其他轻量级运行时编写的主机 Agent 向管理节点单向汇报多维指标，Server 控制面仅对接收到的帧数据进行原子级的 O(1) 更新操作以及高效的消息扇出广播，杜绝全局锁阻塞。
+`src/routes/index.js` 统一注册核心路由和业务模块路由。核心路由包括：
 
-### 2. Antigravity & AI Proxy 会话模型
-系统集成了应对复杂大模型对话流拦截代理的网关设计：
-- **模型上下文适配器**: 透明衔接 Google Gemini 等模型的私有请求结构，对调用者呈现出绝对一致并符合标准的 OpenAI 请求响应形态规范。
-- **基于流切割的 "Thought" 处理网关**: 在网络代理的管道流转发中，通过截流与正则状态机，捕获 Antigravity 固化引擎发出的 Thought Signatures (思考模式标记链)，不仅能在前端分离思考区块和实质回答，还能阻断不当内容的越界。
-- **自动化账户池与流量卸载**: 后端基于各内置 Provider 的额度水位、历史请求熔断失败率等多级评价标准实时控制负载的分配权重，实现面向并发的高可用模型请求路由。
+- `/health`
+- `/api/auth`
+- `/api/settings`
+- `/api/system`
+- `/api/logs`
+- `/v1`
+- `/api/server/agent/*`
 
-## 数据流与持久化策略
+核心服务集中在 `src/services/`，包括用户设置、会话、日志、系统 2FA、指标等。数据库初始化和基础模型位于 `src/db/`。
 
-为了兼顾系统容灾恢复机制的最佳体验以及单机的高级吞吐量，系统内实施了强弱两态的数据隔离存储原则：
-1. **强一致性防伪造数据 (State/Config/Keys)**: 系统的账户凭证池、AES-256-GCM 落地加密的云厂商访问 Token 等，必须走标准的事务级别强验证。落库成功才视为接口成功。
-2. **弱一致与自愈缓存数据 (Metrics/Logs/Telemetry)**: 请求级的日志瀑布流、主机的探针遥测瞬时心跳等热点高频写入，系统允许通过内存驻留与批缓冲队列进行异步落地与重试。
-3. **分表降耦限制**: 系统每次 Bootstrap 冷启动期间将对各模块子目录内部的 `schema.sql` 执行强制聚合比对和迁移。同时要求，所有从属于独立模块的数据域内禁止直接依赖外围表外键，需要模块交互时必须经由上层 Service 协议提供数据，避免牵一发而动全身。
+## 模块层
 
-## 接口设计与安全规则基线
+业务模块使用 `modules/*-api/` 目录，例如：
 
-1. **RESTful 主体响应包装**: 所有进入系统的以 `/api/{module}/操作域` 为特征的后端路由点，必须吐出遵循标准化格式包裹的数据包，供前端通用网络拦截器处理。
-2. **全周期运行时强类型防卫墙 (Zod)**: 用户传递给后端的哪怕是一串简单的 Query/Body Payload，都要先经过校验防卫逻辑（基于 Zod schemas），验证发生破坏直接触发 HTTP 中断和明确的溯源错误栈返回。
-3. **Session + 多层因子校验**: 非内网接口不但通过 Helmet 提供全面的浏览器侧防护，还受 Session Token 和独立安全池双重保护。敏感写接口进一步限制调用要求满足 TOTP（应用端验证因子）保护，全域阻挡跨站伪造访问与信息爬取。
+- `server-api`：主机实例、Agent、SSH/SFTP、Docker、历史指标。
+- `cloudflare-api`：Cloudflare 账号、域名、DNS、Workers、Pages、R2、Tunnels。
+- `openai-api`：OpenAI 兼容端点、模型、聊天与日志。
+- `gemini-cli-api`、`qwen-api`：AI 代理与调用统计。
+- `koyeb-api`、`flyio-api`：PaaS 平台状态同步。
+- `music-api`：网易云音乐代理。
+- `totp-api`、`filebox-api`、`uptime-api`、`notification-api`、`openlist-api`、`aliyun-api`、`tencent-api`：工具与云厂商能力。
+
+模块 schema 必须幂等，使用 `CREATE TABLE IF NOT EXISTS` 和必要索引。模块内部可以拥有自己的表，但不要直接依赖其他模块表的外键；跨模块数据通过服务层协调。
+
+## 前端层
+
+React 入口是 `src/js/main.jsx`，当前主页面都在 `src/js/pages/`。`src/js/store.js` 使用 Zustand 管理：
+
+- 当前模块。
+- 模块显隐与顺序。
+- 主题偏好。
+- 页面宽度偏好。
+- 用户设置加载状态。
+
+`src/js/components/MainLayout.jsx` 使用 Kumo `Sidebar` 搭建应用壳层，并通过 URL path 同步当前模块。顶栏当前使用紧凑版 `AppPageHeader`，组合 Kumo `Breadcrumbs` 与 `Tabs`。
+
+## UI 设计原则
+
+- 基础 UI 组件必须使用 Kumo。
+- 表格使用 Kumo `Table`，数据密集表格使用 `Table.ResizeHandle`。
+- 图表使用 Kumo `TimeseriesChart` / `Meter` / `ChartPalette`。
+- 删除确认优先迁移到 Kumo `DeleteResource`。
+- Toolbar、筛选行和内部层级 tabs 使用 `size="sm"`。
+- 主题色、边框、文字、背景使用 Kumo token。
+
+详细规则见 [KUMO_MIGRATION_RULES.md](./KUMO_MIGRATION_RULES.md)。
+
+## 数据与一致性
+
+SQLite 是系统唯一持久化数据库。配置、密钥、账号、模块状态等强一致数据必须同步落库后再返回成功。日志、指标、遥测等高频弱一致数据可以做批处理或缓存，但必须保证最终可查询。
+
+敏感 token 和云厂商凭证应走加密存储工具，不在前端明文长期保存。
+
+## 已废弃内容
+
+- 旧 Vue 前端入口不再是当前方案。
+- Pinia、模板加载器、旧 `src/templates/` 不再作为当前前端基线。
+- Chart.js 不再作为当前图表基线。
+- 独立 `ai-chat` 和独立 Antigravity 页面不再是当前主导航模块。
+
+## 当前风险
+
+- 删除确认仍需继续迁移到 Kumo `DeleteResource`。
+- 官方 `PageHeader` 是 block source，不是当前 barrel 运行时导出；替换本地紧凑顶栏前必须先安装/复制并适配。
+- 仍需建立全路由自动 smoke，覆盖桌面、窄屏、暗色主题和主要弹窗。

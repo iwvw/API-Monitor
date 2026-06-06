@@ -14,7 +14,7 @@ const monitorService = require('./monitor-service');
 const agentService = require('./agent-service');
 const sshService = require('./ssh-service');
 const { ServerAccount, ServerMonitorConfig, ServerMetricsHistory } = require('./models');
-const { TaskTypes, buildGpuInfo, normalizeFrontendMetrics, normalizeNetworkMetrics } = require('./protocol');
+const { TaskTypes, buildGpuInfo, normalizeFrontendMetrics, normalizeNetworkMetrics, resolveCpuTemperature } = require('./protocol');
 const DockerTaskTypes = TaskTypes; // 兼容已有 Docker 路由代码
 
 // ==================== 主机凭据接口 ====================
@@ -717,16 +717,18 @@ function buildDockerV2Task(action, payload = {}) {
       };
     case 'image.pull':
     case 'image.remove':
-    case 'image.prune':
+    case 'image.prune': {
+      const imageRef = payload.image || payload.imageId || payload.id || '';
       return {
         type: DockerTaskTypes.DOCKER_IMAGE_ACTION,
         data: {
           action: action.split('.')[1],
-          image: payload.image || '',
+          image: imageRef,
         },
         agentTimeoutSec: action === 'image.pull' ? 300 : 60,
         timeoutMs: action === 'image.pull' ? 300000 : defaultTimeoutMs,
       };
+    }
     case 'network.list':
       return {
         type: DockerTaskTypes.DOCKER_NETWORKS,
@@ -782,18 +784,21 @@ function buildDockerV2Task(action, payload = {}) {
     case 'compose.up':
     case 'compose.down':
     case 'compose.restart':
-    case 'compose.pull':
-      if (!payload.project) throw new Error('缺少 project');
+    case 'compose.pull': {
+      const composeProject = payload.project || payload.projectName || payload.Name || payload.name || '';
+      const composeConfigFile = payload.configFile || payload.config_file || payload.ConfigFiles || payload.configFiles || payload.configDir || payload.config_dir || '';
+      if (!composeProject && !composeConfigFile) throw new Error('缺少 project 或 configFile');
       return {
         type: DockerTaskTypes.DOCKER_COMPOSE_ACTION,
         data: {
           action: action.split('.')[1],
-          project: payload.project,
-          config_dir: payload.configDir || '',
+          project: composeProject,
+          config_file: composeConfigFile,
         },
         agentTimeoutSec: action === 'compose.pull' ? 300 : 120,
         timeoutMs: action === 'compose.pull' ? 300000 : 120000,
       };
+    }
     default:
       throw new Error(`不支持的 Docker action: ${action}`);
   }
@@ -1614,11 +1619,17 @@ router.post('/docker/compose/list', async (req, res) => {
  */
 router.post('/docker/compose/action', async (req, res) => {
   try {
-    const { serverId, action, project, configDir } = req.body;
-    if (!serverId || !action || !project) return res.status(400).json({ success: false, error: '缺少参数' });
+    const { serverId, action, project, configDir, configFile, config_file, ConfigFiles } = req.body;
+    const composeConfigFile = configFile || config_file || ConfigFiles || configDir || '';
+    if (!serverId || !action || (!project && !composeConfigFile)) return res.status(400).json({ success: false, error: '缺少参数' });
     if (!agentService.isOnline(serverId)) return res.status(400).json({ success: false, error: '主机不在线' });
 
-    const taskData = JSON.stringify({ action, project, config_dir: configDir });
+    const taskData = JSON.stringify({
+      action,
+      project: project || '',
+      config_file: composeConfigFile,
+      config_dir: composeConfigFile,
+    });
     const timeout = action === 'pull' ? 300 : 120;
 
     const result = await agentService.sendTaskAndWait(serverId, {
@@ -1923,7 +1934,9 @@ router.post('/metrics/collect', async (req, res) => {
           server_id: server.id,
           cpu_usage: parseFloat(metrics.cpu_usage) || 0,
           cpu_load: metrics.load || '',
-          cpu_cores: metrics.cores || 1,
+          cpu_cores: metrics.physical_cores || metrics.cores || 1,
+          cpu_threads: metrics.logical_cores || metrics.cores || 1,
+          cpu_temp: resolveCpuTemperature(metrics),
           mem_used: metrics.mem_used || 0,
           mem_total: metrics.mem_total || 0,
           mem_usage: metrics.mem_percent || 0,
@@ -1937,6 +1950,7 @@ router.post('/metrics/collect', async (req, res) => {
           gpu_mem_used: metrics.gpu_mem_used || 0,
           gpu_mem_total: metrics.gpu_mem_total || 0,
           gpu_power: parseFloat(metrics.gpu_power) || 0,
+          gpu_temp: parseFloat(metrics.gpu_temp) || 0,
           platform: metrics.platform || '',
           net_rx: parseSpeedToBytes(metrics.network?.rx_speed),
           net_tx: parseSpeedToBytes(metrics.network?.tx_speed),

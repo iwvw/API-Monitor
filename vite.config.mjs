@@ -1,4 +1,4 @@
-import { defineConfig, loadEnv } from 'vite';
+import { createLogger, defineConfig, loadEnv } from 'vite';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import react from '@vitejs/plugin-react';
@@ -7,6 +7,26 @@ import { visualizer } from 'rollup-plugin-visualizer';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const wsProxyAbortCodes = new Set(['ECONNABORTED']);
+
+function createDevLogger() {
+  const logger = createLogger();
+  const error = logger.error.bind(logger);
+
+  logger.error = (message, options) => {
+    const proxyError = options?.error;
+    const isAbortiveWsProxyClose =
+      wsProxyAbortCodes.has(proxyError?.code) &&
+      message.includes('ws proxy') &&
+      message.includes(proxyError.code);
+
+    if (isAbortiveWsProxyClose) return;
+
+    error(message, options);
+  };
+
+  return logger;
+}
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
@@ -15,6 +35,7 @@ export default defineConfig(({ mode }) => {
   return {
     root: 'src',
     base: '/',
+    customLogger: createDevLogger(),
     plugins: [
       react(),
       tailwindcss(),

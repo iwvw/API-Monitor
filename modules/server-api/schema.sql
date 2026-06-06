@@ -101,6 +101,8 @@ CREATE TABLE IF NOT EXISTS server_metrics_history (
     cpu_usage REAL,                              -- CPU 使用率 (%)
     cpu_load TEXT,                               -- 负载均值 (1/5/15)
     cpu_cores INTEGER,                           -- CPU 核心数
+    cpu_threads INTEGER DEFAULT 0,               -- CPU logical threads
+    cpu_temp REAL DEFAULT 0,                     -- CPU temperature (C)
     mem_used INTEGER,                            -- 已用内存 (MB)
     mem_total INTEGER,                           -- 总内存 (MB)
     mem_usage REAL,                              -- 内存使用率 (%)
@@ -114,6 +116,7 @@ CREATE TABLE IF NOT EXISTS server_metrics_history (
     gpu_mem_used INTEGER DEFAULT 0,              -- GPU 显存已用 (MB)
     gpu_mem_total INTEGER DEFAULT 0,             -- GPU 显存总量 (MB)
     gpu_power REAL DEFAULT 0,                    -- GPU 功耗 (W)
+    gpu_temp REAL DEFAULT 0,                     -- GPU temperature (C)
     platform TEXT,                               -- 平台信息
     net_rx REAL DEFAULT 0,                       -- 下载速度 (Bytes/s)
     net_tx REAL DEFAULT 0,                       -- 上传速度 (Bytes/s)
@@ -131,7 +134,10 @@ CREATE INDEX IF NOT EXISTS idx_metrics_history_time ON server_metrics_history(re
 
 -- 迁移：添加 GPU 监控字段 (v2.0.2)
 -- ALTER TABLE server_metrics_history ADD COLUMN gpu_usage REAL DEFAULT 0;
+-- ALTER TABLE server_metrics_history ADD COLUMN cpu_threads INTEGER DEFAULT 0;
+-- ALTER TABLE server_metrics_history ADD COLUMN cpu_temp REAL DEFAULT 0;
 -- ALTER TABLE server_metrics_history ADD COLUMN gpu_mem_used INTEGER DEFAULT 0;
 -- ALTER TABLE server_metrics_history ADD COLUMN gpu_mem_total INTEGER DEFAULT 0;
 -- ALTER TABLE server_metrics_history ADD COLUMN gpu_power REAL DEFAULT 0;
+-- ALTER TABLE server_metrics_history ADD COLUMN gpu_temp REAL DEFAULT 0;
 -- ALTER TABLE server_metrics_history ADD COLUMN platform TEXT;

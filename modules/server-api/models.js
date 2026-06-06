@@ -626,13 +626,13 @@ class ServerMetricsHistory {
   static create(data) {
     const stmt = getDb().prepare(`
             INSERT INTO server_metrics_history (
-                server_id, cpu_usage, cpu_load, cpu_cores,
+                server_id, cpu_usage, cpu_load, cpu_cores, cpu_threads, cpu_temp,
                 mem_used, mem_total, mem_usage,
                 disk_used, disk_total, disk_usage,
                 docker_installed, docker_running, docker_stopped,
-                gpu_usage, gpu_mem_used, gpu_mem_total, gpu_power,
+                gpu_usage, gpu_mem_used, gpu_mem_total, gpu_power, gpu_temp,
                 platform, net_rx, net_tx, recorded_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
 
     const now = new Date().toISOString();
@@ -641,6 +641,8 @@ class ServerMetricsHistory {
       data.cpu_usage || 0,
       data.cpu_load || '',
       data.cpu_cores || 0,
+      data.cpu_threads || data.cpu_cores || 0,
+      data.cpu_temp || 0,
       data.mem_used || 0,
       data.mem_total || 0,
       data.mem_usage || 0,
@@ -654,6 +656,7 @@ class ServerMetricsHistory {
       data.gpu_mem_used || 0,
       data.gpu_mem_total || 0,
       data.gpu_power || 0,
+      data.gpu_temp || 0,
       data.platform || '',
       data.net_rx || 0,
       data.net_tx || 0,
@@ -673,13 +676,13 @@ class ServerMetricsHistory {
 
     const insert = getDb().prepare(`
             INSERT INTO server_metrics_history (
-                server_id, cpu_usage, cpu_load, cpu_cores,
+                server_id, cpu_usage, cpu_load, cpu_cores, cpu_threads, cpu_temp,
                 mem_used, mem_total, mem_usage,
                 disk_used, disk_total, disk_usage,
                 docker_installed, docker_running, docker_stopped,
-                gpu_usage, gpu_mem_used, gpu_mem_total, gpu_power,
+                gpu_usage, gpu_mem_used, gpu_mem_total, gpu_power, gpu_temp,
                 platform, net_rx, net_tx, recorded_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
 
     const now = new Date().toISOString();
@@ -691,6 +694,8 @@ class ServerMetricsHistory {
           data.cpu_usage || 0,
           data.cpu_load || '',
           data.cpu_cores || 0,
+          data.cpu_threads || data.cpu_cores || 0,
+          data.cpu_temp || 0,
           data.mem_used || 0,
           data.mem_total || 0,
           data.mem_usage || 0,
@@ -704,6 +709,7 @@ class ServerMetricsHistory {
           data.gpu_mem_used || 0,
           data.gpu_mem_total || 0,
           data.gpu_power || 0,
+          data.gpu_temp || 0,
           data.platform || '',
           data.net_rx || 0,
           data.net_tx || 0,
@@ -859,6 +865,14 @@ function runMigrations() {
       db.exec('ALTER TABLE server_metrics_history ADD COLUMN gpu_usage REAL DEFAULT 0');
       console.log('[Models] 迁移: 添加 gpu_usage 列');
     }
+    if (!columns.includes('cpu_threads')) {
+      db.exec('ALTER TABLE server_metrics_history ADD COLUMN cpu_threads INTEGER DEFAULT 0');
+      console.log('[Models] migration: added cpu_threads column');
+    }
+    if (!columns.includes('cpu_temp')) {
+      db.exec('ALTER TABLE server_metrics_history ADD COLUMN cpu_temp REAL DEFAULT 0');
+      console.log('[Models] migration: added cpu_temp column');
+    }
     if (!columns.includes('gpu_mem_used')) {
       db.exec('ALTER TABLE server_metrics_history ADD COLUMN gpu_mem_used INTEGER DEFAULT 0');
       console.log('[Models] 迁移: 添加 gpu_mem_used 列');
@@ -870,6 +884,10 @@ function runMigrations() {
     if (!columns.includes('gpu_power')) {
       db.exec('ALTER TABLE server_metrics_history ADD COLUMN gpu_power REAL DEFAULT 0');
       console.log('[Models] 迁移: 添加 gpu_power 列');
+    }
+    if (!columns.includes('gpu_temp')) {
+      db.exec('ALTER TABLE server_metrics_history ADD COLUMN gpu_temp REAL DEFAULT 0');
+      console.log('[Models] migration: added gpu_temp column');
     }
     if (!columns.includes('platform')) {
       db.exec('ALTER TABLE server_metrics_history ADD COLUMN platform TEXT');

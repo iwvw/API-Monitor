@@ -14,6 +14,7 @@ const { loadUserSettings } = require('../services/userSettings');
 const authRouter = require('./auth');
 const healthRouter = require('./health');
 const settingsRouter = require('./settings');
+const systemRouter = require('./system');
 const logService = require('../services/log-service');
 const v1Router = require('./v1');
 const { createLogger } = require('../utils/logger');
@@ -76,6 +77,7 @@ function registerRoutes(app) {
   // 1. 基础系统路由 (无需/需认证)
   app.use('/health', healthRouter);
   app.use('/api/settings', requireAuth, settingsRouter);
+  app.use('/api/system', requireAuth, systemRouter);
   app.use('/api/logs', logService.router);
   app.use('/v1', v1Router);
 

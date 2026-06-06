@@ -22,10 +22,48 @@ try {
 }
 
 const logger = createLogger('Music');
+const UNBLOCK_TIMEOUT_MS = 8000;
+const DEFAULT_UNBLOCK_SOURCES = ['pyncmd', 'bodian'];
 
 // NCM API 库 (使用 npm 包)
 let ncmApi = null;
 let storedCookie = '';
+
+function getUnblockMatcher() {
+  if (typeof unblockmatch !== 'function') {
+    throw new Error('UnblockNeteaseMusic is not available');
+  }
+  return unblockmatch;
+}
+
+function withTimeout(promise, ms, message) {
+  let timer = null;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), ms);
+  });
+
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer) clearTimeout(timer);
+  });
+}
+
+function parseUnblockSources(source) {
+  if (!source) return DEFAULT_UNBLOCK_SOURCES;
+  const sources = String(source)
+    .split(',')
+    .map(item => item.trim())
+    .filter(Boolean);
+  return sources.length ? sources : DEFAULT_UNBLOCK_SOURCES;
+}
+
+async function matchUnblockedSong(id, sources = DEFAULT_UNBLOCK_SOURCES) {
+  const match = getUnblockMatcher();
+  return withTimeout(
+    match(Number(id), sources),
+    UNBLOCK_TIMEOUT_MS,
+    `Unblock timed out after ${UNBLOCK_TIMEOUT_MS}ms`
+  );
+}
 
 /**
  * 加载 NCM API 库
@@ -320,9 +358,7 @@ router.get('/song/url', async (req, res) => {
       logger.info(`Song ${id} needs unblock, trying...`);
 
       try {
-        const match = unblockmatch;
-        const sources = ['pyncmd', 'bodian'];
-        const unblocked = await match(Number(id), sources);
+        const unblocked = await matchUnblockedSong(id);
 
         if (unblocked && unblocked.url) {
           logger.success(`Song ${id} unblocked from ${unblocked.source}`);
@@ -388,12 +424,11 @@ router.get('/song/url/unblock', async (req, res) => {
   }
 
   try {
-    const match = unblockmatch;
-    const sources = source ? source.split(',') : ['pyncmd', 'bodian'];
+    const sources = parseUnblockSources(source);
 
     logger.info(`Unblock: trying to match song ${id} with sources:`, sources);
 
-    const result = await match(Number(id), sources);
+    const result = await matchUnblockedSong(id, sources);
 
     if (result && result.url) {
       logger.success(`Unblock: matched song ${id} from ${result.source}`);
@@ -570,7 +605,7 @@ router.get('/playlist/detail', async (req, res) => {
       );
 
       // 获取前 500 首歌的详情 (支持通过 fetch_limit 参数控制，默认 500)
-      const fetchLimit = parseInt(req.query.fetch_limit) || 500;
+      const fetchLimit = Math.min(parseInt(req.query.fetch_limit, 10) || 200, 500);
       const trackIds = result.body.playlist.trackIds.slice(0, fetchLimit).map(t => t.id);
 
       if (trackIds.length > 0 && api.song_detail) {

@@ -584,13 +584,13 @@ function NotificationPage() {
         />
 
         {notificationCurrentTab === 'channels' && (
-          <Button variant="primary" icon={<Plus className="w-4 h-4" />} onClick={handleOpenAddChannel}>
+          <Button size="sm" variant="primary" icon={<Plus className="w-4 h-4" />} onClick={handleOpenAddChannel}>
             添加渠道
           </Button>
         )}
 
         {notificationCurrentTab === 'rules' && (
-          <Button variant="primary" icon={<Plus className="w-4 h-4" />} onClick={handleOpenAddRule}>
+          <Button size="sm" variant="primary" icon={<Plus className="w-4 h-4" />} onClick={handleOpenAddRule}>
             添加规则
           </Button>
         )}
@@ -618,7 +618,7 @@ function NotificationPage() {
             <div className="flex flex-col items-center justify-center py-20 text-kumo-subtle border border-dashed border-kumo-line rounded-xl bg-kumo-recessed/10">
               <Bell className="w-12 h-12 opacity-30 mb-4" />
               <div className="text-sm">暂无通知渠道，配置通知以便发生故障时接收提醒</div>
-              <Button variant="primary" className="mt-4" onClick={handleOpenAddChannel}>
+              <Button size="sm" variant="primary" className="mt-4" onClick={handleOpenAddChannel}>
                 创建第一个渠道
               </Button>
             </div>
@@ -631,8 +631,8 @@ function NotificationPage() {
                 >
                   <div className="flex items-start justify-between gap-3">
                     {/* Icon */}
-                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-white text-base flex-shrink-0 ${
-                      channel.type === 'email' ? 'bg-[#4285f4]' : 'bg-[#26a5e4]'
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-kumo-inverse text-base flex-shrink-0 ${
+                      channel.type === 'email' ? 'bg-kumo-info' : 'bg-kumo-brand'
                     }`}>
                       {channel.type === 'email' ? <Mail className="w-4 h-4" /> : <Send className="w-4 h-4" />}
                     </div>
@@ -651,8 +651,7 @@ function NotificationPage() {
                     <div className="flex items-center gap-1.5 flex-shrink-0">
                       <Button
                         onClick={() => handleTestChannel(channel.id)}
-                        variant="ghost"
-                        size="sm"
+                        variant="ghost" size="sm"
                         shape="square"
                         aria-label="测试投递"
                         className="text-kumo-subtle hover:text-kumo-brand"
@@ -662,8 +661,7 @@ function NotificationPage() {
                       </Button>
                       <Button
                         onClick={() => handleOpenEditChannel(channel)}
-                        variant="ghost"
-                        size="sm"
+                        variant="ghost" size="sm"
                         shape="square"
                         aria-label="编辑通知渠道"
                         className="text-kumo-subtle hover:text-kumo-strong"
@@ -673,8 +671,7 @@ function NotificationPage() {
                       </Button>
                       <Button
                         onClick={() => handleDeleteChannel(channel.id)}
-                        variant="ghost"
-                        size="sm"
+                        variant="ghost" size="sm"
                         shape="square"
                         aria-label="删除通知渠道"
                         className="text-kumo-subtle hover:text-kumo-danger hover:bg-kumo-danger/10"
@@ -706,10 +703,10 @@ function NotificationPage() {
           {/* 筛选控制栏 */}
           <div className="flex items-center justify-between pb-2 select-none">
             <Select
-              aria-label="告警规则模块筛选"
-              size="sm"
+              aria-label="告警规则模块筛选" size="sm"
               value={notificationRuleFilter}
               onValueChange={setNotificationRuleFilter}
+              placeholder="所有模块"
               items={[
                 { value: '', label: '所有模块' },
                 { value: 'uptime', label: 'Uptime 监测' },
@@ -720,15 +717,13 @@ function NotificationPage() {
             <Button
               onClick={loadNotificationRules}
               disabled={notificationLoading}
-              variant="secondary"
-              size="sm"
+              variant="secondary" size="sm"
               shape="square"
               aria-label="刷新告警规则"
               className="text-kumo-subtle hover:text-kumo-strong"
               title="刷新"
-            >
-              <RotateCw className={`w-3.5 h-3.5 ${notificationLoading ? 'animate-spin' : ''}`} />
-            </Button>
+              icon={<RotateCw className={`w-3.5 h-3.5 ${notificationLoading ? 'animate-spin' : ''}`} />}
+            />
           </div>
 
           {notificationLoading && notificationRules.length === 0 ? (
@@ -750,7 +745,7 @@ function NotificationPage() {
             <div className="flex flex-col items-center justify-center py-20 text-kumo-subtle border border-dashed border-kumo-line rounded-xl bg-kumo-recessed/10">
               <AlertTriangle className="w-12 h-12 opacity-30 mb-4" />
               <div className="text-sm">暂无匹配的告警规则</div>
-              <Button variant="primary" className="mt-4" onClick={handleOpenAddRule}>
+              <Button size="sm" variant="primary" className="mt-4" onClick={handleOpenAddRule}>
                 创建告警规则
               </Button>
             </div>
@@ -763,7 +758,7 @@ function NotificationPage() {
                 >
                   <div className="flex items-start justify-between gap-3">
                     {/* Severity Indicator */}
-                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-white text-base flex-shrink-0 ${
+                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-kumo-inverse text-base flex-shrink-0 ${
                       rule.severity === 'critical'
                         ? 'bg-kumo-danger'
                         : rule.severity === 'warning'
@@ -802,8 +797,7 @@ function NotificationPage() {
                     <div className="flex items-center gap-1.5 flex-shrink-0">
                       <Button
                         onClick={() => handleOpenEditRule(rule)}
-                        variant="ghost"
-                        size="sm"
+                        variant="ghost" size="sm"
                         shape="square"
                         aria-label="编辑告警规则"
                         className="text-kumo-subtle hover:text-kumo-strong"
@@ -813,8 +807,7 @@ function NotificationPage() {
                       </Button>
                       <Button
                         onClick={() => handleDeleteRule(rule.id)}
-                        variant="ghost"
-                        size="sm"
+                        variant="ghost" size="sm"
                         shape="square"
                         aria-label="删除告警规则"
                         className="text-kumo-subtle hover:text-kumo-danger hover:bg-kumo-danger/10"
@@ -843,9 +836,8 @@ function NotificationPage() {
                       </span>
                       <Button
                         onClick={() => handleToggleRuleEnabled(rule)}
-                        variant="ghost"
-                        size="sm"
-                        className="h-6 px-1.5 text-[10px] text-kumo-brand hover:underline font-semibold"
+                        variant="ghost" size="sm"
+                        className="h-6 text-[10px] text-kumo-brand hover:underline font-semibold"
                       >
                         {rule.enabled ? '一键禁用' : '一键启用'}
                       </Button>
@@ -865,10 +857,10 @@ function NotificationPage() {
           <div className="flex items-center justify-between pb-2 gap-3 select-none">
             <div className="flex items-center gap-2">
               <Select
-                aria-label="通知历史状态筛选"
-                size="sm"
+                aria-label="通知历史状态筛选" size="sm"
                 value={notificationHistoryFilter}
                 onValueChange={setNotificationHistoryFilter}
+                placeholder="全部状态"
                 items={[
                   { value: '', label: '全部状态' },
                   { value: 'sent', label: '已发送' },
@@ -880,21 +872,18 @@ function NotificationPage() {
               <Button
                 onClick={loadNotificationHistory}
                 disabled={notificationLoading}
-                variant="secondary"
-                size="sm"
-                shape="square"
-                aria-label="刷新通知历史"
-                className="text-kumo-subtle hover:text-kumo-strong"
-                title="刷新"
-              >
-                <RotateCw className={`w-3.5 h-3.5 ${notificationLoading ? 'animate-spin' : ''}`} />
-              </Button>
+              variant="secondary" size="sm"
+              shape="square"
+              aria-label="刷新通知历史"
+              className="text-kumo-subtle hover:text-kumo-strong"
+              title="刷新"
+                icon={<RotateCw className={`w-3.5 h-3.5 ${notificationLoading ? 'animate-spin' : ''}`} />}
+              />
             </div>
 
             {notificationHistory.length > 0 && (
               <Button
-                variant="destructive"
-                size="sm"
+                variant="destructive" size="sm"
                 onClick={handleClearHistory}
                 icon={<Trash className="w-3.5 h-3.5" />}
               >
@@ -986,7 +975,7 @@ function NotificationPage() {
             {/* Base URL */}
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-kumo-subtle">看板基准 URL (用于生成通知卡片链接)</label>
-              <Input
+              <Input size="sm"
                 aria-label="看板基准 URL"
                 type="text"
                 placeholder="https://monitor.domain.com"
@@ -1001,7 +990,7 @@ function NotificationPage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 border-t border-kumo-line pt-4">
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-kumo-subtle">全局限频阀值 (条 / 小时)</label>
-                <Input
+                <Input size="sm"
                   aria-label="全局限频阀值"
                   type="number"
                   value={notificationGlobalConfig.global_rate_limit_per_hour || 100}
@@ -1013,7 +1002,7 @@ function NotificationPage() {
 
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-kumo-subtle">消息聚合归并时间 (秒)</label>
-                <Input
+                <Input size="sm"
                   aria-label="消息聚合归并时间"
                   type="number"
                   value={notificationGlobalConfig.batch_interval_seconds || 30}
@@ -1039,7 +1028,7 @@ function NotificationPage() {
           </div>
 
           <div className="flex justify-end pt-4 border-t border-kumo-line select-none">
-            <Button variant="primary" onClick={handleSaveGlobalConfig} loading={notificationSaving} icon={<Save className="w-3.5 h-3.5" />}>
+            <Button size="sm" variant="primary" onClick={handleSaveGlobalConfig} loading={notificationSaving} icon={<Save className="w-3.5 h-3.5" />}>
               保存全局配置
             </Button>
           </div>
@@ -1060,22 +1049,23 @@ function NotificationPage() {
             {/* Channel Type */}
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-kumo-subtle">渠道类型</label>
-              <Select
+              <Select size="sm"
                 aria-label="渠道类型"
                 value={channelForm.type}
                 disabled={channelForm.id !== null}
                 onValueChange={(value) => setChannelForm(prev => ({ ...prev, type: String(value) }))}
                 className="w-full bg-kumo-recessed text-kumo-strong text-sm px-3 py-2 border border-kumo-line rounded-md focus:outline-none focus:border-kumo-brand"
-              >
-                <Select.Option value="email">电子邮件</Select.Option>
-                <Select.Option value="telegram">Telegram Bot</Select.Option>
-              </Select>
+                items={[
+                  { value: 'email', label: '电子邮件' },
+                  { value: 'telegram', label: 'Telegram Bot' },
+                ]}
+              />
             </div>
 
             {/* Channel Name */}
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-kumo-subtle">显示名称 *</label>
-              <Input
+              <Input size="sm"
                 aria-label="显示名称"
                 type="text"
                 placeholder="例如：运维值班邮箱"
@@ -1090,7 +1080,7 @@ function NotificationPage() {
               <>
                 <div className="space-y-1.5">
                   <label className="text-xs font-semibold text-kumo-subtle">SMTP 主机服务器地址 *</label>
-                  <Input
+                  <Input size="sm"
                     aria-label="SMTP 主机服务器地址"
                     type="text"
                     placeholder="smtp.gmail.com or smtp.exmail.qq.com"
@@ -1106,7 +1096,7 @@ function NotificationPage() {
                 <div className="grid grid-cols-2 gap-3">
                   <div className="space-y-1.5">
                     <label className="text-xs font-semibold text-kumo-subtle">连接端口</label>
-                    <Input
+                    <Input size="sm"
                       aria-label="连接端口"
                       type="number"
                       placeholder="465"
@@ -1118,7 +1108,7 @@ function NotificationPage() {
 
                   <div className="space-y-1.5">
                     <label className="text-xs font-semibold text-kumo-subtle">加密安全协议</label>
-                    <Select
+                    <Select size="sm"
                       aria-label="加密安全协议"
                       value={channelForm.config.secure ? 'ssl' : 'tls'}
                       onValueChange={(value) => setChannelForm(prev => ({
@@ -1126,16 +1116,17 @@ function NotificationPage() {
                         config: { ...prev.config, secure: String(value) === 'ssl' }
                       }))}
                       className="w-full bg-kumo-recessed text-kumo-strong text-sm px-3 py-2 border border-kumo-line rounded-md focus:outline-none focus:border-kumo-brand"
-                    >
-                      <Select.Option value="tls">STARTTLS / TLS（587）</Select.Option>
-                      <Select.Option value="ssl">SSL（465）</Select.Option>
-                    </Select>
+                      items={[
+                        { value: 'tls', label: 'STARTTLS / TLS（587）' },
+                        { value: 'ssl', label: 'SSL（465）' },
+                      ]}
+                    />
                   </div>
                 </div>
 
                 <div className="space-y-1.5">
                   <label className="text-xs font-semibold text-kumo-subtle">发件账户邮箱账号 *</label>
-                  <Input
+                  <Input size="sm"
                     aria-label="发件账户邮箱账号"
                     type="email"
                     placeholder="account@gmail.com"
@@ -1153,7 +1144,7 @@ function NotificationPage() {
 
                 <div className="space-y-1.5">
                   <label className="text-xs font-semibold text-kumo-subtle">SMTP 授权口令 / 应用密码 *</label>
-                  <Input
+                  <Input size="sm"
                     aria-label="SMTP 授权口令"
                     type="password"
                     placeholder="your_smtp_app_password"
@@ -1171,7 +1162,7 @@ function NotificationPage() {
 
                 <div className="space-y-1.5">
                   <label className="text-xs font-semibold text-kumo-subtle">发件人昵称（可选）</label>
-                  <Input
+                  <Input size="sm"
                     aria-label="发件人昵称"
                     type="text"
                     placeholder="API Monitor Alerter"
@@ -1186,7 +1177,7 @@ function NotificationPage() {
 
                 <div className="space-y-1.5">
                   <label className="text-xs font-semibold text-kumo-subtle">收件目的邮箱 *</label>
-                  <Input
+                  <Input size="sm"
                     aria-label="收件目的邮箱"
                     type="email"
                     placeholder="recipient@domain.com"
@@ -1206,7 +1197,7 @@ function NotificationPage() {
               <>
                 <div className="space-y-1.5">
                   <label className="text-xs font-semibold text-kumo-subtle">Telegram Bot 令牌 *</label>
-                  <Input
+                  <Input size="sm"
                     aria-label="Telegram Bot 令牌"
                     type="text"
                     placeholder="123456789:ABCDefgh..."
@@ -1221,7 +1212,7 @@ function NotificationPage() {
 
                 <div className="space-y-1.5">
                   <label className="text-xs font-semibold text-kumo-subtle">接收目标 Chat ID *</label>
-                  <Input
+                  <Input size="sm"
                     aria-label="接收目标 Chat ID"
                     type="text"
                     placeholder="例如：123456789 或 -100987654321"
@@ -1250,12 +1241,12 @@ function NotificationPage() {
           <div className="flex justify-end gap-3 mt-6 border-t border-kumo-line pt-4 select-none">
             <Dialog.Close
               render={(props) => (
-                <Button {...props} variant="secondary">
+                <Button size="sm" {...props} variant="secondary">
                   取消
                 </Button>
               )}
             />
-            <Button variant="primary" onClick={handleSaveChannel} loading={notificationSaving} icon={<Save className="w-3.5 h-3.5" />}>
+            <Button size="sm" variant="primary" onClick={handleSaveChannel} loading={notificationSaving} icon={<Save className="w-3.5 h-3.5" />}>
               保存渠道
             </Button>
           </div>
@@ -1276,7 +1267,7 @@ function NotificationPage() {
             {/* Rule Name */}
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-kumo-subtle">规则名称 *</label>
-              <Input
+              <Input size="sm"
                 aria-label="规则名称"
                 type="text"
                 placeholder="例如：数据库故障告警"
@@ -1290,59 +1281,58 @@ function NotificationPage() {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-kumo-subtle">来源监控模块</label>
-                <Select
+                <Select size="sm"
                   aria-label="来源监控模块"
                   value={ruleForm.source_module}
                   onValueChange={(value) => handleSourceModuleChange(String(value))}
                   className="w-full bg-kumo-recessed text-kumo-strong text-sm px-3 py-2 border border-kumo-line rounded-md focus:outline-none focus:border-kumo-brand"
-                >
-                  <Select.Option value="uptime">Uptime 监测</Select.Option>
-                  <Select.Option value="server">Host 主机管理</Select.Option>
-                </Select>
+                  items={[
+                    { value: 'uptime', label: 'Uptime 监测' },
+                    { value: 'server', label: 'Host 主机管理' },
+                  ]}
+                />
               </div>
 
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-kumo-subtle">触发事件类型</label>
-                <Select
+                <Select size="sm"
                   aria-label="触发事件类型"
                   value={ruleForm.event_type}
                   onValueChange={(value) => setRuleForm(prev => ({ ...prev, event_type: String(value) }))}
                   className="w-full bg-kumo-recessed text-kumo-strong text-sm px-3 py-2 border border-kumo-line rounded-md focus:outline-none focus:border-kumo-brand"
-                >
-                  {ruleForm.source_module === 'uptime' ? (
-                    <>
-                      <Select.Option value="down">服务下线宕机 (Down)</Select.Option>
-                      <Select.Option value="up">服务恢复正常 (Up)</Select.Option>
-                    </>
-                  ) : (
-                    <>
-                      <Select.Option value="offline">主机离线 (Offline)</Select.Option>
-                      <Select.Option value="online">主机恢复上线 (Online)</Select.Option>
-                      <Select.Option value="cpu_high">CPU 高负载 (&gt;90%)</Select.Option>
-                      <Select.Option value="cpu_normal">CPU 负载恢复</Select.Option>
-                      <Select.Option value="memory_high">内存不足 (&gt;90%)</Select.Option>
-                      <Select.Option value="memory_normal">内存占用恢复</Select.Option>
-                      <Select.Option value="disk_high">磁盘空间告急 (&gt;90%)</Select.Option>
-                      <Select.Option value="disk_normal">磁盘占用恢复</Select.Option>
-                    </>
-                  )}
-                </Select>
+                  items={ruleForm.source_module === 'uptime'
+                    ? [
+                      { value: 'down', label: '服务下线宕机 (Down)' },
+                      { value: 'up', label: '服务恢复正常 (Up)' },
+                    ]
+                    : [
+                      { value: 'offline', label: '主机离线 (Offline)' },
+                      { value: 'online', label: '主机恢复上线 (Online)' },
+                      { value: 'cpu_high', label: 'CPU 高负载 (>90%)' },
+                      { value: 'cpu_normal', label: 'CPU 负载恢复' },
+                      { value: 'memory_high', label: '内存不足 (>90%)' },
+                      { value: 'memory_normal', label: '内存占用恢复' },
+                      { value: 'disk_high', label: '磁盘空间告急 (>90%)' },
+                      { value: 'disk_normal', label: '磁盘占用恢复' },
+                    ]}
+                />
               </div>
             </div>
 
             {/* Severity Level */}
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-kumo-subtle">告警紧急级别</label>
-              <Select
+              <Select size="sm"
                 aria-label="告警紧急级别"
                 value={ruleForm.severity}
                 onValueChange={(value) => setRuleForm(prev => ({ ...prev, severity: String(value) }))}
                 className="w-full bg-kumo-recessed text-kumo-strong text-sm px-3 py-2 border border-kumo-line rounded-md focus:outline-none focus:border-kumo-brand"
-              >
-                <Select.Option value="info">常规通知 (Info)</Select.Option>
-                <Select.Option value="warning">重要警告 (Warning)</Select.Option>
-                <Select.Option value="critical">紧急呼叫 (Critical)</Select.Option>
-              </Select>
+                items={[
+                  { value: 'info', label: '常规通知 (Info)' },
+                  { value: 'warning', label: '重要警告 (Warning)' },
+                  { value: 'critical', label: '紧急呼叫 (Critical)' },
+                ]}
+              />
             </div>
 
             {/* Target Delivery Channels Checkboxes */}
@@ -1372,7 +1362,7 @@ function NotificationPage() {
             <div className="grid grid-cols-2 gap-3">
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-kumo-subtle">累计触发次数再告警</label>
-                <Input
+                <Input size="sm"
                   aria-label="累计触发次数再告警"
                   type="number"
                   min="1"
@@ -1387,7 +1377,7 @@ function NotificationPage() {
 
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-kumo-subtle">冷却静默期 (分钟)</label>
-                <Input
+                <Input size="sm"
                   aria-label="冷却静默期"
                   type="number"
                   min="0"
@@ -1427,7 +1417,7 @@ function NotificationPage() {
             {/* Custom Template Titles */}
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-kumo-subtle">自定义标题模板 (可选，支持 {'{{变量}}'})</label>
-              <Input
+              <Input size="sm"
                 aria-label="自定义标题模板"
                 type="text"
                 placeholder="例: 🚨 [{{severity}}] 主机 {{serverName}} 离线!"
@@ -1452,7 +1442,7 @@ function NotificationPage() {
             {/* Quiet until */}
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-kumo-subtle">手动全局静默直至 (在此时间前屏蔽此规则)</label>
-              <Input
+              <Input size="sm"
                 aria-label="手动全局静默直至"
                 type="datetime-local"
                 value={ruleForm.quiet_until}
@@ -1475,12 +1465,12 @@ function NotificationPage() {
           <div className="flex justify-end gap-3 mt-6 border-t border-kumo-line pt-4 select-none">
             <Dialog.Close
               render={(props) => (
-                <Button {...props} variant="secondary">
+                <Button size="sm" {...props} variant="secondary">
                   取消
                 </Button>
               )}
             />
-            <Button variant="primary" onClick={handleSaveRule} loading={notificationSaving} icon={<Save className="w-3.5 h-3.5" />}>
+            <Button size="sm" variant="primary" onClick={handleSaveRule} loading={notificationSaving} icon={<Save className="w-3.5 h-3.5" />}>
               保存规则
             </Button>
           </div>

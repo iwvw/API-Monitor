@@ -281,6 +281,83 @@ function buildGpuInfo(metrics = {}) {
   };
 }
 
+function parseTemperatureValue(value) {
+  if (value === null || value === undefined || value === '') return null;
+  const parsed = typeof value === 'number'
+    ? value
+    : parseFloat(String(value).replace(/[^\d.-]/g, ''));
+  if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 130) return null;
+  return parsed;
+}
+
+function collectTemperatureReadings(input, parentName = '') {
+  if (!Array.isArray(input)) return [];
+
+  const readings = [];
+  for (const sensor of input) {
+    if (sensor === null || sensor === undefined) continue;
+
+    if (typeof sensor !== 'object') {
+      const value = parseTemperatureValue(sensor);
+      if (value !== null) readings.push({ name: parentName, value });
+      continue;
+    }
+
+    const ownName = [
+      parentName,
+      sensor.name ?? sensor.Name ?? sensor.label ?? sensor.Label ?? sensor.sensor ?? sensor.Sensor ?? sensor.type ?? sensor.Type,
+    ].filter(Boolean).join(' ');
+    const value = parseTemperatureValue(
+      sensor.temperature ?? sensor.Temperature ?? sensor.temp ?? sensor.Temp ?? sensor.current ?? sensor.Current ?? sensor.value ?? sensor.Value,
+    );
+    if (value !== null) readings.push({ name: ownName, value });
+
+    for (const key of ['entries', 'Sensors', 'sensors', 'values', 'children']) {
+      readings.push(...collectTemperatureReadings(sensor[key], ownName));
+    }
+  }
+
+  return readings;
+}
+
+function getCpuTemperatureRank(name) {
+  const normalized = String(name || '').toLowerCase();
+  if (/gpu|nvidia|radeon|nvme|ssd|hdd|disk|drive|battery|fan|ambient/.test(normalized)) return 0;
+  if (/package|tctl|tdie|x86_pkg|cpu package/.test(normalized)) return 5;
+  if (/\bcpu\b|cpu_thermal/.test(normalized)) return 4;
+  if (/core\s*\d+|coretemp|k10temp/.test(normalized)) return 3;
+  if (/thermal/.test(normalized)) return 1;
+  return 0;
+}
+
+function resolveCpuTemperature(metrics = {}) {
+  if (!metrics || typeof metrics !== 'object') return 0;
+
+  const explicitSources = [
+    metrics.cpu_temp,
+    metrics.cpuTemp,
+    metrics.cpu_temperature,
+    metrics.cpuTemperature,
+    metrics.cpu?.Temp,
+    metrics.cpu?.temp,
+  ];
+  for (const source of explicitSources) {
+    const explicit = parseTemperatureValue(source);
+    if (explicit !== null) return explicit;
+  }
+
+  const readings = collectTemperatureReadings(metrics.temperatures || metrics.temperature_sensors || metrics.sensors);
+  const ranked = readings
+    .map(reading => ({ ...reading, rank: getCpuTemperatureRank(reading.name) }))
+    .filter(reading => reading.rank > 0)
+    .sort((a, b) => (b.rank - a.rank) || (b.value - a.value));
+
+  if (ranked.length > 0) return ranked[0].value;
+
+  const usable = readings.filter(reading => getCpuTemperatureRank(reading.name) !== 0);
+  return usable.length === 1 ? usable[0].value : 0;
+}
+
 function normalizeFrontendMetrics(metrics = {}) {
   if (!metrics || typeof metrics !== 'object') return metrics;
   const normalized = {
@@ -292,6 +369,7 @@ function normalizeFrontendMetrics(metrics = {}) {
     normalized.network = normalizeNetworkMetrics(metrics.network);
   }
 
+  normalized.cpu_temp = resolveCpuTemperature(normalized);
   normalized.gpu_mem_percent = resolveGpuMemoryPercent(normalized);
 
   return normalized;
@@ -362,7 +440,7 @@ function stateToFrontendFormat(state, hostInfo = {}) {
   const tcpConn = safeNumber(state.tcp_conn_count);
   const udpConn = safeNumber(state.udp_conn_count);
   const uptime = safeNumber(state.uptime);
-  const cpuTemp = safeNumber(state.cpu_temp || state.cpuTemp);
+  const cpuTemp = resolveCpuTemperature(state);
   const gpuTemp = safeNumber(state.gpu_temp || state.gpuTemp);
 
   // GPU 显存
@@ -453,6 +531,7 @@ module.exports = {
   normalizeByteText,
   normalizeNetworkMetrics,
   normalizeFrontendMetrics,
+  resolveCpuTemperature,
   resolveGpuMemoryPercent,
   buildGpuInfo,
   sanitizeIp,

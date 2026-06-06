@@ -39,8 +39,8 @@ function cfRequest(auth, method, path, body = null) {
       }
     });
 
-    // 处理 GraphQL 路径
-    const fullPath = path.startsWith('/graphql') ? path : `/client/v4${path}`;
+    const isGraphqlRequest = path === '/graphql' || path.startsWith('/graphql?');
+    const fullPath = path.startsWith('/client/v4') ? path : `/client/v4${path}`;
 
     const options = {
       hostname: CF_API_BASE,
@@ -60,7 +60,19 @@ function cfRequest(auth, method, path, body = null) {
         res.on('end', () => {
           try {
             const json = JSON.parse(data);
-            if (json.success || (res.statusCode >= 200 && res.statusCode < 300 && json.result)) {
+            if (isGraphqlRequest && res.statusCode >= 200 && res.statusCode < 300) {
+              if (Array.isArray(json.errors) && json.errors.length > 0) {
+                const errorMsg = json.errors.map(e => e.message).join(', ') || 'GraphQL error';
+                const error = new Error(errorMsg);
+                error.statusCode = res.statusCode;
+                error.response = data;
+                error.path = path;
+                reject(error);
+                return;
+              }
+
+              resolve(json);
+            } else if (json.success || (res.statusCode >= 200 && res.statusCode < 300 && json.result)) {
               resolve(json);
             } else {
               const errors = json.errors || [];
@@ -563,6 +575,96 @@ async function getSimpleAnalytics(auth, zoneId, timeRange = '24h') {
 /**
  * 计算缓存命中率
  */
+function getSimpleAnalyticsWindow(timeRange = '24h') {
+  const limits = {
+    '24h': 24,
+    '7d': 168,
+    '30d': 720,
+  };
+  const hours = limits[timeRange] || 24;
+  const until = new Date();
+  const since = new Date(until.getTime() - hours * 60 * 60 * 1000);
+
+  return {
+    since: since.toISOString(),
+    until: until.toISOString(),
+  };
+}
+
+function toAnalyticsNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
+}
+
+function readDashboardMetric(metric, keys = ['all']) {
+  if (metric === null || metric === undefined) return 0;
+  if (typeof metric === 'number' || typeof metric === 'string') {
+    return toAnalyticsNumber(metric);
+  }
+
+  for (const key of keys) {
+    if (metric[key] !== null && metric[key] !== undefined) {
+      return toAnalyticsNumber(metric[key]);
+    }
+  }
+
+  const firstNumber = Object.values(metric).find(value => (
+    typeof value === 'number' || typeof value === 'string'
+  ));
+
+  return toAnalyticsNumber(firstNumber);
+}
+
+function hasSimpleAnalyticsData(analytics = {}) {
+  return ['requests', 'bandwidth', 'threats', 'pageViews', 'uniques'].some(
+    key => toAnalyticsNumber(analytics[key]) > 0
+  );
+}
+
+function normalizeDashboardAnalytics(dashboard = {}) {
+  const totals = dashboard.totals || {};
+  const timeseries = Array.isArray(dashboard.timeseries)
+    ? dashboard.timeseries.map(point => ({
+      datetime: point.since || point.until || point.date || null,
+      requests: readDashboardMetric(point.requests, ['all', 'requests']),
+      bandwidth: readDashboardMetric(point.bandwidth || point.bytes, ['all', 'bytes']),
+      cachedRequests: readDashboardMetric(point.requests, ['cached', 'cachedRequests']),
+      cachedBytes: readDashboardMetric(point.bandwidth || point.bytes, ['cached', 'cachedBytes']),
+      threats: readDashboardMetric(point.threats, ['all', 'threats']),
+      pageViews: readDashboardMetric(point.pageviews || point.pageViews, ['all', 'pageviews', 'pageViews']),
+      uniques: readDashboardMetric(point.uniques, ['all', 'uniques']),
+    }))
+    : [];
+
+  const requests = readDashboardMetric(totals.requests, ['all', 'requests']);
+  const cachedRequests = readDashboardMetric(totals.requests, ['cached', 'cachedRequests']);
+
+  return {
+    requests,
+    bandwidth: readDashboardMetric(totals.bandwidth || totals.bytes, ['all', 'bytes']),
+    threats: readDashboardMetric(totals.threats, ['all', 'threats']),
+    pageViews: readDashboardMetric(totals.pageviews || totals.pageViews, ['all', 'pageviews', 'pageViews']),
+    uniques: readDashboardMetric(totals.uniques, ['all', 'uniques']),
+    cacheHitRate: requests > 0 ? Math.round((cachedRequests / requests) * 100) : 0,
+    timeseries,
+  };
+}
+
+async function getSimpleAnalyticsWithFallback(auth, zoneId, timeRange = '24h') {
+  const primary = await getSimpleAnalytics(auth, zoneId, timeRange);
+  if (hasSimpleAnalyticsData(primary)) return primary;
+
+  try {
+    const rangeWindow = getSimpleAnalyticsWindow(timeRange);
+    const dashboard = await getZoneAnalytics(auth, zoneId, rangeWindow);
+    const fallback = normalizeDashboardAnalytics(dashboard || {});
+    return hasSimpleAnalyticsData(fallback) ? fallback : primary;
+  } catch (e) {
+    console.warn('[CF-API] Dashboard Analytics fallback failed:', e.message);
+    throw e;
+  }
+}
+
 function calculateCacheHitRate(totals) {
   const cached = totals.requests?.cached || 0;
   const all = totals.requests?.all || 0;
@@ -1547,7 +1649,7 @@ module.exports = {
 
   // Analytics 分析
   getZoneAnalytics,
-  getSimpleAnalytics,
+  getSimpleAnalytics: getSimpleAnalyticsWithFallback,
 
   // 实用函数
   getSupportedRecordTypes,

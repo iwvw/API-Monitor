@@ -8,6 +8,7 @@ import { Select } from '@cloudflare/kumo/components/select';
 import { Table } from '@cloudflare/kumo/components/table';
 import { Checkbox } from '@cloudflare/kumo/components/checkbox';
 import { Tabs } from '@cloudflare/kumo';
+import { AnimatedCollapse } from '../components/AnimatedCollapse.jsx';
 import useStore from '../store.js';
 import { MODULE_TABS_PROPS } from '../modules/kumoTabs.js';
 import {
@@ -38,9 +39,40 @@ import {
   Rocket
 } from '../components/Icons.jsx';
 
+const DEFAULT_PAAS_REFRESH_INTERVAL_SEC = 30;
+const MIN_PAAS_REFRESH_INTERVAL_SEC = 5;
+const MAX_PAAS_REFRESH_INTERVAL_SEC = 3600;
+
+const clampRefreshIntervalSec = (value) => (
+  Math.min(MAX_PAAS_REFRESH_INTERVAL_SEC, Math.max(MIN_PAAS_REFRESH_INTERVAL_SEC, Math.round(value)))
+);
+
+const normalizeRefreshIntervalInputSec = (value) => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return DEFAULT_PAAS_REFRESH_INTERVAL_SEC;
+  return clampRefreshIntervalSec(numeric);
+};
+
+const normalizeStoredRefreshIntervalSec = (value) => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return DEFAULT_PAAS_REFRESH_INTERVAL_SEC;
+
+  let seconds = numeric >= 1000 ? numeric / 1000 : numeric;
+  while (
+    seconds > MAX_PAAS_REFRESH_INTERVAL_SEC &&
+    Number.isInteger(seconds / 1000) &&
+    seconds / 1000 >= MIN_PAAS_REFRESH_INTERVAL_SEC
+  ) {
+    seconds /= 1000;
+  }
+
+  return clampRefreshIntervalSec(seconds);
+};
+
 function PaasPage() {
   const { theme } = useStore();
   const [activeTab, setActiveTab] = useState('koyeb'); // 'koyeb' | 'fly' | 'accounts' | 'settings'
+  const didInitialLoadRef = useRef(false);
 
   // Global Auth Header
   const getAuthHeaders = useCallback(() => {
@@ -65,6 +97,20 @@ function PaasPage() {
 
   const [koyebCountdown, setKoyebCountdown] = useState(30);
   const [flyCountdown, setFlyCountdown] = useState(30);
+  const koyebIntervalSecRef = useRef(koyebIntervalSec);
+  const flyIntervalSecRef = useRef(flyIntervalSec);
+  const koyebRefreshingRef = useRef(false);
+  const flyRefreshingRef = useRef(false);
+  const koyebAccountsRef = useRef([]);
+  const flyAccountsRef = useRef([]);
+
+  useEffect(() => {
+    koyebIntervalSecRef.current = normalizeRefreshIntervalInputSec(koyebIntervalSec);
+  }, [koyebIntervalSec]);
+
+  useEffect(() => {
+    flyIntervalSecRef.current = normalizeRefreshIntervalInputSec(flyIntervalSec);
+  }, [flyIntervalSec]);
 
   // Load Settings
   const loadSettings = useCallback(async () => {
@@ -77,12 +123,12 @@ function PaasPage() {
         if (result.success && result.data) {
           const settings = result.data;
           if (settings.koyebRefreshInterval) {
-            const sec = settings.koyebRefreshInterval / 1000;
+            const sec = normalizeStoredRefreshIntervalSec(settings.koyebRefreshInterval);
             setKoyebIntervalSec(sec);
             setKoyebCountdown(sec);
           }
           if (settings.flyRefreshInterval) {
-            const sec = settings.flyRefreshInterval / 1000;
+            const sec = normalizeStoredRefreshIntervalSec(settings.flyRefreshInterval);
             setFlyIntervalSec(sec);
             setFlyCountdown(sec);
           }
@@ -95,9 +141,11 @@ function PaasPage() {
 
   const saveSettings = async () => {
     try {
+      const koyebSec = normalizeRefreshIntervalInputSec(koyebIntervalSec);
+      const flySec = normalizeRefreshIntervalInputSec(flyIntervalSec);
       const settings = {
-        koyebRefreshInterval: koyebIntervalSec * 1000,
-        flyRefreshInterval: flyIntervalSec * 1000,
+        koyebRefreshInterval: koyebSec * 1000,
+        flyRefreshInterval: flySec * 1000,
       };
       const response = await fetch('/api/settings', {
         method: 'PATCH',
@@ -106,8 +154,10 @@ function PaasPage() {
       });
       if (response.ok) {
         toast.success('PaaS 自动刷新配置已保存');
-        setKoyebCountdown(koyebIntervalSec);
-        setFlyCountdown(flyIntervalSec);
+        setKoyebIntervalSec(koyebSec);
+        setFlyIntervalSec(flySec);
+        setKoyebCountdown(koyebSec);
+        setFlyCountdown(flySec);
       } else {
         toast.error('保存失败');
       }
@@ -266,9 +316,10 @@ function PaasPage() {
 
   // Load Koyeb Data Snapshot
   const loadKoyebData = useCallback(async (isManual = false) => {
-    if (koyebRefreshing) return;
+    if (koyebRefreshingRef.current) return;
+    koyebRefreshingRef.current = true;
     setKoyebRefreshing(true);
-    if (isManual || koyebAccounts.length === 0) {
+    if (isManual || koyebAccountsRef.current.length === 0) {
       setKoyebLoading(true);
     }
 
@@ -313,10 +364,11 @@ function PaasPage() {
       }
     } finally {
       setKoyebLoading(false);
+      koyebRefreshingRef.current = false;
       setKoyebRefreshing(false);
-      setKoyebCountdown(koyebIntervalSec);
+      setKoyebCountdown(koyebIntervalSecRef.current);
     }
-  }, [getAuthHeaders, koyebRefreshing, koyebAccounts.length, koyebIntervalSec, saveToKoyebCache]);
+  }, [getAuthHeaders, saveToKoyebCache]);
 
   const toggleKoyebAccount = (accountName) => {
     setKoyebExpandedAccounts(prev => ({
@@ -653,6 +705,14 @@ function PaasPage() {
   const [flyRefreshing, setFlyRefreshing] = useState(false);
   const [flyExpandedAccounts, setFlyExpandedAccounts] = useState({});
 
+  useEffect(() => {
+    koyebAccountsRef.current = koyebAccounts;
+  }, [koyebAccounts]);
+
+  useEffect(() => {
+    flyAccountsRef.current = flyAccounts;
+  }, [flyAccounts]);
+
   const saveToFlyCache = useCallback((data) => {
     try {
       localStorage.setItem('fly_data_snapshots', JSON.stringify([{
@@ -677,9 +737,10 @@ function PaasPage() {
   }, []);
 
   const loadFlyData = useCallback(async (isManual = false) => {
-    if (flyRefreshing) return;
+    if (flyRefreshingRef.current) return;
+    flyRefreshingRef.current = true;
     setFlyRefreshing(true);
-    if (isManual || flyAccounts.length === 0) {
+    if (isManual || flyAccountsRef.current.length === 0) {
       setFlyLoading(true);
     }
 
@@ -731,10 +792,11 @@ function PaasPage() {
       }
     } finally {
       setFlyLoading(false);
+      flyRefreshingRef.current = false;
       setFlyRefreshing(false);
-      setFlyCountdown(flyIntervalSec);
+      setFlyCountdown(flyIntervalSecRef.current);
     }
-  }, [getAuthHeaders, flyRefreshing, flyAccounts.length, flyIntervalSec, saveToFlyCache]);
+  }, [getAuthHeaders, saveToFlyCache]);
 
   const toggleFlyAccount = (accountName) => {
     setFlyExpandedAccounts(prev => ({
@@ -1508,6 +1570,9 @@ function PaasPage() {
 
   // ==================== 6. Automatic Refresher Effect ====================
   useEffect(() => {
+    if (didInitialLoadRef.current) return;
+    didInitialLoadRef.current = true;
+
     loadSettings();
     loadFromKoyebCache();
     loadFromFlyCache();
@@ -1550,9 +1615,9 @@ function PaasPage() {
   }, [activeTab, flyAutoPaused, flyIntervalSec, loadFlyData]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Tab bar header */}
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-kumo-line pb-4">
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-3 border-b border-kumo-line pb-3">
         <div>
           <h1 className="text-xl font-bold text-kumo-strong">PaaS 平台管理</h1>
           <p className="text-xs text-kumo-subtle">Koyeb 与 Fly.io 云平台监控、运维及多账号配置</p>
@@ -1563,8 +1628,7 @@ function PaasPage() {
               <RefreshCw className={`w-3.5 h-3.5 ${koyebRefreshing ? 'animate-spin' : ''}`} />
               <span>{koyebCountdown} 秒后刷新</span>
               <Button
-                shape="square"
-                size="xs"
+                shape="square" size="sm"
                 variant="ghost"
                 aria-label={koyebAutoPaused ? '恢复 Koyeb 自动刷新' : '暂停 Koyeb 自动刷新'}
                 onClick={() => setKoyebAutoPaused(!koyebAutoPaused)}
@@ -1579,8 +1643,7 @@ function PaasPage() {
               <RefreshCw className={`w-3.5 h-3.5 ${flyRefreshing ? 'animate-spin' : ''}`} />
               <span>{flyCountdown} 秒后刷新</span>
               <Button
-                shape="square"
-                size="xs"
+                shape="square" size="sm"
                 variant="ghost"
                 aria-label={flyAutoPaused ? '恢复 Fly 自动刷新' : '暂停 Fly 自动刷新'}
                 onClick={() => setFlyAutoPaused(!flyAutoPaused)}
@@ -1599,22 +1662,22 @@ function PaasPage() {
         value={activeTab}
         onValueChange={setActiveTab}
         tabs={[
-          { value: 'koyeb', label: <span className="inline-flex items-center gap-1.5"><Database className="w-4 h-4 text-indigo-500" />Koyeb</span> },
-          { value: 'fly', label: <span className="inline-flex items-center gap-1.5"><Rocket className="w-4 h-4 text-violet-500" />Fly.io</span> },
-          { value: 'accounts', label: <span className="inline-flex items-center gap-1.5"><Users className="w-4 h-4 text-emerald-500" />账号管理</span> },
+          { value: 'koyeb', label: <span className="inline-flex items-center gap-1.5"><Database className="w-4 h-4 text-kumo-info" />Koyeb</span> },
+          { value: 'fly', label: <span className="inline-flex items-center gap-1.5"><Rocket className="w-4 h-4 text-kumo-brand" />Fly.io</span> },
+          { value: 'accounts', label: <span className="inline-flex items-center gap-1.5"><Users className="w-4 h-4 text-kumo-success" />账号管理</span> },
           { value: 'settings', label: <span className="inline-flex items-center gap-1.5"><Settings className="w-4 h-4" />模块配置</span> },
         ]}
       />
 
       {/* ==================== Koyeb Tab Content ==================== */}
       {activeTab === 'koyeb' && (
-        <div className="space-y-4 quick-fade-in">
-          <div className="bg-kumo-info/10 border border-kumo-info/20 text-kumo-default p-4 rounded-lg flex items-center justify-between">
-            <div className="text-xs">
+        <div className="space-y-3 quick-fade-in">
+          <div className="bg-kumo-info/10 border border-kumo-info/20 text-kumo-default px-3 py-2.5 rounded-md flex flex-wrap items-center justify-between gap-2">
+            <div className="text-xs leading-tight">
               <strong>Koyeb 监控自动拉取中</strong>
-              <p className="text-kumo-subtle mt-0.5">每 {koyebIntervalSec} 秒从所有已配置的账号同步状态</p>
+              <span className="ml-2 text-kumo-subtle">每 {koyebIntervalSec} 秒同步全部账号状态</span>
             </div>
-            <Button onClick={() => loadKoyebData(true)} disabled={koyebRefreshing} className="text-xs font-semibold px-3 py-1 flex items-center gap-1.5">
+            <Button size="sm" onClick={() => loadKoyebData(true)} disabled={koyebRefreshing} className="text-xs font-semibold flex items-center gap-1.5">
               <RefreshCw className={`w-3.5 h-3.5 ${koyebRefreshing ? 'animate-spin' : ''}`} />
               <span>立即刷新</span>
             </Button>
@@ -1630,19 +1693,19 @@ function PaasPage() {
               暂无配置 Koyeb 账号。请前往“账号管理”添加账号 API 令牌。
             </div>
           ) : (
-            <div className="space-y-4">
+            <div className="space-y-3">
               {koyebAccounts.map((account) => {
                 const expanded = isKoyebAccountExpanded(account.name);
                 return (
                   <div key={account.name} className="bg-kumo-base border border-kumo-line rounded-lg overflow-hidden shadow-sm">
                     {/* Header */}
                     <div
-                      className="p-4 flex justify-between items-center bg-kumo-recessed/50 cursor-pointer border-b border-kumo-line"
+                      className="px-3 py-2.5 flex justify-between items-center bg-kumo-recessed/50 cursor-pointer border-b border-kumo-line"
                       onClick={() => toggleKoyebAccount(account.name)}
                     >
                       <div className="flex items-center gap-3">
                         <ChevronDown className={`w-4 h-4 text-kumo-subtle transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`} />
-                        <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-indigo-500 to-indigo-700 flex items-center justify-center text-white font-bold text-sm">
+                        <div className="w-8 h-8 rounded-full bg-kumo-info flex items-center justify-center text-kumo-inverse font-bold text-sm">
                           {account.name.charAt(0).toUpperCase()}
                         </div>
                         <div>
@@ -1655,14 +1718,14 @@ function PaasPage() {
                           )}
                         </div>
                       </div>
-                      <div className="text-xs text-kumo-strong font-mono bg-indigo-500/10 text-indigo-500 px-2.5 py-1 rounded border border-indigo-500/20">
+                      <div className="text-xs font-mono bg-kumo-info/10 text-kumo-info px-2.5 py-1 rounded border border-kumo-info/20">
                         Balance: ${(account.data?.balance || 0).toFixed(2)}
                       </div>
                     </div>
 
                     {/* Body */}
-                    {expanded && (
-                      <div className="p-4">
+                    <AnimatedCollapse open={expanded}>
+                      <div className="p-2.5">
                         {account.error ? (
                           <div className="text-xs text-kumo-danger p-2 bg-kumo-danger/10 border border-kumo-danger/20 rounded">
                             出错了: {account.error}
@@ -1678,7 +1741,7 @@ function PaasPage() {
                                   <div className="flex items-center gap-1.5 flex-1 min-w-0">
                                     <span className="text-base">📦</span>
                                     {app.isEditing ? (
-                                      <Input
+                                      <Input size="sm"
                                         aria-label="Koyeb 应用名称"
                                         type="text"
                                         value={app.editingName}
@@ -1719,7 +1782,7 @@ function PaasPage() {
                                       <div className="flex justify-between items-start">
                                         <div className="flex-1 min-w-0">
                                           {service.isEditing ? (
-                                            <Input
+                                            <Input size="sm"
                                               aria-label="Koyeb 服务名称"
                                               type="text"
                                               value={service.editingName}
@@ -1762,57 +1825,54 @@ function PaasPage() {
                                       {/* Actions */}
                                       <div className="flex justify-end gap-1.5 pt-1">
                                         <Button
-                                          shape="square"
-                                          size="sm"
+                                          shape="square" size="sm"
                                           variant="ghost"
                                           aria-label="重启服务"
                                           onClick={() => restartKoyebService(account, app, service)}
                                           title="重启服务"
-                                          className="p-1 hover:bg-kumo-recessed rounded text-kumo-subtle hover:text-kumo-brand border border-kumo-line"
+                                          className="hover:bg-kumo-recessed rounded text-kumo-subtle hover:text-kumo-brand border border-kumo-line"
                                         >
                                           <RefreshCw className="w-3.5 h-3.5" />
                                         </Button>
                                         <Button
-                                          shape="square"
-                                          size="sm"
+                                          shape="square" size="sm"
                                           variant="ghost"
                                           aria-label="重新部署服务"
                                           onClick={() => redeployKoyebService(account, app, service)}
                                           title="重新部署"
-                                          className="p-1 hover:bg-kumo-recessed rounded text-kumo-subtle hover:text-indigo-500 border border-kumo-line"
+                                          className="hover:bg-kumo-recessed rounded text-kumo-subtle hover:text-kumo-info border border-kumo-line"
                                         >
                                           <Rocket className="w-3.5 h-3.5" />
                                         </Button>
                                         <Button
-                                          shape="square"
-                                          size="sm"
+                                          shape="square" size="sm"
                                           variant="ghost"
                                           aria-label="查看服务实例"
                                           onClick={() => fetchKoyebServiceInstances(account, service)}
                                           title="查看实例"
-                                          className="p-1 hover:bg-kumo-recessed rounded text-kumo-subtle hover:text-violet-500 border border-kumo-line"
+                                          className="hover:bg-kumo-recessed rounded text-kumo-subtle hover:text-kumo-brand border border-kumo-line"
                                         >
                                           <Server className={`w-3.5 h-3.5 ${service.loadingInstances ? 'animate-spin' : ''}`} />
                                         </Button>
                                         <Button
-                                          shape="square"
-                                          size="sm"
+                                          shape="square" size="sm"
                                           variant="ghost"
                                           aria-label="查看服务日志"
                                           onClick={() => showKoyebServiceLogs(account, app, service)}
                                           title="查看日志"
-                                          className="p-1 hover:bg-kumo-recessed rounded text-kumo-subtle hover:text-emerald-500 border border-kumo-line"
+                                          className="hover:bg-kumo-recessed rounded text-kumo-subtle hover:text-kumo-success border border-kumo-line"
                                         >
                                           <FileText className="w-3.5 h-3.5" />
                                         </Button>
                                       </div>
 
                                       {/* Service Instances */}
-                                      {service.showInstances && service.instances && (
+                                      <AnimatedCollapse open={Boolean(service.showInstances && service.instances)}>
+                                        {service.instances ? (
                                         <div className="mt-2 border-t border-kumo-line pt-2 text-[10px] space-y-1 bg-kumo-recessed/30 p-2 rounded">
                                           <div className="font-bold text-kumo-subtle flex justify-between">
                                             <span>实例列表 ({service.instances.length})</span>
-                                            <Button size="xs" variant="ghost" onClick={() => {
+                                            <Button size="sm" variant="ghost" onClick={() => {
                                               setKoyebAccounts(prev => prev.map(acc => ({
                                                 ...acc,
                                                 projects: acc.projects.map(p => ({
@@ -1835,7 +1895,8 @@ function PaasPage() {
                                             </div>
                                           ))}
                                         </div>
-                                      )}
+                                        ) : null}
+                                      </AnimatedCollapse>
                                     </div>
                                   ))}
                                 </div>
@@ -1844,7 +1905,7 @@ function PaasPage() {
                           </div>
                         )}
                       </div>
-                    )}
+                    </AnimatedCollapse>
                   </div>
                 );
               })}
@@ -1855,13 +1916,13 @@ function PaasPage() {
 
       {/* ==================== Fly.io Tab Content ==================== */}
       {activeTab === 'fly' && (
-        <div className="space-y-4 quick-fade-in">
-          <div className="bg-kumo-info/10 border border-kumo-info/20 text-kumo-default p-4 rounded-lg flex items-center justify-between">
-            <div className="text-xs">
+        <div className="space-y-3 quick-fade-in">
+          <div className="bg-kumo-info/10 border border-kumo-info/20 text-kumo-default px-3 py-2.5 rounded-md flex flex-wrap items-center justify-between gap-2">
+            <div className="text-xs leading-tight">
               <strong>Fly.io 监控自动拉取中</strong>
-              <p className="text-kumo-subtle mt-0.5">每 {flyIntervalSec} 秒从所有配置的账号同步状态</p>
+              <span className="ml-2 text-kumo-subtle">每 {flyIntervalSec} 秒同步全部账号状态</span>
             </div>
-            <Button onClick={() => loadFlyData(true)} disabled={flyRefreshing} className="text-xs font-semibold px-3 py-1 flex items-center gap-1.5">
+            <Button size="sm" onClick={() => loadFlyData(true)} disabled={flyRefreshing} className="text-xs font-semibold flex items-center gap-1.5">
               <RefreshCw className={`w-3.5 h-3.5 ${flyRefreshing ? 'animate-spin' : ''}`} />
               <span>立即刷新</span>
             </Button>
@@ -1877,19 +1938,19 @@ function PaasPage() {
               暂无配置 Fly.io 账号。请前往“账号管理”添加账号 API 令牌。
             </div>
           ) : (
-            <div className="space-y-4">
+            <div className="space-y-3">
               {flyAccounts.map((account) => {
                 const expanded = isFlyAccountExpanded(account.name);
                 return (
                   <div key={account.name} className="bg-kumo-base border border-kumo-line rounded-lg overflow-hidden shadow-sm">
                     {/* Header */}
                     <div
-                      className="p-4 flex justify-between items-center bg-kumo-recessed/50 cursor-pointer border-b border-kumo-line"
+                      className="px-3 py-2.5 flex justify-between items-center bg-kumo-recessed/50 cursor-pointer border-b border-kumo-line"
                       onClick={() => toggleFlyAccount(account.name)}
                     >
                       <div className="flex items-center gap-3">
                         <ChevronDown className={`w-4 h-4 text-kumo-subtle transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`} />
-                        <div className="w-8 h-8 rounded-full bg-gradient-to-tr from-violet-500 to-violet-700 flex items-center justify-center text-white font-bold text-sm">
+                        <div className="w-8 h-8 rounded-full bg-kumo-brand flex items-center justify-center text-kumo-inverse font-bold text-sm">
                           {(account.name || 'F').charAt(0).toUpperCase()}
                         </div>
                         <div>
@@ -1897,19 +1958,17 @@ function PaasPage() {
                         </div>
                       </div>
                       <div className="flex items-center gap-2" onClick={(e) => e.stopPropagation()}>
-                        <Button
-                          size="xs"
+                        <Button size="sm"
                           variant="secondary"
                           onClick={() => updateAllFlyAppsImage(account)}
-                          className="px-2 py-1 text-[10px] font-semibold bg-indigo-500/10 text-indigo-500 hover:bg-indigo-500/20 border border-indigo-500/20 rounded-lg flex items-center gap-1"
+                          className="text-[10px] font-semibold bg-kumo-info/10 text-kumo-info hover:bg-kumo-info/20 border border-kumo-info/20 rounded-lg flex items-center gap-1"
                         >
                           批量更新
                         </Button>
-                        <Button
-                          size="xs"
+                        <Button size="sm"
                           variant="secondary"
                           onClick={() => createFlyApp(account)}
-                          className="px-2 py-1 text-[10px] font-semibold bg-violet-500/10 text-violet-500 hover:bg-violet-500/20 border border-violet-500/20 rounded-lg flex items-center gap-1"
+                          className="text-[10px] font-semibold bg-kumo-brand/10 text-kumo-brand hover:bg-kumo-brand/20 border border-kumo-brand/20 rounded-lg flex items-center gap-1"
                         >
                           <Plus className="w-3 h-3" />
                           <span>新建应用</span>
@@ -1918,8 +1977,8 @@ function PaasPage() {
                     </div>
 
                     {/* Body */}
-                    {expanded && (
-                      <div className="p-4">
+                    <AnimatedCollapse open={expanded}>
+                      <div className="p-3">
                         {account.error ? (
                           <div className="text-xs text-kumo-danger p-2 bg-kumo-danger/10 border border-kumo-danger/20 rounded">
                             出错了: {account.error}
@@ -1927,15 +1986,15 @@ function PaasPage() {
                         ) : !account.projects || account.projects.length === 0 ? (
                           <div className="text-center py-6 text-xs text-kumo-subtle">暂无配置应用</div>
                         ) : (
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-2.5 items-start">
                             {account.projects.map((app) => (
-                              <div key={app.id} className="bg-kumo-recessed/30 border border-kumo-line rounded-lg p-4 space-y-4">
+                              <div key={app.id} className="bg-kumo-recessed/30 border border-kumo-line rounded-lg p-2.5 space-y-2">
                                 {/* App Header */}
-                                <div className="flex justify-between items-center border-b border-kumo-line pb-2">
+                                <div className="flex justify-between items-center border-b border-kumo-line pb-1.5">
                                   <div className="flex items-center gap-1.5 flex-1 min-w-0">
-                                    <span className="text-base">✈️</span>
+                                    <Rocket className="h-3.5 w-3.5 shrink-0 text-kumo-brand" />
                                     {app.isEditing ? (
-                                      <Input
+                                      <Input size="sm"
                                         aria-label="Fly 应用名称"
                                         type="text"
                                         value={app.editingName}
@@ -1968,93 +2027,90 @@ function PaasPage() {
                                     )}
                                   </div>
                                   <Button
-                                    shape="square"
-                                    size="sm"
+                                    shape="square" size="sm"
                                     variant="ghost"
                                     aria-label="删除 Fly 应用"
                                     onClick={() => deleteFlyApp(account, app)}
-                                    className="p-1 text-kumo-subtle hover:text-kumo-danger hover:bg-kumo-recessed rounded"
+                                    className="text-kumo-subtle hover:text-kumo-danger hover:bg-kumo-recessed rounded"
                                   >
                                     <Trash className="w-3.5 h-3.5" />
                                   </Button>
                                 </div>
 
                                 {/* Main application service card */}
-                                <div className="bg-kumo-base border border-kumo-line rounded-lg p-3 space-y-2">
-                                  <div className="flex justify-between items-center">
-                                    <span className="text-[10px] font-semibold text-kumo-subtle font-mono truncate max-w-[70%]">
-                                      {app.hostname || app.name}
-                                    </span>
-                                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded border ${getFlyStatusBadge(app.status)}`}>
-                                      {getFlyStatusText(app.status)}
-                                    </span>
-                                  </div>
+                                <div className="bg-kumo-base border border-kumo-line rounded-md px-2.5 py-2">
+                                  <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
+                                    <div className="flex min-w-0 items-center gap-2">
+                                      <span className="text-[10px] font-semibold text-kumo-subtle font-mono truncate">
+                                        {app.hostname || app.name}
+                                      </span>
+                                      <span className={`shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded border ${getFlyStatusBadge(app.status)}`}>
+                                        {getFlyStatusText(app.status)}
+                                      </span>
+                                    </div>
 
-                                  {/* App actions */}
-                                  <div className="flex justify-end gap-1.5 pt-1">
+                                    {/* App actions */}
+                                    <div className="flex justify-end gap-1">
                                     <Button
-                                      shape="square"
-                                      size="sm"
+                                      shape="square" size="sm"
                                       variant="ghost"
                                       aria-label="重启应用"
                                       onClick={() => redeployFlyApp(account, app)}
                                       title="重启应用"
-                                      className="p-1 hover:bg-kumo-recessed rounded text-kumo-subtle hover:text-kumo-brand border border-kumo-line"
+                                      className="hover:bg-kumo-recessed rounded text-kumo-subtle hover:text-kumo-brand border border-kumo-line"
                                     >
                                       <RefreshCw className="w-3.5 h-3.5" />
                                     </Button>
                                     <Button
-                                      shape="square"
-                                      size="sm"
+                                      shape="square" size="sm"
                                       variant="ghost"
                                       aria-label="更新容器镜像"
                                       onClick={() => updateFlyAppImage(account, app)}
                                       title="更新容器镜像"
-                                      className="p-1 hover:bg-kumo-recessed rounded text-kumo-subtle hover:text-violet-500 border border-kumo-line"
+                                      className="hover:bg-kumo-recessed rounded text-kumo-subtle hover:text-kumo-brand border border-kumo-line"
                                     >
                                       <Rocket className="w-3.5 h-3.5" />
                                     </Button>
                                     <Button
-                                      shape="square"
-                                      size="sm"
+                                      shape="square" size="sm"
                                       variant="ghost"
                                       aria-label="查看机器实例"
                                       onClick={() => fetchFlyMachines(account, app)}
                                       title="查看机器/实例"
-                                      className="p-1 hover:bg-kumo-recessed rounded text-kumo-subtle hover:text-indigo-500 border border-kumo-line"
+                                      className="hover:bg-kumo-recessed rounded text-kumo-subtle hover:text-kumo-info border border-kumo-line"
                                     >
                                       <Server className={`w-3.5 h-3.5 ${app.loadingMachines ? 'animate-spin' : ''}`} />
                                     </Button>
                                     <Button
-                                      shape="square"
-                                      size="sm"
+                                      shape="square" size="sm"
                                       variant="ghost"
                                       aria-label="查看运行日志"
                                       onClick={() => showFlyAppLogs(account, app)}
                                       title="查看运行日志"
-                                      className="p-1 hover:bg-kumo-recessed rounded text-kumo-subtle hover:text-emerald-500 border border-kumo-line"
+                                      className="hover:bg-kumo-recessed rounded text-kumo-subtle hover:text-kumo-success border border-kumo-line"
                                     >
                                       <FileText className="w-3.5 h-3.5" />
                                     </Button>
                                     <Button
-                                      shape="square"
-                                      size="sm"
+                                      shape="square" size="sm"
                                       variant="ghost"
                                       aria-label="查看应用配置"
                                       onClick={() => viewFlyConfig(account, app)}
                                       title="查看应用配置"
-                                      className="p-1 hover:bg-kumo-recessed rounded text-kumo-subtle hover:text-slate-500 border border-kumo-line"
+                                      className="hover:bg-kumo-recessed rounded text-kumo-subtle hover:text-kumo-strong border border-kumo-line"
                                     >
                                       <Terminal className="w-3.5 h-3.5" />
                                     </Button>
+                                    </div>
                                   </div>
 
                                   {/* Machines container */}
-                                  {app.showMachines && app.machines && (
-                                    <div className="mt-2 border-t border-kumo-line pt-2 text-[10px] space-y-1 bg-kumo-recessed/30 p-2 rounded">
+                                  <AnimatedCollapse open={Boolean(app.showMachines && app.machines)}>
+                                    {app.machines ? (
+                                    <div className="mt-1.5 border-t border-kumo-line bg-kumo-recessed/30 px-2 py-1.5 text-[10px] space-y-1 rounded">
                                       <div className="font-bold text-kumo-subtle flex justify-between">
                                         <span>运 (Machines - {app.machines.length})</span>
-                                        <Button size="xs" variant="ghost" onClick={() => {
+                                        <Button size="sm" variant="ghost" onClick={() => {
                                           setFlyAccounts(prev => prev.map(acc => ({
                                             ...acc,
                                             projects: acc.projects.map(p => {
@@ -2074,14 +2130,15 @@ function PaasPage() {
                                         </div>
                                       ))}
                                     </div>
-                                  )}
+                                    ) : null}
+                                  </AnimatedCollapse>
                                 </div>
 
                                 {/* Domains List */}
                                 {(app.hostname || (app.domains && app.domains.length > 0)) && (
-                                  <div className="mt-2 space-y-1.5">
+                                  <div className="mt-1.5 space-y-1.5">
                                     <div className="text-[10px] font-bold text-kumo-subtle">域名绑定</div>
-                                    <div className="flex flex-wrap gap-2 text-xs">
+                                    <div className="flex flex-wrap gap-1.5 text-xs">
                                       {app.hostname && (
                                         <a
                                           href={`https://${app.hostname}`}
@@ -2117,7 +2174,7 @@ function PaasPage() {
                           </div>
                         )}
                       </div>
-                    )}
+                    </AnimatedCollapse>
                   </div>
                 );
               })}
@@ -2133,19 +2190,19 @@ function PaasPage() {
           <div className="bg-kumo-base border border-kumo-line rounded-lg shadow-sm p-4 space-y-4">
             <div className="flex justify-between items-center border-b border-kumo-line pb-3">
               <h3 className="text-sm font-bold text-kumo-strong flex items-center gap-2">
-                <Database className="w-4 h-4 text-indigo-500" />
+                <Database className="w-4 h-4 text-kumo-info" />
                 <span>Koyeb 账号管理</span>
               </h3>
               <div className="flex gap-2">
-                <Button onClick={() => setShowAddKoyebModal(true)} className="text-xs px-2.5 py-1.5 flex items-center gap-1">
+                <Button size="sm" onClick={() => setShowAddKoyebModal(true)} className="text-xs flex items-center gap-1">
                   <Plus className="w-3.5 h-3.5" />
                   <span>添加账号</span>
                 </Button>
-                <Button onClick={exportKoyebAccounts} className="text-xs px-2.5 py-1.5 flex items-center gap-1 border border-kumo-line bg-kumo-recessed">
+                <Button size="sm" onClick={exportKoyebAccounts} className="text-xs flex items-center gap-1 border border-kumo-line bg-kumo-recessed">
                   <Upload className="w-3.5 h-3.5" />
                   <span>导出</span>
                 </Button>
-                <Button onClick={importKoyebAccounts} className="text-xs px-2.5 py-1.5 flex items-center gap-1 border border-kumo-line bg-kumo-recessed">
+                <Button size="sm" onClick={importKoyebAccounts} className="text-xs flex items-center gap-1 border border-kumo-line bg-kumo-recessed">
                   <Download className="w-3.5 h-3.5" />
                   <span>导入</span>
                 </Button>
@@ -2174,7 +2231,7 @@ function PaasPage() {
                       <Table.Row key={account.id} className="border-b border-kumo-line last:border-0 hover:bg-kumo-recessed/10">
                         <Table.Cell className="p-3 font-semibold text-kumo-strong">{account.name}</Table.Cell>
                         <Table.Cell className="p-3 text-kumo-default font-mono">{account.email || '-'}</Table.Cell>
-                        <Table.Cell className="p-3 text-center text-indigo-500 font-bold">${(account.balance || 0).toFixed(2)}</Table.Cell>
+                        <Table.Cell className="p-3 text-center text-kumo-info font-bold">${(account.balance || 0).toFixed(2)}</Table.Cell>
                         <Table.Cell className="p-3 text-center">
                           <span className="px-2 py-0.5 rounded border bg-kumo-success/10 border-kumo-success text-kumo-success text-[10px] font-bold">
                             正常
@@ -2182,12 +2239,11 @@ function PaasPage() {
                         </Table.Cell>
                         <Table.Cell className="p-3 text-center">
                           <Button
-                            shape="square"
-                            size="sm"
+                            shape="square" size="sm"
                             variant="ghost"
                             aria-label="删除 Koyeb 账号"
                             onClick={() => removeKoyebAccount(account.id)}
-                            className="p-1.5 text-kumo-danger hover:bg-kumo-recessed rounded"
+                            className="text-kumo-danger hover:bg-kumo-recessed rounded"
                           >
                             <Trash className="w-4 h-4" />
                           </Button>
@@ -2221,10 +2277,10 @@ function PaasPage() {
                   {koyebBatchSuccess}
                 </div>
               )}
-              <Button
+              <Button size="sm"
                 onClick={batchAddKoyebAccounts}
                 disabled={koyebAddingAccount || !koyebBatchText.trim()}
-                className="w-full text-xs py-2 flex items-center justify-center gap-1.5"
+                className="w-full text-xs flex items-center justify-center gap-1.5"
               >
                 <Database className="w-3.5 h-3.5" />
                 <span>批量验证并添加 Koyeb 账号</span>
@@ -2236,19 +2292,19 @@ function PaasPage() {
           <div className="bg-kumo-base border border-kumo-line rounded-lg shadow-sm p-4 space-y-4">
             <div className="flex justify-between items-center border-b border-kumo-line pb-3">
               <h3 className="text-sm font-bold text-kumo-strong flex items-center gap-2">
-                <Rocket className="w-4 h-4 text-violet-500" />
+                <Rocket className="w-4 h-4 text-kumo-brand" />
                 <span>Fly.io 账号管理</span>
               </h3>
               <div className="flex gap-2">
-                <Button onClick={() => setShowAddFlyModal(true)} className="text-xs px-2.5 py-1.5 flex items-center gap-1">
+                <Button size="sm" onClick={() => setShowAddFlyModal(true)} className="text-xs flex items-center gap-1">
                   <Plus className="w-3.5 h-3.5" />
                   <span>添加账号</span>
                 </Button>
-                <Button onClick={exportFlyAccounts} className="text-xs px-2.5 py-1.5 flex items-center gap-1 border border-kumo-line bg-kumo-recessed">
+                <Button size="sm" onClick={exportFlyAccounts} className="text-xs flex items-center gap-1 border border-kumo-line bg-kumo-recessed">
                   <Upload className="w-3.5 h-3.5" />
                   <span>导出</span>
                 </Button>
-                <Button onClick={importFlyAccounts} className="text-xs px-2.5 py-1.5 flex items-center gap-1 border border-kumo-line bg-kumo-recessed">
+                <Button size="sm" onClick={importFlyAccounts} className="text-xs flex items-center gap-1 border border-kumo-line bg-kumo-recessed">
                   <Download className="w-3.5 h-3.5" />
                   <span>导入</span>
                 </Button>
@@ -2283,12 +2339,11 @@ function PaasPage() {
                         </Table.Cell>
                         <Table.Cell className="p-3 text-center">
                           <Button
-                            shape="square"
-                            size="sm"
+                            shape="square" size="sm"
                             variant="ghost"
                             aria-label="删除 Fly 账号"
                             onClick={() => removeFlyAccount(account.id, account.name)}
-                            className="p-1.5 text-kumo-danger hover:bg-kumo-recessed rounded"
+                            className="text-kumo-danger hover:bg-kumo-recessed rounded"
                           >
                             <Trash className="w-4 h-4" />
                           </Button>
@@ -2322,10 +2377,10 @@ function PaasPage() {
                   {flyBatchSuccess}
                 </div>
               )}
-              <Button
+              <Button size="sm"
                 onClick={batchAddFlyAccounts}
                 disabled={flyAddingAccount || !flyBatchText.trim()}
-                className="w-full text-xs py-2 flex items-center justify-center gap-1.5"
+                className="w-full text-xs flex items-center justify-center gap-1.5"
               >
                 <Rocket className="w-3.5 h-3.5" />
                 <span>批量验证并添加 Fly.io 账号</span>
@@ -2343,7 +2398,7 @@ function PaasPage() {
               <Settings className="w-4 h-4 text-kumo-brand" />
               <span>模块刷新策略配置</span>
             </h3>
-            <Button onClick={saveSettings} className="text-xs px-3 py-1.5 flex items-center gap-1">
+            <Button size="sm" onClick={saveSettings} className="text-xs flex items-center gap-1">
               <Save className="w-3.5 h-3.5" />
               <span>保存配置</span>
             </Button>
@@ -2352,23 +2407,25 @@ function PaasPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div className="space-y-1.5">
               <label className="text-xs font-bold text-kumo-strong">Koyeb 自动刷新间隔 (秒)</label>
-              <Input
+              <Input size="sm"
                 aria-label="Koyeb 自动刷新间隔"
                 type="number"
                 min="5"
+                max={MAX_PAAS_REFRESH_INTERVAL_SEC}
                 value={koyebIntervalSec}
-                onChange={(e) => setKoyebIntervalSec(Math.max(5, parseInt(e.target.value) || 5))}
+                onChange={(e) => setKoyebIntervalSec(normalizeRefreshIntervalInputSec(e.target.value))}
                 className="bg-kumo-base text-kumo-strong border border-kumo-line rounded px-3 py-1.5 text-xs font-semibold focus:outline-none w-full"
               />
             </div>
             <div className="space-y-1.5">
               <label className="text-xs font-bold text-kumo-strong">Fly.io 自动刷新间隔 (秒)</label>
-              <Input
+              <Input size="sm"
                 aria-label="Fly.io 自动刷新间隔"
                 type="number"
                 min="5"
+                max={MAX_PAAS_REFRESH_INTERVAL_SEC}
                 value={flyIntervalSec}
-                onChange={(e) => setFlyIntervalSec(Math.max(5, parseInt(e.target.value) || 5))}
+                onChange={(e) => setFlyIntervalSec(normalizeRefreshIntervalInputSec(e.target.value))}
                 className="bg-kumo-base text-kumo-strong border border-kumo-line rounded px-3 py-1.5 text-xs font-semibold focus:outline-none w-full"
               />
             </div>
@@ -2390,7 +2447,7 @@ function PaasPage() {
           <div className="space-y-4">
             <div className="space-y-1">
               <label className="text-[11px] font-bold text-kumo-subtle">备注名称</label>
-              <Input
+              <Input size="sm"
                 aria-label="Koyeb 备注名称"
                 type="text"
                 value={newKoyebName}
@@ -2401,7 +2458,7 @@ function PaasPage() {
             </div>
             <div className="space-y-1">
               <label className="text-[11px] font-bold text-kumo-subtle">API 令牌</label>
-              <Input
+              <Input size="sm"
                 aria-label="Koyeb API 令牌"
                 type="password"
                 value={newKoyebToken}
@@ -2418,7 +2475,7 @@ function PaasPage() {
             <div className="flex justify-end gap-2 pt-2">
               <Dialog.Close
                 render={(props) => (
-                  <Button
+                  <Button size="sm"
                     {...props}
                     variant="secondary"
                     className="border border-kumo-line bg-kumo-recessed text-xs"
@@ -2427,7 +2484,7 @@ function PaasPage() {
                   </Button>
                 )}
               />
-              <Button onClick={addKoyebAccount} disabled={koyebAddingAccount} className="text-xs">
+              <Button size="sm" onClick={addKoyebAccount} disabled={koyebAddingAccount} className="text-xs">
                 {koyebAddingAccount ? '正在验证并添加...' : '确定添加'}
               </Button>
             </div>
@@ -2447,7 +2504,7 @@ function PaasPage() {
           <div className="space-y-4">
             <div className="space-y-1">
               <label className="text-[11px] font-bold text-kumo-subtle">备注名称</label>
-              <Input
+              <Input size="sm"
                 aria-label="Fly.io 备注名称"
                 type="text"
                 value={newFlyName}
@@ -2458,7 +2515,7 @@ function PaasPage() {
             </div>
             <div className="space-y-1">
               <label className="text-[11px] font-bold text-kumo-subtle">API 令牌</label>
-              <Input
+              <Input size="sm"
                 aria-label="Fly.io API 令牌"
                 type="password"
                 value={newFlyToken}
@@ -2475,7 +2532,7 @@ function PaasPage() {
             <div className="flex justify-end gap-2 pt-2">
               <Dialog.Close
                 render={(props) => (
-                  <Button
+                  <Button size="sm"
                     {...props}
                     variant="secondary"
                     className="border border-kumo-line bg-kumo-recessed text-xs"
@@ -2484,7 +2541,7 @@ function PaasPage() {
                   </Button>
                 )}
               />
-              <Button onClick={addFlyAccount} disabled={flyAddingAccount} className="text-xs">
+              <Button size="sm" onClick={addFlyAccount} disabled={flyAddingAccount} className="text-xs">
                 {flyAddingAccount ? '正在验证并添加...' : '确定添加'}
               </Button>
             </div>
@@ -2502,8 +2559,7 @@ function PaasPage() {
               {logSubtitle && <p className="text-[10px] text-kumo-subtle mt-0.5">{logSubtitle}</p>}
             </div>
             <Button
-              shape="square"
-              size="sm"
+              shape="square" size="sm"
               variant="ghost"
               aria-label="关闭日志查看器"
               onClick={() => setLogViewerOpen(false)}
@@ -2517,7 +2573,7 @@ function PaasPage() {
           <div className="p-3 border-b border-kumo-line flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 text-xs bg-kumo-base">
             <div className="flex items-center gap-2 w-full sm:w-auto">
               <Search className="w-3.5 h-3.5 text-kumo-subtle" />
-              <Input
+              <Input size="sm"
                 aria-label="搜索日志消息"
                 type="text"
                 value={logFilterText}
@@ -2528,18 +2584,18 @@ function PaasPage() {
             </div>
             <div className="flex flex-wrap items-center gap-2 text-[10px]">
               <Select
-                aria-label="日志级别筛选"
-                size="sm"
+                aria-label="日志级别筛选" size="sm"
                 value={logLevelFilter}
                 onValueChange={(value) => setLogLevelFilter(String(value))}
                 className="bg-kumo-recessed border border-kumo-line rounded px-2 py-1 text-kumo-strong font-semibold"
-              >
-                <Select.Option value="ALL">全部级别</Select.Option>
-                <Select.Option value="INFO">INFO</Select.Option>
-                <Select.Option value="WARN">WARN</Select.Option>
-                <Select.Option value="ERROR">ERROR</Select.Option>
-                <Select.Option value="DEBUG">DEBUG</Select.Option>
-              </Select>
+                items={[
+                  { value: 'ALL', label: '全部级别' },
+                  { value: 'INFO', label: 'INFO' },
+                  { value: 'WARN', label: 'WARN' },
+                  { value: 'ERROR', label: 'ERROR' },
+                  { value: 'DEBUG', label: 'DEBUG' },
+                ]}
+              />
 
               <Checkbox
                 checked={logWrapText}
@@ -2553,20 +2609,18 @@ function PaasPage() {
                 label="滚动到底部"
               />
 
-              <Button
-                size="sm"
+              <Button size="sm"
                 variant="secondary-destructive"
                 onClick={() => setLogs([])}
-                className="px-2 py-1 border border-kumo-line rounded hover:bg-kumo-recessed text-kumo-danger font-semibold"
+                className="border border-kumo-line rounded hover:bg-kumo-recessed text-kumo-danger font-semibold"
               >
                 清空
               </Button>
 
-              <Button
-                size="sm"
+              <Button size="sm"
                 variant="primary"
                 onClick={downloadLogs}
-                className="px-2 py-1 bg-kumo-brand text-white rounded hover:bg-kumo-brand/90 font-semibold flex items-center gap-1"
+                className="bg-kumo-brand text-kumo-inverse rounded hover:bg-kumo-brand/90 font-semibold flex items-center gap-1"
               >
                 <Download className="w-3 h-3" />
                 <span>下载日志</span>
@@ -2578,7 +2632,7 @@ function PaasPage() {
           <div
             ref={logContainerRef}
             id="log-viewer-container"
-            className="flex-1 bg-[#1e1e1e] text-[#d4d4d4] font-mono text-xs p-4 overflow-y-auto leading-relaxed select-text"
+            className="flex-1 bg-kumo-control text-kumo-strong font-mono text-xs p-4 overflow-y-auto leading-relaxed select-text"
           >
             {logLoading ? (
               <div className="h-full flex items-center justify-center text-kumo-subtle gap-2">
@@ -2586,21 +2640,21 @@ function PaasPage() {
                 <span>正在获取日志流中...</span>
               </div>
             ) : filteredLogs.length === 0 ? (
-              <div className="text-center text-[#858585] py-12">暂无匹配日志记录</div>
+              <div className="text-center text-kumo-subtle py-12">暂无匹配日志记录</div>
             ) : (
               <div className="space-y-1">
                 {filteredLogs.map((log) => {
-                  let levelColor = 'text-sky-400';
-                  if (log.level === 'WARN') levelColor = 'text-amber-400';
-                  if (log.level === 'ERROR' || log.level === 'FATAL') levelColor = 'text-red-400';
-                  if (log.level === 'DEBUG') levelColor = 'text-emerald-400';
+                  let levelColor = 'text-kumo-info';
+                  if (log.level === 'WARN') levelColor = 'text-kumo-warning';
+                  if (log.level === 'ERROR' || log.level === 'FATAL') levelColor = 'text-kumo-danger';
+                  if (log.level === 'DEBUG') levelColor = 'text-kumo-success';
 
                   return (
                     <div
                       key={log.id}
-                      className={`${logWrapText ? 'break-all whitespace-pre-wrap' : 'whitespace-nowrap'} hover:bg-white/5 py-0.5`}
+                      className={`${logWrapText ? 'break-all whitespace-pre-wrap' : 'whitespace-nowrap'} hover:bg-kumo-base/40 py-0.5`}
                     >
-                      <span className="text-gray-500 mr-2">[{new Date(log.timestamp).toLocaleTimeString()}]</span>
+                      <span className="text-kumo-subtle mr-2">[{new Date(log.timestamp).toLocaleTimeString()}]</span>
                       <span className={`${levelColor} font-bold mr-2`}>[{log.level}]</span>
                       <span>{log.message}</span>
                     </div>

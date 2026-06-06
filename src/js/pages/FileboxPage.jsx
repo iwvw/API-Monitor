@@ -8,7 +8,7 @@ import { Dialog } from '@cloudflare/kumo/components/dialog';
 import { Input, Textarea } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
 import { Switch } from '@cloudflare/kumo/components/switch';
-import { Tabs } from '@cloudflare/kumo';
+import { ClipboardText, Tabs } from '@cloudflare/kumo';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import { MODULE_TABS_PROPS, TOOL_TABS_PROPS } from '../modules/kumoTabs.js';
 import { formatFileSize, formatDateTime } from '../modules/utils.js';
@@ -396,7 +396,7 @@ function FileboxPage() {
             </p>
           </div>
           <div className="flex gap-2">
-            <Input
+            <Input size="sm"
               type="text"
               aria-label="取件码"
               value={retrieveCode}
@@ -406,11 +406,11 @@ function FileboxPage() {
               onKeyDown={(e) => e.key === 'Enter' && handleRetrieve()}
               className="flex-1 bg-kumo-base text-kumo-strong text-base font-bold font-mono tracking-widest text-center px-4 py-2 border border-kumo-line rounded-lg focus:outline-none focus:border-kumo-brand"
             />
-            <Button
+            <Button size="sm"
               variant="primary"
               onClick={handleRetrieve}
               disabled={loading}
-              className="px-6 font-semibold"
+              className="font-semibold"
             >
               {loading ? '提取中...' : '提取'}
             </Button>
@@ -468,7 +468,7 @@ function FileboxPage() {
                   : 'border-kumo-line hover:border-kumo-brand hover:bg-kumo-recessed/20'
               }`}
             >
-              <Input
+              <Input size="sm"
                 type="file"
                 aria-label="选择分享文件"
                 ref={fileInputRef}
@@ -505,8 +505,7 @@ function FileboxPage() {
                       setSelectedFile(null);
                       if (fileInputRef.current) fileInputRef.current.value = '';
                     }}
-                    variant="secondary"
-                    size="sm"
+                    variant="secondary" size="sm"
                     className="mt-4"
                   >
                     重新选择
@@ -533,7 +532,7 @@ function FileboxPage() {
                 </span>
                 <span className="text-kumo-brand">{uploadProgress}%</span>
               </div>
-              <div className="w-full h-1.5 bg-kumo-recessed rounded-full overflow-hidden">
+              <div className="w-full h-2 overflow-hidden rounded-full border border-kumo-line/70 bg-kumo-recessed">
                 <div
                   className="h-full bg-kumo-brand rounded-full transition-all duration-300"
                   style={{ width: `${uploadProgress}%` }}
@@ -546,8 +545,7 @@ function FileboxPage() {
                 </div>
                 <Button
                   onClick={cancelUpload}
-                  variant="secondary-destructive"
-                  size="xs"
+                  variant="secondary-destructive" size="sm"
                 >
                   取消上传
                 </Button>
@@ -561,8 +559,7 @@ function FileboxPage() {
               <div className="flex items-center gap-2 text-xs">
                 <span className="font-semibold text-kumo-subtle">有效期</span>
                 <Select
-                  aria-label="分享有效期"
-                  size="sm"
+                  aria-label="分享有效期" size="sm"
                   value={expiry}
                   onValueChange={setExpiry}
                   items={[
@@ -583,11 +580,11 @@ function FileboxPage() {
               </div>
             </div>
 
-            <Button
+            <Button size="sm"
               variant="primary"
               disabled={loading || (shareType === 'file' ? !selectedFile : !shareText.trim())}
               onClick={handleShare}
-              className="px-6 h-9 font-semibold"
+              className="font-semibold"
             >
               {loading ? '分享中...' : '立即分享'}
             </Button>
@@ -606,9 +603,20 @@ function FileboxPage() {
                 </p>
               </div>
 
-              <div className="text-2xl font-bold font-mono tracking-widest text-kumo-brand bg-kumo-recessed px-6 py-2 rounded-lg border border-kumo-line select-all">
-                {result.code}
-              </div>
+              <ClipboardText
+                size="lg"
+                text={result.code}
+                className="w-full max-w-xs text-kumo-brand"
+                tooltip={{ text: '复制取件码', copiedText: '取件码已复制', side: 'top' }}
+                labels={{ copyAction: '复制取件码' }}
+              />
+              <ClipboardText
+                size="sm"
+                text={`${window.location.origin}/api/filebox/download/${result.code}`}
+                className="w-full max-w-md"
+                tooltip={{ text: '复制链接', copiedText: '下载链接已复制', side: 'top' }}
+                labels={{ copyAction: '复制下载链接' }}
+              />
 
               {/* QR Code */}
               {qrCode && (
@@ -619,15 +627,7 @@ function FileboxPage() {
               )}
 
               <div className="flex gap-2 pt-2">
-                <Button onClick={() => copyToClipboard(result.code)}>复制码</Button>
-                <Button
-                  onClick={() =>
-                    copyToClipboard(`${window.location.origin}/api/filebox/download/${result.code}`)
-                  }
-                >
-                  复制链接
-                </Button>
-                <Button variant="primary" onClick={resetForm}>
+                <Button size="sm" variant="primary" onClick={resetForm}>
                   继续分享
                 </Button>
               </div>
@@ -651,26 +651,21 @@ function FileboxPage() {
               <div className="flex gap-2">
                 <Button
                   onClick={loadServerHistory}
-                  variant="secondary"
-                  size="sm"
+                  variant="secondary" size="sm"
                   shape="square"
                   aria-label="刷新服务端历史"
                   className="text-kumo-subtle hover:text-kumo-strong"
                   title="刷新服务端历史"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${historyLoading ? 'animate-spin' : ''}`} />
-                </Button>
+                  icon={<RefreshCw className={`w-3.5 h-3.5 ${historyLoading ? 'animate-spin' : ''}`} />}
+                />
                 <Button
                   onClick={clearLocalHistory}
-                  variant="secondary-destructive"
-                  size="sm"
+                  variant="secondary-destructive" size="sm"
                   shape="square"
                   aria-label="清空本地历史"
-                  className="hover:bg-kumo-danger/10"
                   title="清空本地历史"
-                >
-                  <Trash className="w-3.5 h-3.5" />
-                </Button>
+                  icon={<Trash className="w-3.5 h-3.5" />}
+                />
               </div>
             </div>
 
@@ -715,8 +710,7 @@ function FileboxPage() {
                       <div className="flex gap-1.5">
                         <Button
                           onClick={() => copyDownloadLink(item.code)}
-                          variant="secondary"
-                          size="sm"
+                          variant="secondary" size="sm"
                           shape="square"
                           aria-label="复制下载链接"
                           className="text-kumo-subtle hover:text-kumo-strong"
@@ -726,8 +720,7 @@ function FileboxPage() {
                         </Button>
                         <Button
                           onClick={() => handleDeleteEntry(item.code)}
-                          variant="secondary-destructive"
-                          size="sm"
+                          variant="secondary-destructive" size="sm"
                           shape="square"
                           aria-label="删除分享记录"
                           className="hover:bg-kumo-danger/10"
@@ -805,8 +798,7 @@ function FileboxPage() {
                       <div className="flex gap-1.5">
                         <Button
                           onClick={() => copyDownloadLink(item.code)}
-                          variant="secondary"
-                          size="sm"
+                          variant="secondary" size="sm"
                           shape="square"
                           aria-label="复制下载链接"
                           className="text-kumo-subtle hover:text-kumo-strong"
@@ -816,8 +808,7 @@ function FileboxPage() {
                         </Button>
                         <Button
                           onClick={() => handleDeleteEntry(item.code)}
-                          variant="secondary-destructive"
-                          size="sm"
+                          variant="secondary-destructive" size="sm"
                           shape="square"
                           aria-label="删除分享记录"
                           className="hover:bg-kumo-danger/10"
@@ -883,17 +874,17 @@ function FileboxPage() {
               <div className="flex justify-end gap-3 pt-2">
                 <Dialog.Close
                   render={(props) => (
-                    <Button {...props} variant="secondary">
+                    <Button size="sm" {...props} variant="secondary">
                       关闭
                     </Button>
                   )}
                 />
                 {retrievedEntry.type === 'file' ? (
-                  <Button variant="primary" onClick={() => triggerDownload(retrievedEntry.code)}>
+                  <Button size="sm" variant="primary" onClick={() => triggerDownload(retrievedEntry.code)}>
                     下载文件
                   </Button>
                 ) : (
-                  <Button variant="primary" onClick={() => copyToClipboard(retrievedEntry.content)}>
+                  <Button size="sm" variant="primary" onClick={() => copyToClipboard(retrievedEntry.content)}>
                     复制文本
                   </Button>
                 )}

@@ -16,8 +16,10 @@ import { dialog } from '../modules/dialog.js';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Checkbox } from '@cloudflare/kumo/components/checkbox';
 import { Input } from '@cloudflare/kumo/components/input';
+import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import { Tabs, TimeseriesChart } from '@cloudflare/kumo';
 import { MODULE_TABS_PROPS, TOOL_TABS_PROPS } from '../modules/kumoTabs.js';
+import { AnimatedCollapse, DeferredRender } from '../components/AnimatedCollapse.jsx';
 import {
   Activity,
   Plus,
@@ -49,7 +51,49 @@ echarts.use([
   AriaComponent,
 ]);
 
+function ChartBoundaryBox({ className = '', children }) {
+  const [boundary, setBoundary] = useState(null);
+  return (
+    <div ref={setBoundary} className={className}>
+      {typeof children === 'function' ? children(boundary) : children}
+    </div>
+  );
+}
+
+function ChartWarmupSkeleton({ height = 120 }) {
+  return (
+    <div
+      aria-hidden="true"
+      className="flex flex-col justify-end gap-2 overflow-hidden rounded-md border border-kumo-line/70 bg-kumo-recessed/35 p-3"
+      style={{ height }}
+    >
+      <SkeletonLine className="h-3 w-1/4" />
+      <SkeletonLine className="h-14 w-full rounded" />
+      <div className="grid grid-cols-5 gap-2">
+        <SkeletonLine className="h-2 w-full" />
+        <SkeletonLine className="h-2 w-full" />
+        <SkeletonLine className="h-2 w-full" />
+        <SkeletonLine className="h-2 w-full" />
+        <SkeletonLine className="h-2 w-full" />
+      </div>
+    </div>
+  );
+}
+
 // ==================== 样式辅助 ====================
+const formatUptimeChartTime = (timestamp) => {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return '';
+  return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+};
+
+const formatLatencyAxis = (value) => {
+  const latency = Number(value) || 0;
+  const abs = Math.abs(latency);
+  if (abs >= 1000) return `${(latency / 1000).toFixed(abs >= 10000 ? 0 : 1)}s`;
+  return `${Math.round(latency)}ms`;
+};
+
 const getKumoToken = (tokenName, fallback) => {
   if (typeof window === 'undefined') return fallback;
   const value = window.getComputedStyle(document.documentElement).getPropertyValue(tokenName).trim();
@@ -69,12 +113,14 @@ const getKumoChartColors = () => ({
 function UptimeMonitorDetails({
   monitor,
   heartbeats = [],
+  loading = false,
   uptime24h,
   uptime30d,
   onPauseResume,
   onEdit,
   onDelete,
-  formatDateTime
+  formatDateTime,
+  expanded = true,
 }) {
   // 处理心跳时间范围标签
   const getHeartbeatTimeLabel = () => {
@@ -128,8 +174,7 @@ function UptimeMonitorDetails({
           监控图表与统计
         </h5>
         <div className="flex items-center gap-2">
-          <Button
-            size="sm"
+          <Button size="sm"
             onClick={(e) => {
               e.stopPropagation();
               onPauseResume(monitor);
@@ -138,8 +183,7 @@ function UptimeMonitorDetails({
           >
             {monitor.active ? '暂停' : '启用'}
           </Button>
-          <Button
-            size="sm"
+          <Button size="sm"
             onClick={(e) => {
               e.stopPropagation();
               onEdit(monitor);
@@ -148,8 +192,7 @@ function UptimeMonitorDetails({
           >
             编辑
           </Button>
-          <Button
-            size="sm"
+          <Button size="sm"
             variant="destructive"
             onClick={(e) => {
               e.stopPropagation();
@@ -164,23 +207,28 @@ function UptimeMonitorDetails({
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
         {/* 图表主栏 (Span 3) */}
-        <div className="lg:col-span-3 bg-kumo-base border border-kumo-line rounded-lg p-3 h-36 relative">
-          <TimeseriesChart
-            echarts={echarts}
-            data={chartData}
-            height={120}
-            yAxisName="ms"
-            yAxisTickFormat={(value) => `${Math.round(value)}ms`}
-            tooltipValueFormat={(value) => `${Math.round(value)} ms`}
-            xAxisTickFormat={(timestamp) => {
-              const date = new Date(timestamp);
-              return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
-            }}
-            tooltipMode="single"
-            gradient
-            ariaDescription="Uptime monitor response time history"
-          />
-        </div>
+        <ChartBoundaryBox className="lg:col-span-3 bg-kumo-base border border-kumo-line rounded-lg p-3 h-36 relative">
+          {(tooltipBoundary) => (
+            <DeferredRender open={expanded} fallback={<ChartWarmupSkeleton height={120} />}>
+              <TimeseriesChart
+                echarts={echarts}
+                data={chartData}
+                height={120}
+                yAxisName="ms"
+                loading={loading}
+                tooltipBoundary={tooltipBoundary ?? undefined}
+                xAxisTickCount={3}
+                yAxisTickCount={3}
+                yAxisTickFormat={formatLatencyAxis}
+                tooltipValueFormat={(value) => `${Math.round(value)} ms`}
+                xAxisTickFormat={formatUptimeChartTime}
+                tooltipMode="single"
+                gradient
+                ariaDescription="Uptime monitor response time history"
+              />
+            </DeferredRender>
+          )}
+        </ChartBoundaryBox>
 
         {/* 右侧可用率统计指标 */}
         <div className="grid grid-cols-2 lg:grid-cols-1 gap-2.5">
@@ -232,6 +280,7 @@ function UptimePage() {
   const [uptimeCurrentTab, setUptimeCurrentTab] = useState('list'); // 'list' | 'add' | 'stats'
   const [uptimeMonitors, setUptimeMonitors] = useState([]);
   const [uptimeHeartbeats, setUptimeHeartbeats] = useState({});
+  const [uptimeHeartbeatLoading, setUptimeHeartbeatLoading] = useState({});
   const [uptimeRateCache, setUptimeRateCache] = useState({});
   const [uptimeStats, setUptimeStats] = useState({ up: 0, down: 0, pending: 0, unknown: 0 });
   
@@ -332,6 +381,7 @@ function UptimePage() {
   };
 
   const loadHeartbeats = async (monitorId) => {
+    setUptimeHeartbeatLoading(prev => ({ ...prev, [monitorId]: true }));
     try {
       const res = await fetch(`/api/uptime/monitors/${monitorId}/history`, { headers: getAuthHeaders() });
       const data = await res.json();
@@ -346,6 +396,8 @@ function UptimePage() {
       }
     } catch (e) {
       console.error(`加载心跳历史失败 (${monitorId}):`, e);
+    } finally {
+      setUptimeHeartbeatLoading(prev => ({ ...prev, [monitorId]: false }));
     }
   };
 
@@ -736,7 +788,7 @@ function UptimePage() {
               <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-kumo-subtle">
                 <Search className="w-3.5 h-3.5" />
               </span>
-              <Input
+              <Input size="sm"
                 type="text"
                 aria-label="搜索监测目标"
                 placeholder="搜索监测目标..."
@@ -746,7 +798,7 @@ function UptimePage() {
               />
             </div>
 
-            <Button variant="primary" icon={<Plus className="w-4 h-4" />} onClick={handleOpenAdd}>
+            <Button size="sm" variant="primary" icon={<Plus className="w-4 h-4" />} onClick={handleOpenAdd}>
               新建目标
             </Button>
           </div>
@@ -760,31 +812,27 @@ function UptimePage() {
           <div className="flex flex-wrap items-center gap-2 pb-2">
             <Button
               onClick={() => setUptimeStatusFilter(null)}
-              variant={uptimeStatusFilter === null ? 'primary' : 'secondary'}
-              size="sm"
+              variant={uptimeStatusFilter === null ? 'primary' : 'secondary'} size="sm"
             >
               全部 ({uptimeMonitors.length})
             </Button>
             <Button
               onClick={() => setUptimeStatusFilter('up')}
-              variant="secondary"
-              size="sm"
+              variant="secondary" size="sm"
               className={uptimeStatusFilter === 'up' ? 'text-kumo-success ring-kumo-success/30 bg-kumo-success/10' : ''}
             >
               正常 ({uptimeStats.up})
             </Button>
             <Button
               onClick={() => setUptimeStatusFilter('down')}
-              variant="secondary"
-              size="sm"
+              variant="secondary" size="sm"
               className={uptimeStatusFilter === 'down' ? 'text-kumo-danger ring-kumo-danger/30 bg-kumo-danger/10' : ''}
             >
               故障 ({uptimeStats.down})
             </Button>
             <Button
               onClick={() => setUptimeStatusFilter('pending')}
-              variant="secondary"
-              size="sm"
+              variant="secondary" size="sm"
               className={uptimeStatusFilter === 'pending' ? 'text-kumo-warning ring-kumo-warning/30 bg-kumo-warning/10' : ''}
             >
               等待 ({uptimeStats.pending})
@@ -793,8 +841,7 @@ function UptimePage() {
             <Button
               onClick={loadUptimeMonitors}
               loading={uptimeLoading}
-              variant="secondary"
-              size="sm"
+              variant="secondary" size="sm"
               shape="square"
               aria-label="刷新监测目标"
               className="ml-auto"
@@ -816,7 +863,7 @@ function UptimePage() {
                 {uptimeSearchText ? '未找到匹配的监测目标' : '暂无监测目标，开始添加一个吧'}
               </div>
               {!uptimeSearchText && (
-                <Button variant="primary" className="mt-4" onClick={handleOpenAdd}>
+                <Button size="sm" variant="primary" className="mt-4" onClick={handleOpenAdd}>
                   添加第一个监测
                 </Button>
               )}
@@ -832,8 +879,7 @@ function UptimePage() {
                 />
                 {selectedMonitorIds.length > 0 && (
                   <Button
-                    variant="destructive"
-                    size="sm"
+                    variant="destructive" size="sm"
                     onClick={handleBatchDelete}
                     icon={<Trash className="w-3 h-3" />}
                   >
@@ -970,18 +1016,20 @@ function UptimePage() {
                       </div>
 
                       {/* 卡片下半部详情抽屉 */}
-                      {isExpanded && (
+                      <AnimatedCollapse open={isExpanded}>
                         <UptimeMonitorDetails
                           monitor={monitor}
                           heartbeats={beats}
+                          loading={!!uptimeHeartbeatLoading[monitor.id]}
                           uptime24h={getUptimeRate(monitor.id, 1)}
                           uptime30d={getUptimeRate(monitor.id, 30)}
                           onPauseResume={handleToggleActive}
                           onEdit={handleOpenEdit}
                           onDelete={handleDeleteMonitor}
                           formatDateTime={formatDateTime}
+                          expanded={isExpanded}
                         />
-                      )}
+                      </AnimatedCollapse>
                     </div>
                   );
                 })}
@@ -1020,8 +1068,7 @@ function UptimePage() {
             <div className="md:col-span-4">
               <Input
                 label="显示名称 *"
-                type="text"
-                size="sm"
+                type="text" size="sm"
                 placeholder="例如：生产数据库端口"
                 value={uptimeForm.name}
                 onChange={(e) => setUptimeForm(prev => ({ ...prev, name: e.target.value }))}
@@ -1034,8 +1081,7 @@ function UptimePage() {
               <div className="md:col-span-8">
                 <Input
                   label="请求 URL *"
-                  type="text"
-                  size="sm"
+                  type="text" size="sm"
                   placeholder="https://api.domain.com/v1/health"
                   value={uptimeForm.url}
                   onChange={(e) => setUptimeForm(prev => ({ ...prev, url: e.target.value }))}
@@ -1047,8 +1093,7 @@ function UptimePage() {
                 <div className={uptimeForm.type === 'tcp' ? 'md:col-span-6' : 'md:col-span-8'}>
                   <Input
                     label="主机名 / IP *"
-                    type="text"
-                    size="sm"
+                    type="text" size="sm"
                     placeholder="例如：192.168.1.100 或 db.server.internal"
                     value={uptimeForm.hostname}
                     onChange={(e) => setUptimeForm(prev => ({ ...prev, hostname: e.target.value }))}
@@ -1059,8 +1104,7 @@ function UptimePage() {
                   <div className="md:col-span-2">
                     <Input
                       label="连接端口 *"
-                      type="number"
-                      size="sm"
+                      type="number" size="sm"
                       placeholder="3306"
                       value={uptimeForm.port}
                       onChange={(e) => setUptimeForm(prev => ({ ...prev, port: parseInt(e.target.value) || 0 }))}
@@ -1075,8 +1119,7 @@ function UptimePage() {
             <div className="md:col-span-6">
               <Input
                 label="检测频率（秒）"
-                type="number"
-                size="sm"
+                type="number" size="sm"
                 min="20"
                 value={uptimeForm.interval}
                 onChange={(e) => setUptimeForm(prev => ({ ...prev, interval: parseInt(e.target.value) || 60 }))}
@@ -1086,8 +1129,7 @@ function UptimePage() {
             <div className="md:col-span-6">
               <Input
                 label="重试次数"
-                type="number"
-                size="sm"
+                type="number" size="sm"
                 min="0"
                 value={uptimeForm.retries}
                 onChange={(e) => setUptimeForm(prev => ({ ...prev, retries: parseInt(e.target.value) || 0 }))}
@@ -1108,8 +1150,7 @@ function UptimePage() {
               <div className="md:col-span-6">
                 <Input
                   label="SSL 证书到期提醒（天）"
-                  type="number"
-                  size="sm"
+                  type="number" size="sm"
                   placeholder="7"
                   value={uptimeForm.expiryNotification}
                   onChange={(e) => setUptimeForm(prev => ({ ...prev, expiryNotification: parseInt(e.target.value) || 7 }))}
@@ -1134,8 +1175,7 @@ function UptimePage() {
               <div className="md:col-span-12">
                 <Input
                   label="关键字匹配（网页中必须包含此文字）*"
-                  type="text"
-                  size="sm"
+                  type="text" size="sm"
                   placeholder="例如：success 或 正常"
                   value={uptimeForm.keyword}
                   onChange={(e) => setUptimeForm(prev => ({ ...prev, keyword: e.target.value }))}
@@ -1184,8 +1224,7 @@ function UptimePage() {
             <div className="md:col-span-12">
               <Input
                 label="分组标签 (Tags)"
-                type="text"
-                size="sm"
+                type="text" size="sm"
                 placeholder="prod, api, test (逗号或空格分割)"
                 value={uptimeForm.tagsInput}
                 onChange={(e) => setUptimeForm(prev => ({ ...prev, tagsInput: e.target.value }))}
@@ -1196,8 +1235,8 @@ function UptimePage() {
 
           {/* 表单按钮栏 */}
           <div className="flex justify-end gap-3 border-t border-kumo-line pt-4 select-none">
-            <Button onClick={() => setUptimeCurrentTab('list')}>取消</Button>
-            <Button variant="primary" onClick={handleSaveMonitor} loading={uptimeSaving} icon={<Save className="w-3.5 h-3.5" />}>
+            <Button size="sm" onClick={() => setUptimeCurrentTab('list')}>取消</Button>
+            <Button size="sm" variant="primary" onClick={handleSaveMonitor} loading={uptimeSaving} icon={<Save className="w-3.5 h-3.5" />}>
               保存目标
             </Button>
           </div>

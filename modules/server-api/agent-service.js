@@ -14,6 +14,7 @@ const {
   validateHostState,
   stateToFrontendFormat,
   normalizeNetworkMetrics,
+  resolveCpuTemperature,
   sanitizeHostInfo,
 } = require('./protocol');
 const { ServerMetricsHistory, ServerMonitorConfig } = require('./models');
@@ -267,7 +268,9 @@ class AgentService extends EventEmitter {
       server_id: serverId,
       cpu_usage: parseFloat(frontendMetrics.cpu_usage) || 0,
       cpu_load: frontendMetrics.load || '',
-      cpu_cores: frontendMetrics.cores || 1,
+      cpu_cores: frontendMetrics.physical_cores || frontendMetrics.cores || 1,
+      cpu_threads: frontendMetrics.logical_cores || frontendMetrics.cores || 1,
+      cpu_temp: resolveCpuTemperature(frontendMetrics),
       mem_used: memUsed,
       mem_total: memTotal,
       mem_usage: frontendMetrics.mem_percent || 0,
@@ -282,6 +285,7 @@ class AgentService extends EventEmitter {
       gpu_mem_used: gpuMemUsed,
       gpu_mem_total: frontendMetrics.gpu_mem_total || 0,
       gpu_power: parseFloat(frontendMetrics.gpu_power) || 0,
+      gpu_temp: parseFloat(frontendMetrics.gpu_temp) || 0,
       platform: frontendMetrics.platform || '',
       net_rx: parseSpeedToBytes(frontendMetrics.network?.rx_speed),
       net_tx: parseSpeedToBytes(frontendMetrics.network?.tx_speed),
@@ -431,7 +435,7 @@ class AgentService extends EventEmitter {
         const frontendMetrics = stateToFrontendFormat(state, hostInfo);
 
         // 生成数据指纹用于去重 (使用关键指标)
-        const dataFingerprint = `${server.id}:${frontendMetrics.cpu_usage}:${frontendMetrics.mem_percent}:${frontendMetrics.gpu_usage}:${frontendMetrics.gpu_mem_used}:${frontendMetrics.gpu_mem_percent}:${frontendMetrics.gpu_power}:${frontendMetrics.gpu_temp}:${frontendMetrics.load}`;
+        const dataFingerprint = `${server.id}:${frontendMetrics.cpu_usage}:${frontendMetrics.cpu_temp}:${frontendMetrics.mem_percent}:${frontendMetrics.gpu_usage}:${frontendMetrics.gpu_mem_used}:${frontendMetrics.gpu_mem_percent}:${frontendMetrics.gpu_power}:${frontendMetrics.gpu_temp}:${frontendMetrics.load}`;
 
         // 初始化去重缓存
         if (!this.lastHistoryFingerprints) {
@@ -475,7 +479,9 @@ class AgentService extends EventEmitter {
           server_id: server.id,
           cpu_usage: parseFloat(frontendMetrics.cpu_usage) || 0,
           cpu_load: frontendMetrics.load || '',
-          cpu_cores: frontendMetrics.cores || 1,
+          cpu_cores: frontendMetrics.physical_cores || frontendMetrics.cores || 1,
+          cpu_threads: frontendMetrics.logical_cores || frontendMetrics.cores || 1,
+          cpu_temp: resolveCpuTemperature(frontendMetrics),
           mem_used: memUsed,
           mem_total: memTotal,
           mem_usage: frontendMetrics.mem_percent || 0,
@@ -489,6 +495,7 @@ class AgentService extends EventEmitter {
           gpu_mem_used: frontendMetrics.gpu_mem_used || 0,
           gpu_mem_total: hostInfo.gpu_mem_total || 0,
           gpu_power: parseFloat(frontendMetrics.gpu_power) || 0,
+          gpu_temp: parseFloat(frontendMetrics.gpu_temp) || 0,
           platform: frontendMetrics.platform || '',
           net_rx: parseSpeedToBytes(frontendMetrics.network?.rx_speed),
           net_tx: parseSpeedToBytes(frontendMetrics.network?.tx_speed),
@@ -1562,6 +1569,9 @@ class AgentService extends EventEmitter {
       disk_usage: metrics.disk,
       load: metrics.load || '0 0 0',
       cores: parseInt(metrics.cores) || 1,
+      physical_cores: parseInt(metrics.physical_cores) || parseInt(metrics.cores) || 1,
+      logical_cores: parseInt(metrics.logical_cores) || parseInt(metrics.cores) || 1,
+      cpu_temp: resolveCpuTemperature(metrics),
       network: normalizeNetworkMetrics({
         rx_speed: metrics.rx_speed || '0 B/s',
         tx_speed: metrics.tx_speed || '0 B/s',

@@ -18,6 +18,14 @@ const { createLogger, getBuffer } = require('../utils/logger');
 
 const logger = createLogger('Settings');
 
+function tableExists(db, tableName) {
+  return Boolean(
+    db
+      .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?")
+      .get(tableName)
+  );
+}
+
 /**
  * 获取系统审计日志
  * GET /api/settings/operation-logs
@@ -587,6 +595,16 @@ router.post('/clear-chat-messages', async (req, res) => {
   try {
     const { keepDays = 7, keepSessions = 10 } = req.body;
     const db = dbService.getDatabase();
+
+    if (!tableExists(db, 'chat_sessions') || !tableExists(db, 'chat_messages')) {
+      return res.json({
+        success: true,
+        message: '旧聊天表不存在，无需清理',
+        deletedMessages: 0,
+        deletedSessions: 0,
+        newSizeMB: 0,
+      });
+    }
 
     logger.info(`开始清理聊天消息，保留 ${keepDays} 天或最近 ${keepSessions} 个会话`);
 

@@ -11,6 +11,7 @@ import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import useTableResize from '../composables/useTableResize.js';
 import useStore from '../store.js';
 import { MODULE_TABS_PROPS } from '../modules/kumoTabs.js';
+import { handleEditableRowDoubleClick } from '../modules/tableInteractions.js';
 import {
   Database,
   Globe,
@@ -299,8 +300,7 @@ function TencentPage() {
             <div className="flex items-center gap-2">
               <span className="text-xs text-kumo-subtle font-medium">账号</span>
               <Select
-                aria-label="腾讯云账号"
-                size="sm"
+                aria-label="腾讯云账号" size="sm"
                 value={selectedAccountId}
                 onValueChange={setSelectedAccountId}
                 items={accounts.map((acc) => ({ value: String(acc.id), label: acc.name }))}
@@ -309,10 +309,12 @@ function TencentPage() {
             <Button
               onClick={refreshData}
               disabled={refreshing || !selectedAccountId}
-              className="h-8 px-2.5 flex items-center justify-center bg-kumo-base border border-kumo-line text-kumo-strong hover:bg-kumo-recessed"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
-            </Button>
+              variant="secondary" size="sm"
+              shape="square"
+              aria-label="刷新"
+              title="刷新"
+              icon={<RefreshCw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />}
+            />
           </div>
         )}
       </div>
@@ -432,7 +434,7 @@ function TencentPage() {
                           </Table.Cell>
                           <Table.Cell className="p-4 text-kumo-subtle">{dom.Expiration || '-'}</Table.Cell>
                           <Table.Cell className="p-4 text-center">
-                            <Button className="text-[10px] h-7 px-2 border border-kumo-line bg-kumo-recessed/50 hover:bg-kumo-brand/10 hover:text-kumo-brand">
+                            <Button size="sm" className="text-[10px] border border-kumo-line bg-kumo-recessed/50 hover:bg-kumo-brand/10 hover:text-kumo-brand">
                               管理解析
                             </Button>
                           </Table.Cell>
@@ -488,8 +490,7 @@ function TencentPage() {
                           <Button
                             onClick={() => handleInstanceAction('cvm', inst, 'START')}
                             disabled={inst.InstanceState === 'RUNNING'}
-                            variant="secondary"
-                            size="sm"
+                            variant="secondary" size="sm"
                             shape="square"
                             aria-label="启动 CVM 实例"
                             className="text-kumo-success hover:bg-kumo-success/10"
@@ -499,8 +500,7 @@ function TencentPage() {
                           <Button
                             onClick={() => handleInstanceAction('cvm', inst, 'STOP')}
                             disabled={inst.InstanceState === 'STOPPED'}
-                            variant="secondary"
-                            size="sm"
+                            variant="secondary" size="sm"
                             shape="square"
                             aria-label="停止 CVM 实例"
                             className="text-kumo-danger hover:bg-kumo-danger/10"
@@ -509,8 +509,7 @@ function TencentPage() {
                           </Button>
                           <Button
                             onClick={() => handleInstanceAction('cvm', inst, 'REBOOT')}
-                            variant="secondary"
-                            size="sm"
+                            variant="secondary" size="sm"
                             shape="square"
                             aria-label="重启 CVM 实例"
                             className="text-kumo-brand hover:bg-kumo-brand/10"
@@ -518,7 +517,7 @@ function TencentPage() {
                             <RotateCw className="w-3.5 h-3.5" />
                           </Button>
                         </div>
-                        <Button className="h-7 text-[10px] px-2.5 border border-kumo-line bg-kumo-recessed hover:bg-kumo-base font-bold">
+                        <Button size="sm" className="text-[10px] border border-kumo-line bg-kumo-recessed hover:bg-kumo-base font-bold">
                           监控详情
                         </Button>
                       </div>
@@ -572,8 +571,7 @@ function TencentPage() {
                           <Button
                             onClick={() => handleInstanceAction('lighthouse', inst, 'START')}
                             disabled={inst.InstanceState === 'RUNNING'}
-                            variant="secondary"
-                            size="sm"
+                            variant="secondary" size="sm"
                             shape="square"
                             aria-label="启动轻量服务器"
                             className="text-kumo-success hover:bg-kumo-success/10"
@@ -583,8 +581,7 @@ function TencentPage() {
                           <Button
                             onClick={() => handleInstanceAction('lighthouse', inst, 'STOP')}
                             disabled={inst.InstanceState === 'STOPPED'}
-                            variant="secondary"
-                            size="sm"
+                            variant="secondary" size="sm"
                             shape="square"
                             aria-label="停止轻量服务器"
                             className="text-kumo-danger hover:bg-kumo-danger/10"
@@ -593,8 +590,7 @@ function TencentPage() {
                           </Button>
                           <Button
                             onClick={() => handleInstanceAction('lighthouse', inst, 'REBOOT')}
-                            variant="secondary"
-                            size="sm"
+                            variant="secondary" size="sm"
                             shape="square"
                             aria-label="重启轻量服务器"
                             className="text-kumo-brand hover:bg-kumo-brand/10"
@@ -602,7 +598,7 @@ function TencentPage() {
                             <RotateCw className="w-3.5 h-3.5" />
                           </Button>
                         </div>
-                        <Button className="h-7 text-[10px] px-2.5 border border-kumo-line bg-kumo-recessed hover:bg-kumo-base font-bold">
+                        <Button size="sm" className="text-[10px] border border-kumo-line bg-kumo-recessed hover:bg-kumo-base font-bold">
                           管理详情
                         </Button>
                       </div>
@@ -617,13 +613,13 @@ function TencentPage() {
               <div className="space-y-4">
                 <div className="flex justify-between items-center">
                   <h3 className="text-sm font-bold text-kumo-strong">腾讯云账号列表</h3>
-                  <Button
+                  <Button size="sm"
                     onClick={() => {
                       setEditingAccount(null);
                       setAccountForm({ name: '', secretId: '', secretKey: '', regionId: 'ap-guangzhou', description: '' });
                       setShowAddAccountModal(true);
                     }}
-                    className="h-8 text-xs flex items-center gap-1.5"
+                    className="text-xs flex items-center gap-1.5"
                   >
                     <Plus className="w-3.5 h-3.5" />
                     <span>添加账号</span>
@@ -665,7 +661,12 @@ function TencentPage() {
                         </Table.Row>
                       ) : (
                         accounts.map((acc) => (
-                          <Table.Row key={acc.id} className="border-b border-kumo-line last:border-0 hover:bg-kumo-recessed/10">
+                          <Table.Row
+                            key={acc.id}
+                            className="border-b border-kumo-line last:border-0 hover:bg-kumo-recessed/10 cursor-pointer"
+                            title="双击编辑账号"
+                            onDoubleClick={(event) => handleEditableRowDoubleClick(event, () => openEditModal(acc))}
+                          >
                             <Table.Cell className="p-4 font-bold text-kumo-strong">{acc.name}</Table.Cell>
                             <Table.Cell className="p-4 font-mono text-kumo-default">{acc.secret_id}</Table.Cell>
                             <Table.Cell className="p-4 text-kumo-default">{acc.region_id}</Table.Cell>
@@ -674,8 +675,7 @@ function TencentPage() {
                               <div className="flex justify-center gap-2">
                                 <Button
                                   onClick={() => openEditModal(acc)}
-                                  variant="secondary"
-                                  size="sm"
+                                  variant="secondary" size="sm"
                                   shape="square"
                                   aria-label="编辑腾讯云账号"
                                   className="text-kumo-subtle hover:text-kumo-brand"
@@ -684,8 +684,7 @@ function TencentPage() {
                                 </Button>
                                 <Button
                                   onClick={() => deleteAccount(acc.id)}
-                                  variant="secondary-destructive"
-                                  size="sm"
+                                  variant="secondary-destructive" size="sm"
                                   shape="square"
                                   aria-label="删除腾讯云账号"
                                   className="hover:bg-kumo-danger/10"
@@ -719,8 +718,7 @@ function TencentPage() {
           <div className="space-y-4">
             <Input
               label="备注名称"
-              type="text"
-              size="sm"
+              type="text" size="sm"
               value={accountForm.name}
               onChange={(e) => setAccountForm({ ...accountForm, name: e.target.value })}
               placeholder="我的腾讯云生产环境"
@@ -730,8 +728,7 @@ function TencentPage() {
             <div className="grid grid-cols-2 gap-4">
               <Input
                 label="Secret ID"
-                type="text"
-                size="sm"
+                type="text" size="sm"
                 value={accountForm.secretId}
                 onChange={(e) => setAccountForm({ ...accountForm, secretId: e.target.value })}
                 placeholder="AKID..."
@@ -739,8 +736,7 @@ function TencentPage() {
               />
               <Input
                 label="默认地域 ID"
-                type="text"
-                size="sm"
+                type="text" size="sm"
                 value={accountForm.regionId}
                 onChange={(e) => setAccountForm({ ...accountForm, regionId: e.target.value })}
                 placeholder="ap-guangzhou"
@@ -750,8 +746,7 @@ function TencentPage() {
 
             <Input
               label="Secret Key"
-              type="password"
-              size="sm"
+              type="password" size="sm"
               value={accountForm.secretKey}
               onChange={(e) => setAccountForm({ ...accountForm, secretKey: e.target.value })}
               placeholder={editingAccount ? '(不修改请留空)' : '请输入 SecretKey'}
@@ -769,16 +764,16 @@ function TencentPage() {
             <div className="flex justify-end gap-2 pt-2">
               <Dialog.Close
                 render={(props) => (
-                  <Button
+                  <Button size="sm"
                     {...props}
                     variant="secondary"
-                    className="border border-kumo-line bg-kumo-recessed text-xs h-8"
+                    className="border border-kumo-line bg-kumo-recessed text-xs"
                   >
                     取消
                   </Button>
                 )}
               />
-              <Button onClick={handleAddAccount} disabled={submittingAccount} className="text-xs h-8">
+              <Button size="sm" onClick={handleAddAccount} disabled={submittingAccount} className="text-xs">
                 {submittingAccount ? '提交中...' : '保存账号'}
               </Button>
             </div>

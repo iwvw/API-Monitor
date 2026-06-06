@@ -110,7 +110,7 @@ function AuthPage() {
                 <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-kumo-subtle text-xs flex items-center">
                   <Key className="w-4 h-4" />
                 </span>
-                <Input
+                <Input size="sm"
                   type="password"
                   aria-label="设置密码"
                   className="w-full bg-kumo-recessed text-kumo-strong text-sm pl-9 pr-4 py-2 border border-kumo-line rounded-md focus:outline-none focus:border-kumo-brand"
@@ -128,7 +128,7 @@ function AuthPage() {
                 <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-kumo-subtle text-xs flex items-center">
                   <CheckDouble className="w-4 h-4" />
                 </span>
-                <Input
+                <Input size="sm"
                   type="password"
                   aria-label="确认密码"
                   className="w-full bg-kumo-recessed text-kumo-strong text-sm pl-9 pr-4 py-2 border border-kumo-line rounded-md focus:outline-none focus:border-kumo-brand"
@@ -149,8 +149,7 @@ function AuthPage() {
 
             <Button
               type="submit"
-              variant="primary"
-              size="lg"
+              variant="primary" size="sm"
               loading={setupLoading}
               className="w-full justify-center"
             >
@@ -195,7 +194,7 @@ function AuthPage() {
                 <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-kumo-subtle text-xs flex items-center">
                   <Lock className="w-4 h-4" />
                 </span>
-                <Input
+                <Input size="sm"
                   type="password"
                   aria-label="管理员密码"
                   className="w-full bg-kumo-recessed text-kumo-strong text-sm pl-9 pr-4 py-2 border border-kumo-line rounded-md focus:outline-none focus:border-kumo-brand"
@@ -217,7 +216,7 @@ function AuthPage() {
                 <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-kumo-subtle text-xs flex items-center">
                   <Key className="w-4 h-4" />
                 </span>
-                <Input
+                <Input size="sm"
                   type="text"
                   aria-label="6 位双因素验证码"
                   maxLength={6}
@@ -244,8 +243,7 @@ function AuthPage() {
           {!loginRequire2FA && (
             <Button
               type="submit"
-              variant="primary"
-              size="lg"
+              variant="primary" size="sm"
               loading={loginLoading}
               className="w-full justify-center"
             >
@@ -259,11 +257,10 @@ function AuthPage() {
             <Button
               type="button"
               onClick={cancelLogin2FA}
-              variant="secondary"
-              size="lg"
+              variant="secondary" size="sm"
               className="w-full justify-center"
+              icon={<ChevronLeft className="w-4 h-4" />}
             >
-              <ChevronLeft className="w-4 h-4" />
               <span>返回修改</span>
             </Button>
           )}
