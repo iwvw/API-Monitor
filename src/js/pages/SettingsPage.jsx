@@ -3,7 +3,7 @@ import { toast } from '../modules/toast.js';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Input } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
-import { Tabs } from '@cloudflare/kumo/components/tabs';
+import { Tabs } from '@cloudflare/kumo';
 import useStore from '../store.js';
 import { Settings, Lock, Shield, LayoutDashboard, Globe, Sun } from '../components/Icons.jsx';
 
@@ -43,7 +43,7 @@ function SettingsPage() {
   };
 
   return (
-    <div className="flex flex-col gap-6 w-full max-w-4xl mx-auto pb-20">
+    <div className="flex flex-col gap-6 w-full pb-20">
       <div className="flex items-center gap-3 border-b border-kumo-line pb-4">
         <div className="w-10 h-10 rounded-full bg-kumo-recessed border border-kumo-line flex items-center justify-center text-kumo-brand">
           <Settings className="w-5 h-5" />

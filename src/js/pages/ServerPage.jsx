@@ -4,7 +4,7 @@ import { toast } from '../modules/toast.js';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Input, Textarea } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
-import { Tabs } from '@cloudflare/kumo/components/tabs';
+import { Tabs } from '@cloudflare/kumo';
 import { Table } from '@cloudflare/kumo/components/table';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import useTableResize from '../composables/useTableResize.js';
@@ -1929,7 +1929,7 @@ function ServerPage() {
   }, [serverList]);
   
   return (
-    <div className="flex flex-col gap-6 w-full max-w-7xl mx-auto px-1 pb-20">
+    <div className="flex flex-col gap-6 w-full px-1 pb-20">
       {/* 顶部标签导航 */}
       <div className="flex flex-wrap items-center justify-between border-b border-kumo-line pb-3 gap-4">
         <div className="flex items-center gap-1.5 overflow-x-auto scrollbar-thin">

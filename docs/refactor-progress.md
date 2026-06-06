@@ -194,6 +194,13 @@ case 'self-h':   return <SelfHPage />;
     - 主题切换已收敛到设置页，侧栏不再保留独立切换按钮；设置页使用 Kumo `Select`，支持跟随系统/浅色/深色
     - API 网关子标签必须直接使用 Kumo `Tabs`，不再使用本地 `ModuleTabs` 包装组件
     - 侧栏已按 Kumo Sidebar 官方 Basic 结构重构：`GroupLabel` 只作为组标题，模块入口全部使用同级 `Sidebar.MenuButton`，移除重复组标题、二级子菜单和边缘 `Sidebar.Rail`，并恢复 Antigravity 到 API 网关导航
+13. 不同模块页面宽度不统一，且无法调节 ✅ 已修复
+    - `MainLayout` 已接管统一页面宽度，支持 `标准 / 宽屏 / 全宽` 三档 Kumo `Tabs` 切换并持久化到 localStorage
+    - 已移除主要页面根容器的局部 `max-w-7xl/max-w-4xl mx-auto` 限制，避免模块自行锁死宽度
+14. 所有标签页需要统一为 Kumo `Tabs` 写法 ✅ 已修复基础规范
+    - 已统一 `Tabs` 从 `@cloudflare/kumo` 顶层导入
+    - 已清除 `TabsList` / `TabsTrigger` 旧结构，统一使用 `variant="segmented"` + `tabs={[...]}` 数组写法
+    - 受控标签页继续使用 `value/onValueChange`；Kumo `selectedValue` 仅作为 uncontrolled 初始值使用
 
 ## 2026-06-06 Phase 0 Baseline
 
@@ -208,6 +215,14 @@ case 'self-h':   return <SelfHPage />;
 
 - 已核准 `E:\Code\kumo` / `@cloudflare/kumo` v2.5.0 的实际组件导出：`Button`、`Input`、`Select`、`Tabs`、`Table.ResizeHandle`、`Dialog`、`Checkbox`、`Switch`、`Toasty`、`Autocomplete`、`Sidebar` 均可用。
 - Kumo `Select.hideLabel` 已被上游标记 deprecated；后续隐藏标签统一使用 `aria-label`。
+- 全站 Kumo `Tabs` 基础规范已统一：
+  - 从 `@cloudflare/kumo` 顶层导入 `Tabs`
+  - 默认使用 `variant="segmented"` 和 `tabs` 数组声明标签
+  - 需要同步 React/Zustand 状态的页面使用 `value/onValueChange`，不使用只作初始值的 `selectedValue`
+- 全站页面宽度基础规范已统一：
+  - `MainLayout` 提供 `标准 / 宽屏 / 全宽` 三档页面宽度
+  - 宽度偏好写入 `app_page_width_mode`
+  - 模块页面根容器不再自行设置 `max-w-7xl/max-w-4xl mx-auto`
 - `DnsPage.jsx` 已完成第一轮 Kumo-only 控件收敛：
   - 顶部原生 tab button 改为 Kumo `Tabs`
   - 账号选择原生 `select` 改为 Kumo `Select`

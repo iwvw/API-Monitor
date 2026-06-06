@@ -21,6 +21,7 @@ import {
   Sidebar,
   useSidebar
 } from '@cloudflare/kumo/components/sidebar';
+import { Tabs } from '@cloudflare/kumo';
 import {
   LayoutDashboard,
   Bot,
@@ -72,6 +73,12 @@ const getPathModule = (pathname) => {
   return MODULE_CONFIG[route] ? route : null;
 };
 
+const PAGE_WIDTH_CLASSES = {
+  standard: 'max-w-7xl',
+  wide: 'max-w-[1600px]',
+  full: 'max-w-none',
+};
+
 const useMobileClosingNavigation = (onNavigate) => {
   const { isMobile, setOpenMobile } = useSidebar();
 
@@ -114,8 +121,11 @@ function MainLayout() {
     setMainActiveTab,
     sidebarCollapsed,
     setSidebarCollapsed,
+    pageWidthMode,
+    setPageWidthMode,
     logout,
   } = useStore();
+  const pageWidthClass = PAGE_WIDTH_CLASSES[pageWidthMode] || PAGE_WIDTH_CLASSES.standard;
 
   useEffect(() => {
     const syncTabFromLocation = () => {
@@ -277,6 +287,17 @@ function MainLayout() {
           </div>
 
           <div className="flex items-center gap-4">
+            <Tabs
+              variant="segmented"
+              size="sm"
+              value={pageWidthMode}
+              onValueChange={setPageWidthMode}
+              tabs={[
+                { value: 'standard', label: '标准' },
+                { value: 'wide', label: '宽屏' },
+                { value: 'full', label: '全宽' },
+              ]}
+            />
             <div className="flex items-center gap-1.5 text-[11px] text-kumo-success bg-kumo-success/10 px-2 py-0.5 rounded-md border border-kumo-success/20">
               <span className="w-1 h-1 rounded-full bg-current animate-pulse"></span>
               系统正常运行
@@ -286,7 +307,9 @@ function MainLayout() {
 
         {/* 主内容画布 */}
         <main className="flex-1 overflow-y-auto p-4 lg:p-8 scrollbar-thin">
-          {renderActivePage()}
+          <div className={`mx-auto flex h-full w-full min-w-0 flex-col ${pageWidthClass}`}>
+            {renderActivePage()}
+          </div>
         </main>
       </div>
     </Sidebar.Provider>

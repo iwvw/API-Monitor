@@ -3,7 +3,7 @@ import useStore from '../store.js';
 import toastManager from '../modules/toast.js';
 import { Button } from "@cloudflare/kumo/components/button";
 import { Input } from "@cloudflare/kumo/components/input";
-import { Tabs } from "@cloudflare/kumo/components/tabs";
+import { Tabs } from "@cloudflare/kumo";
 import { Dialog } from "@cloudflare/kumo/components/dialog";
 import { SkeletonLine } from "@cloudflare/kumo/components/loader";
 import { Table } from "@cloudflare/kumo/components/table";
@@ -1034,16 +1034,21 @@ const MusicPage = () => {
     <div className="space-y-6 animate-in fade-in duration-500">
       <div className="flex items-center gap-4">
         <h2 className="text-xl font-bold text-kumo-strong whitespace-nowrap">搜索: {musicSearchKeyword}</h2>
-        <Tabs value={musicSearchType} onValueChange={(v) => {
-          useStore.setState({ musicSearchType: v });
-          setTimeout(() => musicSearch(false), 0);
-        }} className="w-full max-w-xs">
-          <TabsList className="bg-kumo-recessed p-1 rounded-lg h-9">
-            <TabsTrigger value="songs" className="text-xs">歌曲</TabsTrigger>
-            <TabsTrigger value="playlists" className="text-xs">歌单</TabsTrigger>
-            <TabsTrigger value="artists" className="text-xs">歌手</TabsTrigger>
-          </TabsList>
-        </Tabs>
+        <Tabs
+          variant="segmented"
+          size="sm"
+          value={musicSearchType}
+          onValueChange={(v) => {
+            useStore.setState({ musicSearchType: v });
+            setTimeout(() => musicSearch(false), 0);
+          }}
+          className="w-full max-w-xs"
+          tabs={[
+            { value: 'songs', label: '歌曲' },
+            { value: 'playlists', label: '歌单' },
+            { value: 'artists', label: '歌手' },
+          ]}
+        />
       </div>
 
       {musicSearchLoading ? (
@@ -1238,17 +1243,23 @@ const MusicPage = () => {
               <ArrowLeft className="w-5 h-5" />
             </Button>
           )}
-          <Tabs value={musicCurrentTab} onValueChange={(v) => {
-            useStore.setState({ musicCurrentTab: v, musicShowDetail: false });
-            if (v === 'discover' && hotPlaylists.length === 0) musicLoadHotPlaylists();
-          }}>
-            <TabsList className="bg-transparent gap-1">
-              <TabsTrigger value="home" className="data-[state=active]:bg-kumo-brand/10 data-[state=active]:text-kumo-brand border-0 rounded-full px-4 h-8 text-xs font-bold gap-1.5"><Home className="w-3.5 h-3.5" /> 首页</TabsTrigger>
-              <TabsTrigger value="discover" className="data-[state=active]:bg-kumo-brand/10 data-[state=active]:text-kumo-brand border-0 rounded-full px-4 h-8 text-xs font-bold gap-1.5"><Compass className="w-3.5 h-3.5" /> 发现</TabsTrigger>
-              <TabsTrigger value="library" className="data-[state=active]:bg-kumo-brand/10 data-[state=active]:text-kumo-brand border-0 rounded-full px-4 h-8 text-xs font-bold gap-1.5"><Music className="w-3.5 h-3.5" /> 库</TabsTrigger>
-              {musicSearchKeyword && <TabsTrigger value="search" className="data-[state=active]:bg-kumo-brand/10 data-[state=active]:text-kumo-brand border-0 rounded-full px-4 h-8 text-xs font-bold gap-1.5"><Search className="w-3.5 h-3.5" /> 搜索</TabsTrigger>}
-            </TabsList>
-          </Tabs>
+          <Tabs
+            variant="segmented"
+            size="sm"
+            value={musicCurrentTab}
+            onValueChange={(v) => {
+              useStore.setState({ musicCurrentTab: v, musicShowDetail: false });
+              if (v === 'discover' && hotPlaylists.length === 0) musicLoadHotPlaylists();
+            }}
+            tabs={[
+              { value: 'home', label: <span className="inline-flex items-center gap-1.5"><Home className="w-3.5 h-3.5" />首页</span> },
+              { value: 'discover', label: <span className="inline-flex items-center gap-1.5"><Compass className="w-3.5 h-3.5" />发现</span> },
+              { value: 'library', label: <span className="inline-flex items-center gap-1.5"><Music className="w-3.5 h-3.5" />库</span> },
+              ...(musicSearchKeyword
+                ? [{ value: 'search', label: <span className="inline-flex items-center gap-1.5"><Search className="w-3.5 h-3.5" />搜索</span> }]
+                : []),
+            ]}
+          />
         </div>
 
         <div className="flex items-center gap-3">

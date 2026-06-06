@@ -154,8 +154,10 @@ export function getModuleIcon(moduleId) {
 
 const THEME_STORAGE_KEY = 'app_theme_mode';
 const LEGACY_THEME_STORAGE_KEY = 'app_theme';
+const PAGE_WIDTH_STORAGE_KEY = 'app_page_width_mode';
 
 export const THEME_MODE_OPTIONS = ['auto', 'light', 'dark'];
+export const PAGE_WIDTH_OPTIONS = ['standard', 'wide', 'full'];
 
 export const getSystemTheme = () => {
   if (typeof window !== 'undefined' && window.matchMedia) {
@@ -197,6 +199,18 @@ const getInitialThemeMode = () => {
 
 const initialThemeMode = getInitialThemeMode();
 
+const getInitialPageWidthMode = () => {
+  try {
+    const savedMode = localStorage.getItem(PAGE_WIDTH_STORAGE_KEY);
+    if (PAGE_WIDTH_OPTIONS.includes(savedMode)) return savedMode;
+  } catch (e) {
+    console.error('Failed to get initial page width mode:', e);
+  }
+  return 'standard';
+};
+
+const initialPageWidthMode = getInitialPageWidthMode();
+
 const useStore = create((set, get) => ({
   // --- 1. 认证状态 ---
   isAuthenticated: false,
@@ -215,6 +229,7 @@ const useStore = create((set, get) => ({
   sidebarCollapsed: false,
   themeMode: initialThemeMode,
   theme: resolveThemeMode(initialThemeMode),
+  pageWidthMode: initialPageWidthMode,
   navGroupExpanded: null,
   
   // --- 3. 页面数据占位 ---
@@ -270,6 +285,17 @@ const useStore = create((set, get) => ({
   setMainActiveTab: (tab) => set({ mainActiveTab: tab }),
   setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
   setNavGroupExpanded: (group) => set({ navGroupExpanded: group }),
+  setPageWidthMode: (mode, persist = true) => {
+    const normalizedMode = PAGE_WIDTH_OPTIONS.includes(mode) ? mode : 'standard';
+    if (persist) {
+      try {
+        localStorage.setItem(PAGE_WIDTH_STORAGE_KEY, normalizedMode);
+      } catch (e) {
+        console.error('Failed to save page width mode:', e);
+      }
+    }
+    set({ pageWidthMode: normalizedMode });
+  },
   
   setThemeMode: (themeMode, persist = true) => {
     const normalizedMode = THEME_MODE_OPTIONS.includes(themeMode) ? themeMode : 'auto';

@@ -5,7 +5,7 @@ import { toast } from '../modules/toast.js';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Checkbox } from '@cloudflare/kumo/components/checkbox';
 import { Input } from '@cloudflare/kumo/components/input';
-import { Tabs } from '@cloudflare/kumo/components/tabs';
+import { Tabs } from '@cloudflare/kumo';
 import {
   Activity,
   Plus,

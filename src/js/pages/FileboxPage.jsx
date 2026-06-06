@@ -7,7 +7,7 @@ import { Dialog } from '@cloudflare/kumo/components/dialog';
 import { Input, Textarea } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
 import { Switch } from '@cloudflare/kumo/components/switch';
-import { Tabs } from '@cloudflare/kumo/components/tabs';
+import { Tabs } from '@cloudflare/kumo';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import { formatFileSize, formatDateTime } from '../modules/utils.js';
 import {

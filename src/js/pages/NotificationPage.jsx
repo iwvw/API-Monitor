@@ -2,9 +2,11 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { toast } from '../modules/toast.js';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Dialog } from '@cloudflare/kumo/components/dialog';
+import { Select } from '@cloudflare/kumo/components/select';
 import { Switch } from '@cloudflare/kumo/components/switch';
 import { Checkbox } from '@cloudflare/kumo/components/checkbox';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
+import { Tabs } from '@cloudflare/kumo';
 import {
   Bell,
   Plus,
@@ -566,52 +568,18 @@ function NotificationPage() {
     <div className="space-y-6 pb-20">
       {/* ==================== 顶部 Tab 导航 ==================== */}
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b border-kumo-line pb-4 gap-4">
-        <div className="flex border border-kumo-line rounded-lg p-0.5 bg-kumo-recessed select-none">
-          <button
-            onClick={() => setNotificationCurrentTab('channels')}
-            className={`flex items-center gap-2 px-4 py-1.5 rounded-md text-xs font-semibold cursor-pointer transition-colors ${
-              notificationCurrentTab === 'channels'
-                ? 'bg-kumo-base text-kumo-strong shadow-sm'
-                : 'text-kumo-subtle hover:text-kumo-strong'
-            }`}
-          >
-            <Bell className="w-3.5 h-3.5" />
-            <span>通知渠道</span>
-          </button>
-          <button
-            onClick={() => setNotificationCurrentTab('rules')}
-            className={`flex items-center gap-2 px-4 py-1.5 rounded-md text-xs font-semibold cursor-pointer transition-colors ${
-              notificationCurrentTab === 'rules'
-                ? 'bg-kumo-base text-kumo-strong shadow-sm'
-                : 'text-kumo-subtle hover:text-kumo-strong'
-            }`}
-          >
-            <AlertTriangle className="w-3.5 h-3.5" />
-            <span>告警规则</span>
-          </button>
-          <button
-            onClick={() => setNotificationCurrentTab('history')}
-            className={`flex items-center gap-2 px-4 py-1.5 rounded-md text-xs font-semibold cursor-pointer transition-colors ${
-              notificationCurrentTab === 'history'
-                ? 'bg-kumo-base text-kumo-strong shadow-sm'
-                : 'text-kumo-subtle hover:text-kumo-strong'
-            }`}
-          >
-            <History className="w-3.5 h-3.5" />
-            <span>通知历史</span>
-          </button>
-          <button
-            onClick={() => setNotificationCurrentTab('settings')}
-            className={`flex items-center gap-2 px-4 py-1.5 rounded-md text-xs font-semibold cursor-pointer transition-colors ${
-              notificationCurrentTab === 'settings'
-                ? 'bg-kumo-base text-kumo-strong shadow-sm'
-                : 'text-kumo-subtle hover:text-kumo-strong'
-            }`}
-          >
-            <Settings className="w-3.5 h-3.5" />
-            <span>全局配置</span>
-          </button>
-        </div>
+        <Tabs
+          variant="segmented"
+          size="sm"
+          value={notificationCurrentTab}
+          onValueChange={setNotificationCurrentTab}
+          tabs={[
+            { value: 'channels', label: <span className="inline-flex items-center gap-1.5"><Bell className="w-3.5 h-3.5" />通知渠道</span> },
+            { value: 'rules', label: <span className="inline-flex items-center gap-1.5"><AlertTriangle className="w-3.5 h-3.5" />告警规则</span> },
+            { value: 'history', label: <span className="inline-flex items-center gap-1.5"><History className="w-3.5 h-3.5" />通知历史</span> },
+            { value: 'settings', label: <span className="inline-flex items-center gap-1.5"><Settings className="w-3.5 h-3.5" />全局配置</span> },
+          ]}
+        />
 
         {notificationCurrentTab === 'channels' && (
           <Button variant="primary" icon={<Plus className="w-4 h-4" />} onClick={handleOpenAddChannel}>
@@ -679,27 +647,39 @@ function NotificationPage() {
 
                     {/* Actions */}
                     <div className="flex items-center gap-1.5 flex-shrink-0">
-                      <button
+                      <Button
                         onClick={() => handleTestChannel(channel.id)}
-                        className="w-6 h-6 flex items-center justify-center rounded hover:bg-kumo-recessed text-kumo-subtle hover:text-kumo-brand"
+                        variant="ghost"
+                        size="sm"
+                        shape="square"
+                        aria-label="测试投递"
+                        className="text-kumo-subtle hover:text-kumo-brand"
                         title="测试投递"
                       >
                         <Send className="w-3 h-3" />
-                      </button>
-                      <button
+                      </Button>
+                      <Button
                         onClick={() => handleOpenEditChannel(channel)}
-                        className="w-6 h-6 flex items-center justify-center rounded hover:bg-kumo-recessed text-kumo-subtle hover:text-kumo-strong"
+                        variant="ghost"
+                        size="sm"
+                        shape="square"
+                        aria-label="编辑通知渠道"
+                        className="text-kumo-subtle hover:text-kumo-strong"
                         title="编辑"
                       >
                         <Edit className="w-3.5 h-3.5" />
-                      </button>
-                      <button
+                      </Button>
+                      <Button
                         onClick={() => handleDeleteChannel(channel.id)}
-                        className="w-6 h-6 flex items-center justify-center rounded hover:bg-kumo-danger/10 text-kumo-subtle hover:text-kumo-danger"
+                        variant="ghost"
+                        size="sm"
+                        shape="square"
+                        aria-label="删除通知渠道"
+                        className="text-kumo-subtle hover:text-kumo-danger hover:bg-kumo-danger/10"
                         title="删除"
                       >
                         <Trash className="w-3.5 h-3.5" />
-                      </button>
+                      </Button>
                     </div>
                   </div>
 
@@ -723,24 +703,30 @@ function NotificationPage() {
         <div className="space-y-4 quick-fade-in">
           {/* 筛选控制栏 */}
           <div className="flex items-center justify-between pb-2 select-none">
-            <select
+            <Select
+              aria-label="告警规则模块筛选"
+              size="sm"
               value={notificationRuleFilter}
-              onChange={(e) => setNotificationRuleFilter(e.target.value)}
-              className="bg-kumo-base text-kumo-strong border border-kumo-line rounded-md text-xs px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-kumo-brand"
-            >
-              <option value="">所有模块</option>
-              <option value="uptime">Uptime 监测</option>
-              <option value="server">Host 主机</option>
-            </select>
+              onValueChange={setNotificationRuleFilter}
+              items={[
+                { value: '', label: '所有模块' },
+                { value: 'uptime', label: 'Uptime 监测' },
+                { value: 'server', label: 'Host 主机' },
+              ]}
+            />
 
-            <button
+            <Button
               onClick={loadNotificationRules}
               disabled={notificationLoading}
-              className="w-8 h-8 flex items-center justify-center border border-kumo-line rounded-lg bg-kumo-base text-kumo-subtle hover:text-kumo-strong transition-colors cursor-pointer"
+              variant="secondary"
+              size="sm"
+              shape="square"
+              aria-label="刷新告警规则"
+              className="text-kumo-subtle hover:text-kumo-strong"
               title="刷新"
             >
               <RotateCw className={`w-3.5 h-3.5 ${notificationLoading ? 'animate-spin' : ''}`} />
-            </button>
+            </Button>
           </div>
 
           {notificationLoading && notificationRules.length === 0 ? (
@@ -812,20 +798,28 @@ function NotificationPage() {
 
                     {/* Actions */}
                     <div className="flex items-center gap-1.5 flex-shrink-0">
-                      <button
+                      <Button
                         onClick={() => handleOpenEditRule(rule)}
-                        className="w-6 h-6 flex items-center justify-center rounded hover:bg-kumo-recessed text-kumo-subtle hover:text-kumo-strong"
+                        variant="ghost"
+                        size="sm"
+                        shape="square"
+                        aria-label="编辑告警规则"
+                        className="text-kumo-subtle hover:text-kumo-strong"
                         title="编辑"
                       >
                         <Edit className="w-3.5 h-3.5" />
-                      </button>
-                      <button
+                      </Button>
+                      <Button
                         onClick={() => handleDeleteRule(rule.id)}
-                        className="w-6 h-6 flex items-center justify-center rounded hover:bg-kumo-danger/10 text-kumo-subtle hover:text-kumo-danger"
+                        variant="ghost"
+                        size="sm"
+                        shape="square"
+                        aria-label="删除告警规则"
+                        className="text-kumo-subtle hover:text-kumo-danger hover:bg-kumo-danger/10"
                         title="删除"
                       >
                         <Trash className="w-3.5 h-3.5" />
-                      </button>
+                      </Button>
                     </div>
                   </div>
 
@@ -845,12 +839,14 @@ function NotificationPage() {
                         <span className={`w-1.5 h-1.5 rounded-full ${rule.enabled ? 'bg-kumo-success' : 'bg-kumo-subtle'}`} />
                         {rule.enabled ? '开启中' : '已禁用'}
                       </span>
-                      <button
+                      <Button
                         onClick={() => handleToggleRuleEnabled(rule)}
-                        className="text-[10px] text-kumo-brand hover:underline font-semibold cursor-pointer select-none"
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 px-1.5 text-[10px] text-kumo-brand hover:underline font-semibold"
                       >
                         {rule.enabled ? '一键禁用' : '一键启用'}
-                      </button>
+                      </Button>
                     </div>
                   </div>
                 </div>
@@ -866,25 +862,31 @@ function NotificationPage() {
           {/* 筛选控制条 */}
           <div className="flex items-center justify-between pb-2 gap-3 select-none">
             <div className="flex items-center gap-2">
-              <select
+              <Select
+                aria-label="通知历史状态筛选"
+                size="sm"
                 value={notificationHistoryFilter}
-                onChange={(e) => setNotificationHistoryFilter(e.target.value)}
-                className="bg-kumo-base text-kumo-strong border border-kumo-line rounded-md text-xs px-2.5 py-1.5 focus:outline-none"
-              >
-                <option value="">全部状态</option>
-                <option value="sent">已发送</option>
-                <option value="failed">失败</option>
-                <option value="pending">队列中</option>
-              </select>
+                onValueChange={setNotificationHistoryFilter}
+                items={[
+                  { value: '', label: '全部状态' },
+                  { value: 'sent', label: '已发送' },
+                  { value: 'failed', label: '失败' },
+                  { value: 'pending', label: '队列中' },
+                ]}
+              />
 
-              <button
+              <Button
                 onClick={loadNotificationHistory}
                 disabled={notificationLoading}
-                className="w-8 h-8 flex items-center justify-center border border-kumo-line rounded-lg bg-kumo-base text-kumo-subtle hover:text-kumo-strong transition-colors cursor-pointer"
+                variant="secondary"
+                size="sm"
+                shape="square"
+                aria-label="刷新通知历史"
+                className="text-kumo-subtle hover:text-kumo-strong"
                 title="刷新"
               >
                 <RotateCw className={`w-3.5 h-3.5 ${notificationLoading ? 'animate-spin' : ''}`} />
-              </button>
+              </Button>
             </div>
 
             {notificationHistory.length > 0 && (

@@ -8,7 +8,7 @@ import { Switch } from '@cloudflare/kumo/components/switch';
 import { Checkbox } from '@cloudflare/kumo/components/checkbox';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import { Select } from '@cloudflare/kumo/components/select';
-import { Tabs } from '@cloudflare/kumo/components/tabs';
+import { Tabs } from '@cloudflare/kumo';
 import useTableResize from '../composables/useTableResize.js';
 import useStore from '../store.js';
 import { renderMarkdown, formatDateTime } from '../modules/utils.js';
@@ -783,7 +783,7 @@ function SelfHPage() {
   };
 
   return (
-    <div className="flex flex-col gap-6 w-full max-w-7xl mx-auto px-1">
+    <div className="flex flex-col gap-6 w-full px-1">
       {/* Sec Tab Header */}
       <div className="flex flex-wrap items-center justify-between border-b border-kumo-line pb-3 gap-4">
         <Tabs

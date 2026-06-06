@@ -5,7 +5,7 @@ import { Dialog } from '@cloudflare/kumo/components/dialog';
 import { Input } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
 import { Table } from '@cloudflare/kumo/components/table';
-import { Tabs } from '@cloudflare/kumo/components/tabs';
+import { Tabs } from '@cloudflare/kumo';
 import { Checkbox } from '@cloudflare/kumo/components/checkbox';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import useTableResize from '../composables/useTableResize.js';
@@ -242,7 +242,7 @@ function DnsPage() {
   }, [activeTab, selectedAccountId, loadZones, loadWorkers, loadPages, loadR2, loadTunnels]);
 
   return (
-    <div className="flex flex-col gap-6 w-full max-w-7xl mx-auto px-1">
+    <div className="flex flex-col gap-6 w-full px-1">
       {/* 顶部：提供商卡片 */}
       <div className="flex flex-wrap items-center justify-between border-b border-kumo-line pb-3 gap-4">
         <Tabs

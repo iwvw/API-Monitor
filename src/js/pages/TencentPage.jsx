@@ -5,7 +5,7 @@ import { Dialog } from '@cloudflare/kumo/components/dialog';
 import { Input, Textarea } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
 import { Table } from '@cloudflare/kumo/components/table';
-import { Tabs } from '@cloudflare/kumo/components/tabs';
+import { Tabs } from '@cloudflare/kumo';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import useTableResize from '../composables/useTableResize.js';
 import useStore from '../store.js';
@@ -275,7 +275,7 @@ function TencentPage() {
   };
 
   return (
-    <div className="flex flex-col gap-6 w-full max-w-7xl mx-auto px-1 pb-20">
+    <div className="flex flex-col gap-6 w-full px-1 pb-20">
       {/* Header Tabs */}
       <div className="flex flex-wrap items-center justify-between border-b border-kumo-line pb-3 gap-4">
         <div className="min-w-0">

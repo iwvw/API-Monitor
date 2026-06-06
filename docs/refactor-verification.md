@@ -120,3 +120,29 @@
 - console error：待浏览器 smoke 执行后记录。
 - Kumo-only 例外：无新增例外。
 - 后续风险：OpenList 文件操作和 cron 执行依赖真实后端数据，后续 smoke 需重点检查空状态、弹窗打开、定时任务表单切换和右键菜单交互。
+
+### 2026-06-06 页面宽度与 Tabs 统一
+
+- 任务：统一不同模块页面宽度，并统一标签页到 Kumo `Tabs` 顶层导入和 `tabs` 数组写法。
+- 修改范围：
+  - `src/js/components/MainLayout.jsx`
+  - `src/js/store.js`
+  - `src/js/pages/DnsPage.jsx`
+  - `src/js/pages/AliyunPage.jsx`
+  - `src/js/pages/TencentPage.jsx`
+  - `src/js/pages/SelfHPage.jsx`
+  - `src/js/pages/ServerPage.jsx`
+  - `src/js/pages/SettingsPage.jsx`
+  - `src/js/pages/FileboxPage.jsx`
+  - `src/js/pages/UptimePage.jsx`
+  - `src/js/pages/NotificationPage.jsx`
+  - `src/js/pages/MusicPage.jsx`
+- 构建结果：`npm run build` 通过；仅有 Vite chunk size 警告。
+- 静态扫描：
+  - `@cloudflare/kumo/components/tabs` 已清零。
+  - `TabsList` / `TabsTrigger` 已清零。
+  - 页面根容器 `max-w-7xl mx-auto` / `max-w-4xl mx-auto` 已清零。
+- 浏览器验证：待全路由 smoke 阶段执行。
+- console error：待浏览器 smoke 执行后记录。
+- Kumo-only 例外：无新增例外。
+- 后续风险：顶部栏宽度切换在极窄移动端需 smoke 确认是否需要隐藏或折叠；`selectedValue` 仅适合 uncontrolled 初始值，受控业务标签页继续使用 `value/onValueChange`。
