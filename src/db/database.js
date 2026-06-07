@@ -515,9 +515,10 @@ class DatabaseService {
           const hasMonitorMode = serverColumns.some(col => col.name === 'monitor_mode');
           if (!hasMonitorMode) {
             logger.info('正在为 server_accounts 表添加 monitor_mode 字段...');
-            this.db.exec("ALTER TABLE server_accounts ADD COLUMN monitor_mode TEXT DEFAULT 'ssh'");
+            this.db.exec("ALTER TABLE server_accounts ADD COLUMN monitor_mode TEXT DEFAULT 'agent'");
             logger.success('server_accounts.monitor_mode 字段添加成功');
           }
+          this.db.exec("UPDATE server_accounts SET monitor_mode = 'agent' WHERE monitor_mode IS NULL OR monitor_mode <> 'agent'");
 
           // 添加 country 字段
           const hasCountry = serverColumns.some(col => col.name === 'country');
@@ -555,6 +556,13 @@ class DatabaseService {
             logger.info('Adding server_metrics_history.cpu_temp column...');
             this.db.exec('ALTER TABLE server_metrics_history ADD COLUMN cpu_temp REAL DEFAULT 0');
             logger.success('server_metrics_history.cpu_temp column added');
+          }
+
+          const hasCpuPower = metricsColumns.some(col => col.name === 'cpu_power');
+          if (!hasCpuPower) {
+            logger.info('Adding server_metrics_history.cpu_power column...');
+            this.db.exec('ALTER TABLE server_metrics_history ADD COLUMN cpu_power REAL DEFAULT 0');
+            logger.success('server_metrics_history.cpu_power column added');
           }
 
           const hasPlatform = metricsColumns.some(col => col.name === 'platform');

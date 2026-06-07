@@ -139,6 +139,11 @@ app.use(express.json({ limit: '50mb' }));
 const staticOptions = {
   maxAge: '1d',
   immutable: true,
+  setHeaders: (res, filePath) => {
+    if (filePath.split(path.sep).includes('agent')) {
+      res.setHeader('Cache-Control', 'no-store, max-age=0');
+    }
+  },
   index: 'index.html', // 明确启用 index.html
 };
 

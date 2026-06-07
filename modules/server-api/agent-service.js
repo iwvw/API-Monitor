@@ -19,6 +19,7 @@ const {
 } = require('./protocol');
 const { ServerMetricsHistory, ServerMonitorConfig } = require('./models');
 const userSettings = require('../../src/services/userSettings');
+const packageInfo = require('../../package.json');
 const { createLogger } = require('../../src/utils/logger');
 const logger = createLogger('AgentService');
 
@@ -271,6 +272,7 @@ class AgentService extends EventEmitter {
       cpu_cores: frontendMetrics.physical_cores || frontendMetrics.cores || 1,
       cpu_threads: frontendMetrics.logical_cores || frontendMetrics.cores || 1,
       cpu_temp: resolveCpuTemperature(frontendMetrics),
+      cpu_power: parseFloat(frontendMetrics.cpu_power) || parseFloat(frontendMetrics.cpu_power_w) || 0,
       mem_used: memUsed,
       mem_total: memTotal,
       mem_usage: frontendMetrics.mem_percent || 0,
@@ -435,7 +437,7 @@ class AgentService extends EventEmitter {
         const frontendMetrics = stateToFrontendFormat(state, hostInfo);
 
         // 生成数据指纹用于去重 (使用关键指标)
-        const dataFingerprint = `${server.id}:${frontendMetrics.cpu_usage}:${frontendMetrics.cpu_temp}:${frontendMetrics.mem_percent}:${frontendMetrics.gpu_usage}:${frontendMetrics.gpu_mem_used}:${frontendMetrics.gpu_mem_percent}:${frontendMetrics.gpu_power}:${frontendMetrics.gpu_temp}:${frontendMetrics.load}`;
+        const dataFingerprint = `${server.id}:${frontendMetrics.cpu_usage}:${frontendMetrics.cpu_temp}:${frontendMetrics.cpu_power}:${frontendMetrics.mem_percent}:${frontendMetrics.gpu_usage}:${frontendMetrics.gpu_mem_used}:${frontendMetrics.gpu_mem_percent}:${frontendMetrics.gpu_power}:${frontendMetrics.gpu_temp}:${frontendMetrics.load}`;
 
         // 初始化去重缓存
         if (!this.lastHistoryFingerprints) {
@@ -482,6 +484,7 @@ class AgentService extends EventEmitter {
           cpu_cores: frontendMetrics.physical_cores || frontendMetrics.cores || 1,
           cpu_threads: frontendMetrics.logical_cores || frontendMetrics.cores || 1,
           cpu_temp: resolveCpuTemperature(frontendMetrics),
+          cpu_power: parseFloat(frontendMetrics.cpu_power) || parseFloat(frontendMetrics.cpu_power_w) || 0,
           mem_used: memUsed,
           mem_total: memTotal,
           mem_usage: frontendMetrics.mem_percent || 0,
@@ -1572,6 +1575,7 @@ class AgentService extends EventEmitter {
       physical_cores: parseInt(metrics.physical_cores) || parseInt(metrics.cores) || 1,
       logical_cores: parseInt(metrics.logical_cores) || parseInt(metrics.cores) || 1,
       cpu_temp: resolveCpuTemperature(metrics),
+      cpu_power: parseFloat(metrics.cpu_power) || parseFloat(metrics.cpu_power_w) || 0,
       network: normalizeNetworkMetrics({
         rx_speed: metrics.rx_speed || '0 B/s',
         tx_speed: metrics.tx_speed || '0 B/s',
@@ -1742,6 +1746,7 @@ class AgentService extends EventEmitter {
   generateInstallScript(serverId, serverUrl) {
     serverUrl = normalizeOriginUrl(serverUrl);
     const agentKey = this.getAgentKey(serverId);
+    const downloadVersion = encodeURIComponent(packageInfo.version || 'dev');
     const $ = '$'; // 用于在模板字符串中输出 $
 
     // 读取用户设置的自定义下载地址
@@ -1791,7 +1796,7 @@ case ${$}ARCH in
         exit 1
         ;;
 esac
-BINARY_URL="${$}{BINARY_BASE_URL}/${$}{BINARY_NAME}"
+BINARY_URL="${$}{BINARY_BASE_URL}/${$}{BINARY_NAME}?v=${downloadVersion}"
 
 # 1. 自动检测权限模式
 if [ "${$}EUID" -eq 0 ]; then
@@ -2006,6 +2011,7 @@ fi
   generateWinInstallScript(serverId, serverUrl) {
     serverUrl = normalizeOriginUrl(serverUrl);
     const agentKey = this.getAgentKey(serverId);
+    const downloadVersion = encodeURIComponent(packageInfo.version || 'dev');
 
     // 读取用户设置的自定义下载地址
     let customDownloadUrl = '';
@@ -2030,7 +2036,7 @@ $SERVER_URL = "${serverUrl}"
 $SERVER_ID = "${serverId}"
 $AGENT_KEY = "${agentKey}"
 $INSTALL_DIR = "$env:LOCALAPPDATA\\APIMonitorAgent"
-$BINARY_URL = "${binaryBaseUrl}/agent-windows-amd64.exe"
+$BINARY_URL = "${binaryBaseUrl}/agent-windows-amd64.exe?v=${downloadVersion}"
 
 Write-Host ">>> API Monitor Agent 安装/升级脚本 (Rust 版)" -ForegroundColor Cyan
 Write-Host "    用户级部署，登录后自动启动，完整继承用户环境" -ForegroundColor Gray
@@ -2089,7 +2095,7 @@ try {
 } catch {
     Write-Host "❌ 下载失败: $_" -ForegroundColor Red
     Write-Host "   尝试备用地址..." -ForegroundColor Yellow
-    $BINARY_URL_ALT = "${binaryBaseUrl}/am-agent-win.exe"
+    $BINARY_URL_ALT = "${binaryBaseUrl}/am-agent-win.exe?v=${downloadVersion}"
     try {
         Invoke-WebRequest -Uri $BINARY_URL_ALT -OutFile $tempExe -UseBasicParsing
         if (Test-Path $agentExe) { Remove-Item $agentExe -Force }

@@ -96,6 +96,7 @@ const HostInfoSchema = {
  */
 const HostStateSchema = {
   cpu: 0, // CPU 使用率 (0-100)
+  cpu_power: 0, // CPU package power (W), optional
   mem_used: 0, // 已用内存 (bytes)
   swap_used: 0, // 已用交换空间 (bytes)
   disk_used: 0, // 已用磁盘 (bytes)
@@ -397,6 +398,11 @@ function resolveCpuTemperature(metrics = {}) {
     ...collectTemperatureReadings(metrics.temperatureSensors),
     ...collectTemperatureReadings(metrics.sensors),
     ...collectTemperatureReadings(metrics.thermal),
+    ...collectTemperatureReadings(metrics.cpu?.temperatures, 'CPU'),
+    ...collectTemperatureReadings(metrics.cpu?.temperature_sensors, 'CPU'),
+    ...collectTemperatureReadings(metrics.cpu?.temperatureSensors, 'CPU'),
+    ...collectTemperatureReadings(metrics.cpu?.sensors, 'CPU'),
+    ...collectTemperatureReadings(metrics.cpu?.thermal, 'CPU'),
   ];
   const ranked = readings
     .map(reading => ({ ...reading, rank: getCpuTemperatureRank(reading.name) }))
@@ -421,6 +427,7 @@ function normalizeFrontendMetrics(metrics = {}) {
   }
 
   normalized.cpu_temp = resolveCpuTemperature(normalized);
+  normalized.cpu_power = parseFloat(normalized.cpu_power ?? normalized.cpu_power_w) || 0;
   normalized.gpu_mem_percent = resolveGpuMemoryPercent(normalized);
 
   return normalized;
@@ -492,6 +499,7 @@ function stateToFrontendFormat(state, hostInfo = {}) {
   const udpConn = safeNumber(state.udp_conn_count);
   const uptime = safeNumber(state.uptime);
   const cpuTemp = resolveCpuTemperature(state);
+  const cpuPower = safeNumber(state.cpu_power);
   const gpuTemp = safeNumber(state.gpu_temp || state.gpuTemp);
 
   // GPU 显存
@@ -547,7 +555,10 @@ function stateToFrontendFormat(state, hostInfo = {}) {
       connections: tcpConn + udpConn,
     }),
     docker: state.docker || { installed: false, running: 0, stopped: 0, containers: [] },
+    temperatures: Array.isArray(state.temperatures) ? state.temperatures : [],
     cpu_temp: cpuTemp,
+    cpu_power: cpuPower > 0 ? `${cpuPower.toFixed(1)}W` : '',
+    cpu_power_w: cpuPower,
     gpu_temp: gpuTemp,
     gpu: safeNumber(state.gpu),
     gpu_usage: safeNumber(state.gpu).toFixed(1) + '%',

@@ -626,13 +626,13 @@ class ServerMetricsHistory {
   static create(data) {
     const stmt = getDb().prepare(`
             INSERT INTO server_metrics_history (
-                server_id, cpu_usage, cpu_load, cpu_cores, cpu_threads, cpu_temp,
+                server_id, cpu_usage, cpu_load, cpu_cores, cpu_threads, cpu_temp, cpu_power,
                 mem_used, mem_total, mem_usage,
                 disk_used, disk_total, disk_usage,
                 docker_installed, docker_running, docker_stopped,
                 gpu_usage, gpu_mem_used, gpu_mem_total, gpu_power, gpu_temp,
                 platform, net_rx, net_tx, recorded_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
 
     const now = new Date().toISOString();
@@ -643,6 +643,7 @@ class ServerMetricsHistory {
       data.cpu_cores || 0,
       data.cpu_threads || data.cpu_cores || 0,
       data.cpu_temp || 0,
+      data.cpu_power || 0,
       data.mem_used || 0,
       data.mem_total || 0,
       data.mem_usage || 0,
@@ -676,13 +677,13 @@ class ServerMetricsHistory {
 
     const insert = getDb().prepare(`
             INSERT INTO server_metrics_history (
-                server_id, cpu_usage, cpu_load, cpu_cores, cpu_threads, cpu_temp,
+                server_id, cpu_usage, cpu_load, cpu_cores, cpu_threads, cpu_temp, cpu_power,
                 mem_used, mem_total, mem_usage,
                 disk_used, disk_total, disk_usage,
                 docker_installed, docker_running, docker_stopped,
                 gpu_usage, gpu_mem_used, gpu_mem_total, gpu_power, gpu_temp,
                 platform, net_rx, net_tx, recorded_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
 
     const now = new Date().toISOString();
@@ -696,6 +697,7 @@ class ServerMetricsHistory {
           data.cpu_cores || 0,
           data.cpu_threads || data.cpu_cores || 0,
           data.cpu_temp || 0,
+          data.cpu_power || 0,
           data.mem_used || 0,
           data.mem_total || 0,
           data.mem_usage || 0,
@@ -872,6 +874,10 @@ function runMigrations() {
     if (!columns.includes('cpu_temp')) {
       db.exec('ALTER TABLE server_metrics_history ADD COLUMN cpu_temp REAL DEFAULT 0');
       console.log('[Models] migration: added cpu_temp column');
+    }
+    if (!columns.includes('cpu_power')) {
+      db.exec('ALTER TABLE server_metrics_history ADD COLUMN cpu_power REAL DEFAULT 0');
+      console.log('[Models] migration: added cpu_power column');
     }
     if (!columns.includes('gpu_mem_used')) {
       db.exec('ALTER TABLE server_metrics_history ADD COLUMN gpu_mem_used INTEGER DEFAULT 0');

@@ -1,25 +1,25 @@
 mod config;
 use std::process::Command;
-mod protocol;
 mod collector;
 mod docker;
 mod file_manager;
+mod protocol;
 mod pty;
 
+use futures_util::{SinkExt, StreamExt};
+use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::time::sleep;
-use futures_util::{StreamExt, SinkExt};
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
-use serde::Deserialize;
 
-use crate::config::{Config, CliArgs};
-use crate::protocol::*;
 use crate::collector::Collector;
+use crate::config::{CliArgs, Config};
 use crate::docker::DockerBridge;
 use crate::file_manager::FileManager;
+use crate::protocol::*;
 use crate::pty::PtySession;
 use clap::Parser;
 
@@ -66,7 +66,15 @@ async fn main() {
     // Keep dialing loop
     loop {
         println!("[Agent] 正在连接服务器...");
-        match run_client(config.clone(), collector.clone(), docker_bridge.clone(), pty_sessions.clone(), task_progress.clone()).await {
+        match run_client(
+            config.clone(),
+            collector.clone(),
+            docker_bridge.clone(),
+            pty_sessions.clone(),
+            task_progress.clone(),
+        )
+        .await
+        {
             Ok(_) => {
                 println!("[Agent] 连接断开，准备重连...");
             }
@@ -92,7 +100,8 @@ async fn run_client(
         .build()
         .map_err(|e| format!("HTTP客户端初始化失败: {}", e))?;
 
-    let resp = client.get(&handshake_url)
+    let resp = client
+        .get(&handshake_url)
         .send()
         .await
         .map_err(|e| format!("Handshake 请求失败: {}", e))?
@@ -108,7 +117,8 @@ async fn run_client(
     let handshake_val: serde_json::Value = serde_json::from_str(handshake_json)
         .map_err(|e| format!("解析 Handshake 响应失败: {}", e))?;
 
-    let sid = handshake_val["sid"].as_str()
+    let sid = handshake_val["sid"]
+        .as_str()
         .ok_or_else(|| "Handshake 响应中缺少 sid".to_string())?;
 
     // 2. Build WebSocket URL and connect
@@ -117,7 +127,10 @@ async fn run_client(
     } else {
         config.server_url.replace("http://", "ws://")
     };
-    ws_url = format!("{}/socket.io/?EIO=4&transport=websocket&sid={}", ws_url, sid);
+    ws_url = format!(
+        "{}/socket.io/?EIO=4&transport=websocket&sid={}",
+        ws_url, sid
+    );
 
     if config.debug {
         println!("[Agent] 正在建立 WebSocket 连接: {}", ws_url);
@@ -144,7 +157,9 @@ async fn run_client(
     });
 
     // Send probe upgrade confirmation
-    tx.send("2probe".to_string()).await.map_err(|_| "发送升级探针失败")?;
+    tx.send("2probe".to_string())
+        .await
+        .map_err(|_| "发送升级探针失败")?;
 
     // Wait for 3probe and namespace connect
     let authenticated = Arc::new(tokio::sync::Mutex::new(false));
@@ -159,7 +174,6 @@ async fn run_client(
     let config_clone = config.clone();
 
     let mut read_task = tokio::spawn(async move {
-
         while let Some(Ok(Message::Text(text))) = ws_reader.next().await {
             if config_clone.debug && text.as_str() != "2" && text.as_str() != "3" {
                 println!("[Agent] 收到原始消息: {}", text);
@@ -186,19 +200,27 @@ async fn run_client(
 
                         tokio::spawn(async move {
                             // First run
-                            let host_info = collector_loop.lock().await.collect_host_info(VERSION).await;
-                            let _ = auth_tx.send(format_event(EVENT_AGENT_HOST_INFO, &host_info)).await;
+                            let host_info =
+                                collector_loop.lock().await.collect_host_info(VERSION).await;
+                            let _ = auth_tx
+                                .send(format_event(EVENT_AGENT_HOST_INFO, &host_info))
+                                .await;
 
                             let mut state = collector_loop.lock().await.collect_state();
                             state.docker = docker_loop.lock().await.collect_docker_info().await;
                             let _ = auth_tx.send(format_event(EVENT_AGENT_STATE, &state)).await;
 
-                            let mut state_timer = tokio::time::interval(Duration::from_millis(cfg.report_interval));
-                            let mut host_timer = tokio::time::interval(Duration::from_millis(cfg.host_info_interval));
-                            
+                            let mut state_timer =
+                                tokio::time::interval(Duration::from_millis(cfg.report_interval));
+                            let mut host_timer = tokio::time::interval(Duration::from_millis(
+                                cfg.host_info_interval,
+                            ));
+
                             // Prevent tick stacking
-                            state_timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-                            host_timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+                            state_timer
+                                .set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+                            host_timer
+                                .set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
                             loop {
                                 tokio::select! {
@@ -219,7 +241,10 @@ async fn run_client(
                             }
                         });
                     } else if event == EVENT_DASHBOARD_AUTH_FAIL {
-                        let reason: AuthFailPayload = serde_json::from_value(data).unwrap_or(AuthFailPayload { reason: "未知".to_string() });
+                        let reason: AuthFailPayload =
+                            serde_json::from_value(data).unwrap_or(AuthFailPayload {
+                                reason: "未知".to_string(),
+                            });
                         eprintln!("[Agent] ❌ 认证失败: {}", reason.reason);
                         std::process::exit(1);
                     } else if event == EVENT_DASHBOARD_TASK {
@@ -236,8 +261,10 @@ async fn run_client(
                                 let res_data;
 
                                 match task.task_type {
-                                    1 => { // COMMAND
-                                        match execute_command(&task.data, task.timeout as u64).await {
+                                    1 => {
+                                        // COMMAND
+                                        match execute_command(&task.data, task.timeout as u64).await
+                                        {
                                             Ok(out) => {
                                                 successful = true;
                                                 res_data = out;
@@ -247,8 +274,13 @@ async fn run_client(
                                             }
                                         }
                                     }
-                                    10 => { // DOCKER_ACTION
-                                        match docker_bridge_task.lock().await.handle_docker_action(&task.data) {
+                                    10 => {
+                                        // DOCKER_ACTION
+                                        match docker_bridge_task
+                                            .lock()
+                                            .await
+                                            .handle_docker_action(&task.data)
+                                        {
                                             Ok(out) => {
                                                 successful = true;
                                                 res_data = out;
@@ -258,8 +290,14 @@ async fn run_client(
                                             }
                                         }
                                     }
-                                    11 => { // DOCKER_CHECK_UPDATE
-                                        match docker_bridge_task.lock().await.handle_docker_check_update(&task.data).await {
+                                    11 => {
+                                        // DOCKER_CHECK_UPDATE
+                                        match docker_bridge_task
+                                            .lock()
+                                            .await
+                                            .handle_docker_check_update(&task.data)
+                                            .await
+                                        {
                                             Ok(out) => {
                                                 successful = true;
                                                 res_data = out;
@@ -269,8 +307,13 @@ async fn run_client(
                                             }
                                         }
                                     }
-                                    13 => { // DOCKER_IMAGES
-                                        match docker_bridge_task.lock().await.handle_docker_images(&task.data) {
+                                    13 => {
+                                        // DOCKER_IMAGES
+                                        match docker_bridge_task
+                                            .lock()
+                                            .await
+                                            .handle_docker_images(&task.data)
+                                        {
                                             Ok(out) => {
                                                 successful = true;
                                                 res_data = out;
@@ -280,8 +323,13 @@ async fn run_client(
                                             }
                                         }
                                     }
-                                    14 => { // DOCKER_IMAGE_ACTION
-                                        match docker_bridge_task.lock().await.handle_docker_image_action(&task.data) {
+                                    14 => {
+                                        // DOCKER_IMAGE_ACTION
+                                        match docker_bridge_task
+                                            .lock()
+                                            .await
+                                            .handle_docker_image_action(&task.data)
+                                        {
                                             Ok(out) => {
                                                 successful = true;
                                                 res_data = out;
@@ -291,8 +339,13 @@ async fn run_client(
                                             }
                                         }
                                     }
-                                    15 => { // DOCKER_NETWORKS
-                                        match docker_bridge_task.lock().await.handle_docker_networks(&task.data) {
+                                    15 => {
+                                        // DOCKER_NETWORKS
+                                        match docker_bridge_task
+                                            .lock()
+                                            .await
+                                            .handle_docker_networks(&task.data)
+                                        {
                                             Ok(out) => {
                                                 successful = true;
                                                 res_data = out;
@@ -302,8 +355,13 @@ async fn run_client(
                                             }
                                         }
                                     }
-                                    16 => { // DOCKER_NETWORK_ACTION
-                                        match docker_bridge_task.lock().await.handle_docker_network_action(&task.data) {
+                                    16 => {
+                                        // DOCKER_NETWORK_ACTION
+                                        match docker_bridge_task
+                                            .lock()
+                                            .await
+                                            .handle_docker_network_action(&task.data)
+                                        {
                                             Ok(out) => {
                                                 successful = true;
                                                 res_data = out;
@@ -313,8 +371,13 @@ async fn run_client(
                                             }
                                         }
                                     }
-                                    17 => { // DOCKER_VOLUMES
-                                        match docker_bridge_task.lock().await.handle_docker_volumes(&task.data) {
+                                    17 => {
+                                        // DOCKER_VOLUMES
+                                        match docker_bridge_task
+                                            .lock()
+                                            .await
+                                            .handle_docker_volumes(&task.data)
+                                        {
                                             Ok(out) => {
                                                 successful = true;
                                                 res_data = out;
@@ -324,8 +387,13 @@ async fn run_client(
                                             }
                                         }
                                     }
-                                    18 => { // DOCKER_VOLUME_ACTION
-                                        match docker_bridge_task.lock().await.handle_docker_volume_action(&task.data) {
+                                    18 => {
+                                        // DOCKER_VOLUME_ACTION
+                                        match docker_bridge_task
+                                            .lock()
+                                            .await
+                                            .handle_docker_volume_action(&task.data)
+                                        {
                                             Ok(out) => {
                                                 successful = true;
                                                 res_data = out;
@@ -335,8 +403,13 @@ async fn run_client(
                                             }
                                         }
                                     }
-                                    19 => { // DOCKER_LOGS
-                                        match docker_bridge_task.lock().await.handle_docker_logs(&task.data) {
+                                    19 => {
+                                        // DOCKER_LOGS
+                                        match docker_bridge_task
+                                            .lock()
+                                            .await
+                                            .handle_docker_logs(&task.data)
+                                        {
                                             Ok(out) => {
                                                 successful = true;
                                                 res_data = out;
@@ -346,8 +419,13 @@ async fn run_client(
                                             }
                                         }
                                     }
-                                    20 => { // DOCKER_STATS
-                                        match docker_bridge_task.lock().await.handle_docker_stats(&task.data) {
+                                    20 => {
+                                        // DOCKER_STATS
+                                        match docker_bridge_task
+                                            .lock()
+                                            .await
+                                            .handle_docker_stats(&task.data)
+                                        {
                                             Ok(out) => {
                                                 successful = true;
                                                 res_data = out;
@@ -357,8 +435,13 @@ async fn run_client(
                                             }
                                         }
                                     }
-                                    21 => { // DOCKER_COMPOSE_LIST
-                                        match docker_bridge_task.lock().await.handle_docker_compose_list(&task.data) {
+                                    21 => {
+                                        // DOCKER_COMPOSE_LIST
+                                        match docker_bridge_task
+                                            .lock()
+                                            .await
+                                            .handle_docker_compose_list(&task.data)
+                                        {
                                             Ok(out) => {
                                                 successful = true;
                                                 res_data = out;
@@ -368,8 +451,13 @@ async fn run_client(
                                             }
                                         }
                                     }
-                                    22 => { // DOCKER_COMPOSE_ACTION
-                                        match docker_bridge_task.lock().await.handle_docker_compose_action(&task.data) {
+                                    22 => {
+                                        // DOCKER_COMPOSE_ACTION
+                                        match docker_bridge_task
+                                            .lock()
+                                            .await
+                                            .handle_docker_compose_action(&task.data)
+                                        {
                                             Ok(out) => {
                                                 successful = true;
                                                 res_data = out;
@@ -379,7 +467,8 @@ async fn run_client(
                                             }
                                         }
                                     }
-                                    23 => { // DOCKER_CREATE_CONTAINER
+                                    23 => {
+                                        // DOCKER_CREATE_CONTAINER
                                         match handle_docker_create_container(&task.data).await {
                                             Ok(out) => {
                                                 successful = true;
@@ -390,19 +479,28 @@ async fn run_client(
                                             }
                                         }
                                     }
-                                    24 => { // DOCKER_UPDATE_CONTAINER
+                                    24 => {
+                                        // DOCKER_UPDATE_CONTAINER
                                         let tx_clone_inner = tx_task.clone();
                                         let docker_bridge_inner = docker_bridge_task.clone();
                                         let task_id = task.id.clone();
                                         let task_data = task.data.clone();
                                         let task_progress_inner = task_progress_task.clone();
                                         tokio::spawn(async move {
-                                            handle_docker_container_update(task_id, task_data, task_progress_inner, tx_clone_inner, docker_bridge_inner).await;
+                                            handle_docker_container_update(
+                                                task_id,
+                                                task_data,
+                                                task_progress_inner,
+                                                tx_clone_inner,
+                                                docker_bridge_inner,
+                                            )
+                                            .await;
                                         });
                                         successful = true;
                                         res_data = "容器更新任务已启动".to_string();
                                     }
-                                    25 => { // DOCKER_RENAME_CONTAINER
+                                    25 => {
+                                        // DOCKER_RENAME_CONTAINER
                                         match handle_docker_rename_container(&task.data).await {
                                             Ok(out) => {
                                                 successful = true;
@@ -413,8 +511,11 @@ async fn run_client(
                                             }
                                         }
                                     }
-                                    26 => { // DOCKER_TASK_PROGRESS
-                                        match get_task_progress(&task.data, task_progress_task).await {
+                                    26 => {
+                                        // DOCKER_TASK_PROGRESS
+                                        match get_task_progress(&task.data, task_progress_task)
+                                            .await
+                                        {
                                             Ok(out) => {
                                                 successful = true;
                                                 res_data = out;
@@ -424,7 +525,8 @@ async fn run_client(
                                             }
                                         }
                                     }
-                                    30 => { // FILE_LIST
+                                    30 => {
+                                        // FILE_LIST
                                         match FileManager::handle_file_list(&task.data) {
                                             Ok(out) => {
                                                 successful = true;
@@ -435,7 +537,8 @@ async fn run_client(
                                             }
                                         }
                                     }
-                                    31 => { // FILE_READ
+                                    31 => {
+                                        // FILE_READ
                                         match FileManager::handle_file_read(&task.data) {
                                             Ok(out) => {
                                                 successful = true;
@@ -446,7 +549,8 @@ async fn run_client(
                                             }
                                         }
                                     }
-                                    32 => { // FILE_WRITE
+                                    32 => {
+                                        // FILE_WRITE
                                         match FileManager::handle_file_write(&task.data) {
                                             Ok(out) => {
                                                 successful = true;
@@ -457,7 +561,8 @@ async fn run_client(
                                             }
                                         }
                                     }
-                                    33 => { // FILE_MKDIR
+                                    33 => {
+                                        // FILE_MKDIR
                                         match FileManager::handle_file_mkdir(&task.data) {
                                             Ok(out) => {
                                                 successful = true;
@@ -468,7 +573,8 @@ async fn run_client(
                                             }
                                         }
                                     }
-                                    34 => { // FILE_DELETE
+                                    34 => {
+                                        // FILE_DELETE
                                         match FileManager::handle_file_delete(&task.data) {
                                             Ok(out) => {
                                                 successful = true;
@@ -479,7 +585,8 @@ async fn run_client(
                                             }
                                         }
                                     }
-                                    35 => { // FILE_RENAME
+                                    35 => {
+                                        // FILE_RENAME
                                         match FileManager::handle_file_rename(&task.data) {
                                             Ok(out) => {
                                                 successful = true;
@@ -490,7 +597,8 @@ async fn run_client(
                                             }
                                         }
                                     }
-                                    36 => { // FILE_STAT
+                                    36 => {
+                                        // FILE_STAT
                                         match FileManager::handle_file_stat(&task.data) {
                                             Ok(out) => {
                                                 successful = true;
@@ -501,7 +609,8 @@ async fn run_client(
                                             }
                                         }
                                     }
-                                    37 => { // FILE_CHMOD
+                                    37 => {
+                                        // FILE_CHMOD
                                         match FileManager::handle_file_chmod(&task.data) {
                                             Ok(out) => {
                                                 successful = true;
@@ -512,7 +621,8 @@ async fn run_client(
                                             }
                                         }
                                     }
-                                    38 => { // FILE_DOWNLOAD_CHUNK
+                                    38 => {
+                                        // FILE_DOWNLOAD_CHUNK
                                         match FileManager::handle_file_download_chunk(&task.data) {
                                             Ok(out) => {
                                                 successful = true;
@@ -523,13 +633,21 @@ async fn run_client(
                                             }
                                         }
                                     }
-                                    5 => { // UPGRADE
+                                    5 => {
+                                        // UPGRADE
                                         handle_upgrade(&task.id, &config_task).await;
                                         successful = true;
                                         res_data = "正在后台执行升级...".to_string();
                                     }
-                                    12 => { // PTY_START
-                                        let _ = handle_pty_start(&task.id, &task.data, pty_sessions_task, tx_task.clone()).await;
+                                    12 => {
+                                        // PTY_START
+                                        let _ = handle_pty_start(
+                                            &task.id,
+                                            &task.data,
+                                            pty_sessions_task,
+                                            tx_task.clone(),
+                                        )
+                                        .await;
                                         return; // PTY runs in background long connection, does not yield instant TaskResult
                                     }
                                     _ => {
@@ -545,18 +663,23 @@ async fn run_client(
                                     data: res_data,
                                     delay,
                                 };
-                                let _ = tx_task.send(format_event(EVENT_AGENT_TASK_RESULT, &res_payload)).await;
+                                let _ = tx_task
+                                    .send(format_event(EVENT_AGENT_TASK_RESULT, &res_payload))
+                                    .await;
                             });
                         }
                     } else if event == EVENT_DASHBOARD_PTY_INPUT {
                         if let Ok(input) = serde_json::from_value::<PtyInputPayload>(data) {
-                            if let Some(session) = pty_sessions_clone.lock().unwrap().get(&input.id) {
+                            if let Some(session) = pty_sessions_clone.lock().unwrap().get(&input.id)
+                            {
                                 let _ = session.write(input.data.as_bytes());
                             }
                         }
                     } else if event == EVENT_DASHBOARD_PTY_RESIZE {
                         if let Ok(resize) = serde_json::from_value::<PtyResizePayload>(data) {
-                            if let Some(session) = pty_sessions_clone.lock().unwrap().get(&resize.id) {
+                            if let Some(session) =
+                                pty_sessions_clone.lock().unwrap().get(&resize.id)
+                            {
                                 let _ = session.resize(resize.cols, resize.rows);
                             }
                         }
@@ -622,7 +745,8 @@ async fn execute_command(command: &str, timeout_secs: u64) -> Result<String, Str
         c
     };
 
-    let child = cmd.stdout(std::process::Stdio::piped())
+    let child = cmd
+        .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn();
 
@@ -678,8 +802,8 @@ async fn handle_docker_create_container(data: &str) -> Result<String, String> {
         extra_args: Option<Vec<String>>,
     }
 
-    let req: DockerCreateContainerRequest = serde_json::from_str(data)
-        .map_err(|e| format!("解析请求失败: {}", e))?;
+    let req: DockerCreateContainerRequest =
+        serde_json::from_str(data).map_err(|e| format!("解析请求失败: {}", e))?;
 
     if req.image.is_empty() {
         return Err("缺少镜像名称".to_string());
@@ -750,7 +874,10 @@ async fn handle_docker_create_container(data: &str) -> Result<String, String> {
         let container_id = String::from_utf8_lossy(&output.stdout).trim().to_string();
         Ok(format!("容器创建成功\nID: {}", container_id))
     } else {
-        Err(format!("创建容器失败: {}", String::from_utf8_lossy(&output.stderr)))
+        Err(format!(
+            "创建容器失败: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ))
     }
 }
 
@@ -763,8 +890,8 @@ async fn handle_docker_rename_container(data: &str) -> Result<String, String> {
         new_name: String,
     }
 
-    let req: DockerRenameContainerRequest = serde_json::from_str(data)
-        .map_err(|e| format!("解析请求失败: {}", e))?;
+    let req: DockerRenameContainerRequest =
+        serde_json::from_str(data).map_err(|e| format!("解析请求失败: {}", e))?;
 
     if req.container_id.is_empty() || req.new_name.is_empty() {
         return Err("容器ID或新名称不能为空".to_string());
@@ -778,7 +905,10 @@ async fn handle_docker_rename_container(data: &str) -> Result<String, String> {
     if output.status.success() {
         Ok("容器重命名成功".to_string())
     } else {
-        Err(format!("容器重命名失败: {}", String::from_utf8_lossy(&output.stderr)))
+        Err(format!(
+            "容器重命名失败: {}",
+            String::from_utf8_lossy(&output.stderr)
+        ))
     }
 }
 
@@ -787,20 +917,40 @@ async fn handle_upgrade(_task_id: &str, config: &Config) {
     println!("[Upgrade] 开始执行升级流程...");
 
     let install_url = if cfg!(target_os = "windows") {
-        format!("{}/api/server/agent/install/win/{}", config.server_url, config.server_id)
+        format!(
+            "{}/api/server/agent/install/win/{}",
+            config.server_url, config.server_id
+        )
     } else {
-        format!("{}/api/server/agent/install/linux/{}", config.server_url, config.server_id)
+        format!(
+            "{}/api/server/agent/install/linux/{}",
+            config.server_url, config.server_id
+        )
     };
 
     if cfg!(target_os = "windows") {
         let ps_cmd = format!("irm {} | iex", install_url);
         let _ = Command::new("powershell")
-            .args(["-Command", "Start-Process", "powershell", "-ArgumentList", &format!("'-NoProfile -ExecutionPolicy Bypass -Command \"{}\"'", ps_cmd), "-WindowStyle", "Hidden"])
+            .args([
+                "-Command",
+                "Start-Process",
+                "powershell",
+                "-ArgumentList",
+                &format!(
+                    "'-NoProfile -ExecutionPolicy Bypass -Command \"{}\"'",
+                    ps_cmd
+                ),
+                "-WindowStyle",
+                "Hidden",
+            ])
             .spawn();
     } else {
         let sh_cmd = format!("curl -fsSL {} | sudo bash", install_url);
         let _ = Command::new("sh")
-            .args(["-c", &format!("nohup sh -c '{}' > /tmp/agent_upgrade.log 2>&1 &", sh_cmd)])
+            .args([
+                "-c",
+                &format!("nohup sh -c '{}' > /tmp/agent_upgrade.log 2>&1 &", sh_cmd),
+            ])
             .spawn();
     }
 }
@@ -817,14 +967,20 @@ async fn handle_pty_start(
         rows: Option<u32>,
     }
 
-    let req: PtyResizeReq = serde_json::from_str(data).unwrap_or(PtyResizeReq { cols: None, rows: None });
+    let req: PtyResizeReq = serde_json::from_str(data).unwrap_or(PtyResizeReq {
+        cols: None,
+        rows: None,
+    });
     let cols = req.cols.unwrap_or(80);
     let rows = req.rows.unwrap_or(24);
 
     let session = Arc::new(PtySession::new(cols, rows)?);
 
     // Insert session
-    pty_sessions.lock().unwrap().insert(task_id.to_string(), session.clone());
+    pty_sessions
+        .lock()
+        .unwrap()
+        .insert(task_id.to_string(), session.clone());
 
     // Spawn reading thread
     let mut reader = session.try_clone_reader()?;
@@ -856,21 +1012,24 @@ async fn handle_pty_start(
     Ok(())
 }
 
-async fn get_task_progress(data: &str, task_progress: Arc<Mutex<HashMap<String, TaskProgress>>>) -> Result<String, String> {
+async fn get_task_progress(
+    data: &str,
+    task_progress: Arc<Mutex<HashMap<String, TaskProgress>>>,
+) -> Result<String, String> {
     #[derive(Deserialize)]
     struct GetProgressReq {
         #[serde(rename = "task_id")]
         task_id: String,
     }
-    let req: GetProgressReq = serde_json::from_str(data)
-        .map_err(|e| format!("解析请求失败: {}", e))?;
+    let req: GetProgressReq =
+        serde_json::from_str(data).map_err(|e| format!("解析请求失败: {}", e))?;
 
     let progress_map = task_progress.lock().unwrap();
-    let prog = progress_map.get(&req.task_id)
+    let prog = progress_map
+        .get(&req.task_id)
         .ok_or_else(|| format!("任务不存在: {}", req.task_id))?;
 
-    serde_json::to_string(prog)
-        .map_err(|e| format!("序列化结果失败: {}", e))
+    serde_json::to_string(prog).map_err(|e| format!("序列化结果失败: {}", e))
 }
 
 async fn handle_docker_container_update(
@@ -907,36 +1066,76 @@ async fn handle_docker_container_update(
         is_done: false,
         is_error: false,
     };
-    update_progress_state(&task_id, progress.clone(), task_progress.clone(), tx.clone()).await;
+    update_progress_state(
+        &task_id,
+        progress.clone(),
+        task_progress.clone(),
+        tx.clone(),
+    )
+    .await;
 
     let bridge = docker_bridge.lock().await;
     let docker_client = match &bridge.docker {
         Some(d) => d,
         None => {
-            finish_with_error(&task_id, &mut progress, "Docker 客户端不可用", task_progress, tx).await;
+            finish_with_error(
+                &task_id,
+                &mut progress,
+                "Docker 客户端不可用",
+                task_progress,
+                tx,
+            )
+            .await;
             return;
         }
     };
 
     progress.percentage = 5;
     progress.message = "获取容器配置...".to_string();
-    update_progress_state(&task_id, progress.clone(), task_progress.clone(), tx.clone()).await;
+    update_progress_state(
+        &task_id,
+        progress.clone(),
+        task_progress.clone(),
+        tx.clone(),
+    )
+    .await;
 
-    let inspect = match docker_client.inspect_container(&req.container_id, None).await {
+    let inspect = match docker_client
+        .inspect_container(&req.container_id, None)
+        .await
+    {
         Ok(ins) => ins,
         Err(e) => {
-            finish_with_error(&task_id, &mut progress, &format!("获取容器配置失败: {}", e), task_progress, tx).await;
+            finish_with_error(
+                &task_id,
+                &mut progress,
+                &format!("获取容器配置失败: {}", e),
+                task_progress,
+                tx,
+            )
+            .await;
             return;
         }
     };
 
-    let labels = inspect.config.as_ref()
-        .and_then(|c| c.labels.as_ref());
+    let labels = inspect.config.as_ref().and_then(|c| c.labels.as_ref());
 
-    let project_label = labels.and_then(|l| l.get("com.docker.compose.project")).map(|s| s.as_str()).unwrap_or("");
-    let service_label = labels.and_then(|l| l.get("com.docker.compose.service")).map(|s| s.as_str()).unwrap_or("");
-    let working_dir = labels.and_then(|l| l.get("com.docker.compose.project.working_dir")).map(|s| s.as_str()).unwrap_or("");
-    let config_file = labels.and_then(|l| l.get("com.docker.compose.project.config_files")).map(|s| s.as_str()).unwrap_or("");
+    let project_label = labels
+        .and_then(|l| l.get("com.docker.compose.project"))
+        .map(|s| s.as_str())
+        .unwrap_or("");
+    let service_label = labels
+        .and_then(|l| l.get("com.docker.compose.service"))
+        .map(|s| s.as_str())
+        .unwrap_or("");
+    let working_dir = labels
+        .and_then(|l| l.get("com.docker.compose.project.working_dir"))
+        .map(|s| s.as_str())
+        .unwrap_or("");
+    let config_file = labels
+        .and_then(|l| l.get("com.docker.compose.project.config_files"))
+        .map(|s| s.as_str())
+        .unwrap_or("");
 
     let is_compose = !project_label.is_empty() && !service_label.is_empty();
 
@@ -953,7 +1152,7 @@ async fn handle_docker_container_update(
         if percentage >= 100 {
             prog.is_done = true;
         }
-        
+
         let tx = tx_clone.clone();
         let task_progress = task_progress_clone.clone();
         let tid = task_id_clone.clone();
@@ -963,27 +1162,33 @@ async fn handle_docker_container_update(
     };
 
     let result = if is_compose {
-        bridge.update_container_compose(
-            project_label,
-            service_label,
-            working_dir,
-            config_file,
-            &req.container_name,
-            update_progress_fn,
-        ).await
+        bridge
+            .update_container_compose(
+                project_label,
+                service_label,
+                working_dir,
+                config_file,
+                &req.container_name,
+                update_progress_fn,
+            )
+            .await
     } else {
-        let new_image = req.image.clone()
+        let new_image = req
+            .image
+            .clone()
             .or_else(|| inspect.config.as_ref().and_then(|c| c.image.clone()))
             .unwrap_or_default();
         if new_image.is_empty() {
             Err("缺少镜像信息".to_string())
         } else {
-            bridge.update_container_standalone(
-                &req.container_id,
-                &req.container_name,
-                &new_image,
-                update_progress_fn,
-            ).await
+            bridge
+                .update_container_standalone(
+                    &req.container_id,
+                    &req.container_name,
+                    &new_image,
+                    update_progress_fn,
+                )
+                .await
         }
     };
 
@@ -1060,33 +1265,60 @@ async fn send_task_error(task_id: &str, err_msg: &str, tx: mpsc::Sender<String>)
 }
 
 fn handle_action(action: &str) -> Result<(), String> {
+    if action == "sample" || action == "probe" {
+        let mut collector = Collector::new();
+        let state = collector.collect_state();
+        let json = serde_json::to_string_pretty(&state)
+            .map_err(|e| format!("serialize sample state failed: {}", e))?;
+        println!("{}", json);
+        return Ok(());
+    }
+
     match action {
         "install" => {
             #[cfg(target_os = "windows")]
             {
                 let exe_path = std::env::current_exe().map_err(|e| e.to_string())?;
-                let exe_dir = exe_path.parent().ok_or_else(|| "无法获取可执行文件目录".to_string())?;
+                let exe_dir = exe_path
+                    .parent()
+                    .ok_or_else(|| "无法获取可执行文件目录".to_string())?;
                 let vbs_path = exe_dir.join("launch.vbs");
-                
+
                 let vbs_content = format!(
                     "Set WshShell = CreateObject(\"WScript.Shell\")\nWshShell.Run \"\"\"{}\"\" -b\", 0, False\n",
                     exe_path.display()
                 );
-                std::fs::write(&vbs_path, vbs_content).map_err(|e| format!("写入 launch.vbs 失败: {}", e))?;
-                
+                std::fs::write(&vbs_path, vbs_content)
+                    .map_err(|e| format!("写入 launch.vbs 失败: {}", e))?;
+
                 let cmd_str = format!("wscript.exe \"{}\"", vbs_path.display());
                 let output = std::process::Command::new("reg")
-                    .args(["add", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", "/v", "APIMonitorAgent", "/t", "REG_SZ", "/d", &cmd_str, "/f"])
+                    .args([
+                        "add",
+                        "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+                        "/v",
+                        "APIMonitorAgent",
+                        "/t",
+                        "REG_SZ",
+                        "/d",
+                        &cmd_str,
+                        "/f",
+                    ])
                     .output()
                     .map_err(|e| format!("执行 reg.exe 失败: {}", e))?;
-                
+
                 if output.status.success() {
                     println!("✅ 成功设置为用户级开机自启!");
-                    println!("   注册表路径: HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run");
+                    println!(
+                        "   注册表路径: HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run"
+                    );
                     println!("   自启动脚本: {}", vbs_path.display());
                     Ok(())
                 } else {
-                    Err(format!("注册表写入失败: {}", String::from_utf8_lossy(&output.stderr)))
+                    Err(format!(
+                        "注册表写入失败: {}",
+                        String::from_utf8_lossy(&output.stderr)
+                    ))
                 }
             }
             #[cfg(not(target_os = "windows"))]
@@ -1103,11 +1335,17 @@ fn handle_action(action: &str) -> Result<(), String> {
                         let _ = std::fs::remove_file(vbs_path);
                     }
                 }
-                
+
                 let _ = std::process::Command::new("reg")
-                    .args(["delete", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", "/v", "APIMonitorAgent", "/f"])
+                    .args([
+                        "delete",
+                        "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+                        "/v",
+                        "APIMonitorAgent",
+                        "/f",
+                    ])
                     .output();
-                
+
                 println!("✅ 已成功取消用户级开机自启且清理了自启脚本");
                 Ok(())
             }
@@ -1117,7 +1355,10 @@ fn handle_action(action: &str) -> Result<(), String> {
             }
         }
         "svc-install" | "svc-uninstall" | "start" | "stop" => {
-            println!("[Agent] {} 动作由外部系统服务管理器处理，在此跳过并返回成功。", action);
+            println!(
+                "[Agent] {} 动作由外部系统服务管理器处理，在此跳过并返回成功。",
+                action
+            );
             Ok(())
         }
         _ => Err(format!("不支持的动作: {}", action)),

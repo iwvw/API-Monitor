@@ -124,4 +124,34 @@ describe('server protocol temperature metrics', () => {
 
     expect(metrics.cpu_temp).toBe(59.5);
   });
+
+  it('derives CPU temperature from nested cpu.sensors payloads', () => {
+    const metrics = protocol.normalizeFrontendMetrics({
+      cpu: {
+        sensors: [
+          { name: 'CPU Package', temperature: 62.3 },
+        ],
+      },
+    });
+
+    expect(metrics.cpu_temp).toBe(62.3);
+  });
+
+  it('preserves CPU package power from agent state', () => {
+    const metrics = protocol.stateToFrontendFormat(
+      {
+        cpu: 12,
+        cpu_power: 34.56,
+        mem_used: 1024,
+        disk_used: 1024,
+      },
+      {
+        mem_total: 2048,
+        disk_total: 4096,
+      },
+    );
+
+    expect(metrics.cpu_power).toBe('34.6W');
+    expect(metrics.cpu_power_w).toBe(34.56);
+  });
 });

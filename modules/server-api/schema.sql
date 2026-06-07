@@ -103,6 +103,7 @@ CREATE TABLE IF NOT EXISTS server_metrics_history (
     cpu_cores INTEGER,                           -- CPU 核心数
     cpu_threads INTEGER DEFAULT 0,               -- CPU logical threads
     cpu_temp REAL DEFAULT 0,                     -- CPU temperature (C)
+    cpu_power REAL DEFAULT 0,                    -- CPU package power (W)
     mem_used INTEGER,                            -- 已用内存 (MB)
     mem_total INTEGER,                           -- 总内存 (MB)
     mem_usage REAL,                              -- 内存使用率 (%)
@@ -136,6 +137,7 @@ CREATE INDEX IF NOT EXISTS idx_metrics_history_time ON server_metrics_history(re
 -- ALTER TABLE server_metrics_history ADD COLUMN gpu_usage REAL DEFAULT 0;
 -- ALTER TABLE server_metrics_history ADD COLUMN cpu_threads INTEGER DEFAULT 0;
 -- ALTER TABLE server_metrics_history ADD COLUMN cpu_temp REAL DEFAULT 0;
+-- ALTER TABLE server_metrics_history ADD COLUMN cpu_power REAL DEFAULT 0;
 -- ALTER TABLE server_metrics_history ADD COLUMN gpu_mem_used INTEGER DEFAULT 0;
 -- ALTER TABLE server_metrics_history ADD COLUMN gpu_mem_total INTEGER DEFAULT 0;
 -- ALTER TABLE server_metrics_history ADD COLUMN gpu_power REAL DEFAULT 0;

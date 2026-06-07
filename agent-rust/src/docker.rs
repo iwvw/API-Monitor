@@ -1,9 +1,9 @@
-use std::process::Command;
+use bollard::container::{CreateContainerOptions, ListContainersOptions};
 use bollard::Docker;
-use bollard::container::{ListContainersOptions, CreateContainerOptions};
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
+use std::process::Command;
 
-use crate::collector::{DockerInfo, DockerContainer};
+use crate::collector::{DockerContainer, DockerInfo};
 use crate::protocol::{DockerCheckUpdateRequest, DockerImageUpdateStatus};
 
 #[derive(Deserialize, Debug)]
@@ -34,20 +34,20 @@ fn is_docker_installed() -> bool {
     } else {
         Command::new("which").arg("docker").output()
     };
-    
+
     if let Ok(output) = cmd {
         if output.status.success() {
             return true;
         }
     }
-    
+
     // 2. Check common install directories or sockets
     if cfg!(target_os = "windows") {
         std::path::Path::new("C:\\Program Files\\Docker\\Docker").exists()
     } else {
-        std::path::Path::new("/var/run/docker.sock").exists() ||
-        std::path::Path::new("/usr/bin/docker").exists() ||
-        std::path::Path::new("/usr/local/bin/docker").exists()
+        std::path::Path::new("/var/run/docker.sock").exists()
+            || std::path::Path::new("/usr/bin/docker").exists()
+            || std::path::Path::new("/usr/local/bin/docker").exists()
     }
 }
 
@@ -97,7 +97,9 @@ impl DockerBridge {
 
         if let Ok(list) = docker_client.list_containers(Some(options)).await {
             for c in list {
-                let name = c.names.as_ref()
+                let name = c
+                    .names
+                    .as_ref()
                     .and_then(|names| names.first())
                     .map(|n| n.trim_start_matches('/').to_string())
                     .unwrap_or_default();
@@ -120,15 +122,20 @@ impl DockerBridge {
                     }
                 }
 
-                let created_str = c.created.map(|ts| {
-                    let dt = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(ts as u64);
-                    let datetime: chrono::DateTime<chrono::Utc> = dt.into();
-                    datetime.format("%Y-%m-%d %H:%M:%S").to_string()
-                }).unwrap_or_default();
-
-                let id_short = c.id.as_ref()
-                    .map(|id| id.chars().take(12).collect::<String>())
+                let created_str = c
+                    .created
+                    .map(|ts| {
+                        let dt = std::time::SystemTime::UNIX_EPOCH
+                            + std::time::Duration::from_secs(ts as u64);
+                        let datetime: chrono::DateTime<chrono::Utc> = dt.into();
+                        datetime.format("%Y-%m-%d %H:%M:%S").to_string()
+                    })
                     .unwrap_or_default();
+
+                let id_short =
+                    c.id.as_ref()
+                        .map(|id| id.chars().take(12).collect::<String>())
+                        .unwrap_or_default();
 
                 containers.push(DockerContainer {
                     id: id_short,
@@ -150,8 +157,8 @@ impl DockerBridge {
     }
 
     pub fn handle_docker_action(&self, req_data: &str) -> Result<String, String> {
-        let req: DockerActionRequest = serde_json::from_str(req_data)
-            .map_err(|e| format!("解析请求失败: {}", e))?;
+        let req: DockerActionRequest =
+            serde_json::from_str(req_data).map_err(|e| format!("解析请求失败: {}", e))?;
 
         if req.container_id.is_empty() {
             return Err("缺少容器 ID".to_string());
@@ -196,20 +203,24 @@ impl DockerBridge {
         if output.status.success() {
             Ok(format!("容器{}成功", action_desc))
         } else {
-            Err(format!("容器{}失败: {}", action_desc, String::from_utf8_lossy(&output.stderr)))
+            Err(format!(
+                "容器{}失败: {}",
+                action_desc,
+                String::from_utf8_lossy(&output.stderr)
+            ))
         }
     }
 
     pub fn handle_docker_logs(&self, req_data: &str) -> Result<String, String> {
-        let req: DockerLogsRequest = serde_json::from_str(req_data)
-            .map_err(|e| format!("解析请求失败: {}", e))?;
+        let req: DockerLogsRequest =
+            serde_json::from_str(req_data).map_err(|e| format!("解析请求失败: {}", e))?;
 
         if req.container_id.is_empty() {
             return Err("缺少容器 ID".to_string());
         }
 
         let mut args = vec!["logs".to_string()];
-        
+
         let tail_str = req.tail.unwrap_or(100).to_string();
         args.push("--tail".to_string());
         args.push(tail_str);
@@ -228,12 +239,18 @@ impl DockerBridge {
             .output()
             .map_err(|e| format!("获取日志失败: {}", e))?;
 
-        Ok(String::from_utf8_lossy(&output.stdout).to_string() + &String::from_utf8_lossy(&output.stderr))
+        Ok(String::from_utf8_lossy(&output.stdout).to_string()
+            + &String::from_utf8_lossy(&output.stderr))
     }
 
     pub fn handle_docker_stats(&self, _data: &str) -> Result<String, String> {
         let output = Command::new("docker")
-            .args(["stats", "--no-stream", "--format", "{{.ID}}|{{.Name}}|{{.CPUPerc}}|{{.MemUsage}}|{{.MemPerc}}|{{.NetIO}}|{{.BlockIO}}"])
+            .args([
+                "stats",
+                "--no-stream",
+                "--format",
+                "{{.ID}}|{{.Name}}|{{.CPUPerc}}|{{.MemUsage}}|{{.MemPerc}}|{{.NetIO}}|{{.BlockIO}}",
+            ])
             .output()
             .map_err(|e| format!("获取资源统计失败: {}", e))?;
 
@@ -274,7 +291,11 @@ impl DockerBridge {
 
     pub fn handle_docker_images(&self, _data: &str) -> Result<String, String> {
         let output = Command::new("docker")
-            .args(["images", "--format", "{{.Repository}}|{{.Tag}}|{{.ID}}|{{.CreatedAt}}|{{.Size}}"])
+            .args([
+                "images",
+                "--format",
+                "{{.Repository}}|{{.Tag}}|{{.ID}}|{{.CreatedAt}}|{{.Size}}",
+            ])
             .output()
             .map_err(|e| format!("获取镜像列表失败: {}", e))?;
 
@@ -307,7 +328,12 @@ impl DockerBridge {
 
     pub fn handle_docker_networks(&self, _data: &str) -> Result<String, String> {
         let output = Command::new("docker")
-            .args(["network", "ls", "--format", "{{.ID}}|{{.Name}}|{{.Driver}}|{{.Scope}}"])
+            .args([
+                "network",
+                "ls",
+                "--format",
+                "{{.ID}}|{{.Name}}|{{.Driver}}|{{.Scope}}",
+            ])
             .output()
             .map_err(|e| format!("获取网络列表失败: {}", e))?;
 
@@ -338,7 +364,12 @@ impl DockerBridge {
 
     pub fn handle_docker_volumes(&self, _data: &str) -> Result<String, String> {
         let output = Command::new("docker")
-            .args(["volume", "ls", "--format", "{{.Name}}|{{.Driver}}|{{.Scope}}"])
+            .args([
+                "volume",
+                "ls",
+                "--format",
+                "{{.Name}}|{{.Driver}}|{{.Scope}}",
+            ])
             .output()
             .map_err(|e| format!("获取卷列表失败: {}", e))?;
 
@@ -369,7 +400,11 @@ impl DockerBridge {
         let output = Command::new("docker")
             .args(["compose", "ls", "--format", "json"])
             .output()
-            .or_else(|_| Command::new("docker-compose").args(["ls", "--format", "json"]).output())
+            .or_else(|_| {
+                Command::new("docker-compose")
+                    .args(["ls", "--format", "json"])
+                    .output()
+            })
             .map_err(|e| format!("获取 Compose 项目失败: {}", e))?;
 
         Ok(String::from_utf8_lossy(&output.stdout).to_string())
@@ -384,8 +419,8 @@ impl DockerBridge {
             action: String,
         }
 
-        let req: ComposeActionReq = serde_json::from_str(data)
-            .map_err(|e| format!("解析请求失败: {}", e))?;
+        let req: ComposeActionReq =
+            serde_json::from_str(data).map_err(|e| format!("解析请求失败: {}", e))?;
 
         let mut args = vec![];
         if !req.config_file.is_empty() {
@@ -422,8 +457,8 @@ impl DockerBridge {
             action: String,
             image: String,
         }
-        let req: ImageActionReq = serde_json::from_str(data)
-            .map_err(|e| format!("解析请求失败: {}", e))?;
+        let req: ImageActionReq =
+            serde_json::from_str(data).map_err(|e| format!("解析请求失败: {}", e))?;
 
         if req.image.is_empty() {
             return Err("缺少镜像名称".to_string());
@@ -454,7 +489,11 @@ impl DockerBridge {
         if output.status.success() {
             Ok(format!("{}成功", action_desc))
         } else {
-            Err(format!("{}失败: {}", action_desc, String::from_utf8_lossy(&output.stderr)))
+            Err(format!(
+                "{}失败: {}",
+                action_desc,
+                String::from_utf8_lossy(&output.stderr)
+            ))
         }
     }
 
@@ -468,8 +507,8 @@ impl DockerBridge {
             gateway: Option<String>,
             container: Option<String>,
         }
-        let req: NetworkActionReq = serde_json::from_str(data)
-            .map_err(|e| format!("解析请求失败: {}", e))?;
+        let req: NetworkActionReq =
+            serde_json::from_str(data).map_err(|e| format!("解析请求失败: {}", e))?;
 
         if req.name.is_empty() {
             return Err("缺少网络名称".to_string());
@@ -516,7 +555,11 @@ impl DockerBridge {
         if output.status.success() {
             Ok(format!("{}成功", action_desc))
         } else {
-            Err(format!("{}失败: {}", action_desc, String::from_utf8_lossy(&output.stderr)))
+            Err(format!(
+                "{}失败: {}",
+                action_desc,
+                String::from_utf8_lossy(&output.stderr)
+            ))
         }
     }
 
@@ -527,8 +570,8 @@ impl DockerBridge {
             name: String,
             driver: Option<String>,
         }
-        let req: VolumeActionReq = serde_json::from_str(data)
-            .map_err(|e| format!("解析请求失败: {}", e))?;
+        let req: VolumeActionReq =
+            serde_json::from_str(data).map_err(|e| format!("解析请求失败: {}", e))?;
 
         if req.name.is_empty() {
             return Err("缺少卷名称".to_string());
@@ -563,7 +606,11 @@ impl DockerBridge {
         if output.status.success() {
             Ok(format!("{}成功", action_desc))
         } else {
-            Err(format!("{}失败: {}", action_desc, String::from_utf8_lossy(&output.stderr)))
+            Err(format!(
+                "{}失败: {}",
+                action_desc,
+                String::from_utf8_lossy(&output.stderr)
+            ))
         }
     }
 
@@ -571,11 +618,13 @@ impl DockerBridge {
         let req: DockerCheckUpdateRequest = if req_data.is_empty() {
             DockerCheckUpdateRequest { container_id: None }
         } else {
-            serde_json::from_str(req_data)
-                .map_err(|e| format!("解析请求失败: {}", e))?
+            serde_json::from_str(req_data).map_err(|e| format!("解析请求失败: {}", e))?
         };
 
-        let docker_client = self.docker.as_ref().ok_or_else(|| "Docker 客户端不可用".to_string())?;
+        let docker_client = self
+            .docker
+            .as_ref()
+            .ok_or_else(|| "Docker 客户端不可用".to_string())?;
 
         let mut containers = Vec::new();
 
@@ -587,34 +636,34 @@ impl DockerBridge {
 
         if has_specific_container {
             let cid = req.container_id.as_ref().unwrap();
-            let c = docker_client.inspect_container(cid, None)
+            let c = docker_client
+                .inspect_container(cid, None)
                 .await
                 .map_err(|e| format!("获取容器信息失败: {}", e))?;
-            
+
             containers.push((
                 c.id.clone().unwrap_or_default(),
                 c.name.clone().unwrap_or_default(),
-                c.config.and_then(|cfg| cfg.image).unwrap_or_default()
+                c.config.and_then(|cfg| cfg.image).unwrap_or_default(),
             ));
         } else {
             let options = ListContainersOptions::<String> {
                 all: false,
                 ..Default::default()
             };
-            let list = docker_client.list_containers(Some(options))
+            let list = docker_client
+                .list_containers(Some(options))
                 .await
                 .map_err(|e| format!("获取容器列表失败: {}", e))?;
-            
+
             for c in list {
-                let name = c.names.as_ref()
+                let name = c
+                    .names
+                    .as_ref()
                     .and_then(|names| names.first())
                     .cloned()
                     .unwrap_or_default();
-                containers.push((
-                    c.id.unwrap_or_default(),
-                    name,
-                    c.image.unwrap_or_default()
-                ));
+                containers.push((c.id.unwrap_or_default(), name, c.image.unwrap_or_default()));
             }
         }
 
@@ -656,8 +705,8 @@ impl DockerBridge {
                 match get_remote_digest(&registry, &repo, &tag).await {
                     Ok(remote_digest) => {
                         status.latest_digest = remote_digest.clone();
-                        status.has_update = !status.current_digest.is_empty() 
-                            && !remote_digest.is_empty() 
+                        status.has_update = !status.current_digest.is_empty()
+                            && !remote_digest.is_empty()
                             && status.current_digest != remote_digest;
                     }
                     Err(e) => {
@@ -669,8 +718,7 @@ impl DockerBridge {
             results.push(status);
         }
 
-        serde_json::to_string(&results)
-            .map_err(|e| format!("序列化结果失败: {}", e))
+        serde_json::to_string(&results).map_err(|e| format!("序列化结果失败: {}", e))
     }
 
     pub async fn update_container_compose(
@@ -706,10 +754,8 @@ impl DockerBridge {
         pull_args.push(service.to_string());
 
         update_progress(15, "正在拉取 Compose 服务镜像...", "");
-        
-        let output = Command::new("docker")
-            .args(&pull_args)
-            .output();
+
+        let output = Command::new("docker").args(&pull_args).output();
 
         let output = match output {
             Ok(out) => out,
@@ -730,7 +776,7 @@ impl DockerBridge {
                     pull_args_legacy.insert(0, project.to_string());
                     pull_args_legacy.insert(0, "--project-name".to_string());
                 }
-                
+
                 Command::new("docker-compose")
                     .args(&pull_args_legacy)
                     .output()
@@ -739,7 +785,10 @@ impl DockerBridge {
         };
 
         if !output.status.success() {
-            return Err(format!("Compose 拉取镜像失败:\n{}", String::from_utf8_lossy(&output.stderr)));
+            return Err(format!(
+                "Compose 拉取镜像失败:\n{}",
+                String::from_utf8_lossy(&output.stderr)
+            ));
         }
 
         update_progress(60, "拉取完成，准备重建容器...", "");
@@ -756,7 +805,10 @@ impl DockerBridge {
             .map_err(|e| format!("执行 Compose up 失败: {}", e))?;
 
         if !up_output.status.success() {
-            return Err(format!("Compose 重建容器失败: {}", String::from_utf8_lossy(&up_output.stderr)));
+            return Err(format!(
+                "Compose 重建容器失败: {}",
+                String::from_utf8_lossy(&up_output.stderr)
+            ));
         }
 
         update_progress(100, "更新完成", "");
@@ -770,10 +822,14 @@ impl DockerBridge {
         new_image: &str,
         update_progress: impl Fn(i32, &str, &str),
     ) -> Result<(), String> {
-        let docker_client = self.docker.as_ref().ok_or_else(|| "Docker 客户端不可用".to_string())?;
+        let docker_client = self
+            .docker
+            .as_ref()
+            .ok_or_else(|| "Docker 客户端不可用".to_string())?;
 
         update_progress(5, "获取容器配置...", "");
-        let inspect = docker_client.inspect_container(container_id, None)
+        let inspect = docker_client
+            .inspect_container(container_id, None)
             .await
             .map_err(|e| format!("获取容器配置失败: {}", e))?;
 
@@ -784,16 +840,18 @@ impl DockerBridge {
             .map_err(|e| format!("拉取镜像失败: {}", e))?;
 
         if !pull_output.status.success() {
-            return Err(format!("拉取镜像失败: {}", String::from_utf8_lossy(&pull_output.stderr)));
+            return Err(format!(
+                "拉取镜像失败: {}",
+                String::from_utf8_lossy(&pull_output.stderr)
+            ));
         }
 
         update_progress(40, "镜像拉取完成", "");
 
         update_progress(50, "正在停止旧容器 (等待优雅退出)...", "");
-        let stop_options = bollard::container::StopContainerOptions {
-            t: 30,
-        };
-        docker_client.stop_container(container_id, Some(stop_options))
+        let stop_options = bollard::container::StopContainerOptions { t: 30 };
+        docker_client
+            .stop_container(container_id, Some(stop_options))
             .await
             .map_err(|e| format!("停止容器失败: {}", e))?;
 
@@ -803,9 +861,14 @@ impl DockerBridge {
         let rename_options = bollard::container::RenameContainerOptions {
             name: backup_name.clone(),
         };
-        
-        if let Err(e) = docker_client.rename_container(container_id, rename_options).await {
-            let _ = docker_client.start_container::<String>(container_id, None).await;
+
+        if let Err(e) = docker_client
+            .rename_container(container_id, rename_options)
+            .await
+        {
+            let _ = docker_client
+                .start_container::<String>(container_id, None)
+                .await;
             return Err(format!("备份容器失败: {}", e));
         }
 
@@ -815,7 +878,8 @@ impl DockerBridge {
         config.image = Some(new_image.to_string());
         config.host_config = inspect.host_config;
 
-        let networks = inspect.network_settings
+        let networks = inspect
+            .network_settings
             .and_then(|ns| ns.networks)
             .unwrap_or_default();
 
@@ -828,37 +892,58 @@ impl DockerBridge {
             }
             endpoints_config.insert(net_name, endpoint);
         }
-        let networking_config = bollard::container::NetworkingConfig {
-            endpoints_config,
-        };
+        let networking_config = bollard::container::NetworkingConfig { endpoints_config };
 
         let create_options = CreateContainerOptions {
             name: container_name.to_string(),
             ..Default::default()
         };
 
-        let create_res = docker_client.create_container(
-            Some(create_options),
-            bollard::container::Config {
-                networking_config: Some(networking_config),
-                ..config
-            }
-        ).await;
+        let create_res = docker_client
+            .create_container(
+                Some(create_options),
+                bollard::container::Config {
+                    networking_config: Some(networking_config),
+                    ..config
+                },
+            )
+            .await;
 
         let created_id = match create_res {
             Ok(res) => res.id,
             Err(e) => {
-                let _ = docker_client.rename_container(&backup_name, bollard::container::RenameContainerOptions { name: container_name.to_string() }).await;
-                let _ = docker_client.start_container::<String>(container_id, None).await;
+                let _ = docker_client
+                    .rename_container(
+                        &backup_name,
+                        bollard::container::RenameContainerOptions {
+                            name: container_name.to_string(),
+                        },
+                    )
+                    .await;
+                let _ = docker_client
+                    .start_container::<String>(container_id, None)
+                    .await;
                 return Err(format!("创建新容器失败: {}", e));
             }
         };
 
         update_progress(90, "正在启动新容器...", "");
-        if let Err(e) = docker_client.start_container::<String>(&created_id, None).await {
+        if let Err(e) = docker_client
+            .start_container::<String>(&created_id, None)
+            .await
+        {
             let _ = docker_client.remove_container(&created_id, None).await;
-            let _ = docker_client.rename_container(&backup_name, bollard::container::RenameContainerOptions { name: container_name.to_string() }).await;
-            let _ = docker_client.start_container::<String>(container_id, None).await;
+            let _ = docker_client
+                .rename_container(
+                    &backup_name,
+                    bollard::container::RenameContainerOptions {
+                        name: container_name.to_string(),
+                    },
+                )
+                .await;
+            let _ = docker_client
+                .start_container::<String>(container_id, None)
+                .await;
             return Err(format!("启动新容器失败: {}", e));
         }
 
@@ -867,7 +952,10 @@ impl DockerBridge {
             force: true,
             ..Default::default()
         };
-        if let Err(e) = docker_client.remove_container(&backup_name, Some(remove_options)).await {
+        if let Err(e) = docker_client
+            .remove_container(&backup_name, Some(remove_options))
+            .await
+        {
             println!("[Docker] 删除备份容器失败: {}", e);
         }
 
@@ -945,13 +1033,15 @@ async fn try_get_digest_from_host(host: &str, repo: &str, tag: &str) -> Result<S
         .map_err(|e| format!("构建 HTTP 客户端失败: {}", e))?;
 
     let challenge_url = format!("https://{}/v2/", host);
-    let challenge_resp = client.get(&challenge_url)
+    let challenge_resp = client
+        .get(&challenge_url)
         .send()
         .await
         .map_err(|e| format!("challenge 请求失败: {}", e))?;
 
     let headers = challenge_resp.headers();
-    let www_auth = headers.get("www-authenticate")
+    let www_auth = headers
+        .get("www-authenticate")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
 
@@ -965,11 +1055,20 @@ async fn try_get_digest_from_host(host: &str, repo: &str, tag: &str) -> Result<S
     if !token.is_empty() {
         req = req.bearer_auth(&token);
     }
-    
+
     let resp = req
-        .header("Accept", "application/vnd.docker.distribution.manifest.v2+json")
-        .header("Accept", "application/vnd.docker.distribution.manifest.list.v2+json")
-        .header("Accept", "application/vnd.docker.distribution.manifest.v1+json")
+        .header(
+            "Accept",
+            "application/vnd.docker.distribution.manifest.v2+json",
+        )
+        .header(
+            "Accept",
+            "application/vnd.docker.distribution.manifest.list.v2+json",
+        )
+        .header(
+            "Accept",
+            "application/vnd.docker.distribution.manifest.v1+json",
+        )
         .header("Accept", "application/vnd.oci.image.index.v1+json")
         .send()
         .await
@@ -979,7 +1078,8 @@ async fn try_get_digest_from_host(host: &str, repo: &str, tag: &str) -> Result<S
         return Err(format!("registry 返回状态码: {}", resp.status()));
     }
 
-    let digest = resp.headers()
+    let digest = resp
+        .headers()
         .get("docker-content-digest")
         .and_then(|v| v.to_str().ok())
         .map(|s| s.to_string())
@@ -988,7 +1088,11 @@ async fn try_get_digest_from_host(host: &str, repo: &str, tag: &str) -> Result<S
     Ok(digest)
 }
 
-async fn get_bearer_token(www_auth: &str, repo: &str, client: &reqwest::Client) -> Result<String, String> {
+async fn get_bearer_token(
+    www_auth: &str,
+    repo: &str,
+    client: &reqwest::Client,
+) -> Result<String, String> {
     let raw = if www_auth.to_lowercase().starts_with("bearer ") {
         &www_auth[7..]
     } else {
@@ -1005,12 +1109,18 @@ async fn get_bearer_token(www_auth: &str, repo: &str, client: &reqwest::Client) 
         }
     }
 
-    let realm = params.get("realm").ok_or_else(|| format!("无法解析 realm from: {}", www_auth))?;
+    let realm = params
+        .get("realm")
+        .ok_or_else(|| format!("无法解析 realm from: {}", www_auth))?;
     let service = params.get("service").map(|s| s.as_str()).unwrap_or("");
 
-    let token_url = format!("{}?service={}&scope=repository:{}:pull", realm, service, repo);
-    
-    let resp = client.get(&token_url)
+    let token_url = format!(
+        "{}?service={}&scope=repository:{}:pull",
+        realm, service, repo
+    );
+
+    let resp = client
+        .get(&token_url)
         .send()
         .await
         .map_err(|e| format!("token 请求失败: {}", e))?;
@@ -1025,7 +1135,8 @@ async fn get_bearer_token(www_auth: &str, repo: &str, client: &reqwest::Client) 
         access_token: Option<String>,
     }
 
-    let token_resp: TokenResp = resp.json()
+    let token_resp: TokenResp = resp
+        .json()
         .await
         .map_err(|e| format!("解析 token 响应失败: {}", e))?;
 

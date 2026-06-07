@@ -73,6 +73,7 @@ router.get('/accounts', (req, res) => {
               PhysicalCores: cachedMetrics.physical_cores,
               Usage: cachedMetrics.cpu_usage,
               Temp: cachedMetrics.cpu_temp,
+              Power: cachedMetrics.cpu_power,
             },
             memory: {
               Usage:
@@ -467,6 +468,7 @@ router.post('/info', async (req, res) => {
           PhysicalCores: metrics.physical_cores,
           Load: metrics.load,
           Temp: metrics.cpu_temp,
+          Power: metrics.cpu_power,
         },
         gpu: buildGpuInfo(metrics),
         memory: {
@@ -1964,6 +1966,7 @@ router.post('/metrics/collect', async (req, res) => {
           cpu_cores: metrics.physical_cores || metrics.cores || 1,
           cpu_threads: metrics.logical_cores || metrics.cores || 1,
           cpu_temp: resolveCpuTemperature(metrics),
+          cpu_power: parseFloat(metrics.cpu_power) || parseFloat(metrics.cpu_power_w) || 0,
           mem_used: metrics.mem_used || 0,
           mem_total: metrics.mem_total || 0,
           mem_usage: metrics.mem_percent || 0,

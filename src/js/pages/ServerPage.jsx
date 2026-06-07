@@ -122,27 +122,32 @@ function ChartWarmupSkeleton({ height = 130 }) {
 
 // OS 平台图标及颜色计算
 const getOSIconClass = (platform) => {
-  if (!platform) return 'fas fa-server text-kumo-subtle';
+  const baseClass = 'shrink-0 text-base leading-none';
+  if (!platform) return `fas fa-server ${baseClass} text-kumo-subtle`;
   const p = platform.toLowerCase();
-  if (p.includes('ubuntu')) return 'fab fa-ubuntu text-kumo-warning';
-  if (p.includes('debian')) return 'fab fa-linux text-kumo-danger';
-  if (p.includes('centos')) return 'fab fa-centos text-kumo-brand';
-  if (p.includes('alpine')) return 'fas fa-mountain text-kumo-info';
-  if (p.includes('windows')) return 'fab fa-windows text-kumo-info';
-  if (p.includes('darwin') || p.includes('mac')) return 'fab fa-apple text-kumo-strong';
-  if (p.includes('redhat') || p.includes('rhel')) return 'fab fa-redhat text-kumo-danger';
-  return 'fab fa-linux text-kumo-subtle';
+  if (p.includes('debian')) return `si si-debian si--color ${baseClass}`;
+  if (p.includes('ubuntu')) return `si si-ubuntu si--color ${baseClass}`;
+  if (p.includes('centos')) return `si si-centos si--color ${baseClass}`;
+  if (p.includes('alpine')) return `si si-alpinelinux si--color ${baseClass}`;
+  if (p.includes('redhat') || p.includes('rhel')) return `si si-redhat si--color ${baseClass}`;
+  if (p.includes('fedora')) return `si si-fedora si--color ${baseClass}`;
+  if (p.includes('rocky')) return `si si-rockylinux si--color ${baseClass}`;
+  if (p.includes('alma')) return `si si-almalinux si--color ${baseClass}`;
+  if (p.includes('arch')) return `si si-archlinux si--color ${baseClass}`;
+  if (p.includes('windows')) return `fab fa-windows ${baseClass} text-[#0078D4]`;
+  if (p.includes('darwin') || p.includes('mac')) return `si si-apple si--color ${baseClass}`;
+  return `si si-linux si--color ${baseClass}`;
 };
 
-function CompactMetricBar({ label, value, valueClassName, barClassName, width = '0%' }) {
+function CompactMetricBar({ label, value, valueClassName, barClassName, color, width = '0%' }) {
   return (
     <div className="flex min-w-0 flex-col gap-1 rounded-md border border-kumo-line/70 bg-kumo-recessed/25 px-2 py-1 sm:w-14 sm:border-0 sm:bg-transparent sm:px-0 sm:py-0">
       <div className="flex min-w-0 items-center justify-between gap-1">
         <span className="truncate">{label}</span>
-        <span className={`shrink-0 font-bold ${valueClassName}`}>{value}</span>
+        <span className={`shrink-0 font-bold ${color ? '' : valueClassName}`} style={color ? { color } : undefined}>{value}</span>
       </div>
       <div className="h-1.5 overflow-hidden rounded-full border border-kumo-line/70 bg-kumo-recessed">
-        <div className={`h-full ${barClassName}`} style={{ width }}></div>
+        <div className={`h-full ${color ? '' : barClassName}`} style={{ width, backgroundColor: color || undefined }}></div>
       </div>
     </div>
   );
@@ -300,19 +305,151 @@ const firstPositiveNumber = (values = []) => {
   return 0;
 };
 
+const parseTemperatureValue = (value) => {
+  if (value === null || value === undefined || value === '') return null;
+  const parsed = typeof value === 'number'
+    ? value
+    : parseFloat(String(value).replace(/[^\d.-]/g, ''));
+  if (!Number.isFinite(parsed) || parsed <= 0 || parsed > 130) return null;
+  return parsed;
+};
+
+const collectTemperatureReadings = (input, parentName = '') => {
+  if (input === null || input === undefined) return [];
+
+  const entries = Array.isArray(input)
+    ? input.map(sensor => ({ key: '', sensor }))
+    : typeof input === 'object'
+      ? Object.entries(input).map(([key, sensor]) => ({ key, sensor }))
+      : [{ key: '', sensor: input }];
+
+  const readings = [];
+  const scalarKeys = new Set([
+    'name',
+    'Name',
+    'label',
+    'Label',
+    'sensor',
+    'Sensor',
+    'type',
+    'Type',
+    'temperature',
+    'Temperature',
+    'temp',
+    'Temp',
+    'current',
+    'Current',
+    'value',
+    'Value',
+    'entries',
+    'Sensors',
+    'sensors',
+    'values',
+    'children',
+  ]);
+
+  for (const { key, sensor } of entries) {
+    if (sensor === null || sensor === undefined) continue;
+
+    const keyName = Number.isInteger(Number(key)) ? '' : key;
+    const scopedName = [parentName, keyName].filter(Boolean).join(' ');
+
+    if (typeof sensor !== 'object') {
+      const value = parseTemperatureValue(sensor);
+      if (value !== null) readings.push({ name: scopedName, value });
+      continue;
+    }
+
+    const ownName = [
+      scopedName,
+      sensor.name ?? sensor.Name ?? sensor.label ?? sensor.Label ?? sensor.sensor ?? sensor.Sensor ?? sensor.type ?? sensor.Type,
+    ].filter(Boolean).join(' ');
+    const value = parseTemperatureValue(
+      sensor.temperature ?? sensor.Temperature ?? sensor.temp ?? sensor.Temp ?? sensor.current ?? sensor.Current ?? sensor.value ?? sensor.Value,
+    );
+    if (value !== null) readings.push({ name: ownName, value });
+
+    for (const nestedKey of ['entries', 'Sensors', 'sensors', 'values', 'children']) {
+      readings.push(...collectTemperatureReadings(sensor[nestedKey], ownName));
+    }
+
+    for (const [nestedKey, nestedValue] of Object.entries(sensor)) {
+      if (scalarKeys.has(nestedKey)) continue;
+      if (nestedValue && typeof nestedValue === 'object') {
+        readings.push(...collectTemperatureReadings(nestedValue, [ownName, nestedKey].filter(Boolean).join(' ')));
+      }
+    }
+  }
+
+  return readings;
+};
+
+const getCpuTemperatureRank = (name) => {
+  const normalized = String(name || '').toLowerCase();
+  if (/gpu|nvidia|radeon|nvme|ssd|hdd|disk|drive|battery|fan|ambient/.test(normalized)) return 0;
+  if (/package|tctl|tdie|x86_pkg|cpu package/.test(normalized)) return 5;
+  if (/\bcpu\b|cpu_thermal/.test(normalized)) return 4;
+  if (/core\s*\d+|coretemp|k10temp/.test(normalized)) return 3;
+  if (/thermal/.test(normalized)) return 1;
+  return 0;
+};
+
 const getGpuTemp = (record = {}) => firstPositiveNumber([
   record.gpu_temp,
+  record.gpuTemperature,
   record.gpu_temperature,
+  record.gpu_temperature_celsius,
+  record.gpu_temp_c,
   record.gpuTemp,
   record.gpu?.Temp,
+  record.gpu?.temp,
+  record.gpu?.Temperature,
+  record.gpu?.temperature,
 ]);
 
-const getCpuTemp = (record = {}) => firstPositiveNumber([
-  record.cpu_temp,
-  record.cpu_temperature,
-  record.cpuTemp,
-  record.cpu?.Temp,
-]);
+const getCpuTemp = (record = {}) => {
+  const explicitSources = [
+    record.cpu_temp,
+    record.cpuTemp,
+    record.cpu_temperature,
+    record.cpuTemperature,
+    record.cpu_temperature_celsius,
+    record.cpuTemperatureCelsius,
+    record.cpu_temp_c,
+    record.cpu?.Temperature,
+    record.cpu?.Temp,
+    record.cpu?.temp,
+    record.cpu?.temperature,
+  ];
+
+  for (const source of explicitSources) {
+    const explicit = parseTemperatureValue(source);
+    if (explicit !== null) return explicit;
+  }
+
+  const readings = [
+    ...collectTemperatureReadings(record.temperatures),
+    ...collectTemperatureReadings(record.temperature_sensors),
+    ...collectTemperatureReadings(record.temperatureSensors),
+    ...collectTemperatureReadings(record.sensors),
+    ...collectTemperatureReadings(record.thermal),
+    ...collectTemperatureReadings(record.cpu?.temperatures, 'CPU'),
+    ...collectTemperatureReadings(record.cpu?.temperature_sensors, 'CPU'),
+    ...collectTemperatureReadings(record.cpu?.temperatureSensors, 'CPU'),
+    ...collectTemperatureReadings(record.cpu?.sensors, 'CPU'),
+    ...collectTemperatureReadings(record.cpu?.thermal, 'CPU'),
+  ];
+
+  const ranked = readings
+    .map(reading => ({ ...reading, rank: getCpuTemperatureRank(reading.name) }))
+    .filter(reading => reading.rank > 0)
+    .sort((a, b) => (b.rank - a.rank) || (b.value - a.value));
+
+  if (ranked.length > 0) return ranked[0].value;
+
+  const usable = readings.filter(reading => getCpuTemperatureRank(reading.name) !== 0);
+  return usable.length === 1 ? usable[0].value : 0;
+};
 
 const SERVER_CHART_HISTORY_LIMIT = 180;
 const serverMetricsHistoryCache = new Map();
@@ -409,11 +546,16 @@ const buildMetricHistoryRecord = (metrics = {}, info = {}, timestamp = Date.now(
   const ts = toTimestamp(timestamp, Date.now());
   const gpuMemUsed = parseGpuMemoryValue(metrics, 0);
   const gpuMemTotal = parseGpuMemoryValue(metrics, 1);
+  const metricCpu = metrics.cpu && typeof metrics.cpu === 'object' ? metrics.cpu : {};
+  const infoCpu = info?.cpu && typeof info.cpu === 'object' ? info.cpu : {};
+  const metricGpu = metrics.gpu && typeof metrics.gpu === 'object' ? metrics.gpu : {};
+  const infoGpu = info?.gpu && typeof info.gpu === 'object' ? info.gpu : {};
 
   return {
     recorded_at: new Date(ts).toISOString(),
     cpu_usage: toNumber(metrics.cpu_usage ?? metrics.cpu, 0),
-    cpu_temp: getCpuTemp({ ...metrics, cpu: info?.cpu }),
+    cpu_temp: getCpuTemp({ ...metrics, cpu: { ...infoCpu, ...metricCpu } }),
+    cpu_power: toNumber(metrics.cpu_power ?? metrics.cpu_power_w ?? info?.cpu?.Power, 0),
     mem_usage: parseMemoryUsagePercent(metrics, info),
     gpu_usage: metrics.gpu_usage !== undefined
       ? toNumber(metrics.gpu_usage, 0)
@@ -426,7 +568,7 @@ const buildMetricHistoryRecord = (metrics = {}, info = {}, timestamp = Date.now(
     gpu_mem_used: gpuMemUsed,
     gpu_mem_total: gpuMemTotal,
     gpu_power: metrics.gpu_power !== undefined ? toNumber(metrics.gpu_power, 0) : (info?.gpu ? toNumber(info.gpu.Power, 0) : 0),
-    gpu_temp: getGpuTemp({ ...metrics, gpu: info?.gpu }),
+    gpu_temp: getGpuTemp({ ...metrics, gpu: { ...infoGpu, ...metricGpu } }),
     net_rx: parseSpeedToBytes(metrics.network?.rx_speed),
     net_tx: parseSpeedToBytes(metrics.network?.tx_speed),
     _ts: ts,
@@ -470,6 +612,29 @@ const getHostAddress = (server, mode = 'normal') => {
   if (!host) return '-';
   const address = server?.host ? `${host}:${server.port || 22}` : host;
   return mode === 'normal' ? address : maskAddress(address, mode);
+};
+
+const getServerMonitorModeLabel = (server = {}) => {
+  const transports = Array.isArray(server.terminal_transports) ? server.terminal_transports : [];
+  if (
+    server.agent_online === true ||
+    transports.includes('agent') ||
+    isAgentServer(server) ||
+    server.monitor_mode === 'agent'
+  ) {
+    return 'Agent';
+  }
+
+  if (server.ssh_configured || transports.includes('ssh') || server.monitor_mode === 'ssh') {
+    return 'SSH';
+  }
+
+  return '-';
+};
+
+const formatResponseTime = (value) => {
+  const ms = toNumber(value, NaN);
+  return Number.isFinite(ms) && ms > 0 ? `${Math.round(ms)}ms` : '-';
 };
 
 const asArray = (value) => (Array.isArray(value) ? value : []);
@@ -854,11 +1019,12 @@ function ServerPage() {
             const updated = prev.map(s => {
               if (s.id === data.serverId) {
                 const agentOnline = data.status === 'online';
+                const hasResponseTime = Object.prototype.hasOwnProperty.call(data, 'responseTime');
                 return {
                   ...s,
                   ...mergeTerminalCapabilities(s, agentOnline),
                   status: data.status,
-                  response_time: data.responseTime || s.response_time,
+                  response_time: hasResponseTime ? data.responseTime : s.response_time,
                   error: data.status === 'offline' ? (data.error || 'Agent 离线') : null
                 };
               }
@@ -907,14 +1073,17 @@ function ServerPage() {
         // CPU
         const logicalCores = parseInt(metrics.logical_cores) || parseInt(metrics.cores) || parseInt(info.cpu?.LogicalCores) || parseInt(info.cpu?.Cores) || 0;
         const physicalCores = parseInt(metrics.physical_cores) || parseInt(info.cpu?.PhysicalCores) || logicalCores || 0;
-        const resolvedCpuTemp = getCpuTemp({ ...metrics, cpu: info.cpu });
+        const metricCpu = metrics.cpu && typeof metrics.cpu === 'object' ? metrics.cpu : {};
+        const existingCpu = info.cpu && typeof info.cpu === 'object' ? info.cpu : {};
+        const resolvedCpuTemp = getCpuTemp({ ...metrics, cpu: { ...existingCpu, ...metricCpu } });
         info.cpu = {
           Load: metrics.load || '-',
           Usage: metrics.cpu_usage || '0%',
           Cores: logicalCores || info.cpu.Cores || '-',
           LogicalCores: logicalCores || info.cpu?.LogicalCores || info.cpu?.Cores || '-',
           PhysicalCores: physicalCores || info.cpu?.PhysicalCores || info.cpu?.Cores || '-',
-          Temp: resolvedCpuTemp > 0 ? resolvedCpuTemp : (info.cpu?.Temp || 0)
+          Temp: resolvedCpuTemp > 0 ? resolvedCpuTemp : (info.cpu?.Temp || 0),
+          Power: metrics.cpu_power || metrics.cpu_power_w || info.cpu?.Power || ''
         };
         
         // Memory
@@ -3131,7 +3300,7 @@ function ServerPage() {
     <div
       className={
         serverCurrentTab === 'terminal'
-          ? 'flex h-[calc(100dvh-90px)] min-h-0 w-full min-w-0 flex-col gap-3 overflow-hidden px-1 lg:h-[calc(100dvh-122px)]'
+          ? 'flex h-[calc(100dvh-80px)] min-h-0 w-full min-w-0 flex-col gap-3 overflow-hidden px-1 sm:h-[calc(100dvh-88px)] lg:h-[calc(100dvh-92px)]'
           : 'flex w-full flex-col gap-6 px-1'
       }
     >
@@ -3303,10 +3472,11 @@ function ServerPage() {
                 const cpuColor = ChartPalette.semantic('Success', isDarkMode);
                 const memColor = ChartPalette.categorical(0, isDarkMode);
                 const cpuTempColor = ChartPalette.semantic('Attention', isDarkMode);
-                const gpuColor = ChartPalette.semantic('Warning', isDarkMode);
-                const vramColor = ChartPalette.categorical(4, isDarkMode);
-                const powerColor = ChartPalette.categorical(5, isDarkMode);
+                const gpuColor = ChartPalette.categorical(1, isDarkMode);
+                const vramColor = ChartPalette.categorical(3, isDarkMode);
+                const powerColor = ChartPalette.categorical(4, isDarkMode);
                 const gpuTempColor = ChartPalette.semantic('Attention', isDarkMode);
+                const diskColor = ChartPalette.semantic('Warning', isDarkMode);
                 const txColor = ChartPalette.categorical(0, isDarkMode);
                 const rxColor = ChartPalette.semantic('Success', isDarkMode);
                 const cpuMemSeries = getMetricSeries(records, [
@@ -3386,9 +3556,6 @@ function ServerPage() {
                                 {t}
                               </span>
                             ))}
-                            {isAgentServer(server) && (
-                              <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-kumo-brand/10 text-kumo-brand">Agent</span>
-                            )}
                           </div>
                         </div>
                       </div>
@@ -3402,6 +3569,7 @@ function ServerPage() {
                                 value={`${parseInt(server.info.gpu?.Usage || '0')}%`}
                                 valueClassName="text-kumo-warning"
                                 barClassName="bg-kumo-warning"
+                                color={gpuColor}
                                 width={server.info.gpu?.Usage || '0%'}
                               />
                             )}
@@ -3410,6 +3578,7 @@ function ServerPage() {
                               value={`${parseInt(server.info.cpu?.Usage || '0')}%`}
                               valueClassName="text-kumo-success"
                               barClassName="bg-kumo-success"
+                              color={cpuColor}
                               width={server.info.cpu?.Usage || '0%'}
                             />
                             <CompactMetricBar
@@ -3417,14 +3586,16 @@ function ServerPage() {
                               value={`${parseInt(server.info.memory?.Usage || '0')}%`}
                               valueClassName="text-kumo-info"
                               barClassName="bg-kumo-info"
+                              color={memColor}
                               width={server.info.memory?.Usage || '0%'}
                             />
                             {server.info.disk?.[0] && (
                               <CompactMetricBar
                                 label="Disk"
                                 value={`${parseInt(server.info.disk[0].usage || '0')}%`}
-                                valueClassName="text-kumo-brand"
-                                barClassName="bg-kumo-brand"
+                                valueClassName="text-kumo-warning"
+                                barClassName="bg-kumo-warning"
+                                color={diskColor}
                                 width={server.info.disk[0].usage || '0%'}
                               />
                             )}
@@ -3517,6 +3688,12 @@ function ServerPage() {
                                         <span className={`text-right font-semibold ${getTempColorClass(server.info.cpu.Temp)}`}>{Math.round(toNumber(server.info.cpu.Temp))}°C</span>
                                       </div>
                                     )}
+                                    {toNumber(server.info?.cpu?.Power, 0) > 0 && (
+                                      <div className="grid grid-cols-[5rem_minmax(0,1fr)] items-start gap-2 sm:flex sm:justify-between sm:gap-3">
+                                        <span className="text-kumo-subtle font-medium">CPU 功耗</span>
+                                        <span className="text-right font-semibold text-kumo-warning">{toNumber(server.info.cpu.Power, 0).toFixed(1)}W</span>
+                                      </div>
+                                    )}
                                     <div className="grid grid-cols-[5rem_minmax(0,1fr)] items-start gap-2 sm:flex sm:justify-between sm:gap-3">
                                       <span className="text-kumo-subtle font-medium">内存使用</span>
                                       <span className="text-right font-semibold text-kumo-strong">{server.info?.memory?.Used || '-'} / {server.info?.memory?.Total || '-'} ({server.info?.memory?.Usage || '0%'})</span>
@@ -3536,7 +3713,7 @@ function ServerPage() {
                                           <span className="text-right font-semibold text-kumo-strong">{disk.used || '-'} / {disk.total || '-'}</span>
                                         </div>
                                         <div className="mt-1 h-1.5 overflow-hidden rounded-full border border-kumo-line/70 bg-kumo-recessed sm:h-2">
-                                          <div className="h-full bg-kumo-brand" style={{ width: disk.usage || '0%' }}></div>
+                                          <div className="h-full bg-kumo-warning" style={{ width: disk.usage || '0%' }}></div>
                                         </div>
                                       </div>
                                     ))}
@@ -3556,16 +3733,12 @@ function ServerPage() {
                                       <span className="text-right font-mono font-semibold text-kumo-strong">{getHostAddress(server, serverIpDisplayMode)}</span>
                                     </div>
                                     <div className="grid grid-cols-[5rem_minmax(0,1fr)] items-start gap-2 sm:flex sm:justify-between sm:gap-3">
-                                      <span className="text-kumo-subtle font-medium">Agent 端口</span>
-                                      <span className="text-right font-semibold text-kumo-strong">{server.agent_port || '-'}</span>
-                                    </div>
-                                    <div className="grid grid-cols-[5rem_minmax(0,1fr)] items-start gap-2 sm:flex sm:justify-between sm:gap-3">
                                       <span className="text-kumo-subtle font-medium">监控模式</span>
-                                      <span className="text-right font-semibold text-kumo-strong">{server.monitor_mode || '-'}</span>
+                                      <span className="text-right font-semibold text-kumo-strong">{getServerMonitorModeLabel(server)}</span>
                                     </div>
                                     <div className="grid grid-cols-[5rem_minmax(0,1fr)] items-start gap-2 sm:flex sm:justify-between sm:gap-3">
                                       <span className="text-kumo-subtle font-medium">响应延迟</span>
-                                      <span className="text-right font-semibold text-kumo-success">{server.response_time || '-'}ms</span>
+                                      <span className="text-right font-semibold text-kumo-success">{formatResponseTime(server.response_time)}</span>
                                     </div>
                                   </div>
                                 )}
@@ -3752,11 +3925,11 @@ function ServerPage() {
                             </div>
 
                             {server.info?.docker?.installed && (
-                              <div className="flex flex-col gap-2 rounded-lg border border-kumo-line bg-kumo-base p-3 shadow-xs sm:gap-2.5 sm:p-4">
+                              <div className="overflow-hidden rounded-lg border border-kumo-line bg-kumo-base shadow-xs">
                                 <Button
                                   type="button"
                                   variant="ghost" size="sm"
-                                  className="w-full justify-between border-b border-kumo-line pb-1.5 text-left sm:pb-2"
+                                  className="h-8 w-full justify-between rounded-none border-b border-kumo-line bg-kumo-recessed/25 px-3 text-left"
                                   onClick={(event) => {
                                     event.stopPropagation();
                                     toggleDockerPanel(server.id);
@@ -3773,7 +3946,7 @@ function ServerPage() {
 
                                 <AnimatedCollapse open={dockerExpanded}>
                                   {dockerContainers.length > 0 ? (
-                                    <div className="grid grid-cols-2 gap-1.5 pt-1 sm:grid-cols-3 sm:gap-2 md:grid-cols-4 lg:grid-cols-6">
+                                    <div className="divide-y divide-kumo-line">
                                       {dockerContainers.map(c => {
                                         const state = getDockerContainerState(c);
                                         const stateBadge = getDockerStateBadge(state);
@@ -3781,18 +3954,21 @@ function ServerPage() {
                                         const containerName = getDockerContainerName(c);
                                         const containerImage = getDockerContainerImage(c);
                                         return (
-                                          <div key={containerId || `${server.id}-${containerName}`} className="flex items-center justify-between rounded-md border border-kumo-line bg-kumo-canvas/45 p-1.5 text-[11px] hover:border-kumo-interact sm:p-2">
-                                            <div className="mr-2 flex min-w-0 items-center gap-1.5">
-                                              <Badge variant={stateBadge.variant} appearance="dot" className="hidden min-[520px]:inline-flex">{stateBadge.label}</Badge>
-                                              <span className="truncate font-semibold text-kumo-strong" title={containerName}>{containerName}</span>
+                                          <div key={containerId || `${server.id}-${containerName}`} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 px-3 py-2 text-xs hover:bg-kumo-recessed/20">
+                                            <div className="flex min-w-0 items-center gap-2">
+                                              <Badge variant={stateBadge.variant} appearance="dot" className="shrink-0">{stateBadge.label}</Badge>
+                                              <div className="min-w-0">
+                                                <div className="truncate font-semibold text-kumo-strong" title={containerName}>{containerName}</div>
+                                                <div className="truncate font-mono text-[10px] text-kumo-subtle" title={containerImage}>{containerImage}</div>
+                                              </div>
                                             </div>
-                                            <div className="flex items-center gap-1 flex-shrink-0">
+                                            <div className="flex shrink-0 items-center gap-1">
                                               <Button
                                                 shape="square" size="sm"
                                                 variant="secondary"
                                                 aria-label={state === 'running' ? '暂停容器' : state === 'paused' ? '恢复容器' : '启动容器'}
                                                 title={state === 'running' ? '暂停' : state === 'paused' ? '恢复' : '启动'}
-                                                icon={state === 'running' ? <Pause className="w-3 h-3" /> : <Play className="w-3 h-3" />}
+                                                icon={state === 'running' ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
                                                 onClick={(event) => {
                                                   event.stopPropagation();
                                                   const action = state === 'running' ? 'container.pause' : state === 'paused' ? 'container.unpause' : 'container.start';
@@ -3804,7 +3980,7 @@ function ServerPage() {
                                                 variant="secondary"
                                                 aria-label="重启容器"
                                                 title="重启"
-                                                icon={<RotateCw className="w-3 h-3" />}
+                                                icon={<RotateCw className="h-3.5 w-3.5" />}
                                                 onClick={(event) => {
                                                   event.stopPropagation();
                                                   submitDockerTask('container.restart', { serverId: server.id, containerId, containerName, image: containerImage });
@@ -3815,7 +3991,7 @@ function ServerPage() {
                                                 variant="secondary"
                                                 aria-label="检测镜像更新"
                                                 title="检测更新"
-                                                icon={<Search className="w-3 h-3" />}
+                                                icon={<Search className="h-3.5 w-3.5" />}
                                                 onClick={(event) => {
                                                   event.stopPropagation();
                                                   submitDockerTask('container.checkUpdates', { serverId: server.id, containerId, containerName, image: containerImage });
@@ -3826,7 +4002,7 @@ function ServerPage() {
                                                 variant="primary"
                                                 aria-label="一键更新容器"
                                                 title="一键更新"
-                                                icon={<Download className="w-3 h-3" />}
+                                                icon={<Upload className="h-3.5 w-3.5" />}
                                                 onClick={(event) => {
                                                   event.stopPropagation();
                                                   submitDockerTask('container.update', { serverId: server.id, containerId, containerName, image: containerImage });
@@ -3838,7 +4014,7 @@ function ServerPage() {
                                       })}
                                     </div>
                                   ) : (
-                                    <div className="text-center py-4 text-xs text-kumo-subtle">暂无容器</div>
+                                    <div className="px-3 py-4 text-center text-xs text-kumo-subtle">暂无容器</div>
                                   )}
                                 </AnimatedCollapse>
                               </div>
@@ -4254,7 +4430,7 @@ function ServerPage() {
                                       <Button
                                         shape="square" size="sm"
                                         variant="primary"
-                                        icon={<Download className="h-3.5 w-3.5" />}
+                                        icon={<Upload className="h-3.5 w-3.5" />}
                                         aria-label="一键更新容器"
                                         onClick={() => submitDockerTask('container.update', { serverId: server.id, containerId, containerName, image: containerImage })}
                                         title="一键更新"
@@ -4756,6 +4932,11 @@ function ServerPage() {
         const activeSession = sshSessions.find(s => s.id === activeSSHSessionId);
         const activeServer = activeSession?.server;
         const activeInfo = activeServer?.info || {};
+        const isTerminalDarkMode = theme === 'dark';
+        const terminalCpuColor = ChartPalette.semantic('Success', isTerminalDarkMode);
+        const terminalMemColor = ChartPalette.categorical(0, isTerminalDarkMode);
+        const terminalDiskColor = ChartPalette.semantic('Warning', isTerminalDarkMode);
+        const terminalGpuColor = ChartPalette.categorical(1, isTerminalDarkMode);
         const resourceMetrics = [
           {
             label: 'CPU',
@@ -4763,6 +4944,7 @@ function ServerPage() {
             width: activeInfo.cpu?.Usage || '0%',
             valueClassName: 'text-kumo-success',
             barClassName: 'bg-kumo-success',
+            color: terminalCpuColor,
           },
           {
             label: 'Mem',
@@ -4770,13 +4952,15 @@ function ServerPage() {
             width: activeInfo.memory?.Usage || '0%',
             valueClassName: 'text-kumo-info',
             barClassName: 'bg-kumo-info',
+            color: terminalMemColor,
           },
           {
             label: 'Disk',
             value: activeInfo.disk?.[0]?.usage || '-',
             width: activeInfo.disk?.[0]?.usage || '0%',
-            valueClassName: 'text-kumo-brand',
-            barClassName: 'bg-kumo-brand',
+            valueClassName: 'text-kumo-warning',
+            barClassName: 'bg-kumo-warning',
+            color: terminalDiskColor,
           },
           {
             label: 'GPU',
@@ -4784,6 +4968,7 @@ function ServerPage() {
             width: activeInfo.gpu?.Usage || '0%',
             valueClassName: 'text-kumo-warning',
             barClassName: 'bg-kumo-warning',
+            color: terminalGpuColor,
           },
         ];
         const isWindowsTerminal = String(activeInfo.platform || activeServer?.platform || '').toLowerCase().includes('win');
@@ -4967,10 +5152,10 @@ function ServerPage() {
                             <div key={metric.label} className="min-w-0">
                               <div className="mb-1 flex items-center justify-between gap-2 text-[10px]">
                                 <span className="font-semibold text-kumo-subtle">{label}</span>
-                                <span className={`font-mono font-bold ${metric.valueClassName}`}>{metric.value}</span>
+                                <span className={`font-mono font-bold ${metric.color ? '' : metric.valueClassName}`} style={metric.color ? { color: metric.color } : undefined}>{metric.value}</span>
                               </div>
                               <div className="h-1.5 overflow-hidden rounded-full border border-kumo-line bg-kumo-recessed">
-                                <div className={`h-full ${metric.barClassName}`} style={{ width: metric.width }} />
+                                <div className={`h-full ${metric.color ? '' : metric.barClassName}`} style={{ width: metric.width, backgroundColor: metric.color || undefined }} />
                               </div>
                             </div>
                           );
