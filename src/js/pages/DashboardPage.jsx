@@ -706,7 +706,7 @@ function DashboardPage() {
               </span>
             </div>
             <div className="space-y-1">
-              <span className="text-xs text-kumo-subtle block">主机实例管理</span>
+              <span className="text-xs text-kumo-subtle block">主机管理</span>
               <span className="text-xl font-bold text-kumo-strong tabular-nums sm:text-2xl">
                 {stats.servers.total} <span className="text-xs font-normal text-kumo-subtle">台主机</span>
               </span>

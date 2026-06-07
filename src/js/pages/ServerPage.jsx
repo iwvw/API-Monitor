@@ -9,7 +9,7 @@ import { Dialog } from '@cloudflare/kumo/components/dialog';
 import { Input, Textarea } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
 import { Checkbox } from '@cloudflare/kumo/components/checkbox';
-import { ChartLegend, ChartPalette, ClipboardText, Meter, Tabs, TimeseriesChart } from '@cloudflare/kumo';
+import { ChartLegend, ChartPalette, ClipboardText, LayerCard, Meter, Tabs, TimeseriesChart } from '@cloudflare/kumo';
 import { Table } from '@cloudflare/kumo/components/table';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import { AnimatedCollapse, DeferredRender } from '../components/AnimatedCollapse.jsx';
@@ -47,6 +47,7 @@ import {
   Shield,
   FolderOpen,
   HardDrive,
+  Database,
   TrendingUp,
   Settings,
   Plus,
@@ -100,10 +101,10 @@ const HOST_COMPACT_COLUMNS = [
 const HOST_COMPACT_COLUMN_IDS = HOST_COMPACT_COLUMNS.map(column => column.id);
 const HOST_COMPACT_COLUMN_WIDTHS = {
   status: 74,
-  name: 136,
-  country: 76,
-  uptime: 88,
-  load: 60,
+  name: 112,
+  country: 80,
+  uptime: 80,
+  load: 80,
   speed: 236,
   traffic: 236,
   cpu: 112,
@@ -115,24 +116,60 @@ const HOST_COMPACT_COLUMN_WIDTHS = {
 const HOST_COMPACT_ADAPTIVE_COLUMNS = new Set(['cpu', 'memory', 'disk', 'remaining']);
 const HOST_COMPACT_HEADER_BOX_CLASS = {
   status: 'w-[58px] justify-center',
-  name: 'w-[120px] justify-start',
-  country: 'w-[60px] justify-center',
-  uptime: 'w-[72px] justify-center',
-  load: 'w-[44px] justify-center',
+  name: 'w-[96px] justify-center',
+  country: 'w-[64px] justify-center',
+  uptime: 'w-[64px] justify-center',
+  load: 'w-[64px] justify-center',
   speed: 'w-[216px] justify-center',
   traffic: 'w-[216px] justify-center',
   cpu: 'w-full min-w-[96px] justify-center',
   memory: 'w-full min-w-[96px] justify-center',
   disk: 'w-full min-w-[96px] justify-center',
   remaining: 'w-full min-w-[96px] justify-center',
-  actions: 'w-[64px] justify-end',
+  actions: 'w-[64px] justify-center',
 };
 const COMPACT_INLINE_BOX_CLASS = 'border border-kumo-interact/70 shadow-none';
 const COMPACT_INLINE_SUBBOX_CLASS = 'border border-kumo-interact/70 shadow-none';
 const COMPACT_STICKY_ACTION_CLASS = 'border-l border-kumo-interact/60 before:!w-1 before:!-left-1';
 const COMPACT_ACTION_BUTTON_CLASS = '!shadow-none';
+const SERVER_SECONDARY_BAR_CLASS = 'flex flex-col gap-2 rounded-md border border-kumo-line/90 bg-kumo-base px-2 py-1.5 lg:flex-row lg:items-center lg:justify-between';
+const SERVER_SECONDARY_TABS_GROUP_CLASS = 'flex min-w-0 flex-nowrap items-center gap-1.5 overflow-x-auto whitespace-nowrap p-0.5 scrollbar-thin sm:gap-2';
+const HOST_FILTER_TABS_CLASS = 'w-fit max-w-full !ring !ring-inset !ring-kumo-interact/50';
+const HOST_FILTER_TABS_LIST_CLASS = 'w-fit max-w-full';
+const HOST_FILTER_TABS_INDICATOR_CLASS = '!shadow-none !ring-0 border border-kumo-interact/60';
+const HOST_TOOLBAR_BUTTON_CLASS = '!h-6.5 !rounded-md !shadow-none';
+const HOST_TOOLBAR_SELECT_CLASS = '!h-6.5 !rounded-md border border-kumo-line bg-kumo-base px-2.5 py-1 text-xs focus:outline-none';
+const MANAGEMENT_CARD_CLASS = 'self-start overflow-hidden p-0 shadow-none';
+const MANAGEMENT_CARD_HEADER_CLASS = 'flex h-9 items-center justify-between gap-3 border-b border-kumo-line bg-kumo-recessed/20 px-3';
+const MANAGEMENT_CARD_TITLE_CLASS = 'flex min-w-0 items-center gap-2 text-sm font-bold text-kumo-strong';
+const MANAGEMENT_CARD_ICON_CLASS = 'h-3.5 w-3.5 shrink-0 text-kumo-brand';
+const MANAGEMENT_CARD_BODY_CLASS = 'p-3';
+const SERVER_MODULE_TAB_ICON_CLASS = 'h-3.5 w-3.5 shrink-0';
 const COMPACT_EXPAND_EXIT_MS = 230;
 const SERVER_CHART_SERIES_DEFER_MS = 120;
+const METRICS_COLLECT_INTERVAL_TABS = [1, 2, 5, 10, 15, 30, 60].map(value => ({
+  value: String(value),
+  label: `${value}m`,
+}));
+const METRICS_RETENTION_TABS = [7, 30, 60, 90, 180].map(value => ({
+  value: String(value),
+  label: `${value}天`,
+}));
+
+function ServerModuleTabLabel({ icon: Icon, children, short, badge = null }) {
+  return (
+    <span className="inline-flex h-5 items-center gap-1.5 whitespace-nowrap">
+      <Icon className={SERVER_MODULE_TAB_ICON_CLASS} />
+      <span className="hidden sm:inline">{children}</span>
+      <span className="sm:hidden">{short || children}</span>
+      {badge !== null && (
+        <span className="inline-flex h-4 min-w-4 items-center justify-center rounded bg-kumo-brand/10 px-1 text-[10px] font-bold leading-none text-kumo-brand">
+          {badge}
+        </span>
+      )}
+    </span>
+  );
+}
 
 const getInitialServerListViewMode = () => {
   if (typeof window === 'undefined') return 'cards';
@@ -2870,13 +2907,14 @@ function ServerPage() {
     }
   };
   
-  const handleRetentionSliderChange = async (val) => {
-    setMonitorConfig({ metrics_retention_days: val });
+  const updateMetricsRetentionDays = async (value) => {
+    const nextValue = Math.max(1, Math.min(180, Math.round(toNumber(value, 30))));
+    setMonitorConfig({ metrics_retention_days: nextValue });
     try {
       await fetch('/api/server/monitor/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ metrics_retention_days: val })
+        body: JSON.stringify({ metrics_retention_days: nextValue })
       });
     } catch (e) {
       console.error(e);
@@ -3873,23 +3911,14 @@ function ServerPage() {
             value={serverCurrentTab}
             onValueChange={setServerCurrentTab}
             tabs={[
-              { value: 'list', label: <span className="inline-flex items-center gap-1.5"><Server className="w-4 h-4" /><span className="hidden sm:inline">主机实例管理</span><span className="sm:hidden">主机</span></span> },
-              { value: 'history', label: <span className="inline-flex items-center gap-1.5"><History className="w-4 h-4" /><span className="hidden sm:inline">历史趋势</span><span className="sm:hidden">趋势</span></span> },
-              { value: 'docker', label: <span className="inline-flex items-center gap-1.5"><Box className="w-4 h-4" />Docker</span> },
-              { value: 'management', label: <span className="inline-flex items-center gap-1.5"><Settings className="w-4 h-4" /><span className="hidden sm:inline">后台管理</span><span className="sm:hidden">管理</span></span> },
+              { value: 'list', label: <ServerModuleTabLabel icon={Server} short="主机">主机管理</ServerModuleTabLabel> },
+              { value: 'history', label: <ServerModuleTabLabel icon={History} short="趋势">历史趋势</ServerModuleTabLabel> },
+              { value: 'docker', label: <ServerModuleTabLabel icon={Box}>Docker</ServerModuleTabLabel> },
+              { value: 'management', label: <ServerModuleTabLabel icon={Settings} short="管理">后台管理</ServerModuleTabLabel> },
               ...(sshSessions.length > 0
                 ? [{
                     value: 'terminal',
-                    label: (
-                      <span className="inline-flex items-center gap-1.5">
-                        <TerminalIcon className="w-4 h-4" />
-                        <span className="hidden sm:inline">SSH 终端</span>
-                        <span className="sm:hidden">SSH</span>
-                        <span className="rounded bg-kumo-brand/10 px-1.5 py-0.5 text-[10px] font-bold text-kumo-brand">
-                          {sshSessions.length}
-                        </span>
-                      </span>
-                    ),
+                    label: <ServerModuleTabLabel icon={TerminalIcon} short="SSH" badge={sshSessions.length}>SSH 终端</ServerModuleTabLabel>,
                   }]
                 : []),
             ]}
@@ -3966,16 +3995,17 @@ function ServerPage() {
         </div>
       </div>
       
-      {/* ==================== 1. 主机实例管理 ==================== */}
+      {/* ==================== 1. 主机管理 ==================== */}
       {serverCurrentTab === 'list' && (
         <div className="flex flex-col gap-4">
           {/* 控制过滤器栏 */}
-          <div className="flex flex-col gap-3 rounded-md border border-kumo-line/90 bg-kumo-base p-3 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex min-w-0 flex-nowrap items-center gap-2 overflow-x-auto whitespace-nowrap scrollbar-thin sm:gap-3">
+          <div className={SERVER_SECONDARY_BAR_CLASS}>
+            <div className={SERVER_SECONDARY_TABS_GROUP_CLASS}>
               <Tabs
                 {...TOOL_TABS_PROPS}
-                className="w-fit max-w-full"
-                listClassName="w-fit max-w-full"
+                className={HOST_FILTER_TABS_CLASS}
+                listClassName={HOST_FILTER_TABS_LIST_CLASS}
+                indicatorClassName={HOST_FILTER_TABS_INDICATOR_CLASS}
                 value={serverStatusFilter}
                 onValueChange={setServerStatusFilter}
                 tabs={[
@@ -3986,8 +4016,9 @@ function ServerPage() {
               />
               <Tabs
                 {...TOOL_TABS_PROPS}
-                className="w-fit max-w-full"
-                listClassName="w-fit max-w-full"
+                className={HOST_FILTER_TABS_CLASS}
+                listClassName={HOST_FILTER_TABS_LIST_CLASS}
+                indicatorClassName={HOST_FILTER_TABS_INDICATOR_CLASS}
                 value={serverIpDisplayMode}
                 onValueChange={setServerIpDisplayMode}
                 tabs={[
@@ -3998,8 +4029,9 @@ function ServerPage() {
               />
               <Tabs
                 {...TOOL_TABS_PROPS}
-                className="w-fit max-w-full"
-                listClassName="w-fit max-w-full"
+                className={HOST_FILTER_TABS_CLASS}
+                listClassName={HOST_FILTER_TABS_LIST_CLASS}
+                indicatorClassName={HOST_FILTER_TABS_INDICATOR_CLASS}
                 value={serverListViewMode}
                 onValueChange={setServerListViewMode}
                 tabs={[
@@ -4057,7 +4089,7 @@ function ServerPage() {
                           <Table.Head
                             key={column.id}
                             sticky={column.id === 'actions' ? 'right' : undefined}
-                            className={`!px-2 !py-2 text-[10px] whitespace-nowrap ${column.id === 'name' ? '' : 'text-center'} ${column.id === 'actions' ? `!pl-1 !pr-2 text-right ${COMPACT_STICKY_ACTION_CLASS}` : ''}`}
+                            className={`!px-2 !py-2 text-center text-[10px] whitespace-nowrap ${column.id === 'actions' ? `!pl-1 !pr-2 ${COMPACT_STICKY_ACTION_CLASS}` : ''}`}
                           >
                             <div className={`flex items-center ${HOST_COMPACT_HEADER_BOX_CLASS[column.id] || 'justify-center'}`}>
                               {column.label}
@@ -4135,7 +4167,7 @@ function ServerPage() {
                               )}
                               {isCompactColumnVisible('name') && (
                                 <Table.Cell className="!px-2 !py-1.5 whitespace-nowrap">
-                                  <div className="flex w-[120px] items-center gap-2">
+                                  <div className="flex w-[96px] items-center gap-2">
                                     <i className={getOSIconClass(server.info?.platform)}></i>
                                     <div className="min-w-0">
                                       <div className="truncate font-bold text-kumo-strong" title={server.name}>{server.name}</div>
@@ -4154,10 +4186,10 @@ function ServerPage() {
                               )}
                               {isCompactColumnVisible('country') && (
                                 <Table.Cell className="!px-2 !py-1.5 text-center whitespace-nowrap">
-                                  <div className="flex w-[60px] items-center justify-center gap-1.5">
+                                  <div className="flex w-[64px] items-center justify-center gap-1.5">
                                     {country ? (
                                       <>
-                                        <CountryFlag countryCode={country} className="h-3 w-4 shrink-0 text-xs" />
+                                        <CountryFlag preferSvg countryCode={country} className="h-3.5 w-5 shrink-0 !rounded-[2px] text-sm" />
                                         <span className="font-semibold text-kumo-strong">{country.toUpperCase()}</span>
                                       </>
                                     ) : (
@@ -4245,8 +4277,8 @@ function ServerPage() {
                                 </Table.Cell>
                               )}
                               {isCompactColumnVisible('actions') && (
-                                <Table.Cell sticky="right" className={`!py-1.5 !pl-1 !pr-2 text-right whitespace-nowrap ${COMPACT_STICKY_ACTION_CLASS}`}>
-                                  <div className="flex items-center justify-end gap-1" onClick={event => event.stopPropagation()}>
+                                <Table.Cell sticky="right" className={`!py-1.5 !pl-1 !pr-2 text-center whitespace-nowrap ${COMPACT_STICKY_ACTION_CLASS}`}>
+                                  <div className="flex items-center justify-center gap-1" onClick={event => event.stopPropagation()}>
                                     <Button
                                       shape="square" size="sm"
                                       variant="secondary"
@@ -5011,25 +5043,27 @@ function ServerPage() {
       {/* ==================== 2. 历史趋势 ==================== */}
       {serverCurrentTab === 'history' && (
         <div className="flex flex-col gap-4">
-          <div className="flex flex-col md:flex-row gap-4 justify-between bg-kumo-base border border-kumo-line p-4 rounded-lg">
-            <div className="flex items-center gap-2">
-              <div className="flex items-center gap-1 bg-kumo-recessed/50 p-1 rounded-lg">
-                {['1h', '6h', '24h', '7d'].map(range => (
-                  <Button size="sm"
-                    variant={metricsHistoryTimeRange === range ? 'secondary' : 'ghost'}
-                    key={range}
-                    onClick={() => setMetricsHistoryTimeRange(range)}
-                    className={`px-3 py-1 rounded-md text-[10px] font-bold cursor-pointer transition-colors ${metricsHistoryTimeRange === range ? 'bg-kumo-base text-kumo-strong shadow-xs' : 'text-kumo-subtle hover:text-kumo-strong'}`}
-                  >
-                    {range}
-                  </Button>
-                ))}
-              </div>
+          <div className={SERVER_SECONDARY_BAR_CLASS}>
+            <div className={SERVER_SECONDARY_TABS_GROUP_CLASS}>
+              <Tabs
+                {...TOOL_TABS_PROPS}
+                className={HOST_FILTER_TABS_CLASS}
+                listClassName={HOST_FILTER_TABS_LIST_CLASS}
+                indicatorClassName={HOST_FILTER_TABS_INDICATOR_CLASS}
+                value={metricsHistoryTimeRange}
+                onValueChange={setMetricsHistoryTimeRange}
+                tabs={[
+                  { value: '1h', label: '1h' },
+                  { value: '6h', label: '6h' },
+                  { value: '24h', label: '24h' },
+                  { value: '7d', label: '7d' },
+                ]}
+              />
               
               <Button size="sm"
                 variant="secondary"
                 onClick={triggerManualCollect}
-                className="flex items-center gap-1 border border-kumo-line rounded-lg text-xs bg-kumo-base hover:bg-kumo-recessed/30 cursor-pointer font-semibold"
+                className={`flex items-center gap-1 border border-kumo-line text-xs bg-kumo-base hover:bg-kumo-recessed/30 cursor-pointer font-semibold ${HOST_TOOLBAR_BUTTON_CLASS}`}
               >
                 立即采集
               </Button>
@@ -5037,7 +5071,7 @@ function ServerPage() {
               <Button size="sm"
                 variant="secondary-destructive"
                 onClick={clearMetricsHistory}
-                className="flex items-center gap-1 border border-kumo-danger/30 text-kumo-danger rounded-lg text-xs bg-kumo-base hover:bg-kumo-danger/10 cursor-pointer font-semibold"
+                className={`flex items-center gap-1 border border-kumo-danger/30 text-kumo-danger bg-kumo-base hover:bg-kumo-danger/10 cursor-pointer font-semibold ${HOST_TOOLBAR_BUTTON_CLASS}`}
               >
                 清空数据
               </Button>
@@ -5050,7 +5084,7 @@ function ServerPage() {
                 value={metricsHistoryFilter.serverId}
                 onValueChange={(value) => setMetricsHistoryFilter({ serverId: String(value) })}
                 placeholder="全部主机"
-                className="border border-kumo-line rounded-lg px-2.5 py-1 bg-kumo-base text-xs focus:outline-none"
+                className={HOST_TOOLBAR_SELECT_CLASS}
                 items={[
                   { value: '', label: '全部主机' },
                   ...serverList.map(s => ({ value: String(s.id), label: s.name || s.id })),
@@ -5167,20 +5201,25 @@ function ServerPage() {
       {/* ==================== 3. Docker 控制台 ==================== */}
       {serverCurrentTab === 'docker' && (
         <div className="flex flex-col gap-4">
-          <div className="flex flex-col md:flex-row gap-4 justify-between border-b border-kumo-line pb-2.5">
-            <Tabs
-              {...TOOL_TABS_PROPS}
-              value={dockerSubTab}
-              onValueChange={setDockerSubTab}
-              tabs={[
-                { value: 'containers', label: <span className="inline-flex items-center gap-1.5"><Box className="w-3.5 h-3.5" />容器</span> },
-                { value: 'compose', label: <span className="inline-flex items-center gap-1.5"><FolderOpen className="w-3.5 h-3.5" />Compose</span> },
-                { value: 'images', label: <span className="inline-flex items-center gap-1.5"><HardDrive className="w-3.5 h-3.5" />镜像</span> },
-                { value: 'networks', label: <span className="inline-flex items-center gap-1.5"><Globe className="w-3.5 h-3.5" />网络</span> },
-                { value: 'volumes', label: <span className="inline-flex items-center gap-1.5"><HardDrive className="w-3.5 h-3.5" />存储卷</span> },
-                { value: 'stats', label: <span className="inline-flex items-center gap-1.5"><Activity className="w-3.5 h-3.5" />实时统计</span> },
-              ]}
-            />
+          <div className={SERVER_SECONDARY_BAR_CLASS}>
+            <div className={SERVER_SECONDARY_TABS_GROUP_CLASS}>
+              <Tabs
+                {...TOOL_TABS_PROPS}
+                className={HOST_FILTER_TABS_CLASS}
+                listClassName={HOST_FILTER_TABS_LIST_CLASS}
+                indicatorClassName={HOST_FILTER_TABS_INDICATOR_CLASS}
+                value={dockerSubTab}
+                onValueChange={setDockerSubTab}
+                tabs={[
+                  { value: 'containers', label: <span className="inline-flex items-center gap-1.5"><Box className="w-3.5 h-3.5" />容器</span> },
+                  { value: 'compose', label: <span className="inline-flex items-center gap-1.5"><FolderOpen className="w-3.5 h-3.5" />Compose</span> },
+                  { value: 'images', label: <span className="inline-flex items-center gap-1.5"><HardDrive className="w-3.5 h-3.5" />镜像</span> },
+                  { value: 'networks', label: <span className="inline-flex items-center gap-1.5"><Globe className="w-3.5 h-3.5" />网络</span> },
+                  { value: 'volumes', label: <span className="inline-flex items-center gap-1.5"><HardDrive className="w-3.5 h-3.5" />存储卷</span> },
+                  { value: 'stats', label: <span className="inline-flex items-center gap-1.5"><Activity className="w-3.5 h-3.5" />实时统计</span> },
+                ]}
+              />
+            </div>
             
             <div className="flex items-center gap-2">
               <span className="text-xs text-kumo-subtle font-medium">选择主机</span>
@@ -5189,6 +5228,7 @@ function ServerPage() {
                 value={dockerSelectedServer}
                 onValueChange={(value) => setDockerSelectedServer(String(value))}
                 placeholder="全部 Docker 主机"
+                className={HOST_TOOLBAR_SELECT_CLASS}
                 items={[
                   { value: '', label: '全部 Docker 主机' },
                   ...serverList
@@ -5662,171 +5702,198 @@ function ServerPage() {
       
       {/* ==================== 4. 后台管理 ==================== */}
       {serverCurrentTab === 'management' && (
-        <div className="flex flex-col gap-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div className="flex flex-col gap-4">
+          <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
             
-            {/* 列表大配置 */}
-            <div className="bg-kumo-base border border-kumo-line p-5 rounded-lg flex flex-col gap-4 shadow-xs">
-              <h3 className="text-sm font-bold text-kumo-strong border-b border-kumo-line pb-2 mb-1">
-                ⚙️ 主机自动监控配置
-              </h3>
-              
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-kumo-subtle">
-                  自动采集间隔 (周期)
-                </label>
-                <div className="flex flex-wrap gap-2">
-                  {[1, 2, 5, 10, 15, 30, 60].map(m => (
-                    <Button size="sm"
-                      variant={metricsCollectInterval === m ? 'primary' : 'secondary'}
-                      key={m}
-                      onClick={() => updateMetricsCollectInterval(m)}
-                      className={`px-3 py-1.5 border rounded-lg text-xs font-semibold cursor-pointer transition-colors ${metricsCollectInterval === m ? 'bg-kumo-brand text-kumo-inverse border-kumo-brand' : 'bg-kumo-base border-kumo-line text-kumo-subtle hover:text-kumo-strong'}`}
-                    >
-                      {m}分钟
-                    </Button>
-                  ))}
+            <LayerCard className={MANAGEMENT_CARD_CLASS}>
+              <div className={MANAGEMENT_CARD_HEADER_CLASS}>
+                <div className={MANAGEMENT_CARD_TITLE_CLASS}>
+                  <Activity className={MANAGEMENT_CARD_ICON_CLASS} />
+                  <span className="truncate">监控采集</span>
+                </div>
+                <span className="text-xs font-semibold text-kumo-subtle">{metricsCollectInterval}m</span>
+              </div>
+              <div className={`${MANAGEMENT_CARD_BODY_CLASS} flex flex-col gap-3`}>
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-xs font-semibold text-kumo-subtle">采集间隔</span>
+                  <Tabs
+                    {...TOOL_TABS_PROPS}
+                    className={HOST_FILTER_TABS_CLASS}
+                    listClassName={HOST_FILTER_TABS_LIST_CLASS}
+                    indicatorClassName={HOST_FILTER_TABS_INDICATOR_CLASS}
+                    value={String(metricsCollectInterval)}
+                    onValueChange={(value) => updateMetricsCollectInterval(Number(value))}
+                    tabs={METRICS_COLLECT_INTERVAL_TABS}
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-xs font-semibold text-kumo-subtle">保留天数</span>
+                  <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_112px] sm:items-center">
+                    <Tabs
+                      {...TOOL_TABS_PROPS}
+                      className={HOST_FILTER_TABS_CLASS}
+                      listClassName={HOST_FILTER_TABS_LIST_CLASS}
+                      indicatorClassName={HOST_FILTER_TABS_INDICATOR_CLASS}
+                      value={String(monitorConfig.metrics_retention_days)}
+                      onValueChange={updateMetricsRetentionDays}
+                      tabs={METRICS_RETENTION_TABS}
+                    />
+                    <Input
+                      size="sm"
+                      aria-label="历史数据保留天数"
+                      type="number"
+                      min="1"
+                      max="180"
+                      value={monitorConfig.metrics_retention_days}
+                      onChange={(event) => updateMetricsRetentionDays(event.target.value)}
+                    />
+                  </div>
                 </div>
               </div>
-              
-              <div className="flex flex-col gap-1.5">
-                <label className="text-xs font-semibold text-kumo-subtle flex justify-between">
-                  <span>历史数据保留期限</span>
-                  <span className="text-kumo-brand">{monitorConfig.metrics_retention_days} 天</span>
-                </label>
-                <Input size="sm"
-                  aria-label="历史数据保留期限"
-                  type="range"
-                  min="1"
-                  max="180"
-                  value={monitorConfig.metrics_retention_days}
-                  onChange={e => handleRetentionSliderChange(parseInt(e.target.value))}
-                  className="w-full accent-kumo-brand cursor-pointer"
-                />
+            </LayerCard>
+            
+            <LayerCard className={MANAGEMENT_CARD_CLASS}>
+              <div className={MANAGEMENT_CARD_HEADER_CLASS}>
+                <div className={MANAGEMENT_CARD_TITLE_CLASS}>
+                  <FolderOpen className={MANAGEMENT_CARD_ICON_CLASS} />
+                  <span className="truncate">批量录入</span>
+                </div>
+                <span className="text-xs font-semibold text-kumo-subtle">CSV</span>
               </div>
-            </div>
-            
-            {/* 批量添加 */}
-            <div className="bg-kumo-base border border-kumo-line p-5 rounded-lg flex flex-col gap-3.5 shadow-xs">
-              <h3 className="text-sm font-bold text-kumo-strong border-b border-kumo-line pb-2">
-                📂 批量快速添加主机
-              </h3>
-              <Textarea
-                aria-label="批量快速添加主机"
-                value={serverBatchText}
-                onChange={e => setServerBatchText(e.target.value)}
-                placeholder="例如格式:&#10;前端服务器,192.168.1.10,22,root,密码123&#10;数据库节点,192.168.1.11,22,root,安全密码456"
-                className="w-full h-24 p-2.5 border border-kumo-line rounded-lg text-xs font-mono bg-kumo-control focus:outline-none focus:border-kumo-brand"
-              />
-              {serverBatchError && <div className="text-xs text-kumo-danger font-bold">{serverBatchError}</div>}
-              {serverBatchSuccess && <div className="text-xs text-kumo-success font-bold">{serverBatchSuccess}</div>}
-              <Button size="sm"
-                variant="primary"
-                onClick={batchAddServers}
-                disabled={serverAddingBatch}
-                className="w-full bg-kumo-brand text-kumo-inverse hover:bg-kumo-brand-hover rounded-lg text-xs font-semibold cursor-pointer disabled:opacity-50"
-              >
-                {serverAddingBatch ? '正在同步提交...' : '确认批量录入'}
-              </Button>
-            </div>
-          </div>
-          
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            
-            {/* 凭据库 */}
-            <div className="md:col-span-1 bg-kumo-base border border-kumo-line p-5 rounded-lg flex flex-col gap-4 shadow-xs">
-              <div className="flex items-center justify-between border-b border-kumo-line pb-2.5 mb-1">
-                <h3 className="text-sm font-bold text-kumo-strong">
-                  🔑 预设 SSH 凭据库
-                </h3>
-                <Button size="sm"
+              <div className={`${MANAGEMENT_CARD_BODY_CLASS} flex flex-col gap-2`}>
+                <Textarea
+                  label="主机列表"
+                  aria-label="批量快速添加主机"
+                  value={serverBatchText}
+                  onChange={e => setServerBatchText(e.target.value)}
+                  placeholder="名称,IP,端口,用户名,密码&#10;前端服务器,192.168.1.10,22,root,password"
+                  className="h-24 font-mono text-xs"
+                />
+                {serverBatchError && <Badge variant="error">{serverBatchError}</Badge>}
+                {serverBatchSuccess && <Badge variant="success">{serverBatchSuccess}</Badge>}
+                <Button
+                  size="sm"
                   variant="primary"
-                  onClick={() => setShowAddCredentialModal(true)}
-                  className="bg-kumo-brand text-kumo-inverse rounded text-[10px] font-bold cursor-pointer"
+                  onClick={batchAddServers}
+                  loading={serverAddingBatch}
+                  disabled={!serverBatchText.trim()}
+                  icon={<Plus className="h-3.5 w-3.5" />}
+                  className="w-fit"
                 >
-                  添加凭据
+                  批量录入
                 </Button>
               </div>
-              
-              <div className="max-h-56 overflow-y-auto flex flex-col gap-2">
+            </LayerCard>
+          </div>
+          
+          <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
+            
+            <LayerCard className={MANAGEMENT_CARD_CLASS}>
+              <div className={MANAGEMENT_CARD_HEADER_CLASS}>
+                <div className={MANAGEMENT_CARD_TITLE_CLASS}>
+                  <Key className={MANAGEMENT_CARD_ICON_CLASS} />
+                  <span className="truncate">SSH 凭据库</span>
+                </div>
+                <Button
+                  size="sm"
+                  variant="primary"
+                  onClick={() => setShowAddCredentialModal(true)}
+                  icon={<Plus className="h-3.5 w-3.5" />}
+                >
+                  添加
+                </Button>
+              </div>
+              <div className="p-0">
                 {serverCredentials.length === 0 ? (
-                  <div className="py-8 text-center text-xs text-kumo-subtle">
-                    暂无预设访问凭据
-                  </div>
+                  <div className="px-3 py-8 text-center text-xs text-kumo-subtle">暂无预设访问凭据</div>
                 ) : (
-                  serverCredentials.map(cred => (
-                    <div key={cred.id} className={`flex items-center justify-between p-2.5 border rounded-lg bg-kumo-canvas/20 ${cred.is_default ? 'border-kumo-brand/60' : 'border-kumo-line'}`}>
-                      <div className="flex flex-col">
-                        <span className="text-xs font-bold text-kumo-strong flex items-center gap-1">
-                          {cred.is_default && <span className="text-kumo-warning">★</span>}
-                          {cred.name}
-                        </span>
-                        <span className="text-[10px] text-kumo-subtle font-mono">{cred.username}</span>
-                      </div>
-                      <div className="flex gap-1.5">
-                        {!cred.is_default && (
-                          <Button
-                            shape="square" size="sm"
-                            variant="ghost"
-                            aria-label="设为默认凭据"
-                            onClick={() => setDefaultCredential(cred.id)}
-                            className="hover:bg-kumo-recessed rounded text-kumo-subtle cursor-pointer"
-                            title="设为默认"
-                          >
-                            <Star className="h-3.5 w-3.5" />
-                          </Button>
-                        )}
-                        <Button
-                          shape="square" size="sm"
-                          variant="ghost"
-                          aria-label="删除凭据"
-                          onClick={() => deleteCredential(cred.id)}
-                            className="hover:bg-kumo-danger/10 text-kumo-danger rounded cursor-pointer"
-                            title="删除"
-                          >
-                          <Trash className="h-3.5 w-3.5" />
-                        </Button>
-                      </div>
-                    </div>
-                  ))
+                  <div className="max-h-64 overflow-auto">
+                    <Table layout="fixed">
+                      <colgroup>
+                        <col />
+                        <col style={{ width: 120 }} />
+                        <col style={{ width: 86 }} />
+                      </colgroup>
+                      <Table.Header variant="compact">
+                        <Table.Row>
+                          <Table.Head>名称</Table.Head>
+                          <Table.Head>用户</Table.Head>
+                          <Table.Head className="text-right">操作</Table.Head>
+                        </Table.Row>
+                      </Table.Header>
+                      <Table.Body>
+                        {serverCredentials.map(cred => (
+                          <Table.Row key={cred.id} className="border-b border-kumo-line/80 hover:bg-kumo-recessed/10">
+                            <Table.Cell className="whitespace-nowrap">
+                              <div className="flex min-w-0 items-center gap-2">
+                                <span className="truncate font-semibold text-kumo-strong" title={cred.name}>{cred.name}</span>
+                                {cred.is_default && <Badge variant="success" appearance="dot">默认</Badge>}
+                              </div>
+                            </Table.Cell>
+                            <Table.Cell className="whitespace-nowrap font-mono text-[11px] text-kumo-subtle" title={cred.username}>
+                              {cred.username}
+                            </Table.Cell>
+                            <Table.Cell className="whitespace-nowrap text-right">
+                              <div className="inline-flex items-center justify-end gap-1">
+                                {!cred.is_default && (
+                                  <Button
+                                    shape="square"
+                                    size="sm"
+                                    variant="ghost"
+                                    aria-label="设为默认凭据"
+                                    onClick={() => setDefaultCredential(cred.id)}
+                                    icon={<Star className="h-3.5 w-3.5" />}
+                                    title="设为默认"
+                                  />
+                                )}
+                                <Button
+                                  shape="square"
+                                  size="sm"
+                                  variant="ghost"
+                                  aria-label="删除凭据"
+                                  onClick={() => deleteCredential(cred.id)}
+                                  icon={<Trash className="h-3.5 w-3.5" />}
+                                  title="删除"
+                                  className="text-kumo-danger"
+                                />
+                              </div>
+                            </Table.Cell>
+                          </Table.Row>
+                        ))}
+                      </Table.Body>
+                    </Table>
+                  </div>
                 )}
               </div>
-            </div>
+            </LayerCard>
             
-            {/* 备份与导入导出 */}
-            <div className="md:col-span-2 bg-kumo-base border border-kumo-line p-5 rounded-lg flex flex-col gap-4 shadow-xs">
-              <h3 className="text-sm font-bold text-kumo-strong border-b border-kumo-line pb-2 mb-1">
-                📥 备份 / 数据导入导出
-              </h3>
-              
-              <div className="flex flex-col gap-3 text-xs text-kumo-subtle">
-                <p>您可以通过导出功能将本地所有注册的主机信息（包含凭据、地址等）打包备份为 JSON 配置文件。在此之后，您可以在其他节点通过导入快速恢复完整的拓扑结构。</p>
-                
-                <div className="flex gap-3 mt-2">
-                  <Button size="sm"
-                    variant="secondary"
-                    onClick={exportServers}
-                    className="flex items-center gap-1 border border-kumo-line rounded-lg bg-kumo-base hover:bg-kumo-recessed/45 font-semibold text-kumo-strong cursor-pointer"
-                  >
-                    <Upload className="w-3.5 h-3.5" />
-                    导出主机备份 (JSON)
-                  </Button>
-                  
-                  <Button size="sm"
-                    variant="secondary"
-                    onClick={() => {
-                      setImportPreview(null);
-                      setImportModalError('');
-                      setShowImportServerModal(true);
-                    }}
-                    className="flex items-center gap-1 border border-kumo-line rounded-lg bg-kumo-base hover:bg-kumo-recessed/45 font-semibold text-kumo-strong cursor-pointer"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    导入主机配置文件
-                  </Button>
+            <LayerCard className={MANAGEMENT_CARD_CLASS}>
+              <div className={MANAGEMENT_CARD_HEADER_CLASS}>
+                <div className={MANAGEMENT_CARD_TITLE_CLASS}>
+                  <Database className={MANAGEMENT_CARD_ICON_CLASS} />
+                  <span className="truncate">配置迁移</span>
                 </div>
+                <span className="text-xs font-semibold text-kumo-subtle">JSON</span>
               </div>
-            </div>
+              <div className={`${MANAGEMENT_CARD_BODY_CLASS} flex flex-wrap items-center gap-2`}>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={exportServers}
+                  icon={<Download className="h-3.5 w-3.5" />}
+                >
+                  导出备份
+                </Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={openImportServerModal}
+                  icon={<Upload className="h-3.5 w-3.5" />}
+                >
+                  导入配置
+                </Button>
+              </div>
+            </LayerCard>
           </div>
         </div>
       )}

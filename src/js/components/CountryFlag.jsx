@@ -31,7 +31,7 @@ const detectEmojiFlagSupport = () => {
   return cachedEmojiFlagSupport;
 };
 
-export default function CountryFlag({ countryCode, className = '' }) {
+export default function CountryFlag({ countryCode, className = '', preferSvg = false }) {
   const code = normalizeCountryCode(countryCode);
   const [supportsEmojiFlags, setSupportsEmojiFlags] = useState(() => cachedEmojiFlagSupport === true);
 
@@ -42,7 +42,7 @@ export default function CountryFlag({ countryCode, className = '' }) {
   if (!code) return null;
 
   const forceSvgFlag = typeof window !== 'undefined' && window.ForceUseSvgFlag === true;
-  if (forceSvgFlag || !supportsEmojiFlags) {
+  if (preferSvg || forceSvgFlag || !supportsEmojiFlags) {
     return (
       <span
         aria-label={code.toUpperCase()}

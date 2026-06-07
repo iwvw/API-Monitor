@@ -676,18 +676,15 @@ function SettingsPage() {
 
   return (
     <div className="flex w-full flex-col gap-6">
-      <div className="flex flex-col gap-4 border-b border-kumo-line pb-4 lg:flex-row lg:items-end lg:justify-between">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-kumo-line bg-kumo-recessed text-kumo-brand">
-            <Settings className="h-5 w-5" />
-          </div>
-          <div className="min-w-0">
-            <h1 className="text-lg font-bold text-kumo-strong">系统设置</h1>
-            <p className="text-xs text-kumo-subtle">全局配置、安全认证、数据维护与前端显示偏好</p>
-          </div>
-        </div>
+      <div className="flex flex-col gap-3 border-b border-kumo-line pb-3 lg:flex-row lg:items-center lg:justify-between">
+        <Tabs
+          {...MODULE_TABS_PROPS}
+          value={activeTab}
+          onValueChange={setActiveTab}
+          tabs={SETTINGS_TABS}
+        />
 
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center lg:justify-end">
           <Button size="sm"
             onClick={() => refreshAll(true)}
             loading={settingsLoading}
@@ -705,13 +702,6 @@ function SettingsPage() {
           </Button>
         </div>
       </div>
-
-      <Tabs
-        {...MODULE_TABS_PROPS}
-        value={activeTab}
-        onValueChange={setActiveTab}
-        tabs={SETTINGS_TABS}
-      />
 
       {activeTab === 'general' && (
         <div className="grid gap-4 lg:grid-cols-4">

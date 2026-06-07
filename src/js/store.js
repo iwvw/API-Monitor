@@ -67,7 +67,7 @@ export const MODULE_CONFIG = {
     name: '主机实例',
     shortName: '主机',
     icon: 'fa-server',
-    description: '主机实例管理与终端监控',
+    description: '主机管理与终端监控',
   },
   totp: {
     name: '双因子认证',
