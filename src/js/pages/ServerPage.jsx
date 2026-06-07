@@ -206,23 +206,102 @@ const toTimestamp = (value, fallback) => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
+const SERVER_REALTIME_SAMPLE_INTERVAL_MS = 1500;
+const SERVER_CHART_HISTORY_LIMIT = 180;
+const SERVER_CHART_COALESCE_WINDOW_MS = 500;
+const SERVER_CHART_JITTER_TOLERANCE_MS = 650;
+const SERVER_CHART_STALE_GAP_MS = SERVER_REALTIME_SAMPLE_INTERVAL_MS * 3;
+const EMPTY_METRIC_RECORDS = Object.freeze([]);
+const serverMetricsHistoryCache = new Map();
+const serverMetricDisplayCache = new Map();
+
 const normalizeMetricRecords = (records = []) => {
   const now = Date.now();
   const list = Array.isArray(records) ? records : [];
   return list
-    .map((record, index) => ({
-      ...record,
-      _ts: toTimestamp(record._ts || record.recorded_at || record.timestamp || record.time, now - (list.length - index) * 2000),
-    }))
+    .map((record, index) => {
+      const fallbackTime = now - (list.length - index - 1) * SERVER_REALTIME_SAMPLE_INTERVAL_MS;
+      const timestamp = toTimestamp(record._ts || record.recorded_at || record.timestamp || record.time, fallbackTime);
+      if (!Number.isFinite(timestamp)) return null;
+      return {
+        ...record,
+        _ts: timestamp,
+      };
+    })
+    .filter(Boolean)
     .sort((a, b) => a._ts - b._ts);
 };
 
-const getMetricSeries = (records, specs) => {
+const normalizeChartMetricRecords = (records = []) => {
   const normalized = normalizeMetricRecords(records);
+  if (normalized.length <= 2) return normalized;
+
+  const output = [];
+  let segment = [];
+
+  const flushSegment = () => {
+    if (segment.length === 0) return;
+
+    if (segment.length < 3) {
+      output.push(...segment);
+      segment = [];
+      return;
+    }
+
+    const first = segment[0];
+    const last = segment[segment.length - 1];
+    const averageInterval = (last._ts - first._ts) / (segment.length - 1);
+    const shouldSnap = Math.abs(averageInterval - SERVER_REALTIME_SAMPLE_INTERVAL_MS) <= SERVER_CHART_JITTER_TOLERANCE_MS;
+
+    if (!shouldSnap) {
+      output.push(...segment);
+      segment = [];
+      return;
+    }
+
+    const anchor = last._ts;
+    segment.forEach((record, index) => {
+      output.push({
+        ...record,
+        _rawTs: record._ts,
+        _ts: anchor - (segment.length - index - 1) * SERVER_REALTIME_SAMPLE_INTERVAL_MS,
+      });
+    });
+    segment = [];
+  };
+
+  normalized.forEach(record => {
+    const last = segment[segment.length - 1];
+    if (last && record._ts - last._ts >= SERVER_CHART_STALE_GAP_MS) {
+      flushSegment();
+      const previous = output[output.length - 1];
+      if (previous && !previous._gap) {
+        const gapTs = previous._ts + SERVER_REALTIME_SAMPLE_INTERVAL_MS;
+        if (gapTs < record._ts) {
+          output.push({ _ts: gapTs, _gap: true });
+        }
+      }
+    }
+    segment.push(record);
+  });
+  flushSegment();
+
+  return output
+    .filter((record, index, list) => index === 0 || record._ts > list[index - 1]._ts)
+    .slice(-SERVER_CHART_HISTORY_LIMIT);
+};
+
+const formatMetricTooltipValue = (value) => {
+  const number = toNumber(value, NaN);
+  return Number.isFinite(number) ? number.toFixed(1) : '-';
+};
+
+const getMetricSeries = (records, specs, options = {}) => {
+  const seriesRecords = options.normalized ? records : normalizeChartMetricRecords(records);
   return specs.map(spec => ({
     name: spec.name,
     color: spec.color,
-    data: normalized.map(record => [record._ts, spec.value(record)]),
+    data: seriesRecords.map(record => [record._ts, record._gap ? null : spec.value(record)]),
   }));
 };
 
@@ -451,9 +530,6 @@ const getCpuTemp = (record = {}) => {
   return usable.length === 1 ? usable[0].value : 0;
 };
 
-const SERVER_CHART_HISTORY_LIMIT = 180;
-const serverMetricsHistoryCache = new Map();
-
 const parseSpeedToBytes = (speedStr) => {
   if (!speedStr) return 0;
   const match = String(speedStr).trim().match(/^([0-9.]+)\s*([A-Za-z/]+)$/);
@@ -525,7 +601,7 @@ const mergeServerMetricHistory = (serverId, ...recordGroups) => {
   const coalesced = [];
   normalized.forEach(record => {
     const last = coalesced[coalesced.length - 1];
-    if (last && Math.abs(record._ts - last._ts) < 500) {
+    if (last && Math.abs(record._ts - last._ts) < SERVER_CHART_COALESCE_WINDOW_MS) {
       coalesced[coalesced.length - 1] = {
         ...last,
         ...record,
@@ -597,6 +673,76 @@ const getByteParts = (value) => {
     ...parseSpeed(text),
     text,
   };
+};
+
+const getServerMetricDisplay = (serverId, metricsSource, isExpanded, isDarkMode) => {
+  const id = String(serverId || '');
+  const source = Array.isArray(metricsSource) ? metricsSource : EMPTY_METRIC_RECORDS;
+  const cached = serverMetricDisplayCache.get(id);
+  if (
+    cached &&
+    cached.source === source &&
+    cached.isExpanded === isExpanded &&
+    cached.isDarkMode === isDarkMode
+  ) {
+    return cached.value;
+  }
+
+  const records = normalizeMetricRecords(source);
+  const chartRecords = isExpanded ? normalizeChartMetricRecords(records) : EMPTY_METRIC_RECORDS;
+  const cpuColor = ChartPalette.semantic('Success', isDarkMode);
+  const memColor = ChartPalette.categorical(0, isDarkMode);
+  const cpuTempColor = ChartPalette.semantic('Attention', isDarkMode);
+  const gpuColor = ChartPalette.categorical(1, isDarkMode);
+  const vramColor = ChartPalette.categorical(3, isDarkMode);
+  const powerColor = ChartPalette.categorical(4, isDarkMode);
+  const gpuTempColor = ChartPalette.semantic('Attention', isDarkMode);
+  const diskColor = ChartPalette.semantic('Warning', isDarkMode);
+  const txColor = ChartPalette.categorical(0, isDarkMode);
+  const rxColor = ChartPalette.semantic('Success', isDarkMode);
+  const value = {
+    records,
+    chartRecords,
+    cpuColor,
+    memColor,
+    cpuTempColor,
+    gpuColor,
+    vramColor,
+    powerColor,
+    gpuTempColor,
+    diskColor,
+    txColor,
+    rxColor,
+    cpuMemSeries: isExpanded ? getMetricSeries(chartRecords, [
+      { name: 'CPU (%)', color: cpuColor, value: r => toNumber(r.cpu_usage, 0) },
+      { name: 'Memory (%)', color: memColor, value: r => toNumber(r.mem_usage, 0) },
+      { name: 'CPU Temp (°C)', color: cpuTempColor, value: getCpuTemp },
+    ], { normalized: true }) : EMPTY_METRIC_RECORDS,
+    gpuSeries: isExpanded ? getMetricSeries(chartRecords, [
+      { name: 'GPU', color: gpuColor, value: r => toNumber(r.gpu_usage, 0) },
+      { name: 'VRAM', color: vramColor, value: getGpuMemPercent },
+      { name: 'Power (W)', color: powerColor, value: r => toNumber(r.gpu_power, 0) },
+      { name: 'Temp (°C)', color: gpuTempColor, value: getGpuTemp },
+    ], { normalized: true }) : EMPTY_METRIC_RECORDS,
+    netSeries: isExpanded ? getMetricSeries(chartRecords, [
+      { name: 'Upload', color: txColor, value: r => toNumber(r.net_tx, 0) },
+      { name: 'Download', color: rxColor, value: r => toNumber(r.net_rx, 0) },
+    ], { normalized: true }) : EMPTY_METRIC_RECORDS,
+  };
+
+  serverMetricDisplayCache.set(id, {
+    source,
+    isExpanded,
+    isDarkMode,
+    value,
+  });
+
+  if (serverMetricDisplayCache.size > 300) {
+    const firstKey = serverMetricDisplayCache.keys().next().value;
+    serverMetricDisplayCache.delete(firstKey);
+  }
+
+  return value;
 };
 
 const getTempColorClass = (temp) => {
@@ -858,6 +1004,8 @@ function ServerPage() {
   const dockerTaskStreamRef = useRef(null);
   const terminalResizeTimers = useRef({});
   const socketRef = useRef(null);
+  const pendingMetricUpdatesRef = useRef([]);
+  const metricFlushTimerRef = useRef(null);
   const visibleSessionIdsRef = useRef([]);
   const sshSyncEnabledRef = useRef(false);
   const sftpPathByServerRef = useRef({});
@@ -902,6 +1050,10 @@ function ServerPage() {
       }
       if (dockerTaskStreamRef.current) {
         dockerTaskStreamRef.current.close();
+      }
+      if (metricFlushTimerRef.current) {
+        clearTimeout(metricFlushTimerRef.current);
+        metricFlushTimerRef.current = null;
       }
       Object.values(terminalResizeTimers.current).forEach(timer => clearTimeout(timer));
       terminalResizeTimers.current = {};
@@ -1003,13 +1155,13 @@ function ServerPage() {
       
       socket.on('metrics:update', data => {
         if (data && data.serverId && data.metrics) {
-          handleSingleMetricUpdate(data);
+          enqueueMetricUpdates([data]);
         }
       });
       
       socket.on('metrics:batch', dataArray => {
         if (Array.isArray(dataArray)) {
-          dataArray.forEach(data => handleSingleMetricUpdate(data));
+          enqueueMetricUpdates(dataArray);
         }
       });
       
@@ -1042,6 +1194,21 @@ function ServerPage() {
     }
   };
   
+  const enqueueMetricUpdates = (updates = []) => {
+    const validUpdates = updates.filter(data => data && data.serverId && data.metrics);
+    if (validUpdates.length === 0) return;
+
+    pendingMetricUpdatesRef.current.push(...validUpdates);
+    if (metricFlushTimerRef.current) return;
+
+    metricFlushTimerRef.current = setTimeout(() => {
+      const queued = pendingMetricUpdatesRef.current;
+      pendingMetricUpdatesRef.current = [];
+      metricFlushTimerRef.current = null;
+      queued.forEach(data => handleSingleMetricUpdate(data));
+    }, 80);
+  };
+
   // 处理实时推送的主机指标
   const handleSingleMetricUpdate = (data) => {
     const { serverId, metrics, timestamp } = data;
@@ -3468,36 +3635,26 @@ function ServerPage() {
                 const isExpanded = expandedServers.includes(server.id);
                 const isDarkMode = theme === 'dark';
                 const cardView = serverCardViews[server.id] || { system: 'load', gpu: 'detail', network: 'detail' };
-                const records = normalizeMetricRecords(server.metricsCache || []);
-                const cpuColor = ChartPalette.semantic('Success', isDarkMode);
-                const memColor = ChartPalette.categorical(0, isDarkMode);
-                const cpuTempColor = ChartPalette.semantic('Attention', isDarkMode);
-                const gpuColor = ChartPalette.categorical(1, isDarkMode);
-                const vramColor = ChartPalette.categorical(3, isDarkMode);
-                const powerColor = ChartPalette.categorical(4, isDarkMode);
-                const gpuTempColor = ChartPalette.semantic('Attention', isDarkMode);
-                const diskColor = ChartPalette.semantic('Warning', isDarkMode);
-                const txColor = ChartPalette.categorical(0, isDarkMode);
-                const rxColor = ChartPalette.semantic('Success', isDarkMode);
-                const cpuMemSeries = getMetricSeries(records, [
-                  { name: 'CPU (%)', color: cpuColor, value: r => toNumber(r.cpu_usage, 0) },
-                  { name: 'Memory (%)', color: memColor, value: r => toNumber(r.mem_usage, 0) },
-                  { name: 'CPU Temp (°C)', color: cpuTempColor, value: getCpuTemp },
-                ]);
+                const {
+                  records,
+                  cpuColor,
+                  memColor,
+                  cpuTempColor,
+                  gpuColor,
+                  vramColor,
+                  powerColor,
+                  gpuTempColor,
+                  diskColor,
+                  txColor,
+                  rxColor,
+                  cpuMemSeries,
+                  gpuSeries,
+                  netSeries,
+                } = getServerMetricDisplay(server.id, server.metricsCache, isExpanded, isDarkMode);
                 const hasGpuData = !!server.info?.gpu?.Model || records.some(r => (
                   (r.gpu_usage !== null && r.gpu_usage !== undefined && toNumber(r.gpu_usage, 0) > 0)
                   || getGpuTemp(r) > 0
                 ));
-                const gpuSeries = getMetricSeries(records, [
-                  { name: 'GPU', color: gpuColor, value: r => toNumber(r.gpu_usage, 0) },
-                  { name: 'VRAM', color: vramColor, value: getGpuMemPercent },
-                  { name: 'Power (W)', color: powerColor, value: r => toNumber(r.gpu_power, 0) },
-                  { name: 'Temp (°C)', color: gpuTempColor, value: getGpuTemp },
-                ]);
-                const netSeries = getMetricSeries(records, [
-                  { name: 'Upload', color: txColor, value: r => toNumber(r.net_tx, 0) },
-                  { name: 'Download', color: rxColor, value: r => toNumber(r.net_rx, 0) },
-                ]);
                 const tx = parseSpeed(server.info?.network?.tx_speed);
                 const rx = parseSpeed(server.info?.network?.rx_speed);
                 const dockerContainers = server.info?.docker?.containers || [];
@@ -3508,7 +3665,7 @@ function ServerPage() {
                 const canDrag = !serverSearchText.trim() && serverStatusFilter === 'all' && !isExpanded;
                 const txTotal = getByteParts(server.info?.network?.tx_total);
                 const rxTotal = getByteParts(server.info?.network?.rx_total);
-                const chartLoading = !!server.metricsLoading;
+                const chartLoading = !!server.metricsLoading && records.length === 0;
                 const terminalProtocol = resolveTerminalProtocol(server);
                 const terminalLabel = terminalProtocol === 'agent' ? 'Agent 终端' : 'SSH 终端';
                 
@@ -3744,7 +3901,7 @@ function ServerPage() {
                                 )}
                               </div>
                               
-                              <ChartBoundaryBox className="md:col-span-2 flex flex-col gap-2 rounded-lg border border-kumo-line bg-kumo-base p-3 shadow-xs sm:p-4">
+                              <ChartBoundaryBox className="md:col-span-2 flex min-w-0 flex-col gap-2 overflow-hidden rounded-lg border border-kumo-line bg-kumo-base p-3 shadow-xs sm:p-4">
                                 {(tooltipBoundary) => (
                                   <>
                                     <div className="flex flex-wrap items-center justify-between gap-2 border-b border-kumo-line pb-1.5 sm:pb-2">
@@ -3768,7 +3925,7 @@ function ServerPage() {
                                         yAxisTickCount={expandedChartYAxisTickCount}
                                         xAxisTickFormat={expandedChartXAxisTickFormat}
                                         yAxisTickFormat={expandedNumberAxisTickFormat}
-                                        tooltipValueFormat={(value) => value.toFixed(1)}
+                                        tooltipValueFormat={formatMetricTooltipValue}
                                         ariaDescription={`${server.name} CPU and memory usage trend`}
                                       />
                                     </DeferredRender>
@@ -3778,7 +3935,7 @@ function ServerPage() {
                             </div>
 
                             <div className="grid grid-cols-1 gap-3 md:grid-cols-2 md:gap-4">
-                              <ChartBoundaryBox className="flex flex-col gap-2 rounded-lg border border-kumo-line bg-kumo-base p-3 shadow-xs sm:gap-3 sm:p-4">
+                              <ChartBoundaryBox className="flex min-w-0 flex-col gap-2 overflow-hidden rounded-lg border border-kumo-line bg-kumo-base p-3 shadow-xs sm:gap-3 sm:p-4">
                                 {(tooltipBoundary) => (
                                   <>
                                     <div className="flex items-center justify-between gap-2 border-b border-kumo-line pb-1.5 sm:pb-2">
@@ -3847,7 +4004,7 @@ function ServerPage() {
                                             yAxisTickCount={expandedChartYAxisTickCount}
                                             xAxisTickFormat={expandedChartXAxisTickFormat}
                                             yAxisTickFormat={expandedNumberAxisTickFormat}
-                                            tooltipValueFormat={(value) => value.toFixed(1)}
+                                            tooltipValueFormat={formatMetricTooltipValue}
                                             ariaDescription={`${server.name} GPU usage, VRAM, and power trend`}
                                           />
                                         </DeferredRender>
@@ -3857,7 +4014,7 @@ function ServerPage() {
                                 )}
                               </ChartBoundaryBox>
 
-                              <ChartBoundaryBox className="flex flex-col gap-2 rounded-lg border border-kumo-line bg-kumo-base p-3 shadow-xs sm:gap-3 sm:p-4">
+                              <ChartBoundaryBox className="flex min-w-0 flex-col gap-2 overflow-hidden rounded-lg border border-kumo-line bg-kumo-base p-3 shadow-xs sm:gap-3 sm:p-4">
                                 {(tooltipBoundary) => (
                                   <>
                                     <div className="flex items-center justify-between gap-2 border-b border-kumo-line pb-1.5 sm:pb-2">

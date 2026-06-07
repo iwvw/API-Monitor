@@ -94,6 +94,9 @@ class AgentService extends EventEmitter {
 
     // 高精度滚动指标内存缓存 (serverId -> Array of high precision records)
     this.highPrecisionCache = new Map();
+
+    // Agent 采样时间轴缓存：用 Agent 帧序号/采样时间消除 Socket 到达抖动
+    this.metricTimeline = new Map();
   }
 
   /**
@@ -296,7 +299,7 @@ class AgentService extends EventEmitter {
 
     cache.push(record);
 
-    // 最大保留 360 点 (按照 5 秒一上报，约 30 分钟)
+    // 最大保留 360 点 (按照 1.5 秒一上报，约 9 分钟)
     if (cache.length > 360) {
       cache.shift();
     }
@@ -309,6 +312,55 @@ class AgentService extends EventEmitter {
     const cache = this.highPrecisionCache.get(serverId) || [];
     const reversed = [...cache].reverse();
     return reversed.slice(0, limit);
+  }
+
+  resolveMetricTimestamp(serverId, state = {}, receivedAt = Date.now()) {
+    const rawInterval = Number(state.sample_interval_ms || state.interval_ms);
+    const sampleInterval = Number.isFinite(rawInterval)
+      ? Math.min(60000, Math.max(500, rawInterval))
+      : 1500;
+    const agentTimestamp = Number(state.timestamp_ms || state.timestamp || 0);
+    const sequence = Number(state.sequence);
+    const previous = this.metricTimeline.get(serverId);
+    let timestamp = receivedAt;
+
+    if (previous) {
+      let delta = NaN;
+      const hasAgentTimestamp = Number.isFinite(agentTimestamp) && agentTimestamp > previous.agentTimestamp;
+      const hasSequence = Number.isFinite(sequence) && sequence > previous.sequence;
+
+      if (hasAgentTimestamp) {
+        delta = agentTimestamp - previous.agentTimestamp;
+      } else if (hasSequence) {
+        delta = (sequence - previous.sequence) * sampleInterval;
+      }
+
+      if (Number.isFinite(delta) && delta > 0 && delta < 120000) {
+        const sequenceDelta = hasSequence ? sequence - previous.sequence : 1;
+        const expectedDelta = Math.max(1, sequenceDelta) * sampleInterval;
+        const snapTolerance = Math.max(650, sampleInterval * 0.45);
+        const normalizedDelta = Math.abs(delta - expectedDelta) <= snapTolerance
+          ? expectedDelta
+          : delta;
+
+        timestamp = previous.timestamp + normalizedDelta;
+
+        // 如果 Agent 重启、系统时间跳变或长时间断线，重新锚定到服务端收到时间。
+        if (Math.abs(timestamp - receivedAt) > Math.max(15000, sampleInterval * 10)) {
+          timestamp = receivedAt;
+        }
+      }
+    }
+
+    this.metricTimeline.set(serverId, {
+      timestamp,
+      receivedAt,
+      agentTimestamp: Number.isFinite(agentTimestamp) ? agentTimestamp : 0,
+      sequence: Number.isFinite(sequence) ? sequence : 0,
+      sampleInterval,
+    });
+
+    return timestamp;
   }
 
   /**
@@ -421,7 +473,7 @@ class AgentService extends EventEmitter {
         if (!cached) continue;
 
         // 检查数据新鲜度
-        const dataAge = now - cached.timestamp;
+        const dataAge = now - (cached.receivedAt || cached.timestamp);
         if (dataAge > staleThreshold) {
           skippedStale++;
           if (this.debug) {
@@ -695,10 +747,12 @@ class AgentService extends EventEmitter {
       }
 
       // 存储状态
-      const timestamp = Date.now();
+      const receivedAt = Date.now();
+      const timestamp = this.resolveMetricTimestamp(serverId, state, receivedAt);
       this.stateCache.set(serverId, {
         state,
         timestamp,
+        receivedAt,
       });
 
       // 重置心跳 (高频操作，不打印日志)
@@ -720,12 +774,12 @@ class AgentService extends EventEmitter {
       // 追加到内存中的高精监控数据滚动缓存
       this.appendHighPrecisionMetric(serverId, frontendData, timestamp);
 
-      this.broadcastMetrics(serverId, frontendData);
+      this.broadcastMetrics(serverId, frontendData, timestamp);
 
       // 同时更新兼容缓存
       this.legacyMetrics.set(serverId, frontendData);
       this.legacyStatus.set(serverId, {
-        lastSeen: timestamp,
+        lastSeen: receivedAt,
         connected: true,
         version: hostInfo.agent_version || 'socket.io',
       });
@@ -832,6 +886,7 @@ class AgentService extends EventEmitter {
         serverId,
         metrics: stateToFrontendFormat(cached.state, hostInfo),
         timestamp: cached.timestamp,
+        receivedAt: cached.receivedAt || cached.timestamp,
       });
     }
 
@@ -964,13 +1019,13 @@ class AgentService extends EventEmitter {
   /**
    * 广播单个主机的指标更新
    */
-  broadcastMetrics(serverId, metrics) {
+  broadcastMetrics(serverId, metrics, timestamp = Date.now()) {
     if (!this.io) return;
 
     this.io.of('/metrics').to('metrics_room').emit(Events.METRICS_UPDATE, {
       serverId,
       metrics,
-      timestamp: Date.now(),
+      timestamp,
     });
   }
 
@@ -1746,7 +1801,7 @@ class AgentService extends EventEmitter {
   generateInstallScript(serverId, serverUrl) {
     serverUrl = normalizeOriginUrl(serverUrl);
     const agentKey = this.getAgentKey(serverId);
-    const downloadVersion = encodeURIComponent(packageInfo.version || 'dev');
+    const downloadVersion = encodeURIComponent(`${packageInfo.version || 'dev'}-${Date.now()}`);
     const $ = '$'; // 用于在模板字符串中输出 $
 
     // 读取用户设置的自定义下载地址
@@ -2011,7 +2066,7 @@ fi
   generateWinInstallScript(serverId, serverUrl) {
     serverUrl = normalizeOriginUrl(serverUrl);
     const agentKey = this.getAgentKey(serverId);
-    const downloadVersion = encodeURIComponent(packageInfo.version || 'dev');
+    const downloadVersion = encodeURIComponent(`${packageInfo.version || 'dev'}-${Date.now()}`);
 
     // 读取用户设置的自定义下载地址
     let customDownloadUrl = '';

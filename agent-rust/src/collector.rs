@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use sysinfo::{Components, Disks, Networks, System};
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
@@ -50,8 +50,27 @@ pub struct TemperatureReading {
     pub temperature: f64,
 }
 
+#[derive(Debug, Clone, Default)]
+struct WindowsSensorSnapshot {
+    readings: Vec<TemperatureReading>,
+    cpu_power: f64,
+    updated_at: Option<Instant>,
+    in_flight: bool,
+}
+
+#[derive(Debug, Clone, Default)]
+struct WindowsConnSnapshot {
+    tcp: i32,
+    udp: i32,
+    updated_at: Option<Instant>,
+    in_flight: bool,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct State {
+    pub timestamp_ms: u64,
+    pub sequence: u64,
+    pub sample_interval_ms: u64,
     pub cpu: f64,
     pub cpu_temp: f64,
     pub cpu_power: f64,
@@ -101,6 +120,8 @@ pub struct Collector {
     last_cpu_power_value: f64,
     last_temperature_readings: Vec<TemperatureReading>,
     last_temperature_time: Instant,
+    windows_sensor_snapshot: Arc<Mutex<WindowsSensorSnapshot>>,
+    windows_conn_snapshot: Arc<Mutex<WindowsConnSnapshot>>,
 }
 
 impl Collector {
@@ -143,6 +164,8 @@ impl Collector {
             last_temperature_time: Instant::now()
                 .checked_sub(Duration::from_secs(3600))
                 .unwrap_or_else(Instant::now),
+            windows_sensor_snapshot: Arc::new(Mutex::new(WindowsSensorSnapshot::default())),
+            windows_conn_snapshot: Arc::new(Mutex::new(WindowsConnSnapshot::default())),
         }
     }
 
@@ -343,7 +366,7 @@ impl Collector {
         };
 
         // TCP & UDP connection counts
-        let (tcp_conn_count, udp_conn_count) = get_conn_counts();
+        let (tcp_conn_count, udp_conn_count) = self.collect_conn_counts();
         let process_count = self.sys.processes().len() as i32;
 
         // Temperatures and CPU package power
@@ -363,6 +386,9 @@ impl Collector {
             .unwrap_or(0);
 
         State {
+            timestamp_ms: current_epoch_ms(),
+            sequence: 0,
+            sample_interval_ms: 0,
             cpu,
             cpu_temp,
             cpu_power,
@@ -390,6 +416,61 @@ impl Collector {
         }
     }
 
+    fn collect_conn_counts(&self) -> (i32, i32) {
+        if cfg!(target_os = "windows") {
+            self.refresh_windows_conn_counts();
+            return self.cached_windows_conn_counts();
+        }
+
+        get_conn_counts()
+    }
+
+    fn cached_windows_conn_counts(&self) -> (i32, i32) {
+        self.windows_conn_snapshot
+            .lock()
+            .map(|snapshot| (snapshot.tcp, snapshot.udp))
+            .unwrap_or((0, 0))
+    }
+
+    fn refresh_windows_conn_counts(&self) {
+        if !cfg!(target_os = "windows") {
+            return;
+        }
+
+        const WINDOWS_CONN_REFRESH_INTERVAL: Duration = Duration::from_secs(5);
+
+        {
+            let Ok(mut snapshot) = self.windows_conn_snapshot.lock() else {
+                return;
+            };
+
+            if snapshot.in_flight {
+                return;
+            }
+
+            let is_fresh = snapshot
+                .updated_at
+                .map(|updated_at| updated_at.elapsed() < WINDOWS_CONN_REFRESH_INTERVAL)
+                .unwrap_or(false);
+            if is_fresh {
+                return;
+            }
+
+            snapshot.in_flight = true;
+        }
+
+        let snapshot = Arc::clone(&self.windows_conn_snapshot);
+        std::thread::spawn(move || {
+            let (tcp, udp) = collect_windows_conn_counts();
+            if let Ok(mut snapshot) = snapshot.lock() {
+                snapshot.tcp = tcp;
+                snapshot.udp = udp;
+                snapshot.updated_at = Some(Instant::now());
+                snapshot.in_flight = false;
+            }
+        });
+    }
+
     fn collect_temperature_readings(&mut self) -> Vec<TemperatureReading> {
         let now = Instant::now();
         if now.duration_since(self.last_temperature_time) < Duration::from_millis(5000) {
@@ -408,7 +489,8 @@ impl Collector {
         }
 
         if cfg!(target_os = "windows") && self.resolve_cpu_temperature(&readings) <= 0.0 {
-            readings.extend(self.collect_windows_temperature_readings());
+            self.refresh_windows_sensors(false);
+            readings.extend(self.cached_windows_temperature_readings());
         }
 
         self.last_temperature_readings = readings.clone();
@@ -417,19 +499,87 @@ impl Collector {
         readings
     }
 
-    fn collect_windows_temperature_readings(&self) -> Vec<TemperatureReading> {
+    fn cached_windows_temperature_readings(&self) -> Vec<TemperatureReading> {
+        self.windows_sensor_snapshot
+            .lock()
+            .map(|snapshot| snapshot.readings.clone())
+            .unwrap_or_default()
+    }
+
+    fn cached_windows_cpu_power(&self) -> f64 {
+        self.windows_sensor_snapshot
+            .lock()
+            .map(|snapshot| snapshot.cpu_power)
+            .unwrap_or(0.0)
+    }
+
+    fn refresh_windows_sensors(&self, force_blocking: bool) {
+        if !cfg!(target_os = "windows") {
+            return;
+        }
+
+        const WINDOWS_SENSOR_REFRESH_INTERVAL: Duration = Duration::from_secs(30);
+
+        let should_refresh = {
+            let Ok(mut snapshot) = self.windows_sensor_snapshot.lock() else {
+                return;
+            };
+
+            if snapshot.in_flight {
+                return;
+            }
+
+            let is_fresh = snapshot
+                .updated_at
+                .map(|updated_at| updated_at.elapsed() < WINDOWS_SENSOR_REFRESH_INTERVAL)
+                .unwrap_or(false);
+            if !force_blocking && is_fresh {
+                return;
+            }
+
+            snapshot.in_flight = true;
+            force_blocking
+        };
+
+        if should_refresh {
+            let (readings, cpu_power) = Self::collect_windows_sensors();
+            if let Ok(mut snapshot) = self.windows_sensor_snapshot.lock() {
+                snapshot.readings = readings;
+                snapshot.cpu_power = cpu_power;
+                snapshot.updated_at = Some(Instant::now());
+                snapshot.in_flight = false;
+            }
+            return;
+        }
+
+        let snapshot = Arc::clone(&self.windows_sensor_snapshot);
+        std::thread::spawn(move || {
+            let (readings, cpu_power) = Self::collect_windows_sensors();
+            if let Ok(mut snapshot) = snapshot.lock() {
+                snapshot.readings = readings;
+                snapshot.cpu_power = cpu_power;
+                snapshot.updated_at = Some(Instant::now());
+                snapshot.in_flight = false;
+            }
+        });
+    }
+
+    fn collect_windows_sensors() -> (Vec<TemperatureReading>, f64) {
         let ps_cmd = r#"
 $items = @()
 foreach ($ns in @('root/OpenHardwareMonitor', 'root/LibreHardwareMonitor')) {
   try {
     $items += Get-CimInstance -Namespace $ns -ClassName Sensor -ErrorAction Stop |
       Where-Object { $_.SensorType -eq 'Temperature' } |
-      ForEach-Object { "$($_.Name),$($_.Value)" }
+      ForEach-Object { "T`t$($_.Name)`t$($_.Value)" }
+    $items += Get-CimInstance -Namespace $ns -ClassName Sensor -ErrorAction Stop |
+      Where-Object { $_.SensorType -eq 'Power' } |
+      ForEach-Object { "P`t$($_.Name)`t$($_.Value)" }
   } catch {}
 }
 try {
   $items += Get-CimInstance -Namespace root/WMI -ClassName MSAcpi_ThermalZoneTemperature -ErrorAction Stop |
-    ForEach-Object { "$($_.InstanceName),$([math]::Round(($_.CurrentTemperature / 10) - 273.15, 1))" }
+    ForEach-Object { "T`t$($_.InstanceName)`t$([math]::Round(($_.CurrentTemperature / 10) - 273.15, 1))" }
 } catch {}
 $items | Where-Object { $_ }
 "#;
@@ -438,28 +588,62 @@ $items | Where-Object { $_ }
             .args(["-NoProfile", "-NonInteractive", "-Command", ps_cmd])
             .output()
         else {
-            return Vec::new();
+            return (Vec::new(), 0.0);
         };
 
         if !output.status.success() {
-            return Vec::new();
+            return (Vec::new(), 0.0);
         }
 
-        String::from_utf8_lossy(&output.stdout)
-            .lines()
-            .filter_map(|line| {
-                let (name, value) = line.trim().split_once(',')?;
-                let temperature = value.trim().parse::<f64>().ok()?;
-                if temperature > 0.0 && temperature < 150.0 {
-                    Some(TemperatureReading {
-                        name: name.trim().to_string(),
-                        temperature,
-                    })
-                } else {
-                    None
+        let mut readings = Vec::new();
+        let mut ranked_power = Vec::new();
+
+        for line in String::from_utf8_lossy(&output.stdout).lines() {
+            let mut parts = line.trim().splitn(3, '\t');
+            let Some(kind) = parts.next() else {
+                continue;
+            };
+            let Some(name) = parts.next() else {
+                continue;
+            };
+            let Some(value) = parts.next() else {
+                continue;
+            };
+
+            match kind {
+                "T" => {
+                    let Ok(temperature) = value.trim().parse::<f64>() else {
+                        continue;
+                    };
+                    if temperature > 0.0 && temperature < 150.0 {
+                        readings.push(TemperatureReading {
+                            name: name.trim().to_string(),
+                            temperature,
+                        });
+                    }
                 }
-            })
-            .collect()
+                "P" => {
+                    let Ok(power) = value.trim().parse::<f64>() else {
+                        continue;
+                    };
+                    if power > 0.0 && power < 1000.0 {
+                        ranked_power.push((Self::cpu_power_rank(name), power));
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        ranked_power.retain(|(rank, _)| *rank > 0);
+        ranked_power.sort_by(|a, b| {
+            b.0.cmp(&a.0)
+                .then_with(|| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal))
+        });
+
+        (
+            readings,
+            ranked_power.first().map(|(_, power)| *power).unwrap_or(0.0),
+        )
     }
 
     fn resolve_cpu_temperature(&self, readings: &[TemperatureReading]) -> f64 {
@@ -530,17 +714,8 @@ $items | Where-Object { $_ }
 
     fn collect_cpu_power(&mut self) -> f64 {
         if cfg!(target_os = "windows") {
-            let now = Instant::now();
-            if let Some(previous_time) = self.last_cpu_power_time {
-                if now.duration_since(previous_time) < Duration::from_millis(5000) {
-                    return self.last_cpu_power_value;
-                }
-            }
-
-            let power = self.collect_windows_cpu_power();
-            self.last_cpu_power_time = Some(now);
-            self.last_cpu_power_value = power;
-            return power;
+            self.refresh_windows_sensors(false);
+            return self.cached_windows_cpu_power();
         }
 
         let Some(energy_uj) = Self::read_total_cpu_energy_uj() else {
@@ -573,52 +748,6 @@ $items | Where-Object { $_ }
         };
         self.last_cpu_power_value = power;
         power
-    }
-
-    fn collect_windows_cpu_power(&self) -> f64 {
-        let ps_cmd = r#"
-$items = @()
-foreach ($ns in @('root/OpenHardwareMonitor', 'root/LibreHardwareMonitor')) {
-  try {
-    $items += Get-CimInstance -Namespace $ns -ClassName Sensor -ErrorAction Stop |
-      Where-Object { $_.SensorType -eq 'Power' } |
-      ForEach-Object { "$($_.Name),$($_.Value)" }
-  } catch {}
-}
-$items | Where-Object { $_ }
-"#;
-
-        let Ok(output) = std::process::Command::new("powershell")
-            .args(["-NoProfile", "-NonInteractive", "-Command", ps_cmd])
-            .output()
-        else {
-            return 0.0;
-        };
-
-        if !output.status.success() {
-            return 0.0;
-        }
-
-        let mut ranked: Vec<(i32, f64)> = String::from_utf8_lossy(&output.stdout)
-            .lines()
-            .filter_map(|line| {
-                let (name, value) = line.trim().split_once(',')?;
-                let power = value.trim().parse::<f64>().ok()?;
-                if power > 0.0 && power < 1000.0 {
-                    Some((Self::cpu_power_rank(name), power))
-                } else {
-                    None
-                }
-            })
-            .filter(|(rank, _)| *rank > 0)
-            .collect();
-
-        ranked.sort_by(|a, b| {
-            b.0.cmp(&a.0)
-                .then_with(|| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal))
-        });
-
-        ranked.first().map(|(_, power)| *power).unwrap_or(0.0)
     }
 
     fn cpu_power_rank(name: &str) -> i32 {
@@ -819,37 +948,43 @@ async fn get_public_ip() -> String {
     String::new()
 }
 
-fn get_conn_counts() -> (i32, i32) {
-    if cfg!(target_os = "windows") {
-        if let Ok(output) = std::process::Command::new("netstat").arg("-an").output() {
-            let text = String::from_utf8_lossy(&output.stdout);
-            let mut tcp = 0;
-            let mut udp = 0;
-            for line in text.lines() {
-                let l = line.trim();
-                if l.starts_with("TCP") {
-                    tcp += 1;
-                } else if l.starts_with("UDP") {
-                    udp += 1;
-                }
+fn current_epoch_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+fn collect_windows_conn_counts() -> (i32, i32) {
+    if let Ok(output) = std::process::Command::new("netstat").arg("-an").output() {
+        let text = String::from_utf8_lossy(&output.stdout);
+        let mut tcp = 0;
+        let mut udp = 0;
+        for line in text.lines() {
+            let l = line.trim();
+            if l.starts_with("TCP") {
+                tcp += 1;
+            } else if l.starts_with("UDP") {
+                udp += 1;
             }
-            return (tcp, udp);
         }
-    } else {
-        // Read /proc/net/tcp & /proc/net/udp
-        let tcp_cnt = std::fs::read_to_string("/proc/net/tcp")
-            .map(|s| s.lines().count() as i32 - 1)
-            .unwrap_or(0)
-            + std::fs::read_to_string("/proc/net/tcp6")
-                .map(|s| s.lines().count() as i32 - 1)
-                .unwrap_or(0);
-        let udp_cnt = std::fs::read_to_string("/proc/net/udp")
-            .map(|s| s.lines().count() as i32 - 1)
-            .unwrap_or(0)
-            + std::fs::read_to_string("/proc/net/udp6")
-                .map(|s| s.lines().count() as i32 - 1)
-                .unwrap_or(0);
-        return (tcp_cnt, udp_cnt);
+        return (tcp, udp);
     }
     (0, 0)
+}
+
+fn get_conn_counts() -> (i32, i32) {
+    let tcp_cnt = std::fs::read_to_string("/proc/net/tcp")
+        .map(|s| s.lines().count() as i32 - 1)
+        .unwrap_or(0)
+        + std::fs::read_to_string("/proc/net/tcp6")
+            .map(|s| s.lines().count() as i32 - 1)
+            .unwrap_or(0);
+    let udp_cnt = std::fs::read_to_string("/proc/net/udp")
+        .map(|s| s.lines().count() as i32 - 1)
+        .unwrap_or(0)
+        + std::fs::read_to_string("/proc/net/udp6")
+            .map(|s| s.lines().count() as i32 - 1)
+            .unwrap_or(0);
+    (tcp_cnt, udp_cnt)
 }

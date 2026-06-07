@@ -15,7 +15,7 @@ use tokio::sync::mpsc;
 use tokio::time::sleep;
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 
-use crate::collector::Collector;
+use crate::collector::{Collector, DockerInfo, State};
 use crate::config::{CliArgs, Config};
 use crate::docker::DockerBridge;
 use crate::file_manager::FileManager;
@@ -24,6 +24,11 @@ use crate::pty::PtySession;
 use clap::Parser;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+fn stamp_state(state: &mut State, sequence: u64, sample_interval_ms: u64) {
+    state.sequence = sequence;
+    state.sample_interval_ms = sample_interval_ms;
+}
 
 #[tokio::main]
 async fn main() {
@@ -199,6 +204,35 @@ async fn run_client(
                         let cfg = config_clone.clone();
 
                         tokio::spawn(async move {
+                            let docker_cache =
+                                Arc::new(tokio::sync::Mutex::new(DockerInfo::default()));
+                            {
+                                let docker_refresh = docker_loop.clone();
+                                let docker_cache_refresh = docker_cache.clone();
+                                let docker_tx = auth_tx.clone();
+                                tokio::spawn(async move {
+                                    let mut docker_timer =
+                                        tokio::time::interval(Duration::from_secs(5));
+                                    docker_timer.set_missed_tick_behavior(
+                                        tokio::time::MissedTickBehavior::Delay,
+                                    );
+                                    docker_timer.tick().await;
+
+                                    loop {
+                                        if docker_tx.is_closed() {
+                                            break;
+                                        }
+
+                                        let info =
+                                            docker_refresh.lock().await.collect_docker_info().await;
+                                        *docker_cache_refresh.lock().await = info;
+                                        docker_timer.tick().await;
+                                    }
+                                });
+                            }
+
+                            let mut state_sequence = 0_u64;
+
                             // First run
                             let host_info =
                                 collector_loop.lock().await.collect_host_info(VERSION).await;
@@ -207,7 +241,9 @@ async fn run_client(
                                 .await;
 
                             let mut state = collector_loop.lock().await.collect_state();
-                            state.docker = docker_loop.lock().await.collect_docker_info().await;
+                            stamp_state(&mut state, state_sequence, cfg.report_interval);
+                            state_sequence = state_sequence.wrapping_add(1);
+                            state.docker = docker_cache.lock().await.clone();
                             let _ = auth_tx.send(format_event(EVENT_AGENT_STATE, &state)).await;
 
                             let mut state_timer =
@@ -221,12 +257,16 @@ async fn run_client(
                                 .set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
                             host_timer
                                 .set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+                            state_timer.tick().await;
+                            host_timer.tick().await;
 
                             loop {
                                 tokio::select! {
                                     _ = state_timer.tick() => {
                                         let mut state = collector_loop.lock().await.collect_state();
-                                        state.docker = docker_loop.lock().await.collect_docker_info().await;
+                                        stamp_state(&mut state, state_sequence, cfg.report_interval);
+                                        state_sequence = state_sequence.wrapping_add(1);
+                                        state.docker = docker_cache.lock().await.clone();
                                         if auth_tx.send(format_event(EVENT_AGENT_STATE, &state)).await.is_err() {
                                             break;
                                         }

@@ -95,6 +95,9 @@ const HostInfoSchema = {
  * @typedef {Object} HostState
  */
 const HostStateSchema = {
+  timestamp_ms: 0, // Agent 采样完成时间 (Unix timestamp ms)
+  sequence: 0, // Agent 状态帧序号
+  sample_interval_ms: 0, // Agent 配置的状态上报间隔
   cpu: 0, // CPU 使用率 (0-100)
   cpu_power: 0, // CPU package power (W), optional
   mem_used: 0, // 已用内存 (bytes)
@@ -574,7 +577,9 @@ function stateToFrontendFormat(state, hostInfo = {}) {
     agent_version: hostInfo.agent_version || '',
     ip: sanitizeIp(hostInfo.ip),
     uptime: formatUptime(uptime),
-    timestamp: Date.now(),
+    timestamp: safeNumber(state.timestamp_ms) || Date.now(),
+    sequence: safeNumber(state.sequence),
+    sample_interval_ms: safeNumber(state.sample_interval_ms),
   };
 }
 
