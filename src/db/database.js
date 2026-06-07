@@ -415,15 +415,27 @@ class DatabaseService {
           const hasThemeMode = settingsColumns.some(col => col.name === 'theme_mode');
           if (!hasThemeMode) {
             logger.info('正在为 user_settings 表添加 theme_mode 字段...');
-            this.db.exec('ALTER TABLE user_settings ADD COLUMN theme_mode TEXT');
+            this.db.exec("ALTER TABLE user_settings ADD COLUMN theme_mode TEXT DEFAULT 'auto'");
             logger.success('user_settings.theme_mode 字段添加成功');
+          } else {
+            this.db
+              .prepare("UPDATE user_settings SET theme_mode = 'auto' WHERE theme_mode IS NULL")
+              .run();
           }
 
           const hasPageWidthMode = settingsColumns.some(col => col.name === 'page_width_mode');
           if (!hasPageWidthMode) {
             logger.info('正在为 user_settings 表添加 page_width_mode 字段...');
-            this.db.exec('ALTER TABLE user_settings ADD COLUMN page_width_mode TEXT');
+            this.db.exec(
+              "ALTER TABLE user_settings ADD COLUMN page_width_mode TEXT DEFAULT 'standard'"
+            );
             logger.success('user_settings.page_width_mode 字段添加成功');
+          } else {
+            this.db
+              .prepare(
+                "UPDATE user_settings SET page_width_mode = 'standard' WHERE page_width_mode IS NULL"
+              )
+              .run();
           }
         }
       } catch (err) {

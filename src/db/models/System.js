@@ -244,21 +244,27 @@ class UserSettings extends BaseModel {
     const columns = [
       {
         name: 'theme_mode',
-        sql: `ALTER TABLE ${this.tableName} ADD COLUMN theme_mode TEXT`,
+        sql: `ALTER TABLE ${this.tableName} ADD COLUMN theme_mode TEXT DEFAULT 'auto'`,
+        fallback: 'auto',
       },
       {
         name: 'page_width_mode',
-        sql: `ALTER TABLE ${this.tableName} ADD COLUMN page_width_mode TEXT`,
+        sql: `ALTER TABLE ${this.tableName} ADD COLUMN page_width_mode TEXT DEFAULT 'standard'`,
+        fallback: 'standard',
       },
     ];
 
-    columns.forEach(({ name, sql }) => {
+    columns.forEach(({ name, sql, fallback }) => {
       if (!this.hasColumn(name)) {
         try {
           this.getDb().prepare(sql).run();
         } catch (e) {
           console.warn(`Auto-migration for ${name} failed:`, e.message);
         }
+      } else {
+        this.getDb()
+          .prepare(`UPDATE ${this.tableName} SET ${name} = ? WHERE ${name} IS NULL`)
+          .run(fallback);
       }
     });
   }

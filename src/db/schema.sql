@@ -52,12 +52,10 @@ CREATE INDEX IF NOT EXISTS idx_sessions_active ON sessions(is_active, expires_at
 CREATE INDEX IF NOT EXISTS idx_operation_logs_table ON operation_logs(table_name, created_at);
 
 -- 插入默认用户设置
-INSERT OR IGNORE INTO user_settings (id, custom_css, theme_mode, page_width_mode, module_visibility, module_order)
+INSERT OR IGNORE INTO user_settings (id, custom_css, module_visibility, module_order)
 VALUES (
     1,
     '',
-    'auto',
-    'standard',
     '{"openai":true,"gemini-cli":true,"dns":true,"server":true}',
     '["openai","gemini-cli","dns","server"]'
 );
