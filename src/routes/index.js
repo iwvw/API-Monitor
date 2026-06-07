@@ -70,6 +70,12 @@ function getPublicServerUrl(req) {
     || getRequestOrigin(req);
 }
 
+function getRequestClientIp(req) {
+  const forwarded = req.get('x-forwarded-for');
+  if (forwarded) return forwarded.split(',')[0].trim();
+  return req.ip || req.socket?.remoteAddress || '';
+}
+
 /**
  * 注册所有路由
  */
@@ -114,6 +120,11 @@ function registerRoutes(app) {
 
       const metrics = agentService.processMetrics(serverId, req.body);
       serverStorage.updateStatus(serverId, { status: 'online' });
+      const server = serverStorage.getById(serverId);
+      const countryIp = req.body?.ip || metrics?.ip || getRequestClientIp(req);
+      if ((!server?.country || server.country === 'auto') && countryIp) {
+        agentService.lookupCountryByIP(serverId, countryIp);
+      }
 
       logger.info(`[Agent Push] 收到来自服务器 ${serverId} 的指标数据`);
       res.json({ success: true, received: true });
@@ -332,7 +343,7 @@ function registerRoutes(app) {
           status: 'offline',
           monitor_mode: 'agent', // 通过此字段标记为 Agent 模式
           tags: ['Agent'], // 自动标记
-          notes: `通过快速安装 API 创建于 ${new Date().toLocaleString('zh-CN')}`,
+          description: `通过快速安装 API 创建于 ${new Date().toLocaleString('zh-CN')}`,
         });
         isNew = true;
         logger.info(`[Quick Install] 已创建新主机: ${serverName} (ID: ${server.id})`);
@@ -403,7 +414,7 @@ function registerRoutes(app) {
           status: 'offline',
           monitor_mode: 'agent', // 通过此字段标记为 Agent 模式
           tags: ['Agent'],
-          notes: `通过一键安装创建于 ${new Date().toLocaleString('zh-CN')}`,
+          description: `通过一键安装创建于 ${new Date().toLocaleString('zh-CN')}`,
         });
         console.log(`[Quick Install] 自动创建主机: ${serverName} (ID: ${server.id})`);
       }

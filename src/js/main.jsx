@@ -7,6 +7,7 @@ import { kumoToastManager } from './modules/toast.js';
 import '../css/app.css';
 import '@fortawesome/fontawesome-free/css/all.min.css';
 import 'simple-icons-font/font/simple-icons.min.css';
+import 'flag-icons/css/flag-icons.min.css';
 import '@xterm/xterm/css/xterm.css';
 
 // 渲染 React 应用

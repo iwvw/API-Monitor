@@ -13,7 +13,7 @@ const {
 const monitorService = require('./monitor-service');
 const agentService = require('./agent-service');
 const sshService = require('./ssh-service');
-const { getServerCapabilities, hasSshConfig } = require('./capabilities');
+const { getServerCapabilities, hasSshConfig, hasSshEndpoint } = require('./capabilities');
 const { ServerAccount, ServerMonitorConfig, ServerMetricsHistory } = require('./models');
 const { TaskTypes, buildGpuInfo, normalizeFrontendMetrics, normalizeNetworkMetrics, resolveCpuTemperature } = require('./protocol');
 const DockerTaskTypes = TaskTypes; // 兼容已有 Docker 路由代码
@@ -137,6 +137,9 @@ router.get('/accounts/export', (req, res) => {
       passphrase: server.passphrase,
       tags: server.tags,
       description: server.description,
+      country: server.country,
+      resolved_country: server.resolved_country,
+      expires_at: server.expires_at,
     }));
     res.json({ success: true, data: exportData });
   } catch (error) {
@@ -206,22 +209,27 @@ router.post('/accounts', (req, res) => {
       tags,
       description,
       country,
+      expires_at,
+      monitor_mode,
     } = req.body;
-    if (!name || !host || !username || !auth_type) {
+    const isAgentMode = monitor_mode === 'agent';
+    if (!name || (!isAgentMode && (!host || !username || !auth_type))) {
       return res.status(400).json({ success: false, error: '缺少必填字段' });
     }
     const server = serverStorage.create({
       name,
-      host,
+      host: host || '',
       port: port || 22,
-      username,
-      auth_type,
+      username: username || 'agent',
+      auth_type: auth_type || 'password',
       password,
       private_key,
       passphrase,
       tags,
       description,
       country,
+      expires_at,
+      monitor_mode,
     });
     res.json({ success: true, message: '服务器添加成功', data: server });
   } catch (error) {
@@ -421,7 +429,17 @@ router.post('/ping-all', async (req, res) => {
     await Promise.all(
       servers.map(async server => {
         try {
-          const isSSH = server.monitor_mode === 'ssh' || (server.port || 22) === 22;
+          if (!hasSshEndpoint(server)) {
+            results.push({
+              serverId: server.id,
+              latency: null,
+              success: false,
+              skipped: true,
+              error: 'SSH endpoint is not configured',
+            });
+            return;
+          }
+          const isSSH = (server.port || 22) === 22;
           const latency = await monitorService.tcpPing(server.host, server.port || 22, 5000, isSSH);
           // 更新数据库
           serverStorage.updateStatus(server.id, { response_time: latency });

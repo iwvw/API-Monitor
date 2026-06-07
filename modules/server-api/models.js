@@ -86,24 +86,27 @@ class ServerAccount {
             INSERT INTO server_accounts (
                 id, name, host, port, username, auth_type,
                 password, private_key, passphrase,
-                status, tags, description, country, order_index, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                status, tags, description, monitor_mode, country, resolved_country, expires_at, order_index, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
 
     stmt.run(
       id,
       data.name,
-      data.host,
+      data.host || '',
       data.port || 22,
-      data.username,
-      data.auth_type,
+      data.username || 'agent',
+      data.auth_type || 'password',
       encryptedData.password || null,
       encryptedData.private_key || null,
       encryptedData.passphrase || null,
       data.status || 'unknown',
       data.tags ? JSON.stringify(data.tags) : null,
       data.description || null,
+      data.monitor_mode || 'agent',
       data.country || null,
+      data.resolved_country || null,
+      data.expires_at || null,
       orderIndex,
       now,
       now
@@ -145,6 +148,8 @@ class ServerAccount {
                 description = ?,
                 monitor_mode = ?,
                 country = ?,
+                resolved_country = ?,
+                expires_at = ?,
                 order_index = ?,
                 updated_at = ?
             WHERE id = ?
@@ -163,6 +168,8 @@ class ServerAccount {
       data.description !== undefined ? data.description : existing.description,
       data.monitor_mode !== undefined ? data.monitor_mode : existing.monitor_mode || 'agent',
       data.country !== undefined ? data.country : existing.country || null,
+      data.resolved_country !== undefined ? data.resolved_country : existing.resolved_country || null,
+      data.expires_at !== undefined ? data.expires_at : existing.expires_at || null,
       data.order_index !== undefined ? data.order_index : existing.order_index || 0,
       now,
       id
@@ -914,6 +921,14 @@ function runMigrations() {
     if (!accountColumns.includes('order_index')) {
       db.exec('ALTER TABLE server_accounts ADD COLUMN order_index INTEGER DEFAULT 0');
       console.log('[Models] 迁移: 添加 server_accounts.order_index 列');
+    }
+    if (!accountColumns.includes('resolved_country')) {
+      db.exec('ALTER TABLE server_accounts ADD COLUMN resolved_country TEXT');
+      console.log('[Models] migration: added server_accounts.resolved_country column');
+    }
+    if (!accountColumns.includes('expires_at')) {
+      db.exec('ALTER TABLE server_accounts ADD COLUMN expires_at DATETIME');
+      console.log('[Models] migration: added server_accounts.expires_at column');
     }
   } catch (error) {
     console.error('[Models] 迁移失败:', error.message);

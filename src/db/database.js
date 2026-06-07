@@ -535,6 +535,13 @@ class DatabaseService {
             this.db.exec('ALTER TABLE server_accounts ADD COLUMN resolved_country TEXT');
             logger.success('server_accounts.resolved_country 字段添加成功');
           }
+
+          const hasExpiresAt = serverColumns.some(col => col.name === 'expires_at');
+          if (!hasExpiresAt) {
+            logger.info('正在为 server_accounts 表添加 expires_at 字段...');
+            this.db.exec('ALTER TABLE server_accounts ADD COLUMN expires_at DATETIME');
+            logger.success('server_accounts.expires_at 字段添加成功');
+          }
         }
       } catch (err) {
         logger.error('Server Accounts 迁移失败:', err.message);
