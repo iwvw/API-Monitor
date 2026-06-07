@@ -28,6 +28,17 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+* {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+*::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+
 .tabular-nums {
   font-variant-numeric: tabular-nums;
 }
@@ -66,6 +77,129 @@ body {
   visibility: hidden;
 }
 
+.auth-ambient-layer {
+  --auth-cursor-opacity: 0;
+  --auth-cursor-x: 50vw;
+  --auth-cursor-y: 50vh;
+
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: auto;
+}
+
+.auth-ambient-grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(
+      to right,
+      color-mix(in oklab, var(--color-kumo-line) 58%, transparent) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      to bottom,
+      color-mix(in oklab, var(--color-kumo-line) 58%, transparent) 1px,
+      transparent 1px
+    );
+  background-position: 0 0;
+  background-size: 44px 44px;
+  mask-image: radial-gradient(ellipse at 62% 48%, black 0%, transparent 72%);
+  opacity: 0.28;
+  pointer-events: none;
+}
+
+.auth-ambient-grid::after {
+  position: absolute;
+  inset: 0;
+  content: '';
+  background-image:
+    linear-gradient(
+      to right,
+      color-mix(in oklab, var(--color-kumo-brand) 46%, transparent) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      to bottom,
+      color-mix(in oklab, var(--color-kumo-info) 30%, transparent) 1px,
+      transparent 1px
+    );
+  background-position: 0 0;
+  background-size: inherit;
+  mask-image: radial-gradient(
+    circle 280px at var(--auth-cursor-x) var(--auth-cursor-y),
+    black 0%,
+    transparent 72%
+  );
+  opacity: var(--auth-cursor-opacity);
+  transition: opacity 220ms ease-out;
+  will-change: opacity, mask-image;
+}
+
+.auth-particles-canvas {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  mask-image: radial-gradient(ellipse at 60% 48%, black 0%, transparent 78%);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.auth-particles-canvas canvas {
+  filter: saturate(1.14) contrast(1.04);
+}
+
+.auth-cursor-light {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 2;
+  width: 1px;
+  height: 1px;
+  pointer-events: none;
+  opacity: var(--auth-cursor-opacity);
+  transform: translate3d(var(--auth-cursor-x), var(--auth-cursor-y), 0);
+  transition: opacity 220ms ease-out;
+  box-shadow:
+    0 0 126px 58px color-mix(in oklab, var(--color-kumo-brand) 17%, transparent),
+    0 0 236px 104px color-mix(in oklab, var(--color-kumo-info) 8%, transparent);
+  mix-blend-mode: screen;
+  will-change: transform, opacity;
+}
+
+:root[data-mode='dark'] .auth-ambient-grid {
+  opacity: 0.34;
+}
+
+:root[data-mode='dark'] .auth-ambient-grid::after {
+  background-image:
+    linear-gradient(
+      to right,
+      color-mix(in oklab, var(--color-kumo-brand) 58%, transparent) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      to bottom,
+      color-mix(in oklab, var(--color-kumo-info) 42%, transparent) 1px,
+      transparent 1px
+    );
+  mask-image: radial-gradient(
+    circle 320px at var(--auth-cursor-x) var(--auth-cursor-y),
+    black 0%,
+    transparent 74%
+  );
+}
+
+:root[data-mode='dark'] .auth-particles-canvas canvas {
+  filter: saturate(1.26) brightness(1.2) contrast(1.08);
+}
+
+:root[data-mode='dark'] .auth-cursor-light {
+  box-shadow:
+    0 0 142px 68px color-mix(in oklab, var(--color-kumo-brand) 22%, transparent),
+    0 0 268px 116px color-mix(in oklab, var(--color-kumo-info) 11%, transparent);
+}
+
 @keyframes app-quick-fade-in {
   from {
     opacity: 0;
@@ -97,6 +231,14 @@ body {
   .app-collapse-panel {
     transition: none;
     transform: none;
+  }
+
+  .auth-particles-canvas {
+    display: none;
+  }
+
+  .auth-cursor-light {
+    display: none;
   }
 }
 
@@ -134,18 +276,9 @@ table td > * {
   min-width: 0;
 }
 
-/* Custom Scrollbar */
+/* Hidden scrollbar compatibility for legacy scrollbar-thin usages */
 .scrollbar-thin::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
-}
-.scrollbar-thin::-webkit-scrollbar-track {
-  background: transparent;
-}
-.scrollbar-thin::-webkit-scrollbar-thumb {
-  background: var(--color-kumo-line);
-  border-radius: 4px;
-}
-.scrollbar-thin::-webkit-scrollbar-thumb:hover {
-  background: var(--text-color-kumo-subtle);
+  width: 0;
+  height: 0;
+  display: none;
 }

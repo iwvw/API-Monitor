@@ -23,6 +23,8 @@ CREATE TABLE IF NOT EXISTS sessions (
 CREATE TABLE IF NOT EXISTS user_settings (
     id INTEGER PRIMARY KEY CHECK (id = 1), -- 单例模式，只允许一条记录
     custom_css TEXT,
+    theme_mode TEXT DEFAULT 'auto',
+    page_width_mode TEXT DEFAULT 'standard',
     module_visibility TEXT, -- JSON 格式
     module_order TEXT, -- JSON 格式
     channel_enabled TEXT, -- JSON 格式: 启用的渠道
@@ -50,10 +52,12 @@ CREATE INDEX IF NOT EXISTS idx_sessions_active ON sessions(is_active, expires_at
 CREATE INDEX IF NOT EXISTS idx_operation_logs_table ON operation_logs(table_name, created_at);
 
 -- 插入默认用户设置
-INSERT OR IGNORE INTO user_settings (id, custom_css, module_visibility, module_order)
+INSERT OR IGNORE INTO user_settings (id, custom_css, theme_mode, page_width_mode, module_visibility, module_order)
 VALUES (
     1,
     '',
+    'auto',
+    'standard',
     '{"openai":true,"gemini-cli":true,"dns":true,"server":true}',
     '["openai","gemini-cli","dns","server"]'
 );

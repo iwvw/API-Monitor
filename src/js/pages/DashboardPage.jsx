@@ -53,11 +53,15 @@ const DEFAULT_DASHBOARD_STATS = {
 
 const DASHBOARD_CACHE_TTL_MS = 30_000;
 const DASHBOARD_FETCH_TIMEOUT_MS = 6_000;
+const DASHBOARD_API_STATS_CACHE_KEY = 'dashboard_api_stats_cache_v1';
+const DASHBOARD_API_STATS_CACHE_TTL_MS = 10 * 60_000;
+const DASHBOARD_API_STATS_CACHE_MAX_AGE_MS = 24 * 60 * 60_000;
 const HOST_METRICS_POLL_MS = 2_000;
 const HOST_METRICS_FETCH_TIMEOUT_MS = 4_000;
 
 let dashboardStatsCache = null;
 let dashboardStatsFetchPromise = null;
+let dashboardApiStatsFetchPromise = null;
 let dashboardHostMetricsCache = null;
 
 echarts.use([
@@ -78,6 +82,85 @@ function ChartBoundaryBox({ className = '', children }) {
       {typeof children === 'function' ? children(boundary) : children}
     </div>
   );
+}
+
+function useMediaQuery(query) {
+  const getMatches = () => (
+    typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+      ? window.matchMedia(query).matches
+      : false
+  );
+  const [matches, setMatches] = useState(getMatches);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return undefined;
+    const mediaQuery = window.matchMedia(query);
+    const handleChange = () => setMatches(mediaQuery.matches);
+    handleChange();
+    mediaQuery.addEventListener('change', handleChange);
+    return () => mediaQuery.removeEventListener('change', handleChange);
+  }, [query]);
+
+  return matches;
+}
+
+function normalizeApiStats(detail = {}) {
+  return {
+    total_calls: Number(detail.total_calls) || 0,
+    success_calls: Number(detail.success_calls) || 0,
+    daily_trend: Array.isArray(detail.daily_trend) ? detail.daily_trend : [],
+  };
+}
+
+function readDashboardApiStatsCache() {
+  if (typeof window === 'undefined') return null;
+
+  try {
+    const raw = window.localStorage.getItem(DASHBOARD_API_STATS_CACHE_KEY);
+    if (!raw) return null;
+
+    const parsed = JSON.parse(raw);
+    const updatedAt = Number(parsed?.updatedAt) || 0;
+    if (!updatedAt || Date.now() - updatedAt > DASHBOARD_API_STATS_CACHE_MAX_AGE_MS) {
+      window.localStorage.removeItem(DASHBOARD_API_STATS_CACHE_KEY);
+      return null;
+    }
+
+    return {
+      stats: normalizeApiStats(parsed?.stats),
+      updatedAt,
+    };
+  } catch (e) {
+    console.error('[Dashboard] API trend cache read failed:', e);
+    return null;
+  }
+}
+
+function writeDashboardApiStatsCache(stats) {
+  if (typeof window === 'undefined') return;
+
+  try {
+    window.localStorage.setItem(
+      DASHBOARD_API_STATS_CACHE_KEY,
+      JSON.stringify({
+        stats: normalizeApiStats(stats),
+        updatedAt: Date.now(),
+      })
+    );
+  } catch (e) {
+    console.error('[Dashboard] API trend cache write failed:', e);
+  }
+}
+
+function getInitialDashboardStats() {
+  const baseStats = dashboardStatsCache?.stats || DEFAULT_DASHBOARD_STATS;
+  const cachedApiStats = readDashboardApiStatsCache();
+  if (!cachedApiStats) return baseStats;
+
+  return {
+    ...baseStats,
+    geminiCli: cachedApiStats.stats,
+  };
 }
 
 function parseTrendTimestamp(point) {
@@ -152,8 +235,10 @@ function MiniMeter({ label, value, detail, tone = 'brand' }) {
 function DashboardPage() {
   const { setMainActiveTab, theme } = useStore();
   const isDarkMode = theme === 'dark';
+  const isCompactViewport = useMediaQuery('(max-width: 640px)');
+  const apiChartHeight = isCompactViewport ? 126 : 170;
 
-  const [stats, setStats] = useState(() => dashboardStatsCache?.stats || DEFAULT_DASHBOARD_STATS);
+  const [stats, setStats] = useState(getInitialDashboardStats);
 
   const [loading, setLoading] = useState(false);
   const [lastUpdate, setLastUpdate] = useState(() => dashboardStatsCache?.lastUpdate || '');
@@ -205,6 +290,47 @@ function DashboardPage() {
       }
     };
 
+    const mergeApiStatsIntoDashboard = (apiStats) => {
+      setStats((currentStats) => {
+        const nextStats = { ...currentStats, geminiCli: apiStats };
+
+        if (dashboardStatsCache?.stats) {
+          dashboardStatsCache = {
+            ...dashboardStatsCache,
+            stats: {
+              ...dashboardStatsCache.stats,
+              geminiCli: apiStats,
+            },
+          };
+        }
+
+        return nextStats;
+      });
+    };
+
+    const requestApiStats = async () => {
+      const data = await fetchJson('/api/gemini-cli/stats');
+      const detail = data.data || data;
+      const apiStats = normalizeApiStats(detail);
+      writeDashboardApiStatsCache(apiStats);
+      return apiStats;
+    };
+
+    const startApiStatsFetch = (forceRequest = false) => {
+      if (!forceRequest && dashboardApiStatsFetchPromise) {
+        return dashboardApiStatsFetchPromise;
+      }
+
+      const request = requestApiStats().finally(() => {
+        if (dashboardApiStatsFetchPromise === request) {
+          dashboardApiStatsFetchPromise = null;
+        }
+      });
+
+      dashboardApiStatsFetchPromise = request;
+      return request;
+    };
+
     // 1. 获取主机监控
     const fetchServers = async () => {
       try {
@@ -226,14 +352,22 @@ function DashboardPage() {
 
     // 2. 获取 API 网关
     const fetchApiStats = async () => {
+      const cachedApiStats = readDashboardApiStatsCache();
+      const cacheFresh = cachedApiStats
+        && Date.now() - cachedApiStats.updatedAt < DASHBOARD_API_STATS_CACHE_TTL_MS;
+
+      if (!force && cachedApiStats) {
+        if (!cacheFresh) {
+          startApiStatsFetch()
+            .then(mergeApiStatsIntoDashboard)
+            .catch((e) => console.error('[Dashboard] API stats background refresh failed:', e));
+        }
+
+        return cachedApiStats.stats;
+      }
+
       try {
-        const data = await fetchJson('/api/gemini-cli/stats');
-        const detail = data.data || data;
-        return {
-          total_calls: detail.total_calls || 0,
-          success_calls: detail.success_calls || 0,
-          daily_trend: detail.daily_trend || [],
-        };
+        return await startApiStatsFetch(force);
       } catch (e) {
         console.error('[Dashboard] API stats fetch failed:', e);
       }
@@ -371,10 +505,11 @@ function DashboardPage() {
       fetchFilebox(),
       fetchTotp(),
     ]).then((results) => {
+      const latestApiStats = readDashboardApiStatsCache()?.stats;
       const updatedStats = {
         host: dashboardHostMetricsCache || previousStats.host,
         servers: results[0].status === 'fulfilled' ? results[0].value : previousStats.servers,
-        geminiCli: results[1].status === 'fulfilled' ? results[1].value : previousStats.geminiCli,
+        geminiCli: latestApiStats || (results[1].status === 'fulfilled' ? results[1].value : previousStats.geminiCli),
         paas: results[2].status === 'fulfilled' ? results[2].value : previousStats.paas,
         dns: results[3].status === 'fulfilled' ? results[3].value : previousStats.dns,
         uptime: results[4].status === 'fulfilled' ? results[4].value : previousStats.uptime,
@@ -517,18 +652,18 @@ function DashboardPage() {
     : 'text-kumo-success bg-kumo-success/10 border-kumo-success/20';
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-3 sm:space-y-6">
       
       {/* ==================== Header ==================== */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-xl font-bold text-kumo-strong">系统控制台</h1>
-          <p className="text-xs text-kumo-subtle mt-0.5">系统运行概览与状态指标</p>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-base font-bold text-kumo-strong sm:text-xl">系统控制台</h1>
+          <p className="mt-0.5 truncate text-[11px] text-kumo-subtle sm:text-xs">系统运行概览与状态指标</p>
         </div>
 
-        <div className="flex items-center gap-3 flex-shrink-0">
+        <div className="flex shrink-0 flex-col items-end gap-1.5">
           {lastUpdate && (
-            <div className="text-[11px] text-kumo-subtle flex items-center gap-1.5 select-none">
+            <div className="flex items-center gap-1.5 text-[10px] text-kumo-subtle select-none sm:text-[11px]">
               <History className="w-3.5 h-3.5" />
               <span>上次更新: {lastUpdate}</span>
             </div>
@@ -540,23 +675,23 @@ function DashboardPage() {
             loading={loading}
           >
             {!loading && <RefreshCw className="w-3.5 h-3.5" />}
-            <span>刷新数据</span>
+            <span className="hidden min-[360px]:inline">刷新数据</span>
           </Button>
         </div>
       </div>
 
       {/* ==================== Stats Grid (5 Cards) ==================== */}
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-2 sm:gap-4 md:grid-cols-2 lg:grid-cols-5">
         
         {/* Servers Card */}
         <div
           onClick={() => setMainActiveTab('server')}
-          className="bg-kumo-base border border-kumo-line hover:border-kumo-brand rounded-lg p-5 cursor-pointer shadow-sm hover:shadow transition-all group flex flex-col justify-between"
+          className="bg-kumo-base border border-kumo-line hover:border-kumo-brand rounded-lg p-3 sm:p-5 cursor-pointer shadow-sm hover:shadow transition-all group flex flex-col justify-between"
         >
           <div>
-            <div className="flex items-center justify-between mb-4">
-              <div className="w-8 h-8 rounded-md bg-kumo-info-tint text-kumo-info flex items-center justify-center">
-                <Server className="w-4 h-4" />
+            <div className="flex items-center justify-between mb-2 sm:mb-4">
+              <div className="h-7 w-7 rounded-md bg-kumo-info-tint text-kumo-info flex items-center justify-center sm:h-8 sm:w-8">
+                <Server className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
               </div>
               <span className={`text-[11px] font-semibold px-2 py-0.5 rounded border ${
                 stats.servers.total === 0
@@ -572,12 +707,12 @@ function DashboardPage() {
             </div>
             <div className="space-y-1">
               <span className="text-xs text-kumo-subtle block">主机实例管理</span>
-              <span className="text-2xl font-bold text-kumo-strong tabular-nums">
+              <span className="text-xl font-bold text-kumo-strong tabular-nums sm:text-2xl">
                 {stats.servers.total} <span className="text-xs font-normal text-kumo-subtle">台主机</span>
               </span>
             </div>
           </div>
-          <div className="mt-4 pt-3 border-t border-kumo-line flex items-center justify-between text-xs text-kumo-subtle group-hover:text-kumo-strong transition-colors">
+          <div className="mt-2 pt-2 sm:mt-4 sm:pt-3 border-t border-kumo-line flex items-center justify-between text-[11px] text-kumo-subtle group-hover:text-kumo-strong transition-colors sm:text-xs">
             <span className={stats.servers.total > 0 && stats.servers.online < stats.servers.total ? (stats.servers.online === 0 ? 'text-kumo-danger font-medium' : 'text-kumo-warning font-medium') : ''}>
               {stats.servers.total === 0 
                 ? '暂无主机实例' 
@@ -595,12 +730,12 @@ function DashboardPage() {
         {/* API Gateway Card */}
         <div
           onClick={() => setMainActiveTab('gemini-cli')}
-          className="bg-kumo-base border border-kumo-line hover:border-kumo-brand rounded-lg p-5 cursor-pointer shadow-sm hover:shadow transition-all group flex flex-col justify-between"
+          className="bg-kumo-base border border-kumo-line hover:border-kumo-brand rounded-lg p-3 sm:p-5 cursor-pointer shadow-sm hover:shadow transition-all group flex flex-col justify-between"
         >
           <div>
-            <div className="flex items-center justify-between mb-4">
-              <div className="w-8 h-8 rounded-md bg-kumo-brand/10 text-kumo-brand flex items-center justify-center">
-                <Terminal className="w-4 h-4" />
+            <div className="flex items-center justify-between mb-2 sm:mb-4">
+              <div className="h-7 w-7 rounded-md bg-kumo-brand/10 text-kumo-brand flex items-center justify-center sm:h-8 sm:w-8">
+                <Terminal className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
               </div>
               <span className="text-[11px] font-semibold text-kumo-subtle bg-kumo-recessed px-2 py-0.5 rounded border border-kumo-line">
                 API 网关
@@ -608,12 +743,12 @@ function DashboardPage() {
             </div>
             <div className="space-y-1">
               <span className="text-xs text-kumo-subtle block">调用次数</span>
-              <span className="text-2xl font-bold text-kumo-strong tabular-nums">
+              <span className="text-xl font-bold text-kumo-strong tabular-nums sm:text-2xl">
                 {stats.geminiCli.total_calls} <span className="text-xs font-normal text-kumo-subtle">次</span>
               </span>
             </div>
           </div>
-          <div className="mt-4 pt-3 border-t border-kumo-line flex items-center justify-between text-xs text-kumo-subtle group-hover:text-kumo-strong transition-colors">
+          <div className="mt-2 pt-2 sm:mt-4 sm:pt-3 border-t border-kumo-line flex items-center justify-between text-[11px] text-kumo-subtle group-hover:text-kumo-strong transition-colors sm:text-xs">
             <span>{apiSuccessRate()} 成功率</span>
             <ArrowRight className="w-3 h-3" />
           </div>
@@ -622,12 +757,12 @@ function DashboardPage() {
         {/* PaaS Applications Card */}
         <div
           onClick={() => setMainActiveTab('paas')}
-          className="bg-kumo-base border border-kumo-line hover:border-kumo-brand rounded-lg p-5 cursor-pointer shadow-sm hover:shadow transition-all group flex flex-col justify-between"
+          className="bg-kumo-base border border-kumo-line hover:border-kumo-brand rounded-lg p-3 sm:p-5 cursor-pointer shadow-sm hover:shadow transition-all group flex flex-col justify-between"
         >
           <div>
-            <div className="flex items-center justify-between mb-4">
-              <div className="w-8 h-8 rounded-md bg-kumo-badge-purple/10 text-kumo-badge-purple flex items-center justify-center">
-                <Cloud className="w-4 h-4" />
+            <div className="flex items-center justify-between mb-2 sm:mb-4">
+              <div className="h-7 w-7 rounded-md bg-kumo-badge-purple/10 text-kumo-badge-purple flex items-center justify-center sm:h-8 sm:w-8">
+                <Cloud className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
               </div>
               <span className="text-[11px] font-semibold text-kumo-badge-purple bg-kumo-badge-purple/10 px-2 py-0.5 rounded border border-kumo-badge-purple/20">
                 {stats.paas.koyeb.running + stats.paas.fly.running} 运行
@@ -635,12 +770,12 @@ function DashboardPage() {
             </div>
             <div className="space-y-1">
               <span className="text-xs text-kumo-subtle block">云应用实例</span>
-              <span className="text-2xl font-bold text-kumo-strong tabular-nums">
+              <span className="text-xl font-bold text-kumo-strong tabular-nums sm:text-2xl">
                 {stats.paas.koyeb.total + stats.paas.fly.total} <span className="text-xs font-normal text-kumo-subtle">个应用</span>
               </span>
             </div>
           </div>
-          <div className="mt-4 pt-3 border-t border-kumo-line flex items-center justify-between text-xs text-kumo-subtle group-hover:text-kumo-strong transition-colors">
+          <div className="mt-2 pt-2 sm:mt-4 sm:pt-3 border-t border-kumo-line flex items-center justify-between text-[11px] text-kumo-subtle group-hover:text-kumo-strong transition-colors sm:text-xs">
             <span>应用实例状态正常</span>
             <ArrowRight className="w-3 h-3" />
           </div>
@@ -649,12 +784,12 @@ function DashboardPage() {
         {/* Cloudflare DNS Card */}
         <div
           onClick={() => setMainActiveTab('dns')}
-          className="bg-kumo-base border border-kumo-line hover:border-kumo-brand rounded-lg p-5 cursor-pointer shadow-sm hover:shadow transition-all group flex flex-col justify-between"
+          className="bg-kumo-base border border-kumo-line hover:border-kumo-brand rounded-lg p-3 sm:p-5 cursor-pointer shadow-sm hover:shadow transition-all group flex flex-col justify-between"
         >
           <div>
-            <div className="flex items-center justify-between mb-4">
-              <div className="w-8 h-8 rounded-md bg-kumo-badge-orange/10 text-kumo-badge-orange flex items-center justify-center">
-                <Globe className="w-4 h-4" />
+            <div className="flex items-center justify-between mb-2 sm:mb-4">
+              <div className="h-7 w-7 rounded-md bg-kumo-badge-orange/10 text-kumo-badge-orange flex items-center justify-center sm:h-8 sm:w-8">
+                <Globe className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
               </div>
               <span className="text-[11px] font-semibold text-kumo-subtle bg-kumo-recessed px-2 py-0.5 rounded border border-kumo-line">
                 Cloudflare
@@ -662,12 +797,12 @@ function DashboardPage() {
             </div>
             <div className="space-y-1">
               <span className="text-xs text-kumo-subtle block">域名解析</span>
-              <span className="text-2xl font-bold text-kumo-strong tabular-nums">
+              <span className="text-xl font-bold text-kumo-strong tabular-nums sm:text-2xl">
                 {stats.dns.zones} <span className="text-xs font-normal text-kumo-subtle">个区域</span>
               </span>
             </div>
           </div>
-          <div className="mt-4 pt-3 border-t border-kumo-line flex items-center justify-between text-xs text-kumo-subtle group-hover:text-kumo-strong transition-colors">
+          <div className="mt-2 pt-2 sm:mt-4 sm:pt-3 border-t border-kumo-line flex items-center justify-between text-[11px] text-kumo-subtle group-hover:text-kumo-strong transition-colors sm:text-xs">
             <span>域名配置正常</span>
             <ArrowRight className="w-3 h-3" />
           </div>
@@ -676,12 +811,12 @@ function DashboardPage() {
         {/* Uptime Monitors Card */}
         <div
           onClick={() => setMainActiveTab('uptime')}
-          className="bg-kumo-base border border-kumo-line hover:border-kumo-brand rounded-lg p-5 cursor-pointer shadow-sm hover:shadow transition-all group flex flex-col justify-between"
+          className="bg-kumo-base border border-kumo-line hover:border-kumo-brand rounded-lg p-3 sm:p-5 cursor-pointer shadow-sm hover:shadow transition-all group flex flex-col justify-between"
         >
           <div>
-            <div className="flex items-center justify-between mb-4">
-              <div className="w-8 h-8 rounded-md bg-kumo-success/10 text-kumo-success flex items-center justify-center">
-                <Activity className="w-4 h-4" />
+            <div className="flex items-center justify-between mb-2 sm:mb-4">
+              <div className="h-7 w-7 rounded-md bg-kumo-success/10 text-kumo-success flex items-center justify-center sm:h-8 sm:w-8">
+                <Activity className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
               </div>
               <span className={`text-[11px] font-semibold px-2 py-0.5 rounded border ${
                 stats.uptime.down > 0
@@ -693,12 +828,12 @@ function DashboardPage() {
             </div>
             <div className="space-y-1">
               <span className="text-xs text-kumo-subtle block">服务监控</span>
-              <span className="text-2xl font-bold text-kumo-strong tabular-nums">
+              <span className="text-xl font-bold text-kumo-strong tabular-nums sm:text-2xl">
                 {stats.uptime.total} <span className="text-xs font-normal text-kumo-subtle">个监测</span>
               </span>
             </div>
           </div>
-          <div className="mt-4 pt-3 border-t border-kumo-line flex items-center justify-between text-xs text-kumo-subtle group-hover:text-kumo-strong transition-colors">
+          <div className="mt-2 pt-2 sm:mt-4 sm:pt-3 border-t border-kumo-line flex items-center justify-between text-[11px] text-kumo-subtle group-hover:text-kumo-strong transition-colors sm:text-xs">
             <span className={stats.uptime.down > 0 ? 'text-kumo-danger font-medium' : ''}>
               {stats.uptime.down > 0 ? `${stats.uptime.down} 个监测发生故障` : '服务状态健康'}
             </span>
@@ -709,16 +844,16 @@ function DashboardPage() {
       </div>
 
       {/* ==================== Detail Column Split ==================== */}
-      <div className="grid grid-cols-1 items-start lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 items-start gap-3 sm:gap-6 lg:grid-cols-3">
         
         {/* Left Column: API Trend Graph + Host Performance */}
-        <div className="grid gap-4 lg:col-span-2">
-          <ChartBoundaryBox className="bg-kumo-base border border-kumo-line rounded-lg shadow-sm p-5 flex min-h-[260px] flex-col overflow-hidden">
+        <div className="grid gap-3 sm:gap-4 lg:col-span-2">
+          <ChartBoundaryBox className="bg-kumo-base border border-kumo-line rounded-lg shadow-sm p-3 sm:p-5 flex min-h-0 flex-col overflow-hidden sm:min-h-[260px]">
             {(tooltipBoundary) => (
               <>
-                <div className="flex items-center justify-between border-b border-kumo-line pb-3">
-                  <h3 className="text-sm font-semibold text-kumo-strong flex items-center gap-2 select-none">
-                    <TrendingUp className="w-4 h-4 text-kumo-brand" />
+                <div className="flex items-center justify-between border-b border-kumo-line pb-2 sm:pb-3">
+                  <h3 className="text-xs font-semibold text-kumo-strong flex items-center gap-1.5 select-none sm:text-sm sm:gap-2">
+                    <TrendingUp className="h-3.5 w-3.5 text-kumo-brand sm:h-4 sm:w-4" />
                     API 调用趋势
                   </h3>
                   <span className="text-[10px] text-kumo-subtle bg-kumo-recessed border border-kumo-line px-2 py-0.5 rounded font-medium">
@@ -726,15 +861,15 @@ function DashboardPage() {
                   </span>
                 </div>
 
-                <div className="min-w-0 pt-4">
+                <div className="min-w-0 pt-2 sm:pt-4">
                   {loading || hasApiTrendCalls ? (
-                    <div className="h-[170px] min-w-0 overflow-hidden">
+                    <div className="min-w-0 overflow-hidden" style={{ height: apiChartHeight }}>
                       <TimeseriesChart
                         echarts={echarts}
                         isDarkMode={isDarkMode}
                         type="bar"
                         data={apiTrendChartData}
-                        height={170}
+                        height={apiChartHeight}
                         xAxisName="时间"
                         yAxisName="调用"
                         xAxisTickCount={3}
@@ -743,18 +878,18 @@ function DashboardPage() {
                         tooltipValueFormat={(value) => `${Math.round(value)} 次`}
                         tooltipBoundary={tooltipBoundary ?? undefined}
                         tooltipFollowCursor="x"
-                        loading={loading}
+                        loading={loading && !hasApiTrendCalls}
                         ariaDescription="最近 24 小时 Gemini CLI API 调用量"
                       />
                     </div>
                   ) : (
-                    <div className="flex h-[170px] items-center justify-center text-center text-xs text-kumo-subtle">
+                    <div className="flex items-center justify-center text-center text-xs text-kumo-subtle" style={{ height: apiChartHeight }}>
                       {apiTrendStatusText}
                     </div>
                   )}
                 </div>
 
-                <div className="mt-3 flex items-center gap-2 border-t border-kumo-line pt-3 text-[11px] text-kumo-subtle select-none">
+                <div className="mt-2 flex items-center gap-2 border-t border-kumo-line pt-2 text-[10px] text-kumo-subtle select-none sm:mt-3 sm:pt-3 sm:text-[11px]">
                   <span className="w-1.5 h-1.5 rounded-full bg-kumo-brand flex-shrink-0" />
                   <span>{apiTrendStatusText}</span>
                 </div>
@@ -762,20 +897,20 @@ function DashboardPage() {
             )}
           </ChartBoundaryBox>
 
-          <div className="bg-kumo-base border border-kumo-line rounded-lg p-5 shadow-sm">
-            <div className="flex flex-col gap-3 border-b border-kumo-line pb-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex min-w-0 items-center gap-3">
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-kumo-success/10 text-kumo-success">
-                  <Cpu className="h-4 w-4" />
+          <div className="bg-kumo-base border border-kumo-line rounded-lg p-3 shadow-sm sm:p-5">
+            <div className="flex flex-col gap-2 border-b border-kumo-line pb-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:pb-3">
+              <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-kumo-success/10 text-kumo-success sm:h-8 sm:w-8">
+                  <Cpu className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                 </div>
                 <div className="min-w-0">
-                  <h3 className="text-sm font-semibold text-kumo-strong">宿主机性能</h3>
+                  <h3 className="text-xs font-semibold text-kumo-strong sm:text-sm">宿主机性能</h3>
                   <p className="truncate text-[11px] text-kumo-subtle" title={stats.host?.hostname || '-'}>
                     {stats.host?.hostname || '等待采样'} · {stats.host?.platformLabel || '本机运行环境'}
                   </p>
                 </div>
               </div>
-              <div className="flex shrink-0 items-center gap-2">
+              <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
                 <span className="rounded border border-kumo-line bg-kumo-recessed px-2 py-0.5 text-[11px] font-semibold text-kumo-subtle">
                   2s 实时
                 </span>
@@ -785,13 +920,13 @@ function DashboardPage() {
               </div>
             </div>
 
-            <div className="mt-4 grid gap-4 md:grid-cols-3">
+            <div className="mt-3 grid gap-2 sm:mt-4 sm:gap-4 md:grid-cols-3">
               <MiniMeter label="CPU" value={hostCpuUsage} detail={`${formatPercent(hostCpuUsage)} / ${stats.host?.cpu?.cores || 0}C`} tone="success" />
               <MiniMeter label="内存" value={hostMemoryUsage} detail={`${formatPercent(hostMemoryUsage)} / ${formatBytes(stats.host?.memory?.total)}`} tone="info" />
               <MiniMeter label="磁盘" value={hostDiskUsage} detail={`${formatPercent(hostDiskUsage)} / ${formatBytes(stats.host?.disk?.total)}`} tone="brand" />
             </div>
 
-            <div className="mt-4 grid gap-3 border-t border-kumo-line pt-3 text-xs text-kumo-subtle sm:grid-cols-3">
+            <div className="mt-3 grid gap-2 border-t border-kumo-line pt-2 text-[11px] text-kumo-subtle sm:mt-4 sm:grid-cols-3 sm:gap-3 sm:pt-3 sm:text-xs">
               <div className="flex items-center justify-between gap-3">
                 <span>运行时间</span>
                 <span className="truncate font-semibold text-kumo-strong">{formatDuration(stats.host?.uptime)}</span>
@@ -809,27 +944,27 @@ function DashboardPage() {
         </div>
 
         {/* Right Column: Services & Tools List */}
-        <div className="bg-kumo-base border border-kumo-line rounded-lg shadow-sm p-6 flex flex-col justify-between min-h-[340px]">
-          <div className="border-b border-kumo-line pb-3.5">
-            <h3 className="text-sm font-semibold text-kumo-strong flex items-center gap-2 select-none">
-              <Box className="w-4 h-4 text-kumo-brand" />
+        <div className="bg-kumo-base border border-kumo-line rounded-lg shadow-sm p-3 sm:p-6 flex flex-col justify-between min-h-0 sm:min-h-[340px]">
+          <div className="border-b border-kumo-line pb-2 sm:pb-3.5">
+            <h3 className="text-xs font-semibold text-kumo-strong flex items-center gap-1.5 select-none sm:text-sm sm:gap-2">
+              <Box className="h-3.5 w-3.5 text-kumo-brand sm:h-4 sm:w-4" />
               服务 & 工具
             </h3>
           </div>
 
-          <div className="flex-1 py-4 space-y-3.5">
+          <div className="flex-1 space-y-2 py-2 sm:space-y-3.5 sm:py-4">
             {/* Koyeb */}
             <div
               onClick={() => setMainActiveTab('paas')}
-              className="flex items-center justify-between p-3.5 bg-kumo-recessed border border-kumo-line hover:border-kumo-brand rounded-md cursor-pointer transition-all group"
+              className="flex items-center justify-between gap-2 p-2.5 sm:p-3.5 bg-kumo-recessed border border-kumo-line hover:border-kumo-brand rounded-md cursor-pointer transition-all group"
             >
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-md bg-kumo-badge-purple/10 text-kumo-badge-purple flex items-center justify-center text-sm flex-shrink-0">
-                  <Box className="w-4 h-4" />
+              <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+                <div className="h-7 w-7 rounded-md bg-kumo-badge-purple/10 text-kumo-badge-purple flex items-center justify-center text-sm flex-shrink-0 sm:h-8 sm:w-8">
+                  <Box className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                 </div>
-                <div>
+                <div className="min-w-0">
                   <h4 className="text-xs font-bold text-kumo-strong group-hover:text-kumo-brand transition-colors">Koyeb</h4>
-                  <p className="text-[10px] text-kumo-subtle mt-0.5">边缘计算应用服务</p>
+                  <p className="mt-0.5 truncate text-[10px] text-kumo-subtle">边缘计算应用服务</p>
                 </div>
               </div>
               <div className="flex items-center gap-2 text-xs font-semibold text-kumo-strong tabular-nums bg-kumo-base border border-kumo-line px-2 py-0.5 rounded">
@@ -841,15 +976,15 @@ function DashboardPage() {
             {/* Fly.io */}
             <div
               onClick={() => setMainActiveTab('paas')}
-              className="flex items-center justify-between p-3.5 bg-kumo-recessed border border-kumo-line hover:border-kumo-brand rounded-md cursor-pointer transition-all group"
+              className="flex items-center justify-between gap-2 p-2.5 sm:p-3.5 bg-kumo-recessed border border-kumo-line hover:border-kumo-brand rounded-md cursor-pointer transition-all group"
             >
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-md bg-kumo-brand/10 text-kumo-brand flex items-center justify-center text-sm flex-shrink-0">
-                  <Send className="w-4 h-4" />
+              <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+                <div className="h-7 w-7 rounded-md bg-kumo-brand/10 text-kumo-brand flex items-center justify-center text-sm flex-shrink-0 sm:h-8 sm:w-8">
+                  <Send className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                 </div>
-                <div>
+                <div className="min-w-0">
                   <h4 className="text-xs font-bold text-kumo-strong group-hover:text-kumo-brand transition-colors">Fly.io</h4>
-                  <p className="text-[10px] text-kumo-subtle mt-0.5">全球微型虚拟机</p>
+                  <p className="mt-0.5 truncate text-[10px] text-kumo-subtle">全球微型虚拟机</p>
                 </div>
               </div>
               <div className="flex items-center gap-2 text-xs font-semibold text-kumo-strong tabular-nums bg-kumo-base border border-kumo-line px-2 py-0.5 rounded">
@@ -861,15 +996,15 @@ function DashboardPage() {
             {/* 2FA */}
             <div
               onClick={() => setMainActiveTab('totp')}
-              className="flex items-center justify-between p-3.5 bg-kumo-recessed border border-kumo-line hover:border-kumo-brand rounded-md cursor-pointer transition-all group"
+              className="flex items-center justify-between gap-2 p-2.5 sm:p-3.5 bg-kumo-recessed border border-kumo-line hover:border-kumo-brand rounded-md cursor-pointer transition-all group"
             >
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-md bg-kumo-success/10 text-kumo-success flex items-center justify-center text-sm flex-shrink-0">
-                  <Shield className="w-4 h-4" />
+              <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+                <div className="h-7 w-7 rounded-md bg-kumo-success/10 text-kumo-success flex items-center justify-center text-sm flex-shrink-0 sm:h-8 sm:w-8">
+                  <Shield className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                 </div>
-                <div>
-                  <h4 className="text-xs font-bold text-kumo-strong group-hover:text-kumo-brand transition-colors">2FA 安全令牌</h4>
-                  <p className="text-[10px] text-kumo-subtle mt-0.5">OTP 动态验证码账号</p>
+                <div className="min-w-0">
+                  <h4 className="truncate text-xs font-bold text-kumo-strong group-hover:text-kumo-brand transition-colors">2FA 安全令牌</h4>
+                  <p className="mt-0.5 truncate text-[10px] text-kumo-subtle">OTP 动态验证码账号</p>
                 </div>
               </div>
               <div className="flex items-center gap-2 text-xs font-semibold text-kumo-strong tabular-nums bg-kumo-base border border-kumo-line px-2 py-0.5 rounded">
@@ -881,15 +1016,15 @@ function DashboardPage() {
             {/* FileBox */}
             <div
               onClick={() => setMainActiveTab('filebox')}
-              className="flex items-center justify-between p-3.5 bg-kumo-recessed border border-kumo-line hover:border-kumo-brand rounded-md cursor-pointer transition-all group"
+              className="flex items-center justify-between gap-2 p-2.5 sm:p-3.5 bg-kumo-recessed border border-kumo-line hover:border-kumo-brand rounded-md cursor-pointer transition-all group"
             >
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-md bg-kumo-info-tint text-kumo-info flex items-center justify-center text-sm flex-shrink-0">
-                  <FolderOpen className="w-4 h-4" />
+              <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+                <div className="h-7 w-7 rounded-md bg-kumo-info-tint text-kumo-info flex items-center justify-center text-sm flex-shrink-0 sm:h-8 sm:w-8">
+                  <FolderOpen className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                 </div>
-                <div>
-                  <h4 className="text-xs font-bold text-kumo-strong group-hover:text-kumo-brand transition-colors">文件分享柜</h4>
-                  <p className="text-[10px] text-kumo-subtle mt-0.5">文件与片段分享柜</p>
+                <div className="min-w-0">
+                  <h4 className="truncate text-xs font-bold text-kumo-strong group-hover:text-kumo-brand transition-colors">文件分享柜</h4>
+                  <p className="mt-0.5 truncate text-[10px] text-kumo-subtle">文件与片段分享柜</p>
                 </div>
               </div>
               <div className="flex items-center gap-2 text-xs font-semibold text-kumo-strong tabular-nums bg-kumo-base border border-kumo-line px-2 py-0.5 rounded">
@@ -899,7 +1034,7 @@ function DashboardPage() {
             </div>
           </div>
 
-          <div className="text-[10px] text-kumo-subtle border-t border-kumo-line pt-3 select-none text-center">
+          <div className="text-[10px] text-kumo-subtle border-t border-kumo-line pt-2 select-none text-center sm:pt-3">
             点击以上卡片可直接跳转相应模块管理。
           </div>
         </div>

@@ -174,7 +174,7 @@ router.post('/logout', (req, res) => {
     user_agent: req.headers['user-agent'],
   });
 
-  res.cookie('sid', '', { httpOnly: true, maxAge: 0, path: '/' });
+  res.clearCookie('sid', { httpOnly: true, sameSite: 'lax', path: '/' });
   res.json({ success: true });
 });
 

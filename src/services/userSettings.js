@@ -89,6 +89,8 @@ function loadUserSettings() {
 
     return {
       customCss: settings.custom_css || '',
+      themeMode: settings.theme_mode || undefined,
+      pageWidthMode: settings.page_width_mode || undefined,
       koyebRefreshInterval: settings.koyeb_refresh_interval || 30000,
       flyRefreshInterval: settings.fly_refresh_interval || 30000,
       moduleVisibility: visibility,
@@ -121,6 +123,9 @@ function saveUserSettings(settings) {
     // 注意：必须检查 undefined，因为空字符串 "" 是有效值，不能用 || 运算符覆盖
     const dbSettings = {
       custom_css: settings.customCss !== undefined ? settings.customCss : settings.custom_css,
+      theme_mode: settings.themeMode !== undefined ? settings.themeMode : settings.theme_mode,
+      page_width_mode:
+        settings.pageWidthMode !== undefined ? settings.pageWidthMode : settings.page_width_mode,
       koyeb_refresh_interval:
         settings.koyebRefreshInterval !== undefined
           ? settings.koyebRefreshInterval
@@ -183,6 +188,8 @@ function saveUserSettings(settings) {
 function getDefaultSettings() {
   return {
     customCss: '',
+    themeMode: 'auto',
+    pageWidthMode: 'standard',
     moduleVisibility: {
       paas: true,
       dns: true,

@@ -79,6 +79,19 @@ echarts.use([
   AriaComponent,
 ]);
 
+const getTableMinWidth = (widths) => widths.reduce((total, width) => total + (Number(width) || 0), 0);
+
+function ScrollableTable({ widths, style, ...props }) {
+  return (
+    <div className="overflow-x-auto scrollbar-thin">
+      <Table
+        {...props}
+        style={{ minWidth: getTableMinWidth(widths), ...style }}
+      />
+    </div>
+  );
+}
+
 function ChartBoundaryBox({ className = '', children }) {
   const [boundary, setBoundary] = useState(null);
   return (
@@ -3228,9 +3241,11 @@ function ServerPage() {
         <div className="flex flex-col gap-4">
           {/* 控制过滤器栏 */}
           <div className="flex flex-col gap-3 rounded-md border border-kumo-line/90 bg-kumo-base p-3 shadow-sm ring-1 ring-kumo-line/25 lg:flex-row lg:items-center lg:justify-between">
-            <div className="flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
+            <div className="flex min-w-0 flex-nowrap items-center gap-2 overflow-x-auto whitespace-nowrap scrollbar-thin sm:gap-3">
               <Tabs
                 {...TOOL_TABS_PROPS}
+                className="w-fit max-w-full"
+                listClassName="w-fit max-w-full"
                 value={serverStatusFilter}
                 onValueChange={setServerStatusFilter}
                 tabs={[
@@ -3241,6 +3256,8 @@ function ServerPage() {
               />
               <Tabs
                 {...TOOL_TABS_PROPS}
+                className="w-fit max-w-full"
+                listClassName="w-fit max-w-full"
                 value={serverIpDisplayMode}
                 onValueChange={setServerIpDisplayMode}
                 tabs={[
@@ -4161,7 +4178,7 @@ function ServerPage() {
                               当前主机没有容器
                             </div>
                           ) : (
-                          <Table layout="fixed">
+                          <ScrollableTable layout="fixed" widths={dockerColWidths}>
                             <colgroup>
                               {dockerColWidths.map((width, idx) => (
                                 <col key={idx} style={{ width }} />
@@ -4248,7 +4265,7 @@ function ServerPage() {
                                 );
                               })}
                             </Table.Body>
-                          </Table>
+                          </ScrollableTable>
                           )}
                         </div>
                       </div>
@@ -4313,7 +4330,7 @@ function ServerPage() {
                   {dockerImages.length === 0 ? (
                     <div className="p-12 text-center text-xs text-kumo-subtle">当前主机中未检索到镜像</div>
                   ) : (
-                    <Table layout="fixed">
+                    <ScrollableTable layout="fixed" widths={imagesColWidths}>
                       <colgroup>
                         {imagesColWidths.map((width, idx) => (
                           <col key={idx} style={{ width }} />
@@ -4364,7 +4381,7 @@ function ServerPage() {
                           </Table.Row>
                         ))}
                       </Table.Body>
-                    </Table>
+                    </ScrollableTable>
                   )}
                 </div>
               )}
@@ -4375,7 +4392,7 @@ function ServerPage() {
                   {dockerNetworks.length === 0 ? (
                     <div className="p-12 text-center text-xs text-kumo-subtle">当前主机中未检索到 Docker 网络</div>
                   ) : (
-                    <Table layout="fixed">
+                    <ScrollableTable layout="fixed" widths={networksColWidths}>
                       <colgroup>
                         {networksColWidths.map((width, idx) => (
                           <col key={idx} style={{ width }} />
@@ -4435,7 +4452,7 @@ function ServerPage() {
                           );
                         })}
                       </Table.Body>
-                    </Table>
+                    </ScrollableTable>
                   )}
                 </div>
               )}
@@ -4446,7 +4463,7 @@ function ServerPage() {
                   {dockerVolumes.length === 0 ? (
                     <div className="p-12 text-center text-xs text-kumo-subtle">当前主机中未检索到 Docker 存储卷</div>
                   ) : (
-                    <Table layout="fixed">
+                    <ScrollableTable layout="fixed" widths={volumesColWidths}>
                       <colgroup>
                         {volumesColWidths.map((width, idx) => (
                           <col key={idx} style={{ width }} />
@@ -4497,7 +4514,7 @@ function ServerPage() {
                           </Table.Row>
                         ))}
                       </Table.Body>
-                    </Table>
+                    </ScrollableTable>
                   )}
                 </div>
               )}
@@ -4508,7 +4525,7 @@ function ServerPage() {
                   {dockerStats.length === 0 ? (
                     <div className="p-12 text-center text-xs text-kumo-subtle">当前主机中未检索到 Docker 资源统计</div>
                   ) : (
-                    <Table layout="fixed">
+                    <ScrollableTable layout="fixed" widths={statsColWidths}>
                       <colgroup>
                         {statsColWidths.map((width, idx) => (
                           <col key={idx} style={{ width }} />
@@ -4554,7 +4571,7 @@ function ServerPage() {
                           </Table.Row>
                         ))}
                       </Table.Body>
-                    </Table>
+                    </ScrollableTable>
                   )}
                 </div>
               )}

@@ -411,6 +411,20 @@ class DatabaseService {
             this.db.exec('ALTER TABLE user_settings ADD COLUMN channel_model_prefix TEXT');
             logger.success('user_settings.channel_model_prefix 字段添加成功');
           }
+
+          const hasThemeMode = settingsColumns.some(col => col.name === 'theme_mode');
+          if (!hasThemeMode) {
+            logger.info('正在为 user_settings 表添加 theme_mode 字段...');
+            this.db.exec('ALTER TABLE user_settings ADD COLUMN theme_mode TEXT');
+            logger.success('user_settings.theme_mode 字段添加成功');
+          }
+
+          const hasPageWidthMode = settingsColumns.some(col => col.name === 'page_width_mode');
+          if (!hasPageWidthMode) {
+            logger.info('正在为 user_settings 表添加 page_width_mode 字段...');
+            this.db.exec('ALTER TABLE user_settings ADD COLUMN page_width_mode TEXT');
+            logger.success('user_settings.page_width_mode 字段添加成功');
+          }
         }
       } catch (err) {
         logger.error('User Settings 额外字段迁移失败:', err.message);

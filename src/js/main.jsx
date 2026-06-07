@@ -22,14 +22,13 @@ if (container) {
     </React.StrictMode>
   );
 
-  // 渲染完成后，淡出 Loading 加载屏
   setTimeout(() => {
     const loader = document.getElementById('app-loading');
     if (loader) {
       loader.style.opacity = '0';
       setTimeout(() => {
         loader.style.display = 'none';
-      }, 300); // 等待淡出过渡完成
+      }, 300);
     }
   }, 200);
 }

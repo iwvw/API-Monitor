@@ -20,6 +20,7 @@ import {
   Sidebar,
   useSidebar
 } from '@cloudflare/kumo/components/sidebar';
+import { Tabs } from '@cloudflare/kumo';
 import AppPageHeader, { AppBreadcrumbs } from './AppPageHeader.jsx';
 import {
   LayoutDashboard,
@@ -78,6 +79,18 @@ const PAGE_WIDTH_CLASSES = {
   full: 'max-w-none',
 };
 
+const PAGE_WIDTH_OPTIONS = [
+  { value: 'standard', label: '标准' },
+  { value: 'wide', label: '宽屏' },
+  { value: 'full', label: '全宽' },
+];
+
+const THEME_MODE_OPTIONS = [
+  { value: 'auto', label: '自动' },
+  { value: 'light', label: '浅色' },
+  { value: 'dark', label: '深色' },
+];
+
 const useMobileClosingNavigation = (onNavigate) => {
   const { isMobile, setOpenMobile } = useSidebar();
 
@@ -106,7 +119,7 @@ const SidebarModuleButton = ({ module, active, icon: IconComponent, onNavigate }
 };
 
 const SidebarBrand = () => (
-  <div className="flex w-full min-w-0 items-center gap-2">
+  <div className="flex h-full w-full min-w-0 items-center gap-2">
     <span className="flex size-8.5 shrink-0 items-center justify-center">
       <img src="/logo.svg" className="size-5 shrink-0 object-contain" alt="" />
     </span>
@@ -116,12 +129,51 @@ const SidebarBrand = () => (
   </div>
 );
 
+const SidebarStyleSwitches = ({
+  pageWidthMode,
+  onPageWidthChange,
+  themeMode,
+  onThemeModeChange,
+}) => {
+  const { isMobile, state } = useSidebar();
+
+  if (!isMobile && state === 'collapsed') return null;
+
+  return (
+    <Sidebar.Group className="mt-auto">
+      <Sidebar.GroupLabel>样式切换</Sidebar.GroupLabel>
+      <div className="flex flex-col gap-2 px-2">
+        <Tabs
+          variant="segmented"
+          size="sm"
+          className="w-fit max-w-full"
+          listClassName="w-fit max-w-full"
+          value={pageWidthMode}
+          onValueChange={onPageWidthChange}
+          tabs={PAGE_WIDTH_OPTIONS}
+        />
+        <Tabs
+          variant="segmented"
+          size="sm"
+          className="w-fit max-w-full"
+          listClassName="w-fit max-w-full"
+          value={themeMode}
+          onValueChange={onThemeModeChange}
+          tabs={THEME_MODE_OPTIONS}
+        />
+      </div>
+    </Sidebar.Group>
+  );
+};
+
 function MainLayout() {
   const {
     mainActiveTab,
     setMainActiveTab,
     sidebarCollapsed,
     setSidebarCollapsed,
+    themeMode,
+    setThemeMode,
     pageWidthMode,
     setPageWidthMode,
     moduleVisibility,
@@ -245,7 +297,7 @@ function MainLayout() {
       {/* ==================== 1. 侧边栏 (Sidebar) ==================== */}
       <Sidebar>
         {/* 顶部 Logo */}
-        <Sidebar.Header>
+        <Sidebar.Header className="h-14! px-2.5!">
           <SidebarBrand />
         </Sidebar.Header>
 
@@ -291,6 +343,12 @@ function MainLayout() {
               </Sidebar.MenuButton>
             </Sidebar.Menu>
           </Sidebar.Group>
+          <SidebarStyleSwitches
+            pageWidthMode={pageWidthMode}
+            onPageWidthChange={setPageWidthMode}
+            themeMode={themeMode}
+            onThemeModeChange={setThemeMode}
+          />
         </Sidebar.Content>
 
         {/* 底部功能栏 */}
@@ -302,29 +360,22 @@ function MainLayout() {
       {/* ==================== 2. 主页面区 (Main Panel) ==================== */}
       <div className="flex-1 flex flex-col h-full overflow-hidden">
         {/* 顶部导航 */}
-        <header className="min-h-[58px] flex-shrink-0 border-b border-kumo-line bg-kumo-base px-3 py-2 min-[450px]:px-4 md:px-6 flex items-center">
-          <div className="flex min-w-0 flex-1 items-center gap-3.5">
+        <header className="flex h-14 flex-shrink-0 items-center border-b border-kumo-line bg-kumo-base px-3 min-[450px]:px-4 md:px-6">
+          <div className="flex h-full min-w-0 flex-1 items-center gap-3.5">
             <Sidebar.Trigger className="md:hidden" />
 
             <AppPageHeader
-              className="min-[450px]:flex-row min-[450px]:items-center min-[450px]:justify-between"
+              className="flex-row items-center justify-between"
               spacing="compact"
               breadcrumbs={(
-                <AppBreadcrumbs size="sm" className="mr-0">
-                  <AppBreadcrumbs.Link href={MODULE_PATHS.dashboard}>DSUK</AppBreadcrumbs.Link>
+                <AppBreadcrumbs size="sm" className="mr-0 min-w-0 overflow-hidden">
+                  <AppBreadcrumbs.Link href={MODULE_PATHS.dashboard}>首页</AppBreadcrumbs.Link>
                   <AppBreadcrumbs.Separator />
                   <AppBreadcrumbs.Current>{getModuleName(mainActiveTab)}</AppBreadcrumbs.Current>
                 </AppBreadcrumbs>
               )}
-              value={pageWidthMode}
-              onValueChange={setPageWidthMode}
-              tabs={[
-                { value: 'standard', label: '标准' },
-                { value: 'wide', label: '宽屏' },
-                { value: 'full', label: '全宽' },
-              ]}
             >
-              <div className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border border-kumo-success/20 bg-kumo-success/10 px-2 py-0.5 text-[11px] text-kumo-success">
+              <div className="flex h-6.5 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border border-kumo-success/20 bg-kumo-success/10 px-2 text-[11px] text-kumo-success">
                 <span className="w-1 h-1 rounded-full bg-current animate-pulse"></span>
                 <span className="hidden min-[520px]:inline">系统正常运行</span>
                 <span className="min-[520px]:hidden">正常</span>
@@ -334,7 +385,7 @@ function MainLayout() {
         </header>
 
         {/* 主内容画布 */}
-        <main className="flex-1 overflow-y-auto p-4 lg:p-8 scrollbar-thin">
+        <main className="flex-1 overflow-y-auto p-3 sm:p-4 lg:px-8 lg:pb-6 lg:pt-3 scrollbar-thin">
           <div className={`mx-auto flex min-h-full w-full min-w-0 flex-col ${pageWidthClass}`}>
             {renderActivePage()}
           </div>

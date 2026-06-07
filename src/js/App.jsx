@@ -46,7 +46,6 @@ function App() {
   }, []);
 
   if (isCheckingAuth) {
-    // 身份校验中，保留 Loading 屏（由 main.jsx 进行后续淡出，这里仅占位）
     return null;
   }
 

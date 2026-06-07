@@ -269,6 +269,18 @@ function SettingsPage() {
     }));
   }, []);
 
+  const handleThemeModeChange = useCallback((value) => {
+    const nextMode = String(value);
+    setThemeMode(nextMode);
+    patchSettings({ themeMode: nextMode });
+  }, [patchSettings, setThemeMode]);
+
+  const handlePageWidthModeChange = useCallback((value) => {
+    const nextMode = String(value);
+    setPageWidthMode(nextMode);
+    patchSettings({ pageWidthMode: nextMode });
+  }, [patchSettings, setPageWidthMode]);
+
   const fetchSettings = useCallback(async () => {
     const response = await fetch('/api/settings', { headers: getAuthHeaders() });
     const result = await response.json();
@@ -1216,11 +1228,11 @@ function SettingsPage() {
         <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_24rem]">
           <LayerCard>
             <SectionHeader title="界面外观" description={`当前生效主题: ${theme === 'dark' ? '深色' : '浅色'}`} />
-            <FieldRow title="主题模式" description="浏览器本地偏好，切换后立即生效。">
-              <Select size="sm" label="主题模式" value={themeMode} onValueChange={(value) => setThemeMode(String(value))} items={THEME_OPTIONS} />
+            <FieldRow title="主题模式" description="云端偏好，切换后立即生效并自动同步。">
+              <Select size="sm" label="主题模式" value={themeMode} onValueChange={handleThemeModeChange} items={THEME_OPTIONS} />
             </FieldRow>
-            <FieldRow title="页面宽度" description="浏览器本地偏好，顶部宽度切换器也会同步。">
-              <Select size="sm" label="页面宽度" value={pageWidthMode} onValueChange={(value) => setPageWidthMode(String(value))} items={PAGE_WIDTH_OPTIONS} />
+            <FieldRow title="页面宽度" description="云端偏好，顶部宽度切换器也会同步。">
+              <Select size="sm" label="页面宽度" value={pageWidthMode} onValueChange={handlePageWidthModeChange} items={PAGE_WIDTH_OPTIONS} />
             </FieldRow>
             <FieldRow title="触感反馈" description="移动端交互振动开关。">
               <Switch checked={settings.vibrationEnabled} onCheckedChange={(checked) => patchSettings({ vibrationEnabled: checked })} />

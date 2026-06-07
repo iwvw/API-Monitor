@@ -150,9 +150,18 @@ export function getModuleIcon(moduleId) {
 const THEME_STORAGE_KEY = 'app_theme_mode';
 const LEGACY_THEME_STORAGE_KEY = 'app_theme';
 const PAGE_WIDTH_STORAGE_KEY = 'app_page_width_mode';
+const AUTH_LOGGED_OUT_STORAGE_KEY = 'auth_explicitly_logged_out';
 
 export const THEME_MODE_OPTIONS = ['auto', 'light', 'dark'];
 export const PAGE_WIDTH_OPTIONS = ['standard', 'wide', 'full'];
+
+const normalizeThemeMode = (mode, fallback = 'auto') => (
+  THEME_MODE_OPTIONS.includes(mode) ? mode : fallback
+);
+
+const normalizePageWidthMode = (mode, fallback = 'standard') => (
+  PAGE_WIDTH_OPTIONS.includes(mode) ? mode : fallback
+);
 
 export const DEFAULT_TOTP_SETTINGS = {
   hideCode: false,
@@ -187,6 +196,40 @@ const getAuthHeaders = () => ({
   'Content-Type': 'application/json',
   'x-admin-password': localStorage.getItem('admin_password') || useStore.getState().loginPassword || '',
 });
+
+let appearanceSettingsSaveTimer = null;
+let pendingAppearanceSettingsPatch = {};
+
+const scheduleAppearanceSettingsSave = (patch) => {
+  pendingAppearanceSettingsPatch = {
+    ...pendingAppearanceSettingsPatch,
+    ...patch,
+  };
+
+  if (appearanceSettingsSaveTimer) {
+    window.clearTimeout(appearanceSettingsSaveTimer);
+  }
+
+  appearanceSettingsSaveTimer = window.setTimeout(async () => {
+    const payload = pendingAppearanceSettingsPatch;
+    pendingAppearanceSettingsPatch = {};
+    appearanceSettingsSaveTimer = null;
+
+    try {
+      const response = await fetch('/api/settings', {
+        method: 'PATCH',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(payload),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || result.success === false) {
+        throw new Error(result.error || 'Failed to save appearance settings');
+      }
+    } catch (error) {
+      console.error('Failed to save appearance settings:', error);
+    }
+  }, 250);
+};
 
 export const applyCustomCss = (css = '') => {
   if (typeof document === 'undefined') return;
@@ -234,6 +277,14 @@ export const normalizeUserSettings = (settings = {}) => {
 
   return {
     customCss: settings.customCss || '',
+    themeMode: normalizeThemeMode(
+      settings.themeMode || settings.theme_mode,
+      typeof getInitialThemeMode === 'function' ? getInitialThemeMode() : 'auto'
+    ),
+    pageWidthMode: normalizePageWidthMode(
+      settings.pageWidthMode || settings.page_width_mode,
+      typeof getInitialPageWidthMode === 'function' ? getInitialPageWidthMode() : 'standard'
+    ),
     koyebRefreshInterval: Number(settings.koyebRefreshInterval) || 30000,
     flyRefreshInterval: Number(settings.flyRefreshInterval) || 30000,
     moduleVisibility,
@@ -284,7 +335,7 @@ export const applyThemeMode = (themeMode) => {
 const getInitialThemeMode = () => {
   try {
     const savedMode = localStorage.getItem(THEME_STORAGE_KEY);
-    if (THEME_MODE_OPTIONS.includes(savedMode)) return savedMode;
+    if (normalizeThemeMode(savedMode, null)) return savedMode;
 
     const legacyTheme = localStorage.getItem(LEGACY_THEME_STORAGE_KEY);
     if (legacyTheme === 'dark' || legacyTheme === 'light') return legacyTheme;
@@ -299,7 +350,7 @@ const initialThemeMode = getInitialThemeMode();
 const getInitialPageWidthMode = () => {
   try {
     const savedMode = localStorage.getItem(PAGE_WIDTH_STORAGE_KEY);
-    if (PAGE_WIDTH_OPTIONS.includes(savedMode)) return savedMode;
+    if (normalizePageWidthMode(savedMode, null)) return savedMode;
   } catch (e) {
     console.error('Failed to get initial page width mode:', e);
   }
@@ -403,19 +454,22 @@ const useStore = create((set, get) => ({
   setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
   setNavGroupExpanded: (group) => set({ navGroupExpanded: group }),
   setPageWidthMode: (mode, persist = true) => {
-    const normalizedMode = PAGE_WIDTH_OPTIONS.includes(mode) ? mode : 'standard';
+    const normalizedMode = normalizePageWidthMode(mode);
     if (persist) {
       try {
         localStorage.setItem(PAGE_WIDTH_STORAGE_KEY, normalizedMode);
       } catch (e) {
         console.error('Failed to save page width mode:', e);
       }
+      if (get().isAuthenticated) {
+        scheduleAppearanceSettingsSave({ pageWidthMode: normalizedMode });
+      }
     }
     set({ pageWidthMode: normalizedMode });
   },
   
   setThemeMode: (themeMode, persist = true) => {
-    const normalizedMode = THEME_MODE_OPTIONS.includes(themeMode) ? themeMode : 'auto';
+    const normalizedMode = normalizeThemeMode(themeMode);
     const effectiveTheme = resolveThemeMode(normalizedMode);
 
     if (persist) {
@@ -424,6 +478,9 @@ const useStore = create((set, get) => ({
         localStorage.removeItem(LEGACY_THEME_STORAGE_KEY);
       } catch (e) {
         console.error('Failed to save theme mode:', e);
+      }
+      if (get().isAuthenticated) {
+        scheduleAppearanceSettingsSave({ themeMode: normalizedMode });
       }
     }
     applyThemeMode(normalizedMode);
@@ -437,8 +494,19 @@ const useStore = create((set, get) => ({
   applyUserSettings: (settings) => {
     const normalized = normalizeUserSettings(settings);
     applyCustomCss(normalized.customCss);
+    applyThemeMode(normalized.themeMode);
+    try {
+      localStorage.setItem(THEME_STORAGE_KEY, normalized.themeMode);
+      localStorage.removeItem(LEGACY_THEME_STORAGE_KEY);
+      localStorage.setItem(PAGE_WIDTH_STORAGE_KEY, normalized.pageWidthMode);
+    } catch (e) {
+      console.error('Failed to cache appearance settings:', e);
+    }
     set({
       userSettingsLoaded: true,
+      themeMode: normalized.themeMode,
+      theme: resolveThemeMode(normalized.themeMode),
+      pageWidthMode: normalized.pageWidthMode,
       customCss: normalized.customCss,
       moduleVisibility: normalized.moduleVisibility,
       moduleOrder: normalized.moduleOrder,
@@ -467,7 +535,19 @@ const useStore = create((set, get) => ({
       if (!response.ok || !result.success) {
         throw new Error(result.error || 'Failed to load settings');
       }
-      return get().applyUserSettings(result.data || {});
+      const rawSettings = result.data || {};
+      const normalized = get().applyUserSettings(rawSettings);
+      const appearancePatch = {};
+      if (!rawSettings.themeMode && !rawSettings.theme_mode) {
+        appearancePatch.themeMode = normalized.themeMode;
+      }
+      if (!rawSettings.pageWidthMode && !rawSettings.page_width_mode) {
+        appearancePatch.pageWidthMode = normalized.pageWidthMode;
+      }
+      if (Object.keys(appearancePatch).length > 0) {
+        scheduleAppearanceSettingsSave(appearancePatch);
+      }
+      return normalized;
     } catch (error) {
       console.error('Failed to load user settings:', error);
       return null;
@@ -487,20 +567,29 @@ const useStore = create((set, get) => ({
   checkAuth: async () => {
     set({ isCheckingAuth: true });
     try {
-      // 1. 优先检查当前 Session 是否已认证
-      const sessionRes = await fetch('/api/session');
-      const { authenticated } = await sessionRes.json();
-      if (authenticated) {
-        set({ isAuthenticated: true, showLoginModal: false, isCheckingAuth: false });
-        return true;
+      const explicitlyLoggedOut = !!localStorage.getItem(AUTH_LOGGED_OUT_STORAGE_KEY);
+
+      // 1. 优先检查当前 Session 是否已认证；显式退出后不再信任残留 Cookie。
+      if (!explicitlyLoggedOut) {
+        const sessionRes = await fetch('/api/auth/session');
+        const { authenticated } = await sessionRes.json();
+        if (authenticated) {
+          set({ isAuthenticated: true, showLoginModal: false, isCheckingAuth: false });
+          return true;
+        }
       }
 
       // 2. 如果 Session 不存在，再检查基本配置并尝试自动登录
-      const res = await fetch('/api/check-password');
+      const res = await fetch('/api/auth/check-password');
       const { hasPassword, isDemoMode } = await res.json();
       set({ isDemoMode });
 
       if (isDemoMode) {
+        if (explicitlyLoggedOut) {
+          set({ isAuthenticated: false, showLoginModal: true, loginPassword: '' });
+          return false;
+        }
+
         const savedTime = localStorage.getItem('password_time');
         const now = Date.now();
         const isValidSession = savedTime && now - parseInt(savedTime) < 4 * 24 * 60 * 60 * 1000;
@@ -522,7 +611,7 @@ const useStore = create((set, get) => ({
       const savedPassword = localStorage.getItem('admin_password');
       const savedTime = localStorage.getItem('password_time');
 
-      if (savedPassword && savedTime) {
+      if (!explicitlyLoggedOut && savedPassword && savedTime) {
         const now = Date.now();
         if (now - parseInt(savedTime) < 4 * 24 * 60 * 60 * 1000) {
           set({ loginPassword: savedPassword });
@@ -556,7 +645,7 @@ const useStore = create((set, get) => ({
         requestBody.totpToken = loginTotpToken;
       }
 
-      const response = await fetch('/api/login', {
+      const response = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(requestBody),
@@ -589,6 +678,7 @@ const useStore = create((set, get) => ({
 
         localStorage.setItem('admin_password', loginPassword);
         localStorage.setItem('password_time', Date.now().toString());
+        localStorage.removeItem(AUTH_LOGGED_OUT_STORAGE_KEY);
 
         if (!silent) {
           toastManager.success('登录成功，欢迎回来！');
@@ -623,11 +713,39 @@ const useStore = create((set, get) => ({
   },
 
   // 登出
-  logout: () => {
-    set({ isAuthenticated: false, loginPassword: '' });
-    localStorage.removeItem('admin_password');
-    localStorage.removeItem('password_time');
-    toastManager.success('已安全登出');
+  logout: async () => {
+    try {
+      localStorage.setItem(AUTH_LOGGED_OUT_STORAGE_KEY, Date.now().toString());
+      localStorage.removeItem('admin_password');
+      localStorage.removeItem('password_time');
+    } catch (error) {
+      console.error('Failed to clear auth cache:', error);
+    }
+
+    set({
+      isAuthenticated: false,
+      showLoginModal: true,
+      showSetPasswordModal: false,
+      loginPassword: '',
+      loginError: '',
+      loginLoading: false,
+      loginRequire2FA: false,
+      loginTotpToken: '',
+    });
+
+    try {
+      const response = await fetch('/api/auth/logout', {
+        method: 'POST',
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || result.success === false) {
+        throw new Error(result.error || '后端会话注销失败');
+      }
+      toastManager.success('已安全登出');
+    } catch (error) {
+      console.error('Logout request failed:', error);
+      toastManager.warning('已清除本地登录状态，但后端会话注销失败，请重试或重启服务后确认');
+    }
   },
 }));
 

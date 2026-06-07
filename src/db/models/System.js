@@ -238,9 +238,37 @@ class UserSettings extends BaseModel {
   }
 
   /**
+   * 确保外观偏好字段存在
+   */
+  ensureAppearanceColumns() {
+    const columns = [
+      {
+        name: 'theme_mode',
+        sql: `ALTER TABLE ${this.tableName} ADD COLUMN theme_mode TEXT`,
+      },
+      {
+        name: 'page_width_mode',
+        sql: `ALTER TABLE ${this.tableName} ADD COLUMN page_width_mode TEXT`,
+      },
+    ];
+
+    columns.forEach(({ name, sql }) => {
+      if (!this.hasColumn(name)) {
+        try {
+          this.getDb().prepare(sql).run();
+        } catch (e) {
+          console.warn(`Auto-migration for ${name} failed:`, e.message);
+        }
+      }
+    });
+  }
+
+  /**
    * 获取用户设置
    */
   getSettings() {
+    this.ensureAppearanceColumns();
+
     let settings = this.findById(1);
 
     if (!settings) {
@@ -326,6 +354,8 @@ class UserSettings extends BaseModel {
     const defaultSettings = {
       id: 1,
       custom_css: '',
+      theme_mode: 'auto',
+      page_width_mode: 'standard',
       module_visibility: JSON.stringify({
         dns: true,
         openai: true,
@@ -349,6 +379,8 @@ class UserSettings extends BaseModel {
    * 更新用户设置
    */
   updateSettings(updates) {
+    this.ensureAppearanceColumns();
+
     // 自动迁移：确保新字段存在
     if (!this.hasColumn('channel_model_prefix')) {
       try {
@@ -423,6 +455,11 @@ class UserSettings extends BaseModel {
     }
 
     const data = { ...updates };
+    Object.keys(data).forEach((key) => {
+      if (data[key] === undefined) {
+        delete data[key];
+      }
+    });
 
     // 处理 JSON 字段
     if (data.module_visibility && typeof data.module_visibility !== 'string') {

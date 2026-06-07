@@ -24,12 +24,12 @@
     body {
       height: 100%;
       width: 100%;
+      margin: 0;
     }
   </style>
 </head>
 
 <body ontouchstart="">
-  <!-- 应用加载屏 -->
   <div id="app-loading" style="
         position: fixed;
         top: 0;
@@ -50,11 +50,11 @@
           margin-bottom: 40px;
           animation: pulse 2s infinite ease-in-out;
         " />
-    <div id="loading-progress-track" style="width: 160px; height: 3px; border-radius: 4px; overflow: hidden">
+    <div id="loading-progress-track" style="width: 160px; height: 5px; border-radius: 999px; overflow: hidden">
       <div id="loading-progress-bar" style="
             width: 30%;
             height: 100%;
-            border-radius: 4px;
+            border-radius: 999px;
             animation: progress-indeterminate 1.5s infinite ease-in-out;
           "></div>
     </div>
@@ -91,51 +91,54 @@
       }
     </style>
     <script>
-      // 立即执行的主题检测脚本
       (function () {
-        var savedTheme = localStorage.getItem('app_theme');
+        var savedMode = localStorage.getItem('app_theme_mode');
+        var legacyTheme = localStorage.getItem('app_theme');
+        var themeMode = savedMode || legacyTheme || 'auto';
         var isDark =
-          savedTheme === 'dark' ||
-          (savedTheme !== 'light' &&
+          themeMode === 'dark' ||
+          (themeMode !== 'light' &&
             window.matchMedia &&
             window.matchMedia('(prefers-color-scheme: dark)').matches);
         var loader = document.getElementById('app-loading');
         var track = document.getElementById('loading-progress-track');
         var bar = document.getElementById('loading-progress-bar');
+        var logoAccent = '#dc7d40';
 
         function applyTheme(dark) {
           document.documentElement.classList.toggle('dark', dark);
           document.documentElement.classList.toggle('light', !dark);
           document.documentElement.dataset.mode = dark ? 'dark' : 'light';
+          document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+          document.documentElement.dataset.themeMode = themeMode;
           if (loader) {
             loader.style.background = 'var(--color-kumo-canvas, Canvas)';
           }
           if (track) {
-            track.style.background = 'color-mix(in oklch, var(--color-kumo-brand, Highlight) 12%, transparent)';
+            track.style.background = 'color-mix(in oklch, ' + logoAccent + ' 16%, transparent)';
           }
           if (bar) {
-            bar.style.background = 'var(--color-kumo-brand, Highlight)';
+            bar.style.background = logoAccent;
           }
         }
 
         applyTheme(isDark);
 
-        // 监听系统主题变化
         if (window.matchMedia) {
           window
             .matchMedia('(prefers-color-scheme: dark)')
             .addEventListener('change', function (e) {
-              applyTheme(e.matches);
+              if (themeMode === 'auto') {
+                applyTheme(e.matches);
+              }
             });
         }
       })();
     </script>
   </div>
 
-  <!-- React 挂载点 -->
   <div id="root"></div>
 
-  <!-- 动态终端 DOM 暂存仓库 -->
   <div id="ssh-terminal-warehouse"
     style="visibility:hidden!important;position:absolute!important;left:-9999px!important;top:-9999px!important;width:100px;height:100px;overflow:hidden;pointer-events:none">
   </div>
