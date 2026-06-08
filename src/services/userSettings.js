@@ -92,6 +92,8 @@ function loadUserSettings() {
       customCss: settings.custom_css || '',
       themeMode: settings.theme_mode || undefined,
       pageWidthMode: settings.page_width_mode || undefined,
+      sidebarCollapsed:
+        settings.sidebar_collapsed !== undefined ? Boolean(settings.sidebar_collapsed) : false,
       koyebRefreshInterval: settings.koyeb_refresh_interval || 30000,
       flyRefreshInterval: settings.fly_refresh_interval || 30000,
       moduleVisibility: visibility,
@@ -127,6 +129,12 @@ function saveUserSettings(settings) {
       theme_mode: settings.themeMode !== undefined ? settings.themeMode : settings.theme_mode,
       page_width_mode:
         settings.pageWidthMode !== undefined ? settings.pageWidthMode : settings.page_width_mode,
+      sidebar_collapsed:
+        settings.sidebarCollapsed !== undefined
+          ? settings.sidebarCollapsed
+            ? 1
+            : 0
+          : settings.sidebar_collapsed,
       koyeb_refresh_interval:
         settings.koyebRefreshInterval !== undefined
           ? settings.koyebRefreshInterval
@@ -191,6 +199,7 @@ function getDefaultSettings() {
     customCss: '',
     themeMode: 'auto',
     pageWidthMode: 'standard',
+    sidebarCollapsed: false,
     moduleVisibility: {
       paas: true,
       dns: true,

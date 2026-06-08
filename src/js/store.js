@@ -150,6 +150,7 @@ export function getModuleIcon(moduleId) {
 const THEME_STORAGE_KEY = 'app_theme_mode';
 const LEGACY_THEME_STORAGE_KEY = 'app_theme';
 const PAGE_WIDTH_STORAGE_KEY = 'app_page_width_mode';
+const SIDEBAR_COLLAPSED_STORAGE_KEY = 'app_sidebar_collapsed';
 const AUTH_LOGGED_OUT_STORAGE_KEY = 'auth_explicitly_logged_out';
 
 export const THEME_MODE_OPTIONS = ['auto', 'light', 'dark'];
@@ -162,6 +163,12 @@ const normalizeThemeMode = (mode, fallback = 'auto') => (
 const normalizePageWidthMode = (mode, fallback = 'standard') => (
   PAGE_WIDTH_OPTIONS.includes(mode) ? mode : fallback
 );
+
+const normalizeSidebarCollapsed = (value, fallback = false) => {
+  if (value === true || value === 'true' || value === 1 || value === '1') return true;
+  if (value === false || value === 'false' || value === 0 || value === '0') return false;
+  return fallback;
+};
 
 export const DEFAULT_TOTP_SETTINGS = {
   hideCode: false,
@@ -285,6 +292,10 @@ export const normalizeUserSettings = (settings = {}) => {
       settings.pageWidthMode || settings.page_width_mode,
       typeof getInitialPageWidthMode === 'function' ? getInitialPageWidthMode() : 'standard'
     ),
+    sidebarCollapsed: normalizeSidebarCollapsed(
+      settings.sidebarCollapsed ?? settings.sidebar_collapsed,
+      typeof getInitialSidebarCollapsed === 'function' ? getInitialSidebarCollapsed() : false
+    ),
     koyebRefreshInterval: Number(settings.koyebRefreshInterval) || 30000,
     flyRefreshInterval: Number(settings.flyRefreshInterval) || 30000,
     moduleVisibility,
@@ -359,6 +370,17 @@ const getInitialPageWidthMode = () => {
 
 const initialPageWidthMode = getInitialPageWidthMode();
 
+const getInitialSidebarCollapsed = () => {
+  try {
+    return normalizeSidebarCollapsed(localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY), false);
+  } catch (e) {
+    console.error('Failed to get initial sidebar mode:', e);
+  }
+  return false;
+};
+
+const initialSidebarCollapsed = getInitialSidebarCollapsed();
+
 const useStore = create((set, get) => ({
   // --- 1. 认证状态 ---
   isAuthenticated: false,
@@ -374,7 +396,7 @@ const useStore = create((set, get) => ({
 
   // --- 2. 界面与布局状态 ---
   mainActiveTab: 'dashboard',
-  sidebarCollapsed: false,
+  sidebarCollapsed: initialSidebarCollapsed,
   themeMode: initialThemeMode,
   theme: resolveThemeMode(initialThemeMode),
   pageWidthMode: initialPageWidthMode,
@@ -451,7 +473,20 @@ const useStore = create((set, get) => ({
 
   // --- 5. 修改状态的方法 ---
   setMainActiveTab: (tab) => set({ mainActiveTab: tab }),
-  setSidebarCollapsed: (collapsed) => set({ sidebarCollapsed: collapsed }),
+  setSidebarCollapsed: (collapsed, persist = true) => {
+    const normalizedCollapsed = normalizeSidebarCollapsed(collapsed);
+    if (persist) {
+      try {
+        localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, String(normalizedCollapsed));
+      } catch (e) {
+        console.error('Failed to save sidebar mode:', e);
+      }
+      if (get().isAuthenticated) {
+        scheduleAppearanceSettingsSave({ sidebarCollapsed: normalizedCollapsed });
+      }
+    }
+    set({ sidebarCollapsed: normalizedCollapsed });
+  },
   setNavGroupExpanded: (group) => set({ navGroupExpanded: group }),
   setPageWidthMode: (mode, persist = true) => {
     const normalizedMode = normalizePageWidthMode(mode);
@@ -499,6 +534,7 @@ const useStore = create((set, get) => ({
       localStorage.setItem(THEME_STORAGE_KEY, normalized.themeMode);
       localStorage.removeItem(LEGACY_THEME_STORAGE_KEY);
       localStorage.setItem(PAGE_WIDTH_STORAGE_KEY, normalized.pageWidthMode);
+      localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, String(normalized.sidebarCollapsed));
     } catch (e) {
       console.error('Failed to cache appearance settings:', e);
     }
@@ -507,6 +543,7 @@ const useStore = create((set, get) => ({
       themeMode: normalized.themeMode,
       theme: resolveThemeMode(normalized.themeMode),
       pageWidthMode: normalized.pageWidthMode,
+      sidebarCollapsed: normalized.sidebarCollapsed,
       customCss: normalized.customCss,
       moduleVisibility: normalized.moduleVisibility,
       moduleOrder: normalized.moduleOrder,
@@ -543,6 +580,9 @@ const useStore = create((set, get) => ({
       }
       if (!rawSettings.pageWidthMode && !rawSettings.page_width_mode) {
         appearancePatch.pageWidthMode = normalized.pageWidthMode;
+      }
+      if (rawSettings.sidebarCollapsed === undefined && rawSettings.sidebar_collapsed === undefined) {
+        appearancePatch.sidebarCollapsed = normalized.sidebarCollapsed;
       }
       if (Object.keys(appearancePatch).length > 0) {
         scheduleAppearanceSettingsSave(appearancePatch);

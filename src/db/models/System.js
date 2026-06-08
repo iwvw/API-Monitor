@@ -252,6 +252,11 @@ class UserSettings extends BaseModel {
         sql: `ALTER TABLE ${this.tableName} ADD COLUMN page_width_mode TEXT DEFAULT 'standard'`,
         fallback: 'standard',
       },
+      {
+        name: 'sidebar_collapsed',
+        sql: `ALTER TABLE ${this.tableName} ADD COLUMN sidebar_collapsed INTEGER DEFAULT 0`,
+        fallback: 0,
+      },
     ];
 
     columns.forEach(({ name, sql, fallback }) => {
@@ -362,6 +367,7 @@ class UserSettings extends BaseModel {
       custom_css: '',
       theme_mode: 'auto',
       page_width_mode: 'standard',
+      sidebar_collapsed: 0,
       module_visibility: JSON.stringify({
         dns: true,
         openai: true,

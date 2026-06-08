@@ -1320,9 +1320,9 @@ function SettingsPage() {
               <ToggleLine title="账号名称打码" checked={!!settings.totpSettings.maskAccount} onCheckedChange={(checked) => updateTotpSetting('maskAccount', checked)} />
               <ToggleLine title="遮挡验证码" checked={!!settings.totpSettings.hideCode} onCheckedChange={(checked) => updateTotpSetting('hideCode', checked)} />
               <ToggleLine title="允许悬浮显示验证码" checked={!!settings.totpSettings.allowRevealCode} onCheckedChange={(checked) => updateTotpSetting('allowRevealCode', checked)} />
-              <ToggleLine title="按平台分组" checked={!!settings.totpSettings.groupByPlatform} onCheckedChange={(checked) => updateTotpSetting('groupByPlatform', checked)} />
-              <ToggleLine title="显示平台标题" checked={!!settings.totpSettings.showPlatformHeaders} onCheckedChange={(checked) => updateTotpSetting('showPlatformHeaders', checked)} />
-              <ToggleLine title="隐藏平台文字" checked={!!settings.totpSettings.hidePlatformText} onCheckedChange={(checked) => updateTotpSetting('hidePlatformText', checked)} />
+              <ToggleLine title="按站点分组" checked={!!settings.totpSettings.groupByPlatform} onCheckedChange={(checked) => updateTotpSetting('groupByPlatform', checked)} />
+              <ToggleLine title="显示站点标题" checked={!!settings.totpSettings.showPlatformHeaders} onCheckedChange={(checked) => updateTotpSetting('showPlatformHeaders', checked)} />
+              <ToggleLine title="隐藏站点文字" checked={!!settings.totpSettings.hidePlatformText} onCheckedChange={(checked) => updateTotpSetting('hidePlatformText', checked)} />
               <ToggleLine title="扫码后自动导入" checked={!!settings.totpSettings.autoSave} onCheckedChange={(checked) => updateTotpSetting('autoSave', checked)} />
               <ToggleLine title="锁定默认录入方式" checked={!!settings.totpSettings.lockInputMode} onCheckedChange={(checked) => updateTotpSetting('lockInputMode', checked)} />
             </div>

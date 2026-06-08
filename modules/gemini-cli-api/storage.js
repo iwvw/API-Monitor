@@ -544,50 +544,47 @@ function clearModelCheckHistory() {
   }
 }
 
-const TREND_HOURS = 24;
-const HOUR_MS = 60 * 60 * 1000;
+const TREND_DAYS = 30;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
-function toSqliteHour(date) {
+function toSqliteDay(date) {
   const year = date.getUTCFullYear();
   const month = String(date.getUTCMonth() + 1).padStart(2, '0');
   const day = String(date.getUTCDate()).padStart(2, '0');
-  const hour = String(date.getUTCHours()).padStart(2, '0');
-  return `${year}-${month}-${day} ${hour}:00:00`;
+  return `${year}-${month}-${day}`;
 }
 
 function formatTrendLabel(date) {
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
-  const hour = String(date.getHours()).padStart(2, '0');
-  return `${month}-${day} ${hour}:00`;
+  return `${month}-${day}`;
 }
 
-function getHourlyTrend(db) {
+function getDailyTrend(db) {
   const now = new Date();
-  const currentHour = new Date(Date.UTC(
+  const currentDay = new Date(Date.UTC(
     now.getUTCFullYear(),
     now.getUTCMonth(),
-    now.getUTCDate(),
-    now.getUTCHours()
+    now.getUTCDate()
   ));
-  const startHour = new Date(currentHour.getTime() - (TREND_HOURS - 1) * HOUR_MS);
+  const startDay = new Date(currentDay.getTime() - (TREND_DAYS - 1) * DAY_MS);
 
   const rows = db.prepare(`
             SELECT 
-                strftime('%Y-%m-%d %H:00:00', created_at) as hour,
+                date(created_at) as day,
                 COUNT(*) as total,
                 SUM(CASE WHEN status_code >= 200 AND status_code < 300 THEN 1 ELSE 0 END) as success
             FROM gemini_cli_logs
             WHERE created_at >= ?
-            GROUP BY hour
-            ORDER BY hour ASC
-        `).all(toSqliteHour(startHour));
-  const rowByHour = new Map(rows.map(row => [row.hour, row]));
+            GROUP BY day
+            ORDER BY day ASC
+        `).all(toSqliteDay(startDay));
+  const rowByDay = new Map(rows.map(row => [row.day, row]));
 
-  return Array.from({ length: TREND_HOURS }, (_, index) => {
-    const bucket = new Date(startHour.getTime() + index * HOUR_MS);
-    const key = toSqliteHour(bucket);
-    const row = rowByHour.get(key);
+  return Array.from({ length: TREND_DAYS }, (_, index) => {
+    const bucket = new Date(startDay.getTime() + index * DAY_MS);
+    const key = toSqliteDay(bucket);
+    const row = rowByDay.get(key);
     return {
       date: formatTrendLabel(bucket),
       bucket: key,
@@ -616,7 +613,7 @@ function getStats() {
 
         const accounts = getAccounts();
 
-        const hourlyTrend = getHourlyTrend(db);
+        const dailyTrend = getDailyTrend(db);
 
         return {
             total_calls: stats.total_calls || 0,
@@ -625,7 +622,7 @@ function getStats() {
             total_tokens: stats.total_tokens || 0,
             avg_duration: Math.round(stats.avg_duration || 0),
             success_rate: stats.total_calls > 0 ? ((stats.success_calls / stats.total_calls) * 100).toFixed(1) : '0.0',
-            daily_trend: hourlyTrend,
+            daily_trend: dailyTrend,
             accounts: {
                 total: accounts.length,
                 online: accounts.filter(a => a.status === 'online').length,

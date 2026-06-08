@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { Badge } from '@cloudflare/kumo/components/badge';
 import { Button } from '@cloudflare/kumo/components/button';
 import { ChartPalette, Meter, TimeseriesChart } from '@cloudflare/kumo';
 import * as echarts from 'echarts/core';
@@ -21,7 +22,6 @@ import {
   Cloud,
   Globe,
   Activity,
-  History,
   RefreshCw,
   ArrowRight,
   Box,
@@ -40,7 +40,7 @@ const DEFAULT_DASHBOARD_STATS = {
     memory: { total: 0, used: 0, usage: 0 },
     disk: { root: '', total: 0, used: 0, usage: 0 },
   },
-  servers: { total: 0, online: 0, offline: 0, error: 0 },
+  servers: { total: 0, online: 0, offline: 0, error: 0, items: [] },
   geminiCli: { total_calls: 0, success_calls: 0, daily_trend: [] },
   paas: {
     koyeb: { total: 0, running: 0 },
@@ -56,9 +56,10 @@ const DASHBOARD_CACHE_TTL_MS = 30_000;
 const DASHBOARD_FETCH_TIMEOUT_MS = 6_000;
 const DASHBOARD_API_STATS_CACHE_KEY = 'dashboard_api_stats_cache_v1';
 const DASHBOARD_API_STATS_CACHE_TTL_MS = 10 * 60_000;
-const DASHBOARD_API_STATS_CACHE_MAX_AGE_MS = 24 * 60 * 60_000;
+const DASHBOARD_API_STATS_CACHE_MAX_AGE_MS = 30 * 24 * 60 * 60_000;
 const HOST_METRICS_POLL_MS = 2_000;
 const HOST_METRICS_FETCH_TIMEOUT_MS = 4_000;
+const DASHBOARD_SERVER_STATUS_LIMIT = 8;
 
 let dashboardStatsCache = null;
 let dashboardStatsFetchPromise = null;
@@ -160,7 +161,10 @@ function parseTrendTimestamp(point) {
   if (Number.isFinite(timestamp)) return timestamp;
 
   if (point?.bucket) {
-    const parsed = Date.parse(`${String(point.bucket).replace(' ', 'T')}Z`);
+    const bucket = String(point.bucket);
+    const parsed = Date.parse(
+      /^\d{4}-\d{2}-\d{2}$/.test(bucket) ? `${bucket}T00:00:00Z` : `${bucket.replace(' ', 'T')}Z`
+    );
     if (Number.isFinite(parsed)) return parsed;
   }
 
@@ -169,7 +173,7 @@ function parseTrendTimestamp(point) {
 
 function formatDashboardTime(timestamp) {
   const date = new Date(timestamp);
-  return `${String(date.getHours()).padStart(2, '0')}:00`;
+  return `${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
 function clampPercent(value) {
@@ -202,6 +206,86 @@ function formatDuration(seconds) {
   return `${minutes}分钟`;
 }
 
+function normalizeServerStatus(status) {
+  if (status === 'online') return 'online';
+  if (status === 'error') return 'error';
+  return 'offline';
+}
+
+function getServerStatusMeta(status) {
+  const normalizedStatus = normalizeServerStatus(status);
+  if (normalizedStatus === 'online') {
+    return {
+      label: '在线',
+      className: 'border-kumo-success bg-kumo-success',
+    };
+  }
+
+  if (normalizedStatus === 'error') {
+    return {
+      label: '异常',
+      className: 'border-kumo-warning bg-kumo-warning',
+    };
+  }
+
+  return {
+    label: '离线',
+    className: 'border-kumo-danger bg-kumo-danger/75',
+  };
+}
+
+function normalizeDashboardServer(server, index) {
+  const status = normalizeServerStatus(server?.status);
+
+  return {
+    id: server?.id || server?.host || server?.name || `server-${index}`,
+    name: server?.name || server?.serverName || server?.host || `主机 ${index + 1}`,
+    status,
+  };
+}
+
+function ServerStatusCapsules({ servers = [], total = 0, online = 0, error = 0 }) {
+  if (!total) {
+    return null;
+  }
+
+  const capsuleServers = servers.length > 0
+    ? servers
+    : Array.from({ length: total }, (_, index) => ({
+      id: `server-status-${index}`,
+      name: `主机 ${index + 1}`,
+      status: index < online ? 'online' : index < online + error ? 'error' : 'offline',
+    }));
+  const visibleServers = capsuleServers.slice(0, DASHBOARD_SERVER_STATUS_LIMIT);
+  const hiddenCount = Math.max(0, total - visibleServers.length);
+
+  return (
+    <div
+      className="flex min-h-2.5 max-w-[92px] flex-wrap items-center justify-end gap-1"
+      aria-label="主机在线状态"
+    >
+      {visibleServers.map((server, index) => {
+        const statusMeta = getServerStatusMeta(server.status);
+        const label = `${server.name}: ${statusMeta.label}`;
+
+        return (
+          <span
+            key={server.id || `${server.name}-${index}`}
+            className={`h-2 w-2 rounded-full border shadow-none ${statusMeta.className}`}
+            title={label}
+            aria-label={label}
+          />
+        );
+      })}
+      {hiddenCount > 0 && (
+        <Badge variant="secondary" className="h-3.5 rounded-full px-1 text-[9px] leading-none">
+          +{hiddenCount}
+        </Badge>
+      )}
+    </div>
+  );
+}
+
 function MiniMeter({ label, value, detail, tone = 'brand' }) {
   const indicatorClassName = {
     brand: 'bg-kumo-brand',
@@ -224,6 +308,61 @@ function MiniMeter({ label, value, detail, tone = 'brand' }) {
   );
 }
 
+function DashboardOverviewCard({
+  icon: Icon,
+  iconClassName,
+  badge,
+  badgeClassName,
+  label,
+  value,
+  unit,
+  detail,
+  detailClassName = '',
+  statusVisual,
+  onClick,
+}) {
+  return (
+    <AppCard
+      onClick={onClick}
+      padding="none"
+      interactive
+      className="group flex min-h-[104px] cursor-pointer flex-col justify-between overflow-hidden p-3 sm:min-h-[112px] sm:p-3.5"
+    >
+      <div className="flex min-w-0 items-start justify-between gap-2.5">
+        <div className="flex min-w-0 items-start gap-2.5">
+          <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-md ${iconClassName}`}>
+            <Icon className="h-3.5 w-3.5" />
+          </div>
+          <div className="min-w-0 pt-px">
+            <span className="block truncate text-[11px] font-medium text-kumo-subtle">
+              {label}
+            </span>
+            <span className="mt-1 flex min-w-0 items-baseline gap-1 truncate text-xl font-bold leading-none text-kumo-strong tabular-nums">
+              {value}
+              <span className="truncate text-[11px] font-normal leading-none text-kumo-subtle">
+                {unit}
+              </span>
+            </span>
+          </div>
+        </div>
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          <span className={`app-status-pill shrink-0 whitespace-nowrap ${badgeClassName}`}>
+            {badge}
+          </span>
+          {statusVisual}
+        </div>
+      </div>
+
+      <div className="mt-2 flex items-center justify-between gap-2 border-t border-kumo-line pt-2 text-[11px] leading-none text-kumo-subtle transition-colors group-hover:text-kumo-strong">
+        <span className={`min-w-0 truncate ${detailClassName}`}>
+          {detail}
+        </span>
+        <ArrowRight className="h-3 w-3 shrink-0" />
+      </div>
+    </AppCard>
+  );
+}
+
 function DashboardPage() {
   const { setMainActiveTab, theme } = useStore();
   const isDarkMode = theme === 'dark';
@@ -233,7 +372,6 @@ function DashboardPage() {
   const [stats, setStats] = useState(getInitialDashboardStats);
 
   const [loading, setLoading] = useState(false);
-  const [lastUpdate, setLastUpdate] = useState(() => dashboardStatsCache?.lastUpdate || '');
 
   // 串联并行请求所有模块数据
   const fetchDashboardStats = async (showLoading = true, { force = false } = {}) => {
@@ -242,7 +380,6 @@ function DashboardPage() {
 
     if (!force && cacheFresh) {
       setStats(cached.stats);
-      setLastUpdate(cached.lastUpdate);
       return cached.stats;
     }
 
@@ -250,14 +387,12 @@ function DashboardPage() {
       if (showLoading && !cached) setLoading(true);
       const snapshot = await dashboardStatsFetchPromise;
       setStats(snapshot.stats);
-      setLastUpdate(snapshot.lastUpdate);
       setLoading(false);
       return snapshot.stats;
     }
 
     if (cached && !force) {
       setStats(cached.stats);
-      setLastUpdate(cached.lastUpdate);
     }
 
     if (showLoading) setLoading(true);
@@ -328,12 +463,13 @@ function DashboardPage() {
       try {
         const data = await fetchJson('/api/server/accounts');
         if (data.success && Array.isArray(data.data)) {
-          const list = data.data;
+          const items = data.data.map(normalizeDashboardServer);
           return {
-            total: list.length,
-            online: list.filter((s) => s.status === 'online').length,
-            offline: list.filter((s) => s.status === 'offline').length,
-            error: list.filter((s) => s.status === 'error').length,
+            total: items.length,
+            online: items.filter((s) => s.status === 'online').length,
+            offline: items.filter((s) => s.status === 'offline').length,
+            error: items.filter((s) => s.status === 'error').length,
+            items,
           };
         }
       } catch (e) {
@@ -521,7 +657,6 @@ function DashboardPage() {
       const snapshot = await request;
       dashboardStatsCache = snapshot;
       setStats(snapshot.stats);
-      setLastUpdate(snapshot.lastUpdate);
       return snapshot.stats;
     } finally {
       if (dashboardStatsFetchPromise === request) {
@@ -536,7 +671,6 @@ function DashboardPage() {
     const cached = dashboardStatsCache;
     if (cached) {
       setStats(cached.stats);
-      setLastUpdate(cached.lastUpdate);
     }
 
     const cacheStale = !cached || Date.now() - cached.updatedAt > DASHBOARD_CACHE_TTL_MS;
@@ -624,9 +758,9 @@ function DashboardPage() {
     ? `${Math.round((apiTrendSuccess / apiTrendTotal) * 1000) / 10}%`
     : '0%';
   const apiTrendStatusText = apiTrendTotal > 0
-    ? `最近 24 小时 ${apiTrendTotal} 次调用 / ${apiTrendSuccessRate} 成功率`
+    ? `最近 30 天 ${apiTrendTotal} 次调用 / ${apiTrendSuccessRate} 成功率`
     : stats.geminiCli.total_calls > 0
-      ? '最近 24 小时暂无调用'
+      ? '最近 30 天暂无调用'
       : '暂无 Gemini CLI API 调用记录';
   const apiTrendChartData = useMemo(() => [{
     name: '调用量',
@@ -642,6 +776,29 @@ function DashboardPage() {
   const hostHealthTone = Math.max(hostCpuUsage, hostMemoryUsage, hostDiskUsage) >= 90
     ? 'text-kumo-warning bg-kumo-warning/10 border-kumo-warning/20'
     : 'text-kumo-success bg-kumo-success/10 border-kumo-success/20';
+  const serverBadgeClassName = stats.servers.total === 0
+    ? 'text-kumo-subtle bg-kumo-recessed border-kumo-line'
+    : stats.servers.online === stats.servers.total
+      ? 'text-kumo-success bg-kumo-success/10 border-kumo-success/20'
+      : stats.servers.online === 0
+        ? 'text-kumo-danger bg-kumo-danger/10 border-kumo-danger/20'
+        : 'text-kumo-warning bg-kumo-warning/10 border-kumo-warning/20';
+  const serverDetailText = stats.servers.total === 0
+    ? '暂无主机实例'
+    : stats.servers.online === stats.servers.total
+      ? '所有主机运行正常'
+      : stats.servers.online === 0
+        ? '全部主机发生故障'
+        : `${stats.servers.offline} 台离线`;
+  const serverDetailClassName = stats.servers.total > 0 && stats.servers.online < stats.servers.total
+    ? (stats.servers.online === 0 ? 'text-kumo-danger font-semibold' : 'text-kumo-warning font-semibold')
+    : '';
+  const serverStatusItems = Array.isArray(stats.servers.items) ? stats.servers.items : [];
+  const uptimeBadgeClassName = stats.uptime.down > 0
+    ? 'text-kumo-danger bg-kumo-danger/10 border-kumo-danger/20'
+    : 'text-kumo-success bg-kumo-success/10 border-kumo-success/20';
+  const uptimeDetailText = stats.uptime.down > 0 ? `${stats.uptime.down} 个监测发生故障` : '服务状态健康';
+  const uptimeDetailClassName = stats.uptime.down > 0 ? 'text-kumo-danger font-semibold' : '';
 
   return (
     <PageStack className="gap-3 sm:gap-6">
@@ -653,14 +810,7 @@ function DashboardPage() {
           <p className="mt-0.5 truncate text-[11px] text-kumo-subtle sm:text-xs">系统运行概览与状态指标</p>
         </div>
 
-        <div className="flex shrink-0 flex-col items-end gap-1.5">
-          {lastUpdate && (
-            <div className="flex items-center gap-1.5 text-[10px] text-kumo-subtle select-none sm:text-[11px]">
-              <History className="w-3.5 h-3.5" />
-              <span>上次更新: {lastUpdate}</span>
-            </div>
-          )}
-          
+        <div className="flex shrink-0 items-center">
           <Button
             onClick={() => fetchDashboardStats(true, { force: true })}
             variant="secondary" size="sm"
@@ -675,173 +825,75 @@ function DashboardPage() {
       {/* ==================== Stats Grid (5 Cards) ==================== */}
       <div className="grid grid-cols-2 gap-2 sm:gap-4 md:grid-cols-2 lg:grid-cols-5">
         
-        {/* Servers Card */}
-        <AppCard
+        <DashboardOverviewCard
           onClick={() => setMainActiveTab('server')}
-          padding="sm"
-          interactive
-          className="group flex cursor-pointer flex-col justify-between sm:p-5"
-        >
-          <div>
-            <div className="flex items-center justify-between mb-2 sm:mb-4">
-              <div className="h-7 w-7 rounded-md bg-kumo-info-tint text-kumo-info flex items-center justify-center sm:h-8 sm:w-8">
-                <Server className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-              </div>
-              <span className={`app-status-pill text-[11px] ${
-                stats.servers.total === 0
-                  ? 'text-kumo-subtle bg-kumo-recessed border-kumo-line'
-                  : stats.servers.online === stats.servers.total
-                    ? 'text-kumo-success bg-kumo-success/10 border-kumo-success/20'
-                    : stats.servers.online === 0
-                      ? 'text-kumo-danger bg-kumo-danger/10 border-kumo-danger/20'
-                      : 'text-kumo-warning bg-kumo-warning/10 border-kumo-warning/20'
-              }`}>
-                {stats.servers.online}/{stats.servers.total} 在线
-              </span>
-            </div>
-            <div className="space-y-1">
-              <span className="text-xs text-kumo-subtle block">主机管理</span>
-              <span className="text-xl font-bold text-kumo-strong tabular-nums sm:text-2xl">
-                {stats.servers.total} <span className="text-xs font-normal text-kumo-subtle">台主机</span>
-              </span>
-            </div>
-          </div>
-          <div className="mt-2 pt-2 sm:mt-4 sm:pt-3 border-t border-kumo-line flex items-center justify-between text-[11px] text-kumo-subtle group-hover:text-kumo-strong transition-colors sm:text-xs">
-            <span className={stats.servers.total > 0 && stats.servers.online < stats.servers.total ? (stats.servers.online === 0 ? 'text-kumo-danger font-medium' : 'text-kumo-warning font-medium') : ''}>
-              {stats.servers.total === 0 
-                ? '暂无主机实例' 
-                : stats.servers.online === stats.servers.total 
-                  ? '所有主机运行正常' 
-                  : stats.servers.online === 0
-                    ? '全部主机发生故障'
-                    : `${stats.servers.offline} 台离线`
-              }
-            </span>
-            <ArrowRight className="w-3 h-3" />
-          </div>
-        </AppCard>
+          icon={Server}
+          iconClassName="bg-kumo-info-tint text-kumo-info"
+          badge={`${stats.servers.online}/${stats.servers.total} 在线`}
+          badgeClassName={serverBadgeClassName}
+          label="主机管理"
+          value={stats.servers.total}
+          unit="台主机"
+          detail={serverDetailText}
+          detailClassName={serverDetailClassName}
+          statusVisual={(
+            <ServerStatusCapsules
+              servers={serverStatusItems}
+              total={stats.servers.total}
+              online={stats.servers.online}
+              error={stats.servers.error}
+            />
+          )}
+        />
 
-        {/* API Gateway Card */}
-        <AppCard
+        <DashboardOverviewCard
           onClick={() => setMainActiveTab('gemini-cli')}
-          padding="sm"
-          interactive
-          className="group flex cursor-pointer flex-col justify-between sm:p-5"
-        >
-          <div>
-            <div className="flex items-center justify-between mb-2 sm:mb-4">
-              <div className="h-7 w-7 rounded-md bg-kumo-brand/10 text-kumo-brand flex items-center justify-center sm:h-8 sm:w-8">
-                <Terminal className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-              </div>
-              <span className="text-[11px] font-semibold text-kumo-subtle bg-kumo-recessed px-2 py-0.5 rounded border border-kumo-line">
-                API 网关
-              </span>
-            </div>
-            <div className="space-y-1">
-              <span className="text-xs text-kumo-subtle block">调用次数</span>
-              <span className="text-xl font-bold text-kumo-strong tabular-nums sm:text-2xl">
-                {stats.geminiCli.total_calls} <span className="text-xs font-normal text-kumo-subtle">次</span>
-              </span>
-            </div>
-          </div>
-          <div className="mt-2 pt-2 sm:mt-4 sm:pt-3 border-t border-kumo-line flex items-center justify-between text-[11px] text-kumo-subtle group-hover:text-kumo-strong transition-colors sm:text-xs">
-            <span>{apiSuccessRate()} 成功率</span>
-            <ArrowRight className="w-3 h-3" />
-          </div>
-        </AppCard>
+          icon={Terminal}
+          iconClassName="bg-kumo-brand/10 text-kumo-brand"
+          badge="API 网关"
+          badgeClassName="text-kumo-subtle bg-kumo-recessed border-kumo-line"
+          label="调用次数"
+          value={stats.geminiCli.total_calls}
+          unit="次"
+          detail={`${apiSuccessRate()} 成功率`}
+        />
 
-        {/* PaaS Applications Card */}
-        <AppCard
+        <DashboardOverviewCard
           onClick={() => setMainActiveTab('paas')}
-          padding="sm"
-          interactive
-          className="group flex cursor-pointer flex-col justify-between sm:p-5"
-        >
-          <div>
-            <div className="flex items-center justify-between mb-2 sm:mb-4">
-              <div className="h-7 w-7 rounded-md bg-kumo-badge-purple/10 text-kumo-badge-purple flex items-center justify-center sm:h-8 sm:w-8">
-                <Cloud className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-              </div>
-              <span className="text-[11px] font-semibold text-kumo-badge-purple bg-kumo-badge-purple/10 px-2 py-0.5 rounded border border-kumo-badge-purple/20">
-                {stats.paas.koyeb.running + stats.paas.fly.running} 运行
-              </span>
-            </div>
-            <div className="space-y-1">
-              <span className="text-xs text-kumo-subtle block">云应用实例</span>
-              <span className="text-xl font-bold text-kumo-strong tabular-nums sm:text-2xl">
-                {stats.paas.koyeb.total + stats.paas.fly.total} <span className="text-xs font-normal text-kumo-subtle">个应用</span>
-              </span>
-            </div>
-          </div>
-          <div className="mt-2 pt-2 sm:mt-4 sm:pt-3 border-t border-kumo-line flex items-center justify-between text-[11px] text-kumo-subtle group-hover:text-kumo-strong transition-colors sm:text-xs">
-            <span>应用实例状态正常</span>
-            <ArrowRight className="w-3 h-3" />
-          </div>
-        </AppCard>
+          icon={Cloud}
+          iconClassName="bg-kumo-badge-purple/10 text-kumo-badge-purple"
+          badge={`${stats.paas.koyeb.running + stats.paas.fly.running} 运行`}
+          badgeClassName="text-kumo-badge-purple bg-kumo-badge-purple/10 border-kumo-badge-purple/20"
+          label="云应用实例"
+          value={stats.paas.koyeb.total + stats.paas.fly.total}
+          unit="个应用"
+          detail="应用实例状态正常"
+        />
 
-        {/* Cloudflare DNS Card */}
-        <AppCard
+        <DashboardOverviewCard
           onClick={() => setMainActiveTab('dns')}
-          padding="sm"
-          interactive
-          className="group flex cursor-pointer flex-col justify-between sm:p-5"
-        >
-          <div>
-            <div className="flex items-center justify-between mb-2 sm:mb-4">
-              <div className="h-7 w-7 rounded-md bg-kumo-badge-orange/10 text-kumo-badge-orange flex items-center justify-center sm:h-8 sm:w-8">
-                <Globe className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-              </div>
-              <span className="text-[11px] font-semibold text-kumo-subtle bg-kumo-recessed px-2 py-0.5 rounded border border-kumo-line">
-                Cloudflare
-              </span>
-            </div>
-            <div className="space-y-1">
-              <span className="text-xs text-kumo-subtle block">域名解析</span>
-              <span className="text-xl font-bold text-kumo-strong tabular-nums sm:text-2xl">
-                {stats.dns.zones} <span className="text-xs font-normal text-kumo-subtle">个区域</span>
-              </span>
-            </div>
-          </div>
-          <div className="mt-2 pt-2 sm:mt-4 sm:pt-3 border-t border-kumo-line flex items-center justify-between text-[11px] text-kumo-subtle group-hover:text-kumo-strong transition-colors sm:text-xs">
-            <span>域名配置正常</span>
-            <ArrowRight className="w-3 h-3" />
-          </div>
-        </AppCard>
+          icon={Globe}
+          iconClassName="bg-kumo-badge-orange/10 text-kumo-badge-orange"
+          badge="Cloudflare"
+          badgeClassName="text-kumo-subtle bg-kumo-recessed border-kumo-line"
+          label="域名解析"
+          value={stats.dns.zones}
+          unit="个区域"
+          detail="域名配置正常"
+        />
 
-        {/* Uptime Monitors Card */}
-        <AppCard
+        <DashboardOverviewCard
           onClick={() => setMainActiveTab('uptime')}
-          padding="sm"
-          interactive
-          className="group flex cursor-pointer flex-col justify-between sm:p-5"
-        >
-          <div>
-            <div className="flex items-center justify-between mb-2 sm:mb-4">
-              <div className="h-7 w-7 rounded-md bg-kumo-success/10 text-kumo-success flex items-center justify-center sm:h-8 sm:w-8">
-                <Activity className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-              </div>
-              <span className={`app-status-pill text-[11px] ${
-                stats.uptime.down > 0
-                  ? 'text-kumo-danger bg-kumo-danger/10 border-kumo-danger/20'
-                  : 'text-kumo-success bg-kumo-success/10 border-kumo-success/20'
-              }`}>
-                {stats.uptime.up}/{stats.uptime.total} 在线
-              </span>
-            </div>
-            <div className="space-y-1">
-              <span className="text-xs text-kumo-subtle block">服务监控</span>
-              <span className="text-xl font-bold text-kumo-strong tabular-nums sm:text-2xl">
-                {stats.uptime.total} <span className="text-xs font-normal text-kumo-subtle">个监测</span>
-              </span>
-            </div>
-          </div>
-          <div className="mt-2 pt-2 sm:mt-4 sm:pt-3 border-t border-kumo-line flex items-center justify-between text-[11px] text-kumo-subtle group-hover:text-kumo-strong transition-colors sm:text-xs">
-            <span className={stats.uptime.down > 0 ? 'text-kumo-danger font-medium' : ''}>
-              {stats.uptime.down > 0 ? `${stats.uptime.down} 个监测发生故障` : '服务状态健康'}
-            </span>
-            <ArrowRight className="w-3 h-3" />
-          </div>
-        </AppCard>
+          icon={Activity}
+          iconClassName="bg-kumo-success/10 text-kumo-success"
+          badge={`${stats.uptime.up}/${stats.uptime.total} 在线`}
+          badgeClassName={uptimeBadgeClassName}
+          label="服务监控"
+          value={stats.uptime.total}
+          unit="个监测"
+          detail={uptimeDetailText}
+          detailClassName={uptimeDetailClassName}
+        />
 
       </div>
 
@@ -859,7 +911,7 @@ function DashboardPage() {
                     API 调用趋势
                   </h3>
                   <span className="text-[10px] text-kumo-subtle app-subcard bg-kumo-recessed px-2 py-0.5 rounded font-medium">
-                    最近 24 小时
+                    最近 30 天
                   </span>
                 </div>
 
@@ -881,7 +933,7 @@ function DashboardPage() {
                         tooltipBoundary={tooltipBoundary ?? undefined}
                         tooltipFollowCursor="x"
                         loading={loading && !hasApiTrendCalls}
-                        ariaDescription="最近 24 小时 Gemini CLI API 调用量"
+                        ariaDescription="最近 30 天 Gemini CLI API 调用量"
                       />
                     </div>
                   ) : (

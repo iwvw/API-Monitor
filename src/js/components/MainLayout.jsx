@@ -290,8 +290,9 @@ function MainLayout() {
   return (
     <Sidebar.Provider
       defaultOpen={!sidebarCollapsed}
+      open={!sidebarCollapsed}
       onOpenChange={(open) => setSidebarCollapsed(!open)}
-      style={{ '--sidebar-width': '14rem', '--sidebar-width-icon': '54px' }}
+      style={{ '--sidebar-width': '12.5rem', '--sidebar-width-icon': '54px' }}
       className="flex h-screen w-screen overflow-hidden bg-kumo-canvas text-kumo-default"
     >
       {/* ==================== 1. 侧边栏 (Sidebar) ==================== */}

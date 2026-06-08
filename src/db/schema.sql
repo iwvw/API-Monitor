@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS user_settings (
     custom_css TEXT,
     theme_mode TEXT DEFAULT 'auto',
     page_width_mode TEXT DEFAULT 'standard',
+    sidebar_collapsed INTEGER DEFAULT 0,
     module_visibility TEXT, -- JSON 格式
     module_order TEXT, -- JSON 格式
     channel_enabled TEXT, -- JSON 格式: 启用的渠道

@@ -437,6 +437,19 @@ class DatabaseService {
               )
               .run();
           }
+
+          const hasSidebarCollapsed = settingsColumns.some(col => col.name === 'sidebar_collapsed');
+          if (!hasSidebarCollapsed) {
+            logger.info('正在为 user_settings 表添加 sidebar_collapsed 字段...');
+            this.db.exec(
+              'ALTER TABLE user_settings ADD COLUMN sidebar_collapsed INTEGER DEFAULT 0'
+            );
+            logger.success('user_settings.sidebar_collapsed 字段添加成功');
+          } else {
+            this.db
+              .prepare('UPDATE user_settings SET sidebar_collapsed = 0 WHERE sidebar_collapsed IS NULL')
+              .run();
+          }
         }
       } catch (err) {
         logger.error('User Settings 额外字段迁移失败:', err.message);
@@ -778,7 +791,7 @@ class DatabaseService {
   getMigrationSelfCheck() {
     const db = this.getDatabase();
     const required = {
-      user_settings: ['id', 'theme_mode', 'page_width_mode', 'module_visibility', 'module_order'],
+      user_settings: ['id', 'theme_mode', 'page_width_mode', 'sidebar_collapsed', 'module_visibility', 'module_order'],
       operation_logs: ['id', 'operation_type', 'table_name', 'trace_id'],
       totp_accounts: ['id', 'secret', 'secret_encrypted_at', 'last_revealed_at'],
       filebox_entries: ['code', 'type', 'expiry', 'downloads'],

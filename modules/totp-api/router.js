@@ -3,6 +3,9 @@
  */
 
 const express = require('express');
+const fs = require('fs');
+const path = require('path');
+const archiver = require('archiver');
 const router = express.Router();
 const storage = require('./storage');
 const totpService = require('./totp-service');
@@ -679,53 +682,39 @@ router.post('/generate-secret', async (req, res) => {
  */
 router.get('/extension/download', async (req, res) => {
   try {
-    const path = require('path');
-    const fs = require('fs');
-    const { exec } = require('child_process');
-
     const pluginDir = path.resolve(__dirname, '../../plugin');
-    const tempDir = path.resolve(__dirname, '../../tmp');
-    const zipFile = path.join(tempDir, 'api-monitor-2fa-extension.zip');
 
-    if (!fs.existsSync(tempDir)) {
-      fs.mkdirSync(tempDir, { recursive: true });
+    if (!fs.existsSync(pluginDir)) {
+      logger.error('浏览器扩展目录不存在', pluginDir);
+      return res.status(404).json({ success: false, error: '浏览器扩展目录不存在' });
     }
 
-    // 使用 PowerShell 进行压缩，确保路径处理更稳健
-    const cmd = `powershell -Command "Compress-Archive -Path '${pluginDir}\\*' -DestinationPath '${zipFile}' -Force"`;
+    logger.info(`正在压缩扩展程序: ${pluginDir}`);
 
-    logger.info(`正在压缩扩展程序: ${pluginDir} -> ${zipFile}`);
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', 'attachment; filename="api-monitor-2fa-extension.zip"');
 
-    exec(cmd, (error, stdout, stderr) => {
-      if (error) {
-        logger.error('压缩扩展失败', {
-          message: error.message,
-          stderr: stderr,
-          stdout: stdout
-        });
-        return res.status(500).json({ success: false, error: '压缩失败: ' + (stderr || error.message) });
+    const archive = archiver('zip', { zlib: { level: 9 } });
+
+    archive.on('error', (error) => {
+      logger.error('压缩扩展失败', error.message);
+      if (!res.headersSent) {
+        res.status(500).json({ success: false, error: '压缩失败: ' + error.message });
+        return;
       }
-
-      if (!fs.existsSync(zipFile)) {
-        logger.error('压缩成功但未找到 ZIP 文件', zipFile);
-        return res.status(500).json({ success: false, error: '文件生成失败' });
-      }
-
-      res.download(zipFile, 'api-monitor-2fa-extension.zip', err => {
-        if (err) {
-          logger.error('发送扩展失败', err.message);
-        }
-        // 发送后尝试删除临时文件
-        setTimeout(() => {
-          try {
-            if (fs.existsSync(zipFile)) fs.unlinkSync(zipFile);
-          } catch (e) { }
-        }, 1000);
-      });
+      res.destroy(error);
     });
+
+    archive.pipe(res);
+    archive.directory(pluginDir, false);
+    await archive.finalize();
   } catch (error) {
     logger.error('下载扩展异常', error.message);
-    res.status(500).json({ success: false, error: error.message });
+    if (!res.headersSent) {
+      res.status(500).json({ success: false, error: error.message });
+    } else {
+      res.destroy(error);
+    }
   }
 });
 

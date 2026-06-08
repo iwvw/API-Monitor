@@ -13,6 +13,33 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="mobile-web-app-capable" content="yes" />
 
+  <script>
+    (function () {
+      var themeMode = 'auto';
+      var isDark = false;
+
+      try {
+        var savedMode = localStorage.getItem('app_theme_mode');
+        var legacyTheme = localStorage.getItem('app_theme');
+        themeMode = savedMode || legacyTheme || 'auto';
+        isDark =
+          themeMode === 'dark' ||
+          (themeMode !== 'light' &&
+            window.matchMedia &&
+            window.matchMedia('(prefers-color-scheme: dark)').matches);
+      } catch (e) {
+        isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+      }
+
+      document.documentElement.classList.toggle('dark', isDark);
+      document.documentElement.classList.toggle('light', !isDark);
+      document.documentElement.dataset.mode = isDark ? 'dark' : 'light';
+      document.documentElement.dataset.theme = isDark ? 'dark' : 'light';
+      document.documentElement.dataset.themeMode = themeMode;
+      document.documentElement.style.colorScheme = isDark ? 'dark' : 'light';
+    })();
+  </script>
+
   <style>
     *,
     *::before,
@@ -25,6 +52,21 @@
       height: 100%;
       width: 100%;
       margin: 0;
+      background: var(--app-loading-bg);
+      color: var(--app-loading-fg);
+    }
+
+    html {
+      --app-loading-bg: #f8f7f4;
+      --app-loading-fg: #171512;
+      --app-loading-track: rgba(220, 125, 64, 0.18);
+      --app-loading-accent: #dc7d40;
+    }
+
+    html[data-mode='dark'] {
+      --app-loading-bg: #050505;
+      --app-loading-fg: #f8f7f4;
+      --app-loading-track: rgba(220, 125, 64, 0.22);
     }
   </style>
 </head>
@@ -42,7 +84,7 @@
         justify-content: center;
         align-items: center;
         transition: opacity 0.3s ease-out;
-        background: var(--color-kumo-canvas, Canvas);
+        background: var(--app-loading-bg);
       ">
     <img src="/logo.svg" alt="Loading..." style="
           width: 64px;
@@ -50,11 +92,13 @@
           margin-bottom: 40px;
           animation: pulse 2s infinite ease-in-out;
         " />
-    <div id="loading-progress-track" style="width: 160px; height: 5px; border-radius: 999px; overflow: hidden">
+    <div id="loading-progress-track"
+      style="width: 160px; height: 5px; border-radius: 999px; overflow: hidden; background: var(--app-loading-track)">
       <div id="loading-progress-bar" style="
             width: 30%;
             height: 100%;
             border-radius: 999px;
+            background: var(--app-loading-accent);
             animation: progress-indeterminate 1.5s infinite ease-in-out;
           "></div>
     </div>
@@ -92,18 +136,9 @@
     </style>
     <script>
       (function () {
-        var savedMode = localStorage.getItem('app_theme_mode');
-        var legacyTheme = localStorage.getItem('app_theme');
-        var themeMode = savedMode || legacyTheme || 'auto';
-        var isDark =
-          themeMode === 'dark' ||
-          (themeMode !== 'light' &&
-            window.matchMedia &&
-            window.matchMedia('(prefers-color-scheme: dark)').matches);
+        var themeMode = document.documentElement.dataset.themeMode || 'auto';
+        var isDark = document.documentElement.dataset.mode === 'dark';
         var loader = document.getElementById('app-loading');
-        var track = document.getElementById('loading-progress-track');
-        var bar = document.getElementById('loading-progress-bar');
-        var logoAccent = '#dc7d40';
 
         function applyTheme(dark) {
           document.documentElement.classList.toggle('dark', dark);
@@ -111,14 +146,9 @@
           document.documentElement.dataset.mode = dark ? 'dark' : 'light';
           document.documentElement.dataset.theme = dark ? 'dark' : 'light';
           document.documentElement.dataset.themeMode = themeMode;
+          document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
           if (loader) {
-            loader.style.background = 'var(--color-kumo-canvas, Canvas)';
-          }
-          if (track) {
-            track.style.background = 'color-mix(in oklch, ' + logoAccent + ' 16%, transparent)';
-          }
-          if (bar) {
-            bar.style.background = logoAccent;
+            loader.style.background = 'var(--app-loading-bg)';
           }
         }
 

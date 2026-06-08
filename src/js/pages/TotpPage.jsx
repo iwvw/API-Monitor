@@ -10,6 +10,7 @@ import { Switch } from '@cloudflare/kumo/components/switch';
 import { Table } from '@cloudflare/kumo/components/table';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import { Tabs } from '@cloudflare/kumo';
+import { DEFAULT_TOTP_SETTINGS } from '../store.js';
 import { MODULE_TABS_PROPS, TOOL_TABS_PROPS } from '../modules/kumoTabs.js';
 import { handleEditableRowDoubleClick } from '../modules/tableInteractions.js';
 import { AnimatedCollapse } from '../components/AnimatedCollapse.jsx';
@@ -55,15 +56,7 @@ function TotpPage() {
 
   // 用户设置状态
   const [totpSettings, setTotpSettings] = useState({
-    maskAccount: false,
-    hideCode: false,
-    allowRevealCode: true,
-    groupByPlatform: false,
-    showPlatformHeaders: true,
-    hidePlatformText: false,
-    autoSave: false,
-    lockInputMode: false,
-    defaultInputMode: 'scan',
+    ...DEFAULT_TOTP_SETTINGS,
   });
 
   // Modal 状态
@@ -1189,9 +1182,9 @@ function TotpPage() {
             {/* Toggle 3: groupByPlatform */}
             <div className="flex items-start justify-between border-t border-kumo-line pt-4">
               <div className="space-y-0.5">
-                <h4 className="text-xs font-semibold text-kumo-strong">按服务商/平台归类</h4>
+                <h4 className="text-xs font-semibold text-kumo-strong">按站点分组</h4>
                 <p className="text-[10px] text-kumo-subtle">
-                  将相同发行商（如 Google, GitHub）下的账号汇聚在一起分组显示。
+                  将相同站点或服务（如 Google, GitHub）下的账号汇聚在一起分组显示。
                 </p>
               </div>
               <Switch
@@ -1359,7 +1352,7 @@ function TotpPage() {
           )}
 
           {/* Form Content */}
-          <div className="space-y-4 max-h-[50vh] overflow-y-auto pr-1 scrollbar-thin">
+          <div className="-mx-1 space-y-4 max-h-[50vh] overflow-y-auto px-1 pr-2 scrollbar-thin">
             {accountModalMode === 'add' && accountAddTab === 'scan' ? (
               <div className="space-y-4">
                 <div className="flex gap-2 items-center">
@@ -1425,7 +1418,7 @@ function TotpPage() {
                     placeholder="otpauth://totp/GitHub:user@example.com?secret=XXXX..."
                     value={importUris}
                     onChange={(e) => setImportUris(e.target.value)}
-                    className="w-full text-kumo-strong text-xs px-3 py-2 font-mono"
+                    className="w-full font-mono"
                   />
                 </div>
               </div>
@@ -1470,7 +1463,7 @@ function TotpPage() {
                     placeholder="如: GitHub, Microsoft"
                     value={accountForm.issuer}
                     onChange={(e) => setAccountForm((prev) => ({ ...prev, issuer: e.target.value }))}
-                    className="w-full text-kumo-strong text-sm px-3 py-2"
+                    className="w-full"
                   />
                 </div>
 
@@ -1482,7 +1475,7 @@ function TotpPage() {
                     placeholder="如: user@example.com"
                     value={accountForm.account}
                     onChange={(e) => setAccountForm((prev) => ({ ...prev, account: e.target.value }))}
-                    className="w-full text-kumo-strong text-sm px-3 py-2"
+                    className="w-full"
                   />
                 </div>
 
@@ -1496,14 +1489,14 @@ function TotpPage() {
                       disabled={accountModalMode === 'edit'}
                       value={accountForm.secret}
                       onChange={(e) => setAccountForm((prev) => ({ ...prev, secret: e.target.value }))}
-                      className="w-full text-kumo-strong text-sm pl-3 pr-10 py-2 disabled:opacity-60"
+                      className="w-full pr-16 disabled:opacity-60"
                     />
                     <Button
                       type="button" size="sm"
                       variant="ghost"
                       aria-label={totpShowSecret ? '隐藏密钥' : '显示密钥'}
                       onClick={toggleSecretVisibility}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-kumo-subtle hover:text-kumo-strong"
+                      className="absolute right-1 top-1/2 -translate-y-1/2 text-kumo-subtle hover:text-kumo-strong"
                     >
                       {totpShowSecret ? '隐藏' : '显示'}
                     </Button>
@@ -1517,7 +1510,7 @@ function TotpPage() {
                     value={accountForm.group_id}
                     onValueChange={(value) => setAccountForm((prev) => ({ ...prev, group_id: String(value) }))}
                     placeholder="无分组"
-                    className="w-full text-kumo-strong text-sm px-3 py-2"
+                    className="w-full"
                     items={[
                       { value: '', label: '无分组' },
                       ...totpGroups.map((g) => ({ value: String(g.id), label: g.name })),
@@ -1537,7 +1530,7 @@ function TotpPage() {
                         aria-label="加密算法" size="sm"
                         value={accountForm.algorithm}
                         onValueChange={(value) => setAccountForm((prev) => ({ ...prev, algorithm: String(value) }))}
-                        className="w-full text-kumo-strong p-1"
+                        className="w-full"
                         items={[
                           { value: 'SHA1', label: 'SHA1' },
                           { value: 'SHA256', label: 'SHA256' },
@@ -1552,7 +1545,7 @@ function TotpPage() {
                         aria-label="码位长度" size="sm"
                         value={accountForm.digits}
                         onValueChange={(value) => setAccountForm((prev) => ({ ...prev, digits: String(value) }))}
-                        className="w-full text-kumo-strong p-1"
+                        className="w-full"
                         items={[
                           { value: '6', label: '6 位' },
                           { value: '8', label: '8 位' },
@@ -1567,7 +1560,7 @@ function TotpPage() {
                           aria-label="周期数" size="sm"
                           value={accountForm.period}
                           onValueChange={(value) => setAccountForm((prev) => ({ ...prev, period: String(value) }))}
-                          className="w-full text-kumo-strong p-1"
+                          className="w-full"
                           items={[
                             { value: '30', label: '30 秒' },
                             { value: '60', label: '60 秒' },
@@ -1582,7 +1575,7 @@ function TotpPage() {
                           type="number"
                           value={accountForm.counter}
                           onChange={(e) => setAccountForm((prev) => ({ ...prev, counter: e.target.value }))}
-                          className="w-full text-kumo-strong p-1 font-mono"
+                          className="w-full font-mono"
                         />
                       </div>
                     )}
@@ -1664,7 +1657,7 @@ function TotpPage() {
                 placeholder="如: 财务, 工作, 个人"
                 value={groupForm.name}
                 onChange={(e) => setGroupForm((prev) => ({ ...prev, name: e.target.value }))}
-                className="w-full text-kumo-strong text-sm px-3 py-2"
+                className="w-full"
               />
             </div>
 

@@ -1215,7 +1215,7 @@ function NotificationPage() {
             配置系统警报发送的目标分发端口
           </Dialog.Description>
 
-          <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1 scrollbar-thin">
+          <div className="-mx-1 space-y-4 max-h-[60vh] overflow-y-auto px-1 pr-2 scrollbar-thin">
             {/* Channel Type */}
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-kumo-subtle">渠道类型</label>
@@ -1224,7 +1224,7 @@ function NotificationPage() {
                 value={channelForm.type}
                 disabled={channelForm.id !== null}
                 onValueChange={(value) => setChannelForm(prev => ({ ...prev, type: String(value) }))}
-                className="w-full text-kumo-strong text-sm px-3 py-2"
+                className="w-full"
                 items={[
                   { value: 'email', label: '电子邮件' },
                   { value: 'telegram', label: 'Telegram Bot' },
@@ -1241,7 +1241,7 @@ function NotificationPage() {
                 placeholder="例如：运维值班邮箱"
                 value={channelForm.name}
                 onChange={(e) => setChannelForm(prev => ({ ...prev, name: e.target.value }))}
-                className="w-full text-kumo-strong text-sm px-3 py-2"
+                className="w-full"
               />
             </div>
 
@@ -1259,7 +1259,7 @@ function NotificationPage() {
                       ...prev,
                       config: { ...prev.config, host: e.target.value }
                     }))}
-                    className="w-full text-kumo-strong text-sm px-3 py-2"
+                    className="w-full"
                   />
                 </div>
 
@@ -1272,7 +1272,7 @@ function NotificationPage() {
                       placeholder="465"
                       value={channelForm.config.port}
                       onChange={(e) => syncEmailSecure(parseInt(e.target.value) || 0)}
-                      className="w-full text-kumo-strong text-sm px-3 py-2 font-mono"
+                      className="w-full font-mono"
                     />
                   </div>
 
@@ -1285,7 +1285,7 @@ function NotificationPage() {
                         ...prev,
                         config: { ...prev.config, secure: String(value) === 'ssl' }
                       }))}
-                      className="w-full text-kumo-strong text-sm px-3 py-2"
+                      className="w-full"
                       items={[
                         { value: 'tls', label: 'STARTTLS / TLS（587）' },
                         { value: 'ssl', label: 'SSL（465）' },
@@ -1308,7 +1308,7 @@ function NotificationPage() {
                         auth: { ...prev.config.auth, user: e.target.value }
                       }
                     }))}
-                    className="w-full text-kumo-strong text-sm px-3 py-2"
+                    className="w-full"
                   />
                 </div>
 
@@ -1326,7 +1326,7 @@ function NotificationPage() {
                         auth: { ...prev.config.auth, pass: e.target.value }
                       }
                     }))}
-                    className="w-full text-kumo-strong text-sm px-3 py-2"
+                    className="w-full"
                   />
                 </div>
 
@@ -1341,7 +1341,7 @@ function NotificationPage() {
                       ...prev,
                       config: { ...prev.config, sender_name: e.target.value }
                     }))}
-                    className="w-full text-kumo-strong text-sm px-3 py-2"
+                    className="w-full"
                   />
                 </div>
 
@@ -1356,7 +1356,7 @@ function NotificationPage() {
                       ...prev,
                       config: { ...prev.config, to: e.target.value }
                     }))}
-                    className="w-full text-kumo-strong text-sm px-3 py-2"
+                    className="w-full"
                   />
                 </div>
               </>
@@ -1376,7 +1376,7 @@ function NotificationPage() {
                       ...prev,
                       config: { ...prev.config, bot_token: e.target.value }
                     }))}
-                    className="w-full text-kumo-strong text-sm px-3 py-2 font-mono"
+                    className="w-full font-mono"
                   />
                 </div>
 
@@ -1391,7 +1391,7 @@ function NotificationPage() {
                       ...prev,
                       config: { ...prev.config, chat_id: e.target.value }
                     }))}
-                    className="w-full text-kumo-strong text-sm px-3 py-2 font-mono"
+                    className="w-full font-mono"
                   />
                 </div>
               </>
@@ -1433,7 +1433,7 @@ function NotificationPage() {
             配置匹配的触发条件与投递渠道
           </Dialog.Description>
 
-          <div className="space-y-4 max-h-[60vh] overflow-y-auto pr-1 scrollbar-thin">
+          <div className="-mx-1 space-y-4 max-h-[60vh] overflow-y-auto px-1 pr-2 scrollbar-thin">
             {/* Rule Name */}
             <div className="space-y-1.5">
               <label className="text-xs font-semibold text-kumo-subtle">规则名称 *</label>
@@ -1443,7 +1443,7 @@ function NotificationPage() {
                 placeholder="例如：数据库故障告警"
                 value={ruleForm.name}
                 onChange={(e) => setRuleForm(prev => ({ ...prev, name: e.target.value }))}
-                className="w-full text-kumo-strong text-sm px-3 py-2"
+                className="w-full"
               />
             </div>
 
@@ -1455,7 +1455,7 @@ function NotificationPage() {
                   aria-label="来源监控模块"
                   value={ruleForm.source_module}
                   onValueChange={(value) => handleSourceModuleChange(String(value))}
-                  className="w-full text-kumo-strong text-sm px-3 py-2"
+                  className="w-full"
                   items={catalogModuleItems}
                 />
               </div>
@@ -1466,7 +1466,7 @@ function NotificationPage() {
                   aria-label="触发事件类型"
                   value={ruleForm.event_type}
                   onValueChange={(value) => setRuleForm(prev => ({ ...prev, event_type: String(value) }))}
-                  className="w-full text-kumo-strong text-sm px-3 py-2"
+                  className="w-full"
                   items={catalogEventItems}
                 />
               </div>
@@ -1479,7 +1479,7 @@ function NotificationPage() {
                 aria-label="告警紧急级别"
                 value={ruleForm.severity}
                 onValueChange={(value) => setRuleForm(prev => ({ ...prev, severity: String(value) }))}
-                className="w-full text-kumo-strong text-sm px-3 py-2"
+                className="w-full"
                 items={[
                   { value: 'info', label: '常规通知 (Info)' },
                   { value: 'warning', label: '重要警告 (Warning)' },
@@ -1524,7 +1524,7 @@ function NotificationPage() {
                     ...prev,
                     suppression: { ...prev.suppression, repeat_count: parseInt(e.target.value) || 1 }
                   }))}
-                  className="w-full text-kumo-strong text-sm px-3 py-2 font-mono"
+                  className="w-full font-mono"
                 />
               </div>
 
@@ -1539,7 +1539,7 @@ function NotificationPage() {
                     ...prev,
                     suppression: { ...prev.suppression, silence_minutes: parseInt(e.target.value) || 0 }
                   }))}
-                  className="w-full text-kumo-strong text-sm px-3 py-2 font-mono"
+                  className="w-full font-mono"
                 />
               </div>
             </div>
@@ -1587,7 +1587,7 @@ function NotificationPage() {
                 placeholder="例: 🚨 [{{severity}}] 主机 {{serverName}} 离线!"
                 value={ruleForm.title_template}
                 onChange={(e) => setRuleForm(prev => ({ ...prev, title_template: e.target.value }))}
-                className="w-full text-kumo-strong text-sm px-3 py-2"
+                className="w-full"
               />
             </div>
 
@@ -1599,7 +1599,7 @@ function NotificationPage() {
                 placeholder="例: 服务 {{monitorName}} 无法连通，出错原因: {{error}}"
                 value={ruleForm.message_template}
                 onChange={(e) => setRuleForm(prev => ({ ...prev, message_template: e.target.value }))}
-                className="w-full text-kumo-strong text-xs px-3 py-2 min-h-16"
+                className="w-full min-h-16"
               />
             </div>
 
@@ -1630,7 +1630,7 @@ function NotificationPage() {
                 type="datetime-local"
                 value={ruleForm.quiet_until}
                 onChange={(e) => setRuleForm(prev => ({ ...prev, quiet_until: e.target.value }))}
-                className="w-full text-kumo-strong text-sm px-3 py-2 font-mono"
+                className="w-full font-mono"
               />
             </div>
 
