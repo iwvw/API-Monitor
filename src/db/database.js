@@ -616,6 +616,45 @@ class DatabaseService {
         logger.error('Music Settings 表创建失败:', err.message);
       }
 
+      // TOTP secret 加密迁移
+      try {
+        const { isEncrypted, secureEncrypt } = require('../utils/secure-storage');
+        const totpColumns = this.db.pragma('table_info(totp_accounts)');
+        if (totpColumns.length > 0) {
+          const hasSecretEncryptedAt = totpColumns.some(col => col.name === 'secret_encrypted_at');
+          if (!hasSecretEncryptedAt) {
+            logger.info('正在为 totp_accounts 表添加 secret_encrypted_at 字段...');
+            this.db.exec('ALTER TABLE totp_accounts ADD COLUMN secret_encrypted_at DATETIME');
+            logger.success('totp_accounts.secret_encrypted_at 字段添加成功');
+          }
+
+          const hasLastRevealedAt = totpColumns.some(col => col.name === 'last_revealed_at');
+          if (!hasLastRevealedAt) {
+            logger.info('正在为 totp_accounts 表添加 last_revealed_at 字段...');
+            this.db.exec('ALTER TABLE totp_accounts ADD COLUMN last_revealed_at DATETIME');
+            logger.success('totp_accounts.last_revealed_at 字段添加成功');
+          }
+
+          const accounts = this.db
+            .prepare('SELECT id, secret FROM totp_accounts WHERE secret IS NOT NULL AND secret <> ?')
+            .all('');
+          const updateSecret = this.db.prepare(
+            'UPDATE totp_accounts SET secret = ?, secret_encrypted_at = COALESCE(secret_encrypted_at, ?) WHERE id = ?'
+          );
+          const now = new Date().toISOString();
+          const tx = this.db.transaction(() => {
+            for (const account of accounts) {
+              if (!isEncrypted(account.secret)) {
+                updateSecret.run(secureEncrypt(account.secret), now, account.id);
+              }
+            }
+          });
+          tx();
+        }
+      } catch (err) {
+        logger.error('TOTP secret 加密迁移失败:', err.message);
+      }
+
       // AI Draw 迁移: 为 ai_draw_projects 表添加 provider_id 字段
       try {
         const drawProjectsColumns = this.db.pragma('table_info(ai_draw_projects)');
@@ -733,6 +772,45 @@ class DatabaseService {
       dbPath: this.dbPath,
       dbSize: fs.statSync(this.dbPath).size,
       tables: stats,
+    };
+  }
+
+  getMigrationSelfCheck() {
+    const db = this.getDatabase();
+    const required = {
+      user_settings: ['id', 'theme_mode', 'page_width_mode', 'module_visibility', 'module_order'],
+      operation_logs: ['id', 'operation_type', 'table_name', 'trace_id'],
+      totp_accounts: ['id', 'secret', 'secret_encrypted_at', 'last_revealed_at'],
+      filebox_entries: ['code', 'type', 'expiry', 'downloads'],
+      filebox_settings: ['id', 'max_file_size', 'allowed_mime_types', 'default_expiry_hours'],
+      uptime_monitors: ['id', 'type', 'keyword', 'dns_resolve_type', 'config_json', 'push_token', 'push_grace_seconds'],
+      uptime_monitor_states: ['monitor_id', 'state', 'fail_count', 'recover_count'],
+      notification_channels: ['id', 'type', 'config'],
+      settings_registry: ['domain', 'defaults_json', 'mask_fields_json'],
+    };
+
+    const result = {};
+    for (const [table, columns] of Object.entries(required)) {
+      const exists = db
+        .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name = ?")
+        .get(table);
+      if (!exists) {
+        result[table] = { ok: false, missingColumns: columns, exists: false };
+        continue;
+      }
+      const actualColumns = db.pragma(`table_info(${table})`).map(col => col.name);
+      const missingColumns = columns.filter(column => !actualColumns.includes(column));
+      result[table] = {
+        ok: missingColumns.length === 0,
+        exists: true,
+        missingColumns,
+      };
+    }
+
+    return {
+      ok: Object.values(result).every(item => item.ok),
+      checkedAt: new Date().toISOString(),
+      tables: result,
     };
   }
 

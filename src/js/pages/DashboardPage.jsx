@@ -13,6 +13,7 @@ import {
 } from 'echarts/components';
 import { CanvasRenderer } from 'echarts/renderers';
 import useStore from '../store.js';
+import { AppCard, ChartCard, PageStack } from '../components/ui/AppPrimitives.jsx';
 import {
   Cpu,
   Server,
@@ -74,15 +75,6 @@ echarts.use([
   CanvasRenderer,
   AriaComponent,
 ]);
-
-function ChartBoundaryBox({ className = '', children }) {
-  const [boundary, setBoundary] = useState(null);
-  return (
-    <div ref={setBoundary} className={className}>
-      {typeof children === 'function' ? children(boundary) : children}
-    </div>
-  );
-}
 
 function useMediaQuery(query) {
   const getMatches = () => (
@@ -652,7 +644,7 @@ function DashboardPage() {
     : 'text-kumo-success bg-kumo-success/10 border-kumo-success/20';
 
   return (
-    <div className="space-y-3 sm:space-y-6">
+    <PageStack className="gap-3 sm:gap-6">
       
       {/* ==================== Header ==================== */}
       <div className="flex items-start justify-between gap-3">
@@ -684,16 +676,18 @@ function DashboardPage() {
       <div className="grid grid-cols-2 gap-2 sm:gap-4 md:grid-cols-2 lg:grid-cols-5">
         
         {/* Servers Card */}
-        <div
+        <AppCard
           onClick={() => setMainActiveTab('server')}
-          className="bg-kumo-base border border-kumo-line hover:border-kumo-brand rounded-lg p-3 sm:p-5 cursor-pointer shadow-sm hover:shadow transition-all group flex flex-col justify-between"
+          padding="sm"
+          interactive
+          className="group flex cursor-pointer flex-col justify-between sm:p-5"
         >
           <div>
             <div className="flex items-center justify-between mb-2 sm:mb-4">
               <div className="h-7 w-7 rounded-md bg-kumo-info-tint text-kumo-info flex items-center justify-center sm:h-8 sm:w-8">
                 <Server className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
               </div>
-              <span className={`text-[11px] font-semibold px-2 py-0.5 rounded border ${
+              <span className={`app-status-pill text-[11px] ${
                 stats.servers.total === 0
                   ? 'text-kumo-subtle bg-kumo-recessed border-kumo-line'
                   : stats.servers.online === stats.servers.total
@@ -725,12 +719,14 @@ function DashboardPage() {
             </span>
             <ArrowRight className="w-3 h-3" />
           </div>
-        </div>
+        </AppCard>
 
         {/* API Gateway Card */}
-        <div
+        <AppCard
           onClick={() => setMainActiveTab('gemini-cli')}
-          className="bg-kumo-base border border-kumo-line hover:border-kumo-brand rounded-lg p-3 sm:p-5 cursor-pointer shadow-sm hover:shadow transition-all group flex flex-col justify-between"
+          padding="sm"
+          interactive
+          className="group flex cursor-pointer flex-col justify-between sm:p-5"
         >
           <div>
             <div className="flex items-center justify-between mb-2 sm:mb-4">
@@ -752,12 +748,14 @@ function DashboardPage() {
             <span>{apiSuccessRate()} 成功率</span>
             <ArrowRight className="w-3 h-3" />
           </div>
-        </div>
+        </AppCard>
 
         {/* PaaS Applications Card */}
-        <div
+        <AppCard
           onClick={() => setMainActiveTab('paas')}
-          className="bg-kumo-base border border-kumo-line hover:border-kumo-brand rounded-lg p-3 sm:p-5 cursor-pointer shadow-sm hover:shadow transition-all group flex flex-col justify-between"
+          padding="sm"
+          interactive
+          className="group flex cursor-pointer flex-col justify-between sm:p-5"
         >
           <div>
             <div className="flex items-center justify-between mb-2 sm:mb-4">
@@ -779,12 +777,14 @@ function DashboardPage() {
             <span>应用实例状态正常</span>
             <ArrowRight className="w-3 h-3" />
           </div>
-        </div>
+        </AppCard>
 
         {/* Cloudflare DNS Card */}
-        <div
+        <AppCard
           onClick={() => setMainActiveTab('dns')}
-          className="bg-kumo-base border border-kumo-line hover:border-kumo-brand rounded-lg p-3 sm:p-5 cursor-pointer shadow-sm hover:shadow transition-all group flex flex-col justify-between"
+          padding="sm"
+          interactive
+          className="group flex cursor-pointer flex-col justify-between sm:p-5"
         >
           <div>
             <div className="flex items-center justify-between mb-2 sm:mb-4">
@@ -806,19 +806,21 @@ function DashboardPage() {
             <span>域名配置正常</span>
             <ArrowRight className="w-3 h-3" />
           </div>
-        </div>
+        </AppCard>
 
         {/* Uptime Monitors Card */}
-        <div
+        <AppCard
           onClick={() => setMainActiveTab('uptime')}
-          className="bg-kumo-base border border-kumo-line hover:border-kumo-brand rounded-lg p-3 sm:p-5 cursor-pointer shadow-sm hover:shadow transition-all group flex flex-col justify-between"
+          padding="sm"
+          interactive
+          className="group flex cursor-pointer flex-col justify-between sm:p-5"
         >
           <div>
             <div className="flex items-center justify-between mb-2 sm:mb-4">
               <div className="h-7 w-7 rounded-md bg-kumo-success/10 text-kumo-success flex items-center justify-center sm:h-8 sm:w-8">
                 <Activity className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
               </div>
-              <span className={`text-[11px] font-semibold px-2 py-0.5 rounded border ${
+              <span className={`app-status-pill text-[11px] ${
                 stats.uptime.down > 0
                   ? 'text-kumo-danger bg-kumo-danger/10 border-kumo-danger/20'
                   : 'text-kumo-success bg-kumo-success/10 border-kumo-success/20'
@@ -839,7 +841,7 @@ function DashboardPage() {
             </span>
             <ArrowRight className="w-3 h-3" />
           </div>
-        </div>
+        </AppCard>
 
       </div>
 
@@ -848,7 +850,7 @@ function DashboardPage() {
         
         {/* Left Column: API Trend Graph + Host Performance */}
         <div className="grid gap-3 sm:gap-4 lg:col-span-2">
-          <ChartBoundaryBox className="bg-kumo-base border border-kumo-line rounded-lg shadow-sm p-3 sm:p-5 flex min-h-0 flex-col overflow-hidden sm:min-h-[260px]">
+          <ChartCard className="flex min-h-0 flex-col sm:min-h-[260px] sm:p-5">
             {(tooltipBoundary) => (
               <>
                 <div className="flex items-center justify-between border-b border-kumo-line pb-2 sm:pb-3">
@@ -856,7 +858,7 @@ function DashboardPage() {
                     <TrendingUp className="h-3.5 w-3.5 text-kumo-brand sm:h-4 sm:w-4" />
                     API 调用趋势
                   </h3>
-                  <span className="text-[10px] text-kumo-subtle bg-kumo-recessed border border-kumo-line px-2 py-0.5 rounded font-medium">
+                  <span className="text-[10px] text-kumo-subtle app-subcard bg-kumo-recessed px-2 py-0.5 rounded font-medium">
                     最近 24 小时
                   </span>
                 </div>
@@ -895,9 +897,9 @@ function DashboardPage() {
                 </div>
               </>
             )}
-          </ChartBoundaryBox>
+          </ChartCard>
 
-          <div className="bg-kumo-base border border-kumo-line rounded-lg p-3 shadow-sm sm:p-5">
+          <AppCard padding="sm" className="sm:p-5">
             <div className="flex flex-col gap-2 border-b border-kumo-line pb-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:pb-3">
               <div className="flex min-w-0 items-center gap-2 sm:gap-3">
                 <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-kumo-success/10 text-kumo-success sm:h-8 sm:w-8">
@@ -940,11 +942,11 @@ function DashboardPage() {
                 <span className="truncate font-semibold text-kumo-strong">{stats.host?.disk?.root || '-'}</span>
               </div>
             </div>
-          </div>
+          </AppCard>
         </div>
 
         {/* Right Column: Services & Tools List */}
-        <div className="bg-kumo-base border border-kumo-line rounded-lg shadow-sm p-3 sm:p-6 flex flex-col justify-between min-h-0 sm:min-h-[340px]">
+        <AppCard padding="sm" className="flex min-h-0 flex-col justify-between sm:min-h-[340px] sm:p-6">
           <div className="border-b border-kumo-line pb-2 sm:pb-3.5">
             <h3 className="text-xs font-semibold text-kumo-strong flex items-center gap-1.5 select-none sm:text-sm sm:gap-2">
               <Box className="h-3.5 w-3.5 text-kumo-brand sm:h-4 sm:w-4" />
@@ -956,7 +958,7 @@ function DashboardPage() {
             {/* Koyeb */}
             <div
               onClick={() => setMainActiveTab('paas')}
-              className="flex items-center justify-between gap-2 p-2.5 sm:p-3.5 bg-kumo-recessed border border-kumo-line hover:border-kumo-brand rounded-md cursor-pointer transition-all group"
+              className="flex items-center justify-between gap-2 p-2.5 sm:p-3.5 app-subcard bg-kumo-recessed hover:border-kumo-brand rounded-md cursor-pointer transition-all group"
             >
               <div className="flex min-w-0 items-center gap-2 sm:gap-3">
                 <div className="h-7 w-7 rounded-md bg-kumo-badge-purple/10 text-kumo-badge-purple flex items-center justify-center text-sm flex-shrink-0 sm:h-8 sm:w-8">
@@ -976,7 +978,7 @@ function DashboardPage() {
             {/* Fly.io */}
             <div
               onClick={() => setMainActiveTab('paas')}
-              className="flex items-center justify-between gap-2 p-2.5 sm:p-3.5 bg-kumo-recessed border border-kumo-line hover:border-kumo-brand rounded-md cursor-pointer transition-all group"
+              className="flex items-center justify-between gap-2 p-2.5 sm:p-3.5 app-subcard bg-kumo-recessed hover:border-kumo-brand rounded-md cursor-pointer transition-all group"
             >
               <div className="flex min-w-0 items-center gap-2 sm:gap-3">
                 <div className="h-7 w-7 rounded-md bg-kumo-brand/10 text-kumo-brand flex items-center justify-center text-sm flex-shrink-0 sm:h-8 sm:w-8">
@@ -996,7 +998,7 @@ function DashboardPage() {
             {/* 2FA */}
             <div
               onClick={() => setMainActiveTab('totp')}
-              className="flex items-center justify-between gap-2 p-2.5 sm:p-3.5 bg-kumo-recessed border border-kumo-line hover:border-kumo-brand rounded-md cursor-pointer transition-all group"
+              className="flex items-center justify-between gap-2 p-2.5 sm:p-3.5 app-subcard bg-kumo-recessed hover:border-kumo-brand rounded-md cursor-pointer transition-all group"
             >
               <div className="flex min-w-0 items-center gap-2 sm:gap-3">
                 <div className="h-7 w-7 rounded-md bg-kumo-success/10 text-kumo-success flex items-center justify-center text-sm flex-shrink-0 sm:h-8 sm:w-8">
@@ -1016,7 +1018,7 @@ function DashboardPage() {
             {/* FileBox */}
             <div
               onClick={() => setMainActiveTab('filebox')}
-              className="flex items-center justify-between gap-2 p-2.5 sm:p-3.5 bg-kumo-recessed border border-kumo-line hover:border-kumo-brand rounded-md cursor-pointer transition-all group"
+              className="flex items-center justify-between gap-2 p-2.5 sm:p-3.5 app-subcard bg-kumo-recessed hover:border-kumo-brand rounded-md cursor-pointer transition-all group"
             >
               <div className="flex min-w-0 items-center gap-2 sm:gap-3">
                 <div className="h-7 w-7 rounded-md bg-kumo-info-tint text-kumo-info flex items-center justify-center text-sm flex-shrink-0 sm:h-8 sm:w-8">
@@ -1037,11 +1039,11 @@ function DashboardPage() {
           <div className="text-[10px] text-kumo-subtle border-t border-kumo-line pt-2 select-none text-center sm:pt-3">
             点击以上卡片可直接跳转相应模块管理。
           </div>
-        </div>
+        </AppCard>
 
       </div>
 
-    </div>
+    </PageStack>
   );
 }
 

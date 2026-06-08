@@ -218,7 +218,7 @@ function SelfHPage() {
     if (file.is_dir) return <Folder className="w-4 h-4 text-warning" />;
     const name = file.name.toLowerCase();
     if (/\.(jpg|jpeg|png|gif|webp|svg)$/.test(name)) return <FileText className="w-4 h-4 text-success" />;
-    if (/\.(mp4|webm|mkv|avi)$/.test(name)) return <Play className="w-4 h-4 text-danger animate-pulse" />;
+    if (/\.(mp4|webm|mkv|avi)$/.test(name)) return <Play className="w-4 h-4 text-kumo-danger animate-pulse" />;
     if (/\.(zip|rar|7z|gz|tar)$/.test(name)) return <FileText className="w-4 h-4 text-warning" />;
     return <FileText className="w-4 h-4 text-secondary" />;
   };
@@ -821,7 +821,7 @@ function SelfHPage() {
             <Button size="sm"
               onClick={() => loadFiles(currentPath, true)}
               disabled={loadingFiles}
-              className="flex items-center justify-center bg-kumo-base border border-kumo-line text-kumo-strong hover:bg-kumo-recessed"
+              className="flex items-center justify-center text-kumo-strong"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${loadingFiles ? 'animate-spin' : ''}`} />
             </Button>
@@ -835,7 +835,7 @@ function SelfHPage() {
         {subTab === 'files' && (
           <div className="space-y-4">
             {!currentAccount ? (
-              <div className="bg-kumo-base border border-kumo-line rounded-lg shadow-sm p-16 text-center flex flex-col items-center justify-center gap-4">
+              <div className="app-card p-16 text-center flex flex-col items-center justify-center gap-4">
                 <Plug className="w-10 h-10 text-kumo-subtle" />
                 <h4 className="text-sm font-bold text-kumo-strong">尚未连接 OpenList 实例</h4>
                 <p className="text-xs text-kumo-subtle">请前往配置页面添加并连接一个 OpenList 文件存储服务。</p>
@@ -847,7 +847,7 @@ function SelfHPage() {
             ) : (
               <div className="space-y-4">
                 {/* Path Breadcrumbs toolbar */}
-                <div className="bg-kumo-base border border-kumo-line rounded-lg p-3 flex flex-wrap justify-between items-center gap-4 shadow-sm">
+                <div className="app-card p-3 flex flex-wrap justify-between items-center gap-4">
                   {/* Left: Path Breadcrumbs */}
                   <div className="flex items-center gap-1 flex-wrap text-xs text-kumo-default font-semibold">
                     <Button
@@ -894,7 +894,7 @@ function SelfHPage() {
                 </div>
 
                 {/* Main list container */}
-                <div className="bg-kumo-base border border-kumo-line rounded-lg shadow-sm overflow-hidden min-h-[300px]">
+                <div className="app-card overflow-hidden min-h-[300px]">
                   {loadingFiles ? (
                     <Table layout="fixed">
                       <colgroup>
@@ -1010,7 +1010,7 @@ function SelfHPage() {
                           key={file.name}
                           onClick={() => handleOpenFile(file)}
                           onContextMenu={(e) => onRowContextMenu(e, file)}
-                          className="bg-kumo-base border border-kumo-line hover:border-kumo-brand rounded-lg p-4 flex flex-col items-center text-center cursor-pointer gap-2 transition-all group min-w-0"
+                          className="app-card hover:border-kumo-brand p-4 flex flex-col items-center text-center cursor-pointer gap-2 transition-all group min-w-0"
                         >
                           <div className="w-12 h-12 flex items-center justify-center bg-kumo-recessed rounded-md group-hover:bg-kumo-recessed/60">
                             {file.is_dir ? <Folder className="w-8 h-8 text-warning" /> : <FileText className="w-8 h-8 text-kumo-brand" />}
@@ -1029,7 +1029,7 @@ function SelfHPage() {
 
                 {/* README Markdown footer */}
                 {readmeContent && readmeVisible && (
-                  <div className="bg-kumo-base border border-kumo-line rounded-lg p-5 shadow-sm space-y-3">
+                  <div className="app-card p-5 space-y-3">
                     <div className="flex justify-between items-center border-b border-kumo-line pb-2">
                       <span className="text-xs font-bold text-kumo-strong flex items-center gap-1.5">
                         <FileText className="w-4 h-4 text-kumo-brand" />
@@ -1060,7 +1060,7 @@ function SelfHPage() {
         {subTab === 'settings' && (
           <div className="space-y-6">
             {/* Instance connections */}
-            <div className="bg-kumo-base border border-kumo-line rounded-lg shadow-sm p-5 space-y-4">
+            <div className="app-card p-5 space-y-4">
               <h3 className="text-sm font-bold text-kumo-strong flex items-center gap-2">
                 <Database className="w-4 h-4 text-kumo-brand" />
                 实例管理
@@ -1080,20 +1080,19 @@ function SelfHPage() {
                       <Button size="sm"
                         disabled={currentAccount?.id === acc.id}
                         onClick={() => handleSelectAccount(acc)}
-                        className={`h-7 px-2 ${currentAccount?.id === acc.id ? 'bg-kumo-success/15 text-kumo-success border border-kumo-success/20' : 'bg-kumo-base border border-kumo-line'}`}
+                        className={`h-7 px-2 ${currentAccount?.id === acc.id ? 'text-kumo-success' : ''}`}
                       >
                         <Check className="w-3.5 h-3.5" />
                       </Button>
                       <Button size="sm"
                         disabled={testingAccId === acc.id}
                         onClick={() => handleTestAccount(acc.id)}
-                        className="bg-kumo-base border border-kumo-line"
                       >
                         <Plug className={`w-3.5 h-3.5 ${testingAccId === acc.id ? 'animate-spin' : ''}`} />
                       </Button>
                       <Button size="sm"
                         onClick={() => handleDeleteAccount(acc.id)}
-                        className="bg-kumo-base border border-kumo-line text-kumo-danger hover:bg-kumo-danger/10"
+                        className="text-kumo-danger"
                       >
                         <Trash className="w-3.5 h-3.5" />
                       </Button>
@@ -1108,7 +1107,7 @@ function SelfHPage() {
             </div>
 
             {/* Add Instance Form */}
-            <div className="bg-kumo-base border border-kumo-line rounded-lg shadow-sm p-5 space-y-4">
+            <div className="app-card p-5 space-y-4">
               <h3 className="text-sm font-bold text-kumo-strong flex items-center gap-2">
                 <Plus className="w-4 h-4 text-kumo-brand" />
                 添加新实例
@@ -1147,7 +1146,7 @@ function SelfHPage() {
             </div>
 
             {/* Preferences */}
-            <div className="bg-kumo-base border border-kumo-line rounded-lg shadow-sm p-5 space-y-4">
+            <div className="app-card p-5 space-y-4">
               <h3 className="text-sm font-bold text-kumo-strong flex items-center gap-2">
                 <Sliders className="w-4 h-4 text-kumo-brand" />
                 偏好设置
@@ -1188,7 +1187,7 @@ function SelfHPage() {
         {subTab === 'cron' && (
           <div className="space-y-6">
             {/* Task list card */}
-            <div className="bg-kumo-base border border-kumo-line rounded-lg shadow-sm p-5 space-y-4">
+            <div className="app-card p-5 space-y-4">
               <div className="flex justify-between items-center border-b border-kumo-line pb-3">
                 <h3 className="text-sm font-bold text-kumo-strong flex items-center gap-2">
                   <Clock className="w-4 h-4 text-kumo-brand" />
@@ -1258,7 +1257,7 @@ function SelfHPage() {
                                 variant="secondary" size="sm"
                                 shape="square"
                                 aria-label="立即执行定时任务"
-                                className="text-kumo-success hover:bg-kumo-success/10"
+                                className="text-kumo-success"
                                 title="立即执行"
                               >
                                 <Play className="w-3.5 h-3.5" />
@@ -1268,7 +1267,7 @@ function SelfHPage() {
                                 variant="secondary" size="sm"
                                 shape="square"
                                 aria-label={task.enabled ? '暂停定时任务' : '恢复定时任务'}
-                                className="text-kumo-brand hover:bg-kumo-brand/10"
+                                className="text-kumo-brand"
                                 title={task.enabled ? '暂停' : '恢复'}
                               >
                                 <Pause className="w-3.5 h-3.5" />
@@ -1288,7 +1287,6 @@ function SelfHPage() {
                                 variant="secondary-destructive" size="sm"
                                 shape="square"
                                 aria-label="删除定时任务"
-                                className="hover:bg-kumo-danger/10"
                                 title="删除"
                               >
                                 <Trash className="w-3.5 h-3.5" />
@@ -1304,7 +1302,7 @@ function SelfHPage() {
             </div>
 
             {/* Run logs card */}
-            <div className="bg-kumo-base border border-kumo-line rounded-lg shadow-sm p-5 space-y-4">
+            <div className="app-card p-5 space-y-4">
               <div className="flex justify-between items-center border-b border-kumo-line pb-3">
                 <h3 className="text-sm font-bold text-kumo-strong flex items-center gap-2">
                   <History className="w-4 h-4 text-kumo-brand" />
@@ -1315,7 +1313,7 @@ function SelfHPage() {
                     <RefreshCw className="w-3.5 h-3.5" />
                     <span>刷新日志</span>
                   </Button>
-                  <Button size="sm" onClick={handleClearCronLogs} className="text-xs bg-kumo-base border border-kumo-line text-kumo-danger hover:bg-kumo-danger/10 flex items-center gap-1">
+                  <Button size="sm" onClick={handleClearCronLogs} className="text-xs text-kumo-danger flex items-center gap-1">
                     <Trash className="w-3.5 h-3.5" />
                     <span>清理7天前</span>
                   </Button>
@@ -1335,7 +1333,7 @@ function SelfHPage() {
                       </div>
                       <div className="flex items-center gap-2">
                         {log.duration && <span className="text-[10px] text-kumo-subtle">{log.duration}s</span>}
-                        <span className={`px-2 py-0.5 rounded border text-[10px] font-bold ${log.status === 'success' ? 'bg-kumo-success/10 border-kumo-success/20 text-kumo-success' : 'bg-kumo-danger/10 border-kumo-danger/20 text-kumo-danger'}`}>
+                        <span className={`app-status-pill ${log.status === 'success' ? 'bg-kumo-success/10 border-kumo-success/20 text-kumo-success' : 'bg-kumo-danger/10 border-kumo-danger/20 text-kumo-danger'}`}>
                           {log.status === 'success' ? '成功' : '失败'}
                         </span>
                       </div>
@@ -1362,7 +1360,7 @@ function SelfHPage() {
       {contextMenu.visible && (
         <div
           style={{ left: contextMenu.x, top: contextMenu.y }}
-          className="motion-pop-in fixed bg-kumo-base border border-kumo-line shadow-xl rounded-lg py-1.5 w-40 z-50 text-xs text-kumo-default font-semibold"
+          className="fixed app-card py-1.5 w-40 z-50 text-xs text-kumo-default font-semibold"
           onClick={(e) => e.stopPropagation()}
         >
           <Button
@@ -1371,7 +1369,7 @@ function SelfHPage() {
               handleOpenFile(contextMenu.file);
             }}
             variant="ghost" size="sm"
-            className="w-full justify-start text-left hover:bg-kumo-recessed"
+            className="w-full justify-start text-left"
           >
             <FolderOpen className="w-3.5 h-3.5 text-warning" />
             <span>{contextMenu.file?.is_dir ? '打开' : '查看详情'}</span>
@@ -1383,7 +1381,7 @@ function SelfHPage() {
                 downloadFile(contextMenu.file);
               }}
               variant="ghost" size="sm"
-              className="w-full justify-start text-left hover:bg-kumo-recessed"
+              className="w-full justify-start text-left"
             >
               <Download className="w-3.5 h-3.5" />
               <span>下载</span>
@@ -1396,7 +1394,7 @@ function SelfHPage() {
               renameFile(contextMenu.file);
             }}
             variant="ghost" size="sm"
-            className="w-full justify-start text-left hover:bg-kumo-recessed"
+            className="w-full justify-start text-left"
           >
             <Edit className="w-3.5 h-3.5" />
             <span>重命名</span>
@@ -1407,7 +1405,7 @@ function SelfHPage() {
               deleteFile(contextMenu.file);
             }}
             variant="ghost" size="sm"
-            className="w-full justify-start text-left text-kumo-danger hover:bg-kumo-danger/10"
+            className="w-full justify-start text-left text-kumo-danger"
           >
             <Trash className="w-3.5 h-3.5" />
             <span>删除</span>
@@ -1417,7 +1415,7 @@ function SelfHPage() {
 
       {/* Image Preview Dialog */}
       <Dialog.Root open={imagePreview.visible} onOpenChange={(v) => setImagePreview(prev => ({ ...prev, visible: v }))}>
-        <Dialog className="p-6 max-w-2xl bg-kumo-base border border-kumo-line rounded-lg shadow-xl flex flex-col gap-4">
+        <Dialog className="p-6 max-w-2xl flex flex-col gap-4">
           <div className="flex justify-between items-center">
             <span className="text-xs font-bold text-kumo-strong truncate max-w-md">{imagePreview.filename}</span>
             <div className="flex gap-2">
@@ -1449,7 +1447,7 @@ function SelfHPage() {
                     {...props}
                     variant="secondary"
                     shape="square"
-                    className="border border-kumo-line bg-kumo-recessed text-xs flex items-center justify-center"
+                    className="text-xs flex items-center justify-center"
                   >
                     <X className="w-4 h-4" />
                   </Button>
@@ -1477,8 +1475,8 @@ function SelfHPage() {
 
       {/* Details Alert Dialog */}
       <Dialog.Root open={detailModal.visible} onOpenChange={(v) => setDetailModal(prev => ({ ...prev, visible: v }))}>
-        <Dialog className="p-6 sm:max-w-md bg-kumo-base border border-kumo-line rounded-lg shadow-xl space-y-4">
-          <Dialog.Title className="text-sm font-bold text-kumo-strong flex items-center gap-1.5 border-b border-kumo-line pb-2.5">
+        <Dialog className="p-6 sm:max-w-md space-y-4">
+          <Dialog.Title className="text-sm font-bold text-kumo-strong flex items-center gap-1.5 border-b pb-2.5">
             <Info className="w-4 h-4 text-kumo-brand" />
             {detailModal.title}
           </Dialog.Title>
@@ -1497,7 +1495,7 @@ function SelfHPage() {
 
       {/* Add/Edit Cron Task Dialog */}
       <Dialog.Root open={editingCronTask !== null} onOpenChange={(v) => { if (!v) setEditingCronTask(null); }}>
-        <Dialog className="p-6 sm:max-w-md bg-kumo-base border border-kumo-line rounded-lg shadow-xl space-y-4">
+        <Dialog className="p-6 sm:max-w-md space-y-4">
           <Dialog.Title className="text-sm font-bold text-kumo-strong mb-1">
             {editingCronTask?.id ? '编辑定时任务' : '添加定时任务'}
           </Dialog.Title>
@@ -1649,7 +1647,7 @@ function SelfHPage() {
                   <Button size="sm"
                     {...props}
                     variant="secondary"
-                    className="border border-kumo-line bg-kumo-recessed text-xs"
+                    className="text-xs"
                   >
                     取消
                   </Button>

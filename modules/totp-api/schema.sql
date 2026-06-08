@@ -17,7 +17,9 @@ CREATE TABLE IF NOT EXISTS totp_accounts (
     otp_type TEXT DEFAULT 'totp',    -- OTP类型: totp / hotp
     issuer TEXT NOT NULL,            -- 发行商名称 (如 GitHub, Microsoft)
     account TEXT NOT NULL,           -- 账户名 (如邮箱)
-    secret TEXT NOT NULL,            -- Base32 编码的密钥
+    secret TEXT NOT NULL,            -- 加密保存的 Base32 密钥（兼容旧字段名）
+    secret_encrypted_at DATETIME,    -- 密钥加密迁移时间
+    last_revealed_at DATETIME,       -- 最近一次显式 reveal 时间
     algorithm TEXT DEFAULT 'SHA1',   -- 哈希算法: SHA1/SHA256/SHA512
     digits INTEGER DEFAULT 6,        -- 验证码位数: 6 或 8
     period INTEGER DEFAULT 30,       -- TOTP 刷新周期(秒)

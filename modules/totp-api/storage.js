@@ -85,6 +85,37 @@ function importAccounts(accounts) {
   return results;
 }
 
+function importBackup(payload = {}) {
+  const results = { success: 0, failed: 0, errors: [], groups: 0 };
+  const groups = Array.isArray(payload.groups) ? payload.groups : [];
+  const accounts = Array.isArray(payload.accounts) ? payload.accounts : [];
+
+  for (const group of groups) {
+    try {
+      if (!group?.name) continue;
+      const existing = group.id ? getGroup(group.id) : null;
+      if (!existing) {
+        createGroup({
+          id: group.id,
+          name: group.name,
+          icon: group.icon,
+          color: group.color,
+          sort_order: group.sort_order || 0,
+        });
+        results.groups++;
+      }
+    } catch (e) {
+      results.errors.push(`group:${group.name || group.id}: ${e.message}`);
+    }
+  }
+
+  const accountResults = importAccounts(accounts);
+  results.success += accountResults.success;
+  results.failed += accountResults.failed;
+  results.errors.push(...accountResults.errors);
+  return results;
+}
+
 // ==================== 分组操作 ====================
 
 function loadGroups() {
@@ -144,6 +175,7 @@ module.exports = {
   deleteAccount,
   updateOrder,
   importAccounts,
+  importBackup,
   // 分组
   loadGroups,
   getGroup,

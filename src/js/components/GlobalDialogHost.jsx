@@ -1,9 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { DeleteResource } from '@cloudflare/kumo';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Dialog } from '@cloudflare/kumo/components/dialog';
 import { Input } from '@cloudflare/kumo/components/input';
 import { cancelDialog, resolveDialog, subscribeDialog } from '../modules/dialog.js';
 import { X } from './Icons.jsx';
+
+const QUOTED_RESOURCE_PATTERN = /[“"「『‘']([^”"」』’']+)[”"」』’']/;
 
 const getConfirmVariant = (request) => {
   const options = request?.options || {};
@@ -11,6 +14,45 @@ const getConfirmVariant = (request) => {
   return marker.includes('danger') || marker.includes('destructive')
     ? 'destructive'
     : 'primary';
+};
+
+const isDeleteResourceConfirm = (request) => {
+  if (request?.type !== 'confirm') return false;
+  const options = request.options || {};
+  if (options.deleteResource === false) return false;
+  return options.deleteResource === true || !!options.resourceName || !!options.resourceType;
+};
+
+const getDeleteResourceName = (options) => {
+  if (options.resourceName) return String(options.resourceName);
+
+  const message = String(options.message || '');
+  const quotedMatch = message.match(QUOTED_RESOURCE_PATTERN);
+  if (quotedMatch?.[1]) return quotedMatch[1].trim();
+
+  const namedMatch = message.match(/(?:删除|移除|销毁|永久删除)\s+(.+?)\s+(?:的|吗|？|\?|$)/);
+  if (namedMatch?.[1]) return namedMatch[1].trim();
+
+  const selectedMatch = message.match(/选中的\s*(.+?)\s*(?:吗|？|\?|$)/);
+  if (selectedMatch?.[1]) return selectedMatch[1].trim();
+
+  return options.confirmationText || 'DELETE';
+};
+
+const getDeleteResourceType = (options, resourceName) => {
+  if (options.resourceType) return String(options.resourceType);
+  const message = String(options.message || '');
+  const typeMatch = message.match(/删除\s*(?:此|该|这个|这台|选中的\s*\d+\s*(?:个|条)?)?\s*([A-Za-z0-9 ._-]*[\u4e00-\u9fa5A-Za-z0-9 ._-]{1,16})/);
+  if (typeMatch?.[1]) {
+    const type = typeMatch[1]
+      .replace(resourceName, '')
+      .replace(/[“"「『‘'].*$/, '')
+      .replace(/吗.*$/, '')
+      .replace(/的.*$/, '')
+      .trim();
+    if (type) return type;
+  }
+  return '资源';
 };
 
 function GlobalDialogHost() {
@@ -43,6 +85,26 @@ function GlobalDialogHost() {
     }
     resolveDialog(true);
   };
+
+  if (isDeleteResourceConfirm(request)) {
+    const resourceName = getDeleteResourceName(options);
+    const resourceType = getDeleteResourceType(options, resourceName);
+
+    return (
+      <DeleteResource
+        open
+        onOpenChange={(open) => {
+          if (!open) handleCancel();
+        }}
+        resourceType={resourceType}
+        resourceName={resourceName}
+        onDelete={() => resolveDialog(true)}
+        caseSensitive={false}
+        deleteButtonText={options.confirmText || '删除'}
+        size={options.size || 'sm'}
+      />
+    );
+  }
 
   return (
     <Dialog.Root

@@ -6,6 +6,8 @@ const EventEmitter = require('events');
 const { createLogger } = require('../../src/utils/logger');
 const { encrypt, decrypt } = require('../../src/utils/encryption');
 const storage = require('./storage');
+const eventBus = require('../../src/services/toolbox-event-bus');
+const ruleEngine = require('./services/rule-engine');
 
 const emailChannel = require('./channels/email');
 const telegramChannel = require('./channels/telegram');
@@ -28,6 +30,7 @@ class NotificationService extends EventEmitter {
         this.circuitBroken = false;
         this.startupTime = Date.now(); // 记录启动时间，用于启动保护
         this.activeProcessing = new Set(); // Bug 修复：标记当前正在处理的记录ID，防止重复捞取
+        this.unsubscribeEventBus = null;
     }
 
     /**
@@ -56,8 +59,29 @@ class NotificationService extends EventEmitter {
         // 加载未完成的通知 (重启恢复)
         this.loadIncompleteNotifications();
 
+        // 订阅工具箱统一事件总线
+        this.unsubscribeEventBus = eventBus.subscribe('*', event => {
+            this.handleToolboxEvent(event);
+        });
+
         this.initialized = true;
         logger.info('✅ 通知服务已初始化');
+    }
+
+    async handleToolboxEvent(event) {
+        if (!event?.type || event.module === 'notification') return;
+        const prefix = `${event.module}.`;
+        const eventType = event.type.startsWith(prefix)
+            ? event.type.slice(prefix.length)
+            : event.type;
+
+        await this.trigger(event.module, eventType, {
+            ...(event.payload || {}),
+            eventId: event.id,
+            eventType: event.type,
+            severity: event.severity,
+            createdAt: event.createdAt,
+        });
     }
 
     /**
@@ -130,6 +154,12 @@ class NotificationService extends EventEmitter {
         // 1. 检查时间窗口
         if (time_window.enabled && !this.checkTimeWindow(time_window)) {
             logger.debug(`不在时间窗口内,跳过: ${rule.name}`);
+            return;
+        }
+
+        const conditionResult = ruleEngine.evaluateConditions(rule.conditions || {}, eventData);
+        if (!conditionResult.allowed) {
+            logger.debug(`规则条件未命中,跳过: ${rule.name}`);
             return;
         }
 
@@ -411,7 +441,10 @@ class NotificationService extends EventEmitter {
                                 this.activeProcessing.add(notification.log_id);
                             }
                             // Bug 6 修复：在发送前检查速率限制
-                            this.checkRateLimit();
+                            if (!this.checkRateLimit()) {
+                                storage.history.updateStatus(notification.log_id, 'failed', null, '全局限频熔断，通知已阻断');
+                                continue;
+                            }
                             await this.send(notification);
                         } catch (error) {
                             logger.error(`异步发送通知异常: ${error.message}`);
@@ -631,23 +664,8 @@ class NotificationService extends EventEmitter {
      * 检查时间窗口
      */
     checkTimeWindow(timeWindow) {
-        if (!timeWindow.enabled) return true;
-
         try {
-            const now = new Date();
-            const [startHour, startMin] = timeWindow.start.split(':').map(Number);
-            const [endHour, endMin] = timeWindow.end.split(':').map(Number);
-
-            const currentMinutes = now.getHours() * 60 + now.getMinutes();
-            const startMinutes = startHour * 60 + startMin;
-            const endMinutes = endHour * 60 + endMin;
-
-            // 如果结束时间小于开始时间,表示跨天
-            if (endMinutes < startMinutes) {
-                return currentMinutes >= startMinutes || currentMinutes <= endMinutes;
-            }
-
-            return currentMinutes >= startMinutes && currentMinutes <= endMinutes;
+            return ruleEngine.checkTimeWindow(timeWindow);
         } catch (error) {
             logger.error(`检查时间窗口失败: ${error.message}`);
             return true; // 出错时默认发送
@@ -743,6 +761,67 @@ class NotificationService extends EventEmitter {
             const val = data[key.trim()];
             return val !== undefined ? val : match;
         });
+    }
+
+    getEventCatalog() {
+        return [
+            { module: 'uptime', events: ['down', 'up', 'pending', 'resource.created', 'resource.deleted'] },
+            { module: 'server', events: ['offline', 'online', 'cpu_high', 'memory_high', 'disk_high'] },
+            { module: 'system', events: ['database.backup', 'database.import', 'log.cleanup', 'migration.failed'] },
+            { module: 'filebox', events: ['resource.created', 'resource.deleted', 'cleanup'] },
+            { module: 'music', events: ['login', 'logout', 'playback.error', 'proxy.blocked'] },
+            { module: 'totp', events: ['resource.created', 'resource.updated', 'resource.deleted', 'security.revealed', 'backup.imported', 'backup.exported'] },
+        ];
+    }
+
+    previewTemplate({ title_template, message_template, data = {} }) {
+        const rule = {
+            name: 'Template Preview',
+            severity: data.severity || 'info',
+            event_type: data.eventType || 'preview',
+            title_template,
+            message_template,
+        };
+        const ctx = { rule, eventData: data, severity: rule.severity, state: null };
+        return {
+            title: this.formatTitle(rule, data, ctx),
+            message: this.formatMessage(rule, data, ctx),
+            variables: Object.keys(data).sort(),
+        };
+    }
+
+    dryRunRule(rule, eventData = {}) {
+        if (!rule) throw new Error('Rule is required');
+        const timeAllowed = this.checkTimeWindow(rule.time_window || { enabled: false });
+        const conditionResult = ruleEngine.evaluateConditions(rule.conditions || {}, eventData);
+        const maintenance = this.checkMaintenance(rule, eventData);
+        const channels = (rule.channels || []).map(channelId => {
+            const channel = storage.channel.getById(channelId);
+            return {
+                id: channelId,
+                name: channel?.name || `Channel ${channelId}`,
+                type: channel?.type || 'unknown',
+                enabled: !!channel?.enabled,
+                exists: !!channel,
+            };
+        });
+        const ctx = { rule, eventData, severity: rule.severity, state: null };
+        return {
+            matched: true,
+            wouldNotify: timeAllowed && conditionResult.allowed && !maintenance && channels.some(ch => ch.exists && ch.enabled),
+            title: this.formatTitle(rule, eventData, ctx),
+            message: this.formatMessage(rule, eventData, ctx),
+            fingerprint: this.generateFingerprint(rule, eventData),
+            timeAllowed,
+            conditionResult,
+            maintenance,
+            channels,
+            diagnostics: [
+                'dry-run does not enqueue or send notifications',
+                conditionResult.allowed ? 'conditions matched' : 'conditions did not match',
+            ],
+            conditions: rule.conditions || {},
+        };
     }
 
     /**

@@ -7,6 +7,7 @@ import { Switch } from '@cloudflare/kumo/components/switch';
 import { Table } from '@cloudflare/kumo/components/table';
 import { LayerCard, Tabs } from '@cloudflare/kumo';
 import { toast } from '../modules/toast.js';
+import { dialog } from '../modules/dialog.js';
 import useStore, {
   DEFAULT_MODULE_ORDER,
   MODULE_CONFIG,
@@ -232,6 +233,7 @@ function SettingsPage() {
   const [dbStats, setDbStats] = useState(null);
   const [dbAnalysis, setDbAnalysis] = useState(null);
   const [databaseBusy, setDatabaseBusy] = useState(false);
+  const [dbImportPreview, setDbImportPreview] = useState(null);
 
   const [logSettings, setLogSettings] = useState({
     days: 0,
@@ -602,37 +604,64 @@ function SettingsPage() {
   };
 
   const importDatabase = () => {
-    if (!fileInputRef.current) {
-      const input = document.createElement('input');
-      input.type = 'file';
-      input.accept = '.db';
-      input.onchange = async (event) => {
-        const file = event.target.files?.[0];
-        if (!file) return;
+    fileInputRef.current?.click();
+  };
 
-        const formData = new FormData();
-        formData.append('database', file);
-        setDatabaseBusy(true);
-        try {
-          const response = await fetch('/api/settings/import-database', {
-            method: 'POST',
-            headers: getUploadHeaders(),
-            body: formData,
-          });
-          const result = await response.json();
-          if (!response.ok || !result.success) throw new Error(result.error || '导入数据库失败');
-          toast.success('数据库已导入，页面将刷新');
-          setTimeout(() => window.location.reload(), 800);
-        } catch (error) {
-          toast.error(error.message || '导入数据库失败');
-        } finally {
-          setDatabaseBusy(false);
-          input.value = '';
-        }
-      };
-      fileInputRef.current = input;
+  const previewDatabaseImport = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append('database', file);
+    setDatabaseBusy(true);
+    setDbImportPreview(null);
+    try {
+      const response = await fetch('/api/settings/database/import/preview', {
+        method: 'POST',
+        headers: getUploadHeaders(),
+        body: formData,
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.error || '数据库预检失败');
+      setDbImportPreview(result.data);
+      if (result.data?.warnings?.length) {
+        toast.warning('数据库预检通过，但存在警告');
+      } else {
+        toast.success('数据库预检通过，请确认后导入');
+      }
+    } catch (error) {
+      toast.error(error.message || '数据库预检失败');
+    } finally {
+      setDatabaseBusy(false);
+      if (event.target) event.target.value = '';
     }
-    fileInputRef.current.click();
+  };
+
+  const commitDatabaseImport = async () => {
+    if (!dbImportPreview?.token) {
+      toast.warning('请先上传数据库并完成预检');
+      return;
+    }
+    if (!(await dialog.confirm('确定要替换当前数据库吗？系统会先备份当前数据库，导入后页面将刷新。'))) {
+      return;
+    }
+
+    setDatabaseBusy(true);
+    try {
+      const response = await fetch('/api/settings/database/import/commit', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ token: dbImportPreview.token, confirm: true }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.error || '导入数据库失败');
+      toast.success('数据库已导入，页面将刷新');
+      setTimeout(() => window.location.reload(), 800);
+    } catch (error) {
+      toast.error(error.message || '导入数据库失败');
+    } finally {
+      setDatabaseBusy(false);
+    }
   };
 
   const loadRawLogFile = async () => {
@@ -983,7 +1012,7 @@ function SettingsPage() {
             {twoFA.setupMode && (
               <div className="mt-5 grid gap-4">
                 {twoFA.qrCode && (
-                  <div className="flex justify-center rounded-lg border border-kumo-line bg-white p-4">
+                  <div className="flex justify-center app-card p-4">
                     <img src={twoFA.qrCode} alt="2FA QR Code" className="h-44 w-44" />
                   </div>
                 )}
@@ -1072,10 +1101,65 @@ function SettingsPage() {
           <div className="grid content-start gap-3">
             <LayerCard className="p-4">
               <h2 className="text-base font-bold text-kumo-strong">备份与恢复</h2>
+              <Input
+                ref={fileInputRef}
+                type="file"
+                accept=".db"
+                aria-label="选择数据库文件"
+                className="hidden"
+                onChange={previewDatabaseImport}
+              />
               <div className="mt-3 grid gap-2">
                 <Button size="sm" className="justify-start" onClick={exportDatabase} icon={<Download className="h-4 w-4" />}>导出数据库</Button>
-                <Button size="sm" className="justify-start" onClick={importDatabase} loading={databaseBusy} icon={<Upload className="h-4 w-4" />}>导入数据库</Button>
+                <Button size="sm" className="justify-start" onClick={importDatabase} loading={databaseBusy} icon={<Upload className="h-4 w-4" />}>上传并预检数据库</Button>
               </div>
+              {dbImportPreview && (
+                <div className="mt-4 app-subcard p-3 text-xs">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-semibold text-kumo-strong truncate">{dbImportPreview.originalName}</span>
+                    <Badge variant={dbImportPreview.analysis?.integrity === 'ok' ? 'success' : 'warning'}>
+                      {dbImportPreview.analysis?.integrity || 'unknown'}
+                    </Badge>
+                  </div>
+                  <div className="mt-2 grid grid-cols-2 gap-2 font-mono text-[11px] text-kumo-subtle">
+                    <span>大小 {formatFileSize(dbImportPreview.analysis?.sizeBytes)}</span>
+                    <span>表 {dbImportPreview.analysis?.tableCount || 0} 个</span>
+                  </div>
+                  {dbImportPreview.warnings?.length > 0 && (
+                    <div className="mt-2 space-y-1 rounded border border-kumo-warning/30 bg-kumo-warning/10 p-2 text-[11px] text-kumo-warning">
+                      {dbImportPreview.warnings.map((warning) => (
+                        <div key={warning}>{warning}</div>
+                      ))}
+                    </div>
+                  )}
+                  <div className="mt-3 max-h-44 overflow-y-auto rounded border border-kumo-line bg-kumo-base">
+                    <Table layout="fixed">
+                      <Table.Header variant="compact">
+                        <Table.Row>
+                          <Table.Head>表名</Table.Head>
+                          <Table.Head className="w-20">记录数</Table.Head>
+                        </Table.Row>
+                      </Table.Header>
+                      <Table.Body>
+                        {(dbImportPreview.analysis?.tables || []).slice(0, 20).map((row) => (
+                          <Table.Row key={row.name}>
+                            <Table.Cell className="truncate font-mono text-[11px]">{row.name}</Table.Cell>
+                            <Table.Cell className="font-mono text-[11px]">{row.rows}</Table.Cell>
+                          </Table.Row>
+                        ))}
+                      </Table.Body>
+                    </Table>
+                  </div>
+                  <div className="mt-3 flex gap-2">
+                    <Button size="sm" variant="primary" onClick={commitDatabaseImport} loading={databaseBusy}>
+                      确认导入
+                    </Button>
+                    <Button size="sm" variant="secondary" onClick={() => setDbImportPreview(null)}>
+                      取消
+                    </Button>
+                  </div>
+                </div>
+              )}
             </LayerCard>
 
             <LayerCard className="p-4">

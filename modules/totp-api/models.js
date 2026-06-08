@@ -3,6 +3,7 @@
  */
 
 const BaseModel = require('../../src/db/models/BaseModel');
+const { secureEncrypt, secureDecrypt, isEncrypted } = require('../../src/utils/secure-storage');
 
 /**
  * TOTP/HOTP 账号模型
@@ -10,6 +11,15 @@ const BaseModel = require('../../src/db/models/BaseModel');
 class TotpAccount extends BaseModel {
   constructor() {
     super('totp_accounts');
+  }
+
+  toRuntimeAccount(account) {
+    if (!account) return account;
+    return {
+      ...account,
+      secret: secureDecrypt(account.secret),
+      hasEncryptedSecret: isEncrypted(account.secret),
+    };
   }
 
   /**
@@ -21,7 +31,9 @@ class TotpAccount extends BaseModel {
       otp_type: data.otp_type || 'totp',
       issuer: data.issuer || '未知',
       account: data.account || '',
-      secret: data.secret,
+      secret: secureEncrypt(data.secret),
+      secret_encrypted_at: data.secret_encrypted_at || new Date().toISOString(),
+      last_revealed_at: data.last_revealed_at || null,
       algorithm: data.algorithm || 'SHA1',
       digits: data.digits || 6,
       period: data.period || 30,
@@ -35,7 +47,7 @@ class TotpAccount extends BaseModel {
     };
 
     this.insert(account);
-    return account;
+    return this.toRuntimeAccount(account);
   }
 
   /**
@@ -47,6 +59,8 @@ class TotpAccount extends BaseModel {
       'issuer',
       'account',
       'secret',
+      'secret_encrypted_at',
+      'last_revealed_at',
       'algorithm',
       'digits',
       'period',
@@ -60,11 +74,20 @@ class TotpAccount extends BaseModel {
 
     Object.keys(updates).forEach(key => {
       if (allowedFields.includes(key)) {
-        data[key] = updates[key];
+        data[key] = key === 'secret' ? secureEncrypt(updates[key]) : updates[key];
       }
     });
 
+    if (updates.secret && !data.secret_encrypted_at) {
+      data.secret_encrypted_at = new Date().toISOString();
+    }
+
     return this.update(id, data);
+  }
+
+  findById(id) {
+    const account = super.findById(id);
+    return this.toRuntimeAccount(account);
   }
 
   /**
@@ -75,7 +98,7 @@ class TotpAccount extends BaseModel {
     const stmt = db.prepare(
       `SELECT * FROM ${this.tableName} ORDER BY sort_order ASC, created_at ASC`
     );
-    return stmt.all();
+    return stmt.all().map(account => this.toRuntimeAccount(account));
   }
 
   /**
@@ -86,7 +109,7 @@ class TotpAccount extends BaseModel {
     const stmt = db.prepare(
       `SELECT * FROM ${this.tableName} WHERE group_id = ? ORDER BY sort_order ASC`
     );
-    return stmt.all(groupId);
+    return stmt.all(groupId).map(account => this.toRuntimeAccount(account));
   }
 
   /**

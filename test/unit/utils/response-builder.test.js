@@ -45,6 +45,11 @@ describe('response-builder', () => {
       const result = responseBuilder.error('VALIDATION_ERROR', 'Invalid input', { field: 'email' });
       expect(result.error.details).toEqual({ field: 'email' });
     });
+
+    it('should include requestId if provided', () => {
+      const result = responseBuilder.error('BAD', 'Bad thing', undefined, 'req-1');
+      expect(result.requestId).toBe('req-1');
+    });
   });
 
   describe('paginated', () => {

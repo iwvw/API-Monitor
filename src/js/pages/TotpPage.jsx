@@ -7,11 +7,13 @@ import { Dialog } from '@cloudflare/kumo/components/dialog';
 import { Input, Textarea } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
 import { Switch } from '@cloudflare/kumo/components/switch';
+import { Table } from '@cloudflare/kumo/components/table';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import { Tabs } from '@cloudflare/kumo';
 import { MODULE_TABS_PROPS, TOOL_TABS_PROPS } from '../modules/kumoTabs.js';
 import { handleEditableRowDoubleClick } from '../modules/tableInteractions.js';
 import { AnimatedCollapse } from '../components/AnimatedCollapse.jsx';
+import { BRAND_COLOR_FALLBACK, getIssuerColor, getIssuerIcon } from '../components/ui/BrandIcon.jsx';
 import {
   Key,
   FolderOpen,
@@ -31,217 +33,6 @@ import {
   Shield,
   Bot
 } from '../components/Icons.jsx';
-
-// ==================== 品牌图标与颜色配置 ====================
-const ISSUER_COLORS = {
-  github: '#6e40c9',
-  gitlab: '#fc6d26',
-  bitbucket: '#0052cc',
-  discord: '#5865f2',
-  twitter: '#1da1f2',
-  'x.com': '#000000',
-  facebook: '#1877f2',
-  instagram: '#e4405f',
-  linkedin: '#0a66c2',
-  reddit: '#ff4500',
-  telegram: '#26a5e4',
-  whatsapp: '#25d366',
-  slack: '#4a154b',
-  twitch: '#9146ff',
-  microsoft: '#00a4ef',
-  google: '#4285f4',
-  amazon: '#ff9900',
-  apple: '#000000',
-  meta: '#1877f2',
-  cloudflare: '#f38020',
-  vultr: '#007bfc',
-  digitalocean: '#0080ff',
-  linode: '#00a95c',
-  heroku: '#430098',
-  vercel: '#000000',
-  netlify: '#00c7b7',
-  railway: '#0b0d0e',
-  render: '#46e3b7',
-  dropbox: '#0061ff',
-  steam: '#1b2838',
-  epic: '#2f2d2e',
-  playstation: '#003791',
-  xbox: '#107c10',
-  nintendo: '#e60012',
-  blizzard: '#00ceff',
-  paypal: '#003087',
-  stripe: '#635bff',
-  coinbase: '#0052ff',
-  binance: '#f0b90b',
-  tencent: '#1296db',
-  huawei: '#cf0a2c',
-  aliyun: '#ff6a00',
-  alibaba: '#ff6a00',
-};
-
-const SIMPLE_ICONS = {
-  github: 'si si-github',
-  gitlab: 'si si-gitlab',
-  bitbucket: 'si si-bitbucket',
-  discord: 'si si-discord',
-  twitter: 'si si-twitter',
-  'x.com': 'si si-x',
-  facebook: 'si si-facebook',
-  instagram: 'si si-instagram',
-  linkedin: 'si si-linkedin',
-  reddit: 'si si-reddit',
-  telegram: 'si si-telegram',
-  whatsapp: 'si si-whatsapp',
-  slack: 'si si-slack',
-  twitch: 'si si-twitch',
-  microsoft: 'fab fa-microsoft',
-  google: 'si si-google',
-  amazon: 'si si-amazon',
-  apple: 'si si-apple',
-  meta: 'si si-meta',
-  cloudflare: 'si si-cloudflare',
-  aws: 'si si-amazonaws',
-  digitalocean: 'si si-digitalocean',
-  vultr: 'si si-vultr',
-  linode: 'si si-linode',
-  heroku: 'si si-heroku',
-  vercel: 'si si-vercel',
-  netlify: 'si si-netlify',
-  railway: 'si si-railway',
-  render: 'si si-render',
-  dropbox: 'si si-dropbox',
-  drive: 'si si-googledrive',
-  onedrive: 'si si-microsoftonedrive',
-  backblaze: 'si si-backblaze',
-  steam: 'si si-steam',
-  epic: 'si si-epicgames',
-  playstation: 'si si-playstation',
-  xbox: 'si si-xbox',
-  nintendo: 'si si-nintendo',
-  blizzard: 'si si-blizzard',
-  ubisoft: 'si si-ubisoft',
-  paypal: 'si si-paypal',
-  stripe: 'si si-stripe',
-  coinbase: 'si si-coinbase',
-  binance: 'si si-binance',
-  npm: 'si si-npm',
-  docker: 'si si-docker',
-  wordpress: 'si si-wordpress',
-  jira: 'si si-jira',
-  trello: 'si si-trello',
-  figma: 'si si-figma',
-  notion: 'si si-notion',
-  tencent: 'fab fa-qq',
-  huawei: 'si si-huawei',
-  aliyun: 'si si-alibabacloud',
-  alibaba: 'si si-alibaba',
-  baidu: 'si si-baidu',
-  weixin: 'si si-wechat',
-  wechat: 'si si-wechat',
-  weibo: 'si si-sinaweibo',
-  qq: 'fab fa-qq',
-  bytedance: 'si si-bytedance',
-  douyin: 'si si-tiktok',
-  bilibili: 'si si-bilibili',
-  spaceship: 'si si-spaceship',
-  godaddy: 'si si-godaddy',
-  namecheap: 'si si-namecheap',
-  porkbun: 'si si-porkbun',
-  bitwarden: 'si si-bitwarden',
-  '1password': 'si si-1password',
-  lastpass: 'si si-lastpass',
-  proton: 'si si-proton',
-  shopify: 'si si-shopify',
-  spotify: 'si si-spotify',
-  adobe: 'si si-adobe',
-  zoom: 'si si-zoom',
-  okta: 'si si-okta',
-  auth0: 'si si-auth0',
-  hetzner: 'si si-hetzner',
-  ovh: 'si si-ovh',
-  oracle: 'si si-oracle',
-  sentry: 'si si-sentry',
-  cloudways: 'si si-cloudways',
-};
-
-const FA_ICONS = {
-  microsoft: 'fab fa-microsoft',
-  github: 'fab fa-github',
-  google: 'fab fa-google',
-  amazon: 'fab fa-amazon',
-  apple: 'fab fa-apple',
-  dropbox: 'fab fa-dropbox',
-  steam: 'fab fa-steam',
-  playstation: 'fab fa-playstation',
-  xbox: 'fab fa-xbox',
-  paypal: 'fab fa-paypal',
-  stripe: 'fab fa-stripe',
-  docker: 'fab fa-docker',
-  npm: 'fab fa-npm',
-  discord: 'fab fa-discord',
-  twitter: 'fab fa-twitter',
-  facebook: 'fab fa-facebook',
-  instagram: 'fab fa-instagram',
-  linkedin: 'fab fa-linkedin',
-  reddit: 'fab fa-reddit',
-  telegram: 'fab fa-telegram',
-  whatsapp: 'fab fa-whatsapp',
-  slack: 'fab fa-slack',
-  twitch: 'fab fa-twitch',
-  spotify: 'fab fa-spotify',
-  adobe: 'fab fa-adobe',
-  cloudflare: 'fas fa-cloud',
-  vultr: 'fas fa-server',
-  digitalocean: 'fab fa-digital-ocean',
-  linux: 'fab fa-linux',
-  ubuntu: 'fab fa-ubuntu',
-  windows: 'fab fa-windows',
-  email: 'fas fa-envelope',
-  mail: 'fas fa-envelope',
-  bank: 'fas fa-university',
-  crypto: 'fas fa-coins',
-  vpn: 'fas fa-shield-alt',
-  server: 'fas fa-server',
-  hosting: 'fas fa-server',
-  domain: 'fas fa-globe',
-  ssh: 'fas fa-terminal',
-  database: 'fas fa-database',
-  storage: 'fas fa-hdd',
-  cloud: 'fas fa-cloud',
-  game: 'fas fa-gamepad',
-  shop: 'fas fa-shopping-cart',
-  store: 'fas fa-store',
-  finance: 'fas fa-chart-line',
-  trading: 'fas fa-chart-bar',
-  exchange: 'fas fa-exchange-alt',
-  wallet: 'fas fa-wallet',
-  social: 'fas fa-users',
-  chat: 'fas fa-comments',
-  video: 'fas fa-video',
-  music: 'fas fa-music',
-  photo: 'fas fa-camera',
-  code: 'fas fa-code',
-  dev: 'fas fa-laptop-code',
-};
-
-const getIssuerColor = (issuer) => {
-  const key = issuer?.toLowerCase() || '';
-  for (const [name, color] of Object.entries(ISSUER_COLORS)) {
-    if (key.includes(name)) return color;
-  }
-  return '#8b5cf6'; // Default purple
-};
-
-const getIssuerIcon = (issuer) => {
-  const key = issuer?.toLowerCase() || '';
-  for (const [name, icon] of Object.entries(SIMPLE_ICONS)) {
-    if (key.includes(name)) return icon;
-  }
-  for (const [name, icon] of Object.entries(FA_ICONS)) {
-    if (key.includes(name)) return icon;
-  }
-  return 'fas fa-shield-alt';
-};
 
 const maskEmail = (email) => {
   if (!email) return '';
@@ -308,11 +99,12 @@ function TotpPage() {
   const [showGroupModal, setShowGroupModal] = useState(false);
   const [groupModalMode, setGroupModalMode] = useState('add');
   const [editingGroupId, setEditingGroupId] = useState(null);
-  const [groupForm, setGroupForm] = useState({ name: '', color: '#8b5cf6' });
+  const [groupForm, setGroupForm] = useState({ name: '', color: BRAND_COLOR_FALLBACK });
 
   // Export Modal 状态
   const [showExportModal, setShowExportModal] = useState(false);
   const [exportUris, setExportUris] = useState('');
+  const [exportMeta, setExportMeta] = useState(null);
 
   // Local card reveal state
   const [revealedCodes, setRevealedCodes] = useState({});
@@ -796,17 +588,36 @@ function TotpPage() {
       .split('\n')
       .map((line) => line.trim())
       .filter((line) => line.startsWith('otpauth://'));
+    const backupPayload = uris.length === 0 ? urisText.trim() : '';
 
-    if (uris.length === 0) {
-      toast.warning('没有找到有效的 URI');
+    if (uris.length === 0 && !backupPayload) {
+      toast.warning('没有找到有效的 URI 或加密备份');
       return;
     }
 
     try {
+      const importBody = uris.length > 0 ? { uris } : { backup: backupPayload };
+      const previewRes = await fetch('/api/totp/import/preview', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(importBody),
+      });
+      const previewData = await previewRes.json();
+      if (!previewRes.ok || !previewData.success) {
+        throw new Error(previewData.error || '导入预览失败');
+      }
+      const preview = previewData.data;
+      if (preview.errors?.length) {
+        toast.warning(`导入预览发现 ${preview.errors.length} 个错误`);
+      }
+      if (preview.duplicates > 0) {
+        toast.warning(`导入预览发现 ${preview.duplicates} 个重复项`);
+      }
+
       const res = await fetch('/api/totp/import', {
         method: 'POST',
         headers: getAuthHeaders(),
-        body: JSON.stringify({ uris }),
+        body: JSON.stringify(importBody),
       });
       const data = await res.json();
       if (data.success) {
@@ -825,14 +636,14 @@ function TotpPage() {
   // ==================== 分组管理 ====================
   const handleOpenAddGroup = () => {
     setGroupModalMode('add');
-    setGroupForm({ name: '', color: '#8b5cf6' });
+    setGroupForm({ name: '', color: BRAND_COLOR_FALLBACK });
     setShowGroupModal(true);
   };
 
   const handleOpenEditGroup = (group) => {
     setGroupModalMode('edit');
     setEditingGroupId(group.id);
-    setGroupForm({ name: group.name, color: group.color || '#8b5cf6' });
+    setGroupForm({ name: group.name, color: group.color || BRAND_COLOR_FALLBACK });
     setShowGroupModal(true);
   };
 
@@ -901,7 +712,13 @@ function TotpPage() {
       const res = await fetch('/api/totp/export', { headers: getAuthHeaders() });
       const data = await res.json();
       if (data.success) {
-        setExportUris(data.data.join('\n'));
+        if (data.format === 'encrypted-backup') {
+          setExportUris(data.data.payload);
+          setExportMeta(data.data);
+        } else {
+          setExportUris(Array.isArray(data.data) ? data.data.join('\n') : String(data.data || ''));
+          setExportMeta({ format: data.format || 'uri' });
+        }
         setShowExportModal(true);
         toast.success('已生成导出数据');
       } else {
@@ -931,14 +748,7 @@ function TotpPage() {
       await navigator.clipboard.writeText(code);
       toast.success(`验证码已复制: ${code}`);
     } catch (e) {
-      // Fallback
-      const textarea = document.createElement('textarea');
-      textarea.value = code;
-      document.body.appendChild(textarea);
-      textarea.select();
-      document.execCommand('copy');
-      document.body.removeChild(textarea);
-      toast.success(`验证码已复制: ${code}`);
+      toast.error('复制失败');
     }
   };
 
@@ -1043,7 +853,7 @@ function TotpPage() {
                 placeholder="搜索账号..."
                 value={totpSearchQuery}
                 onChange={(e) => setTotpSearchQuery(e.target.value)}
-                className="w-full bg-kumo-base text-kumo-strong border border-kumo-line rounded-md text-xs pl-8 pr-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-kumo-brand"
+                className="w-full text-kumo-strong text-xs pl-8 pr-3 py-1.5"
               />
             </div>
 
@@ -1062,11 +872,11 @@ function TotpPage() {
 
       {/* ==================== 1. 验证码卡片列表 ==================== */}
       {totpCurrentTab === 'accounts' && (
-        <div className="quick-fade-in">
+        <div>
           {totpLoading ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3">
               {[...Array(6)].map((_, i) => (
-                <div key={i} className="bg-kumo-base border border-kumo-line rounded-lg p-3.5 space-y-4">
+                <div key={i} className="app-card p-3.5 space-y-4">
                   <div className="flex items-center gap-2">
                     <SkeletonLine className="w-7 h-7 rounded-md" />
                     <div className="flex-1 space-y-1.5">
@@ -1082,7 +892,7 @@ function TotpPage() {
               ))}
             </div>
           ) : filteredAccounts.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-20 text-kumo-subtle border border-dashed border-kumo-line rounded-xl bg-kumo-recessed/10">
+            <div className="flex flex-col items-center justify-center py-20 text-kumo-subtle app-empty-panel">
               <Shield className="w-12 h-12 opacity-30 mb-4" />
               <div className="text-sm">
                 {totpSearchQuery ? '没有找到匹配的账号' : '暂无 2FA 账号，快来添加第一个吧'}
@@ -1120,7 +930,7 @@ function TotpPage() {
                         {!totpSettings.hidePlatformText ? (
                           <div className="flex items-center gap-1.5">
                             <span
-                              className="w-4.5 h-4.5 flex items-center justify-center rounded text-xs bg-kumo-recessed"
+                              className="flex h-[18px] w-[18px] items-center justify-center rounded bg-kumo-recessed text-xs"
                               style={{ color: getIssuerColor(account.issuer) }}
                             >
                               <i className={getIssuerIcon(account.issuer)} />
@@ -1148,7 +958,7 @@ function TotpPage() {
                       onMouseLeave={() => handleCardMouseLeave(account.id)}
                       onClick={() => copyCodeToClipboard(account)}
                       style={{ '--card-accent': issuerColor }}
-                      className="group/card relative flex flex-col justify-between bg-kumo-base border border-kumo-line hover:border-kumo-brand rounded-lg p-3.5 cursor-pointer shadow-sm hover:shadow transition-all min-h-[116px]"
+                      className="group/card relative flex flex-col justify-between app-card hover:border-kumo-brand p-3.5 cursor-pointer transition-all min-h-[116px]"
                     >
                       {/* Action buttons (overlay/hover) */}
                       <div className="absolute right-2 top-2 opacity-0 group-hover/card:opacity-100 flex items-center gap-1 transition-opacity bg-kumo-base pl-1.5 py-0.5 rounded-md z-10">
@@ -1160,7 +970,7 @@ function TotpPage() {
                             e.stopPropagation();
                             handleOpenEditAccount(account);
                           }}
-                          className="w-5 h-5 flex items-center justify-center rounded hover:bg-kumo-recessed text-kumo-subtle hover:text-kumo-strong"
+                          className="w-5 h-5 flex items-center justify-center text-kumo-subtle hover:text-kumo-strong"
                           title="编辑"
                         >
                           <Edit className="w-3 h-3" />
@@ -1173,7 +983,7 @@ function TotpPage() {
                             e.stopPropagation();
                             handleDeleteAccount(account);
                           }}
-                          className="w-5 h-5 flex items-center justify-center rounded hover:bg-kumo-danger/10 text-kumo-subtle hover:text-kumo-danger"
+                          className="w-5 h-5 flex items-center justify-center text-kumo-subtle hover:text-kumo-danger"
                           title="删除"
                         >
                           <Trash className="w-3 h-3" />
@@ -1218,7 +1028,7 @@ function TotpPage() {
                                   e.stopPropagation();
                                   incrementHotp(account);
                                 }}
-                                className="border border-kumo-line rounded hover:bg-kumo-recessed text-kumo-strong cursor-pointer flex items-center gap-0.5 text-[9px]"
+                                className="text-kumo-strong flex items-center gap-0.5 text-[9px]"
                               >
                                 <RefreshCw className="w-2.5 h-2.5" />
                                 <span>递增</span>
@@ -1251,7 +1061,7 @@ function TotpPage() {
 
       {/* ==================== 2. 分组列表 ==================== */}
       {totpCurrentTab === 'groups' && (
-        <div className="bg-kumo-base border border-kumo-line rounded-lg shadow-sm overflow-hidden quick-fade-in">
+        <div className="app-card overflow-hidden">
           {totpGroups.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-20 text-kumo-subtle">
               <FolderOpen className="w-12 h-12 opacity-30 mb-4" />
@@ -1261,72 +1071,77 @@ function TotpPage() {
               </Button>
             </div>
           ) : (
-            <div className="overflow-x-auto w-full">
-              <table className="w-full text-sm border-collapse">
-                <thead>
-                  <tr className="bg-kumo-recessed/40 border-b border-kumo-line">
-                    <th className="text-[10px] font-bold text-kumo-subtle uppercase tracking-wider text-left py-3.5 px-6 w-20">
+            <div className="w-full overflow-x-auto">
+              <Table layout="fixed">
+                <colgroup>
+                  <col className="w-20" />
+                  <col />
+                  <col className="w-28" />
+                  <col className="w-36" />
+                </colgroup>
+                <Table.Header variant="compact">
+                  <Table.Row>
+                    <Table.Head>
                       颜色
-                    </th>
-                    <th className="text-[10px] font-bold text-kumo-subtle uppercase tracking-wider text-left py-3.5 px-6">
+                    </Table.Head>
+                    <Table.Head>
                       分组名称
-                    </th>
-                    <th className="text-[10px] font-bold text-kumo-subtle uppercase tracking-wider text-center py-3.5 px-6 w-28">
+                    </Table.Head>
+                    <Table.Head className="text-center">
                       账号数
-                    </th>
-                    <th className="text-[10px] font-bold text-kumo-subtle uppercase tracking-wider text-center py-3.5 px-6 w-36">
+                    </Table.Head>
+                    <Table.Head className="text-center">
                       操作
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
+                    </Table.Head>
+                  </Table.Row>
+                </Table.Header>
+                <Table.Body>
                   {totpGroups.map((group) => (
-                    <tr
+                    <Table.Row
                       key={group.id}
-                      className="border-b border-kumo-line last:border-0 hover:bg-kumo-recessed/10 transition-colors cursor-pointer"
+                      className="cursor-pointer"
                       title="双击编辑分组"
                       onDoubleClick={(event) => handleEditableRowDoubleClick(event, () => handleOpenEditGroup(group))}
                     >
-                      <td className="py-3 px-6">
+                      <Table.Cell>
                         <div
-                          className="w-4 h-4 rounded-full border border-black/10"
-                          style={{ background: group.color || '#8b5cf6' }}
+                          className="h-4 w-4 rounded-full border border-kumo-line"
+                          style={{ background: group.color || BRAND_COLOR_FALLBACK }}
                         />
-                      </td>
-                      <td className="py-3 px-6 font-semibold text-kumo-strong">
+                      </Table.Cell>
+                      <Table.Cell className="font-semibold text-kumo-strong">
                         {group.name}
-                      </td>
-                      <td className="py-3 px-6 text-center tabular-nums text-kumo-default">
+                      </Table.Cell>
+                      <Table.Cell className="text-center tabular-nums text-kumo-default">
                         {groupAccountCounts[group.id] || 0}
-                      </td>
-                      <td className="py-3 px-6 text-center">
+                      </Table.Cell>
+                      <Table.Cell className="text-center">
                         <div className="flex items-center justify-center gap-2">
                           <Button
                             shape="square" size="sm"
                             variant="ghost"
                             aria-label="编辑分组"
                             onClick={() => handleOpenEditGroup(group)}
-                            className="w-7 flex items-center justify-center rounded hover:bg-kumo-recessed text-kumo-subtle hover:text-kumo-strong cursor-pointer"
+                            className="text-kumo-subtle hover:text-kumo-strong"
                             title="编辑"
+                            icon={<Edit className="w-3.5 h-3.5" />}
                           >
-                            <Edit className="w-3.5 h-3.5" />
                           </Button>
                           <Button
                             shape="square" size="sm"
-                            variant="ghost"
+                            variant="secondary-destructive"
                             aria-label="删除分组"
                             onClick={() => handleDeleteGroup(group)}
-                            className="w-7 flex items-center justify-center rounded hover:bg-kumo-danger/10 text-kumo-danger cursor-pointer"
                             title="删除"
+                            icon={<Trash className="w-3.5 h-3.5" />}
                           >
-                            <Trash className="w-3.5 h-3.5" />
                           </Button>
                         </div>
-                      </td>
-                    </tr>
+                      </Table.Cell>
+                    </Table.Row>
                   ))}
-                </tbody>
-              </table>
+                </Table.Body>
+              </Table>
             </div>
           )}
         </div>
@@ -1334,9 +1149,9 @@ function TotpPage() {
 
       {/* ==================== 3. 选项设置 ==================== */}
       {totpCurrentTab === 'settings' && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 quick-fade-in">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
           {/* Settings Options (Span 2) */}
-          <div className="lg:col-span-2 bg-kumo-base border border-kumo-line rounded-lg shadow-sm p-5 space-y-5">
+          <div className="lg:col-span-2 app-card p-5 space-y-5">
             <h3 className="text-sm font-semibold text-kumo-strong border-b border-kumo-line pb-2.5 select-none">
               安全与显示配置
             </h3>
@@ -1451,7 +1266,7 @@ function TotpPage() {
           </div>
 
           {/* Right Column: Browser Extension Helper Card */}
-          <div className="bg-kumo-base border border-kumo-line rounded-lg shadow-sm p-5 flex flex-col justify-between">
+          <div className="app-card p-5 flex flex-col justify-between">
             <div className="space-y-3.5">
               <h3 className="text-sm font-semibold text-kumo-strong border-b border-kumo-line pb-2.5 select-none flex items-center gap-2">
                 <Bot className="w-4 h-4 text-kumo-brand" />
@@ -1462,7 +1277,7 @@ function TotpPage() {
               </p>
 
               <div className="p-3 bg-kumo-recessed/60 border border-kumo-line rounded-lg flex items-start gap-3 mt-3">
-                <div className="w-9 h-9 rounded-md bg-white flex items-center justify-center shadow-sm flex-shrink-0">
+                <div className="w-9 h-9 rounded-md bg-kumo-base flex items-center justify-center flex-shrink-0">
                   <img src="https://cdn.simpleicons.org/blueprint" className="w-6 h-6" alt="Extension" />
                 </div>
                 <div className="min-w-0">
@@ -1475,7 +1290,7 @@ function TotpPage() {
             <div className="space-y-2 mt-5">
               <a
                 href="/api/totp/extension/download"
-                className="w-full flex items-center justify-center gap-2 h-9 border border-kumo-line rounded-lg text-xs font-semibold text-kumo-strong hover:bg-kumo-recessed text-decoration-none transition-colors"
+                className="w-full flex items-center justify-center gap-2 h-9 border border-kumo-line rounded-lg text-xs font-semibold text-kumo-strong hover:bg-kumo-recessed no-underline transition-colors"
               >
                 <Download className="w-3.5 h-3.5" />
                 <span>下载插件 ZIP 包</span>
@@ -1578,7 +1393,7 @@ function TotpPage() {
                   <div
                     onPaste={handleQrPaste}
                     tabIndex={0}
-                    className="w-full py-10 border border-dashed border-kumo-line rounded-lg bg-kumo-recessed/10 flex flex-col items-center justify-center text-kumo-subtle cursor-pointer focus:border-kumo-brand focus:outline-none group"
+                    className="w-full py-10 app-empty-panel rounded-lg flex flex-col items-center justify-center text-kumo-subtle cursor-pointer focus:border-kumo-brand focus:outline-none group"
                   >
                     {qrParsing ? (
                       <span className="flex items-center gap-2">
@@ -1610,7 +1425,7 @@ function TotpPage() {
                     placeholder="otpauth://totp/GitHub:user@example.com?secret=XXXX..."
                     value={importUris}
                     onChange={(e) => setImportUris(e.target.value)}
-                    className="w-full bg-kumo-recessed text-kumo-strong text-xs px-3 py-2 border border-kumo-line rounded-md focus:outline-none focus:border-kumo-brand font-mono"
+                    className="w-full text-kumo-strong text-xs px-3 py-2 font-mono"
                   />
                 </div>
               </div>
@@ -1624,10 +1439,10 @@ function TotpPage() {
                       type="button"
                       variant={accountForm.otp_type === 'totp' ? 'primary' : 'secondary'}
                       onClick={() => setAccountForm((prev) => ({ ...prev, otp_type: 'totp' }))}
-                      className={`flex-1 py-1.5 rounded border text-xs font-semibold transition-colors cursor-pointer ${
+                      className={`flex-1 py-1.5 text-xs font-semibold transition-colors ${
                         accountForm.otp_type === 'totp'
-                          ? 'border-kumo-brand bg-kumo-brand/10 text-kumo-brand'
-                          : 'border-kumo-line bg-kumo-recessed text-kumo-subtle'
+                          ? 'text-kumo-brand'
+                          : 'text-kumo-subtle'
                       }`}
                     >
                       TOTP (基于时间)
@@ -1636,10 +1451,10 @@ function TotpPage() {
                       type="button"
                       variant={accountForm.otp_type === 'hotp' ? 'primary' : 'secondary'}
                       onClick={() => setAccountForm((prev) => ({ ...prev, otp_type: 'hotp' }))}
-                      className={`flex-1 py-1.5 rounded border text-xs font-semibold transition-colors cursor-pointer ${
+                      className={`flex-1 py-1.5 text-xs font-semibold transition-colors ${
                         accountForm.otp_type === 'hotp'
-                          ? 'border-kumo-brand bg-kumo-brand/10 text-kumo-brand'
-                          : 'border-kumo-line bg-kumo-recessed text-kumo-subtle'
+                          ? 'text-kumo-brand'
+                          : 'text-kumo-subtle'
                       }`}
                     >
                       HOTP (基于计数)
@@ -1655,7 +1470,7 @@ function TotpPage() {
                     placeholder="如: GitHub, Microsoft"
                     value={accountForm.issuer}
                     onChange={(e) => setAccountForm((prev) => ({ ...prev, issuer: e.target.value }))}
-                    className="w-full bg-kumo-recessed text-kumo-strong text-sm px-3 py-2 border border-kumo-line rounded-md focus:outline-none focus:border-kumo-brand"
+                    className="w-full text-kumo-strong text-sm px-3 py-2"
                   />
                 </div>
 
@@ -1667,7 +1482,7 @@ function TotpPage() {
                     placeholder="如: user@example.com"
                     value={accountForm.account}
                     onChange={(e) => setAccountForm((prev) => ({ ...prev, account: e.target.value }))}
-                    className="w-full bg-kumo-recessed text-kumo-strong text-sm px-3 py-2 border border-kumo-line rounded-md focus:outline-none focus:border-kumo-brand"
+                    className="w-full text-kumo-strong text-sm px-3 py-2"
                   />
                 </div>
 
@@ -1681,14 +1496,14 @@ function TotpPage() {
                       disabled={accountModalMode === 'edit'}
                       value={accountForm.secret}
                       onChange={(e) => setAccountForm((prev) => ({ ...prev, secret: e.target.value }))}
-                      className="w-full bg-kumo-recessed text-kumo-strong text-sm pl-3 pr-10 py-2 border border-kumo-line rounded-md focus:outline-none focus:border-kumo-brand disabled:opacity-60"
+                      className="w-full text-kumo-strong text-sm pl-3 pr-10 py-2 disabled:opacity-60"
                     />
                     <Button
                       type="button" size="sm"
                       variant="ghost"
                       aria-label={totpShowSecret ? '隐藏密钥' : '显示密钥'}
                       onClick={toggleSecretVisibility}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-kumo-subtle hover:text-kumo-strong cursor-pointer"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-kumo-subtle hover:text-kumo-strong"
                     >
                       {totpShowSecret ? '隐藏' : '显示'}
                     </Button>
@@ -1702,7 +1517,7 @@ function TotpPage() {
                     value={accountForm.group_id}
                     onValueChange={(value) => setAccountForm((prev) => ({ ...prev, group_id: String(value) }))}
                     placeholder="无分组"
-                    className="w-full bg-kumo-recessed text-kumo-strong text-sm px-3 py-2 border border-kumo-line rounded-md focus:outline-none focus:border-kumo-brand"
+                    className="w-full text-kumo-strong text-sm px-3 py-2"
                     items={[
                       { value: '', label: '无分组' },
                       ...totpGroups.map((g) => ({ value: String(g.id), label: g.name })),
@@ -1722,7 +1537,7 @@ function TotpPage() {
                         aria-label="加密算法" size="sm"
                         value={accountForm.algorithm}
                         onValueChange={(value) => setAccountForm((prev) => ({ ...prev, algorithm: String(value) }))}
-                        className="w-full bg-kumo-recessed text-kumo-strong border border-kumo-line rounded p-1 focus:outline-none"
+                        className="w-full text-kumo-strong p-1"
                         items={[
                           { value: 'SHA1', label: 'SHA1' },
                           { value: 'SHA256', label: 'SHA256' },
@@ -1737,7 +1552,7 @@ function TotpPage() {
                         aria-label="码位长度" size="sm"
                         value={accountForm.digits}
                         onValueChange={(value) => setAccountForm((prev) => ({ ...prev, digits: String(value) }))}
-                        className="w-full bg-kumo-recessed text-kumo-strong border border-kumo-line rounded p-1 focus:outline-none"
+                        className="w-full text-kumo-strong p-1"
                         items={[
                           { value: '6', label: '6 位' },
                           { value: '8', label: '8 位' },
@@ -1752,7 +1567,7 @@ function TotpPage() {
                           aria-label="周期数" size="sm"
                           value={accountForm.period}
                           onValueChange={(value) => setAccountForm((prev) => ({ ...prev, period: String(value) }))}
-                          className="w-full bg-kumo-recessed text-kumo-strong border border-kumo-line rounded p-1 focus:outline-none"
+                          className="w-full text-kumo-strong p-1"
                           items={[
                             { value: '30', label: '30 秒' },
                             { value: '60', label: '60 秒' },
@@ -1767,7 +1582,7 @@ function TotpPage() {
                           type="number"
                           value={accountForm.counter}
                           onChange={(e) => setAccountForm((prev) => ({ ...prev, counter: e.target.value }))}
-                          className="w-full bg-kumo-recessed text-kumo-strong border border-kumo-line rounded p-1 focus:outline-none font-mono"
+                          className="w-full text-kumo-strong p-1 font-mono"
                         />
                       </div>
                     )}
@@ -1777,9 +1592,9 @@ function TotpPage() {
                       <Input size="sm"
                         aria-label="自定义色值"
                         type="color"
-                        value={accountForm.color || '#8b5cf6'}
+                        value={accountForm.color || BRAND_COLOR_FALLBACK}
                         onChange={(e) => setAccountForm((prev) => ({ ...prev, color: e.target.value }))}
-                        className="w-8 h-8 rounded-md border border-kumo-line cursor-pointer"
+                        className="w-8 h-8"
                       />
                       <Button size="sm" onClick={() => setAccountForm((prev) => ({ ...prev, color: '' }))}>
                         使用平台默认
@@ -1849,7 +1664,7 @@ function TotpPage() {
                 placeholder="如: 财务, 工作, 个人"
                 value={groupForm.name}
                 onChange={(e) => setGroupForm((prev) => ({ ...prev, name: e.target.value }))}
-                className="w-full bg-kumo-recessed text-kumo-strong text-sm px-3 py-2 border border-kumo-line rounded-md focus:outline-none focus:border-kumo-brand"
+                className="w-full text-kumo-strong text-sm px-3 py-2"
               />
             </div>
 
@@ -1861,7 +1676,7 @@ function TotpPage() {
                   type="color"
                   value={groupForm.color}
                   onChange={(e) => setGroupForm((prev) => ({ ...prev, color: e.target.value }))}
-                  className="w-10 h-10 rounded-md border border-kumo-line cursor-pointer"
+                  className="w-10 h-10"
                 />
                 <span className="text-xs font-mono text-kumo-subtle">{groupForm.color}</span>
               </div>
@@ -1890,19 +1705,21 @@ function TotpPage() {
             备份与导出
           </Dialog.Title>
           <Dialog.Description className="text-xs text-kumo-subtle mb-4">
-            已成功生成标准 `otpauth://` 协议格式的 URI 列表，请复制妥善保管。
+            已生成默认加密备份，可用于迁移或恢复 2FA 账号。
           </Dialog.Description>
 
           <div className="space-y-1.5">
             <Textarea
-              aria-label="导出的 OTP Auth URI"
+              aria-label="导出的加密 2FA 备份"
               readOnly
               rows={8}
               value={exportUris}
-              className="w-full bg-kumo-recessed text-kumo-strong text-xs px-3 py-2 border border-kumo-line rounded-md focus:outline-none font-mono"
+              className="w-full text-kumo-strong text-xs px-3 py-2 font-mono"
             />
             <span className="text-[10px] text-kumo-subtle block">
-              警告：密钥是明文显示，请务必保证导出环境的安全性。
+              {exportMeta?.accountCount !== undefined
+                ? `已加密 ${exportMeta.accountCount} 个账号和 ${exportMeta.groupCount || 0} 个分组。`
+                : '当前内容可能是显式请求的明文 URI，请谨慎保管。'}
             </span>
           </div>
 

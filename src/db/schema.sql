@@ -47,9 +47,30 @@ CREATE TABLE IF NOT EXISTS operation_logs (
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 13. 工具箱设置注册表
+CREATE TABLE IF NOT EXISTS settings_registry (
+    domain TEXT PRIMARY KEY,
+    defaults_json TEXT,
+    schema_json TEXT,
+    mask_fields_json TEXT,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 14. 后台任务状态
+CREATE TABLE IF NOT EXISTS toolbox_jobs (
+    name TEXT PRIMARY KEY,
+    interval_ms INTEGER,
+    last_run_at DATETIME,
+    next_run_at DATETIME,
+    last_error TEXT,
+    enabled INTEGER DEFAULT 1,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
 -- 索引
 CREATE INDEX IF NOT EXISTS idx_sessions_active ON sessions(is_active, expires_at);
 CREATE INDEX IF NOT EXISTS idx_operation_logs_table ON operation_logs(table_name, created_at);
+CREATE INDEX IF NOT EXISTS idx_toolbox_jobs_enabled ON toolbox_jobs(enabled, next_run_at);
 
 -- 插入默认用户设置
 INSERT OR IGNORE INTO user_settings (id, custom_css, module_visibility, module_order)

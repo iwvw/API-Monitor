@@ -13,13 +13,16 @@
  * res.json(success({ id: 1, name: 'test' }))
  * // => { success: true, data: { id: 1, name: 'test' } }
  */
-function success(data, message) {
+function success(data, message, meta = undefined) {
   const response = {
     success: true,
     data,
   };
   if (message) {
     response.message = message;
+  }
+  if (meta !== undefined) {
+    response.meta = meta;
   }
   return response;
 }
@@ -35,7 +38,7 @@ function success(data, message) {
  * res.status(400).json(error('VALIDATION_ERROR', 'Invalid input'))
  * // => { success: false, error: { code: 'VALIDATION_ERROR', message: 'Invalid input' } }
  */
-function error(code, message, details) {
+function error(code, message, details, requestId = undefined) {
   const response = {
     success: false,
     error: {
@@ -45,6 +48,9 @@ function error(code, message, details) {
   };
   if (details !== undefined) {
     response.error.details = details;
+  }
+  if (requestId) {
+    response.requestId = requestId;
   }
   return response;
 }
@@ -99,6 +105,16 @@ function sendError(res, status, code, message, details) {
   res.status(status).json(error(code, message, details));
 }
 
+function fromException(err, fallbackCode = 'INTERNAL_ERROR') {
+  if (!err) {
+    return error(fallbackCode, 'Unknown error');
+  }
+
+  const code = err.code || err.name || fallbackCode;
+  const message = err.message || 'Internal Server Error';
+  return error(code, message, err.details);
+}
+
 /**
  * 常用错误响应快捷方法
  */
@@ -128,5 +144,6 @@ module.exports = {
   paginated,
   sendSuccess,
   sendError,
+  fromException,
   errors,
 };

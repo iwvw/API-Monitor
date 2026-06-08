@@ -5,6 +5,7 @@
 
 const { UserSettings } = require('../db/models');
 const dbService = require('../db/database');
+const settingsRegistry = require('./settings-registry');
 
 // 初始化数据库
 dbService.initialize();
@@ -233,6 +234,16 @@ function updateUserSettings(partialSettings) {
   };
   return saveUserSettings(updatedSettings);
 }
+
+settingsRegistry.register('system', {
+  defaults: getDefaultSettings(),
+  maskFields: ['publicApiUrl', 'agentDownloadUrl'],
+});
+
+settingsRegistry.register('totp', {
+  defaults: getDefaultSettings().totpSettings,
+  maskFields: [],
+});
 
 module.exports = {
   loadUserSettings,

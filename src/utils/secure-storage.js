@@ -107,6 +107,12 @@ const SENSITIVE_FIELDS = {
     // 音乐模块
     music: ['cookie'],
 
+    // TOTP/HOTP
+    totp: ['secret'],
+
+    // 通知模块
+    notification: ['password', 'token', 'secret', 'webhook', 'api_key'],
+
     // 通用
     common: ['password', 'token', 'secret', 'key', 'cookie'],
 };
@@ -170,6 +176,38 @@ function createSecureWrapper(category) {
 const serverSecure = createSecureWrapper('server');
 const accountSecure = createSecureWrapper('account');
 const musicSecure = createSecureWrapper('music');
+const totpSecure = createSecureWrapper('totp');
+const notificationSecure = createSecureWrapper('notification');
+
+function encryptJson(value) {
+    if (value === undefined || value === null) return value;
+    const serialized = typeof value === 'string' ? value : JSON.stringify(value);
+    return secureEncrypt(serialized);
+}
+
+function decryptJson(value, fallback = null) {
+    if (!value) return fallback;
+    const decrypted = secureDecrypt(value);
+    try {
+        return JSON.parse(decrypted);
+    } catch (error) {
+        return fallback;
+    }
+}
+
+function maskSecret(value) {
+    return maskSensitive(value, 3, 3);
+}
+
+const SecureSecretStore = {
+    isEncrypted,
+    encrypt: secureEncrypt,
+    decrypt: secureDecrypt,
+    encryptJson,
+    decryptJson,
+    maskSecret,
+    maskSensitive,
+};
 
 /**
  * 遮蔽敏感数据（用于日志）
@@ -243,6 +281,13 @@ module.exports = {
     serverSecure,
     accountSecure,
     musicSecure,
+    totpSecure,
+    notificationSecure,
+
+    SecureSecretStore,
+    encryptJson,
+    decryptJson,
+    maskSecret,
 
     // 辅助函数
     maskSensitive,

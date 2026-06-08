@@ -14,7 +14,7 @@ export function AnimatedCollapse({
 }) {
   return (
     <Collapsible.Root open={open} onOpenChange={onOpenChange} className={className}>
-      <Collapsible.Panel keepMounted={keepMounted} className={cx('app-collapse-panel', panelClassName)}>
+      <Collapsible.Panel keepMounted={keepMounted} className={cx(panelClassName)}>
         {children}
       </Collapsible.Panel>
     </Collapsible.Root>

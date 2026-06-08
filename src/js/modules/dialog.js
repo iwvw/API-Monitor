@@ -89,6 +89,12 @@ export const dialog = {
       : messageOrOptions
   ).then(() => true),
   confirm: (options) => requestDialog('confirm', options),
+  deleteResource: (options) => requestDialog('confirm', {
+    ...options,
+    deleteResource: true,
+    variant: options?.variant || 'destructive',
+    confirmText: options?.confirmText || '删除',
+  }),
   prompt: (options) => requestDialog('prompt', options),
 };
 

@@ -1,6 +1,6 @@
 # API Monitor 文档索引
 
-最后更新：2026-06-07
+最后更新：2026-06-08
 
 本文档目录记录当前项目事实。API Monitor 现在以 **Express + React 19 + Zustand + @cloudflare/kumo 2.5.0 + Tailwind CSS v4 + SQLite** 为主线；旧 Vue 前端、旧模板加载器、Pinia 和 Chart.js 已不再作为当前前端方案。
 
@@ -14,6 +14,7 @@
 6. [refactor-progress.md](./refactor-progress.md)：当前重构状态。
 7. [refactor-next.md](./refactor-next.md)：后续待办与执行规则。
 8. [refactor-verification.md](./refactor-verification.md)：静态扫描、构建和浏览器验收记录。
+9. [termix-reference-analysis.md](./termix-reference-analysis.md)：Termix 终端、SFTP、Docker、资源监控参考分析。
 
 ## 参考快照
 

@@ -1,6 +1,6 @@
 # API Monitor 设计文档
 
-最后更新：2026-06-07
+最后更新：2026-06-08
 
 API Monitor 是一个单体模块化的 API 管理、云服务管理与主机监控面板。当前技术主线是 **Express + React 19 + Zustand + @cloudflare/kumo 2.5.0 + Tailwind CSS v4 + SQLite**。
 
@@ -91,6 +91,6 @@ SQLite 是系统唯一持久化数据库。配置、密钥、账号、模块状�
 
 ## 当前风险
 
-- 删除确认仍需继续迁移到 Kumo `DeleteResource`。
+- 删除确认已通过全局弹窗宿主接入 Kumo `DeleteResource`；后续只需对高频场景补充更精确的 `resourceType` / `resourceName`。
 - 官方 `PageHeader` 是 block source，不是当前 barrel 运行时导出；替换本地紧凑顶栏前必须先安装/复制并适配。
 - 仍需建立全路由自动 smoke，覆盖桌面、窄屏、暗色主题和主要弹窗。

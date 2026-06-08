@@ -17,6 +17,41 @@ hotp.options = {
   digits: 6,
 };
 
+function withTemporaryOptions(generator, patch, callback) {
+  const previous = { ...generator.options };
+  try {
+    generator.options = { ...previous, ...patch };
+    return callback();
+  } finally {
+    generator.options = previous;
+  }
+}
+
+function normalizeOtpAlgorithm(value) {
+  const normalized = String(value || 'SHA1')
+    .replace(/[-_]/g, '')
+    .toLowerCase();
+
+  if (normalized === 'sha256') return 'sha256';
+  if (normalized === 'sha512') return 'sha512';
+  return 'sha1';
+}
+
+function buildTotpOptions(options = {}) {
+  return {
+    digits: options.digits || 6,
+    step: options.period || 30,
+    algorithm: normalizeOtpAlgorithm(options.algorithm),
+  };
+}
+
+function buildHotpOptions(options = {}) {
+  return {
+    digits: options.digits || 6,
+    algorithm: normalizeOtpAlgorithm(options.algorithm),
+  };
+}
+
 /**
  * 生成 TOTP 验证码
  * @param {string} secret - Base32 编码的密钥
@@ -25,14 +60,9 @@ hotp.options = {
  */
 function generateTotpCode(secret, options = {}) {
   try {
-    if (options.digits) {
-      authenticator.options = { ...authenticator.options, digits: options.digits };
-    }
-    if (options.period) {
-      authenticator.options = { ...authenticator.options, step: options.period };
-    }
-
-    return authenticator.generate(secret);
+    return withTemporaryOptions(authenticator, buildTotpOptions(options), () =>
+      authenticator.generate(secret)
+    );
   } catch (error) {
     console.error('[TOTP Service] 生成 TOTP 验证码失败:', error.message);
     return null;
@@ -48,11 +78,7 @@ function generateTotpCode(secret, options = {}) {
  */
 function generateHotpCode(secret, counter, options = {}) {
   try {
-    if (options.digits) {
-      hotp.options = { ...hotp.options, digits: options.digits };
-    }
-
-    return hotp.generate(secret, counter);
+    return withTemporaryOptions(hotp, buildHotpOptions(options), () => hotp.generate(secret, counter));
   } catch (error) {
     console.error('[HOTP Service] 生成 HOTP 验证码失败:', error.message);
     return null;
@@ -69,7 +95,7 @@ function generateCode(account) {
 
   if (otp_type === 'hotp') {
     return {
-      code: generateHotpCode(secret, counter || 0, { digits }),
+      code: generateHotpCode(secret, counter || 0, { digits, algorithm: account.algorithm }),
       counter: counter || 0,
     };
   }
@@ -78,7 +104,7 @@ function generateCode(account) {
   const now = Math.floor(Date.now() / 1000);
   const currentPeriod = period || 30;
   return {
-    code: generateTotpCode(secret, { digits, period: currentPeriod }),
+    code: generateTotpCode(secret, { digits, period: currentPeriod, algorithm: account.algorithm }),
     remaining: currentPeriod - (now % currentPeriod),
   };
 }
@@ -92,14 +118,9 @@ function generateCode(account) {
  */
 function verifyTotpCode(secret, token, options = {}) {
   try {
-    if (options.digits) {
-      authenticator.options = { ...authenticator.options, digits: options.digits };
-    }
-    if (options.period) {
-      authenticator.options = { ...authenticator.options, step: options.period };
-    }
-
-    return authenticator.verify({ token, secret });
+    return withTemporaryOptions(authenticator, buildTotpOptions(options), () =>
+      authenticator.verify({ token, secret })
+    );
   } catch (error) {
     console.error('[TOTP Service] 验证失败:', error.message);
     return false;
@@ -116,18 +137,16 @@ function verifyTotpCode(secret, token, options = {}) {
  */
 function verifyHotpCode(secret, token, counter, options = {}) {
   try {
-    if (options.digits) {
-      hotp.options = { ...hotp.options, digits: options.digits };
-    }
-
     // 检查当前计数器及之后几个值
     const window = options.window || 10;
-    for (let i = 0; i <= window; i++) {
-      if (hotp.verify({ token, secret, counter: counter + i })) {
-        return { valid: true, newCounter: counter + i + 1 };
+    return withTemporaryOptions(hotp, buildHotpOptions(options), () => {
+      for (let i = 0; i <= window; i++) {
+        if (hotp.verify({ token, secret, counter: counter + i })) {
+          return { valid: true, newCounter: counter + i + 1 };
+        }
       }
-    }
-    return { valid: false, newCounter: counter };
+      return { valid: false, newCounter: counter };
+    });
   } catch (error) {
     console.error('[HOTP Service] 验证失败:', error.message);
     return { valid: false, newCounter: counter };
@@ -155,9 +174,11 @@ function generateAllCodes(accounts) {
   for (const acc of accounts) {
     try {
       if (acc.otp_type === 'hotp') {
-        hotp.options = { ...hotp.options, digits: acc.digits || 6 };
         result[acc.id] = {
-          code: hotp.generate(acc.secret, acc.counter || 0),
+          code: generateHotpCode(acc.secret, acc.counter || 0, {
+            digits: acc.digits,
+            algorithm: acc.algorithm,
+          }),
           counter: acc.counter || 0,
           type: 'hotp',
         };
@@ -165,15 +186,12 @@ function generateAllCodes(accounts) {
         const period = acc.period || 30;
         const digits = acc.digits || 6;
 
-        // 重置 authenticator 选项
-        authenticator.options = { ...authenticator.options, digits, step: period };
-        delete authenticator.options.epoch; // 确保 epoch 被清除
-
-        // 当前验证码
-        const currentCode = authenticator.generate(acc.secret);
-
         result[acc.id] = {
-          code: currentCode,
+          code: generateTotpCode(acc.secret, {
+            digits,
+            period,
+            algorithm: acc.algorithm,
+          }),
           remaining: period - (now % period),
           type: 'totp',
         };
@@ -279,6 +297,7 @@ module.exports = {
   generateCode,
   generateTotpCode,
   generateHotpCode,
+  normalizeOtpAlgorithm,
   verifyTotpCode,
   verifyHotpCode,
   getRemainingSeconds,

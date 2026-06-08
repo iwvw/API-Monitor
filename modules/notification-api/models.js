@@ -137,6 +137,8 @@ class AlertRuleModel extends BaseModel {
         const data = {};
 
         if (ruleData.name !== undefined) data.name = ruleData.name;
+        if (ruleData.source_module !== undefined) data.source_module = ruleData.source_module;
+        if (ruleData.event_type !== undefined) data.event_type = ruleData.event_type;
         if (ruleData.severity !== undefined) data.severity = ruleData.severity;
         if (ruleData.enabled !== undefined) data.enabled = ruleData.enabled;
         if (ruleData.channels !== undefined) data.channels = JSON.stringify(ruleData.channels);

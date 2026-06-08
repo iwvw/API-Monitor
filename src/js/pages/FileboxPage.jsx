@@ -8,8 +8,9 @@ import { Dialog } from '@cloudflare/kumo/components/dialog';
 import { Input, Textarea } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
 import { Switch } from '@cloudflare/kumo/components/switch';
-import { ClipboardText, Tabs } from '@cloudflare/kumo';
+import { ClipboardText, Meter, Tabs } from '@cloudflare/kumo';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
+import { Table } from '@cloudflare/kumo/components/table';
 import { MODULE_TABS_PROPS, TOOL_TABS_PROPS } from '../modules/kumoTabs.js';
 import { formatFileSize, formatDateTime } from '../modules/utils.js';
 import {
@@ -22,10 +23,11 @@ import {
   Upload,
   RefreshCw,
   Trash,
-  X
+  Lock,
+  Clock
 } from '../components/Icons.jsx';
 
-const FILEBOX_MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
+const DEFAULT_FILEBOX_MAX_FILE_SIZE = 100 * 1024 * 1024; // 100MB
 
 function formatSpeed(bytesPerSecond) {
   if (!Number.isFinite(bytesPerSecond) || bytesPerSecond <= 0) return '-';
@@ -52,10 +54,13 @@ function FileboxPage() {
   const [activeTab, setActiveTab] = useState('share'); // 'share' | 'retrieve' | 'history'
   const [shareType, setShareType] = useState('file'); // 'file' | 'text'
   const [retrieveCode, setRetrieveCode] = useState('');
+  const [retrievePassword, setRetrievePassword] = useState('');
   const [shareText, setShareText] = useState('');
   const [selectedFile, setSelectedFile] = useState(null);
   const [expiry, setExpiry] = useState('24');
   const [burnAfterReading, setBurnAfterReading] = useState(false);
+  const [maxDownloads, setMaxDownloads] = useState('');
+  const [accessPassword, setAccessPassword] = useState('');
   const [loading, setLoading] = useState(false);
 
   // Results
@@ -65,7 +70,17 @@ function FileboxPage() {
   // History lists
   const [localHistory, setLocalHistory] = useState([]);
   const [serverHistory, setServerHistory] = useState([]);
+  const [accessLogs, setAccessLogs] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [accessLogsLoading, setAccessLogsLoading] = useState(false);
+  const [settingsLoading, setSettingsLoading] = useState(false);
+  const [fileboxSettings, setFileboxSettings] = useState({
+    max_file_size: DEFAULT_FILEBOX_MAX_FILE_SIZE,
+    allowed_mime_types: [],
+    default_expiry_hours: 24,
+    public_upload_enabled: false,
+  });
+  const [settingsMimeText, setSettingsMimeText] = useState('');
 
   // Teleport/Modal retrieved item
   const [retrievedEntry, setRetrievedEntry] = useState(null);
@@ -81,6 +96,7 @@ function FileboxPage() {
 
   const abortControllerRef = useRef(null);
   const fileInputRef = useRef(null);
+  const maxFileSize = fileboxSettings.max_file_size || DEFAULT_FILEBOX_MAX_FILE_SIZE;
 
   // Get Auth Headers
   const getAuthHeaders = () => {
@@ -93,12 +109,14 @@ function FileboxPage() {
   // Load history on mount
   useEffect(() => {
     loadLocalHistory();
+    loadFileboxSettings();
   }, []);
 
   // Fetch server history when switching to history tab
   useEffect(() => {
     if (activeTab === 'history') {
       loadServerHistory();
+      loadAccessLogs();
     }
   }, [activeTab]);
 
@@ -145,10 +163,72 @@ function FileboxPage() {
     }
   };
 
+  const loadAccessLogs = async () => {
+    setAccessLogsLoading(true);
+    try {
+      const res = await axios.get('/api/filebox/access-logs', {
+        headers: getAuthHeaders(),
+      });
+      if (res.data?.success) {
+        setAccessLogs(Array.isArray(res.data.data) ? res.data.data : []);
+      }
+    } catch (error) {
+      console.error(error);
+      toast.error(error.response?.data?.error || '加载访问日志失败');
+    } finally {
+      setAccessLogsLoading(false);
+    }
+  };
+
+  const loadFileboxSettings = async () => {
+    setSettingsLoading(true);
+    try {
+      const res = await axios.get('/api/filebox/settings', {
+        headers: getAuthHeaders(),
+      });
+      if (res.data?.success && res.data.data) {
+        setFileboxSettings(res.data.data);
+        setSettingsMimeText((res.data.data.allowed_mime_types || []).join(', '));
+      }
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setSettingsLoading(false);
+    }
+  };
+
+  const saveFileboxSettings = async () => {
+    setSettingsLoading(true);
+    try {
+      const allowedMimeTypes = settingsMimeText
+        .split(/[,，\n]/)
+        .map(item => item.trim())
+        .filter(Boolean);
+      const res = await axios.put('/api/filebox/settings', {
+        ...fileboxSettings,
+        allowed_mime_types: allowedMimeTypes,
+      }, {
+        headers: getAuthHeaders(),
+      });
+      if (res.data?.success) {
+        setFileboxSettings(res.data.data);
+        setSettingsMimeText((res.data.data.allowed_mime_types || []).join(', '));
+        toast.success('文件柜策略已保存');
+      } else {
+        toast.error(res.data?.error || '保存策略失败');
+      }
+    } catch (error) {
+      console.error(error);
+      toast.error(error.response?.data?.error || '保存策略失败');
+    } finally {
+      setSettingsLoading(false);
+    }
+  };
+
   const handleSelectFile = (file) => {
     if (!file) return;
-    if (file.size > FILEBOX_MAX_FILE_SIZE) {
-      toast.error(`文件过大，最大支持 ${formatFileSize(FILEBOX_MAX_FILE_SIZE)}`);
+    if (file.size > maxFileSize) {
+      toast.error(`文件过大，最大支持 ${formatFileSize(maxFileSize)}`);
       return;
     }
     setSelectedFile(file);
@@ -160,6 +240,8 @@ function FileboxPage() {
     setSelectedFile(null);
     setExpiry('24');
     setBurnAfterReading(false);
+    setMaxDownloads('');
+    setAccessPassword('');
     setResult(null);
     setQrCode('');
     setUploadProgress(0);
@@ -216,6 +298,8 @@ function FileboxPage() {
       formData.append('type', shareType);
       formData.append('expiry', expiry);
       formData.append('burn_after_reading', burnAfterReading);
+      formData.append('max_downloads', maxDownloads || '0');
+      formData.append('access_password', accessPassword);
 
       if (isTextMode) {
         formData.append('text', shareText);
@@ -290,14 +374,21 @@ function FileboxPage() {
       const res = await axios.get(`/api/filebox/retrieve/${code}`);
       if (res.data?.success) {
         const entry = res.data.data;
+        if (entry.requiresPassword && !retrievePassword) {
+          toast.warning('该分享需要访问密码');
+          return;
+        }
+        entry.accessPassword = retrievePassword;
         if (entry.type === 'text') {
           const contentRes = await axios.get(`/api/filebox/download/${code}`, {
             responseType: 'text',
+            headers: retrievePassword ? { 'x-filebox-password': retrievePassword } : undefined,
           });
           entry.content = contentRes.data;
         }
         setRetrievedEntry(entry);
         setRetrieveCode('');
+        setRetrievePassword('');
       } else {
         toast.error(res.data?.error || '取件失败');
       }
@@ -341,20 +432,8 @@ function FileboxPage() {
       await navigator.clipboard.writeText(text);
       toast.success('已复制到剪贴板');
     } catch (e) {
-      const textArea = document.createElement('textarea');
-      textArea.value = text;
-      textArea.style.position = 'fixed';
-      textArea.style.left = '-9999px';
-      document.body.appendChild(textArea);
-      textArea.focus();
-      textArea.select();
-      try {
-        document.execCommand('copy');
-        toast.success('已复制到剪贴板');
-      } catch (err) {
-        toast.error('复制失败');
-      }
-      document.body.removeChild(textArea);
+      console.error('Clipboard write failed:', e);
+      toast.error('复制失败，请检查浏览器剪贴板权限');
     }
   };
 
@@ -363,8 +442,46 @@ function FileboxPage() {
     copyToClipboard(url);
   };
 
-  const triggerDownload = (code) => {
-    window.open(`/api/filebox/download/${code}`, '_blank');
+  const runCleanupJob = async () => {
+    if (!(await dialog.confirm('确定要立即清理所有过期分享吗？'))) {
+      return;
+    }
+
+    setHistoryLoading(true);
+    try {
+      const res = await axios.post('/api/filebox/jobs/cleanup', {}, {
+        headers: getAuthHeaders(),
+      });
+      const deleted = res.data?.data?.result?.deleted ?? res.data?.data?.deleted ?? 0;
+      toast.success(`清理完成，删除 ${deleted} 条过期分享`);
+      await Promise.all([loadServerHistory(), loadAccessLogs()]);
+    } catch (error) {
+      console.error(error);
+      toast.error(error.response?.data?.error || '清理任务执行失败');
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  const triggerDownload = async (entry) => {
+    if (!entry?.code) return;
+    try {
+      const response = await axios.get(`/api/filebox/download/${entry.code}`, {
+        responseType: 'blob',
+        headers: entry.accessPassword ? { 'x-filebox-password': entry.accessPassword } : undefined,
+      });
+      const blobUrl = URL.createObjectURL(response.data);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = entry.originalName || entry.filename || `filebox-${entry.code}`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(blobUrl);
+    } catch (error) {
+      console.error(error);
+      toast.error(error.response?.status === 403 ? '访问密码错误或缺失' : '下载失败');
+    }
   };
 
   return (
@@ -379,13 +496,14 @@ function FileboxPage() {
             { value: 'share', label: <span className="inline-flex items-center gap-1.5"><Send className="w-3.5 h-3.5" />快捷分享</span> },
             { value: 'retrieve', label: <span className="inline-flex items-center gap-1.5"><Download className="w-3.5 h-3.5" />极速取件</span> },
             { value: 'history', label: <span className="inline-flex items-center gap-1.5"><History className="w-3.5 h-3.5" />历史记录</span> },
+            { value: 'settings', label: <span className="inline-flex items-center gap-1.5"><Lock className="w-3.5 h-3.5" />策略设置</span> },
           ]}
         />
       </div>
 
       {/* ==================== 1. 取件 Tab 页面 ==================== */}
       {activeTab === 'retrieve' && (
-        <div className="quick-fade-in max-w-lg mx-auto text-center space-y-6 py-8">
+        <div className="max-w-lg mx-auto text-center space-y-6 py-8">
           <div className="space-y-2">
             <h2 className="text-base font-bold text-kumo-strong flex items-center justify-center gap-2 select-none">
               <Download className="w-5 h-5 text-kumo-brand" />
@@ -404,7 +522,7 @@ function FileboxPage() {
               placeholder="请输入 5 位取件码"
               maxLength={5}
               onKeyDown={(e) => e.key === 'Enter' && handleRetrieve()}
-              className="flex-1 bg-kumo-base text-kumo-strong text-base font-bold font-mono tracking-widest text-center px-4 py-2 border border-kumo-line rounded-lg focus:outline-none focus:border-kumo-brand"
+              className="flex-1 text-kumo-strong text-base font-bold font-mono tracking-widest text-center px-4 py-2"
             />
             <Button size="sm"
               variant="primary"
@@ -415,7 +533,17 @@ function FileboxPage() {
               {loading ? '提取中...' : '提取'}
             </Button>
           </div>
-          <div className="bg-kumo-base border border-kumo-line rounded-lg p-5 text-left space-y-3 shadow-sm">
+          <Input
+            size="sm"
+            type="password"
+            aria-label="访问密码"
+            value={retrievePassword}
+            onChange={(e) => setRetrievePassword(e.target.value)}
+            placeholder="如分享设置了访问密码，请在此输入"
+            onKeyDown={(e) => e.key === 'Enter' && handleRetrieve()}
+            className="w-full text-kumo-strong text-sm px-4 py-2"
+          />
+          <div className="app-card p-5 text-left space-y-3">
             <h3 className="text-xs font-bold text-kumo-strong flex items-center gap-1.5 select-none">
               <Info className="w-4 h-4 text-kumo-brand" />
               取件说明
@@ -424,6 +552,7 @@ function FileboxPage() {
               <p>1. 取件码为分享成功后生成的 5 位随机字符（字母与数字组合）。</p>
               <p>2. 请确保取件码在有效期内，过期的内容将自动销毁且不可恢复。</p>
               <p>3. 如果分享者开启了“阅后即焚”，内容在首次成功提取后将立即被永久删除。</p>
+              <p>4. 带锁分享需要访问密码，下载请求会通过安全请求头提交密码。</p>
             </div>
           </div>
         </div>
@@ -431,7 +560,7 @@ function FileboxPage() {
 
       {/* ==================== 2. 分享 Tab 页面 ==================== */}
       {activeTab === 'share' && (
-        <div className="quick-fade-in max-w-2xl mx-auto bg-kumo-base border border-kumo-line rounded-lg shadow-sm p-6 relative">
+        <div className="max-w-2xl mx-auto app-card p-6 relative">
           <h3 className="text-sm font-bold text-kumo-strong border-b border-kumo-line pb-3 mb-5 select-none">
             我要分享
           </h3>
@@ -487,7 +616,7 @@ function FileboxPage() {
                     点击选择文件 或 拖拽文件到此处
                   </span>
                   <span className="text-[10px] text-kumo-subtle mt-1.5">
-                    建议大小不超过 {formatFileSize(FILEBOX_MAX_FILE_SIZE)}
+                    建议大小不超过 {formatFileSize(maxFileSize)}
                   </span>
                 </>
               ) : (
@@ -518,26 +647,30 @@ function FileboxPage() {
               aria-label="分享文本内容"
               value={shareText}
               onChange={(e) => setShareText(e.target.value)}
-              className="w-full h-32 bg-kumo-recessed text-kumo-strong text-xs px-3 py-2 border border-kumo-line rounded-lg focus:outline-none focus:border-kumo-brand resize-none font-mono"
+              className="w-full h-32 text-kumo-strong text-xs px-3 py-2 resize-none font-mono"
               placeholder="在此粘贴或输入需要分享的文本内容..."
             />
           )}
 
           {/* Upload progress telemetry card (only shown for file uploads during loading) */}
           {shareType === 'file' && loading && (
-            <div className="mt-4 p-4 border border-kumo-line rounded-lg bg-kumo-recessed/40 space-y-3">
+            <div className="mt-4 p-4 app-subcard space-y-3">
               <div className="flex justify-between items-center text-xs font-semibold">
                 <span className="text-kumo-strong truncate max-w-[240px]">
                   {uploadingName || '文件上传中'}
                 </span>
                 <span className="text-kumo-brand">{uploadProgress}%</span>
               </div>
-              <div className="w-full h-2 overflow-hidden rounded-full border border-kumo-line/70 bg-kumo-recessed">
-                <div
-                  className="h-full bg-kumo-brand rounded-full transition-all duration-300"
-                  style={{ width: `${uploadProgress}%` }}
-                />
-              </div>
+              <Meter
+                label="上传进度"
+                value={uploadProgress}
+                min={0}
+                max={100}
+                customValue={`${uploadProgress}%`}
+                className="text-[10px]"
+                trackClassName="!h-2 overflow-hidden rounded-full border border-kumo-line/70 bg-kumo-recessed"
+                indicatorClassName="!h-full rounded-full bg-kumo-brand"
+              />
               <div className="flex justify-between items-center text-[10px] text-kumo-subtle font-mono">
                 <div className="flex gap-4">
                   <span>网速: {uploadSpeedText}</span>
@@ -554,8 +687,8 @@ function FileboxPage() {
           )}
 
           {/* Expiry and Burn config row */}
-          <div className="mt-6 pt-5 border-t border-kumo-line flex flex-wrap items-center justify-between gap-4">
-            <div className="flex items-center gap-6">
+          <div className="mt-6 pt-5 border-t border-kumo-line space-y-4">
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               <div className="flex items-center gap-2 text-xs">
                 <span className="font-semibold text-kumo-subtle">有效期</span>
                 <Select
@@ -570,6 +703,28 @@ function FileboxPage() {
                 />
               </div>
 
+              <Input
+                size="sm"
+                type="number"
+                min="0"
+                aria-label="最大下载次数"
+                label="最大下载次数"
+                value={maxDownloads}
+                onChange={(e) => setMaxDownloads(e.target.value.replace(/\D/g, ''))}
+                placeholder="0 表示不限"
+                className="font-mono"
+              />
+
+              <Input
+                size="sm"
+                type="password"
+                aria-label="访问密码"
+                label="访问密码"
+                value={accessPassword}
+                onChange={(e) => setAccessPassword(e.target.value)}
+                placeholder="可选，取件时需要输入"
+              />
+
               <div className="flex items-center gap-2.5 text-xs">
                 <span className="font-semibold text-kumo-subtle">阅后即焚</span>
                 <Switch
@@ -580,14 +735,16 @@ function FileboxPage() {
               </div>
             </div>
 
-            <Button size="sm"
-              variant="primary"
-              disabled={loading || (shareType === 'file' ? !selectedFile : !shareText.trim())}
-              onClick={handleShare}
-              className="font-semibold"
-            >
-              {loading ? '分享中...' : '立即分享'}
-            </Button>
+            <div className="flex justify-end">
+              <Button size="sm"
+                variant="primary"
+                disabled={loading || (shareType === 'file' ? !selectedFile : !shareText.trim())}
+                onClick={handleShare}
+                className="font-semibold"
+              >
+                {loading ? '分享中...' : '立即分享'}
+              </Button>
+            </div>
           </div>
 
           {/* Success Overlay result */}
@@ -620,7 +777,7 @@ function FileboxPage() {
 
               {/* QR Code */}
               {qrCode && (
-                <div className="flex flex-col items-center justify-center p-2.5 border border-kumo-line bg-kumo-recessed rounded-lg">
+                <div className="flex flex-col items-center justify-center p-2.5 app-subcard bg-kumo-recessed">
                   <img src={qrCode} alt="取件二维码" className="w-[110px] h-[110px]" />
                   <span className="text-[9px] text-kumo-subtle mt-1">扫码快速提取</span>
                 </div>
@@ -636,15 +793,108 @@ function FileboxPage() {
         </div>
       )}
 
+      {activeTab === 'settings' && (
+        <div className="mx-auto max-w-2xl app-card p-6 space-y-5">
+          <div className="flex items-start justify-between gap-4 border-b border-kumo-line pb-3">
+            <div>
+              <h3 className="text-sm font-bold text-kumo-strong">文件柜策略设置</h3>
+              <p className="mt-1 text-xs text-kumo-subtle">
+                这些限制由后端强制执行，保存后立即影响新分享。
+              </p>
+            </div>
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={loadFileboxSettings}
+              loading={settingsLoading}
+              icon={<RefreshCw className="w-3.5 h-3.5" />}
+            >
+              刷新
+            </Button>
+          </div>
+
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <Input
+              size="sm"
+              type="number"
+              min="1"
+              label="最大文件大小（MB）"
+              aria-label="最大文件大小"
+              value={Math.max(1, Math.round(maxFileSize / 1024 / 1024))}
+              onChange={(e) => setFileboxSettings(prev => ({
+                ...prev,
+                max_file_size: Math.max(1, parseInt(e.target.value, 10) || 1) * 1024 * 1024,
+              }))}
+              className="font-mono"
+            />
+
+            <Input
+              size="sm"
+              type="number"
+              min="1"
+              label="默认有效期（小时）"
+              aria-label="默认有效期"
+              value={fileboxSettings.default_expiry_hours || 24}
+              onChange={(e) => setFileboxSettings(prev => ({
+                ...prev,
+                default_expiry_hours: Math.max(1, parseInt(e.target.value, 10) || 24),
+              }))}
+              className="font-mono"
+            />
+
+            <div className="md:col-span-2">
+              <Textarea
+                aria-label="允许 MIME 类型"
+                value={settingsMimeText}
+                onChange={(e) => setSettingsMimeText(e.target.value)}
+                className="h-24 w-full resize-none font-mono text-xs"
+                placeholder="留空表示不限制。例如：image/*, application/pdf, text/plain"
+              />
+              <p className="mt-1 text-[10px] text-kumo-subtle">
+                支持逗号或换行分隔，`image/*` 这样的通配规则会匹配同类 MIME。
+              </p>
+            </div>
+
+            <div className="md:col-span-2 flex items-center justify-between rounded-lg border border-kumo-line bg-kumo-recessed/30 p-3">
+              <div>
+                <div className="text-xs font-semibold text-kumo-strong">允许公开上传</div>
+                <div className="mt-1 text-[10px] text-kumo-subtle">
+                  当前上传接口仍要求管理员认证；此开关为后续公开上传策略预留。
+                </div>
+              </div>
+              <Switch
+                size="sm"
+                checked={!!fileboxSettings.public_upload_enabled}
+                onCheckedChange={(checked) => setFileboxSettings(prev => ({
+                  ...prev,
+                  public_upload_enabled: checked,
+                }))}
+              />
+            </div>
+          </div>
+
+          <div className="flex justify-end border-t border-kumo-line pt-4">
+            <Button
+              size="sm"
+              variant="primary"
+              onClick={saveFileboxSettings}
+              loading={settingsLoading}
+            >
+              保存策略
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* ==================== 3. 历史记录 Tab 页面 ==================== */}
       {activeTab === 'history' && (
-        <div className="quick-fade-in space-y-6">
+        <div className="space-y-6">
           {/* 本地分享历史 */}
-          <div className="bg-kumo-base border border-kumo-line rounded-lg shadow-sm p-6 space-y-4">
+          <div className="app-card p-6 space-y-4">
             <div className="flex justify-between items-center border-b border-kumo-line pb-3 select-none">
               <div className="flex items-center gap-2">
                 <h3 className="text-sm font-semibold text-kumo-strong">本地分享历史</h3>
-                <span className="text-[10px] text-kumo-subtle bg-kumo-recessed border border-kumo-line px-1.5 py-0.5 rounded font-mono font-semibold">
+                <span className="text-[10px] text-kumo-subtle app-subcard bg-kumo-recessed px-1.5 py-0.5 rounded font-mono font-semibold">
                   本地 {localHistory.length} 条
                 </span>
               </div>
@@ -657,6 +907,15 @@ function FileboxPage() {
                   className="text-kumo-subtle hover:text-kumo-strong"
                   title="刷新服务端历史"
                   icon={<RefreshCw className={`w-3.5 h-3.5 ${historyLoading ? 'animate-spin' : ''}`} />}
+                />
+                <Button
+                  onClick={runCleanupJob}
+                  variant="secondary" size="sm"
+                  shape="square"
+                  aria-label="清理过期分享"
+                  className="text-kumo-subtle hover:text-kumo-strong"
+                  title="清理过期分享"
+                  icon={<Clock className="w-3.5 h-3.5" />}
                 />
                 <Button
                   onClick={clearLocalHistory}
@@ -723,7 +982,6 @@ function FileboxPage() {
                           variant="secondary-destructive" size="sm"
                           shape="square"
                           aria-label="删除分享记录"
-                          className="hover:bg-kumo-danger/10"
                           title="删除"
                         >
                           <Trash className="w-3.5 h-3.5" />
@@ -737,14 +995,22 @@ function FileboxPage() {
           </div>
 
           {/* 服务端文件历史 */}
-          <div className="bg-kumo-base border border-kumo-line rounded-lg shadow-sm p-6 space-y-4">
+          <div className="app-card p-6 space-y-4">
             <div className="flex justify-between items-center border-b border-kumo-line pb-3 select-none">
               <div className="flex items-center gap-2">
                 <h3 className="text-sm font-semibold text-kumo-strong">服务端文件历史</h3>
-                <span className="text-[10px] text-kumo-subtle bg-kumo-recessed border border-kumo-line px-1.5 py-0.5 rounded font-mono font-semibold">
+                <span className="text-[10px] text-kumo-subtle app-subcard bg-kumo-recessed px-1.5 py-0.5 rounded font-mono font-semibold">
                   {serverHistory.length} 条
                 </span>
               </div>
+              <Button
+                onClick={() => Promise.all([loadServerHistory(), loadAccessLogs()])}
+                variant="secondary" size="sm"
+                shape="square"
+                aria-label="刷新服务端历史和访问日志"
+                title="刷新"
+                icon={<RefreshCw className={`w-3.5 h-3.5 ${historyLoading || accessLogsLoading ? 'animate-spin' : ''}`} />}
+              />
             </div>
 
             {historyLoading ? (
@@ -768,58 +1034,118 @@ function FileboxPage() {
                 <span className="text-xs">服务端暂无可用文件记录</span>
               </div>
             ) : (
-              <div className="divide-y divide-kumo-line">
-                {serverHistory.map((item) => (
-                  <div key={'server-' + item.code} className="flex justify-between items-center py-3 first:pt-0 last:pb-0">
-                    <div className="flex items-center gap-3">
-                      <div
-                        className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-semibold ${
-                          item.type === 'file'
-                            ? 'bg-kumo-brand/10 text-kumo-brand border border-kumo-brand/20'
-                            : 'bg-kumo-success/10 text-kumo-success border border-kumo-success/20'
-                        }`}
-                      >
-                        {item.type === 'file' ? <FolderOpen className="w-4 h-4" /> : <FileText className="w-4 h-4" />}
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-xs font-bold text-kumo-strong truncate max-w-sm">
-                          {item.type === 'file' ? item.originalName : '文本内容'}
-                        </p>
-                        <p className="text-[10px] text-kumo-subtle mt-0.5">
-                          创建时间: {formatDateTime(item.createdAt)} · 到期时间: {formatDateTime(item.expiry)} · 下载 {item.downloads || 0} 次
-                        </p>
-                      </div>
-                    </div>
+              <div className="overflow-x-auto">
+                <Table layout="fixed">
+                  <Table.Header variant="compact">
+                    <Table.Row>
+                      <Table.Head className="w-24">取件码</Table.Head>
+                      <Table.Head>名称</Table.Head>
+                      <Table.Head className="w-28">类型</Table.Head>
+                      <Table.Head className="w-36">次数</Table.Head>
+                      <Table.Head className="w-36">到期</Table.Head>
+                      <Table.Head className="w-24 text-right">操作</Table.Head>
+                    </Table.Row>
+                  </Table.Header>
+                  <Table.Body>
+                    {serverHistory.map((item) => (
+                      <Table.Row key={'server-' + item.code}>
+                        <Table.Cell className="font-mono text-xs font-bold text-kumo-brand">
+                          {item.code}
+                        </Table.Cell>
+                        <Table.Cell className="truncate text-xs font-semibold text-kumo-strong">
+                          {item.type === 'file' ? item.originalName : item.preview || '文本内容'}
+                        </Table.Cell>
+                        <Table.Cell className="text-xs">
+                          <span className={`inline-flex items-center gap-1 rounded border px-1.5 py-0.5 ${
+                            item.type === 'file'
+                              ? 'border-kumo-brand/20 bg-kumo-brand/10 text-kumo-brand'
+                              : 'border-kumo-success/20 bg-kumo-success/10 text-kumo-success'
+                          }`}>
+                            {item.requiresPassword && <Lock className="h-3 w-3" />}
+                            {item.type === 'file' ? '文件' : '文本'}
+                          </span>
+                        </Table.Cell>
+                        <Table.Cell className="font-mono text-xs text-kumo-subtle">
+                          {item.downloads || 0}{item.maxDownloads ? ` / ${item.maxDownloads}` : ' / 不限'}
+                        </Table.Cell>
+                        <Table.Cell className="font-mono text-xs text-kumo-subtle">
+                          {formatDateTime(item.expiry)}
+                        </Table.Cell>
+                        <Table.Cell>
+                          <div className="flex justify-end gap-1.5">
+                            <Button
+                              onClick={() => copyDownloadLink(item.code)}
+                              variant="secondary" size="sm"
+                              shape="square"
+                              aria-label="复制下载链接"
+                              title="复制下载链接"
+                            >
+                              <Send className="w-3.5 h-3.5" />
+                            </Button>
+                            <Button
+                              onClick={() => handleDeleteEntry(item.code)}
+                              variant="secondary-destructive" size="sm"
+                              shape="square"
+                              aria-label="删除分享记录"
+                              title="删除"
+                            >
+                              <Trash className="w-3.5 h-3.5" />
+                            </Button>
+                          </div>
+                        </Table.Cell>
+                      </Table.Row>
+                    ))}
+                  </Table.Body>
+                </Table>
+              </div>
+            )}
+          </div>
 
-                    <div className="flex items-center gap-3">
-                      <span className="text-xs font-mono font-bold text-kumo-brand bg-kumo-recessed px-2 py-0.5 border border-kumo-line rounded select-all">
-                        {item.code}
-                      </span>
-                      <div className="flex gap-1.5">
-                        <Button
-                          onClick={() => copyDownloadLink(item.code)}
-                          variant="secondary" size="sm"
-                          shape="square"
-                          aria-label="复制下载链接"
-                          className="text-kumo-subtle hover:text-kumo-strong"
-                          title="复制下载链接"
-                        >
-                          <Send className="w-3.5 h-3.5" />
-                        </Button>
-                        <Button
-                          onClick={() => handleDeleteEntry(item.code)}
-                          variant="secondary-destructive" size="sm"
-                          shape="square"
-                          aria-label="删除分享记录"
-                          className="hover:bg-kumo-danger/10"
-                          title="删除"
-                        >
-                          <Trash className="w-3.5 h-3.5" />
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
+          <div className="app-card p-6 space-y-4">
+            <div className="flex justify-between items-center border-b border-kumo-line pb-3 select-none">
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-semibold text-kumo-strong">访问日志</h3>
+                <span className="text-[10px] text-kumo-subtle app-subcard bg-kumo-recessed px-1.5 py-0.5 rounded font-mono font-semibold">
+                  {accessLogs.length} 条
+                </span>
+              </div>
+            </div>
+
+            {accessLogsLoading ? (
+              <div className="space-y-3">
+                {Array.from({ length: 3 }).map((_, index) => (
+                  <SkeletonLine key={index} className="h-8 w-full" />
                 ))}
+              </div>
+            ) : accessLogs.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-10 text-kumo-subtle">
+                <History className="w-10 h-10 opacity-30 mb-2.5" />
+                <span className="text-xs">暂无访问日志</span>
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <Table layout="fixed">
+                  <Table.Header variant="compact">
+                    <Table.Row>
+                      <Table.Head className="w-24">取件码</Table.Head>
+                      <Table.Head className="w-24">动作</Table.Head>
+                      <Table.Head className="w-44">IP</Table.Head>
+                      <Table.Head>User-Agent</Table.Head>
+                      <Table.Head className="w-40">时间</Table.Head>
+                    </Table.Row>
+                  </Table.Header>
+                  <Table.Body>
+                    {accessLogs.map((log) => (
+                      <Table.Row key={log.id}>
+                        <Table.Cell className="font-mono text-xs text-kumo-brand">{log.code}</Table.Cell>
+                        <Table.Cell className="font-mono text-xs">{log.action}</Table.Cell>
+                        <Table.Cell className="font-mono text-xs text-kumo-subtle truncate">{log.ipAddress || '-'}</Table.Cell>
+                        <Table.Cell className="truncate text-xs text-kumo-subtle">{log.userAgent || '-'}</Table.Cell>
+                        <Table.Cell className="font-mono text-xs text-kumo-subtle">{formatDateTime(log.createdAt)}</Table.Cell>
+                      </Table.Row>
+                    ))}
+                  </Table.Body>
+                </Table>
               </div>
             )}
           </div>
@@ -855,12 +1181,12 @@ function FileboxPage() {
               </div>
 
               {retrievedEntry.type === 'file' ? (
-                <div className="flex justify-center gap-4 text-[10px] text-kumo-subtle font-mono bg-kumo-recessed border border-kumo-line p-2.5 rounded-lg select-none">
+                <div className="flex justify-center gap-4 text-[10px] text-kumo-subtle font-mono app-subcard bg-kumo-recessed p-2.5 rounded-lg select-none">
                   <span>大小: {formatFileSize(retrievedEntry.size)}</span>
                   <span>有效期至: {formatDateTime(retrievedEntry.expiry)}</span>
                 </div>
               ) : (
-                <div className="bg-kumo-recessed border border-kumo-line p-3 rounded-lg max-h-40 overflow-y-auto font-mono text-xs text-kumo-strong select-text whitespace-pre-wrap leading-relaxed scrollbar-thin">
+                <div className="app-subcard bg-kumo-recessed p-3 rounded-lg max-h-40 overflow-y-auto font-mono text-xs text-kumo-strong select-text whitespace-pre-wrap leading-relaxed scrollbar-thin">
                   {retrievedEntry.content}
                 </div>
               )}
@@ -880,7 +1206,7 @@ function FileboxPage() {
                   )}
                 />
                 {retrievedEntry.type === 'file' ? (
-                  <Button size="sm" variant="primary" onClick={() => triggerDownload(retrievedEntry.code)}>
+                  <Button size="sm" variant="primary" onClick={() => triggerDownload(retrievedEntry)}>
                     下载文件
                   </Button>
                 ) : (

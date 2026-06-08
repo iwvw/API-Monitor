@@ -14,6 +14,11 @@ import { Table } from '@cloudflare/kumo/components/table';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import { AnimatedCollapse, DeferredRender } from '../components/AnimatedCollapse.jsx';
 import CountryFlag from '../components/CountryFlag.jsx';
+import {
+  ChartBoundaryBox,
+  ChartWarmupSkeleton,
+  ScrollableTable,
+} from '../components/ui/AppPrimitives.jsx';
 import useTableResize from '../composables/useTableResize.js';
 import { formatUptime, formatFileSize, formatDateTime, maskAddress, parseSpeed } from '../modules/utils.js';
 import { MODULE_TABS_PROPS, TOOL_TABS_PROPS } from '../modules/kumoTabs.js';
@@ -81,7 +86,6 @@ echarts.use([
   AriaComponent,
 ]);
 
-const getTableMinWidth = (widths) => widths.reduce((total, width) => total + (Number(width) || 0), 0);
 const SERVER_LIST_VIEW_STORAGE_KEY = 'server_list_view_mode';
 const SERVER_COMPACT_COLUMNS_STORAGE_KEY = 'server_compact_visible_columns';
 const HOST_COMPACT_COLUMNS = [
@@ -138,7 +142,7 @@ const HOST_FILTER_TABS_CLASS = 'w-fit max-w-full !ring !ring-inset !ring-kumo-in
 const HOST_FILTER_TABS_LIST_CLASS = 'w-fit max-w-full';
 const HOST_FILTER_TABS_INDICATOR_CLASS = '!shadow-none !ring-0 border border-kumo-interact/60';
 const HOST_TOOLBAR_BUTTON_CLASS = '!h-6.5 !rounded-md !shadow-none';
-const HOST_TOOLBAR_SELECT_CLASS = '!h-6.5 !rounded-md border border-kumo-line bg-kumo-base px-2.5 py-1 text-xs focus:outline-none';
+const HOST_TOOLBAR_SELECT_CLASS = '!h-6.5 !app-card app-card-md px-2.5 py-1 text-xs focus:outline-none';
 const MANAGEMENT_CARD_CLASS = 'self-start overflow-hidden p-0 shadow-none';
 const MANAGEMENT_CARD_HEADER_CLASS = 'flex h-9 items-center justify-between gap-3 border-b border-kumo-line bg-kumo-recessed/20 px-3';
 const MANAGEMENT_CARD_TITLE_CLASS = 'flex min-w-0 items-center gap-2 text-sm font-bold text-kumo-strong';
@@ -188,52 +192,6 @@ const getInitialCompactVisibleColumns = () => {
   }
 };
 
-function ScrollableTable({ widths, style, className = '', wrapperClassName = 'overflow-x-auto scrollbar-thin', fitContent = false, ...props }) {
-  const minWidth = Array.isArray(widths) && widths.length > 0 ? getTableMinWidth(widths) : undefined;
-  return (
-    <div className={wrapperClassName}>
-      <Table
-        {...props}
-        className={className}
-        style={{
-          ...(minWidth
-            ? { minWidth, width: fitContent ? minWidth : '100%' }
-            : { width: 'max-content', minWidth: '100%' }),
-          ...style,
-        }}
-      />
-    </div>
-  );
-}
-
-function ChartBoundaryBox({ className = '', children }) {
-  const [boundary, setBoundary] = useState(null);
-  return (
-    <div ref={setBoundary} className={className}>
-      {typeof children === 'function' ? children(boundary) : children}
-    </div>
-  );
-}
-
-function ChartWarmupSkeleton({ height = 130 }) {
-  return (
-    <div
-      aria-hidden="true"
-      className="flex flex-col justify-end gap-2 overflow-hidden rounded-md border border-kumo-line/70 bg-kumo-recessed/35 p-3"
-      style={{ height }}
-    >
-      <SkeletonLine className="h-3 w-1/3" />
-      <SkeletonLine className="h-16 w-full rounded" />
-      <div className="grid grid-cols-4 gap-2">
-        <SkeletonLine className="h-2 w-full" />
-        <SkeletonLine className="h-2 w-full" />
-        <SkeletonLine className="h-2 w-full" />
-        <SkeletonLine className="h-2 w-full" />
-      </div>
-    </div>
-  );
-}
-
 // OS 平台图标及颜色计算
 const getOSIconClass = (platform) => {
   const baseClass = 'shrink-0 text-base leading-none';
@@ -248,7 +206,7 @@ const getOSIconClass = (platform) => {
   if (p.includes('rocky')) return `si si-rockylinux si--color ${baseClass}`;
   if (p.includes('alma')) return `si si-almalinux si--color ${baseClass}`;
   if (p.includes('arch')) return `si si-archlinux si--color ${baseClass}`;
-  if (p.includes('windows')) return `fab fa-windows ${baseClass} text-[#0078D4]`;
+  if (p.includes('windows')) return `fab fa-windows ${baseClass} app-os-windows`;
   if (p.includes('darwin') || p.includes('mac')) return `si si-apple si--color ${baseClass}`;
   return `si si-linux si--color ${baseClass}`;
 };
@@ -333,7 +291,7 @@ function DenseTrafficCell({ left, leftUnit, right, rightUnit, leftTitle, rightTi
 
 function DenseDetailChip({ label, value, className = '' }) {
   return (
-    <div className={`flex h-7 min-w-0 items-center justify-between gap-2 rounded-md border border-kumo-line bg-kumo-base px-2 text-[11px] ${className}`}>
+    <div className={`flex h-7 min-w-0 items-center justify-between gap-2 app-card app-card-md px-2 text-[11px] ${className}`}>
       <span className="shrink-0 font-medium text-kumo-subtle">{label}</span>
       <span className="min-w-0 truncate text-right font-semibold text-kumo-strong" title={String(value || '-')}>{value || '-'}</span>
     </div>
@@ -374,7 +332,7 @@ function CompactColumnMenu({ menu, visibleColumns, onToggle, onShowAll, onClose 
 
   return (
     <div
-      className="fixed z-50 w-52 rounded-md border border-kumo-line bg-kumo-control p-2 text-xs shadow-lg"
+      className="fixed z-50 w-52 rounded-md border border-kumo-line bg-kumo-control p-2 text-xs"
       style={{ left: menu.x, top: menu.y }}
       onClick={(event) => event.stopPropagation()}
       onContextMenu={(event) => event.preventDefault()}
@@ -3138,7 +3096,7 @@ function ServerPage() {
   }, [dockerOverviewServers, dockerSelectedServer]);
 
   const renderDockerEmptyState = (message) => (
-    <div className="bg-kumo-base border border-kumo-line rounded-lg p-10 text-center text-xs text-kumo-subtle shadow-xs">
+    <div className="app-card p-10 text-center text-xs text-kumo-subtle">
       {message}
     </div>
   );
@@ -4056,12 +4014,12 @@ function ServerPage() {
           
           {/* 列表渲染 */}
           {serverLoading && serverList.length === 0 ? (
-            <div className="flex flex-col items-center justify-center p-12 bg-kumo-base border border-kumo-line rounded-md text-kumo-subtle gap-2">
+            <div className="flex flex-col items-center justify-center p-12 app-card app-card-md text-kumo-subtle gap-2">
               <div className="w-6 h-6 border-2 border-kumo-brand border-t-transparent rounded-full animate-spin"></div>
               <p className="text-xs">正在连接并加载主机结构中...</p>
             </div>
           ) : filteredServers.length === 0 ? (
-            <div className="flex flex-col items-center justify-center p-16 bg-kumo-base border border-kumo-line rounded-md text-kumo-subtle gap-1.5">
+            <div className="flex flex-col items-center justify-center p-16 app-card app-card-md text-kumo-subtle gap-1.5">
               <span className="text-xl">🔍</span>
               <p className="text-xs">未找到符合当前条件的主机节点</p>
             </div>
@@ -4331,7 +4289,7 @@ function ServerPage() {
                                           </div>
 
                                           <div className="grid min-w-0 grid-cols-1 gap-3 xl:grid-cols-2">
-                                            <ChartBoundaryBox className="min-w-0 overflow-hidden rounded-md border border-kumo-line bg-kumo-base p-3">
+                                            <ChartBoundaryBox className="min-w-0 overflow-hidden app-card app-card-md p-3">
                                               {(tooltipBoundary) => (
                                                 <div className="flex min-w-0 flex-col gap-2">
                                                   <div className="flex flex-wrap items-center justify-between gap-2">
@@ -4363,7 +4321,7 @@ function ServerPage() {
                                               )}
                                             </ChartBoundaryBox>
 
-                                            <ChartBoundaryBox className="min-w-0 overflow-hidden rounded-md border border-kumo-line bg-kumo-base p-3">
+                                            <ChartBoundaryBox className="min-w-0 overflow-hidden app-card app-card-md p-3">
                                               {(tooltipBoundary) => (
                                                 <div className="flex min-w-0 flex-col gap-2">
                                                   <div className="flex flex-wrap items-center justify-between gap-2">
@@ -4460,7 +4418,7 @@ function ServerPage() {
                     onDragOver={handleServerDragOver}
                     onDrop={(event) => handleServerDrop(server.id, event)}
                     onDragEnd={() => setDraggedServerId(null)}
-                    className={`bg-kumo-base border rounded-lg transition-all duration-200 ${isExpanded ? 'border-kumo-brand/70 shadow-md ring-1 ring-kumo-brand/20' : 'border-kumo-line/90 shadow-xs hover:border-kumo-interact hover:shadow-sm'} ${draggedServerId === server.id ? 'opacity-50' : ''}`}
+                    className={`bg-kumo-base border rounded-lg transition-all duration-200 ${isExpanded ? 'border-kumo-brand/70  ring-1 ring-kumo-brand/20' : 'border-kumo-line/90  hover:border-kumo-interact '} ${draggedServerId === server.id ? 'opacity-50' : ''}`}
                   >
                     <div
                       onClick={() => toggleServerExpand(server.id)}
@@ -4593,7 +4551,7 @@ function ServerPage() {
                         ) : (
                           <div className="flex flex-col gap-3 sm:gap-4">
                             <div className="grid grid-cols-1 gap-3 md:grid-cols-3 md:gap-4">
-                              <div className="flex flex-col gap-2 rounded-lg border border-kumo-line bg-kumo-base p-3 shadow-xs sm:gap-3 sm:p-4">
+                              <div className="flex flex-col gap-2 app-card p-3 sm:gap-3 sm:p-4">
                                 <div className="flex items-center justify-between gap-2 border-b border-kumo-line pb-1.5 sm:pb-2">
                                   <h4 className="text-xs font-bold text-kumo-strong">系统与载荷</h4>
                                   <Tabs
@@ -4680,7 +4638,7 @@ function ServerPage() {
                                 )}
                               </div>
                               
-                              <ChartBoundaryBox className="md:col-span-2 flex min-w-0 flex-col gap-2 overflow-hidden rounded-lg border border-kumo-line bg-kumo-base p-3 shadow-xs sm:p-4">
+                              <ChartBoundaryBox className="md:col-span-2 flex min-w-0 flex-col gap-2 overflow-hidden app-card p-3 sm:p-4">
                                 {(tooltipBoundary) => (
                                   <>
                                     <div className="flex flex-wrap items-center justify-between gap-2 border-b border-kumo-line pb-1.5 sm:pb-2">
@@ -4714,7 +4672,7 @@ function ServerPage() {
                             </div>
 
                             <div className="grid grid-cols-1 gap-3 md:grid-cols-2 md:gap-4">
-                              <ChartBoundaryBox className="flex min-w-0 flex-col gap-2 overflow-hidden rounded-lg border border-kumo-line bg-kumo-base p-3 shadow-xs sm:gap-3 sm:p-4">
+                              <ChartBoundaryBox className="flex min-w-0 flex-col gap-2 overflow-hidden app-card p-3 sm:gap-3 sm:p-4">
                                 {(tooltipBoundary) => (
                                   <>
                                     <div className="flex items-center justify-between gap-2 border-b border-kumo-line pb-1.5 sm:pb-2">
@@ -4793,7 +4751,7 @@ function ServerPage() {
                                 )}
                               </ChartBoundaryBox>
 
-                              <ChartBoundaryBox className="flex min-w-0 flex-col gap-2 overflow-hidden rounded-lg border border-kumo-line bg-kumo-base p-3 shadow-xs sm:gap-3 sm:p-4">
+                              <ChartBoundaryBox className="flex min-w-0 flex-col gap-2 overflow-hidden app-card p-3 sm:gap-3 sm:p-4">
                                 {(tooltipBoundary) => (
                                   <>
                                     <div className="flex items-center justify-between gap-2 border-b border-kumo-line pb-1.5 sm:pb-2">
@@ -4861,11 +4819,11 @@ function ServerPage() {
                             </div>
 
                             {server.info?.docker?.installed && (
-                              <div className="overflow-hidden rounded-lg border border-kumo-line bg-kumo-base shadow-xs">
+                              <div className="overflow-hidden app-card">
                                 <Button
                                   type="button"
                                   variant="ghost" size="sm"
-                                  className="h-8 w-full justify-between rounded-none border-b border-kumo-line bg-kumo-recessed/25 px-3 text-left"
+                                  className="h-8 w-full justify-between px-3 text-left"
                                   onClick={(event) => {
                                     event.stopPropagation();
                                     toggleDockerPanel(server.id);
@@ -4963,7 +4921,7 @@ function ServerPage() {
 
                     <ContextMenu.Portal>
                       <ContextMenu.Positioner sideOffset={6}>
-                        <ContextMenu.Popup className="motion-pop-in z-50 min-w-40 overflow-hidden rounded-lg border border-kumo-line bg-kumo-control p-1.5 text-kumo-default shadow-lg outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95">
+                        <ContextMenu.Popup className="z-50 min-w-40 overflow-hidden rounded-lg border border-kumo-line bg-kumo-control p-1.5 text-kumo-default outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95">
                           <ContextMenu.Item
                             className="relative flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-hidden select-none focus:text-kumo-default focus:ring-kumo-focus/50 focus-visible:ring-2 focus-visible:ring-kumo-brand data-disabled:pointer-events-none data-disabled:opacity-50 data-highlighted:bg-kumo-overlay"
                             disabled={server.status !== 'online' || server.loading}
@@ -5063,7 +5021,7 @@ function ServerPage() {
               <Button size="sm"
                 variant="secondary"
                 onClick={triggerManualCollect}
-                className={`flex items-center gap-1 border border-kumo-line text-xs bg-kumo-base hover:bg-kumo-recessed/30 cursor-pointer font-semibold ${HOST_TOOLBAR_BUTTON_CLASS}`}
+                className={`flex items-center gap-1 text-xs font-semibold ${HOST_TOOLBAR_BUTTON_CLASS}`}
               >
                 立即采集
               </Button>
@@ -5071,7 +5029,7 @@ function ServerPage() {
               <Button size="sm"
                 variant="secondary-destructive"
                 onClick={clearMetricsHistory}
-                className={`flex items-center gap-1 border border-kumo-danger/30 text-kumo-danger bg-kumo-base hover:bg-kumo-danger/10 cursor-pointer font-semibold ${HOST_TOOLBAR_BUTTON_CLASS}`}
+                className={`flex items-center gap-1 text-kumo-danger font-semibold ${HOST_TOOLBAR_BUTTON_CLASS}`}
               >
                 清空数据
               </Button>
@@ -5110,7 +5068,7 @@ function ServerPage() {
           )}
           
           {/* 数据大列表表格 */}
-          <div className="bg-kumo-base border border-kumo-line rounded-lg overflow-hidden shadow-xs">
+          <div className="app-card overflow-hidden">
             {metricsHistoryLoading ? (
               <Table layout="fixed">
                 <colgroup>
@@ -5241,7 +5199,7 @@ function ServerPage() {
           
           {/* Docker 任务中心 */}
           {dockerTasks.length > 0 && (
-            <div className="bg-kumo-recessed border border-kumo-line p-3 rounded-lg text-xs font-mono text-kumo-default flex flex-col gap-1.5 shadow-xs">
+            <div className="app-subcard bg-kumo-recessed p-3 rounded-lg text-xs font-mono text-kumo-default flex flex-col gap-1.5">
               <div className="flex justify-between border-b border-kumo-line pb-1.5 mb-1">
                 <span className="inline-flex items-center gap-1.5 font-bold text-kumo-brand"><Activity className="h-3.5 w-3.5" />后台 Docker 任务流水</span>
                 <span className="text-[10px] text-kumo-subtle">SSE 实时长连接</span>
@@ -5261,7 +5219,7 @@ function ServerPage() {
           
           {/* 内容区域 */}
           {dockerResourceLoading ? (
-            <div className="bg-kumo-base border border-kumo-line rounded-lg overflow-hidden p-4 shadow-xs">
+            <div className="app-card overflow-hidden p-4">
               <div className="space-y-4">
                 {[...Array(3)].map((_, i) => (
                   <div key={i} className="space-y-2">
@@ -5282,7 +5240,7 @@ function ServerPage() {
                     renderDockerEmptyState('当前筛选下没有容器')
                   ) : (
                     visibleDockerContainerServers.map(server => (
-                      <div key={server.id} className="bg-kumo-base border border-kumo-line rounded-lg overflow-hidden shadow-xs">
+                      <div key={server.id} className="app-card overflow-hidden">
                         <div className="bg-kumo-recessed/35 p-3 border-b border-kumo-line flex items-center justify-between">
                           <span className="text-xs font-bold text-kumo-strong flex items-center gap-2">
                             <Box className="h-3.5 w-3.5" /> {server.name}
@@ -5396,7 +5354,7 @@ function ServerPage() {
               
               {/* 2. Compose */}
               {dockerSubTab === 'compose' && (
-                <div className="bg-kumo-base border border-kumo-line rounded-lg overflow-hidden p-3.5 shadow-xs">
+                <div className="app-card overflow-hidden p-3.5">
                   {dockerComposeProjects.length === 0 ? (
                     <div className="p-12 text-center text-xs text-kumo-subtle">
                       当前主机中未检索到 Compose 项目
@@ -5423,14 +5381,14 @@ function ServerPage() {
                                 <Button size="sm"
                                   variant="primary"
                                   onClick={() => submitDockerTask('compose.up', composePayload)}
-                                  className="rounded bg-kumo-brand text-kumo-inverse text-[10px] font-semibold cursor-pointer"
+                                  className="text-kumo-inverse text-[10px] font-semibold"
                                 >
                                   Up 启动
                                 </Button>
                                 <Button size="sm"
                                   variant="secondary"
                                   onClick={() => submitDockerTask('compose.down', composePayload)}
-                                  className="rounded border border-kumo-line text-kumo-subtle text-[10px] hover:bg-kumo-recessed/45 cursor-pointer"
+                                  className="text-kumo-subtle text-[10px]"
                                 >
                                   Down 停止
                                 </Button>
@@ -5446,7 +5404,7 @@ function ServerPage() {
 
               {/* 3. 镜像管理 */}
               {dockerSubTab === 'images' && (
-                <div className="bg-kumo-base border border-kumo-line rounded-lg overflow-hidden p-2 shadow-xs">
+                <div className="app-card overflow-hidden p-2">
                   {dockerImages.length === 0 ? (
                     <div className="p-12 text-center text-xs text-kumo-subtle">当前主机中未检索到镜像</div>
                   ) : (
@@ -5493,7 +5451,7 @@ function ServerPage() {
                                 variant="ghost"
                                 aria-label="删除镜像"
                                 onClick={() => submitDockerTask('image.remove', { serverId: img.serverId, image: img.id })}
-                                className="hover:bg-kumo-danger/10 text-kumo-danger rounded cursor-pointer"
+                                className="text-kumo-danger"
                               >
                                 <Trash className="h-3.5 w-3.5" />
                               </Button>
@@ -5508,7 +5466,7 @@ function ServerPage() {
 
               {/* 4. 网络管理 */}
               {dockerSubTab === 'networks' && (
-                <div className="bg-kumo-base border border-kumo-line rounded-lg overflow-hidden p-2 shadow-xs">
+                <div className="app-card overflow-hidden p-2">
                   {dockerNetworks.length === 0 ? (
                     <div className="p-12 text-center text-xs text-kumo-subtle">当前主机中未检索到 Docker 网络</div>
                   ) : (
@@ -5563,7 +5521,7 @@ function ServerPage() {
                                   aria-label="删除网络"
                                   disabled={isBuiltinNetwork}
                                   onClick={() => submitDockerTask('network.remove', { serverId: network.serverId, name: network.name })}
-                                  className="hover:bg-kumo-danger/10 text-kumo-danger rounded cursor-pointer disabled:cursor-not-allowed disabled:opacity-40"
+                                  className="text-kumo-danger disabled:opacity-40"
                                 >
                                   <Trash className="h-3.5 w-3.5" />
                                 </Button>
@@ -5579,7 +5537,7 @@ function ServerPage() {
 
               {/* 5. 存储卷管理 */}
               {dockerSubTab === 'volumes' && (
-                <div className="bg-kumo-base border border-kumo-line rounded-lg overflow-hidden p-2 shadow-xs">
+                <div className="app-card overflow-hidden p-2">
                   {dockerVolumes.length === 0 ? (
                     <div className="p-12 text-center text-xs text-kumo-subtle">当前主机中未检索到 Docker 存储卷</div>
                   ) : (
@@ -5626,7 +5584,7 @@ function ServerPage() {
                                 variant="ghost"
                                 aria-label="删除存储卷"
                                 onClick={() => submitDockerTask('volume.remove', { serverId: volume.serverId, name: volume.name })}
-                                className="hover:bg-kumo-danger/10 text-kumo-danger rounded cursor-pointer"
+                                className="text-kumo-danger"
                               >
                                 <Trash className="h-3.5 w-3.5" />
                               </Button>
@@ -5641,7 +5599,7 @@ function ServerPage() {
 
               {/* 6. 实时统计 */}
               {dockerSubTab === 'stats' && (
-                <div className="bg-kumo-base border border-kumo-line rounded-lg overflow-hidden p-2 shadow-xs">
+                <div className="app-card overflow-hidden p-2">
                   {dockerStats.length === 0 ? (
                     <div className="p-12 text-center text-xs text-kumo-subtle">当前主机中未检索到 Docker 资源统计</div>
                   ) : (
@@ -5948,7 +5906,7 @@ function ServerPage() {
           : ['pwd', 'ls -la', 'df -h', 'docker ps'];
 
         return (
-          <div className="flex min-h-0 w-full flex-1 flex-col overflow-hidden rounded-lg border border-kumo-line bg-kumo-base">
+          <div className="flex min-h-0 w-full flex-1 flex-col overflow-hidden app-card">
             <div className="flex min-h-11 items-center justify-between gap-3 border-b border-kumo-line bg-kumo-base px-3 py-2 text-xs">
               <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto scrollbar-thin">
                 {sshSessions.map(sess => (
@@ -5967,8 +5925,10 @@ function ServerPage() {
                         : 'border-kumo-line bg-kumo-base text-kumo-subtle'
                     }`}
                   >
-                    <button
+                    <Button
                       type="button"
+                      size="sm"
+                      variant="ghost"
                       onClick={() => {
                         if (visibleSessionIds.includes(sess.id)) {
                           activateSSHSession(sess.id);
@@ -5976,12 +5936,12 @@ function ServerPage() {
                           switchToSSHTab(sess.id);
                         }
                       }}
-                      className="flex h-full min-w-0 items-center gap-1.5 px-2 text-[11px] font-semibold"
+                      className="h-full min-w-0 justify-start px-2 text-[11px] font-semibold text-inherit"
                     >
                       <span className={`h-1.5 w-1.5 rounded-full ${sess.connected ? 'bg-kumo-success' : 'bg-kumo-warning'}`}></span>
                       <span className="max-w-28 truncate">{sess.name}</span>
                       <span className="text-[9px] uppercase text-kumo-subtle">{sess.type}</span>
-                    </button>
+                    </Button>
                     <Button
                       shape="square" size="sm"
                       variant="ghost"
@@ -6056,14 +6016,16 @@ function ServerPage() {
                             onDragStart={event => handleTerminalDragStart(event, id)}
                             className="flex h-8 cursor-move select-none items-center justify-between border-b border-kumo-line bg-kumo-base px-2 text-[10px] text-kumo-subtle"
                           >
-                            <button
+                            <Button
                               type="button"
+                              size="sm"
+                              variant="ghost"
                               onClick={() => activateSSHSession(id)}
-                              className="flex min-w-0 items-center gap-1.5 font-semibold text-kumo-strong"
+                              className="h-6 min-w-0 justify-start px-0 text-[10px] font-semibold text-kumo-strong"
                             >
                               <TerminalIcon className="h-3.5 w-3.5 shrink-0" />
                               <span className="truncate">{slotSession?.name || 'Terminal'}</span>
-                            </button>
+                            </Button>
                             <div className="flex items-center gap-1">
                               <Button
                                 size="sm"
@@ -6216,8 +6178,9 @@ function ServerPage() {
                         >
                           上传
                         </Button>
-                        <input
+                        <Input
                           ref={sftpUploadInputRef}
+                          size="sm"
                           aria-label="上传 SFTP 文件"
                           type="file"
                           className="hidden"
@@ -6246,13 +6209,15 @@ function ServerPage() {
                     <div className="mb-2 flex items-center gap-1.5 overflow-x-auto whitespace-nowrap text-[10px] scrollbar-thin">
                       {sftpBreadcrumbs.map((crumb, idx) => (
                         <React.Fragment key={crumb.path}>
-                          <button
+                          <Button
                             type="button"
+                            size="sm"
+                            variant="ghost"
                             onClick={() => loadSftpDirectory(sftpServerId, crumb.path)}
-                            className="rounded px-1 py-0.5 font-semibold text-kumo-subtle hover:bg-kumo-recessed hover:text-kumo-strong"
+                            className="h-5 px-1 py-0 text-[10px] font-semibold text-kumo-subtle hover:text-kumo-strong"
                           >
                             {crumb.name}
-                          </button>
+                          </Button>
                           {idx < sftpBreadcrumbs.length - 1 && <span className="opacity-40">/</span>}
                         </React.Fragment>
                       ))}
@@ -6266,18 +6231,20 @@ function ServerPage() {
                         <div className="col-span-full py-8 text-center text-[10px] text-kumo-subtle">当前目录为空</div>
                       ) : (
                         sftpFiles.map(file => (
-                          <button
+                          <Button
                             key={file.path}
                             type="button"
+                            size="sm"
+                            variant="secondary"
                             onClick={() => handleSftpFileClick(file)}
-                            className="flex min-w-0 items-center justify-between gap-2 rounded-md border border-kumo-line bg-kumo-recessed/35 px-2 py-1.5 text-left hover:border-kumo-brand/60 hover:bg-kumo-recessed"
+                            className="h-auto min-h-8 min-w-0 justify-between gap-2 px-2 py-1.5 text-left"
                           >
                             <span className="flex min-w-0 items-center gap-1.5">
                               {file.isDirectory ? <Folder className="h-3.5 w-3.5 shrink-0" /> : <FileText className="h-3.5 w-3.5 shrink-0" />}
                               <span className="truncate text-[11px] font-semibold text-kumo-strong" title={file.name}>{file.name}</span>
                             </span>
                             <span className="shrink-0 text-[9px] text-kumo-subtle">{file.isDirectory ? '目录' : formatFileSize(file.size)}</span>
-                          </button>
+                          </Button>
                         ))
                       )}
                     </div>
@@ -6366,7 +6333,7 @@ function ServerPage() {
                     value={serverForm.name}
                     onChange={e => setServerForm(prev => ({ ...prev, name: e.target.value }))}
                     placeholder="生产数据库-01"
-                    className="px-3 py-2 border border-kumo-line rounded-lg bg-kumo-control text-kumo-strong focus:outline-none focus:border-kumo-brand"
+                    className="px-3 py-2 text-kumo-strong"
                   />
                 </div>
                 <div className="flex flex-col gap-1.5">
@@ -6375,7 +6342,7 @@ function ServerPage() {
                     aria-label="地区归属国家"
                     value={serverForm.country}
                     onValueChange={(value) => setServerForm(prev => ({ ...prev, country: String(value) }))}
-                    className="px-3 py-2 border border-kumo-line rounded-lg bg-kumo-control focus:outline-none focus:border-kumo-brand"
+                    className="px-3 py-2"
                     items={[
                       { value: 'auto', label: '自动探测' },
                       { value: 'CN', label: '中国 (CN)' },
@@ -6393,7 +6360,7 @@ function ServerPage() {
                     type="date"
                     value={serverForm.expiresAt}
                     onChange={e => setServerForm(prev => ({ ...prev, expiresAt: e.target.value }))}
-                    className="px-3 py-2 border border-kumo-line rounded-lg bg-kumo-control text-kumo-strong focus:outline-none focus:border-kumo-brand"
+                    className="px-3 py-2 text-kumo-strong"
                   />
                 </div>
               </div>
@@ -6407,7 +6374,7 @@ function ServerPage() {
                     value={serverForm.host}
                     onChange={e => setServerForm(prev => ({ ...prev, host: e.target.value }))}
                     placeholder="12.34.56.78"
-                    className="px-3 py-2 border border-kumo-line rounded-lg bg-kumo-control text-kumo-strong focus:outline-none focus:border-kumo-brand"
+                    className="px-3 py-2 text-kumo-strong"
                   />
                 </div>
                 <div className="flex flex-col gap-1.5">
@@ -6418,7 +6385,7 @@ function ServerPage() {
                     value={serverForm.port}
                     onChange={e => setServerForm(prev => ({ ...prev, port: parseInt(e.target.value) || 22 }))}
                     placeholder="22"
-                    className="px-3 py-2 border border-kumo-line rounded-lg bg-kumo-control text-kumo-strong focus:outline-none focus:border-kumo-brand"
+                    className="px-3 py-2 text-kumo-strong"
                   />
                 </div>
               </div>
@@ -6430,7 +6397,7 @@ function ServerPage() {
                   value={selectedCredentialId}
                   onValueChange={(value) => applyCredential(String(value))}
                   placeholder="-- 手动录入 --"
-                  className="px-3 py-2 border border-kumo-line rounded-lg bg-kumo-control focus:outline-none"
+                  className="px-3 py-2"
                   items={[
                     { value: '', label: '-- 手动录入 --' },
                     ...serverCredentials.map(c => ({
@@ -6451,7 +6418,7 @@ function ServerPage() {
                       value={serverForm.username}
                       onChange={e => setServerForm(prev => ({ ...prev, username: e.target.value }))}
                       placeholder="root"
-                      className="px-3 py-2 border border-kumo-line rounded-lg bg-kumo-control text-kumo-strong focus:outline-none focus:border-kumo-brand"
+                      className="px-3 py-2 text-kumo-strong"
                     />
                   </div>
                   <div className="flex flex-col gap-1.5">
@@ -6482,7 +6449,7 @@ function ServerPage() {
                       value={serverForm.password}
                       onChange={e => setServerForm(prev => ({ ...prev, password: e.target.value }))}
                       placeholder={serverModalMode === 'edit' ? '****** (留空不修改)' : '登录密码'}
-                      className="px-3 py-2 border border-kumo-line rounded-lg bg-kumo-control text-kumo-strong focus:outline-none focus:border-kumo-brand"
+                      className="px-3 py-2 text-kumo-strong"
                     />
                   </div>
                 ) : (
@@ -6494,7 +6461,7 @@ function ServerPage() {
                         value={serverForm.privateKey}
                         onChange={e => setServerForm(prev => ({ ...prev, privateKey: e.target.value }))}
                         placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
-                        className="w-full h-20 p-2 border border-kumo-line rounded-lg text-xs font-mono bg-kumo-control focus:outline-none focus:border-kumo-brand"
+                        className="w-full h-20 p-2 text-xs font-mono"
                       />
                     </div>
                     <div className="flex flex-col gap-1.5">
@@ -6505,7 +6472,7 @@ function ServerPage() {
                         value={serverForm.passphrase}
                         onChange={e => setServerForm(prev => ({ ...prev, passphrase: e.target.value }))}
                         placeholder="Key Passphrase"
-                        className="px-3 py-2 border border-kumo-line rounded-lg bg-kumo-control text-kumo-strong focus:outline-none"
+                        className="px-3 py-2 text-kumo-strong"
                       />
                     </div>
                   </div>
@@ -6520,7 +6487,7 @@ function ServerPage() {
                   value={serverForm.tagsInput}
                   onChange={e => setServerForm(prev => ({ ...prev, tagsInput: e.target.value }))}
                   placeholder="Production,Database,US"
-                  className="px-3 py-2 border border-kumo-line rounded-lg bg-kumo-control text-kumo-strong focus:outline-none focus:border-kumo-brand"
+                  className="px-3 py-2 text-kumo-strong"
                 />
               </div>
               
@@ -6557,11 +6524,11 @@ function ServerPage() {
                         labels={{ copyAction: 'Copy install command' }}
                       />
                       <div className="grid grid-cols-2 gap-2 text-[11px] text-kumo-subtle">
-                        <div className="rounded-md border border-kumo-line bg-kumo-base p-2">
+                        <div className="app-card app-card-md p-2">
                           <div className="font-semibold text-kumo-strong">Server ID</div>
                           <div className="mt-1 font-mono">{quickDeployResult.serverId}</div>
                         </div>
-                        <div className="rounded-md border border-kumo-line bg-kumo-base p-2">
+                        <div className="app-card app-card-md p-2">
                           <div className="font-semibold text-kumo-strong">API URL</div>
                           <div className="mt-1 truncate font-mono" title={quickDeployResult.apiUrl}>{quickDeployResult.apiUrl}</div>
                         </div>
@@ -6595,7 +6562,7 @@ function ServerPage() {
                 variant="secondary"
                 onClick={testServerConnection}
                 disabled={serverModalSaving}
-                className={`px-3.5 py-1.5 border border-kumo-line rounded-lg text-xs font-semibold hover:bg-kumo-recessed cursor-pointer ${serverModalMode === 'add' && serverAddMode === 'agent' ? 'hidden' : ''}`}
+                className={`px-3.5 py-1.5 text-xs font-semibold ${serverModalMode === 'add' && serverAddMode === 'agent' ? 'hidden' : ''}`}
               >
                 连接测试
               </Button>
@@ -6603,7 +6570,7 @@ function ServerPage() {
                 variant="primary"
                 onClick={saveServer}
                 disabled={serverModalSaving}
-                className={`px-4 py-1.5 bg-kumo-brand text-kumo-inverse hover:bg-kumo-brand-hover rounded-lg text-xs font-bold cursor-pointer ${serverModalMode === 'add' && serverAddMode === 'agent' ? 'hidden' : ''}`}
+                className={`px-4 py-1.5 text-kumo-inverse text-xs font-bold ${serverModalMode === 'add' && serverAddMode === 'agent' ? 'hidden' : ''}`}
               >
                 {serverModalSaving ? '保存中...' : '确认保存'}
               </Button>
@@ -6642,7 +6609,7 @@ function ServerPage() {
                   value={credForm.name}
                   onChange={e => setCredForm(prev => ({ ...prev, name: e.target.value }))}
                   placeholder="美国节点通用 root 秘钥"
-                  className="px-3 py-2 border border-kumo-line rounded-lg bg-kumo-control text-kumo-strong focus:outline-none"
+                  className="px-3 py-2 text-kumo-strong"
                 />
               </div>
               
@@ -6654,7 +6621,7 @@ function ServerPage() {
                   value={credForm.username}
                   onChange={e => setCredForm(prev => ({ ...prev, username: e.target.value }))}
                   placeholder="root"
-                  className="px-3 py-2 border border-kumo-line rounded-lg bg-kumo-control text-kumo-strong focus:outline-none"
+                  className="px-3 py-2 text-kumo-strong"
                 />
               </div>
               
@@ -6664,7 +6631,7 @@ function ServerPage() {
                   aria-label="登录凭据模式"
                   value={credForm.auth_type}
                   onValueChange={(value) => setCredForm(prev => ({ ...prev, auth_type: String(value) }))}
-                  className="px-3 py-2 border border-kumo-line rounded-lg bg-kumo-control"
+                  className="px-3 py-2"
                   items={[
                     { value: 'password', label: '明文密码' },
                     { value: 'key', label: '私钥证书 (RSA / OpenSSH)' },
@@ -6681,7 +6648,7 @@ function ServerPage() {
                     value={credForm.password}
                     onChange={e => setCredForm(prev => ({ ...prev, password: e.target.value }))}
                     placeholder="输入密码"
-                    className="px-3 py-2 border border-kumo-line rounded-lg bg-kumo-control text-kumo-strong focus:outline-none"
+                    className="px-3 py-2 text-kumo-strong"
                   />
                 </div>
               ) : (
@@ -6693,7 +6660,7 @@ function ServerPage() {
                       value={credForm.private_key}
                       onChange={e => setCredForm(prev => ({ ...prev, private_key: e.target.value }))}
                       placeholder="-----BEGIN RSA PRIVATE KEY-----"
-                      className="w-full h-24 p-2 border border-kumo-line rounded-lg text-xs font-mono bg-kumo-control focus:outline-none"
+                      className="w-full h-24 p-2 text-xs font-mono"
                     />
                   </div>
                   <div className="flex flex-col gap-1.5">
@@ -6704,7 +6671,7 @@ function ServerPage() {
                       value={credForm.passphrase}
                       onChange={e => setCredForm(prev => ({ ...prev, passphrase: e.target.value }))}
                       placeholder="Passphrase"
-                      className="px-3 py-2 border border-kumo-line rounded-lg bg-kumo-control text-kumo-strong focus:outline-none"
+                      className="px-3 py-2 text-kumo-strong"
                     />
                   </div>
                 </div>
@@ -6712,8 +6679,8 @@ function ServerPage() {
             </div>
             
             <div className="bg-kumo-recessed/25 px-4 py-3 border-t border-kumo-line flex justify-end gap-2 text-xs">
-              <Button size="sm" variant="secondary" onClick={() => setShowAddCredentialModal(false)} className="border border-kumo-line rounded-lg cursor-pointer">取消</Button>
-              <Button size="sm" variant="primary" onClick={addCredential} className="bg-kumo-brand text-kumo-inverse rounded-lg font-bold cursor-pointer">确认保存</Button>
+              <Button size="sm" variant="secondary" onClick={() => setShowAddCredentialModal(false)}>取消</Button>
+              <Button size="sm" variant="primary" onClick={addCredential} className="text-kumo-inverse font-bold">确认保存</Button>
             </div>
         </Dialog>
       </Dialog.Root>
@@ -6750,7 +6717,7 @@ function ServerPage() {
                     const f = e.target.files[0];
                     if (f) processImportFile(f);
                   }}
-                  className="px-3 py-2 border border-kumo-line rounded-lg bg-kumo-control"
+                  className="px-3 py-2"
                 />
               </div>
               
@@ -6768,12 +6735,12 @@ function ServerPage() {
             </div>
             
             <div className="bg-kumo-recessed/25 px-4 py-3 border-t border-kumo-line flex justify-end gap-2 text-xs">
-              <Button size="sm" variant="secondary" onClick={() => setShowImportServerModal(false)} className="border border-kumo-line rounded-lg cursor-pointer">取消</Button>
+              <Button size="sm" variant="secondary" onClick={() => setShowImportServerModal(false)}>取消</Button>
               <Button size="sm"
                 variant="primary"
                 onClick={confirmImportServers}
                 disabled={importModalSaving || !importPreview}
-                className="bg-kumo-brand text-kumo-inverse rounded-lg font-bold cursor-pointer disabled:opacity-50"
+                className="text-kumo-inverse font-bold disabled:opacity-50"
               >
                 {importModalSaving ? '恢复中...' : '确认恢复导入'}
               </Button>
@@ -7030,7 +6997,7 @@ function ServerPage() {
 
               <div className="grid grid-cols-1 gap-2 rounded-md border border-kumo-line bg-kumo-recessed/25 p-3 sm:grid-cols-2 lg:grid-cols-3">
                 {serverList.map(server => (
-                  <div key={server.id} className="rounded-md border border-kumo-line bg-kumo-base p-2">
+                  <div key={server.id} className="app-card app-card-md p-2">
                     <Checkbox
                       label={
                         <span className="inline-flex min-w-0 items-center gap-1.5">
@@ -7184,7 +7151,7 @@ function ServerPage() {
                   className="min-h-56 font-mono text-[11px]"
                 />
               ) : (
-                <div className="rounded-md border border-kumo-line bg-kumo-base p-3 text-kumo-subtle">
+                <div className="app-card app-card-md p-3 text-kumo-subtle">
                   将对在线 Agent 或 Agent 模式主机下发升级任务。
                 </div>
               )}
@@ -7261,18 +7228,18 @@ function ServerPage() {
                 aria-label="SFTP 文件内容"
                 value={sftpEditFile.content}
                 onChange={e => setSftpEditFile(prev => ({ ...prev, content: e.target.value }))}
-                className="flex-1 w-full p-2.5 bg-kumo-control border border-kumo-line rounded font-mono text-xs focus:outline-none focus:border-kumo-brand text-kumo-strong resize-none"
+                className="flex-1 w-full p-2.5 font-mono text-xs text-kumo-strong resize-none"
                 spellCheck={false}
               />
             </div>
             
             <div className="bg-kumo-recessed px-4 py-3 border-t border-kumo-line flex justify-end gap-2">
-              <Button size="sm" variant="secondary" onClick={() => setShowSftpEditorModal(false)} className="border border-kumo-line rounded cursor-pointer hover:bg-kumo-fill">取消</Button>
+              <Button size="sm" variant="secondary" onClick={() => setShowSftpEditorModal(false)}>取消</Button>
               <Button size="sm"
                 variant="primary"
                 onClick={saveSftpEditedFile}
                 disabled={sftpSaving}
-                className="bg-kumo-brand text-kumo-inverse rounded font-bold cursor-pointer disabled:opacity-50"
+                className="text-kumo-inverse font-bold disabled:opacity-50"
               >
                 {sftpSaving ? '正在写入保存...' : '保存文件'}
               </Button>

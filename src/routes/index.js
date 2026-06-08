@@ -615,12 +615,21 @@ function registerRoutes(app) {
       .map(dirent => dirent.name);
 
     modules.forEach(moduleName => {
+      if (moduleName === 'music-api') {
+        return;
+      }
+
       const routerPath = path.join(modulesDir, moduleName, 'router.js');
 
       if (fs.existsSync(routerPath)) {
         try {
           const moduleRouter = require(routerPath);
           const routePath = moduleRouteMap[moduleName] || `/api/${moduleName.replace('-api', '')}`;
+
+          if (moduleRouter.publicRouter) {
+            app.use(routePath, moduleRouter.publicRouter);
+            logger.success(`模块公开路由已挂载 -> ${moduleName} [${routePath}]`);
+          }
 
           // 根据模块特性决定是否应用认证中间件
           if (moduleName === 'gemini-cli-api' || moduleName === 'qwen-api' || moduleName === 'filebox-api') {

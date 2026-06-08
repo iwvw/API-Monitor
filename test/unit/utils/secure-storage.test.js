@@ -215,4 +215,19 @@ describe('敏感数据存储模块', () => {
             expect(result.password).not.toBe('verylongpassword');
         });
     });
+
+    describe('SecureSecretStore JSON helpers', () => {
+        it('应该加密和解密 JSON 对象', () => {
+            const original = { token: 'abc', nested: { enabled: true } };
+            const encrypted = secureStorage.encryptJson(original);
+
+            expect(encrypted).not.toContain('abc');
+            expect(secureStorage.isEncrypted(encrypted)).toBe(true);
+            expect(secureStorage.decryptJson(encrypted)).toEqual(original);
+        });
+
+        it('无效 JSON 应该返回 fallback', () => {
+            expect(secureStorage.decryptJson('not-json', { ok: false })).toEqual({ ok: false });
+        });
+    });
 });

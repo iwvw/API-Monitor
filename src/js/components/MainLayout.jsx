@@ -272,8 +272,8 @@ function MainLayout() {
       default:
         const ActiveIcon = ICON_MAP[mainActiveTab] || Server;
         return (
-          <div className="flex flex-col items-center justify-center h-[60vh] text-center p-6 bg-kumo-base border border-kumo-line rounded-lg max-w-xl mx-auto shadow-sm">
-            <div className="w-16 h-16 rounded-full bg-kumo-recessed border border-kumo-line flex items-center justify-center mb-5 text-kumo-brand">
+          <div className="flex flex-col items-center justify-center h-[60vh] text-center p-6 app-card max-w-xl mx-auto">
+            <div className="w-16 h-16 rounded-full app-subcard bg-kumo-recessed flex items-center justify-center mb-5 text-kumo-brand">
               <ActiveIcon className="w-7 h-7" />
             </div>
             <h2 className="text-base font-bold text-kumo-strong mb-2.5">

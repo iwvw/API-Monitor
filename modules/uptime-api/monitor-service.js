@@ -17,7 +17,10 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 const storage = require('./storage');
+const probeRegistry = require('./adapters/probe-registry');
+const { STATES, transition } = require('./domain/state-machine');
 const { createLogger } = require('../../src/utils/logger');
+const eventBus = require('../../src/services/toolbox-event-bus');
 
 const logger = createLogger('Uptime');
 
@@ -28,10 +31,10 @@ let io = null;
 // ==================== 状态机 ====================
 
 const STATE = {
-    OK: 'ok',        // 正常运行
-    PENDING: 'pending',   // 疑似故障（等待确认）
-    FIRING: 'firing',    // 已确认故障（已发 Down 通知）
-    RECOVERY: 'recovery',  // 疑似恢复（等待确认）
+    OK: STATES.UP,
+    PENDING: STATES.PENDING_DOWN,
+    FIRING: STATES.DOWN,
+    RECOVERY: STATES.PENDING_UP,
 };
 
 // 默认确认次数
@@ -45,6 +48,12 @@ let monitorStates = {};
 
 function loadStates() {
     try {
+        const persistedStates = storage.getAllStates();
+        if (Object.keys(persistedStates).length > 0) {
+            monitorStates = persistedStates;
+            return;
+        }
+
         if (fs.existsSync(STATE_FILE)) {
             monitorStates = JSON.parse(fs.readFileSync(STATE_FILE, 'utf8'));
         }
@@ -56,7 +65,9 @@ function loadStates() {
 
 function saveStates() {
     try {
-        fs.writeFileSync(STATE_FILE, JSON.stringify(monitorStates, null, 2), 'utf8');
+        for (const [monitorId, state] of Object.entries(monitorStates)) {
+            storage.saveMonitorState(monitorId, state);
+        }
     } catch (e) {
         logger.error('保存监控状态失败:', e.message);
     }
@@ -66,8 +77,10 @@ function getState(monitorId) {
     if (!monitorStates[monitorId]) {
         monitorStates[monitorId] = {
             status: STATE.OK,
+            state: STATES.UP,
             failCount: 0,
             recoveryCount: 0,
+            recoverCount: 0,
             incidentStart: null,
         };
     }
@@ -134,142 +147,141 @@ class UptimeService {
      * 执行检查 + 状态机驱动通知
      */
     async check(monitor) {
-        const startTime = Date.now();
-        let checkResult = 0; // 0: Down, 1: Up
-        let msg = '';
-        let ping = 0;
+        let result;
 
         try {
-            if (monitor.type === 'http') {
-                await this.checkHttp(monitor);
-                checkResult = 1;
-                msg = 'OK';
-            } else if (monitor.type === 'tcp') {
-                await this.checkTcp(monitor);
-                checkResult = 1;
-                msg = 'OK';
-            } else if (monitor.type === 'ping') {
-                if (monitor.hostname) {
-                    await this.checkPingLike(monitor);
-                    checkResult = 1;
-                    msg = 'OK';
-                } else {
-                    throw new Error('Host required');
-                }
-            } else {
-                throw new Error('Unknown Type');
-            }
+            result = await probeRegistry.check(monitor);
         } catch (error) {
-            checkResult = 0;
-            msg = error.message;
+            result = {
+                ok: false,
+                status: 'down',
+                latencyMs: 0,
+                message: error.message,
+                errorCode: error.code || error.name || 'CHECK_FAILED',
+            };
         }
-
-        ping = checkResult === 1 ? Date.now() - startTime : 0;
 
         const beat = {
             id: Date.now(),
-            status: checkResult,
-            msg,
-            ping,
-            time: new Date().toISOString()
+            status: result.ok ? 1 : 0,
+            state: result.status || (result.ok ? 'up' : 'down'),
+            msg: result.message || (result.ok ? 'OK' : 'Failed'),
+            ping: result.ok ? result.latencyMs || 0 : 0,
+            durationMs: result.latencyMs || 0,
+            statusCode: result.statusCode,
+            errorCode: result.errorCode,
+            details: result.details,
+            time: new Date().toISOString(),
         };
+
+        const maintenance = storage.getActiveMaintenanceForMonitor(monitor.id);
+        beat.maintenance = !!maintenance;
 
         // 保存心跳
         storage.saveHeartbeat(monitor.id, beat);
 
         // 状态机处理
-        this.processStateMachine(monitor, checkResult, beat);
+        this.processStateMachine(monitor, result, beat, maintenance);
 
         // Socket.IO 推送
         if (io) {
             io.emit('uptime:heartbeat', { monitorId: monitor.id, beat });
         }
+        return beat;
+    }
+
+    recordPush(token, payload = {}, req = null) {
+        const monitor = storage.getByPushToken(token);
+        if (!monitor) return null;
+
+        const beat = {
+            id: Date.now(),
+            status: 1,
+            state: 'up',
+            msg: 'Push heartbeat received',
+            ping: 0,
+            durationMs: 0,
+            details: {
+                payload,
+                ip: req?.ip || req?.socket?.remoteAddress || null,
+                userAgent: req?.get ? req.get('user-agent') : null,
+            },
+            probeId: 'push',
+            time: new Date().toISOString(),
+        };
+
+        const maintenance = storage.getActiveMaintenanceForMonitor(monitor.id);
+        beat.maintenance = !!maintenance;
+        storage.saveHeartbeat(monitor.id, beat);
+        this.processStateMachine(monitor, { ok: true, status: 'up', latencyMs: 0, message: beat.msg }, beat, maintenance);
+
+        if (io) {
+            io.emit('uptime:heartbeat', { monitorId: monitor.id, beat });
+        }
+
+        return { monitor, beat };
     }
 
     /**
      * 状态机核心逻辑
      */
-    processStateMachine(monitor, checkResult, beat) {
+    processStateMachine(monitor, checkResult, beat, maintenanceOverride = undefined) {
         const state = getState(monitor.id);
-        const confirmCount = monitor.confirmCount || DEFAULT_CONFIRM_COUNT;
-        const oldStatus = state.status;
+        const oldState = state.state || state.status;
+        const maintenance = maintenanceOverride === undefined
+            ? storage.getActiveMaintenanceForMonitor(monitor.id)
+            : maintenanceOverride;
+        const { nextState, incidentAction, notificationAction } = transition(
+            state,
+            checkResult,
+            {
+                ...monitor,
+                downConfirmCount: monitor.downConfirmCount || monitor.confirmCount || DEFAULT_CONFIRM_COUNT,
+                upConfirmCount: monitor.upConfirmCount || monitor.confirmCount || DEFAULT_CONFIRM_COUNT,
+            },
+            { active: !!maintenance, maintenance }
+        );
 
-        switch (state.status) {
-            case STATE.OK:
-                if (checkResult === 0) {
-                    state.status = STATE.PENDING;
-                    state.failCount = 1;
-                    logger.debug(`[${monitor.name}] OK → PENDING (失败 1/${confirmCount})`);
-                }
-                break;
-
-            case STATE.PENDING:
-                if (checkResult === 0) {
-                    state.failCount++;
-                    logger.debug(`[${monitor.name}] PENDING (失败 ${state.failCount}/${confirmCount})`);
-
-                    if (state.failCount >= confirmCount) {
-                        // 确认宕机！
-                        state.status = STATE.FIRING;
-                        state.incidentStart = Date.now();
-                        state.recoveryCount = 0;
-                        logger.warn(`[${monitor.name}] PENDING → FIRING: 确认宕机`);
-
-                        // 创建 Incident 记录
-                        try { storage.createIncident(monitor.id, beat.msg); } catch (e) { }
-
-                        // ✅ 发送 Down 通知（仅此一次）
-                        this.notifyDown(monitor, beat);
-                    }
-                } else {
-                    // 恢复了，是瞬时抖动
-                    state.status = STATE.OK;
-                    state.failCount = 0;
-                    logger.debug(`[${monitor.name}] PENDING → OK: 瞬时抖动，不通知`);
-                }
-                break;
-
-            case STATE.FIRING:
-                if (checkResult === 1) {
-                    state.status = STATE.RECOVERY;
-                    state.recoveryCount = 1;
-                    logger.debug(`[${monitor.name}] FIRING → RECOVERY (恢复 1/${confirmCount})`);
-                }
-                // 持续 Down → 不做任何事，已经发过通知了
-                break;
-
-            case STATE.RECOVERY:
-                if (checkResult === 1) {
-                    state.recoveryCount++;
-                    logger.debug(`[${monitor.name}] RECOVERY (恢复 ${state.recoveryCount}/${confirmCount})`);
-
-                    if (state.recoveryCount >= confirmCount) {
-                        // 确认恢复！
-                        const duration = Date.now() - (state.incidentStart || Date.now());
-                        state.status = STATE.OK;
-                        state.failCount = 0;
-                        state.recoveryCount = 0;
-                        logger.info(`[${monitor.name}] RECOVERY → OK: 确认恢复 (故障持续 ${formatDuration(duration)})`);
-
-                        // 关闭 Incident 记录
-                        try { storage.resolveIncident(monitor.id, duration); } catch (e) { }
-
-                        // ✅ 发送 Up 通知（含持续时长）
-                        this.notifyUp(monitor, beat, duration);
-                        state.incidentStart = null;
-                    }
-                } else {
-                    // 恢复失败，退回 FIRING
-                    state.status = STATE.FIRING;
-                    state.recoveryCount = 0;
-                    logger.debug(`[${monitor.name}] RECOVERY → FIRING: 恢复失败，仍在故障中`);
-                }
-                break;
+        if (incidentAction?.type === 'open') {
+            try {
+                const incidentId = storage.createIncident(monitor.id, beat.msg);
+                nextState.activeIncidentId = incidentId;
+            } catch (e) { }
+            this.notifyDown(monitor, beat);
         }
 
-        // 状态变化时持久化
-        if (oldStatus !== state.status) {
-            saveStates();
+        if (incidentAction?.type === 'resolve') {
+            const openIncident = storage.getOpenIncident(monitor.id);
+            const startedAt = state.incidentStart || openIncident?.started_at;
+            const duration = startedAt ? Math.max(0, Date.now() - new Date(startedAt).getTime()) : 0;
+            try { storage.resolveIncident(monitor.id, duration); } catch (e) { }
+            this.notifyUp(monitor, beat, duration);
+            nextState.activeIncidentId = null;
+        }
+
+        monitorStates[monitor.id] = {
+            ...nextState,
+            status: nextState.state,
+            recoveryCount: nextState.recoverCount,
+        };
+        storage.saveMonitorState(monitor.id, monitorStates[monitor.id]);
+
+        if (oldState !== nextState.state) {
+            logger.info(`[${monitor.name}] 状态变更: ${oldState} -> ${nextState.state}`);
+            eventBus.publish('uptime.monitor.state', {
+                monitorId: monitor.id,
+                from: oldState,
+                to: nextState.state,
+                notificationAction,
+            }, { module: 'uptime', severity: nextState.state === STATES.DOWN ? 'warning' : 'info' });
+            if (io) {
+                io.emit('uptime:monitor-state', {
+                    monitorId: monitor.id,
+                    from: oldState,
+                    to: nextState.state,
+                    state: monitorStates[monitor.id],
+                });
+            }
         }
     }
 

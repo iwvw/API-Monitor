@@ -6,6 +6,8 @@ const express = require('express');
 const router = express.Router();
 const path = require('path');
 const fs = require('fs');
+const Database = require('better-sqlite3');
+const { randomUUID } = require('crypto');
 const {
   loadUserSettings,
   saveUserSettings,
@@ -17,6 +19,62 @@ const { SystemConfig, OperationLog } = require('../db/models');
 const { createLogger, getBuffer } = require('../utils/logger');
 
 const logger = createLogger('Settings');
+const pendingDatabaseImports = new Map();
+
+function ensureDir(dirPath) {
+  if (!fs.existsSync(dirPath)) {
+    fs.mkdirSync(dirPath, { recursive: true });
+  }
+}
+
+function getTempDir() {
+  const tempDir = path.join(__dirname, '../../data/temp');
+  ensureDir(tempDir);
+  return tempDir;
+}
+
+function getCurrentDbPath() {
+  return dbService.dbPath || path.join(__dirname, '../../data/data.db');
+}
+
+function analyzeDatabaseFile(filePath) {
+  const db = new Database(filePath, { fileMustExist: true, readonly: true });
+  try {
+    const integrity = db.prepare('PRAGMA integrity_check').get();
+    const tables = db
+      .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name")
+      .all()
+      .map(row => {
+        let rows = 0;
+        try {
+          rows = db.prepare(`SELECT COUNT(*) as count FROM "${row.name}"`).get().count;
+        } catch (error) {
+          rows = null;
+        }
+        return { name: row.name, rows };
+      });
+    return {
+      integrity: integrity?.integrity_check || 'unknown',
+      tables,
+      tableCount: tables.length,
+      sizeBytes: fs.statSync(filePath).size,
+    };
+  } finally {
+    db.close();
+  }
+}
+
+function cleanupPendingImport(token) {
+  const pending = pendingDatabaseImports.get(token);
+  if (pending?.path && fs.existsSync(pending.path)) {
+    try {
+      fs.unlinkSync(pending.path);
+    } catch (error) {
+      logger.warn('清理临时导入数据库失败', error.message);
+    }
+  }
+  pendingDatabaseImports.delete(token);
+}
 
 function tableExists(db, tableName) {
   return Boolean(
@@ -237,6 +295,115 @@ router.get('/export-database', async (req, res) => {
   }
 });
 
+async function previewDatabaseImport(req, res) {
+  try {
+    if (!req.files || !req.files.database) {
+      return res.status(400).json({ success: false, error: '未找到上传的数据库文件' });
+    }
+
+    const uploadedFile = req.files.database;
+    if (!uploadedFile.name.endsWith('.db')) {
+      return res.status(400).json({ success: false, error: '无效的文件类型，请上传 .db 文件' });
+    }
+
+    const token = randomUUID();
+    const tempPath = path.join(getTempDir(), `database-import-${token}.db`);
+    await uploadedFile.mv(tempPath);
+
+    const analysis = analyzeDatabaseFile(tempPath);
+    if (analysis.integrity !== 'ok') {
+      cleanupPendingImport(token);
+      return res.status(400).json({
+        success: false,
+        error: `数据库完整性检查失败: ${analysis.integrity}`,
+      });
+    }
+
+    const warnings = [];
+    const tableNames = new Set(analysis.tables.map(table => table.name));
+    ['system_config', 'user_settings'].forEach(table => {
+      if (!tableNames.has(table)) warnings.push(`缺少常见核心表: ${table}`);
+    });
+
+    pendingDatabaseImports.set(token, {
+      path: tempPath,
+      originalName: uploadedFile.name,
+      createdAt: Date.now(),
+      analysis,
+    });
+
+    res.json({
+      success: true,
+      data: {
+        token,
+        originalName: uploadedFile.name,
+        expiresAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
+        analysis,
+        warnings,
+      },
+    });
+  } catch (error) {
+    logger.error('数据库导入预览失败', error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+}
+
+async function commitDatabaseImport(req, res) {
+  const { token, confirm } = req.body || {};
+  if (!token || confirm !== true) {
+    return res.status(400).json({ success: false, error: '必须提供 preview token 并显式 confirm=true' });
+  }
+
+  const pending = pendingDatabaseImports.get(token);
+  if (!pending || !fs.existsSync(pending.path)) {
+    return res.status(404).json({ success: false, error: '导入预览不存在或已过期' });
+  }
+
+  try {
+    const backupDir = path.join(__dirname, '../../backup');
+    ensureDir(backupDir);
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const currentBackupPath = path.join(backupDir, `api-monitor-before-import-${timestamp}.db`);
+    await dbService.backup(currentBackupPath);
+
+    dbService.close();
+    clearStatementCache();
+
+    const dbPath = getCurrentDbPath();
+    try {
+      if (fs.existsSync(dbPath + '-shm')) fs.unlinkSync(dbPath + '-shm');
+      if (fs.existsSync(dbPath + '-wal')) fs.unlinkSync(dbPath + '-wal');
+    } catch (error) {
+      logger.warn('清理临时数据库文件失败', error.message);
+    }
+
+    fs.copyFileSync(pending.path, dbPath);
+    cleanupPendingImport(token);
+    dbService.initialize();
+
+    res.json({
+      success: true,
+      message: '数据库导入成功，原数据库已备份',
+      backupPath: currentBackupPath,
+      analysis: pending.analysis,
+    });
+  } catch (error) {
+    logger.error('数据库导入提交失败', error.message);
+    try {
+      clearStatementCache();
+      dbService.initialize();
+    } catch (innerError) {
+      logger.error('数据库连接恢复失败', innerError.message);
+    }
+    res.status(500).json({ success: false, error: error.message });
+  }
+}
+
+router.post('/import-database/preview', previewDatabaseImport);
+router.post('/database/import/preview', previewDatabaseImport);
+router.post('/import-database/commit', commitDatabaseImport);
+router.post('/database/import/commit', commitDatabaseImport);
+
 /**
  * 导入数据库文件
  * POST /api/settings/import-database
@@ -344,6 +511,25 @@ router.get('/database-stats', (req, res) => {
 });
 
 /**
+ * 数据库迁移自检
+ * GET /api/settings/migration-self-check
+ */
+router.get('/migration-self-check', (req, res) => {
+  try {
+    res.json({
+      success: true,
+      data: dbService.getMigrationSelfCheck(),
+    });
+  } catch (error) {
+    logger.error('数据库迁移自检失败', error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+/**
  * 压缩数据库 (VACUUM)
  * POST /api/settings/vacuum-database
  */
@@ -404,8 +590,6 @@ router.post('/clear-app-logs', (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 });
-
-module.exports = router;
 
 /**
  * 获取日志保留设置
@@ -667,3 +851,5 @@ router.post('/clear-chat-messages', async (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 });
+
+module.exports = router;

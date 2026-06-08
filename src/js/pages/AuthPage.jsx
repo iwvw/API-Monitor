@@ -339,7 +339,7 @@ function AuthShell({ mode, title, description, children }) {
       <section className="relative z-10 flex min-w-0 flex-1 items-center justify-center px-4 py-8 sm:px-6">
         <div className="w-full max-w-[400px]">
           <div className="mb-5 flex items-center justify-start gap-3 lg:hidden">
-            <span className="flex size-10 shrink-0 items-center justify-center rounded-lg border border-kumo-line bg-kumo-base">
+            <span className="flex size-10 shrink-0 items-center justify-center app-card">
               <img src="/logo.svg" alt="" className="size-6 object-contain" />
             </span>
             <div className="min-w-0">
@@ -348,7 +348,7 @@ function AuthShell({ mode, title, description, children }) {
             </div>
           </div>
 
-          <LayerCard className="w-full rounded-lg border border-kumo-line bg-kumo-base/95 p-5 shadow-sm backdrop-blur-sm sm:p-6">
+          <LayerCard className="w-full app-card/95 p-5 backdrop-blur-sm sm:p-6">
             <div className="mb-5 flex items-start justify-between gap-4 border-b border-kumo-line pb-4">
               <div className="min-w-0">
                 <div className="mb-1 text-[11px] font-medium text-kumo-subtle">{modeLabel}</div>

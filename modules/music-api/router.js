@@ -6,192 +6,32 @@
 
 const express = require('express');
 const router = express.Router();
-const path = require('path');
-const { Readable } = require('stream');
-const { pipeline } = require('stream/promises');
 const { createLogger } = require('../../src/utils/logger');
-const dbService = require('../../src/db/database');
-const { secureEncrypt, secureDecrypt } = require('../../src/utils/secure-storage');
-
-// UnblockNeteaseMusic 模块（可选依赖，解锁灰色歌曲）
-let unblockmatch = null;
-try {
-  unblockmatch = require('@unblockneteasemusic/server');
-} catch (e) {
-  // 模块未安装，解锁功能将不可用
-}
+const authService = require('./services/auth-service');
+const ncmClient = require('./services/ncm-client');
+const catalogService = require('./services/catalog-service');
+const unblockService = require('./services/unblock-service');
+const audioProxyService = require('./services/audio-proxy-service');
 
 const logger = createLogger('Music');
-const UNBLOCK_TIMEOUT_MS = 8000;
-const DEFAULT_UNBLOCK_SOURCES = ['pyncmd', 'bodian'];
-
-// NCM API 库 (使用 npm 包)
-let ncmApi = null;
-let storedCookie = '';
-
-function getUnblockMatcher() {
-  if (typeof unblockmatch !== 'function') {
-    throw new Error('UnblockNeteaseMusic is not available');
-  }
-  return unblockmatch;
-}
-
-function withTimeout(promise, ms, message) {
-  let timer = null;
-  const timeout = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error(message)), ms);
-  });
-
-  return Promise.race([promise, timeout]).finally(() => {
-    if (timer) clearTimeout(timer);
-  });
-}
-
-function parseUnblockSources(source) {
-  if (!source) return DEFAULT_UNBLOCK_SOURCES;
-  const sources = String(source)
-    .split(',')
-    .map(item => item.trim())
-    .filter(Boolean);
-  return sources.length ? sources : DEFAULT_UNBLOCK_SOURCES;
-}
-
-async function matchUnblockedSong(id, sources = DEFAULT_UNBLOCK_SOURCES) {
-  const match = getUnblockMatcher();
-  return withTimeout(
-    match(Number(id), sources),
-    UNBLOCK_TIMEOUT_MS,
-    `Unblock timed out after ${UNBLOCK_TIMEOUT_MS}ms`
-  );
-}
 
 /**
  * 加载 NCM API 库
  */
 function loadNcmApi() {
-  if (ncmApi) return ncmApi;
-
-  try {
-    ncmApi = require('@neteasecloudmusicapienhanced/api');
-    logger.success('NCM API loaded from npm package');
-    return ncmApi;
-  } catch (error) {
-    logger.error('Failed to load NCM API:', error.message);
-    logger.warn('Please install: npm install @neteasecloudmusicapienhanced/api');
-    return null;
-  }
-}
-
-/**
- * 加载存储的 Cookie (从数据库)
- */
-function loadStoredCookie() {
-  try {
-    const db = dbService.getDatabase();
-    const row = db.prepare('SELECT value FROM music_settings WHERE key = ?').get('cookie');
-    if (row && row.value) {
-      storedCookie = secureDecrypt(row.value);
-      logger.info('Loaded stored cookie from database, length:', storedCookie.length);
-    } else {
-      logger.info('No cookie found in database');
-    }
-  } catch (error) {
-    logger.error('Failed to load cookie from database:', error.message);
-  }
-  return storedCookie;
-}
-
-/**
- * 保存 Cookie 到数据库
- */
-function saveCookie(cookieString) {
-  try {
-    const db = dbService.getDatabase();
-    const encryptedCookie = secureEncrypt(cookieString);
-    db.prepare(
-      `
-            INSERT INTO music_settings (key, value, updated_at) 
-            VALUES ('cookie', ?, CURRENT_TIMESTAMP)
-            ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = CURRENT_TIMESTAMP
-        `
-    ).run(encryptedCookie);
-    storedCookie = cookieString;
-    logger.success('Cookie saved to database (encrypted)');
-  } catch (error) {
-    logger.error('Failed to save cookie to database:', error.message);
-  }
-}
-
-/**
- * 清除存储的 Cookie
- */
-function clearCookie() {
-  storedCookie = '';
-  try {
-    const db = dbService.getDatabase();
-    db.prepare('DELETE FROM music_settings WHERE key = ?').run('cookie');
-    logger.info('Cookie cleared from database');
-  } catch (error) {
-    logger.warn('Failed to clear cookie from database:', error.message);
-  }
+  return ncmClient.load();
 }
 
 /**
  * 获取当前有效的 Cookie
  */
 function getEffectiveCookie(reqCookieHeader) {
-  // 优先使用服务器存储的 Cookie
-  if (storedCookie) {
-    return storedCookie;
-  }
-  // 兼容浏览器 Cookie
-  return reqCookieHeader || '';
+  return authService.getEffectiveCookie(reqCookieHeader);
 }
 
 // 初始化
 loadNcmApi();
-loadStoredCookie();
-
-// 已知不支持 HTTPS 的 CDN 域名列表
-const HTTP_ONLY_DOMAINS = [
-  'sycdn.kuwo.cn', // 酷我音乐 CDN
-  'er.sycdn.kuwo.cn',
-  'other.web.rh01.sycdn.kuwo.cn',
-  'kuwo.cn', // 酷我其他域名
-];
-
-/**
- * 检查 URL 是否属于只支持 HTTP 的域名
- */
-function isHttpOnlyDomain(url) {
-  if (!url || typeof url !== 'string') return false;
-  try {
-    const hostname = new URL(url).hostname;
-    return HTTP_ONLY_DOMAINS.some(domain => hostname.includes(domain));
-  } catch {
-    return false;
-  }
-}
-
-/**
- * 将音频 URL 转换为代理 URL (用于不支持 HTTPS 的 CDN)
- * @param {string} url - 原始 URL
- * @param {object} req - Express 请求对象 (可选，用于构建完整代理 URL)
- * @returns {string} 代理 URL 或 HTTPS URL
- */
-function getProxyUrl(url, req) {
-  if (!url || typeof url !== 'string') return url;
-
-  // 如果是不支持 HTTPS 的域名，使用代理
-  if (isHttpOnlyDomain(url)) {
-    // 构建代理 URL: /api/music/audio/proxy?url=xxx
-    const encodedUrl = encodeURIComponent(url);
-    return `/api/music/audio/proxy?url=${encodedUrl}`;
-  }
-
-  // 否则尝试使用 HTTPS
-  return url.replace(/^http:\/\//i, 'https://');
-}
+authService.loadStoredCookie();
 
 /**
  * 确保 URL 使用 HTTPS (避免混合内容问题)
@@ -200,110 +40,26 @@ function getProxyUrl(url, req) {
  * @returns {string} HTTPS URL 或代理 URL
  */
 function ensureHttps(url) {
-  if (!url || typeof url !== 'string') return url;
+  return audioProxyService.ensureHttps(url);
+}
 
-  // 对于不支持 HTTPS 的域名，使用代理
-  if (isHttpOnlyDomain(url)) {
-    const encodedUrl = encodeURIComponent(url);
-    return `/api/music/audio/proxy?url=${encodedUrl}`;
-  }
+function parseUnblockSources(source) {
+  return unblockService.parseSources(source);
+}
 
-  // 将 http:// 替换为 https://
-  return url.replace(/^http:\/\//i, 'https://');
+function matchUnblockedSong(id, sources) {
+  return unblockService.match(id, sources);
 }
 
 /**
  * 通用请求处理器
  */
 async function handleRequest(moduleName, req, res) {
-  const api = loadNcmApi();
-
-  if (!api || typeof api[moduleName] !== 'function') {
-    return res.status(404).json({
-      code: 404,
-      message: `API method ${moduleName} not found`,
-    });
-  }
-
   try {
-    const query = {
+    const result = await catalogService.invoke(moduleName, {
       ...req.query,
       ...req.body,
-      cookie: getEffectiveCookie(req.headers.cookie),
-    };
-
-    const result = await api[moduleName](query);
-
-    // 如果返回新的 Cookie，合并到现有 Cookie（而非覆盖）
-    if (result.cookie && Array.isArray(result.cookie)) {
-      // HTTP Cookie 属性列表（需要过滤掉）
-      const httpAttrs = ['max-age', 'expires', 'path', 'domain', 'secure', 'httponly', 'samesite'];
-
-      // 提取新 Cookie 的 key=value 部分，过滤 HTTP 属性
-      const newCookieParts = [];
-      result.cookie.forEach(c => {
-        const match = String(c).match(/^([^;]+)/);
-        if (match) {
-          const part = match[1].trim();
-          const [key] = part.split('=');
-          // 只保留非 HTTP 属性的 Cookie
-          if (key && !httpAttrs.includes(key.toLowerCase())) {
-            newCookieParts.push(part);
-          }
-        }
-      });
-
-      if (newCookieParts.length === 0) {
-        // 没有有效的新 Cookie，跳过
-      } else {
-        // 解析现有 Cookie
-        const existingCookies = {};
-        if (storedCookie) {
-          storedCookie.split(';').forEach(part => {
-            const trimmed = part.trim();
-            if (!trimmed) return;
-            const [key, ...valueParts] = trimmed.split('=');
-            if (key && !httpAttrs.includes(key.toLowerCase())) {
-              existingCookies[key.trim()] = valueParts.join('=');
-            }
-          });
-        }
-
-        // 检查现有 Cookie 是否包含登录态
-        const hasExistingLogin = !!existingCookies['MUSIC_U'] || !!existingCookies['MUSIC_R_U'];
-
-        // 合并新 Cookie
-        newCookieParts.forEach(part => {
-          const [key, ...valueParts] = part.split('=');
-          if (!key) return;
-
-          const keyTrimmed = key.trim();
-
-          // 如果已有登录态，只接受登录相关的 Cookie 更新，拒绝 Cookie 覆盖
-          if (hasExistingLogin) {
-            // 登录相关的 Cookie 可以更新
-            const loginCookies = ['MUSIC_U', 'MUSIC_R_U', 'MUSIC_A', 'MUSIC_A_T', '__csrf'];
-            if (loginCookies.includes(keyTrimmed)) {
-              existingCookies[keyTrimmed] = valueParts.join('=');
-            }
-            // NMTID 等 Cookie 不更新
-          } else {
-            // 没有登录态时，接受所有 Cookie
-            existingCookies[keyTrimmed] = valueParts.join('=');
-          }
-        });
-
-        // 重新组合 Cookie 字符串
-        const mergedCookie = Object.entries(existingCookies)
-          .map(([k, v]) => `${k}=${v}`)
-          .join('; ');
-
-        if (mergedCookie && mergedCookie !== storedCookie) {
-          saveCookie(mergedCookie);
-        }
-      }
-    }
-
+    }, req.headers.cookie);
     res.status(result.status || 200).json(result.body);
   } catch (error) {
     logger.error(`${moduleName} error:`, error.message || error);
@@ -466,103 +222,7 @@ router.get('/song/url/unblock', async (req, res) => {
  * 解决浏览器混合内容 (Mixed Content) 阻止 HTTP 音频的问题
  */
 router.get('/audio/proxy', async (req, res) => {
-  const { url } = req.query;
-
-  if (!url) {
-    return res.status(400).json({ code: 400, message: 'Missing url parameter' });
-  }
-
-  let targetUrl;
-  try {
-    targetUrl = decodeURIComponent(url);
-    // 验证是否为有效 URL
-    new URL(targetUrl);
-  } catch (e) {
-    return res.status(400).json({ code: 400, message: 'Invalid url parameter' });
-  }
-
-  // 安全检查：只允许代理音频相关域名
-  const allowedDomains = ['kuwo.cn', 'kugou.com', 'qq.com', 'music.163.com', 'netease.com'];
-
-  try {
-    const urlObj = new URL(targetUrl);
-    const isAllowed = allowedDomains.some(domain => urlObj.hostname.includes(domain));
-    if (!isAllowed) {
-      logger.warn(`[Proxy] Blocked request to unauthorized domain: ${urlObj.hostname}`);
-      return res.status(403).json({ code: 403, message: 'Domain not allowed' });
-    }
-  } catch {
-    return res.status(400).json({ code: 400, message: 'Invalid url' });
-  }
-
-  try {
-    // 透传 Range 请求头以支持进度拖动
-    const headers = {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-      Accept: '*/*',
-      'Accept-Encoding': 'identity', // 避免压缩, 保持原始流
-    };
-
-    if (req.headers.range) {
-      headers['Range'] = req.headers.range;
-    }
-
-    // 使用 fetch 转发请求
-    const response = await fetch(targetUrl, {
-      method: 'GET',
-      headers,
-      redirect: 'follow',
-    });
-
-    if (!response.ok && response.status !== 206) {
-      logger.error(`[Proxy] Upstream error: ${response.status}`);
-      return res.status(response.status).json({
-        code: response.status,
-        message: `Upstream error: ${response.statusText}`,
-      });
-    }
-
-    // 转发响应头
-    const contentType = response.headers.get('content-type') || 'audio/mpeg';
-    const contentLength = response.headers.get('content-length');
-    const contentRange = response.headers.get('content-range');
-    const acceptRanges = response.headers.get('accept-ranges');
-
-    res.status(response.status);
-    res.set('Content-Type', contentType);
-    res.set('Accept-Ranges', acceptRanges || 'bytes');
-    res.set('Access-Control-Allow-Origin', '*');
-    res.set('Cache-Control', 'public, max-age=3600');
-
-    if (contentLength) {
-      res.set('Content-Length', contentLength);
-    }
-    if (contentRange) {
-      res.set('Content-Range', contentRange);
-    }
-
-    // 流式转发响应体 (使用 pipeline 提高性能和稳定性)
-    await pipeline(Readable.fromWeb(response.body), res);
-
-    // 记录代理请求
-    logger.info(`[Proxy] Streaming audio from: ${new URL(targetUrl).hostname}`);
-  } catch (error) {
-    // 检查是否已经开始发送响应，避免 ERR_HTTP_HEADERS_SENT
-    if (res.headersSent) {
-      // 流已部分发送，只记录日志，不发送错误响应
-      // Premature close 通常是客户端提前断开连接，属于正常情况
-      if (error.message !== 'Premature close') {
-        logger.warn('[Proxy] Stream error (response already sent):', error.message);
-      }
-      return;
-    }
-
-    logger.error('[Proxy] Error:', error.message);
-    res.status(500).json({
-      code: 500,
-      message: `Proxy error: ${error.message}`,
-    });
-  }
+  return audioProxyService.proxy(req, res);
 });
 
 // ==================== 歌词 API ====================
@@ -572,59 +232,12 @@ router.get('/lyric', (req, res) => handleRequest('lyric_new', req, res));
 // ==================== 歌单 API ====================
 
 router.get('/playlist/detail', async (req, res) => {
-  const api = loadNcmApi();
-  if (!api || typeof api.playlist_detail !== 'function') {
-    return res.status(500).json({ code: 500, message: 'API not available' });
-  }
-
   try {
-    // 添加 s 参数获取歌曲数量（默认获取全部，最多 20000）
-    const query = {
-      id: req.query.id,
-      s: req.query.s || 20000, // 获取歌曲详情的数量
-      cookie: getEffectiveCookie(req.headers.cookie),
-    };
-
-    const result = await api.playlist_detail(query);
-
-    // 调试日志
-    logger.info('[Playlist] trackCount:', result.body?.playlist?.trackCount);
-    logger.info('[Playlist] tracks length:', result.body?.playlist?.tracks?.length);
-    logger.info('[Playlist] trackIds length:', result.body?.playlist?.trackIds?.length);
-
-    // 如果歌单有歌曲但 tracks 为空，可能需要额外获取歌曲详情
-    if (
-      result.body?.playlist &&
-      result.body.playlist.trackIds?.length > 0 &&
-      (!result.body.playlist.tracks || result.body.playlist.tracks.length === 0)
-    ) {
-      logger.info(
-        '[Playlist] tracks empty, fetching song details for',
-        result.body.playlist.trackIds.length,
-        'songs'
-      );
-
-      // 获取前 500 首歌的详情 (支持通过 fetch_limit 参数控制，默认 500)
-      const fetchLimit = Math.min(parseInt(req.query.fetch_limit, 10) || 200, 500);
-      const trackIds = result.body.playlist.trackIds.slice(0, fetchLimit).map(t => t.id);
-
-      if (trackIds.length > 0 && api.song_detail) {
-        const songResult = await api.song_detail({
-          ids: trackIds.join(','),
-          cookie: getEffectiveCookie(req.headers.cookie),
-        });
-
-        if (songResult.body?.songs) {
-          result.body.playlist.tracks = songResult.body.songs;
-          logger.info('[Playlist] Loaded', result.body.playlist.tracks.length, 'songs');
-        }
-      }
-    }
-
+    const result = await catalogService.playlistDetail(req.query, req.headers.cookie);
     res.status(result.status || 200).json(result.body);
   } catch (error) {
     logger.error('playlist/detail error:', error.message);
-    res.status(500).json({ code: 500, message: error.message });
+    res.status(error.status || 500).json({ code: error.status || 500, message: error.message });
   }
 });
 router.get('/top/playlist', (req, res) => handleRequest('top_playlist', req, res));
@@ -694,48 +307,7 @@ router.get('/login/qr/check', async (req, res) => {
     if (result.body?.code === 803) {
       logger.info('[Music] 扫码登录成功，正在提取并持久化 Cookie...');
 
-      let cookieStr = '';
-
-      // 从 result.cookie 数组提取 (更可靠)
-      if (result.cookie && Array.isArray(result.cookie)) {
-        const rawCookies = result.cookie;
-        // 提取每个 Set-Cookie 字符串中的 key=value 部分
-        const cookieParts = rawCookies
-          .map(c => {
-            // Set-Cookie 格式: "KEY=VALUE; Path=/; Max-Age=..."
-            // 只取第一个分号前的 KEY=VALUE 部分
-            const match = String(c).match(/^([^;]+)/);
-            return match ? match[1].trim() : '';
-          })
-          .filter(Boolean);
-        cookieStr = cookieParts.join('; ');
-        logger.info('[QR Check] Extracted from result.cookie array, length:', cookieStr.length);
-      }
-
-      // 备选：从 body.cookie 获取并解析 (需要清理格式)
-      if (!cookieStr && result.body?.cookie && typeof result.body.cookie === 'string') {
-        // body.cookie 可能是 "KEY1=VAL1; Max-Age=...; KEY2=VAL2; ..."
-        // 需要按分号拆分，只保留 key=value 格式的部分
-        const parts = result.body.cookie.split(';');
-        const cleanParts = parts
-          .map(p => p.trim())
-          .filter(p => {
-            // 只保留 key=value 格式，排除 Max-Age, Expires, Path 等属性
-            if (!p.includes('=')) return false;
-            const key = p.split('=')[0].toLowerCase();
-            return ![
-              'max-age',
-              'expires',
-              'path',
-              'domain',
-              'secure',
-              'httponly',
-              'samesite',
-            ].includes(key);
-          });
-        cookieStr = cleanParts.join('; ');
-        logger.info('[QR Check] Extracted from result.body.cookie, length:', cookieStr.length);
-      }
+      const cookieStr = authService.extractCookieFromLoginResult(result);
 
       // 调试：打印 Cookie 内容
       logger.debug('[QR Check] Cookie preview:', cookieStr.substring(0, 150));
@@ -744,13 +316,13 @@ router.get('/login/qr/check', async (req, res) => {
       if (cookieStr) {
         const hasMusicU = cookieStr.includes('MUSIC_U=');
         if (hasMusicU) {
-          saveCookie(cookieStr);
+          authService.saveCookie(cookieStr);
           logger.success('[Music] 登录态已持久化到服务器数据库 (包含 MUSIC_U)');
         } else {
           logger.warn('[Music] Cookie 不包含 MUSIC_U，可能不是有效的登录 Cookie');
           logger.warn('[Music] Cookie 内容:', cookieStr);
           // 仍然保存，但打印警告
-          saveCookie(cookieStr);
+          authService.saveCookie(cookieStr);
         }
       } else {
         logger.error('[Music] 登录成功但未提取到有效 Cookie');
@@ -770,7 +342,7 @@ router.get('/login/qr/check', async (req, res) => {
  * 退出登录 - 清除服务器存储的 Cookie
  */
 router.post('/logout', (req, res) => {
-  clearCookie();
+  authService.clearCookie();
   res.json({ code: 200, message: 'Logged out successfully' });
 });
 
@@ -781,7 +353,7 @@ router.get('/auth/status', async (req, res) => {
   const api = loadNcmApi();
 
   // 每次检查时从数据库刷新 Cookie（确保使用最新的）
-  loadStoredCookie();
+  const storedCookie = authService.loadStoredCookie();
 
   logger.debug('Auth status check, storedCookie length:', storedCookie ? storedCookie.length : 0);
 
@@ -837,13 +409,13 @@ router.get('/auth/status', async (req, res) => {
 // ==================== 健康检查 ====================
 
 router.get('/health', (req, res) => {
-  const api = loadNcmApi();
+  const health = ncmClient.getHealth();
 
   res.json({
     status: 'ok',
-    modulesLoaded: !!api,
-    moduleCount: api ? Object.keys(api).filter(k => typeof api[k] === 'function').length : 0,
-    hasStoredCookie: !!storedCookie,
+    modulesLoaded: health.modulesLoaded,
+    moduleCount: health.moduleCount,
+    hasStoredCookie: !!authService.getStoredCookie(),
     timestamp: new Date().toISOString(),
   });
 });

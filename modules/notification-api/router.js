@@ -280,6 +280,8 @@ router.put('/rules/:id', (req, res) => {
     try {
         const {
             name,
+            source_module,
+            event_type,
             severity,
             channels,
             conditions,
@@ -295,6 +297,8 @@ router.put('/rules/:id', (req, res) => {
 
         const updateData = {};
         if (name !== undefined) updateData.name = name;
+        if (source_module !== undefined) updateData.source_module = source_module;
+        if (event_type !== undefined) updateData.event_type = event_type;
         if (severity !== undefined) updateData.severity = severity;
         if (channels !== undefined) updateData.channels = channels;
         if (conditions !== undefined) updateData.conditions = conditions;
@@ -355,6 +359,48 @@ router.post('/rules/:id/disable', (req, res) => {
         res.json({ success: true });
     } catch (error) {
         logger.error(`禁用规则失败: ${error.message}`);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.get('/event-catalog', (req, res) => {
+    try {
+        res.json({ success: true, data: notificationService.getEventCatalog() });
+    } catch (error) {
+        logger.error(`获取事件目录失败: ${error.message}`);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.get('/events/catalog', (req, res) => {
+    try {
+        res.json({ success: true, data: notificationService.getEventCatalog() });
+    } catch (error) {
+        logger.error(`获取事件目录失败: ${error.message}`);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/templates/preview', (req, res) => {
+    try {
+        const data = notificationService.previewTemplate(req.body || {});
+        res.json({ success: true, data });
+    } catch (error) {
+        logger.error(`模板预览失败: ${error.message}`);
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+router.post('/rules/:id/dry-run', (req, res) => {
+    try {
+        const rule = storage.rule.getById(req.params.id);
+        if (!rule) {
+            return res.status(404).json({ success: false, error: '规则不存在' });
+        }
+        const data = notificationService.dryRunRule(rule, req.body?.data || req.body || {});
+        res.json({ success: true, data });
+    } catch (error) {
+        logger.error(`规则 dry-run 失败: ${error.message}`);
         res.status(500).json({ success: false, error: error.message });
     }
 });

@@ -2210,7 +2210,7 @@ function DnsPage() {
 
       <Dialog.Root open={Boolean(modal.type)} onOpenChange={(open) => { if (!open) closeModal(); }}>
         {modal.type && (
-        <Dialog className="max-h-[85vh] w-[min(920px,calc(100vw-2rem))] overflow-y-auto rounded-lg border border-kumo-line bg-kumo-base p-6 shadow-xl">
+        <Dialog className="max-h-[85vh] w-[min(920px,calc(100vw-2rem))] overflow-y-auto p-6">
           {modal.type === 'account' && (
             <div className="flex flex-col gap-4">
               <Dialog.Title className="text-base font-semibold text-kumo-strong">

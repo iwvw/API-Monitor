@@ -1,6 +1,6 @@
 # 前端开发最佳实践
 
-最后更新：2026-06-07
+最后更新：2026-06-08
 
 本文档只描述当前 React + Kumo 前端。旧 Vue、Teleport、模板加载器、`showToast` mixin 等做法已不再适用。
 
@@ -84,7 +84,7 @@ toast.info('状态已刷新');
 ## 颜色与边框
 
 - 使用 Kumo token：`bg-kumo-*`、`text-kumo-*`、`border-kumo-*`、`ring-kumo-*`。
-- 卡片边框统一使用 `border border-kumo-line`，需要强调时加透明语义边框或 `shadow-sm`，不要硬编码灰色。
+- 卡片边框统一使用 `border border-kumo-line`，需要强调时加透明语义边框；不要额外叠页面级 `shadow-*` 或硬编码灰色。
 - 百分比进度条使用 Kumo `Meter` 或 Kumo token 驱动的边框，不使用自绘彩条替代设计系统。
 
 ## PageHeader

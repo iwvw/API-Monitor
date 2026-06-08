@@ -13,6 +13,7 @@ import { ClipboardText, Tabs } from '@cloudflare/kumo';
 import useTableResize from '../composables/useTableResize.js';
 import { MODULE_TABS_PROPS } from '../modules/kumoTabs.js';
 import { formatDateTime } from '../modules/utils.js';
+import { getHttpStatusPillClass } from '../components/ui/AppPrimitives.jsx';
 import {
   Cpu,
   Users,
@@ -308,13 +309,7 @@ function QwenPage() {
     return list;
   }, [logs, logFilterAccount, logFilterModel]);
 
-  const getLogStatusClass = (code) => {
-    if (!code) return 'bg-kumo-recessed text-kumo-subtle';
-    if (code >= 200 && code < 300) return 'bg-kumo-success/10 text-kumo-success border border-kumo-success/20';
-    if (code === 429) return 'bg-kumo-danger/10 text-kumo-danger border border-kumo-danger/20';
-    if (code >= 400) return 'bg-kumo-danger/10 text-kumo-danger border border-kumo-danger/20';
-    return 'bg-kumo-recessed text-kumo-subtle';
-  };
+  const getLogStatusClass = (code) => getHttpStatusPillClass(code);
 
   const showLogDetailDialog = (log) => {
     setLogDetailShowRaw(false);
@@ -496,11 +491,11 @@ function QwenPage() {
 
       {/* ==================== 1. 模型矩阵 Tab ==================== */}
       {activeTab === 'models' && (
-        <div className="quick-fade-in space-y-6">
+        <div className="space-y-6">
           {/* Stats Summary */}
           {stats && (
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="bg-kumo-base p-4 border border-kumo-line rounded-lg shadow-sm flex items-center justify-between">
+              <div className="app-card p-4 flex items-center justify-between">
                 <div>
                   <span className="text-[10px] font-bold text-kumo-subtle block uppercase">总调用量</span>
                   <span className="text-xl font-bold text-kumo-strong">{stats.total_calls || 0}</span>
@@ -509,7 +504,7 @@ function QwenPage() {
                   <TrendingUp className="w-5 h-5" />
                 </div>
               </div>
-              <div className="bg-kumo-base p-4 border border-kumo-line rounded-lg shadow-sm flex items-center justify-between">
+              <div className="app-card p-4 flex items-center justify-between">
                 <div>
                   <span className="text-[10px] font-bold text-kumo-subtle block">消耗令牌</span>
                   <span className="text-xl font-bold text-kumo-strong">{formatTokens(stats.total_tokens || 0)}</span>
@@ -518,7 +513,7 @@ function QwenPage() {
                   <Database className="w-5 h-5" />
                 </div>
               </div>
-              <div className="bg-kumo-base p-4 border border-kumo-line rounded-lg shadow-sm flex items-center justify-between">
+              <div className="app-card p-4 flex items-center justify-between">
                 <div>
                   <span className="text-[10px] font-bold text-kumo-subtle block uppercase">平均响应</span>
                   <span className="text-xl font-bold text-kumo-strong">
@@ -534,7 +529,7 @@ function QwenPage() {
           )}
 
           {/* Model Matrix table */}
-          <div className="bg-kumo-base border border-kumo-line rounded-lg shadow-sm overflow-hidden">
+          <div className="app-card overflow-hidden">
             <div className="p-4 border-b border-kumo-line flex justify-between items-center bg-kumo-recessed/10">
               <h3 className="text-sm font-bold text-kumo-strong flex items-center gap-2">
                 <Cpu className="w-4 h-4 text-kumo-brand" />
@@ -611,8 +606,8 @@ function QwenPage() {
 
       {/* ==================== 2. 凭证管理 Tab ==================== */}
       {activeTab === 'accounts' && (
-        <div className="quick-fade-in space-y-6">
-          <div className="bg-kumo-base border border-kumo-line rounded-lg shadow-sm p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div className="space-y-6">
+          <div className="app-card p-4 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <h3 className="text-sm font-bold text-kumo-strong flex items-center gap-2">
               <Users className="w-4 h-4 text-kumo-brand" />
               Qwen 凭证管理
@@ -628,7 +623,7 @@ function QwenPage() {
           </div>
 
           {/* Accounts list table */}
-          <div className="bg-kumo-base border border-kumo-line rounded-lg shadow-sm overflow-hidden">
+          <div className="app-card overflow-hidden">
             <div className="overflow-x-auto">
               <Table layout="fixed">
                 <colgroup>
@@ -678,7 +673,7 @@ function QwenPage() {
                         </Table.Cell>
                         <Table.Cell>
                           <span
-                            className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                            className={`app-status-pill ${
                               acc.status === 'online'
                                 ? 'bg-kumo-success/10 text-kumo-success border-kumo-success/20'
                                 : acc.status === 'error'
@@ -696,7 +691,7 @@ function QwenPage() {
                               variant="ghost"
                               aria-label={acc.enable !== false ? '禁用账号' : '启用账号'}
                               onClick={() => toggleAccountEnabled(acc.id)}
-                              className={`p-1.5 rounded hover:bg-kumo-recessed transition-colors ${
+                              className={`p-1.5 transition-colors ${
                                 acc.enable !== false ? 'text-kumo-success' : 'text-kumo-subtle'
                               }`}
                               title={acc.enable !== false ? '禁用' : '启用'}
@@ -708,7 +703,7 @@ function QwenPage() {
                               variant="ghost"
                               aria-label="删除账号"
                               onClick={() => deleteAccount(acc.id)}
-                              className="rounded hover:bg-kumo-danger/10 text-kumo-subtle hover:text-kumo-danger transition-colors"
+                              className="text-kumo-subtle hover:text-kumo-danger transition-colors"
                               title="删除"
                             >
                               <Trash className="w-4 h-4" />
@@ -727,8 +722,8 @@ function QwenPage() {
 
       {/* ==================== 3. 调用日志 Tab ==================== */}
       {activeTab === 'logs' && (
-        <div className="quick-fade-in space-y-4">
-          <div className="bg-kumo-base border border-kumo-line rounded-lg shadow-sm p-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <div className="space-y-4">
+          <div className="app-card p-4 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
             <h3 className="text-sm font-bold text-kumo-strong flex items-center gap-2">
               <History className="w-4 h-4 text-kumo-brand" />
               历史调用日志
@@ -769,7 +764,7 @@ function QwenPage() {
             </div>
           </div>
 
-          <div className="bg-kumo-base border border-kumo-line rounded-lg shadow-sm overflow-hidden">
+          <div className="app-card overflow-hidden">
             <div className="overflow-x-auto">
               <Table layout="fixed">
                 <colgroup>
@@ -842,7 +837,7 @@ function QwenPage() {
                         <Table.Cell className="text-center font-mono text-kumo-subtle">{log.model || '-'}</Table.Cell>
                         <Table.Cell>
                           <div className="flex items-center gap-1.5 font-mono">
-                            <span className="px-1 py-0.2 rounded text-[9px] bg-kumo-brand/10 text-kumo-brand border border-kumo-brand/20 font-bold uppercase">
+                            <span className="px-1 py-px rounded text-[9px] bg-kumo-brand/10 text-kumo-brand border border-kumo-brand/20 font-bold uppercase">
                               POST
                             </span>
                             <span className="truncate text-kumo-strong">/v1/chat/completions</span>
@@ -867,7 +862,7 @@ function QwenPage() {
                             variant="ghost"
                             aria-label="查看日志详情"
                             onClick={() => showLogDetailDialog(log)}
-                            className="hover:bg-kumo-recessed rounded text-kumo-subtle hover:text-kumo-strong transition-colors"
+                            className="text-kumo-subtle hover:text-kumo-strong transition-colors"
                           >
                             <Eye className="w-4 h-4" />
                           </Button>
@@ -884,8 +879,8 @@ function QwenPage() {
 
       {/* ==================== 4. 模块配置 Tab ==================== */}
       {activeTab === 'settings' && (
-        <div className="quick-fade-in space-y-6">
-          <div className="bg-kumo-base border border-kumo-line rounded-lg shadow-sm overflow-hidden">
+        <div className="space-y-6">
+          <div className="app-card overflow-hidden">
             <div className="p-4 border-b border-kumo-line flex justify-between items-center bg-kumo-recessed/10">
               <h3 className="text-sm font-bold text-kumo-strong flex items-center gap-2">
                 <Sliders className="w-4 h-4 text-kumo-brand" />
@@ -911,7 +906,7 @@ function QwenPage() {
                     value={settingsForm.API_KEY}
                     onChange={(e) => setSettingsForm({ ...settingsForm, API_KEY: e.target.value })}
                     placeholder="留空则不启用外部接口鉴权"
-                    className="w-full bg-kumo-recessed text-kumo-strong text-xs px-3 py-2 pr-10 border border-kumo-line rounded-lg focus:outline-none focus:border-kumo-brand font-mono"
+                    className="w-full text-kumo-strong text-xs px-3 py-2 pr-10 font-mono"
                   />
                   <Button
                     shape="square" size="sm"
@@ -933,14 +928,14 @@ function QwenPage() {
                   onChange={(e) => setSettingsForm({ ...settingsForm, SYSTEM_INSTRUCTION: e.target.value })}
                   placeholder="设置后将作为系统提示词注入到每次 Qwen 对话中..."
                   rows={3}
-                  className="w-full bg-kumo-recessed text-kumo-strong text-xs p-3 border border-kumo-line rounded-lg focus:outline-none focus:border-kumo-brand font-mono resize-y"
+                  className="w-full text-kumo-strong text-xs p-3 font-mono resize-y"
                 />
               </div>
             </div>
           </div>
 
           {/* Model redirect management */}
-          <div className="bg-kumo-base border border-kumo-line rounded-lg shadow-sm p-5 space-y-4">
+          <div className="app-card p-5 space-y-4">
             <h4 className="text-xs font-bold text-kumo-strong flex items-center gap-1.5">
               <Globe className="w-4 h-4 text-kumo-brand" />
               模型重定向别名路由
@@ -958,7 +953,7 @@ function QwenPage() {
                   return (
                     <div
                       key={r.source_model}
-                      className="flex justify-between items-center p-3 bg-kumo-recessed/30 border border-kumo-line rounded-lg text-xs"
+                      className="flex justify-between items-center p-3 app-subcard bg-kumo-recessed/30 text-xs"
                     >
                       <div className="flex items-center gap-2 min-w-0 flex-1">
                         {isEditing ? (
@@ -968,7 +963,7 @@ function QwenPage() {
                               type="text"
                               value={newRedirectSource}
                               onChange={(e) => setNewRedirectSource(e.target.value)}
-                              className="w-1/2 bg-kumo-base text-kumo-strong px-2 py-0.5 border border-kumo-line rounded"
+                              className="w-1/2 text-kumo-strong px-2 py-0.5"
                             />
                             <ArrowRight className="w-3.5 h-3.5 text-kumo-subtle flex-shrink-0" />
                             <Input size="sm"
@@ -976,7 +971,7 @@ function QwenPage() {
                               type="text"
                               value={newRedirectTarget}
                               onChange={(e) => setNewRedirectTarget(e.target.value)}
-                              className="w-1/2 bg-kumo-base text-kumo-strong px-2 py-0.5 border border-kumo-line rounded"
+                              className="w-1/2 text-kumo-strong px-2 py-0.5"
                             />
                           </div>
                         ) : (
@@ -1000,7 +995,7 @@ function QwenPage() {
                               variant="ghost"
                               aria-label="保存重定向"
                               onClick={addRedirectRule}
-                              className="bg-kumo-success/15 hover:bg-kumo-success/25 rounded text-kumo-success"
+                              className="text-kumo-success"
                               title="保存"
                               icon={<Check className="w-3.5 h-3.5" />}
                             />
@@ -1009,7 +1004,7 @@ function QwenPage() {
                               variant="ghost"
                               aria-label="取消编辑重定向"
                               onClick={() => setEditingRedirectSource(null)}
-                              className="bg-kumo-recessed rounded text-kumo-subtle"
+                              className="text-kumo-subtle"
                               title="取消"
                               icon={<X className="w-3.5 h-3.5" />}
                             />
@@ -1025,7 +1020,7 @@ function QwenPage() {
                                 setNewRedirectSource(r.source_model);
                                 setNewRedirectTarget(r.target_model);
                               }}
-                              className="hover:bg-kumo-recessed rounded text-kumo-subtle"
+                              className="text-kumo-subtle"
                               title="编辑"
                             >
                               <Edit className="w-3.5 h-3.5" />
@@ -1035,7 +1030,7 @@ function QwenPage() {
                               variant="ghost"
                               aria-label="删除重定向"
                               onClick={() => removeRedirectRule(r.source_model)}
-                              className="hover:bg-kumo-danger/10 rounded text-kumo-subtle hover:text-kumo-danger"
+                              className="text-kumo-subtle hover:text-kumo-danger"
                               title="删除"
                             >
                               <Trash className="w-3.5 h-3.5" />
@@ -1058,7 +1053,7 @@ function QwenPage() {
                   placeholder="源别名模型 (例如: gpt-3.5-turbo)"
                   value={newRedirectSource}
                   onChange={(e) => setNewRedirectSource(e.target.value)}
-                  className="bg-kumo-base text-kumo-strong text-xs px-3 py-2 border border-kumo-line rounded-lg focus:outline-none focus:border-kumo-brand flex-1 min-w-[140px] font-mono"
+                  className="text-kumo-strong text-xs px-3 py-2 flex-1 min-w-[140px] font-mono"
                 />
                 <ArrowRight className="w-4 h-4 text-kumo-subtle" />
                 <Input size="sm"
@@ -1067,7 +1062,7 @@ function QwenPage() {
                   placeholder="实际重定向目标 (例如: qwen-plus)"
                   value={newRedirectTarget}
                   onChange={(e) => setNewRedirectTarget(e.target.value)}
-                  className="bg-kumo-base text-kumo-strong text-xs px-3 py-2 border border-kumo-line rounded-lg focus:outline-none focus:border-kumo-brand flex-1 min-w-[140px] font-mono"
+                  className="text-kumo-strong text-xs px-3 py-2 flex-1 min-w-[140px] font-mono"
                 />
                 <Button size="sm" onClick={addRedirectRule} disabled={!newRedirectSource || !newRedirectTarget} className="flex items-center gap-1.5">
                   <Plus className="w-3.5 h-3.5" />
@@ -1078,14 +1073,14 @@ function QwenPage() {
           </div>
 
           {/* API guide */}
-          <div className="bg-kumo-base border border-kumo-line rounded-lg shadow-sm p-5 space-y-4">
+          <div className="app-card p-5 space-y-4">
             <h4 className="text-xs font-bold text-kumo-strong flex items-center gap-2">
               <Plug className="w-4 h-4 text-kumo-brand" />
               API 统一接入指引
             </h4>
 
             <div className="space-y-3 text-xs leading-relaxed text-kumo-strong">
-              <div className="border border-kumo-line rounded-lg overflow-hidden">
+              <div className="app-subcard overflow-hidden">
                 <div className="p-2.5 bg-kumo-recessed/40 font-bold border-b border-kumo-line">Base URL</div>
                 <ClipboardText
                   size="sm"
@@ -1096,7 +1091,7 @@ function QwenPage() {
                 />
               </div>
 
-              <div className="border border-kumo-line rounded-lg overflow-hidden">
+              <div className="app-subcard overflow-hidden">
                 <div className="p-2.5 bg-kumo-recessed/40 font-bold border-b border-kumo-line">可用端点</div>
                 <div className="p-3 space-y-1 bg-kumo-recessed/25 font-mono text-[11px]">
                   <div><span className="text-kumo-brand font-bold mr-2">POST</span>/v1/chat/completions (OpenAI SDK 对齐)</div>
@@ -1112,7 +1107,7 @@ function QwenPage() {
 
       {/* 1. Add Credential Dialog */}
       <Dialog.Root open={addAccountOpen} onOpenChange={setAddAccountOpen}>
-        <Dialog className="p-6 sm:max-w-md bg-kumo-base border border-kumo-line rounded-lg shadow-lg">
+        <Dialog className="p-6 sm:max-w-md">
           <Dialog.Title className="text-sm font-bold text-kumo-strong mb-1">
             添加通义千问官方凭证
           </Dialog.Title>
@@ -1121,7 +1116,7 @@ function QwenPage() {
           </Dialog.Description>
 
           <div className="space-y-4">
-            <div className="p-3 bg-kumo-recessed/40 border border-kumo-line rounded-lg text-xs space-y-1">
+            <div className="p-3 app-subcard text-xs space-y-1">
               <div className="font-bold text-kumo-strong flex items-center gap-1">
                 <AlertTriangle className="w-3.5 h-3.5 text-kumo-warning" />
                 如何获取 Cookie？
@@ -1139,7 +1134,7 @@ function QwenPage() {
                 value={accountForm.name}
                 onChange={(e) => setAccountForm({ ...accountForm, name: e.target.value })}
                 placeholder="例如：通义千问主账号-免费额度"
-                className="w-full bg-kumo-recessed text-kumo-strong text-xs px-3 py-2 border border-kumo-line rounded-lg focus:outline-none focus:border-kumo-brand"
+                className="w-full text-kumo-strong text-xs px-3 py-2"
               />
             </div>
 
@@ -1151,7 +1146,7 @@ function QwenPage() {
                 onChange={(e) => setAccountForm({ ...accountForm, token: e.target.value })}
                 placeholder="粘贴全量 Cookie 字符串..."
                 rows={4}
-                className="w-full bg-kumo-recessed text-kumo-strong text-xs p-3 border border-kumo-line rounded-lg focus:outline-none focus:border-kumo-brand font-mono resize-y"
+                className="w-full text-kumo-strong text-xs p-3 font-mono resize-y"
               />
             </div>
 
@@ -1173,7 +1168,7 @@ function QwenPage() {
 
       {/* 2. Log Detail Dialog */}
       <Dialog.Root open={logDetailOpen} onOpenChange={setLogDetailOpen}>
-        <Dialog className="p-0 sm:max-w-xl bg-kumo-base border border-kumo-line rounded-lg shadow-lg overflow-hidden flex flex-col max-h-[85vh]">
+        <Dialog className="p-0 sm:max-w-xl overflow-hidden flex flex-col max-h-[85vh]">
           {/* Header */}
           <div className="p-4 border-b border-kumo-line flex items-center justify-between">
             <h3 className="text-sm font-bold text-kumo-strong">Qwen 调用详情</h3>
@@ -1182,7 +1177,7 @@ function QwenPage() {
               variant="ghost"
               aria-label="关闭日志详情"
               onClick={() => setLogDetailOpen(false)}
-              className="hover:bg-kumo-recessed rounded text-kumo-subtle"
+              className="text-kumo-subtle"
             >
               <X className="w-4 h-4" />
             </Button>
@@ -1236,7 +1231,7 @@ function QwenPage() {
                   <div className="flex justify-end">
                     <Button size="sm" onClick={copyLogDetailJson} className="text-[10px]">复制 JSON</Button>
                   </div>
-                  <pre className="p-3 bg-kumo-recessed border border-kumo-line rounded-lg text-[10px] text-kumo-strong overflow-x-auto font-mono whitespace-pre">
+                  <pre className="p-3 app-subcard bg-kumo-recessed rounded-lg text-[10px] text-kumo-strong overflow-x-auto font-mono whitespace-pre">
                     {JSON.stringify(logDetail, null, 2)}
                   </pre>
                 </div>

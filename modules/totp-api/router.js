@@ -7,8 +7,81 @@ const router = express.Router();
 const storage = require('./storage');
 const totpService = require('./totp-service');
 const { createLogger } = require('../../src/utils/logger');
+const auditService = require('../../src/services/audit-service');
+const eventBus = require('../../src/services/toolbox-event-bus');
+const { encryptJson, decryptJson } = require('../../src/utils/secure-storage');
 
 const logger = createLogger('TOTP');
+const BACKUP_VERSION = 1;
+
+function buildBackupPayload() {
+  const accounts = storage.loadAccounts().map(acc => ({
+    id: acc.id,
+    otp_type: acc.otp_type,
+    issuer: acc.issuer,
+    account: acc.account,
+    secret: acc.secret,
+    algorithm: acc.algorithm,
+    digits: acc.digits,
+    period: acc.period,
+    counter: acc.counter,
+    group_id: acc.group_id,
+    icon: acc.icon,
+    color: acc.color,
+    sort_order: acc.sort_order,
+    created_at: acc.created_at,
+  }));
+  const groups = storage.loadGroups().map(group => ({
+    id: group.id,
+    name: group.name,
+    icon: group.icon,
+    color: group.color,
+    sort_order: group.sort_order,
+    created_at: group.created_at,
+  }));
+  return {
+    type: 'api-monitor-totp-backup',
+    version: BACKUP_VERSION,
+    exportedAt: new Date().toISOString(),
+    accounts,
+    groups,
+  };
+}
+
+function decodeBackupPayload(value) {
+  if (!value) return null;
+  if (typeof value === 'object') return value;
+  const decoded = decryptJson(value, null);
+  if (!decoded || decoded.type !== 'api-monitor-totp-backup') {
+    throw new Error('Invalid encrypted TOTP backup');
+  }
+  return decoded;
+}
+
+function extractImportItems(body = {}) {
+  const items = [];
+  let backup = null;
+
+  if (body.backup || body.payload) {
+    backup = decodeBackupPayload(body.backup || body.payload);
+    if (Array.isArray(backup.accounts)) {
+      items.push(...backup.accounts);
+    }
+  }
+
+  if (Array.isArray(body.uris)) {
+    body.uris.forEach(uri => {
+      const parsed = totpService.parseUri(uri);
+      if (parsed) items.push(parsed);
+    });
+  }
+
+  if (Array.isArray(body.accounts)) {
+    items.push(...body.accounts);
+  }
+
+  return { items, backup };
+}
 
 // ==================== 账号 API ====================
 
@@ -58,6 +131,23 @@ router.get('/accounts/:id', async (req, res) => {
     }
 
     const showSecret = req.query.showSecret === 'true';
+    if (showSecret) {
+      storage.updateAccount(id, { last_revealed_at: new Date().toISOString() });
+      auditService.record({
+        req,
+        module: 'totp',
+        action: 'secret.revealed',
+        resourceType: 'totp_account',
+        resourceId: id,
+        summary: `TOTP secret revealed for ${account.issuer}`,
+        metadata: { issuer: account.issuer, account: account.account },
+      });
+      eventBus.publish(
+        'totp.security.revealed',
+        { accountId: id, issuer: account.issuer },
+        { module: 'totp', severity: 'warning' }
+      );
+    }
 
     res.json({
       success: true,
@@ -126,6 +216,16 @@ router.post('/accounts', async (req, res) => {
     });
 
     logger.success(`创建账号: ${newAccount.issuer} (${otp_type || 'totp'})`);
+    auditService.record({
+      req,
+      module: 'totp',
+      action: 'created',
+      resourceType: 'totp_account',
+      resourceId: newAccount.id,
+      summary: `Created TOTP account ${newAccount.issuer}`,
+      metadata: { issuer: newAccount.issuer, account: newAccount.account },
+    });
+    eventBus.publish('totp.resource.created', { accountId: newAccount.id }, { module: 'totp' });
 
     res.json({
       success: true,
@@ -163,6 +263,20 @@ router.put('/accounts/:id', async (req, res) => {
 
     storage.updateAccount(id, updates);
     logger.info(`更新账号: ${id}`);
+    auditService.record({
+      req,
+      module: 'totp',
+      action: 'updated',
+      resourceType: 'totp_account',
+      resourceId: id,
+      summary: `Updated TOTP account ${existing.issuer}`,
+      metadata: { fields: Object.keys(updates) },
+    });
+    eventBus.publish(
+      'totp.resource.updated',
+      { accountId: id, fields: Object.keys(updates) },
+      { module: 'totp' }
+    );
 
     res.json({ success: true });
   } catch (error) {
@@ -184,6 +298,16 @@ router.delete('/accounts/:id', async (req, res) => {
 
     storage.deleteAccount(id);
     logger.info(`删除账号: ${id}`);
+    auditService.record({
+      req,
+      module: 'totp',
+      action: 'deleted',
+      resourceType: 'totp_account',
+      resourceId: id,
+      summary: `Deleted TOTP account ${existing.issuer}`,
+      metadata: { issuer: existing.issuer, account: existing.account },
+    });
+    eventBus.publish('totp.resource.deleted', { accountId: id }, { module: 'totp' });
     res.json({ success: true });
   } catch (error) {
     logger.error('删除账号失败', error.message);
@@ -365,54 +489,157 @@ router.delete('/groups/:id', async (req, res) => {
 
 // ==================== 导入/导出 ====================
 
-/**
- * GET /export
- * 导出所有账号的 OTP URI
- */
-router.get('/export', async (req, res) => {
+async function exportTotpBackup(req, res) {
   try {
-    const accounts = storage.loadAccounts();
-    const uris = accounts.map(acc => totpService.generateUri(acc));
-    res.json({ success: true, data: uris });
+    const payload = buildBackupPayload();
+
+    if (req.query.format === 'uri' || req.query.plaintext === 'true') {
+      const uris = payload.accounts.map(acc => totpService.generateUri(acc));
+      auditService.record({
+        req,
+        module: 'totp',
+        action: 'exported_plaintext',
+        resourceType: 'totp_backup',
+        summary: `Exported ${uris.length} plaintext TOTP URIs`,
+      });
+      eventBus.publish(
+        'totp.backup.exported',
+        { accountCount: uris.length, format: 'uri' },
+        { module: 'totp', severity: 'warning' }
+      );
+      return res.json({ success: true, format: 'uri', data: uris });
+    }
+
+    const encrypted = encryptJson(payload);
+    auditService.record({
+      req,
+      module: 'totp',
+      action: 'exported',
+      resourceType: 'totp_backup',
+      summary: `Exported encrypted TOTP backup (${payload.accounts.length} accounts)`,
+      metadata: { accountCount: payload.accounts.length, groupCount: payload.groups.length },
+    });
+    eventBus.publish(
+      'totp.backup.exported',
+      { accountCount: payload.accounts.length, groupCount: payload.groups.length, format: 'encrypted-backup' },
+      { module: 'totp', severity: 'warning' }
+    );
+    res.json({
+      success: true,
+      format: 'encrypted-backup',
+      data: {
+        version: BACKUP_VERSION,
+        exportedAt: payload.exportedAt,
+        accountCount: payload.accounts.length,
+        groupCount: payload.groups.length,
+        payload: encrypted,
+      },
+    });
   } catch (error) {
     logger.error('导出失败', error.message);
     res.status(500).json({ success: false, error: error.message });
   }
-});
+}
 
 /**
- * POST /import
+ * GET /export
+ * 导出所有账号的 OTP URI
  */
-router.post('/import', async (req, res) => {
+router.get('/export', exportTotpBackup);
+router.post('/export', exportTotpBackup);
+
+/**
+ * POST /import/preview
+ * 预览导入结果，标记重复项和解析错误
+ */
+router.post('/import/preview', async (req, res) => {
   try {
-    const { uris, accounts: rawAccounts } = req.body;
-    const toImport = [];
+    const existing = storage.loadAccounts();
+    const existingKeys = new Set(
+      existing.map(acc => `${String(acc.issuer || '').toLowerCase()}|${String(acc.account || '').toLowerCase()}`)
+    );
+    const { items, backup } = extractImportItems(req.body || {});
+    const errors = [];
 
-    if (Array.isArray(uris)) {
-      for (const uri of uris) {
-        const parsed = totpService.parseUri(uri);
-        if (parsed) {
-          toImport.push(parsed);
-        }
-      }
-    }
+    const seen = new Set();
+    const preview = items.map((item, index) => {
+      const key = `${String(item.issuer || '').toLowerCase()}|${String(item.account || '').toLowerCase()}`;
+      const duplicateExisting = existingKeys.has(key);
+      const duplicateInBatch = seen.has(key);
+      seen.add(key);
+      return {
+        index,
+        issuer: item.issuer || '未知',
+        account: item.account || '',
+        otp_type: item.otp_type || 'totp',
+        valid: !!item.secret,
+        duplicate: duplicateExisting || duplicateInBatch,
+        duplicateExisting,
+        duplicateInBatch,
+        error: item.secret ? null : '缺少密钥',
+      };
+    });
 
-    if (Array.isArray(rawAccounts)) {
-      toImport.push(...rawAccounts);
-    }
+    res.json({
+      success: true,
+      data: {
+        total: preview.length,
+        valid: preview.filter(item => item.valid && !item.duplicate).length,
+        duplicates: preview.filter(item => item.duplicate).length,
+        errors,
+        items: preview,
+        backup: backup
+          ? {
+              version: backup.version,
+              exportedAt: backup.exportedAt,
+              groupCount: Array.isArray(backup.groups) ? backup.groups.length : 0,
+            }
+          : null,
+      },
+    });
+  } catch (error) {
+    logger.error('导入预览失败', error.message);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+async function importTotpBackup(req, res) {
+  try {
+    const { items: toImport, backup } = extractImportItems(req.body || {});
 
     if (toImport.length === 0) {
       return res.status(400).json({ success: false, error: '没有有效的导入数据' });
     }
 
-    const results = storage.importAccounts(toImport);
+    const results = backup
+      ? storage.importBackup({ ...backup, accounts: toImport })
+      : storage.importAccounts(toImport);
+    auditService.record({
+      req,
+      module: 'totp',
+      action: 'imported',
+      resourceType: 'totp_backup',
+      summary: `Imported TOTP data: ${results.success} succeeded, ${results.failed} failed`,
+      metadata: { success: results.success, failed: results.failed, backup: !!backup },
+    });
+    eventBus.publish(
+      'totp.backup.imported',
+      { success: results.success, failed: results.failed, backup: !!backup },
+      { module: 'totp', severity: results.failed > 0 ? 'warning' : 'info' }
+    );
     logger.info(`导入账号: 成功 ${results.success}, 失败 ${results.failed}`);
     res.json({ success: true, data: results });
   } catch (error) {
     logger.error('导入失败', error.message);
     res.status(500).json({ success: false, error: error.message });
   }
-});
+}
+
+/**
+ * POST /import
+ */
+router.post('/import', importTotpBackup);
+router.post('/import/commit', importTotpBackup);
 
 /**
  * PUT /order

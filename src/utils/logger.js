@@ -61,8 +61,11 @@ function flushLogQueue() {
   }
 }
 
-// 定时刷新队列
-setInterval(flushLogQueue, BATCH_INTERVAL);
+// 定时刷新队列。unref 允许一次性脚本在没有其他工作时正常退出。
+const flushTimer = setInterval(flushLogQueue, BATCH_INTERVAL);
+if (flushTimer.unref) {
+  flushTimer.unref();
+}
 
 /**
  * 获取日志配置

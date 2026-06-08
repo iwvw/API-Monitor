@@ -11,6 +11,7 @@ import { Tabs } from '@cloudflare/kumo';
 import { AnimatedCollapse } from '../components/AnimatedCollapse.jsx';
 import useStore from '../store.js';
 import { MODULE_TABS_PROPS } from '../modules/kumoTabs.js';
+import { getStatusPillClass } from '../components/ui/AppPrimitives.jsx';
 import {
   Server,
   Users,
@@ -670,18 +671,18 @@ function PaasPage() {
   const getKoyebStatusBadge = (status) => {
     const up = String(status || '').toUpperCase();
     if (up === 'RUNNING' || up === 'HEALTHY') {
-      return 'bg-kumo-success/10 border-kumo-success text-kumo-success';
+      return getStatusPillClass('success');
     }
     if (up === 'STARTING') {
-      return 'bg-kumo-info/10 border-kumo-info text-kumo-info';
+      return getStatusPillClass('info');
     }
     if (up === 'SUSPENDED' || up === 'PAUSED' || up === 'STOPPED') {
-      return 'bg-kumo-warning/10 border-kumo-warning text-kumo-warning';
+      return getStatusPillClass('warning');
     }
     if (up === 'ERROR' || up === 'ERRORED' || up === 'UNHEALTHY') {
-      return 'bg-kumo-danger/10 border-kumo-danger text-kumo-danger';
+      return getStatusPillClass('danger');
     }
-    return 'bg-kumo-recessed border-kumo-line text-kumo-subtle';
+    return getStatusPillClass('neutral');
   };
 
   const getKoyebStatusText = (status) => {
@@ -1131,15 +1132,15 @@ function PaasPage() {
   const getFlyStatusBadge = (status) => {
     const up = String(status || '').toLowerCase();
     if (['deployed', 'running', 'started'].includes(up)) {
-      return 'bg-kumo-success/10 border-kumo-success text-kumo-success';
+      return getStatusPillClass('success');
     }
     if (['suspended', 'dead', 'stopped', 'destroyed'].includes(up)) {
-      return 'bg-kumo-warning/10 border-kumo-warning text-kumo-warning';
+      return getStatusPillClass('warning');
     }
     if (['pending', 'created'].includes(up)) {
-      return 'bg-kumo-info/10 border-kumo-info text-kumo-info';
+      return getStatusPillClass('info');
     }
-    return 'bg-kumo-recessed border-kumo-line text-kumo-subtle';
+    return getStatusPillClass('neutral');
   };
 
   const getFlyStatusText = (status) => {
@@ -1624,7 +1625,7 @@ function PaasPage() {
         </div>
         <div className="flex gap-2">
           {activeTab === 'koyeb' && (
-            <div className="flex items-center gap-2 text-xs bg-kumo-recessed border border-kumo-line rounded px-3 py-1.5 font-semibold text-kumo-strong">
+            <div className="flex items-center gap-2 text-xs app-subcard bg-kumo-recessed rounded px-3 py-1.5 font-semibold text-kumo-strong">
               <RefreshCw className={`w-3.5 h-3.5 ${koyebRefreshing ? 'animate-spin' : ''}`} />
               <span>{koyebCountdown} 秒后刷新</span>
               <Button
@@ -1639,7 +1640,7 @@ function PaasPage() {
             </div>
           )}
           {activeTab === 'fly' && (
-            <div className="flex items-center gap-2 text-xs bg-kumo-recessed border border-kumo-line rounded px-3 py-1.5 font-semibold text-kumo-strong">
+            <div className="flex items-center gap-2 text-xs app-subcard bg-kumo-recessed rounded px-3 py-1.5 font-semibold text-kumo-strong">
               <RefreshCw className={`w-3.5 h-3.5 ${flyRefreshing ? 'animate-spin' : ''}`} />
               <span>{flyCountdown} 秒后刷新</span>
               <Button
@@ -1671,7 +1672,7 @@ function PaasPage() {
 
       {/* ==================== Koyeb Tab Content ==================== */}
       {activeTab === 'koyeb' && (
-        <div className="space-y-3 quick-fade-in">
+        <div className="space-y-3">
           <div className="bg-kumo-info/10 border border-kumo-info/20 text-kumo-default px-3 py-2.5 rounded-md flex flex-wrap items-center justify-between gap-2">
             <div className="text-xs leading-tight">
               <strong>Koyeb 监控自动拉取中</strong>
@@ -1689,7 +1690,7 @@ function PaasPage() {
               <span>正在加载 Koyeb 数据快照...</span>
             </div>
           ) : koyebAccounts.length === 0 ? (
-            <div className="bg-kumo-base border border-kumo-line rounded-lg p-12 text-center text-kumo-subtle text-xs">
+            <div className="app-card p-12 text-center text-kumo-subtle text-xs">
               暂无配置 Koyeb 账号。请前往“账号管理”添加账号 API 令牌。
             </div>
           ) : (
@@ -1697,7 +1698,7 @@ function PaasPage() {
               {koyebAccounts.map((account) => {
                 const expanded = isKoyebAccountExpanded(account.name);
                 return (
-                  <div key={account.name} className="bg-kumo-base border border-kumo-line rounded-lg overflow-hidden shadow-sm">
+                  <div key={account.name} className="app-card overflow-hidden">
                     {/* Header */}
                     <div
                       className="px-3 py-2.5 flex justify-between items-center bg-kumo-recessed/50 cursor-pointer border-b border-kumo-line"
@@ -1735,7 +1736,7 @@ function PaasPage() {
                         ) : (
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             {account.projects.map((app) => (
-                              <div key={app._id} className="bg-kumo-recessed/30 border border-kumo-line rounded-lg p-4 space-y-4">
+                              <div key={app._id} className="app-subcard bg-kumo-recessed/30 p-4 space-y-4">
                                 {/* App Name Editor */}
                                 <div className="flex justify-between items-center border-b border-kumo-line pb-2">
                                   <div className="flex items-center gap-1.5 flex-1 min-w-0">
@@ -1760,7 +1761,7 @@ function PaasPage() {
                                           if (e.key === 'Escape') cancelEditKoyebAppName(app);
                                         }}
                                         onBlur={() => renameKoyebApp(account, app)}
-                                        className="bg-kumo-base text-kumo-strong text-xs font-bold border border-kumo-line rounded px-2 py-0.5 w-full focus:outline-none focus:border-kumo-brand"
+                                        className="text-kumo-strong text-xs font-bold px-2 py-0.5 w-full"
                                         autoFocus
                                       />
                                     ) : (
@@ -1778,7 +1779,7 @@ function PaasPage() {
                                 {/* Services */}
                                 <div className="space-y-3">
                                   {(app.services || []).map((service) => (
-                                    <div key={service._id} className="bg-kumo-base border border-kumo-line rounded-lg p-3 space-y-2">
+                                    <div key={service._id} className="app-card p-3 space-y-2">
                                       <div className="flex justify-between items-start">
                                         <div className="flex-1 min-w-0">
                                           {service.isEditing ? (
@@ -1804,7 +1805,7 @@ function PaasPage() {
                                                 if (e.key === 'Escape') cancelEditKoyebServiceName(service);
                                               }}
                                               onBlur={() => renameKoyebService(account, app, service)}
-                                              className="bg-kumo-base text-kumo-strong text-xs border border-kumo-line rounded px-2 py-0.5 w-full focus:outline-none focus:border-kumo-brand"
+                                              className="text-kumo-strong text-xs px-2 py-0.5 w-full"
                                               autoFocus
                                             />
                                           ) : (
@@ -1817,7 +1818,7 @@ function PaasPage() {
                                             </div>
                                           )}
                                         </div>
-                                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded border ${getKoyebStatusBadge(service.status)}`}>
+                                        <span className={`app-status-pill ${getKoyebStatusBadge(service.status)}`}>
                                           {getKoyebStatusText(service.status)}
                                         </span>
                                       </div>
@@ -1830,7 +1831,7 @@ function PaasPage() {
                                           aria-label="重启服务"
                                           onClick={() => restartKoyebService(account, app, service)}
                                           title="重启服务"
-                                          className="hover:bg-kumo-recessed rounded text-kumo-subtle hover:text-kumo-brand border border-kumo-line"
+                                          className="text-kumo-subtle hover:text-kumo-brand"
                                         >
                                           <RefreshCw className="w-3.5 h-3.5" />
                                         </Button>
@@ -1840,7 +1841,7 @@ function PaasPage() {
                                           aria-label="重新部署服务"
                                           onClick={() => redeployKoyebService(account, app, service)}
                                           title="重新部署"
-                                          className="hover:bg-kumo-recessed rounded text-kumo-subtle hover:text-kumo-info border border-kumo-line"
+                                          className="text-kumo-subtle hover:text-kumo-info"
                                         >
                                           <Rocket className="w-3.5 h-3.5" />
                                         </Button>
@@ -1850,7 +1851,7 @@ function PaasPage() {
                                           aria-label="查看服务实例"
                                           onClick={() => fetchKoyebServiceInstances(account, service)}
                                           title="查看实例"
-                                          className="hover:bg-kumo-recessed rounded text-kumo-subtle hover:text-kumo-brand border border-kumo-line"
+                                          className="text-kumo-subtle hover:text-kumo-brand"
                                         >
                                           <Server className={`w-3.5 h-3.5 ${service.loadingInstances ? 'animate-spin' : ''}`} />
                                         </Button>
@@ -1860,7 +1861,7 @@ function PaasPage() {
                                           aria-label="查看服务日志"
                                           onClick={() => showKoyebServiceLogs(account, app, service)}
                                           title="查看日志"
-                                          className="hover:bg-kumo-recessed rounded text-kumo-subtle hover:text-kumo-success border border-kumo-line"
+                                          className="text-kumo-subtle hover:text-kumo-success"
                                         >
                                           <FileText className="w-3.5 h-3.5" />
                                         </Button>
@@ -1916,7 +1917,7 @@ function PaasPage() {
 
       {/* ==================== Fly.io Tab Content ==================== */}
       {activeTab === 'fly' && (
-        <div className="space-y-3 quick-fade-in">
+        <div className="space-y-3">
           <div className="bg-kumo-info/10 border border-kumo-info/20 text-kumo-default px-3 py-2.5 rounded-md flex flex-wrap items-center justify-between gap-2">
             <div className="text-xs leading-tight">
               <strong>Fly.io 监控自动拉取中</strong>
@@ -1934,7 +1935,7 @@ function PaasPage() {
               <span>正在加载 Fly.io 数据快照...</span>
             </div>
           ) : flyAccounts.length === 0 ? (
-            <div className="bg-kumo-base border border-kumo-line rounded-lg p-12 text-center text-kumo-subtle text-xs">
+            <div className="app-card p-12 text-center text-kumo-subtle text-xs">
               暂无配置 Fly.io 账号。请前往“账号管理”添加账号 API 令牌。
             </div>
           ) : (
@@ -1942,7 +1943,7 @@ function PaasPage() {
               {flyAccounts.map((account) => {
                 const expanded = isFlyAccountExpanded(account.name);
                 return (
-                  <div key={account.name} className="bg-kumo-base border border-kumo-line rounded-lg overflow-hidden shadow-sm">
+                  <div key={account.name} className="app-card overflow-hidden">
                     {/* Header */}
                     <div
                       className="px-3 py-2.5 flex justify-between items-center bg-kumo-recessed/50 cursor-pointer border-b border-kumo-line"
@@ -1961,14 +1962,14 @@ function PaasPage() {
                         <Button size="sm"
                           variant="secondary"
                           onClick={() => updateAllFlyAppsImage(account)}
-                          className="text-[10px] font-semibold bg-kumo-info/10 text-kumo-info hover:bg-kumo-info/20 border border-kumo-info/20 rounded-lg flex items-center gap-1"
+                          className="text-[10px] font-semibold text-kumo-info flex items-center gap-1"
                         >
                           批量更新
                         </Button>
                         <Button size="sm"
                           variant="secondary"
                           onClick={() => createFlyApp(account)}
-                          className="text-[10px] font-semibold bg-kumo-brand/10 text-kumo-brand hover:bg-kumo-brand/20 border border-kumo-brand/20 rounded-lg flex items-center gap-1"
+                          className="text-[10px] font-semibold text-kumo-brand flex items-center gap-1"
                         >
                           <Plus className="w-3 h-3" />
                           <span>新建应用</span>
@@ -1988,7 +1989,7 @@ function PaasPage() {
                         ) : (
                           <div className="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-2.5 items-start">
                             {account.projects.map((app) => (
-                              <div key={app.id} className="bg-kumo-recessed/30 border border-kumo-line rounded-lg p-2.5 space-y-2">
+                              <div key={app.id} className="app-subcard bg-kumo-recessed/30 p-2.5 space-y-2">
                                 {/* App Header */}
                                 <div className="flex justify-between items-center border-b border-kumo-line pb-1.5">
                                   <div className="flex items-center gap-1.5 flex-1 min-w-0">
@@ -2013,7 +2014,7 @@ function PaasPage() {
                                           if (e.key === 'Escape') cancelEditFlyAppName(app);
                                         }}
                                         onBlur={() => saveFlyAppName(account, app)}
-                                        className="bg-kumo-base text-kumo-strong text-xs border border-kumo-line rounded px-2 py-0.5 w-full focus:outline-none focus:border-kumo-brand"
+                                        className="text-kumo-strong text-xs px-2 py-0.5 w-full"
                                         autoFocus
                                       />
                                     ) : (
@@ -2031,20 +2032,20 @@ function PaasPage() {
                                     variant="ghost"
                                     aria-label="删除 Fly 应用"
                                     onClick={() => deleteFlyApp(account, app)}
-                                    className="text-kumo-subtle hover:text-kumo-danger hover:bg-kumo-recessed rounded"
+                                    className="text-kumo-subtle hover:text-kumo-danger"
                                   >
                                     <Trash className="w-3.5 h-3.5" />
                                   </Button>
                                 </div>
 
                                 {/* Main application service card */}
-                                <div className="bg-kumo-base border border-kumo-line rounded-md px-2.5 py-2">
+                                <div className="app-card app-card-md px-2.5 py-2">
                                   <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
                                     <div className="flex min-w-0 items-center gap-2">
                                       <span className="text-[10px] font-semibold text-kumo-subtle font-mono truncate">
                                         {app.hostname || app.name}
                                       </span>
-                                      <span className={`shrink-0 text-[10px] font-semibold px-2 py-0.5 rounded border ${getFlyStatusBadge(app.status)}`}>
+                                      <span className={`shrink-0 app-status-pill ${getFlyStatusBadge(app.status)}`}>
                                         {getFlyStatusText(app.status)}
                                       </span>
                                     </div>
@@ -2057,7 +2058,7 @@ function PaasPage() {
                                       aria-label="重启应用"
                                       onClick={() => redeployFlyApp(account, app)}
                                       title="重启应用"
-                                      className="hover:bg-kumo-recessed rounded text-kumo-subtle hover:text-kumo-brand border border-kumo-line"
+                                      className="text-kumo-subtle hover:text-kumo-brand"
                                     >
                                       <RefreshCw className="w-3.5 h-3.5" />
                                     </Button>
@@ -2067,7 +2068,7 @@ function PaasPage() {
                                       aria-label="更新容器镜像"
                                       onClick={() => updateFlyAppImage(account, app)}
                                       title="更新容器镜像"
-                                      className="hover:bg-kumo-recessed rounded text-kumo-subtle hover:text-kumo-brand border border-kumo-line"
+                                      className="text-kumo-subtle hover:text-kumo-brand"
                                     >
                                       <Rocket className="w-3.5 h-3.5" />
                                     </Button>
@@ -2077,7 +2078,7 @@ function PaasPage() {
                                       aria-label="查看机器实例"
                                       onClick={() => fetchFlyMachines(account, app)}
                                       title="查看机器/实例"
-                                      className="hover:bg-kumo-recessed rounded text-kumo-subtle hover:text-kumo-info border border-kumo-line"
+                                      className="text-kumo-subtle hover:text-kumo-info"
                                     >
                                       <Server className={`w-3.5 h-3.5 ${app.loadingMachines ? 'animate-spin' : ''}`} />
                                     </Button>
@@ -2087,7 +2088,7 @@ function PaasPage() {
                                       aria-label="查看运行日志"
                                       onClick={() => showFlyAppLogs(account, app)}
                                       title="查看运行日志"
-                                      className="hover:bg-kumo-recessed rounded text-kumo-subtle hover:text-kumo-success border border-kumo-line"
+                                      className="text-kumo-subtle hover:text-kumo-success"
                                     >
                                       <FileText className="w-3.5 h-3.5" />
                                     </Button>
@@ -2097,7 +2098,7 @@ function PaasPage() {
                                       aria-label="查看应用配置"
                                       onClick={() => viewFlyConfig(account, app)}
                                       title="查看应用配置"
-                                      className="hover:bg-kumo-recessed rounded text-kumo-subtle hover:text-kumo-strong border border-kumo-line"
+                                      className="text-kumo-subtle hover:text-kumo-strong"
                                     >
                                       <Terminal className="w-3.5 h-3.5" />
                                     </Button>
@@ -2185,9 +2186,9 @@ function PaasPage() {
 
       {/* ==================== Accounts Management Tab Content ==================== */}
       {activeTab === 'accounts' && (
-        <div className="space-y-6 quick-fade-in">
+        <div className="space-y-6">
           {/* Koyeb Panel */}
-          <div className="bg-kumo-base border border-kumo-line rounded-lg shadow-sm p-4 space-y-4">
+          <div className="app-card p-4 space-y-4">
             <div className="flex justify-between items-center border-b border-kumo-line pb-3">
               <h3 className="text-sm font-bold text-kumo-strong flex items-center gap-2">
                 <Database className="w-4 h-4 text-kumo-info" />
@@ -2198,11 +2199,11 @@ function PaasPage() {
                   <Plus className="w-3.5 h-3.5" />
                   <span>添加账号</span>
                 </Button>
-                <Button size="sm" onClick={exportKoyebAccounts} className="text-xs flex items-center gap-1 border border-kumo-line bg-kumo-recessed">
+                <Button size="sm" onClick={exportKoyebAccounts} className="text-xs flex items-center gap-1">
                   <Upload className="w-3.5 h-3.5" />
                   <span>导出</span>
                 </Button>
-                <Button size="sm" onClick={importKoyebAccounts} className="text-xs flex items-center gap-1 border border-kumo-line bg-kumo-recessed">
+                <Button size="sm" onClick={importKoyebAccounts} className="text-xs flex items-center gap-1">
                   <Download className="w-3.5 h-3.5" />
                   <span>导入</span>
                 </Button>
@@ -2243,7 +2244,7 @@ function PaasPage() {
                             variant="ghost"
                             aria-label="删除 Koyeb 账号"
                             onClick={() => removeKoyebAccount(account.id)}
-                            className="text-kumo-danger hover:bg-kumo-recessed rounded"
+                            className="text-kumo-danger"
                           >
                             <Trash className="w-4 h-4" />
                           </Button>
@@ -2265,7 +2266,7 @@ function PaasPage() {
                 value={koyebBatchText}
                 onChange={(e) => setKoyebBatchText(e.target.value)}
                 placeholder="我的Koyeb1,koyeb_xxxx&#10;我的Koyeb2,koyeb_yyyy"
-                className="w-full min-h-[80px] text-xs font-mono bg-kumo-base text-kumo-strong border border-kumo-line rounded p-2.5 focus:outline-none focus:border-kumo-brand"
+                className="w-full min-h-[80px] text-xs font-mono text-kumo-strong p-2.5"
               />
               {koyebBatchError && (
                 <pre className="text-[10px] text-kumo-danger bg-kumo-danger/10 border border-kumo-danger/20 rounded p-2 overflow-x-auto font-mono whitespace-pre-wrap">
@@ -2289,7 +2290,7 @@ function PaasPage() {
           </div>
 
           {/* Fly.io Panel */}
-          <div className="bg-kumo-base border border-kumo-line rounded-lg shadow-sm p-4 space-y-4">
+          <div className="app-card p-4 space-y-4">
             <div className="flex justify-between items-center border-b border-kumo-line pb-3">
               <h3 className="text-sm font-bold text-kumo-strong flex items-center gap-2">
                 <Rocket className="w-4 h-4 text-kumo-brand" />
@@ -2300,11 +2301,11 @@ function PaasPage() {
                   <Plus className="w-3.5 h-3.5" />
                   <span>添加账号</span>
                 </Button>
-                <Button size="sm" onClick={exportFlyAccounts} className="text-xs flex items-center gap-1 border border-kumo-line bg-kumo-recessed">
+                <Button size="sm" onClick={exportFlyAccounts} className="text-xs flex items-center gap-1">
                   <Upload className="w-3.5 h-3.5" />
                   <span>导出</span>
                 </Button>
-                <Button size="sm" onClick={importFlyAccounts} className="text-xs flex items-center gap-1 border border-kumo-line bg-kumo-recessed">
+                <Button size="sm" onClick={importFlyAccounts} className="text-xs flex items-center gap-1">
                   <Download className="w-3.5 h-3.5" />
                   <span>导入</span>
                 </Button>
@@ -2343,7 +2344,7 @@ function PaasPage() {
                             variant="ghost"
                             aria-label="删除 Fly 账号"
                             onClick={() => removeFlyAccount(account.id, account.name)}
-                            className="text-kumo-danger hover:bg-kumo-recessed rounded"
+                            className="text-kumo-danger"
                           >
                             <Trash className="w-4 h-4" />
                           </Button>
@@ -2365,7 +2366,7 @@ function PaasPage() {
                 value={flyBatchText}
                 onChange={(e) => setFlyBatchText(e.target.value)}
                 placeholder="我的Fly1:flyv1_xxxx&#10;我的Fly2:flyv1_yyyy"
-                className="w-full min-h-[80px] text-xs font-mono bg-kumo-base text-kumo-strong border border-kumo-line rounded p-2.5 focus:outline-none focus:border-kumo-brand"
+                className="w-full min-h-[80px] text-xs font-mono text-kumo-strong p-2.5"
               />
               {flyBatchError && (
                 <pre className="text-[10px] text-kumo-danger bg-kumo-danger/10 border border-kumo-danger/20 rounded p-2 overflow-x-auto font-mono whitespace-pre-wrap">
@@ -2392,7 +2393,7 @@ function PaasPage() {
 
       {/* ==================== Settings Tab Content ==================== */}
       {activeTab === 'settings' && (
-        <div className="bg-kumo-base border border-kumo-line rounded-lg shadow-sm p-5 space-y-4 quick-fade-in">
+        <div className="app-card p-5 space-y-4">
           <div className="flex justify-between items-center border-b border-kumo-line pb-3">
             <h3 className="text-sm font-bold text-kumo-strong flex items-center gap-2">
               <Settings className="w-4 h-4 text-kumo-brand" />
@@ -2414,7 +2415,7 @@ function PaasPage() {
                 max={MAX_PAAS_REFRESH_INTERVAL_SEC}
                 value={koyebIntervalSec}
                 onChange={(e) => setKoyebIntervalSec(normalizeRefreshIntervalInputSec(e.target.value))}
-                className="bg-kumo-base text-kumo-strong border border-kumo-line rounded px-3 py-1.5 text-xs font-semibold focus:outline-none w-full"
+                className="text-kumo-strong px-3 py-1.5 text-xs font-semibold w-full"
               />
             </div>
             <div className="space-y-1.5">
@@ -2426,7 +2427,7 @@ function PaasPage() {
                 max={MAX_PAAS_REFRESH_INTERVAL_SEC}
                 value={flyIntervalSec}
                 onChange={(e) => setFlyIntervalSec(normalizeRefreshIntervalInputSec(e.target.value))}
-                className="bg-kumo-base text-kumo-strong border border-kumo-line rounded px-3 py-1.5 text-xs font-semibold focus:outline-none w-full"
+                className="text-kumo-strong px-3 py-1.5 text-xs font-semibold w-full"
               />
             </div>
           </div>
@@ -2437,7 +2438,7 @@ function PaasPage() {
 
       {/* Add Koyeb Dialog */}
       <Dialog.Root open={showAddKoyebModal} onOpenChange={setShowAddKoyebModal}>
-        <Dialog className="p-6 sm:max-w-md bg-kumo-base border border-kumo-line rounded-lg shadow-lg">
+        <Dialog className="p-6 sm:max-w-md">
           <Dialog.Title className="text-sm font-bold text-kumo-strong mb-1">
             添加 Koyeb 账号
           </Dialog.Title>
@@ -2453,7 +2454,7 @@ function PaasPage() {
                 value={newKoyebName}
                 onChange={(e) => setNewKoyebName(e.target.value)}
                 placeholder="我的 Koyeb 账号 1"
-                className="w-full bg-kumo-base text-kumo-strong border border-kumo-line rounded p-2 text-xs focus:outline-none focus:border-kumo-brand"
+                className="w-full text-kumo-strong p-2 text-xs"
               />
             </div>
             <div className="space-y-1">
@@ -2464,7 +2465,7 @@ function PaasPage() {
                 value={newKoyebToken}
                 onChange={(e) => setNewKoyebToken(e.target.value)}
                 placeholder="koyeb_api_token"
-                className="w-full bg-kumo-base text-kumo-strong border border-kumo-line rounded p-2 text-xs focus:outline-none focus:border-kumo-brand"
+                className="w-full text-kumo-strong p-2 text-xs"
               />
             </div>
             {koyebAddAccountError && (
@@ -2478,7 +2479,7 @@ function PaasPage() {
                   <Button size="sm"
                     {...props}
                     variant="secondary"
-                    className="border border-kumo-line bg-kumo-recessed text-xs"
+                    className="text-xs"
                   >
                     取消
                   </Button>
@@ -2494,7 +2495,7 @@ function PaasPage() {
 
       {/* Add Fly Dialog */}
       <Dialog.Root open={showAddFlyModal} onOpenChange={setShowAddFlyModal}>
-        <Dialog className="p-6 sm:max-w-md bg-kumo-base border border-kumo-line rounded-lg shadow-lg">
+        <Dialog className="p-6 sm:max-w-md">
           <Dialog.Title className="text-sm font-bold text-kumo-strong mb-1">
             添加 Fly.io 账号
           </Dialog.Title>
@@ -2510,7 +2511,7 @@ function PaasPage() {
                 value={newFlyName}
                 onChange={(e) => setNewFlyName(e.target.value)}
                 placeholder="我的 Fly.io 账号 1"
-                className="w-full bg-kumo-base text-kumo-strong border border-kumo-line rounded p-2 text-xs focus:outline-none focus:border-kumo-brand"
+                className="w-full text-kumo-strong p-2 text-xs"
               />
             </div>
             <div className="space-y-1">
@@ -2521,7 +2522,7 @@ function PaasPage() {
                 value={newFlyToken}
                 onChange={(e) => setNewFlyToken(e.target.value)}
                 placeholder="flyv1_xxxx"
-                className="w-full bg-kumo-base text-kumo-strong border border-kumo-line rounded p-2 text-xs focus:outline-none focus:border-kumo-brand"
+                className="w-full text-kumo-strong p-2 text-xs"
               />
             </div>
             {flyAddAccountError && (
@@ -2535,7 +2536,7 @@ function PaasPage() {
                   <Button size="sm"
                     {...props}
                     variant="secondary"
-                    className="border border-kumo-line bg-kumo-recessed text-xs"
+                    className="text-xs"
                   >
                     取消
                   </Button>
@@ -2551,7 +2552,7 @@ function PaasPage() {
 
       {/* Global Self-Contained Log Viewer Dialog */}
       <Dialog.Root open={logViewerOpen} onOpenChange={setLogViewerOpen}>
-        <Dialog className="p-0 sm:max-w-4xl bg-kumo-base border border-kumo-line rounded-lg shadow-lg overflow-hidden flex flex-col h-[80vh]">
+        <Dialog className="p-0 sm:max-w-4xl overflow-hidden flex flex-col h-[80vh]">
           {/* Header */}
           <div className="p-4 border-b border-kumo-line bg-kumo-recessed/40 flex justify-between items-center">
             <div>
@@ -2579,7 +2580,7 @@ function PaasPage() {
                 value={logFilterText}
                 onChange={(e) => setLogFilterText(e.target.value)}
                 placeholder="搜索日志消息..."
-                className="bg-kumo-recessed border border-kumo-line rounded px-2 py-1 focus:outline-none w-full sm:w-48 text-kumo-strong"
+                className="px-2 py-1 w-full sm:w-48 text-kumo-strong"
               />
             </div>
             <div className="flex flex-wrap items-center gap-2 text-[10px]">
@@ -2587,7 +2588,7 @@ function PaasPage() {
                 aria-label="日志级别筛选" size="sm"
                 value={logLevelFilter}
                 onValueChange={(value) => setLogLevelFilter(String(value))}
-                className="bg-kumo-recessed border border-kumo-line rounded px-2 py-1 text-kumo-strong font-semibold"
+                className="px-2 py-1 text-kumo-strong font-semibold"
                 items={[
                   { value: 'ALL', label: '全部级别' },
                   { value: 'INFO', label: 'INFO' },
@@ -2612,7 +2613,7 @@ function PaasPage() {
               <Button size="sm"
                 variant="secondary-destructive"
                 onClick={() => setLogs([])}
-                className="border border-kumo-line rounded hover:bg-kumo-recessed text-kumo-danger font-semibold"
+                className="text-kumo-danger font-semibold"
               >
                 清空
               </Button>
@@ -2620,7 +2621,7 @@ function PaasPage() {
               <Button size="sm"
                 variant="primary"
                 onClick={downloadLogs}
-                className="bg-kumo-brand text-kumo-inverse rounded hover:bg-kumo-brand/90 font-semibold flex items-center gap-1"
+                className="text-kumo-inverse font-semibold flex items-center gap-1"
               >
                 <Download className="w-3 h-3" />
                 <span>下载日志</span>

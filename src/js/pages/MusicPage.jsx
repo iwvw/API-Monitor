@@ -5,8 +5,13 @@ import { Button } from '@cloudflare/kumo/components/button';
 import { Dialog } from '@cloudflare/kumo/components/dialog';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import { Table } from '@cloudflare/kumo/components/table';
-import { LayerCard, Meter, Tabs } from '@cloudflare/kumo';
+import { Meter, Tabs } from '@cloudflare/kumo';
 import { Slider } from '@cloudflare/kumo/primitives/slider';
+import {
+  AppCard,
+  EmptyState as AppEmptyState,
+  SectionHeader as AppSectionHeader,
+} from '../components/ui/AppPrimitives.jsx';
 import {
   ArrowLeft,
   Compass,
@@ -43,6 +48,7 @@ const MUSIC_TIMELINE_MIN_TIME_DELTA = 0.35;
 const MUSIC_TIMELINE_MIN_PROGRESS_DELTA = 0.35;
 
 let audioPlayerInstance = null;
+let audioPlayerListenerCleanup = null;
 let lastMusicTimelineCommitAt = 0;
 let lastMusicTimelineState = { currentTime: -1, progress: -1 };
 
@@ -147,7 +153,7 @@ function KumoSlider({
           <Slider.Indicator className="h-full rounded-full bg-kumo-brand" />
         </Slider.Track>
         <Slider.Thumb
-          className="size-3 rounded-full border border-kumo-line bg-kumo-base shadow-sm outline-none transition-transform focus-visible:ring-2 focus-visible:ring-kumo-brand disabled:opacity-50 data-[dragging]:scale-110"
+          className="size-3 rounded-full border border-kumo-line bg-kumo-base outline-none transition-transform focus-visible:ring-2 focus-visible:ring-kumo-brand disabled:opacity-50 data-[dragging]:scale-110"
           getAriaLabel={() => label}
         />
       </Slider.Control>
@@ -177,36 +183,24 @@ function AlbumCover({ song, playlist, size = 'md', className = '' }) {
 
 function MusicCard({ className = '', children, ...props }) {
   return (
-    <LayerCard
+    <AppCard
       {...props}
-      className={`border border-kumo-line/60 bg-kumo-base shadow-none ${className}`}
+      padding="none"
+      className={className}
     >
       {children}
-    </LayerCard>
+    </AppCard>
   );
 }
 
 function EmptyState({ icon: Icon = Music2, title, description, action }) {
   return (
-    <MusicCard className="flex min-h-44 flex-col items-center justify-center p-6 text-center">
-      <Icon className="mb-3 h-8 w-8 text-kumo-subtle" />
-      <div className="text-sm font-semibold text-kumo-strong">{title}</div>
-      {description && <div className="mt-1 max-w-sm text-xs text-kumo-subtle">{description}</div>}
-      {action && <div className="mt-4">{action}</div>}
-    </MusicCard>
+    <AppEmptyState icon={Icon} title={title} description={description} action={action} />
   );
 }
 
 function SectionHeader({ title, description, action }) {
-  return (
-    <div className="mb-3 flex items-center justify-between gap-3">
-      <div className="min-w-0">
-        <h2 className="truncate text-sm font-semibold text-kumo-strong">{title}</h2>
-        {description && <p className="mt-0.5 truncate text-xs text-kumo-subtle">{description}</p>}
-      </div>
-      {action}
-    </div>
-  );
+  return <AppSectionHeader title={title} description={description} action={action} />;
 }
 
 function SongTable({
@@ -434,23 +428,56 @@ function MusicPage() {
     audioPlayerInstance.preload = 'auto';
     audioPlayerInstance.volume = (useStore.getState().musicMuted ? 0 : useStore.getState().musicVolume) / 100;
 
+    const handleCanPlay = () => useStore.setState({ musicBuffering: false });
+    const handleWaiting = () => useStore.setState({ musicBuffering: true });
+    const handlePlaying = () => useStore.setState({ musicBuffering: false });
+    const handlePlay = () => {
+      useStore.setState({ musicPlaying: true });
+      if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
+    };
+    const handlePause = () => {
+      useStore.setState({ musicPlaying: false });
+      if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
+    };
+
     audioPlayerInstance.addEventListener('timeupdate', handleTimeUpdate);
     audioPlayerInstance.addEventListener('ended', handleTrackEnd);
     audioPlayerInstance.addEventListener('error', handlePlayError);
     audioPlayerInstance.addEventListener('loadedmetadata', handleMetadataLoaded);
-    audioPlayerInstance.addEventListener('canplay', () => useStore.setState({ musicBuffering: false }));
-    audioPlayerInstance.addEventListener('waiting', () => useStore.setState({ musicBuffering: true }));
-    audioPlayerInstance.addEventListener('playing', () => useStore.setState({ musicBuffering: false }));
-    audioPlayerInstance.addEventListener('play', () => {
-      useStore.setState({ musicPlaying: true });
-      if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'playing';
-    });
-    audioPlayerInstance.addEventListener('pause', () => {
-      useStore.setState({ musicPlaying: false });
-      if ('mediaSession' in navigator) navigator.mediaSession.playbackState = 'paused';
-    });
+    audioPlayerInstance.addEventListener('canplay', handleCanPlay);
+    audioPlayerInstance.addEventListener('waiting', handleWaiting);
+    audioPlayerInstance.addEventListener('playing', handlePlaying);
+    audioPlayerInstance.addEventListener('play', handlePlay);
+    audioPlayerInstance.addEventListener('pause', handlePause);
 
     setupMediaSessionHandlers();
+    audioPlayerListenerCleanup = () => {
+      if (!audioPlayerInstance) return;
+      audioPlayerInstance.removeEventListener('timeupdate', handleTimeUpdate);
+      audioPlayerInstance.removeEventListener('ended', handleTrackEnd);
+      audioPlayerInstance.removeEventListener('error', handlePlayError);
+      audioPlayerInstance.removeEventListener('loadedmetadata', handleMetadataLoaded);
+      audioPlayerInstance.removeEventListener('canplay', handleCanPlay);
+      audioPlayerInstance.removeEventListener('waiting', handleWaiting);
+      audioPlayerInstance.removeEventListener('playing', handlePlaying);
+      audioPlayerInstance.removeEventListener('play', handlePlay);
+      audioPlayerInstance.removeEventListener('pause', handlePause);
+      audioPlayerInstance.pause();
+      audioPlayerInstance.removeAttribute('src');
+      audioPlayerInstance.load();
+      audioPlayerInstance = null;
+      audioPlayerListenerCleanup = null;
+      useStore.setState({ musicPlaying: false, musicBuffering: false });
+      if ('mediaSession' in navigator) {
+        ['play', 'pause', 'previoustrack', 'nexttrack', 'seekto'].forEach(action => {
+          try {
+            navigator.mediaSession.setActionHandler(action, null);
+          } catch {
+            // Some browsers do not support every media session action.
+          }
+        });
+      }
+    };
     return audioPlayerInstance;
   }
 
@@ -1101,6 +1128,7 @@ function MusicPage() {
         clearInterval(qrCheckTimerRef.current);
         qrCheckTimerRef.current = null;
       }
+      audioPlayerListenerCleanup?.();
     };
   }, []);
 
@@ -1641,8 +1669,8 @@ function MusicPage() {
                   key={`${song.id}-${index}`}
                   type="button"
                   variant="ghost" size="sm"
-                  className={`flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-2 text-left transition-colors ${
-                    active ? 'bg-kumo-tint text-kumo-strong' : 'hover:bg-kumo-tint'
+                  className={`flex w-full min-w-0 items-center gap-2 px-2 py-2 text-left transition-colors ${
+                    active ? 'text-kumo-strong' : ''
                   }`}
                   onClick={() => musicPlay(song)}
                 >
@@ -1662,7 +1690,7 @@ function MusicPage() {
   );
 
   const renderMiniPlayer = () => (
-    <MusicCard className="fixed inset-x-4 bottom-4 z-40 mx-auto max-w-[calc(100vw-2rem)] p-3 shadow-lg xl:left-[calc(var(--sidebar-width,0px)+1rem)]">
+    <MusicCard className="fixed inset-x-4 bottom-4 z-40 mx-auto max-w-[calc(100vw-2rem)] p-3 xl:left-[calc(var(--sidebar-width,0px)+1rem)]">
       <div className="grid gap-3 lg:grid-cols-[minmax(220px,320px)_minmax(280px,1fr)_220px] lg:items-center">
         <div className="flex min-w-0 items-center gap-3">
           <Button
@@ -1792,7 +1820,7 @@ function MusicPage() {
         <div className="p-5">
           {qrImg ? (
             <div className="flex flex-col items-center gap-4">
-              <div className="rounded-lg border border-kumo-line bg-white p-3">
+              <div className="app-card p-3">
                 <img src={qrImg} className="h-52 w-52" alt="网易云音乐登录二维码" />
               </div>
               <div className="text-center">
@@ -1920,8 +1948,8 @@ function MusicPage() {
                       data-active={active}
                       variant="ghost" size="sm"
                       aria-current={active ? 'true' : undefined}
-                      className={`block h-auto w-full rounded-md px-3 py-2 text-left transition-colors hover:bg-kumo-tint ${
-                        active ? 'bg-kumo-tint text-kumo-strong' : 'text-kumo-subtle'
+                      className={`block h-auto w-full px-3 py-2 text-left transition-colors ${
+                        active ? 'text-kumo-strong' : 'text-kumo-subtle'
                       }`}
                       onClick={() => {
                         if (!audioPlayerInstance) return;
@@ -2008,7 +2036,7 @@ function MusicPage() {
                 />
                 <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-kumo-subtle" />
               </div>
-              <Autocomplete.Content className="z-50 mt-1 overflow-hidden rounded-lg border border-kumo-line bg-kumo-base shadow-lg">
+              <Autocomplete.Content className="z-50 mt-1 overflow-hidden app-card">
                 <Autocomplete.List>
                   {musicSuggestions.map((item) => (
                     <Autocomplete.Item

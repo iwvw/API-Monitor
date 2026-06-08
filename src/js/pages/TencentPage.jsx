@@ -12,6 +12,7 @@ import useTableResize from '../composables/useTableResize.js';
 import useStore from '../store.js';
 import { MODULE_TABS_PROPS } from '../modules/kumoTabs.js';
 import { handleEditableRowDoubleClick } from '../modules/tableInteractions.js';
+import { getStatusPillClass } from '../components/ui/AppPrimitives.jsx';
 import {
   Database,
   Globe,
@@ -260,10 +261,10 @@ function TencentPage() {
   // ==================== Helpers ====================
   const getStatusBadge = (status) => {
     const s = String(status).toUpperCase();
-    if (s === 'RUNNING') return 'text-kumo-success bg-kumo-success/10 border-kumo-success/20';
-    if (s === 'STOPPED') return 'text-kumo-danger bg-kumo-danger/10 border-kumo-danger/20';
-    if (s.includes('ING')) return 'text-kumo-warning bg-kumo-warning/10 border-kumo-warning/20';
-    return 'text-kumo-subtle bg-kumo-recessed border-kumo-line';
+    if (s === 'RUNNING') return getStatusPillClass('success');
+    if (s === 'STOPPED') return getStatusPillClass('danger');
+    if (s.includes('ING')) return getStatusPillClass('warning');
+    return getStatusPillClass('neutral');
   };
 
   const getStatusText = (status) => {
@@ -323,7 +324,7 @@ function TencentPage() {
       <div className="min-h-[400px]">
         {loadingData ? (
           activeTab === 'dns' ? (
-            <div className="bg-kumo-base border border-kumo-line rounded-lg shadow-sm overflow-hidden">
+            <div className="app-card overflow-hidden">
               <Table layout="fixed">
                 <colgroup>
                   {dnsColWidths.map((w, idx) => (
@@ -355,7 +356,7 @@ function TencentPage() {
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {[...Array(6)].map((_, idx) => (
-                <div key={idx} className="bg-kumo-base border border-kumo-line rounded-lg p-4 shadow-sm flex flex-col gap-3">
+                <div key={idx} className="app-card p-4 flex flex-col gap-3">
                   <div className="flex justify-between items-start">
                     <div className="flex flex-col gap-1 w-2/3">
                       <SkeletonLine className="w-full h-4" />
@@ -389,7 +390,7 @@ function TencentPage() {
           <>
             {/* 1. DNS Tab */}
             {activeTab === 'dns' && (
-              <div className="bg-kumo-base border border-kumo-line rounded-lg shadow-sm overflow-hidden">
+              <div className="app-card overflow-hidden">
                 <Table layout="fixed">
                   <colgroup>
                     {dnsColWidths.map((w, idx) => (
@@ -428,13 +429,13 @@ function TencentPage() {
                           <Table.Cell className="p-4 font-bold text-kumo-strong">{dom.Name}</Table.Cell>
                           <Table.Cell className="p-4 text-kumo-default tabular-nums">{dom.RecordCount || '-'}</Table.Cell>
                           <Table.Cell className="p-4">
-                            <span className={`px-2 py-0.5 rounded border text-[10px] font-bold ${dom.Status === 'ENABLE' ? 'bg-kumo-success/10 border-kumo-success/20 text-kumo-success' : 'bg-kumo-recessed border-kumo-line text-kumo-subtle'}`}>
+                            <span className={`app-status-pill ${dom.Status === 'ENABLE' ? 'bg-kumo-success/10 border-kumo-success/20 text-kumo-success' : 'bg-kumo-recessed border-kumo-line text-kumo-subtle'}`}>
                               {dom.Status === 'ENABLE' ? '正常' : '已暂停'}
                             </span>
                           </Table.Cell>
                           <Table.Cell className="p-4 text-kumo-subtle">{dom.Expiration || '-'}</Table.Cell>
                           <Table.Cell className="p-4 text-center">
-                            <Button size="sm" className="text-[10px] border border-kumo-line bg-kumo-recessed/50 hover:bg-kumo-brand/10 hover:text-kumo-brand">
+                            <Button size="sm" className="text-[10px] hover:text-kumo-brand">
                               管理解析
                             </Button>
                           </Table.Cell>
@@ -450,16 +451,16 @@ function TencentPage() {
             {activeTab === 'cvm' && (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {cvmInstances.length === 0 ? (
-                  <div className="col-span-full p-20 text-center text-kumo-subtle bg-kumo-base border border-kumo-line rounded-lg">暂无 CVM 实例</div>
+                  <div className="col-span-full p-20 text-center text-kumo-subtle app-card">暂无 CVM 实例</div>
                 ) : (
                   cvmInstances.map((inst) => (
-                    <div key={inst.InstanceId} className="bg-kumo-base border border-kumo-line rounded-lg p-4 shadow-sm hover:border-kumo-brand transition-all flex flex-col gap-3">
+                    <div key={inst.InstanceId} className="app-card p-4 hover:border-kumo-brand transition-all flex flex-col gap-3">
                       <div className="flex justify-between items-start">
                         <div className="flex flex-col min-w-0">
                           <span className="text-xs font-bold text-kumo-strong truncate">{inst.InstanceName || inst.InstanceId}</span>
                           <span className="text-[10px] text-kumo-subtle font-mono">{inst.InstanceId}</span>
                         </div>
-                        <span className={`px-1.5 py-0.5 rounded border text-[10px] font-bold ${getStatusBadge(inst.InstanceState)}`}>
+                        <span className={`app-status-pill ${getStatusBadge(inst.InstanceState)}`}>
                           {getStatusText(inst.InstanceState)}
                         </span>
                       </div>
@@ -493,7 +494,7 @@ function TencentPage() {
                             variant="secondary" size="sm"
                             shape="square"
                             aria-label="启动 CVM 实例"
-                            className="text-kumo-success hover:bg-kumo-success/10"
+                            className="text-kumo-success"
                           >
                             <Play className="w-3.5 h-3.5" />
                           </Button>
@@ -503,7 +504,7 @@ function TencentPage() {
                             variant="secondary" size="sm"
                             shape="square"
                             aria-label="停止 CVM 实例"
-                            className="text-kumo-danger hover:bg-kumo-danger/10"
+                            className="text-kumo-danger"
                           >
                             <Square className="w-3.5 h-3.5" />
                           </Button>
@@ -512,12 +513,12 @@ function TencentPage() {
                             variant="secondary" size="sm"
                             shape="square"
                             aria-label="重启 CVM 实例"
-                            className="text-kumo-brand hover:bg-kumo-brand/10"
+                            className="text-kumo-brand"
                           >
                             <RotateCw className="w-3.5 h-3.5" />
                           </Button>
                         </div>
-                        <Button size="sm" className="text-[10px] border border-kumo-line bg-kumo-recessed hover:bg-kumo-base font-bold">
+                        <Button size="sm" className="text-[10px] font-bold">
                           监控详情
                         </Button>
                       </div>
@@ -531,16 +532,16 @@ function TencentPage() {
             {activeTab === 'lighthouse' && (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {lighthouseInstances.length === 0 ? (
-                  <div className="col-span-full p-20 text-center text-kumo-subtle bg-kumo-base border border-kumo-line rounded-lg">暂无轻量应用服务器</div>
+                  <div className="col-span-full p-20 text-center text-kumo-subtle app-card">暂无轻量应用服务器</div>
                 ) : (
                   lighthouseInstances.map((inst) => (
-                    <div key={inst.InstanceId} className="bg-kumo-base border border-kumo-line rounded-lg p-4 shadow-sm hover:border-kumo-brand transition-all flex flex-col gap-3">
+                    <div key={inst.InstanceId} className="app-card p-4 hover:border-kumo-brand transition-all flex flex-col gap-3">
                       <div className="flex justify-between items-start">
                         <div className="flex flex-col min-w-0">
                           <span className="text-xs font-bold text-kumo-strong truncate">{inst.InstanceName || inst.InstanceId}</span>
                           <span className="text-[10px] text-kumo-subtle font-mono">{inst.InstanceId}</span>
                         </div>
-                        <span className={`px-1.5 py-0.5 rounded border text-[10px] font-bold ${getStatusBadge(inst.InstanceState)}`}>
+                        <span className={`app-status-pill ${getStatusBadge(inst.InstanceState)}`}>
                           {getStatusText(inst.InstanceState)}
                         </span>
                       </div>
@@ -574,7 +575,7 @@ function TencentPage() {
                             variant="secondary" size="sm"
                             shape="square"
                             aria-label="启动轻量服务器"
-                            className="text-kumo-success hover:bg-kumo-success/10"
+                            className="text-kumo-success"
                           >
                             <Play className="w-3.5 h-3.5" />
                           </Button>
@@ -584,7 +585,7 @@ function TencentPage() {
                             variant="secondary" size="sm"
                             shape="square"
                             aria-label="停止轻量服务器"
-                            className="text-kumo-danger hover:bg-kumo-danger/10"
+                            className="text-kumo-danger"
                           >
                             <Square className="w-3.5 h-3.5" />
                           </Button>
@@ -593,12 +594,12 @@ function TencentPage() {
                             variant="secondary" size="sm"
                             shape="square"
                             aria-label="重启轻量服务器"
-                            className="text-kumo-brand hover:bg-kumo-brand/10"
+                            className="text-kumo-brand"
                           >
                             <RotateCw className="w-3.5 h-3.5" />
                           </Button>
                         </div>
-                        <Button size="sm" className="text-[10px] border border-kumo-line bg-kumo-recessed hover:bg-kumo-base font-bold">
+                        <Button size="sm" className="text-[10px] font-bold">
                           管理详情
                         </Button>
                       </div>
@@ -626,7 +627,7 @@ function TencentPage() {
                   </Button>
                 </div>
 
-                <div className="bg-kumo-base border border-kumo-line rounded-lg shadow-sm overflow-hidden">
+                <div className="app-card overflow-hidden">
                   <Table layout="fixed">
                     <colgroup>
                       {accountsColWidths.map((w, idx) => (
@@ -687,7 +688,6 @@ function TencentPage() {
                                   variant="secondary-destructive" size="sm"
                                   shape="square"
                                   aria-label="删除腾讯云账号"
-                                  className="hover:bg-kumo-danger/10"
                                 >
                                   <Trash className="w-3.5 h-3.5" />
                                 </Button>
@@ -707,7 +707,7 @@ function TencentPage() {
 
       {/* Add/Edit Account Modal */}
       <Dialog.Root open={showAddAccountModal} onOpenChange={setShowAddAccountModal}>
-        <Dialog className="p-6 sm:max-w-md bg-kumo-base border border-kumo-line rounded-lg shadow-xl">
+        <Dialog className="p-6 sm:max-w-md">
           <Dialog.Title className="text-sm font-bold text-kumo-strong mb-1">
             {editingAccount ? '编辑腾讯云账号' : '添加腾讯云账号'}
           </Dialog.Title>
@@ -767,7 +767,7 @@ function TencentPage() {
                   <Button size="sm"
                     {...props}
                     variant="secondary"
-                    className="border border-kumo-line bg-kumo-recessed text-xs"
+                    className="text-xs"
                   >
                     取消
                   </Button>

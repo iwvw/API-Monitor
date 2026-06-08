@@ -17,9 +17,11 @@ import { Button } from '@cloudflare/kumo/components/button';
 import { Checkbox } from '@cloudflare/kumo/components/checkbox';
 import { Input } from '@cloudflare/kumo/components/input';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
+import { Table } from '@cloudflare/kumo/components/table';
 import { Tabs, TimeseriesChart } from '@cloudflare/kumo';
 import { MODULE_TABS_PROPS, TOOL_TABS_PROPS } from '../modules/kumoTabs.js';
 import { AnimatedCollapse, DeferredRender } from '../components/AnimatedCollapse.jsx';
+import { AppCard, ChartCard, ChartWarmupSkeleton, DataTableFrame } from '../components/ui/AppPrimitives.jsx';
 import {
   Activity,
   Plus,
@@ -36,8 +38,9 @@ import {
   Server,
   Shield,
   Bell,
-  X,
-  Info
+  Info,
+  Download,
+  Upload
 } from '../components/Icons.jsx';
 
 echarts.use([
@@ -50,35 +53,6 @@ echarts.use([
   CanvasRenderer,
   AriaComponent,
 ]);
-
-function ChartBoundaryBox({ className = '', children }) {
-  const [boundary, setBoundary] = useState(null);
-  return (
-    <div ref={setBoundary} className={className}>
-      {typeof children === 'function' ? children(boundary) : children}
-    </div>
-  );
-}
-
-function ChartWarmupSkeleton({ height = 120 }) {
-  return (
-    <div
-      aria-hidden="true"
-      className="flex flex-col justify-end gap-2 overflow-hidden rounded-md border border-kumo-line/70 bg-kumo-recessed/35 p-3"
-      style={{ height }}
-    >
-      <SkeletonLine className="h-3 w-1/4" />
-      <SkeletonLine className="h-14 w-full rounded" />
-      <div className="grid grid-cols-5 gap-2">
-        <SkeletonLine className="h-2 w-full" />
-        <SkeletonLine className="h-2 w-full" />
-        <SkeletonLine className="h-2 w-full" />
-        <SkeletonLine className="h-2 w-full" />
-        <SkeletonLine className="h-2 w-full" />
-      </div>
-    </div>
-  );
-}
 
 // ==================== 样式辅助 ====================
 const formatUptimeChartTime = (timestamp) => {
@@ -207,7 +181,7 @@ function UptimeMonitorDetails({
 
       <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
         {/* 图表主栏 (Span 3) */}
-        <ChartBoundaryBox className="lg:col-span-3 bg-kumo-base border border-kumo-line rounded-lg p-3 h-36 relative">
+        <ChartCard className="relative h-36 lg:col-span-3">
           {(tooltipBoundary) => (
             <DeferredRender open={expanded} fallback={<ChartWarmupSkeleton height={120} />}>
               <TimeseriesChart
@@ -228,18 +202,18 @@ function UptimeMonitorDetails({
               />
             </DeferredRender>
           )}
-        </ChartBoundaryBox>
+        </ChartCard>
 
         {/* 右侧可用率统计指标 */}
         <div className="grid grid-cols-2 lg:grid-cols-1 gap-2.5">
-          <div className="bg-kumo-base border border-kumo-line rounded-lg p-3 flex flex-col justify-center">
+          <AppCard padding="sm" className="flex flex-col justify-center">
             <span className="text-[9px] text-kumo-subtle select-none">24小时可用率</span>
             <span className="text-base font-bold text-kumo-strong font-mono mt-0.5">{uptime24h}%</span>
-          </div>
-          <div className="bg-kumo-base border border-kumo-line rounded-lg p-3 flex flex-col justify-center">
+          </AppCard>
+          <AppCard padding="sm" className="flex flex-col justify-center">
             <span className="text-[9px] text-kumo-subtle select-none">30天可用率</span>
             <span className="text-base font-bold text-kumo-strong font-mono mt-0.5">{uptime30d}%</span>
-          </div>
+          </AppCard>
         </div>
       </div>
 
@@ -279,6 +253,8 @@ function UptimeMonitorDetails({
 function UptimePage() {
   const [uptimeCurrentTab, setUptimeCurrentTab] = useState('list'); // 'list' | 'add' | 'stats'
   const [uptimeMonitors, setUptimeMonitors] = useState([]);
+  const [uptimeStatusPages, setUptimeStatusPages] = useState([]);
+  const [uptimeMaintenanceWindows, setUptimeMaintenanceWindows] = useState([]);
   const [uptimeHeartbeats, setUptimeHeartbeats] = useState({});
   const [uptimeHeartbeatLoading, setUptimeHeartbeatLoading] = useState({});
   const [uptimeRateCache, setUptimeRateCache] = useState({});
@@ -289,6 +265,9 @@ function UptimePage() {
   const [uptimeSearchText, setUptimeSearchText] = useState('');
   const [uptimeLoading, setUptimeLoading] = useState(false);
   const [uptimeSaving, setUptimeSaving] = useState(false);
+  const [uptimeMetaLoading, setUptimeMetaLoading] = useState(false);
+  const [uptimeImportPreview, setUptimeImportPreview] = useState(null);
+  const [uptimeImportPayload, setUptimeImportPayload] = useState(null);
   const [selectedMonitorIds, setSelectedMonitorIds] = useState([]);
   const [expandedMonitorId, setExpandedMonitorId] = useState(null);
 
@@ -310,8 +289,13 @@ function UptimePage() {
     active: true,
     accepted_status_codes: '200-299',
     keyword: '',
+    jsonQueryPath: '',
+    jsonQueryOperator: 'equals',
+    jsonExpectedValue: '',
     dns_resolve_type: 'A',
     dns_resolve_server: '',
+    pushToken: '',
+    pushGraceSeconds: 120,
     headers: '',
     body: '',
     ignoreTls: false,
@@ -321,6 +305,7 @@ function UptimePage() {
   });
 
   const socketRef = useRef(null);
+  const uptimeImportInputRef = useRef(null);
 
   // 获取请求 Header
   const getAuthHeaders = () => {
@@ -416,6 +401,174 @@ function UptimePage() {
       }));
     } catch (e) {
       // 静默失败
+    }
+  };
+
+  const loadUptimeStatusPages = async () => {
+    setUptimeMetaLoading(true);
+    try {
+      const res = await fetch('/api/uptime/status-pages', { headers: getAuthHeaders() });
+      const data = await res.json();
+      if (data.success && Array.isArray(data.data)) {
+        setUptimeStatusPages(data.data);
+      }
+    } catch (e) {
+      console.error(e);
+      toast.error('载入状态页失败');
+    } finally {
+      setUptimeMetaLoading(false);
+    }
+  };
+
+  const loadUptimeMaintenance = async () => {
+    setUptimeMetaLoading(true);
+    try {
+      const res = await fetch('/api/uptime/maintenance', { headers: getAuthHeaders() });
+      const data = await res.json();
+      if (data.success && Array.isArray(data.data)) {
+        setUptimeMaintenanceWindows(data.data);
+      }
+    } catch (e) {
+      console.error(e);
+      toast.error('载入维护窗口失败');
+    } finally {
+      setUptimeMetaLoading(false);
+    }
+  };
+
+  const createDefaultStatusPage = async () => {
+    if (uptimeMonitors.length === 0) {
+      toast.warning('请先创建监测目标');
+      return;
+    }
+    try {
+      const res = await fetch('/api/uptime/status-pages', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          title: 'Main Status',
+          slug: 'main-status',
+          monitorIds: uptimeMonitors.map(m => m.id),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || '创建失败');
+      toast.success('状态页已创建');
+      await loadUptimeStatusPages();
+    } catch (e) {
+      toast.error(e.message || '创建状态页失败');
+    }
+  };
+
+  const createQuickMaintenance = async () => {
+    if (selectedMonitorIds.length === 0) {
+      toast.warning('请先在仪表盘选择监测目标');
+      return;
+    }
+    try {
+      const res = await fetch('/api/uptime/maintenance', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({
+          title: '快速维护窗口',
+          description: '由 Uptime 工作台创建',
+          strategy: 'manual',
+          startAt: new Date().toISOString(),
+          endAt: new Date(Date.now() + 60 * 60 * 1000).toISOString(),
+          targets: selectedMonitorIds,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || '创建失败');
+      toast.success('维护窗口已创建');
+      await loadUptimeMaintenance();
+    } catch (e) {
+      toast.error(e.message || '创建维护窗口失败');
+    }
+  };
+
+  const exportUptimeConfig = async () => {
+    setUptimeMetaLoading(true);
+    try {
+      const res = await fetch('/api/uptime/export', { headers: getAuthHeaders() });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || '导出失败');
+
+      const blob = new Blob([JSON.stringify(data.data, null, 2)], { type: 'application/json' });
+      const blobUrl = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = blobUrl;
+      link.download = `api-monitor-uptime-${new Date().toISOString().slice(0, 10)}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(blobUrl);
+      toast.success('Uptime 配置已导出');
+    } catch (e) {
+      console.error(e);
+      toast.error(e.message || '导出 Uptime 配置失败');
+    } finally {
+      setUptimeMetaLoading(false);
+    }
+  };
+
+  const previewUptimeImportFile = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setUptimeMetaLoading(true);
+    setUptimeImportPreview(null);
+    setUptimeImportPayload(null);
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+      const payload = parsed?.data?.type === 'api-monitor-uptime-export' ? parsed.data : parsed;
+      const res = await fetch('/api/uptime/import/preview', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ data: payload }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || '导入预览失败');
+      setUptimeImportPayload(payload);
+      setUptimeImportPreview(data.data);
+      toast.success('导入预览已生成');
+    } catch (e) {
+      console.error(e);
+      toast.error(e.message || '导入预览失败');
+    } finally {
+      setUptimeMetaLoading(false);
+      if (event.target) event.target.value = '';
+    }
+  };
+
+  const commitUptimeImport = async () => {
+    if (!uptimeImportPayload) {
+      toast.warning('请先选择导入文件并完成预览');
+      return;
+    }
+    if (!(await dialog.confirm('确定要导入 Uptime 配置吗？同名监测、状态页和维护窗口将被更新。'))) {
+      return;
+    }
+
+    setUptimeMetaLoading(true);
+    try {
+      const res = await fetch('/api/uptime/import', {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify({ data: uptimeImportPayload }),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) throw new Error(data.error || '导入失败');
+      toast.success(`导入完成：监测 ${data.data?.monitorsChanged || 0}，状态页 ${data.data?.pagesChanged || 0}，维护窗口 ${data.data?.maintenanceChanged || 0}`);
+      setUptimeImportPreview(null);
+      setUptimeImportPayload(null);
+      await Promise.all([loadUptimeMonitors(), loadUptimeStatusPages(), loadUptimeMaintenance()]);
+    } catch (e) {
+      console.error(e);
+      toast.error(e.message || '导入失败');
+    } finally {
+      setUptimeMetaLoading(false);
     }
   };
 
@@ -527,11 +680,14 @@ function UptimePage() {
 
   // 格式化连接地址
   const getDisplayUrl = (monitor) => {
-    if (monitor.type === 'http' || monitor.type === 'keyword') {
+    if (monitor.type === 'http' || monitor.type === 'keyword' || monitor.type === 'json') {
       return monitor.url;
     }
     if (monitor.type === 'tcp') {
       return `${monitor.hostname}:${monitor.port}`;
+    }
+    if (monitor.type === 'push') {
+      return monitor.pushToken ? `/api/uptime/push/${monitor.pushToken}` : 'Push token 待生成';
     }
     return monitor.hostname;
   };
@@ -540,6 +696,7 @@ function UptimePage() {
     switch (type) {
       case 'http':
       case 'keyword':
+      case 'json':
         return <Globe className="w-3.5 h-3.5" />;
       case 'tcp':
         return <Terminal className="w-3.5 h-3.5" />;
@@ -668,8 +825,13 @@ function UptimePage() {
       active: true,
       accepted_status_codes: '200-299',
       keyword: '',
+      jsonQueryPath: '',
+      jsonQueryOperator: 'equals',
+      jsonExpectedValue: '',
       dns_resolve_type: 'A',
       dns_resolve_server: '',
+      pushToken: '',
+      pushGraceSeconds: 120,
       headers: '',
       body: '',
       ignoreTls: false,
@@ -695,8 +857,13 @@ function UptimePage() {
       active: !!monitor.active,
       accepted_status_codes: monitor.accepted_status_codes || '200-299',
       keyword: monitor.keyword || '',
+      jsonQueryPath: monitor.jsonQueryPath || monitor.config?.jsonQueryPath || '',
+      jsonQueryOperator: monitor.jsonQueryOperator || monitor.config?.jsonQueryOperator || 'equals',
+      jsonExpectedValue: monitor.jsonExpectedValue || monitor.config?.jsonExpectedValue || '',
       dns_resolve_type: monitor.dns_resolve_type || 'A',
       dns_resolve_server: monitor.dns_resolve_server || '',
+      pushToken: monitor.pushToken || '',
+      pushGraceSeconds: monitor.pushGraceSeconds || monitor.config?.graceSeconds || 120,
       headers: monitor.headers || '',
       body: monitor.body || '',
       ignoreTls: !!monitor.ignoreTls,
@@ -712,12 +879,16 @@ function UptimePage() {
       toast.warning('请输入显示名称');
       return;
     }
-    if (['http', 'keyword'].includes(uptimeForm.type) && !uptimeForm.url.trim()) {
+    if (['http', 'keyword', 'json'].includes(uptimeForm.type) && !uptimeForm.url.trim()) {
       toast.warning('请输入 URL');
       return;
     }
     if (['tcp', 'ping', 'dns'].includes(uptimeForm.type) && !uptimeForm.hostname.trim()) {
       toast.warning('请输入 Hostname');
+      return;
+    }
+    if (uptimeForm.type === 'json' && !uptimeForm.jsonQueryPath.trim()) {
+      toast.warning('请输入 JSON 查询路径');
       return;
     }
 
@@ -735,7 +906,13 @@ function UptimePage() {
       const payload = {
         ...uptimeForm,
         tags,
-        notificationChannels: uptimeForm.notificationChannels
+        notificationChannels: uptimeForm.notificationChannels,
+        config: {
+          jsonQueryPath: uptimeForm.jsonQueryPath,
+          jsonQueryOperator: uptimeForm.jsonQueryOperator,
+          jsonExpectedValue: uptimeForm.jsonExpectedValue,
+          graceSeconds: uptimeForm.pushGraceSeconds,
+        },
       };
 
       const res = await fetch(url, {
@@ -773,10 +950,14 @@ function UptimePage() {
               return;
             }
             setUptimeCurrentTab(value);
+            if (value === 'status-pages') loadUptimeStatusPages();
+            if (value === 'maintenance') loadUptimeMaintenance();
           }}
           tabs={[
             { value: 'list', label: <span className="inline-flex items-center gap-1.5"><Activity className="w-3.5 h-3.5" />仪表盘</span> },
             { value: 'add', label: <span className="inline-flex items-center gap-1.5"><Plus className="w-3.5 h-3.5" />添加监测</span> },
+            { value: 'status-pages', label: <span className="inline-flex items-center gap-1.5"><Globe className="w-3.5 h-3.5" />状态页</span> },
+            { value: 'maintenance', label: <span className="inline-flex items-center gap-1.5"><Shield className="w-3.5 h-3.5" />维护窗口</span> },
             { value: 'stats', label: <span className="inline-flex items-center gap-1.5"><TrendingUp className="w-3.5 h-3.5" />统计报表</span> },
           ]}
         />
@@ -794,7 +975,7 @@ function UptimePage() {
                 placeholder="搜索监测目标..."
                 value={uptimeSearchText}
                 onChange={(e) => setUptimeSearchText(e.target.value)}
-                className="w-full bg-kumo-base text-kumo-strong border border-kumo-line rounded-md text-xs pl-8 pr-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-kumo-brand"
+                className="w-full text-kumo-strong text-xs pl-8 pr-3 py-1.5"
               />
             </div>
 
@@ -807,7 +988,7 @@ function UptimePage() {
 
       {/* ==================== 1. 监测目标仪表盘 (Dashboard) ==================== */}
       {uptimeCurrentTab === 'list' && (
-        <div className="space-y-4 quick-fade-in">
+        <div className="space-y-4">
           {/* 可用状态概览胶囊栏 */}
           <div className="flex flex-wrap items-center gap-2 pb-2">
             <Button
@@ -819,21 +1000,21 @@ function UptimePage() {
             <Button
               onClick={() => setUptimeStatusFilter('up')}
               variant="secondary" size="sm"
-              className={uptimeStatusFilter === 'up' ? 'text-kumo-success ring-kumo-success/30 bg-kumo-success/10' : ''}
+              className={uptimeStatusFilter === 'up' ? 'text-kumo-success ring-kumo-success/30' : ''}
             >
               正常 ({uptimeStats.up})
             </Button>
             <Button
               onClick={() => setUptimeStatusFilter('down')}
               variant="secondary" size="sm"
-              className={uptimeStatusFilter === 'down' ? 'text-kumo-danger ring-kumo-danger/30 bg-kumo-danger/10' : ''}
+              className={uptimeStatusFilter === 'down' ? 'text-kumo-danger ring-kumo-danger/30' : ''}
             >
               故障 ({uptimeStats.down})
             </Button>
             <Button
               onClick={() => setUptimeStatusFilter('pending')}
               variant="secondary" size="sm"
-              className={uptimeStatusFilter === 'pending' ? 'text-kumo-warning ring-kumo-warning/30 bg-kumo-warning/10' : ''}
+              className={uptimeStatusFilter === 'pending' ? 'text-kumo-warning ring-kumo-warning/30' : ''}
             >
               等待 ({uptimeStats.pending})
             </Button>
@@ -857,7 +1038,7 @@ function UptimePage() {
               <span>载入监控目标中...</span>
             </div>
           ) : filteredMonitors.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-20 text-kumo-subtle border border-dashed border-kumo-line rounded-xl bg-kumo-recessed/10">
+            <div className="flex flex-col items-center justify-center py-20 text-kumo-subtle app-empty-panel">
               <Activity className="w-12 h-12 opacity-30 mb-4" />
               <div className="text-sm">
                 {uptimeSearchText ? '未找到匹配的监测目标' : '暂无监测目标，开始添加一个吧'}
@@ -871,7 +1052,7 @@ function UptimePage() {
           ) : (
             <div className="space-y-3">
               {/* 批量控制条 */}
-              <div className="flex items-center justify-between bg-kumo-recessed/30 border border-kumo-line rounded-lg px-4 py-2.5">
+              <div className="flex items-center justify-between app-subcard bg-kumo-recessed/30 px-4 py-2.5">
                 <Checkbox
                   checked={isAllSelected}
                   onCheckedChange={handleToggleSelectAll}
@@ -934,7 +1115,7 @@ function UptimePage() {
                   return (
                     <div
                       key={monitor.id}
-                      className={`bg-kumo-base border rounded-lg overflow-hidden shadow-sm transition-shadow hover:shadow ${statusClass}`}
+                      className={`bg-kumo-base border rounded-lg overflow-hidden    ${statusClass}`}
                     >
                       {/* 卡片头部行 */}
                       <div
@@ -969,7 +1150,7 @@ function UptimePage() {
                               </span>
                               {/* 标签 */}
                               {monitor.tags && monitor.tags.map(t => (
-                                <span key={t} className="text-[9px] bg-kumo-recessed border border-kumo-line text-kumo-subtle px-1.5 py-0.5 rounded font-medium">
+                                <span key={t} className="text-[9px] app-subcard bg-kumo-recessed text-kumo-subtle px-1.5 py-0.5 rounded font-medium">
                                   {t}
                                 </span>
                               ))}
@@ -1039,9 +1220,209 @@ function UptimePage() {
         </div>
       )}
 
+      {uptimeCurrentTab === 'status-pages' && (
+        <AppCard padding="lg" className="space-y-4">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-kumo-line pb-4">
+            <div>
+              <h3 className="text-sm font-semibold text-kumo-strong flex items-center gap-2">
+                <Globe className="w-4 h-4" />
+                状态页
+              </h3>
+              <p className="text-xs text-kumo-subtle mt-1">
+                对外公开监控摘要，默认页会绑定当前全部监测目标。
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                variant="secondary"
+                icon={<RotateCw className="w-3.5 h-3.5" />}
+                onClick={loadUptimeStatusPages}
+                disabled={uptimeMetaLoading}
+              >
+                刷新
+              </Button>
+              <Button
+                size="sm"
+                variant="primary"
+                icon={<Plus className="w-3.5 h-3.5" />}
+                onClick={createDefaultStatusPage}
+                disabled={uptimeMetaLoading}
+              >
+                生成默认页
+              </Button>
+            </div>
+          </div>
+
+          <DataTableFrame>
+            <Table layout="fixed">
+              <Table.Header variant="compact">
+                <Table.Row>
+                  <Table.Head className="w-44">名称</Table.Head>
+                  <Table.Head className="w-36">Slug</Table.Head>
+                  <Table.Head>公开地址</Table.Head>
+                  <Table.Head className="w-24 text-center">公开</Table.Head>
+                  <Table.Head className="w-28">缓存</Table.Head>
+                  <Table.Head className="w-36">更新时间</Table.Head>
+                </Table.Row>
+              </Table.Header>
+              <Table.Body>
+                {uptimeMetaLoading ? (
+                  Array.from({ length: 3 }).map((_, index) => (
+                    <Table.Row key={index}>
+                      <Table.Cell colSpan={6}>
+                        <SkeletonLine className="h-4 w-full" />
+                      </Table.Cell>
+                    </Table.Row>
+                  ))
+                ) : uptimeStatusPages.length === 0 ? (
+                  <Table.Row>
+                    <Table.Cell colSpan={6} className="py-10 text-center text-kumo-subtle">
+                      暂无状态页。
+                    </Table.Cell>
+                  </Table.Row>
+                ) : (
+                  uptimeStatusPages.map((page) => {
+                    const publicPath = `/api/uptime/public/status-pages/${page.slug}`;
+                    return (
+                      <Table.Row key={page.id}>
+                        <Table.Cell className="font-semibold text-kumo-strong truncate">
+                          {page.title || page.slug}
+                        </Table.Cell>
+                        <Table.Cell className="font-mono text-xs text-kumo-subtle truncate">
+                          {page.slug}
+                        </Table.Cell>
+                        <Table.Cell>
+                          <a
+                            href={publicPath}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="block truncate font-mono text-xs text-kumo-brand hover:underline"
+                          >
+                            {publicPath}
+                          </a>
+                        </Table.Cell>
+                        <Table.Cell className="text-center">
+                          <span className={`text-[10px] px-2 py-0.5 rounded font-semibold ${page.public ? 'bg-kumo-success/10 text-kumo-success' : 'bg-kumo-line/30 text-kumo-subtle'}`}>
+                            {page.public ? '公开' : '私有'}
+                          </span>
+                        </Table.Cell>
+                        <Table.Cell className="font-mono text-xs">
+                          {page.cacheSeconds || 300}s
+                        </Table.Cell>
+                        <Table.Cell className="text-xs text-kumo-subtle">
+                          {formatDateTime(page.updatedAt || page.createdAt)}
+                        </Table.Cell>
+                      </Table.Row>
+                    );
+                  })
+                )}
+              </Table.Body>
+            </Table>
+          </DataTableFrame>
+        </AppCard>
+      )}
+
+      {uptimeCurrentTab === 'maintenance' && (
+        <AppCard padding="lg" className="space-y-4">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 border-b border-kumo-line pb-4">
+            <div>
+              <h3 className="text-sm font-semibold text-kumo-strong flex items-center gap-2">
+                <Shield className="w-4 h-4" />
+                维护窗口
+              </h3>
+              <p className="text-xs text-kumo-subtle mt-1">
+                维护期内仍记录检测结果，但会抑制对应告警通知。
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                size="sm"
+                variant="secondary"
+                icon={<RotateCw className="w-3.5 h-3.5" />}
+                onClick={loadUptimeMaintenance}
+                disabled={uptimeMetaLoading}
+              >
+                刷新
+              </Button>
+              <Button
+                size="sm"
+                variant="primary"
+                icon={<Plus className="w-3.5 h-3.5" />}
+                onClick={createQuickMaintenance}
+                disabled={uptimeMetaLoading}
+              >
+                创建 1 小时窗口
+              </Button>
+            </div>
+          </div>
+
+          <div className="text-[11px] text-kumo-subtle">
+            已选择 {selectedMonitorIds.length} 个监测目标用于快速维护窗口。
+          </div>
+
+          <DataTableFrame>
+            <Table layout="fixed">
+              <Table.Header variant="compact">
+                <Table.Row>
+                  <Table.Head className="w-48">标题</Table.Head>
+                  <Table.Head className="w-24 text-center">状态</Table.Head>
+                  <Table.Head>时间窗口</Table.Head>
+                  <Table.Head className="w-28">策略</Table.Head>
+                  <Table.Head className="w-32">时区</Table.Head>
+                  <Table.Head className="w-36">更新时间</Table.Head>
+                </Table.Row>
+              </Table.Header>
+              <Table.Body>
+                {uptimeMetaLoading ? (
+                  Array.from({ length: 3 }).map((_, index) => (
+                    <Table.Row key={index}>
+                      <Table.Cell colSpan={6}>
+                        <SkeletonLine className="h-4 w-full" />
+                      </Table.Cell>
+                    </Table.Row>
+                  ))
+                ) : uptimeMaintenanceWindows.length === 0 ? (
+                  <Table.Row>
+                    <Table.Cell colSpan={6} className="py-10 text-center text-kumo-subtle">
+                      暂无维护窗口。
+                    </Table.Cell>
+                  </Table.Row>
+                ) : (
+                  uptimeMaintenanceWindows.map((item) => (
+                    <Table.Row key={item.id}>
+                      <Table.Cell className="font-semibold text-kumo-strong truncate">
+                        {item.title}
+                      </Table.Cell>
+                      <Table.Cell className="text-center">
+                        <span className={`text-[10px] px-2 py-0.5 rounded font-semibold ${item.active ? 'bg-kumo-success/10 text-kumo-success' : 'bg-kumo-line/30 text-kumo-subtle'}`}>
+                          {item.active ? '启用' : '停用'}
+                        </span>
+                      </Table.Cell>
+                      <Table.Cell className="font-mono text-xs text-kumo-subtle truncate">
+                        {formatDateTime(item.startAt)} - {formatDateTime(item.endAt)}
+                      </Table.Cell>
+                      <Table.Cell className="text-xs">
+                        {item.strategy || 'manual'}
+                      </Table.Cell>
+                      <Table.Cell className="text-xs">
+                        {item.timezone || 'UTC'}
+                      </Table.Cell>
+                      <Table.Cell className="text-xs text-kumo-subtle">
+                        {formatDateTime(item.updatedAt || item.createdAt)}
+                      </Table.Cell>
+                    </Table.Row>
+                  ))
+                )}
+              </Table.Body>
+            </Table>
+          </DataTableFrame>
+        </AppCard>
+      )}
+
       {/* ==================== 2. 添加/修改监测目标 ==================== */}
       {uptimeCurrentTab === 'add' && (
-        <div className="bg-kumo-base border border-kumo-line rounded-lg shadow-sm p-6 space-y-6 quick-fade-in">
+        <AppCard padding="xl" className="space-y-6">
           <h3 className="text-sm font-semibold text-kumo-strong border-b border-kumo-line pb-3 select-none">
             {uptimeForm.id ? '编辑监测目标' : '新建监测目标'}
           </h3>
@@ -1057,9 +1438,11 @@ function UptimePage() {
                 tabs={[
                   { value: 'http', label: 'HTTP(s)' },
                   { value: 'keyword', label: '网页关键词' },
+                  { value: 'json', label: 'JSON 查询' },
                   { value: 'tcp', label: 'TCP 端口' },
                   { value: 'ping', label: 'ICMP Ping' },
                   { value: 'dns', label: 'DNS 解析' },
+                  { value: 'push', label: 'Push' },
                 ]}
               />
             </div>
@@ -1077,7 +1460,7 @@ function UptimePage() {
             </div>
 
             {/* 地址输入域 */}
-            {['http', 'keyword'].includes(uptimeForm.type) ? (
+            {['http', 'keyword', 'json'].includes(uptimeForm.type) ? (
               <div className="md:col-span-8">
                 <Input
                   label="请求 URL *"
@@ -1087,6 +1470,15 @@ function UptimePage() {
                   onChange={(e) => setUptimeForm(prev => ({ ...prev, url: e.target.value }))}
                   className="w-full"
                 />
+              </div>
+            ) : uptimeForm.type === 'push' ? (
+              <div className="md:col-span-8">
+                <div className="app-subcard p-3">
+                  <div className="text-[10px] font-semibold text-kumo-subtle">Push URL</div>
+                  <div className="mt-1 truncate font-mono text-xs text-kumo-strong">
+                    {uptimeForm.pushToken ? `/api/uptime/push/${uptimeForm.pushToken}` : '保存后自动生成 token URL'}
+                  </div>
+                </div>
               </div>
             ) : (
               <>
@@ -1146,7 +1538,7 @@ function UptimePage() {
             </div>
 
             {/* 证书过期设置 */}
-            {['http'].includes(uptimeForm.type) && (
+            {['http', 'json'].includes(uptimeForm.type) && (
               <div className="md:col-span-6">
                 <Input
                   label="SSL 证书到期提醒（天）"
@@ -1160,7 +1552,7 @@ function UptimePage() {
             )}
 
             {/* 忽略 TLS 选项 */}
-            {['http', 'keyword'].includes(uptimeForm.type) && (
+            {['http', 'keyword', 'json'].includes(uptimeForm.type) && (
               <div className="md:col-span-6 flex items-end pb-2">
                   <Checkbox
                     checked={uptimeForm.ignoreTls}
@@ -1184,6 +1576,54 @@ function UptimePage() {
               </div>
             )}
 
+            {uptimeForm.type === 'json' && (
+              <>
+                <div className="md:col-span-4">
+                  <Input
+                    label="JSON 路径 *"
+                    type="text" size="sm"
+                    placeholder="例如：$.data.status"
+                    value={uptimeForm.jsonQueryPath}
+                    onChange={(e) => setUptimeForm(prev => ({ ...prev, jsonQueryPath: e.target.value }))}
+                    className="w-full font-mono"
+                  />
+                </div>
+                <div className="md:col-span-4">
+                  <Input
+                    label="比较操作"
+                    type="text" size="sm"
+                    placeholder="equals / contains / gt / regex"
+                    value={uptimeForm.jsonQueryOperator}
+                    onChange={(e) => setUptimeForm(prev => ({ ...prev, jsonQueryOperator: e.target.value }))}
+                    className="w-full font-mono"
+                  />
+                </div>
+                <div className="md:col-span-4">
+                  <Input
+                    label="期望值"
+                    type="text" size="sm"
+                    placeholder="例如：ok"
+                    value={uptimeForm.jsonExpectedValue}
+                    onChange={(e) => setUptimeForm(prev => ({ ...prev, jsonExpectedValue: e.target.value }))}
+                    className="w-full font-mono"
+                  />
+                </div>
+              </>
+            )}
+
+            {uptimeForm.type === 'push' && (
+              <div className="md:col-span-6">
+                <Input
+                  label="Push 宽限时间（秒）"
+                  type="number" size="sm"
+                  min="30"
+                  value={uptimeForm.pushGraceSeconds}
+                  onChange={(e) => setUptimeForm(prev => ({ ...prev, pushGraceSeconds: parseInt(e.target.value) || 120 }))}
+                  className="w-full font-mono"
+                />
+              </div>
+            )}
+
             {/* 告警通知渠道设置 */}
             <div className="md:col-span-12 border-t border-kumo-line pt-4 mt-2">
               <h4 className="text-xs font-bold text-kumo-strong flex items-center gap-1.5 select-none">
@@ -1193,7 +1633,7 @@ function UptimePage() {
             </div>
 
             <div className="md:col-span-12 space-y-2">
-              <div className="flex flex-wrap gap-4 p-3.5 bg-kumo-recessed/50 border border-kumo-line rounded-lg">
+              <div className="flex flex-wrap gap-4 p-3.5 app-subcard bg-kumo-recessed/50">
                 {notificationChannels.filter(c => c.enabled).map((channel) => (
                     <Checkbox
                       key={channel.id}
@@ -1240,15 +1680,129 @@ function UptimePage() {
               保存目标
             </Button>
           </div>
-        </div>
+        </AppCard>
       )}
 
       {/* ==================== 3. 统计报表 Tab ==================== */}
       {uptimeCurrentTab === 'stats' && (
-        <div className="bg-kumo-base border border-kumo-line rounded-lg shadow-sm p-20 flex flex-col items-center justify-center text-kumo-subtle quick-fade-in">
-          <TrendingUp className="w-12 h-12 opacity-30 mb-4" />
-          <h3 className="text-sm font-bold text-kumo-strong select-none">统计报表</h3>
-          <p className="text-xs text-kumo-subtle mt-1.5 select-none">更多关于服务可用性分析的报表功能正在开发中...</p>
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_24rem]">
+          <AppCard padding="lg" className="space-y-4">
+            <div className="flex flex-col gap-3 border-b border-kumo-line pb-4 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h3 className="text-sm font-semibold text-kumo-strong flex items-center gap-2">
+                  <TrendingUp className="w-4 h-4" />
+                  配置迁移预览
+                </h3>
+                <p className="text-xs text-kumo-subtle mt-1">
+                  导入前会先比对监测目标、状态页和维护窗口，确认后才写入。
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Input
+                  ref={uptimeImportInputRef}
+                  type="file"
+                  accept=".json,application/json"
+                  aria-label="选择 Uptime 配置文件"
+                  className="hidden"
+                  onChange={previewUptimeImportFile}
+                />
+                <Button size="sm" variant="secondary" onClick={exportUptimeConfig} loading={uptimeMetaLoading} icon={<Download className="w-3.5 h-3.5" />}>
+                  导出配置
+                </Button>
+                <Button size="sm" variant="primary" onClick={() => uptimeImportInputRef.current?.click()} loading={uptimeMetaLoading} icon={<Upload className="w-3.5 h-3.5" />}>
+                  选择导入文件
+                </Button>
+              </div>
+            </div>
+
+            {!uptimeImportPreview ? (
+              <div className="flex flex-col items-center justify-center py-16 text-kumo-subtle">
+                <Upload className="w-12 h-12 opacity-30 mb-3" />
+                <div className="text-sm font-semibold text-kumo-strong">尚未选择导入文件</div>
+                <div className="mt-1 text-xs">支持由本页面导出的 Uptime JSON 配置。</div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="app-subcard p-3">
+                    <div className="text-[10px] text-kumo-subtle">监测目标</div>
+                    <div className="mt-1 font-mono text-lg font-bold text-kumo-strong">{uptimeImportPreview.counts?.monitors || 0}</div>
+                  </div>
+                  <div className="app-subcard p-3">
+                    <div className="text-[10px] text-kumo-subtle">状态页</div>
+                    <div className="mt-1 font-mono text-lg font-bold text-kumo-strong">{uptimeImportPreview.counts?.statusPages || 0}</div>
+                  </div>
+                  <div className="app-subcard p-3">
+                    <div className="text-[10px] text-kumo-subtle">维护窗口</div>
+                    <div className="mt-1 font-mono text-lg font-bold text-kumo-strong">{uptimeImportPreview.counts?.maintenanceWindows || 0}</div>
+                  </div>
+                </div>
+
+                <DataTableFrame>
+                  <Table layout="fixed">
+                    <Table.Header variant="compact">
+                      <Table.Row>
+                        <Table.Head>对象</Table.Head>
+                        <Table.Head className="w-32">类型</Table.Head>
+                        <Table.Head className="w-24">动作</Table.Head>
+                      </Table.Row>
+                    </Table.Header>
+                    <Table.Body>
+                      {[
+                        ...(uptimeImportPreview.monitors || []).map(item => ({ ...item, label: item.name, kind: '监测' })),
+                        ...(uptimeImportPreview.statusPages || []).map(item => ({ ...item, label: item.title || item.slug, kind: '状态页' })),
+                        ...(uptimeImportPreview.maintenanceWindows || []).map(item => ({ ...item, label: item.title, kind: '维护' })),
+                      ].map((item, index) => (
+                        <Table.Row key={`${item.kind}-${item.label}-${index}`}>
+                          <Table.Cell className="truncate text-xs font-semibold text-kumo-strong">{item.label}</Table.Cell>
+                          <Table.Cell className="text-xs text-kumo-subtle">{item.kind}</Table.Cell>
+                          <Table.Cell>
+                            <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${
+                              item.action === 'create'
+                                ? 'bg-kumo-success/10 text-kumo-success'
+                                : 'bg-kumo-warning/10 text-kumo-warning'
+                            }`}>
+                              {item.action === 'create' ? '创建' : '更新'}
+                            </span>
+                          </Table.Cell>
+                        </Table.Row>
+                      ))}
+                    </Table.Body>
+                  </Table>
+                </DataTableFrame>
+              </div>
+            )}
+          </AppCard>
+
+          <AppCard padding="lg" className="space-y-4">
+            <h3 className="text-sm font-semibold text-kumo-strong">导入确认</h3>
+            <p className="text-xs leading-relaxed text-kumo-subtle">
+              导入会按名称、类型、地址等字段匹配已有监测目标；同 slug 状态页、同标题维护窗口会更新。
+            </p>
+            <Button
+              size="sm"
+              variant="primary"
+              className="w-full"
+              onClick={commitUptimeImport}
+              disabled={!uptimeImportPreview}
+              loading={uptimeMetaLoading}
+            >
+              确认导入预览配置
+            </Button>
+            {uptimeImportPreview && (
+              <Button
+                size="sm"
+                variant="secondary"
+                className="w-full"
+                onClick={() => {
+                  setUptimeImportPreview(null);
+                  setUptimeImportPayload(null);
+                }}
+              >
+                清除预览
+              </Button>
+            )}
+          </AppCard>
         </div>
       )}
     </div>
