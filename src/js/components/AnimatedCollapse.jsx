@@ -3,6 +3,21 @@ import { Collapsible } from '@cloudflare/kumo/components/collapsible';
 
 const cx = (...classes) => classes.filter(Boolean).join(' ');
 const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
+const collapsePanelClassName = [
+  'overflow-hidden',
+  'transition-[height,opacity]',
+  'duration-200',
+  'ease-out',
+  'motion-reduce:transition-none',
+  'data-[open]:h-[var(--collapsible-panel-height)]',
+  'data-[closed]:h-0',
+  'data-[starting-style]:h-0',
+  'data-[ending-style]:h-0',
+  'data-[open]:opacity-100',
+  'data-[closed]:opacity-0',
+  'data-[starting-style]:opacity-0',
+  'data-[ending-style]:opacity-0',
+].join(' ');
 
 export function AnimatedCollapse({
   open,
@@ -14,7 +29,7 @@ export function AnimatedCollapse({
 }) {
   return (
     <Collapsible.Root open={open} onOpenChange={onOpenChange} className={className}>
-      <Collapsible.Panel keepMounted={keepMounted} className={cx(panelClassName)}>
+      <Collapsible.Panel keepMounted={keepMounted} className={cx(collapsePanelClassName, panelClassName)}>
         {children}
       </Collapsible.Panel>
     </Collapsible.Root>
