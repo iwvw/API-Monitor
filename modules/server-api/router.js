@@ -1,4 +1,4 @@
-/**
+﻿/**
  * 服务器管理模块路由
  */
 
@@ -14,9 +14,14 @@ const monitorService = require('./monitor-service');
 const agentService = require('./agent-service');
 const sshService = require('./ssh-service');
 const { getServerCapabilities, hasSshConfig, hasSshEndpoint } = require('./capabilities');
-const { ServerAccount, ServerMonitorConfig, ServerMetricsHistory } = require('./models');
+const { ServerAccount, ServerMonitorConfig, ServerMetricsHistory, ServerSnippet } = require('./models');
 const { TaskTypes, buildGpuInfo, normalizeFrontendMetrics, normalizeNetworkMetrics, resolveCpuTemperature } = require('./protocol');
 const DockerTaskTypes = TaskTypes; // 兼容已有 Docker 路由代码
+const {
+  buildCommandVariables,
+  detectDangerousCommand,
+  renderCommandTemplate,
+} = require('./command-utils');
 
 // ==================== 主机凭据接口 ====================
 
@@ -1767,7 +1772,7 @@ router.post('/ssh/disconnect', (req, res) => {
 
 router.get('/snippets', (req, res) => {
   try {
-    const snippets = snippetStorage.getAll();
+    const snippets = snippetStorage.getAll(req.query || {});
     res.json({ success: true, data: snippets });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
@@ -1796,6 +1801,70 @@ router.delete('/snippets/:id', (req, res) => {
   try {
     const success = snippetStorage.delete(req.params.id);
     res.json({ success: true, data: success });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+router.post('/snippets/preview', (req, res) => {
+  try {
+    const { command, snippetId, serverId, cwd, variables = {} } = req.body;
+    const server = serverId ? serverStorage.getById(serverId) : null;
+    const commandText = snippetId
+      ? ServerSnippet.getById(snippetId)?.content
+      : command;
+
+    if (!commandText) {
+      return res.status(400).json({ success: false, error: '缺少命令内容' });
+    }
+
+    const rendered = renderCommandTemplate(
+      commandText,
+      buildCommandVariables(server || {}, { ...variables, cwd })
+    );
+    const danger = detectDangerousCommand(rendered);
+
+    res.json({
+      success: true,
+      data: {
+        command: commandText,
+        rendered,
+        dangerous: danger.dangerous,
+        dangerReasons: danger.reasons,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+router.post('/snippets/history', (req, res) => {
+  try {
+    const { snippetId, serverId, command, renderedCommand, executionMode, status, resultSummary } = req.body;
+    const server = serverId ? serverStorage.getById(serverId) : null;
+    const row = ServerSnippet.addHistory({
+      snippet_id: snippetId || null,
+      server_id: serverId || null,
+      server_name: server?.name || null,
+      command: command || renderedCommand,
+      rendered_command: renderedCommand || command,
+      execution_mode: executionMode || 'terminal',
+      status: status || 'sent',
+      result_summary: resultSummary || null,
+    });
+    res.json({ success: true, data: row });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+router.get('/snippets/history', (req, res) => {
+  try {
+    const history = ServerSnippet.getHistory({
+      serverId: req.query.serverId,
+      limit: req.query.limit,
+    });
+    res.json({ success: true, data: history });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
@@ -2263,6 +2332,26 @@ router.post('/task/refresh/:serverId', (req, res) => {
 const sftpService = require('./sftp-service');
 // 使用项目已有的 express-fileupload，不需要额外配置
 
+function sendSftpError(res, error) {
+  const code = error?.code || 'SFTP_ERROR';
+  const statusByCode = {
+    SERVER_NOT_FOUND: 404,
+    CONFIG_INCOMPLETE: 400,
+    AUTH_FAILED: 401,
+    PERMISSION_DENIED: 403,
+    PATH_NOT_FOUND: 404,
+    FILE_TOO_LARGE: 413,
+    TIMEOUT: 504,
+    CONNECTION_FAILED: 502,
+  };
+  res.status(statusByCode[code] || 500).json({
+    success: false,
+    error: error?.message || 'SFTP 操作失败',
+    code,
+    details: error?.details || undefined,
+  });
+}
+
 /**
  * 通过 Agent 执行文件管理任务的辅助函数
  * @param {string} serverId
@@ -2319,7 +2408,7 @@ router.post('/sftp/list', async (req, res) => {
       res.json({ success: true, data: files, path: currentPath });
     }
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    sendSftpError(res, error);
   }
 });
 
@@ -2344,7 +2433,7 @@ router.post('/sftp/stat', async (req, res) => {
       res.json({ success: true, data: stats });
     }
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    sendSftpError(res, error);
   }
 });
 
@@ -2369,7 +2458,7 @@ router.post('/sftp/read', async (req, res) => {
       res.json({ success: true, data: content });
     }
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    sendSftpError(res, error);
   }
 });
 
@@ -2394,7 +2483,7 @@ router.post('/sftp/write', async (req, res) => {
       res.json({ success: true, message: '文件保存成功' });
     }
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    sendSftpError(res, error);
   }
 });
 
@@ -2419,7 +2508,7 @@ router.post('/sftp/mkdir', async (req, res) => {
       res.json({ success: true, message: '目录创建成功' });
     }
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    sendSftpError(res, error);
   }
 });
 
@@ -2444,7 +2533,7 @@ router.post('/sftp/delete', async (req, res) => {
       res.json({ success: true, message: '文件删除成功' });
     }
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    sendSftpError(res, error);
   }
 });
 
@@ -2473,7 +2562,7 @@ router.post('/sftp/rmdir', async (req, res) => {
       res.json({ success: true, message: '目录删除成功' });
     }
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    sendSftpError(res, error);
   }
 });
 
@@ -2498,7 +2587,7 @@ router.post('/sftp/rename', async (req, res) => {
       res.json({ success: true, message: '重命名成功' });
     }
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    sendSftpError(res, error);
   }
 });
 
@@ -2523,7 +2612,7 @@ router.post('/sftp/chmod', async (req, res) => {
       res.json({ success: true, message: '权限修改成功' });
     }
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    sendSftpError(res, error);
   }
 });
 
@@ -2623,7 +2712,7 @@ router.get('/sftp/download/:serverId', async (req, res) => {
     });
   } catch (error) {
     if (!res.headersSent) {
-      res.status(500).json({ success: false, error: error.message });
+      sendSftpError(res, error);
     }
   }
 });
@@ -2685,7 +2774,7 @@ router.post('/sftp/upload', async (req, res) => {
     await sftpService.uploadFile(serverId, fullPath, uploadData);
     res.json({ success: true, message: '上传成功', path: fullPath });
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    sendSftpError(res, error);
   }
 });
 

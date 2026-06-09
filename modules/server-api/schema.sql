@@ -91,9 +91,31 @@ CREATE TABLE IF NOT EXISTS server_snippets (
     title TEXT NOT NULL, -- 片段标题
     content TEXT NOT NULL, -- 指令内容
     category TEXT DEFAULT 'common', -- 分类
+    platform TEXT DEFAULT 'all', -- all/linux/windows/darwin
+    tags TEXT DEFAULT '[]', -- JSON tags
+    favorite INTEGER DEFAULT 0,
+    run_count INTEGER DEFAULT 0,
+    last_used_at DATETIME,
+    is_builtin INTEGER DEFAULT 0,
     description TEXT, -- 描述
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS server_command_history (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    snippet_id INTEGER,
+    server_id TEXT,
+    server_name TEXT,
+    command TEXT NOT NULL,
+    rendered_command TEXT NOT NULL,
+    execution_mode TEXT DEFAULT 'terminal',
+    status TEXT DEFAULT 'sent',
+    dangerous INTEGER DEFAULT 0,
+    danger_reasons TEXT DEFAULT '[]',
+    result_summary TEXT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (snippet_id) REFERENCES server_snippets(id) ON DELETE SET NULL
 );
 
 -- 18. 实时指标历史表 (定期采集快照)

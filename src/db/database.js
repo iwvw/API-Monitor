@@ -603,6 +603,47 @@ class DatabaseService {
         logger.error('Server Metrics History migration failed:', err.message);
       }
 
+      // Server Snippets 迁移: 快速命令工作台字段
+      try {
+        const snippetColumns = this.db.pragma('table_info(server_snippets)');
+        if (snippetColumns.length > 0) {
+          const addColumnIfMissing = (name, sql) => {
+            if (!snippetColumns.some(col => col.name === name)) {
+              logger.info(`正在为 server_snippets 表添加 ${name} 字段...`);
+              this.db.exec(sql);
+              logger.success(`server_snippets.${name} 字段添加成功`);
+            }
+          };
+
+          addColumnIfMissing('platform', "ALTER TABLE server_snippets ADD COLUMN platform TEXT DEFAULT 'all'");
+          addColumnIfMissing('tags', "ALTER TABLE server_snippets ADD COLUMN tags TEXT DEFAULT '[]'");
+          addColumnIfMissing('favorite', 'ALTER TABLE server_snippets ADD COLUMN favorite INTEGER DEFAULT 0');
+          addColumnIfMissing('run_count', 'ALTER TABLE server_snippets ADD COLUMN run_count INTEGER DEFAULT 0');
+          addColumnIfMissing('last_used_at', 'ALTER TABLE server_snippets ADD COLUMN last_used_at DATETIME');
+          addColumnIfMissing('is_builtin', 'ALTER TABLE server_snippets ADD COLUMN is_builtin INTEGER DEFAULT 0');
+        }
+
+        this.db.exec(`
+          CREATE TABLE IF NOT EXISTS server_command_history (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              snippet_id INTEGER,
+              server_id TEXT,
+              server_name TEXT,
+              command TEXT NOT NULL,
+              rendered_command TEXT NOT NULL,
+              execution_mode TEXT DEFAULT 'terminal',
+              status TEXT DEFAULT 'sent',
+              dangerous INTEGER DEFAULT 0,
+              danger_reasons TEXT DEFAULT '[]',
+              result_summary TEXT,
+              created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+              FOREIGN KEY (snippet_id) REFERENCES server_snippets(id) ON DELETE SET NULL
+          )
+        `);
+      } catch (err) {
+        logger.error('Server Snippets 迁移失败:', err.message);
+      }
+
       // Music Settings 迁移: 创建 music_settings 表存储 Cookie
       try {
         const musicTables = this.db

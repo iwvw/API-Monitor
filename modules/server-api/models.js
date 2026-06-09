@@ -6,6 +6,12 @@ const dbService = require('../../src/db/database');
 const { getStatement } = require('../../src/db/statements');
 const { v4: uuidv4 } = require('uuid');
 const { encrypt, decrypt } = require('../../src/utils/encryption');
+const {
+  detectDangerousCommand,
+  normalizeSnippet,
+  renderCommandTemplate,
+  serializeList,
+} = require('./command-utils');
 
 // 获取数据库实例
 const getDb = () => dbService.getDatabase();
@@ -582,37 +588,160 @@ class ServerCredential {
  * ServerSnippet 模型 - 代码片段管理
  */
 class ServerSnippet {
-  static getAll() {
-    const stmt = getDb().prepare('SELECT * FROM server_snippets ORDER BY category, title ASC');
-    return stmt.all();
+  static getAll(filters = {}) {
+    let sql = 'SELECT * FROM server_snippets WHERE 1=1';
+    const params = [];
+
+    if (filters.category) {
+      sql += ' AND category = ?';
+      params.push(filters.category);
+    }
+    if (filters.platform && filters.platform !== 'all') {
+      sql += " AND (platform = 'all' OR platform = ?)";
+      params.push(filters.platform);
+    }
+    if (filters.favorite !== undefined) {
+      sql += ' AND favorite = ?';
+      params.push(filters.favorite ? 1 : 0);
+    }
+    if (filters.q) {
+      sql += ' AND (title LIKE ? OR content LIKE ? OR description LIKE ? OR tags LIKE ?)';
+      const q = `%${filters.q}%`;
+      params.push(q, q, q, q);
+    }
+
+    sql += ' ORDER BY favorite DESC, category ASC, run_count DESC, title ASC';
+    const stmt = getDb().prepare(sql);
+    return stmt.all(...params).map(row => normalizeSnippet(row));
   }
 
   static create(data) {
     const now = new Date().toISOString();
     const stmt = getDb().prepare(`
-            INSERT INTO server_snippets (title, content, category, description, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO server_snippets (
+              title, content, category, platform, tags, favorite, description,
+              is_builtin, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
     const result = stmt.run(
       data.title,
       data.content,
       data.category || 'common',
+      data.platform || 'all',
+      serializeList(data.tags),
+      data.favorite ? 1 : 0,
       data.description || null,
+      data.is_builtin ? 1 : 0,
       now,
       now
     );
-    return { id: result.lastInsertRowid, ...data, created_at: now, updated_at: now };
+    return this.getById(result.lastInsertRowid);
+  }
+
+  static getById(id) {
+    const stmt = getDb().prepare('SELECT * FROM server_snippets WHERE id = ?');
+    const row = stmt.get(id);
+    return row ? normalizeSnippet(row) : null;
   }
 
   static update(id, data) {
+    const existing = this.getById(id);
+    if (!existing) return false;
+
     const now = new Date().toISOString();
     const stmt = getDb().prepare(`
             UPDATE server_snippets
-            SET title = ?, content = ?, category = ?, description = ?, updated_at = ?
+            SET title = ?, content = ?, category = ?, platform = ?, tags = ?,
+                favorite = ?, description = ?, updated_at = ?
             WHERE id = ?
         `);
-    const result = stmt.run(data.title, data.content, data.category, data.description, now, id);
+    const result = stmt.run(
+      data.title !== undefined ? data.title : existing.title,
+      data.content !== undefined ? data.content : existing.content,
+      data.category !== undefined ? data.category : existing.category,
+      data.platform !== undefined ? data.platform : existing.platform || 'all',
+      data.tags !== undefined ? serializeList(data.tags) : serializeList(existing.tags),
+      data.favorite !== undefined ? (data.favorite ? 1 : 0) : (existing.favorite ? 1 : 0),
+      data.description !== undefined ? data.description : existing.description,
+      now,
+      id
+    );
     return result.changes > 0;
+  }
+
+  static markUsed(id) {
+    const stmt = getDb().prepare(`
+      UPDATE server_snippets
+      SET run_count = COALESCE(run_count, 0) + 1,
+          last_used_at = ?,
+          updated_at = ?
+      WHERE id = ?
+    `);
+    const now = new Date().toISOString();
+    return stmt.run(now, now, id).changes > 0;
+  }
+
+  static render(id, variables = {}) {
+    const snippet = this.getById(id);
+    if (!snippet) return null;
+    const rendered = renderCommandTemplate(snippet.content, variables);
+    const danger = detectDangerousCommand(rendered);
+    return {
+      snippet,
+      rendered,
+      dangerous: danger.dangerous,
+      dangerReasons: danger.reasons,
+    };
+  }
+
+  static addHistory(data) {
+    const danger = detectDangerousCommand(data.rendered_command || data.command);
+    const stmt = getDb().prepare(`
+      INSERT INTO server_command_history (
+        snippet_id, server_id, server_name, command, rendered_command,
+        execution_mode, status, dangerous, danger_reasons, result_summary, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const now = new Date().toISOString();
+    const result = stmt.run(
+      data.snippet_id || null,
+      data.server_id || null,
+      data.server_name || null,
+      data.command || '',
+      data.rendered_command || data.command || '',
+      data.execution_mode || 'terminal',
+      data.status || 'sent',
+      danger.dangerous ? 1 : 0,
+      JSON.stringify(danger.reasons),
+      data.result_summary || null,
+      now
+    );
+    if (data.snippet_id) this.markUsed(data.snippet_id);
+    return { id: result.lastInsertRowid, ...data, created_at: now };
+  }
+
+  static getHistory(options = {}) {
+    const limit = Math.min(Number(options.limit || 50), 200);
+    const params = [];
+    let sql = 'SELECT * FROM server_command_history WHERE 1=1';
+    if (options.serverId) {
+      sql += ' AND server_id = ?';
+      params.push(options.serverId);
+    }
+    sql += ' ORDER BY created_at DESC LIMIT ?';
+    params.push(limit);
+    return getDb().prepare(sql).all(...params).map(row => ({
+      ...row,
+      dangerous: Boolean(row.dangerous),
+      danger_reasons: (() => {
+        try {
+          return JSON.parse(row.danger_reasons || '[]');
+        } catch {
+          return [];
+        }
+      })(),
+    }));
   }
 
   static delete(id) {
@@ -930,6 +1059,41 @@ function runMigrations() {
       db.exec('ALTER TABLE server_accounts ADD COLUMN expires_at DATETIME');
       console.log('[Models] migration: added server_accounts.expires_at column');
     }
+
+    const snippetTableInfo = db.prepare('PRAGMA table_info(server_snippets)').all();
+    const snippetColumns = snippetTableInfo.map(col => col.name);
+    const addSnippetColumn = (name, sql) => {
+      if (!snippetColumns.includes(name)) {
+        db.exec(sql);
+        console.log(`[Models] migration: added server_snippets.${name} column`);
+      }
+    };
+    if (snippetColumns.length > 0) {
+      addSnippetColumn('platform', "ALTER TABLE server_snippets ADD COLUMN platform TEXT DEFAULT 'all'");
+      addSnippetColumn('tags', "ALTER TABLE server_snippets ADD COLUMN tags TEXT DEFAULT '[]'");
+      addSnippetColumn('favorite', 'ALTER TABLE server_snippets ADD COLUMN favorite INTEGER DEFAULT 0');
+      addSnippetColumn('run_count', 'ALTER TABLE server_snippets ADD COLUMN run_count INTEGER DEFAULT 0');
+      addSnippetColumn('last_used_at', 'ALTER TABLE server_snippets ADD COLUMN last_used_at DATETIME');
+      addSnippetColumn('is_builtin', 'ALTER TABLE server_snippets ADD COLUMN is_builtin INTEGER DEFAULT 0');
+    }
+
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS server_command_history (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          snippet_id INTEGER,
+          server_id TEXT,
+          server_name TEXT,
+          command TEXT NOT NULL,
+          rendered_command TEXT NOT NULL,
+          execution_mode TEXT DEFAULT 'terminal',
+          status TEXT DEFAULT 'sent',
+          dangerous INTEGER DEFAULT 0,
+          danger_reasons TEXT DEFAULT '[]',
+          result_summary TEXT,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (snippet_id) REFERENCES server_snippets(id) ON DELETE SET NULL
+      )
+    `);
   } catch (error) {
     console.error('[Models] 迁移失败:', error.message);
   }

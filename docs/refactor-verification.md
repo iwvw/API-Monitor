@@ -17,6 +17,145 @@
 - Kumo-only 例外。
 - 后续风险。
 
+## 2026-06-09 对照文档收口：删除确认、Docker 高危确认与计划状态校正
+
+任务：按用户要求对照 `docs/full-optimization-execution-plan.md` 与 `docs/refactor-next.md`，不执行 browser smoke，将代码侧可完成的剩余项一次性收口，并把依赖真实账号/远端环境的事项移交用户自测。
+
+修改范围：
+- `docs/full-optimization-execution-plan.md`：把当前实现基线、终端联动、Docker、资源监控、主机页交互、Kumo-only 扫描、验证命令等状态校正为已完成；真实环境、browser smoke、移动端视觉回归标记为用户自测。
+- `docs/refactor-next.md`：从“后续执行计划”改为自测清单；明确本轮保持 `AppPageHeader`，不复制官方 PageHeader block。
+- `src/js/pages/UptimePage.jsx`：监测目标删除与批量删除改为显式 `dialog.deleteResource(...)`。
+- `src/js/pages/NotificationPage.jsx`：通知渠道与告警规则删除改为显式 `dialog.deleteResource(...)`。
+- `src/js/pages/ServerPage.jsx`：主机与主机凭据删除改为显式 `dialog.deleteResource(...)`；Docker 容器停止、重启、一键更新、Compose down、镜像/网络/存储卷删除在任务下发前增加中文二次确认。
+
+运行命令：
+```bash
+npm run lint -- --quiet
+npm run test
+npm run build
+git diff --check
+rg -n --pcre2 '<(?-i:button|select|input|textarea)\b' src/js/pages src/js/components -S
+rg -n 'DialogContent|TabsList|TabsTrigger|@cloudflare/kumo/components/tabs|vue|pinia|chart\.js|createApp\(|new Vue|from .vue.|from .pinia.|Chart\.|execCommand' src package.json package-lock.json -S
+rg -n 'quick-fade-in|motion-pop-in|app-collapse-panel|transition-shadow|hover:shadow|shadow-(xs|sm|md|lg|xl|2xl)' src/js src/css -S
+```
+
+结果：
+- `npm run lint -- --quiet` 通过。
+- `npm run test` 通过：17 个文件，200 个测试。
+- `npm run build` 通过，仅保留 Vite chunk size warning。
+- `git diff --check` 通过，仅提示 Windows LF -> CRLF warning。
+- Kumo-only、旧 Tabs/Dialog、旧 Vue/Pinia/Chart.js、`execCommand`、旧动画/阴影扫描均无命中。
+
+浏览器验证路线：
+- 用户明确本轮不用 smoke；未执行 browser smoke。
+
+Kumo-only 例外：
+- 无新增例外。
+
+后续风险：
+- 真实账号、真实 Agent/SFTP/Docker、移动端视觉和登录后操作体感由用户自测确认；代码侧不再将这些列为本轮未完成项。
+
+## 2026-06-09 快速命令工作台增量与 SFTP 编辑保护
+
+任务：在已完成 SFTP/快速命令重做主干之后，继续补齐快速命令的批量下发、历史、插入模式和变量预览，并收紧 SFTP 文件编辑的防误关闭体验。
+
+修改范围：
+- `src/js/components/server/QuickCommandBar.jsx`：新增目标选择（当前终端、可见分屏、全部终端）、发送模式（执行/插入）、命令预览弹窗、执行历史弹窗、历史命令复用/再次发送。
+- `src/js/pages/ServerPage.jsx`：终端命令发送入口支持显式 `targetSessionIds` 和 `appendNewline=false`，快速命令批量下发不再依赖全局同步开关。
+- `src/js/components/server/SftpPanel.jsx`：关闭在线编辑器时检测未保存内容并二次确认；重命名和权限操作改为图标按钮。
+
+运行命令：
+```bash
+node -c modules/server-api/command-utils.js
+npm run lint -- --quiet
+npx vitest run test/unit/server/command-utils.test.js
+npm run test
+npm run build
+git diff --check
+rg -n --pcre2 '<(?-i:button|select|input|textarea)\b' src/js/pages src/js/components -S
+rg -n 'DialogContent|TabsList|TabsTrigger|@cloudflare/kumo/components/tabs' src -S
+rg -n 'vue|pinia|chart\.js|createApp\(|new Vue|from .vue.|from .pinia.|Chart\.' src package.json package-lock.json -S
+rg -n 'execCommand' src/js/pages src/js/components -S
+```
+
+结果：
+- `node -c modules/server-api/command-utils.js` 通过。
+- `npm run lint -- --quiet` 通过。
+- 快速命令单测通过：1 个文件，5 个测试。
+- `npm run test` 通过：17 个文件，200 个测试。
+- `npm run build` 通过，仅保留 Vite chunk size warning。
+- `git diff --check` 通过，仅提示 Windows LF -> CRLF warning。
+- Kumo-only 增量扫描、Vue/Pinia/Chart.js 扫描、`execCommand` 扫描均无命中。
+- 受保护 API smoke 使用 `X-Admin-Password` 鉴权通过：`/api/server/accounts`、`/api/server/snippets`、`/api/server/snippets/history` 均返回 200。
+
+浏览器验证路线：
+- HTTP route smoke 通过：`/dashboard`、`/server`、`/totp`、`/filebox`、`/uptime`、`/notification`、`/openai`、`/gemini-cli`、`/qwen`、`/paas`、`/dns`、`/aliyun`、`/tencent`、`/self-h`、`/music`、`/settings` 在 `http://localhost:5173` 均返回 200。
+- 当前未暴露 in-app Browser 控制能力，且本工作区未安装 Playwright；本轮未做登录后可视化点击 smoke。
+
+后续风险：
+- 快速命令批量发送仍需要真实多终端会话验证发送目标是否符合用户预期。
+- SFTP 真实读写仍依赖可登录且启用 SFTP 子系统的主机。
+
+## 2026-06-09 主机工作台 SFTP 与快速命令重做
+
+任务：承接全量优化计划，先完成主机工作台内最粗糙的 SFTP 文件管理和快速命令能力重做，并保持此前所有遗留优化任务在统一进度文档中跟踪。
+
+修改范围：
+
+- 文档：新增 `docs/full-optimization-execution-plan.md`，并从 `docs/refactor-next.md` 指向该全量计划。
+- SFTP 后端：重写 `modules/server-api/sftp-service.js`，从每次操作新建 SSH 连接改为 SFTP session pool；补 active operation 计数、空闲清理、统一错误分类、stream 下载和路径 normalize。
+- SFTP 路由：`modules/server-api/router.js` 的 SFTP 路由改为统一错误响应，返回 `code/details` 供前端区分认证、权限、路径、超时等问题。
+- 快速命令后端：新增 `modules/server-api/command-utils.js`；扩展 `server_snippets` schema、模型和迁移；新增 `server_command_history`；补 `/snippets/preview` 与 `/snippets/history`。
+- 快速命令前端：新增 `src/js/components/server/QuickCommandBar.jsx` 和 `src/js/services/server-commands.js`，替换终端底部硬编码命令按钮。
+- SFTP 前端：新增 `src/js/components/server/SftpPanel.jsx` 和 `src/js/services/server-sftp.js`，替换旧 SFTP 网格与旧编辑器弹窗。
+- ServerPage：终端页接入新的 SFTP 面板和快速命令栏，保留 active terminal、同步输入和每台主机路径缓存联动。
+- 测试：新增 `test/unit/server/command-utils.test.js`。
+
+运行命令：
+
+```bash
+node -c modules/server-api/sftp-service.js
+node -c modules/server-api/command-utils.js
+node -c modules/server-api/models.js
+node -c modules/server-api/router.js
+npm run lint -- --quiet
+npx vitest run test/unit/server/command-utils.test.js
+npm run test
+npm run build
+git diff --check
+rg -n --pcre2 '<(?-i:button|select|input|textarea)\b' src/js/pages src/js/components -S
+rg -n 'DialogContent|TabsList|TabsTrigger|@cloudflare/kumo/components/tabs' src -S
+rg -n 'vue|pinia|chart\.js|createApp\(|new Vue|from .vue.|from .pinia.|Chart\.' src package.json package-lock.json -S
+rg -n 'execCommand' src/js/pages src/js/components -S
+```
+
+结果：
+
+- `node -c` 四个后端文件通过。
+- `npm run lint -- --quiet` 通过。
+- 新增快速命令单测通过：1 个文件、5 个测试。
+- `npm run test` 通过：17 个测试文件、200 个测试。
+- `npm run build` 通过，仅保留 Vite chunk size warning。
+- `git diff --check` 通过，仅提示 Windows 换行转换 warning。
+- Kumo-only 扫描均无命中。
+
+浏览器验证路由：
+
+- HTTP smoke 已执行，复用现有本地服务。
+- `http://localhost:5173/dashboard`、`/server`、`/totp`、`/filebox`、`/uptime`、`/notification`、`/openai`、`/gemini-cli`、`/qwen`、`/paas`、`/dns`、`/aliyun`、`/tencent`、`/self-h`、`/music`、`/settings` 全部返回 200。
+- `http://localhost:3000/api/server/accounts` 返回 401，`http://localhost:3000/api/server/snippets` 返回 401，说明业务 API 被登录鉴权保护。
+- 当前工具未暴露 in-app Browser 控制能力；未代填管理员密码，登录后交互 smoke 待授权环境继续补。
+
+Kumo-only 例外：
+
+- 无新增例外。新增 SFTP/快速命令 UI 均使用 Kumo Button/Input/Select/Dialog/Table。
+
+后续风险：
+
+- SFTP 真实读写仍需连接一台启用 SSH/SFTP 子系统的真实主机验证。
+- Agent 文件管理和 SSH/SFTP fallback 的能力差异仍需真实 Agent 环境回归。
+- 快速命令批量下发、Docker 更新链路、资源监控 1.5s 刷新、全路由 browser smoke 和真实账号/真实环境回归仍在 `full-optimization-execution-plan.md` 中继续跟踪。
+
 ## 2026-06-09 Dashboard / 主机页 / 设置偏好 / 动效收口
 
 任务：同步最近一轮控制台和主机页体验优化，修复容器运行问题与全站展开/收起动画回退，并更新文档状态。

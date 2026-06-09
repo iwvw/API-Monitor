@@ -371,7 +371,11 @@ function NotificationPage() {
   };
 
   const handleDeleteChannel = async (id) => {
-    if (!(await dialog.confirm('确定要删除此通知渠道吗？该操作不可逆！'))) return;
+    const channel = notificationChannels.find(item => item.id === id);
+    if (!(await dialog.deleteResource({
+      resourceType: '通知渠道',
+      resourceName: channel?.name || `#${id}`,
+    }))) return;
     try {
       const res = await fetch(`/api/notification/channels/${id}`, {
         method: 'DELETE',
@@ -527,7 +531,11 @@ function NotificationPage() {
   };
 
   const handleDeleteRule = async (id) => {
-    if (!(await dialog.confirm('确定要删除此告警规则吗？'))) return;
+    const rule = notificationRules.find(item => item.id === id);
+    if (!(await dialog.deleteResource({
+      resourceType: '告警规则',
+      resourceName: rule?.name || `#${id}`,
+    }))) return;
     try {
       const res = await fetch(`/api/notification/rules/${id}`, {
         method: 'DELETE',

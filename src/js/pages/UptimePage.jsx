@@ -739,7 +739,11 @@ function UptimePage() {
   };
 
   const handleDeleteMonitor = async (id) => {
-    if (!(await dialog.confirm('确定要删除此监测目标吗？'))) return;
+    const monitor = uptimeMonitors.find(item => item.id === id);
+    if (!(await dialog.deleteResource({
+      resourceType: '监测目标',
+      resourceName: monitor?.name || `#${id}`,
+    }))) return;
     try {
       const res = await fetch(`/api/uptime/monitors/${id}`, {
         method: 'DELETE',
@@ -782,7 +786,11 @@ function UptimePage() {
 
   const handleBatchDelete = async () => {
     if (selectedMonitorIds.length === 0) return;
-    if (!(await dialog.confirm(`确定要删除选中的 ${selectedMonitorIds.length} 个监测目标吗？`))) return;
+    if (!(await dialog.deleteResource({
+      resourceType: '监测目标',
+      resourceName: `选中的 ${selectedMonitorIds.length} 个监测目标`,
+      confirmText: '批量删除',
+    }))) return;
 
     try {
       const res = await fetch('/api/uptime/monitors/batch-delete', {

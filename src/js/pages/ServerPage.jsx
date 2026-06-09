@@ -14,6 +14,8 @@ import { Table } from '@cloudflare/kumo/components/table';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import { AnimatedCollapse, DeferredRender } from '../components/AnimatedCollapse.jsx';
 import CountryFlag from '../components/CountryFlag.jsx';
+import QuickCommandBar from '../components/server/QuickCommandBar.jsx';
+import SftpPanel from '../components/server/SftpPanel.jsx';
 import {
   ChartBoundaryBox,
   ChartWarmupSkeleton,
@@ -1235,7 +1237,6 @@ function ServerPage() {
   const [draggedSessionId, setDraggedSessionId] = useState(null);
   const [dropHint, setDropHint] = useState('');
   const [dropTargetId, setDropTargetId] = useState(null);
-  const [quickCommandInput, setQuickCommandInput] = useState('');
   
   // 终端侧边栏控制
   const [showSftpSidebar, setShowSftpSidebar] = useState(false);
@@ -1244,16 +1245,8 @@ function ServerPage() {
   const [sshIdeFullscreen, setSshIdeFullscreen] = useState(false);
   
   // SFTP 状态
-  const [sftpFiles, setSftpFiles] = useState([]);
   const [sftpCurrentPath, setSftpCurrentPath] = useState('/');
-  const [sftpBreadcrumbs, setSftpBreadcrumbs] = useState([]);
-  const [sftpLoading, setSftpLoading] = useState(false);
-  const [sftpError, setSftpError] = useState('');
   const [sftpServerId, setSftpServerId] = useState('');
-  const [sftpUploading, setSftpUploading] = useState(false);
-  const [showSftpEditorModal, setShowSftpEditorModal] = useState(false);
-  const [sftpEditFile, setSftpEditFile] = useState(null);
-  const [sftpSaving, setSftpSaving] = useState(false);
   
   // 凭据编辑/新增
   const [showAddCredentialModal, setShowAddCredentialModal] = useState(false);
@@ -1272,7 +1265,6 @@ function ServerPage() {
   const warehouseRef = useRef(null);
   const serverModalPortalRef = useRef(null);
   const credentialModalPortalRef = useRef(null);
-  const sftpUploadInputRef = useRef(null);
   const dockerTaskStreamRef = useRef(null);
   const terminalResizeTimers = useRef({});
   const socketRef = useRef(null);
@@ -2205,7 +2197,11 @@ function ServerPage() {
   };
   
   const deleteServer = async (serverId) => {
-    if (!(await dialog.confirm('确定要删除这台主机吗？此操作不可逆！'))) return;
+    const server = serverList.find(item => item.id === serverId);
+    if (!(await dialog.deleteResource({
+      resourceType: '主机',
+      resourceName: server?.name || server?.host || `#${serverId}`,
+    }))) return;
     try {
       const response = await fetch(`/api/server/accounts/${serverId}`, { method: 'DELETE' });
       const data = await response.json();
@@ -2829,7 +2825,11 @@ function ServerPage() {
   };
   
   const deleteCredential = async (id) => {
-    if (!(await dialog.confirm('确定要删除此凭据吗？'))) return;
+    const credential = serverCredentials.find(item => item.id === id);
+    if (!(await dialog.deleteResource({
+      resourceType: '主机凭据',
+      resourceName: credential?.name || credential?.username || `#${id}`,
+    }))) return;
     try {
       const response = await fetch(`/api/server/credentials/${id}`, { method: 'DELETE' });
       const data = await response.json();
@@ -3030,10 +3030,56 @@ function ServerPage() {
     }
   };
   
+  const getDockerTaskConfirmation = (action, payload = {}) => {
+    const targetName = payload.containerName || payload.image || payload.name || payload.project || payload.containerId || 'Docker 资源';
+    const confirmations = {
+      'container.stop': {
+        title: '停止容器',
+        message: `确定要停止容器 ${targetName} 吗？正在运行的服务会中断。`,
+        confirmText: '停止',
+        variant: 'danger',
+      },
+      'container.restart': {
+        title: '重启容器',
+        message: `确定要重启容器 ${targetName} 吗？服务会短暂中断。`,
+        confirmText: '重启',
+        variant: 'danger',
+      },
+      'container.update': {
+        title: '一键更新容器',
+        message: `确定要更新容器 ${targetName} 吗？该操作会拉取镜像并重建容器。`,
+        confirmText: '开始更新',
+        variant: 'danger',
+      },
+      'compose.down': {
+        title: '停止 Compose 项目',
+        message: `确定要停止 Compose 项目 ${targetName} 吗？相关服务会中断。`,
+        confirmText: '停止项目',
+        variant: 'danger',
+      },
+    };
+
+    if (['image.remove', 'network.remove', 'volume.remove'].includes(action)) {
+      return {
+        deleteResource: true,
+        resourceType: action === 'image.remove' ? 'Docker 镜像' : action === 'network.remove' ? 'Docker 网络' : 'Docker 存储卷',
+        resourceName: targetName,
+      };
+    }
+
+    return confirmations[action] || null;
+  };
+
   const submitDockerTask = async (action, payload = {}) => {
     const serverId = payload.serverId || dockerSelectedServer;
     if (!serverId) {
       toast.warning('请先选择一台主机');
+      return;
+    }
+    const confirmation = getDockerTaskConfirmation(action, payload);
+    if (confirmation?.deleteResource) {
+      if (!(await dialog.deleteResource(confirmation))) return;
+    } else if (confirmation && !(await dialog.confirm(confirmation))) {
       return;
     }
     try {
@@ -3212,14 +3258,19 @@ function ServerPage() {
     if (!serverId) return;
     const lastPath = sftpPathByServerRef.current[serverId] || '.';
     if (sftpServerId === serverId && sftpCurrentPath === lastPath) return;
-    loadSftpDirectory(serverId, lastPath);
+    setSftpServerId(serverId);
+    setSftpCurrentPath(lastPath);
   };
 
-  const sendTerminalCommand = (sessionId, command) => {
+  const sendTerminalCommand = (sessionId, command, options = {}) => {
     const text = String(command || '').trim();
     if (!sessionId || !text) return;
 
-    const payload = `${text}\r`;
+    const targetIds = Array.isArray(options.targetSessionIds) && options.targetSessionIds.length > 0
+      ? options.targetSessionIds
+      : [sessionId];
+    const appendNewline = options.appendNewline !== false;
+    const payload = appendNewline ? `${text}\r` : text;
     const sendToSession = (targetId) => {
       const target = sshSessionRefs.current[targetId];
       if (target?.ws?.readyState === WebSocket.OPEN) {
@@ -3228,17 +3279,16 @@ function ServerPage() {
       }
     };
 
-    sendToSession(sessionId);
-    if (sshSyncEnabledRef.current && visibleSessionIdsRef.current.includes(sessionId)) {
+    targetIds.forEach(sendToSession);
+    if (targetIds.length === 1 && appendNewline && sshSyncEnabledRef.current && visibleSessionIdsRef.current.includes(sessionId)) {
       visibleSessionIdsRef.current.forEach(targetId => {
         if (targetId !== sessionId) sendToSession(targetId);
       });
     }
   };
 
-  const runQuickCommand = (command) => {
-    sendTerminalCommand(activeSSHSessionId, command);
-    setQuickCommandInput('');
+  const runQuickCommand = (command, options = {}) => {
+    sendTerminalCommand(activeSSHSessionId, command, options);
   };
 
   const getTerminalLayoutForSessionIds = (ids, preferredLayout = sshViewLayout) => {
@@ -3571,124 +3621,6 @@ function ServerPage() {
 
     const nextWs = createSSHSocket(sessionId, session.sessionMeta, session.terminal);
     session.ws = nextWs;
-  };
-  
-  // -------------------- SFTP 文件管理系统 --------------------
-  
-  const loadSftpDirectory = async (serverId, path = '.') => {
-    setSftpLoading(true);
-    setSftpError('');
-    try {
-      const response = await fetch('/api/server/sftp/list', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ serverId, path })
-      });
-      const data = await response.json();
-      if (data.success) {
-        setSftpFiles(data.data || []);
-        setSftpCurrentPath(data.path);
-        setSftpServerId(serverId);
-        sftpPathByServerRef.current[serverId] = data.path;
-        
-        // 构建路径导航
-        const parts = data.path.split('/').filter(Boolean);
-        const crumbs = [{ name: '/', path: '/' }];
-        let cur = '';
-        parts.forEach(p => {
-          cur += '/' + p;
-          crumbs.push({ name: p, path: cur });
-        });
-        setSftpBreadcrumbs(crumbs);
-      } else {
-        setSftpError(data.error || '加载 SFTP 目录失败');
-      }
-    } catch (e) {
-      setSftpError('请求失败: ' + e.message);
-    } finally {
-      setSftpLoading(false);
-    }
-  };
-  
-  const handleSftpFileClick = (file) => {
-    if (file.isDirectory) {
-      loadSftpDirectory(sftpServerId, file.path);
-    } else {
-      openSftpFile(file);
-    }
-  };
-  
-  const openSftpFile = async (file) => {
-    try {
-      const res = await fetch('/api/server/sftp/read', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ serverId: sftpServerId, path: file.path })
-      });
-      const data = await res.json();
-      if (data.success) {
-        setSftpEditFile({
-          path: file.path,
-          name: file.name,
-          content: data.data,
-          originalContent: data.data
-        });
-        setShowSftpEditorModal(true);
-      }
-    } catch (e) {
-      toast.error('读取文件失败');
-    }
-  };
-  
-  const saveSftpEditedFile = async () => {
-    if (!sftpEditFile) return;
-    setSftpSaving(true);
-    try {
-      const res = await fetch('/api/server/sftp/write', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          serverId: sftpServerId,
-          path: sftpEditFile.path,
-          content: sftpEditFile.content
-        })
-      });
-      const data = await res.json();
-      if (data.success) {
-        toast.success('文件保存成功');
-        setShowSftpEditorModal(false);
-        loadSftpDirectory(sftpServerId, sftpCurrentPath);
-      }
-    } catch (e) {
-      toast.error('保存文件异常');
-    } finally {
-      setSftpSaving(false);
-    }
-  };
-  
-  const handleSftpUpload = async (e) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-    setSftpUploading(true);
-    
-    let ok = 0;
-    for (let file of files) {
-      const fd = new FormData();
-      fd.append('serverId', sftpServerId);
-      fd.append('path', sftpCurrentPath);
-      fd.append('file', file);
-      try {
-        const res = await fetch('/api/server/sftp/upload', { method: 'POST', body: fd });
-        const d = await res.json();
-        if (d.success) ok++;
-      } catch (err) {
-        console.error(err);
-      }
-    }
-    setSftpUploading(false);
-    e.target.value = '';
-    toast.success(`成功上传 ${ok} 个文件`);
-    loadSftpDirectory(sftpServerId, sftpCurrentPath);
   };
   
   // -------------------- 拖拽放置分屏逻辑 --------------------
@@ -5906,11 +5838,6 @@ function ServerPage() {
             color: terminalGpuColor,
           },
         ];
-        const isWindowsTerminal = String(activeInfo.platform || activeServer?.platform || '').toLowerCase().includes('win');
-        const quickCommands = isWindowsTerminal
-          ? ['dir', 'ipconfig', 'Get-Process | Select-Object -First 10', 'Get-Location']
-          : ['pwd', 'ls -la', 'df -h', 'docker ps'];
-
         return (
           <div className="flex min-h-0 w-full flex-1 flex-col overflow-hidden app-card">
             <div className="flex min-h-11 items-center justify-between gap-3 border-b border-kumo-line bg-kumo-base px-3 py-2 text-xs">
@@ -6116,145 +6043,27 @@ function ServerPage() {
                   )}
                 </div>
 
-                <div className="grid shrink-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-x-2 gap-y-1.5 border-t border-kumo-line bg-kumo-base px-2.5 py-1.5 text-xs lg:grid-cols-[auto_minmax(0,1fr)_minmax(240px,320px)]">
-                  <span className="flex h-6.5 shrink-0 items-center whitespace-nowrap text-[11px] font-semibold text-kumo-subtle">快捷命令</span>
-                  <div className="-m-px min-w-0 overflow-x-auto p-px scrollbar-thin">
-                    <div className="flex min-w-max items-center gap-1.5 px-px pb-1 pt-px lg:min-w-0">
-                      {quickCommands.map(command => (
-                        <Button
-                          key={command}
-                          type="button"
-                          size="sm"
-                          variant="outline"
-                          onClick={() => runQuickCommand(command)}
-                          disabled={!activeSSHSessionId}
-                          className="shrink-0"
-                          title={command}
-                        >
-                          <span className="block max-w-36 truncate font-mono">{command}</span>
-                        </Button>
-                      ))}
-                    </div>
-                  </div>
-                  <form
-                    className="col-span-2 flex min-w-0 items-center gap-1.5 lg:col-span-1"
-                    onSubmit={event => {
-                      event.preventDefault();
-                      const command = quickCommandInput.trim();
-                      if (command) runQuickCommand(command);
-                    }}
-                  >
-                    <Input
-                      size="sm"
-                      aria-label="自定义快捷命令"
-                      value={quickCommandInput}
-                      onChange={event => setQuickCommandInput(event.target.value)}
-                      placeholder="输入命令"
-                      className="min-w-0 flex-1 font-mono"
-                    />
-                    <Button
-                      type="submit"
-                      size="sm"
-                      variant="primary"
-                      icon={<Send className="h-3.5 w-3.5" />}
-                      className="shrink-0"
-                      disabled={!activeSSHSessionId || !quickCommandInput.trim()}
-                    >
-                      执行
-                    </Button>
-                  </form>
-                </div>
+                <QuickCommandBar
+                  activeServer={activeServer}
+                  activeSessionId={activeSSHSessionId}
+                  sessions={sshSessions}
+                  visibleSessionIds={visibleSessionIds}
+                  syncEnabled={sshSyncEnabled}
+                  onRunCommand={(command, options) => runQuickCommand(command, options)}
+                />
 
                 {showSftpSidebar && (
-                  <div className="h-56 shrink-0 border-t border-kumo-line bg-kumo-base p-3 text-xs">
-                    <div className="mb-2 flex items-center justify-between gap-2">
-                      <div className="flex min-w-0 items-center gap-2">
-                        <FolderOpen className="h-4 w-4 text-kumo-subtle" />
-                        <span className="font-bold text-kumo-strong">SFTP</span>
-                        <span className="truncate font-mono text-[10px] text-kumo-subtle">{sftpCurrentPath}</span>
-                      </div>
-                      <div className="flex shrink-0 items-center gap-1.5">
-                        <Button
-                          type="button"
-                          size="sm"
-                          variant="secondary"
-                          icon={<Upload className="h-3.5 w-3.5" />}
-                          onClick={() => sftpUploadInputRef.current?.click()}
-                          disabled={!sftpServerId || sftpUploading}
-                        >
-                          上传
-                        </Button>
-                        <Input
-                          ref={sftpUploadInputRef}
-                          size="sm"
-                          aria-label="上传 SFTP 文件"
-                          type="file"
-                          className="hidden"
-                          onChange={handleSftpUpload}
-                          multiple
-                        />
-                        <Button
-                          size="sm"
-                          variant="secondary"
-                          icon={<RefreshCw className="h-3.5 w-3.5" />}
-                          onClick={() => loadSftpDirectory(sftpServerId, sftpCurrentPath)}
-                          loading={sftpLoading || sftpUploading}
-                        >
-                          刷新
-                        </Button>
-                        <Button
-                          shape="square" size="sm"
-                          variant="ghost"
-                          icon={<X className="h-3 w-3" />}
-                          aria-label="关闭 SFTP"
-                          title="关闭 SFTP"
-                          onClick={() => setShowSftpSidebar(false)}
-                        />
-                      </div>
-                    </div>
-                    <div className="mb-2 flex items-center gap-1.5 overflow-x-auto whitespace-nowrap text-[10px] scrollbar-thin">
-                      {sftpBreadcrumbs.map((crumb, idx) => (
-                        <React.Fragment key={crumb.path}>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => loadSftpDirectory(sftpServerId, crumb.path)}
-                            className="h-5 px-1 py-0 text-[10px] font-semibold text-kumo-subtle hover:text-kumo-strong"
-                          >
-                            {crumb.name}
-                          </Button>
-                          {idx < sftpBreadcrumbs.length - 1 && <span className="opacity-40">/</span>}
-                        </React.Fragment>
-                      ))}
-                    </div>
-                    <div className="grid max-h-36 grid-cols-2 gap-1.5 overflow-y-auto pr-1 scrollbar-thin md:grid-cols-4 xl:grid-cols-6">
-                      {sftpLoading ? (
-                        <div className="col-span-full py-8 text-center text-[10px] text-kumo-subtle">读取远程目录中...</div>
-                      ) : sftpError ? (
-                        <div className="col-span-full rounded-md border border-kumo-danger/30 bg-kumo-danger/10 p-2 text-[10px] text-kumo-danger">{sftpError}</div>
-                      ) : sftpFiles.length === 0 ? (
-                        <div className="col-span-full py-8 text-center text-[10px] text-kumo-subtle">当前目录为空</div>
-                      ) : (
-                        sftpFiles.map(file => (
-                          <Button
-                            key={file.path}
-                            type="button"
-                            size="sm"
-                            variant="secondary"
-                            onClick={() => handleSftpFileClick(file)}
-                            className="h-auto min-h-8 min-w-0 justify-between gap-2 px-2 py-1.5 text-left"
-                          >
-                            <span className="flex min-w-0 items-center gap-1.5">
-                              {file.isDirectory ? <Folder className="h-3.5 w-3.5 shrink-0" /> : <FileText className="h-3.5 w-3.5 shrink-0" />}
-                              <span className="truncate text-[11px] font-semibold text-kumo-strong" title={file.name}>{file.name}</span>
-                            </span>
-                            <span className="shrink-0 text-[9px] text-kumo-subtle">{file.isDirectory ? '目录' : formatFileSize(file.size)}</span>
-                          </Button>
-                        ))
-                      )}
-                    </div>
-                  </div>
+                  <SftpPanel
+                    serverId={activeServer?.id || sftpServerId}
+                    serverName={activeServer?.name}
+                    initialPath={sftpPathByServerRef.current[activeServer?.id] || sftpCurrentPath || '.'}
+                    onClose={() => setShowSftpSidebar(false)}
+                    onPathChange={(serverId, path) => {
+                      sftpPathByServerRef.current[serverId] = path;
+                      setSftpServerId(serverId);
+                      setSftpCurrentPath(path);
+                    }}
+                  />
                 )}
               </div>
 
@@ -6277,7 +6086,10 @@ function ServerPage() {
                     setShowSftpSidebar(prev => !prev);
                     if (!showSftpSidebar && activeSSHSessionId) {
                       const serverId = sshSessions.find(s => s.id === activeSSHSessionId)?.server.id;
-                      if (serverId) loadSftpDirectory(serverId, '.');
+                      if (serverId) {
+                        setSftpServerId(serverId);
+                        setSftpCurrentPath(sftpPathByServerRef.current[serverId] || '.');
+                      }
                     }
                   }}
                 />
@@ -7223,58 +7035,6 @@ function ServerPage() {
         </Dialog>
       </Dialog.Root>
 
-      {/* ==================== 模态框: SFTP 文件编辑器 ==================== */}
-      <Dialog.Root
-        open={showSftpEditorModal && Boolean(sftpEditFile)}
-        onOpenChange={(open) => {
-          if (!open) setShowSftpEditorModal(false);
-        }}
-      >
-        {sftpEditFile ? (
-          <Dialog size="sm" className="flex h-[70vh] max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 text-xs text-kumo-default sm:min-w-[48rem] sm:max-w-[calc(100vw-3rem)]">
-            <div className="flex min-w-0 items-center justify-between gap-3 bg-kumo-recessed px-4 py-3 border-b border-kumo-line">
-              <Dialog.Title className="min-w-0 truncate font-bold">在线编辑: {sftpEditFile.name}</Dialog.Title>
-              <Dialog.Close
-                aria-label="关闭"
-                render={(props) => (
-                  <Button
-                    {...props}
-                    type="button"
-                    variant="secondary"
-                    shape="square" size="sm"
-                    icon={<X className="h-3.5 w-3.5" />}
-                    aria-label="关闭"
-                    className="shrink-0"
-                  />
-                )}
-              />
-            </div>
-            
-            <div className="p-4 flex-1 flex flex-col gap-2 bg-kumo-canvas">
-              <div className="text-[10px] text-kumo-subtle font-mono truncate">{sftpEditFile.path}</div>
-              <Textarea
-                aria-label="SFTP 文件内容"
-                value={sftpEditFile.content}
-                onChange={e => setSftpEditFile(prev => ({ ...prev, content: e.target.value }))}
-                className="flex-1 w-full p-2.5 font-mono text-xs text-kumo-strong resize-none"
-                spellCheck={false}
-              />
-            </div>
-            
-            <div className="flex flex-col-reverse gap-2 border-t border-kumo-line bg-kumo-recessed px-4 py-3 sm:flex-row sm:justify-end">
-              <Button size="sm" variant="secondary" onClick={() => setShowSftpEditorModal(false)} className="w-full sm:w-auto">取消</Button>
-              <Button size="sm"
-                variant="primary"
-                onClick={saveSftpEditedFile}
-                disabled={sftpSaving}
-                className="w-full text-kumo-inverse font-bold disabled:opacity-50 sm:w-auto"
-              >
-                {sftpSaving ? '正在写入保存...' : '保存文件'}
-              </Button>
-            </div>
-          </Dialog>
-        ) : null}
-      </Dialog.Root>
     </div>
   );
 }

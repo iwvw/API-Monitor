@@ -95,3 +95,4 @@ test-*-*.js
 gha-creds-*.json
 stress-test-gcli.js
 api-monitor.code-workspace
+docs/

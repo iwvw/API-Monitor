@@ -157,8 +157,8 @@ const credentialStorage = {
  * 代码片段存储操作
  */
 const snippetStorage = {
-  getAll() {
-    return ServerSnippet.getAll();
+  getAll(filters = {}) {
+    return ServerSnippet.getAll(filters);
   },
   create(data) {
     return ServerSnippet.create(data);
