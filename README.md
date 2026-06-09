@@ -93,6 +93,12 @@ npm run build && npm start
 | `LOG_LEVEL` | `INFO` | 日志级别 (`DEBUG`, `INFO`, `WARN`, `ERROR`) |
 | `LOG_RETENTION_DAYS` | `7` | 本地日志文件保留天数 |
 | `TRUST_PROXY` | `false` | 若部署在反代后 (如 Nginx/CF)，建议设为 `true` |
+| `LOW_MEMORY_MODE` | `1` (Docker) | 小内存容器优化开关，延迟/禁用非关键重依赖 |
+| `LAZY_MODULE_ROUTES` | `1` (Docker) | 按首次请求加载非后台模块路由，降低启动 RSS |
+| `GEOIP_LOOKUP` | `0` (Docker/Fly) | 是否启用 GeoIP 国家识别；开启会加载较大的 `geoip-lite` 数据库 |
+| `JSON_BODY_LIMIT` | `5mb` (Docker) | JSON 请求体上限，小内存容器建议保持较低 |
+| `UPLOAD_MAX_FILE_SIZE_MB` | `50` (Docker) | 单文件上传上限；文件使用临时文件落盘以降低内存峰值 |
+| `NODE_OPTIONS` | `--max-old-space-size=128` (Docker) | Node.js 堆内存上限，适合 200MB 级容器 |
 | `VITE_USE_CDN` | `true` | 是否启用 CDN 加载静态资源 (构建时生效) |
 | `VITE_CDN_PROVIDER`| `npmmirror` | CDN 节点选择 (`npmmirror`, `jsdelivr`, `unpkg`, `bootcdn`) |
 

@@ -1,5 +1,36 @@
 const net = require('net');
-const geoip = require('geoip-lite');
+
+let geoip = null;
+let geoipLoadFailed = false;
+
+const truthy = new Set(['1', 'true', 'yes', 'on']);
+const falsy = new Set(['0', 'false', 'no', 'off']);
+
+function getGeoipMode() {
+  const explicit = String(process.env.GEOIP_LOOKUP || process.env.ENABLE_GEOIP || '').trim().toLowerCase();
+  if (truthy.has(explicit)) return true;
+  if (falsy.has(explicit)) return false;
+
+  // geoip-lite keeps a large binary database in external memory. In small Fly.io
+  // style containers, default it off unless explicitly enabled.
+  const lowMemoryMode = String(process.env.LOW_MEMORY_MODE || '').trim().toLowerCase();
+  if (truthy.has(lowMemoryMode) || process.env.FLY_APP_NAME) return false;
+
+  return true;
+}
+
+function getGeoip() {
+  if (!getGeoipMode() || geoipLoadFailed) return null;
+  if (geoip) return geoip;
+
+  try {
+    geoip = require('geoip-lite');
+  } catch (error) {
+    geoipLoadFailed = true;
+    return null;
+  }
+  return geoip;
+}
 
 const normalizeIp = (value = '') => {
   const first = String(value || '').split(',')[0].trim();
@@ -38,7 +69,10 @@ const lookupCountryByIp = (value) => {
     return null;
   }
 
-  const record = geoip.lookup(ip);
+  const geoipLite = getGeoip();
+  if (!geoipLite) return null;
+
+  const record = geoipLite.lookup(ip);
   const country = record?.country;
   return country ? country.toLowerCase() : null;
 };

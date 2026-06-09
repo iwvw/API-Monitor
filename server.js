@@ -52,11 +52,46 @@ app.set('trust proxy', true);
 const server = http.createServer(app);
 const PORT = process.env.PORT || 3000;
 
+const truthyEnvValues = new Set(['1', 'true', 'yes', 'on']);
+const isTruthyEnv = value => truthyEnvValues.has(String(value || '').trim().toLowerCase());
+const LOW_MEMORY_MODE = isTruthyEnv(process.env.LOW_MEMORY_MODE) || Boolean(process.env.FLY_APP_NAME);
+const JSON_BODY_LIMIT = process.env.JSON_BODY_LIMIT || (LOW_MEMORY_MODE ? '5mb' : '50mb');
+const UPLOAD_MAX_FILE_SIZE_MB =
+  Math.max(1, parseInt(process.env.UPLOAD_MAX_FILE_SIZE_MB, 10) || (LOW_MEMORY_MODE ? 50 : 100));
+
+function hashFileMd5(filePath) {
+  const crypto = require('crypto');
+  const hash = crypto.createHash('md5');
+  const fd = fs.openSync(filePath, 'r');
+  const buffer = Buffer.allocUnsafe(1024 * 1024);
+
+  try {
+    let bytesRead = 0;
+    do {
+      bytesRead = fs.readSync(fd, buffer, 0, buffer.length, null);
+      if (bytesRead > 0) {
+        hash.update(buffer.subarray(0, bytesRead));
+      }
+    } while (bytesRead > 0);
+  } finally {
+    fs.closeSync(fd);
+  }
+
+  return hash.digest('hex');
+}
+
 // 初始化 WebSocket 服务
 const logWss = logService.init(server);
 const metricsWss = metricsService.init(server);
-const sshService = require('./modules/server-api/ssh-service');
-const sshWss = sshService.init(server);
+
+let sshWss = null;
+function getSshWss() {
+  if (!sshWss) {
+    const sshService = require('./modules/server-api/ssh-service');
+    sshWss = sshService.init(server);
+  }
+  return sshWss;
+}
 
 // 初始化 Agent Socket.IO 服务
 const agentService = require('./modules/server-api/agent-service');
@@ -92,9 +127,10 @@ server.on('upgrade', (request, socket, head) => {
       metricsWss.emit('connection', ws, request);
     });
   } else if (pathname === '/ws/ssh') {
-    sshWss.handleUpgrade(request, socket, head, ws => {
+    const activeSshWss = getSshWss();
+    activeSshWss.handleUpgrade(request, socket, head, ws => {
       logger.info('[WS Upgrade] SSH 握手完成');
-      sshWss.emit('connection', ws, request);
+      activeSshWss.emit('connection', ws, request);
     });
   } else {
     // 仅针对明确属于 /ws/ 但未识别的路径进行拦截，其他路径交给系统默认处理（或超时断开）
@@ -133,7 +169,8 @@ app.use(compression({
 app.use(loggerMiddleware);
 app.use(cors(corsConfig()));
 app.use('/api', apiSecurityHeaders); // 为 API 端点设置额外安全头
-app.use(express.json({ limit: '50mb' }));
+logger.info(`请求体限制: JSON ${JSON_BODY_LIMIT}, 上传 ${UPLOAD_MAX_FILE_SIZE_MB} MB`);
+app.use(express.json({ limit: JSON_BODY_LIMIT }));
 
 // 1. 静态文件服务配置
 const staticOptions = {
@@ -178,7 +215,7 @@ if (!fs.existsSync(uploadTempDir)) {
 }
 app.use(
   fileUpload({
-    limits: { fileSize: 100 * 1024 * 1024 }, // 100MB 限制
+    limits: { fileSize: UPLOAD_MAX_FILE_SIZE_MB * 1024 * 1024 },
     abortOnLimit: true,
     createParentPath: true,
     useTempFiles: true,
@@ -230,10 +267,7 @@ app.post('/api/chat/upload-image', requireAuth, (req, res) => {
     if (image.data && image.data.length > 0) {
       hash = crypto.createHash('md5').update(image.data).digest('hex');
     } else if (image.tempFilePath && fs.existsSync(image.tempFilePath)) {
-      hash = crypto
-        .createHash('md5')
-        .update(fs.readFileSync(image.tempFilePath))
-        .digest('hex');
+      hash = hashFileMd5(image.tempFilePath);
     } else {
       hash = crypto.randomBytes(16).toString('hex');
     }

@@ -148,7 +148,13 @@ COPY --chown=nodejs:nodejs modules ./modules
 
 ENV NODE_ENV=production \
     PORT=3000 \
-    CONFIG_DIR=/app/config
+    CONFIG_DIR=/app/config \
+    LOW_MEMORY_MODE=1 \
+    LAZY_MODULE_ROUTES=1 \
+    GEOIP_LOOKUP=0 \
+    JSON_BODY_LIMIT=5mb \
+    UPLOAD_MAX_FILE_SIZE_MB=50 \
+    NODE_OPTIONS=--max-old-space-size=128
 
 EXPOSE 3000
 

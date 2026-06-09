@@ -28,6 +28,7 @@ function toCookieMap(cookieString) {
 class MusicAuthService {
   constructor() {
     this.storedCookie = '';
+    this.cookieLoaded = false;
   }
 
   loadStoredCookie() {
@@ -44,10 +45,12 @@ class MusicAuthService {
     } catch (error) {
       logger.error('Failed to load cookie from database:', error.message);
     }
+    this.cookieLoaded = true;
     return this.storedCookie;
   }
 
   getStoredCookie() {
+    if (!this.cookieLoaded) this.loadStoredCookie();
     return this.storedCookie;
   }
 
@@ -69,6 +72,7 @@ class MusicAuthService {
 
   clearCookie() {
     this.storedCookie = '';
+    this.cookieLoaded = true;
     try {
       const db = dbService.getDatabase();
       db.prepare('DELETE FROM music_settings WHERE key = ?').run('cookie');
@@ -79,6 +83,7 @@ class MusicAuthService {
   }
 
   getEffectiveCookie(reqCookieHeader) {
+    if (!this.cookieLoaded) this.loadStoredCookie();
     return this.storedCookie || reqCookieHeader || '';
   }
 

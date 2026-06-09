@@ -29,10 +29,6 @@ function getEffectiveCookie(reqCookieHeader) {
   return authService.getEffectiveCookie(reqCookieHeader);
 }
 
-// 初始化
-loadNcmApi();
-authService.loadStoredCookie();
-
 /**
  * 确保 URL 使用 HTTPS (避免混合内容问题)
  * 对于不支持 HTTPS 的 CDN，返回代理 URL
@@ -409,7 +405,7 @@ router.get('/auth/status', async (req, res) => {
 // ==================== 健康检查 ====================
 
 router.get('/health', (req, res) => {
-  const health = ncmClient.getHealth();
+  const health = ncmClient.getHealth({ load: req.query.load === 'true' });
 
   res.json({
     status: 'ok',

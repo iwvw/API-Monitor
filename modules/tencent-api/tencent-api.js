@@ -2,15 +2,23 @@
  * Tencent Cloud API 封装
  */
 
-const tencentcloud = require('tencentcloud-sdk-nodejs');
 const { createLogger } = require('../../src/utils/logger');
 const logger = createLogger('TencentAPI');
 
-// API 版本及客户端定义
-const DnspodClient = tencentcloud.dnspod.v20210323.Client;
-const CvmClient = tencentcloud.cvm.v20170312.Client;
-const LighthouseClient = tencentcloud.lighthouse.v20200324.Client;
-const MonitorClient = tencentcloud.monitor.v20180724.Client;
+let clientClasses = null;
+
+function getClientClasses() {
+    if (clientClasses) return clientClasses;
+
+    const tencentcloud = require('tencentcloud-sdk-nodejs');
+    clientClasses = {
+        dnspod: tencentcloud.dnspod.v20210323.Client,
+        cvm: tencentcloud.cvm.v20170312.Client,
+        lighthouse: tencentcloud.lighthouse.v20200324.Client,
+        monitor: tencentcloud.monitor.v20180724.Client,
+    };
+    return clientClasses;
+}
 
 const REGION_MAP = {
     'ap-guangzhou': '华南地区 (广州)',
@@ -45,7 +53,12 @@ function formatFlavor(instance) {
 /**
  * 创建客户端工具函数
  */
-function createClient(ClientClass, auth, region = 'ap-guangzhou') {
+function createClient(clientName, auth, region = 'ap-guangzhou') {
+    const ClientClass = getClientClasses()[clientName];
+    if (!ClientClass) {
+        throw new Error(`Unknown Tencent Cloud client: ${clientName}`);
+    }
+
     const clientConfig = {
         credential: {
             secretId: auth.secretId,
@@ -67,7 +80,7 @@ function createClient(ClientClass, auth, region = 'ap-guangzhou') {
  * 获取域名列表
  */
 async function listDomains(auth) {
-    const client = createClient(DnspodClient, auth);
+    const client = createClient('dnspod', auth);
     try {
         const result = await client.DescribeDomainList({});
         return {
@@ -83,7 +96,7 @@ async function listDomains(auth) {
  * 添加域名
  */
 async function addDomain(auth, domain) {
-    const client = createClient(DnspodClient, auth);
+    const client = createClient('dnspod', auth);
     try {
         const result = await client.CreateDomain({ Domain: domain });
         return result;
@@ -96,7 +109,7 @@ async function addDomain(auth, domain) {
  * 删除域名
  */
 async function deleteDomain(auth, domain) {
-    const client = createClient(DnspodClient, auth);
+    const client = createClient('dnspod', auth);
     try {
         const result = await client.DeleteDomain({ Domain: domain });
         return result;
@@ -109,7 +122,7 @@ async function deleteDomain(auth, domain) {
  * 获取解析记录
  */
 async function listDomainRecords(auth, domain) {
-    const client = createClient(DnspodClient, auth);
+    const client = createClient('dnspod', auth);
     try {
         const result = await client.DescribeRecordList({ Domain: domain });
         return {
@@ -125,7 +138,7 @@ async function listDomainRecords(auth, domain) {
  * 添加解析记录
  */
 async function addDomainRecord(auth, domain, record) {
-    const client = createClient(DnspodClient, auth);
+    const client = createClient('dnspod', auth);
     try {
         return await client.CreateRecord({
             Domain: domain,
@@ -146,7 +159,7 @@ async function addDomainRecord(auth, domain, record) {
  * 修改解析记录
  */
 async function updateDomainRecord(auth, domain, recordId, record) {
-    const client = createClient(DnspodClient, auth);
+    const client = createClient('dnspod', auth);
     try {
         return await client.ModifyRecord({
             Domain: domain,
@@ -167,7 +180,7 @@ async function updateDomainRecord(auth, domain, recordId, record) {
  * 删除解析记录
  */
 async function deleteDomainRecord(auth, domain, recordId) {
-    const client = createClient(DnspodClient, auth);
+    const client = createClient('dnspod', auth);
     try {
         return await client.DeleteRecord({
             Domain: domain,
@@ -182,7 +195,7 @@ async function deleteDomainRecord(auth, domain, recordId) {
  * 设置记录状态
  */
 async function setDomainRecordStatus(auth, domain, recordId, status) {
-    const client = createClient(DnspodClient, auth);
+    const client = createClient('dnspod', auth);
     try {
         return await client.ModifyRecordStatus({
             Domain: domain,
@@ -200,7 +213,7 @@ async function setDomainRecordStatus(auth, domain, recordId, status) {
  * 获取所有区域的 CVM 实例
  */
 async function listCvmInstances(auth, region) {
-    const client = createClient(CvmClient, auth, region);
+    const client = createClient('cvm', auth, region);
     try {
         const result = await client.DescribeInstances({});
         return result.InstanceSet || [];
@@ -227,7 +240,7 @@ async function listAllCvmInstances(auth) {
  * CVM 实例控制
  */
 async function controlCvmInstance(auth, region, instanceId, action) {
-    const client = createClient(CvmClient, auth, region);
+    const client = createClient('cvm', auth, region);
     const params = { InstanceIds: [instanceId] };
     try {
         switch (action) {
@@ -247,7 +260,7 @@ async function controlCvmInstance(auth, region, instanceId, action) {
  * 获取单个区域的轻量实例
  */
 async function listLighthouseInRegion(auth, region) {
-    const client = createClient(LighthouseClient, auth, region);
+    const client = createClient('lighthouse', auth, region);
     try {
         const result = await client.DescribeInstances({});
         return result.InstanceSet || [];
@@ -273,7 +286,7 @@ async function listAllLighthouseInstances(auth) {
  * 轻量服务器实例控制
  */
 async function controlLighthouseInstance(auth, region, instanceId, action) {
-    const client = createClient(LighthouseClient, auth, region);
+    const client = createClient('lighthouse', auth, region);
     const params = { InstanceIds: [instanceId] };
     try {
         switch (action) {
@@ -293,7 +306,7 @@ async function controlLighthouseInstance(auth, region, instanceId, action) {
  * 获取监控指标
  */
 async function getMetricData(auth, region, params) {
-    const client = createClient(MonitorClient, auth, region);
+    const client = createClient('monitor', auth, region);
     try {
         return await client.GetMonitorData(params);
     } catch (e) {

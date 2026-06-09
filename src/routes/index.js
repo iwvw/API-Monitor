@@ -76,6 +76,61 @@ function getRequestClientIp(req) {
   return req.ip || req.socket?.remoteAddress || '';
 }
 
+const envTruthy = new Set(['1', 'true', 'yes', 'on']);
+const envFalsy = new Set(['0', 'false', 'no', 'off']);
+
+function parseEnvBoolean(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (envTruthy.has(normalized)) return true;
+  if (envFalsy.has(normalized)) return false;
+  return null;
+}
+
+function shouldUseLazyModuleRoutes() {
+  const explicit = parseEnvBoolean(process.env.LAZY_MODULE_ROUTES);
+  if (explicit !== null) return explicit;
+  return parseEnvBoolean(process.env.LOW_MEMORY_MODE) === true || Boolean(process.env.FLY_APP_NAME);
+}
+
+function createLazyRouter(moduleName, routerPath) {
+  let router = null;
+  let loadError = null;
+
+  return (req, res, next) => {
+    if (!router && !loadError) {
+      try {
+        router = require(routerPath);
+        logger.success(`模块已按需加载 -> ${moduleName}`);
+      } catch (error) {
+        loadError = error;
+        logger.error(`模块按需加载失败: ${moduleName}`, error.message);
+      }
+    }
+
+    if (router) {
+      return router(req, res, next);
+    }
+
+    return res.status(503).json({
+      success: false,
+      error: `模块暂不可用: ${moduleName}`,
+    });
+  };
+}
+
+function isGeminiAutoCheckEnabled(modulesDir) {
+  try {
+    const storagePath = path.join(modulesDir, 'gemini-cli-api', 'storage.js');
+    if (!fs.existsSync(storagePath)) return false;
+    const storage = require(storagePath);
+    const settings = storage.getSettings();
+    return settings.autoCheckEnabled === '1' || settings.autoCheckEnabled === true;
+  } catch (error) {
+    logger.warn('Gemini CLI 自动检查设置读取失败:', error.message);
+    return false;
+  }
+}
+
 /**
  * 注册所有路由
  */
@@ -86,15 +141,6 @@ function registerRoutes(app) {
   app.use('/api/system', requireAuth, systemRouter);
   app.use('/api/logs', logService.router);
   app.use('/v1', v1Router);
-
-  // --- QWEN API 手动挂载 (强力修复 404) ---
-  try {
-    const qwenRouter = require('../../modules/qwen-api/router');
-    app.use('/api/qwen', qwenRouter);
-    logger.success('Qwen-API 手动挂载成功 -> /api/qwen');
-  } catch (err) {
-    logger.error('Qwen-API 手动挂载失败:', err.message);
-  }
 
   // 3. 独立认证路由 (避免干扰 /api/xxxx)
   app.use('/api/auth', authRouter);
@@ -587,6 +633,25 @@ function registerRoutes(app) {
 
   // 4. 动态加载功能模块路由
   const modulesDir = path.join(__dirname, '../../modules');
+  const lazyModuleRoutes = shouldUseLazyModuleRoutes();
+  const lazyModuleNames = new Set([
+    'aliyun-api',
+    'cloudflare-api',
+    'filebox-api',
+    'flyio-api',
+    'koyeb-api',
+    'notification-api',
+    'openai-api',
+    'openlist-api',
+    'qwen-api',
+    'server-api',
+    'tencent-api',
+    'totp-api',
+  ]);
+  if (lazyModuleRoutes && !isGeminiAutoCheckEnabled(modulesDir)) {
+    lazyModuleNames.add('gemini-cli-api');
+  }
+  const publicModuleNames = new Set(['gemini-cli-api', 'qwen-api', 'filebox-api']);
 
   // 模块路由映射配置 (精准匹配目录名)
   const moduleRouteMap = {
@@ -623,8 +688,20 @@ function registerRoutes(app) {
 
       if (fs.existsSync(routerPath)) {
         try {
-          const moduleRouter = require(routerPath);
           const routePath = moduleRouteMap[moduleName] || `/api/${moduleName.replace('-api', '')}`;
+
+          if (lazyModuleRoutes && lazyModuleNames.has(moduleName)) {
+            const lazyRouter = createLazyRouter(moduleName, routerPath);
+            if (publicModuleNames.has(moduleName)) {
+              app.use(routePath, lazyRouter);
+            } else {
+              app.use(routePath, requireAuth, lazyRouter);
+            }
+            logger.success(`模块已挂载为按需加载 -> ${moduleName} [${routePath}]`);
+            return;
+          }
+
+          const moduleRouter = require(routerPath);
 
           if (moduleRouter.publicRouter) {
             app.use(routePath, moduleRouter.publicRouter);
@@ -649,9 +726,15 @@ function registerRoutes(app) {
 
   // 5. 音乐模块路由 (代理 NCM API) - 无需认证，允许公开访问
   try {
-    const musicRouter = require('../../modules/music-api/router');
-    app.use('/api/music', musicRouter);
-    logger.success('模块已挂载 -> music-api [/api/music] (public)');
+    const musicRouterPath = path.join(modulesDir, 'music-api', 'router.js');
+    if (lazyModuleRoutes) {
+      app.use('/api/music', createLazyRouter('music-api', musicRouterPath));
+      logger.success('模块已挂载为按需加载 -> music-api [/api/music] (public)');
+    } else {
+      const musicRouter = require('../../modules/music-api/router');
+      app.use('/api/music', musicRouter);
+      logger.success('模块已挂载 -> music-api [/api/music] (public)');
+    }
   } catch (e) {
     logger.warn('音乐模块加载失败 (可选模块):', e.message);
   }

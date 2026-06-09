@@ -267,6 +267,8 @@ class SSHService {
    * @param {http.Server} server - Node.js HTTP Server
    */
   init(server) {
+    if (this.wss) return this.wss;
+
     this.wss = new WebSocketServer({ noServer: true });
 
     this.wss.on('connection', ws => {

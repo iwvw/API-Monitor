@@ -16,23 +16,52 @@ let gcliRouter = null;
 let qwenRouter = null;
 let qwenStorage = null;
 let gcliStorage = null;
+let gcliRouterLoaded = false;
+let qwenRouterLoaded = false;
+let qwenStorageLoaded = false;
+let gcliStorageLoaded = false;
 
-try {
-  const gcliPath = path.join(modulesDir, 'gemini-cli-api', 'router.js');
-  if (fs.existsSync(gcliPath)) gcliRouter = require(gcliPath);
-  
-  const qwenPath = path.join(modulesDir, 'qwen-api', 'router.js');
-  if (fs.existsSync(qwenPath)) qwenRouter = require(qwenPath);
+function loadOptionalModule(modulePath, label) {
+  try {
+    if (fs.existsSync(modulePath)) {
+      return require(modulePath);
+    }
+  } catch (error) {
+    console.error(`Failed to load ${label} for v1 aggregation:`, error.message);
+  }
+  return null;
+}
 
-  // 加载存储层用于鉴权
-  const qwenStoragePath = path.join(modulesDir, 'qwen-api', 'storage.js');
-  if (fs.existsSync(qwenStoragePath)) qwenStorage = require(qwenStoragePath);
+function getGcliRouter() {
+  if (!gcliRouterLoaded) {
+    gcliRouterLoaded = true;
+    gcliRouter = loadOptionalModule(path.join(modulesDir, 'gemini-cli-api', 'router.js'), 'Gemini CLI router');
+  }
+  return gcliRouter;
+}
 
-  const gcliStoragePath = path.join(modulesDir, 'gemini-cli-api', 'storage.js');
-  if (fs.existsSync(gcliStoragePath)) gcliStorage = require(gcliStoragePath);
+function getQwenRouter() {
+  if (!qwenRouterLoaded) {
+    qwenRouterLoaded = true;
+    qwenRouter = loadOptionalModule(path.join(modulesDir, 'qwen-api', 'router.js'), 'Qwen router');
+  }
+  return qwenRouter;
+}
 
-} catch (e) {
-  console.error('Failed to load module routers for v1 aggregation:', e);
+function getQwenStorage() {
+  if (!qwenStorageLoaded) {
+    qwenStorageLoaded = true;
+    qwenStorage = loadOptionalModule(path.join(modulesDir, 'qwen-api', 'storage.js'), 'Qwen storage');
+  }
+  return qwenStorage;
+}
+
+function getGcliStorage() {
+  if (!gcliStorageLoaded) {
+    gcliStorageLoaded = true;
+    gcliStorage = loadOptionalModule(path.join(modulesDir, 'gemini-cli-api', 'storage.js'), 'Gemini CLI storage');
+  }
+  return gcliStorage;
 }
 
 // 辅助函数：获取 GCLI 矩阵模型列表
@@ -61,14 +90,18 @@ function requireApiAuth(req, res, next) {
     if (sessionById) return next();
 
     // 检查各渠道 API Key
-    if (qwenStorage && token === qwenStorage.getSetting('API_KEY')) return next();
-    try { if (gcliStorage && token === (gcliStorage.getSettings().API_KEY || '123456')) return next(); } catch(e) {}
+    const currentQwenStorage = getQwenStorage();
+    const currentGcliStorage = getGcliStorage();
+    if (currentQwenStorage && token === currentQwenStorage.getSetting('API_KEY')) return next();
+    try { if (currentGcliStorage && token === (currentGcliStorage.getSettings().API_KEY || '123456')) return next(); } catch(e) {}
   }
 
   const queryKey = req.query.key;
   if (queryKey) {
-    if (qwenStorage && queryKey === qwenStorage.getSetting('API_KEY')) return next();
-    try { if (gcliStorage && queryKey === (gcliStorage.getSettings().API_KEY || '123456')) return next(); } catch(e) {}
+    const currentQwenStorage = getQwenStorage();
+    const currentGcliStorage = getGcliStorage();
+    if (currentQwenStorage && queryKey === currentQwenStorage.getSetting('API_KEY')) return next();
+    try { if (currentGcliStorage && queryKey === (currentGcliStorage.getSettings().API_KEY || '123456')) return next(); } catch(e) {}
   }
 
   res.status(401).json({ error: { message: 'Invalid API Key or Session', type: 'invalid_request_error', code: 'invalid_api_key' } });
@@ -92,11 +125,14 @@ router.get(['/models', '/model'], requireApiAuth, async (req, res) => {
     };
 
     // 3. Gemini CLI — reuse router.js getAvailableModels() for name consistency
-    if (channelEnabled['gemini-cli'] && gcliStorage) {
+    const currentGcliStorage = channelEnabled['gemini-cli'] ? getGcliStorage() : null;
+    const currentQwenStorage = channelEnabled['qwen'] ? getQwenStorage() : null;
+
+    if (channelEnabled['gemini-cli'] && currentGcliStorage) {
         try {
-            const gcliRouterModule = require(path.join(modulesDir, 'gemini-cli-api', 'router.js'));
+            const gcliRouterModule = getGcliRouter();
             const prefix = channelModelPrefix['gemini-cli'] || '';
-            if (typeof gcliRouterModule.getAvailableModels === 'function') {
+            if (gcliRouterModule && typeof gcliRouterModule.getAvailableModels === 'function') {
                 const gcliModels = gcliRouterModule.getAvailableModels(prefix);
                 gcliModels.forEach(m => {
                     allModelsMap.set(m.id, { id: m.id, object: 'model', created: now, owned_by: 'google' });
@@ -122,9 +158,9 @@ router.get(['/models', '/model'], requireApiAuth, async (req, res) => {
     }
 
     // 4. Qwen (向 qwen2API 靠拢的新能力)
-    if (channelEnabled['qwen'] && qwenStorage) {
+    if (channelEnabled['qwen'] && currentQwenStorage) {
         const prefix = channelModelPrefix['qwen'] || '';
-        const matrix = qwenStorage.getMatrix();
+        const matrix = currentQwenStorage.getMatrix();
         Object.keys(matrix).forEach(id => {
             if(matrix[id].enabled) addModels([id], prefix, 'qwen');
         });
@@ -145,6 +181,9 @@ const dispatch = async (req, res, next) => {
   const settings = userSettingsService.loadUserSettings();
   const channelEnabled = settings.channelEnabled || {};
   const channelModelPrefix = settings.channelModelPrefix || {};
+  const currentQwenRouter = channelEnabled['qwen'] ? getQwenRouter() : null;
+  const currentGcliRouter = channelEnabled['gemini-cli'] ? getGcliRouter() : null;
+  const currentQwenStorage = channelEnabled['qwen'] ? getQwenStorage() : null;
 
   if (req.method === 'POST' && req.body && req.body.model) {
     const fullId = req.body.model;
@@ -154,41 +193,41 @@ const dispatch = async (req, res, next) => {
     const qwenPrefix = channelModelPrefix['qwen'] || '';
     if (qwenPrefix && fullId.startsWith(qwenPrefix)) {
         req.body.model = fullId.substring(qwenPrefix.length);
-        if (channelEnabled['qwen'] && qwenRouter) return qwenRouter(req, res, next);
+        if (currentQwenRouter) return currentQwenRouter(req, res, next);
     }
 
     // 检查 GCLI 前缀
     const gcliPrefix = channelModelPrefix['gemini-cli'] || '';
     if (gcliPrefix && fullId.startsWith(gcliPrefix)) {
         req.body.model = fullId.substring(gcliPrefix.length);
-        if (channelEnabled['gemini-cli'] && gcliRouter) return gcliRouter(req, res, next);
+        if (currentGcliRouter) return currentGcliRouter(req, res, next);
     }
     // 优先级 2: 智能探测 (无前缀或前缀不匹配)
     // A. 探测 Qwen 归属
-    if (channelEnabled['qwen'] && qwenStorage && qwenRouter) {
-        const matrix = qwenStorage.getMatrix();
+    if (currentQwenStorage && currentQwenRouter) {
+        const matrix = currentQwenStorage.getMatrix();
         const baseId = fullId.toLowerCase();
         if (matrix[fullId] || baseId.startsWith('qwen')) {
-            return qwenRouter(req, res, next);
+            return currentQwenRouter(req, res, next);
         }
     }
 
 
 
     // C. 探测 Gemini CLI 归属
-    if (channelEnabled['gemini-cli'] && gcliRouter) {
+    if (currentGcliRouter) {
         const gcliModels = getGcliModelIds();
         // 仅当命中 GCLI 矩阵模型（支持前缀匹配以兼容变体）时分发
         if (gcliModels.some(m => fullId === m || fullId.startsWith(m + '-') || fullId.startsWith(m + '(') || fullId.includes('/' + m))) {
-            return gcliRouter(req, res, next);
+            return currentGcliRouter(req, res, next);
         }
     }
 
   }
 
   // 默认 Fallback
-  if (channelEnabled['qwen'] && qwenRouter) return qwenRouter(req, res, next);
-  if (channelEnabled['gemini-cli'] && gcliRouter) return gcliRouter(req, res, next);
+  if (currentQwenRouter) return currentQwenRouter(req, res, next);
+  if (currentGcliRouter) return currentGcliRouter(req, res, next);
 
   next();
 };

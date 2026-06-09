@@ -46,8 +46,8 @@ class NcmClient {
     return result;
   }
 
-  getHealth() {
-    const api = this.load();
+  getHealth(options = {}) {
+    const api = options.load === true ? this.load() : this.api;
     return {
       modulesLoaded: !!api,
       moduleCount: api ? Object.keys(api).filter(key => typeof api[key] === 'function').length : 0,

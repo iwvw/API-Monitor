@@ -5,11 +5,7 @@ const UNBLOCK_TIMEOUT_MS = 8000;
 const DEFAULT_UNBLOCK_SOURCES = ['pyncmd', 'bodian'];
 
 let unblockmatch = null;
-try {
-  unblockmatch = require('@unblockneteasemusic/server');
-} catch (error) {
-  logger.warn('UnblockNeteaseMusic is not available:', error.message);
-}
+let unblockLoadAttempted = false;
 
 function withTimeout(promise, ms, message) {
   let timer = null;
@@ -33,6 +29,15 @@ class MusicUnblockService {
   }
 
   getMatcher() {
+    if (!unblockLoadAttempted) {
+      unblockLoadAttempted = true;
+      try {
+        unblockmatch = require('@unblockneteasemusic/server');
+      } catch (error) {
+        logger.warn('UnblockNeteaseMusic is not available:', error.message);
+      }
+    }
+
     if (typeof unblockmatch !== 'function') {
       throw new Error('UnblockNeteaseMusic is not available');
     }
