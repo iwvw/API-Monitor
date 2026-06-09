@@ -218,10 +218,11 @@ describe('敏感数据存储模块', () => {
 
     describe('SecureSecretStore JSON helpers', () => {
         it('应该加密和解密 JSON 对象', () => {
-            const original = { token: 'abc', nested: { enabled: true } };
+            const original = { token: 'plain-secret-value', nested: { enabled: true } };
             const encrypted = secureStorage.encryptJson(original);
 
-            expect(encrypted).not.toContain('abc');
+            expect(encrypted).not.toContain(JSON.stringify(original));
+            expect(encrypted).not.toContain('plain-secret-value');
             expect(secureStorage.isEncrypted(encrypted)).toBe(true);
             expect(secureStorage.decryptJson(encrypted)).toEqual(original);
         });
