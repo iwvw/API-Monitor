@@ -1,6 +1,6 @@
 # 后续执行计划
 
-最后更新：2026-06-08
+最后更新：2026-06-09
 
 本文档只保留当前真正需要继续推进的事项。工具箱 PRD 的前后端实现已经按本轮要求完成；历史阶段计划已归并到 [refactor-progress.md](./refactor-progress.md)，本轮验收记录见 [refactor-verification.md](./refactor-verification.md)。
 
@@ -16,6 +16,8 @@
 - Filebox：大文件上传、MIME 限制、访问密码、下载次数、阅后即焚、过期清理和公开取件。
 - TOTP：旧数据迁移、加密备份导出/导入、HOTP 递增、reveal 审计。
 - System：数据库备份、导入 preview/commit、压缩、分析、日志清理和安全退出。
+- Server：Agent 安装/升级、CPU/GPU 温度和功耗、1.5s 指标刷新稳定性、SSH 终端、SFTP、Docker 状态检测、镜像更新检测和一键更新。
+- Plugin：Linux 容器内下载插件 ZIP，确认不再触发 `powershell: not found`。
 
 验收命令：
 
@@ -55,6 +57,8 @@ npm run build
 - 主要弹窗可打开关闭。
 - 空状态可读。
 - 移动端不重叠。
+- 展开/收起有高度过渡，不直接跳开或瞬间消失。
+- 主机表格可横向滚动，右键列菜单可用。
 
 说明：当前浏览器会先进入安全登录页；没有管理员密码授权时，不在 browser smoke 中代填密码。
 
@@ -68,9 +72,19 @@ npm run build
 2. 重启、清缓存、重新部署、导入覆盖、清空日志等继续使用普通 confirm。
 3. 做一次真实浏览器回归，确认中文资源名、批量删除和无资源名删除的交互都可接受。
 
+### 4. 主机页交互回归
+
+当前主机页是近期改动最密集区域，应单独回归：
+
+1. 表格视图：列宽、右键列显示/隐藏、自适应列宽、操作列、位置列国旗、到期剩余天数。
+2. 展开区：展开/收起动画、CPU/GPU/网络图表、Docker 子面板、移动端压缩布局。
+3. Agent：部署实例编辑保存、温度/功耗采集、监控模式判断、响应延迟。
+4. 终端：从主机列 SSH 按钮进入终端、多标签、分屏、SFTP 跟随激活终端、快捷命令底栏。
+5. Docker：安装状态检测、容器状态、检测更新、一键更新、表格横向滚动。
+
 ## 中优先级
 
-### 4. PageHeader block 决策落地
+### 5. PageHeader block 决策落地
 
 当前判断：`PageHeader` 是 Kumo block source，不是 `@cloudflare/kumo` barrel 导出。不能直接 import。
 
@@ -79,7 +93,7 @@ npm run build
 - 保持 `AppPageHeader`：适合当前顶栏紧凑高度，风险最低。
 - 安装/复制官方 PageHeader block：适合后续页面级 header 统一，但需要适配边框、间距、`size="sm"` tabs 和 450px 断点。
 
-### 5. Kumo-only 周期扫描
+### 6. Kumo-only 周期扫描
 
 持续扫描：
 
@@ -88,9 +102,10 @@ rg -n --pcre2 '<(?-i:button|select|input|textarea)\b' src/js/pages src/js/compon
 rg -n 'DialogContent|TabsList|TabsTrigger|@cloudflare/kumo/components/tabs' src -S
 rg -n 'vue|pinia|chart\.js|createApp\(|new Vue|from .vue.|from .pinia.|Chart\.' src package.json package-lock.json -S
 rg -n 'execCommand' src/js/pages src/js/components -S
+rg -n 'quick-fade-in|motion-pop-in|app-collapse-panel|transition-shadow|hover:shadow|shadow-(xs|sm|md|lg|xl|2xl)' src/js src/css -S
 ```
 
-### 6. 移动端与图表压缩
+### 7. 移动端与图表压缩
 
 重点页面：
 
@@ -109,7 +124,7 @@ rg -n 'execCommand' src/js/pages src/js/components -S
 
 ## 低优先级
 
-### 7. Kumo 注册表刷新
+### 8. Kumo 注册表刷新
 
 当 `@cloudflare/kumo` 版本升级后，刷新：
 

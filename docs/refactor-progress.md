@@ -1,6 +1,6 @@
 # React + Kumo 重构状态
 
-最后更新：2026-06-08
+最后更新：2026-06-09
 
 本文档记录当前事实，不再作为旧 Vue 迁移流水账。后续执行项见 [refactor-next.md](./refactor-next.md)，验证结果见 [refactor-verification.md](./refactor-verification.md)。
 
@@ -20,8 +20,8 @@ API Monitor 前端收口到：
 
 | 模块 | 页面文件 | 状态 | 说明 |
 |------|----------|------|------|
-| 仪表盘 | `src/js/pages/DashboardPage.jsx` | 当前页面 | 系统概览、API 调用趋势、宿主机性能监控 |
-| 主机实例 | `src/js/pages/ServerPage.jsx` | 当前页面 | 主机列表、Agent、SSH/SFTP、Docker、历史趋势 |
+| 仪表盘 | `src/js/pages/DashboardPage.jsx` | 当前页面 | 系统概览、30 天 API 趋势缓存、宿主机性能监控、主机状态点 |
+| 主机实例 | `src/js/pages/ServerPage.jsx` | 当前页面 | 主机列表、紧凑表格、国家/国旗、Agent、SSH/SFTP、Docker、历史趋势 |
 | 双因子认证 | `src/js/pages/TotpPage.jsx` | PRD 已实现 | TOTP/HOTP、分组、导入预览/提交、加密备份、reveal 审计 |
 | 文件柜 | `src/js/pages/FileboxPage.jsx` | PRD 已实现 | 上传、文本分享、取件码、访问密码、下载限制、清理、访问日志、策略设置 |
 | 可用性监测 | `src/js/pages/UptimePage.jsx` | PRD 已实现 | HTTP/Keyword/JSON Query/TCP/Ping/DNS/Push、状态机、状态页、维护窗口、导入导出 |
@@ -61,6 +61,8 @@ API Monitor 前端收口到：
 - URL path 与当前模块同步，支持浏览器 back/forward。
 - 模块显隐和顺序从后端用户设置加载。
 - 页面宽度支持 `标准 / 宽屏 / 全宽` 三档，并持久化到 `app_page_width_mode`。
+- 侧栏折叠状态持久化到后端用户设置，并继续保留本地即时响应。
+- 暗色主题启动脚本在 `src/index.html` head 内提前执行，减少启动闪白。
 - 顶栏当前使用 `AppPageHeader` 组合 Kumo `Breadcrumbs` 与 Kumo `Tabs`，用于满足紧凑高度和 450px 断点。
 
 ## Kumo-only 状态
@@ -74,7 +76,17 @@ API Monitor 前端收口到：
 - 全局删除确认已通过 `GlobalDialogHost.jsx` 接入 Kumo `DeleteResource`，显式删除/移除/销毁类 confirm 会自动走 DeleteResource。
 - 图表优先使用 Kumo `TimeseriesChart`、`Meter`、`ChartPalette`。
 - 复制命令和 token 的场景已开始使用 `ClipboardText`。
+- 展开/收起统一使用 `AnimatedCollapse`，该组件基于 Kumo `Collapsible` 与 Base UI 高度变量恢复高度/透明度过渡。
 - `execCommand` 扫描为 0。
+
+## 2026-06-09 最新收口
+
+- Dashboard：API 调用趋势优先使用缓存；趋势窗口调整为 30 天；新增宿主机性能监控卡片；主机概览卡新增右侧小状态点，按主机在线/异常/离线显示。
+- Server：紧凑表格视图完成哪吒风格信息密度优化；名称列收窄；位置列承载国旗；右键列显示/隐藏；到期时间用于剩余时长；负载精简为一个数值；主机详情、Docker 子面板和图表展开恢复动画。
+- Charts：CPU/GPU 图表接入温度曲线；小尺寸图表减少轴标签；主机历史数据进入页面后保留并实时刷新；Agent 更新后前端节奏问题需继续真实环境观察。
+- Settings / Shell：侧栏折叠偏好云端持久化；页面宽度/主题切换放入侧栏底部；系统设置文案和二级 tabs 尺寸按当前规范收口。
+- Runtime：`user_settings.theme_mode` 与侧栏字段做了兼容迁移；插件 ZIP 下载改为 Node 压缩实现，不再依赖容器内 PowerShell。
+- Motion：`AnimatedCollapse` 重新接入 Kumo `Collapsible.Panel` 的 data 状态与 `--collapsible-panel-height`，恢复列表展开/收起动效。
 
 ## 已废弃或移除
 
@@ -88,11 +100,11 @@ API Monitor 前端收口到：
 
 ## 当前待收口点
 
-1. 真实账号/真实环境验证仍需进行：音乐播放源、解锁代理、Email/Telegram 投递、Uptime 真实目标、Agent/SSH/Docker/Cloudflare/PaaS 等。
+1. 真实账号/真实环境验证仍需进行：音乐播放源、解锁代理、Email/Telegram 投递、Uptime 真实目标、Agent/SSH/Docker/Cloudflare/PaaS、插件 ZIP 下载等。
 2. 全路由自动 browser smoke 尚未建立；当前只完成构建、单测和静态扫描。
 3. 官方 `PageHeader` block 是否安装并替换本地紧凑 `AppPageHeader`，仍是设计系统层面的后续决策。
-4. 移动端和窄屏布局需要持续视觉回归。
-5. 硬编码颜色、局部 class override 仍需周期性扫描。
+4. 移动端和窄屏布局需要持续视觉回归，尤其是主机紧凑表格、展开区图表、终端和 Docker 表格。
+5. 硬编码颜色、局部 class override、旧动画类和阴影类仍需周期性扫描。
 
 ## 参考资料
 

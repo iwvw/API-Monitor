@@ -1270,6 +1270,8 @@ function ServerPage() {
   const terminalDOMElements = useRef({});
   const sshSessionRefs = useRef({});
   const warehouseRef = useRef(null);
+  const serverModalPortalRef = useRef(null);
+  const credentialModalPortalRef = useRef(null);
   const sftpUploadInputRef = useRef(null);
   const dockerTaskStreamRef = useRef(null);
   const terminalResizeTimers = useRef({});
@@ -1863,18 +1865,22 @@ function ServerPage() {
   };
   
   const applyCredential = (credId) => {
-    const cred = serverCredentials.find(c => c.id === credId);
-    if (cred) {
-      setServerForm(prev => ({
-        ...prev,
-        username: cred.username,
-        authType: cred.auth_type === 'key' ? 'privateKey' : 'password',
-        password: cred.password || '',
-        privateKey: cred.private_key || '',
-        passphrase: cred.passphrase || ''
-      }));
-      setSelectedCredentialId(credId);
-    }
+    const normalizedCredId = String(credId ?? '');
+    setSelectedCredentialId(normalizedCredId);
+
+    if (!normalizedCredId) return;
+
+    const cred = serverCredentials.find(c => String(c.id) === normalizedCredId);
+    if (!cred) return;
+
+    setServerForm(prev => ({
+      ...prev,
+      username: cred.username,
+      authType: cred.auth_type === 'key' ? 'privateKey' : 'password',
+      password: cred.password || '',
+      privateKey: cred.private_key || '',
+      passphrase: cred.passphrase || ''
+    }));
   };
   
   const testServerConnection = async () => {
@@ -4537,7 +4543,7 @@ function ServerPage() {
                       </div>
                     </div>
                     
-                    <AnimatedCollapse open={isExpanded}>
+                    <AnimatedCollapse open={isExpanded} keepMounted>
                       <div className="rounded-b-lg border-t border-kumo-line/90 bg-kumo-canvas/45 p-2.5 sm:p-4">
                         {server.loading && !server.info ? (
                           <div className="space-y-2 py-8">
@@ -4838,7 +4844,7 @@ function ServerPage() {
                                   </span>
                                 </Button>
 
-                                <AnimatedCollapse open={dockerExpanded}>
+                                <AnimatedCollapse open={dockerExpanded} keepMounted>
                                   {dockerContainers.length > 0 ? (
                                     <div className="divide-y divide-kumo-line">
                                       {dockerContainers.map(c => {
@@ -6286,9 +6292,10 @@ function ServerPage() {
       
       {/* ==================== 模态框: 添加与编辑服务器 ==================== */}
       <Dialog.Root open={showServerModal} onOpenChange={setShowServerModal}>
-        <Dialog size="lg" className="flex max-h-[85vh] flex-col overflow-hidden p-0">
-            <div className="flex items-center justify-between bg-kumo-recessed/35 px-4 py-3 border-b border-kumo-line">
-              <Dialog.Title className="text-sm font-bold text-kumo-strong">
+        <Dialog size="sm" className="flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 sm:min-w-[32rem] sm:max-w-[calc(100vw-3rem)]">
+          <div ref={serverModalPortalRef} className="flex min-h-0 flex-1 flex-col">
+            <div className="flex min-w-0 items-center justify-between gap-3 bg-kumo-recessed/35 px-4 py-3 border-b border-kumo-line">
+              <Dialog.Title className="min-w-0 truncate text-sm font-bold text-kumo-strong">
                 {serverModalMode === 'add' ? '新增主机实例' : '编辑主机实例'}
               </Dialog.Title>
               <Dialog.Close
@@ -6301,12 +6308,13 @@ function ServerPage() {
                     shape="square" size="sm"
                     icon={<X className="h-3.5 w-3.5" />}
                     aria-label="关闭"
+                    className="shrink-0"
                   />
                 )}
               />
             </div>
             
-            <div className="p-4 flex-1 overflow-y-auto max-h-[70vh] flex flex-col gap-4 text-xs">
+            <div className="min-w-0 p-4 flex-1 overflow-y-auto flex flex-col gap-4 text-xs">
               {serverModalMode === 'add' && (
                 <Tabs
                   {...TOOL_TABS_PROPS}
@@ -6342,6 +6350,7 @@ function ServerPage() {
                     aria-label="地区归属国家"
                     value={serverForm.country}
                     onValueChange={(value) => setServerForm(prev => ({ ...prev, country: String(value) }))}
+                    container={serverModalPortalRef}
                     className="px-3 py-2"
                     items={[
                       { value: 'auto', label: '自动探测' },
@@ -6365,8 +6374,8 @@ function ServerPage() {
                 </div>
               </div>
               
-              <div className="grid grid-cols-3 gap-4">
-                <div className="col-span-2 flex flex-col gap-1.5">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <div className="flex flex-col gap-1.5 sm:col-span-2">
                   <label className="font-semibold text-kumo-subtle">连接地址 (IP / Host)</label>
                   <Input size="sm"
                     aria-label="连接地址"
@@ -6395,7 +6404,8 @@ function ServerPage() {
                 <Select size="sm"
                   aria-label="选择凭据预设"
                   value={selectedCredentialId}
-                  onValueChange={(value) => applyCredential(String(value))}
+                  onValueChange={applyCredential}
+                  container={serverModalPortalRef}
                   placeholder="-- 手动录入 --"
                   className="px-3 py-2"
                   items={[
@@ -6409,7 +6419,7 @@ function ServerPage() {
               </div>
               
               <div className="border-t border-kumo-line pt-3 flex flex-col gap-3">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-kumo-subtle">登录用户名</label>
                     <Input size="sm"
@@ -6423,7 +6433,7 @@ function ServerPage() {
                   </div>
                   <div className="flex flex-col gap-1.5">
                     <label className="font-semibold text-kumo-subtle">身份验证方案</label>
-                    <div className="flex gap-2 py-1">
+                    <div className="flex flex-wrap gap-2 py-1">
                       <Button size="sm"
                         variant={serverForm.authType === 'password' ? 'primary' : 'secondary'}
                         onClick={() => setServerForm(prev => ({ ...prev, authType: 'password' }))}
@@ -6511,6 +6521,7 @@ function ServerPage() {
                         label="Install target" size="sm"
                         value={agentInstallOS}
                         onValueChange={setAgentInstallOS}
+                        container={serverModalPortalRef}
                         items={[
                           { value: 'linux', label: 'Linux / macOS' },
                           { value: 'windows', label: 'Windows PowerShell' },
@@ -6523,7 +6534,7 @@ function ServerPage() {
                         tooltip={{ text: 'Copy command', copiedText: 'Install command copied', side: 'top' }}
                         labels={{ copyAction: 'Copy install command' }}
                       />
-                      <div className="grid grid-cols-2 gap-2 text-[11px] text-kumo-subtle">
+                      <div className="grid grid-cols-1 gap-2 text-[11px] text-kumo-subtle sm:grid-cols-2">
                         <div className="app-card app-card-md p-2">
                           <div className="font-semibold text-kumo-strong">Server ID</div>
                           <div className="mt-1 font-mono">{quickDeployResult.serverId}</div>
@@ -6545,7 +6556,7 @@ function ServerPage() {
               )}
             </div>
             
-            <div className="bg-kumo-recessed/25 px-4 py-3 border-t border-kumo-line flex justify-end gap-2.5">
+            <div className="flex flex-col-reverse gap-2.5 border-t border-kumo-line bg-kumo-recessed/25 px-4 py-3 sm:flex-row sm:justify-end">
               {serverModalMode === 'add' && serverAddMode === 'agent' ? (
                 <>
                   <Button
@@ -6553,6 +6564,7 @@ function ServerPage() {
                     variant="primary"
                     loading={serverModalSaving}
                     onClick={generateQuickInstallCommand}
+                    className="w-full sm:w-auto"
                   >
                     Generate Agent command
                   </Button>
@@ -6562,7 +6574,7 @@ function ServerPage() {
                 variant="secondary"
                 onClick={testServerConnection}
                 disabled={serverModalSaving}
-                className={`px-3.5 py-1.5 text-xs font-semibold ${serverModalMode === 'add' && serverAddMode === 'agent' ? 'hidden' : ''}`}
+                className={`w-full px-3.5 py-1.5 text-xs font-semibold sm:w-auto ${serverModalMode === 'add' && serverAddMode === 'agent' ? 'hidden' : ''}`}
               >
                 连接测试
               </Button>
@@ -6570,19 +6582,21 @@ function ServerPage() {
                 variant="primary"
                 onClick={saveServer}
                 disabled={serverModalSaving}
-                className={`px-4 py-1.5 text-kumo-inverse text-xs font-bold ${serverModalMode === 'add' && serverAddMode === 'agent' ? 'hidden' : ''}`}
+                className={`w-full px-4 py-1.5 text-kumo-inverse text-xs font-bold sm:w-auto ${serverModalMode === 'add' && serverAddMode === 'agent' ? 'hidden' : ''}`}
               >
                 {serverModalSaving ? '保存中...' : '确认保存'}
               </Button>
             </div>
+          </div>
         </Dialog>
       </Dialog.Root>
       
       {/* ==================== 模态框: 凭据预设新增 ==================== */}
       <Dialog.Root open={showAddCredentialModal} onOpenChange={setShowAddCredentialModal}>
-        <Dialog className="flex max-h-[85vh] flex-col overflow-hidden p-0">
-            <div className="flex items-center justify-between bg-kumo-recessed/35 px-4 py-3 border-b border-kumo-line">
-              <Dialog.Title className="text-sm font-bold text-kumo-strong">
+        <Dialog size="sm" className="flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 sm:min-w-96 sm:max-w-[calc(100vw-3rem)]">
+          <div ref={credentialModalPortalRef} className="flex min-h-0 flex-1 flex-col">
+            <div className="flex min-w-0 items-center justify-between gap-3 bg-kumo-recessed/35 px-4 py-3 border-b border-kumo-line">
+              <Dialog.Title className="min-w-0 truncate text-sm font-bold text-kumo-strong">
                 新增 SSH 验证凭据
               </Dialog.Title>
               <Dialog.Close
@@ -6595,12 +6609,13 @@ function ServerPage() {
                     shape="square" size="sm"
                     icon={<X className="h-3.5 w-3.5" />}
                     aria-label="关闭"
+                    className="shrink-0"
                   />
                 )}
               />
             </div>
             
-            <div className="p-4 flex flex-col gap-4 text-xs">
+            <div className="min-w-0 p-4 flex flex-col gap-4 overflow-y-auto text-xs">
               <div className="flex flex-col gap-1.5">
                 <label className="font-semibold text-kumo-subtle font-medium">凭据别名</label>
                 <Input size="sm"
@@ -6631,6 +6646,7 @@ function ServerPage() {
                   aria-label="登录凭据模式"
                   value={credForm.auth_type}
                   onValueChange={(value) => setCredForm(prev => ({ ...prev, auth_type: String(value) }))}
+                  container={credentialModalPortalRef}
                   className="px-3 py-2"
                   items={[
                     { value: 'password', label: '明文密码' },
@@ -6678,18 +6694,19 @@ function ServerPage() {
               )}
             </div>
             
-            <div className="bg-kumo-recessed/25 px-4 py-3 border-t border-kumo-line flex justify-end gap-2 text-xs">
-              <Button size="sm" variant="secondary" onClick={() => setShowAddCredentialModal(false)}>取消</Button>
-              <Button size="sm" variant="primary" onClick={addCredential} className="text-kumo-inverse font-bold">确认保存</Button>
+            <div className="flex flex-col-reverse gap-2 border-t border-kumo-line bg-kumo-recessed/25 px-4 py-3 text-xs sm:flex-row sm:justify-end">
+              <Button size="sm" variant="secondary" onClick={() => setShowAddCredentialModal(false)} className="w-full sm:w-auto">取消</Button>
+              <Button size="sm" variant="primary" onClick={addCredential} className="w-full text-kumo-inverse font-bold sm:w-auto">确认保存</Button>
             </div>
+          </div>
         </Dialog>
       </Dialog.Root>
       
       {/* ==================== 模态框: 导入主机备份 ==================== */}
       <Dialog.Root open={showImportServerModal} onOpenChange={setShowImportServerModal}>
-        <Dialog className="flex max-h-[85vh] flex-col overflow-hidden p-0">
-            <div className="flex items-center justify-between bg-kumo-recessed/35 px-4 py-3 border-b border-kumo-line">
-              <Dialog.Title className="text-sm font-bold text-kumo-strong">
+        <Dialog size="sm" className="flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 sm:min-w-96 sm:max-w-[calc(100vw-3rem)]">
+            <div className="flex min-w-0 items-center justify-between gap-3 bg-kumo-recessed/35 px-4 py-3 border-b border-kumo-line">
+              <Dialog.Title className="min-w-0 truncate text-sm font-bold text-kumo-strong">
                 导入主机备份配置
               </Dialog.Title>
               <Dialog.Close
@@ -6702,12 +6719,13 @@ function ServerPage() {
                     shape="square" size="sm"
                     icon={<X className="h-3.5 w-3.5" />}
                     aria-label="关闭"
+                    className="shrink-0"
                   />
                 )}
               />
             </div>
             
-            <div className="p-4 flex flex-col gap-4 text-xs">
+            <div className="min-w-0 p-4 flex flex-col gap-4 overflow-y-auto text-xs">
               <div className="flex flex-col gap-1.5">
                 <label className="font-semibold text-kumo-subtle font-medium">选择备份 JSON 文件</label>
                 <Input size="sm"
@@ -6734,13 +6752,13 @@ function ServerPage() {
               )}
             </div>
             
-            <div className="bg-kumo-recessed/25 px-4 py-3 border-t border-kumo-line flex justify-end gap-2 text-xs">
-              <Button size="sm" variant="secondary" onClick={() => setShowImportServerModal(false)}>取消</Button>
+            <div className="flex flex-col-reverse gap-2 border-t border-kumo-line bg-kumo-recessed/25 px-4 py-3 text-xs sm:flex-row sm:justify-end">
+              <Button size="sm" variant="secondary" onClick={() => setShowImportServerModal(false)} className="w-full sm:w-auto">取消</Button>
               <Button size="sm"
                 variant="primary"
                 onClick={confirmImportServers}
                 disabled={importModalSaving || !importPreview}
-                className="text-kumo-inverse font-bold disabled:opacity-50"
+                className="w-full text-kumo-inverse font-bold disabled:opacity-50 sm:w-auto"
               >
                 {importModalSaving ? '恢复中...' : '确认恢复导入'}
               </Button>
@@ -6756,9 +6774,9 @@ function ServerPage() {
           if (!open) setAgentModalData(null);
         }}
       >
-        <Dialog size="lg" className="flex max-h-[88vh] flex-col overflow-hidden p-0">
-          <div className="flex items-center justify-between bg-kumo-recessed/35 px-4 py-3 border-b border-kumo-line">
-            <Dialog.Title className="text-sm font-bold text-kumo-strong">
+        <Dialog size="sm" className="flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 sm:min-w-[32rem] sm:max-w-[calc(100vw-3rem)]">
+          <div className="flex min-w-0 items-center justify-between gap-3 bg-kumo-recessed/35 px-4 py-3 border-b border-kumo-line">
+            <Dialog.Title className="min-w-0 truncate text-sm font-bold text-kumo-strong">
               部署 Agent
             </Dialog.Title>
             <Dialog.Close
@@ -6771,6 +6789,7 @@ function ServerPage() {
                   shape="square" size="sm"
                   icon={<X className="h-3.5 w-3.5" />}
                   aria-label="关闭"
+                  className="shrink-0"
                 />
               )}
             />
@@ -6919,7 +6938,7 @@ function ServerPage() {
                 重新生成 Key
               </Button>
             </div>
-            <div className="flex flex-wrap items-center justify-end gap-3">
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end sm:gap-3">
               <Checkbox
                 label="强制 SSH 覆盖"
                 checked={agentForceSsh}
@@ -6930,6 +6949,7 @@ function ServerPage() {
                 type="button" size="sm"
                 variant="secondary"
                 onClick={() => setShowAgentModal(false)}
+                className="w-full sm:w-auto"
               >
                 关闭
               </Button>
@@ -6940,6 +6960,7 @@ function ServerPage() {
                 loading={agentInstalling}
                 disabled={!agentModalData || agentInstallLoading}
                 onClick={() => agentModalData && autoInstallAgent(agentModalData.serverId)}
+                className="w-full sm:w-auto"
               >
                 一键安装
               </Button>
@@ -6956,9 +6977,9 @@ function ServerPage() {
           setShowBatchAgentModal(open);
         }}
       >
-        <Dialog size="xl" className="flex max-h-[88vh] flex-col overflow-hidden p-0">
-          <div className="flex items-center justify-between bg-kumo-recessed/35 px-4 py-3 border-b border-kumo-line">
-            <Dialog.Title className="text-sm font-bold text-kumo-strong">
+        <Dialog size="sm" className="flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 sm:min-w-[48rem] sm:max-w-[calc(100vw-3rem)]">
+          <div className="flex min-w-0 items-center justify-between gap-3 bg-kumo-recessed/35 px-4 py-3 border-b border-kumo-line">
+            <Dialog.Title className="min-w-0 truncate text-sm font-bold text-kumo-strong">
               批量部署 Agent
             </Dialog.Title>
             <Dialog.Close
@@ -6972,6 +6993,7 @@ function ServerPage() {
                   icon={<X className="h-3.5 w-3.5" />}
                   aria-label="关闭"
                   disabled={agentInstallLoading}
+                  className="shrink-0"
                 />
               )}
             />
@@ -7069,12 +7091,13 @@ function ServerPage() {
               />
               {agentInstallLoading && <span>任务执行中</span>}
             </div>
-            <div className="flex justify-end gap-2">
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
               <Button
                 type="button" size="sm"
                 variant="secondary"
                 disabled={agentInstallLoading}
                 onClick={() => setShowBatchAgentModal(false)}
+                className="w-full sm:w-auto"
               >
                 关闭
               </Button>
@@ -7085,6 +7108,7 @@ function ServerPage() {
                 loading={agentInstallLoading}
                 disabled={selectedBatchServers.length === 0}
                 onClick={runBatchAgentInstall}
+                className="w-full sm:w-auto"
               >
                 开始部署
               </Button>
@@ -7100,9 +7124,9 @@ function ServerPage() {
           setShowUpgradeModal(open);
         }}
       >
-        <Dialog size="lg" className="flex max-h-[88vh] flex-col overflow-hidden p-0">
-          <div className="flex items-center justify-between bg-kumo-recessed/35 px-4 py-3 border-b border-kumo-line">
-            <Dialog.Title className="text-sm font-bold text-kumo-strong">
+        <Dialog size="sm" className="flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 sm:min-w-[32rem] sm:max-w-[calc(100vw-3rem)]">
+          <div className="flex min-w-0 items-center justify-between gap-3 bg-kumo-recessed/35 px-4 py-3 border-b border-kumo-line">
+            <Dialog.Title className="min-w-0 truncate text-sm font-bold text-kumo-strong">
               升级 Agent
             </Dialog.Title>
             <Dialog.Close
@@ -7115,6 +7139,7 @@ function ServerPage() {
                   shape="square" size="sm"
                   icon={<X className="h-3.5 w-3.5" />}
                   aria-label="关闭"
+                  className="shrink-0"
                 />
               )}
             />
@@ -7122,7 +7147,7 @@ function ServerPage() {
 
           <div className="flex-1 overflow-y-auto p-4 text-xs text-kumo-default">
             <div className="flex flex-col gap-4">
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                 <div className="rounded-md border border-kumo-line bg-kumo-recessed/35 p-3">
                   <div className="text-[11px] font-medium text-kumo-subtle">目标 Agent</div>
                   <div className="mt-1 text-lg font-bold text-kumo-strong">{getAgentUpgradeTargets().length}</div>
@@ -7173,11 +7198,12 @@ function ServerPage() {
                 onCheckedChange={(checked) => setUpgradeFallbackSsh(Boolean(checked))}
               />
             </div>
-            <div className="flex justify-end gap-2">
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
               <Button
                 type="button" size="sm"
                 variant="secondary"
                 onClick={() => setShowUpgradeModal(false)}
+                className="w-full sm:w-auto"
               >
                 {upgrading ? '后台运行' : '关闭'}
               </Button>
@@ -7188,6 +7214,7 @@ function ServerPage() {
                 loading={upgrading}
                 disabled={getAgentUpgradeTargets().length === 0}
                 onClick={performOneKeyUpgrade}
+                className="w-full sm:w-auto"
               >
                 开始升级
               </Button>
@@ -7204,9 +7231,9 @@ function ServerPage() {
         }}
       >
         {sftpEditFile ? (
-          <Dialog size="xl" className="flex h-[70vh] flex-col overflow-hidden p-0 text-xs text-kumo-default">
-            <div className="flex items-center justify-between bg-kumo-recessed px-4 py-3 border-b border-kumo-line">
-              <Dialog.Title className="font-bold">在线编辑: {sftpEditFile.name}</Dialog.Title>
+          <Dialog size="sm" className="flex h-[70vh] max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 text-xs text-kumo-default sm:min-w-[48rem] sm:max-w-[calc(100vw-3rem)]">
+            <div className="flex min-w-0 items-center justify-between gap-3 bg-kumo-recessed px-4 py-3 border-b border-kumo-line">
+              <Dialog.Title className="min-w-0 truncate font-bold">在线编辑: {sftpEditFile.name}</Dialog.Title>
               <Dialog.Close
                 aria-label="关闭"
                 render={(props) => (
@@ -7217,6 +7244,7 @@ function ServerPage() {
                     shape="square" size="sm"
                     icon={<X className="h-3.5 w-3.5" />}
                     aria-label="关闭"
+                    className="shrink-0"
                   />
                 )}
               />
@@ -7233,13 +7261,13 @@ function ServerPage() {
               />
             </div>
             
-            <div className="bg-kumo-recessed px-4 py-3 border-t border-kumo-line flex justify-end gap-2">
-              <Button size="sm" variant="secondary" onClick={() => setShowSftpEditorModal(false)}>取消</Button>
+            <div className="flex flex-col-reverse gap-2 border-t border-kumo-line bg-kumo-recessed px-4 py-3 sm:flex-row sm:justify-end">
+              <Button size="sm" variant="secondary" onClick={() => setShowSftpEditorModal(false)} className="w-full sm:w-auto">取消</Button>
               <Button size="sm"
                 variant="primary"
                 onClick={saveSftpEditedFile}
                 disabled={sftpSaving}
-                className="text-kumo-inverse font-bold disabled:opacity-50"
+                className="w-full text-kumo-inverse font-bold disabled:opacity-50 sm:w-auto"
               >
                 {sftpSaving ? '正在写入保存...' : '保存文件'}
               </Button>

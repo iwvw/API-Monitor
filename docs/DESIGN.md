@@ -1,6 +1,6 @@
 # API Monitor 设计文档
 
-最后更新：2026-06-08
+最后更新：2026-06-09
 
 API Monitor 是一个单体模块化的 API 管理、云服务管理与主机监控面板。当前技术主线是 **Express + React 19 + Zustand + @cloudflare/kumo 2.5.0 + Tailwind CSS v4 + SQLite**。
 
@@ -65,6 +65,13 @@ React 入口是 `src/js/main.jsx`，当前主页面都在 `src/js/pages/`。`src
 
 `src/js/components/MainLayout.jsx` 使用 Kumo `Sidebar` 搭建应用壳层，并通过 URL path 同步当前模块。顶栏当前使用紧凑版 `AppPageHeader`，组合 Kumo `Breadcrumbs` 与 `Tabs`。
 
+当前壳层状态：
+
+- 侧栏展开/收起状态会写入后端用户设置，并与本地 UI 状态同步。
+- 页面宽度偏好支持 `标准 / 宽屏 / 全宽`，由设置侧栏的小号 Kumo Tabs 控制。
+- 主题初始化脚本位于 `src/index.html` 的 head 内，优先读取本地持久化值，避免暗色启动闪白。
+- 展开/收起动效通过 `AnimatedCollapse` 统一接入 Kumo `Collapsible`，使用 Base UI 的 `--collapsible-panel-height` 状态变量，不再依赖旧自绘动画类。
+
 ## UI 设计原则
 
 - 基础 UI 组件必须使用 Kumo。
@@ -73,6 +80,7 @@ React 入口是 `src/js/main.jsx`，当前主页面都在 `src/js/pages/`。`src
 - 删除确认优先迁移到 Kumo `DeleteResource`。
 - Toolbar、筛选行和内部层级 tabs 使用 `size="sm"`。
 - 主题色、边框、文字、背景使用 Kumo token。
+- 列表展开、Docker 子面板、说明面板等折叠区使用 `AnimatedCollapse`，不得恢复旧 `app-collapse-panel` / `quick-fade-in` / `motion-pop-in` 类。
 
 详细规则见 [KUMO_MIGRATION_RULES.md](./KUMO_MIGRATION_RULES.md)。
 
@@ -94,3 +102,4 @@ SQLite 是系统唯一持久化数据库。配置、密钥、账号、模块状�
 - 删除确认已通过全局弹窗宿主接入 Kumo `DeleteResource`；后续只需对高频场景补充更精确的 `resourceType` / `resourceName`。
 - 官方 `PageHeader` 是 block source，不是当前 barrel 运行时导出；替换本地紧凑顶栏前必须先安装/复制并适配。
 - 仍需建立全路由自动 smoke，覆盖桌面、窄屏、暗色主题和主要弹窗。
+- SSH/终端、Docker 更新、Agent 遥测、Cloudflare/PaaS 等仍需要真实外部环境持续回归。

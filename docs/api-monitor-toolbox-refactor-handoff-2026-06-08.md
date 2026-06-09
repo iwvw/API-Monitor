@@ -1,6 +1,6 @@
 # API Monitor Toolbox Refactor Handoff
 
-Generated: 2026-06-08
+Generated: 2026-06-09
 
 ## Suggested Skills
 
@@ -19,25 +19,24 @@ Generated: 2026-06-08
 
 ## Current State
 
-The React + Kumo migration is the current frontend baseline, but the toolbox modules are not product-complete. The next implementation phase should treat 双因子认证, 音乐, 可用性监测, 文件柜, 通知, and 系统 as a coordinated frontend/backend refactor, not as isolated style fixes.
+React + Kumo is the current frontend baseline. The toolbox PRDs have been implemented to the current product baseline, and the latest work focused on dashboard/server UX polish, cloud-persisted shell preferences, runtime fixes, and restoring collapsible animations.
 
-The newly added PRDs are the source of truth for the next session:
+The PRDs remain useful as product scope references:
 
 - `toolbox-modules-refactor-prd.md` covers the six toolbox modules, shared architecture, API/data model direction, migration phases, and acceptance criteria.
 - `uptime-kuma-aligned-prd.md` covers the Uptime Kuma-aligned monitoring module in more detail.
 
 ## Highest Priority
 
-Start with the shared foundation before feature work:
+Continue with real-environment validation and visual regression:
 
-1. `SecureSecretStore`
-2. `AuditService`
-3. `ToolboxEventBus`
-4. `JobScheduler`
-5. unified API response and error handling
-6. settings registry and migration self-checks
-
-Then continue with high-risk persistence/security migrations: encrypted TOTP secrets, Filebox metadata JSON to SQLite, and system settings schema consistency.
+1. Host Agent install/upgrade, CPU/GPU temperature and power telemetry, and 1.5s chart update cadence.
+2. SSH terminal, SFTP follow-active-session behavior, multi-tab and split-pane terminal workflows.
+3. Docker installed-state detection, update checks, one-click updates, and table horizontal scrolling.
+4. Music real NCM login/playback/unblock proxy.
+5. Notification real Email/Telegram delivery and rule suppression.
+6. Uptime real probes, public status pages, push tokens, and badge routes.
+7. Plugin ZIP download in Linux containers.
 
 ## Important Constraints
 
@@ -48,12 +47,19 @@ Then continue with high-risk persistence/security migrations: encrypted TOTP sec
 - Tables should avoid wrapping; prefer horizontal scroll, truncation, and tooltips.
 - Use Kumo `DeleteResource` for destructive confirmation.
 - Use Kumo `ClipboardText` for copyable commands, tokens, URLs, and IDs.
+- Use `AnimatedCollapse` for expand/collapse; it must stay backed by Kumo `Collapsible` and Base UI height variables.
 - Do not revert unrelated dirty worktree changes.
 - The user normally restarts services manually.
 
 ## Verification Status
 
-This handoff update is docs-only. No lint/build/browser smoke was run for this specific update. The next code-changing session should run targeted tests plus `npm run lint` and `npm run build` before handoff.
+Latest code validation before this docs refresh:
+
+- `npm run lint` passed.
+- `npm run build` passed with only the existing Vite chunk size warning.
+- Collapsible CSS output includes `--collapsible-panel-height`, `[data-open]`, `[data-closed]`, `[data-ending-style]`, and height/opacity transition rules.
+
+Full authenticated browser smoke is still pending.
 
 ## Redactions
 

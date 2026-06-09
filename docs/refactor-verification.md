@@ -1,6 +1,6 @@
 # 验收记录
 
-最后更新：2026-06-08
+最后更新：2026-06-09
 
 本文档记录当前可复核的静态扫描、构建和浏览器验证结果。历史长篇迁移记录已压缩到 [refactor-progress.md](./refactor-progress.md)。
 
@@ -16,6 +16,63 @@
 - 浏览器验证路由。
 - Kumo-only 例外。
 - 后续风险。
+
+## 2026-06-09 Dashboard / 主机页 / 设置偏好 / 动效收口
+
+任务：同步最近一轮控制台和主机页体验优化，修复容器运行问题与全站展开/收起动画回退，并更新文档状态。
+
+修改范围：
+
+- Dashboard：API 调用趋势使用缓存优先策略；趋势窗口为 30 天；新增宿主机性能监控；主机概览卡右侧显示小状态点。
+- Server：紧凑表格视图优化列宽、负载、国旗位置、右键列菜单、到期剩余时长、流量/网速小框、Docker 展开区和 CPU/GPU/网络图表。
+- Settings / Layout：侧栏折叠偏好接入后端用户设置；页面宽度和主题切换位于侧栏底部；暗色启动脚本前置到 `index.html`。
+- Runtime：修复 `user_settings.theme_mode` 等设置字段兼容迁移；插件 ZIP 下载改用 Node 压缩能力，避免 Linux 容器内 `powershell: not found`。
+- Motion：`AnimatedCollapse` 基于 Kumo `Collapsible` 和 Base UI `--collapsible-panel-height` 恢复高度/透明度过渡。
+
+相关提交：
+
+- `524f1f1 chore: polish dashboard and settings persistence`
+- `430bd2f fix: restore collapsible transition animations`
+
+运行命令：
+
+```bash
+npm run lint
+npm run build
+git diff --check
+```
+
+额外样式产物检查：
+
+```powershell
+$css = Get-ChildItem dist\assets -Filter *.css | Sort-Object LastWriteTime -Descending | Select-Object -First 1 | Get-Content -Raw
+$css.Contains('--collapsible-panel-height')
+$css.Contains('[data-open]')
+$css.Contains('[data-closed]')
+$css.Contains('[data-ending-style]')
+$css.Contains('height,opacity')
+```
+
+结果：
+
+- `npm run lint` 通过。
+- `npm run build` 通过，仅保留 Vite chunk size warning。
+- `git diff --check` 通过，仅提示 Windows 换行转换 warning。
+- Collapsible 样式产物检查全部为 `True`。
+
+浏览器验证路由：
+
+- 本轮未启动或重启服务；未做完整登录后 browser smoke。
+- 用户截图确认主机表格当前可渲染并展示展开行，动画修复通过代码路径与 CSS 产物验证。
+
+Kumo-only 例外：
+
+- `AnimatedCollapse` 是业务适配层，不是自写基础 UI。内部仍使用 Kumo `Collapsible.Root` / `Collapsible.Panel`。
+
+后续风险：
+
+- 主机页仍需真实浏览器交互回归：展开/收起动画体感、chart 展开卡顿、SSH、SFTP、Docker 更新、右键列菜单和移动端压缩布局。
+- Agent 温度/功耗和 1.5s 指标刷新稳定性仍依赖真实 Agent 版本和网络状态。
 
 ## 2026-06-08 工具箱 PRD 前后端一次性收口
 

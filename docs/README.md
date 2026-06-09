@@ -1,6 +1,6 @@
 # API Monitor 文档索引
 
-最后更新：2026-06-08
+最后更新：2026-06-09
 
 本文档目录记录当前项目事实。API Monitor 现在以 **Express + React 19 + Zustand + @cloudflare/kumo 2.5.0 + Tailwind CSS v4 + SQLite** 为主线；旧 Vue 前端、旧模板加载器、Pinia 和 Chart.js 已不再作为当前前端方案。
 
@@ -43,6 +43,9 @@
 - Kumo `DeleteResource` 已由当前包导出，可用于删除确认迁移。
 - Kumo `PageHeader` / `ResourceListPage` 在当前包中属于 block source，不应直接从 `@cloudflare/kumo` barrel 导入。
 - `src/js/components/AppPageHeader.jsx` 是当前顶栏的紧凑临时封装；若替换为官方 PageHeader block，应先安装/复制 block 并适配顶栏高度、边框和 `size="sm"` 标签页要求。
+- `src/js/components/AnimatedCollapse.jsx` 是当前全站展开/收起适配层，基于 Kumo `Collapsible` 和 Base UI 高度变量恢复过渡动画。
+- 侧栏折叠偏好、页面宽度偏好、主题偏好等前端显示设置已接入后端用户设置，启动阶段通过 `src/index.html` 内联主题脚本避免暗色模式闪白。
+- 插件 ZIP 下载不再依赖 PowerShell，后端使用 Node 侧压缩能力，适配 Linux 容器运行环境。
 
 ## 常用验证
 

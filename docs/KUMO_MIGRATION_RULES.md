@@ -1,6 +1,6 @@
 # Kumo-only UI 迁移规则
 
-最后更新：2026-06-08
+最后更新：2026-06-09
 
 本文档是 API Monitor 前端 UI 的硬约束。当前项目以 `@cloudflare/kumo` 2.5.0 为唯一设计系统基线。
 
@@ -35,7 +35,7 @@
 | 可复制文本 | Kumo `ClipboardText` |
 | 百分比/用量 | Kumo `Meter` |
 | 时间序列图 | Kumo `TimeseriesChart` + `ChartPalette` |
-| 展开收起 | Kumo `Collapsible` 或业务动画组件配合 Kumo token |
+| 展开收起 | `AnimatedCollapse`，内部必须基于 Kumo `Collapsible` |
 
 ## 密度与尺寸
 
@@ -90,14 +90,24 @@ import { PageHeader } from '@cloudflare/kumo';
 - 无语义分类数据使用 categorical palette。
 - 小尺寸图表降低轴标签密度，避免 label 溢出。
 
+## Collapsible
+
+当前全站展开/收起统一走 `src/js/components/AnimatedCollapse.jsx`：
+
+- 继续使用 Kumo `Collapsible.Root` / `Collapsible.Panel`。
+- 高度动画使用 Base UI 暴露的 `--collapsible-panel-height`，并基于 `data-open`、`data-closed`、`data-starting-style`、`data-ending-style` 设置状态。
+- 不新增旧式 `max-height` 魔法数动画，不恢复 `quick-fade-in`、`motion-pop-in`、`app-collapse-panel`。
+- 含 chart 的展开内容应延迟渲染或使用 Kumo `loading`，减少展开卡顿。
+
 ## 当前静态基线
 
-以下扫描在 2026-06-07 的工作区用于判断是否回潮：
+以下扫描在 2026-06-09 的工作区用于判断是否回潮：
 
 ```bash
 rg -n --pcre2 '<(?-i:button|select|input|textarea)\b' src/js/pages src/js/components -S
 rg -n 'DialogContent|TabsList|TabsTrigger|@cloudflare/kumo/components/tabs' src -S
 rg -n 'vue|pinia|chart\.js|createApp\(|new Vue|from .vue.|from .pinia.|Chart\.' src package.json package-lock.json -S
+rg -n 'quick-fade-in|motion-pop-in|app-collapse-panel|transition-shadow|hover:shadow|shadow-(xs|sm|md|lg|xl|2xl)' src/js src/css -S
 ```
 
 预期结果：0 命中。若出现命中，必须解释是合法例外还是需要迁移。

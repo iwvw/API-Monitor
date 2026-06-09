@@ -1,6 +1,6 @@
 # 前端开发最佳实践
 
-最后更新：2026-06-08
+最后更新：2026-06-09
 
 本文档只描述当前 React + Kumo 前端。旧 Vue、Teleport、模板加载器、`showToast` mixin 等做法已不再适用。
 
@@ -81,6 +81,14 @@ toast.info('状态已刷新');
 - 固定格式元素要设置稳定尺寸，例如 toolbar、icon button、meter、cover、chart 容器。
 - 不按 viewport width 缩放字体。
 
+## 展开与动效
+
+- 列表展开、卡片详情、Docker 子面板、说明面板等统一使用 `src/js/components/AnimatedCollapse.jsx`。
+- `AnimatedCollapse` 必须继续包裹 Kumo `Collapsible`，并保留 `data-open/data-closed` 与 `--collapsible-panel-height` 驱动的高度过渡。
+- 含 chart 的展开区应配合 `DeferredRender` 或 Kumo chart `loading`，避免展开动画期间立即渲染重型画布。
+- 不恢复旧 `quick-fade-in`、`motion-pop-in`、`app-collapse-panel` 这类自绘动画类。
+- 动效要短、稳、可被 `prefers-reduced-motion` 关闭。
+
 ## 颜色与边框
 
 - 使用 Kumo token：`bg-kumo-*`、`text-kumo-*`、`border-kumo-*`、`ring-kumo-*`。
@@ -109,4 +117,5 @@ npm run build
 rg -n --pcre2 '<(?-i:button|select|input|textarea)\b' src/js/pages src/js/components -S
 rg -n 'DialogContent|TabsList|TabsTrigger|@cloudflare/kumo/components/tabs' src -S
 rg -n 'vue|pinia|chart\.js|createApp\(|new Vue|from .vue.|from .pinia.|Chart\.' src package.json package-lock.json -S
+rg -n 'quick-fade-in|motion-pop-in|app-collapse-panel|transition-shadow|hover:shadow|shadow-(xs|sm|md|lg|xl|2xl)' src/js src/css -S
 ```
