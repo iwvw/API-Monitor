@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Button } from '@cloudflare/kumo/components/button';
-import { Input } from '@cloudflare/kumo/components/input';
+import { Input, Textarea } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
 import { Dialog } from '@cloudflare/kumo/components/dialog';
 import { toast } from '../../modules/toast.js';
