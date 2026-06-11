@@ -313,14 +313,14 @@ export default function SftpPanel({
           ) : files.length === 0 ? (
             <div className="py-8 text-center text-[10px] text-kumo-subtle">当前目录为空</div>
           ) : (
-            <Table.Root size="sm">
+            <Table size="sm">
               <Table.Header>
                 <Table.Row>
-                  <Table.ColumnHeader>名称</Table.ColumnHeader>
-                  <Table.ColumnHeader>大小</Table.ColumnHeader>
-                  <Table.ColumnHeader>权限</Table.ColumnHeader>
-                  <Table.ColumnHeader>修改时间</Table.ColumnHeader>
-                  <Table.ColumnHeader className="text-right">操作</Table.ColumnHeader>
+                  <Table.Head>名称</Table.Head>
+                  <Table.Head>大小</Table.Head>
+                  <Table.Head>权限</Table.Head>
+                  <Table.Head>修改时间</Table.Head>
+                  <Table.Head className="text-right">操作</Table.Head>
                 </Table.Row>
               </Table.Header>
               <Table.Body>
@@ -363,7 +363,7 @@ export default function SftpPanel({
                   </Table.Row>
                 ))}
               </Table.Body>
-            </Table.Root>
+            </Table>
           )}
         </div>
       </div>
@@ -378,12 +378,12 @@ export default function SftpPanel({
           }
         }}
       >
-        <Dialog.Content size="xl">
-          <Dialog.Header>
-            <Dialog.Title className="min-w-0 truncate">在线编辑：{editFile?.name}</Dialog.Title>
+        <Dialog size="xl" className="flex max-h-[calc(100dvh-1rem)] flex-col overflow-hidden p-0">
+          <div className="flex items-center justify-between gap-3 border-b border-kumo-line px-4 py-3">
+            <Dialog.Title className="min-w-0 truncate text-sm font-bold text-kumo-strong">在线编辑：{editFile?.name}</Dialog.Title>
             <Dialog.Close />
-          </Dialog.Header>
-          <Dialog.Body className="space-y-2">
+          </div>
+          <div className="space-y-2 overflow-y-auto p-4">
             <div className="truncate font-mono text-[10px] text-kumo-subtle">{editFile?.path}</div>
             <Textarea
               aria-label="SFTP 文件内容"
@@ -391,51 +391,51 @@ export default function SftpPanel({
               onChange={event => setEditFile(prev => ({ ...prev, content: event.target.value }))}
               className="min-h-96 font-mono text-xs"
             />
-          </Dialog.Body>
-          <Dialog.Footer>
+          </div>
+          <div className="flex justify-end gap-2 border-t border-kumo-line px-4 py-3">
             <Button size="sm" variant="secondary" onClick={requestCloseEditor}>取消</Button>
             <Button size="sm" variant="primary" icon={<Save className="h-3.5 w-3.5" />} loading={saving} onClick={saveFile}>保存文件</Button>
-          </Dialog.Footer>
-        </Dialog.Content>
+          </div>
+        </Dialog>
       </Dialog.Root>
 
       <Dialog.Root open={mkdirOpen} onOpenChange={setMkdirOpen}>
-        <Dialog.Content size="sm">
-          <Dialog.Header><Dialog.Title>新建目录</Dialog.Title><Dialog.Close /></Dialog.Header>
-          <Dialog.Body>
+        <Dialog size="sm" className="flex max-h-[calc(100dvh-1rem)] flex-col overflow-hidden p-0">
+          <div className="flex items-center justify-between gap-3 border-b border-kumo-line px-4 py-3"><Dialog.Title className="text-sm font-bold text-kumo-strong">新建目录</Dialog.Title><Dialog.Close /></div>
+          <div className="p-4">
             <Input size="sm" label="目录名" value={mkdirName} onChange={event => setMkdirName(event.target.value)} />
-          </Dialog.Body>
-          <Dialog.Footer>
+          </div>
+          <div className="flex justify-end gap-2 border-t border-kumo-line px-4 py-3">
             <Button size="sm" variant="secondary" onClick={() => setMkdirOpen(false)}>取消</Button>
             <Button size="sm" variant="primary" onClick={createDirectory}>创建</Button>
-          </Dialog.Footer>
-        </Dialog.Content>
+          </div>
+        </Dialog>
       </Dialog.Root>
 
       <Dialog.Root open={Boolean(renameFile)} onOpenChange={open => !open && setRenameFile(null)}>
-        <Dialog.Content size="sm">
-          <Dialog.Header><Dialog.Title>重命名</Dialog.Title><Dialog.Close /></Dialog.Header>
-          <Dialog.Body>
+        <Dialog size="sm" className="flex max-h-[calc(100dvh-1rem)] flex-col overflow-hidden p-0">
+          <div className="flex items-center justify-between gap-3 border-b border-kumo-line px-4 py-3"><Dialog.Title className="text-sm font-bold text-kumo-strong">重命名</Dialog.Title><Dialog.Close /></div>
+          <div className="p-4">
             <Input size="sm" label="新名称" value={renameValue} onChange={event => setRenameValue(event.target.value)} />
-          </Dialog.Body>
-          <Dialog.Footer>
+          </div>
+          <div className="flex justify-end gap-2 border-t border-kumo-line px-4 py-3">
             <Button size="sm" variant="secondary" onClick={() => setRenameFile(null)}>取消</Button>
             <Button size="sm" variant="primary" onClick={renamePath}>保存</Button>
-          </Dialog.Footer>
-        </Dialog.Content>
+          </div>
+        </Dialog>
       </Dialog.Root>
 
       <Dialog.Root open={Boolean(chmodFile)} onOpenChange={open => !open && setChmodFile(null)}>
-        <Dialog.Content size="sm">
-          <Dialog.Header><Dialog.Title>修改权限</Dialog.Title><Dialog.Close /></Dialog.Header>
-          <Dialog.Body>
+        <Dialog size="sm" className="flex max-h-[calc(100dvh-1rem)] flex-col overflow-hidden p-0">
+          <div className="flex items-center justify-between gap-3 border-b border-kumo-line px-4 py-3"><Dialog.Title className="text-sm font-bold text-kumo-strong">修改权限</Dialog.Title><Dialog.Close /></div>
+          <div className="p-4">
             <Input size="sm" label="权限值" value={chmodValue} onChange={event => setChmodValue(event.target.value)} className="font-mono" />
-          </Dialog.Body>
-          <Dialog.Footer>
+          </div>
+          <div className="flex justify-end gap-2 border-t border-kumo-line px-4 py-3">
             <Button size="sm" variant="secondary" onClick={() => setChmodFile(null)}>取消</Button>
             <Button size="sm" variant="primary" onClick={chmodPath}>保存</Button>
-          </Dialog.Footer>
-        </Dialog.Content>
+          </div>
+        </Dialog>
       </Dialog.Root>
     </>
   );

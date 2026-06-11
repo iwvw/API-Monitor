@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Badge } from '@cloudflare/kumo/components/badge';
 import { Button } from '@cloudflare/kumo/components/button';
 import { ChartPalette, Meter, TimeseriesChart } from '@cloudflare/kumo';
@@ -363,11 +363,19 @@ function DashboardOverviewCard({
   );
 }
 
-function DashboardPage() {
+function DashboardPage({ onNavigate } = {}) {
   const { setMainActiveTab, theme } = useStore();
   const isDarkMode = theme === 'dark';
   const isCompactViewport = useMediaQuery('(max-width: 640px)');
   const apiChartHeight = isCompactViewport ? 126 : 170;
+  const navigateToModule = useCallback((module) => {
+    if (typeof onNavigate === 'function') {
+      onNavigate(module);
+      return;
+    }
+
+    setMainActiveTab(module);
+  }, [onNavigate, setMainActiveTab]);
 
   const [stats, setStats] = useState(getInitialDashboardStats);
 
@@ -826,7 +834,7 @@ function DashboardPage() {
       <div className="grid grid-cols-2 gap-2 sm:gap-4 md:grid-cols-2 lg:grid-cols-5">
         
         <DashboardOverviewCard
-          onClick={() => setMainActiveTab('server')}
+          onClick={() => navigateToModule('server')}
           icon={Server}
           iconClassName="bg-kumo-info-tint text-kumo-info"
           badge={`${stats.servers.online}/${stats.servers.total} 在线`}
@@ -847,7 +855,7 @@ function DashboardPage() {
         />
 
         <DashboardOverviewCard
-          onClick={() => setMainActiveTab('gemini-cli')}
+          onClick={() => navigateToModule('gemini-cli')}
           icon={Terminal}
           iconClassName="bg-kumo-brand/10 text-kumo-brand"
           badge="API 网关"
@@ -859,7 +867,7 @@ function DashboardPage() {
         />
 
         <DashboardOverviewCard
-          onClick={() => setMainActiveTab('paas')}
+          onClick={() => navigateToModule('paas')}
           icon={Cloud}
           iconClassName="bg-kumo-badge-purple/10 text-kumo-badge-purple"
           badge={`${stats.paas.koyeb.running + stats.paas.fly.running} 运行`}
@@ -871,7 +879,7 @@ function DashboardPage() {
         />
 
         <DashboardOverviewCard
-          onClick={() => setMainActiveTab('dns')}
+          onClick={() => navigateToModule('dns')}
           icon={Globe}
           iconClassName="bg-kumo-badge-orange/10 text-kumo-badge-orange"
           badge="Cloudflare"
@@ -883,7 +891,7 @@ function DashboardPage() {
         />
 
         <DashboardOverviewCard
-          onClick={() => setMainActiveTab('uptime')}
+          onClick={() => navigateToModule('uptime')}
           icon={Activity}
           iconClassName="bg-kumo-success/10 text-kumo-success"
           badge={`${stats.uptime.up}/${stats.uptime.total} 在线`}
@@ -1009,7 +1017,7 @@ function DashboardPage() {
           <div className="flex-1 space-y-2 py-2 sm:space-y-3.5 sm:py-4">
             {/* Koyeb */}
             <div
-              onClick={() => setMainActiveTab('paas')}
+              onClick={() => navigateToModule('paas')}
               className="flex items-center justify-between gap-2 p-2.5 sm:p-3.5 app-subcard bg-kumo-recessed hover:border-kumo-brand rounded-md cursor-pointer transition-all group"
             >
               <div className="flex min-w-0 items-center gap-2 sm:gap-3">
@@ -1029,7 +1037,7 @@ function DashboardPage() {
 
             {/* Fly.io */}
             <div
-              onClick={() => setMainActiveTab('paas')}
+              onClick={() => navigateToModule('paas')}
               className="flex items-center justify-between gap-2 p-2.5 sm:p-3.5 app-subcard bg-kumo-recessed hover:border-kumo-brand rounded-md cursor-pointer transition-all group"
             >
               <div className="flex min-w-0 items-center gap-2 sm:gap-3">
@@ -1049,7 +1057,7 @@ function DashboardPage() {
 
             {/* 2FA */}
             <div
-              onClick={() => setMainActiveTab('totp')}
+              onClick={() => navigateToModule('totp')}
               className="flex items-center justify-between gap-2 p-2.5 sm:p-3.5 app-subcard bg-kumo-recessed hover:border-kumo-brand rounded-md cursor-pointer transition-all group"
             >
               <div className="flex min-w-0 items-center gap-2 sm:gap-3">
@@ -1069,7 +1077,7 @@ function DashboardPage() {
 
             {/* FileBox */}
             <div
-              onClick={() => setMainActiveTab('filebox')}
+              onClick={() => navigateToModule('filebox')}
               className="flex items-center justify-between gap-2 p-2.5 sm:p-3.5 app-subcard bg-kumo-recessed hover:border-kumo-brand rounded-md cursor-pointer transition-all group"
             >
               <div className="flex min-w-0 items-center gap-2 sm:gap-3">

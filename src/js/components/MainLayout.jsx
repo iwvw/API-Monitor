@@ -238,7 +238,7 @@ function MainLayout() {
   const renderActivePage = () => {
     switch (mainActiveTab) {
       case 'dashboard':
-        return <DashboardPage />;
+        return <DashboardPage onNavigate={navigateToModule} />;
       case 'openai':
         return <OpenAIPage />;
       case 'gemini-cli':

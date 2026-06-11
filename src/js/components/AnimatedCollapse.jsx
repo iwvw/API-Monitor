@@ -1,5 +1,4 @@
-import { useEffect, useState } from 'react';
-import { Collapsible } from '@cloudflare/kumo/components/collapsible';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 
 const cx = (...classes) => classes.filter(Boolean).join(' ');
 const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
@@ -9,30 +8,152 @@ const collapsePanelClassName = [
   'duration-200',
   'ease-out',
   'motion-reduce:transition-none',
-  'data-[open]:h-[var(--collapsible-panel-height)]',
-  'data-[closed]:h-0',
-  'data-[starting-style]:h-0',
-  'data-[ending-style]:h-0',
-  'data-[open]:opacity-100',
-  'data-[closed]:opacity-0',
-  'data-[starting-style]:opacity-0',
-  'data-[ending-style]:opacity-0',
 ].join(' ');
+
+function prefersReducedMotion() {
+  return (
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia(REDUCED_MOTION_QUERY).matches
+  );
+}
+
+function scheduleFrame(callback) {
+  if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+    return window.requestAnimationFrame(callback);
+  }
+
+  return setTimeout(callback, 0);
+}
+
+function cancelFrame(frame) {
+  if (typeof window !== 'undefined' && typeof window.cancelAnimationFrame === 'function') {
+    window.cancelAnimationFrame(frame);
+    return;
+  }
+
+  clearTimeout(frame);
+}
 
 export function AnimatedCollapse({
   open,
-  onOpenChange,
   children,
   className = '',
   panelClassName = '',
   keepMounted = false,
 }) {
+  const panelRef = useRef(null);
+  const frameRef = useRef(null);
+  const latestChildrenRef = useRef(children);
+  const [rendered, setRendered] = useState(() => keepMounted || open);
+  const [displayChildren, setDisplayChildren] = useState(children);
+  const [height, setHeight] = useState(open ? 'auto' : '0px');
+  const [opacity, setOpacity] = useState(open ? 1 : 0);
+
+  latestChildrenRef.current = children;
+
+  useEffect(() => {
+    if (open) {
+      setRendered(true);
+      setDisplayChildren(children);
+      return;
+    }
+
+    if (keepMounted) {
+      setRendered(true);
+    }
+  }, [children, keepMounted, open]);
+
+  useLayoutEffect(() => {
+    if (!rendered) return undefined;
+
+    const panel = panelRef.current;
+    if (!panel) return undefined;
+
+    if (frameRef.current !== null) {
+      cancelFrame(frameRef.current);
+      frameRef.current = null;
+    }
+
+    if (prefersReducedMotion()) {
+      setHeight(open ? 'auto' : '0px');
+      setOpacity(open ? 1 : 0);
+      if (!open) {
+        setDisplayChildren(latestChildrenRef.current);
+        if (!keepMounted) setRendered(false);
+      }
+      return undefined;
+    }
+
+    if (open) {
+      setHeight('0px');
+      setOpacity(0);
+      frameRef.current = scheduleFrame(() => {
+        frameRef.current = null;
+        setHeight(`${panel.scrollHeight}px`);
+        setOpacity(1);
+      });
+    } else {
+      const currentHeight = panel.getBoundingClientRect().height || panel.scrollHeight;
+      setHeight(`${currentHeight}px`);
+      setOpacity(1);
+      frameRef.current = scheduleFrame(() => {
+        frameRef.current = null;
+        setHeight('0px');
+        setOpacity(0);
+      });
+    }
+
+    return () => {
+      if (frameRef.current !== null) {
+        cancelFrame(frameRef.current);
+        frameRef.current = null;
+      }
+    };
+  }, [keepMounted, open, rendered]);
+
+  useEffect(() => {
+    if (!open || !rendered || height === 'auto' || typeof ResizeObserver === 'undefined') return undefined;
+
+    const panel = panelRef.current;
+    if (!panel) return undefined;
+
+    const observer = new ResizeObserver(() => {
+      setHeight(`${panel.scrollHeight}px`);
+    });
+    observer.observe(panel);
+
+    return () => observer.disconnect();
+  }, [height, open, rendered]);
+
+  const handleTransitionEnd = (event) => {
+    if (event.target !== panelRef.current || event.propertyName !== 'height') return;
+
+    if (open) {
+      setHeight('auto');
+      return;
+    }
+
+    setDisplayChildren(latestChildrenRef.current);
+    if (!keepMounted) {
+      setRendered(false);
+    }
+  };
+
   return (
-    <Collapsible.Root open={open} onOpenChange={onOpenChange} className={className}>
-      <Collapsible.Panel keepMounted={keepMounted} className={cx(collapsePanelClassName, panelClassName)}>
-        {children}
-      </Collapsible.Panel>
-    </Collapsible.Root>
+    <div className={className}>
+      {rendered && (
+        <div
+          ref={panelRef}
+          aria-hidden={!open}
+          className={cx(collapsePanelClassName, panelClassName)}
+          style={{ height, opacity }}
+          onTransitionEnd={handleTransitionEnd}
+        >
+          {displayChildren}
+        </div>
+      )}
+    </div>
   );
 }
 

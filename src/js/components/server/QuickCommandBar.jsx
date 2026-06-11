@@ -417,12 +417,12 @@ export default function QuickCommandBar({
       </div>
 
       <Dialog.Root open={managerOpen} onOpenChange={setManagerOpen}>
-        <Dialog.Content size="md">
-          <Dialog.Header>
-            <Dialog.Title>{editing ? '编辑快速命令' : '新增快速命令'}</Dialog.Title>
+        <Dialog size="md" className="flex max-h-[calc(100dvh-1rem)] flex-col overflow-hidden p-0">
+          <div className="flex items-center justify-between gap-3 border-b border-kumo-line px-4 py-3">
+            <Dialog.Title className="text-sm font-bold text-kumo-strong">{editing ? '编辑快速命令' : '新增快速命令'}</Dialog.Title>
             <Dialog.Close />
-          </Dialog.Header>
-          <Dialog.Body className="space-y-3">
+          </div>
+          <div className="space-y-3 overflow-y-auto p-4">
             <Input
               size="sm"
               label="名称"
@@ -467,8 +467,8 @@ export default function QuickCommandBar({
             >
               {form.favorite ? '已收藏' : '收藏'}
             </Button>
-          </Dialog.Body>
-          <Dialog.Footer>
+          </div>
+          <div className="flex justify-end gap-2 border-t border-kumo-line px-4 py-3">
             {editing?.id && (
               <Button
                 size="sm"
@@ -481,17 +481,17 @@ export default function QuickCommandBar({
             )}
             <Button size="sm" variant="secondary" onClick={() => setManagerOpen(false)}>取消</Button>
             <Button size="sm" variant="primary" icon={<Save className="h-3.5 w-3.5" />} onClick={saveSnippet}>保存</Button>
-          </Dialog.Footer>
-        </Dialog.Content>
+          </div>
+        </Dialog>
       </Dialog.Root>
 
       <Dialog.Root open={previewOpen} onOpenChange={setPreviewOpen}>
-        <Dialog.Content size="md">
-          <Dialog.Header>
-            <Dialog.Title>命令预览</Dialog.Title>
+        <Dialog size="md" className="flex max-h-[calc(100dvh-1rem)] flex-col overflow-hidden p-0">
+          <div className="flex items-center justify-between gap-3 border-b border-kumo-line px-4 py-3">
+            <Dialog.Title className="text-sm font-bold text-kumo-strong">命令预览</Dialog.Title>
             <Dialog.Close />
-          </Dialog.Header>
-          <Dialog.Body className="space-y-3 text-xs">
+          </div>
+          <div className="space-y-3 overflow-y-auto p-4 text-xs">
             <div className="grid gap-2 sm:grid-cols-2">
               <div className="rounded-md border border-kumo-line bg-kumo-recessed/30 p-2">
                 <div className="text-kumo-subtle">目标终端</div>
@@ -522,8 +522,8 @@ export default function QuickCommandBar({
               value={previewState?.rendered || ''}
               className="min-h-24 font-mono text-xs"
             />
-          </Dialog.Body>
-          <Dialog.Footer>
+          </div>
+          <div className="flex justify-end gap-2 border-t border-kumo-line px-4 py-3">
             <Button size="sm" variant="secondary" onClick={() => setPreviewOpen(false)}>关闭</Button>
             <Button
               size="sm"
@@ -537,17 +537,17 @@ export default function QuickCommandBar({
             >
               {sendMode === 'insert' ? '插入' : '执行'}
             </Button>
-          </Dialog.Footer>
-        </Dialog.Content>
+          </div>
+        </Dialog>
       </Dialog.Root>
 
       <Dialog.Root open={historyOpen} onOpenChange={setHistoryOpen}>
-        <Dialog.Content size="lg">
-          <Dialog.Header>
-            <Dialog.Title>快速命令历史</Dialog.Title>
+        <Dialog size="lg" className="flex max-h-[calc(100dvh-1rem)] flex-col overflow-hidden p-0">
+          <div className="flex items-center justify-between gap-3 border-b border-kumo-line px-4 py-3">
+            <Dialog.Title className="text-sm font-bold text-kumo-strong">快速命令历史</Dialog.Title>
             <Dialog.Close />
-          </Dialog.Header>
-          <Dialog.Body className="space-y-2">
+          </div>
+          <div className="space-y-2 overflow-y-auto p-4">
             {historyLoading ? (
               <div className="py-8 text-center text-xs text-kumo-subtle">加载历史中...</div>
             ) : historyItems.length === 0 ? (
@@ -593,12 +593,12 @@ export default function QuickCommandBar({
                 ))}
               </div>
             )}
-          </Dialog.Body>
-          <Dialog.Footer>
+          </div>
+          <div className="flex justify-end gap-2 border-t border-kumo-line px-4 py-3">
             <Button size="sm" variant="secondary" onClick={loadHistory} loading={historyLoading}>刷新</Button>
             <Button size="sm" variant="primary" onClick={() => setHistoryOpen(false)}>关闭</Button>
-          </Dialog.Footer>
-        </Dialog.Content>
+          </div>
+        </Dialog>
       </Dialog.Root>
     </>
   );
