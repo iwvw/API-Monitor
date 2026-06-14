@@ -245,6 +245,17 @@ function DenseUsageMeter({ label, value, detail, indicatorClassName = '!bg-none 
   );
 }
 
+function DenseLifecycleMeter({ lifecycle }) {
+  return (
+    <DenseUsageMeter
+      label="剩余"
+      value={lifecycle.remainingPercent}
+      detail={lifecycle.label}
+      indicatorClassName={lifecycle.indicatorClassName}
+    />
+  );
+}
+
 const getFlowUnitClassName = (unit) => {
   const normalized = String(unit || 'B').toUpperCase();
   if (normalized === 'K') return 'border-kumo-info/65 bg-kumo-info/25 text-kumo-info';
@@ -1023,6 +1034,12 @@ const normalizeExpiryInputValue = (value) => {
   return Number.isNaN(date.getTime()) ? null : date.toISOString();
 };
 
+const normalizeStartInputValue = (value) => {
+  if (!value) return null;
+  const date = new Date(`${value}T00:00:00`);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+};
+
 const formatServerRemainingTime = (expiresAt) => {
   if (!expiresAt) return '永久';
   const expiry = new Date(expiresAt).getTime();
@@ -1046,6 +1063,63 @@ const getServerRemainingToneClass = (expiresAt) => {
   if (diff <= 0) return 'text-kumo-danger';
   if (diff <= 7 * 86400000) return 'text-kumo-warning';
   return 'text-kumo-success';
+};
+
+const DAY_MS = 86400000;
+
+const toDateMs = (value) => {
+  if (!value) return NaN;
+  const time = new Date(value).getTime();
+  return Number.isFinite(time) ? time : NaN;
+};
+
+const getServerLifecycle = (server = {}) => {
+  const startsAt = server.starts_at || server.created_at || '';
+  const expiresAt = server.expires_at || '';
+  const startMs = toDateMs(startsAt);
+  const expiryMs = toDateMs(expiresAt);
+  const now = Date.now();
+
+  if (!Number.isFinite(expiryMs)) {
+    return {
+      startsAt,
+      expiresAt,
+      label: '永久',
+      remainingDays: null,
+      remainingPercent: 100,
+      elapsedPercent: 0,
+      toneClass: 'text-kumo-success',
+      indicatorClassName: '!bg-none !bg-kumo-success',
+      expired: false,
+    };
+  }
+
+  const totalMs = Number.isFinite(startMs) && expiryMs > startMs ? expiryMs - startMs : NaN;
+  const remainingMs = Math.max(0, expiryMs - now);
+  const remainingDays = Math.ceil(remainingMs / DAY_MS);
+  const elapsedPercent = Number.isFinite(totalMs)
+    ? clampPercent(((now - startMs) / totalMs) * 100)
+    : (remainingMs > 0 ? 0 : 100);
+  const remainingPercent = Number.isFinite(totalMs)
+    ? clampPercent((remainingMs / totalMs) * 100)
+    : (remainingMs > 0 ? 100 : 0);
+  const toneClass = getServerRemainingToneClass(expiresAt);
+
+  return {
+    startsAt,
+    expiresAt,
+    label: formatServerRemainingTime(expiresAt),
+    remainingDays,
+    remainingPercent,
+    elapsedPercent,
+    toneClass,
+    indicatorClassName: toneClass.includes('danger')
+      ? '!bg-none !bg-kumo-danger'
+      : toneClass.includes('warning')
+        ? '!bg-none !bg-kumo-warning'
+        : '!bg-none !bg-kumo-success',
+    expired: remainingMs <= 0,
+  };
 };
 
 const asArray = (value) => (Array.isArray(value) ? value : []);
@@ -1097,6 +1171,43 @@ const getComposeStatus = (project = {}) => (
   String(project.Status || project.status || '-')
 );
 
+const getDockerOverviewScope = (tab) => {
+  const scopes = {
+    containers: 'containers',
+    compose: 'compose',
+    images: 'images',
+    networks: 'networks',
+    volumes: 'volumes',
+    stats: 'stats',
+  };
+  return scopes[tab] || 'containers';
+};
+
+const hasServerDockerInstalled = (server = {}) => {
+  const docker = server.info?.docker || {};
+  const containers = asArray(docker.containers);
+  return server.status === 'online' && (
+    !!docker.installed
+    || containers.length > 0
+    || toNumber(docker.runningCount ?? docker.running, 0) > 0
+    || toNumber(docker.stoppedCount ?? docker.stopped, 0) > 0
+  );
+};
+
+const getDockerStatName = (stat = {}) => (
+  stat.name || stat.Name || stat.container_name || stat.container || stat.container_id || stat.ID || '-'
+);
+
+const getDockerStatCpuPercent = (stat = {}) => clampPercent(toNumber(stat.cpu_percent ?? stat.CPUPerc, 0));
+
+const getDockerStatMemPercent = (stat = {}) => clampPercent(toNumber(stat.mem_percent ?? stat.MemPerc, 0));
+
+const getDockerStatMemUsage = (stat = {}) => stat.mem_usage || stat.MemUsage || '-';
+
+const getDockerStatNetIo = (stat = {}) => stat.net_io || stat.NetIO || '-';
+
+const getDockerStatBlockIo = (stat = {}) => stat.block_io || stat.BlockIO || '-';
+
 // ==================== 主 React 组件 ====================
 function ServerPage() {
   const { setMainActiveTab, theme, publicApiUrl } = useStore();
@@ -1147,6 +1258,7 @@ function ServerPage() {
     tagsInput: '',
     description: '',
     country: 'auto',
+    startsAt: '',
     expiresAt: '',
     monitorMode: 'agent'
   });
@@ -1391,6 +1503,21 @@ function ServerPage() {
   }, [serverList]);
 
   const syncStoreServerList = () => {};
+
+  const dockerHostOptions = useMemo(() => (
+    serverList
+      .filter(hasServerDockerInstalled)
+      .map(server => ({ value: String(server.id), label: server.name || server.id }))
+  ), [serverList]);
+  const dockerHostOptionKey = useMemo(() => dockerHostOptions.map(item => item.value).join('|'), [dockerHostOptions]);
+
+  useEffect(() => {
+    if (!dockerSelectedServer) return;
+    const stillAvailable = dockerHostOptions.some(item => item.value === dockerSelectedServer);
+    if (!stillAvailable) {
+      setDockerSelectedServer('');
+    }
+  }, [dockerHostOptions, dockerSelectedServer]);
 
   const mergeTerminalCapabilities = (server, agentOnline) => {
     const hasSshTransport = server.ssh_configured === true || server.terminal_transports?.includes('ssh');
@@ -1823,6 +1950,7 @@ function ServerPage() {
       tagsInput: '',
       description: '',
       country: 'auto',
+      startsAt: '',
       expiresAt: '',
       monitorMode: 'agent'
     });
@@ -1846,6 +1974,7 @@ function ServerPage() {
       tagsInput: Array.isArray(server.tags) ? server.tags.join(',') : '',
       description: server.description || '',
       country: server.country || 'auto',
+      startsAt: formatDateInputValue(server.starts_at || server.created_at),
       expiresAt: formatDateInputValue(server.expires_at),
       monitorMode: server.monitor_mode || 'agent'
     });
@@ -1937,6 +2066,7 @@ function ServerPage() {
         tags,
         description: serverForm.description,
         country: serverForm.country,
+        starts_at: normalizeStartInputValue(serverForm.startsAt),
         expires_at: normalizeExpiryInputValue(serverForm.expiresAt),
         monitor_mode: 'agent'
       };
@@ -2679,6 +2809,7 @@ function ServerPage() {
           description: s.description,
           country: s.country,
           resolved_country: s.resolved_country,
+          starts_at: s.starts_at,
           expires_at: s.expires_at,
           monitor_mode: s.monitor_mode
         }));
@@ -2984,7 +3115,7 @@ function ServerPage() {
       ensureDockerTaskStream();
       loadDockerResources();
     }
-  }, [serverCurrentTab, dockerSubTab, dockerSelectedServer]);
+  }, [serverCurrentTab, dockerSubTab, dockerSelectedServer, dockerHostOptionKey]);
   
   const ensureDockerTaskStream = () => {
     if (dockerTaskStreamRef.current) return;
@@ -3057,6 +3188,24 @@ function ServerPage() {
         confirmText: '停止项目',
         variant: 'danger',
       },
+      'image.prune': {
+        title: '清理未使用镜像',
+        message: '确定要清理该主机上的未使用 Docker 镜像吗？未被容器引用的镜像会被删除。',
+        confirmText: '清理镜像',
+        variant: 'danger',
+      },
+      'network.prune': {
+        title: '清理未使用网络',
+        message: '确定要清理该主机上的未使用 Docker 网络吗？未被容器使用的自定义网络会被删除。',
+        confirmText: '清理网络',
+        variant: 'danger',
+      },
+      'volume.prune': {
+        title: '清理未使用存储卷',
+        message: '确定要清理该主机上的未使用 Docker 存储卷吗？未被容器使用的数据卷会被删除。',
+        confirmText: '清理存储卷',
+        variant: 'danger',
+      },
     };
 
     if (['image.remove', 'network.remove', 'volume.remove'].includes(action)) {
@@ -3107,8 +3256,13 @@ function ServerPage() {
   const loadDockerResources = async () => {
     setDockerResourceLoading(true);
     try {
-      // 获取概览数据
-      const response = await fetch('/api/server/v2/docker/overview' + (dockerSelectedServer ? `?serverId=${dockerSelectedServer}` : ''));
+      const params = new URLSearchParams();
+      params.set('scope', getDockerOverviewScope(dockerSubTab));
+      if (dockerSelectedServer) {
+        params.set('serverId', dockerSelectedServer);
+      }
+
+      const response = await fetch(`/api/server/v2/docker/overview?${params.toString()}`);
       const data = await response.json();
       if (data.success) {
         const servers = (data.data?.servers || [])
@@ -4040,6 +4194,7 @@ function ServerPage() {
                           : `${physicalCores || '-'}核`;
                         const dockerContainers = server.info?.docker?.containers || [];
                         const runningContainers = dockerContainers.filter(c => getDockerContainerState(c) === 'running').length;
+                        const lifecycle = getServerLifecycle(server);
                         const canRefresh = server.status === 'online' && !server.loading;
 
                         return (
@@ -4164,11 +4319,8 @@ function ServerPage() {
                               )}
                               {isCompactColumnVisible('remaining') && (
                                 <Table.Cell className="!px-2 !py-1.5 whitespace-nowrap">
-                                  <div className={`flex h-8 min-w-[96px] w-full items-center justify-between gap-2 rounded-md bg-kumo-recessed/45 px-2 text-[10px] ${COMPACT_INLINE_BOX_CLASS}`}>
-                                    <span className="font-medium text-kumo-default">剩余</span>
-                                    <span className={`min-w-0 truncate text-right font-mono font-bold ${getServerRemainingToneClass(server.expires_at)}`} title={server.expires_at ? formatDateTime(server.expires_at) : '永久'}>
-                                      {formatServerRemainingTime(server.expires_at)}
-                                    </span>
+                                  <div title={lifecycle.expiresAt ? `${formatDateTime(lifecycle.startsAt)} - ${formatDateTime(lifecycle.expiresAt)}，剩余 ${Math.round(lifecycle.remainingPercent)}%` : '永久'}>
+                                    <DenseLifecycleMeter lifecycle={lifecycle} />
                                   </div>
                                 </Table.Cell>
                               )}
@@ -4221,6 +4373,7 @@ function ServerPage() {
                                             <DenseDetailChip label="内存" value={`${server.info?.memory?.Used || '-'} / ${server.info?.memory?.Total || '-'}`} />
                                             <DenseDetailChip label="连接" value={server.info?.network?.connections || 0} />
                                             <DenseDetailChip label="Docker" value={server.info?.docker?.installed ? `${runningContainers}/${dockerContainers.length} 运行` : '未安装'} />
+                                            <DenseDetailChip label="生命周期" value={lifecycle.expiresAt ? `${lifecycle.label} / ${Math.round(lifecycle.remainingPercent)}%` : '永久'} className={lifecycle.toneClass} />
                                             <DenseDetailChip label="模式" value={getServerMonitorModeLabel(server)} />
                                             <DenseDetailChip label="延迟" value={formatResponseTime(server.response_time)} />
                                             <DenseDetailChip label="标签" value={(server.tags || []).filter(t => t !== 'Agent').join(', ') || '-'} className="md:col-span-2" />
@@ -4341,6 +4494,7 @@ function ServerPage() {
                 const runningContainers = dockerContainers.filter(c => getDockerContainerState(c) === 'running').length;
                 const pausedContainers = dockerContainers.filter(c => getDockerContainerState(c) === 'paused').length;
                 const stoppedContainers = Math.max(0, dockerContainers.length - runningContainers - pausedContainers);
+                const lifecycle = getServerLifecycle(server);
                 const canDrag = !serverSearchText.trim() && serverStatusFilter === 'all' && !isExpanded;
                 const txTotal = getByteParts(server.info?.network?.tx_total);
                 const rxTotal = getByteParts(server.info?.network?.rx_total);
@@ -4431,6 +4585,13 @@ function ServerPage() {
                                 width={server.info.disk[0].usage || '0%'}
                               />
                             )}
+                            <CompactMetricBar
+                              label="剩余"
+                              value={lifecycle.expiresAt ? `${Math.round(lifecycle.remainingPercent)}%` : '永久'}
+                              valueClassName={lifecycle.toneClass}
+                              barClassName={lifecycle.expired ? 'bg-kumo-danger' : lifecycle.remainingPercent <= 20 ? 'bg-kumo-warning' : 'bg-kumo-success'}
+                              width={`${lifecycle.remainingPercent}%`}
+                            />
                             {!hasGpuData && server.info.network && (
                               <div className="flex min-w-0 flex-col justify-center rounded-md border border-kumo-line/70 bg-kumo-recessed/25 px-2 py-1 font-mono leading-[1.2] tabular-nums sm:hidden">
                                 <span className="truncate text-kumo-info">&uarr; {tx.num}{tx.unit}</span>
@@ -4571,6 +4732,26 @@ function ServerPage() {
                                     <div className="grid grid-cols-[5rem_minmax(0,1fr)] items-start gap-2 sm:flex sm:justify-between sm:gap-3">
                                       <span className="text-kumo-subtle font-medium">响应延迟</span>
                                       <span className="text-right font-semibold text-kumo-success">{formatResponseTime(server.response_time)}</span>
+                                    </div>
+                                    <div className="grid grid-cols-[5rem_minmax(0,1fr)] items-start gap-2 sm:flex sm:justify-between sm:gap-3">
+                                      <span className="text-kumo-subtle font-medium">开始时间</span>
+                                      <span className="text-right font-semibold text-kumo-strong">{lifecycle.startsAt ? formatDateTime(lifecycle.startsAt) : '-'}</span>
+                                    </div>
+                                    <div className="grid grid-cols-[5rem_minmax(0,1fr)] items-start gap-2 sm:flex sm:justify-between sm:gap-3">
+                                      <span className="text-kumo-subtle font-medium">到期时间</span>
+                                      <span className={`text-right font-semibold ${lifecycle.toneClass}`}>{lifecycle.expiresAt ? formatDateTime(lifecycle.expiresAt) : '永久'}</span>
+                                    </div>
+                                    <div className="border-t border-kumo-line/70 pt-1.5 sm:pt-2">
+                                      <Meter
+                                        label="剩余周期"
+                                        value={lifecycle.remainingPercent}
+                                        min={0}
+                                        max={100}
+                                        customValue={lifecycle.expiresAt ? `${lifecycle.label} / ${Math.round(lifecycle.remainingPercent)}%` : '永久'}
+                                        className="gap-1 text-[11px] text-kumo-default"
+                                        trackClassName="!h-1.5 overflow-hidden rounded-full border border-kumo-line/70 bg-kumo-recessed"
+                                        indicatorClassName={`!h-full rounded-full ${lifecycle.indicatorClassName}`}
+                                      />
                                     </div>
                                   </div>
                                 )}
@@ -5127,9 +5308,7 @@ function ServerPage() {
                 className={HOST_TOOLBAR_SELECT_CLASS}
                 items={[
                   { value: '', label: '全部 Docker 主机' },
-                  ...serverList
-                    .filter(s => s.status === 'online')
-                    .map(s => ({ value: String(s.id), label: s.name || s.id })),
+                  ...dockerHostOptions,
                 ]}
               />
             </div>
@@ -5143,14 +5322,30 @@ function ServerPage() {
                 <span className="text-[10px] text-kumo-subtle">SSE 实时长连接</span>
               </div>
               <div className="max-h-24 overflow-y-auto flex flex-col gap-1">
-                {dockerTasks.map(t => (
-                  <div key={t.taskId} className="flex justify-between gap-4">
-                    <span className={t.state === 'success' ? 'text-kumo-success' : t.state === 'failed' ? 'text-kumo-danger' : 'text-kumo-warning'}>
-                      [{t.state?.toUpperCase()}] {t.action}
-                    </span>
-                    <span className="text-kumo-subtle">{t.message}</span>
+                {dockerTasks.map(t => {
+                  const progress = clampPercent(toNumber(t.progress, 0));
+                  const showProgress = !['success', 'failed', 'timeout', 'cancelled'].includes(t.state) && progress > 0;
+                  return (
+                  <div key={t.taskId} className="flex flex-col gap-1">
+                    <div className="flex justify-between gap-4">
+                      <span className={t.state === 'success' ? 'text-kumo-success' : t.state === 'failed' ? 'text-kumo-danger' : 'text-kumo-warning'}>
+                        [{t.state?.toUpperCase()}] {t.action}
+                      </span>
+                      <span className="text-kumo-subtle">{showProgress ? `${progress}% · ` : ''}{t.message}</span>
+                    </div>
+                    {showProgress && (
+                      <Meter
+                        label="Docker 任务进度"
+                        value={progress}
+                        showValue={false}
+                        className="gap-0"
+                        trackClassName="!h-1 overflow-hidden rounded-full bg-kumo-base"
+                        indicatorClassName="!h-full !bg-none !bg-kumo-brand"
+                      />
+                    )}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
           )}
@@ -5342,11 +5537,24 @@ function ServerPage() {
 
               {/* 3. 镜像管理 */}
               {dockerSubTab === 'images' && (
-                <div className="app-card overflow-hidden p-2">
-                  {dockerImages.length === 0 ? (
-                    <div className="p-12 text-center text-xs text-kumo-subtle">当前主机中未检索到镜像</div>
-                  ) : (
-                    <ScrollableTable layout="fixed" widths={imagesColWidths}>
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center justify-end">
+                    <Button
+                      size="sm"
+                      variant="secondary-destructive"
+                      icon={<Trash className="h-3.5 w-3.5" />}
+                      disabled={!dockerSelectedServer}
+                      title={dockerSelectedServer ? '清理未使用镜像' : '请先选择单台 Docker 主机'}
+                      onClick={() => submitDockerTask('image.prune')}
+                    >
+                      清理未使用镜像
+                    </Button>
+                  </div>
+                  <div className="app-card overflow-hidden p-2">
+                    {dockerImages.length === 0 ? (
+                      <div className="p-12 text-center text-xs text-kumo-subtle">当前主机中未检索到镜像</div>
+                    ) : (
+                      <ScrollableTable layout="fixed" widths={imagesColWidths}>
                       <colgroup>
                         {imagesColWidths.map((width, idx) => (
                           <col key={idx} style={{ width }} />
@@ -5397,18 +5605,32 @@ function ServerPage() {
                           </Table.Row>
                         ))}
                       </Table.Body>
-                    </ScrollableTable>
-                  )}
+                      </ScrollableTable>
+                    )}
+                  </div>
                 </div>
               )}
 
               {/* 4. 网络管理 */}
               {dockerSubTab === 'networks' && (
-                <div className="app-card overflow-hidden p-2">
-                  {dockerNetworks.length === 0 ? (
-                    <div className="p-12 text-center text-xs text-kumo-subtle">当前主机中未检索到 Docker 网络</div>
-                  ) : (
-                    <ScrollableTable layout="fixed" widths={networksColWidths}>
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center justify-end">
+                    <Button
+                      size="sm"
+                      variant="secondary-destructive"
+                      icon={<Trash className="h-3.5 w-3.5" />}
+                      disabled={!dockerSelectedServer}
+                      title={dockerSelectedServer ? '清理未使用网络' : '请先选择单台 Docker 主机'}
+                      onClick={() => submitDockerTask('network.prune')}
+                    >
+                      清理未使用网络
+                    </Button>
+                  </div>
+                  <div className="app-card overflow-hidden p-2">
+                    {dockerNetworks.length === 0 ? (
+                      <div className="p-12 text-center text-xs text-kumo-subtle">当前主机中未检索到 Docker 网络</div>
+                    ) : (
+                      <ScrollableTable layout="fixed" widths={networksColWidths}>
                       <colgroup>
                         {networksColWidths.map((width, idx) => (
                           <col key={idx} style={{ width }} />
@@ -5468,18 +5690,32 @@ function ServerPage() {
                           );
                         })}
                       </Table.Body>
-                    </ScrollableTable>
-                  )}
+                      </ScrollableTable>
+                    )}
+                  </div>
                 </div>
               )}
 
               {/* 5. 存储卷管理 */}
               {dockerSubTab === 'volumes' && (
-                <div className="app-card overflow-hidden p-2">
-                  {dockerVolumes.length === 0 ? (
-                    <div className="p-12 text-center text-xs text-kumo-subtle">当前主机中未检索到 Docker 存储卷</div>
-                  ) : (
-                    <ScrollableTable layout="fixed" widths={volumesColWidths}>
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-center justify-end">
+                    <Button
+                      size="sm"
+                      variant="secondary-destructive"
+                      icon={<Trash className="h-3.5 w-3.5" />}
+                      disabled={!dockerSelectedServer}
+                      title={dockerSelectedServer ? '清理未使用存储卷' : '请先选择单台 Docker 主机'}
+                      onClick={() => submitDockerTask('volume.prune')}
+                    >
+                      清理未使用存储卷
+                    </Button>
+                  </div>
+                  <div className="app-card overflow-hidden p-2">
+                    {dockerVolumes.length === 0 ? (
+                      <div className="p-12 text-center text-xs text-kumo-subtle">当前主机中未检索到 Docker 存储卷</div>
+                    ) : (
+                      <ScrollableTable layout="fixed" widths={volumesColWidths}>
                       <colgroup>
                         {volumesColWidths.map((width, idx) => (
                           <col key={idx} style={{ width }} />
@@ -5530,8 +5766,9 @@ function ServerPage() {
                           </Table.Row>
                         ))}
                       </Table.Body>
-                    </ScrollableTable>
-                  )}
+                      </ScrollableTable>
+                    )}
+                  </div>
                 </div>
               )}
 
@@ -5541,7 +5778,45 @@ function ServerPage() {
                   {dockerStats.length === 0 ? (
                     <div className="p-12 text-center text-xs text-kumo-subtle">当前主机中未检索到 Docker 资源统计</div>
                   ) : (
-                    <ScrollableTable layout="fixed" widths={statsColWidths}>
+                    <div className="flex flex-col gap-3">
+                      <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                        {dockerStats.map((stat, i) => {
+                          const name = getDockerStatName(stat);
+                          const cpuPercent = getDockerStatCpuPercent(stat);
+                          const memPercent = getDockerStatMemPercent(stat);
+                          return (
+                            <div key={`${stat.serverId}-${stat.container_id || stat.ID || name}-${i}-visual`} className="rounded-md border border-kumo-line bg-kumo-recessed/20 p-3">
+                              <div className="mb-2 flex min-w-0 items-center justify-between gap-2">
+                                <span className="truncate text-xs font-bold text-kumo-strong" title={name}>{name}</span>
+                                <span className="shrink-0 text-[10px] font-semibold text-kumo-subtle">{stat.serverName}</span>
+                              </div>
+                              <div className="grid gap-2">
+                                <Meter
+                                  label="CPU"
+                                  value={cpuPercent}
+                                  customValue={`${cpuPercent.toFixed(1)}%`}
+                                  className="gap-1 text-[11px]"
+                                  trackClassName="!h-1.5 overflow-hidden rounded-full bg-kumo-base"
+                                  indicatorClassName="!h-full !bg-none !bg-kumo-success"
+                                />
+                                <Meter
+                                  label="内存"
+                                  value={memPercent}
+                                  customValue={`${memPercent.toFixed(1)}% · ${getDockerStatMemUsage(stat)}`}
+                                  className="gap-1 text-[11px]"
+                                  trackClassName="!h-1.5 overflow-hidden rounded-full bg-kumo-base"
+                                  indicatorClassName="!h-full !bg-none !bg-kumo-info"
+                                />
+                              </div>
+                              <div className="mt-2 grid grid-cols-2 gap-2 text-[10px] text-kumo-subtle">
+                                <span className="truncate font-mono" title={getDockerStatNetIo(stat)}>NET {getDockerStatNetIo(stat)}</span>
+                                <span className="truncate text-right font-mono" title={getDockerStatBlockIo(stat)}>IO {getDockerStatBlockIo(stat)}</span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <ScrollableTable layout="fixed" widths={statsColWidths}>
                       <colgroup>
                         {statsColWidths.map((width, idx) => (
                           <col key={idx} style={{ width }} />
@@ -5578,16 +5853,17 @@ function ServerPage() {
                       <Table.Body>
                         {dockerStats.map((stat, i) => (
                           <Table.Row key={`${stat.serverId}-${stat.container_id || stat.name}-${i}`} className="border-b border-kumo-line hover:bg-kumo-recessed/10">
-                            <Table.Cell className="p-2.5 font-bold text-kumo-strong truncate" title={stat.container_id || stat.name}>{stat.name || stat.container_id || '-'}</Table.Cell>
-                            <Table.Cell className="p-2.5 font-mono text-kumo-success">{stat.cpu_percent || '-'}</Table.Cell>
-                            <Table.Cell className="p-2.5 font-mono text-kumo-default">{stat.mem_usage || '-'}</Table.Cell>
-                            <Table.Cell className="p-2.5 font-mono text-kumo-info">{stat.mem_percent || '-'}</Table.Cell>
-                            <Table.Cell className="p-2.5 font-mono text-[11px] text-kumo-subtle truncate">{stat.net_io || '-'}</Table.Cell>
+                            <Table.Cell className="p-2.5 font-bold text-kumo-strong truncate" title={stat.container_id || stat.ID || getDockerStatName(stat)}>{getDockerStatName(stat)}</Table.Cell>
+                            <Table.Cell className="p-2.5 font-mono text-kumo-success">{stat.cpu_percent || stat.CPUPerc || '-'}</Table.Cell>
+                            <Table.Cell className="p-2.5 font-mono text-kumo-default">{getDockerStatMemUsage(stat)}</Table.Cell>
+                            <Table.Cell className="p-2.5 font-mono text-kumo-info">{stat.mem_percent || stat.MemPerc || '-'}</Table.Cell>
+                            <Table.Cell className="p-2.5 font-mono text-[11px] text-kumo-subtle truncate">{getDockerStatNetIo(stat)}</Table.Cell>
                             <Table.Cell className="p-2.5 truncate">{stat.serverName}</Table.Cell>
                           </Table.Row>
                         ))}
                       </Table.Body>
-                    </ScrollableTable>
+                      </ScrollableTable>
+                    </div>
                   )}
                 </div>
               )}
@@ -6144,7 +6420,7 @@ function ServerPage() {
 
               {serverModalMode === 'edit' || serverAddMode === 'ssh' ? (
                 <>
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
                 <div className="flex flex-col gap-1.5">
                   <label className="font-semibold text-kumo-subtle">主机名称 (别名)</label>
                   <Input size="sm"
@@ -6172,6 +6448,16 @@ function ServerPage() {
                       { value: 'JP', label: '日本 (JP)' },
                       { value: 'SG', label: '新加坡 (SG)' },
                     ]}
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <label className="font-semibold text-kumo-subtle">开始时间</label>
+                  <Input size="sm"
+                    aria-label="开始时间"
+                    type="date"
+                    value={serverForm.startsAt}
+                    onChange={e => setServerForm(prev => ({ ...prev, startsAt: e.target.value }))}
+                    className="px-3 py-2 text-kumo-strong"
                   />
                 </div>
                 <div className="flex flex-col gap-1.5">

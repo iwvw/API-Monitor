@@ -92,8 +92,8 @@ class ServerAccount {
             INSERT INTO server_accounts (
                 id, name, host, port, username, auth_type,
                 password, private_key, passphrase,
-                status, tags, description, monitor_mode, country, resolved_country, expires_at, order_index, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                status, tags, description, monitor_mode, country, resolved_country, starts_at, expires_at, order_index, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `);
 
     stmt.run(
@@ -112,6 +112,7 @@ class ServerAccount {
       data.monitor_mode || 'agent',
       data.country || null,
       data.resolved_country || null,
+      data.starts_at || null,
       data.expires_at || null,
       orderIndex,
       now,
@@ -155,6 +156,7 @@ class ServerAccount {
                 monitor_mode = ?,
                 country = ?,
                 resolved_country = ?,
+                starts_at = ?,
                 expires_at = ?,
                 order_index = ?,
                 updated_at = ?
@@ -175,6 +177,7 @@ class ServerAccount {
       data.monitor_mode !== undefined ? data.monitor_mode : existing.monitor_mode || 'agent',
       data.country !== undefined ? data.country : existing.country || null,
       data.resolved_country !== undefined ? data.resolved_country : existing.resolved_country || null,
+      data.starts_at !== undefined ? data.starts_at : existing.starts_at || null,
       data.expires_at !== undefined ? data.expires_at : existing.expires_at || null,
       data.order_index !== undefined ? data.order_index : existing.order_index || 0,
       now,
@@ -1054,6 +1057,10 @@ function runMigrations() {
     if (!accountColumns.includes('resolved_country')) {
       db.exec('ALTER TABLE server_accounts ADD COLUMN resolved_country TEXT');
       console.log('[Models] migration: added server_accounts.resolved_country column');
+    }
+    if (!accountColumns.includes('starts_at')) {
+      db.exec('ALTER TABLE server_accounts ADD COLUMN starts_at DATETIME');
+      console.log('[Models] migration: added server_accounts.starts_at column');
     }
     if (!accountColumns.includes('expires_at')) {
       db.exec('ALTER TABLE server_accounts ADD COLUMN expires_at DATETIME');

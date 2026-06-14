@@ -83,6 +83,95 @@ body {
   background-color: color-mix(in oklab, var(--color-kumo-recessed) 10%, transparent);
 }
 
+th > button[aria-label='Resize column'] {
+  right: 0 !important;
+  z-index: 10;
+  width: 14px !important;
+  justify-content: flex-end !important;
+  visibility: visible !important;
+  background: transparent !important;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+th:hover > button[aria-label='Resize column'],
+th:focus-within > button[aria-label='Resize column'],
+th > button[aria-label='Resize column']:hover,
+th > button[aria-label='Resize column']:active,
+th > button[aria-label='Resize column']:focus-visible {
+  opacity: 1;
+}
+
+th > button[aria-label='Resize column'] > span {
+  width: 2px !important;
+  height: 1.25rem !important;
+  background-color: color-mix(in oklab, var(--text-color-kumo-strong) 32%, transparent) !important;
+}
+
+.dns-workspace {
+  container-type: inline-size;
+}
+
+.dns-split {
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: minmax(220px, 34%) minmax(0, 1fr);
+}
+
+.dns-summary-grid {
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+}
+
+.dns-chart-grid {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.dns-table-frame {
+  position: relative;
+  overflow: hidden;
+  border-radius: 0.5rem;
+  background-color: var(--color-kumo-base);
+}
+
+.dns-table-frame::after {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  border: 1px solid var(--color-kumo-line);
+  border-radius: inherit;
+  content: '';
+  pointer-events: none;
+}
+
+.dns-table-scroll {
+  position: relative;
+  z-index: 0;
+  height: 100%;
+  overflow: auto;
+}
+
+.dns-toolbar-frame {
+  position: relative;
+  border-radius: 0.5rem;
+  background-color: var(--color-kumo-base);
+}
+
+.dns-toolbar-frame::after {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  border: 1px solid var(--color-kumo-line);
+  border-radius: inherit;
+  content: '';
+  pointer-events: none;
+}
+
+@container (min-width: 980px) {
+  .dns-split {
+    grid-template-columns: clamp(300px, 38%, 424px) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+  }
+}
+
 .app-os-windows {
   color: #0078d4;
 }

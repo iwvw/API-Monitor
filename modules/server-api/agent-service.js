@@ -799,6 +799,14 @@ class AgentService extends EventEmitter {
       });
     });
 
+    // 5. 接收长任务进度（Agent 端主动推送，轮询仅作为兜底）
+    socket.on(Events.AGENT_TASK_PROGRESS, progress => {
+      if (!authenticated) return;
+      const taskId = progress?.task_id || progress?.taskId || progress?.id;
+      if (!taskId) return;
+      this.updateTaskProgress(taskId, progress);
+    });
+
     // 6. 接收 PTY 输出数据流
     socket.on(Events.AGENT_PTY_DATA, data => {
       if (!authenticated) return;

@@ -460,17 +460,19 @@ impl DockerBridge {
         let req: ImageActionReq =
             serde_json::from_str(data).map_err(|e| format!("解析请求失败: {}", e))?;
 
-        if req.image.is_empty() {
-            return Err("缺少镜像名称".to_string());
-        }
-
         let mut args = vec![];
         let action_desc = match req.action.as_str() {
             "pull" => {
+                if req.image.is_empty() {
+                    return Err("缺少镜像名称".to_string());
+                }
                 args.extend(["pull", &req.image]);
                 "拉取镜像"
             }
             "remove" => {
+                if req.image.is_empty() {
+                    return Err("缺少镜像名称".to_string());
+                }
                 args.extend(["rmi", "-f", &req.image]);
                 "删除镜像"
             }
@@ -510,13 +512,12 @@ impl DockerBridge {
         let req: NetworkActionReq =
             serde_json::from_str(data).map_err(|e| format!("解析请求失败: {}", e))?;
 
-        if req.name.is_empty() {
-            return Err("缺少网络名称".to_string());
-        }
-
         let mut args = vec![];
         let action_desc = match req.action.as_str() {
             "create" => {
+                if req.name.is_empty() {
+                    return Err("缺少网络名称".to_string());
+                }
                 args.extend(["network", "create"]);
                 if let Some(ref d) = req.driver {
                     args.extend(["--driver", d]);
@@ -531,18 +532,31 @@ impl DockerBridge {
                 "创建网络"
             }
             "remove" => {
+                if req.name.is_empty() {
+                    return Err("缺少网络名称".to_string());
+                }
                 args.extend(["network", "rm", &req.name]);
                 "删除网络"
             }
             "connect" => {
+                if req.name.is_empty() {
+                    return Err("缺少网络名称".to_string());
+                }
                 let container = req.container.as_ref().ok_or("缺少容器 ID")?;
                 args.extend(["network", "connect", &req.name, container]);
                 "连接容器到网络"
             }
             "disconnect" => {
+                if req.name.is_empty() {
+                    return Err("缺少网络名称".to_string());
+                }
                 let container = req.container.as_ref().ok_or("缺少容器 ID")?;
                 args.extend(["network", "disconnect", &req.name, container]);
                 "断开容器与网络"
+            }
+            "prune" => {
+                args.extend(["network", "prune", "-f"]);
+                "清理未使用网络"
             }
             _ => return Err(format!("不支持的网络操作: {}", req.action)),
         };
@@ -573,13 +587,12 @@ impl DockerBridge {
         let req: VolumeActionReq =
             serde_json::from_str(data).map_err(|e| format!("解析请求失败: {}", e))?;
 
-        if req.name.is_empty() {
-            return Err("缺少卷名称".to_string());
-        }
-
         let mut args = vec![];
         let action_desc = match req.action.as_str() {
             "create" => {
+                if req.name.is_empty() {
+                    return Err("缺少卷名称".to_string());
+                }
                 args.extend(["volume", "create"]);
                 if let Some(ref d) = req.driver {
                     args.extend(["--driver", d]);
@@ -588,6 +601,9 @@ impl DockerBridge {
                 "创建卷"
             }
             "remove" => {
+                if req.name.is_empty() {
+                    return Err("缺少卷名称".to_string());
+                }
                 args.extend(["volume", "rm", "-f", &req.name]);
                 "删除卷"
             }

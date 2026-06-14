@@ -144,6 +144,7 @@ router.get('/accounts/export', (req, res) => {
       description: server.description,
       country: server.country,
       resolved_country: server.resolved_country,
+      starts_at: server.starts_at,
       expires_at: server.expires_at,
     }));
     res.json({ success: true, data: exportData });
@@ -214,6 +215,7 @@ router.post('/accounts', (req, res) => {
       tags,
       description,
       country,
+      starts_at,
       expires_at,
       monitor_mode,
     } = req.body;
@@ -233,6 +235,7 @@ router.post('/accounts', (req, res) => {
       tags,
       description,
       country,
+      starts_at,
       expires_at,
       monitor_mode,
     });
@@ -665,6 +668,71 @@ function getDockerContainerState(container = {}) {
   return state || 'unknown';
 }
 
+function normalizeDockerOverviewScopes(value = '') {
+  const allScopes = ['images', 'networks', 'volumes', 'stats', 'compose'];
+  const aliases = {
+    image: 'images',
+    images: 'images',
+    network: 'networks',
+    networks: 'networks',
+    volume: 'volumes',
+    volumes: 'volumes',
+    stat: 'stats',
+    stats: 'stats',
+    compose: 'compose',
+    containers: 'containers',
+  };
+  const rawScopes = String(value || 'all')
+    .split(',')
+    .map(item => item.trim().toLowerCase())
+    .filter(Boolean);
+
+  if (rawScopes.length === 0 || rawScopes.includes('all')) {
+    return new Set(allScopes);
+  }
+
+  const scopes = new Set();
+  for (const item of rawScopes) {
+    const mapped = aliases[item];
+    if (mapped && mapped !== 'containers') scopes.add(mapped);
+  }
+  return scopes;
+}
+
+function getServerDockerMetrics(server = {}) {
+  const serverId = server?.id || '';
+  const rawMetrics = (serverId && agentService.getMetrics(serverId)) || server?.cached_info || {};
+  const metrics = rawMetrics && typeof rawMetrics === 'object'
+    ? normalizeFrontendMetrics(rawMetrics)
+    : {};
+  if (metrics?.docker && typeof metrics.docker === 'object') {
+    return metrics.docker;
+  }
+  if (
+    metrics.docker_installed !== undefined
+    || metrics.docker_running !== undefined
+    || metrics.docker_stopped !== undefined
+    || Array.isArray(metrics.containers)
+  ) {
+    return {
+      installed: metrics.docker_installed === true || metrics.docker_installed === 'true' || metrics.docker_installed === 1,
+      running: parseInt(metrics.docker_running) || 0,
+      stopped: parseInt(metrics.docker_stopped) || 0,
+      containers: Array.isArray(metrics.containers) ? metrics.containers : [],
+    };
+  }
+  return {};
+}
+
+function hasInstalledDocker(server = {}) {
+  const docker = getServerDockerMetrics(server);
+  const containers = Array.isArray(docker.containers) ? docker.containers : [];
+  return !!docker.installed
+    || containers.length > 0
+    || Number(docker.running) > 0
+    || Number(docker.stopped) > 0;
+}
+
 function buildDockerV2Task(action, payload = {}) {
   const defaultTimeoutMs = 60000;
 
@@ -780,6 +848,7 @@ function buildDockerV2Task(action, payload = {}) {
     case 'network.remove':
     case 'network.connect':
     case 'network.disconnect':
+    case 'network.prune':
       return {
         type: DockerTaskTypes.DOCKER_NETWORK_ACTION,
         data: {
@@ -845,7 +914,7 @@ function buildDockerV2Task(action, payload = {}) {
   }
 }
 
-async function loadDockerOverviewForServer(server) {
+async function loadDockerOverviewForServer(server, scopes = normalizeDockerOverviewScopes('all')) {
   const serverId = server?.id || '';
   const serverName = server?.name || '未知主机';
   const host = server?.host || '';
@@ -883,8 +952,7 @@ async function loadDockerOverviewForServer(server) {
       throw new Error('主机配置无效: 缺少 serverId');
     }
 
-    const metrics = agentService.getMetrics(serverId) || {};
-    const docker = metrics.docker || {};
+    const docker = getServerDockerMetrics(server);
 
     const runAgentTask = async (type, timeoutMs = 30000) => {
       try {
@@ -910,12 +978,13 @@ async function loadDockerOverviewForServer(server) {
       }
     };
 
+    const skipResult = { ok: true, data: [], error: '' };
     const [imagesRes, networksRes, volumesRes, statsRes, composeRes] = await Promise.all([
-      runAgentTask(DockerTaskTypes.DOCKER_IMAGES),
-      runAgentTask(DockerTaskTypes.DOCKER_NETWORKS),
-      runAgentTask(DockerTaskTypes.DOCKER_VOLUMES),
-      runAgentTask(DockerTaskTypes.DOCKER_STATS),
-      runAgentTask(DockerTaskTypes.DOCKER_COMPOSE_LIST),
+      scopes.has('images') ? runAgentTask(DockerTaskTypes.DOCKER_IMAGES) : skipResult,
+      scopes.has('networks') ? runAgentTask(DockerTaskTypes.DOCKER_NETWORKS) : skipResult,
+      scopes.has('volumes') ? runAgentTask(DockerTaskTypes.DOCKER_VOLUMES) : skipResult,
+      scopes.has('stats') ? runAgentTask(DockerTaskTypes.DOCKER_STATS) : skipResult,
+      scopes.has('compose') ? runAgentTask(DockerTaskTypes.DOCKER_COMPOSE_LIST) : skipResult,
     ]);
 
     const containers = Array.isArray(docker.containers) ? docker.containers : [];
@@ -1090,6 +1159,7 @@ router.get('/v2/tasks/:taskId', (req, res) => {
 router.get('/v2/docker/overview', async (req, res) => {
   try {
     const selectedServerId = req.query.serverId ? String(req.query.serverId) : '';
+    const scopes = normalizeDockerOverviewScopes(req.query.scope);
     const serversRaw = serverStorage.getAll();
     const servers = Array.isArray(serversRaw) ? serversRaw.filter(item => item && item.id) : [];
 
@@ -1102,13 +1172,13 @@ router.get('/v2/docker/overview', async (req, res) => {
       if (!agentService.isOnline(server.id)) {
         return res.status(400).json({ success: false, error: '主机不在线' });
       }
-      targetServers = [server];
+      targetServers = hasInstalledDocker(server) ? [server] : [];
     } else {
-      targetServers = servers.filter(item => agentService.isOnline(item.id));
+      targetServers = servers.filter(item => agentService.isOnline(item.id) && hasInstalledDocker(item));
     }
 
     const overviewResults = await Promise.allSettled(
-      targetServers.map(server => loadDockerOverviewForServer(server))
+      targetServers.map(server => loadDockerOverviewForServer(server, scopes))
     );
 
     const overviews = overviewResults.map((entry, index) => {
@@ -1180,6 +1250,7 @@ router.get('/v2/docker/overview', async (req, res) => {
       success: true,
       data: {
         generatedAt: Date.now(),
+        scopes: Array.from(scopes),
         servers: overviews,
         summary,
       },

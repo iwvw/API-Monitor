@@ -338,8 +338,9 @@ export const applyThemeMode = (themeMode) => {
   root.classList.toggle('dark', effectiveTheme === 'dark');
   root.classList.toggle('light', effectiveTheme === 'light');
   root.dataset.mode = effectiveTheme;
-  root.dataset.theme = effectiveTheme;
+  root.dataset.theme = 'kumo';
   root.dataset.themeMode = themeMode;
+  root.style.colorScheme = effectiveTheme;
 };
 
 // ==================== Zustand Store ====================

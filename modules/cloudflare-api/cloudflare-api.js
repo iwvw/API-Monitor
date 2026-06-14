@@ -488,21 +488,48 @@ async function getZoneAnalytics(auth, zoneId, options = {}) {
 async function getSimpleAnalytics(auth, zoneId, timeRange = '24h') {
   const limits = {
     '24h': 24,
-    '7d': 168,
-    '30d': 720,
+    '7d': 7,
+    '30d': 30,
   };
 
   const limit = limits[timeRange] || 24;
+  const { since, until, sinceDate, untilDate, granularity } = getSimpleAnalyticsWindow(timeRange);
+  const isDaily = granularity === 'day';
+  const groupName = isDaily ? 'httpRequests1dGroups' : 'httpRequests1hGroups';
+  const dimensionField = isDaily ? 'date' : 'datetime';
+  const filter = isDaily
+    ? `date_geq: "${sinceDate}", date_leq: "${untilDate}"`
+    : `datetime_geq: "${since}", datetime_leq: "${until}"`;
 
   try {
-    // 使用GraphQL Analytics Engine API - httpRequests1hGroups
+    // 使用 GraphQL Analytics API。总量不带时间维度，序列按当前粒度分组。
     const query = `{
       viewer {
         zones(filter: {zoneTag: "${zoneId}"}) {
-          httpRequests1hGroups(
-            limit: ${limit}
-            orderBy: [datetime_DESC]
+          totals: ${groupName}(
+            limit: 1
+            filter: { ${filter} }
           ) {
+            sum {
+              requests
+              bytes
+              cachedRequests
+              cachedBytes
+              threats
+              pageViews
+            }
+            uniq {
+              uniques
+            }
+          }
+          series: ${groupName}(
+            limit: ${limit}
+            filter: { ${filter} }
+            orderBy: [${dimensionField}_ASC]
+          ) {
+            dimensions {
+              ${dimensionField}
+            }
             sum {
               requests
               bytes
@@ -521,41 +548,45 @@ async function getSimpleAnalytics(auth, zoneId, timeRange = '24h') {
 
     const result = await cfRequest(auth, 'POST', '/graphql', { query });
 
-    console.log('[CF-API] GraphQL Analytics原始数据:', result);
+    const zoneAnalytics = result.data?.viewer?.zones?.[0] || {};
+    const totals = zoneAnalytics.totals?.[0] || {};
+    const totalSum = totals.sum || {};
+    const totalUniq = totals.uniq || {};
+    const groups = zoneAnalytics.series || [];
 
-    // 聚合所有小时的数据
-    const groups = result.data?.viewer?.zones?.[0]?.httpRequests1hGroups || [];
-
-    let totalRequests = 0;
-    let totalBytes = 0;
-    let totalCached = 0;
-    let totalThreats = 0;
-    let totalPageViews = 0;
-    const uniquesSet = new Set();
-
-    groups.forEach(group => {
+    const timeseries = groups.map(group => {
       const sum = group.sum || {};
       const uniq = group.uniq || {};
+      const requests = toAnalyticsNumber(sum.requests);
+      const cachedRequests = toAnalyticsNumber(sum.cachedRequests);
 
-      totalRequests += sum.requests || 0;
-      totalBytes += sum.bytes || 0;
-      totalCached += sum.cachedRequests || 0;
-      totalThreats += sum.threats || 0;
-      totalPageViews += sum.pageViews || 0;
-
-      if (uniq.uniques) uniquesSet.add(uniq.uniques);
+      return {
+        datetime: group.dimensions?.datetime || group.dimensions?.date || null,
+        requests,
+        bandwidth: toAnalyticsNumber(sum.bytes),
+        cachedRequests,
+        cachedBytes: toAnalyticsNumber(sum.cachedBytes),
+        threats: toAnalyticsNumber(sum.threats),
+        pageViews: toAnalyticsNumber(sum.pageViews),
+        uniques: toAnalyticsNumber(uniq.uniques),
+        cacheHitRate: requests > 0 ? Math.round((cachedRequests / requests) * 100) : 0,
+      };
     });
 
+    const totalRequests = toAnalyticsNumber(totalSum.requests);
+    const totalCached = toAnalyticsNumber(totalSum.cachedRequests);
     const cacheHitRate = totalRequests > 0 ? Math.round((totalCached / totalRequests) * 100) : 0;
 
     return {
       requests: totalRequests,
-      bandwidth: totalBytes,
-      threats: totalThreats,
-      pageViews: totalPageViews,
-      uniques: uniquesSet.size > 0 ? Math.max(...uniquesSet) : 0,
+      bandwidth: toAnalyticsNumber(totalSum.bytes),
+      cachedRequests: totalCached,
+      cachedBytes: toAnalyticsNumber(totalSum.cachedBytes),
+      threats: toAnalyticsNumber(totalSum.threats),
+      pageViews: toAnalyticsNumber(totalSum.pageViews),
+      uniques: toAnalyticsNumber(totalUniq.uniques),
       cacheHitRate: cacheHitRate,
-      timeseries: [],
+      timeseries,
     };
   } catch (e) {
     console.error('[CF-API] 获取Analytics失败:', e.message);
@@ -563,6 +594,8 @@ async function getSimpleAnalytics(auth, zoneId, timeRange = '24h') {
     return {
       requests: 0,
       bandwidth: 0,
+      cachedRequests: 0,
+      cachedBytes: 0,
       threats: 0,
       pageViews: 0,
       uniques: 0,
@@ -576,18 +609,29 @@ async function getSimpleAnalytics(auth, zoneId, timeRange = '24h') {
  * 计算缓存命中率
  */
 function getSimpleAnalyticsWindow(timeRange = '24h') {
-  const limits = {
-    '24h': 24,
-    '7d': 168,
-    '30d': 720,
-  };
-  const hours = limits[timeRange] || 24;
   const until = new Date();
-  const since = new Date(until.getTime() - hours * 60 * 60 * 1000);
+
+  if (timeRange === '7d' || timeRange === '30d') {
+    const days = timeRange === '7d' ? 7 : 30;
+    const since = new Date(until.getTime() - (days - 1) * 24 * 60 * 60 * 1000);
+
+    return {
+      since: since.toISOString(),
+      until: until.toISOString(),
+      sinceDate: since.toISOString().slice(0, 10),
+      untilDate: until.toISOString().slice(0, 10),
+      granularity: 'day',
+    };
+  }
+
+  const since = new Date(until.getTime() - 24 * 60 * 60 * 1000);
 
   return {
     since: since.toISOString(),
     until: until.toISOString(),
+    sinceDate: since.toISOString().slice(0, 10),
+    untilDate: until.toISOString().slice(0, 10),
+    granularity: 'hour',
   };
 }
 
@@ -661,7 +705,7 @@ async function getSimpleAnalyticsWithFallback(auth, zoneId, timeRange = '24h') {
     return hasSimpleAnalyticsData(fallback) ? fallback : primary;
   } catch (e) {
     console.warn('[CF-API] Dashboard Analytics fallback failed:', e.message);
-    throw e;
+    return primary;
   }
 }
 

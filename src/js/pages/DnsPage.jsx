@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ClipboardText, LayerCard, Tabs } from '@cloudflare/kumo';
+import { ChartPalette, ClipboardText, LayerCard, Popover, Tabs, TimeseriesChart } from '@cloudflare/kumo';
 import { Badge } from '@cloudflare/kumo/components/badge';
 import { Button, LinkButton } from '@cloudflare/kumo/components/button';
 import { Checkbox } from '@cloudflare/kumo/components/checkbox';
@@ -9,6 +9,18 @@ import { Select } from '@cloudflare/kumo/components/select';
 import { Table } from '@cloudflare/kumo/components/table';
 import { Switch } from '@cloudflare/kumo/components/switch';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
+import * as echarts from 'echarts/core';
+import { LineChart } from 'echarts/charts';
+import {
+  AriaComponent,
+  AxisPointerComponent,
+  BrushComponent,
+  GridComponent,
+  ToolboxComponent,
+  TooltipComponent,
+} from 'echarts/components';
+import { CanvasRenderer } from 'echarts/renderers';
+import useStore from '../store.js';
 import useTableResize from '../composables/useTableResize.js';
 import { MODULE_TABS_PROPS } from '../modules/kumoTabs.js';
 import { handleEditableRowDoubleClick } from '../modules/tableInteractions.js';
@@ -19,6 +31,7 @@ import {
   Box,
   Check,
   Cloud,
+  Copy,
   Database,
   Download,
   Edit,
@@ -50,6 +63,44 @@ const SSL_MODES = [
   { value: 'full', label: '完全' },
   { value: 'strict', label: '严格' },
 ];
+const SSL_MODE_LABELS = Object.fromEntries(SSL_MODES.map((mode) => [mode.value, mode.label]));
+const ZONE_TYPE_LABELS = {
+  full: '完全',
+  partial: '部分',
+};
+const RECORD_TYPE_BADGE_VARIANTS = {
+  A: 'blue',
+  AAAA: 'teal',
+  CNAME: 'purple',
+  TXT: 'neutral',
+  MX: 'orange',
+  NS: 'green',
+  SRV: 'info',
+  CAA: 'warning',
+  PTR: 'secondary',
+};
+const EMPTY_ANALYTICS = {
+  requests: 0,
+  bandwidth: 0,
+  cachedRequests: 0,
+  cachedBytes: 0,
+  threats: 0,
+  pageViews: 0,
+  uniques: 0,
+  cacheHitRate: 0,
+  timeseries: [],
+};
+
+echarts.use([
+  LineChart,
+  AxisPointerComponent,
+  BrushComponent,
+  GridComponent,
+  ToolboxComponent,
+  TooltipComponent,
+  CanvasRenderer,
+  AriaComponent,
+]);
 
 const CLOUDFLARE_TABS = [
   { value: 'dns', label: <span className="inline-flex items-center gap-1.5"><Globe className="h-3.5 w-3.5" />域名与 DNS</span> },
@@ -139,6 +190,63 @@ function formatNumber(value) {
   return String(number);
 }
 
+function formatNumberAxis(value) {
+  const number = Number(value || 0);
+  const abs = Math.abs(number);
+  if (abs >= 1000000) return `${(number / 1000000).toFixed(abs >= 10000000 ? 0 : 1)}M`;
+  if (abs >= 1000) return `${(number / 1000).toFixed(abs >= 10000 ? 0 : 1)}K`;
+  return `${Math.round(number)}`;
+}
+
+function toDisplayNumber(value, fallback = 0) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
+}
+
+function formatPercent(value) {
+  const number = toDisplayNumber(value);
+  return `${Number.isInteger(number) ? number : number.toFixed(1)}%`;
+}
+
+function parseAnalyticsTimestamp(point) {
+  const timestamp = new Date(point?.datetime || point?.since || point?.date || '').getTime();
+  return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function formatAnalyticsAxisTime(timestamp, range = '24h') {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return '';
+  if (range === '24h') {
+    return `${String(date.getHours()).padStart(2, '0')}:00`;
+  }
+  return `${String(date.getMonth() + 1).padStart(2, '0')}/${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function sslModeLabel(mode) {
+  return SSL_MODE_LABELS[mode] || mode || '-';
+}
+
+function zoneTypeLabel(type) {
+  return ZONE_TYPE_LABELS[type] || type || '-';
+}
+
+function zoneNameServers(zone = {}) {
+  const list = zone.nameServers || zone.name_servers || [];
+  return Array.isArray(list) ? list.filter(Boolean) : [];
+}
+
+function recordTypeBadgeVariant(type) {
+  return RECORD_TYPE_BADGE_VARIANTS[String(type || '').toUpperCase()] || 'outline';
+}
+
+function DnsPanelCard({ className = '', children }) {
+  return (
+    <div className={`rounded-lg border border-kumo-line bg-kumo-base shadow-none ${className}`}>
+      {children}
+    </div>
+  );
+}
+
 function recordShortName(name, zoneName) {
   if (!name || !zoneName) return name || '@';
   if (name === zoneName) return '@';
@@ -196,6 +304,8 @@ function parseJsonInput(input, fallbackKey) {
 }
 
 function DnsPage() {
+  const { theme } = useStore();
+  const isDarkMode = theme === 'dark';
   const [activeTab, setActiveTab] = useState('dns');
   const [accounts, setAccounts] = useState([]);
   const [selectedAccountId, setSelectedAccountId] = useState('');
@@ -240,8 +350,8 @@ function DnsPage() {
   const [tunnelConfigState, setTunnelConfigState] = useState({ tunnel: null, text: EMPTY_TUNNEL_CONFIG });
   const [tunnelConnectionState, setTunnelConnectionState] = useState({ tunnel: null, connections: [] });
 
-  const [zoneColWidths, startZoneResize] = useTableResize([260, 110, 110, 230, 160]);
-  const [recordColWidths, startRecordResize] = useTableResize([48, 88, 180, 360, 90, 90, 170, 150]);
+  const [zoneColWidths, startZoneResize] = useTableResize([166, 76, 58, 54, 68]);
+  const [recordColWidths, startRecordResize] = useTableResize([34, 54, 82, 140, 48, 50, 106, 70]);
   const [workerColWidths, startWorkerResize] = useTableResize([260, 160, 180, 280]);
   const [pageColWidths, startPageResize] = useTableResize([240, 220, 150, 150, 220]);
   const [r2ColWidths, startR2Resize] = useTableResize([48, 360, 120, 180, 150]);
@@ -263,6 +373,67 @@ function DnsPage() {
     () => records.filter((record) => selectedRecordIds.includes(record.id)),
     [records, selectedRecordIds]
   );
+
+  const analyticsSummary = useMemo(() => ({
+    requests: toDisplayNumber(analytics?.requests),
+    bandwidth: toDisplayNumber(analytics?.bandwidth),
+    uniques: toDisplayNumber(analytics?.uniques),
+    cacheHitRate: toDisplayNumber(analytics?.cacheHitRate),
+  }), [analytics]);
+
+  const analyticsPoints = useMemo(() => (
+    Array.isArray(analytics?.timeseries)
+      ? analytics.timeseries
+        .filter(Boolean)
+        .map((point) => ({ ...point, timestamp: parseAnalyticsTimestamp(point) }))
+        .filter((point) => point.timestamp !== null)
+      : []
+  ), [analytics]);
+
+  const analyticsChartCards = useMemo(() => {
+    const requestColor = ChartPalette.categorical(0, isDarkMode);
+    const bandwidthColor = ChartPalette.semantic('Success', isDarkMode);
+    const cacheColor = ChartPalette.semantic('Attention', isDarkMode);
+
+    return [
+      {
+        key: 'requests',
+        label: '请求趋势',
+        value: formatNumber(analyticsSummary.requests),
+        data: [{
+          name: '请求量',
+          color: requestColor,
+          data: analyticsPoints.map((point) => [point.timestamp, toDisplayNumber(point.requests)]),
+        }],
+        yAxisTickFormat: formatNumberAxis,
+        tooltipValueFormat: (value) => `${formatNumber(value)} 次`,
+      },
+      {
+        key: 'bandwidth',
+        label: '带宽趋势',
+        value: formatBytes(analyticsSummary.bandwidth),
+        data: [{
+          name: '带宽',
+          color: bandwidthColor,
+          data: analyticsPoints.map((point) => [point.timestamp, toDisplayNumber(point.bandwidth)]),
+        }],
+        yAxisTickFormat: formatBytes,
+        tooltipValueFormat: formatBytes,
+      },
+      {
+        key: 'cacheHitRate',
+        label: '缓存命中率',
+        value: formatPercent(analyticsSummary.cacheHitRate),
+        data: [{
+          name: '命中率',
+          color: cacheColor,
+          data: analyticsPoints.map((point) => [point.timestamp, toDisplayNumber(point.cacheHitRate)]),
+        }],
+        yAxisTickFormat: formatPercent,
+        tooltipValueFormat: formatPercent,
+      },
+    ];
+  }, [analyticsPoints, analyticsSummary.bandwidth, analyticsSummary.cacheHitRate, analyticsSummary.requests, isDarkMode]);
 
   const setLoadingKey = useCallback((key, value) => {
     setLoading((prev) => ({ ...prev, [key]: value }));
@@ -292,6 +463,33 @@ function DnsPage() {
 
   const closeModal = useCallback(() => {
     setModal({ type: null, data: null });
+  }, []);
+
+  const copyText = useCallback(async (text, label = '内容') => {
+    const value = String(text || '').trim();
+    if (!value || value === '-') {
+      toast.warning('没有可复制的内容');
+      return;
+    }
+
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(value);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = value;
+        textarea.setAttribute('readonly', '');
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      }
+      toast.success(`${label}已复制`);
+    } catch (error) {
+      toast.error(`复制失败：${error.message}`);
+    }
   }, []);
 
   const loadAccounts = useCallback(async () => {
@@ -399,10 +597,10 @@ function DnsPage() {
     setLoadingKey('analytics', true);
     try {
       const data = await cfApi(`/accounts/${selectedAccountId}/zones/${zoneId}/analytics?timeRange=${range}`);
-      setAnalytics(data.analytics || null);
+      setAnalytics(data.analytics || EMPTY_ANALYTICS);
       setAnalyticsRange(range);
     } catch (error) {
-      setAnalytics(null);
+      setAnalytics(EMPTY_ANALYTICS);
     } finally {
       setLoadingKey('analytics', false);
     }
@@ -1483,10 +1681,30 @@ function DnsPage() {
       isFolder: false,
     })),
   ];
+  const isDnsWorkspace = activeTab === 'dns' && selectedAccountId;
+  const pageShellClassName = isDnsWorkspace
+    ? 'dns-workspace flex h-[calc(100dvh-80px)] min-h-0 w-full max-w-full flex-col gap-3 overflow-hidden px-1 pb-1 sm:h-[calc(100dvh-88px)] lg:h-[calc(100dvh-92px)]'
+    : 'flex w-full flex-col gap-6 px-1';
+  const renderResizeHead = (label, index, startResize, align = 'left') => {
+    const alignClassName = {
+      left: 'justify-start text-left',
+      center: 'justify-center text-center',
+      right: 'justify-end text-right',
+    }[align] || 'justify-start text-left';
+
+    return (
+      <Table.Head className="!p-0">
+        <div className={`flex h-8 w-full items-center px-2.5 ${alignClassName}`}>
+          {label}
+        </div>
+        <Table.ResizeHandle onMouseDown={(e) => startResize(index, e)} onTouchStart={(e) => startResize(index, e)} />
+      </Table.Head>
+    );
+  };
 
   return (
-    <div className="flex w-full flex-col gap-6 px-1">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-kumo-line pb-3">
+    <div className={pageShellClassName}>
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-kumo-line pb-3">
         <Tabs
           {...MODULE_TABS_PROPS}
           value={activeTab}
@@ -1532,8 +1750,9 @@ function DnsPage() {
       ) : (
         <>
           {activeTab === 'dns' && (
-            <div className="flex flex-col gap-5">
-              <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="dns-split grid min-h-0 max-w-full flex-1 gap-3 overflow-hidden px-px">
+              <section className="flex min-h-0 min-w-0 max-w-full flex-col gap-2">
+              <div className="flex min-h-8 shrink-0 flex-wrap items-center justify-between gap-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <Button size="sm" onClick={openZoneModal} icon={<Plus className="h-4 w-4" />}>
                     添加域名
@@ -1556,41 +1775,30 @@ function DnsPage() {
                 )}
               </div>
 
-              <LayerCard className="overflow-x-auto p-0">
-                <Table layout="fixed">
+              <div className="dns-table-frame min-h-0 max-w-full flex-1">
+                <div className="dns-table-scroll scrollbar-thin">
+                <Table layout="fixed" className="w-full text-xs" style={{ minWidth: zoneColWidths.reduce((sum, width) => sum + width, 0) }}>
                   <colgroup>
                     {zoneColWidths.map((width, index) => <col key={index} style={{ width }} />)}
                   </colgroup>
-                  <Table.Header variant="compact">
-                    <Table.Row>
-                      <Table.Head className="relative pr-6">
-                        域名
-                        <Table.ResizeHandle onMouseDown={(e) => startZoneResize(0, e)} onTouchStart={(e) => startZoneResize(0, e)} />
-                      </Table.Head>
-                      <Table.Head className="relative pr-6">
-                        状态
-                        <Table.ResizeHandle onMouseDown={(e) => startZoneResize(1, e)} onTouchStart={(e) => startZoneResize(1, e)} />
-                      </Table.Head>
-                      <Table.Head className="relative pr-6">
-                        类型
-                        <Table.ResizeHandle onMouseDown={(e) => startZoneResize(2, e)} onTouchStart={(e) => startZoneResize(2, e)} />
-                      </Table.Head>
-                      <Table.Head className="relative pr-6">
-                        名称服务器
-                        <Table.ResizeHandle onMouseDown={(e) => startZoneResize(3, e)} onTouchStart={(e) => startZoneResize(3, e)} />
-                      </Table.Head>
-                      <Table.Head className="text-right">操作</Table.Head>
+                  <Table.Header sticky variant="compact">
+                    <Table.Row className="h-8">
+                      {renderResizeHead('域名', 0, startZoneResize)}
+                      {renderResizeHead('状态', 1, startZoneResize, 'center')}
+                      {renderResizeHead('类型', 2, startZoneResize, 'center')}
+                      {renderResizeHead('NS', 3, startZoneResize, 'center')}
+                      <Table.Head className="!px-2 !py-1.5 text-center">操作</Table.Head>
                     </Table.Row>
                   </Table.Header>
                   <Table.Body>
                     {loading.zones ? (
                       Array.from({ length: 4 }).map((_, index) => (
-                        <Table.Row key={index}>
-                          <Table.Cell><SkeletonLine className="h-4 w-44" /></Table.Cell>
-                          <Table.Cell><SkeletonLine className="h-4 w-16" /></Table.Cell>
-                          <Table.Cell><SkeletonLine className="h-4 w-14" /></Table.Cell>
-                          <Table.Cell><SkeletonLine className="h-4 w-52" /></Table.Cell>
-                          <Table.Cell><SkeletonLine className="ml-auto h-4 w-24" /></Table.Cell>
+                        <Table.Row key={index} className="h-9">
+                          <Table.Cell className="!px-2.5 !py-1.5 text-left"><SkeletonLine className="h-3.5 w-32" /></Table.Cell>
+                          <Table.Cell className="!px-2.5 !py-1.5 text-center"><SkeletonLine className="mx-auto h-3.5 w-14" /></Table.Cell>
+                          <Table.Cell className="!px-2.5 !py-1.5 text-center"><SkeletonLine className="mx-auto h-3.5 w-10" /></Table.Cell>
+                          <Table.Cell className="!px-2.5 !py-1.5 text-center"><SkeletonLine className="mx-auto h-3.5 w-8" /></Table.Cell>
+                          <Table.Cell className="!px-2 !py-1.5 text-center"><SkeletonLine className="mx-auto h-3.5 w-12" /></Table.Cell>
                         </Table.Row>
                       ))
                     ) : zones.length === 0 ? (
@@ -1603,39 +1811,90 @@ function DnsPage() {
                       <Table.Row
                         key={zone.id}
                         variant={zone.id === selectedZoneId ? 'selected' : 'default'}
-                        className="cursor-pointer"
+                        className="h-9 cursor-pointer"
                         title="双击进入管理"
                         onDoubleClick={(event) => handleEditableRowDoubleClick(event, () => selectZone(zone))}
                       >
-                        <Table.Cell>
-                          <div className="flex flex-col">
-                            <span className="font-medium text-kumo-strong">{zone.name}</span>
-                            <span className="text-xs text-kumo-subtle">{zone.id}</span>
+                        <Table.Cell className="!px-2.5 !py-1.5 text-left">
+                          <div className="flex min-w-0">
+                            <span className="truncate font-semibold text-kumo-strong" title={zone.name}>{zone.name}</span>
                           </div>
                         </Table.Cell>
-                        <Table.Cell>
-                          <Badge variant={statusVariant(zone.status)}>{zoneStatusLabel(zone.status)}</Badge>
+                        <Table.Cell className="!px-2.5 !py-1.5 text-center">
+                          <Badge variant={statusVariant(zone.status)} className="text-[10px] leading-4">{zoneStatusLabel(zone.status)}</Badge>
                         </Table.Cell>
-                        <Table.Cell>{zone.type || '-'}</Table.Cell>
-                        <Table.Cell>
-                          <div className="truncate text-xs text-kumo-subtle" title={(zone.nameServers || []).join(', ')}>
-                            {(zone.nameServers || []).join(', ') || '-'}
+                        <Table.Cell className="!px-2.5 !py-1.5 text-center">{zoneTypeLabel(zone.type)}</Table.Cell>
+                        <Table.Cell className="!px-2.5 !py-1.5 text-center">
+                          <div className="flex w-full justify-center">
+                            <Popover>
+                              <Popover.Trigger
+                                render={(
+                                  <Button
+                                    size="sm"
+                                    shape="square"
+                                    variant="secondary"
+                                    aria-label={`查看 ${zone.name} 名称服务器`}
+                                    title="名称服务器"
+                                    onClick={(event) => event.stopPropagation()}
+                                    icon={<Eye className="h-3.5 w-3.5" />}
+                                  />
+                                )}
+                              />
+                              <Popover.Content side="right" align="center" className="w-80 p-3" onClick={(event) => event.stopPropagation()}>
+                                <div className="mb-2 flex items-center justify-between gap-2">
+                                  <Popover.Title className="truncate text-sm font-semibold text-kumo-strong">
+                                    名称服务器
+                                  </Popover.Title>
+                                  <Button
+                                    size="sm"
+                                    variant="secondary"
+                                    disabled={zoneNameServers(zone).length === 0}
+                                    onClick={() => copyText(zoneNameServers(zone).join('\n'), '名称服务器')}
+                                    icon={<Copy className="h-3.5 w-3.5" />}
+                                  >
+                                    全部
+                                  </Button>
+                                </div>
+                                <div className="mb-2 truncate text-xs text-kumo-subtle" title={zone.name}>{zone.name}</div>
+                                <div className="grid gap-2">
+                                  {zoneNameServers(zone).length > 0 ? zoneNameServers(zone).map((nameServer, index) => (
+                                    <div key={`${nameServer}-${index}`} className="flex min-w-0 items-center gap-2 rounded-md border border-kumo-line bg-kumo-recessed/25 px-2.5 py-2">
+                                      <code className="min-w-0 flex-1 truncate font-mono text-xs text-kumo-strong" title={nameServer}>
+                                        {nameServer}
+                                      </code>
+                                      <Button
+                                        size="sm"
+                                        shape="square"
+                                        variant="secondary"
+                                        aria-label={`复制 ${nameServer}`}
+                                        title="复制"
+                                        onClick={() => copyText(nameServer, '名称服务器')}
+                                        icon={<Copy className="h-3.5 w-3.5" />}
+                                      />
+                                    </div>
+                                  )) : (
+                                    <div className="rounded-md border border-kumo-line bg-kumo-recessed/25 px-3 py-3 text-center text-xs text-kumo-subtle">
+                                      暂无名称服务器
+                                    </div>
+                                  )}
+                                </div>
+                              </Popover.Content>
+                            </Popover>
                           </div>
                         </Table.Cell>
-                        <Table.Cell className="text-right">
-                          <div className="inline-flex gap-2">
-                            <Button size="sm" variant="secondary" onClick={(event) => {
+                        <Table.Cell className="!px-2 !py-1.5 text-center">
+                          <div className="inline-flex gap-1">
+                            <Button size="sm" shape="square" variant="secondary" onClick={(event) => {
                               event.stopPropagation();
                               selectZone(zone);
-                            }}>
-                              {zone.id === selectedZoneId ? <Check className="h-4 w-4" /> : <Search className="h-4 w-4" />}
-                              {zone.id === selectedZoneId ? '已选择' : '管理'}
+                            }} aria-label={zone.id === selectedZoneId ? `已选择 ${zone.name}` : `管理 ${zone.name}`} title={zone.id === selectedZoneId ? '已选择' : '管理'}>
+                              {zone.id === selectedZoneId ? <Check className="h-3.5 w-3.5" /> : <Search className="h-3.5 w-3.5" />}
                             </Button>
-                            <Button size="sm" variant="secondary-destructive" onClick={(event) => {
+                            <Button size="sm" shape="square" variant="secondary-destructive" onClick={(event) => {
                               event.stopPropagation();
                               deleteZone(zone);
-                            }} aria-label={`删除 ${zone.name}`}>
-                              <Trash className="h-4 w-4" />
+                            }} aria-label={`删除 ${zone.name}`} title="删除">
+                              <Trash className="h-3.5 w-3.5" />
                             </Button>
                           </div>
                         </Table.Cell>
@@ -1643,34 +1902,57 @@ function DnsPage() {
                     ))}
                   </Table.Body>
                 </Table>
-              </LayerCard>
+                </div>
+              </div>
 
-              {selectedZone && (
+              </section>
+
+              <section className="flex min-h-0 min-w-0 max-w-full flex-col gap-2 overflow-hidden">
+              <div className="flex min-h-8 shrink-0 items-center justify-between gap-2 px-1">
+                <div className="flex min-w-0 items-center gap-2 text-xs text-kumo-subtle">
+                  <Globe className="h-3.5 w-3.5 shrink-0" />
+                  <span className="truncate font-medium text-kumo-strong">
+                    {selectedZone ? selectedZone.name : 'DNS 记录'}
+                  </span>
+                </div>
+                {selectedZone && (
+                  <div className="shrink-0 text-xs text-kumo-subtle">
+                    {records.length} 条记录
+                  </div>
+                )}
+              </div>
+              {selectedZone ? (
                 <>
-                  <div className="grid grid-cols-1 gap-2 lg:grid-cols-4">
-                    <LayerCard className="flex min-h-11 items-center justify-between gap-3 p-2.5">
+                  <div className="dns-summary-grid grid shrink-0 gap-2">
+                    <DnsPanelCard className="flex min-h-11 items-center justify-between gap-3 p-2.5">
                       <div className="shrink-0 whitespace-nowrap text-xs text-kumo-subtle">SSL 模式</div>
                       <Select size="sm"
                         value={sslInfo?.mode || null}
                         onValueChange={(value) => updateSslMode(String(value))}
-                        placeholder={loading.ssl ? '加载中' : '选择模式'}
+                        placeholder="选择模式"
+                        loading={loading.ssl}
+                        renderValue={(value) => sslModeLabel(value)}
                         className="w-28 shrink-0"
                         items={SSL_MODES}
                       />
-                    </LayerCard>
-                    <LayerCard className="flex min-h-11 items-center justify-between gap-3 p-2.5">
+                    </DnsPanelCard>
+                    <DnsPanelCard className="flex min-h-11 items-center justify-between gap-3 p-2.5">
+                      <div className="shrink-0 whitespace-nowrap text-xs text-kumo-subtle">唯一访问者</div>
+                      <div className="shrink-0 whitespace-nowrap text-base font-semibold leading-6 text-kumo-strong">{loading.analytics ? '加载中' : formatNumber(analyticsSummary.uniques)}</div>
+                    </DnsPanelCard>
+                    <DnsPanelCard className="flex min-h-11 items-center justify-between gap-3 p-2.5">
                       <div className="shrink-0 whitespace-nowrap text-xs text-kumo-subtle">请求量</div>
-                      <div className="shrink-0 whitespace-nowrap text-base font-semibold leading-6 text-kumo-strong">{formatNumber(analytics?.requests)}</div>
-                    </LayerCard>
-                    <LayerCard className="flex min-h-11 items-center justify-between gap-3 p-2.5">
+                      <div className="shrink-0 whitespace-nowrap text-base font-semibold leading-6 text-kumo-strong">{loading.analytics ? '加载中' : formatNumber(analyticsSummary.requests)}</div>
+                    </DnsPanelCard>
+                    <DnsPanelCard className="flex min-h-11 items-center justify-between gap-3 p-2.5">
                       <div className="shrink-0 whitespace-nowrap text-xs text-kumo-subtle">带宽</div>
-                      <div className="shrink-0 whitespace-nowrap text-base font-semibold leading-6 text-kumo-strong">{formatBytes(analytics?.bandwidth)}</div>
-                    </LayerCard>
-                    <LayerCard className="flex min-h-11 items-center justify-between gap-3 p-2.5">
+                      <div className="shrink-0 whitespace-nowrap text-base font-semibold leading-6 text-kumo-strong">{loading.analytics ? '加载中' : formatBytes(analyticsSummary.bandwidth)}</div>
+                    </DnsPanelCard>
+                    <DnsPanelCard className="flex min-h-11 items-center justify-between gap-3 p-2.5">
                       <div className="flex min-w-0 items-center gap-2">
                           <div className="shrink-0 whitespace-nowrap text-xs text-kumo-subtle">缓存命中率</div>
                           <div className="shrink-0 whitespace-nowrap text-base font-semibold leading-6 text-kumo-strong">
-                            {analytics?.cacheHitRate === null || analytics?.cacheHitRate === undefined ? '-' : `${analytics.cacheHitRate}%`}
+                            {loading.analytics ? '加载中' : formatPercent(analyticsSummary.cacheHitRate)}
                           </div>
                         </div>
                         <Select size="sm"
@@ -1683,10 +1965,40 @@ function DnsPage() {
                             { value: '30d', label: '30 天' },
                           ]}
                         />
-                    </LayerCard>
+                    </DnsPanelCard>
                   </div>
 
-                  <LayerCard className="p-4">
+                  {(analyticsPoints.length > 0 || loading.analytics) && (
+                    <div className="dns-chart-grid grid shrink-0 gap-2">
+                      {analyticsChartCards.map((card) => (
+                        <DnsPanelCard key={card.key} className="min-w-0 overflow-hidden p-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="truncate text-xs font-medium text-kumo-strong">{card.label}</div>
+                            <div className="shrink-0 text-xs font-semibold text-kumo-subtle">{loading.analytics ? '加载中' : card.value}</div>
+                          </div>
+                          <div className="mt-2 min-w-0 overflow-hidden" style={{ height: 108 }}>
+                            <TimeseriesChart
+                              echarts={echarts}
+                              data={card.data}
+                              height={108}
+                              isDarkMode={isDarkMode}
+                              gradient
+                              loading={loading.analytics && analyticsPoints.length === 0}
+                              xAxisTickCount={3}
+                              yAxisTickCount={2}
+                              xAxisTickFormat={(timestamp) => formatAnalyticsAxisTime(timestamp, analyticsRange)}
+                              yAxisTickFormat={card.yAxisTickFormat}
+                              tooltipValueFormat={card.tooltipValueFormat}
+                              tooltipFollowCursor="x"
+                              ariaDescription={`Cloudflare ${card.label}`}
+                            />
+                          </div>
+                        </DnsPanelCard>
+                      ))}
+                    </div>
+                  )}
+
+                  <DnsPanelCard className="max-w-full shrink-0 overflow-hidden p-3">
                     <div className="flex flex-wrap items-end gap-2">
                       <Select size="sm"
                         label="记录类型"
@@ -1713,9 +2025,9 @@ function DnsPage() {
                         快速切换
                       </Button>
                     </div>
-                  </LayerCard>
+                  </DnsPanelCard>
 
-                  <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="dns-toolbar-frame flex shrink-0 flex-wrap items-center justify-between gap-2 p-2">
                     <div className="flex flex-wrap items-center gap-2">
                       <Input size="sm"
                         aria-label="按名称筛选 DNS 记录"
@@ -1754,33 +2066,35 @@ function DnsPage() {
                     </div>
                   </div>
 
-                  <LayerCard className="overflow-x-auto p-0">
-                    <Table layout="fixed">
+                  <div className="dns-table-frame min-h-0 max-w-full flex-1">
+                    <div className="dns-table-scroll scrollbar-thin">
+                    <Table layout="fixed" className="w-full text-xs" style={{ minWidth: recordColWidths.reduce((sum, width) => sum + width, 0) }}>
                       <colgroup>
                         {recordColWidths.map((width, index) => <col key={index} style={{ width }} />)}
                       </colgroup>
-                      <Table.Header variant="compact">
-                        <Table.Row>
+                      <Table.Header sticky variant="compact">
+                        <Table.Row className="h-8">
                           <Table.CheckHead
                             checked={records.length > 0 && selectedRecordIds.length === records.length}
                             indeterminate={selectedRecordIds.length > 0 && selectedRecordIds.length < records.length}
                             onCheckedChange={(checked) => setSelectedRecordIds(checked ? records.map((record) => record.id) : [])}
                             aria-label="全选 DNS 记录"
+                            className="!px-2 !py-1.5 text-center"
                           />
-                          <Table.Head className="relative pr-6">类型<Table.ResizeHandle onMouseDown={(e) => startRecordResize(1, e)} onTouchStart={(e) => startRecordResize(1, e)} /></Table.Head>
-                          <Table.Head className="relative pr-6">名称<Table.ResizeHandle onMouseDown={(e) => startRecordResize(2, e)} onTouchStart={(e) => startRecordResize(2, e)} /></Table.Head>
-                          <Table.Head className="relative pr-6">内容<Table.ResizeHandle onMouseDown={(e) => startRecordResize(3, e)} onTouchStart={(e) => startRecordResize(3, e)} /></Table.Head>
-                          <Table.Head className="relative pr-6">TTL<Table.ResizeHandle onMouseDown={(e) => startRecordResize(4, e)} onTouchStart={(e) => startRecordResize(4, e)} /></Table.Head>
-                          <Table.Head className="relative pr-6">代理<Table.ResizeHandle onMouseDown={(e) => startRecordResize(5, e)} onTouchStart={(e) => startRecordResize(5, e)} /></Table.Head>
-                          <Table.Head className="relative pr-6">更新时间<Table.ResizeHandle onMouseDown={(e) => startRecordResize(6, e)} onTouchStart={(e) => startRecordResize(6, e)} /></Table.Head>
-                          <Table.Head className="text-right">操作</Table.Head>
+                          {renderResizeHead('类型', 1, startRecordResize, 'center')}
+                          {renderResizeHead('名称', 2, startRecordResize)}
+                          {renderResizeHead('内容', 3, startRecordResize)}
+                          {renderResizeHead('TTL', 4, startRecordResize, 'center')}
+                          {renderResizeHead('代理', 5, startRecordResize, 'center')}
+                          {renderResizeHead('更新时间', 6, startRecordResize, 'center')}
+                          <Table.Head className="!px-2 !py-1.5 text-center">操作</Table.Head>
                         </Table.Row>
                       </Table.Header>
                       <Table.Body>
                         {loading.records ? (
                           Array.from({ length: 5 }).map((_, index) => (
-                            <Table.Row key={index}>
-                              <Table.Cell colSpan={8}><SkeletonLine className="h-4 w-full" /></Table.Cell>
+                            <Table.Row key={index} className="h-9">
+                              <Table.Cell colSpan={8} className="!px-2.5 !py-1.5"><SkeletonLine className="mx-auto h-3.5 w-full max-w-2xl" /></Table.Cell>
                             </Table.Row>
                           ))
                         ) : records.length === 0 ? (
@@ -1793,7 +2107,7 @@ function DnsPage() {
                           <Table.Row
                             key={record.id}
                             variant={selectedRecordIds.includes(record.id) ? 'selected' : 'default'}
-                            className="cursor-pointer"
+                            className="h-9 cursor-pointer"
                             title="双击编辑记录"
                             onDoubleClick={(event) => handleEditableRowDoubleClick(event, () => openRecordModal(record))}
                           >
@@ -1801,26 +2115,46 @@ function DnsPage() {
                               checked={selectedRecordIds.includes(record.id)}
                               onCheckedChange={(checked) => toggleRecordSelection(record.id, Boolean(checked))}
                               aria-label={`选择 ${record.name}`}
+                              className="!px-2 !py-1.5 text-center"
                             />
-                            <Table.Cell><Badge variant="outline">{record.type}</Badge></Table.Cell>
-                            <Table.Cell className="font-medium text-kumo-strong">{recordShortName(record.name, selectedZone.name)}</Table.Cell>
-                            <Table.Cell><div className="truncate font-mono text-xs" title={record.content}>{record.content}</div></Table.Cell>
-                            <Table.Cell>{record.ttl === 1 ? '自动' : record.ttl}</Table.Cell>
-                            <Table.Cell><Badge variant={record.proxied ? 'success' : 'outline'}>{record.proxied ? '开启' : '关闭'}</Badge></Table.Cell>
-                            <Table.Cell>{formatDate(record.modifiedOn)}</Table.Cell>
-                            <Table.Cell className="text-right">
-                              <div className="inline-flex gap-2">
-                                <Button size="sm" shape="square" variant="secondary" onClick={() => openRecordModal(record)} aria-label={`编辑 ${record.name}`} title="编辑" icon={<Edit className="h-4 w-4" />} />
-                                <Button size="sm" shape="square" variant="secondary-destructive" onClick={() => deleteRecord(record)} aria-label={`删除 ${record.name}`} title="删除" icon={<Trash className="h-4 w-4" />} />
+                            <Table.Cell className="!px-2.5 !py-1.5 text-center">
+                              <Badge variant={recordTypeBadgeVariant(record.type)} className="min-w-12 justify-center text-[10px] leading-4">
+                                {record.type}
+                              </Badge>
+                            </Table.Cell>
+                            <Table.Cell className="!px-2.5 !py-1.5 text-left font-semibold text-kumo-strong">
+                              <div className="truncate" title={recordShortName(record.name, selectedZone.name)}>{recordShortName(record.name, selectedZone.name)}</div>
+                            </Table.Cell>
+                            <Table.Cell className="!px-2.5 !py-1.5 text-left">
+                              <div className="truncate font-mono text-[11px]" title={record.content}>{record.content}</div>
+                            </Table.Cell>
+                            <Table.Cell className="!px-2.5 !py-1.5 text-center">{record.ttl === 1 ? '自动' : record.ttl}</Table.Cell>
+                            <Table.Cell className="!px-2.5 !py-1.5 text-center"><Badge variant={record.proxied ? 'success' : 'outline'} className="text-[10px] leading-4">{record.proxied ? '开启' : '关闭'}</Badge></Table.Cell>
+                            <Table.Cell className="!px-2.5 !py-1.5 text-center">
+                              <div className="truncate" title={formatDate(record.modifiedOn)}>{formatDate(record.modifiedOn)}</div>
+                            </Table.Cell>
+                            <Table.Cell className="!px-2 !py-1.5 text-center">
+                              <div className="inline-flex gap-1">
+                                <Button size="sm" shape="square" variant="secondary" onClick={() => openRecordModal(record)} aria-label={`编辑 ${record.name}`} title="编辑" icon={<Edit className="h-3.5 w-3.5" />} />
+                                <Button size="sm" shape="square" variant="secondary-destructive" onClick={() => deleteRecord(record)} aria-label={`删除 ${record.name}`} title="删除" icon={<Trash className="h-3.5 w-3.5" />} />
                               </div>
                             </Table.Cell>
                           </Table.Row>
                         ))}
                       </Table.Body>
                     </Table>
-                  </LayerCard>
+                    </div>
+                  </div>
                 </>
+              ) : (
+                <div className="flex min-h-0 flex-1 items-center justify-center rounded-lg border border-kumo-line bg-kumo-base p-8 shadow-none">
+                  <div className="flex flex-col items-center gap-3 text-center text-sm text-kumo-subtle">
+                    <Globe className="h-10 w-10 text-kumo-subtle" />
+                    <div>请选择左侧域名后管理 DNS 记录。</div>
+                  </div>
+                </div>
               )}
+              </section>
             </div>
           )}
 

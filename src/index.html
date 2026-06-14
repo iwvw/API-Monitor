@@ -34,7 +34,7 @@
       document.documentElement.classList.toggle('dark', isDark);
       document.documentElement.classList.toggle('light', !isDark);
       document.documentElement.dataset.mode = isDark ? 'dark' : 'light';
-      document.documentElement.dataset.theme = isDark ? 'dark' : 'light';
+      document.documentElement.dataset.theme = 'kumo';
       document.documentElement.dataset.themeMode = themeMode;
       document.documentElement.style.colorScheme = isDark ? 'dark' : 'light';
     })();
@@ -144,7 +144,7 @@
           document.documentElement.classList.toggle('dark', dark);
           document.documentElement.classList.toggle('light', !dark);
           document.documentElement.dataset.mode = dark ? 'dark' : 'light';
-          document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+          document.documentElement.dataset.theme = 'kumo';
           document.documentElement.dataset.themeMode = themeMode;
           document.documentElement.style.colorScheme = dark ? 'dark' : 'light';
           if (loader) {

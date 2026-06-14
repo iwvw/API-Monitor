@@ -102,8 +102,10 @@ const useMobileClosingNavigation = (onNavigate) => {
 
 const SidebarModuleButton = ({ module, active, icon: IconComponent, onNavigate }) => {
   const navigateAndClose = useMobileClosingNavigation(onNavigate);
+  const { isMobile, state } = useSidebar();
   const config = MODULE_CONFIG[module];
   if (!config) return null;
+  const tooltip = !isMobile && state === 'collapsed' ? config.name : undefined;
 
   return (
     <Sidebar.MenuButton
@@ -111,9 +113,25 @@ const SidebarModuleButton = ({ module, active, icon: IconComponent, onNavigate }
       aria-current={active ? 'page' : undefined}
       onClick={() => navigateAndClose(module)}
       icon={IconComponent}
-      tooltip={config.name}
+      tooltip={tooltip}
     >
       {config.name}
+    </Sidebar.MenuButton>
+  );
+};
+
+const SidebarLogoutButton = ({ onLogout }) => {
+  const { isMobile, state } = useSidebar();
+  const tooltip = !isMobile && state === 'collapsed' ? '安全退出' : undefined;
+
+  return (
+    <Sidebar.MenuButton
+      onClick={onLogout}
+      className="text-kumo-danger hover:bg-kumo-danger/10"
+      icon={LogOut}
+      tooltip={tooltip}
+    >
+      安全退出
     </Sidebar.MenuButton>
   );
 };
@@ -334,14 +352,7 @@ function MainLayout() {
                 onNavigate={navigateToModule}
               />
 
-              <Sidebar.MenuButton
-                onClick={logout}
-                className="text-kumo-danger hover:bg-kumo-danger/10"
-                icon={LogOut}
-                tooltip="安全退出"
-              >
-                安全退出
-              </Sidebar.MenuButton>
+              <SidebarLogoutButton onLogout={logout} />
             </Sidebar.Menu>
           </Sidebar.Group>
           <SidebarStyleSwitches
@@ -386,7 +397,7 @@ function MainLayout() {
         </header>
 
         {/* 主内容画布 */}
-        <main className="flex-1 overflow-y-auto p-3 sm:p-4 lg:px-8 lg:pb-6 lg:pt-3 scrollbar-thin">
+        <main className="flex-1 overflow-x-hidden overflow-y-auto p-3 sm:p-4 lg:px-8 lg:pb-6 lg:pt-3 scrollbar-thin">
           <div className={`mx-auto flex min-h-full w-full min-w-0 flex-col ${pageWidthClass}`}>
             {renderActivePage()}
           </div>

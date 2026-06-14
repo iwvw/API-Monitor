@@ -12,6 +12,7 @@ const Events = {
   AGENT_HOST_INFO: 'agent:host_info', // 上报主机硬件信息
   AGENT_STATE: 'agent:state', // 上报实时状态 (每 1-2 秒)
   AGENT_TASK_RESULT: 'agent:task_result', // 任务执行结果
+  AGENT_TASK_PROGRESS: 'agent:task_progress', // 长任务执行进度
   AGENT_DISCONNECT: 'agent:disconnect', // Agent 主动断开
 
   // Dashboard -> Agent

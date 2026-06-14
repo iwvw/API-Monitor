@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS server_accounts (
     description TEXT, -- 主机描述
     country TEXT, -- 归属国家/地区代码
     resolved_country TEXT, -- 自动识别出的国家代码
+    starts_at DATETIME, -- 主机开始时间，用于计算生命周期进度
     expires_at DATETIME, -- 主机到期时间，用于计算剩余时长
     order_index INTEGER DEFAULT 0, -- 展示排序
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
