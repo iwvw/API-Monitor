@@ -1676,6 +1676,10 @@ function ServerPage() {
   const [dockerVolumes, setDockerVolumes] = useState([]);
   const [dockerStats, setDockerStats] = useState([]);
   const [dockerComposeProjects, setDockerComposeProjects] = useState([]);
+  const [dockerUpdateChecks, setDockerUpdateChecks] = useState({});
+  const [dockerUpdateCheckLoading, setDockerUpdateCheckLoading] = useState({});
+  const [dockerBulkUpdateChecking, setDockerBulkUpdateChecking] = useState(false);
+  const [dockerBulkUpdateCheckServers, setDockerBulkUpdateCheckServers] = useState({});
   const [showDockerCreateModal, setShowDockerCreateModal] = useState(false);
   
   // Agent 升级
@@ -1738,7 +1742,7 @@ function ServerPage() {
   const sftpPathByServerRef = useRef({});
 
   const [historyColWidths, startHistoryResize] = useTableResize([180, 150, 100, 100, 100, 150]);
-  const [dockerColWidths, startDockerResize] = useTableResize([180, 220, 100, 180, 120]);
+  const [dockerColWidths, startDockerResize] = useTableResize([180, 220, 100, 100, 180, 132]);
   const [imagesColWidths, startImagesResize] = useTableResize([250, 100, 100, 150, 100]);
   const [networksColWidths, startNetworksResize] = useTableResize([180, 180, 120, 120, 150, 100]);
   const [volumesColWidths, startVolumesResize] = useTableResize([240, 140, 120, 150, 100]);
@@ -2935,6 +2939,94 @@ function ServerPage() {
 
   const getDockerContainerPorts = formatDockerContainerPorts;
 
+  const getDockerUpdateCheckKey = (serverId, value) => {
+    const normalized = String(value || '').trim();
+    return normalized ? `${serverId}::${normalized}` : '';
+  };
+
+  const getDockerUpdateAliases = (serverId, result = {}) => {
+    const aliases = new Set();
+    const add = (value) => {
+      const text = String(value || '').trim().replace(/^\/+/, '');
+      if (!text || text === '-') return;
+      aliases.add(text);
+      if (text.length > 12) aliases.add(text.slice(0, 12));
+    };
+
+    add(result.containerId);
+    add(result.container_id);
+    add(result.containerName);
+    add(result.container_name);
+    add(result.name);
+    add(result.image);
+
+    return Array.from(aliases)
+      .map(value => getDockerUpdateCheckKey(serverId, value))
+      .filter(Boolean);
+  };
+
+  const normalizeDockerUpdateCheck = (serverId, result = {}, fallback = {}) => ({
+    serverId,
+    containerId: String(result.container_id || result.containerId || fallback.containerId || ''),
+    containerName: String(result.container_name || result.containerName || result.name || fallback.containerName || '').replace(/^\/+/, ''),
+    image: String(result.image || fallback.image || ''),
+    currentDigest: String(result.current_digest || result.currentDigest || ''),
+    latestDigest: String(result.latest_digest || result.latestDigest || ''),
+    hasUpdate: !!(result.has_update ?? result.hasUpdate),
+    error: result.error || '',
+    checkedAt: Date.now(),
+  });
+
+  const storeDockerUpdateChecks = (serverId, results, fallback = {}) => {
+    const list = Array.isArray(results) ? results : (results ? [results] : []);
+    if (list.length === 0) return;
+
+    setDockerUpdateChecks(prev => {
+      const next = { ...prev };
+      list.forEach(result => {
+        const normalized = normalizeDockerUpdateCheck(serverId, result, fallback);
+        getDockerUpdateAliases(serverId, normalized).forEach(key => {
+          next[key] = normalized;
+        });
+      });
+      return next;
+    });
+  };
+
+  const getDockerContainerUpdateCheck = (serverId, container) => {
+    const containerId = getDockerContainerId(container);
+    const containerName = getDockerContainerName(container);
+    const containerImage = getDockerContainerImage(container);
+    const keys = getDockerUpdateAliases(serverId, {
+      containerId,
+      containerName,
+      image: containerImage,
+    });
+
+    return keys.map(key => dockerUpdateChecks[key]).find(Boolean) || null;
+  };
+
+  const isDockerContainerUpdateChecking = (serverId, container) => {
+    const containerId = getDockerContainerId(container);
+    const containerName = getDockerContainerName(container);
+    const containerImage = getDockerContainerImage(container);
+    const keys = getDockerUpdateAliases(serverId, {
+      containerId,
+      containerName,
+      image: containerImage,
+    });
+
+    return !!dockerBulkUpdateCheckServers[serverId] || keys.some(key => dockerUpdateCheckLoading[key]);
+  };
+
+  const getDockerUpdateBadge = (check) => {
+    if (!check) return { variant: 'neutral', label: '未检测', title: '尚未检测镜像更新' };
+    if (check.error) return { variant: 'error', label: '失败', title: check.error };
+    if (check.hasUpdate) return { variant: 'warning', label: '可更新', title: '远端镜像摘要与本地不一致' };
+    if (check.currentDigest && check.latestDigest) return { variant: 'success', label: '已最新', title: '本地镜像已是远端最新摘要' };
+    return { variant: 'neutral', label: '已检测', title: '远端或本地摘要不完整，无法严格判断' };
+  };
+
   const getDockerStateBadge = (state) => {
     if (state === 'running') return { variant: 'success', label: '运行' };
     if (state === 'paused' || state === 'restarting') return { variant: 'warning', label: state === 'paused' ? '暂停' : '重启中' };
@@ -3741,6 +3833,130 @@ function ServerPage() {
     if (dockerSelectedServer) return dockerOverviewServers;
     return dockerOverviewServers.filter(server => asArray(server.resources?.containers).length > 0);
   }, [dockerOverviewServers, dockerSelectedServer]);
+
+  const setDockerUpdateLoadingForAliases = (serverId, fallback, loading) => {
+    const aliases = getDockerUpdateAliases(serverId, fallback);
+    if (aliases.length === 0) return;
+
+    setDockerUpdateCheckLoading(prev => {
+      const next = { ...prev };
+      aliases.forEach(key => {
+        if (loading) {
+          next[key] = true;
+        } else {
+          delete next[key];
+        }
+      });
+      return next;
+    });
+  };
+
+  const checkDockerUpdatesForServer = async (server, container = null, options = {}) => {
+    const serverId = typeof server === 'object' ? server?.id : server;
+    if (!serverId) {
+      toast.warning('请先选择一台主机');
+      return { ok: false, error: 'missing serverId', results: [] };
+    }
+
+    const fallback = container ? {
+      containerId: getDockerContainerId(container),
+      containerName: getDockerContainerName(container),
+      image: getDockerContainerImage(container),
+    } : {};
+
+    setDockerUpdateLoadingForAliases(serverId, fallback, true);
+
+    try {
+      const response = await fetch('/api/server/docker/check-update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          serverId,
+          containerId: fallback.containerId || '',
+        }),
+      });
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || '检查更新失败');
+      }
+
+      const results = Array.isArray(data.data) ? data.data : (data.data ? [data.data] : []);
+      if (results.length > 0) {
+        storeDockerUpdateChecks(serverId, results, fallback);
+      } else if (container) {
+        storeDockerUpdateChecks(serverId, [{
+          ...fallback,
+          error: '未返回检测结果',
+        }], fallback);
+      }
+
+      if (!options.silent) {
+        const updateCount = results.filter(item => item?.has_update || item?.hasUpdate).length;
+        if (updateCount > 0) {
+          toast.warning(`检测完成，发现 ${updateCount} 个可更新镜像`);
+        } else {
+          toast.success('检测完成，暂无可更新镜像');
+        }
+      }
+
+      return { ok: true, results };
+    } catch (error) {
+      if (container) {
+        storeDockerUpdateChecks(serverId, [{
+          ...fallback,
+          error: error.message || '检查更新失败',
+        }], fallback);
+      }
+      if (!options.silent) {
+        toast.error(error.message || '检查更新失败');
+      }
+      return { ok: false, error: error.message || '检查更新失败', results: [] };
+    } finally {
+      setDockerUpdateLoadingForAliases(serverId, fallback, false);
+    }
+  };
+
+  const checkVisibleDockerUpdates = async () => {
+    const targets = visibleDockerContainerServers.filter(server => asArray(server.resources?.containers).length > 0);
+    if (targets.length === 0) {
+      toast.warning('当前没有可检测的 Docker 容器');
+      return;
+    }
+
+    setDockerBulkUpdateChecking(true);
+    setDockerBulkUpdateCheckServers(Object.fromEntries(targets.map(server => [server.id, true])));
+
+    try {
+      const settled = await Promise.allSettled(
+        targets.map(server => checkDockerUpdatesForServer(server, null, { silent: true }).finally(() => {
+          setDockerBulkUpdateCheckServers(prev => {
+            const next = { ...prev };
+            delete next[server.id];
+            return next;
+          });
+        }))
+      );
+      const finished = settled.map(item => item.status === 'fulfilled'
+        ? item.value
+        : { ok: false, error: item.reason?.message || '检查失败', results: [] });
+      const updateCount = finished.reduce(
+        (sum, item) => sum + item.results.filter(result => result?.has_update || result?.hasUpdate).length,
+        0
+      );
+      const failedCount = finished.filter(item => !item.ok).length;
+
+      if (failedCount > 0) {
+        toast.warning(`检测完成，${updateCount} 个可更新，${failedCount} 台主机检测失败`);
+      } else if (updateCount > 0) {
+        toast.warning(`检测完成，发现 ${updateCount} 个可更新镜像`);
+      } else {
+        toast.success('检测完成，暂无可更新镜像');
+      }
+    } finally {
+      setDockerBulkUpdateChecking(false);
+      setDockerBulkUpdateCheckServers({});
+    }
+  };
 
   const renderDockerEmptyState = (message) => (
     <div className="app-card p-10 text-center text-xs text-kumo-subtle">
@@ -5396,6 +5612,9 @@ function ServerPage() {
                                         const containerId = getDockerContainerId(c);
                                         const containerName = getDockerContainerName(c);
                                         const containerImage = getDockerContainerImage(c);
+                                        const updateCheck = getDockerContainerUpdateCheck(server.id, c);
+                                        const updateBadge = getDockerUpdateBadge(updateCheck);
+                                        const updateChecking = isDockerContainerUpdateChecking(server.id, c);
                                         return (
                                           <div key={containerId || `${server.id}-${containerName}`} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 px-3 py-2 text-xs hover:bg-kumo-recessed/20">
                                             <div className="flex min-w-0 items-center gap-2">
@@ -5403,6 +5622,20 @@ function ServerPage() {
                                               <div className="min-w-0">
                                                 <div className="truncate font-semibold text-kumo-strong" title={containerName}>{containerName}</div>
                                                 <div className="truncate font-mono text-[10px] text-kumo-subtle" title={containerImage}>{containerImage}</div>
+                                                {(updateCheck || updateChecking) && (
+                                                  <div className="mt-1">
+                                                    {updateChecking ? (
+                                                      <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-kumo-subtle">
+                                                        <RefreshCw className="h-3 w-3 animate-spin" />
+                                                        检测中
+                                                      </span>
+                                                    ) : (
+                                                      <Badge variant={updateBadge.variant} appearance="dot" title={updateBadge.title}>
+                                                        {updateBadge.label}
+                                                      </Badge>
+                                                    )}
+                                                  </div>
+                                                )}
                                               </div>
                                             </div>
                                             <div className="flex shrink-0 items-center gap-1">
@@ -5434,10 +5667,11 @@ function ServerPage() {
                                                 variant="secondary"
                                                 aria-label="检测镜像更新"
                                                 title="检测更新"
-                                                icon={<Search className="h-3.5 w-3.5" />}
+                                                icon={updateChecking ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
+                                                disabled={updateChecking}
                                                 onClick={(event) => {
                                                   event.stopPropagation();
-                                                  submitDockerTask('container.checkUpdates', { serverId: server.id, containerId, containerName, image: containerImage });
+                                                  checkDockerUpdatesForServer(server, c);
                                                 }}
                                               />
                                               <Button
@@ -5741,6 +5975,17 @@ function ServerPage() {
                   ...dockerHostOptions,
                 ]}
               />
+              {dockerSubTab === 'containers' && (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  icon={<RefreshCw className={`h-3.5 w-3.5 ${dockerBulkUpdateChecking ? 'animate-spin' : ''}`} />}
+                  disabled={dockerBulkUpdateChecking || visibleDockerContainerServers.length === 0}
+                  onClick={checkVisibleDockerUpdates}
+                >
+                  检测可更新
+                </Button>
+              )}
             </div>
           </div>
           
@@ -5835,17 +6080,21 @@ function ServerPage() {
                                   镜像
                                   <Table.ResizeHandle onMouseDown={(e) => startDockerResize(1, e)} />
                                 </Table.Head>
-                                <Table.Head className="p-2 relative">
-                                  状态
+                                <Table.Head className="p-2 text-center relative">
+                                  更新
                                   <Table.ResizeHandle onMouseDown={(e) => startDockerResize(2, e)} />
                                 </Table.Head>
                                 <Table.Head className="p-2 relative">
-                                  端口映射
+                                  状态
                                   <Table.ResizeHandle onMouseDown={(e) => startDockerResize(3, e)} />
+                                </Table.Head>
+                                <Table.Head className="p-2 relative">
+                                  端口映射
+                                  <Table.ResizeHandle onMouseDown={(e) => startDockerResize(4, e)} />
                                 </Table.Head>
                                 <Table.Head className="p-2 text-right relative">
                                   操作
-                                  <Table.ResizeHandle onMouseDown={(e) => startDockerResize(4, e)} />
+                                  <Table.ResizeHandle onMouseDown={(e) => startDockerResize(5, e)} />
                                 </Table.Head>
                               </Table.Row>
                             </Table.Header>
@@ -5857,11 +6106,26 @@ function ServerPage() {
                                 const containerName = getDockerContainerName(c);
                                 const containerImage = getDockerContainerImage(c);
                                 const containerPorts = getDockerContainerPorts(c);
+                                const updateCheck = getDockerContainerUpdateCheck(server.id, c);
+                                const updateBadge = getDockerUpdateBadge(updateCheck);
+                                const updateChecking = isDockerContainerUpdateChecking(server.id, c);
                                 const toggleAction = state === 'running' ? 'container.stop' : 'container.start';
                                 return (
                                 <Table.Row key={containerId || `${server.id}-${containerName}`} className="border-b border-kumo-line hover:bg-kumo-recessed/10">
                                   <Table.Cell className="p-2 font-bold text-kumo-strong truncate" title={containerName}>{containerName}</Table.Cell>
                                   <Table.Cell className="p-2 truncate" title={containerImage}>{containerImage}</Table.Cell>
+                                  <Table.Cell className="p-2 text-center">
+                                    {updateChecking ? (
+                                      <span className="inline-flex items-center justify-center gap-1 text-[10px] font-semibold text-kumo-subtle">
+                                        <RefreshCw className="h-3 w-3 animate-spin" />
+                                        检测中
+                                      </span>
+                                    ) : (
+                                      <Badge variant={updateBadge.variant} appearance="dot" title={updateBadge.title}>
+                                        {updateBadge.label}
+                                      </Badge>
+                                    )}
+                                  </Table.Cell>
                                   <Table.Cell className="p-2">
                                     <Badge variant={stateBadge.variant} appearance="dot">{stateBadge.label}</Badge>
                                   </Table.Cell>
@@ -5887,9 +6151,10 @@ function ServerPage() {
                                       <Button
                                         shape="square" size="sm"
                                         variant="secondary"
-                                        icon={<Search className="h-3.5 w-3.5" />}
+                                        icon={updateChecking ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Search className="h-3.5 w-3.5" />}
                                         aria-label="检测镜像更新"
-                                        onClick={() => submitDockerTask('container.checkUpdates', { serverId: server.id, containerId, containerName, image: containerImage })}
+                                        disabled={updateChecking}
+                                        onClick={() => checkDockerUpdatesForServer(server, c)}
                                         title="检测更新"
                                       />
                                       <Button
