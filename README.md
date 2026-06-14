@@ -126,7 +126,7 @@ api-monitor/
 └── dist/                  # 生产构建产物
 ```
 
-详细架构说明 → [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)
+详细架构说明 → [docs/DESIGN.md](./docs/DESIGN.md)
 
 ---
 

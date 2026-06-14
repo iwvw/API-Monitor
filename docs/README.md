@@ -1,6 +1,6 @@
 # API Monitor 文档索引
 
-最后更新：2026-06-09
+最后更新：2026-06-14
 
 本文档目录记录当前项目事实。API Monitor 现在以 **Express + React 19 + Zustand + @cloudflare/kumo 2.5.0 + Tailwind CSS v4 + SQLite** 为主线；旧 Vue 前端、旧模板加载器、Pinia 和 Chart.js 已不再作为当前前端方案。
 
@@ -14,7 +14,8 @@
 6. [refactor-progress.md](./refactor-progress.md)：当前重构状态。
 7. [refactor-next.md](./refactor-next.md)：后续待办与执行规则。
 8. [refactor-verification.md](./refactor-verification.md)：静态扫描、构建和浏览器验收记录。
-9. [termix-reference-analysis.md](./termix-reference-analysis.md)：Termix 终端、SFTP、Docker、资源监控参考分析。
+9. [backend-go-rust-migration-prd.md](./backend-go-rust-migration-prd.md)：Go 主程序 + Rust Agent 后端迁移 PRD 与模块矩阵。
+10. [termix-reference-analysis.md](./termix-reference-analysis.md)：Termix 终端、SFTP、Docker、资源监控参考分析。
 
 ## 参考快照
 
@@ -46,6 +47,7 @@
 - `src/js/components/AnimatedCollapse.jsx` 是当前全站展开/收起适配层，基于 Kumo `Collapsible` 和 Base UI 高度变量恢复过渡动画。
 - 侧栏折叠偏好、页面宽度偏好、主题偏好等前端显示设置已接入后端用户设置，启动阶段通过 `src/index.html` 内联主题脚本避免暗色模式闪白。
 - 插件 ZIP 下载不再依赖 PowerShell，后端使用 Node 侧压缩能力，适配 Linux 容器运行环境。
+- Go 主程序 + Rust Agent 后端迁移目标见 [backend-go-rust-migration-prd.md](./backend-go-rust-migration-prd.md)；音乐模块不纳入迁移目标，后续按退役模块处理。
 
 ## 常用验证
 

@@ -96,4 +96,5 @@ test-*-*.js
 gha-creds-*.json
 stress-test-gcli.js
 api-monitor.code-workspace
-docs/
+docs/*
+!docs/backend-go-rust-migration-prd.md
