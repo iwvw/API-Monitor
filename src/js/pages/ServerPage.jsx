@@ -186,7 +186,8 @@ const patchFastTimeseriesAnimation = (option, animationOptions = SERVER_FAST_CHA
 };
 
 const createFastTimeseriesEcharts = (baseEcharts, animationOptions) => (
-  Object.assign(Object.create(baseEcharts), {
+  {
+    ...baseEcharts,
     init(...args) {
       const chart = baseEcharts.init(...args);
       const setOption = chart.setOption.bind(chart);
@@ -196,7 +197,7 @@ const createFastTimeseriesEcharts = (baseEcharts, animationOptions) => (
       );
       return chart;
     },
-  })
+  }
 );
 
 const METRICS_COLLECT_INTERVAL_TABS = [1, 2, 5, 10, 15, 30, 60].map(value => ({
