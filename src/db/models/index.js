@@ -16,6 +16,8 @@ const {
   ServerMonitorConfig,
   ServerCredential,
   ServerSnippet,
+  ServerNetworkQualityTarget,
+  ServerNetworkQualitySample,
 } = require('../../../modules/server-api/models');
 
 module.exports = {
@@ -42,4 +44,6 @@ module.exports = {
   ServerMonitorConfig,
   ServerCredential,
   ServerSnippet,
+  ServerNetworkQualityTarget,
+  ServerNetworkQualitySample,
 };

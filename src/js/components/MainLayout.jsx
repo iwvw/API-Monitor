@@ -1,21 +1,5 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { lazy, Suspense, useEffect, useMemo } from 'react';
 import useStore, { MODULE_GROUPS, MODULE_CONFIG, getModuleName } from '../store.js';
-import DashboardPage from '../pages/DashboardPage.jsx';
-import ServerPage from '../pages/ServerPage.jsx';
-import TotpPage from '../pages/TotpPage.jsx';
-import FileboxPage from '../pages/FileboxPage.jsx';
-import UptimePage from '../pages/UptimePage.jsx';
-import NotificationPage from '../pages/NotificationPage.jsx';
-import OpenAIPage from '../pages/OpenAIPage.jsx';
-import GeminiCliPage from '../pages/GeminiCliPage.jsx';
-import QwenPage from '../pages/QwenPage.jsx';
-import PaasPage from '../pages/PaasPage.jsx';
-import DnsPage from '../pages/DnsPage.jsx';
-import AliyunPage from '../pages/AliyunPage.jsx';
-import TencentPage from '../pages/TencentPage.jsx';
-import SettingsPage from '../pages/SettingsPage.jsx';
-import SelfHPage from '../pages/SelfHPage.jsx';
-import MusicPage from '../pages/MusicPage.jsx';
 import {
   Sidebar,
   useSidebar
@@ -41,6 +25,33 @@ import {
   Hexagon,
   Settings
 } from './Icons.jsx';
+
+const DashboardPage = lazy(() => import('../pages/DashboardPage.jsx'));
+const ServerPage = lazy(() => import('../pages/ServerPage.jsx'));
+const TotpPage = lazy(() => import('../pages/TotpPage.jsx'));
+const FileboxPage = lazy(() => import('../pages/FileboxPage.jsx'));
+const UptimePage = lazy(() => import('../pages/UptimePage.jsx'));
+const NotificationPage = lazy(() => import('../pages/NotificationPage.jsx'));
+const OpenAIPage = lazy(() => import('../pages/OpenAIPage.jsx'));
+const GeminiCliPage = lazy(() => import('../pages/GeminiCliPage.jsx'));
+const QwenPage = lazy(() => import('../pages/QwenPage.jsx'));
+const PaasPage = lazy(() => import('../pages/PaasPage.jsx'));
+const DnsPage = lazy(() => import('../pages/DnsPage.jsx'));
+const AliyunPage = lazy(() => import('../pages/AliyunPage.jsx'));
+const TencentPage = lazy(() => import('../pages/TencentPage.jsx'));
+const SettingsPage = lazy(() => import('../pages/SettingsPage.jsx'));
+const SelfHPage = lazy(() => import('../pages/SelfHPage.jsx'));
+const MusicPage = lazy(() => import('../pages/MusicPage.jsx'));
+
+const PageLoadingFallback = () => (
+  <div className="flex min-h-[240px] items-center justify-center">
+    <div
+      className="h-8 w-8 animate-spin rounded-full border-2 border-kumo-line border-t-kumo-brand"
+      aria-label="Loading"
+      role="status"
+    />
+  </div>
+);
 
 // 图标映射配置
 const ICON_MAP = {
@@ -399,7 +410,9 @@ function MainLayout() {
         {/* 主内容画布 */}
         <main className="flex-1 overflow-x-hidden overflow-y-auto p-3 sm:p-4 lg:px-8 lg:pb-6 lg:pt-3 scrollbar-thin">
           <div className={`mx-auto flex min-h-full w-full min-w-0 flex-col ${pageWidthClass}`}>
-            {renderActivePage()}
+            <Suspense fallback={<PageLoadingFallback />}>
+              {renderActivePage()}
+            </Suspense>
           </div>
         </main>
       </div>

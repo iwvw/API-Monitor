@@ -9,6 +9,8 @@ const {
   ServerMonitorConfig,
   ServerCredential,
   ServerSnippet,
+  ServerNetworkQualityTarget,
+  ServerNetworkQualitySample,
 } = require('../../src/db/models');
 
 /**
@@ -171,10 +173,26 @@ const snippetStorage = {
   },
 };
 
+const networkQualityStorage = {
+  getTargets() {
+    return ServerNetworkQualityTarget.getEnabled();
+  },
+  createSamples(records) {
+    return ServerNetworkQualitySample.createMany(records);
+  },
+  getHistory(serverId, options) {
+    return ServerNetworkQualitySample.getHistory(serverId, options);
+  },
+  deleteOldRecords(days) {
+    return ServerNetworkQualitySample.deleteOldRecords(days);
+  },
+};
+
 module.exports = {
   serverStorage,
   monitorLogStorage,
   monitorConfigStorage,
   credentialStorage,
   snippetStorage,
+  networkQualityStorage,
 };

@@ -7,11 +7,12 @@ mod protocol;
 mod pty;
 
 use futures_util::{SinkExt, StreamExt};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
+use tokio::net::TcpStream;
 use tokio::time::sleep;
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 
@@ -673,6 +674,18 @@ async fn run_client(
                                             }
                                         }
                                     }
+                                    40 => {
+                                        // NETWORK_QUALITY_PROBE
+                                        match handle_network_quality_probe(&task.data).await {
+                                            Ok(out) => {
+                                                successful = true;
+                                                res_data = out;
+                                            }
+                                            Err(err) => {
+                                                res_data = err;
+                                            }
+                                        }
+                                    }
                                     5 => {
                                         // UPGRADE
                                         handle_upgrade(&task.id, &config_task).await;
@@ -768,7 +781,6 @@ async fn run_client(
 }
 
 // Helpers
-use std::time::Instant;
 
 async fn execute_command(command: &str, timeout_secs: u64) -> Result<String, String> {
     if command.is_empty() {
@@ -824,6 +836,122 @@ async fn execute_command(command: &str, timeout_secs: u64) -> Result<String, Str
             let _ = child.kill().await;
             Err("Command timed out".to_string())
         }
+    }
+}
+
+#[derive(Deserialize, Debug, Clone)]
+struct NetworkQualityTarget {
+    id: Option<i64>,
+    name: String,
+    host: String,
+    port: Option<u16>,
+    #[allow(dead_code)]
+    #[serde(rename = "type")]
+    target_type: Option<String>,
+}
+
+#[derive(Deserialize, Debug)]
+struct NetworkQualityProbeRequest {
+    targets: Vec<NetworkQualityTarget>,
+    timeout_ms: Option<u64>,
+}
+
+#[derive(Serialize, Debug)]
+struct NetworkQualityProbeResult {
+    id: Option<i64>,
+    name: String,
+    host: String,
+    port: u16,
+    success: bool,
+    latency_ms: Option<f64>,
+    error: Option<String>,
+}
+
+#[derive(Serialize, Debug)]
+struct NetworkQualityProbeResponse {
+    checked_at: String,
+    results: Vec<NetworkQualityProbeResult>,
+}
+
+async fn handle_network_quality_probe(data: &str) -> Result<String, String> {
+    let request: NetworkQualityProbeRequest =
+        serde_json::from_str(data).map_err(|e| format!("解析网络质量探测请求失败: {}", e))?;
+    if request.targets.is_empty() {
+        return Err("网络质量探测目标为空".to_string());
+    }
+
+    let timeout_ms = request.timeout_ms.unwrap_or(2500).clamp(200, 10000);
+    let targets: Vec<NetworkQualityTarget> = request.targets.into_iter().take(12).collect();
+    let mut handles = Vec::new();
+
+    for target in targets {
+        handles.push(tokio::spawn(async move {
+            probe_network_quality_target(target, timeout_ms).await
+        }));
+    }
+
+    let mut results = Vec::new();
+    for handle in handles {
+        match handle.await {
+            Ok(result) => results.push(result),
+            Err(err) => results.push(NetworkQualityProbeResult {
+                id: None,
+                name: "unknown".to_string(),
+                host: "".to_string(),
+                port: 0,
+                success: false,
+                latency_ms: None,
+                error: Some(format!("探测任务失败: {}", err)),
+            }),
+        }
+    }
+
+    let response = NetworkQualityProbeResponse {
+        checked_at: chrono::Utc::now().to_rfc3339(),
+        results,
+    };
+    serde_json::to_string(&response).map_err(|e| format!("序列化网络质量探测结果失败: {}", e))
+}
+
+async fn probe_network_quality_target(
+    target: NetworkQualityTarget,
+    timeout_ms: u64,
+) -> NetworkQualityProbeResult {
+    let port = target.port.unwrap_or(80);
+    let started = Instant::now();
+    let connect = TcpStream::connect((target.host.as_str(), port));
+
+    match tokio::time::timeout(Duration::from_millis(timeout_ms), connect).await {
+        Ok(Ok(stream)) => {
+            drop(stream);
+            NetworkQualityProbeResult {
+                id: target.id,
+                name: target.name,
+                host: target.host,
+                port,
+                success: true,
+                latency_ms: Some(started.elapsed().as_secs_f64() * 1000.0),
+                error: None,
+            }
+        }
+        Ok(Err(err)) => NetworkQualityProbeResult {
+            id: target.id,
+            name: target.name,
+            host: target.host,
+            port,
+            success: false,
+            latency_ms: None,
+            error: Some(err.to_string()),
+        },
+        Err(_) => NetworkQualityProbeResult {
+            id: target.id,
+            name: target.name,
+            host: target.host,
+            port,
+            success: false,
+            latency_ms: None,
+            error: Some("TCP connect timeout".to_string()),
+        },
     }
 }
 

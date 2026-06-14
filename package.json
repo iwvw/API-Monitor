@@ -8,7 +8,7 @@
     "dev:server": "cross-env DOTENV_CONFIG_QUIET=1 nodemon server.js",
     "dev:client": "cross-env DOTENV_CONFIG_QUIET=1 vite",
     "dev": "cross-env DOTENV_CONFIG_QUIET=1 concurrently --names \"SERVER,VITE\" --prefix-colors \"cyan,yellow\" \"npm run dev:server\" \"npm run dev:client\"",
-    "build": "vite build",
+    "build": "cross-env NODE_ENV=production vite build",
     "preview": "vite preview",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",

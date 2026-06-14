@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import useStore from '../store.js';
 import { toast } from '../modules/toast.js';
 import { dialog } from '../modules/dialog.js';
@@ -25,6 +25,7 @@ import useTableResize from '../composables/useTableResize.js';
 import { formatUptime, formatFileSize, formatDateTime, maskAddress, parseSpeed } from '../modules/utils.js';
 import { MODULE_TABS_PROPS, TOOL_TABS_PROPS } from '../modules/kumoTabs.js';
 import { canOpenTerminal, isAgentServer, resolveTerminalProtocol } from '../modules/serverTerminal.js';
+import { formatDockerContainerPorts } from '../modules/docker-format.js';
 import * as echarts from 'echarts/core';
 import { LineChart } from 'echarts/charts';
 import {
@@ -90,6 +91,7 @@ echarts.use([
 
 const SERVER_LIST_VIEW_STORAGE_KEY = 'server_list_view_mode';
 const SERVER_COMPACT_COLUMNS_STORAGE_KEY = 'server_compact_visible_columns';
+const SERVER_STATUS_SYNC_INTERVAL_MS = 15000;
 const HOST_COMPACT_COLUMNS = [
   { id: 'status', label: '状态' },
   { id: 'name', label: '名称', required: true },
@@ -152,7 +154,51 @@ const MANAGEMENT_CARD_ICON_CLASS = 'h-3.5 w-3.5 shrink-0 text-kumo-brand';
 const MANAGEMENT_CARD_BODY_CLASS = 'p-3';
 const SERVER_MODULE_TAB_ICON_CLASS = 'h-3.5 w-3.5 shrink-0';
 const COMPACT_EXPAND_EXIT_MS = 230;
-const SERVER_CHART_SERIES_DEFER_MS = 120;
+const SERVER_CHART_SERIES_DEFER_MS = 20;
+const SERVER_CHART_RENDER_DEFER_MS = 40;
+const SERVER_CHART_ANIMATION_MS = 90;
+const SERVER_CHART_UPDATE_ANIMATION_MS = 70;
+const SERVER_FAST_CHART_UPDATE_BEHAVIOR = { lazyUpdate: false };
+const SERVER_NETWORK_QUALITY_REFRESH_MS = 60 * 1000;
+const SERVER_NETWORK_QUALITY_CHART_UPDATE_BEHAVIOR = { lazyUpdate: true };
+const SERVER_FAST_CHART_ANIMATION_OPTIONS = {
+  animation: true,
+  animationDuration: SERVER_CHART_ANIMATION_MS,
+  animationDurationUpdate: SERVER_CHART_UPDATE_ANIMATION_MS,
+};
+const SERVER_STATIC_CHART_ANIMATION_OPTIONS = {
+  animation: false,
+  animationDuration: 0,
+  animationDurationUpdate: 0,
+};
+
+const patchFastTimeseriesAnimation = (option, animationOptions = SERVER_FAST_CHART_ANIMATION_OPTIONS) => {
+  if (!option || typeof option !== 'object' || Array.isArray(option)) return option;
+
+  return {
+    ...option,
+    animation: animationOptions.animation === false ? false : option.animation === false ? false : true,
+    animationDuration: animationOptions.animationDuration,
+    animationDurationUpdate: animationOptions.animationDurationUpdate,
+    animationEasing: 'cubicOut',
+    animationEasingUpdate: 'cubicOut',
+  };
+};
+
+const createFastTimeseriesEcharts = (baseEcharts, animationOptions) => (
+  Object.assign(Object.create(baseEcharts), {
+    init(...args) {
+      const chart = baseEcharts.init(...args);
+      const setOption = chart.setOption.bind(chart);
+      chart.setOption = (option, ...setOptionArgs) => setOption(
+        patchFastTimeseriesAnimation(option, animationOptions),
+        ...setOptionArgs
+      );
+      return chart;
+    },
+  })
+);
+
 const METRICS_COLLECT_INTERVAL_TABS = [1, 2, 5, 10, 15, 30, 60].map(value => ({
   value: String(value),
   label: `${value}m`,
@@ -302,12 +348,247 @@ function DenseTrafficCell({ left, leftUnit, right, rightUnit, leftTitle, rightTi
   );
 }
 
-function DenseDetailChip({ label, value, className = '' }) {
+function DenseDetailChip({ label, value, className = '', valueClassName = 'text-kumo-strong' }) {
+  const displayValue = value === 0 ? 0 : (value || '-');
   return (
-    <div className={`flex h-7 min-w-0 items-center justify-between gap-2 app-card app-card-md px-2 text-[11px] ${className}`}>
+    <div className={`flex h-7 min-w-0 items-center overflow-hidden rounded-md border border-kumo-line/60 bg-kumo-recessed/20 px-2.5 text-[11px] shadow-none ${className}`}>
       <span className="shrink-0 font-medium text-kumo-subtle">{label}</span>
-      <span className="min-w-0 truncate text-right font-semibold text-kumo-strong" title={String(value || '-')}>{value || '-'}</span>
+      <span aria-hidden="true" className="mx-2 h-3 w-px shrink-0 bg-kumo-line/70"></span>
+      <span className={`min-w-0 flex-1 truncate text-right font-semibold tabular-nums ${valueClassName}`} title={String(displayValue)}>{displayValue}</span>
     </div>
+  );
+}
+
+const EXPANDED_SECTION_ACCENTS = {
+  brand: 'bg-kumo-brand',
+  success: 'bg-kumo-success',
+  warning: 'bg-kumo-warning',
+  info: 'bg-kumo-info',
+  danger: 'bg-kumo-danger',
+};
+
+const EXPANDED_VALUE_TONES = {
+  default: 'text-kumo-strong',
+  brand: 'text-kumo-brand',
+  success: 'text-kumo-success',
+  warning: 'text-kumo-warning',
+  info: 'text-kumo-info',
+  danger: 'text-kumo-danger',
+};
+
+function ExpandedSection({ title, tone = 'brand', action, className = '', children }) {
+  return (
+    <section className={`min-w-0 overflow-hidden app-card p-2.5 ${className}`}>
+      <div className="mb-2 flex min-w-0 items-center justify-between gap-2">
+        <h4 className="flex min-w-0 items-center gap-1.5 text-xs font-bold text-kumo-strong">
+          <span className={`h-3 w-1 shrink-0 rounded-full ${EXPANDED_SECTION_ACCENTS[tone] || EXPANDED_SECTION_ACCENTS.brand}`}></span>
+          <span className="truncate">{title}</span>
+        </h4>
+        {action && <div className="shrink-0">{action}</div>}
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function ExpandedProgressMetric({
+  label,
+  value,
+  detail,
+  caption,
+  indicatorClassName = '!bg-none !bg-kumo-brand',
+  valueClassName = 'text-kumo-strong',
+}) {
+  const percent = clampPercent(toNumber(value, 0));
+  const displayValue = detail || `${Math.round(percent)}%`;
+  return (
+    <div className="flex min-h-[72px] min-w-0 flex-col justify-between rounded-md border border-kumo-line/70 bg-kumo-recessed/25 px-2.5 py-2">
+      <div className="flex min-w-0 items-start justify-between gap-2">
+        <span className="text-[11px] font-medium text-kumo-subtle">{label}</span>
+        <span className={`min-w-0 truncate text-right text-sm font-bold tabular-nums ${valueClassName}`} title={String(displayValue)}>{displayValue}</span>
+      </div>
+      <div className="mt-2 h-1.5 overflow-hidden rounded-full border border-kumo-line/70 bg-kumo-base">
+        <div
+          className={`h-full rounded-full transition-[width] duration-300 ${indicatorClassName}`}
+          style={{ width: `${percent}%` }}
+        ></div>
+      </div>
+      {caption && (
+        <div className="mt-1.5 min-w-0 truncate text-[10px] font-medium text-kumo-subtle" title={String(caption)}>
+          {caption}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ExpandedInfoChip({ label, value, className = '', valueClassName = 'text-kumo-strong' }) {
+  const displayValue = value === 0 ? 0 : (value || '-');
+  return (
+    <div className={`flex min-h-8 min-w-0 items-center justify-between gap-2 rounded-md border border-kumo-line/70 bg-kumo-recessed/20 px-2 text-[11px] ${className}`}>
+      <span className="shrink-0 font-medium text-kumo-subtle">{label}</span>
+      <span className={`min-w-0 truncate text-right font-semibold tabular-nums ${valueClassName}`} title={String(displayValue)}>{displayValue}</span>
+    </div>
+  );
+}
+
+function ExpandedStatTile({ label, value, caption, tone = 'default', className = '' }) {
+  const displayValue = value === 0 ? 0 : (value || '-');
+  return (
+    <div className={`min-w-0 rounded-md border border-kumo-line/70 bg-kumo-recessed/20 px-2.5 py-2 ${className}`}>
+      <div className="text-[10px] font-medium text-kumo-subtle">{label}</div>
+      <div className={`mt-1 truncate text-sm font-bold tabular-nums ${EXPANDED_VALUE_TONES[tone] || EXPANDED_VALUE_TONES.default}`} title={String(displayValue)}>
+        {displayValue}
+      </div>
+      {caption && (
+        <div className="mt-1 truncate text-[10px] font-medium text-kumo-subtle" title={String(caption)}>
+          {caption}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ExpandedTrendChartCard({ title, tone = 'brand', legend, compact = false, className = '', children }) {
+  const accentClassName = EXPANDED_SECTION_ACCENTS[tone] || EXPANDED_SECTION_ACCENTS.brand;
+  const headerHeightClassName = compact ? 'h-8' : 'h-9';
+  const legendGapClassName = compact ? 'gap-x-2 gap-y-0.5' : 'gap-x-2.5 gap-y-0.5';
+
+  return (
+    <ChartBoundaryBox className={`min-w-0 overflow-hidden app-card ${compact ? 'app-card-md' : ''} p-2.5 h-full ${className}`}>
+      {(tooltipBoundary) => (
+        <div className="flex h-full min-w-0 flex-col">
+          <div className={`grid min-w-0 grid-cols-[minmax(0,max-content)_minmax(0,1fr)] items-center gap-2 overflow-hidden ${headerHeightClassName}`}>
+            <h4 className="flex min-w-0 items-center gap-1.5 text-xs font-bold text-kumo-strong">
+              <span className={`h-3 w-1 shrink-0 rounded-full ${accentClassName}`}></span>
+              <span className="truncate">{title}</span>
+            </h4>
+            {legend && (
+              <div className="flex min-w-0 justify-end overflow-hidden">
+                <div className={`flex max-h-8 min-w-0 flex-wrap items-center justify-end overflow-hidden text-[11px] leading-none ${legendGapClassName}`}>
+                  {legend}
+                </div>
+              </div>
+            )}
+          </div>
+          <div className="mt-2 min-w-0 shrink-0">
+            {typeof children === 'function' ? children(tooltipBoundary) : children}
+          </div>
+        </div>
+      )}
+    </ChartBoundaryBox>
+  );
+}
+
+function NetworkQualityPanel({
+  serverName,
+  quality = {},
+  series = [],
+  hasData = false,
+  unsupported = false,
+  chartHeight,
+  isDarkMode,
+  chartEcharts,
+  isCompactViewport,
+  onCollect,
+  className = '',
+  compact = false,
+}) {
+  const summary = Array.isArray(quality.summary) ? quality.summary : [];
+
+  return (
+    <ChartBoundaryBox className={`min-w-0 overflow-hidden app-card p-2.5 ${className}`}>
+      {(tooltipBoundary) => (
+        <div className="flex min-w-0 flex-col gap-2">
+          <div className={`flex min-w-0 flex-wrap items-center justify-between gap-2 ${compact ? 'min-h-8' : ''}`}>
+            <h4 className="flex min-w-0 items-center gap-1.5 text-xs font-bold text-kumo-strong">
+              <span className="h-3 w-1 shrink-0 rounded-full bg-kumo-brand"></span>
+              <span className="truncate">网络波动 24h</span>
+            </h4>
+            <div className="flex shrink-0 items-center gap-2">
+              {quality.updatedAt && (
+                <span className="text-[10px] font-medium text-kumo-subtle">
+                  {formatNetworkQualityChartTime(quality.updatedAt)} 更新
+                </span>
+              )}
+              <Button
+                shape="square"
+                size="sm"
+                variant="secondary"
+                title="立即采样"
+                aria-label="立即采样"
+                icon={<RefreshCw className="h-3.5 w-3.5" />}
+                className="h-7 w-7 p-0"
+                disabled={!!quality.loading}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onCollect?.();
+                }}
+              />
+            </div>
+          </div>
+
+          {quality.error && !unsupported && (
+            <div className="rounded-md border border-kumo-warning/30 bg-kumo-warning/10 px-2 py-1.5 text-[11px] font-medium text-kumo-warning">
+              {quality.error}
+            </div>
+          )}
+
+          {quality.loading && !hasData ? (
+            <ChartWarmupSkeleton height={chartHeight} bars={3} />
+          ) : (
+            <>
+              {summary.length > 0 && (
+                <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-3">
+                  {summary.map(item => {
+                    const tone = getNetworkQualityTone(item);
+                    const latestValue = item.latest?.success
+                      ? formatLatencyValue(item.latest.latencyMs)
+                      : '失败';
+                    return (
+                      <ExpandedStatTile
+                        key={item.name}
+                        label={item.name}
+                        value={latestValue}
+                        caption={`抖动 ${formatLatencyValue(item.jitterMs)} · 丢包 ${toNumber(item.lossRate, 0).toFixed(1)}%`}
+                        tone={tone}
+                        className={getNetworkQualityToneClass(tone)}
+                      />
+                    );
+                  })}
+                </div>
+              )}
+
+              {hasData ? (
+                <TimeseriesChart
+                  echarts={chartEcharts}
+                  data={series}
+                  height={chartHeight}
+                  isDarkMode={isDarkMode}
+                  gradient
+                  loading={!!quality.loading}
+                  tooltipBoundary={tooltipBoundary ?? undefined}
+                  xAxisTickCount={isCompactViewport ? 3 : 6}
+                  yAxisTickCount={isCompactViewport ? 3 : 4}
+                  xAxisTickFormat={formatNetworkQualityChartTime}
+                  yAxisTickFormat={formatLatencyAxis}
+                  tooltipValueFormat={formatLatencyValue}
+                  optionUpdateBehavior={SERVER_NETWORK_QUALITY_CHART_UPDATE_BEHAVIOR}
+                  ariaDescription={`${serverName} 24 hour network latency fluctuation`}
+                />
+              ) : (
+                <div
+                  className="flex items-center justify-center rounded-md border border-kumo-line/70 bg-kumo-recessed/20 px-3 text-center text-xs font-medium text-kumo-subtle"
+                  style={{ minHeight: Math.max(64, Math.min(chartHeight, 96)) }}
+                >
+                  {unsupported ? '当前 Agent 版本暂不支持，升级后显示 24h 网络波动' : '暂无 24h 网络质量采样'}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </ChartBoundaryBox>
   );
 }
 
@@ -432,6 +713,7 @@ const toTimestamp = (value, fallback) => {
 const SERVER_REALTIME_SAMPLE_INTERVAL_MS = 1500;
 const SERVER_CHART_HISTORY_LIMIT = 180;
 const SERVER_CHART_COALESCE_WINDOW_MS = 500;
+const SERVER_NETWORK_QUALITY_MAX_POINTS = 240;
 const SERVER_CHART_JITTER_TOLERANCE_MS = 650;
 const SERVER_CHART_STALE_GAP_MS = SERVER_REALTIME_SAMPLE_INTERVAL_MS * 3;
 const EMPTY_METRIC_RECORDS = Object.freeze([]);
@@ -1006,6 +1288,70 @@ const formatResponseTime = (value) => {
   return Number.isFinite(ms) && ms > 0 ? `${Math.round(ms)}ms` : '-';
 };
 
+const formatLatencyValue = (value) => {
+  const ms = toNumber(value, NaN);
+  if (!Number.isFinite(ms)) return '-';
+  if (ms >= 1000) return `${(ms / 1000).toFixed(ms >= 10000 ? 0 : 1)}s`;
+  return `${Math.round(ms)}ms`;
+};
+
+const formatLatencyAxis = (value) => {
+  const ms = toNumber(value, NaN);
+  if (!Number.isFinite(ms)) return '';
+  if (ms >= 1000) return `${(ms / 1000).toFixed(ms >= 10000 ? 0 : 1)}s`;
+  return `${Math.round(ms)}`;
+};
+
+const formatNetworkQualityChartTime = (timestamp) => {
+  const d = new Date(timestamp);
+  if (Number.isNaN(d.getTime())) return '';
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+};
+
+const getNetworkQualityTone = (summary = {}) => {
+  const lossRate = toNumber(summary.lossRate, 0);
+  const jitterMs = toNumber(summary.jitterMs, 0);
+  const latestLatency = toNumber(summary.latest?.latencyMs ?? summary.avgLatency, 0);
+  if (!summary.latest || summary.latest.success === false || lossRate >= 5 || latestLatency >= 600) return 'danger';
+  if (lossRate >= 1 || jitterMs >= 120 || latestLatency >= 250) return 'warning';
+  return 'success';
+};
+
+const getNetworkQualityToneClass = (tone) => (
+  tone === 'danger'
+    ? 'text-kumo-danger'
+    : tone === 'warning'
+      ? 'text-kumo-warning'
+      : 'text-kumo-success'
+);
+
+const isNetworkQualityUnsupportedError = (message = '') => {
+  const text = String(message || '');
+  return text.includes('不支持的任务类型')
+    || /unsupported\s+task\s+type/i.test(text)
+    || /task\s+type:\s*40/i.test(text);
+};
+
+const buildNetworkQualitySeries = (quality, isDarkMode) => {
+  const series = Array.isArray(quality?.series) ? quality.series : [];
+  return series.map((target, index) => ({
+    name: target.name,
+    color: index === 0
+      ? ChartPalette.categorical(1, isDarkMode)
+      : index === 1
+        ? ChartPalette.semantic('Success', isDarkMode)
+        : index === 2
+          ? ChartPalette.semantic('Warning', isDarkMode)
+          : ChartPalette.categorical(index + 2, isDarkMode),
+    data: (target.points || [])
+      .map(point => [
+        new Date(point.checked_at).getTime(),
+        point.latency_ms === null || point.latency_ms === undefined ? null : toNumber(point.latency_ms, null),
+      ])
+      .filter(point => Number.isFinite(point[0])),
+  }));
+};
+
 const getPrimaryLoadValue = (load) => {
   const match = String(load || '').match(/-?\d+(?:\.\d+)?/);
   return match ? match[0] : '-';
@@ -1047,12 +1393,7 @@ const formatServerRemainingTime = (expiresAt) => {
   const diff = expiry - Date.now();
   if (diff <= 0) return '已过期';
 
-  const days = Math.floor(diff / 86400000);
-  const hours = Math.floor((diff % 86400000) / 3600000);
-  if (days >= 365) return `${Math.floor(days / 365)}年`;
-  if (days > 0) return hours > 0 ? `${days}天${hours}时` : `${days}天`;
-  if (hours > 0) return `${hours}时`;
-  return `${Math.max(1, Math.ceil(diff / 60000))}分`;
+  return `${Math.max(1, Math.ceil(diff / 86400000))}天`;
 };
 
 const getServerRemainingToneClass = (expiresAt) => {
@@ -1212,14 +1553,21 @@ const getDockerStatBlockIo = (stat = {}) => stat.block_io || stat.BlockIO || '-'
 function ServerPage() {
   const { setMainActiveTab, theme, publicApiUrl } = useStore();
   const isCompactViewport = useMediaQuery('(max-width: 640px)');
-  const expandedMainChartHeight = isCompactViewport ? 112 : 150;
-  const expandedSubChartHeight = isCompactViewport ? 104 : 130;
+  const expandedMainChartHeight = isCompactViewport ? 92 : 112;
+  const expandedSubChartHeight = isCompactViewport ? 78 : 88;
+  const expandedTrendChartHeight = isCompactViewport ? 104 : 120;
+  const compactExpandedChartHeight = isCompactViewport ? 104 : 122;
+  const compactNetworkQualityChartHeight = isCompactViewport ? 110 : 130;
+  const networkQualityChartHeight = isCompactViewport ? 118 : 148;
   const expandedChartXAxisTickCount = isCompactViewport ? 3 : 5;
   const expandedChartYAxisTickCount = isCompactViewport ? 3 : 4;
+  const compactExpandedYAxisTickCount = 3;
   const expandedChartXAxisTickFormat = isCompactViewport ? formatCompactChartTime : formatChartTime;
   const expandedPercentAxisTickFormat = isCompactViewport ? formatCompactPercentAxis : formatPercentAxis;
   const expandedNumberAxisTickFormat = isCompactViewport ? formatCompactNumberAxis : formatNumberAxis;
   const expandedSpeedAxisTickFormat = isCompactViewport ? formatCompactBytesSpeed : formatBytesSpeed;
+  const fastTimeseriesEcharts = useMemo(() => createFastTimeseriesEcharts(echarts), []);
+  const staticTimeseriesEcharts = useMemo(() => createFastTimeseriesEcharts(echarts, SERVER_STATIC_CHART_ANIMATION_OPTIONS), []);
   
   // 核心标签页状态
   const [serverCurrentTab, setServerCurrentTab] = useState('list'); // 'list', 'history', 'docker', 'management', 'terminal'
@@ -1235,7 +1583,6 @@ function ServerPage() {
   const [expandedServers, setExpandedServers] = useState([]);
   const [renderedCompactExpandedServers, setRenderedCompactExpandedServers] = useState([]);
   const [chartSeriesReadyServers, setChartSeriesReadyServers] = useState([]);
-  const [serverCardViews, setServerCardViews] = useState({});
   const [expandedDockerPanels, setExpandedDockerPanels] = useState([]);
   const [draggedServerId, setDraggedServerId] = useState(null);
   
@@ -1306,6 +1653,7 @@ function ServerPage() {
   const [showMetricsCharts, setShowMetricsCharts] = useState(true);
   const [expandedMetricsServers, setExpandedMetricsServers] = useState([]);
   const [metricsCollectorStatus, setMetricsCollectorStatus] = useState(null);
+  const [networkQualityByServer, setNetworkQualityByServer] = useState({});
   
   // 全局采集参数
   const [metricsCollectInterval, setMetricsCollectInterval] = useState(5);
@@ -1382,6 +1730,9 @@ function ServerPage() {
   const socketRef = useRef(null);
   const pendingMetricUpdatesRef = useRef([]);
   const metricFlushTimerRef = useRef(null);
+  const serverListSyncInFlightRef = useRef(false);
+  const networkQualityRequestRef = useRef(new Set());
+  const serverStatusByIdRef = useRef(new Map());
   const visibleSessionIdsRef = useRef([]);
   const sshSyncEnabledRef = useRef(false);
   const sftpPathByServerRef = useRef({});
@@ -1470,9 +1821,13 @@ function ServerPage() {
     loadServerList();
     loadCredentials();
     connectMetricsStream();
+    const serverListSyncTimer = setInterval(() => {
+      loadServerList({ silent: true });
+    }, SERVER_STATUS_SYNC_INTERVAL_MS);
     
     return () => {
       // 清理 WebSocket 与 SSE
+      clearInterval(serverListSyncTimer);
       if (socketRef.current) {
         socketRef.current.disconnect();
       }
@@ -1500,6 +1855,10 @@ function ServerPage() {
   // 同步主 store 中 serverList 状态，便于 dashboard 使用
   useEffect(() => {
     useStore.setState({ serverList });
+  }, [serverList]);
+
+  useEffect(() => {
+    serverStatusByIdRef.current = new Map(serverList.map(server => [String(server.id), server.status]));
   }, [serverList]);
 
   const syncStoreServerList = () => {};
@@ -1532,10 +1891,14 @@ function ServerPage() {
   };
   
   // 载入主机列表
-  const loadServerList = async () => {
-    setServerLoading(true);
+  const loadServerList = async (options = {}) => {
+    const { silent = false } = options;
+    if (silent && serverListSyncInFlightRef.current) return;
+
+    if (silent) serverListSyncInFlightRef.current = true;
+    if (!silent) setServerLoading(true);
     try {
-      const response = await fetch('/api/server/accounts');
+      const response = await fetch('/api/server/accounts', { cache: 'no-store' });
       const data = await response.json();
       if (data.success) {
         setServerList(prev => {
@@ -1562,9 +1925,10 @@ function ServerPage() {
       }
     } catch (error) {
       console.error('加载主机列表失败:', error);
-      toast.error('加载主机列表失败');
+      if (!silent) toast.error('加载主机列表失败');
     } finally {
-      setServerLoading(false);
+      if (silent) serverListSyncInFlightRef.current = false;
+      if (!silent) setServerLoading(false);
     }
   };
   
@@ -1580,6 +1944,49 @@ function ServerPage() {
       console.error('加载凭据失败:', e);
     }
   };
+
+  const applyServerStatusSnapshot = (items = []) => {
+    if (!Array.isArray(items) || items.length === 0) return;
+
+    const statusMap = new Map();
+    items.forEach(item => {
+      const id = item?.serverId ?? item?.id;
+      if (id !== undefined && id !== null) {
+        statusMap.set(String(id), item);
+      }
+    });
+
+    if (statusMap.size === 0) return;
+
+    setServerList(prev => {
+      const updated = prev.map(server => {
+        const item = statusMap.get(String(server.id));
+        if (!item) return server;
+
+        const status = item.status || (item.agent_online === true ? 'online' : 'offline');
+        const agentOnline = typeof item.agent_online === 'boolean'
+          ? item.agent_online
+          : status === 'online';
+        const hasResponseTime =
+          Object.prototype.hasOwnProperty.call(item, 'responseTime') ||
+          Object.prototype.hasOwnProperty.call(item, 'response_time');
+        const responseTime = Object.prototype.hasOwnProperty.call(item, 'responseTime')
+          ? item.responseTime
+          : item.response_time;
+
+        return {
+          ...server,
+          ...mergeTerminalCapabilities(server, agentOnline),
+          status,
+          response_time: hasResponseTime ? responseTime : server.response_time,
+          error: status === 'offline' ? (item.error || null) : null,
+          last_seen: item.lastSeen || item.last_seen || server.last_seen,
+        };
+      });
+      syncStoreServerList(updated);
+      return updated;
+    });
+  };
   
   // Socket.IO 推送实时指标
   const connectMetricsStream = () => {
@@ -1594,6 +2001,7 @@ function ServerPage() {
       
       socket.on('connect', () => {
         console.log('✅ Socket.IO 实时流已连接');
+        loadServerList({ silent: true });
       });
       
       socket.on('metrics:update', data => {
@@ -1610,25 +2018,12 @@ function ServerPage() {
       
       socket.on('server:status', data => {
         if (data && data.serverId) {
-          setServerList(prev => {
-            const updated = prev.map(s => {
-              if (s.id === data.serverId) {
-                const agentOnline = data.status === 'online';
-                const hasResponseTime = Object.prototype.hasOwnProperty.call(data, 'responseTime');
-                return {
-                  ...s,
-                  ...mergeTerminalCapabilities(s, agentOnline),
-                  status: data.status,
-                  response_time: hasResponseTime ? data.responseTime : s.response_time,
-                  error: data.status === 'offline' ? (data.error || 'Agent 离线') : null
-                };
-              }
-              return s;
-            });
-            syncStoreServerList(updated);
-            return updated;
-          });
+          applyServerStatusSnapshot([data]);
         }
+      });
+
+      socket.on('server:list', data => {
+        applyServerStatusSnapshot(data);
       });
       
       socketRef.current = socket;
@@ -1845,6 +2240,86 @@ function ServerPage() {
     }
   };
 
+  const loadNetworkQuality = useCallback(async (serverId, options = {}) => {
+    const { silent = false, collect = false } = options;
+    const requestKey = String(serverId);
+    if (networkQualityRequestRef.current.has(requestKey)) {
+      return null;
+    }
+    networkQualityRequestRef.current.add(requestKey);
+
+    setNetworkQualityByServer(prev => ({
+      ...prev,
+      [serverId]: {
+        ...(prev[serverId] || {}),
+        loading: !silent || !(prev[serverId]?.sampleCount > 0),
+        error: null,
+      },
+    }));
+
+    try {
+      const params = new URLSearchParams({
+        hours: '24',
+        maxPointsPerTarget: String(SERVER_NETWORK_QUALITY_MAX_POINTS),
+      });
+      const response = await fetch(
+        collect
+          ? `/api/server/network-quality/${serverId}/collect`
+          : `/api/server/network-quality/${serverId}?${params}`,
+        collect
+          ? {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                hours: 24,
+                maxPointsPerTarget: SERVER_NETWORK_QUALITY_MAX_POINTS,
+              }),
+            }
+          : undefined
+      );
+      const data = await response.json();
+      if (!data.success) {
+        throw new Error(data.error || '网络质量数据加载失败');
+      }
+
+      const quality = data.data || {};
+      setNetworkQualityByServer(prev => ({
+        ...prev,
+        [serverId]: {
+          ...quality,
+          loading: false,
+          error: null,
+        },
+      }));
+      return quality;
+    } catch (error) {
+      setNetworkQualityByServer(prev => ({
+        ...prev,
+        [serverId]: {
+          ...(prev[serverId] || {}),
+          loading: false,
+          error: error.message,
+        },
+      }));
+      return null;
+    } finally {
+      networkQualityRequestRef.current.delete(requestKey);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (expandedServers.length === 0) return undefined;
+
+    const timer = setInterval(() => {
+      expandedServers.forEach(serverId => {
+        if (serverStatusByIdRef.current.get(String(serverId)) !== 'online') return;
+        loadNetworkQuality(serverId, { silent: true });
+      });
+    }, SERVER_NETWORK_QUALITY_REFRESH_MS);
+
+    return () => clearInterval(timer);
+  }, [expandedServers, loadNetworkQuality]);
+
   const loadServerInfo = async (serverId, options = {}) => {
     const { force = false, silent = false } = options;
     if (!silent) {
@@ -1880,6 +2355,7 @@ function ServerPage() {
     await Promise.all([
       loadServerInfo(serverId, { force: true }),
       loadCardMetrics(serverId, { silent: true }),
+      loadNetworkQuality(serverId, { silent: true, collect: true }),
     ]);
     toast.success('主机详情已刷新');
   };
@@ -1898,14 +2374,6 @@ function ServerPage() {
       setExpandedServers(prev => prev.filter(id => id !== serverId));
     } else {
       setExpandedServers(prev => [...prev, serverId]);
-      setServerCardViews(prev => ({
-        ...prev,
-        [serverId]: {
-          system: prev[serverId]?.system || 'load',
-          gpu: prev[serverId]?.gpu || 'detail',
-          network: prev[serverId]?.network || 'detail',
-        }
-      }));
       const hydrateExpandedServer = async () => {
         const cachedMetrics = server.metricsCache || getCachedServerMetricHistory(serverId);
         if (cachedMetrics?.length) {
@@ -1914,6 +2382,7 @@ function ServerPage() {
         await Promise.all([
           server.info ? Promise.resolve(server.info) : loadServerInfo(serverId, { force: false }),
           cachedMetrics ? Promise.resolve(cachedMetrics) : loadCardMetrics(serverId, { silent: !!server.info }),
+          loadNetworkQuality(serverId, { silent: true }),
         ]);
       };
       const runHydration = () => {
@@ -2431,18 +2900,6 @@ function ServerPage() {
     await saveServerOrder(next);
   };
 
-  const setCardView = (serverId, key, value) => {
-    setServerCardViews(prev => ({
-      ...prev,
-      [serverId]: {
-        system: prev[serverId]?.system || 'load',
-        gpu: prev[serverId]?.gpu || 'detail',
-        network: prev[serverId]?.network || 'detail',
-        [key]: value,
-      },
-    }));
-  };
-
   const toggleDockerPanel = (serverId) => {
     setExpandedDockerPanels(prev => (
       prev.includes(serverId)
@@ -2476,23 +2933,7 @@ function ServerPage() {
     String(container?.image || container?.Image || container?.imageName || container?.ImageName || '-')
   );
 
-  const getDockerContainerPorts = (container) => {
-    const ports = container?.ports ?? container?.Ports ?? container?.portMappings;
-    if (typeof ports === 'string') return ports || '-';
-    if (Array.isArray(ports)) {
-      const formatted = ports.map(port => {
-        if (typeof port === 'string') return port;
-        const privatePort = port.PrivatePort ?? port.privatePort ?? port.containerPort;
-        const publicPort = port.PublicPort ?? port.publicPort ?? port.hostPort;
-        const type = port.Type ?? port.type ?? 'tcp';
-        if (publicPort && privatePort) return `${publicPort}:${privatePort}/${type}`;
-        if (privatePort) return `${privatePort}/${type}`;
-        return '';
-      }).filter(Boolean);
-      return formatted.length > 0 ? formatted.join(', ') : '-';
-    }
-    return '-';
-  };
+  const getDockerContainerPorts = formatDockerContainerPorts;
 
   const getDockerStateBadge = (state) => {
     if (state === 'running') return { variant: 'success', label: '运行' };
@@ -4196,6 +4637,11 @@ function ServerPage() {
                         const runningContainers = dockerContainers.filter(c => getDockerContainerState(c) === 'running').length;
                         const lifecycle = getServerLifecycle(server);
                         const canRefresh = server.status === 'online' && !server.loading;
+                        const networkQuality = networkQualityByServer[server.id] || {};
+                        const networkQualitySeries = buildNetworkQualitySeries(networkQuality, isDarkMode);
+                        const hasNetworkQualityData = networkQualitySeries.some(series => series.data.length > 0);
+                        const networkQualityUnsupported = !!networkQuality.unsupported
+                          || isNetworkQualityUnsupportedError(networkQuality.error || networkQuality.unsupportedMessage);
 
                         return (
                           <React.Fragment key={server.id}>
@@ -4354,7 +4800,7 @@ function ServerPage() {
 
                             {shouldRenderExpandedRow && (
                               <CompactExpandedRow open={isExpanded} colSpan={visibleCompactColumnDefs.length}>
-                                    <div className="flex flex-col gap-3 p-3">
+                                    <div className="flex flex-col gap-2 p-2">
                                       {server.loading && !server.info ? (
                                         <div className="space-y-2 py-5">
                                           <SkeletonLine className="mx-auto h-4 w-1/3" />
@@ -4366,88 +4812,138 @@ function ServerPage() {
                                         </div>
                                       ) : (
                                         <>
-                                          <div className="grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-6">
+                                          <div className="grid auto-rows-[28px] grid-cols-2 gap-1.5 md:grid-cols-[repeat(auto-fit,minmax(154px,1fr))]">
                                             <DenseDetailChip label="核心" value={coreText} />
-                                            <DenseDetailChip label="CPU 温度" value={cpuTemp > 0 ? `${Math.round(cpuTemp)}°C` : '-'} className={getTempColorClass(cpuTemp)} />
-                                            <DenseDetailChip label="CPU 功耗" value={toNumber(server.info?.cpu?.Power, 0) > 0 ? `${toNumber(server.info.cpu.Power, 0).toFixed(1)}W` : '-'} />
+                                            <DenseDetailChip label="CPU 温度" value={cpuTemp > 0 ? `${Math.round(cpuTemp)}°C` : '-'} valueClassName={getTempColorClass(cpuTemp)} />
                                             <DenseDetailChip label="内存" value={`${server.info?.memory?.Used || '-'} / ${server.info?.memory?.Total || '-'}`} />
                                             <DenseDetailChip label="连接" value={server.info?.network?.connections || 0} />
                                             <DenseDetailChip label="Docker" value={server.info?.docker?.installed ? `${runningContainers}/${dockerContainers.length} 运行` : '未安装'} />
-                                            <DenseDetailChip label="生命周期" value={lifecycle.expiresAt ? `${lifecycle.label} / ${Math.round(lifecycle.remainingPercent)}%` : '永久'} className={lifecycle.toneClass} />
+                                            <DenseDetailChip label="生命周期" value={lifecycle.expiresAt ? `${lifecycle.label} / ${Math.round(lifecycle.remainingPercent)}%` : '永久'} valueClassName={lifecycle.toneClass} />
                                             <DenseDetailChip label="模式" value={getServerMonitorModeLabel(server)} />
-                                            <DenseDetailChip label="延迟" value={formatResponseTime(server.response_time)} />
-                                            <DenseDetailChip label="标签" value={(server.tags || []).filter(t => t !== 'Agent').join(', ') || '-'} className="md:col-span-2" />
                                           </div>
 
-                                          <div className="grid min-w-0 grid-cols-1 gap-3 xl:grid-cols-2">
-                                            <ChartBoundaryBox className="min-w-0 overflow-hidden app-card app-card-md p-3">
-                                              {(tooltipBoundary) => (
-                                                <div className="flex min-w-0 flex-col gap-2">
-                                                  <div className="flex flex-wrap items-center justify-between gap-2">
-                                                    <span className="text-xs font-bold text-kumo-strong">CPU / 内存趋势</span>
-                                                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                                                      <ChartLegend.SmallItem name="CPU" color={cpuColor} value={`${Math.round(cpuUsage)}%`} />
-                                                      <ChartLegend.SmallItem name="Memory" color={memColor} value={`${Math.round(memUsage)}%`} />
-                                                      <ChartLegend.SmallItem name="Temp" color={cpuTempColor} value={getLatestMetricValue(records, getCpuTemp, v => `${v.toFixed(1)}°C`)} />
-                                                    </div>
-                                                  </div>
-                                                  <DeferredRender open={isExpanded} fallback={<ChartWarmupSkeleton height={expandedSubChartHeight} />}>
-                                                    <TimeseriesChart
-                                                      echarts={echarts}
-                                                      data={cpuMemSeries}
-                                                      height={expandedSubChartHeight}
-                                                      isDarkMode={isDarkMode}
-                                                      gradient
-                                                      loading={chartLoading}
-                                                      tooltipBoundary={tooltipBoundary ?? undefined}
-                                                      xAxisTickCount={expandedChartXAxisTickCount}
-                                                      yAxisTickCount={expandedChartYAxisTickCount}
-                                                      xAxisTickFormat={expandedChartXAxisTickFormat}
-                                                      yAxisTickFormat={expandedNumberAxisTickFormat}
-                                                      tooltipValueFormat={formatMetricTooltipValue}
-                                                      ariaDescription={`${server.name} CPU and memory usage trend`}
-                                                    />
-                                                  </DeferredRender>
-                                                </div>
+                                          <div className="grid min-w-0 grid-cols-1 gap-2 xl:grid-cols-2 2xl:grid-cols-3">
+                                            <ExpandedTrendChartCard
+                                              title="CPU / 内存趋势"
+                                              tone="success"
+                                              compact
+                                              legend={(
+                                                <>
+                                                  <ChartLegend.SmallItem name="CPU" color={cpuColor} value={`${Math.round(cpuUsage)}%`} />
+                                                  <ChartLegend.SmallItem name="Memory" color={memColor} value={`${Math.round(memUsage)}%`} />
+                                                  <ChartLegend.SmallItem name="Temp" color={cpuTempColor} value={getLatestMetricValue(records, getCpuTemp, v => `${v.toFixed(1)}°C`)} />
+                                                </>
                                               )}
-                                            </ChartBoundaryBox>
+                                            >
+                                              {(tooltipBoundary) => (
+                                                <DeferredRender open={isExpanded} delay={SERVER_CHART_RENDER_DEFER_MS} fallback={<ChartWarmupSkeleton height={compactExpandedChartHeight} />}>
+                                                  <TimeseriesChart
+                                                    echarts={fastTimeseriesEcharts}
+                                                    data={cpuMemSeries}
+                                                    height={compactExpandedChartHeight}
+                                                    isDarkMode={isDarkMode}
+                                                    gradient
+                                                    loading={chartLoading}
+                                                    tooltipBoundary={tooltipBoundary ?? undefined}
+                                                    xAxisTickCount={expandedChartXAxisTickCount}
+                                                    yAxisTickCount={compactExpandedYAxisTickCount}
+                                                    xAxisTickFormat={expandedChartXAxisTickFormat}
+                                                    yAxisTickFormat={expandedNumberAxisTickFormat}
+                                                    tooltipValueFormat={formatMetricTooltipValue}
+                                                    optionUpdateBehavior={SERVER_FAST_CHART_UPDATE_BEHAVIOR}
+                                                    ariaDescription={`${server.name} CPU and memory usage trend`}
+                                                  />
+                                                </DeferredRender>
+                                              )}
+                                            </ExpandedTrendChartCard>
 
-                                            <ChartBoundaryBox className="min-w-0 overflow-hidden app-card app-card-md p-3">
+                                            <ExpandedTrendChartCard
+                                              title={hasGpuData ? 'GPU 趋势' : '网络趋势'}
+                                              tone={hasGpuData ? 'warning' : 'info'}
+                                              compact
+                                              legend={(
+                                                <>
+                                                  {hasGpuData && <ChartLegend.SmallItem name="GPU" color={gpuColor} value={getLatestMetricValue(records, r => toNumber(r.gpu_usage, 0), v => `${v.toFixed(1)}%`)} />}
+                                                  {hasGpuData && <ChartLegend.SmallItem name="VRAM" color={vramColor} value={getLatestMetricValue(records, getGpuMemPercent, v => `${v.toFixed(1)}%`)} />}
+                                                  {hasGpuData && <ChartLegend.SmallItem name="Power" color={powerColor} value={getLatestMetricValue(records, r => toNumber(r.gpu_power, 0), v => `${v.toFixed(1)}W`)} />}
+                                                  {hasGpuData && <ChartLegend.SmallItem name="Temp" color={gpuTempColor} value={getLatestMetricValue(records, getGpuTemp, v => `${v.toFixed(1)}°C`)} />}
+                                                  {!hasGpuData && <ChartLegend.SmallItem name="Upload" color={txColor} value={getLatestMetricValue(records, r => toNumber(r.net_tx, 0), formatBytesSpeed)} />}
+                                                  {!hasGpuData && <ChartLegend.SmallItem name="Download" color={rxColor} value={getLatestMetricValue(records, r => toNumber(r.net_rx, 0), formatBytesSpeed)} />}
+                                                </>
+                                              )}
+                                            >
                                               {(tooltipBoundary) => (
-                                                <div className="flex min-w-0 flex-col gap-2">
-                                                  <div className="flex flex-wrap items-center justify-between gap-2">
-                                                    <span className="text-xs font-bold text-kumo-strong">
-                                                      {hasGpuData ? 'GPU / 网络趋势' : '网络趋势'}
-                                                    </span>
-                                                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                                                      {hasGpuData && <ChartLegend.SmallItem name="GPU" color={gpuColor} value={getLatestMetricValue(records, r => toNumber(r.gpu_usage, 0), v => `${v.toFixed(1)}%`)} />}
-                                                      {hasGpuData && <ChartLegend.SmallItem name="VRAM" color={vramColor} value={getLatestMetricValue(records, getGpuMemPercent, v => `${v.toFixed(1)}%`)} />}
-                                                      {hasGpuData && <ChartLegend.SmallItem name="Power" color={powerColor} value={getLatestMetricValue(records, r => toNumber(r.gpu_power, 0), v => `${v.toFixed(1)}W`)} />}
-                                                      {hasGpuData && <ChartLegend.SmallItem name="Temp" color={gpuTempColor} value={getLatestMetricValue(records, getGpuTemp, v => `${v.toFixed(1)}°C`)} />}
-                                                      {!hasGpuData && <ChartLegend.SmallItem name="Upload" color={txColor} value={getLatestMetricValue(records, r => toNumber(r.net_tx, 0), formatBytesSpeed)} />}
-                                                      {!hasGpuData && <ChartLegend.SmallItem name="Download" color={rxColor} value={getLatestMetricValue(records, r => toNumber(r.net_rx, 0), formatBytesSpeed)} />}
-                                                    </div>
-                                                  </div>
-                                                  <DeferredRender open={isExpanded} fallback={<ChartWarmupSkeleton height={expandedSubChartHeight} />}>
+                                                <DeferredRender open={isExpanded} delay={SERVER_CHART_RENDER_DEFER_MS} fallback={<ChartWarmupSkeleton height={compactExpandedChartHeight} />}>
+                                                  <TimeseriesChart
+                                                    echarts={fastTimeseriesEcharts}
+                                                    data={hasGpuData ? gpuSeries : netSeries}
+                                                    height={compactExpandedChartHeight}
+                                                    isDarkMode={isDarkMode}
+                                                    gradient
+                                                    loading={chartLoading}
+                                                    tooltipBoundary={tooltipBoundary ?? undefined}
+                                                    xAxisTickCount={expandedChartXAxisTickCount}
+                                                    yAxisTickCount={compactExpandedYAxisTickCount}
+                                                    xAxisTickFormat={expandedChartXAxisTickFormat}
+                                                    yAxisTickFormat={hasGpuData ? expandedNumberAxisTickFormat : formatCompactBytesSpeed}
+                                                    tooltipValueFormat={hasGpuData ? formatMetricTooltipValue : formatBytesSpeed}
+                                                    optionUpdateBehavior={SERVER_FAST_CHART_UPDATE_BEHAVIOR}
+                                                    ariaDescription={`${server.name} compact host trend`}
+                                                  />
+                                                </DeferredRender>
+                                              )}
+                                            </ExpandedTrendChartCard>
+
+                                            {hasGpuData && (
+                                              <ExpandedTrendChartCard
+                                                title="网络趋势"
+                                                tone="info"
+                                                compact
+                                                className="xl:col-span-2 2xl:col-span-1"
+                                                legend={(
+                                                  <>
+                                                    <ChartLegend.SmallItem name="Upload" color={txColor} value={getLatestMetricValue(records, r => toNumber(r.net_tx, 0), formatBytesSpeed)} />
+                                                    <ChartLegend.SmallItem name="Download" color={rxColor} value={getLatestMetricValue(records, r => toNumber(r.net_rx, 0), formatBytesSpeed)} />
+                                                  </>
+                                                )}
+                                              >
+                                                {(tooltipBoundary) => (
+                                                  <DeferredRender open={isExpanded} delay={SERVER_CHART_RENDER_DEFER_MS} fallback={<ChartWarmupSkeleton height={compactExpandedChartHeight} />}>
                                                     <TimeseriesChart
-                                                      echarts={echarts}
-                                                      data={hasGpuData ? gpuSeries : netSeries}
-                                                      height={expandedSubChartHeight}
+                                                      echarts={fastTimeseriesEcharts}
+                                                      data={netSeries}
+                                                      height={compactExpandedChartHeight}
                                                       isDarkMode={isDarkMode}
                                                       gradient
                                                       loading={chartLoading}
                                                       tooltipBoundary={tooltipBoundary ?? undefined}
                                                       xAxisTickCount={expandedChartXAxisTickCount}
-                                                      yAxisTickCount={expandedChartYAxisTickCount}
+                                                      yAxisTickCount={compactExpandedYAxisTickCount}
                                                       xAxisTickFormat={expandedChartXAxisTickFormat}
-                                                      yAxisTickFormat={hasGpuData ? expandedNumberAxisTickFormat : expandedSpeedAxisTickFormat}
-                                                      tooltipValueFormat={hasGpuData ? formatMetricTooltipValue : formatBytesSpeed}
-                                                      ariaDescription={`${server.name} compact host trend`}
+                                                      yAxisTickFormat={formatCompactBytesSpeed}
+                                                      tooltipValueFormat={formatBytesSpeed}
+                                                      optionUpdateBehavior={SERVER_FAST_CHART_UPDATE_BEHAVIOR}
+                                                      ariaDescription={`${server.name} compact network trend`}
                                                     />
                                                   </DeferredRender>
-                                                </div>
-                                              )}
-                                            </ChartBoundaryBox>
+                                                )}
+                                              </ExpandedTrendChartCard>
+                                            )}
+
+                                            <NetworkQualityPanel
+                                              serverName={server.name}
+                                              quality={networkQuality}
+                                              series={networkQualitySeries}
+                                              hasData={hasNetworkQualityData}
+                                              unsupported={networkQualityUnsupported}
+                                              chartHeight={compactNetworkQualityChartHeight}
+                                              isDarkMode={isDarkMode}
+                                              chartEcharts={staticTimeseriesEcharts}
+                                              isCompactViewport={isCompactViewport}
+                                              onCollect={() => loadNetworkQuality(server.id, { collect: true })}
+                                              compact
+                                              className="xl:col-span-2 2xl:col-span-3"
+                                            />
                                           </div>
                                         </>
                                       )}
@@ -4466,7 +4962,6 @@ function ServerPage() {
                 const isExpanded = expandedServers.includes(server.id);
                 const isChartSeriesReady = chartSeriesReadyServers.includes(server.id);
                 const isDarkMode = theme === 'dark';
-                const cardView = serverCardViews[server.id] || { system: 'load', gpu: 'detail', network: 'detail' };
                 const {
                   records,
                   cpuColor,
@@ -4501,6 +4996,25 @@ function ServerPage() {
                 const chartLoading = !!server.metricsLoading && records.length === 0;
                 const terminalProtocol = resolveTerminalProtocol(server);
                 const terminalLabel = terminalProtocol === 'agent' ? 'Agent 终端' : 'SSH 终端';
+                const primaryDisk = server.info?.disk?.[0];
+                const cpuUsage = clampPercent(toNumber(server.info?.cpu?.Usage, 0));
+                const memUsage = clampPercent(toNumber(server.info?.memory?.Usage, 0));
+                const diskUsage = clampPercent(toNumber(primaryDisk?.usage, 0));
+                const cpuTemp = toNumber(server.info?.cpu?.Temp, 0);
+                const cpuPower = toNumber(server.info?.cpu?.Power, 0);
+                const gpuUsage = clampPercent(toNumber(server.info?.gpu?.Usage, 0));
+                const gpuTemp = toNumber(server.info?.gpu?.Temp, 0);
+                const gpuMemPercent = clampPercent(toNumber(server.info?.gpu?.Percent, 0));
+                const physicalCores = server.info?.cpu?.PhysicalCores || server.info?.cpu?.Cores;
+                const logicalCores = server.info?.cpu?.LogicalCores;
+                const coreText = physicalCores && logicalCores && physicalCores !== logicalCores
+                  ? `${physicalCores}核/${logicalCores}线程`
+                  : `${physicalCores || '-'} 核`;
+                const networkQuality = networkQualityByServer[server.id] || {};
+                const networkQualitySeries = buildNetworkQualitySeries(networkQuality, isDarkMode);
+                const hasNetworkQualityData = networkQualitySeries.some(series => series.data.length > 0);
+                const networkQualityUnsupported = !!networkQuality.unsupported
+                  || isNetworkQualityUnsupportedError(networkQuality.error || networkQuality.unsupportedMessage);
                 
                 return (
                   <ContextMenu.Root key={server.id}>
@@ -4637,9 +5151,9 @@ function ServerPage() {
                     </div>
                     
                     <AnimatedCollapse open={isExpanded} keepMounted>
-                      <div className="rounded-b-lg border-t border-kumo-line/90 bg-kumo-canvas/45 p-2.5 sm:p-4">
+                      <div className="rounded-b-lg border-t border-kumo-line/90 bg-kumo-canvas/45 p-1.5 sm:p-2">
                         {server.loading && !server.info ? (
-                          <div className="space-y-2 py-8">
+                          <div className="space-y-2 py-5">
                             <SkeletonLine className="h-4 w-1/3 mx-auto" />
                             <SkeletonLine className="h-4 w-1/2 mx-auto" />
                           </div>
@@ -4648,131 +5162,110 @@ function ServerPage() {
                             {server.error}
                           </div>
                         ) : (
-                          <div className="flex flex-col gap-3 sm:gap-4">
-                            <div className="grid grid-cols-1 gap-3 md:grid-cols-3 md:gap-4">
-                              <div className="flex flex-col gap-2 app-card p-3 sm:gap-3 sm:p-4">
-                                <div className="flex items-center justify-between gap-2 border-b border-kumo-line pb-1.5 sm:pb-2">
-                                  <h4 className="text-xs font-bold text-kumo-strong">系统与载荷</h4>
-                                  <Tabs
-                                    {...TOOL_TABS_PROPS}
-                                    value={cardView.system}
-                                    onValueChange={(value) => setCardView(server.id, 'system', value)}
-                                    tabs={[
-                                      { value: 'load', label: '负载' },
-                                      { value: 'system', label: '系统' },
-                                    ]}
-                                  />
-                                </div>
-
-                                {cardView.system === 'load' ? (
-                                  <div className="flex flex-col gap-1.5 text-[11px] leading-5 sm:gap-2 sm:text-xs">
-                                    <div className="grid grid-cols-[5rem_minmax(0,1fr)] items-start gap-2 sm:flex sm:justify-between sm:gap-3">
-                                      <span className="text-kumo-subtle font-medium">CPU 负载</span>
-                                      <span className="text-right font-semibold text-kumo-strong">
-                                        {server.info?.cpu?.PhysicalCores && server.info?.cpu?.LogicalCores && server.info.cpu.PhysicalCores !== server.info.cpu.LogicalCores
-                                          ? `${server.info.cpu.PhysicalCores}核/${server.info.cpu.LogicalCores}线程`
-                                          : `${server.info?.cpu?.PhysicalCores || server.info?.cpu?.Cores || '-'} 核`}
-                                        <span className="ml-2">{server.info?.cpu?.Usage || '0%'}</span>
-                                      </span>
-                                    </div>
-                                    {toNumber(server.info?.cpu?.Temp, 0) > 0 && (
-                                      <div className="grid grid-cols-[5rem_minmax(0,1fr)] items-start gap-2 sm:flex sm:justify-between sm:gap-3">
-                                        <span className="text-kumo-subtle font-medium">CPU 温度</span>
-                                        <span className={`text-right font-semibold ${getTempColorClass(server.info.cpu.Temp)}`}>{Math.round(toNumber(server.info.cpu.Temp))}°C</span>
-                                      </div>
-                                    )}
-                                    {toNumber(server.info?.cpu?.Power, 0) > 0 && (
-                                      <div className="grid grid-cols-[5rem_minmax(0,1fr)] items-start gap-2 sm:flex sm:justify-between sm:gap-3">
-                                        <span className="text-kumo-subtle font-medium">CPU 功耗</span>
-                                        <span className="text-right font-semibold text-kumo-warning">{toNumber(server.info.cpu.Power, 0).toFixed(1)}W</span>
-                                      </div>
-                                    )}
-                                    <div className="grid grid-cols-[5rem_minmax(0,1fr)] items-start gap-2 sm:flex sm:justify-between sm:gap-3">
-                                      <span className="text-kumo-subtle font-medium">内存使用</span>
-                                      <span className="text-right font-semibold text-kumo-strong">{server.info?.memory?.Used || '-'} / {server.info?.memory?.Total || '-'} ({server.info?.memory?.Usage || '0%'})</span>
-                                    </div>
-                                    <div className="grid grid-cols-[5rem_minmax(0,1fr)] items-start gap-2 sm:flex sm:justify-between sm:gap-3">
-                                      <span className="text-kumo-subtle font-medium">系统负载</span>
-                                      <span className="text-right font-mono font-semibold text-kumo-strong">{server.info?.cpu?.Load || '-'}</span>
-                                    </div>
-                                    <div className="grid grid-cols-[5rem_minmax(0,1fr)] items-start gap-2 sm:flex sm:justify-between sm:gap-3">
-                                      <span className="text-kumo-subtle font-medium">在线时间</span>
-                                      <span className="text-right font-semibold text-kumo-strong">{formatUptime(server.info?.uptime || server.info?.system?.Uptime)}</span>
-                                    </div>
-                                    {(server.info?.disk || []).slice(0, 2).map((disk, idx) => (
-                                      <div key={`${server.id}-disk-${idx}`} className="border-t border-kumo-line/70 pt-1.5 sm:pt-2">
-                                        <div className="grid grid-cols-[5rem_minmax(0,1fr)] items-start gap-2 sm:flex sm:justify-between sm:gap-3">
-                                          <span className="text-kumo-subtle font-medium">{idx === 0 ? '主存储' : '二级存储'} ({disk.usage || '-'})</span>
-                                          <span className="text-right font-semibold text-kumo-strong">{disk.used || '-'} / {disk.total || '-'}</span>
-                                        </div>
-                                        <div className="mt-1 h-1.5 overflow-hidden rounded-full border border-kumo-line/70 bg-kumo-recessed sm:h-2">
-                                          <div className="h-full bg-kumo-warning" style={{ width: disk.usage || '0%' }}></div>
-                                        </div>
-                                      </div>
-                                    ))}
-                                  </div>
-                                ) : (
-                                  <div className="flex flex-col gap-1.5 text-[11px] leading-5 sm:gap-2 sm:text-xs">
-                                    <div className="grid grid-cols-[5rem_minmax(0,1fr)] items-start gap-2 sm:flex sm:justify-between sm:gap-3">
-                                      <span className="text-kumo-subtle font-medium">操作系统</span>
-                                      <span className="text-right font-semibold text-kumo-strong">{server.info?.platform || '-'}</span>
-                                    </div>
-                                    <div className="grid grid-cols-[5rem_minmax(0,1fr)] items-start gap-2 sm:flex sm:justify-between sm:gap-3">
-                                      <span className="text-kumo-subtle font-medium">系统版本</span>
-                                      <span className="max-w-44 truncate text-right font-semibold text-kumo-strong">{server.info?.platformVersion || server.info?.system?.Kernel || '-'}</span>
-                                    </div>
-                                    <div className="grid grid-cols-[5rem_minmax(0,1fr)] items-start gap-2 sm:flex sm:justify-between sm:gap-3">
-                                      <span className="text-kumo-subtle font-medium">主机地址</span>
-                                      <span className="text-right font-mono font-semibold text-kumo-strong">{getHostAddress(server, serverIpDisplayMode)}</span>
-                                    </div>
-                                    <div className="grid grid-cols-[5rem_minmax(0,1fr)] items-start gap-2 sm:flex sm:justify-between sm:gap-3">
-                                      <span className="text-kumo-subtle font-medium">监控模式</span>
-                                      <span className="text-right font-semibold text-kumo-strong">{getServerMonitorModeLabel(server)}</span>
-                                    </div>
-                                    <div className="grid grid-cols-[5rem_minmax(0,1fr)] items-start gap-2 sm:flex sm:justify-between sm:gap-3">
-                                      <span className="text-kumo-subtle font-medium">响应延迟</span>
-                                      <span className="text-right font-semibold text-kumo-success">{formatResponseTime(server.response_time)}</span>
-                                    </div>
-                                    <div className="grid grid-cols-[5rem_minmax(0,1fr)] items-start gap-2 sm:flex sm:justify-between sm:gap-3">
-                                      <span className="text-kumo-subtle font-medium">开始时间</span>
-                                      <span className="text-right font-semibold text-kumo-strong">{lifecycle.startsAt ? formatDateTime(lifecycle.startsAt) : '-'}</span>
-                                    </div>
-                                    <div className="grid grid-cols-[5rem_minmax(0,1fr)] items-start gap-2 sm:flex sm:justify-between sm:gap-3">
-                                      <span className="text-kumo-subtle font-medium">到期时间</span>
-                                      <span className={`text-right font-semibold ${lifecycle.toneClass}`}>{lifecycle.expiresAt ? formatDateTime(lifecycle.expiresAt) : '永久'}</span>
-                                    </div>
-                                    <div className="border-t border-kumo-line/70 pt-1.5 sm:pt-2">
-                                      <Meter
-                                        label="剩余周期"
-                                        value={lifecycle.remainingPercent}
-                                        min={0}
-                                        max={100}
-                                        customValue={lifecycle.expiresAt ? `${lifecycle.label} / ${Math.round(lifecycle.remainingPercent)}%` : '永久'}
-                                        className="gap-1 text-[11px] text-kumo-default"
-                                        trackClassName="!h-1.5 overflow-hidden rounded-full border border-kumo-line/70 bg-kumo-recessed"
-                                        indicatorClassName={`!h-full rounded-full ${lifecycle.indicatorClassName}`}
-                                      />
-                                    </div>
-                                  </div>
-                                )}
+                          <div className="flex flex-col gap-2">
+                            <ExpandedSection title="资源状态" tone="brand">
+                              <div className="grid grid-cols-2 gap-1.5 lg:grid-cols-4">
+                                <ExpandedProgressMetric
+                                  label="CPU"
+                                  value={cpuUsage}
+                                  detail={`${Math.round(cpuUsage)}%`}
+                                  caption={`${coreText}${cpuTemp > 0 ? ` · ${Math.round(cpuTemp)}°C` : ''}${cpuPower > 0 ? ` · ${cpuPower.toFixed(1)}W` : ''}`}
+                                  indicatorClassName="!bg-none !bg-kumo-success"
+                                  valueClassName="text-kumo-success"
+                                />
+                                <ExpandedProgressMetric
+                                  label="内存"
+                                  value={memUsage}
+                                  detail={`${Math.round(memUsage)}%`}
+                                  caption={`${server.info?.memory?.Used || '-'} / ${server.info?.memory?.Total || '-'}`}
+                                  indicatorClassName="!bg-none !bg-kumo-info"
+                                  valueClassName="text-kumo-info"
+                                />
+                                <ExpandedProgressMetric
+                                  label="磁盘"
+                                  value={diskUsage}
+                                  detail={primaryDisk ? `${Math.round(diskUsage)}%` : '-'}
+                                  caption={primaryDisk ? `${primaryDisk.used || '-'} / ${primaryDisk.total || '-'}` : '未上报'}
+                                  indicatorClassName="!bg-none !bg-kumo-warning"
+                                  valueClassName="text-kumo-warning"
+                                />
+                                <ExpandedProgressMetric
+                                  label="剩余"
+                                  value={lifecycle.remainingPercent}
+                                  detail={lifecycle.label}
+                                  caption={lifecycle.expiresAt ? `${formatDateTime(lifecycle.startsAt)} - ${formatDateTime(lifecycle.expiresAt)}` : '长期有效'}
+                                  indicatorClassName={lifecycle.indicatorClassName}
+                                  valueClassName={lifecycle.toneClass}
+                                />
                               </div>
-                              
-                              <ChartBoundaryBox className="md:col-span-2 flex min-w-0 flex-col gap-2 overflow-hidden app-card p-3 sm:p-4">
-                                {(tooltipBoundary) => (
-                                  <>
-                                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-kumo-line pb-1.5 sm:pb-2">
-                                      <h4 className="text-xs font-bold text-kumo-strong">CPU / 内存趋势</h4>
-                                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                                        <ChartLegend.SmallItem name="CPU" color={cpuColor} value={`${parseInt(server.info?.cpu?.Usage || '0')}%`} />
-                                        <ChartLegend.SmallItem name="Memory" color={memColor} value={`${parseInt(server.info?.memory?.Usage || '0')}%`} />
-                                        <ChartLegend.SmallItem name="Temp" color={cpuTempColor} value={getLatestMetricValue(records, getCpuTemp, v => `${v.toFixed(1)}°C`)} />
-                                      </div>
+                            </ExpandedSection>
+
+                            <div className="grid grid-cols-1 items-stretch gap-2 xl:grid-cols-12">
+                              <div className="grid min-w-0 grid-cols-1 gap-2 md:grid-cols-2 xl:contents">
+                                <ExpandedSection title="系统概览" tone="success" className="h-full xl:order-1 xl:col-span-4 2xl:col-span-3">
+                                  <div className="grid grid-cols-2 gap-1.5">
+                                    <ExpandedInfoChip label="系统" value={server.info?.platform || '-'} />
+                                    <ExpandedInfoChip label="版本" value={server.info?.platformVersion || server.info?.system?.Kernel || '-'} />
+                                    <ExpandedInfoChip label="核心" value={coreText} />
+                                    <ExpandedInfoChip label="负载" value={server.info?.cpu?.Load || '-'} valueClassName="font-mono text-kumo-strong" />
+                                    <ExpandedInfoChip label="在线" value={formatUptimeDaysOnly(server.info?.uptime || server.info?.system?.Uptime)} />
+                                    <ExpandedInfoChip label="延迟" value={formatResponseTime(server.response_time)} valueClassName="text-kumo-success" />
+                                    <ExpandedInfoChip label="地址" value={getHostAddress(server, serverIpDisplayMode)} valueClassName="font-mono text-kumo-strong" />
+                                    <ExpandedInfoChip label="模式" value={getServerMonitorModeLabel(server)} />
+                                  </div>
+                                </ExpandedSection>
+
+                                {hasGpuData && (
+                                  <ExpandedSection title="GPU" tone="warning" className="h-full xl:order-3 xl:col-span-4 2xl:col-span-4">
+                                    <div className="mb-2 truncate text-xs font-bold text-kumo-strong" title={server.info?.gpu?.Model}>
+                                      {server.info?.gpu?.Model || 'GPU'}
                                     </div>
-                                    <DeferredRender open={isExpanded} fallback={<ChartWarmupSkeleton height={expandedMainChartHeight} />}>
+                                    <div className="grid grid-cols-2 gap-1.5">
+                                      <ExpandedStatTile label="使用率" value={`${Math.round(gpuUsage)}%`} tone="warning" />
+                                      <ExpandedStatTile
+                                        label="显存"
+                                        value={server.info?.gpu?.Memory || `${Math.round(gpuMemPercent)}%`}
+                                        caption={server.info?.gpu?.Memory ? `${Math.round(gpuMemPercent)}%` : undefined}
+                                      />
+                                      <ExpandedStatTile
+                                        label="温度"
+                                        value={gpuTemp > 0 ? `${Math.round(gpuTemp)}°C` : '-'}
+                                        tone={gpuTemp > 0 && getTempColorClass(gpuTemp).includes('danger') ? 'danger' : 'success'}
+                                      />
+                                      <ExpandedStatTile label="功耗" value={server.info?.gpu?.Power || '-'} tone="warning" />
+                                    </div>
+                                  </ExpandedSection>
+                                )}
+
+                                <ExpandedSection title="网络" tone="info" className={`h-full xl:order-5 xl:col-span-4 ${hasGpuData ? '2xl:col-span-3' : '2xl:col-span-4'}`}>
+                                  <div className="grid grid-cols-2 gap-1.5">
+                                    <ExpandedStatTile label="上传" value={server.info?.network?.tx_speed || '0 B/s'} caption={`累计 ${txTotal.text}`} tone="info" />
+                                    <ExpandedStatTile label="下载" value={server.info?.network?.rx_speed || '0 B/s'} caption={`累计 ${rxTotal.text}`} tone="success" />
+                                    <ExpandedInfoChip label="连接" value={server.info?.network?.connections || 0} />
+                                    <ExpandedInfoChip label="总量" value={`↑ ${txTotal.text} / ↓ ${rxTotal.text}`} className="min-w-0" />
+                                  </div>
+                                </ExpandedSection>
+                              </div>
+
+                              <div className="grid min-w-0 grid-cols-1 gap-2 md:grid-cols-2 xl:contents">
+                                <ExpandedTrendChartCard
+                                  title="CPU / 内存趋势"
+                                  tone="success"
+                                  className="xl:order-2 xl:col-span-8 2xl:col-span-5"
+                                  legend={(
+                                    <>
+                                      <ChartLegend.SmallItem name="CPU" color={cpuColor} value={`${Math.round(cpuUsage)}%`} />
+                                      <ChartLegend.SmallItem name="Memory" color={memColor} value={`${Math.round(memUsage)}%`} />
+                                      <ChartLegend.SmallItem name="Temp" color={cpuTempColor} value={getLatestMetricValue(records, getCpuTemp, v => `${v.toFixed(1)}°C`)} />
+                                    </>
+                                  )}
+                                >
+                                  {(tooltipBoundary) => (
+                                    <DeferredRender open={isExpanded} delay={SERVER_CHART_RENDER_DEFER_MS} fallback={<ChartWarmupSkeleton height={expandedTrendChartHeight} />}>
                                       <TimeseriesChart
-                                        echarts={echarts}
+                                        echarts={fastTimeseriesEcharts}
                                         data={cpuMemSeries}
-                                        height={expandedMainChartHeight}
+                                        height={expandedTrendChartHeight}
                                         isDarkMode={isDarkMode}
                                         gradient
                                         loading={chartLoading}
@@ -4782,160 +5275,97 @@ function ServerPage() {
                                         xAxisTickFormat={expandedChartXAxisTickFormat}
                                         yAxisTickFormat={expandedNumberAxisTickFormat}
                                         tooltipValueFormat={formatMetricTooltipValue}
+                                        optionUpdateBehavior={SERVER_FAST_CHART_UPDATE_BEHAVIOR}
                                         ariaDescription={`${server.name} CPU and memory usage trend`}
                                       />
                                     </DeferredRender>
-                                  </>
+                                  )}
+                                </ExpandedTrendChartCard>
+
+                                {hasGpuData && (
+                                  <ExpandedTrendChartCard
+                                    title="GPU 趋势"
+                                    tone="warning"
+                                    className="xl:order-4 xl:col-span-8 2xl:col-span-5"
+                                    legend={(
+                                      <>
+                                        <ChartLegend.SmallItem name="GPU" color={gpuColor} value={getLatestMetricValue(records, r => toNumber(r.gpu_usage, 0), v => `${v.toFixed(1)}%`)} />
+                                        <ChartLegend.SmallItem name="VRAM" color={vramColor} value={getLatestMetricValue(records, getGpuMemPercent, v => `${v.toFixed(1)}%`)} />
+                                        <ChartLegend.SmallItem name="Power" color={powerColor} value={getLatestMetricValue(records, r => toNumber(r.gpu_power, 0), v => `${v.toFixed(1)}W`)} />
+                                        <ChartLegend.SmallItem name="Temp" color={gpuTempColor} value={getLatestMetricValue(records, getGpuTemp, v => `${v.toFixed(1)}°C`)} />
+                                      </>
+                                    )}
+                                  >
+                                    {(tooltipBoundary) => (
+                                      <DeferredRender open={isExpanded} delay={SERVER_CHART_RENDER_DEFER_MS} fallback={<ChartWarmupSkeleton height={expandedTrendChartHeight} />}>
+                                        <TimeseriesChart
+                                          echarts={fastTimeseriesEcharts}
+                                          data={gpuSeries}
+                                          height={expandedTrendChartHeight}
+                                          isDarkMode={isDarkMode}
+                                          gradient
+                                          loading={chartLoading}
+                                          tooltipBoundary={tooltipBoundary ?? undefined}
+                                          xAxisTickCount={expandedChartXAxisTickCount}
+                                          yAxisTickCount={expandedChartYAxisTickCount}
+                                          xAxisTickFormat={expandedChartXAxisTickFormat}
+                                          yAxisTickFormat={expandedNumberAxisTickFormat}
+                                          tooltipValueFormat={formatMetricTooltipValue}
+                                          optionUpdateBehavior={SERVER_FAST_CHART_UPDATE_BEHAVIOR}
+                                          ariaDescription={`${server.name} GPU usage, VRAM, and power trend`}
+                                        />
+                                      </DeferredRender>
+                                    )}
+                                  </ExpandedTrendChartCard>
                                 )}
-                              </ChartBoundaryBox>
+
+                                <ExpandedTrendChartCard
+                                  title="网络趋势"
+                                  tone="info"
+                                  className={`xl:order-6 xl:col-span-8 ${hasGpuData ? '2xl:col-span-4' : '2xl:col-span-8'}`}
+                                  legend={(
+                                    <>
+                                      <ChartLegend.SmallItem name="Upload" color={txColor} value={getLatestMetricValue(records, r => toNumber(r.net_tx, 0), formatBytesSpeed)} />
+                                      <ChartLegend.SmallItem name="Download" color={rxColor} value={getLatestMetricValue(records, r => toNumber(r.net_rx, 0), formatBytesSpeed)} />
+                                    </>
+                                  )}
+                                >
+                                  {(tooltipBoundary) => (
+                                    <DeferredRender open={isExpanded} delay={SERVER_CHART_RENDER_DEFER_MS} fallback={<ChartWarmupSkeleton height={expandedTrendChartHeight} />}>
+                                      <TimeseriesChart
+                                        echarts={fastTimeseriesEcharts}
+                                        data={netSeries}
+                                        height={expandedTrendChartHeight}
+                                        isDarkMode={isDarkMode}
+                                        gradient
+                                        loading={chartLoading}
+                                        tooltipBoundary={tooltipBoundary ?? undefined}
+                                        xAxisTickCount={expandedChartXAxisTickCount}
+                                        yAxisTickCount={expandedChartYAxisTickCount}
+                                        xAxisTickFormat={expandedChartXAxisTickFormat}
+                                        yAxisTickFormat={expandedSpeedAxisTickFormat}
+                                        tooltipValueFormat={formatBytesSpeed}
+                                        optionUpdateBehavior={SERVER_FAST_CHART_UPDATE_BEHAVIOR}
+                                        ariaDescription={`${server.name} network upload and download speed trend`}
+                                      />
+                                    </DeferredRender>
+                                  )}
+                                </ExpandedTrendChartCard>
+                              </div>
                             </div>
 
-                            <div className="grid grid-cols-1 gap-3 md:grid-cols-2 md:gap-4">
-                              <ChartBoundaryBox className="flex min-w-0 flex-col gap-2 overflow-hidden app-card p-3 sm:gap-3 sm:p-4">
-                                {(tooltipBoundary) => (
-                                  <>
-                                    <div className="flex items-center justify-between gap-2 border-b border-kumo-line pb-1.5 sm:pb-2">
-                                      <h4 className="text-xs font-bold text-kumo-strong">GPU</h4>
-                                      <Tabs
-                                        {...TOOL_TABS_PROPS}
-                                        value={cardView.gpu}
-                                        onValueChange={(value) => setCardView(server.id, 'gpu', value)}
-                                        tabs={[
-                                          { value: 'detail', label: '详情' },
-                                          { value: 'chart', label: '趋势' },
-                                        ]}
-                                      />
-                                    </div>
-                                    {cardView.gpu === 'detail' ? (
-                                      hasGpuData ? (
-                                        <div className="flex flex-col gap-1.5 text-[11px] leading-5 sm:gap-2 sm:text-xs">
-                                          <div className="grid grid-cols-[3rem_minmax(0,1fr)] items-center gap-2 sm:gap-3">
-                                            <span className="text-kumo-subtle font-medium">型号</span>
-                                            <span className="truncate text-right font-semibold text-kumo-strong" title={server.info?.gpu?.Model}>{server.info?.gpu?.Model || 'GPU'}</span>
-                                          </div>
-                                          <div className="grid grid-cols-[3rem_minmax(0,1fr)] items-center gap-2 sm:flex sm:justify-between sm:gap-3">
-                                            <span className="text-kumo-subtle font-medium">使用率</span>
-                                            <span className="text-right font-semibold text-kumo-strong">{server.info?.gpu?.Usage || '0%'}</span>
-                                          </div>
-                                          {toNumber(server.info?.gpu?.Temp, 0) > 0 && (
-                                            <div className="grid grid-cols-[3rem_minmax(0,1fr)] items-center gap-2 sm:flex sm:justify-between sm:gap-3">
-                                              <span className="text-kumo-subtle font-medium">温度</span>
-                                              <span className={`text-right font-semibold ${getTempColorClass(server.info.gpu.Temp)}`}>{Math.round(toNumber(server.info.gpu.Temp))}°C</span>
-                                            </div>
-                                          )}
-                                          {server.info?.gpu?.Memory && (
-                                            <div className="grid grid-cols-[3rem_minmax(0,1fr)] items-center gap-2 sm:flex sm:justify-between sm:gap-3">
-                                              <span className="text-kumo-subtle font-medium">显存</span>
-                                              <span className="text-right font-semibold text-kumo-strong">{server.info.gpu.Memory} ({Math.round(toNumber(server.info.gpu.Percent, 0))}%)</span>
-                                            </div>
-                                          )}
-                                          {server.info?.gpu?.Power && (
-                                            <div className="grid grid-cols-[3rem_minmax(0,1fr)] items-center gap-2 sm:flex sm:justify-between sm:gap-3">
-                                              <span className="text-kumo-subtle font-medium">功耗</span>
-                                              <span className="text-right font-semibold text-kumo-warning">{server.info.gpu.Power}</span>
-                                            </div>
-                                          )}
-                                        </div>
-                                      ) : (
-                                        <div className="py-4 text-center text-xs text-kumo-subtle sm:py-6">未检测到 GPU 数据</div>
-                                      )
-                                    ) : (
-                                      <div className="flex flex-col gap-2">
-                                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                                          <ChartLegend.SmallItem name="GPU" color={gpuColor} value={getLatestMetricValue(records, r => toNumber(r.gpu_usage, 0), v => `${v.toFixed(1)}%`)} />
-                                          <ChartLegend.SmallItem name="VRAM" color={vramColor} value={getLatestMetricValue(records, getGpuMemPercent, v => `${v.toFixed(1)}%`)} />
-                                          <ChartLegend.SmallItem name="Power" color={powerColor} value={getLatestMetricValue(records, r => toNumber(r.gpu_power, 0), v => `${v.toFixed(1)}W`)} />
-                                          <ChartLegend.SmallItem name="Temp" color={gpuTempColor} value={getLatestMetricValue(records, getGpuTemp, v => `${v.toFixed(1)}°C`)} />
-                                        </div>
-                                        <DeferredRender open={isExpanded} fallback={<ChartWarmupSkeleton height={expandedSubChartHeight} />}>
-                                          <TimeseriesChart
-                                            echarts={echarts}
-                                            data={gpuSeries}
-                                            height={expandedSubChartHeight}
-                                            isDarkMode={isDarkMode}
-                                            gradient
-                                            loading={chartLoading}
-                                            tooltipBoundary={tooltipBoundary ?? undefined}
-                                            xAxisTickCount={expandedChartXAxisTickCount}
-                                            yAxisTickCount={expandedChartYAxisTickCount}
-                                            xAxisTickFormat={expandedChartXAxisTickFormat}
-                                            yAxisTickFormat={expandedNumberAxisTickFormat}
-                                            tooltipValueFormat={formatMetricTooltipValue}
-                                            ariaDescription={`${server.name} GPU usage, VRAM, and power trend`}
-                                          />
-                                        </DeferredRender>
-                                      </div>
-                                    )}
-                                  </>
-                                )}
-                              </ChartBoundaryBox>
-
-                              <ChartBoundaryBox className="flex min-w-0 flex-col gap-2 overflow-hidden app-card p-3 sm:gap-3 sm:p-4">
-                                {(tooltipBoundary) => (
-                                  <>
-                                    <div className="flex items-center justify-between gap-2 border-b border-kumo-line pb-1.5 sm:pb-2">
-                                      <h4 className="text-xs font-bold text-kumo-strong">网络</h4>
-                                      <Tabs
-                                        {...TOOL_TABS_PROPS}
-                                        value={cardView.network}
-                                        onValueChange={(value) => setCardView(server.id, 'network', value)}
-                                        tabs={[
-                                          { value: 'detail', label: '详情' },
-                                          { value: 'chart', label: '趋势' },
-                                        ]}
-                                      />
-                                    </div>
-                                    {cardView.network === 'detail' ? (
-                                      <div className="flex flex-col gap-1.5 text-[11px] leading-5 sm:gap-2 sm:text-xs">
-                                        <div className="grid grid-cols-[5rem_minmax(0,1fr)] items-center gap-2 sm:flex sm:justify-between sm:gap-3">
-                                          <span className="text-kumo-subtle font-medium">活跃连接数</span>
-                                          <span className="text-right font-semibold text-kumo-strong">{server.info?.network?.connections || 0}</span>
-                                        </div>
-                                        <div className="grid grid-cols-[5rem_minmax(0,1fr)] items-center gap-2 sm:flex sm:justify-between sm:gap-3">
-                                          <span className="text-kumo-subtle font-medium">上传速度</span>
-                                          <span className="text-right font-semibold text-kumo-info">{server.info?.network?.tx_speed || '0 B/s'}</span>
-                                        </div>
-                                        <div className="grid grid-cols-[5rem_minmax(0,1fr)] items-center gap-2 sm:flex sm:justify-between sm:gap-3">
-                                          <span className="text-kumo-subtle font-medium">下载速度</span>
-                                          <span className="text-right font-semibold text-kumo-success">{server.info?.network?.rx_speed || '0 B/s'}</span>
-                                        </div>
-                                        <div className="grid grid-cols-[5rem_minmax(0,1fr)] items-center gap-2 sm:flex sm:justify-between sm:gap-3">
-                                          <span className="text-kumo-subtle font-medium">累计流量</span>
-                                          <span className="grid min-w-0 grid-cols-2 gap-2 text-right font-mono text-[11px] font-semibold tabular-nums sm:w-[168px]">
-                                            <span className="truncate text-kumo-info" title={txTotal.text}>&uarr; {txTotal.text}</span>
-                                            <span className="truncate text-kumo-success" title={rxTotal.text}>&darr; {rxTotal.text}</span>
-                                          </span>
-                                        </div>
-                                      </div>
-                                    ) : (
-                                      <div className="flex flex-col gap-2">
-                                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-                                          <ChartLegend.SmallItem name="Upload" color={txColor} value={getLatestMetricValue(records, r => toNumber(r.net_tx, 0), formatBytesSpeed)} />
-                                          <ChartLegend.SmallItem name="Download" color={rxColor} value={getLatestMetricValue(records, r => toNumber(r.net_rx, 0), formatBytesSpeed)} />
-                                        </div>
-                                        <DeferredRender open={isExpanded} fallback={<ChartWarmupSkeleton height={expandedSubChartHeight} />}>
-                                          <TimeseriesChart
-                                            echarts={echarts}
-                                            data={netSeries}
-                                            height={expandedSubChartHeight}
-                                            isDarkMode={isDarkMode}
-                                            gradient
-                                            loading={chartLoading}
-                                            tooltipBoundary={tooltipBoundary ?? undefined}
-                                            xAxisTickCount={expandedChartXAxisTickCount}
-                                            yAxisTickCount={expandedChartYAxisTickCount}
-                                            xAxisTickFormat={expandedChartXAxisTickFormat}
-                                            yAxisTickFormat={expandedSpeedAxisTickFormat}
-                                            tooltipValueFormat={formatBytesSpeed}
-                                            ariaDescription={`${server.name} network upload and download speed trend`}
-                                          />
-                                        </DeferredRender>
-                                      </div>
-                                    )}
-                                  </>
-                                )}
-                              </ChartBoundaryBox>
-                            </div>
+                            <NetworkQualityPanel
+                              serverName={server.name}
+                              quality={networkQuality}
+                              series={networkQualitySeries}
+                              hasData={hasNetworkQualityData}
+                              unsupported={networkQualityUnsupported}
+                              chartHeight={networkQualityChartHeight}
+                              isDarkMode={isDarkMode}
+                              chartEcharts={staticTimeseriesEcharts}
+                              isCompactViewport={isCompactViewport}
+                              onCollect={() => loadNetworkQuality(server.id, { collect: true })}
+                            />
 
                             {server.info?.docker?.installed && (
                               <div className="overflow-hidden app-card">

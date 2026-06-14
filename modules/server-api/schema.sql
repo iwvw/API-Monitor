@@ -154,6 +154,44 @@ CREATE TABLE IF NOT EXISTS server_metrics_history (
 CREATE INDEX IF NOT EXISTS idx_metrics_history_server_time ON server_metrics_history(server_id, recorded_at DESC);
 CREATE INDEX IF NOT EXISTS idx_metrics_history_time ON server_metrics_history(recorded_at DESC);
 
+-- 19. 主机网络质量目标表
+CREATE TABLE IF NOT EXISTS server_network_quality_targets (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL UNIQUE,
+    host TEXT NOT NULL,
+    port INTEGER DEFAULT 80,
+    type TEXT DEFAULT 'tcp' CHECK(type IN ('tcp')),
+    enabled INTEGER DEFAULT 1,
+    order_index INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+-- 20. 主机网络质量采样表
+CREATE TABLE IF NOT EXISTS server_network_quality_samples (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    server_id TEXT NOT NULL,
+    target_id INTEGER,
+    target_name TEXT NOT NULL,
+    target_host TEXT NOT NULL,
+    target_port INTEGER DEFAULT 80,
+    success INTEGER DEFAULT 0,
+    latency_ms REAL,
+    error_message TEXT,
+    checked_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (server_id) REFERENCES server_accounts(id) ON DELETE CASCADE,
+    FOREIGN KEY (target_id) REFERENCES server_network_quality_targets(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_network_quality_samples_server_time ON server_network_quality_samples(server_id, checked_at DESC);
+CREATE INDEX IF NOT EXISTS idx_network_quality_samples_target_time ON server_network_quality_samples(target_id, checked_at DESC);
+
+INSERT OR IGNORE INTO server_network_quality_targets (name, host, port, type, enabled, order_index)
+VALUES
+    ('联通', 'hb-cu-v4.ip.zstaticcdn.com', 80, 'tcp', 1, 1),
+    ('移动', 'hb-cm-v4.ip.zstaticcdn.com', 80, 'tcp', 1, 2),
+    ('电信', 'hb-ct-v4.ip.zstaticcdn.com', 80, 'tcp', 1, 3);
+
 -- 迁移：monitor_mode 已简化为纯 Agent 模式，移除了 SSH 和双模式选项
 -- 旧数据库可能仍包含 'ssh' 或 'both' 值，应用层会统一按 Agent 模式处理
 -- ALTER TABLE server_accounts ADD COLUMN monitor_mode TEXT DEFAULT 'agent';

@@ -199,6 +199,35 @@ class AgentService extends EventEmitter {
   }
 
   /**
+   * 获取全部主机当前连接状态快照，供前端连接/重连后对齐在线状态。
+   */
+  getServerStatusSnapshot() {
+    return this.buildServerStatusSnapshot(serverStorage.getAll());
+  }
+
+  /**
+   * 根据主机列表生成当前连接状态快照。
+   */
+  buildServerStatusSnapshot(servers = []) {
+    const now = Date.now();
+
+    return servers.map(server => {
+      const socket = this.connections.get(server.id);
+      const legacy = this.legacyStatus.get(server.id);
+      const online = !!socket;
+
+      return {
+        serverId: server.id,
+        status: online ? 'online' : (server.status || 'offline'),
+        agent_online: online,
+        connectedAt: socket?._connectedAt || 0,
+        lastSeen: legacy?.lastSeen || 0,
+        timestamp: now,
+      };
+    });
+  }
+
+  /**
    * 获取指定主机的最新指标 (供 MonitorService 调用)
    */
   getMetrics(serverId) {
@@ -829,20 +858,19 @@ class AgentService extends EventEmitter {
           this.log(`旧连接已被替换: ${serverId}`);
           return;
         }
+        if (socket._offlineHandled) {
+          this.log(`离线状态已处理: ${serverId}`);
+          return;
+        }
 
         console.log(`[AgentService] ${msg}`);
         this.connections.delete(serverId);
         this.stopHeartbeat(serverId);
+        this.markServerOffline(serverId);
         this.failActiveTasksByServer(serverId, `Agent 已离线: ${reason}`);
         this.updateServerStatus(serverId, 'offline');
         this.broadcastServerStatus(serverId, 'offline');
         this.triggerOfflineAlert(serverId); // Ensure offline alert is triggered
-
-        // 更新兼容缓存
-        const status = this.legacyStatus.get(serverId);
-        if (status) {
-          status.connected = false;
-        }
       }
     });
 
@@ -884,9 +912,15 @@ class AgentService extends EventEmitter {
     socket.join('metrics_room');
     this.log(`前端连接: ${socket.id}`);
 
-    // 发送当前所有在线主机的最新状态
+    // 发送当前所有在线主机的最新指标
     const initialData = [];
+    const now = Date.now();
     for (const [serverId, cached] of this.stateCache.entries()) {
+      if (!this.isOnline(serverId)) continue;
+
+      const dataAge = now - (cached.receivedAt || cached.timestamp || now);
+      if (dataAge > this.heartbeatTimeout * 2) continue;
+
       const hostInfo = this.hostInfoCache.get(serverId) || {};
       initialData.push({
         serverId,
@@ -900,14 +934,8 @@ class AgentService extends EventEmitter {
       socket.emit(Events.METRICS_BATCH, initialData);
     }
 
-    // 发送所有在线主机的状态 (确保前端知道哪些主机在线)
-    for (const [serverId] of this.connections.entries()) {
-      socket.emit(Events.SERVER_STATUS, {
-        serverId,
-        status: 'online',
-        timestamp: Date.now(),
-      });
-    }
+    // 发送完整状态快照，包含离线主机，确保前端重连后不会保留陈旧在线状态。
+    socket.emit(Events.SERVER_LIST, this.getServerStatusSnapshot());
 
     socket.on('disconnect', () => {
       this.log(`前端断开: ${socket.id}`);
@@ -927,6 +955,7 @@ class AgentService extends EventEmitter {
         console.warn(`[AgentService] 心跳超时: ${serverId}`);
         const socket = this.connections.get(serverId);
         if (socket) {
+          socket._offlineHandled = true;
           socket.disconnect();
         }
         this.handleAgentTimeout(serverId);
@@ -953,10 +982,28 @@ class AgentService extends EventEmitter {
   }
 
   /**
+   * 清理离线主机的实时指标缓存，避免旧数据在前端重连后再次把主机标为在线。
+   */
+  markServerOffline(serverId) {
+    const cached = this.stateCache.get(serverId);
+    const legacy = this.legacyStatus.get(serverId) || {};
+    const lastSeen = legacy.lastSeen || cached?.receivedAt || cached?.timestamp || Date.now();
+
+    this.stateCache.delete(serverId);
+    this.legacyMetrics.delete(serverId);
+    this.legacyStatus.set(serverId, {
+      ...legacy,
+      connected: false,
+      lastSeen,
+    });
+  }
+
+  /**
    * 处理 Agent 超时
    */
   handleAgentTimeout(serverId) {
     this.connections.delete(serverId);
+    this.markServerOffline(serverId);
     this.failActiveTasksByServer(serverId, 'Agent 心跳超时');
     this.updateServerStatus(serverId, 'offline');
     this.broadcastServerStatus(serverId, 'offline');
@@ -1514,6 +1561,10 @@ class AgentService extends EventEmitter {
       waitForResult: true,
       timeoutMs: timeout,
     });
+  }
+
+  sendInternalTaskAndWait(serverId, task, timeout = 60000) {
+    return this._sendTaskAndWaitLegacy(serverId, task, timeout);
   }
 
   /**

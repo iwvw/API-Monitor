@@ -12,6 +12,7 @@ const {
 } = require('./storage');
 const monitorService = require('./monitor-service');
 const agentService = require('./agent-service');
+const networkQualityService = require('./network-quality-service');
 const sshService = require('./ssh-service');
 const { getServerCapabilities, hasSshConfig, hasSshEndpoint } = require('./capabilities');
 const { ServerAccount, ServerMonitorConfig, ServerMetricsHistory, ServerSnippet } = require('./models');
@@ -2076,6 +2077,40 @@ router.get('/metrics/stats/:serverId', (req, res) => {
 
     const stats = ServerMetricsHistory.getStats(serverId, parseInt(hours) || 24);
     res.json({ success: true, data: stats });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ==================== 网络质量接口 ====================
+
+router.get('/network-quality/:serverId', (req, res) => {
+  try {
+    const { serverId } = req.params;
+    const { hours = 24, maxPointsPerTarget = 240 } = req.query;
+    const data = networkQualityService.getServerQuality(serverId, {
+      hours,
+      maxPointsPerTarget,
+    });
+    res.json({ success: true, data });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+router.post('/network-quality/:serverId/collect', async (req, res) => {
+  try {
+    const { serverId } = req.params;
+    const collectResult = await networkQualityService.collectServer(serverId);
+    const data = networkQualityService.getServerQuality(serverId, {
+      hours: req.body?.hours || 24,
+      maxPointsPerTarget: req.body?.maxPointsPerTarget || 240,
+    });
+    if (collectResult?.unsupported) {
+      data.unsupported = true;
+      data.unsupportedMessage = '当前 Agent 版本不支持网络波动采样';
+    }
+    res.json({ success: true, data });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }

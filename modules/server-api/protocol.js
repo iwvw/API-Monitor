@@ -69,6 +69,8 @@ const TaskTypes = {
   FILE_STAT: 36, // 获取文件信息
   FILE_CHMOD: 37, // 修改权限
   FILE_DOWNLOAD_CHUNK: 38, // 分块下载文件
+
+  NETWORK_QUALITY_PROBE: 40, // 网络质量 TCPing 探测
 };
 
 // ==================== 数据结构 ====================

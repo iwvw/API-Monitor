@@ -83,6 +83,12 @@ export default defineConfig(({ mode }) => {
               if (id.includes('@pixi') || id.includes('pixi-filters')) {
                 return 'vendor-pixi';
               }
+              if (id.includes('echarts')) {
+                return 'vendor-echarts';
+              }
+              if (id.includes('zrender')) {
+                return 'vendor-zrender';
+              }
               // 其他大型工具库与状态管理
               if (
                 id.includes('axios') ||

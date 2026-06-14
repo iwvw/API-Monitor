@@ -471,6 +471,13 @@ server.listen(PORT, '0.0.0.0', () => {
     logger.warn('主机监控服务启动失败:', error.message);
   }
 
+  try {
+    const networkQualityService = require('./modules/server-api/network-quality-service');
+    networkQualityService.start();
+  } catch (error) {
+    logger.warn('网络质量监控服务启动失败:', error.message);
+  }
+
   // Uptime 监控服务初始化
   try {
     const uptimeService = require('./modules/uptime-api/monitor-service');

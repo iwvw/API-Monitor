@@ -991,6 +991,113 @@ class ServerMetricsHistory {
   }
 }
 
+class ServerNetworkQualityTarget {
+  static ensureDefaults() {
+    const db = getDb();
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS server_network_quality_targets (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL UNIQUE,
+          host TEXT NOT NULL,
+          port INTEGER DEFAULT 80,
+          type TEXT DEFAULT 'tcp' CHECK(type IN ('tcp')),
+          enabled INTEGER DEFAULT 1,
+          order_index INTEGER DEFAULT 0,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE TABLE IF NOT EXISTS server_network_quality_samples (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          server_id TEXT NOT NULL,
+          target_id INTEGER,
+          target_name TEXT NOT NULL,
+          target_host TEXT NOT NULL,
+          target_port INTEGER DEFAULT 80,
+          success INTEGER DEFAULT 0,
+          latency_ms REAL,
+          error_message TEXT,
+          checked_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          FOREIGN KEY (server_id) REFERENCES server_accounts(id) ON DELETE CASCADE,
+          FOREIGN KEY (target_id) REFERENCES server_network_quality_targets(id) ON DELETE SET NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_network_quality_samples_server_time ON server_network_quality_samples(server_id, checked_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_network_quality_samples_target_time ON server_network_quality_samples(target_id, checked_at DESC);
+    `);
+
+    const insert = db.prepare(`
+      INSERT OR IGNORE INTO server_network_quality_targets (name, host, port, type, enabled, order_index)
+      VALUES (?, ?, ?, 'tcp', 1, ?)
+    `);
+    insert.run('联通', 'hb-cu-v4.ip.zstaticcdn.com', 80, 1);
+    insert.run('移动', 'hb-cm-v4.ip.zstaticcdn.com', 80, 2);
+    insert.run('电信', 'hb-ct-v4.ip.zstaticcdn.com', 80, 3);
+  }
+
+  static getEnabled() {
+    this.ensureDefaults();
+    return getDb().prepare(`
+      SELECT * FROM server_network_quality_targets
+      WHERE enabled = 1
+      ORDER BY order_index ASC, id ASC
+    `).all();
+  }
+}
+
+class ServerNetworkQualitySample {
+  static createMany(records = []) {
+    if (!Array.isArray(records) || records.length === 0) return 0;
+    ServerNetworkQualityTarget.ensureDefaults();
+
+    const insert = getDb().prepare(`
+      INSERT INTO server_network_quality_samples (
+        server_id, target_id, target_name, target_host, target_port,
+        success, latency_ms, error_message, checked_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    const now = new Date().toISOString();
+    const tx = getDb().transaction(rows => {
+      for (const row of rows) {
+        insert.run(
+          row.server_id,
+          row.target_id || null,
+          row.target_name || '',
+          row.target_host || '',
+          row.target_port || 80,
+          row.success ? 1 : 0,
+          Number.isFinite(Number(row.latency_ms)) ? Number(row.latency_ms) : null,
+          row.error_message || null,
+          row.checked_at || now
+        );
+      }
+      return rows.length;
+    });
+
+    return tx(records);
+  }
+
+  static getHistory(serverId, options = {}) {
+    ServerNetworkQualityTarget.ensureDefaults();
+    const hours = Math.min(Math.max(Number(options.hours) || 24, 1), 168);
+    const limit = Math.min(Math.max(Number(options.limit) || 500, 30), 50000);
+    const cutoff = new Date(Date.now() - hours * 60 * 60 * 1000).toISOString();
+
+    return getDb().prepare(`
+      SELECT *
+      FROM server_network_quality_samples
+      WHERE server_id = ? AND checked_at >= ?
+      ORDER BY checked_at DESC
+      LIMIT ?
+    `).all(serverId, cutoff, limit);
+  }
+
+  static deleteOldRecords(days = 7) {
+    ServerNetworkQualityTarget.ensureDefaults();
+    const cutoff = new Date(Date.now() - Math.max(1, Number(days) || 7) * 86400000).toISOString();
+    return getDb().prepare('DELETE FROM server_network_quality_samples WHERE checked_at < ?').run(cutoff).changes;
+  }
+}
+
 /**
  * 自动迁移：检查并添加缺失的列
  */
@@ -1101,6 +1208,8 @@ function runMigrations() {
           FOREIGN KEY (snippet_id) REFERENCES server_snippets(id) ON DELETE SET NULL
       )
     `);
+
+    ServerNetworkQualityTarget.ensureDefaults();
   } catch (error) {
     console.error('[Models] 迁移失败:', error.message);
   }
@@ -1116,4 +1225,6 @@ module.exports = {
   ServerCredential,
   ServerSnippet,
   ServerMetricsHistory,
+  ServerNetworkQualityTarget,
+  ServerNetworkQualitySample,
 };
