@@ -1,6 +1,7 @@
 package applog
 
 import (
+	"bufio"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -8,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -223,6 +225,28 @@ func (r *statusRecorder) Write(p []byte) (int, error) {
 	n, err := r.ResponseWriter.Write(p)
 	r.size += n
 	return n, err
+}
+
+func (r *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	hijacker, ok := r.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, fmt.Errorf("response writer does not support hijacking")
+	}
+	if r.status == 0 {
+		r.status = http.StatusSwitchingProtocols
+	}
+	return hijacker.Hijack()
+}
+
+func (r *statusRecorder) Flush() {
+	flusher, ok := r.ResponseWriter.(http.Flusher)
+	if !ok {
+		return
+	}
+	if r.status == 0 {
+		r.status = http.StatusOK
+	}
+	flusher.Flush()
 }
 
 func Middleware(next http.Handler) http.Handler {

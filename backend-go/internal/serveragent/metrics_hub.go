@@ -169,7 +169,9 @@ func (h *MetricsHub) broadcastSocketIOEvent(clients []*MetricsHubClient, prefix 
 		session.mu.RUnlock()
 
 		if conn == nil {
-			stale = append(stale, client.sessionID)
+			session.mu.Lock()
+			session.PendingMessages = append(session.PendingMessages, message)
+			session.mu.Unlock()
 			continue
 		}
 
@@ -217,8 +219,9 @@ func (h *MetricsHub) cleanupLoop() {
 			}
 			session.mu.RLock()
 			conn := session.wsConn
+			transport := session.Transport
 			session.mu.RUnlock()
-			if conn == nil {
+			if conn == nil && transport != "polling" {
 				delete(h.clients, sid)
 				delete(h.rootClients, sid)
 			}
@@ -231,8 +234,9 @@ func (h *MetricsHub) cleanupLoop() {
 			}
 			session.mu.RLock()
 			conn := session.wsConn
+			transport := session.Transport
 			session.mu.RUnlock()
-			if conn == nil {
+			if conn == nil && transport != "polling" {
 				delete(h.rootClients, sid)
 			}
 		}

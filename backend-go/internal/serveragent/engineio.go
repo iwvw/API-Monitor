@@ -62,6 +62,8 @@ type EngineIOServer struct {
 	mu           sync.RWMutex
 	pingInterval time.Duration
 	pingTimeout  time.Duration
+	pollTimeout  time.Duration
+	pollInterval time.Duration
 	registry     *ConnectionRegistry
 	metricsHub   *MetricsHub
 	onConnect    func(sessionID string, serverID string)
@@ -75,6 +77,8 @@ func NewEngineIOServer(registry *ConnectionRegistry) *EngineIOServer {
 		sessions:     make(map[string]*EngineIOSession),
 		pingInterval: 25 * time.Second,
 		pingTimeout:  20 * time.Second,
+		pollTimeout:  20 * time.Second,
+		pollInterval: 50 * time.Millisecond,
 		registry:     registry,
 	}
 
@@ -400,17 +404,9 @@ func (s *EngineIOServer) handleHandshake(w http.ResponseWriter, r *http.Request)
 
 // handlePoll 处理 GET polling
 func (s *EngineIOServer) handlePoll(w http.ResponseWriter, r *http.Request, session *EngineIOSession) {
-	session.mu.Lock()
-	messages := session.PendingMessages
-	session.PendingMessages = []string{}
-	session.LastActivity = time.Now()
-	session.mu.Unlock()
+	messages := s.waitForPollMessages(r.Context(), session)
 
-	// 如果没有消息，发送 noop
-	if len(messages) == 0 {
-		messages = []string{"6"} // noop
-	}
-
+	// Wait for queued messages so polling clients do not spin on immediate noop responses.
 	// Engine.IO v4 polling separates multiple packets with ASCII RS.
 	payload := strings.Join(messages, "\x1e")
 
@@ -419,6 +415,46 @@ func (s *EngineIOServer) handlePoll(w http.ResponseWriter, r *http.Request, sess
 	w.Header().Set("Access-Control-Allow-Credentials", "true")
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte(payload))
+}
+
+func (s *EngineIOServer) waitForPollMessages(ctx context.Context, session *EngineIOSession) []string {
+	if messages := drainPendingMessages(session); len(messages) > 0 {
+		return messages
+	}
+
+	timeout := time.NewTimer(s.pollTimeout)
+	defer timeout.Stop()
+
+	ticker := time.NewTicker(s.pollInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return []string{"6"}
+		case <-timeout.C:
+			session.mu.Lock()
+			session.LastActivity = time.Now()
+			session.mu.Unlock()
+			return []string{"6"}
+		case <-ticker.C:
+			if messages := drainPendingMessages(session); len(messages) > 0 {
+				return messages
+			}
+		}
+	}
+}
+
+func drainPendingMessages(session *EngineIOSession) []string {
+	session.mu.Lock()
+	defer session.mu.Unlock()
+	session.LastActivity = time.Now()
+	if len(session.PendingMessages) == 0 {
+		return nil
+	}
+	messages := session.PendingMessages
+	session.PendingMessages = []string{}
+	return messages
 }
 
 // handlePost 处理 POST polling

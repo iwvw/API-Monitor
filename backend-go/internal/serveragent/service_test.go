@@ -197,6 +197,52 @@ func TestFrontendCompatibilityRoutes(t *testing.T) {
 	}
 }
 
+func TestAgentQuickInstallCreatesHostFromName(t *testing.T) {
+	service, db := testService(t)
+
+	res := perform(service, http.MethodPost, "/api/server/agent/quick-install", `{"name":"edge-agent"}`)
+	if res.Code != http.StatusOK {
+		t.Fatalf("quick install status=%d body=%s", res.Code, res.Body.String())
+	}
+
+	payload := decodePayload(t, res)
+	if payload["success"] != true {
+		t.Fatalf("quick install payload=%#v", payload)
+	}
+	data := payload["data"].(map[string]interface{})
+	serverID, ok := data["serverId"].(string)
+	if !ok || serverID == "" {
+		t.Fatalf("expected serverId in quick install data: %#v", data)
+	}
+	if data["isNew"] != true {
+		t.Fatalf("expected newly created host, data=%#v", data)
+	}
+	if !strings.Contains(data["installCommand"].(string), serverID) {
+		t.Fatalf("install command should include server id: %#v", data["installCommand"])
+	}
+
+	var name, host, username, monitorMode string
+	var port int
+	err := db.QueryRowContext(context.Background(), `SELECT name, host, port, username, monitor_mode FROM server_accounts WHERE id = ?`, serverID).
+		Scan(&name, &host, &port, &username, &monitorMode)
+	if err != nil {
+		t.Fatalf("lookup created host: %v", err)
+	}
+	if name != "edge-agent" || host != "0.0.0.0" || port != 22 || username != "agent" || monitorMode != "agent" {
+		t.Fatalf("created host = name:%q host:%q port:%d username:%q monitor_mode:%q", name, host, port, username, monitorMode)
+	}
+
+	res = perform(service, http.MethodPost, "/api/server/agent/quick-install", `{"name":"edge-agent"}`)
+	if res.Code != http.StatusOK {
+		t.Fatalf("quick install reuse status=%d body=%s", res.Code, res.Body.String())
+	}
+	payload = decodePayload(t, res)
+	data = payload["data"].(map[string]interface{})
+	if data["serverId"] != serverID || data["isNew"] != false {
+		t.Fatalf("expected existing host reuse, data=%#v", data)
+	}
+}
+
 func TestSFTPRequiresValidServerConfig(t *testing.T) {
 	service, _ := testService(t)
 	res := perform(service, http.MethodPost, "/api/server/sftp/list", `{"serverId":"missing","path":"."}`)
@@ -206,6 +252,44 @@ func TestSFTPRequiresValidServerConfig(t *testing.T) {
 	payload := decodePayload(t, res)
 	if payload["success"] != false || payload["code"] != "SERVER_NOT_FOUND" {
 		t.Fatalf("unexpected sftp error payload=%#v", payload)
+	}
+}
+
+func TestBuildCachedInfoKeepsFreshStateOverStaleMetadata(t *testing.T) {
+	service := &Service{}
+	state := map[string]interface{}{
+		"timestamp_ms":       float64(2000),
+		"sequence":           float64(2),
+		"sample_interval_ms": float64(1500),
+		"cpu":                float64(42),
+		"mem_used":           float64(512 * 1024 * 1024),
+		"mem_total":          float64(1024 * 1024 * 1024),
+		"disk_used":          float64(10 * 1024 * 1024 * 1024),
+		"disk_total":         float64(20 * 1024 * 1024 * 1024),
+	}
+	hostInfo := map[string]interface{}{
+		"timestamp_ms":       float64(1000),
+		"sequence":           float64(1),
+		"sample_interval_ms": float64(9999),
+		"cpu":                float64(5),
+		"platform":           "Windows",
+	}
+
+	cached := service.buildCachedInfo(state, hostInfo)
+	if cached["timestamp_ms"] != state["timestamp_ms"] {
+		t.Fatalf("timestamp_ms = %#v, want fresh state %#v", cached["timestamp_ms"], state["timestamp_ms"])
+	}
+	if cached["sequence"] != state["sequence"] {
+		t.Fatalf("sequence = %#v, want fresh state %#v", cached["sequence"], state["sequence"])
+	}
+	if cached["sample_interval_ms"] != state["sample_interval_ms"] {
+		t.Fatalf("sample_interval_ms = %#v, want fresh state %#v", cached["sample_interval_ms"], state["sample_interval_ms"])
+	}
+	if cached["cpu"] != state["cpu"] {
+		t.Fatalf("cpu = %#v, want fresh state %#v", cached["cpu"], state["cpu"])
+	}
+	if cached["platform"] != "Windows" {
+		t.Fatalf("platform = %#v", cached["platform"])
 	}
 }
 

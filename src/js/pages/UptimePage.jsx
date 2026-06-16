@@ -578,7 +578,7 @@ function UptimePage() {
 
     // 建立 Socket 推送连接
     const socket = io('/', {
-      transports: ['websocket', 'polling']
+      transports: ['polling']
     });
 
     socket.on('connect', () => {

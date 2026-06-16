@@ -2678,14 +2678,15 @@ func formatUptime(seconds int64) string {
 func (s *Service) buildCachedInfo(state map[string]interface{}, hostInfo map[string]interface{}) map[string]interface{} {
 	cached := make(map[string]interface{})
 
-	// Copy everything from state and hostInfo to start with
-	for k, v := range state {
-		cached[k] = v
-	}
+	// Start with host metadata, then let the fresh report win for dynamic fields
+	// such as timestamp_ms, sequence, CPU, memory, disk, and network counters.
 	for k, v := range hostInfo {
 		if v != nil && v != "" {
 			cached[k] = v
 		}
+	}
+	for k, v := range state {
+		cached[k] = v
 	}
 
 	// Calculate and format cpu

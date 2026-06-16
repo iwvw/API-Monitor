@@ -23,6 +23,7 @@ func (s *Service) handleAgentQuickInstall(w http.ResponseWriter, r *http.Request
 	var req struct {
 		ServerID string `json:"serverId"`
 		ID       string `json:"id"`
+		Name     string `json:"name"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		response.Error(w, http.StatusBadRequest, "invalid request body")
@@ -33,7 +34,39 @@ func (s *Service) handleAgentQuickInstall(w http.ResponseWriter, r *http.Request
 		serverID = req.ID
 	}
 	if serverID == "" {
-		response.Error(w, http.StatusBadRequest, "serverId required")
+		createdID, created, err := s.ensureQuickInstallAgentHost(r.Context(), db, req.Name)
+		if err != nil {
+			response.Error(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		serverID = createdID
+
+		rec := httptest.NewRecorder()
+		s.getAgentInstallCommand(rec, r, db, serverID)
+		if rec.Code < 200 || rec.Code >= 300 {
+			for k, values := range rec.Header() {
+				for _, value := range values {
+					w.Header().Add(k, value)
+				}
+			}
+			w.WriteHeader(rec.Code)
+			_, _ = w.Write(rec.Body.Bytes())
+			return
+		}
+
+		var payload map[string]interface{}
+		if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+			response.Error(w, http.StatusInternalServerError, "invalid install command response")
+			return
+		}
+		data, _ := payload["data"].(map[string]interface{})
+		if data == nil {
+			data = map[string]interface{}{}
+		}
+		data["serverId"] = serverID
+		data["isNew"] = created
+		payload["data"] = data
+		response.JSON(w, http.StatusOK, payload)
 		return
 	}
 
@@ -59,6 +92,48 @@ func (s *Service) handleAgentQuickInstall(w http.ResponseWriter, r *http.Request
 			"command":  "curl -fsSL " + s.agentInstallURL(r, serverID) + " | bash",
 		},
 	})
+}
+
+func (s *Service) ensureQuickInstallAgentHost(ctx context.Context, db *sql.DB, name string) (string, bool, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", false, fmt.Errorf("server name is required")
+	}
+
+	var existingID string
+	err := db.QueryRowContext(ctx, `
+		SELECT id FROM server_accounts
+		WHERE name = ? AND monitor_mode = 'agent'
+		ORDER BY created_at DESC
+		LIMIT 1`, name).Scan(&existingID)
+	if err == nil {
+		return existingID, false, nil
+	}
+	if err != sql.ErrNoRows {
+		return "", false, err
+	}
+
+	var maxOrder sql.NullInt64
+	_ = db.QueryRowContext(ctx, "SELECT MAX(order_index) FROM server_accounts").Scan(&maxOrder)
+	orderIndex := 1
+	if maxOrder.Valid {
+		orderIndex = int(maxOrder.Int64) + 1
+	}
+
+	id := uuid.NewString()
+	now := time.Now().Format(time.RFC3339)
+	_, err = db.ExecContext(ctx, `
+		INSERT INTO server_accounts (
+			id, name, host, port, username, auth_type, status, monitor_mode,
+			tags, description, order_index, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, name, "0.0.0.0", 22, "agent", "password", "unknown", "agent",
+		SerializeList([]string{"agent"}), "Created from Agent quick install", orderIndex, now, now,
+	)
+	if err != nil {
+		return "", false, err
+	}
+	return id, true, nil
 }
 
 func (s *Service) agentInstallURL(r *http.Request, serverID string) string {

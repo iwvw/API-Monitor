@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -89,6 +90,85 @@ func TestEngineIOParsePollingPayloadDoesNotSplitJSONNumbers(t *testing.T) {
 	packets = engine.parsePackets(multi)
 	if len(packets) != 2 || packets[0] != "2" || packets[1] != payload {
 		t.Fatalf("multi packets = %#v", packets)
+	}
+}
+
+func TestEngineIOPollingWaitsForQueuedMessages(t *testing.T) {
+	engine := NewEngineIOServer(NewConnectionRegistry())
+	engine.pollTimeout = 500 * time.Millisecond
+	engine.pollInterval = 5 * time.Millisecond
+	server := httptest.NewServer(engine)
+	defer server.Close()
+
+	res, err := http.Get(server.URL + "/socket.io/?EIO=4&transport=polling")
+	if err != nil {
+		t.Fatalf("polling handshake: %v", err)
+	}
+	raw, err := io.ReadAll(res.Body)
+	res.Body.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var open struct {
+		SID string `json:"sid"`
+	}
+	if err := json.Unmarshal(raw[1:], &open); err != nil {
+		t.Fatalf("decode open packet: %v", err)
+	}
+
+	resultCh := make(chan string, 1)
+	started := time.Now()
+	go func() {
+		pollRes, err := http.Get(server.URL + "/socket.io/?EIO=4&transport=polling&sid=" + open.SID)
+		if err != nil {
+			resultCh <- "error:" + err.Error()
+			return
+		}
+		defer pollRes.Body.Close()
+		body, _ := io.ReadAll(pollRes.Body)
+		resultCh <- string(body)
+	}()
+
+	time.Sleep(40 * time.Millisecond)
+	session := engine.getSession(open.SID)
+	if session == nil {
+		t.Fatal("session not found")
+	}
+	engine.queueMessage(session, `42/metrics,["metrics:update",{"serverId":"srv-1"}]`)
+
+	select {
+	case body := <-resultCh:
+		if elapsed := time.Since(started); elapsed < 30*time.Millisecond {
+			t.Fatalf("poll returned before waiting for messages: %s", elapsed)
+		}
+		if !strings.Contains(body, "metrics:update") {
+			t.Fatalf("poll body = %q", body)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("poll did not return queued message")
+	}
+}
+
+func TestMetricsHubQueuesPollingClientMessages(t *testing.T) {
+	hub := NewMetricsHub()
+	session := &EngineIOSession{
+		ID:              "polling-client",
+		Transport:       "polling",
+		Namespace:       "/metrics",
+		PendingMessages: []string{},
+		LastActivity:    time.Now(),
+	}
+	hub.Register(session.ID, session)
+
+	hub.BroadcastMetrics("srv-1", map[string]interface{}{"cpu": 12.5})
+
+	session.mu.RLock()
+	defer session.mu.RUnlock()
+	if len(session.PendingMessages) != 1 {
+		t.Fatalf("pending messages = %#v", session.PendingMessages)
+	}
+	if !strings.Contains(session.PendingMessages[0], "metrics:update") {
+		t.Fatalf("pending message = %q", session.PendingMessages[0])
 	}
 }
 

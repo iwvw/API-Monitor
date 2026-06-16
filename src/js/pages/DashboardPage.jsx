@@ -66,6 +66,8 @@ let dashboardStatsFetchPromise = null;
 let dashboardApiStatsFetchPromise = null;
 let dashboardHostMetricsCache = null;
 
+const isAbortError = (error) => error?.name === 'AbortError';
+
 echarts.use([
   BarChart,
   AxisPointerComponent,
@@ -484,7 +486,9 @@ function DashboardPage({ onNavigate } = {}) {
           };
         }
       } catch (e) {
-        console.error('[Dashboard] Servers fetch failed:', e);
+        if (!isAbortError(e)) {
+          console.error('[Dashboard] Servers fetch failed:', e);
+        }
       }
       return previousStats.servers;
     };
@@ -499,7 +503,11 @@ function DashboardPage({ onNavigate } = {}) {
         if (!cacheFresh) {
           startApiStatsFetch()
             .then(mergeApiStatsIntoDashboard)
-            .catch((e) => console.error('[Dashboard] API stats background refresh failed:', e));
+            .catch((e) => {
+              if (!isAbortError(e)) {
+                console.error('[Dashboard] API stats background refresh failed:', e);
+              }
+            });
         }
 
         return cachedApiStats.stats;
@@ -508,7 +516,9 @@ function DashboardPage({ onNavigate } = {}) {
       try {
         return await startApiStatsFetch(force);
       } catch (e) {
-        console.error('[Dashboard] API stats fetch failed:', e);
+        if (!isAbortError(e)) {
+          console.error('[Dashboard] API stats fetch failed:', e);
+        }
       }
       return previousStats.geminiCli;
     };
@@ -534,7 +544,9 @@ function DashboardPage({ onNavigate } = {}) {
 
           return koyeb;
         } catch (e) {
-          console.error('[Dashboard] Koyeb fetch failed:', e);
+          if (!isAbortError(e)) {
+            console.error('[Dashboard] Koyeb fetch failed:', e);
+          }
           return previousStats.paas.koyeb;
         }
       };
@@ -556,7 +568,9 @@ function DashboardPage({ onNavigate } = {}) {
 
           return fly;
         } catch (e) {
-          console.error('[Dashboard] Fly.io fetch failed:', e);
+          if (!isAbortError(e)) {
+            console.error('[Dashboard] Fly.io fetch failed:', e);
+          }
           return previousStats.paas.fly;
         }
       };
@@ -574,7 +588,9 @@ function DashboardPage({ onNavigate } = {}) {
           return { zones: data.data.length };
         }
       } catch (e) {
-        console.error('[Dashboard] DNS fetch failed:', e);
+        if (!isAbortError(e)) {
+          console.error('[Dashboard] DNS fetch failed:', e);
+        }
       }
       return previousStats.dns;
     };
@@ -604,7 +620,9 @@ function DashboardPage({ onNavigate } = {}) {
 
         return { total: monitors.length, up, down };
       } catch (e) {
-        console.error('[Dashboard] Uptime fetch failed:', e);
+        if (!isAbortError(e)) {
+          console.error('[Dashboard] Uptime fetch failed:', e);
+        }
       }
       return previousStats.uptime;
     };
@@ -617,7 +635,9 @@ function DashboardPage({ onNavigate } = {}) {
           return { total: data.data.length };
         }
       } catch (e) {
-        console.error('[Dashboard] Filebox fetch failed:', e);
+        if (!isAbortError(e)) {
+          console.error('[Dashboard] Filebox fetch failed:', e);
+        }
       }
       return previousStats.filebox;
     };
@@ -630,7 +650,9 @@ function DashboardPage({ onNavigate } = {}) {
           return { total: data.data.length };
         }
       } catch (e) {
-        console.error('[Dashboard] TOTP fetch failed:', e);
+        if (!isAbortError(e)) {
+          console.error('[Dashboard] TOTP fetch failed:', e);
+        }
       }
       return previousStats.totp;
     };

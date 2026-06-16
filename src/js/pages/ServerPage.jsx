@@ -92,8 +92,9 @@ echarts.use([
 const SERVER_LIST_VIEW_STORAGE_KEY = 'server_list_view_mode';
 const SERVER_COMPACT_COLUMNS_STORAGE_KEY = 'server_compact_visible_columns';
 const SERVER_STATUS_SYNC_INTERVAL_MS = 15000;
+const SERVER_REALTIME_SAMPLE_INTERVAL_MS = 1500;
 const SERVER_METRIC_FLUSH_DELAY_MS = 350;
-const SERVER_METRIC_MIN_RENDER_INTERVAL_MS = 2500;
+const SERVER_METRIC_MIN_RENDER_INTERVAL_MS = SERVER_REALTIME_SAMPLE_INTERVAL_MS;
 const SERVER_CARD_METRICS_TTL_MS = 60 * 1000;
 const SERVER_NETWORK_QUALITY_TTL_MS = 2 * 60 * 1000;
 const HOST_COMPACT_COLUMNS = [
@@ -722,7 +723,6 @@ const toTimestamp = (value, fallback) => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
-const SERVER_REALTIME_SAMPLE_INTERVAL_MS = 1500;
 const SERVER_CHART_HISTORY_WINDOW_MS = 5 * 60 * 1000;
 const SERVER_CHART_HISTORY_LIMIT = Math.ceil(SERVER_CHART_HISTORY_WINDOW_MS / SERVER_REALTIME_SAMPLE_INTERVAL_MS) + 1;
 const SERVER_CHART_COALESCE_WINDOW_MS = 500;
@@ -740,11 +740,6 @@ const isPageVisible = () => (
 const getMetricsSocketUrl = () => {
   const explicitUrl = import.meta.env?.VITE_METRICS_SOCKET_URL;
   if (explicitUrl) return explicitUrl;
-
-  if (import.meta.env?.DEV && typeof window !== 'undefined') {
-    const backendPort = import.meta.env?.VITE_BACKEND_PORT || '3000';
-    return `${window.location.protocol}//${window.location.hostname}:${backendPort}/metrics`;
-  }
 
   return '/metrics';
 };
@@ -1903,16 +1898,21 @@ function ServerPage() {
   useEffect(() => {
     loadServerList();
     loadCredentials();
-    connectMetricsStream();
+    const connectTimer = setTimeout(() => {
+      connectMetricsStream();
+    }, 0);
     const serverListSyncTimer = setInterval(() => {
       loadServerList({ silent: true });
     }, SERVER_STATUS_SYNC_INTERVAL_MS);
     
     return () => {
       // 清理 WebSocket 与 SSE
+      clearTimeout(connectTimer);
       clearInterval(serverListSyncTimer);
       if (socketRef.current) {
+        socketRef.current.removeAllListeners();
         socketRef.current.disconnect();
+        socketRef.current = null;
       }
       if (dockerTaskStreamRef.current) {
         dockerTaskStreamRef.current.close();

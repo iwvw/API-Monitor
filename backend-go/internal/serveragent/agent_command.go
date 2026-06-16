@@ -46,9 +46,11 @@ func (s *Service) getAgentInstallCommand(w http.ResponseWriter, r *http.Request,
 
 	baseURL := fmt.Sprintf("%s://%s", proto, serverURL)
 	installScriptURL := fmt.Sprintf("%s/api/server/agent/install-script/%s", baseURL, accountID)
+	winInstallURL := fmt.Sprintf("%s/api/server/agent/install/win/%s/%s", baseURL, accountID, agentKey)
 
 	// 生成安装命令
 	installCommand := fmt.Sprintf(`curl -fsSL %s | bash`, installScriptURL)
+	winInstallCommand := fmt.Sprintf(`powershell -c "irm %s | iex"`, winInstallURL)
 
 	// 生成手动安装命令
 	manualCommand := fmt.Sprintf(`# 下载并运行 Agent
@@ -60,17 +62,19 @@ sudo ./install-agent.sh`, installScriptURL)
 	response.JSON(w, http.StatusOK, map[string]interface{}{
 		"success": true,
 		"data": map[string]interface{}{
-			"serverName":       name,
-			"serverHost":       host,
-			"serverPort":       port,
-			"serverId":         accountID,
-			"agentKey":         agentKey,
-			"baseUrl":          baseURL,
-			"installScriptUrl": installScriptURL,
-			"installCommand":   installCommand,
-			"manualCommand":    manualCommand,
-			"curlCommand":      installCommand,
-			"timestamp":        time.Now().Format("2006-01-02 15:04:05"),
+			"serverName":        name,
+			"serverHost":        host,
+			"serverPort":        port,
+			"serverId":          accountID,
+			"agentKey":          agentKey,
+			"baseUrl":           baseURL,
+			"apiUrl":            baseURL,
+			"installScriptUrl":  installScriptURL,
+			"installCommand":    installCommand,
+			"winInstallCommand": winInstallCommand,
+			"manualCommand":     manualCommand,
+			"curlCommand":       installCommand,
+			"timestamp":         time.Now().Format("2006-01-02 15:04:05"),
 		},
 	})
 }

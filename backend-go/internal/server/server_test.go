@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -83,6 +85,34 @@ func TestHealth(t *testing.T) {
 	}
 	if payload["status"] != "ok" {
 		t.Fatalf("status payload = %v", payload["status"])
+	}
+}
+
+func TestStaticSpaRouteServesDistIndex(t *testing.T) {
+	distDir := t.TempDir()
+	indexHTML := "<!doctype html><div id=\"root\"></div>"
+	if err := os.WriteFile(filepath.Join(distDir, "index.html"), []byte(indexHTML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	handler := newTestServer(t, config.Config{
+		Version: "test",
+		Host:    "127.0.0.1",
+		Port:    0,
+		DistDir: distDir,
+		DataDir: t.TempDir(),
+		DBName:  "data.db",
+	})
+	req := httptest.NewRequest(http.MethodGet, "/server", nil)
+	res := httptest.NewRecorder()
+
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", res.Code, http.StatusOK, res.Body.String())
+	}
+	if !strings.Contains(res.Body.String(), indexHTML) {
+		t.Fatalf("expected dist index body, got %q", res.Body.String())
 	}
 }
 
