@@ -52,6 +52,10 @@ func repoRoot() string {
 		if exists(filepath.Join(wd, "package.json")) && exists(filepath.Join(wd, "backend-go")) {
 			return wd
 		}
+		// 运行时镜像只保留 /app/api-monitor 和 /app/dist，没有源码树标记。
+		if exists(filepath.Join(wd, "dist", "index.html")) {
+			return wd
+		}
 		parent := filepath.Dir(wd)
 		if parent == wd {
 			return wd
