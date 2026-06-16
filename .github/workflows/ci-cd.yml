@@ -109,7 +109,7 @@ jobs:
         run: |
           go build -v -o api-monitor ./cmd/api-monitor
           ls -lh api-monitor
-          ./api-monitor --version || echo "No version flag"
+          test -x api-monitor
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@b9fd7d16f6d7d1b5d2bec1a2887e65ceed900238 # v4.0.2
