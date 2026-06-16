@@ -65,6 +65,8 @@ Desktop.ini
 *.tmp
 .cache/
 config/
+!backend-go/internal/config/
+!backend-go/internal/config/*.go
 tmp/
 test/tmp/
 

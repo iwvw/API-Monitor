@@ -104,6 +104,7 @@ pub struct DockerImageUpdateStatus {
 
 /// Socket.IO Engine.IO & Socket.IO parser
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub enum SocketIOMessage {
     Ping,
     Pong,
