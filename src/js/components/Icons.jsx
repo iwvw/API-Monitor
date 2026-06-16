@@ -110,14 +110,6 @@ export const ShieldCheck = (props) => (
   </IconWrapper>
 );
 
-export const Music = (props) => (
-  <IconWrapper {...props}>
-    <path d="M9 18V5l12-2v13" />
-    <circle cx="6" cy="18" r="3" />
-    <circle cx="18" cy="16" r="3" />
-  </IconWrapper>
-);
-
 export const Activity = (props) => (
   <IconWrapper {...props}>
     <path d="M22 12h-4l-3 9L9 3l-3 9H2" />
@@ -673,16 +665,6 @@ export const User = (props) => (
   </IconWrapper>
 );
 
-export const ListMusic = (props) => (
-  <IconWrapper {...props}>
-    <path d="M21 15V6" />
-    <path d="M18.5 18a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5Z" />
-    <path d="M12 12H3" />
-    <path d="M16 6H3" />
-    <path d="M12 18H3" />
-  </IconWrapper>
-);
-
 export const Maximize2 = (props) => (
   <IconWrapper {...props}>
     <polyline points="15 3 21 3 21 9" />
@@ -706,7 +688,6 @@ export const ArrowLeft = (props) => (
     <polyline points="12 19 5 12 12 5" />
   </IconWrapper>
 );
-
 
 
 

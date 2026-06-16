@@ -77,6 +77,8 @@ out/
 coverage/
 stats.html
 public/
+backend-go/api-monitor
+backend-go/api-monitor.exe
 # ====================
 # 备份 & 杂项
 # ====================
@@ -91,10 +93,13 @@ test-*-*.js
 # ====================
 .agent/
 .codex-*.png
-
+.claude/
 .gemini/
 gha-creds-*.json
 stress-test-gcli.js
 api-monitor.code-workspace
-docs/*
-!docs/backend-go-rust-migration-prd.md
+
+# ====================
+# 文档归档（仅保留核心文档）
+# ====================
+docs/archive/

@@ -202,7 +202,7 @@ impl Collector {
         let swap_total = self.sys.total_swap();
 
         // Disks total
-        self.disks.refresh_list();
+        self.disks.refresh();
         let mut disk_total = 0;
         let mut seen_devices = Vec::new();
         for disk in &self.disks {
@@ -286,7 +286,7 @@ impl Collector {
         let swap_used = self.sys.used_swap();
 
         // Disk usage
-        self.disks.refresh_list();
+        self.disks.refresh();
         let mut disk_used = 0;
         let mut seen_devices = Vec::new();
         for disk in &self.disks {

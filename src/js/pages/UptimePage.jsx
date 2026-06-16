@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { io } from 'socket.io-client';
+import io from 'socket.io-client';
 import * as echarts from 'echarts/core';
 import { LineChart } from 'echarts/charts';
 import {

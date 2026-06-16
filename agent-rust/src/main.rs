@@ -99,44 +99,13 @@ async fn run_client(
     pty_sessions: Arc<Mutex<HashMap<String, Arc<PtySession>>>>,
     task_progress: Arc<Mutex<HashMap<String, TaskProgress>>>,
 ) -> Result<(), String> {
-    // 1. Polling handshake to get sid
-    let handshake_url = format!("{}/socket.io/?EIO=4&transport=polling", config.server_url);
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(5))
-        .build()
-        .map_err(|e| format!("HTTP客户端初始化失败: {}", e))?;
-
-    let resp = client
-        .get(&handshake_url)
-        .send()
-        .await
-        .map_err(|e| format!("Handshake 请求失败: {}", e))?
-        .text()
-        .await
-        .map_err(|e| format!("读取 Handshake 响应失败: {}", e))?;
-
-    if resp.len() < 2 || !resp.starts_with('0') {
-        return Err(format!("无效的 Handshake 响应: {}", resp));
-    }
-
-    let handshake_json = &resp[1..];
-    let handshake_val: serde_json::Value = serde_json::from_str(handshake_json)
-        .map_err(|e| format!("解析 Handshake 响应失败: {}", e))?;
-
-    let sid = handshake_val["sid"]
-        .as_str()
-        .ok_or_else(|| "Handshake 响应中缺少 sid".to_string())?;
-
-    // 2. Build WebSocket URL and connect
+    // 直接 WebSocket 连接（无需 polling handshake）
     let mut ws_url = if config.server_url.starts_with("https://") {
         config.server_url.replace("https://", "wss://")
     } else {
         config.server_url.replace("http://", "ws://")
     };
-    ws_url = format!(
-        "{}/socket.io/?EIO=4&transport=websocket&sid={}",
-        ws_url, sid
-    );
+    ws_url = format!("{}/socket.io/?EIO=4&transport=websocket", ws_url);
 
     if config.debug {
         println!("[Agent] 正在建立 WebSocket 连接: {}", ws_url);
@@ -162,12 +131,7 @@ async fn run_client(
         }
     });
 
-    // Send probe upgrade confirmation
-    tx.send("2probe".to_string())
-        .await
-        .map_err(|_| "发送升级探针失败")?;
-
-    // Wait for 3probe and namespace connect
+    // 等待服务器握手和认证
     let authenticated = Arc::new(tokio::sync::Mutex::new(false));
 
     // Handle WebSocket receiver loop
@@ -189,9 +153,6 @@ async fn run_client(
             match msg {
                 SocketIOMessage::Ping => {
                     let _ = tx_clone.send("3".to_string()).await;
-                }
-                SocketIOMessage::NamespaceConnect => {
-                    // Namespace confirmed / connected
                 }
                 SocketIOMessage::Event(event, data) => {
                     if event == EVENT_DASHBOARD_AUTH_OK {
@@ -739,14 +700,22 @@ async fn run_client(
                     }
                 }
                 SocketIOMessage::Raw(r) => {
-                    // Check for probe confirmation sequence
-                    if r == "3probe" {
-                        // Upgrade complete, send 5
-                        let _ = tx_clone.send("5".to_string()).await;
-                        // Connect namespace /agent
-                        let _ = tx_clone.send("40/agent,".to_string()).await;
-                    } else if r == "40/agent" || r.starts_with("40/agent,") {
-                        // Namespace confirmed. Perform authentication
+                    // 处理服务器握手包
+                    if r.starts_with('0') {
+                        if config_clone.debug {
+                            println!("[Agent] 收到握手包: {}", r);
+                        }
+                        // 发送 Socket.IO CONNECT
+                        let _ = tx_clone.send("40".to_string()).await;
+                        if config_clone.debug {
+                            println!("[Agent] 发送 CONNECT: 40");
+                        }
+                    } else if r == "40{}" || r.starts_with("40{") {
+                        // CONNECT ACK 收到，发送认证
+                        if config_clone.debug {
+                            println!("[Agent] 收到 CONNECT ACK: {}", r);
+                        }
+
                         let hostname = hostname::get()
                             .map(|h| h.to_string_lossy().to_string())
                             .unwrap_or_else(|_| "unknown".to_string());
@@ -760,6 +729,10 @@ async fn run_client(
 
                         let msg = format_event(EVENT_AGENT_CONNECT, &auth);
                         let _ = tx_clone.send(msg).await;
+
+                        if config_clone.debug {
+                            println!("[Agent] 已发送认证信息");
+                        }
                     }
                 }
                 _ => {}

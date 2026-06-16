@@ -10,13 +10,9 @@ services:
       - ./data:/app/data
     environment:
       - TZ=Asia/Shanghai
-      - ADMIN_PASSWORD=ssln5014.
-      - JWT_SECRET=change_me_to_a_long_random_string
-      - TRUST_PROXY=true
-      - NODE_ENV=production
-      - LOW_MEMORY_MODE=1
-      - LAZY_MODULE_ROUTES=1
-      - GEOIP_LOOKUP=0
-      - JSON_BODY_LIMIT=5mb
-      - UPLOAD_MAX_FILE_SIZE_MB=50
-      - NODE_OPTIONS=--max-old-space-size=128
+      - PORT=3000
+      - DATA_DIR=/app/data
+      - DB_NAME=data.db
+      - LOG_LEVEL=INFO
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:?set ADMIN_PASSWORD in your environment}
+      - JWT_SECRET=${JWT_SECRET:?set JWT_SECRET in your environment}

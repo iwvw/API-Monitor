@@ -40,7 +40,7 @@ import { CanvasRenderer } from 'echarts/renderers';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
-import { io } from 'socket.io-client';
+import io from 'socket.io-client';
 import {
   Server,
   Terminal as TerminalIcon,
@@ -92,6 +92,10 @@ echarts.use([
 const SERVER_LIST_VIEW_STORAGE_KEY = 'server_list_view_mode';
 const SERVER_COMPACT_COLUMNS_STORAGE_KEY = 'server_compact_visible_columns';
 const SERVER_STATUS_SYNC_INTERVAL_MS = 15000;
+const SERVER_METRIC_FLUSH_DELAY_MS = 350;
+const SERVER_METRIC_MIN_RENDER_INTERVAL_MS = 2500;
+const SERVER_CARD_METRICS_TTL_MS = 60 * 1000;
+const SERVER_NETWORK_QUALITY_TTL_MS = 2 * 60 * 1000;
 const HOST_COMPACT_COLUMNS = [
   { id: 'status', label: '状态' },
   { id: 'name', label: '名称', required: true },
@@ -707,12 +711,20 @@ const toTimestamp = (value, fallback) => {
   if (typeof value === 'number') {
     return value > 100000000000 ? value : value * 1000;
   }
+  if (typeof value === 'string') {
+    const sqliteUTCMatch = value.match(/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}:\d{2})(?:\.\d+)?$/);
+    if (sqliteUTCMatch) {
+      const parsedUTC = Date.parse(`${sqliteUTCMatch[1]}T${sqliteUTCMatch[2]}Z`);
+      return Number.isFinite(parsedUTC) ? parsedUTC : fallback;
+    }
+  }
   const parsed = value ? new Date(value).getTime() : NaN;
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
 const SERVER_REALTIME_SAMPLE_INTERVAL_MS = 1500;
-const SERVER_CHART_HISTORY_LIMIT = 180;
+const SERVER_CHART_HISTORY_WINDOW_MS = 5 * 60 * 1000;
+const SERVER_CHART_HISTORY_LIMIT = Math.ceil(SERVER_CHART_HISTORY_WINDOW_MS / SERVER_REALTIME_SAMPLE_INTERVAL_MS) + 1;
 const SERVER_CHART_COALESCE_WINDOW_MS = 500;
 const SERVER_NETWORK_QUALITY_MAX_POINTS = 240;
 const SERVER_CHART_JITTER_TOLERANCE_MS = 650;
@@ -720,6 +732,49 @@ const SERVER_CHART_STALE_GAP_MS = SERVER_REALTIME_SAMPLE_INTERVAL_MS * 3;
 const EMPTY_METRIC_RECORDS = Object.freeze([]);
 const serverMetricsHistoryCache = new Map();
 const serverMetricDisplayCache = new Map();
+
+const isPageVisible = () => (
+  typeof document === 'undefined' || document.visibilityState === 'visible'
+);
+
+const getMetricsSocketUrl = () => {
+  const explicitUrl = import.meta.env?.VITE_METRICS_SOCKET_URL;
+  if (explicitUrl) return explicitUrl;
+
+  if (import.meta.env?.DEV && typeof window !== 'undefined') {
+    const backendPort = import.meta.env?.VITE_BACKEND_PORT || '3000';
+    return `${window.location.protocol}//${window.location.hostname}:${backendPort}/metrics`;
+  }
+
+  return '/metrics';
+};
+
+const areServerValuesEqual = (a, b) => {
+  if (Object.is(a, b)) return true;
+  if (a === null || b === null || a === undefined || b === undefined) return false;
+  if (typeof a !== 'object' || typeof b !== 'object') return false;
+
+  if (Array.isArray(a) || Array.isArray(b)) {
+    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
+    return a.every((item, index) => areServerValuesEqual(item, b[index]));
+  }
+
+  const aKeys = Object.keys(a);
+  const bKeys = Object.keys(b);
+  if (aKeys.length !== bKeys.length) return false;
+  return aKeys.every(key => Object.prototype.hasOwnProperty.call(b, key) && areServerValuesEqual(a[key], b[key]));
+};
+
+const areServerSnapshotsEqual = (a, b) => {
+  if (a === b) return true;
+  if (!a || !b) return false;
+
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+  for (const key of keys) {
+    if (!areServerValuesEqual(a[key], b[key])) return false;
+  }
+  return true;
+};
 
 const normalizeMetricRecords = (records = []) => {
   const now = Date.now();
@@ -827,6 +882,20 @@ const formatCompactChartTime = (timestamp) => {
   const d = new Date(timestamp);
   if (Number.isNaN(d.getTime())) return '';
   return `${String(d.getMinutes()).padStart(2, '0')}:${String(d.getSeconds()).padStart(2, '0')}`;
+};
+
+const formatSqliteUTCDateTime = (date) => {
+  const d = date instanceof Date ? date : new Date(date);
+  if (Number.isNaN(d.getTime())) return '';
+  return [
+    d.getUTCFullYear(),
+    String(d.getUTCMonth() + 1).padStart(2, '0'),
+    String(d.getUTCDate()).padStart(2, '0'),
+  ].join('-') + ' ' + [
+    String(d.getUTCHours()).padStart(2, '0'),
+    String(d.getUTCMinutes()).padStart(2, '0'),
+    String(d.getUTCSeconds()).padStart(2, '0'),
+  ].join(':');
 };
 
 const formatPercentAxis = (value) => {
@@ -1119,7 +1188,11 @@ const mergeServerMetricHistory = (serverId, ...recordGroups) => {
     coalesced.push(record);
   });
 
-  const trimmed = coalesced.slice(-SERVER_CHART_HISTORY_LIMIT);
+  const newestTs = coalesced[coalesced.length - 1]?._ts || Date.now();
+  const windowStart = newestTs - SERVER_CHART_HISTORY_WINDOW_MS;
+  const trimmed = coalesced
+    .filter(record => record._ts >= windowStart)
+    .slice(-SERVER_CHART_HISTORY_LIMIT);
   serverMetricsHistoryCache.set(id, trimmed);
   return trimmed;
 };
@@ -1735,9 +1808,13 @@ function ServerPage() {
   const socketRef = useRef(null);
   const pendingMetricUpdatesRef = useRef([]);
   const metricFlushTimerRef = useRef(null);
+  const cardMetricsRequestRef = useRef(new Map());
+  const cardMetricsLoadedAtRef = useRef(new Map());
+  const networkQualityLoadedAtRef = useRef(new Map());
   const serverListSyncInFlightRef = useRef(false);
   const networkQualityRequestRef = useRef(new Set());
   const serverStatusByIdRef = useRef(new Map());
+  const expandedServersRef = useRef([]);
   const visibleSessionIdsRef = useRef([]);
   const sshSyncEnabledRef = useRef(false);
   const sftpPathByServerRef = useRef({});
@@ -1766,6 +1843,7 @@ function ServerPage() {
   }, [compactVisibleColumns]);
 
   useEffect(() => {
+    expandedServersRef.current = expandedServers;
     setRenderedCompactExpandedServers(prev => Array.from(new Set([...prev, ...expandedServers])));
 
     const timeout = setTimeout(() => {
@@ -1843,6 +1921,7 @@ function ServerPage() {
         clearTimeout(metricFlushTimerRef.current);
         metricFlushTimerRef.current = null;
       }
+      pendingMetricUpdatesRef.current = [];
       Object.values(terminalResizeTimers.current).forEach(timer => clearTimeout(timer));
       terminalResizeTimers.current = {};
       // 销毁所有终端实例
@@ -1906,12 +1985,14 @@ function ServerPage() {
       const response = await fetch('/api/server/accounts', { cache: 'no-store' });
       const data = await response.json();
       if (data.success) {
+        const accounts = Array.isArray(data.data) ? data.data : [];
         setServerList(prev => {
           const prevMap = new Map(prev.map(s => [s.id, s]));
-          const updated = data.data.map(server => {
+          let changed = prev.length !== accounts.length;
+          const updated = accounts.map(server => {
             const existing = prevMap.get(server.id);
             const cachedMetrics = existing?.metricsCache || getCachedServerMetricHistory(server.id);
-            return {
+            const next = {
               ...server,
               info: server.info || existing?.info || null,
               metricsCache: cachedMetrics || null,
@@ -1923,7 +2004,13 @@ function ServerPage() {
               error: existing?.error || null,
               loading: existing?.loading || false
             };
+            if (existing && areServerSnapshotsEqual(existing, next)) {
+              return existing;
+            }
+            changed = true;
+            return next;
           });
+          if (!changed) return prev;
           syncStoreServerList(updated);
           return updated;
         });
@@ -1964,6 +2051,7 @@ function ServerPage() {
     if (statusMap.size === 0) return;
 
     setServerList(prev => {
+      let changed = false;
       const updated = prev.map(server => {
         const item = statusMap.get(String(server.id));
         if (!item) return server;
@@ -1979,7 +2067,7 @@ function ServerPage() {
           ? item.responseTime
           : item.response_time;
 
-        return {
+        const next = {
           ...server,
           ...mergeTerminalCapabilities(server, agentOnline),
           status,
@@ -1987,7 +2075,13 @@ function ServerPage() {
           error: status === 'offline' ? (item.error || null) : null,
           last_seen: item.lastSeen || item.last_seen || server.last_seen,
         };
+        if (areServerSnapshotsEqual(server, next)) {
+          return server;
+        }
+        changed = true;
+        return next;
       });
+      if (!changed) return prev;
       syncStoreServerList(updated);
       return updated;
     });
@@ -1996,17 +2090,12 @@ function ServerPage() {
   // Socket.IO 推送实时指标
   const connectMetricsStream = () => {
     try {
-      const socket = io('/metrics', {
+      const socket = io(getMetricsSocketUrl(), {
         reconnection: true,
         reconnectionDelay: 1000,
         reconnectionDelayMax: 5000,
         reconnectionAttempts: Infinity,
         transports: ['websocket', 'polling']
-      });
-      
-      socket.on('connect', () => {
-        console.log('✅ Socket.IO 实时流已连接');
-        loadServerList({ silent: true });
       });
       
       socket.on('metrics:update', data => {
@@ -2048,30 +2137,69 @@ function ServerPage() {
       const queued = pendingMetricUpdatesRef.current;
       pendingMetricUpdatesRef.current = [];
       metricFlushTimerRef.current = null;
-      queued.forEach(data => handleSingleMetricUpdate(data));
-    }, 80);
+      handleMetricUpdateBatch(queued);
+    }, SERVER_METRIC_FLUSH_DELAY_MS);
   };
 
   // 处理实时推送的主机指标
-  const handleSingleMetricUpdate = (data) => {
-    const { serverId, metrics, timestamp } = data;
-    const now = timestamp || Date.now();
-    mergeServerMetricHistory(
-      serverId,
-      getCachedServerMetricHistory(serverId) || [],
-      [buildMetricHistoryRecord(metrics, null, now)]
-    );
+  const handleMetricUpdateBatch = (updates = []) => {
+    const latestByServer = new Map();
+    updates.forEach(update => {
+      if (!update?.serverId || !update?.metrics) return;
+      const key = String(update.serverId);
+      const current = latestByServer.get(key);
+      const ts = toTimestamp(update.timestamp, Date.now());
+      if (!current || ts >= (current.timestamp || 0)) {
+        latestByServer.set(key, { ...update, timestamp: ts });
+      }
+    });
+    if (latestByServer.size === 0) return;
+
+    if (!isPageVisible()) {
+      latestByServer.forEach(data => {
+        const serverId = data.serverId;
+        const now = data.timestamp || Date.now();
+        const historyRecord = buildMetricHistoryRecord(data.metrics, null, now);
+        mergeServerMetricHistory(
+          serverId,
+          getCachedServerMetricHistory(serverId) || [],
+          [historyRecord]
+        );
+      });
+      return;
+    }
 
     setServerList(prev => {
+      let changed = false;
       const updated = prev.map(server => {
-        if (server.id !== serverId) return server;
+        const data = latestByServer.get(String(server.id));
+        if (!data) return server;
+
+        const { serverId, metrics, timestamp } = data;
+        const now = timestamp || Date.now();
+        const historyRecord = buildMetricHistoryRecord(metrics, server.info || null, now);
+        mergeServerMetricHistory(
+          serverId,
+          getCachedServerMetricHistory(serverId) || [],
+          [historyRecord]
+        );
         
-        // 防抖限制刷新间隔 >500ms
+        // 高频 Agent 上报只刷新缓存；UI 渲染按较低频率合并，避免 ECharts 和整页重复重绘。
         const lastUpdate = server.lastMetricUpdateTime || 0;
-        if (lastUpdate > 0 && (now - lastUpdate) < 500) {
-          return server;
+        const isExpanded = expandedServersRef.current.includes(server.id);
+        if (lastUpdate > 0 && (now - lastUpdate) < SERVER_METRIC_MIN_RENDER_INTERVAL_MS) {
+          if (!isExpanded) return server;
+          if ((now - lastUpdate) < SERVER_REALTIME_SAMPLE_INTERVAL_MS) return server;
         }
         
+        const existingCache = server.metricsCache || getCachedServerMetricHistory(serverId) || [];
+        const cache = mergeServerMetricHistory(
+          serverId,
+          getCachedServerMetricHistory(serverId) || [],
+          existingCache,
+          [historyRecord]
+        );
+
         const info = server.info ? { ...server.info } : {
           cpu: { Load: '-', Usage: '0%', Cores: '-' },
           memory: { Used: '-', Total: '-', Usage: '0%' },
@@ -2098,7 +2226,7 @@ function ServerPage() {
         
         // Memory
         if (metrics.mem_usage) {
-          const memMatch = metrics.mem_usage.match(/(\d+)\/(\d+)MB/);
+          const memMatch = String(metrics.mem_usage).match(/(\d+)\/(\d+)MB/);
           if (memMatch) {
             const used = parseInt(memMatch[1]);
             const total = parseInt(memMatch[2]);
@@ -2111,16 +2239,28 @@ function ServerPage() {
         }
         
         // Disk
-        if (metrics.disk_usage) {
-          const diskMatch = metrics.disk_usage.match(/(.+?)\/(.+?)\s*\((\d+%?)\)/);
+        if (metrics.disk_usage !== undefined && metrics.disk_usage !== null) {
+          const diskUsageText = String(metrics.disk_usage);
+          const diskMatch = diskUsageText.match(/(.+?)\/(.+?)\s*\((\d+%?)\)/);
+          if (!info.disk || !Array.isArray(info.disk)) info.disk = [{}];
           if (diskMatch) {
-            if (!info.disk || !Array.isArray(info.disk)) info.disk = [{}];
             info.disk[0] = {
               device: '/',
               used: diskMatch[1].trim(),
               total: diskMatch[2].trim(),
               usage: diskMatch[3]
             };
+          } else {
+            const diskPercent = toNumber(metrics.disk_usage, NaN);
+            if (Number.isFinite(diskPercent)) {
+              info.disk[0] = {
+                ...info.disk[0],
+                device: info.disk[0]?.device || '/',
+                used: metrics.disk_used || info.disk[0]?.used || '-',
+                total: metrics.disk_total || info.disk[0]?.total || '-',
+                usage: `${Math.round(diskPercent)}%`
+              };
+            }
           }
         }
         
@@ -2174,15 +2314,8 @@ function ServerPage() {
         info.platform = metrics.platform || info.platform;
         info.platformVersion = metrics.platformVersion || info.platformVersion;
         info.uptime = metrics.uptime || info.uptime;
-        
-        // 增量追加指标趋势缓存
-        const cache = mergeServerMetricHistory(
-          serverId,
-          getCachedServerMetricHistory(serverId) || [],
-          server.metricsCache || [],
-          [buildMetricHistoryRecord(metrics, info, now)]
-        );
-        
+
+        changed = true;
         return {
           ...server,
           ...mergeTerminalCapabilities(server, true),
@@ -2193,29 +2326,48 @@ function ServerPage() {
           lastMetricUpdateTime: now
         };
       });
+      if (!changed) return prev;
       syncStoreServerList(updated);
       return updated;
     });
   };
   
   const loadCardMetrics = async (serverId, options = {}) => {
-    const { silent = false } = options;
-    setServerList(prev => prev.map(s => (
-      s.id === serverId
-        ? {
-            ...s,
-            metricsCache: s.metricsCache || getCachedServerMetricHistory(serverId) || null,
-            metricsLoading: silent && (s.metricsCache?.length || getCachedServerMetricHistory(serverId)?.length) ? false : true,
-            error: silent ? s.error : null,
-          }
-        : s
-    )));
+    const { silent = false, force = false } = options;
+    const requestKey = String(serverId);
+    const cached = getCachedServerMetricHistory(serverId);
+    const loadedAt = cardMetricsLoadedAtRef.current.get(requestKey) || 0;
+    if (!force && silent && cached?.length && Date.now() - loadedAt < SERVER_CARD_METRICS_TTL_MS) {
+      return cached;
+    }
+    const inFlight = cardMetricsRequestRef.current.get(requestKey);
+    if (inFlight) return inFlight;
 
-    try {
+    setServerList(prev => {
+      let changed = false;
+      const updated = prev.map(s => {
+        if (s.id !== serverId) return s;
+        const next = {
+          ...s,
+          metricsCache: s.metricsCache || cached || null,
+          metricsLoading: silent && (s.metricsCache?.length || cached?.length) ? false : true,
+          error: silent ? s.error : null,
+        };
+        if (areServerSnapshotsEqual(s, next)) return s;
+        changed = true;
+        return next;
+      });
+      return changed ? updated : prev;
+    });
+
+    const request = (async () => {
+      const now = Date.now();
       const params = new URLSearchParams({
         serverId,
         page: 1,
         pageSize: SERVER_CHART_HISTORY_LIMIT,
+        startTime: formatSqliteUTCDateTime(now - SERVER_CHART_HISTORY_WINDOW_MS),
+        endTime: formatSqliteUTCDateTime(now),
         highPrecision: 'true'
       });
       const response = await fetch(`/api/server/metrics/history?${params}`);
@@ -2229,38 +2381,67 @@ function ServerPage() {
         sorted,
         getCachedServerMetricHistory(serverId) || []
       );
-      setServerList(prev => prev.map(s => (
-        s.id === serverId
-          ? { ...s, metricsCache: merged, metricsLoading: false, error: null }
-          : s
-      )));
+      cardMetricsLoadedAtRef.current.set(requestKey, Date.now());
+      setServerList(prev => {
+        let changed = false;
+        const updated = prev.map(s => {
+          if (s.id !== serverId) return s;
+          const next = { ...s, metricsCache: merged, metricsLoading: false, error: null };
+          if (areServerSnapshotsEqual(s, next)) return s;
+          changed = true;
+          return next;
+        });
+        return changed ? updated : prev;
+      });
       return merged;
+    })();
+
+    cardMetricsRequestRef.current.set(requestKey, request);
+    try {
+      return await request;
     } catch (e) {
-      setServerList(prev => prev.map(s => (
-        s.id === serverId
-          ? { ...s, metricsLoading: false, error: silent ? s.error : e.message }
-          : s
-      )));
+      setServerList(prev => {
+        let changed = false;
+        const updated = prev.map(s => {
+          if (s.id !== serverId) return s;
+          const next = { ...s, metricsLoading: false, error: silent ? s.error : e.message };
+          if (areServerSnapshotsEqual(s, next)) return s;
+          changed = true;
+          return next;
+        });
+        return changed ? updated : prev;
+      });
       return [];
+    } finally {
+      cardMetricsRequestRef.current.delete(requestKey);
     }
   };
 
   const loadNetworkQuality = useCallback(async (serverId, options = {}) => {
     const { silent = false, collect = false } = options;
-    const requestKey = String(serverId);
+    const serverKey = String(serverId);
+    const requestKey = `${serverKey}:${collect ? 'collect' : 'read'}`;
+    const loadedAt = networkQualityLoadedAtRef.current.get(serverKey) || 0;
+    if (!collect && silent && Date.now() - loadedAt < SERVER_NETWORK_QUALITY_TTL_MS) {
+      return null;
+    }
     if (networkQualityRequestRef.current.has(requestKey)) {
       return null;
     }
     networkQualityRequestRef.current.add(requestKey);
 
-    setNetworkQualityByServer(prev => ({
-      ...prev,
-      [serverId]: {
+    setNetworkQualityByServer(prev => {
+      const next = {
         ...(prev[serverId] || {}),
         loading: !silent || !(prev[serverId]?.sampleCount > 0),
         error: null,
-      },
-    }));
+      };
+      if (areServerValuesEqual(prev[serverId], next)) return prev;
+      return {
+        ...prev,
+        [serverId]: next,
+      };
+    });
 
     try {
       const params = new URLSearchParams({
@@ -2288,14 +2469,19 @@ function ServerPage() {
       }
 
       const quality = data.data || {};
-      setNetworkQualityByServer(prev => ({
-        ...prev,
-        [serverId]: {
+      networkQualityLoadedAtRef.current.set(serverKey, Date.now());
+      setNetworkQualityByServer(prev => {
+        const next = {
           ...quality,
           loading: false,
           error: null,
-        },
-      }));
+        };
+        if (areServerValuesEqual(prev[serverId], next)) return prev;
+        return {
+          ...prev,
+          [serverId]: next,
+        };
+      });
       return quality;
     } catch (error) {
       setNetworkQualityByServer(prev => ({
@@ -2316,6 +2502,7 @@ function ServerPage() {
     if (expandedServers.length === 0) return undefined;
 
     const timer = setInterval(() => {
+      if (!isPageVisible()) return;
       expandedServers.forEach(serverId => {
         if (serverStatusByIdRef.current.get(String(serverId)) !== 'online') return;
         loadNetworkQuality(serverId, { silent: true });
@@ -2355,11 +2542,11 @@ function ServerPage() {
   };
 
   const refreshServerInfo = async (serverId) => {
-    const server = serverList.find(s => s.id === serverId);
-    if (!server || server.loading) return;
-    await Promise.all([
-      loadServerInfo(serverId, { force: true }),
-      loadCardMetrics(serverId, { silent: true }),
+      const server = serverList.find(s => s.id === serverId);
+      if (!server || server.loading) return;
+      await Promise.all([
+        loadServerInfo(serverId, { force: true }),
+      loadCardMetrics(serverId, { silent: true, force: true }),
       loadNetworkQuality(serverId, { silent: true, collect: true }),
     ]);
     toast.success('主机详情已刷新');
@@ -2380,13 +2567,9 @@ function ServerPage() {
     } else {
       setExpandedServers(prev => [...prev, serverId]);
       const hydrateExpandedServer = async () => {
-        const cachedMetrics = server.metricsCache || getCachedServerMetricHistory(serverId);
-        if (cachedMetrics?.length) {
-          loadCardMetrics(serverId, { silent: true });
-        }
         await Promise.all([
           server.info ? Promise.resolve(server.info) : loadServerInfo(serverId, { force: false }),
-          cachedMetrics ? Promise.resolve(cachedMetrics) : loadCardMetrics(serverId, { silent: !!server.info }),
+          loadCardMetrics(serverId, { silent: !!server.info }),
           loadNetworkQuality(serverId, { silent: true }),
         ]);
       };
@@ -4162,76 +4345,15 @@ function ServerPage() {
   };
 
   const createSSHSocket = (sessionId, sessionMeta, terminal) => {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${protocol}//${window.location.host}/ws/ssh`);
-
-    ws.onopen = () => {
-      ws.send(JSON.stringify({
-        type: 'connect',
-        sessionId,
-        serverId: sessionMeta.server.id,
-        protocol: sessionMeta.type,
-        lastSeq: sshSessionRefs.current[sessionId]?.lastSeq || 0,
-        cols: terminal.cols,
-        rows: terminal.rows
-      }));
-
-      const hb = setInterval(() => {
-        if (ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: 'ping' }));
-        }
-      }, 20000);
-
-      const session = sshSessionRefs.current[sessionId];
-      if (session) session.heartbeatInterval = hb;
+    terminal.writeln('\n\x1b[1;33mSSH 终端 WebSocket 已随 Node 后端迁移退役，当前 Go 后端仅保留 Agent /socket.io/ 实时通道。\x1b[0m');
+    setSshSessions(prev => prev.map(s => s.id === sessionId ? { ...s, connected: false } : s));
+    return {
+      readyState: WebSocket.CLOSED,
+      send: () => {},
+      close: () => {},
+      onclose: null,
+      onerror: null,
     };
-
-    ws.onmessage = (e) => {
-      try {
-        const msg = JSON.parse(e.data);
-        if (msg.type === 'connected') {
-          setSshSessions(prev => prev.map(s => s.id === sessionId ? { ...s, connected: true } : s));
-          if (!msg.resumed) {
-            terminal.clear();
-          }
-          terminal.writeln(`\x1b[1;32m${msg.resumed ? '已恢复终端会话' : '已成功连接到终端'}\x1b[0m`);
-          scheduleTerminalFit(sessionId, 100);
-        } else if (msg.type === 'history') {
-          const session = sshSessionRefs.current[sessionId];
-          if (session && msg.toSeq) session.lastSeq = Math.max(session.lastSeq || 0, msg.toSeq);
-          terminal.write(msg.data || '');
-        } else if (msg.type === 'output') {
-          const session = sshSessionRefs.current[sessionId];
-          if (session && msg.seq) session.lastSeq = Math.max(session.lastSeq || 0, msg.seq);
-          terminal.write(msg.data);
-        } else if (msg.type === 'error') {
-          terminal.writeln(`\n\x1b[1;31m错误: ${msg.message}\x1b[0m`);
-        } else if (msg.type === 'disconnected') {
-          setSshSessions(prev => prev.map(s => s.id === sessionId ? { ...s, connected: false } : s));
-          terminal.writeln(`\n\x1b[1;31m连接已从远端断开: ${msg.message || ''}\x1b[0m`);
-        } else if (msg.type === 'detached') {
-          setSshSessions(prev => prev.map(s => s.id === sessionId ? { ...s, connected: false } : s));
-          terminal.writeln(`\n\x1b[1;33m${msg.message || '终端已在新的窗口恢复'}\x1b[0m`);
-        }
-      } catch (err) {
-        console.error(err);
-      }
-    };
-
-    ws.onclose = () => {
-      const session = sshSessionRefs.current[sessionId];
-      if (session?.heartbeatInterval) {
-        clearInterval(session.heartbeatInterval);
-        session.heartbeatInterval = null;
-      }
-      setSshSessions(prev => prev.map(s => s.id === sessionId ? { ...s, connected: false } : s));
-    };
-
-    ws.onerror = () => {
-      terminal.writeln(`\n\x1b[1;31m终端连接发生网络错误\x1b[0m`);
-    };
-
-    return ws;
   };
 
   // 实例化 xterm.js 核心方法

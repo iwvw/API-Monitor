@@ -331,7 +331,6 @@ function renderTerminal(level, module, timestamp, traceId, message, data) {
     'metricsservice': 'Metrics',
     'sshservice': 'SSH',
     'agentservice': 'Agent',
-    'musicservice': 'Music',
   };
 
   // 1. 时间戳

@@ -42,7 +42,6 @@ const getSourceModuleName = (module) => {
     openai: 'OpenAI 接口',
     system: '系统设置',
     filebox: '文件柜',
-    music: '音乐',
     totp: '双因子认证',
   };
   return names[module] || module;
@@ -476,13 +475,13 @@ function NotificationPage() {
       source_module: rule.source_module || 'uptime',
       event_type: rule.event_type || 'down',
       severity: rule.severity || 'warning',
-      channels: channels.map(Number),
+      channels: channels.map(String),
       suppression: typeof rule.suppression === 'string' ? JSON.parse(rule.suppression) : (rule.suppression || { repeat_count: 1, silence_minutes: 30 }),
       time_window: typeof rule.time_window === 'string' ? JSON.parse(rule.time_window) : (rule.time_window || { enabled: false }),
       description: rule.description || '',
       title_template: rule.title_template || '',
       message_template: rule.message_template || '',
-      backup_channels: backupChannels.map(Number),
+      backup_channels: backupChannels.map(String),
       quiet_until: rule.quiet_until || '',
       enabled: !!rule.enabled
     });
@@ -1503,9 +1502,9 @@ function NotificationPage() {
                 {notificationChannels.filter(c => c.enabled).map((channel) => (
                   <Checkbox
                     key={channel.id}
-                    checked={ruleForm.channels.includes(channel.id)}
+                    checked={ruleForm.channels.includes(String(channel.id))}
                     onCheckedChange={(checked) => {
-                      const id = channel.id;
+                      const id = String(channel.id);
                       setRuleForm(prev => ({
                         ...prev,
                         channels: checked
@@ -1559,9 +1558,9 @@ function NotificationPage() {
                 {notificationChannels.filter(c => c.enabled).map((channel) => (
                   <Checkbox
                     key={`backup_${channel.id}`}
-                    checked={ruleForm.backup_channels.includes(channel.id)}
+                    checked={ruleForm.backup_channels.includes(String(channel.id))}
                     onCheckedChange={(checked) => {
-                      const id = channel.id;
+                      const id = String(channel.id);
                       setRuleForm(prev => ({
                         ...prev,
                         backup_channels: checked

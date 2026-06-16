@@ -118,11 +118,13 @@ pub fn parse_socketio_message(raw: &str) -> SocketIOMessage {
         return SocketIOMessage::Ignored;
     }
 
-    if raw == "3probe" {
+    // 处理原始握手包（0{...}）
+    if raw.starts_with('0') {
         return SocketIOMessage::Raw(raw.to_string());
     }
 
-    if raw.starts_with("40/agent") {
+    // 处理 CONNECT ACK（40{...}）
+    if raw.starts_with("40") {
         return SocketIOMessage::Raw(raw.to_string());
     }
 
@@ -137,14 +139,9 @@ pub fn parse_socketio_message(raw: &str) -> SocketIOMessage {
         '2' => SocketIOMessage::Ping,
         '3' => SocketIOMessage::Pong,
         '4' => {
-            // Socket.IO message formatting.
-            // Check for namespace connect: "0/agent," or "0/agent"
-            if body.starts_with("0/agent") {
-                return SocketIOMessage::NamespaceConnect;
-            }
-            // Check for event: "2/agent,["event_name", data]"
-            if body.starts_with("2/agent,") {
-                let json_part = &body[8..];
+            // Socket.IO 事件消息: "2["event_name", data]"
+            if body.starts_with('2') {
+                let json_part = &body[1..];
                 if let Ok(serde_json::Value::Array(arr)) = serde_json::from_str(json_part) {
                     if arr.len() >= 1 {
                         if let Some(event_name) = arr[0].as_str() {
@@ -166,5 +163,5 @@ pub fn parse_socketio_message(raw: &str) -> SocketIOMessage {
 
 pub fn format_event<T: Serialize>(event: &str, payload: &T) -> String {
     let arr = serde_json::json!([event, payload]);
-    format!("42/agent,{}", arr.to_string())
+    format!("42{}", arr.to_string())
 }

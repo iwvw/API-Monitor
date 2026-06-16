@@ -104,9 +104,6 @@ const SENSITIVE_FIELDS = {
     // API 账号
     account: ['api_token', 'api_key', 'secret_key', 'access_token', 'refresh_token'],
 
-    // 音乐模块
-    music: ['cookie'],
-
     // TOTP/HOTP
     totp: ['secret'],
 
@@ -175,7 +172,6 @@ function createSecureWrapper(category) {
 // 预置的安全包装器
 const serverSecure = createSecureWrapper('server');
 const accountSecure = createSecureWrapper('account');
-const musicSecure = createSecureWrapper('music');
 const totpSecure = createSecureWrapper('totp');
 const notificationSecure = createSecureWrapper('notification');
 
@@ -280,7 +276,6 @@ module.exports = {
     // 预置包装器
     serverSecure,
     accountSecure,
-    musicSecure,
     totpSecure,
     notificationSecure,
 

@@ -35,6 +35,22 @@ import {
   ChevronDown
 } from '../components/Icons.jsx';
 
+const extractTencentDomains = (result) => {
+  if (Array.isArray(result)) return result;
+  if (Array.isArray(result?.Domains)) return result.Domains;
+  if (Array.isArray(result?.Domains?.Domain)) return result.Domains.Domain;
+  if (Array.isArray(result?.domains)) return result.domains;
+  if (Array.isArray(result?.DomainList)) return result.DomainList;
+  return [];
+};
+const extractTencentInstances = (result) => {
+  if (Array.isArray(result)) return result;
+  if (Array.isArray(result?.instances)) return result.instances;
+  if (Array.isArray(result?.InstanceSet)) return result.InstanceSet;
+  if (Array.isArray(result?.data?.instances)) return result.data.instances;
+  return [];
+};
+
 function TencentPage() {
   const { theme } = useStore();
   const [activeTab, setActiveTab] = useState('dns'); // 'dns' | 'cvm' | 'lighthouse' | 'accounts'
@@ -170,7 +186,7 @@ function TencentPage() {
         headers: getAuthHeaders(),
       });
       const result = await response.json();
-      setDomains(result.Domains || []);
+      setDomains(extractTencentDomains(result));
     } catch (e) {
       toast.error('加载域名列表失败');
     } finally {
@@ -185,7 +201,7 @@ function TencentPage() {
         headers: getAuthHeaders(),
       });
       const result = await response.json();
-      setCvmInstances(result || []);
+      setCvmInstances(extractTencentInstances(result));
     } catch (e) {
       toast.error('加载 CVM 实例失败');
     } finally {
@@ -200,7 +216,7 @@ function TencentPage() {
         headers: getAuthHeaders(),
       });
       const result = await response.json();
-      setLighthouseInstances(result || []);
+      setLighthouseInstances(extractTencentInstances(result));
     } catch (e) {
       toast.error('加载轻量服务器失败');
     } finally {

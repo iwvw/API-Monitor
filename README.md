@@ -6,7 +6,8 @@
 
 <p align="center">
   <a href="https://github.com/iwvw/api-monitor/blob/main/LICENSE"><img src="https://img.shields.io/github/license/iwvw/api-monitor" alt="License"></a>
-  <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/Node.js-20+-green.svg" alt="Node.js"></a>
+  <a href="https://go.dev/"><img src="https://img.shields.io/badge/Go-1.23+-00ADD8.svg" alt="Go"></a>
+  <a href="https://react.dev/"><img src="https://img.shields.io/badge/React-19+-61DAFB.svg" alt="React"></a>
   <a href="https://www.sqlite.org/"><img src="https://img.shields.io/badge/Storage-SQLite3-orange.svg" alt="Storage"></a>
   <a href="https://hub.docker.com/r/iwvw/api-monitor"><img src="https://img.shields.io/docker/pulls/iwvw/api-monitor.svg" alt="Docker Pulls"></a>
   <a href="https://github.com/iwvw/api-monitor/actions"><img src="https://img.shields.io/github/actions/workflow/status/iwvw/api-monitor/docker-publish.yml" alt="Build Status"></a>
@@ -28,7 +29,7 @@
 > 请勿在演示环境中输入真实的敏感数据
 
 ## 📦 快速开始
- 
+
 ### 1. Docker 部署 (推荐)
 
 **方式一：Docker Compose (最简)**
@@ -63,17 +64,28 @@ docker run -d --name api-monitor \
 git clone https://github.com/iwvw/api-monitor.git
 cd api-monitor
 
-# 安装依赖
+# 前端开发
 npm install
+npm run dev          # 启动 Vite 开发服务器 (http://localhost:5173)
 
-# 启动开发模式 (热重载: 前端 Vite + 后端 Express)
-npm run dev
+# 后端开发 (Go)
+cd backend-go
+go build -o api-monitor.exe ./cmd/api-monitor
+./api-monitor.exe    # 启动 Go 后端 (http://localhost:3000)
 ```
 
-如需仅运行生产环境模式：
+**快速启动脚本 (Windows)**
 
 ```bash
-npm run build && npm start
+# 使用启动脚本（自动构建 + 启动）
+.\scripts\start.bat
+```
+
+如需构建生产版本：
+
+```bash
+npm run build        # 构建前端到 dist/
+cd backend-go && go build -o api-monitor.exe ./cmd/api-monitor
 ```
 
 ---
@@ -85,22 +97,11 @@ npm run build && npm start
 | 变量名 | 默认值 | 说明 |
 | :--- | :--- | :--- |
 | `PORT` | `3000` | 服务运行端口 |
-| `NODE_ENV` | `production` | 运行环境 (`development` / `production`) |
-| `ADMIN_PASSWORD` | - | **初始管理员密码**（首次启动时生效，也可在界面设置） |
-| `JWT_SECRET` | (随机) | **强烈建议设置**。用于加密会话 Token |
-| `DATA_DIR` | `/app/data` | 数据持久化目录 (数据库与日志存放路径) |
+| `DATA_DIR` | `./data` | 数据持久化目录 (数据库与日志存放路径) |
 | `DB_NAME` | `data.db` | 数据库文件名 |
 | `LOG_LEVEL` | `INFO` | 日志级别 (`DEBUG`, `INFO`, `WARN`, `ERROR`) |
-| `LOG_RETENTION_DAYS` | `7` | 本地日志文件保留天数 |
-| `TRUST_PROXY` | `false` | 若部署在反代后 (如 Nginx/CF)，建议设为 `true` |
-| `LOW_MEMORY_MODE` | `1` (Docker) | 小内存容器优化开关，延迟/禁用非关键重依赖 |
-| `LAZY_MODULE_ROUTES` | `1` (Docker) | 按首次请求加载非后台模块路由，降低启动 RSS |
-| `GEOIP_LOOKUP` | `0` (Docker/Fly) | 是否启用 GeoIP 国家识别；开启会加载较大的 `geoip-lite` 数据库 |
-| `JSON_BODY_LIMIT` | `5mb` (Docker) | JSON 请求体上限，小内存容器建议保持较低 |
-| `UPLOAD_MAX_FILE_SIZE_MB` | `50` (Docker) | 单文件上传上限；文件使用临时文件落盘以降低内存峰值 |
-| `NODE_OPTIONS` | `--max-old-space-size=128` (Docker) | Node.js 堆内存上限，适合 200MB 级容器 |
-| `VITE_USE_CDN` | `true` | 是否启用 CDN 加载静态资源 (构建时生效) |
-| `VITE_CDN_PROVIDER`| `npmmirror` | CDN 节点选择 (`npmmirror`, `jsdelivr`, `unpkg`, `bootcdn`) |
+| `JWT_SECRET` | (随机) | **强烈建议设置**。用于加密会话 Token |
+| `ADMIN_PASSWORD` | - | **初始管理员密码**（首次启动时生效） |
 
 ---
 
@@ -108,33 +109,44 @@ npm run build && npm start
 
 ```
 api-monitor/
-├── server.js              # 应用入口
-├── src/                   # 核心源码
-│   ├── js/modules/        # 前端业务模块
-│   ├── db/                # 数据库层
-│   ├── middleware/        # Express 中间件
-│   ├── routes/            # API 路由
-│   ├── services/          # 业务服务
-│   └── utils/             # 工具函数
-├── modules/               # 可插拔业务模块
-│   ├── server-api/        # 服务器/SSH/Docker
-│   ├── cloudflare-api/    # Cloudflare DNS
-│   ├── antigravity-api/   # Antigravity Agent
-│   ├── music-api/         # 网易云音乐代理
-│   └── ...                # 更多模块
-├── data/                  # 持久化目录 (挂载点)
-└── dist/                  # 生产构建产物
+├── backend-go/            # Go 后端服务
+│   ├── cmd/api-monitor/   # 主程序入口
+│   └── internal/          # 内部包（路由、服务、数据库等）
+├── agent-rust/            # Rust Agent 客户端
+│   └── src/               # Agent 源码
+├── src/                   # 前端源码
+│   ├── js/                # React 组件与页面
+│   └── css/               # 样式文件
+├── docs/                  # 项目文档
+├── scripts/               # 脚本工具
+├── data/                  # 数据目录（运行时生成，已忽略）
+├── dist/                  # 前端构建产物（已忽略）
+└── vite.config.mjs        # Vite 配置
 ```
 
-详细架构说明 → [docs/DESIGN.md](./docs/DESIGN.md)
+详细说明 → [docs/目录结构说明.md](./docs/目录结构说明.md)
 
 ---
 
-## 🧩 模块开发指南
+## 🏗️ 技术栈
 
-本项目采用插件化架构，您可以轻松扩展新功能。详细的开发步骤和规范请参考：
+**后端**: Go 1.23+ + SQLite3 + Engine.IO
+**前端**: React 19 + Vite 7 + Tailwind CSS 4 + Zustand
+**Agent**: Rust + Tokio + Engine.IO Client
+**存储**: SQLite3
+**实时通信**: Engine.IO / WebSocket
 
-👉 **[模块开发模板使用指南](./modules/_template/README.md)**
+---
+
+## 📚 文档
+
+- [项目架构与技术详解](./docs/项目架构与技术详解.md) - 完整技术架构
+- [开发指南](./docs/开发指南.md) - 开发环境与开发流程
+- [API 接口文档](./docs/API接口文档.md) - REST API 完整参考
+- [目录结构说明](./docs/目录结构说明.md) - 目录结构详解
+- [系统问题诊断报告](./docs/系统问题诊断报告.md) - 问题诊断与解决方案
+
+更多文档请查看 [docs/](./docs/) 目录。
 
 ---
 

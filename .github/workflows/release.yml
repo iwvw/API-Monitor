@@ -7,12 +7,13 @@
 #
 # 流水线顺序（严格依赖链，无竞态）：
 # 1. create-release  → 创建 GitHub Release
-# 2. build-agent     → 编译 5 平台 Rust Agent
-# 3. upload-assets   → 上传 Agent 到 Release
-# 4. build-docker    → 构建多架构 Docker 镜像
-# 5. merge-docker    → 合并多架构 manifest
-# 6. cleanup-docker  → 清理临时镜像
-# 7. security-scan   → 安全扫描
+# 2. test-backend    → Go 后端测试
+# 3. build-agent     → 编译 5 平台 Rust Agent
+# 4. upload-assets   → 上传 Agent 到 Release
+# 5. build-docker    → 构建多架构 Docker 镜像
+# 6. merge-docker    → 合并多架构 manifest
+# 7. cleanup-docker  → 清理临时镜像
+# 8. security-scan   → 安全扫描
 
 name: Release
 
@@ -143,14 +144,39 @@ jobs:
           tag_name: ${{ steps.version.outputs.tag }}
           name: "Release ${{ steps.version.outputs.tag }}"
           body_path: release_notes.md
-          draft: false
+          draft: true
           prerelease: ${{ github.event.inputs.prerelease == 'true' }}
 
   # ==========================================
-  # Phase 2: 编译 Rust Agent（5 平台）
+  # Phase 2: Go 后端测试
+  # ==========================================
+  test-backend:
+    needs: create-release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.2.2
+
+      - name: Setup Go 1.23
+        uses: actions/setup-go@fac708d6674e30b6ba41289acaab6d4b75aa0753 # v5.2.0
+        with:
+          go-version: '1.23'
+          cache-dependency-path: backend-go/go.sum
+
+      - name: Run Go Tests
+        working-directory: backend-go
+        run: go test ./... -v -race
+
+      - name: Build Go Backend
+        working-directory: backend-go
+        run: go build -v -o api-monitor ./cmd/api-monitor
+
+  # ==========================================
+  # Phase 3: 编译 Rust Agent（5 平台）
   # ==========================================
   build-agent:
-    needs: create-release
+    needs: test-backend
     runs-on: ${{ matrix.os }}
 
     strategy:
@@ -235,7 +261,7 @@ jobs:
           retention-days: 7
 
   # ==========================================
-  # Phase 3: 上传 Agent 到 Release
+  # Phase 4: 上传 Agent 到 Release
   # ==========================================
   upload-assets:
     needs: [create-release, build-agent]
@@ -266,7 +292,7 @@ jobs:
           echo "✅ All assets uploaded."
 
   # ==========================================
-  # Phase 4: 构建多架构 Docker 镜像
+  # Phase 5: 构建多架构 Docker 镜像
   # ==========================================
   build-docker:
     needs: upload-assets
@@ -363,7 +389,7 @@ jobs:
           retention-days: 1
 
   # ==========================================
-  # Phase 5: 合并多架构 manifest
+  # Phase 6: 合并多架构 manifest
   # ==========================================
   merge-docker:
     needs: build-docker
@@ -465,10 +491,24 @@ jobs:
           echo '```' >> $GITHUB_STEP_SUMMARY
 
   # ==========================================
-  # Phase 6: 清理临时镜像
+  # Phase 7: 发布 Release
+  # ==========================================
+  publish-release:
+    needs: [create-release, upload-assets, merge-docker]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Publish GitHub Release
+        env:
+          TAG: ${{ needs.create-release.outputs.tag }}
+          REPO: ${{ github.repository }}
+        run: gh release edit "$TAG" --repo "$REPO" --draft=false
+
+  # ==========================================
+  # Phase 8: 清理临时镜像
   # ==========================================
   cleanup-docker:
-    needs: merge-docker
+    needs: publish-release
     runs-on: ubuntu-latest
     if: always()
     continue-on-error: true
@@ -485,10 +525,10 @@ jobs:
         continue-on-error: true
 
   # ==========================================
-  # Phase 7: 安全扫描
+  # Phase 9: 安全扫描
   # ==========================================
   security-scan:
-    needs: merge-docker
+    needs: publish-release
     runs-on: ubuntu-latest
     continue-on-error: true
 

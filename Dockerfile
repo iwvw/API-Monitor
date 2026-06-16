@@ -1,10 +1,10 @@
 # ===================================
 # API Monitor Docker Image
 # ===================================
-# 多阶段构建：Builder -> Native Deps Builder -> Runner
+# 多阶段构建：Frontend Builder -> Go Backend Builder -> Agent Builder -> Deps Builder -> Runner
 
-# 阶段 1: 构建前端 (Builder) - 始终在构建主机平台运行
-FROM --platform=$BUILDPLATFORM node:20-slim AS builder
+# 阶段 1: 构建前端 (Frontend Builder) - 始终在构建主机平台运行
+FROM --platform=$BUILDPLATFORM node:20-slim AS frontend-builder
 # 安装构建工具
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
@@ -35,7 +35,31 @@ ENV PATH=/app/node_modules/.bin:$PATH \
     VITE_USE_CDN=false
 RUN npm run build
 
-# 阶段 2: 构建 Rust Agent 二进制 (Agent Builder) - 优化为基于 TARGETARCH 进行条件式本机编译，以最大化编译性能并防止复杂的跨平台交叉编译错误
+# 阶段 2: 构建 Go 后端 (Go Backend Builder)
+FROM --platform=$BUILDPLATFORM golang:1.23-alpine AS go-builder
+
+# 安装必要的构建工具
+RUN apk add --no-cache gcc musl-dev
+
+WORKDIR /app/backend-go
+
+# 1. 复制依赖定义并下载依赖（缓存优化）
+COPY backend-go/go.mod backend-go/go.sum ./
+RUN go mod download
+
+# 2. 复制源码
+COPY backend-go/ ./
+
+# 3. 构建 Go 后端
+# CGO_ENABLED=1 用于 SQLite3 支持
+ARG TARGETOS
+ARG TARGETARCH
+RUN CGO_ENABLED=1 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    go build -v -trimpath \
+    -ldflags="-s -w" \
+    -o api-monitor ./cmd/api-monitor
+
+# 阶段 3: 构建 Rust Agent 二进制 (Agent Builder) - 优化为基于 TARGETARCH 进行条件式本机编译，以最大化编译性能并防止复杂的跨平台交叉编译错误
 FROM --platform=$TARGETPLATFORM rust:slim AS agent-builder
 RUN apt-get update && apt-get install -y --no-install-recommends \
     musl-tools \
@@ -60,12 +84,10 @@ RUN if [ "$TARGETARCH" = "amd64" ]; then \
     fi
 
 # 1. 尝试从构建上下文（宿主机）复制已编好的二进制文件（如果存在）
-COPY agent-rust/agent-linux-amd6[4] ./
-COPY agent-rust/agent-linux-arm6[4] ./
-COPY agent-rust/agent-windows-amd64.ex[e] ./
+RUN rm -rf src
+COPY agent-rust/ ./
 
 # 2. 复制真正的源码并执行本机编译
-COPY agent-rust/src ./src
 RUN if [ "$TARGETARCH" = "amd64" ]; then \
         if [ ! -f "./agent-linux-amd64" ] || [ ! -s "./agent-linux-amd64" ]; then \
             cargo build --release --target x86_64-unknown-linux-musl && \
@@ -82,32 +104,10 @@ RUN if [ "$TARGETARCH" = "amd64" ]; then \
         if [ ! -f "./agent-windows-amd64.exe" ]; then touch ./agent-windows-amd64.exe; fi; \
     fi
 
-# 阶段 3: 预构建生产依赖 (Native Deps Builder)
-# 为目标平台安装原生模块
-FROM --platform=$TARGETPLATFORM node:20-slim AS deps-builder
-# 安装构建工具 (用于编译 better-sqlite3 等原生模块，以防预编译不可用)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 \
-    make \
-    g++ \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
-
-WORKDIR /app
-# 复制依赖定义
-COPY package.json package-lock.json ./
-# 设置镜像源
-RUN npm config set registry https://registry.npmmirror.com
-# 尝试使用预编译二进制，如果不可用则编译
-# better-sqlite3 支持 prebuild，会自动下载预编译的 .node 文件
-ENV npm_config_build_from_source=false
-# 使用 --ignore-scripts 绕过强制包管理器检查，然后单独 rebuild 原生模块
-RUN npm install --omit=dev --legacy-peer-deps --ignore-scripts && \
-    npm rebuild better-sqlite3 && \
-    npm cache clean --force
+# 注意：deps-builder 阶段已移除，Go 后端不需要 Node.js 依赖
 
 # 阶段 4: 运行时镜像 (Runner) - 纯净的运行环境
-FROM --platform=$TARGETPLATFORM node:20-slim AS runner
+FROM --platform=$TARGETPLATFORM alpine:3.20 AS runner
 
 LABEL org.opencontainers.image.title="API Monitor"
 LABEL org.opencontainers.image.description="API聚合监控面板"
@@ -115,54 +115,45 @@ LABEL org.opencontainers.image.source="https://github.com/iwvw/api-monitor"
 LABEL org.opencontainers.image.licenses="MIT"
 LABEL maintainer="iwvw"
 
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
+# 安装运行时依赖
+RUN apk add --no-cache \
     ca-certificates \
+    tzdata \
+    curl \
     tini \
-    && rm -rf /var/lib/apt/lists/*
-
-RUN groupadd -g 1001 nodejs && useradd -m -u 1001 -g nodejs nodejs
+    && addgroup -g 1001 appuser \
+    && adduser -D -u 1001 -G appuser appuser
 
 WORKDIR /app
 
 # 创建数据目录
-RUN mkdir -p /app/config /app/data && chown -R nodejs:nodejs /app
+RUN mkdir -p /app/data /app/dist/agent && chown -R appuser:appuser /app
 
-# 1. 从 deps-builder 复制预构建的 node_modules (避免在 runner 中编译)
-COPY --from=deps-builder --chown=nodejs:nodejs /app/node_modules ./node_modules
-COPY --from=deps-builder --chown=nodejs:nodejs /app/package.json ./
+# 1. 从 frontend-builder 复制构建好的前端资源
+COPY --from=frontend-builder --chown=appuser:appuser /app/dist ./dist
 
-# 2. 从 builder 复制构建好的前端资源
-COPY --from=builder --chown=nodejs:nodejs /app/dist ./dist
+# 2. 从 go-builder 复制 Go 后端二进制文件
+COPY --from=go-builder --chown=appuser:appuser /app/backend-go/api-monitor /app/
 
 # 3. 将 Rust Agent 二进制文件放入 dist/agent 目录以便静态服务
-RUN mkdir -p /app/dist/agent
-COPY --from=agent-builder --chown=nodejs:nodejs /app/agent-rust/agent-linux-amd64 /app/dist/agent/
-COPY --from=agent-builder --chown=nodejs:nodejs /app/agent-rust/agent-linux-arm64 /app/dist/agent/
-COPY --from=agent-builder --chown=nodejs:nodejs /app/agent-rust/agent-windows-amd64.exe /app/dist/agent/
+COPY --from=agent-builder --chown=appuser:appuser /app/agent-rust/agent-linux-amd64 /app/dist/agent/
+COPY --from=agent-builder --chown=appuser:appuser /app/agent-rust/agent-linux-arm64 /app/dist/agent/
+COPY --from=agent-builder --chown=appuser:appuser /app/agent-rust/agent-windows-amd64.exe /app/dist/agent/
 
-# 4. 复制后端源码 (不包含 node_modules)
-COPY --chown=nodejs:nodejs server.js ./
-COPY --chown=nodejs:nodejs src ./src
-COPY --chown=nodejs:nodejs modules ./modules
-
-ENV NODE_ENV=production \
-    PORT=3000 \
-    CONFIG_DIR=/app/config \
-    LOW_MEMORY_MODE=1 \
-    LAZY_MODULE_ROUTES=1 \
-    GEOIP_LOOKUP=0 \
-    JSON_BODY_LIMIT=5mb \
-    UPLOAD_MAX_FILE_SIZE_MB=50 \
-    NODE_OPTIONS=--max-old-space-size=128
+# 环境变量配置
+ENV PORT=3000 \
+    DATA_DIR=/app/data \
+    DB_NAME=data.db \
+    LOG_LEVEL=INFO \
+    TZ=UTC
 
 EXPOSE 3000
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:3000/ || exit 1
+    CMD curl -f http://localhost:3000/health || exit 1
 
-USER nodejs
+USER appuser
 
-ENTRYPOINT ["/usr/bin/tini", "--"]
+ENTRYPOINT ["/sbin/tini", "--"]
 
-CMD ["node", "server.js"]
+CMD ["/app/api-monitor"]

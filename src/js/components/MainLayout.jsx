@@ -17,7 +17,6 @@ import {
   Server,
   HardDrive,
   ShieldCheck,
-  Music,
   Activity,
   FolderOpen,
   Bell,
@@ -41,7 +40,6 @@ const AliyunPage = lazy(() => import('../pages/AliyunPage.jsx'));
 const TencentPage = lazy(() => import('../pages/TencentPage.jsx'));
 const SettingsPage = lazy(() => import('../pages/SettingsPage.jsx'));
 const SelfHPage = lazy(() => import('../pages/SelfHPage.jsx'));
-const MusicPage = lazy(() => import('../pages/MusicPage.jsx'));
 
 const PageLoadingFallback = () => (
   <div className="flex min-h-[240px] items-center justify-center">
@@ -66,7 +64,6 @@ const ICON_MAP = {
   server: Server,
   'self-h': HardDrive,
   totp: ShieldCheck,
-  music: Music,
   uptime: Activity,
   filebox: FolderOpen,
   notification: Bell,
@@ -296,8 +293,6 @@ function MainLayout() {
         return <SettingsPage />;
       case 'self-h':
         return <SelfHPage />;
-      case 'music':
-        return <MusicPage />;
       default:
         const ActiveIcon = ICON_MAP[mainActiveTab] || Server;
         return (

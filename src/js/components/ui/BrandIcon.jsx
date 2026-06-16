@@ -188,7 +188,6 @@ export const FA_ICONS = {
   social: 'fas fa-users',
   chat: 'fas fa-comments',
   video: 'fas fa-video',
-  music: 'fas fa-music',
   photo: 'fas fa-camera',
   code: 'fas fa-code',
   dev: 'fas fa-laptop-code',

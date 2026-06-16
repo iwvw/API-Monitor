@@ -70,15 +70,6 @@ export default defineConfig(({ mode }) => {
               if (id.includes('@xterm')) {
                 return 'vendor-xterm';
               }
-              // 播放器与多媒体
-              if (
-                id.includes('artplayer') ||
-                id.includes('flv.js') ||
-                id.includes('hls.js') ||
-                id.includes('plyr')
-              ) {
-                return 'vendor-media';
-              }
               // Pixi 渲染引擎
               if (id.includes('@pixi') || id.includes('pixi-filters')) {
                 return 'vendor-pixi';
