@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -217,6 +218,45 @@ func TestServerDetailResolvesCountryFromCachedAgentMetadata(t *testing.T) {
 	info := data["info"].(map[string]interface{})
 	if info["resolved_country"] != "hk" || info["location"] != "Hong Kong" {
 		t.Fatalf("expected info country fallback, info=%#v", info)
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+func TestListAccountsResolvesMissingLocationFromIPSB(t *testing.T) {
+	service, db := testService(t)
+	_, err := db.ExecContext(context.Background(), `INSERT INTO server_accounts (id, name, host, username, auth_type, tags, country, cached_info) VALUES ('server-ip', 'edge', '185.255.55.55', 'root', 'password', '[]', 'auto', '{}')`)
+	if err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+
+	previousClient := geoHTTPClient
+	geoHTTPClient = &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if !strings.Contains(req.URL.String(), "api.ip.sb/geoip/185.255.55.55") {
+			return &http.Response{StatusCode: http.StatusBadGateway, Body: io.NopCloser(strings.NewReader(`{}`)), Header: http.Header{}}, nil
+		}
+		body := `{"ip":"185.255.55.55","country_code":"NL","country":"Netherlands","latitude":52.3824,"longitude":4.8995,"asn":"3214","organization":"xTom GmbH","timezone":"Europe/Amsterdam"}`
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body)), Header: http.Header{}}, nil
+	})}
+	t.Cleanup(func() { geoHTTPClient = previousClient })
+
+	res := perform(service, http.MethodGet, "/api/server/accounts", "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("list status=%d body=%s", res.Code, res.Body.String())
+	}
+	payload := decodePayload(t, res)
+	list := payload["data"].([]interface{})
+	account := list[0].(map[string]interface{})
+	if account["resolved_country"] != "Netherlands" {
+		t.Fatalf("resolved_country = %#v", account["resolved_country"])
+	}
+	info := account["info"].(map[string]interface{})
+	if info["country_code"] != "nl" || info["location"] != "Netherlands" {
+		t.Fatalf("expected IP.SB location in info, info=%#v", info)
 	}
 }
 

@@ -22,16 +22,16 @@ import (
 )
 
 type Service struct {
-	cfg           config.Config
-	store         *database.Store
-	taskRegistry  *TaskRegistry
-	engineIO      *EngineIOServer
-	registry      *ConnectionRegistry
-	metricsHub    *MetricsHub
-	lastCollect   time.Time
-	lastCollectMu sync.RWMutex
-	lastPersist   map[string]time.Time
-	lastPersistMu sync.Mutex
+	cfg              config.Config
+	store            *database.Store
+	taskRegistry     *TaskRegistry
+	engineIO         *EngineIOServer
+	registry         *ConnectionRegistry
+	metricsHub       *MetricsHub
+	lastCollect      time.Time
+	lastCollectMu    sync.RWMutex
+	lastPersist      map[string]time.Time
+	lastPersistMu    sync.Mutex
 	agentTaskWaiters sync.Map
 }
 
@@ -1767,6 +1767,10 @@ func writeLogsWithPagination(w http.ResponseWriter, logs []map[string]interface{
 // ==========================================
 
 func (s *Service) listAccounts(w http.ResponseWriter, r *http.Request, db *sql.DB) {
+	if err := s.refreshMissingAccountLocations(r.Context(), db); err != nil {
+		applog.Warn(r.Context(), "serveragent", "failed to refresh server locations", "error", err.Error())
+	}
+
 	rows, err := db.QueryContext(r.Context(), "SELECT id, name, host, port, username, auth_type, password, private_key, passphrase, status, monitor_mode, last_check_time, last_check_status, response_time, cached_info, tags, description, country, resolved_country, starts_at, expires_at, order_index, created_at, updated_at FROM server_accounts ORDER BY order_index ASC, created_at DESC")
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
@@ -1787,6 +1791,54 @@ func (s *Service) listAccounts(w http.ResponseWriter, r *http.Request, db *sql.D
 		list = []map[string]interface{}{}
 	}
 	response.OK(w, list)
+}
+
+func (s *Service) refreshMissingAccountLocations(ctx context.Context, db *sql.DB) error {
+	rows, err := db.QueryContext(ctx, "SELECT id, host, country, resolved_country, cached_info FROM server_accounts")
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	type candidate struct {
+		id              string
+		host            string
+		country         sql.NullString
+		resolvedCountry sql.NullString
+		cachedInfo      sql.NullString
+	}
+	var candidates []candidate
+	for rows.Next() {
+		var item candidate
+		if err := rows.Scan(&item.id, &item.host, &item.country, &item.resolvedCountry, &item.cachedInfo); err != nil {
+			return err
+		}
+		if accountNeedsLocation(item.country, item.resolvedCountry, item.cachedInfo) {
+			candidates = append(candidates, item)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	now := time.Now().Format(time.RFC3339)
+	for _, item := range candidates {
+		geo, ok := s.lookupHostLocation(ctx, item.host)
+		if !ok {
+			continue
+		}
+		cachedInfo := mergeCachedInfo(item.cachedInfo, geo)
+		_, err := db.ExecContext(ctx, `
+			UPDATE server_accounts
+			SET resolved_country = ?, cached_info = ?, updated_at = ?
+			WHERE id = ?`,
+			getString(geo, "region"), cachedInfo, now, item.id,
+		)
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Service) getAccount(w http.ResponseWriter, r *http.Request, db *sql.DB, id string) {
@@ -1849,13 +1901,21 @@ func (s *Service) createAccount(w http.ResponseWriter, r *http.Request, db *sql.
 	encPassword := s.encryptField(req.Password)
 	encPrivateKey := s.encryptField(req.PrivateKey)
 	encPassphrase := s.encryptField(req.Passphrase)
+	resolvedCountry := ""
+	cachedInfo := sql.NullString{}
+	if req.Country == "" || req.Country == "auto" {
+		if geo, ok := s.lookupHostLocation(r.Context(), req.Host); ok {
+			resolvedCountry = getString(geo, "region")
+			cachedInfo = sql.NullString{String: mergeCachedInfo(sql.NullString{}, geo), Valid: true}
+		}
+	}
 
 	_, err := db.ExecContext(r.Context(), `
 		INSERT INTO server_accounts (
-			id, name, host, port, username, auth_type, password, private_key, passphrase, status, tags, description, monitor_mode, country, resolved_country, starts_at, expires_at, order_index, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			id, name, host, port, username, auth_type, password, private_key, passphrase, status, tags, description, monitor_mode, country, resolved_country, starts_at, expires_at, order_index, created_at, updated_at, cached_info
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		id, req.Name, req.Host, coalesceInt(req.Port, 22), coalesceStr(req.Username, "agent"), coalesceStr(req.AuthType, "password"),
-		encPassword, encPrivateKey, encPassphrase, "unknown", SerializeList(req.Tags), req.Description, coalesceStr(req.MonitorMode, "agent"), req.Country, nil, nullStr(req.StartsAt), nullStr(req.ExpiresAt), orderIndex, now, now,
+		encPassword, encPrivateKey, encPassphrase, "unknown", SerializeList(req.Tags), req.Description, coalesceStr(req.MonitorMode, "agent"), req.Country, nullStr(resolvedCountry), nullStr(req.StartsAt), nullStr(req.ExpiresAt), orderIndex, now, now, nullStr(cachedInfo.String),
 	)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
@@ -1910,6 +1970,16 @@ func (s *Service) updateAccount(w http.ResponseWriter, r *http.Request, db *sql.
 	monitorMode := getStringVal(req, "monitor_mode", raw.monitorMode)
 	country := getStringVal(req, "country", raw.country.String)
 	resolvedCountry := getStringVal(req, "resolved_country", raw.resolvedCountry.String)
+	cachedInfo := raw.cachedInfo
+	if country == "" || country == "auto" {
+		hostChanged := host != raw.host
+		if hostChanged || resolvedCountry == "" || accountNeedsLocation(sql.NullString{String: country, Valid: country != ""}, sql.NullString{String: resolvedCountry, Valid: resolvedCountry != ""}, cachedInfo) {
+			if geo, ok := s.lookupHostLocation(r.Context(), host); ok {
+				resolvedCountry = getString(geo, "region")
+				cachedInfo = sql.NullString{String: mergeCachedInfo(cachedInfo, geo), Valid: true}
+			}
+		}
+	}
 	startsAt := getStringVal(req, "starts_at", raw.startsAt.String)
 	expiresAt := getStringVal(req, "expires_at", raw.expiresAt.String)
 	orderIndex := getIntVal(req, "order_index", raw.orderIndex)
@@ -1936,9 +2006,9 @@ func (s *Service) updateAccount(w http.ResponseWriter, r *http.Request, db *sql.
 
 	_, err = db.ExecContext(r.Context(), `
 		UPDATE server_accounts
-		SET name = ?, host = ?, port = ?, username = ?, auth_type = ?, password = ?, private_key = ?, passphrase = ?, tags = ?, description = ?, monitor_mode = ?, country = ?, resolved_country = ?, starts_at = ?, expires_at = ?, order_index = ?, updated_at = ?
+		SET name = ?, host = ?, port = ?, username = ?, auth_type = ?, password = ?, private_key = ?, passphrase = ?, tags = ?, description = ?, monitor_mode = ?, country = ?, resolved_country = ?, starts_at = ?, expires_at = ?, order_index = ?, cached_info = ?, updated_at = ?
 		WHERE id = ?`,
-		name, host, port, username, authType, password, privateKey, passphrase, tags, description, monitorMode, nullStr(country), nullStr(resolvedCountry), nullStr(startsAt), nullStr(expiresAt), orderIndex, now, id,
+		name, host, port, username, authType, password, privateKey, passphrase, tags, description, monitorMode, nullStr(country), nullStr(resolvedCountry), nullStr(startsAt), nullStr(expiresAt), orderIndex, nullStr(cachedInfo.String), now, id,
 	)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
@@ -2354,6 +2424,9 @@ func (s *Service) buildInfoField(metrics map[string]interface{}) map[string]inte
 	if i, ok := metrics["ip"].(string); ok {
 		ip = i
 	}
+	countryCode := firstNonEmpty(getString(metrics, "country_code"), getString(metrics, "country"))
+	resolvedCountry := firstNonEmpty(getString(metrics, "resolved_country"), countryCode)
+	location := firstNonEmpty(getString(metrics, "location"), getString(metrics, "region"), resolvedCountry)
 	uptime := ""
 	if u, ok := metrics["uptime"].(string); ok {
 		uptime = u
@@ -2385,16 +2458,20 @@ func (s *Service) buildInfoField(metrics map[string]interface{}) map[string]inte
 			"Used":  memUsed,
 			"Total": memTotal,
 		},
-		"disk":            diskArray,
-		"docker":          dockerVal,
-		"network":         networkVal,
-		"gpu":             buildGpuInfo(metrics),
-		"platform":        platform,
-		"platformVersion": platformVersion,
-		"agentVersion":    agentVersion,
-		"ip":              ip,
-		"uptime":          uptime,
-		"lastUpdate":      lastUpdate,
+		"disk":             diskArray,
+		"docker":           dockerVal,
+		"network":          networkVal,
+		"gpu":              buildGpuInfo(metrics),
+		"platform":         platform,
+		"platformVersion":  platformVersion,
+		"agentVersion":     agentVersion,
+		"ip":               ip,
+		"country_code":     countryCode,
+		"resolved_country": resolvedCountry,
+		"location":         location,
+		"region":           getString(metrics, "region"),
+		"uptime":           uptime,
+		"lastUpdate":       lastUpdate,
 	}
 }
 

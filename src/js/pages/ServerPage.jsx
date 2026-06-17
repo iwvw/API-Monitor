@@ -136,7 +136,7 @@ const HOST_COMPACT_COLUMN_IDS = HOST_COMPACT_COLUMNS.map(column => column.id);
 const HOST_COMPACT_COLUMN_WIDTHS = {
   status: 74,
   name: 112,
-  country: 80,
+  country: 112,
   uptime: 80,
   load: 80,
   speed: 236,
@@ -805,7 +805,24 @@ const getFlagCountry = (server) => {
   if (server.country && server.country !== 'auto') {
     return server.country;
   }
-  return server.resolved_country || server.country_code || server.info?.resolved_country || server.info?.country_code || '';
+  return server.country_code || server.info?.country_code || (/^[a-z]{2}$/i.test(server.resolved_country || '') ? server.resolved_country : '');
+};
+
+const getServerLocationText = (server) => {
+  if (server.country && server.country !== 'auto') {
+    return String(server.country).toUpperCase();
+  }
+  return (
+    server.location ||
+    server.region ||
+    server.resolved_country ||
+    server.info?.location ||
+    server.info?.region ||
+    server.info?.resolved_country ||
+    server.info?.country_code ||
+    server.country_code ||
+    ''
+  );
 };
 
 const getKumoToken = (tokenName, fallback) => {
@@ -5138,6 +5155,7 @@ function ServerPage() {
                     <Table.Body>
                       {filteredServers.map(server => {
                         const country = getFlagCountry(server);
+                        const locationText = getServerLocationText(server);
                         const isExpanded = expandedServers.includes(server.id);
                         const shouldRenderExpandedRow = isExpanded || renderedCompactExpandedServers.includes(server.id);
                         const isChartSeriesReady = chartSeriesReadyServers.includes(server.id);
@@ -5232,11 +5250,11 @@ function ServerPage() {
                               )}
                               {isCompactColumnVisible('country') && (
                                 <Table.Cell className="!px-2 !py-1.5 text-center whitespace-nowrap">
-                                  <div className="flex w-[64px] items-center justify-center gap-1.5">
-                                    {country ? (
+                                  <div className="flex w-[96px] items-center justify-center gap-1.5">
+                                    {locationText ? (
                                       <>
-                                        <CountryFlag preferSvg countryCode={country} className="h-3.5 w-5 shrink-0 !rounded-[2px] text-sm" />
-                                        <span className="font-semibold text-kumo-strong">{country.toUpperCase()}</span>
+                                        {country && <CountryFlag preferSvg countryCode={country} className="h-3.5 w-5 shrink-0 !rounded-[2px] text-sm" />}
+                                        <span className="truncate font-semibold text-kumo-strong" title={locationText}>{locationText}</span>
                                       </>
                                     ) : (
                                       <span className="font-semibold text-kumo-subtle">-</span>
@@ -5513,6 +5531,7 @@ function ServerPage() {
               ) : (
                 filteredServers.map(server => {
                 const country = getFlagCountry(server);
+                const locationText = getServerLocationText(server);
                 const isExpanded = expandedServers.includes(server.id);
                 const isChartSeriesReady = chartSeriesReadyServers.includes(server.id);
                 const isDarkMode = theme === 'dark';
@@ -5613,6 +5632,11 @@ function ServerPage() {
                                 {t}
                               </span>
                             ))}
+                            {locationText && (
+                              <span className="truncate text-[10px] font-semibold text-kumo-subtle" title={locationText}>
+                                {locationText}
+                              </span>
+                            )}
                           </div>
                         </div>
                       </div>

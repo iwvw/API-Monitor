@@ -384,17 +384,40 @@ func (s *Service) handleAgentHeartbeat(w http.ResponseWriter, r *http.Request, d
 	}
 
 	// 序列化 info 为 cached_info
+	if firstNonEmpty(
+		getString(req.Info, "resolved_country"),
+		getString(req.Info, "country_code"),
+		getString(req.Info, "location"),
+		getString(req.Info, "region"),
+	) == "" {
+		if ip := getString(req.Info, "ip"); ip != "" {
+			if geo, ok := s.lookupHostLocation(r.Context(), ip); ok {
+				for key, value := range geo {
+					req.Info[key] = value
+				}
+			}
+		}
+	}
+
 	cachedInfo, _ := json.Marshal(req.Info)
+	resolvedCountry := firstNonEmpty(
+		getString(req.Info, "resolved_country"),
+		getString(req.Info, "country_code"),
+		getString(req.Info, "country"),
+		getString(req.Info, "region"),
+		getString(req.Info, "location"),
+	)
 
 	_, err = db.ExecContext(r.Context(), `UPDATE server_accounts
 		SET status = ?,
 		    last_check_time = ?,
 		    last_check_status = 'success',
 		    response_time = ?,
+		    resolved_country = COALESCE(NULLIF(resolved_country, ''), ?),
 		    cached_info = ?,
 		    updated_at = ?
 		WHERE id = ?`,
-		status, now, responseTime, string(cachedInfo), now, req.ServerID)
+		status, now, responseTime, nullStr(resolvedCountry), string(cachedInfo), now, req.ServerID)
 
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
