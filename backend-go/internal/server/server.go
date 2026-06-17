@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -246,6 +247,10 @@ func (s *Server) serveStatic(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if s.tryServeAssetFallback(w, r) {
+		return
+	}
+
 	// 如果是根路径或没有文件扩展名（可能是 SPA 路由），返回 index.html
 	cleanPath := filepath.Clean(strings.TrimPrefix(r.URL.Path, "/"))
 	ext := filepath.Ext(cleanPath)
@@ -282,6 +287,33 @@ func (s *Server) tryServeFile(w http.ResponseWriter, r *http.Request, dir string
 	}
 
 	return false
+}
+
+func (s *Server) tryServeAssetFallback(w http.ResponseWriter, r *http.Request) bool {
+	if strings.TrimSpace(s.cfg.DistDir) == "" {
+		return false
+	}
+
+	cleanPath := filepath.Clean(strings.TrimPrefix(r.URL.Path, "/"))
+	switch cleanPath {
+	case "logo.svg":
+		matches, err := filepath.Glob(filepath.Join(s.cfg.DistDir, "assets", "logo-*.svg"))
+		if err != nil || len(matches) == 0 {
+			return false
+		}
+		http.ServeFile(w, r, matches[0])
+		return true
+	case "favicon.ico":
+		matches, err := filepath.Glob(filepath.Join(s.cfg.DistDir, "assets", "logo-*.svg"))
+		if err != nil || len(matches) == 0 {
+			return false
+		}
+		w.Header().Set("Cache-Control", "public, max-age=3600")
+		http.Redirect(w, r, fmt.Sprintf("/%s", filepath.ToSlash(filepath.Join("assets", filepath.Base(matches[0])))), http.StatusTemporaryRedirect)
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *Server) applySecurityHeaders(w http.ResponseWriter) {

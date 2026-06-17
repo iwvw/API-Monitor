@@ -149,6 +149,40 @@ func TestStaticRouteServesPublicAssets(t *testing.T) {
 	}
 }
 
+func TestStaticRouteFallsBackToHashedDistLogo(t *testing.T) {
+	distDir := t.TempDir()
+	assetsDir := filepath.Join(distDir, "assets")
+	if err := os.MkdirAll(assetsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(distDir, "index.html"), []byte("<!doctype html><div id=\"root\"></div>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(assetsDir, "logo-hash.svg"), []byte("<svg>hashed</svg>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	handler := newTestServer(t, config.Config{
+		Version: "test",
+		Host:    "127.0.0.1",
+		Port:    0,
+		DistDir: distDir,
+		DataDir: t.TempDir(),
+		DBName:  "data.db",
+	})
+	req := httptest.NewRequest(http.MethodGet, "/logo.svg", nil)
+	res := httptest.NewRecorder()
+
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", res.Code, http.StatusOK, res.Body.String())
+	}
+	if strings.TrimSpace(res.Body.String()) != "<svg>hashed</svg>" {
+		t.Fatalf("expected hashed dist logo body, got %q", res.Body.String())
+	}
+}
+
 func TestMigrationStatus(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/migration/status", nil)
 	res := httptest.NewRecorder()
