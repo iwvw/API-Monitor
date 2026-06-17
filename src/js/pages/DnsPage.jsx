@@ -1684,7 +1684,7 @@ function DnsPage() {
   const isDnsWorkspace = activeTab === 'dns' && selectedAccountId;
   const pageShellClassName = isDnsWorkspace
     ? 'dns-workspace flex h-[calc(100dvh-80px)] min-h-0 w-full max-w-full flex-col gap-3 overflow-hidden px-1 pb-1 sm:h-[calc(100dvh-88px)] lg:h-[calc(100dvh-92px)]'
-    : 'flex w-full flex-col gap-6 px-1';
+    : 'flex w-full flex-col gap-3 px-1';
   const renderResizeHead = (label, index, startResize, align = 'left') => {
     const alignClassName = {
       left: 'justify-start text-left',

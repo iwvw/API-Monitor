@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -197,6 +198,72 @@ func TestFrontendCompatibilityRoutes(t *testing.T) {
 	}
 }
 
+func TestNetworkQualityCollectAndReadback(t *testing.T) {
+	service, db := testService(t)
+	_, err := db.ExecContext(
+		context.Background(),
+		`INSERT INTO server_accounts (id, name, host, username, auth_type, cached_info) VALUES ('server-1', 'edge', '127.0.0.1', 'root', 'password', '{}')`,
+	)
+	if err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen tcp: %v", err)
+	}
+	defer listener.Close()
+	go func() {
+		for {
+			conn, acceptErr := listener.Accept()
+			if acceptErr != nil {
+				return
+			}
+			_ = conn.Close()
+		}
+	}()
+
+	_, err = db.ExecContext(context.Background(), `DELETE FROM server_network_quality_targets`)
+	if err != nil {
+		t.Fatalf("clear targets: %v", err)
+	}
+	_, err = db.ExecContext(
+		context.Background(),
+		`INSERT INTO server_network_quality_targets (id, name, host, port, type, enabled, order_index) VALUES (1, '本地', '127.0.0.1', ?, 'tcp', 1, 1)`,
+		listener.Addr().(*net.TCPAddr).Port,
+	)
+	if err != nil {
+		t.Fatalf("insert target: %v", err)
+	}
+
+	res := perform(service, http.MethodPost, "/api/server/network-quality/server-1/collect", "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("collect status=%d body=%s", res.Code, res.Body.String())
+	}
+	payload := decodePayload(t, res)
+	data := payload["data"].(map[string]interface{})
+	if toIntTest(data["sampleCount"]) < 1 {
+		t.Fatalf("expected sampleCount >= 1: %#v", data)
+	}
+	summary := data["summary"].([]interface{})
+	if len(summary) != 1 {
+		t.Fatalf("summary len=%d payload=%#v", len(summary), data)
+	}
+
+	res = perform(service, http.MethodGet, "/api/server/network-quality/server-1?days=1&maxPointsPerTarget=24", "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("get status=%d body=%s", res.Code, res.Body.String())
+	}
+	payload = decodePayload(t, res)
+	data = payload["data"].(map[string]interface{})
+	if toIntTest(data["sampleCount"]) < 1 {
+		t.Fatalf("expected readback sampleCount >= 1: %#v", data)
+	}
+	series := data["series"].([]interface{})
+	if len(series) != 1 {
+		t.Fatalf("series len=%d payload=%#v", len(series), data)
+	}
+}
+
 func TestPersistMetricsAcceptsCachedAgentInfoShape(t *testing.T) {
 	service, db := testService(t)
 	_, err := db.ExecContext(context.Background(), `INSERT INTO server_accounts (id, name, host, username, auth_type) VALUES ('server-agent', 'agent', '', 'root', 'password')`)
@@ -359,6 +426,18 @@ func TestAgentQuickInstallCreatesHostFromName(t *testing.T) {
 	if !strings.Contains(resWin.Body.String(), `$SERVER_URL = "http://189.1.217.109:3010"`) {
 		t.Fatalf("windows install script should use http server url: %s", resWin.Body.String())
 	}
+	if !strings.Contains(resWin.Body.String(), `$AGENT_PATH = "$INSTALL_DIR\api-monitor-agent.exe"`) {
+		t.Fatalf("windows install script should use a valid agent path: %s", resWin.Body.String())
+	}
+	if !strings.Contains(resWin.Body.String(), `$TEMP_AGENT_PATH = "$INSTALL_DIR\api-monitor-agent.exe.download"`) {
+		t.Fatalf("windows install script should use a temp download path: %s", resWin.Body.String())
+	}
+	if !strings.Contains(resWin.Body.String(), `Move-Item -Path $TEMP_AGENT_PATH -Destination $AGENT_PATH -Force`) {
+		t.Fatalf("windows install script should atomically replace the agent binary: %s", resWin.Body.String())
+	}
+	if strings.ContainsRune(resWin.Body.String(), '\a') {
+		t.Fatalf("windows install script should not contain bell characters: %q", resWin.Body.String())
+	}
 
 	res = perform(service, http.MethodPost, "/api/server/agent/quick-install", `{"name":"edge-agent"}`)
 	if res.Code != http.StatusOK {
@@ -421,6 +500,54 @@ func TestBuildCachedInfoKeepsFreshStateOverStaleMetadata(t *testing.T) {
 	}
 }
 
+func TestBuildCachedInfoPreservesHardwareModelsFromHostInfo(t *testing.T) {
+	service := &Service{}
+
+	cached := service.buildCachedInfo(
+		map[string]interface{}{
+			"cpu": float64(42),
+			"gpu": float64(30),
+		},
+		map[string]interface{}{
+			"cpu": []interface{}{"GenuineIntel Intel(R) Core(TM) i9-14900HX"},
+			"gpu": []interface{}{"NVIDIA GeForce RTX 4060 Laptop GPU"},
+		},
+	)
+
+	if cached["cpu_model"] != "GenuineIntel Intel(R) Core(TM) i9-14900HX" {
+		t.Fatalf("cpu_model = %#v", cached["cpu_model"])
+	}
+	if cached["gpu_model"] != "NVIDIA GeForce RTX 4060 Laptop GPU" {
+		t.Fatalf("gpu_model = %#v", cached["gpu_model"])
+	}
+}
+
+func TestBuildInfoFieldExtractsHardwareModelsFromHostInfoArrays(t *testing.T) {
+	service := &Service{}
+
+	info := service.buildInfoField(map[string]interface{}{
+		"cpu":           []interface{}{"GenuineIntel Intel(R) Core(TM) i9-14900HX"},
+		"gpu":           []interface{}{"NVIDIA GeForce RTX 4060 Laptop GPU"},
+		"agent_version": "0.1.6",
+	})
+
+	cpu := info["cpu"].(map[string]interface{})
+	if cpu["Model"] != "GenuineIntel Intel(R) Core(TM) i9-14900HX" {
+		t.Fatalf("cpu model = %#v", cpu["Model"])
+	}
+
+	gpus := info["gpu"].([]map[string]interface{})
+	if len(gpus) != 0 {
+		t.Fatalf("gpu trend payload count = %d", len(gpus))
+	}
+	if extractGPUModel(map[string]interface{}{"gpu": []interface{}{"NVIDIA GeForce RTX 4060 Laptop GPU"}}) != "NVIDIA GeForce RTX 4060 Laptop GPU" {
+		t.Fatalf("extractGPUModel failed")
+	}
+	if info["agentVersion"] != "0.1.6" {
+		t.Fatalf("agentVersion = %#v", info["agentVersion"])
+	}
+}
+
 func jsonNumber(n float64) string {
 	return strings.TrimSuffix(strings.TrimSuffix(jsonMarshal(n), ".0"), ".")
 }
@@ -428,4 +555,15 @@ func jsonNumber(n float64) string {
 func jsonMarshal(v interface{}) string {
 	b, _ := json.Marshal(v)
 	return string(b)
+}
+
+func toIntTest(value interface{}) int {
+	switch v := value.(type) {
+	case float64:
+		return int(v)
+	case int:
+		return v
+	default:
+		return 0
+	}
 }

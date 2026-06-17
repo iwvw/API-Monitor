@@ -26,6 +26,19 @@ import { formatUptime, formatFileSize, formatDateTime, maskAddress, parseSpeed }
 import { MODULE_TABS_PROPS, TOOL_TABS_PROPS } from '../modules/kumoTabs.js';
 import { canOpenTerminal, hasSshEndpoint, isAgentServer, resolveTerminalProtocol } from '../modules/serverTerminal.js';
 import { formatDockerContainerPorts } from '../modules/docker-format.js';
+import {
+  buildAgentInstallCommand,
+  buildAgentInstallEndpoint,
+  getAgentInstallExecutionHint,
+  isWindowsAgentInstallOs,
+} from '../modules/agentInstall.js';
+import {
+  areRealtimeValuesEqual,
+  mergePolledServerAccount,
+  mergeRealtimeDiskInfo,
+  resolveRealtimeMetricsCache,
+  reuseRealtimeValueIfEqual,
+} from '../modules/serverRealtime.js';
 import * as echarts from 'echarts/core';
 import { LineChart } from 'echarts/charts';
 import {
@@ -103,7 +116,7 @@ const HOST_COMPACT_COLUMNS = [
   { id: 'country', label: '位置' },
   { id: 'uptime', label: '在线' },
   { id: 'load', label: '负载' },
-  { id: 'speed', label: '【下行】 网速 【上行】' },
+  { id: 'speed', label: '【下行】网速【上行】' },
   { id: 'traffic', label: '【下载】 流量 【上传】' },
   { id: 'cpu', label: 'CPU' },
   { id: 'memory', label: '内存' },
@@ -159,8 +172,8 @@ const MANAGEMENT_CARD_ICON_CLASS = 'h-3.5 w-3.5 shrink-0 text-kumo-brand';
 const MANAGEMENT_CARD_BODY_CLASS = 'p-3';
 const SERVER_MODULE_TAB_ICON_CLASS = 'h-3.5 w-3.5 shrink-0';
 const COMPACT_EXPAND_EXIT_MS = 230;
-const SERVER_CHART_SERIES_DEFER_MS = 20;
-const SERVER_CHART_RENDER_DEFER_MS = 40;
+const SERVER_CHART_SERIES_DEFER_MS = 44;
+const SERVER_CHART_RENDER_DEFER_MS = 88;
 const SERVER_CHART_ANIMATION_MS = 90;
 const SERVER_CHART_UPDATE_ANIMATION_MS = 70;
 const SERVER_FAST_CHART_UPDATE_BEHAVIOR = { lazyUpdate: false };
@@ -180,8 +193,43 @@ const SERVER_STATIC_CHART_ANIMATION_OPTIONS = {
 const patchFastTimeseriesAnimation = (option, animationOptions = SERVER_FAST_CHART_ANIMATION_OPTIONS) => {
   if (!option || typeof option !== 'object' || Array.isArray(option)) return option;
 
+  const nextGrid = {
+    ...(option.grid && typeof option.grid === 'object' && !Array.isArray(option.grid) ? option.grid : {}),
+    top: 4,
+    right: 4,
+    bottom: 10,
+    left: 8,
+    containLabel: true,
+  };
+  const nextXAxis = {
+    ...(option.xAxis && typeof option.xAxis === 'object' && !Array.isArray(option.xAxis) ? option.xAxis : {}),
+    axisLabel: {
+      ...(option.xAxis?.axisLabel && typeof option.xAxis.axisLabel === 'object' ? option.xAxis.axisLabel : {}),
+      margin: 6,
+      hideOverlap: true,
+    },
+    axisTick: {
+      ...(option.xAxis?.axisTick && typeof option.xAxis.axisTick === 'object' ? option.xAxis.axisTick : {}),
+      show: false,
+    },
+  };
+  const nextYAxis = {
+    ...(option.yAxis && typeof option.yAxis === 'object' && !Array.isArray(option.yAxis) ? option.yAxis : {}),
+    axisLabel: {
+      ...(option.yAxis?.axisLabel && typeof option.yAxis.axisLabel === 'object' ? option.yAxis.axisLabel : {}),
+      margin: 6,
+    },
+    axisTick: {
+      ...(option.yAxis?.axisTick && typeof option.yAxis.axisTick === 'object' ? option.yAxis.axisTick : {}),
+      show: false,
+    },
+  };
+
   return {
     ...option,
+    grid: nextGrid,
+    xAxis: nextXAxis,
+    yAxis: nextYAxis,
     animation: animationOptions.animation === false ? false : option.animation === false ? false : true,
     animationDuration: animationOptions.animationDuration,
     animationDurationUpdate: animationOptions.animationDurationUpdate,
@@ -246,7 +294,7 @@ const getInitialCompactVisibleColumns = () => {
   }
 };
 
-// OS 平台图标及颜色计算
+
 const getOSIconClass = (platform) => {
   const baseClass = 'shrink-0 text-base leading-none';
   if (!platform) return `fas fa-server ${baseClass} text-kumo-subtle`;
@@ -265,7 +313,7 @@ const getOSIconClass = (platform) => {
   return `si si-linux si--color ${baseClass}`;
 };
 
-function CompactMetricBar({ label, value, valueClassName, barClassName, color, width = '0%' }) {
+function CompactMetricBarComponent({ label, value, valueClassName, barClassName, color, width = '0%' }) {
   return (
     <div className="flex min-w-0 flex-col gap-1 rounded-md border border-kumo-line/70 bg-kumo-recessed/25 px-2 py-1 sm:w-14 sm:border-0 sm:bg-transparent sm:px-0 sm:py-0">
       <div className="flex min-w-0 items-center justify-between gap-1">
@@ -279,7 +327,16 @@ function CompactMetricBar({ label, value, valueClassName, barClassName, color, w
   );
 }
 
-function DenseUsageMeter({ label, value, detail, indicatorClassName = '!bg-none !bg-kumo-brand' }) {
+const CompactMetricBar = React.memo(CompactMetricBarComponent, (prev, next) => (
+  prev.label === next.label
+  && prev.value === next.value
+  && prev.valueClassName === next.valueClassName
+  && prev.barClassName === next.barClassName
+  && prev.color === next.color
+  && prev.width === next.width
+));
+
+function DenseUsageMeterComponent({ label, value, detail, indicatorClassName = '!bg-none !bg-kumo-brand' }) {
   const percent = clampPercent(toNumber(value, 0));
   return (
     <div className={`flex h-8 min-w-[96px] w-full items-center rounded-md bg-kumo-recessed/45 px-1.5 ${COMPACT_INLINE_BOX_CLASS}`}>
@@ -297,7 +354,14 @@ function DenseUsageMeter({ label, value, detail, indicatorClassName = '!bg-none 
   );
 }
 
-function DenseLifecycleMeter({ lifecycle }) {
+const DenseUsageMeter = React.memo(DenseUsageMeterComponent, (prev, next) => (
+  prev.label === next.label
+  && prev.value === next.value
+  && prev.detail === next.detail
+  && prev.indicatorClassName === next.indicatorClassName
+));
+
+function DenseLifecycleMeterComponent({ lifecycle }) {
   return (
     <DenseUsageMeter
       label="剩余"
@@ -307,6 +371,12 @@ function DenseLifecycleMeter({ lifecycle }) {
     />
   );
 }
+
+const DenseLifecycleMeter = React.memo(DenseLifecycleMeterComponent, (prev, next) => (
+  prev.lifecycle?.remainingPercent === next.lifecycle?.remainingPercent
+  && prev.lifecycle?.label === next.lifecycle?.label
+  && prev.lifecycle?.indicatorClassName === next.lifecycle?.indicatorClassName
+));
 
 const getFlowUnitClassName = (unit) => {
   const normalized = String(unit || 'B').toUpperCase();
@@ -384,7 +454,7 @@ const EXPANDED_VALUE_TONES = {
 
 function ExpandedSection({ title, tone = 'brand', action, className = '', children }) {
   return (
-    <section className={`min-w-0 overflow-hidden app-card p-2.5 ${className}`}>
+    <section className={`min-w-0 overflow-hidden app-card p-1.5 ${className}`}>
       <div className="mb-2 flex min-w-0 items-center justify-between gap-2">
         <h4 className="flex min-w-0 items-center gap-1.5 text-xs font-bold text-kumo-strong">
           <span className={`h-3 w-1 shrink-0 rounded-full ${EXPANDED_SECTION_ACCENTS[tone] || EXPANDED_SECTION_ACCENTS.brand}`}></span>
@@ -397,7 +467,7 @@ function ExpandedSection({ title, tone = 'brand', action, className = '', childr
   );
 }
 
-function ExpandedProgressMetric({
+function ExpandedProgressMetricComponent({
   label,
   value,
   detail,
@@ -428,17 +498,44 @@ function ExpandedProgressMetric({
   );
 }
 
-function ExpandedInfoChip({ label, value, className = '', valueClassName = 'text-kumo-strong' }) {
+const ExpandedProgressMetric = React.memo(ExpandedProgressMetricComponent, (prev, next) => (
+  prev.label === next.label
+  && prev.value === next.value
+  && prev.detail === next.detail
+  && prev.caption === next.caption
+  && prev.indicatorClassName === next.indicatorClassName
+  && prev.valueClassName === next.valueClassName
+));
+
+function ExpandedInfoChipComponent({ label, value, className = '', valueClassName = 'text-kumo-strong' }) {
   const displayValue = value === 0 ? 0 : (value || '-');
   return (
-    <div className={`flex min-h-8 min-w-0 items-center justify-between gap-2 rounded-md border border-kumo-line/70 bg-kumo-recessed/20 px-2 text-[11px] ${className}`}>
+    <div className={`flex min-h-8.5 min-w-0 items-center justify-between gap-2.5 rounded-md border border-kumo-line/70 bg-kumo-recessed/20 px-2.5 py-1 text-[11px] ${className}`}>
       <span className="shrink-0 font-medium text-kumo-subtle">{label}</span>
       <span className={`min-w-0 truncate text-right font-semibold tabular-nums ${valueClassName}`} title={String(displayValue)}>{displayValue}</span>
     </div>
   );
 }
 
-function ExpandedStatTile({ label, value, caption, tone = 'default', className = '' }) {
+const ExpandedInfoChip = React.memo(ExpandedInfoChipComponent, (prev, next) => (
+  prev.label === next.label
+  && prev.value === next.value
+  && prev.className === next.className
+  && prev.valueClassName === next.valueClassName
+));
+
+const getSystemOverviewChipClassName = (kind = 'default') => {
+  switch (kind) {
+    case 'wide':
+      return 'sm:col-span-2 xl:col-span-3';
+    case 'medium':
+      return 'sm:col-span-2';
+    default:
+      return '';
+  }
+};
+
+function ExpandedStatTileComponent({ label, value, caption, tone = 'default', className = '' }) {
   const displayValue = value === 0 ? 0 : (value || '-');
   return (
     <div className={`min-w-0 rounded-md border border-kumo-line/70 bg-kumo-recessed/20 px-2.5 py-2 ${className}`}>
@@ -455,13 +552,30 @@ function ExpandedStatTile({ label, value, caption, tone = 'default', className =
   );
 }
 
+const ExpandedStatTile = React.memo(ExpandedStatTileComponent, (prev, next) => (
+  prev.label === next.label
+  && prev.value === next.value
+  && prev.caption === next.caption
+  && prev.tone === next.tone
+  && prev.className === next.className
+));
+
+function TrendSeriesLabel({ name, color }) {
+  return (
+    <span className="inline-flex min-w-0 items-center gap-1.5 text-[11px] font-medium leading-none text-kumo-subtle">
+      <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: color }}></span>
+      <span className="truncate">{name}</span>
+    </span>
+  );
+}
+
 function ExpandedTrendChartCard({ title, tone = 'brand', legend, compact = false, className = '', children }) {
   const accentClassName = EXPANDED_SECTION_ACCENTS[tone] || EXPANDED_SECTION_ACCENTS.brand;
-  const headerHeightClassName = compact ? 'min-h-8' : 'min-h-9';
+  const headerHeightClassName = compact ? 'min-h-2' : 'min-h-2';
   const legendGapClassName = compact ? 'gap-x-2 gap-y-0.5' : 'gap-x-2.5 gap-y-0.5';
 
   return (
-    <ChartBoundaryBox className={`min-w-0 overflow-hidden app-card ${compact ? 'app-card-md' : ''} p-2.5 h-full ${className}`}>
+    <ChartBoundaryBox className={`min-w-0 overflow-hidden app-card ${compact ? 'app-card-md' : ''} p-1.5 h-full ${className}`}>
       {(tooltipBoundary) => (
         <div className="flex h-full min-w-0 flex-col">
           <div className={`grid min-w-0 grid-cols-[minmax(0,max-content)_minmax(0,1fr)] items-center gap-2 overflow-hidden ${headerHeightClassName}`}>
@@ -477,7 +591,7 @@ function ExpandedTrendChartCard({ title, tone = 'brand', legend, compact = false
               </div>
             )}
           </div>
-          <div className="mt-2 min-w-0 shrink-0">
+          <div className="mt-1 min-w-0 shrink-0">
             {typeof children === 'function' ? children(tooltipBoundary) : children}
           </div>
         </div>
@@ -485,6 +599,18 @@ function ExpandedTrendChartCard({ title, tone = 'brand', legend, compact = false
     </ChartBoundaryBox>
   );
 }
+
+const getExpandedInfoGridClassName = (dense = false) => (
+  `grid min-w-0 grid-cols-1 ${dense ? 'gap-1.5' : 'gap-2'} lg:grid-cols-2`
+);
+
+const getExpandedTrendGridClassName = (compact = false, dense = false) => (
+  `grid min-w-0 grid-cols-1 ${compact || dense ? 'gap-1.5' : 'gap-2'} lg:grid-cols-2`
+);
+
+const getExpandedCardSpanClassName = (index, total) => (
+  index === total - 1 && total % 2 === 1 ? 'h-full lg:col-span-2' : 'h-full'
+);
 
 function NetworkQualityPanel({
   serverName,
@@ -501,12 +627,13 @@ function NetworkQualityPanel({
   compact = false,
 }) {
   const summary = Array.isArray(quality.summary) ? quality.summary : [];
+  const networkQualityBodyHeight = chartHeight;
 
   return (
-    <ChartBoundaryBox className={`min-w-0 overflow-hidden app-card p-2.5 ${className}`}>
+    <ChartBoundaryBox className={`min-w-0 overflow-hidden app-card p-1.5 ${className}`}>
       {(tooltipBoundary) => (
         <div className="flex min-w-0 flex-col gap-2">
-          <div className={`flex min-w-0 flex-wrap items-center justify-between gap-2 ${compact ? 'min-h-8' : ''}`}>
+          <div className={`flex min-w-0 flex-wrap items-center justify-between gap-2 ${compact ? 'min-h-2' : ''}`}>
             <h4 className="flex min-w-0 items-center gap-1.5 text-xs font-bold text-kumo-strong">
               <span className="h-3 w-1 shrink-0 rounded-full bg-kumo-brand"></span>
               <span className="truncate">网络波动 24h</span>
@@ -541,7 +668,7 @@ function NetworkQualityPanel({
           )}
 
           {quality.loading && !hasData ? (
-            <ChartWarmupSkeleton height={chartHeight} bars={3} />
+            <ChartWarmupSkeleton height={networkQualityBodyHeight} bars={3} />
           ) : (
             <>
               {summary.length > 0 && (
@@ -585,7 +712,7 @@ function NetworkQualityPanel({
               ) : (
                 <div
                   className="flex items-center justify-center rounded-md border border-kumo-line/70 bg-kumo-recessed/20 px-3 text-center text-xs font-medium text-kumo-subtle"
-                  style={{ minHeight: Math.max(64, Math.min(chartHeight, 96)) }}
+                  style={{ height: networkQualityBodyHeight }}
                 >
                   {unsupported ? '当前 Agent 版本暂不支持，升级后显示 24h 网络波动' : '暂无 24h 网络质量采样'}
                 </div>
@@ -599,27 +726,10 @@ function NetworkQualityPanel({
 }
 
 function CompactExpandedRow({ open, colSpan, children }) {
-  const [panelOpen, setPanelOpen] = useState(false);
-
-  useEffect(() => {
-    if (!open) {
-      setPanelOpen(false);
-      return undefined;
-    }
-
-    if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
-      setPanelOpen(true);
-      return undefined;
-    }
-
-    const frame = window.requestAnimationFrame(() => setPanelOpen(true));
-    return () => window.cancelAnimationFrame(frame);
-  }, [open]);
-
   return (
     <Table.Row className="border-b border-kumo-line/80 bg-kumo-canvas/45">
       <Table.Cell colSpan={colSpan} className="!p-0">
-        <AnimatedCollapse open={panelOpen} keepMounted>
+        <AnimatedCollapse open={open} keepMounted>
           {children}
         </AnimatedCollapse>
       </Table.Cell>
@@ -729,6 +839,7 @@ const SERVER_CHART_COALESCE_WINDOW_MS = 500;
 const SERVER_NETWORK_QUALITY_MAX_POINTS = 240;
 const SERVER_CHART_JITTER_TOLERANCE_MS = 650;
 const SERVER_CHART_STALE_GAP_MS = SERVER_REALTIME_SAMPLE_INTERVAL_MS * 3;
+const SERVER_EXPAND_INTERACTION_GUARD_MS = 420;
 const EMPTY_METRIC_RECORDS = Object.freeze([]);
 const serverMetricsHistoryCache = new Map();
 const serverMetricDisplayCache = new Map();
@@ -744,21 +855,7 @@ const getMetricsSocketUrl = () => {
   return '/metrics';
 };
 
-const areServerValuesEqual = (a, b) => {
-  if (Object.is(a, b)) return true;
-  if (a === null || b === null || a === undefined || b === undefined) return false;
-  if (typeof a !== 'object' || typeof b !== 'object') return false;
-
-  if (Array.isArray(a) || Array.isArray(b)) {
-    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false;
-    return a.every((item, index) => areServerValuesEqual(item, b[index]));
-  }
-
-  const aKeys = Object.keys(a);
-  const bKeys = Object.keys(b);
-  if (aKeys.length !== bKeys.length) return false;
-  return aKeys.every(key => Object.prototype.hasOwnProperty.call(b, key) && areServerValuesEqual(a[key], b[key]));
-};
+const areServerValuesEqual = areRealtimeValuesEqual;
 
 const areServerSnapshotsEqual = (a, b) => {
   if (a === b) return true;
@@ -1249,6 +1346,25 @@ const getByteParts = (value) => {
   };
 };
 
+const EMPTY_SERIES = [];
+const EMPTY_SERVER_METRIC_DISPLAY = {
+  records: EMPTY_METRIC_RECORDS,
+  chartRecords: EMPTY_METRIC_RECORDS,
+  cpuColor: '',
+  memColor: '',
+  cpuTempColor: '',
+  gpuColor: '',
+  vramColor: '',
+  powerColor: '',
+  gpuTempColor: '',
+  diskColor: '',
+  txColor: '',
+  rxColor: '',
+  cpuMemSeries: EMPTY_SERIES,
+  gpuSeries: EMPTY_SERIES,
+  netSeries: EMPTY_SERIES,
+};
+
 const getServerMetricDisplay = (serverId, metricsSource, isExpanded, isDarkMode) => {
   const id = String(serverId || '');
   const source = Array.isArray(metricsSource) ? metricsSource : EMPTY_METRIC_RECORDS;
@@ -1260,6 +1376,34 @@ const getServerMetricDisplay = (serverId, metricsSource, isExpanded, isDarkMode)
     cached.isDarkMode === isDarkMode
   ) {
     return cached.value;
+  }
+
+  if (!isExpanded) {
+    const value = {
+      ...EMPTY_SERVER_METRIC_DISPLAY,
+      records: normalizeMetricRecords(source),
+      cpuColor: ChartPalette.semantic('Success', isDarkMode),
+      memColor: ChartPalette.categorical(0, isDarkMode),
+      cpuTempColor: ChartPalette.semantic('Attention', isDarkMode),
+      gpuColor: ChartPalette.categorical(1, isDarkMode),
+      vramColor: ChartPalette.categorical(3, isDarkMode),
+      powerColor: ChartPalette.categorical(4, isDarkMode),
+      gpuTempColor: ChartPalette.semantic('Attention', isDarkMode),
+      diskColor: ChartPalette.semantic('Warning', isDarkMode),
+      txColor: ChartPalette.categorical(0, isDarkMode),
+      rxColor: ChartPalette.semantic('Success', isDarkMode),
+    };
+    serverMetricDisplayCache.set(id, {
+      source,
+      isExpanded,
+      isDarkMode,
+      value,
+    });
+    if (serverMetricDisplayCache.size > 300) {
+      const firstKey = serverMetricDisplayCache.keys().next().value;
+      serverMetricDisplayCache.delete(firstKey);
+    }
+    return value;
   }
 
   const records = normalizeMetricRecords(source);
@@ -1352,6 +1496,26 @@ const getServerMonitorModeLabel = (server = {}) => {
   return '-';
 };
 
+const getGpuModelText = (gpu) => {
+  if (!gpu) return '';
+  if (typeof gpu === 'string') return gpu;
+  if (Array.isArray(gpu)) {
+    const names = gpu
+      .map(item => {
+        if (!item) return '';
+        if (typeof item === 'string') return item;
+        if (typeof item === 'object') return item.Model || item.model || item.name || item.Name || '';
+        return '';
+      })
+      .filter(Boolean);
+    return names.join(' / ');
+  }
+  if (typeof gpu === 'object') {
+    return gpu.Model || gpu.model || gpu.name || gpu.Name || '';
+  }
+  return '';
+};
+
 const formatResponseTime = (value) => {
   const ms = toNumber(value, NaN);
   return Number.isFinite(ms) && ms > 0 ? `${Math.round(ms)}ms` : '-';
@@ -1410,13 +1574,29 @@ const buildNetworkQualitySeries = (quality, isDarkMode) => {
       : index === 1
         ? ChartPalette.semantic('Success', isDarkMode)
         : index === 2
-          ? ChartPalette.semantic('Warning', isDarkMode)
-          : ChartPalette.categorical(index + 2, isDarkMode),
-    data: (target.points || [])
-      .map(point => [
-        new Date(point.checked_at).getTime(),
-        point.latency_ms === null || point.latency_ms === undefined ? null : toNumber(point.latency_ms, null),
-      ])
+        ? ChartPalette.semantic('Warning', isDarkMode)
+        : ChartPalette.categorical(index + 2, isDarkMode),
+    data: (Array.isArray(target.data) ? target.data : (target.points || []))
+      .map(point => {
+        if (Array.isArray(point)) {
+          return [
+            toNumber(point[0], NaN),
+            point[1] === null || point[1] === undefined ? null : toNumber(point[1], null),
+          ];
+        }
+
+        if (point && typeof point === 'object' && ('timestamp' in point || 'value' in point)) {
+          return [
+            toNumber(point.timestamp, NaN),
+            point.value === null || point.value === undefined ? null : toNumber(point.value, null),
+          ];
+        }
+
+        return [
+          new Date(point?.checked_at).getTime(),
+          point?.latency_ms === null || point?.latency_ms === undefined ? null : toNumber(point.latency_ms, null),
+        ];
+      })
       .filter(point => Number.isFinite(point[0])),
   }));
 };
@@ -1618,17 +1798,18 @@ const getDockerStatNetIo = (stat = {}) => stat.net_io || stat.NetIO || '-';
 
 const getDockerStatBlockIo = (stat = {}) => stat.block_io || stat.BlockIO || '-';
 
-// ==================== 主 React 组件 ====================
+
 function ServerPage() {
   const { setMainActiveTab, theme, publicApiUrl } = useStore();
   const isCompactViewport = useMediaQuery('(max-width: 640px)');
-  const expandedMainChartHeight = isCompactViewport ? 92 : 112;
-  const expandedSubChartHeight = isCompactViewport ? 78 : 88;
-  const expandedTrendChartHeight = isCompactViewport ? 104 : 120;
-  const compactExpandedChartHeight = isCompactViewport ? 104 : 122;
-  const compactNetworkQualityChartHeight = isCompactViewport ? 110 : 130;
-  const networkQualityChartHeight = isCompactViewport ? 118 : 148;
-  const expandedChartXAxisTickCount = isCompactViewport ? 3 : 5;
+  const isDenseViewport = useMediaQuery('(max-width: 1120px)');
+  const expandedMainChartHeight = isCompactViewport ? 88 : isDenseViewport ? 100 : 112;
+  const expandedSubChartHeight = isCompactViewport ? 72 : isDenseViewport ? 80 : 88;
+  const expandedTrendChartHeight = isCompactViewport ? 96 : isDenseViewport ? 108 : 120;
+  const compactExpandedChartHeight = isCompactViewport ? 96 : isDenseViewport ? 112 : 122;
+  const compactNetworkQualityChartHeight = isCompactViewport ? 104 : isDenseViewport ? 118 : 130;
+  const networkQualityChartHeight = isCompactViewport ? 108 : isDenseViewport ? 132 : 148;
+  const expandedChartXAxisTickCount = isCompactViewport ? 3 : isDenseViewport ? 4 : 5;
   const expandedChartYAxisTickCount = isCompactViewport ? 3 : 4;
   const compactExpandedYAxisTickCount = 3;
   const expandedChartXAxisTickFormat = isCompactViewport ? formatCompactChartTime : formatChartTime;
@@ -1638,7 +1819,7 @@ function ServerPage() {
   const fastTimeseriesEcharts = useMemo(() => createFastTimeseriesEcharts(echarts), []);
   const staticTimeseriesEcharts = useMemo(() => createFastTimeseriesEcharts(echarts, SERVER_STATIC_CHART_ANIMATION_OPTIONS), []);
   
-  // 核心标签页状态
+
   const [serverCurrentTab, setServerCurrentTab] = useState('list'); // 'list', 'history', 'docker', 'management', 'terminal'
   
   // 主机列表状态
@@ -1682,7 +1863,7 @@ function ServerPage() {
   const [serverModalSaving, setServerModalSaving] = useState(false);
   const [serverModalError, setServerModalError] = useState('');
   
-  // 快速部署 (Agent) 模式
+
   const [serverAddMode, setServerAddMode] = useState('ssh'); // 'ssh' | 'agent'
   const [quickDeployName, setQuickDeployName] = useState('');
   const [quickDeployResult, setQuickDeployResult] = useState(null);
@@ -1771,10 +1952,8 @@ function ServerPage() {
   const [dropHint, setDropHint] = useState('');
   const [dropTargetId, setDropTargetId] = useState(null);
   
-  // 终端侧边栏控制
-  const [showSftpSidebar, setShowSftpSidebar] = useState(false);
-  const [showSnippetsSidebar, setShowSnippetsSidebar] = useState(false);
-  const [showServerStatusSidebar, setShowServerStatusSidebar] = useState(false);
+  
+  const [activeTerminalSidebar, setActiveTerminalSidebar] = useState(null);
   const [sshIdeFullscreen, setSshIdeFullscreen] = useState(false);
   
   // SFTP 状态
@@ -1810,6 +1989,7 @@ function ServerPage() {
   const networkQualityRequestRef = useRef(new Set());
   const serverStatusByIdRef = useRef(new Map());
   const expandedServersRef = useRef([]);
+  const expandInteractionUntilRef = useRef(new Map());
   const visibleSessionIdsRef = useRef([]);
   const sshSyncEnabledRef = useRef(false);
   const sftpPathByServerRef = useRef({});
@@ -1820,6 +2000,9 @@ function ServerPage() {
   const [networksColWidths, startNetworksResize] = useTableResize([180, 180, 120, 120, 150, 100]);
   const [volumesColWidths, startVolumesResize] = useTableResize([240, 140, 120, 150, 100]);
   const [statsColWidths, startStatsResize] = useTableResize([180, 120, 160, 120, 120, 150]);
+  const showServerStatusSidebar = activeTerminalSidebar === 'status';
+  const showSftpSidebar = activeTerminalSidebar === 'sftp';
+  const showCommandSidebar = activeTerminalSidebar === 'commands';
 
   useEffect(() => {
     visibleSessionIdsRef.current = visibleSessionIds;
@@ -1847,6 +2030,22 @@ function ServerPage() {
 
     return () => clearTimeout(timeout);
   }, [expandedServers]);
+
+  useEffect(() => {
+    if (expandInteractionUntilRef.current.size === 0) return undefined;
+    const timer = window.setInterval(() => {
+      const now = Date.now();
+      let changed = false;
+      expandInteractionUntilRef.current.forEach((until, serverId) => {
+        if (until > now) return;
+        expandInteractionUntilRef.current.delete(serverId);
+        changed = true;
+      });
+      if (!changed) return;
+    }, 250);
+
+    return () => window.clearInterval(timer);
+  }, []);
 
   useEffect(() => {
     setChartSeriesReadyServers(prev => prev.filter(id => expandedServers.includes(id)));
@@ -1893,7 +2092,7 @@ function ServerPage() {
     sshSyncEnabledRef.current = sshSyncEnabled;
   }, [sshSyncEnabled]);
   
-  // -------------------- 核心周期初始化 --------------------
+  // 终端持久化实例仓库与 WebSocket 连接引用
   
   useEffect(() => {
     loadServerList();
@@ -1906,7 +2105,7 @@ function ServerPage() {
     }, SERVER_STATUS_SYNC_INTERVAL_MS);
     
     return () => {
-      // 清理 WebSocket 与 SSE
+
       clearTimeout(connectTimer);
       clearInterval(serverListSyncTimer);
       if (socketRef.current) {
@@ -1924,7 +2123,7 @@ function ServerPage() {
       pendingMetricUpdatesRef.current = [];
       Object.values(terminalResizeTimers.current).forEach(timer => clearTimeout(timer));
       terminalResizeTimers.current = {};
-      // 销毁所有终端实例
+
       Object.keys(sshSessionRefs.current).forEach(id => {
         const session = sshSessionRefs.current[id];
         if (session.heartbeatInterval) clearInterval(session.heartbeatInterval);
@@ -1936,7 +2135,7 @@ function ServerPage() {
     };
   }, []);
   
-  // 同步主 store 中 serverList 状态，便于 dashboard 使用
+
   useEffect(() => {
     useStore.setState({ serverList });
   }, [serverList]);
@@ -1996,18 +2195,10 @@ function ServerPage() {
           const updated = accounts.map(server => {
             const existing = prevMap.get(server.id);
             const cachedMetrics = existing?.metricsCache || getCachedServerMetricHistory(server.id);
-            const next = {
-              ...server,
-              info: server.info || existing?.info || null,
-              metricsCache: cachedMetrics || null,
-              metricsLoading: existing?.metricsLoading || false,
-              gpuChartVisible: existing?.gpuChartVisible || false,
-              gpuLoading: existing?.gpuLoading || false,
-              netChartVisible: existing?.netChartVisible || false,
-              netLoading: existing?.netLoading || false,
-              error: existing?.error || null,
-              loading: existing?.loading || false
-            };
+            const next = mergePolledServerAccount(existing, server, {
+              silent,
+              cachedMetrics: cachedMetrics || null,
+            });
             if (existing && areServerSnapshotsEqual(existing, next)) {
               return existing;
             }
@@ -2109,7 +2300,7 @@ function ServerPage() {
     });
   };
   
-  // Socket.IO 推送实时指标
+  
   const connectMetricsStream = () => {
     try {
       const socket = io(getMetricsSocketUrl(), {
@@ -2206,9 +2397,11 @@ function ServerPage() {
           [historyRecord]
         );
         
-        // 高频 Agent 上报只刷新缓存；UI 渲染按较低频率合并，避免 ECharts 和整页重复重绘。
+  
         const lastUpdate = server.lastMetricUpdateTime || 0;
         const isExpanded = expandedServersRef.current.includes(server.id);
+        const interactionGuardUntil = expandInteractionUntilRef.current.get(String(server.id)) || 0;
+        const inExpandInteractionGuard = interactionGuardUntil > now;
         if (lastUpdate > 0 && (now - lastUpdate) < SERVER_METRIC_MIN_RENDER_INTERVAL_MS) {
           if (!isExpanded) return server;
           if ((now - lastUpdate) < SERVER_REALTIME_SAMPLE_INTERVAL_MS) return server;
@@ -2222,29 +2415,31 @@ function ServerPage() {
           [historyRecord]
         );
 
-        const info = server.info ? { ...server.info } : {
+        const previousInfo = server.info || {
           cpu: { Load: '-', Usage: '0%', Cores: '-' },
           memory: { Used: '-', Total: '-', Usage: '0%' },
           disk: [{ device: '/', used: '-', total: '-', usage: '0%' }],
           network: { connections: 0, rx_speed: '0 B/s', tx_speed: '0 B/s', rx_total: '0 B', tx_total: '0 B' },
           docker: { installed: false, containers: [] }
         };
+        const info = { ...previousInfo };
         
         // CPU
-        const logicalCores = parseInt(metrics.logical_cores) || parseInt(metrics.cores) || parseInt(info.cpu?.LogicalCores) || parseInt(info.cpu?.Cores) || 0;
-        const physicalCores = parseInt(metrics.physical_cores) || parseInt(info.cpu?.PhysicalCores) || logicalCores || 0;
+        const logicalCores = parseInt(metrics.logical_cores) || parseInt(metrics.cores) || parseInt(previousInfo.cpu?.LogicalCores) || parseInt(previousInfo.cpu?.Cores) || 0;
+        const physicalCores = parseInt(metrics.physical_cores) || parseInt(previousInfo.cpu?.PhysicalCores) || logicalCores || 0;
         const metricCpu = metrics.cpu && typeof metrics.cpu === 'object' ? metrics.cpu : {};
-        const existingCpu = info.cpu && typeof info.cpu === 'object' ? info.cpu : {};
+        const existingCpu = previousInfo.cpu && typeof previousInfo.cpu === 'object' ? previousInfo.cpu : {};
         const resolvedCpuTemp = getCpuTemp({ ...metrics, cpu: { ...existingCpu, ...metricCpu } });
-        info.cpu = {
+        info.cpu = reuseRealtimeValueIfEqual(previousInfo.cpu, {
+          Model: metrics.cpu_model || metricCpu.Model || existingCpu.Model || '',
           Load: metrics.load || '-',
           Usage: metrics.cpu_usage || '0%',
-          Cores: logicalCores || info.cpu.Cores || '-',
-          LogicalCores: logicalCores || info.cpu?.LogicalCores || info.cpu?.Cores || '-',
-          PhysicalCores: physicalCores || info.cpu?.PhysicalCores || info.cpu?.Cores || '-',
-          Temp: resolvedCpuTemp > 0 ? resolvedCpuTemp : (info.cpu?.Temp || 0),
-          Power: metrics.cpu_power || metrics.cpu_power_w || info.cpu?.Power || ''
-        };
+          Cores: logicalCores || previousInfo.cpu?.Cores || '-',
+          LogicalCores: logicalCores || previousInfo.cpu?.LogicalCores || previousInfo.cpu?.Cores || '-',
+          PhysicalCores: physicalCores || previousInfo.cpu?.PhysicalCores || previousInfo.cpu?.Cores || '-',
+          Temp: resolvedCpuTemp > 0 ? resolvedCpuTemp : (previousInfo.cpu?.Temp || 0),
+          Power: metrics.cpu_power || metrics.cpu_power_w || previousInfo.cpu?.Power || ''
+        });
         
         // Memory
         if (metrics.mem_usage) {
@@ -2252,43 +2447,24 @@ function ServerPage() {
           if (memMatch) {
             const used = parseInt(memMatch[1]);
             const total = parseInt(memMatch[2]);
-            info.memory = {
+            info.memory = reuseRealtimeValueIfEqual(previousInfo.memory, {
               Used: used + ' MB',
               Total: total + ' MB',
               Usage: Math.round((used / total) * 100) + '%'
-            };
+            });
           }
         }
         
         // Disk
         if (metrics.disk_usage !== undefined && metrics.disk_usage !== null) {
-          const diskUsageText = String(metrics.disk_usage);
-          const diskMatch = diskUsageText.match(/(.+?)\/(.+?)\s*\((\d+%?)\)/);
-          if (!info.disk || !Array.isArray(info.disk)) info.disk = [{}];
-          if (diskMatch) {
-            info.disk[0] = {
-              device: '/',
-              used: diskMatch[1].trim(),
-              total: diskMatch[2].trim(),
-              usage: diskMatch[3]
-            };
-          } else {
-            const diskPercent = toNumber(metrics.disk_usage, NaN);
-            if (Number.isFinite(diskPercent)) {
-              info.disk[0] = {
-                ...info.disk[0],
-                device: info.disk[0]?.device || '/',
-                used: metrics.disk_used || info.disk[0]?.used || '-',
-                total: metrics.disk_total || info.disk[0]?.total || '-',
-                usage: `${Math.round(diskPercent)}%`
-              };
-            }
-          }
+          info.disk = mergeRealtimeDiskInfo(previousInfo.disk, metrics);
+        } else {
+          info.disk = previousInfo.disk;
         }
         
         // Network
         if (metrics.network) {
-          info.network = { ...info.network, ...metrics.network };
+          info.network = reuseRealtimeValueIfEqual(previousInfo.network, { ...previousInfo.network, ...metrics.network });
         }
         
         // GPU
@@ -2313,39 +2489,50 @@ function ServerPage() {
                   ? getGpuMemPercent(metrics)
                   : existingGpu.Percent
               );
-          info.gpu = {
+          info.gpu = reuseRealtimeValueIfEqual(previousInfo.gpu, {
             Model: pushedGpu.Model || metrics.gpu_model || existingGpu.Model || '',
             Usage: pushedGpu.Usage || metrics.gpu_usage || pushedGpuUsage || existingGpu.Usage || '0%',
             Memory: pushedGpu.Memory || metrics.gpu_mem || existingGpu.Memory || '',
             Power: pushedGpu.Power || metrics.gpu_power || existingGpu.Power || '',
             Temp: pushedGpu.Temp !== undefined ? pushedGpu.Temp : (metrics.gpu_temp !== undefined ? metrics.gpu_temp : (existingGpu.Temp || 0)),
             Percent: pushedGpuPercent !== undefined ? pushedGpuPercent : 0,
-          };
+          });
         }
         
         // Docker
         if (metrics.docker) {
-          info.docker = {
+          info.docker = reuseRealtimeValueIfEqual(previousInfo.docker, {
             installed: !!metrics.docker.installed,
             runningCount: metrics.docker.running || 0,
             stoppedCount: metrics.docker.stopped || 0,
             containers: Array.isArray(metrics.docker.containers) ? metrics.docker.containers : []
-          };
+          });
         }
-        
-        info.platform = metrics.platform || info.platform;
-        info.platformVersion = metrics.platformVersion || info.platformVersion;
-        info.uptime = metrics.uptime || info.uptime;
+
+        info.platform = metrics.platform || previousInfo.platform;
+        info.platformVersion = metrics.platformVersion || previousInfo.platformVersion;
+        info.uptime = metrics.uptime || previousInfo.uptime;
+
+        const nextInfo = reuseRealtimeValueIfEqual(server.info, info);
+        const nextMetricsCache = resolveRealtimeMetricsCache(server.metricsCache, cache, { isExpanded });
+        if (inExpandInteractionGuard) return server;
+        const nextServer = {
+          ...server,
+          ...mergeTerminalCapabilities(server, true),
+          info: nextInfo,
+          status: 'online',
+          error: null,
+          metricsCache: nextMetricsCache,
+          lastMetricUpdateTime: server.lastMetricUpdateTime || 0
+        };
+        if (areServerSnapshotsEqual(server, nextServer)) {
+          return server;
+        }
 
         changed = true;
         return {
-          ...server,
-          ...mergeTerminalCapabilities(server, true),
-          info,
-          status: 'online',
-          error: null,
-          metricsCache: cache,
-          lastMetricUpdateTime: now
+          ...nextServer,
+          lastMetricUpdateTime: now,
         };
       });
       if (!changed) return prev;
@@ -2566,11 +2753,25 @@ function ServerPage() {
   const refreshServerInfo = async (serverId) => {
       const server = serverList.find(s => s.id === serverId);
       if (!server || server.loading) return;
-      await Promise.all([
+
+      const waitForMetricsFlush = async (delayMs = 650) => {
+        if (typeof window === 'undefined') {
+          return new Promise(resolve => setTimeout(resolve, delayMs));
+        }
+        return new Promise(resolve => window.setTimeout(resolve, delayMs));
+      };
+
+      const [, firstHistory] = await Promise.all([
         loadServerInfo(serverId, { force: true }),
-      loadCardMetrics(serverId, { silent: true, force: true }),
-      loadNetworkQuality(serverId, { silent: true, collect: true }),
-    ]);
+        loadCardMetrics(serverId, { silent: true, force: true }),
+        loadNetworkQuality(serverId, { silent: true, collect: true }),
+      ]);
+
+      if (!firstHistory || firstHistory.length < 3) {
+        await waitForMetricsFlush();
+        await loadCardMetrics(serverId, { silent: true, force: true });
+      }
+
     toast.success('主机详情已刷新');
   };
 
@@ -2586,14 +2787,18 @@ function ServerPage() {
     
     if (expandedServers.includes(serverId)) {
       setExpandedServers(prev => prev.filter(id => id !== serverId));
+      expandInteractionUntilRef.current.delete(String(serverId));
     } else {
       setExpandedServers(prev => [...prev, serverId]);
+      expandInteractionUntilRef.current.set(String(serverId), Date.now() + SERVER_EXPAND_INTERACTION_GUARD_MS);
       const hydrateExpandedServer = async () => {
         await Promise.all([
           server.info ? Promise.resolve(server.info) : loadServerInfo(serverId, { force: false }),
           loadCardMetrics(serverId, { silent: !!server.info }),
-          loadNetworkQuality(serverId, { silent: true }),
         ]);
+        window.setTimeout(() => {
+          loadNetworkQuality(serverId, { silent: true }).catch(() => {});
+        }, Math.max(90, SERVER_CHART_RENDER_DEFER_MS));
       };
       const runHydration = () => {
         hydrateExpandedServer().catch(error => {
@@ -2609,7 +2814,7 @@ function ServerPage() {
     }
   };
   
-  // -------------------- 主机增改删操作 --------------------
+
   
   const openAddServerModal = () => {
     setServerAddMode('ssh');
@@ -2647,7 +2852,7 @@ function ServerPage() {
       port: server.port || 22,
       username: server.username || 'root',
       authType: server.auth_type === 'key' ? 'privateKey' : 'password',
-      password: '', // 安全考虑，密码置空
+      password: '',
       privateKey: '',
       passphrase: '',
       tagsInput: Array.isArray(server.tags) ? server.tags.join(',') : '',
@@ -2708,7 +2913,7 @@ function ServerPage() {
       });
       const data = await response.json();
       if (data.success) {
-        toast.success('🎉 连接测试成功！');
+        toast.success('主机删除成功');
       } else {
         setServerModalError('测试连接失败: ' + data.message);
         toast.error('测试连接失败');
@@ -2877,28 +3082,30 @@ function ServerPage() {
   };
 
   const getAgentInstallEndpoint = (osType = agentInstallOS) => {
-    if (!agentModalData?.serverId || !agentModalData?.agentKey) return '';
-    const normalizedOs = osType === 'win' ? 'win' : 'linux';
-    const baseUrl = getAgentBaseApiUrl();
-    if (!baseUrl) return '';
-    const protocol = encodeURIComponent(agentInstallProtocol || 'https');
-    return `${baseUrl}/api/server/agent/install/${normalizedOs}/${agentModalData.serverId}/${agentModalData.agentKey}?protocol=${protocol}`;
+    return buildAgentInstallEndpoint({
+      baseUrl: getAgentBaseApiUrl(),
+      serverId: agentModalData?.serverId,
+      agentKey: agentModalData?.agentKey,
+      protocol: agentInstallProtocol || 'https',
+      osType,
+    });
   };
 
   const getAgentInstallCommand = (osType = agentInstallOS) => {
     if (!agentModalData) return '';
     if (!agentModalData.agentKey) {
-      return osType === 'linux'
-        ? agentModalData.installCommand || ''
-        : agentModalData.winInstallCommand || '';
+      return isWindowsAgentInstallOs(osType)
+        ? agentModalData.winInstallCommand || ''
+        : agentModalData.installCommand || '';
     }
 
-    const installUrl = getAgentInstallEndpoint(osType);
-    if (!installUrl) return '';
-    if (osType === 'linux') {
-      return `curl -fsSL ${installUrl} | bash`;
-    }
-    return `powershell -c "irm ${installUrl} | iex"`;
+    return buildAgentInstallCommand({
+      baseUrl: getAgentBaseApiUrl(),
+      serverId: agentModalData.serverId,
+      agentKey: agentModalData.agentKey,
+      protocol: agentInstallProtocol || 'https',
+      osType,
+    });
   };
 
   const regenerateAgentKey = async () => {
@@ -3385,7 +3592,7 @@ function ServerPage() {
     }
 
     appendLog(`Detected ${targetServers.length} online agents.\n`);
-    appendLog('正在获取初始连接状态...\n');
+    appendLog('正在获取初始连接状态..\n');
 
     const initialStates = new Map();
     for (const server of targetServers) {
@@ -3492,7 +3699,7 @@ function ServerPage() {
     loadServerList();
   };
   
-  // 触发所有主机探测
+    // 触发所有主机探测
   const probeAllServers = async () => {
     toast.info('正在向所有在线 Agent 下发网络探测请求...');
     try {
@@ -3677,7 +3884,7 @@ function ServerPage() {
     }
   };
   
-  // -------------------- 凭据库管理 --------------------
+  
   
   const addCredential = async () => {
     if (!credForm.name || !credForm.username) {
@@ -3732,7 +3939,7 @@ function ServerPage() {
     }
   };
   
-  // -------------------- 采集与定时设置 --------------------
+      
   
   const updateMetricsCollectInterval = async (val) => {
     const nextValue = Math.max(1, Math.round(toNumber(val, 5)));
@@ -3763,7 +3970,7 @@ function ServerPage() {
     }
   };
   
-  // -------------------- 历史数据记录子标签 --------------------
+  
   
   useEffect(() => {
     if (serverCurrentTab === 'history') {
@@ -3855,7 +4062,7 @@ function ServerPage() {
     return groups;
   }, [metricsHistoryList]);
   
-  // -------------------- Docker 监控与管理 --------------------
+  
   
   useEffect(() => {
     if (serverCurrentTab === 'docker') {
@@ -4178,13 +4385,13 @@ function ServerPage() {
     </div>
   );
   
-  // -------------------- SSH / Agent 嵌入式终端与多分屏 --------------------
+
   
-  // 新连接 SSH 终端会话方法
+
   const openSSHTerminal = (server) => {
     if (!server) return;
     
-    // 检查是否已存在该服务器的 SSH 会话
+
     const existing = sshSessions.find(s => s.server.id === server.id);
     if (existing) {
       switchToSSHTab(existing.id);
@@ -4371,7 +4578,7 @@ function ServerPage() {
     }, delay);
   };
   
-  // 归还 DOM 元素到仓库
+
   const saveTerminalsToWarehouse = () => {
     const warehouse = warehouseRef.current;
     if (!warehouse) return;
@@ -4434,11 +4641,11 @@ function ServerPage() {
     };
   };
 
-  // 实例化 xterm.js 核心方法
+
   const initSessionTerminal = (sessionId, sessionMeta) => {
     if (sshSessionRefs.current[sessionId]) return;
     
-    // 创建全局唯一的终端包装 div
+
     const container = document.createElement('div');
     container.id = 'ssh-terminal-' + sessionId;
     container.className = 'app-terminal-surface h-full w-full overflow-hidden';
@@ -4613,6 +4820,17 @@ function ServerPage() {
       sshSessionRefs.current[nextActiveId]?.terminal?.focus();
     }, 100);
   };
+
+  const toggleTerminalSidebar = (sidebar, options = {}) => {
+    setActiveTerminalSidebar((current) => {
+      const next = current === sidebar ? null : sidebar;
+      if (next === 'sftp' && options.serverId) {
+        setSftpServerId(options.serverId);
+        setSftpCurrentPath(sftpPathByServerRef.current[options.serverId] || '.');
+      }
+      return next;
+    });
+  };
   
   // 重新连接
   const reconnectSSHSession = (sessionId) => {
@@ -4759,7 +4977,7 @@ function ServerPage() {
     return list;
   }, [serverList, serverStatusFilter, serverSearchText]);
   
-  // 统计数值
+
   const statsSummary = useMemo(() => {
     const total = serverList.length;
     const online = serverList.filter(s => s.status === 'online').length;
@@ -4801,7 +5019,7 @@ function ServerPage() {
       className={
         serverCurrentTab === 'terminal'
           ? 'flex h-[calc(100dvh-80px)] min-h-0 w-full min-w-0 flex-col gap-3 overflow-hidden px-1 sm:h-[calc(100dvh-88px)] lg:h-[calc(100dvh-92px)]'
-          : 'flex w-full flex-col gap-6 px-1'
+          : 'flex w-full flex-col gap-3 px-1'
       }
     >
       <CompactColumnMenu
@@ -5029,7 +5247,7 @@ function ServerPage() {
                           gpuSeries,
                           netSeries,
                         } = getServerMetricDisplay(server.id, server.metricsCache, isExpanded && isChartSeriesReady, isDarkMode);
-                        const hasGpuData = !!server.info?.gpu?.Model || records.some(r => (
+                        const hasGpuData = !!getGpuModelText(server.info?.gpu) || records.some(r => (
                           (r.gpu_usage !== null && r.gpu_usage !== undefined && toNumber(r.gpu_usage, 0) > 0)
                           || getGpuTemp(r) > 0
                         ));
@@ -5049,17 +5267,19 @@ function ServerPage() {
                         const physicalCores = server.info?.cpu?.PhysicalCores || server.info?.cpu?.Cores;
                         const logicalCores = server.info?.cpu?.LogicalCores;
                         const coreText = physicalCores && logicalCores && physicalCores !== logicalCores
-                          ? `${physicalCores}核/${logicalCores}线程`
+                          ? `${physicalCores}核 / ${logicalCores}线程`
                           : `${physicalCores || '-'}核`;
                         const dockerContainers = server.info?.docker?.containers || [];
                         const runningContainers = dockerContainers.filter(c => getDockerContainerState(c) === 'running').length;
                         const lifecycle = getServerLifecycle(server);
                         const canRefresh = server.status === 'online' && !server.loading;
                         const networkQuality = networkQualityByServer[server.id] || {};
-                        const networkQualitySeries = buildNetworkQualitySeries(networkQuality, isDarkMode);
-                        const hasNetworkQualityData = networkQualitySeries.some(series => series.data.length > 0);
-                        const networkQualityUnsupported = !!networkQuality.unsupported
-                          || isNetworkQualityUnsupportedError(networkQuality.error || networkQuality.unsupportedMessage);
+                        const networkQualitySeries = isExpanded ? buildNetworkQualitySeries(networkQuality, isDarkMode) : [];
+                        const hasNetworkQualityData = isExpanded && networkQualitySeries.some(series => series.data.length > 0);
+                        const networkQualityUnsupported = isExpanded && (
+                          !!networkQuality.unsupported
+                          || isNetworkQualityUnsupportedError(networkQuality.error || networkQuality.unsupportedMessage)
+                        );
 
                         return (
                           <React.Fragment key={server.id}>
@@ -5086,7 +5306,7 @@ function ServerPage() {
                                     <i className={getOSIconClass(server.info?.platform)}></i>
                                     <div className="min-w-0">
                                       <div className="truncate font-bold text-kumo-strong" title={server.name}>{server.name}</div>
-                                      {(server.tags || []).filter(t => t !== 'Agent').length > 0 && (
+                                      {/* {(server.tags || []).filter(t => t !== 'Agent').length > 0 && (
                                         <div className="flex min-w-0 gap-1">
                                           {(server.tags || []).filter(t => t !== 'Agent').slice(0, 2).map(tag => (
                                             <span key={tag} className="truncate rounded bg-kumo-recessed/60 px-1 text-[9px] font-bold text-kumo-subtle" title={tag}>
@@ -5094,7 +5314,7 @@ function ServerPage() {
                                             </span>
                                           ))}
                                         </div>
-                                      )}
+                                      )} */}
                                     </div>
                                   </div>
                                 </Table.Cell>
@@ -5218,7 +5438,7 @@ function ServerPage() {
 
                             {shouldRenderExpandedRow && (
                               <CompactExpandedRow open={isExpanded} colSpan={visibleCompactColumnDefs.length}>
-                                    <div className="flex flex-col gap-2 p-2">
+                                    <div className={`flex flex-col ${isDenseViewport ? 'gap-1.5 p-1.5' : 'gap-2 p-2'}`}>
                                       {server.loading && !server.info ? (
                                         <div className="space-y-2 py-5">
                                           <SkeletonLine className="mx-auto h-4 w-1/3" />
@@ -5230,7 +5450,7 @@ function ServerPage() {
                                         </div>
                                       ) : (
                                         <>
-                                          <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2 xl:grid-cols-[repeat(auto-fit,minmax(154px,1fr))]">
+                                          <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2 lg:grid-cols-[repeat(auto-fit,minmax(154px,1fr))]">
                                             <DenseDetailChip label="核心" value={coreText} />
                                             <DenseDetailChip label="CPU 温度" value={cpuTemp > 0 ? `${Math.round(cpuTemp)}°C` : '-'} valueClassName={getTempColorClass(cpuTemp)} />
                                             <DenseDetailChip label="内存" value={`${server.info?.memory?.Used || '-'} / ${server.info?.memory?.Total || '-'}`} />
@@ -5240,11 +5460,13 @@ function ServerPage() {
                                             <DenseDetailChip label="模式" value={getServerMonitorModeLabel(server)} />
                                           </div>
 
-                                          <div className="grid min-w-0 grid-cols-[repeat(auto-fit,minmax(280px,1fr))] gap-2">
+                                          <div className="flex min-w-0 flex-col gap-2">
+                                            <div className={getExpandedTrendGridClassName(true, isDenseViewport)}>
                                             <ExpandedTrendChartCard
                                               title="CPU / 内存趋势"
                                               tone="success"
                                               compact
+                                              className={getExpandedCardSpanClassName(0, 3)}
                                               legend={(
                                                 <>
                                                   <ChartLegend.SmallItem name="CPU" color={cpuColor} value={`${Math.round(cpuUsage)}%`} />
@@ -5279,12 +5501,13 @@ function ServerPage() {
                                               title={hasGpuData ? 'GPU 趋势' : '网络趋势'}
                                               tone={hasGpuData ? 'warning' : 'info'}
                                               compact
+                                              className={getExpandedCardSpanClassName(1, hasGpuData ? 3 : 2)}
                                               legend={(
                                                 <>
-                                                  {hasGpuData && <ChartLegend.SmallItem name="GPU" color={gpuColor} value={getLatestMetricValue(records, r => toNumber(r.gpu_usage, 0), v => `${v.toFixed(1)}%`)} />}
-                                                  {hasGpuData && <ChartLegend.SmallItem name="VRAM" color={vramColor} value={getLatestMetricValue(records, getGpuMemPercent, v => `${v.toFixed(1)}%`)} />}
-                                                  {hasGpuData && <ChartLegend.SmallItem name="Power" color={powerColor} value={getLatestMetricValue(records, r => toNumber(r.gpu_power, 0), v => `${v.toFixed(1)}W`)} />}
-                                                  {hasGpuData && <ChartLegend.SmallItem name="Temp" color={gpuTempColor} value={getLatestMetricValue(records, getGpuTemp, v => `${v.toFixed(1)}°C`)} />}
+                                                  {hasGpuData && <TrendSeriesLabel name="GPU" color={gpuColor} />}
+                                                  {hasGpuData && <TrendSeriesLabel name="VRAM" color={vramColor} />}
+                                                  {hasGpuData && <TrendSeriesLabel name="Power" color={powerColor} />}
+                                                  {hasGpuData && <TrendSeriesLabel name="Temp" color={gpuTempColor} />}
                                                   {!hasGpuData && <ChartLegend.SmallItem name="Upload" color={txColor} value={getLatestMetricValue(records, r => toNumber(r.net_tx, 0), formatBytesSpeed)} />}
                                                   {!hasGpuData && <ChartLegend.SmallItem name="Download" color={rxColor} value={getLatestMetricValue(records, r => toNumber(r.net_rx, 0), formatBytesSpeed)} />}
                                                 </>
@@ -5317,6 +5540,7 @@ function ServerPage() {
                                                 title="网络趋势"
                                                 tone="info"
                                                 compact
+                                                className={getExpandedCardSpanClassName(2, 3)}
                                                 legend={(
                                                   <>
                                                     <ChartLegend.SmallItem name="Upload" color={txColor} value={getLatestMetricValue(records, r => toNumber(r.net_tx, 0), formatBytesSpeed)} />
@@ -5346,6 +5570,8 @@ function ServerPage() {
                                                 )}
                                               </ExpandedTrendChartCard>
                                             )}
+
+                                            </div>
 
                                             <NetworkQualityPanel
                                               serverName={server.name}
@@ -5395,7 +5621,7 @@ function ServerPage() {
                   gpuSeries,
                   netSeries,
                 } = getServerMetricDisplay(server.id, server.metricsCache, isExpanded && isChartSeriesReady, isDarkMode);
-                const hasGpuData = !!server.info?.gpu?.Model || records.some(r => (
+                const hasGpuData = !!getGpuModelText(server.info?.gpu) || records.some(r => (
                   (r.gpu_usage !== null && r.gpu_usage !== undefined && toNumber(r.gpu_usage, 0) > 0)
                   || getGpuTemp(r) > 0
                 ));
@@ -5426,13 +5652,15 @@ function ServerPage() {
                 const physicalCores = server.info?.cpu?.PhysicalCores || server.info?.cpu?.Cores;
                 const logicalCores = server.info?.cpu?.LogicalCores;
                 const coreText = physicalCores && logicalCores && physicalCores !== logicalCores
-                  ? `${physicalCores}核/${logicalCores}线程`
+                  ? `${physicalCores}核 / ${logicalCores}线程`
                   : `${physicalCores || '-'} 核`;
                 const networkQuality = networkQualityByServer[server.id] || {};
-                const networkQualitySeries = buildNetworkQualitySeries(networkQuality, isDarkMode);
-                const hasNetworkQualityData = networkQualitySeries.some(series => series.data.length > 0);
-                const networkQualityUnsupported = !!networkQuality.unsupported
-                  || isNetworkQualityUnsupportedError(networkQuality.error || networkQuality.unsupportedMessage);
+                const networkQualitySeries = isExpanded ? buildNetworkQualitySeries(networkQuality, isDarkMode) : [];
+                const hasNetworkQualityData = isExpanded && networkQualitySeries.some(series => series.data.length > 0);
+                const networkQualityUnsupported = isExpanded && (
+                  !!networkQuality.unsupported
+                  || isNetworkQualityUnsupportedError(networkQuality.error || networkQuality.unsupportedMessage)
+                );
                 
                 return (
                   <ContextMenu.Root key={server.id}>
@@ -5480,7 +5708,7 @@ function ServerPage() {
                       
                       <div className="contents sm:order-2 sm:ml-auto sm:flex sm:shrink-0 sm:flex-nowrap sm:items-center sm:gap-2.5">
                         {server.status === 'online' && server.info && (
-                          <div className="order-3 col-span-2 grid w-full grid-cols-4 gap-1.5 text-[10px] font-semibold text-kumo-subtle sm:order-none sm:col-span-1 sm:flex sm:h-9 sm:w-auto sm:items-center sm:gap-2.5">
+                          <div className="order-3 col-span-2 grid w-full grid-cols-5 gap-1.5 text-[10px] font-semibold text-kumo-subtle sm:order-none sm:col-span-1 sm:flex sm:h-9 sm:w-auto sm:items-center sm:gap-2.5">
                             {hasGpuData && (
                               <CompactMetricBar
                                 label="GPU"
@@ -5569,7 +5797,7 @@ function ServerPage() {
                     </div>
                     
                     <AnimatedCollapse open={isExpanded} keepMounted>
-                      <div className="rounded-b-lg border-t border-kumo-line/90 bg-kumo-canvas/45 p-1.5 sm:p-2">
+                      <div className={`rounded-b-lg border-t border-kumo-line/90 bg-kumo-canvas/45 ${isDenseViewport ? 'p-1.5' : 'p-1.5 sm:p-2'}`}>
                         {server.loading && !server.info ? (
                           <div className="space-y-2 py-5">
                             <SkeletonLine className="h-4 w-1/3 mx-auto" />
@@ -5580,7 +5808,7 @@ function ServerPage() {
                             {server.error}
                           </div>
                         ) : (
-                          <div className="flex flex-col gap-2">
+                          <div className={`flex flex-col ${isDenseViewport ? 'gap-1.5' : 'gap-2'}`}>
                             <ExpandedSection title="资源状态" tone="brand">
                               <div className="grid grid-cols-2 gap-1.5 lg:grid-cols-4">
                                 <ExpandedProgressMetric
@@ -5618,44 +5846,26 @@ function ServerPage() {
                               </div>
                             </ExpandedSection>
 
-                            <div className="grid grid-cols-1 items-stretch gap-2 xl:grid-cols-12">
-                              <div className="grid min-w-0 grid-cols-1 gap-2 md:grid-cols-2 xl:contents">
-                                <ExpandedSection title="系统概览" tone="success" className="h-full xl:order-1 xl:col-span-4 2xl:col-span-3">
-                                  <div className="grid grid-cols-2 gap-1.5">
-                                    <ExpandedInfoChip label="系统" value={server.info?.platform || '-'} />
-                                    <ExpandedInfoChip label="版本" value={server.info?.platformVersion || server.info?.system?.Kernel || '-'} />
+                            <div className="flex min-w-0 flex-col gap-2">
+                              <div className={getExpandedInfoGridClassName(isDenseViewport)}>
+                                <ExpandedSection title="系统概览" tone="success" className={getExpandedCardSpanClassName(0, 1)}>
+                                  <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-3 xl:grid-cols-4">
+                                    <ExpandedInfoChip label="系统" value={server.info?.platform || '-' || server.info?.platformVersion || server.info?.system?.Kernel || '-'} />
+                                    {/* <ExpandedInfoChip label="版本" value={server.info?.platformVersion || server.info?.system?.Kernel || '-'} /> */}
+                                    <ExpandedInfoChip label="CPU 型号" value={server.info?.cpu?.Model || server.metadata?.cpu_model || server.metadata?.cpu_name || server.metadata?.processor || '-'} />
                                     <ExpandedInfoChip label="核心" value={coreText} />
+                                    <ExpandedInfoChip label="GPU 型号" value={getGpuModelText(server.info?.gpu) || server.metadata?.gpu_model || server.metadata?.gpu_name || getGpuModelText(server.metadata?.gpu) || '-'}/>
                                     <ExpandedInfoChip label="负载" value={server.info?.cpu?.Load || '-'} valueClassName="font-mono text-kumo-strong" />
                                     <ExpandedInfoChip label="在线" value={formatUptimeDaysOnly(server.info?.uptime || server.info?.system?.Uptime)} />
-                                    <ExpandedInfoChip label="延迟" value={formatResponseTime(server.response_time)} valueClassName="text-kumo-success" />
+                                    {/* <ExpandedInfoChip label="延迟" value={formatResponseTime(server.response_time)} valueClassName="text-kumo-success" /> */}
+                                    <ExpandedInfoChip label="Agent 版本" value={server.info?.agentVersion || '-'} />
+                                    {/* <ExpandedInfoChip label="模式" value={getServerMonitorModeLabel(server)} /> */}
                                     <ExpandedInfoChip label="地址" value={getHostAddress(server, serverIpDisplayMode)} valueClassName="font-mono text-kumo-strong" />
-                                    <ExpandedInfoChip label="模式" value={getServerMonitorModeLabel(server)} />
                                   </div>
                                 </ExpandedSection>
 
-                                {hasGpuData && (
-                                  <ExpandedSection title="GPU" tone="warning" className="h-full xl:order-3 xl:col-span-4 2xl:col-span-4">
-                                    <div className="mb-2 truncate text-xs font-bold text-kumo-strong" title={server.info?.gpu?.Model}>
-                                      {server.info?.gpu?.Model || 'GPU'}
-                                    </div>
-                                    <div className="grid grid-cols-2 gap-1.5">
-                                      <ExpandedStatTile label="使用率" value={`${Math.round(gpuUsage)}%`} tone="warning" />
-                                      <ExpandedStatTile
-                                        label="显存"
-                                        value={server.info?.gpu?.Memory || `${Math.round(gpuMemPercent)}%`}
-                                        caption={server.info?.gpu?.Memory ? `${Math.round(gpuMemPercent)}%` : undefined}
-                                      />
-                                      <ExpandedStatTile
-                                        label="温度"
-                                        value={gpuTemp > 0 ? `${Math.round(gpuTemp)}°C` : '-'}
-                                        tone={gpuTemp > 0 && getTempColorClass(gpuTemp).includes('danger') ? 'danger' : 'success'}
-                                      />
-                                      <ExpandedStatTile label="功耗" value={server.info?.gpu?.Power || '-'} tone="warning" />
-                                    </div>
-                                  </ExpandedSection>
-                                )}
 
-                                <ExpandedSection title="网络" tone="info" className={`h-full xl:order-5 xl:col-span-4 ${hasGpuData ? '2xl:col-span-3' : '2xl:col-span-4'}`}>
+                                <ExpandedSection title="网络" tone="info" className={getExpandedCardSpanClassName(1, 3)}>
                                   <div className="grid grid-cols-2 gap-1.5">
                                     <ExpandedStatTile label="上传" value={server.info?.network?.tx_speed || '0 B/s'} caption={`累计 ${txTotal.text}`} tone="info" />
                                     <ExpandedStatTile label="下载" value={server.info?.network?.rx_speed || '0 B/s'} caption={`累计 ${rxTotal.text}`} tone="success" />
@@ -5663,18 +5873,51 @@ function ServerPage() {
                                     <ExpandedInfoChip label="总量" value={`↑ ${txTotal.text} / ↓ ${rxTotal.text}`} className="min-w-0" />
                                   </div>
                                 </ExpandedSection>
+
+                                <ExpandedTrendChartCard
+                                  title="网络趋势"
+                                  tone="info"
+                                  className={getExpandedCardSpanClassName(1, 3)}
+                                  legend={(
+                                    <>
+                                      <ChartLegend.SmallItem name="上行" color={txColor} value={getLatestMetricValue(records, r => toNumber(r.net_tx, 0), formatBytesSpeed)} />
+                                      <ChartLegend.SmallItem name="下行" color={rxColor} value={getLatestMetricValue(records, r => toNumber(r.net_rx, 0), formatBytesSpeed)} />
+                                    </>
+                                  )}
+                                >
+                                  {(tooltipBoundary) => (
+                                    <DeferredRender open={isExpanded} delay={SERVER_CHART_RENDER_DEFER_MS} fallback={<ChartWarmupSkeleton height={expandedTrendChartHeight} />}>
+                                      <TimeseriesChart
+                                        echarts={fastTimeseriesEcharts}
+                                        data={netSeries}
+                                        height={expandedTrendChartHeight}
+                                        isDarkMode={isDarkMode}
+                                        gradient
+                                        loading={chartLoading}
+                                        tooltipBoundary={tooltipBoundary ?? undefined}
+                                        xAxisTickCount={expandedChartXAxisTickCount}
+                                        yAxisTickCount={expandedChartYAxisTickCount}
+                                        xAxisTickFormat={expandedChartXAxisTickFormat}
+                                        yAxisTickFormat={expandedSpeedAxisTickFormat}
+                                        tooltipValueFormat={formatBytesSpeed}
+                                        optionUpdateBehavior={SERVER_FAST_CHART_UPDATE_BEHAVIOR}
+                                        ariaDescription={`${server.name} network upload and download speed trend`}
+                                      />
+                                    </DeferredRender>
+                                  )}
+                                </ExpandedTrendChartCard>
                               </div>
 
-                              <div className="grid min-w-0 grid-cols-1 gap-2 md:grid-cols-2 xl:contents">
+                              <div className={getExpandedTrendGridClassName(false, isDenseViewport)}>
                                 <ExpandedTrendChartCard
                                   title="CPU / 内存趋势"
                                   tone="success"
-                                  className="xl:order-2 xl:col-span-8 2xl:col-span-5"
+                                  className={getExpandedCardSpanClassName(0, hasGpuData ? 2 : 1)}
                                   legend={(
                                     <>
                                       <ChartLegend.SmallItem name="CPU" color={cpuColor} value={`${Math.round(cpuUsage)}%`} />
-                                      <ChartLegend.SmallItem name="Memory" color={memColor} value={`${Math.round(memUsage)}%`} />
-                                      <ChartLegend.SmallItem name="Temp" color={cpuTempColor} value={getLatestMetricValue(records, getCpuTemp, v => `${v.toFixed(1)}°C`)} />
+                                      <ChartLegend.SmallItem name="内存" color={memColor} value={`${Math.round(memUsage)}%`} />
+                                      <ChartLegend.SmallItem name="温度" color={cpuTempColor} value={getLatestMetricValue(records, getCpuTemp, v => `${v.toFixed(1)}°C`)} />
                                     </>
                                   )}
                                 >
@@ -5704,13 +5947,13 @@ function ServerPage() {
                                   <ExpandedTrendChartCard
                                     title="GPU 趋势"
                                     tone="warning"
-                                    className="xl:order-4 xl:col-span-8 2xl:col-span-5"
+                                    className={getExpandedCardSpanClassName(1, 2)}
                                     legend={(
                                       <>
-                                        <ChartLegend.SmallItem name="GPU" color={gpuColor} value={getLatestMetricValue(records, r => toNumber(r.gpu_usage, 0), v => `${v.toFixed(1)}%`)} />
-                                        <ChartLegend.SmallItem name="VRAM" color={vramColor} value={getLatestMetricValue(records, getGpuMemPercent, v => `${v.toFixed(1)}%`)} />
-                                        <ChartLegend.SmallItem name="Power" color={powerColor} value={getLatestMetricValue(records, r => toNumber(r.gpu_power, 0), v => `${v.toFixed(1)}W`)} />
-                                        <ChartLegend.SmallItem name="Temp" color={gpuTempColor} value={getLatestMetricValue(records, getGpuTemp, v => `${v.toFixed(1)}°C`)} />
+                                        <TrendSeriesLabel name="GPU" color={gpuColor} />
+                                        <TrendSeriesLabel name="显存" color={vramColor} />
+                                        <TrendSeriesLabel name="功耗" color={powerColor} />
+                                        <TrendSeriesLabel name="温度" color={gpuTempColor} />
                                       </>
                                     )}
                                   >
@@ -5736,39 +5979,6 @@ function ServerPage() {
                                     )}
                                   </ExpandedTrendChartCard>
                                 )}
-
-                                <ExpandedTrendChartCard
-                                  title="网络趋势"
-                                  tone="info"
-                                  className={`xl:order-6 xl:col-span-8 ${hasGpuData ? '2xl:col-span-4' : '2xl:col-span-8'}`}
-                                  legend={(
-                                    <>
-                                      <ChartLegend.SmallItem name="Upload" color={txColor} value={getLatestMetricValue(records, r => toNumber(r.net_tx, 0), formatBytesSpeed)} />
-                                      <ChartLegend.SmallItem name="Download" color={rxColor} value={getLatestMetricValue(records, r => toNumber(r.net_rx, 0), formatBytesSpeed)} />
-                                    </>
-                                  )}
-                                >
-                                  {(tooltipBoundary) => (
-                                    <DeferredRender open={isExpanded} delay={SERVER_CHART_RENDER_DEFER_MS} fallback={<ChartWarmupSkeleton height={expandedTrendChartHeight} />}>
-                                      <TimeseriesChart
-                                        echarts={fastTimeseriesEcharts}
-                                        data={netSeries}
-                                        height={expandedTrendChartHeight}
-                                        isDarkMode={isDarkMode}
-                                        gradient
-                                        loading={chartLoading}
-                                        tooltipBoundary={tooltipBoundary ?? undefined}
-                                        xAxisTickCount={expandedChartXAxisTickCount}
-                                        yAxisTickCount={expandedChartYAxisTickCount}
-                                        xAxisTickFormat={expandedChartXAxisTickFormat}
-                                        yAxisTickFormat={expandedSpeedAxisTickFormat}
-                                        tooltipValueFormat={formatBytesSpeed}
-                                        optionUpdateBehavior={SERVER_FAST_CHART_UPDATE_BEHAVIOR}
-                                        ariaDescription={`${server.name} network upload and download speed trend`}
-                                      />
-                                    </DeferredRender>
-                                  )}
-                                </ExpandedTrendChartCard>
                               </div>
                             </div>
 
@@ -5807,7 +6017,7 @@ function ServerPage() {
 
                                 <AnimatedCollapse open={dockerExpanded} keepMounted>
                                   {dockerContainers.length > 0 ? (
-                                    <div className="divide-y divide-kumo-line">
+                                    <div className="grid grid-cols-1 divide-y divide-kumo-line xl:grid-cols-2 xl:divide-x xl:divide-y-0">
                                       {dockerContainers.map(c => {
                                         const state = getDockerContainerState(c);
                                         const stateBadge = getDockerStateBadge(state);
@@ -5818,7 +6028,7 @@ function ServerPage() {
                                         const updateBadge = getDockerUpdateBadge(updateCheck);
                                         const updateChecking = isDockerContainerUpdateChecking(server.id, c);
                                         return (
-                                          <div key={containerId || `${server.id}-${containerName}`} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 px-3 py-2 text-xs hover:bg-kumo-recessed/20">
+                                          <div key={containerId || `${server.id}-${containerName}`} className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 px-3 py-2 text-xs hover:bg-kumo-recessed/20">
                                             <div className="flex min-w-0 items-center gap-2">
                                               <Badge variant={stateBadge.variant} appearance="dot" className="shrink-0">{stateBadge.label}</Badge>
                                               <div className="min-w-0">
@@ -6444,7 +6654,7 @@ function ServerPage() {
                       title={dockerSelectedServer ? '清理未使用镜像' : '请先选择单台 Docker 主机'}
                       onClick={() => submitDockerTask('image.prune')}
                     >
-                      清理未使用镜像
+                      清理未使用网络
                     </Button>
                   </div>
                   <div className="app-card overflow-hidden p-2">
@@ -6605,7 +6815,7 @@ function ServerPage() {
                       title={dockerSelectedServer ? '清理未使用存储卷' : '请先选择单台 Docker 主机'}
                       onClick={() => submitDockerTask('volume.prune')}
                     >
-                      清理未使用存储卷
+                      清理未使用网络
                     </Button>
                   </div>
                   <div className="app-card overflow-hidden p-2">
@@ -6835,7 +7045,7 @@ function ServerPage() {
                   aria-label="批量快速添加主机"
                   value={serverBatchText}
                   onChange={e => setServerBatchText(e.target.value)}
-                  placeholder="名称,IP,端口,用户名,密码&#10;前端服务器,192.168.1.10,22,root,password"
+                  placeholder="名称,IP,端口,用户名,密码\n例如: prod-server,192.168.1.10,22,root,password"
                   className="h-24 font-mono text-xs"
                 />
                 {serverBatchError && <Badge variant="error">{serverBatchError}</Badge>}
@@ -7167,79 +7377,86 @@ function ServerPage() {
                     })}
                   </div>
 
-                  {showServerStatusSidebar && (
-                    <div className="w-52 shrink-0 border-l border-kumo-line bg-kumo-base p-2.5 text-xs">
-                      <div className="mb-2.5 flex items-center justify-between border-b border-kumo-line pb-2">
-                        <span className="text-[11px] font-bold text-kumo-strong">资源监控</span>
-                        <Button
-                          shape="square" size="sm"
-                          variant="ghost"
-                          icon={<X className="h-3 w-3" />}
-                          aria-label="关闭资源监控"
-                          title="关闭资源监控"
-                          onClick={() => setShowServerStatusSidebar(false)}
-                        />
-                      </div>
-                      <div className="mb-2.5 min-w-0 rounded-md border border-kumo-line bg-kumo-recessed/25 p-2">
-                        <div className="truncate text-[11px] font-semibold text-kumo-strong">{activeSession?.name || '-'}</div>
-                        <div className="mt-1 truncate font-mono text-[10px] text-kumo-subtle">{activeServer?.host || 'Agent'}</div>
-                      </div>
-                      <div className="flex flex-col gap-2.5">
-                        {resourceMetrics.map(metric => {
-                          const label = metric.label === 'Mem' ? 'Memory' : metric.label;
-                          return (
-                            <div key={metric.label} className="min-w-0">
-                              <div className="mb-1 flex items-center justify-between gap-2 text-[10px]">
-                                <span className="font-semibold text-kumo-subtle">{label}</span>
-                                <span className={`font-mono font-bold ${metric.color ? '' : metric.valueClassName}`} style={metric.color ? { color: metric.color } : undefined}>{metric.value}</span>
+                  {activeTerminalSidebar && (
+                  <div className="w-[clamp(18rem,24vw,26rem)] shrink-0 border-l border-kumo-line bg-kumo-base">
+                      {showServerStatusSidebar && (
+                        <div className="flex h-full min-h-0 flex-col p-2.5 text-xs">
+                          <div className="mb-2.5 flex items-center justify-between border-b border-kumo-line pb-2">
+                            <span className="text-[11px] font-bold text-kumo-strong">资源监控</span>
+                            <Button
+                              shape="square" size="sm"
+                              variant="ghost"
+                              icon={<X className="h-3 w-3" />}
+                              aria-label="关闭资源监控"
+                              title="关闭资源监控"
+                              onClick={() => setActiveTerminalSidebar(null)}
+                            />
+                          </div>
+                          <div className="mb-2.5 min-w-0 rounded-md border border-kumo-line bg-kumo-recessed/25 p-2">
+                            <div className="truncate text-[11px] font-semibold text-kumo-strong">{activeSession?.name || '-'}</div>
+                            <div className="mt-1 truncate font-mono text-[10px] text-kumo-subtle">{activeServer?.host || 'Agent'}</div>
+                          </div>
+                          <div className="flex flex-col gap-2.5">
+                            {resourceMetrics.map(metric => {
+                              const label = metric.label === 'Mem' ? 'Memory' : metric.label;
+                              return (
+                                <div key={metric.label} className="min-w-0">
+                                  <div className="mb-1 flex items-center justify-between gap-2 text-[10px]">
+                                    <span className="font-semibold text-kumo-subtle">{label}</span>
+                                    <span className={`font-mono font-bold ${metric.color ? '' : metric.valueClassName}`} style={metric.color ? { color: metric.color } : undefined}>{metric.value}</span>
+                                  </div>
+                                  <div className="h-1.5 overflow-hidden rounded-full border border-kumo-line bg-kumo-recessed">
+                                    <div className={`h-full ${metric.color ? '' : metric.barClassName}`} style={{ width: metric.width, backgroundColor: metric.color || undefined }} />
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                          {activeInfo.network && (
+                            <div className="mt-3 flex flex-col gap-2 border-t border-kumo-line pt-3 text-[10px]">
+                              <div className="rounded-md border border-kumo-line bg-kumo-recessed/30 p-2">
+                                <div className="text-kumo-subtle">Upload</div>
+                                <div className="mt-1 truncate font-mono font-semibold text-kumo-info">{activeInfo.network.tx_speed || '-'}</div>
                               </div>
-                              <div className="h-1.5 overflow-hidden rounded-full border border-kumo-line bg-kumo-recessed">
-                                <div className={`h-full ${metric.color ? '' : metric.barClassName}`} style={{ width: metric.width, backgroundColor: metric.color || undefined }} />
+                              <div className="rounded-md border border-kumo-line bg-kumo-recessed/30 p-2">
+                                <div className="text-kumo-subtle">Download</div>
+                                <div className="mt-1 truncate font-mono font-semibold text-kumo-success">{activeInfo.network.rx_speed || '-'}</div>
                               </div>
                             </div>
-                          );
-                        })}
-                      </div>
-                      {activeInfo.network && (
-                        <div className="mt-3 flex flex-col gap-2 border-t border-kumo-line pt-3 text-[10px]">
-                          <div className="rounded-md border border-kumo-line bg-kumo-recessed/30 p-2">
-                            <div className="text-kumo-subtle">Upload</div>
-                            <div className="mt-1 truncate font-mono font-semibold text-kumo-info">{activeInfo.network.tx_speed || '-'}</div>
-                          </div>
-                          <div className="rounded-md border border-kumo-line bg-kumo-recessed/30 p-2">
-                            <div className="text-kumo-subtle">Download</div>
-                            <div className="mt-1 truncate font-mono font-semibold text-kumo-success">{activeInfo.network.rx_speed || '-'}</div>
-                          </div>
+                          )}
+                        </div>
+                      )}
+                      {showSftpSidebar && (
+                        <div className="h-full min-h-0">
+                          <SftpPanel
+                            serverId={activeServer?.id || sftpServerId}
+                            serverName={activeServer?.name}
+                            initialPath={sftpPathByServerRef.current[activeServer?.id] || sftpCurrentPath || '.'}
+                            onClose={() => setActiveTerminalSidebar(null)}
+                            onPathChange={(serverId, path) => {
+                              sftpPathByServerRef.current[serverId] = path;
+                              setSftpServerId(serverId);
+                              setSftpCurrentPath(path);
+                            }}
+                          />
+                        </div>
+                      )}
+                      {showCommandSidebar && (
+                        <div className="h-full min-h-0">
+                          <QuickCommandBar
+                            activeServer={activeServer}
+                            activeSessionId={activeSSHSessionId}
+                            sessions={sshSessions}
+                            visibleSessionIds={visibleSessionIds}
+                            syncEnabled={sshSyncEnabled}
+                            onRunCommand={(command, options) => runQuickCommand(command, options)}
+                          />
                         </div>
                       )}
                     </div>
                   )}
                 </div>
-
-                <QuickCommandBar
-                  activeServer={activeServer}
-                  activeSessionId={activeSSHSessionId}
-                  sessions={sshSessions}
-                  visibleSessionIds={visibleSessionIds}
-                  syncEnabled={sshSyncEnabled}
-                  onRunCommand={(command, options) => runQuickCommand(command, options)}
-                />
-
-                {showSftpSidebar && (
-                  <SftpPanel
-                    serverId={activeServer?.id || sftpServerId}
-                    serverName={activeServer?.name}
-                    initialPath={sftpPathByServerRef.current[activeServer?.id] || sftpCurrentPath || '.'}
-                    onClose={() => setShowSftpSidebar(false)}
-                    onPathChange={(serverId, path) => {
-                      sftpPathByServerRef.current[serverId] = path;
-                      setSftpServerId(serverId);
-                      setSftpCurrentPath(path);
-                    }}
-                  />
-                )}
               </div>
-
               <div className="flex w-11 shrink-0 flex-col items-center gap-3 border-l border-kumo-line bg-kumo-base py-3 text-kumo-subtle">
                 <Button
                   shape="square" size="sm"
@@ -7247,7 +7464,7 @@ function ServerPage() {
                   icon={<Activity className="h-4 w-4" />}
                   aria-label="资源监控"
                   title="资源监控"
-                  onClick={() => setShowServerStatusSidebar(prev => !prev)}
+                  onClick={() => toggleTerminalSidebar('status')}
                 />
                 <Button
                   shape="square" size="sm"
@@ -7256,15 +7473,17 @@ function ServerPage() {
                   aria-label="SFTP 文件浏览"
                   title="SFTP 文件浏览"
                   onClick={() => {
-                    setShowSftpSidebar(prev => !prev);
-                    if (!showSftpSidebar && activeSSHSessionId) {
-                      const serverId = sshSessions.find(s => s.id === activeSSHSessionId)?.server.id;
-                      if (serverId) {
-                        setSftpServerId(serverId);
-                        setSftpCurrentPath(sftpPathByServerRef.current[serverId] || '.');
-                      }
-                    }
+                    const serverId = sshSessions.find(s => s.id === activeSSHSessionId)?.server.id;
+                    toggleTerminalSidebar('sftp', { serverId });
                   }}
+                />
+                <Button
+                  shape="square" size="sm"
+                  variant={showCommandSidebar ? 'secondary' : 'ghost'}
+                  icon={<TerminalIcon className="h-4 w-4" />}
+                  aria-label="命令片段"
+                  title="命令片段"
+                  onClick={() => toggleTerminalSidebar('commands')}
                 />
               </div>
             </div>
@@ -7299,7 +7518,7 @@ function ServerPage() {
               />
             </div>
             
-            <div className="min-w-0 p-4 flex-1 overflow-y-auto flex flex-col gap-4 text-xs">
+      <div className="min-w-0 p-4 flex-1 overflow-y-auto flex flex-col gap-4 text-xs">
               {serverModalMode === 'add' && (
                 <Tabs
                   {...TOOL_TABS_PROPS}
@@ -7335,7 +7554,6 @@ function ServerPage() {
                     aria-label="地区归属国家"
                     value={serverForm.country}
                     onValueChange={(value) => setServerForm(prev => ({ ...prev, country: String(value) }))}
-                    container={serverModalPortalRef}
                     className="px-3 py-2"
                     items={[
                       { value: 'auto', label: '自动探测' },
@@ -7368,7 +7586,7 @@ function ServerPage() {
                   />
                 </div>
               </div>
-              
+
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                 <div className="flex flex-col gap-1.5 sm:col-span-2">
                   <label className="font-semibold text-kumo-subtle">连接地址 (IP / Host)</label>
@@ -7393,17 +7611,15 @@ function ServerPage() {
                   />
                 </div>
               </div>
-              
+
               <div className="flex flex-col gap-2">
                 <label className="font-semibold text-kumo-subtle">选择凭据预设进行快速填充</label>
                 <Select size="sm"
                   aria-label="选择凭据预设"
                   value={selectedCredentialId}
                   onValueChange={applyCredential}
-                  container={serverModalPortalRef}
                   placeholder="-- 手动录入 --"
                   className="w-full min-w-0 px-3 py-2"
-                  listClassName="w-[var(--radix-popover-trigger-width)] max-w-[min(28rem,calc(100vw-3rem))]"
                   items={[
                     { value: '', label: '-- 手动录入 --' },
                     ...serverCredentials.map(c => ({
@@ -7520,16 +7736,20 @@ function ServerPage() {
                         container={serverModalPortalRef}
                         items={[
                           { value: 'linux', label: 'Linux / macOS' },
-                          { value: 'windows', label: 'Windows PowerShell' },
+                          { value: 'win', label: 'Windows PowerShell' },
                         ]}
                       />
                       <ClipboardText
                         size="sm"
-                        text={agentInstallOS === 'linux' ? quickDeployResult.installCommand || '' : quickDeployResult.winInstallCommand || ''}
+                        text={isWindowsAgentInstallOs(agentInstallOS) ? quickDeployResult.winInstallCommand || '' : quickDeployResult.installCommand || ''}
                         className="w-full"
                         tooltip={{ text: '复制命令', copiedText: '安装命令已复制', side: 'top' }}
                         labels={{ copyAction: '复制安装命令' }}
                       />
+                      <div className="rounded-md border border-kumo-line bg-kumo-recessed/25 px-3 py-2 text-[11px] leading-relaxed text-kumo-subtle">
+                        <span className="font-semibold text-kumo-strong">执行环境提示</span>
+                        {getAgentInstallExecutionHint(agentInstallOS)}
+                      </div>
                       <div className="grid grid-cols-1 gap-2 text-[11px] text-kumo-subtle sm:grid-cols-2">
                         <div className="app-card app-card-md p-2">
                           <div className="font-semibold text-kumo-strong">主机 ID</div>
@@ -7638,17 +7858,15 @@ function ServerPage() {
               
               <div className="flex flex-col gap-1.5">
                 <label className="font-semibold text-kumo-subtle font-medium">登录凭据模式</label>
-                <Select size="sm"
-                  aria-label="登录凭据模式"
-                  value={credForm.auth_type}
-                  onValueChange={(value) => setCredForm(prev => ({ ...prev, auth_type: String(value) }))}
-                  container={credentialModalPortalRef}
-                  className="w-full min-w-0 px-3 py-2"
-                  listClassName="w-[var(--radix-popover-trigger-width)] max-w-[min(28rem,calc(100vw-3rem))]"
-                  items={[
-                    { value: 'password', label: '明文密码' },
-                    { value: 'key', label: '私钥证书 (RSA / OpenSSH)' },
-                  ]}
+                  <Select size="sm"
+                    aria-label="登录凭据模式"
+                    value={credForm.auth_type}
+                    onValueChange={(value) => setCredForm(prev => ({ ...prev, auth_type: String(value) }))}
+                    className="w-full min-w-0 px-3 py-2"
+                    items={[
+                      { value: 'password', label: '明文密码' },
+                      { value: 'key', label: '私钥证书 (RSA / OpenSSH)' },
+                    ]}
                 />
               </div>
               
@@ -7683,9 +7901,9 @@ function ServerPage() {
                       type="password"
                       value={credForm.passphrase}
                       onChange={e => setCredForm(prev => ({ ...prev, passphrase: e.target.value }))}
-                      placeholder="Passphrase"
-                      className="px-3 py-2 text-kumo-strong"
-                    />
+                    placeholder="Passphrase"
+                    className="px-3 py-2 text-kumo-strong"
+                  />
                   </div>
                 </div>
               )}
@@ -7807,7 +8025,7 @@ function ServerPage() {
                 </div>
 
                 <div className="flex flex-col gap-3">
-                  <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
+                <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-center">
                     <div className="font-semibold text-kumo-subtle">安装命令</div>
                     <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-3">
                       <Tabs
@@ -7840,7 +8058,7 @@ function ServerPage() {
                         onValueChange={setAgentInstallOS}
                         tabs={[
                           { value: 'linux', label: 'Linux' },
-                          { value: 'windows', label: 'Windows' },
+                          { value: 'win', label: 'Windows' },
                         ]}
                       />
                     </div>
@@ -7853,6 +8071,10 @@ function ServerPage() {
                     tooltip={{ text: '复制', copiedText: 'Agent 安装命令已复制', side: 'top' }}
                     labels={{ copyAction: '复制 Agent 安装命令' }}
                   />
+                  <div className="rounded-md border border-kumo-line bg-kumo-recessed/25 px-3 py-2 text-[11px] leading-relaxed text-kumo-subtle">
+                    <span className="font-semibold text-kumo-strong">执行环境提示</span>
+                    {getAgentInstallExecutionHint(agentInstallOS)}
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
@@ -7883,7 +8105,7 @@ function ServerPage() {
                 {agentModalData.agentKey && (
                   <ClipboardText
                     size="sm"
-                    text={agentInstallOS === 'linux'
+                    text={!isWindowsAgentInstallOs(agentInstallOS)
                       ? `chmod +x agent-linux-amd64 && ./agent-linux-amd64 service install --url ${getAgentBaseApiUrl()} --key ${agentModalData.agentKey}`
                       : `.\\agent-windows-amd64.exe service install --url ${getAgentBaseApiUrl()} --key ${agentModalData.agentKey}`}
                     className="w-full"
@@ -8225,3 +8447,5 @@ function ServerPage() {
 }
 
 export default ServerPage;
+
+

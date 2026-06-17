@@ -14,7 +14,7 @@ const DEFAULT_TEXT = {
     cancelText: '取消',
   },
   prompt: {
-    title: '输入',
+    title: '请输入',
     confirmText: '确定',
     cancelText: '取消',
   },

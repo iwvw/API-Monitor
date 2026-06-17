@@ -56,7 +56,8 @@ if (!(Test-Path $INSTALL_DIR)) {
 }
 
 $AGENT_URL = "$SERVER_URL/agent/agent-windows-amd64.exe"
-$AGENT_PATH = "$INSTALL_DIRpi-monitor-agent.exe"
+$AGENT_PATH = "$INSTALL_DIR\api-monitor-agent.exe"
+$TEMP_AGENT_PATH = "$INSTALL_DIR\api-monitor-agent.exe.download"
 
 Write-Host "Downloading Agent..."
 
@@ -64,12 +65,35 @@ $oldProcess = Get-Process -Name "api-monitor-agent" -ErrorAction SilentlyContinu
 if ($oldProcess) {
     Write-Host "Detected a running Agent process, stopping it..."
     Stop-Process -Name "api-monitor-agent" -Force -ErrorAction SilentlyContinue
-    Start-Sleep -Seconds 2
+
+    $stopped = $false
+    for ($i = 0; $i -lt 10; $i++) {
+        Start-Sleep -Milliseconds 500
+        if (!(Get-Process -Name "api-monitor-agent" -ErrorAction SilentlyContinue)) {
+            $stopped = $true
+            break
+        }
+    }
+
+    if (!$stopped) {
+        Write-Host "Error: existing Agent process is still running"
+        exit 1
+    }
+}
+
+if (Test-Path $TEMP_AGENT_PATH) {
+    Remove-Item -Path $TEMP_AGENT_PATH -Force -ErrorAction SilentlyContinue
 }
 
 try {
     [System.Net.ServicePointManager]::ServerCertificateValidationCallback = {$true}
-    Invoke-WebRequest -Uri $AGENT_URL -OutFile $AGENT_PATH -UseBasicParsing
+    Invoke-WebRequest -Uri $AGENT_URL -OutFile $TEMP_AGENT_PATH -UseBasicParsing
+
+    if (Test-Path $AGENT_PATH) {
+        Remove-Item -Path $AGENT_PATH -Force
+    }
+
+    Move-Item -Path $TEMP_AGENT_PATH -Destination $AGENT_PATH -Force
     Write-Host "Agent download completed"
 } catch {
     Write-Host "Error: failed to download Agent binary"

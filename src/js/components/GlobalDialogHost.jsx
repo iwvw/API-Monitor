@@ -1,12 +1,36 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { DeleteResource } from '@cloudflare/kumo';
+import React, { useEffect, useState } from 'react';
+import { Banner, ClipboardText } from '@cloudflare/kumo';
 import { Button } from '@cloudflare/kumo/components/button';
 import { Dialog } from '@cloudflare/kumo/components/dialog';
 import { Input } from '@cloudflare/kumo/components/input';
 import { cancelDialog, resolveDialog, subscribeDialog } from '../modules/dialog.js';
 import { X } from './Icons.jsx';
 
-const QUOTED_RESOURCE_PATTERN = /[“"「『‘']([^”"」』’']+)[”"」』’']/;
+const QUOTE_PAIRS = [
+  ['"', '"'],
+  ["'", "'"],
+  ['`', '`'],
+  ['“', '”'],
+  ['‘', '’'],
+  ['「', '」'],
+  ['『', '』'],
+  ['《', '》'],
+];
+
+const normalizeText = (value) => String(value || '').trim().toLocaleLowerCase();
+
+const extractQuotedText = (message) => {
+  const text = String(message || '');
+  for (const [open, close] of QUOTE_PAIRS) {
+    const start = text.indexOf(open);
+    if (start < 0) continue;
+    const end = text.indexOf(close, start + open.length);
+    if (end <= start + open.length) continue;
+    const extracted = text.slice(start + open.length, end).trim();
+    if (extracted) return extracted;
+  }
+  return '';
+};
 
 const getConfirmVariant = (request) => {
   const options = request?.options || {};
@@ -20,40 +44,138 @@ const isDeleteResourceConfirm = (request) => {
   if (request?.type !== 'confirm') return false;
   const options = request.options || {};
   if (options.deleteResource === false) return false;
-  return options.deleteResource === true || !!options.resourceName || !!options.resourceType;
+  return options.deleteResource === true || Boolean(options.resourceName) || Boolean(options.resourceType);
 };
 
-const getDeleteResourceName = (options) => {
-  if (options.resourceName) return String(options.resourceName);
+const getDeleteResourceName = (options = {}) => {
+  if (options.resourceName) return String(options.resourceName).trim();
 
-  const message = String(options.message || '');
-  const quotedMatch = message.match(QUOTED_RESOURCE_PATTERN);
-  if (quotedMatch?.[1]) return quotedMatch[1].trim();
+  const quotedName = extractQuotedText(options.message);
+  if (quotedName) return quotedName;
 
-  const namedMatch = message.match(/(?:删除|移除|销毁|永久删除)\s+(.+?)\s+(?:的|吗|？|\?|$)/);
-  if (namedMatch?.[1]) return namedMatch[1].trim();
-
-  const selectedMatch = message.match(/选中的\s*(.+?)\s*(?:吗|？|\?|$)/);
-  if (selectedMatch?.[1]) return selectedMatch[1].trim();
-
-  return options.confirmationText || 'DELETE';
+  if (options.confirmationText) return String(options.confirmationText).trim();
+  if (options.confirmText) return String(options.confirmText).trim();
+  return 'DELETE';
 };
 
-const getDeleteResourceType = (options, resourceName) => {
-  if (options.resourceType) return String(options.resourceType);
-  const message = String(options.message || '');
-  const typeMatch = message.match(/删除\s*(?:此|该|这个|这台|选中的\s*\d+\s*(?:个|条)?)?\s*([A-Za-z0-9 ._-]*[\u4e00-\u9fa5A-Za-z0-9 ._-]{1,16})/);
-  if (typeMatch?.[1]) {
-    const type = typeMatch[1]
-      .replace(resourceName, '')
-      .replace(/[“"「『‘'].*$/, '')
-      .replace(/吗.*$/, '')
-      .replace(/的.*$/, '')
-      .trim();
-    if (type) return type;
-  }
+const getDeleteResourceType = (options = {}) => {
+  if (options.resourceType) return String(options.resourceType).trim();
   return '资源';
 };
+
+const getDeleteDescription = (options, resourceName, resourceType) => {
+  const explicitMessage = String(options?.message || '').trim();
+  if (explicitMessage) return explicitMessage;
+  return `此操作无法撤销。删除后，将永久移除 ${resourceType}“${resourceName}”。`;
+};
+
+function DeleteResourceDialog({ options, promptValue, setPromptValue, onCancel }) {
+  const resourceName = getDeleteResourceName(options);
+  const resourceType = getDeleteResourceType(options);
+  const canDelete = normalizeText(promptValue) === normalizeText(resourceName);
+
+  return (
+    <Dialog.Root
+      open
+      role="alertdialog"
+      disablePointerDismissal={options.disablePointerDismissal}
+      onOpenChange={(open) => {
+        if (!open) onCancel();
+      }}
+    >
+      <Dialog size={options.size || 'sm'} className="p-0">
+        <form
+          className="flex flex-col"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (canDelete) resolveDialog(true);
+          }}
+        >
+          <div className="flex items-center justify-between gap-4 border-b border-kumo-line px-5 py-4">
+            <Dialog.Title className="min-w-0 truncate text-base font-semibold text-kumo-strong">
+              删除 {resourceName}
+            </Dialog.Title>
+            <Dialog.Close
+              aria-label="关闭"
+              render={(props) => (
+                <Button
+                  {...props}
+                  type="button"
+                  variant="secondary"
+                  shape="square"
+                  size="sm"
+                  icon={<X className="h-3.5 w-3.5" />}
+                  aria-label="关闭"
+                  onClick={onCancel}
+                />
+              )}
+            />
+          </div>
+
+          <div className="flex flex-col gap-4 px-5 py-4">
+            {options.errorMessage ? (
+              <Banner variant="error" title={options.errorMessage} />
+            ) : null}
+
+            <Dialog.Description className="text-sm leading-6 text-kumo-subtle">
+              {getDeleteDescription(options, resourceName, resourceType)}
+            </Dialog.Description>
+
+            <div className="space-y-2">
+              <div className="text-sm text-kumo-default">
+                请输入下方内容以确认删除：
+              </div>
+              <ClipboardText
+                size="sm"
+                text={resourceName}
+                className="w-full"
+                tooltip={{ text: '复制', copiedText: '已复制', side: 'top' }}
+                labels={{ copyAction: `复制 ${resourceName}` }}
+              />
+            </div>
+
+            <Input
+              size="sm"
+              autoFocus
+              aria-label={`请输入 ${resourceName} 进行确认`}
+              placeholder={resourceName}
+              value={promptValue}
+              onChange={(event) => setPromptValue(event.target.value)}
+              autoComplete="off"
+              autoCorrect="off"
+              autoCapitalize="off"
+              spellCheck={false}
+            />
+          </div>
+
+          <div className="flex justify-end gap-2 border-t border-kumo-line px-5 py-4">
+            <Dialog.Close
+              render={(props) => (
+                <Button
+                  {...props}
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={onCancel}
+                >
+                  取消
+                </Button>
+              )}
+            />
+            <Button
+              type="submit"
+              variant="destructive"
+              size="sm"
+              disabled={!canDelete}
+            >
+              {options.confirmText || '删除'}
+            </Button>
+          </div>
+        </form>
+      </Dialog>
+    </Dialog.Root>
+  );
+}
 
 function GlobalDialogHost() {
   const [request, setRequest] = useState(null);
@@ -65,14 +187,10 @@ function GlobalDialogHost() {
     setPromptValue(request?.options?.defaultValue || '');
   }, [request?.id, request?.options?.defaultValue]);
 
-  const options = request?.options;
-  const role = useMemo(() => {
-    if (!request) return 'dialog';
-    if (options?.role) return options.role;
-    return request.type === 'alert' ? 'dialog' : 'alertdialog';
-  }, [options?.role, request]);
+  if (!request || !request.options) return null;
 
-  if (!request || !options) return null;
+  const options = request.options;
+  const role = options.role || (request.type === 'alert' ? 'dialog' : 'alertdialog');
 
   const handleCancel = () => {
     cancelDialog();
@@ -87,21 +205,12 @@ function GlobalDialogHost() {
   };
 
   if (isDeleteResourceConfirm(request)) {
-    const resourceName = getDeleteResourceName(options);
-    const resourceType = getDeleteResourceType(options, resourceName);
-
     return (
-      <DeleteResource
-        open
-        onOpenChange={(open) => {
-          if (!open) handleCancel();
-        }}
-        resourceType={resourceType}
-        resourceName={resourceName}
-        onDelete={() => resolveDialog(true)}
-        caseSensitive={false}
-        deleteButtonText={options.confirmText || '删除'}
-        size={options.size || 'sm'}
+      <DeleteResourceDialog
+        options={options}
+        promptValue={promptValue}
+        setPromptValue={setPromptValue}
+        onCancel={handleCancel}
       />
     );
   }
@@ -141,7 +250,8 @@ function GlobalDialogHost() {
                   {...props}
                   type="button"
                   variant="secondary"
-                  shape="square" size="sm"
+                  shape="square"
+                  size="sm"
                   icon={<X className="h-3.5 w-3.5" />}
                   aria-label="关闭"
                   onClick={handleCancel}
@@ -151,9 +261,10 @@ function GlobalDialogHost() {
           </div>
 
           {request.type === 'prompt' ? (
-            <Input size="sm"
+            <Input
+              size="sm"
               autoFocus
-              aria-label={options.placeholder || options.title}
+              aria-label={options.placeholder || options.title || '输入框'}
               placeholder={options.placeholder}
               value={promptValue}
               onChange={(event) => setPromptValue(event.target.value)}
@@ -167,7 +278,8 @@ function GlobalDialogHost() {
                   <Button
                     {...props}
                     type="button"
-                    variant="secondary" size="sm"
+                    variant="secondary"
+                    size="sm"
                     onClick={handleCancel}
                   >
                     {options.cancelText}
@@ -177,7 +289,8 @@ function GlobalDialogHost() {
             ) : null}
             <Button
               type="submit"
-              variant={getConfirmVariant(request)} size="sm"
+              variant={getConfirmVariant(request)}
+              size="sm"
               autoFocus={request.type !== 'prompt'}
             >
               {options.confirmText}

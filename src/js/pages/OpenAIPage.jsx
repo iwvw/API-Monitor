@@ -851,7 +851,7 @@ function OpenAIPage() {
 
   const savePersona = async () => {
     if (!personaForm.name.trim() || !personaForm.systemPrompt.trim()) {
-      toast.warning('?????????');
+      toast.warning('请输入名称和提示词');
       return;
     }
     try {
@@ -868,21 +868,21 @@ function OpenAIPage() {
       chatStorage.savePersonas(nextPersonas);
       setPersonas(nextPersonas);
       if (!currentPersonaId) setCurrentPersonaId(nextPersona.id);
-      toast.success(editingPersona ? '?????' : '?????');
+        toast.success(editingPersona ? '人设已更新' : '人设已创建');
       setPersonaModalOpen(false);
     } catch (e) {
-      toast.error('????: ' + e.message);
+      toast.error('保存失败: ' + e.message);
     }
   };
 
   const deletePersona = async (personaId) => {
-    if (!(await dialog.confirm('??????? AI ????'))) {
+    if (!(await dialog.confirm('确定要删除这个 AI 人设吗？'))) {
       return;
     }
     try {
       const persona = personas.find(item => item.id === personaId);
       if (persona?.is_default) {
-        toast.warning('????????');
+      toast.warning('请输入名称和提示词');
         return;
       }
       const nextPersonas = personas.filter(item => item.id !== personaId);
@@ -893,9 +893,9 @@ function OpenAIPage() {
         setCurrentPersonaId(fallback.id);
         setOpenaiChatSystemPrompt(fallback.system_prompt);
       }
-      toast.success('?????');
+    toast.success('已清除默认模型');
     } catch (e) {
-      toast.error('????: ' + e.message);
+      toast.error('保存失败: ' + e.message);
     }
   };
 
@@ -964,7 +964,7 @@ function OpenAIPage() {
         }
       }
     } catch (error) {
-      toast.error('??????');
+      toast.error('加载会话失败');
     } finally {
       setChatHistoryLoading(false);
       setMobileSidebarOpen(false);
@@ -973,7 +973,7 @@ function OpenAIPage() {
 
   const createSession = async (resetToDefault = false) => {
     try {
-      const globalSystemPrompt = localStorage.getItem('openai_system_prompt') || '??????? AI ???';
+      const globalSystemPrompt = localStorage.getItem('openai_system_prompt') || '你是一个有用的 AI 助手。';
       let finalModel = chatModel;
       if (defaultChatModel && (resetToDefault || !chatModel)) {
         finalModel = defaultChatModel;
@@ -987,7 +987,7 @@ function OpenAIPage() {
       const systemPrompt = currentPersona ? currentPersona.system_prompt : globalSystemPrompt;
       const session = {
         id: chatStorage.newId(),
-        title: '???',
+          title: '新对话',
         model: finalModel,
         endpoint_id: chatEndpoint || '',
         persona_id: currentPersonaId,
@@ -998,15 +998,15 @@ function OpenAIPage() {
       persistSessions(prev => [session, ...prev]);
       setCurrentSessionId(session.id);
       persistMessages(session.id, []);
-      toast.success('??????');
+    toast.success('已清除默认模型');
     } catch (error) {
-      toast.error('??????');
+      toast.error('加载会话失败');
     }
   };
 
   const deleteSession = async (sessionId, e) => {
     if (e) e.stopPropagation();
-    if (!(await dialog.confirm('???????????????????'))) return;
+    if (!(await dialog.confirm('确定要删除这个对话吗？此操作不可撤销。'))) return;
     try {
       persistSessions(prev => prev.filter(s => s.id !== sessionId));
       chatStorage.deleteSessionMessages(sessionId);
@@ -1014,15 +1014,15 @@ function OpenAIPage() {
         setCurrentSessionId(null);
         setMessages([]);
       }
-      toast.success('?????');
+        toast.success('人设已删除');
     } catch (error) {
-      toast.error('??????');
+      toast.error('加载会话失败');
     }
   };
 
   const deleteSelectedSessions = async () => {
     if (selectedSessionIds.length === 0) return;
-    if (!(await dialog.confirm(`???????? ${selectedSessionIds.length} ?????`))) return;
+    if (!(await dialog.confirm(`确定要删除选中的 ${selectedSessionIds.length} 个对话吗？`))) return;
     try {
       persistSessions(prev => prev.filter(s => !selectedSessionIds.includes(s.id)));
       selectedSessionIds.forEach(id => chatStorage.deleteSessionMessages(id));
@@ -1031,24 +1031,24 @@ function OpenAIPage() {
         setMessages([]);
       }
       setSelectedSessionIds([]);
-      toast.success('????');
+        toast.success('人设已删除');
     } catch (error) {
-      toast.error('??????');
+      toast.error('加载会话失败');
     }
   };
 
   const clearAllSessions = async () => {
     if (sessions.length === 0) return;
-    if (!(await dialog.confirm('?????????????????????'))) return;
+    if (!(await dialog.confirm('确定要删除这个对话吗？此操作不可撤销。'))) return;
     try {
       sessions.forEach(session => chatStorage.deleteSessionMessages(session.id));
       persistSessions([]);
       setCurrentSessionId(null);
       setMessages([]);
       setSelectedSessionIds([]);
-      toast.success('???????');
+        toast.success('人设已删除');
     } catch (error) {
-      toast.error('??????');
+      toast.error('加载会话失败');
     }
   };
 
@@ -1136,12 +1136,12 @@ function OpenAIPage() {
   const generateChatTitle = async (currentMsgs, sessionId) => {
     if (!sessionId || currentMsgs.length < 2) return;
     const session = sessions.find(s => s.id === sessionId);
-    if (!session || session.title !== '???') return;
+    if (!session || session.title !== '新对话') return;
 
     if (!openaiAutoTitleEnabled) {
       const firstUser = currentMsgs.find(m => m.role === 'user');
       if (firstUser) {
-        let simpleTitle = typeof firstUser.content === 'string' ? firstUser.content : '????';
+        let simpleTitle = typeof firstUser.content === 'string' ? firstUser.content : '📷 图片对话';
         simpleTitle = simpleTitle.slice(0, 18) + (simpleTitle.length > 18 ? '...' : '');
         updateSession(sessionId, { title: simpleTitle });
       }
@@ -1161,7 +1161,7 @@ function OpenAIPage() {
     } catch (error) {
       const firstUser = currentMsgs.find(m => m.role === 'user');
       if (firstUser) {
-        let fallbackTitle = typeof firstUser.content === 'string' ? firstUser.content : '????';
+        let fallbackTitle = typeof firstUser.content === 'string' ? firstUser.content : '📷 图片对话';
         fallbackTitle = fallbackTitle.slice(0, 18) + (fallbackTitle.length > 18 ? '...' : '');
         updateSession(sessionId, { title: fallbackTitle });
       }
@@ -1235,7 +1235,7 @@ function OpenAIPage() {
       try {
         const session = {
           id: chatStorage.newId(),
-          title: '???',
+          title: '新对话',
           model: chatModel,
           endpoint_id: chatEndpoint || '',
           persona_id: currentPersonaId,
@@ -1248,7 +1248,7 @@ function OpenAIPage() {
         setCurrentSessionId(activeSessionId);
         chatStorage.saveSessionMessages(activeSessionId, []);
       } catch (err) {
-        toast.error('??????');
+      toast.error('创建会话失败');
         return;
       }
     }
@@ -1517,7 +1517,7 @@ function OpenAIPage() {
   const clearChatLocal = async () => {
     if (currentSessionId) {
       persistMessages(currentSessionId, []);
-      toast.success('?????????');
+        toast.success('已清空当前对话消息');
     } else {
       setMessages([]);
     }

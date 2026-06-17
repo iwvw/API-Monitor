@@ -51,14 +51,16 @@ type TaskEvent struct {
 
 // TaskRegistry 任务注册表
 type TaskRegistry struct {
-	tasks map[string]*Task
-	mu    sync.RWMutex
+	tasks       map[string]*Task
+	subscribers map[chan TaskEvent]struct{}
+	mu          sync.RWMutex
 }
 
 // NewTaskRegistry 创建任务注册表
 func NewTaskRegistry() *TaskRegistry {
 	return &TaskRegistry{
-		tasks: make(map[string]*Task),
+		tasks:       make(map[string]*Task),
+		subscribers: make(map[chan TaskEvent]struct{}),
 	}
 }
 
@@ -78,6 +80,19 @@ func (r *TaskRegistry) Create(serverID, taskType, command string) *Task {
 	r.mu.Lock()
 	r.tasks[task.ID] = task
 	r.mu.Unlock()
+
+	r.broadcast(TaskEvent{
+		Type:     "created",
+		TaskID:   task.ID,
+		Status:   task.Status,
+		Progress: task.Progress,
+		Data: map[string]interface{}{
+			"serverId": task.ServerID,
+			"type":     task.Type,
+			"command":  task.Command,
+			"createdAt": task.CreatedAt.Format(time.RFC3339Nano),
+		},
+	})
 
 	return task
 }
@@ -115,6 +130,7 @@ func (r *TaskRegistry) UpdateProgress(taskID string, progress int, data interfac
 		Data:     data,
 	}
 	task.notifySubscribers(event)
+	r.broadcast(event)
 }
 
 // Complete 完成任务
@@ -140,6 +156,7 @@ func (r *TaskRegistry) Complete(taskID string, result string) {
 		Data:     result,
 	}
 	task.notifySubscribers(event)
+	r.broadcast(event)
 	task.closeSubscribers()
 }
 
@@ -164,7 +181,43 @@ func (r *TaskRegistry) Fail(taskID string, errorMsg string) {
 		Error:  errorMsg,
 	}
 	task.notifySubscribers(event)
+	r.broadcast(event)
 	task.closeSubscribers()
+}
+
+func (r *TaskRegistry) SubscribeAll() (<-chan TaskEvent, func()) {
+	ch := make(chan TaskEvent, 32)
+
+	r.mu.Lock()
+	r.subscribers[ch] = struct{}{}
+	r.mu.Unlock()
+
+	cancel := func() {
+		r.mu.Lock()
+		if _, ok := r.subscribers[ch]; ok {
+			delete(r.subscribers, ch)
+			close(ch)
+		}
+		r.mu.Unlock()
+	}
+
+	return ch, cancel
+}
+
+func (r *TaskRegistry) broadcast(event TaskEvent) {
+	r.mu.RLock()
+	subscribers := make([]chan TaskEvent, 0, len(r.subscribers))
+	for ch := range r.subscribers {
+		subscribers = append(subscribers, ch)
+	}
+	r.mu.RUnlock()
+
+	for _, ch := range subscribers {
+		select {
+		case ch <- event:
+		default:
+		}
+	}
 }
 
 // Subscribe 订阅任务事件

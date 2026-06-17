@@ -531,6 +531,7 @@ func (s *Service) buildInfoStruct(cached map[string]interface{}) map[string]inte
 
 	// CPU
 	cpu := make(map[string]interface{})
+	cpu["Model"] = extractCPUModel(cached)
 	cpu["Load"] = getString(cached, "load")
 	cpu["Cores"] = getInt(cached, "cores")
 	cpu["LogicalCores"] = getInt(cached, "logical_cores")
@@ -610,20 +611,7 @@ func (s *Service) buildInfoStruct(cached map[string]interface{}) map[string]inte
 
 	// GPU
 	gpu := make(map[string]interface{})
-	var model string
-	if mStr := getString(cached, "gpu_model"); mStr != "" {
-		model = mStr
-	} else if gpuObj, ok := cached["gpu"].(map[string]interface{}); ok {
-		model = getString(gpuObj, "Model")
-	} else if gpuArr, ok := cached["gpu"].([]interface{}); ok {
-		var models []string
-		for _, item := range gpuArr {
-			if s, ok := item.(string); ok && s != "" {
-				models = append(models, s)
-			}
-		}
-		model = strings.Join(models, " / ")
-	}
+	model := extractGPUModel(cached)
 	gpu["Model"] = model
 
 	gpuUsage := getFloat(cached, "gpu_usage")

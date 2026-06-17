@@ -3,9 +3,10 @@ import { Button, LinkButton } from '@cloudflare/kumo/components/button';
 import { Dialog } from '@cloudflare/kumo/components/dialog';
 import { Input, Textarea } from '@cloudflare/kumo/components/input';
 import { Table } from '@cloudflare/kumo/components/table';
+import { Popover } from '@cloudflare/kumo';
 import { toast } from '../../modules/toast.js';
 import { dialog } from '../../modules/dialog.js';
-import { formatFileSize, formatDateTime } from '../../modules/utils.js';
+import { formatDateTime, formatFileSize } from '../../modules/utils.js';
 import {
   buildSftpDownloadUrl,
   chmodSftpPath,
@@ -17,7 +18,7 @@ import {
   uploadSftpFile,
   writeSftpFile,
 } from '../../modules/server-sftp.js';
-import { Download, Edit, FileText, Folder, FolderOpen, Key, RefreshCw, Save, Trash, Upload, X } from '../Icons.jsx';
+import { ArrowLeft, Copy, Download, Edit, Eye, FileText, Folder, FolderOpen, Key, RefreshCw, Save, Trash, Upload, X } from '../Icons.jsx';
 
 function buildBreadcrumbs(remotePath) {
   const normalized = String(remotePath || '/').replace(/\\/g, '/');
@@ -42,13 +43,44 @@ function buildBreadcrumbs(remotePath) {
   return crumbs;
 }
 
-export default function SftpPanel({
-  serverId,
-  serverName,
-  initialPath = '.',
-  onClose,
-  onPathChange,
-}) {
+function FileActionMenu({ file, onOpen, onDownload, onRename, onChmod, onDelete }) {
+  return (
+    <Popover>
+      <Popover.Trigger
+        render={(
+          <Button shape="square" size="sm" variant="ghost" icon={<Eye className="h-3 w-3" />} aria-label="文件操作" title="文件操作" />
+        )}
+      />
+      <Popover.Content side="left" align="start" className="w-44 p-0">
+        <div className="overflow-hidden rounded-lg border border-kumo-line bg-kumo-control p-1.5">
+          <button className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm text-kumo-default hover:bg-kumo-recessed/60" type="button" onClick={onOpen}>
+            <Eye className="h-3.5 w-3.5" /> 打开
+          </button>
+          {!file.isDirectory && onDownload ? (
+            <LinkButton
+              href={onDownload}
+              className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm text-kumo-default hover:bg-kumo-recessed/60"
+            >
+              <Download className="h-3.5 w-3.5" /> 下载
+            </LinkButton>
+          ) : null}
+          <button className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm text-kumo-default hover:bg-kumo-recessed/60" type="button" onClick={onRename}>
+            <Edit className="h-3.5 w-3.5" /> 重命名
+          </button>
+          <button className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm text-kumo-default hover:bg-kumo-recessed/60" type="button" onClick={onChmod}>
+            <Key className="h-3.5 w-3.5" /> 权限
+          </button>
+          <div className="my-1 h-px bg-kumo-line" />
+          <button className="flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm text-kumo-danger hover:bg-kumo-danger/10" type="button" onClick={onDelete}>
+            <Trash className="h-3.5 w-3.5" /> 删除
+          </button>
+        </div>
+      </Popover.Content>
+    </Popover>
+  );
+}
+
+export default function SftpPanel({ serverId, serverName, initialPath = '.', onClose, onPathChange }) {
   const uploadInputRef = useRef(null);
   const [files, setFiles] = useState([]);
   const [currentPath, setCurrentPath] = useState(initialPath || '.');
@@ -65,7 +97,6 @@ export default function SftpPanel({
   const [mkdirName, setMkdirName] = useState('');
   const [chmodFile, setChmodFile] = useState(null);
   const [chmodValue, setChmodValue] = useState('644');
-
   const breadcrumbs = useMemo(() => buildBreadcrumbs(currentPath), [currentPath]);
   const hasUnsavedEdit = Boolean(editFile && editFile.content !== editFile.originalContent);
 
@@ -101,12 +132,7 @@ export default function SftpPanel({
     }
     try {
       const data = await readSftpFile(serverId, file.path);
-      setEditFile({
-        path: file.path,
-        name: file.name,
-        content: data.data || '',
-        originalContent: data.data || '',
-      });
+      setEditFile({ path: file.path, name: file.name, content: data.data || '', originalContent: data.data || '' });
       setEditorOpen(true);
     } catch (err) {
       toast.error(err.message || '读取文件失败');
@@ -222,179 +248,118 @@ export default function SftpPanel({
 
   return (
     <>
-      <div className="h-72 shrink-0 border-t border-kumo-line bg-kumo-base p-3 text-xs">
-        <div className="mb-2 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-          <div className="flex min-w-0 items-center gap-2">
-            <FolderOpen className="h-4 w-4 text-kumo-subtle" />
-            <span className="font-bold text-kumo-strong">SFTP</span>
-            <span className="truncate text-[10px] text-kumo-subtle">{serverName || serverId || '-'}</span>
+      <div className="flex h-full min-h-0 flex-col border-t border-kumo-line bg-kumo-base">
+        <div className="flex items-center justify-between gap-3 border-b border-kumo-line px-3 py-3">
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 text-sm font-semibold text-kumo-strong">
+              <FolderOpen className="h-4 w-4 text-kumo-brand" />
+              <span className="truncate">FileSystem</span>
+            </div>
+            <div className="truncate text-[10px] text-kumo-subtle">{serverName || serverId || '-'}</div>
           </div>
           <div className="flex shrink-0 items-center gap-1.5">
-            <Button size="sm" variant="secondary" onClick={() => setMkdirOpen(true)}>新建目录</Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="secondary"
-              icon={<Upload className="h-3.5 w-3.5" />}
-              onClick={() => uploadInputRef.current?.click()}
-              disabled={!serverId || uploading}
-            >
-              上传
-            </Button>
-            <Input
-              ref={uploadInputRef}
-              size="sm"
-              aria-label="上传 SFTP 文件"
-              type="file"
-              className="hidden"
-              onChange={uploadFiles}
-              multiple
-            />
-            <Button
-              size="sm"
-              variant="secondary"
-              icon={<RefreshCw className="h-3.5 w-3.5" />}
-              onClick={() => loadDirectory(currentPath)}
-              loading={loading || uploading}
-            >
-              刷新
-            </Button>
-            <Button
-              shape="square"
-              size="sm"
-              variant="ghost"
-              icon={<X className="h-3 w-3" />}
-              aria-label="关闭 SFTP"
-              title="关闭 SFTP"
-              onClick={onClose}
-            />
+            <Button size="sm" variant="secondary" icon={<Upload className="h-3.5 w-3.5" />} onClick={() => uploadInputRef.current?.click()} disabled={!serverId || uploading}>上传</Button>
+            <Button size="sm" variant="secondary" icon={<Folder className="h-3.5 w-3.5" />} onClick={() => setMkdirOpen(true)}>新建</Button>
+            <Button size="sm" variant="secondary" icon={<RefreshCw className="h-3.5 w-3.5" />} onClick={() => loadDirectory(currentPath)} loading={loading || uploading}>刷新</Button>
+            <Button shape="square" size="sm" variant="ghost" icon={<X className="h-3 w-3" />} aria-label="关闭 SFTP" title="关闭 SFTP" onClick={onClose} />
           </div>
         </div>
 
-        <form
-          className="mb-2 flex min-w-0 items-center gap-1.5"
-          onSubmit={event => {
-            event.preventDefault();
-            loadDirectory(pathInput);
-          }}
-        >
-          <Input
-            size="sm"
-            aria-label="SFTP 路径"
-            value={pathInput}
-            onChange={event => setPathInput(event.target.value)}
-            className="min-w-0 flex-1 font-mono"
-          />
-          <Button size="sm" variant="primary" type="submit">跳转</Button>
-        </form>
+        <div className="flex min-h-0 flex-1 flex-col gap-3 p-3">
+          <form
+            className="flex min-w-0 items-center gap-2"
+            onSubmit={event => {
+              event.preventDefault();
+              loadDirectory(pathInput);
+            }}
+          >
+            <Button shape="square" size="sm" variant="secondary" icon={<ArrowLeft className="h-3.5 w-3.5" />} onClick={() => loadDirectory(breadcrumbs.at(-2)?.path || breadcrumbs[0]?.path || currentPath)} />
+            <Input size="sm" aria-label="SFTP 路径" value={pathInput} onChange={event => setPathInput(event.target.value)} className="min-w-0 flex-1 font-mono" />
+            <Button size="sm" variant="primary" type="submit">跳转</Button>
+          </form>
 
-        <div className="mb-2 flex items-center gap-1.5 overflow-x-auto whitespace-nowrap text-[10px] scrollbar-thin">
-          {breadcrumbs.map((crumb, idx) => (
-            <React.Fragment key={`${crumb.path}-${idx}`}>
-              <Button
-                type="button"
-                size="sm"
-                variant="ghost"
-                onClick={() => loadDirectory(crumb.path)}
-                className="h-5 px-1 py-0 text-[10px] font-semibold text-kumo-subtle hover:text-kumo-strong"
-              >
-                {crumb.name}
-              </Button>
-              {idx < breadcrumbs.length - 1 && <span className="opacity-40">/</span>}
-            </React.Fragment>
-          ))}
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-kumo-line">
+            <div className="flex items-center gap-1.5 border-b border-kumo-line px-3 py-2 text-[10px] text-kumo-subtle">
+              {breadcrumbs.map((crumb, idx) => (
+                <React.Fragment key={`${crumb.path}-${idx}`}>
+                  <button type="button" className="truncate font-semibold text-kumo-default hover:text-kumo-strong" onClick={() => loadDirectory(crumb.path)}>
+                    {crumb.name}
+                  </button>
+                  {idx < breadcrumbs.length - 1 ? <span>/</span> : null}
+                </React.Fragment>
+              ))}
+            </div>
+            <div className="min-h-0 flex-1 overflow-auto">
+              {loading ? (
+                <div className="py-10 text-center text-xs text-kumo-subtle">加载中...</div>
+              ) : error ? (
+                <div className="m-3 rounded-md border border-kumo-danger/30 bg-kumo-danger/10 p-3 text-xs text-kumo-danger">{error}</div>
+              ) : (
+                <Table size="sm">
+                  <Table.Header>
+                    <Table.Row>
+                      <Table.Head className="w-[45%]">路径</Table.Head>
+                      <Table.Head className="w-[12%]">大小</Table.Head>
+                      <Table.Head className="w-[18%]">最后修改</Table.Head>
+                      <Table.Head className="w-[15%]">权限</Table.Head>
+                      <Table.Head className="text-right">操作</Table.Head>
+                    </Table.Row>
+                  </Table.Header>
+                  <Table.Body>
+                    {files.length === 0 ? (
+                      <Table.Row>
+                        <Table.Cell colSpan={5}>
+                          <div className="py-10 text-center text-xs text-kumo-subtle">当前目录为空</div>
+                        </Table.Cell>
+                      </Table.Row>
+                    ) : files.map(file => (
+                      <Table.Row key={file.path} className={file.isDirectory ? '' : ''}>
+                        <Table.Cell className="min-w-0">
+                          <button type="button" className="flex min-w-0 items-center gap-2 text-left" onClick={() => openFile(file)} title={file.path}>
+                            {file.isDirectory ? <Folder className="h-3.5 w-3.5 shrink-0 text-kumo-brand" /> : <FileText className="h-3.5 w-3.5 shrink-0 text-kumo-subtle" />}
+                            <span className="truncate font-medium text-kumo-strong">{file.name}</span>
+                          </button>
+                        </Table.Cell>
+                        <Table.Cell className="whitespace-nowrap font-mono text-[10px]">{file.isDirectory ? '-' : formatFileSize(file.size)}</Table.Cell>
+                        <Table.Cell className="whitespace-nowrap text-[10px]">{file.mtime ? formatDateTime(file.mtime) : '-'}</Table.Cell>
+                        <Table.Cell className="whitespace-nowrap font-mono text-[10px]">{file.permissions || '-'}</Table.Cell>
+                        <Table.Cell>
+                          <div className="flex justify-end gap-1">
+                            <FileActionMenu
+                              file={file}
+                              onOpen={() => openFile(file)}
+                              onDownload={!file.isDirectory ? buildSftpDownloadUrl(serverId, file.path) : null}
+                              onRename={() => { setRenameFile(file); setRenameValue(file.name); }}
+                              onChmod={() => { setChmodFile(file); setChmodValue(String(file.mode ? (file.mode & 0o777).toString(8) : '644')); }}
+                              onDelete={() => deletePath(file)}
+                            />
+                          </div>
+                        </Table.Cell>
+                      </Table.Row>
+                    ))}
+                  </Table.Body>
+                </Table>
+              )}
+            </div>
+          </div>
         </div>
 
-        <div className="max-h-40 overflow-auto rounded-md border border-kumo-line scrollbar-thin">
-          {loading ? (
-            <div className="py-8 text-center text-[10px] text-kumo-subtle">读取远程目录中...</div>
-          ) : error ? (
-            <div className="m-2 rounded-md border border-kumo-danger/30 bg-kumo-danger/10 p-2 text-[10px] text-kumo-danger">{error}</div>
-          ) : files.length === 0 ? (
-            <div className="py-8 text-center text-[10px] text-kumo-subtle">当前目录为空</div>
-          ) : (
-            <Table size="sm">
-              <Table.Header>
-                <Table.Row>
-                  <Table.Head>名称</Table.Head>
-                  <Table.Head>大小</Table.Head>
-                  <Table.Head>权限</Table.Head>
-                  <Table.Head>修改时间</Table.Head>
-                  <Table.Head className="text-right">操作</Table.Head>
-                </Table.Row>
-              </Table.Header>
-              <Table.Body>
-                {files.map(file => (
-                  <Table.Row key={file.path}>
-                    <Table.Cell className="min-w-48">
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        onClick={() => openFile(file)}
-                        className="max-w-64 justify-start px-1"
-                        title={file.path}
-                      >
-                        {file.isDirectory ? <Folder className="h-3.5 w-3.5 shrink-0" /> : <FileText className="h-3.5 w-3.5 shrink-0" />}
-                        <span className="truncate">{file.name}</span>
-                      </Button>
-                    </Table.Cell>
-                    <Table.Cell className="whitespace-nowrap font-mono text-[10px]">{file.isDirectory ? '目录' : formatFileSize(file.size)}</Table.Cell>
-                    <Table.Cell className="whitespace-nowrap font-mono text-[10px]">{file.permissions || '-'}</Table.Cell>
-                    <Table.Cell className="whitespace-nowrap text-[10px]">{file.mtime ? formatDateTime(file.mtime) : '-'}</Table.Cell>
-                    <Table.Cell>
-                      <div className="flex justify-end gap-1">
-                        {!file.isDirectory && (
-                          <LinkButton
-                            size="sm"
-                            variant="ghost"
-                            href={buildSftpDownloadUrl(serverId, file.path)}
-                            icon={<Download className="h-3 w-3" />}
-                            title="下载"
-                          />
-                        )}
-                        {!file.isDirectory && (
-                          <Button shape="square" size="sm" variant="ghost" icon={<Edit className="h-3 w-3" />} aria-label="编辑" title="编辑" onClick={() => openFile(file)} />
-                        )}
-                        <Button shape="square" size="sm" variant="ghost" icon={<Edit className="h-3 w-3" />} aria-label="重命名" title="重命名" onClick={() => { setRenameFile(file); setRenameValue(file.name); }} />
-                        <Button shape="square" size="sm" variant="ghost" icon={<Key className="h-3 w-3" />} aria-label="权限" title="权限" onClick={() => { setChmodFile(file); setChmodValue(String(file.mode ? (file.mode & 0o777).toString(8) : '644')); }} />
-                        <Button shape="square" size="sm" variant="ghost" icon={<Trash className="h-3 w-3" />} aria-label="删除" title="删除" onClick={() => deletePath(file)} className="hover:text-kumo-danger" />
-                      </div>
-                    </Table.Cell>
-                  </Table.Row>
-                ))}
-              </Table.Body>
-            </Table>
-          )}
-        </div>
+        <Input ref={uploadInputRef} size="sm" aria-label="上传 SFTP 文件" type="file" className="hidden" onChange={uploadFiles} multiple />
       </div>
 
-      <Dialog.Root
-        open={editorOpen && Boolean(editFile)}
-        onOpenChange={(open) => {
-          if (open) {
-            setEditorOpen(true);
-          } else {
-            requestCloseEditor();
-          }
-        }}
-      >
+      <Dialog.Root open={editorOpen && Boolean(editFile)} onOpenChange={(open) => (open ? setEditorOpen(true) : requestCloseEditor())}>
         <Dialog size="xl" className="flex max-h-[calc(100dvh-1rem)] flex-col overflow-hidden p-0">
           <div className="flex items-center justify-between gap-3 border-b border-kumo-line px-4 py-3">
-            <Dialog.Title className="min-w-0 truncate text-sm font-bold text-kumo-strong">在线编辑：{editFile?.name}</Dialog.Title>
+            <Dialog.Title className="min-w-0 truncate text-sm font-bold text-kumo-strong">编辑 {editFile?.name}</Dialog.Title>
             <Dialog.Close />
           </div>
           <div className="space-y-2 overflow-y-auto p-4">
             <div className="truncate font-mono text-[10px] text-kumo-subtle">{editFile?.path}</div>
-            <Textarea
-              aria-label="SFTP 文件内容"
-              value={editFile?.content || ''}
-              onChange={event => setEditFile(prev => ({ ...prev, content: event.target.value }))}
-              className="min-h-96 font-mono text-xs"
-            />
+            <Textarea aria-label="SFTP 文件内容" value={editFile?.content || ''} onChange={event => setEditFile(prev => ({ ...prev, content: event.target.value }))} className="min-h-96 font-mono text-xs" />
           </div>
           <div className="flex justify-end gap-2 border-t border-kumo-line px-4 py-3">
             <Button size="sm" variant="secondary" onClick={requestCloseEditor}>取消</Button>
-            <Button size="sm" variant="primary" icon={<Save className="h-3.5 w-3.5" />} loading={saving} onClick={saveFile}>保存文件</Button>
+            <Button size="sm" variant="primary" icon={<Save className="h-3.5 w-3.5" />} loading={saving} onClick={saveFile}>保存</Button>
           </div>
         </Dialog>
       </Dialog.Root>

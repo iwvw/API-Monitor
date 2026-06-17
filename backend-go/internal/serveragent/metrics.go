@@ -189,63 +189,33 @@ func (s *Service) getLatestMetrics(w http.ResponseWriter, r *http.Request, db *s
 
 // getNetworkQuality 获取网络质量数据
 func (s *Service) getNetworkQuality(w http.ResponseWriter, r *http.Request, db *sql.DB, serverID string) {
-	days := r.URL.Query().Get("days")
-	daysInt := 7
-	if days != "" {
-		if d, err := strconv.Atoi(days); err == nil && d > 0 && d <= 90 {
-			daysInt = d
-		}
-	}
-
-	query := `SELECT
-		id, server_id, target_name, COALESCE(latency_ms, 0), CASE WHEN success = 1 THEN 0 ELSE 100 END, NULL,
-		checked_at
-	FROM server_network_quality_samples
-	WHERE server_id = ?
-	AND checked_at >= datetime('now', '-' || ? || ' days')
-	ORDER BY checked_at DESC
-	LIMIT 1000`
-
-	rows, err := db.QueryContext(r.Context(), query, serverID, daysInt)
+	daysInt := clampQueryInt(r.URL.Query().Get("days"), 1, 1, 90)
+	maxPoints := clampQueryInt(r.URL.Query().Get("maxPointsPerTarget"), 96, 1, 2880)
+	payload, err := s.buildNetworkQualityPayload(r.Context(), db, serverID, daysInt, maxPoints)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	defer rows.Close()
-
-	var samples []map[string]interface{}
-	for rows.Next() {
-		var (
-			id, srvID, target string
-			latency           float64
-			packetLoss        float64
-			jitter            sql.NullFloat64
-			sampledAt         string
-		)
-
-		if err := rows.Scan(&id, &srvID, &target, &latency, &packetLoss, &jitter, &sampledAt); err != nil {
-			continue
-		}
-
-		sample := map[string]interface{}{
-			"id":          id,
-			"server_id":   srvID,
-			"target":      target,
-			"latency":     latency,
-			"packet_loss": packetLoss,
-			"sampled_at":  sampledAt,
-		}
-
-		if jitter.Valid {
-			sample["jitter"] = jitter.Float64
-		}
-
-		samples = append(samples, sample)
-	}
-
 	response.JSON(w, http.StatusOK, map[string]interface{}{
 		"success": true,
-		"data":    samples,
+		"data":    payload,
+	})
+}
+
+func (s *Service) collectNetworkQualitySamples(w http.ResponseWriter, r *http.Request, db *sql.DB, serverID string) {
+	_, err := s.collectNetworkQuality(r.Context(), db, serverID)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	payload, err := s.buildNetworkQualityPayload(r.Context(), db, serverID, 1, clampQueryInt(r.URL.Query().Get("maxPointsPerTarget"), 96, 1, 2880))
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]interface{}{
+		"success": true,
+		"data":    payload,
 	})
 }
 

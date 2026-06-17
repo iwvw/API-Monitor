@@ -32,9 +32,10 @@ type Service struct {
 	lastCollectMu sync.RWMutex
 	lastPersist   map[string]time.Time
 	lastPersistMu sync.Mutex
+	agentTaskWaiters sync.Map
 }
 
-const realtimeMetricsPersistInterval = 10 * time.Second
+const realtimeMetricsPersistInterval = 1500 * time.Millisecond
 
 func New(cfg config.Config) *Service {
 	registry := NewConnectionRegistry()
@@ -1499,6 +1500,10 @@ func (s *Service) runPeriodicCollection(ctx context.Context, db *sql.DB) int {
 		}
 	}
 
+	for _, sm := range list {
+		_, _ = s.collectNetworkQuality(ctx, db, sm.serverID)
+	}
+
 	if collected > 0 {
 		s.lastCollectMu.Lock()
 		s.lastCollect = time.Now()
@@ -2286,6 +2291,7 @@ func (s *Service) buildInfoField(metrics map[string]interface{}) map[string]inte
 			cpuPower = f
 		}
 	}
+	cpuModel := extractCPUModel(metrics)
 
 	// Memory
 	memPercent := ""
@@ -2365,6 +2371,7 @@ func (s *Service) buildInfoField(metrics map[string]interface{}) map[string]inte
 
 	return map[string]interface{}{
 		"cpu": map[string]interface{}{
+			"Model":         cpuModel,
 			"Load":          cpuLoad,
 			"Cores":         cpuCores,
 			"LogicalCores":  logicalCores,
@@ -2599,17 +2606,21 @@ func buildGpuInfo(metrics map[string]interface{}) []map[string]interface{} {
 		}
 	}
 
+	model := extractGPUModel(metrics)
 	usage := metricFloat(metrics, "gpu_usage")
 	memUsed := metricFloat(metrics, "gpu_mem_used")
 	memTotal := metricFloat(metrics, "gpu_mem_total")
 	power := metricFloat(metrics, "gpu_power")
 	temp := metricFloat(metrics, "gpu_temp")
-	if usage == 0 && memUsed == 0 && memTotal == 0 && power == 0 && temp == 0 {
+	if usage == 0 && memUsed == 0 && memTotal == 0 && power == 0 && temp == 0 && model == "" {
 		return []map[string]interface{}{}
+	}
+	if model == "" {
+		model = "GPU"
 	}
 
 	return []map[string]interface{}{{
-		"name":        stringMetric(metrics, "gpu_name", "GPU"),
+		"name":        model,
 		"usage":       usage,
 		"memUsed":     memUsed,
 		"memTotal":    memTotal,
@@ -2634,6 +2645,106 @@ func stringMetric(metrics map[string]interface{}, key, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func extractCPUModel(metrics map[string]interface{}) string {
+	candidates := []string{
+		stringMetric(metrics, "cpu_model", ""),
+		stringMetric(metrics, "cpu_name", ""),
+		stringMetric(metrics, "processor", ""),
+		stringMetric(metrics, "model_name", ""),
+		stringMetric(metrics, "hardware_model", ""),
+	}
+	for _, candidate := range candidates {
+		if candidate != "" {
+			return candidate
+		}
+	}
+	if cpuRaw, ok := metrics["cpu"]; ok {
+		switch cpu := cpuRaw.(type) {
+		case []string:
+			return strings.Join(filterNonEmptyStrings(cpu), " / ")
+		case []interface{}:
+			var models []string
+			for _, item := range cpu {
+				if text, ok := item.(string); ok && strings.TrimSpace(text) != "" {
+					models = append(models, strings.TrimSpace(text))
+				}
+			}
+			if len(models) > 0 {
+				return strings.Join(models, " / ")
+			}
+		case map[string]interface{}:
+			return firstNonEmpty(
+				getString(cpu, "Model"),
+				getString(cpu, "model"),
+				getString(cpu, "Name"),
+				getString(cpu, "name"),
+			)
+		}
+	}
+	return ""
+}
+
+func extractGPUModel(metrics map[string]interface{}) string {
+	candidates := []string{
+		stringMetric(metrics, "gpu_model", ""),
+		stringMetric(metrics, "gpu_name", ""),
+		stringMetric(metrics, "graphics", ""),
+		stringMetric(metrics, "video", ""),
+	}
+	for _, candidate := range candidates {
+		if candidate != "" {
+			return candidate
+		}
+	}
+	if gpuRaw, ok := metrics["gpu"]; ok {
+		switch gpu := gpuRaw.(type) {
+		case []string:
+			return strings.Join(filterNonEmptyStrings(gpu), " / ")
+		case []interface{}:
+			var models []string
+			for _, item := range gpu {
+				if text, ok := item.(string); ok && strings.TrimSpace(text) != "" {
+					models = append(models, strings.TrimSpace(text))
+					continue
+				}
+				if obj, ok := item.(map[string]interface{}); ok {
+					model := firstNonEmpty(
+						getString(obj, "Model"),
+						getString(obj, "model"),
+						getString(obj, "Name"),
+						getString(obj, "name"),
+					)
+					if model != "" {
+						models = append(models, model)
+					}
+				}
+			}
+			if len(models) > 0 {
+				return strings.Join(models, " / ")
+			}
+		case map[string]interface{}:
+			return firstNonEmpty(
+				getString(gpu, "Model"),
+				getString(gpu, "model"),
+				getString(gpu, "Name"),
+				getString(gpu, "name"),
+			)
+		}
+	}
+	return ""
+}
+
+func filterNonEmptyStrings(values []string) []string {
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed != "" {
+			result = append(result, trimmed)
+		}
+	}
+	return result
 }
 
 func getFloatValue(m map[string]interface{}, key string) float64 {
@@ -2814,6 +2925,13 @@ func (s *Service) buildCachedInfo(state map[string]interface{}, hostInfo map[str
 	cached["gpu_mem_percent"] = gpuMemPercent
 	cached["gpu_temp"] = getFloatValue(state, "gpu_temp")
 	cached["gpu_power"] = getFloatValue(state, "gpu_power")
+
+	if cpuModel := extractCPUModel(hostInfo); cpuModel != "" {
+		cached["cpu_model"] = cpuModel
+	}
+	if gpuModel := extractGPUModel(hostInfo); gpuModel != "" {
+		cached["gpu_model"] = gpuModel
+	}
 
 	return cached
 }

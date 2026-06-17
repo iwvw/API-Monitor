@@ -69,6 +69,7 @@ config/
 !backend-go/internal/config/*.go
 tmp/
 test/tmp/
+test/
 
 # ====================
 # 构建输出

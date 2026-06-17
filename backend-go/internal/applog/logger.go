@@ -211,6 +211,46 @@ type statusRecorder struct {
 	size   int
 }
 
+func isStaticAssetRequest(path string) bool {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return false
+	}
+	if strings.HasPrefix(path, "/assets/") {
+		return true
+	}
+	switch {
+	case strings.HasSuffix(path, ".css"),
+		strings.HasSuffix(path, ".js"),
+		strings.HasSuffix(path, ".map"),
+		strings.HasSuffix(path, ".svg"),
+		strings.HasSuffix(path, ".png"),
+		strings.HasSuffix(path, ".jpg"),
+		strings.HasSuffix(path, ".jpeg"),
+		strings.HasSuffix(path, ".ico"),
+		strings.HasSuffix(path, ".woff"),
+		strings.HasSuffix(path, ".woff2"),
+		strings.HasSuffix(path, ".ttf"):
+		return true
+	default:
+		return false
+	}
+}
+
+func shouldSkipRequestLog(r *http.Request, status int) bool {
+	if r == nil {
+		return false
+	}
+	userAgent := strings.ToLower(strings.TrimSpace(r.UserAgent()))
+	if strings.Contains(userAgent, "codex local server discovery") {
+		return true
+	}
+	if status < http.StatusBadRequest && isStaticAssetRequest(r.URL.Path) {
+		return true
+	}
+	return false
+}
+
 func (r *statusRecorder) WriteHeader(status int) {
 	if r.status == 0 {
 		r.status = status
@@ -276,6 +316,9 @@ func Middleware(next http.Handler) http.Handler {
 				level = slog.LevelError
 			} else if status >= 400 {
 				level = slog.LevelWarn
+			}
+			if shouldSkipRequestLog(r, status) {
+				return
 			}
 			Logger().LogAttrs(ctx, level, "http request",
 				slog.String("module", "http"),

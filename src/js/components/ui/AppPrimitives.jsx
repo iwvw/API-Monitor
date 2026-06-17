@@ -56,7 +56,7 @@ export function AppCard({
     <LayerCard
       {...props}
       className={cx(
-        'rounded-lg border border-kumo-line bg-kumo-base shadow-none',
+        'rounded-lg border border-kumo-line/90 bg-kumo-base shadow-none',
         cardPaddingClass[padding] || cardPaddingClass.md,
         interactive && 'transition-colors hover:border-kumo-brand/60',
         className
@@ -207,7 +207,7 @@ export function ChartBoundaryBox({ className = '', children }) {
 export function ChartCard({ className = '', children }) {
   return (
     <ChartBoundaryBox
-      className={cx('min-w-0 overflow-hidden rounded-lg border border-kumo-line bg-kumo-base p-3 shadow-none', className)}
+      className={cx('min-w-0 overflow-hidden rounded-lg border border-kumo-line/90 bg-kumo-base p-3 shadow-none', className)}
     >
       {children}
     </ChartBoundaryBox>

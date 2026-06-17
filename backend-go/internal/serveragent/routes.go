@@ -152,13 +152,7 @@ func (s *Service) handleNetworkQualityRoutes(w http.ResponseWriter, r *http.Requ
 	serverID := subparts[0]
 
 	if len(subparts) == 2 && subparts[1] == "collect" && r.Method == http.MethodPost {
-		response.JSON(w, http.StatusOK, map[string]interface{}{
-			"success": true,
-			"data": map[string]interface{}{
-				"serverId": serverID,
-				"samples":  []interface{}{},
-			},
-		})
+		s.collectNetworkQualitySamples(w, r, db, serverID)
 	} else if r.Method == http.MethodGet {
 		s.getNetworkQuality(w, r, db, serverID)
 	} else {

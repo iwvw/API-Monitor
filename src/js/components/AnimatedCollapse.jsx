@@ -1,20 +1,24 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { Collapsible } from '@cloudflare/kumo';
 
 const cx = (...classes) => classes.filter(Boolean).join(' ');
 const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
-const collapsePanelClassName = [
+
+const panelMotionClassName = [
   'overflow-hidden',
   'transition-[height,opacity]',
-  'duration-200',
+  'duration-160',
   'ease-out',
   'motion-reduce:transition-none',
+  'data-[open]:animate-none',
+  'data-[closed]:animate-none',
 ].join(' ');
 
 function prefersReducedMotion() {
   return (
-    typeof window !== 'undefined' &&
-    typeof window.matchMedia === 'function' &&
-    window.matchMedia(REDUCED_MOTION_QUERY).matches
+    typeof window !== 'undefined'
+    && typeof window.matchMedia === 'function'
+    && window.matchMedia(REDUCED_MOTION_QUERY).matches
   );
 }
 
@@ -58,10 +62,7 @@ export function AnimatedCollapse({
       setDisplayChildren(children);
       return;
     }
-
-    if (keepMounted) {
-      setRendered(true);
-    }
+    if (keepMounted) setRendered(true);
   }, [children, keepMounted, open]);
 
   useLayoutEffect(() => {
@@ -85,12 +86,13 @@ export function AnimatedCollapse({
       return undefined;
     }
 
+    const nextHeight = `${panel.scrollHeight}px`;
     if (open) {
       setHeight('0px');
       setOpacity(0);
       frameRef.current = scheduleFrame(() => {
         frameRef.current = null;
-        setHeight(`${panel.scrollHeight}px`);
+        setHeight(nextHeight);
         setOpacity(1);
       });
     } else {
@@ -112,37 +114,6 @@ export function AnimatedCollapse({
     };
   }, [keepMounted, open, rendered]);
 
-  useEffect(() => {
-    if (!open || !rendered || height === 'auto' || typeof ResizeObserver === 'undefined') return undefined;
-
-    const panel = panelRef.current;
-    if (!panel) return undefined;
-
-    const observer = new ResizeObserver(() => {
-      setHeight(`${panel.scrollHeight}px`);
-    });
-    observer.observe(panel);
-    if (panel.firstElementChild) {
-      observer.observe(panel.firstElementChild);
-    }
-
-    return () => observer.disconnect();
-  }, [height, open, rendered]);
-
-  useEffect(() => {
-    if (!open || !rendered || height !== '0px') return undefined;
-
-    const panel = panelRef.current;
-    if (!panel) return undefined;
-
-    const frame = scheduleFrame(() => {
-      setHeight(`${panel.scrollHeight}px`);
-      setOpacity(1);
-    });
-
-    return () => cancelFrame(frame);
-  }, [displayChildren, height, open, rendered]);
-
   const handleTransitionEnd = (event) => {
     if (event.target !== panelRef.current || event.propertyName !== 'height') return;
 
@@ -158,19 +129,20 @@ export function AnimatedCollapse({
   };
 
   return (
-    <div className={className}>
+    <Collapsible.Root open={open} className={className}>
       {rendered && (
-        <div
+        <Collapsible.Panel
           ref={panelRef}
+          keepMounted
           aria-hidden={!open}
-          className={cx(collapsePanelClassName, panelClassName)}
+          className={cx(panelMotionClassName, panelClassName, prefersReducedMotion() ? 'opacity-100' : '')}
           style={{ height, opacity }}
           onTransitionEnd={handleTransitionEnd}
         >
           {displayChildren}
-        </div>
+        </Collapsible.Panel>
       )}
-    </div>
+    </Collapsible.Root>
   );
 }
 
@@ -188,8 +160,8 @@ export function useDeferredOpen(open, delay = 220) {
       return undefined;
     }
 
-    const prefersReducedMotion = window.matchMedia?.(REDUCED_MOTION_QUERY)?.matches;
-    const wait = prefersReducedMotion ? 0 : delay;
+    const reducedMotion = window.matchMedia?.(REDUCED_MOTION_QUERY)?.matches;
+    const wait = reducedMotion ? 0 : delay;
 
     if (wait <= 0) {
       setReady(true);
@@ -215,7 +187,6 @@ export function DeferredRender({
   children,
 }) {
   const ready = useDeferredOpen(open, delay);
-
   return ready ? children : fallback;
 }
 
