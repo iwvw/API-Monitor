@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { toast } from '../modules/toast.js';
 import { dialog } from '../modules/dialog.js';
 import { Button } from '@cloudflare/kumo/components/button';
@@ -250,6 +250,7 @@ function GeminiCliPage() {
   // OAuth Authorization drawer
   const [showOAuthExpand, setShowOAuthExpand] = useState(false);
   const [oauthReturnUrl, setOauthReturnUrl] = useState('');
+  const oauthAutoHandledRef = useRef(false);
   const [customProjectId, setCustomProjectId] = useState('');
   const [allowRandomProjectId, setAllowRandomProjectId] = useState(true);
 
@@ -445,19 +446,24 @@ function GeminiCliPage() {
   };
 
   // OAuth Actions
-  const getOAuthCredentialFallback = (field) => {
+  const getOAuthCredentialFallback = useCallback((field) => {
     const accountKey = field.toLowerCase();
     return (
       gcliSettings[field] ||
       accountForm[accountKey] ||
       accounts.find(account => account[accountKey])?.[accountKey] ||
+      sessionStorage.getItem(`gcli_oauth_${field}`) ||
       ''
     );
-  };
+  }, [gcliSettings, accountForm, accounts]);
 
   const openOAuthUrl = () => {
     const clientId = (getOAuthCredentialFallback('CLIENT_ID') || 'YOUR_CLIENT_ID').trim();
+    const clientSecret = getOAuthCredentialFallback('CLIENT_SECRET');
     const redirectUriValue = (gcliSettings.REDIRECT_URI || 'http://localhost:3000/oauth-callback').trim();
+    sessionStorage.setItem('gcli_oauth_CLIENT_ID', clientId);
+    sessionStorage.setItem('gcli_oauth_CLIENT_SECRET', clientSecret);
+    sessionStorage.setItem('gcli_oauth_REDIRECT_URI', redirectUriValue);
     const redirectUri = encodeURIComponent(redirectUriValue);
     const scope = encodeURIComponent(
       'https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile'
@@ -468,14 +474,15 @@ function GeminiCliPage() {
     window.open(url, '_blank');
   };
 
-  const parseOAuthUrl = async () => {
-    if (!oauthReturnUrl.trim()) {
+  const parseOAuthUrl = useCallback(async (returnUrl = oauthReturnUrl) => {
+    const oauthUrl = String(returnUrl || '').trim();
+    if (!oauthUrl) {
       toast.error('请粘贴回调 URL');
       return;
     }
     let parsedUrl;
     try {
-      parsedUrl = new URL(oauthReturnUrl);
+      parsedUrl = new URL(oauthUrl);
     } catch (e) {
       toast.error('无效的 URL 格式');
       return;
@@ -494,7 +501,7 @@ function GeminiCliPage() {
         headers: getAuthHeaders(),
         body: JSON.stringify({
           code,
-          redirect_uri: gcliSettings.REDIRECT_URI || 'http://localhost:3000/oauth-callback',
+          redirect_uri: gcliSettings.REDIRECT_URI || sessionStorage.getItem('gcli_oauth_REDIRECT_URI') || 'http://localhost:3000/oauth-callback',
           client_id: getOAuthCredentialFallback('CLIENT_ID'),
           client_secret: getOAuthCredentialFallback('CLIENT_SECRET'),
           project_id: customProjectId || undefined,
@@ -524,6 +531,9 @@ function GeminiCliPage() {
 
         if (saveResponse.ok) {
           toast.success('OAuth 账号连接并保存成功！');
+          sessionStorage.removeItem('gcli_oauth_CLIENT_ID');
+          sessionStorage.removeItem('gcli_oauth_CLIENT_SECRET');
+          sessionStorage.removeItem('gcli_oauth_REDIRECT_URI');
           setShowOAuthExpand(false);
           setOauthReturnUrl('');
           setCustomProjectId('');
@@ -540,7 +550,7 @@ function GeminiCliPage() {
     } finally {
       setAccountsLoading(false);
     }
-  };
+  }, [oauthReturnUrl, gcliSettings.REDIRECT_URI, getOAuthCredentialFallback, customProjectId, getAuthHeaders, loadAccounts]);
 
   const exportAccounts = async () => {
     try {
@@ -636,7 +646,7 @@ function GeminiCliPage() {
       });
       const data = await response.json();
       if (Array.isArray(data)) {
-        const filtered = data.filter(d => d && d.buckets);
+        const filtered = data.filter(d => d && (d.buckets || d.error));
         setQuotaData(filtered);
 
         const modelSet = new Set();
@@ -1157,6 +1167,25 @@ function GeminiCliPage() {
       loadRedirects();
     }
   }, [activeTab, loadMatrix, loadStats, loadAccounts, loadQuotas, loadCheckSettings, loadCheckHistory, loadSettings, loadLogs, loadRedirects]);
+
+  useEffect(() => {
+    if (oauthAutoHandledRef.current) return;
+    const currentUrl = new URL(window.location.href);
+    if (!currentUrl.searchParams.get('code')) return;
+
+    oauthAutoHandledRef.current = true;
+    setActiveTab('accounts');
+    setShowOAuthExpand(true);
+    setOauthReturnUrl(currentUrl.href);
+    parseOAuthUrl(currentUrl.href).then(() => {
+      currentUrl.searchParams.delete('code');
+      currentUrl.searchParams.delete('scope');
+      currentUrl.searchParams.delete('state');
+      currentUrl.searchParams.delete('authuser');
+      currentUrl.searchParams.delete('prompt');
+      window.history.replaceState({}, document.title, `${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`);
+    });
+  }, [parseOAuthUrl]);
 
   return (
     <div className="space-y-6 flex flex-col">
@@ -1702,6 +1731,13 @@ function GeminiCliPage() {
                       <Table.Row key={modelId} className="hover:bg-kumo-recessed/5">
                         <Table.Cell className="font-mono font-semibold text-kumo-strong">{modelId}</Table.Cell>
                         {quotaData.map((q) => {
+                          if (q.error) {
+                            return (
+                              <Table.Cell key={q.accountId} className="text-center text-kumo-danger text-[10px]" title={q.error}>
+                                查询失败
+                              </Table.Cell>
+                            );
+                          }
                           const bucket = getQuotaBucket(q, modelId);
                           if (!bucket) return <Table.Cell key={q.accountId} className="text-center text-kumo-subtle/30">-</Table.Cell>;
                           const inCooldown = isQuotaInCooldown(bucket);
@@ -1838,17 +1874,17 @@ function GeminiCliPage() {
                               <Table.Cell key={time} className="text-center">
                                 <div className="flex flex-wrap gap-1 justify-center">
                                   {accounts.map((acc, index) => {
-                                    const accIdx = index + 1;
-                                    const badgeClass = getCheckBadgeClass(checkData, accIdx);
-                                    const badgeTitle = getCheckBadgeTitle(checkData, accIdx);
+                                    const accountNumber = index + 1;
+                                    const badgeClass = getCheckBadgeClass(checkData, index);
+                                    const badgeTitle = getCheckBadgeTitle(checkData, index);
 
                                     return (
                                       <span
-                                        key={accIdx}
+                                        key={accountNumber}
                                         className={`w-5 h-5 rounded-md flex items-center justify-center text-[9px] font-bold select-none cursor-help ${badgeClass}`}
                                         title={badgeTitle}
                                       >
-                                        {accIdx}
+                                        {accountNumber}
                                       </span>
                                     );
                                   })}
