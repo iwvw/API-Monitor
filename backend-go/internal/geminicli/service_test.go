@@ -256,6 +256,7 @@ func TestGeminiCliLifecycle(t *testing.T) {
 		t.Fatalf("unexpected import accounts payload: %#v", importPayload)
 	}
 	_, _ = db.Exec("UPDATE gemini_cli_accounts SET enable = 0 WHERE id <> 'my-account-id'")
+	_, _ = db.Exec("UPDATE gemini_cli_accounts SET enable = 1, status = 'online' WHERE id = 'my-account-id'")
 
 	// 5. Redirect CRUD
 	wRedirectPost := httptest.NewRecorder()
