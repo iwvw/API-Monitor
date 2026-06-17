@@ -7,6 +7,7 @@ import { Input, Textarea } from '@cloudflare/kumo/components/input';
 import { Select } from '@cloudflare/kumo/components/select';
 import { Switch } from '@cloudflare/kumo/components/switch';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
+import { Table } from '@cloudflare/kumo/components/table';
 import {
   Check,
   Clock,
@@ -35,27 +36,27 @@ const DEFAULT_CRON_FORM = {
 };
 
 const PERIOD_ITEMS = [
-  { value: 'minute', label: 'Every minute' },
-  { value: 'hour', label: 'Hourly' },
-  { value: 'day', label: 'Daily' },
-  { value: 'week', label: 'Weekly' },
-  { value: 'month', label: 'Monthly' },
+  { value: 'minute', label: '每分钟' },
+  { value: 'hour', label: '每小时' },
+  { value: 'day', label: '每天' },
+  { value: 'week', label: '每周' },
+  { value: 'month', label: '每月' },
 ];
 
 const WEEKDAY_ITEMS = [
-  { value: '0', label: 'Sunday' },
-  { value: '1', label: 'Monday' },
-  { value: '2', label: 'Tuesday' },
-  { value: '3', label: 'Wednesday' },
-  { value: '4', label: 'Thursday' },
-  { value: '5', label: 'Friday' },
-  { value: '6', label: 'Saturday' },
+  { value: '0', label: '周日' },
+  { value: '1', label: '周一' },
+  { value: '2', label: '周二' },
+  { value: '3', label: '周三' },
+  { value: '4', label: '周四' },
+  { value: '5', label: '周五' },
+  { value: '6', label: '周六' },
 ];
 
 const TYPE_ITEMS = [
-  { value: 'shell', label: 'Shell' },
-  { value: 'http', label: 'HTTP' },
-  { value: 'internal', label: 'Internal' },
+  { value: 'shell', label: 'Shell 命令' },
+  { value: 'http', label: 'HTTP 请求' },
+  { value: 'internal', label: '内部任务' },
 ];
 
 function getCronExpressionFromSimple(form) {
@@ -139,10 +140,10 @@ function SelfHPage() {
       const res = await fetch('/api/cron/tasks', { headers: authHeaders() });
       const data = await res.json();
       if (data.success) setCronTasks(Array.isArray(data.data) ? data.data : []);
-      else toast.error(data.error || 'Task load failed');
+      else toast.error(data.error || '加载任务失败');
     } catch (error) {
       console.error(error);
-      toast.error('Task load failed');
+      toast.error('加载任务失败');
     } finally {
       setLoadingTasks(false);
     }
@@ -194,7 +195,7 @@ function SelfHPage() {
 
   const saveTask = async () => {
     if (!form.name.trim() || !form.command.trim()) {
-      toast.warning('Name and command are required');
+      toast.warning('请填写任务名称和执行内容');
       return;
     }
     setSaving(true);
@@ -213,15 +214,15 @@ function SelfHPage() {
       });
       const data = await res.json();
       if (!data.success) {
-        toast.error(data.error || 'Save failed');
+        toast.error(data.error || '保存任务失败');
         return;
       }
-      toast.success('Saved');
+      toast.success('任务已保存');
       closeDialog();
       await loadCronTasks();
     } catch (error) {
       console.error(error);
-      toast.error('Save failed');
+      toast.error('保存任务失败');
     } finally {
       setSaving(false);
     }
@@ -239,11 +240,11 @@ function SelfHPage() {
       if (data.success) {
         await loadCronTasks();
       } else {
-        toast.error(data.error || 'Update failed');
+        toast.error(data.error || '更新任务失败');
       }
     } catch (error) {
       console.error(error);
-      toast.error('Update failed');
+      toast.error('更新任务失败');
     }
   };
 
@@ -258,11 +259,11 @@ function SelfHPage() {
         toast.success('Started');
         setTimeout(loadCronLogs, 1200);
       } else {
-        toast.error(data.error || 'Run failed');
+        toast.error(data.error || '运行任务失败');
       }
     } catch (error) {
       console.error(error);
-      toast.error('Run failed');
+      toast.error('运行任务失败');
     }
   };
 
@@ -278,16 +279,16 @@ function SelfHPage() {
         toast.success('Deleted');
         await Promise.all([loadCronTasks(), loadCronLogs()]);
       } else {
-        toast.error(data.error || 'Delete failed');
+        toast.error(data.error || '删除任务失败');
       }
     } catch (error) {
       console.error(error);
-      toast.error('Delete failed');
+      toast.error('删除任务失败');
     }
   };
 
   const clearLogs = async () => {
-    if (!(await dialog.confirm('Clear logs older than seven days?'))) return;
+    if (!(await dialog.confirm('确定清理 7 天前的运行日志吗？'))) return;
     try {
       const res = await fetch('/api/cron/logs?days=7', {
         method: 'DELETE',
@@ -295,14 +296,14 @@ function SelfHPage() {
       });
       const data = await res.json();
       if (data.success) {
-        toast.success('Logs cleared');
+        toast.success('运行日志已清理');
         await loadCronLogs();
       } else {
-        toast.error(data.error || 'Clear failed');
+        toast.error(data.error || '清理日志失败');
       }
     } catch (error) {
       console.error(error);
-      toast.error('Clear failed');
+      toast.error('清理日志失败');
     }
   };
 
@@ -311,7 +312,7 @@ function SelfHPage() {
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-kumo-line pb-3">
         <div className="flex items-center gap-2">
           <Clock className="h-4 w-4 text-kumo-brand" />
-          <h2 className="text-base font-bold text-kumo-strong">Scheduled Tasks</h2>
+          <h2 className="text-base font-bold text-kumo-strong">定时任务</h2>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Button size="sm" variant="secondary" onClick={() => Promise.all([loadCronTasks(), loadCronLogs()])}>
@@ -319,14 +320,14 @@ function SelfHPage() {
           </Button>
           <Button size="sm" variant="primary" onClick={openCreateDialog}>
             <Plus className="h-3.5 w-3.5" />
-            Add
+            新建任务
           </Button>
         </div>
       </div>
 
       <section className="space-y-3">
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-kumo-strong">Tasks</h3>
+          <h3 className="text-sm font-semibold text-kumo-strong">任务列表</h3>
           <span className="text-xs text-kumo-subtle">{cronTasks.length}</span>
         </div>
         {loadingTasks ? (
@@ -336,66 +337,74 @@ function SelfHPage() {
           </div>
         ) : cronTasks.length === 0 ? (
           <div className="border border-dashed border-kumo-line p-6 text-center text-sm text-kumo-subtle">
-            No scheduled tasks
+            暂无定时任务
           </div>
         ) : (
-          <div className="overflow-x-auto border border-kumo-line">
-            <table className="min-w-full table-fixed text-left text-xs">
-              <thead className="bg-kumo-recessed text-kumo-subtle">
-                <tr>
-                  <th className="w-48 px-3 py-2 font-semibold">Name</th>
-                  <th className="w-36 px-3 py-2 font-semibold">Schedule</th>
-                  <th className="w-24 px-3 py-2 font-semibold">Type</th>
-                  <th className="min-w-64 px-3 py-2 font-semibold">Command</th>
-                  <th className="w-40 px-3 py-2 font-semibold">Last Run</th>
-                  <th className="w-36 px-3 py-2 font-semibold">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
+          <div className="overflow-x-auto rounded-lg border border-kumo-line">
+            <Table layout="fixed" className="min-w-[920px]">
+              <colgroup>
+                <col className="w-[180px]" />
+                <col className="w-[144px]" />
+                <col className="w-[104px]" />
+                <col />
+                <col className="w-[168px]" />
+                <col className="w-[152px]" />
+              </colgroup>
+              <Table.Header>
+                <Table.Row>
+                  <Table.Head>名称</Table.Head>
+                  <Table.Head>计划</Table.Head>
+                  <Table.Head>类型</Table.Head>
+                  <Table.Head>执行内容</Table.Head>
+                  <Table.Head>上次运行</Table.Head>
+                  <Table.Head>操作</Table.Head>
+                </Table.Row>
+              </Table.Header>
+              <Table.Body>
                 {cronTasks.map((task) => (
-                  <tr key={task.id} className="border-t border-kumo-line">
-                    <td className="px-3 py-2 font-medium text-kumo-strong">{task.name}</td>
-                    <td className="px-3 py-2 font-mono text-kumo-default">{task.schedule}</td>
-                    <td className="px-3 py-2 text-kumo-default">{task.type || 'shell'}</td>
-                    <td className="px-3 py-2 font-mono text-kumo-subtle truncate">{task.command}</td>
-                    <td className="px-3 py-2 text-kumo-subtle">{formatTimestamp(task.last_run)}</td>
-                    <td className="px-3 py-2">
+                  <Table.Row key={task.id}>
+                    <Table.Cell className="font-medium text-kumo-strong">{task.name}</Table.Cell>
+                    <Table.Cell className="font-mono text-xs text-kumo-default">{task.schedule}</Table.Cell>
+                    <Table.Cell className="text-xs text-kumo-default">{task.type || 'shell'}</Table.Cell>
+                    <Table.Cell className="truncate font-mono text-xs text-kumo-subtle">{task.command}</Table.Cell>
+                    <Table.Cell className="text-xs text-kumo-subtle">{formatTimestamp(task.last_run)}</Table.Cell>
+                    <Table.Cell>
                       <div className="flex items-center gap-1">
-                        <Button size="sm" variant="secondary" onClick={() => runTask(task)} aria-label="Run task">
+                        <Button size="sm" variant="secondary" onClick={() => runTask(task)} aria-label="运行任务">
                           <Play className="h-3.5 w-3.5" />
                         </Button>
-                        <Button size="sm" variant="secondary" onClick={() => toggleTask(task)} aria-label="Toggle task">
+                        <Button size="sm" variant="secondary" onClick={() => toggleTask(task)} aria-label="启停任务">
                           {task.enabled ? <Pause className="h-3.5 w-3.5" /> : <Check className="h-3.5 w-3.5" />}
                         </Button>
-                        <Button size="sm" variant="secondary" onClick={() => openEditDialog(task)} aria-label="Edit task">
+                        <Button size="sm" variant="secondary" onClick={() => openEditDialog(task)} aria-label="编辑任务">
                           <Edit className="h-3.5 w-3.5" />
                         </Button>
-                        <Button size="sm" variant="secondary-destructive" onClick={() => deleteTask(task)} aria-label="Delete task">
+                        <Button size="sm" variant="secondary-destructive" onClick={() => deleteTask(task)} aria-label="删除任务">
                           <Trash className="h-3.5 w-3.5" />
                         </Button>
                       </div>
-                    </td>
-                  </tr>
+                    </Table.Cell>
+                  </Table.Row>
                 ))}
-              </tbody>
-            </table>
+              </Table.Body>
+            </Table>
           </div>
         )}
       </section>
 
       <section className="space-y-3">
         <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-kumo-strong">Run Logs</h3>
+          <h3 className="text-sm font-semibold text-kumo-strong">运行日志</h3>
           <Button size="sm" variant="secondary" onClick={clearLogs}>
             <Trash className="h-3.5 w-3.5" />
-            Clear
+            清空
           </Button>
         </div>
         {loadingLogs ? (
           <SkeletonLine className="h-24" />
         ) : cronLogs.length === 0 ? (
           <div className="border border-dashed border-kumo-line p-6 text-center text-sm text-kumo-subtle">
-            No logs
+            暂无运行日志
           </div>
         ) : (
           <div className="grid gap-2">
@@ -408,7 +417,7 @@ function SelfHPage() {
                   </span>
                 </div>
                 <pre className="mt-2 max-h-28 overflow-auto whitespace-pre-wrap break-words bg-kumo-recessed p-2 text-xs text-kumo-default">
-                  {log.output || '(empty)'}
+                  {log.output || '（无输出）'}
                 </pre>
                 <div className="mt-2 text-[11px] text-kumo-subtle">
                   {formatTimestamp(log.start_time)} / {log.duration ?? 0}s
@@ -420,19 +429,19 @@ function SelfHPage() {
       </section>
 
       <Dialog.Root open={editingTask !== null} onOpenChange={(open) => !open && closeDialog()}>
-        <Dialog className="p-6 sm:max-w-lg">
+        <Dialog className="w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] overflow-y-auto p-5 sm:w-full sm:max-w-2xl sm:p-6">
           <Dialog.Title className="text-base font-bold text-kumo-strong mb-4">
-            {editingTask?.id ? 'Edit Task' : 'Add Task'}
+            {editingTask?.id ? '编辑任务' : '新建任务'}
           </Dialog.Title>
           <div className="space-y-4">
             <Input
               size="sm"
-              label="Name"
+              label="名称"
               value={form.name}
               onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
             />
             <div className="flex items-center justify-between gap-3">
-              <span className="text-sm font-medium text-kumo-strong">Custom expression</span>
+              <span className="text-sm font-medium text-kumo-strong">自定义 Cron 表达式</span>
               <Switch
                 checked={form.useCustom}
                 onCheckedChange={(checked) => setForm((prev) => ({ ...prev, useCustom: Boolean(checked) }))}
@@ -448,14 +457,14 @@ function SelfHPage() {
             ) : (
               <div className="grid gap-3 sm:grid-cols-2">
                 <Select
-                  aria-label="Period"
+                  aria-label="周期"
                   value={form.periodType}
                   onValueChange={(value) => setForm((prev) => ({ ...prev, periodType: value }))}
                   items={PERIOD_ITEMS}
                 />
                 {form.periodType === 'week' && (
                   <Select
-                    aria-label="Weekday"
+                    aria-label="星期"
                     value={form.weekday}
                     onValueChange={(value) => setForm((prev) => ({ ...prev, weekday: value }))}
                     items={WEEKDAY_ITEMS}
@@ -465,7 +474,7 @@ function SelfHPage() {
                   <Input
                     size="sm"
                     type="number"
-                    label="Day"
+                    label="日期"
                     min="1"
                     max="31"
                     value={form.dayOfMonth}
@@ -476,7 +485,7 @@ function SelfHPage() {
                   <Input
                     size="sm"
                     type="number"
-                    label="Hour"
+                    label="小时"
                     min="0"
                     max="23"
                     value={form.hour}
@@ -487,7 +496,7 @@ function SelfHPage() {
                   <Input
                     size="sm"
                     type="number"
-                    label="Minute"
+                    label="分钟"
                     min="0"
                     max="59"
                     value={form.minute}
@@ -500,20 +509,20 @@ function SelfHPage() {
               {currentSchedule}
             </div>
             <Select
-              aria-label="Task type"
+              aria-label="任务类型"
               value={form.type}
               onValueChange={(value) => setForm((prev) => ({ ...prev, type: value }))}
               items={TYPE_ITEMS}
             />
             <Textarea
               size="sm"
-              label={form.type === 'http' ? 'URL' : 'Command'}
+              label={form.type === 'http' ? 'URL' : '命令'}
               value={form.command}
               onChange={(event) => setForm((prev) => ({ ...prev, command: event.target.value }))}
               rows={4}
             />
             <div className="flex items-center justify-between gap-3">
-              <span className="text-sm font-medium text-kumo-strong">Enabled</span>
+              <span className="text-sm font-medium text-kumo-strong">启用任务</span>
               <Switch
                 checked={form.enabled === 1}
                 onCheckedChange={(checked) => setForm((prev) => ({ ...prev, enabled: checked ? 1 : 0 }))}
@@ -524,13 +533,13 @@ function SelfHPage() {
                 render={(props) => (
                   <Button size="sm" variant="secondary" {...props}>
                     <X className="h-3.5 w-3.5" />
-                    Cancel
+                    取消
                   </Button>
                 )}
               />
               <Button size="sm" variant="primary" onClick={saveTask} disabled={saving}>
                 <Save className="h-3.5 w-3.5" />
-                Save
+                保存
               </Button>
             </div>
           </div>

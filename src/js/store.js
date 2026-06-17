@@ -149,12 +149,13 @@ const AUTH_LOGGED_OUT_STORAGE_KEY = 'auth_explicitly_logged_out';
 
 export const THEME_MODE_OPTIONS = ['auto', 'light', 'dark'];
 export const PAGE_WIDTH_OPTIONS = ['standard', 'wide', 'full'];
+export const DEFAULT_PAGE_WIDTH_MODE = 'full';
 
 const normalizeThemeMode = (mode, fallback = 'auto') => (
   THEME_MODE_OPTIONS.includes(mode) ? mode : fallback
 );
 
-const normalizePageWidthMode = (mode, fallback = 'standard') => (
+const normalizePageWidthMode = (mode, fallback = DEFAULT_PAGE_WIDTH_MODE) => (
   PAGE_WIDTH_OPTIONS.includes(mode) ? mode : fallback
 );
 
@@ -182,10 +183,11 @@ export const DEFAULT_MODULE_VISIBILITY = DEFAULT_MODULE_ORDER.reduce((acc, modul
   acc[moduleId] = true;
   return acc;
 }, {});
+DEFAULT_MODULE_VISIBILITY.qwen = false;
 
 export const DEFAULT_CHANNEL_ENABLED = {
   'gemini-cli': true,
-  qwen: true,
+  qwen: false,
 };
 
 export const DEFAULT_CHANNEL_MODEL_PREFIX = {
@@ -256,7 +258,9 @@ export const normalizeUserSettings = (settings = {}) => {
 
   const rawVisibility = settings.moduleVisibility || {};
   const moduleVisibility = DEFAULT_MODULE_ORDER.reduce((acc, moduleId) => {
-    acc[moduleId] = moduleId === 'dashboard' ? true : rawVisibility[moduleId] !== false;
+    acc[moduleId] = moduleId === 'dashboard'
+      ? true
+      : rawVisibility[moduleId] ?? DEFAULT_MODULE_VISIBILITY[moduleId] ?? true;
     return acc;
   }, {});
 
@@ -284,7 +288,7 @@ export const normalizeUserSettings = (settings = {}) => {
     ),
     pageWidthMode: normalizePageWidthMode(
       settings.pageWidthMode || settings.page_width_mode,
-      typeof getInitialPageWidthMode === 'function' ? getInitialPageWidthMode() : 'standard'
+      typeof getInitialPageWidthMode === 'function' ? getInitialPageWidthMode() : DEFAULT_PAGE_WIDTH_MODE
     ),
     sidebarCollapsed: normalizeSidebarCollapsed(
       settings.sidebarCollapsed ?? settings.sidebar_collapsed,
@@ -360,7 +364,7 @@ const getInitialPageWidthMode = () => {
   } catch (e) {
     console.error('Failed to get initial page width mode:', e);
   }
-  return 'standard';
+  return DEFAULT_PAGE_WIDTH_MODE;
 };
 
 const initialPageWidthMode = getInitialPageWidthMode();

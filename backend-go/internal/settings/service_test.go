@@ -41,8 +41,11 @@ func TestUserSettingsReadPatchAndPost(t *testing.T) {
 	if payload.Data["customCss"] != "" {
 		t.Fatalf("customCss = %#v", payload.Data["customCss"])
 	}
+	if payload.Data["pageWidthMode"] != "full" {
+		t.Fatalf("pageWidthMode default = %#v", payload.Data["pageWidthMode"])
+	}
 	visibility := payload.Data["moduleVisibility"].(map[string]interface{})
-	if visibility["qwen"] != true || visibility["self-h"] != false {
+	if visibility["qwen"] != false || visibility["self-h"] != false {
 		t.Fatalf("unexpected module visibility: %#v", visibility)
 	}
 
@@ -242,7 +245,7 @@ func TestLogSettingsAndLogFileRoutes(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(logPath, []byte("{\"timestamp\":\"2026-06-15T01:02:03Z\",\"level\":\"WARN\",\"module\":\"Settings\",\"message\":\"hello\",\"data\":{\"x\":1}}\nplain fallback\n"), 0o644); err != nil {
+	if err := os.WriteFile(logPath, []byte("{\"timestamp\":\"2026-06-15T01:02:03Z\",\"level\":\"WARN\",\"module\":\"Settings\",\"message\":\"hello\",\"data\":{\"x\":1}}\n{\"time\":\"2026-06-15T01:02:04Z\",\"level\":\"INFO\",\"module\":\"http\",\"msg\":\"http request\"}\nplain fallback\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -320,14 +323,17 @@ func TestLogSettingsAndLogFileRoutes(t *testing.T) {
 		FileInfo map[string]interface{} `json:"fileInfo"`
 	}
 	mustDecodeSettings(t, sysLogsRes, &sysLogsPayload)
-	if !sysLogsPayload.Success || len(sysLogsPayload.Data) != 2 {
+	if !sysLogsPayload.Success || len(sysLogsPayload.Data) != 3 {
 		t.Fatalf("unexpected sys logs payload: %#v", sysLogsPayload)
 	}
 	if sysLogsPayload.Data[0].Time != "01:02:03" || sysLogsPayload.Data[0].Level != "WARN" || sysLogsPayload.Data[0].Module != "Settings" || sysLogsPayload.Data[0].Message != "hello [DATA]" {
 		t.Fatalf("unexpected parsed sys log: %#v", sysLogsPayload.Data[0])
 	}
-	if sysLogsPayload.Data[1].Level != "INFO" || sysLogsPayload.Data[1].Message != "plain fallback" {
+	if sysLogsPayload.Data[1].Time != "01:02:04" || sysLogsPayload.Data[1].Module != "http" || sysLogsPayload.Data[1].Message != "http request" {
 		t.Fatalf("unexpected fallback sys log: %#v", sysLogsPayload.Data[1])
+	}
+	if sysLogsPayload.Data[2].Level != "INFO" || sysLogsPayload.Data[2].Message != "plain fallback" {
+		t.Fatalf("unexpected fallback sys log: %#v", sysLogsPayload.Data[2])
 	}
 
 	appLogRes := performSettingsRequest(service, http.MethodGet, "/api/settings/app-log-file", "")

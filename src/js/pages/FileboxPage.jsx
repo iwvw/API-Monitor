@@ -1035,7 +1035,15 @@ function FileboxPage() {
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <Table layout="fixed">
+                <Table layout="fixed" className="min-w-[760px]">
+                  <colgroup>
+                    <col className="w-[96px]" />
+                    <col />
+                    <col className="w-[104px]" />
+                    <col className="w-[120px]" />
+                    <col className="w-[168px]" />
+                    <col className="w-[96px]" />
+                  </colgroup>
                   <Table.Header variant="compact">
                     <Table.Row>
                       <Table.Head className="w-24">取件码</Table.Head>
@@ -1124,7 +1132,14 @@ function FileboxPage() {
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <Table layout="fixed">
+                <Table layout="fixed" className="min-w-[840px]">
+                  <colgroup>
+                    <col className="w-[96px]" />
+                    <col className="w-[112px]" />
+                    <col className="w-[160px]" />
+                    <col />
+                    <col className="w-[176px]" />
+                  </colgroup>
                   <Table.Header variant="compact">
                     <Table.Row>
                       <Table.Head className="w-24">取件码</Table.Head>

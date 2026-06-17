@@ -7,4 +7,6 @@ export const MODULE_TABS_PROPS = {
 export const TOOL_TABS_PROPS = {
   variant: 'segmented',
   size: 'sm',
+  className: 'w-fit max-w-full',
+  listClassName: 'w-fit max-w-full',
 };

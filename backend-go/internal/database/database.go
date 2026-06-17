@@ -88,7 +88,7 @@ func EnsureCoreSchema(ctx context.Context, db *sql.DB) error {
 			id INTEGER PRIMARY KEY CHECK (id = 1),
 			custom_css TEXT,
 			theme_mode TEXT DEFAULT 'auto',
-			page_width_mode TEXT DEFAULT 'standard',
+			page_width_mode TEXT DEFAULT 'full',
 			sidebar_collapsed INTEGER DEFAULT 0,
 			module_visibility TEXT,
 			module_order TEXT,
@@ -147,7 +147,7 @@ func ensureUserSettingsColumns(ctx context.Context, db *sql.DB) error {
 		sql  string
 	}{
 		{"theme_mode", "ALTER TABLE user_settings ADD COLUMN theme_mode TEXT DEFAULT 'auto'"},
-		{"page_width_mode", "ALTER TABLE user_settings ADD COLUMN page_width_mode TEXT DEFAULT 'standard'"},
+		{"page_width_mode", "ALTER TABLE user_settings ADD COLUMN page_width_mode TEXT DEFAULT 'full'"},
 		{"sidebar_collapsed", "ALTER TABLE user_settings ADD COLUMN sidebar_collapsed INTEGER DEFAULT 0"},
 		{"channel_enabled", "ALTER TABLE user_settings ADD COLUMN channel_enabled TEXT"},
 		{"channel_model_prefix", "ALTER TABLE user_settings ADD COLUMN channel_model_prefix TEXT"},
@@ -176,7 +176,7 @@ func ensureUserSettingsColumns(ctx context.Context, db *sql.DB) error {
 		UPDATE user_settings
 		SET
 			theme_mode = COALESCE(theme_mode, 'auto'),
-			page_width_mode = COALESCE(page_width_mode, 'standard'),
+			page_width_mode = COALESCE(page_width_mode, 'full'),
 			sidebar_collapsed = COALESCE(sidebar_collapsed, 0),
 			load_balancing_strategy = COALESCE(load_balancing_strategy, 'random'),
 			server_ip_display_mode = COALESCE(server_ip_display_mode, 'normal'),

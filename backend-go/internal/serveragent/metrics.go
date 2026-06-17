@@ -3,9 +3,12 @@ package serveragent
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
@@ -251,54 +254,74 @@ func (s *Service) persistMetrics(ctx context.Context, db *sql.DB, serverID strin
 	query := `INSERT INTO server_metrics_history (
 		server_id, cpu_usage, cpu_load, cpu_cores, cpu_threads,
 		cpu_temp, cpu_power, mem_used, mem_total, mem_usage,
-		disk_used, disk_total, disk_usage, net_rx, net_tx,
-		gpu_usage, gpu_temp, gpu_power,
+		disk_used, disk_total, disk_usage,
+		docker_installed, docker_running, docker_stopped,
+		gpu_usage, gpu_mem_used, gpu_mem_total, gpu_temp, gpu_power,
+		platform, net_rx, net_tx,
 		recorded_at
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))`
+
+	cpuInfo := nestedMap(metrics, "cpu")
+	memInfo := nestedMap(metrics, "memory")
+	gpuInfo := nestedMap(metrics, "gpu")
+	networkInfo := nestedMap(metrics, "network")
+	dockerInfo := nestedMap(metrics, "docker")
+	diskInfo := firstMap(metrics["disk"])
+
+	gpuMemUsed, gpuMemTotal := parsePairBytes(firstString(metrics, "gpu_mem", "gpu_memory", "gpuMemory"))
+	if gpuMemUsed == 0 && gpuMemTotal == 0 {
+		gpuMemUsed, gpuMemTotal = parsePairBytes(stringFromMap(gpuInfo, "Memory"))
+	}
 
 	cpuTemp := sql.NullFloat64{}
-	if v, ok := metrics["cpu_temp"].(float64); ok {
+	if v := firstMetricFloat(metrics, []string{"cpu_temp", "cpuTemp"}, cpuInfo, []string{"Temp"}); v != 0 {
 		cpuTemp.Float64 = v
 		cpuTemp.Valid = true
 	}
 
 	gpuUsage := sql.NullFloat64{}
-	if v, ok := metrics["gpu_usage"].(float64); ok {
+	if v := firstMetricFloat(metrics, []string{"gpu_usage", "gpu"}, gpuInfo, []string{"Usage"}); v != 0 {
 		gpuUsage.Float64 = v
 		gpuUsage.Valid = true
 	}
 
 	gpuTemp := sql.NullFloat64{}
-	if v, ok := metrics["gpu_temp"].(float64); ok {
+	if v := firstMetricFloat(metrics, []string{"gpu_temp", "gpuTemp"}, gpuInfo, []string{"Temp"}); v != 0 {
 		gpuTemp.Float64 = v
 		gpuTemp.Valid = true
 	}
 
 	gpuPower := sql.NullFloat64{}
-	if v, ok := metrics["gpu_power"].(float64); ok {
+	if v := firstMetricFloat(metrics, []string{"gpu_power", "gpuPower"}, gpuInfo, []string{"Power"}); v != 0 {
 		gpuPower.Float64 = v
 		gpuPower.Valid = true
 	}
 
 	_, err := db.ExecContext(ctx, query,
 		serverID,
-		getFloat(metrics, "cpu_usage"),
-		getString(metrics, "load"),
-		getInt(metrics, "cores"),
-		getInt(metrics, "logical_cores"),
+		firstMetricFloat(metrics, []string{"cpu_usage", "cpu"}, cpuInfo, []string{"Usage"}),
+		firstNonEmpty(firstString(metrics, "load", "cpu_load", "cpuLoad"), firstString(cpuInfo, "Load")),
+		firstMetricInt(metrics, []string{"cores", "cpu_cores"}, cpuInfo, []string{"Cores", "PhysicalCores"}),
+		firstMetricInt(metrics, []string{"logical_cores", "cpu_threads", "threads"}, cpuInfo, []string{"LogicalCores", "Threads"}),
 		cpuTemp,
-		getFloat(metrics, "cpu_power"),
-		getInt(metrics, "mem_used_mb"),
-		getInt(metrics, "mem_total_mb"),
-		firstFloat(metrics, "mem_usage_percent", "memory_usage"),
-		getString(metrics, "disk_used"),
-		getString(metrics, "disk_total"),
-		getFloat(metrics, "disk_usage"),
-		firstFloat(metrics, "net_rx", "network_rx"),
-		firstFloat(metrics, "net_tx", "network_tx"),
+		firstMetricFloat(metrics, []string{"cpu_power", "cpu_power_w", "cpuPower"}, cpuInfo, []string{"Power"}),
+		firstMetricInt(metrics, []string{"mem_used_mb", "mem_used", "memory_used"}, memInfo, []string{"Used", "UsedMB"}),
+		firstMetricInt(metrics, []string{"mem_total_mb", "mem_total", "memory_total"}, memInfo, []string{"Total", "TotalMB"}),
+		firstMetricFloat(metrics, []string{"mem_usage_percent", "memory_usage", "mem_usage"}, memInfo, []string{"Usage"}),
+		firstNonEmpty(getString(metrics, "disk_used"), stringFromMap(diskInfo, "used"), stringFromMap(diskInfo, "Used")),
+		firstNonEmpty(getString(metrics, "disk_total"), stringFromMap(diskInfo, "total"), stringFromMap(diskInfo, "Total")),
+		firstMetricFloat(metrics, []string{"disk_usage"}, diskInfo, []string{"usage", "Usage"}),
+		firstMetricInt(metrics, []string{"docker_installed"}, dockerInfo, []string{"installed"}),
+		firstMetricInt(metrics, []string{"docker_running"}, dockerInfo, []string{"running"}),
+		firstMetricInt(metrics, []string{"docker_stopped"}, dockerInfo, []string{"stopped"}),
 		gpuUsage,
+		gpuMemUsed,
+		gpuMemTotal,
 		gpuTemp,
 		gpuPower,
+		firstNonEmpty(getString(metrics, "platform"), stringFromMap(metrics, "platform")),
+		firstMetricBytes(metrics, []string{"net_rx", "network_rx"}, networkInfo, []string{"rx_speed", "down"}),
+		firstMetricBytes(metrics, []string{"net_tx", "network_tx"}, networkInfo, []string{"tx_speed", "up"}),
 	)
 
 	return err
@@ -387,6 +410,163 @@ func firstFloat(m map[string]interface{}, keys ...string) float64 {
 		}
 	}
 	return 0
+}
+
+var metricNumberPattern = regexp.MustCompile(`-?\d+(?:\.\d+)?`)
+
+func parseMetricNumber(value interface{}) float64 {
+	switch val := value.(type) {
+	case nil:
+		return 0
+	case float64:
+		return val
+	case float32:
+		return float64(val)
+	case int:
+		return float64(val)
+	case int64:
+		return float64(val)
+	case int32:
+		return float64(val)
+	case json.Number:
+		f, _ := val.Float64()
+		return f
+	case string:
+		match := metricNumberPattern.FindString(strings.ReplaceAll(val, ",", ""))
+		if match == "" {
+			return 0
+		}
+		f, _ := strconv.ParseFloat(match, 64)
+		return f
+	default:
+		return 0
+	}
+}
+
+func nestedMap(m map[string]interface{}, key string) map[string]interface{} {
+	if raw, ok := m[key]; ok {
+		if nested, ok := raw.(map[string]interface{}); ok {
+			return nested
+		}
+	}
+	return map[string]interface{}{}
+}
+
+func firstMap(value interface{}) map[string]interface{} {
+	switch val := value.(type) {
+	case []interface{}:
+		for _, item := range val {
+			if nested, ok := item.(map[string]interface{}); ok {
+				return nested
+			}
+		}
+	case []map[string]interface{}:
+		if len(val) > 0 {
+			return val[0]
+		}
+	case map[string]interface{}:
+		return val
+	}
+	return map[string]interface{}{}
+}
+
+func stringFromMap(m map[string]interface{}, key string) string {
+	if v, ok := m[key]; ok {
+		switch val := v.(type) {
+		case string:
+			return val
+		case fmt.Stringer:
+			return val.String()
+		case float64, float32, int, int64, int32, json.Number:
+			return strconv.FormatFloat(parseMetricNumber(val), 'f', -1, 64)
+		}
+	}
+	return ""
+}
+
+func firstString(m map[string]interface{}, keys ...string) string {
+	for _, key := range keys {
+		if value := stringFromMap(m, key); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func firstMetricFloat(primary map[string]interface{}, primaryKeys []string, nested map[string]interface{}, nestedKeys []string) float64 {
+	for _, key := range primaryKeys {
+		if raw, ok := primary[key]; ok {
+			if value := parseMetricNumber(raw); value != 0 {
+				return value
+			}
+		}
+	}
+	for _, key := range nestedKeys {
+		if raw, ok := nested[key]; ok {
+			if value := parseMetricNumber(raw); value != 0 {
+				return value
+			}
+		}
+	}
+	return 0
+}
+
+func firstMetricInt(primary map[string]interface{}, primaryKeys []string, nested map[string]interface{}, nestedKeys []string) int {
+	return int(firstMetricFloat(primary, primaryKeys, nested, nestedKeys))
+}
+
+func firstMetricBytes(primary map[string]interface{}, primaryKeys []string, nested map[string]interface{}, nestedKeys []string) float64 {
+	for _, key := range primaryKeys {
+		if raw, ok := primary[key]; ok {
+			if value := parseByteValue(raw); value != 0 {
+				return value
+			}
+		}
+	}
+	for _, key := range nestedKeys {
+		if raw, ok := nested[key]; ok {
+			if value := parseByteValue(raw); value != 0 {
+				return value
+			}
+		}
+	}
+	return 0
+}
+
+func parseByteValue(value interface{}) float64 {
+	switch val := value.(type) {
+	case float64, float32, int, int64, int32, json.Number:
+		return parseMetricNumber(val)
+	case string:
+		raw := strings.TrimSpace(strings.ReplaceAll(val, ",", ""))
+		amount := parseMetricNumber(raw)
+		if amount == 0 {
+			return 0
+		}
+		upper := strings.ToUpper(raw)
+		switch {
+		case strings.Contains(upper, "TB"):
+			return amount * 1024 * 1024 * 1024 * 1024
+		case strings.Contains(upper, "GB"):
+			return amount * 1024 * 1024 * 1024
+		case strings.Contains(upper, "MB"):
+			return amount * 1024 * 1024
+		case strings.Contains(upper, "KB"):
+			return amount * 1024
+		default:
+			return amount
+		}
+	default:
+		return 0
+	}
+}
+
+func parsePairBytes(value string) (int, int) {
+	if !strings.Contains(value, "/") {
+		return 0, 0
+	}
+	parts := strings.SplitN(value, "/", 2)
+	return int(parseMetricNumber(parts[0])), int(parseMetricNumber(parts[1]))
 }
 
 func getString(m map[string]interface{}, key string) string {

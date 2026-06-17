@@ -16,6 +16,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
@@ -468,22 +469,38 @@ func (s *Service) listAllInstances(ctx context.Context, account map[string]inter
 		regions = defaultLighthouseRegions()
 	}
 	instances := []map[string]interface{}{}
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	limit := make(chan struct{}, 6)
 	for _, region := range regions {
-		result, err := s.callTencent(ctx, kind, region, "DescribeInstances", serviceVersion(kind), map[string]interface{}{})
-		if err != nil {
-			continue
-		}
-		for _, item := range arrayValue(firstPresent(result, key, "instances")) {
-			instance := objectValue(item)
-			if len(instance) == 0 {
-				continue
+		region := region
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			limit <- struct{}{}
+			defer func() { <-limit }()
+
+			result, err := s.callTencent(ctx, kind, region, "DescribeInstances", serviceVersion(kind), map[string]interface{}{})
+			if err != nil {
+				return
 			}
-			instance["_Region"] = region
-			instance["Region"] = region
-			instance["RegionName"] = regionName(region)
-			instances = append(instances, instance)
-		}
+			items := make([]map[string]interface{}, 0)
+			for _, item := range arrayValue(firstPresent(result, key, "instances")) {
+				instance := objectValue(item)
+				if len(instance) == 0 {
+					continue
+				}
+				instance["_Region"] = region
+				instance["Region"] = region
+				instance["RegionName"] = regionName(region)
+				items = append(items, instance)
+			}
+			mu.Lock()
+			instances = append(instances, items...)
+			mu.Unlock()
+		}()
 	}
+	wg.Wait()
 	return instances
 }
 

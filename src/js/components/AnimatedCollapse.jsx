@@ -122,9 +122,26 @@ export function AnimatedCollapse({
       setHeight(`${panel.scrollHeight}px`);
     });
     observer.observe(panel);
+    if (panel.firstElementChild) {
+      observer.observe(panel.firstElementChild);
+    }
 
     return () => observer.disconnect();
   }, [height, open, rendered]);
+
+  useEffect(() => {
+    if (!open || !rendered || height !== '0px') return undefined;
+
+    const panel = panelRef.current;
+    if (!panel) return undefined;
+
+    const frame = scheduleFrame(() => {
+      setHeight(`${panel.scrollHeight}px`);
+      setOpacity(1);
+    });
+
+    return () => cancelFrame(frame);
+  }, [displayChildren, height, open, rendered]);
 
   const handleTransitionEnd = (event) => {
     if (event.target !== panelRef.current || event.propertyName !== 'height') return;

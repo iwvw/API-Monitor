@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -17,6 +18,7 @@ import (
 	"github.com/iwvw/api-monitor/backend-go/internal/cloudflare"
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
 	"github.com/iwvw/api-monitor/backend-go/internal/cronjobs"
+	"github.com/iwvw/api-monitor/backend-go/internal/database"
 	"github.com/iwvw/api-monitor/backend-go/internal/filebox"
 	"github.com/iwvw/api-monitor/backend-go/internal/flyio"
 	"github.com/iwvw/api-monitor/backend-go/internal/geminicli"
@@ -292,6 +294,7 @@ func (s *Server) applySecurityHeaders(w http.ResponseWriter) {
 func (s *Server) serveV1Route(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
 	method := r.Method
+	channels := s.loadV1ChannelSettings(r.Context())
 
 	// 1. Models endpoint
 	if method == http.MethodGet && (path == "/v1/models" || path == "/v1/model") {
@@ -301,6 +304,10 @@ func (s *Server) serveV1Route(w http.ResponseWriter, r *http.Request) {
 
 	// 2. Images generations endpoint
 	if method == http.MethodPost && path == "/v1/images/generations" {
+		if !channels["qwen"] {
+			response.Error(w, http.StatusNotFound, "model channel is disabled")
+			return
+		}
 		s.qwen.ServeHTTP(w, r)
 		return
 	}
@@ -323,10 +330,13 @@ func (s *Server) serveV1Route(w http.ResponseWriter, r *http.Request) {
 			_ = json.Unmarshal(bodyBytes, &req)
 		}
 
-		if s.geminicli.CanHandleModel(r.Context(), req.Model) {
+		if channels["gemini-cli"] && s.geminicli.CanHandleModel(r.Context(), req.Model) {
 			s.geminicli.ServeHTTP(w, r)
-		} else if s.qwen.CanHandleModel(r.Context(), req.Model) {
+		} else if channels["qwen"] && s.qwen.CanHandleModel(r.Context(), req.Model) {
 			s.qwen.ServeHTTP(w, r)
+		} else if (!channels["gemini-cli"] && s.geminicli.CanHandleModel(r.Context(), req.Model)) ||
+			(!channels["qwen"] && s.qwen.CanHandleModel(r.Context(), req.Model)) {
+			response.Error(w, http.StatusNotFound, "model channel is disabled")
 		} else {
 			s.openai.ServeHTTP(w, r)
 		}
@@ -339,17 +349,22 @@ func (s *Server) serveV1Route(w http.ResponseWriter, r *http.Request) {
 func (s *Server) serveV1Models(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	var mergedModels []map[string]interface{}
+	channels := s.loadV1ChannelSettings(ctx)
 
 	if oaiModels, err := s.openai.GetModelsList(ctx); err == nil {
 		mergedModels = append(mergedModels, oaiModels...)
 	}
 
-	if qwenModels, err := s.qwen.GetModelsList(ctx); err == nil {
-		mergedModels = append(mergedModels, qwenModels...)
+	if channels["qwen"] {
+		if qwenModels, err := s.qwen.GetModelsList(ctx); err == nil {
+			mergedModels = append(mergedModels, qwenModels...)
+		}
 	}
 
-	if geminiModels, err := s.geminicli.GetModelsList(ctx); err == nil {
-		mergedModels = append(mergedModels, geminiModels...)
+	if channels["gemini-cli"] {
+		if geminiModels, err := s.geminicli.GetModelsList(ctx); err == nil {
+			mergedModels = append(mergedModels, geminiModels...)
+		}
 	}
 
 	sort.Slice(mergedModels, func(i, j int) bool {
@@ -362,4 +377,44 @@ func (s *Server) serveV1Models(w http.ResponseWriter, r *http.Request) {
 		"object": "list",
 		"data":   mergedModels,
 	})
+}
+
+func (s *Server) loadV1ChannelSettings(ctx context.Context) map[string]bool {
+	channels := map[string]bool{
+		"gemini-cli": true,
+		"qwen":       false,
+	}
+
+	db, err := database.New(s.cfg).Open(ctx)
+	if err != nil {
+		return channels
+	}
+	defer db.Close()
+
+	var raw sql.NullString
+	err = db.QueryRowContext(ctx, `SELECT channel_enabled FROM user_settings WHERE id = 1`).Scan(&raw)
+	if err != nil || !raw.Valid || strings.TrimSpace(raw.String) == "" {
+		return channels
+	}
+
+	var saved map[string]interface{}
+	if err := json.Unmarshal([]byte(raw.String), &saved); err != nil {
+		return channels
+	}
+
+	for channel := range channels {
+		value, ok := saved[channel]
+		if !ok {
+			continue
+		}
+		switch typed := value.(type) {
+		case bool:
+			channels[channel] = typed
+		case string:
+			channels[channel] = strings.EqualFold(typed, "true") || typed == "1"
+		case float64:
+			channels[channel] = typed != 0
+		}
+	}
+	return channels
 }

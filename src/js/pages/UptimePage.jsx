@@ -18,10 +18,11 @@ import { Checkbox } from '@cloudflare/kumo/components/checkbox';
 import { Input } from '@cloudflare/kumo/components/input';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import { Table } from '@cloudflare/kumo/components/table';
-import { Tabs, TimeseriesChart } from '@cloudflare/kumo';
+import { ChartPalette, Tabs, TimeseriesChart } from '@cloudflare/kumo';
 import { MODULE_TABS_PROPS, TOOL_TABS_PROPS } from '../modules/kumoTabs.js';
 import { AnimatedCollapse, DeferredRender } from '../components/AnimatedCollapse.jsx';
 import { AppCard, ChartCard, ChartWarmupSkeleton, DataTableFrame } from '../components/ui/AppPrimitives.jsx';
+import useStore from '../store.js';
 import {
   Activity,
   Plus,
@@ -68,19 +69,117 @@ const formatLatencyAxis = (value) => {
   return `${Math.round(latency)}ms`;
 };
 
-const getKumoToken = (tokenName, fallback) => {
-  if (typeof window === 'undefined') return fallback;
-  const value = window.getComputedStyle(document.documentElement).getPropertyValue(tokenName).trim();
-  return value || fallback;
+const parseUptimeBeatTime = (value) => {
+  if (!value) return null;
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  const text = String(value).trim();
+  if (!text) return null;
+  const normalized = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(text)
+    ? `${text.replace(' ', 'T')}Z`
+    : text;
+  const timestamp = new Date(normalized).getTime();
+  return Number.isFinite(timestamp) ? timestamp : null;
 };
 
-const getKumoChartColors = () => ({
-  brand: getKumoToken('--color-kumo-brand', '#2f80ed'),
-  success: getKumoToken('--color-kumo-success', '#10b981'),
-  warning: getKumoToken('--color-kumo-warning', '#f59e0b'),
-  danger: getKumoToken('--color-kumo-danger', '#ef4444'),
-  recessed: getKumoToken('--color-kumo-recessed', '#f3f4f6'),
-});
+const normalizeUptimeBeat = (beat = {}) => {
+  const timestamp = parseUptimeBeatTime(beat.time || beat.created_at || beat.createdAt);
+  let status = beat.status;
+  if (typeof status === 'number') {
+    status = status === 1 ? 'up' : 'down';
+  }
+  return {
+    ...beat,
+    status,
+    time: timestamp ? new Date(timestamp).toISOString() : beat.time,
+    timestamp,
+  };
+};
+
+const getUptimeChartColor = (isDarkMode) => ChartPalette.semantic('Success', isDarkMode);
+
+function UptimeResponseChart({ points = [], loading = false }) {
+  const chartRef = useRef(null);
+  const chartColor = getUptimeChartColor(false);
+  const validPoints = useMemo(() => points
+    .map(([timestamp, value]) => [Number(timestamp), Number(value)])
+    .filter(([timestamp, value]) => Number.isFinite(timestamp) && Number.isFinite(value)), [points]);
+
+  useEffect(() => {
+    if (!chartRef.current || validPoints.length === 0) return undefined;
+
+    const chart = echarts.init(chartRef.current);
+    chart.setOption({
+      animation: false,
+      grid: { left: 48, right: 12, top: 14, bottom: 28 },
+      tooltip: {
+        trigger: 'axis',
+        confine: true,
+        backgroundColor: '#ffffff',
+        borderColor: '#e5e7eb',
+        textStyle: { color: '#111827', fontSize: 11 },
+        formatter: (params) => {
+          const item = Array.isArray(params) ? params[0] : params;
+          const [timestamp, value] = item?.data || [];
+          return `${formatUptimeChartTime(timestamp)}<br/>响应时间：${Math.round(value || 0)} ms`;
+        },
+      },
+      xAxis: {
+        type: 'time',
+        axisLabel: { color: '#6b7280', formatter: formatUptimeChartTime, fontSize: 10 },
+        axisLine: { lineStyle: { color: '#e5e7eb' } },
+        axisTick: { show: false },
+        splitLine: { show: false },
+      },
+      yAxis: {
+        type: 'value',
+        name: 'ms',
+        nameTextStyle: { color: '#6b7280', fontSize: 10 },
+        axisLabel: { color: '#6b7280', formatter: formatLatencyAxis, fontSize: 10 },
+        axisLine: { show: false },
+        axisTick: { show: false },
+        splitLine: { lineStyle: { color: '#e5e7eb', type: 'dashed' } },
+        min: 0,
+      },
+      series: [{
+        type: 'line',
+        name: '响应时间',
+        data: validPoints,
+        showSymbol: validPoints.length < 24,
+        symbolSize: 4,
+        smooth: true,
+        connectNulls: false,
+        lineStyle: { width: 2, color: chartColor },
+        itemStyle: { color: chartColor },
+        areaStyle: { color: `${chartColor}18` },
+      }],
+    }, true);
+
+    chart.resize();
+    const resizeObserver = typeof ResizeObserver !== 'undefined'
+      ? new ResizeObserver(() => chart.resize())
+      : null;
+    resizeObserver?.observe(chartRef.current);
+
+    return () => {
+      resizeObserver?.disconnect();
+      chart.dispose();
+    };
+  }, [validPoints]);
+
+  if (loading && validPoints.length === 0) {
+    return <ChartWarmupSkeleton height={120} />;
+  }
+
+  if (validPoints.length === 0) {
+    return (
+      <div className="flex h-[120px] items-center justify-center rounded-md border border-kumo-line/70 bg-kumo-recessed/20 text-xs text-kumo-subtle">
+        暂无响应时间数据
+      </div>
+    );
+  }
+
+  return <div ref={chartRef} className="h-[120px] w-full min-w-0" />;
+}
 
 // ==================== UptimeMonitorDetails 子组件 ====================
 // 使用独立的子组件隔离 Kumo TimeseriesChart，在折叠/销毁时由组件自身清理 ECharts 实例
@@ -90,6 +189,7 @@ function UptimeMonitorDetails({
   loading = false,
   uptime24h,
   uptime30d,
+  isDarkMode,
   onPauseResume,
   onEdit,
   onDelete,
@@ -113,17 +213,16 @@ function UptimeMonitorDetails({
   };
 
   const chartData = useMemo(() => {
-    const colors = getKumoChartColors();
     return [{
       name: '响应时间',
-      color: colors.success,
+      color: getUptimeChartColor(isDarkMode),
       data: [...heartbeats]
         .slice(0, 60)
         .reverse()
-        .map((beat) => [new Date(beat.time).getTime(), Number(beat.ping) || 0])
+        .map((beat) => [beat.timestamp ?? parseUptimeBeatTime(beat.time), Number(beat.ping) || 0])
         .filter(([timestamp]) => Number.isFinite(timestamp)),
     }];
-  }, [heartbeats]);
+  }, [heartbeats, isDarkMode]);
 
   // 生成 60 颗心跳丸
   const detailedBeats = useMemo(() => {
@@ -193,6 +292,7 @@ function UptimeMonitorDetails({
                 tooltipBoundary={tooltipBoundary ?? undefined}
                 xAxisTickCount={3}
                 yAxisTickCount={3}
+                isDarkMode={isDarkMode}
                 yAxisTickFormat={formatLatencyAxis}
                 tooltipValueFormat={(value) => `${Math.round(value)} ms`}
                 xAxisTickFormat={formatUptimeChartTime}
@@ -251,6 +351,8 @@ function UptimeMonitorDetails({
 
 // ==================== 主 UptimePage 组件 ====================
 function UptimePage() {
+  const theme = useStore((state) => state.theme);
+  const isDarkMode = theme === 'dark';
   const [uptimeCurrentTab, setUptimeCurrentTab] = useState('list'); // 'list' | 'add' | 'stats'
   const [uptimeMonitors, setUptimeMonitors] = useState([]);
   const [uptimeStatusPages, setUptimeStatusPages] = useState([]);
@@ -336,11 +438,7 @@ function UptimePage() {
         const initialBeats = {};
         monitorsData.forEach(m => {
           if (m.lastHeartbeat) {
-            const beat = { ...m.lastHeartbeat };
-            if (typeof beat.status === 'number') {
-              beat.status = beat.status === 1 ? 'up' : 'down';
-            }
-            initialBeats[m.id] = [beat];
+            initialBeats[m.id] = [normalizeUptimeBeat(m.lastHeartbeat)];
           } else {
             initialBeats[m.id] = [];
           }
@@ -371,12 +469,7 @@ function UptimePage() {
       const res = await fetch(`/api/uptime/monitors/${monitorId}/history`, { headers: getAuthHeaders() });
       const data = await res.json();
       if (Array.isArray(data)) {
-        const normalized = data.map(beat => {
-          if (typeof beat.status === 'number') {
-            return { ...beat, status: beat.status === 1 ? 'up' : 'down' };
-          }
-          return beat;
-        });
+        const normalized = data.map(normalizeUptimeBeat);
         setUptimeHeartbeats(prev => ({ ...prev, [monitorId]: normalized }));
       }
     } catch (e) {
@@ -586,13 +679,11 @@ function UptimePage() {
     });
 
     socket.on('uptime:heartbeat', ({ monitorId, beat }) => {
-      if (typeof beat.status === 'number') {
-        beat.status = beat.status === 1 ? 'up' : 'down';
-      }
+      const normalizedBeat = normalizeUptimeBeat(beat);
 
       setUptimeHeartbeats(prev => {
         const list = prev[monitorId] ? [...prev[monitorId]] : [];
-        list.unshift(beat);
+        list.unshift(normalizedBeat);
         if (list.length > 60) {
           list.length = 60;
         }
@@ -1095,15 +1186,15 @@ function UptimePage() {
                       statusPillClass = 'bg-kumo-line/20 text-kumo-subtle';
                       statusText = '等待中';
                     } else if (lastBeat.status === 'up') {
-                      statusClass = 'border-l-4 border-l-kumo-success border-kumo-line';
+                      statusClass = 'border-kumo-line';
                       statusPillClass = 'bg-kumo-success/10 text-kumo-success border border-kumo-success/20';
                       statusText = '正常';
                     } else if (lastBeat.status === 'down') {
-                      statusClass = 'border-l-4 border-l-kumo-danger border-kumo-line';
+                      statusClass = 'border-kumo-line';
                       statusPillClass = 'bg-kumo-danger/10 text-kumo-danger border border-kumo-danger/20';
                       statusText = '故障';
                     } else if (lastBeat.status === 'pending') {
-                      statusClass = 'border-l-4 border-l-kumo-warning border-kumo-line';
+                      statusClass = 'border-kumo-line';
                       statusPillClass = 'bg-kumo-warning/10 text-kumo-warning border border-kumo-warning/20';
                       statusText = '检测中';
                     }
@@ -1212,6 +1303,7 @@ function UptimePage() {
                           loading={!!uptimeHeartbeatLoading[monitor.id]}
                           uptime24h={getUptimeRate(monitor.id, 1)}
                           uptime30d={getUptimeRate(monitor.id, 30)}
+                          isDarkMode={isDarkMode}
                           onPauseResume={handleToggleActive}
                           onEdit={handleOpenEdit}
                           onDelete={handleDeleteMonitor}

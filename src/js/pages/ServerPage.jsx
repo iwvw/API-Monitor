@@ -2014,6 +2014,24 @@ function ServerPage() {
           syncStoreServerList(updated);
           return updated;
         });
+        const onlineServerIds = accounts
+          .filter(server => server.status === 'online' || server.is_online === true)
+          .map(server => server.id)
+          .filter(Boolean);
+        if (onlineServerIds.length > 0) {
+          const prefetch = () => {
+            onlineServerIds.forEach(serverId => {
+              loadCardMetrics(serverId, { silent: true }).catch(error => {
+                console.error('[Server] Failed to prefetch metric history:', error);
+              });
+            });
+          };
+          if (typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function') {
+            window.requestIdleCallback(prefetch, { timeout: 1500 });
+          } else {
+            setTimeout(prefetch, 0);
+          }
+        }
       }
     } catch (error) {
       console.error('加载主机列表失败:', error);
@@ -2762,7 +2780,7 @@ function ServerPage() {
   const generateQuickInstallCommand = async () => {
     const name = quickDeployName.trim();
     if (!name) {
-      setServerModalError('Server name is required');
+      setServerModalError('请输入主机名称');
       return;
     }
 
@@ -2780,13 +2798,13 @@ function ServerPage() {
 
       if (data.success) {
         setQuickDeployResult(data.data);
-        toast.success(data.data?.isNew ? 'Agent host created' : 'Agent install command generated');
+        toast.success(data.data?.isNew ? 'Agent 主机已创建' : 'Agent 安装命令已生成');
         loadServerList();
       } else {
-        setServerModalError(data.error || 'Failed to generate Agent install command');
+        setServerModalError(data.error || '生成 Agent 安装命令失败');
       }
     } catch (e) {
-      setServerModalError('Agent quick install request failed: ' + e.message);
+      setServerModalError('Agent 快速安装请求失败：' + e.message);
     } finally {
       setServerModalSaving(false);
     }
@@ -3706,12 +3724,13 @@ function ServerPage() {
   // -------------------- 采集与定时设置 --------------------
   
   const updateMetricsCollectInterval = async (val) => {
-    setMetricsCollectInterval(val);
+    const nextValue = Math.max(1, Math.round(toNumber(val, 5)));
+    setMetricsCollectInterval(nextValue);
     try {
       await fetch('/api/server/monitor/config', {
-        method: 'POST',
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ interval: val })
+        body: JSON.stringify({ metrics_collect_interval: nextValue * 60 })
       });
       toast.success('指标采集时间间隔更新成功');
     } catch (e) {
@@ -3724,7 +3743,7 @@ function ServerPage() {
     setMonitorConfig({ metrics_retention_days: nextValue });
     try {
       await fetch('/api/server/monitor/config', {
-        method: 'POST',
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ metrics_retention_days: nextValue })
       });
@@ -7421,20 +7440,20 @@ function ServerPage() {
               ) : (
                 <div className="flex flex-col gap-4">
                   <Input
-                    label="Host name" size="sm"
+                    label="主机名称" size="sm"
                     value={quickDeployName}
                     onChange={(e) => setQuickDeployName(e.target.value)}
                     placeholder="prod-agent-01"
                   />
 
                   <div className="rounded-lg border border-kumo-line bg-kumo-recessed/35 p-3 text-[11px] leading-relaxed text-kumo-subtle">
-                    Agent mode creates or reuses a host record, then returns install commands for the target machine.
+                    Agent 模式会创建或复用主机记录，并生成目标机器上的安装命令。
                   </div>
 
                   {quickDeployResult && (
                     <div className="flex flex-col gap-3">
                       <Select
-                        label="Install target" size="sm"
+                        label="安装目标" size="sm"
                         value={agentInstallOS}
                         onValueChange={setAgentInstallOS}
                         container={serverModalPortalRef}
@@ -7447,16 +7466,16 @@ function ServerPage() {
                         size="sm"
                         text={agentInstallOS === 'linux' ? quickDeployResult.installCommand || '' : quickDeployResult.winInstallCommand || ''}
                         className="w-full"
-                        tooltip={{ text: 'Copy command', copiedText: 'Install command copied', side: 'top' }}
-                        labels={{ copyAction: 'Copy install command' }}
+                        tooltip={{ text: '复制命令', copiedText: '安装命令已复制', side: 'top' }}
+                        labels={{ copyAction: '复制安装命令' }}
                       />
                       <div className="grid grid-cols-1 gap-2 text-[11px] text-kumo-subtle sm:grid-cols-2">
                         <div className="app-card app-card-md p-2">
-                          <div className="font-semibold text-kumo-strong">Server ID</div>
+                          <div className="font-semibold text-kumo-strong">主机 ID</div>
                           <div className="mt-1 font-mono">{quickDeployResult.serverId}</div>
                         </div>
                         <div className="app-card app-card-md p-2">
-                          <div className="font-semibold text-kumo-strong">API URL</div>
+                          <div className="font-semibold text-kumo-strong">API 地址</div>
                           <div className="mt-1 truncate font-mono" title={quickDeployResult.apiUrl}>{quickDeployResult.apiUrl}</div>
                         </div>
                       </div>
@@ -7482,7 +7501,7 @@ function ServerPage() {
                     onClick={generateQuickInstallCommand}
                     className="w-full sm:w-auto"
                   >
-                    Generate Agent command
+                    生成 Agent 安装命令
                   </Button>
                 </>
               ) : null}

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -279,5 +280,203 @@ func TestGeminiCliLifecycle(t *testing.T) {
 	s.ServeHTTP(wDelAcc, rDelAcc)
 	if wDelAcc.Code != http.StatusOK {
 		t.Fatalf("delete account status = %d", wDelAcc.Code)
+	}
+}
+
+func TestHealthCheckUsesStreamingCompletions(t *testing.T) {
+	mockUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") {
+			w.WriteHeader(http.StatusUnauthorized)
+			w.Write([]byte(`{"error":"Unauthorized"}`))
+			return
+		}
+
+		switch {
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, ":generateContent"):
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"candidates":[],"promptFeedback":{}}`))
+		case r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, ":streamGenerateContent"):
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("data: {\"response\":{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"OK\"}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"totalTokenCount\":3}}}\n\n"))
+			w.Write([]byte("data: [DONE]\n\n"))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer mockUpstream.Close()
+
+	tempDir := t.TempDir()
+	s := New(config.Config{
+		DataDir: tempDir,
+		DBName:  "data.db",
+	}, mockAuthenticator{})
+	s.codeAssistBase = mockUpstream.URL + "/"
+
+	db, err := s.open(context.Background())
+	if err != nil {
+		t.Fatalf("failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	_, err = db.Exec(`INSERT OR REPLACE INTO gemini_cli_accounts (id, name, email, client_id, client_secret, refresh_token, project_id, enable, status)
+		VALUES ('health-account', 'Health Account', 'health@example.com', 'cid', 'secret', 'refresh', 'project-id', 1, 'online')`)
+	if err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	_, err = db.Exec(`INSERT OR REPLACE INTO gemini_cli_tokens (id, account_id, access_token, expires_at, project_id, email, enable)
+		VALUES ('health-account', 'health-account', 'mock-access-token', ?, 'project-id', 'health@example.com', 1)`,
+		time.Now().Unix()+3600)
+	if err != nil {
+		t.Fatalf("insert token: %v", err)
+	}
+
+	account := Account{ID: "health-account", Name: "Health Account", Enable: true, Status: "online"}
+	if err := s.testAccountModel(context.Background(), db, account, "gemini-2.5-flash"); err != nil {
+		t.Fatalf("health check should pass via stream endpoint, got %v", err)
+	}
+}
+
+func TestCheckAccountsRouteWaitsForCheckCompletion(t *testing.T) {
+	mockUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, ":streamGenerateContent") {
+			time.Sleep(150 * time.Millisecond)
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("data: {\"response\":{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"OK\"}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"totalTokenCount\":3}}}\n\n"))
+			w.Write([]byte("data: [DONE]\n\n"))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer mockUpstream.Close()
+
+	tempDir := t.TempDir()
+	s := New(config.Config{
+		DataDir: tempDir,
+		DBName:  "data.db",
+	}, mockAuthenticator{})
+	s.codeAssistBase = mockUpstream.URL + "/"
+	if err := s.saveMatrixConfig(map[string]interface{}{
+		"gemini-2.5-flash": map[string]interface{}{"base": true},
+	}); err != nil {
+		t.Fatalf("save matrix: %v", err)
+	}
+
+	db, err := s.open(context.Background())
+	if err != nil {
+		t.Fatalf("failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	_, err = db.Exec(`INSERT OR REPLACE INTO gemini_cli_accounts (id, name, email, client_id, client_secret, refresh_token, project_id, enable, status)
+		VALUES ('route-account', 'Route Account', 'route@example.com', 'cid', 'secret', 'refresh', 'project-id', 1, 'online')`)
+	if err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	_, err = db.Exec(`INSERT OR REPLACE INTO gemini_cli_tokens (id, account_id, access_token, expires_at, project_id, email, enable)
+		VALUES ('route-account', 'route-account', 'mock-access-token', ?, 'project-id', 'route@example.com', 1)`,
+		time.Now().Unix()+3600)
+	if err != nil {
+		t.Fatalf("insert token: %v", err)
+	}
+
+	w := httptest.NewRecorder()
+	r, _ := http.NewRequest(http.MethodPost, "/api/gemini-cli/accounts/check", nil)
+	start := time.Now()
+	s.ServeHTTP(w, r)
+	elapsed := time.Since(start)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("check route status=%d body=%s", w.Code, w.Body.String())
+	}
+	if elapsed < 120*time.Millisecond {
+		t.Fatalf("check route returned before upstream completed: elapsed=%s", elapsed)
+	}
+
+	var payload map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if payload["message"] != "检测完成" || int(payload["modelsChecked"].(float64)) != 1 {
+		t.Fatalf("unexpected response: %#v", payload)
+	}
+}
+
+func TestRunCheckChecksEnabledAccountsConcurrently(t *testing.T) {
+	var inFlight int64
+	var maxConcurrent int64
+	mockUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, ":streamGenerateContent") {
+			current := atomic.AddInt64(&inFlight, 1)
+			defer atomic.AddInt64(&inFlight, -1)
+			for {
+				previous := atomic.LoadInt64(&maxConcurrent)
+				if current <= previous || atomic.CompareAndSwapInt64(&maxConcurrent, previous, current) {
+					break
+				}
+			}
+			time.Sleep(250 * time.Millisecond)
+			w.Header().Set("Content-Type", "text/event-stream")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("data: {\"response\":{\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"OK\"}]},\"finishReason\":\"STOP\"}],\"usageMetadata\":{\"totalTokenCount\":3}}}\n\n"))
+			w.Write([]byte("data: [DONE]\n\n"))
+			return
+		}
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer mockUpstream.Close()
+
+	tempDir := t.TempDir()
+	s := New(config.Config{
+		DataDir: tempDir,
+		DBName:  "data.db",
+	}, mockAuthenticator{})
+	s.codeAssistBase = mockUpstream.URL + "/"
+	if err := s.saveMatrixConfig(map[string]interface{}{
+		"gemini-2.5-flash": map[string]interface{}{"base": true},
+	}); err != nil {
+		t.Fatalf("save matrix: %v", err)
+	}
+
+	db, err := s.open(context.Background())
+	if err != nil {
+		t.Fatalf("failed to open database: %v", err)
+	}
+	defer db.Close()
+
+	for _, accountID := range []string{"parallel-a", "parallel-b"} {
+		_, err = db.Exec(`INSERT OR REPLACE INTO gemini_cli_accounts (id, name, email, client_id, client_secret, refresh_token, project_id, enable, status)
+			VALUES (?, ?, ?, 'cid', 'secret', 'refresh', 'project-id', 1, 'online')`,
+			accountID, accountID, accountID+"@example.com")
+		if err != nil {
+			t.Fatalf("insert account %s: %v", accountID, err)
+		}
+		_, err = db.Exec(`INSERT OR REPLACE INTO gemini_cli_tokens (id, account_id, access_token, expires_at, project_id, email, enable)
+			VALUES (?, ?, 'mock-access-token', ?, 'project-id', ?, 1)`,
+			accountID, accountID, time.Now().Unix()+3600, accountID+"@example.com")
+		if err != nil {
+			t.Fatalf("insert token %s: %v", accountID, err)
+		}
+	}
+
+	start := time.Now()
+	result := s.runCheck()
+	elapsed := time.Since(start)
+
+	if result.Error != "" || result.Attempts != 2 || result.PassedModels != 1 {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+	if atomic.LoadInt64(&maxConcurrent) < 2 {
+		t.Fatalf("expected account checks to run concurrently, maxConcurrent=%d elapsed=%s", maxConcurrent, elapsed)
+	}
+
+	var passedAccounts string
+	if err := db.QueryRow(`SELECT passed_accounts FROM gemini_cli_model_checks WHERE model_id = 'gemini-2.5-flash'`).Scan(&passedAccounts); err != nil {
+		t.Fatalf("query check result: %v", err)
+	}
+	if passedAccounts != "0,1" {
+		t.Fatalf("passed accounts = %q, want 0,1", passedAccounts)
 	}
 }

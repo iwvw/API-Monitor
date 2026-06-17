@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
+	"github.com/iwvw/api-monitor/backend-go/internal/database"
 )
 
 func testServer(t *testing.T) *Server {
@@ -587,7 +588,7 @@ func TestCoreSettingsRequireSessionAndAreServedByGo(t *testing.T) {
 	if err := json.Unmarshal(res.Body.Bytes(), &payload); err != nil {
 		t.Fatal(err)
 	}
-	if !payload.Success || !payload.Data.ModuleVisibility["qwen"] {
+	if !payload.Success || payload.Data.ModuleVisibility["qwen"] {
 		t.Fatalf("unexpected settings payload: %#v", payload)
 	}
 
@@ -941,6 +942,47 @@ func TestOpenAIAndQwenServerRouting(t *testing.T) {
 	handler.ServeHTTP(res, req)
 	if res.Code != http.StatusOK {
 		t.Fatalf("v1 models status = %d body=%s", res.Code, res.Body.String())
+	}
+}
+
+func TestV1RoutingHonorsDisabledChannels(t *testing.T) {
+	handler := testServer(t)
+	db, err := database.New(handler.cfg).Open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.ExecContext(context.Background(), `
+		UPDATE user_settings
+		SET channel_enabled = '{"gemini-cli":true,"qwen":false}'
+		WHERE id = 1
+	`)
+	if err != nil {
+		_ = db.Close()
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{
+		"model": "qwen3.5-flash",
+		"messages": [{"role":"user","content":"hello"}],
+		"stream": true
+	}`))
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusNotFound {
+		t.Fatalf("disabled qwen completion status = %d body=%s", res.Code, res.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	res = httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("v1 models status = %d body=%s", res.Code, res.Body.String())
+	}
+	if strings.Contains(res.Body.String(), `"owned_by":"qwen"`) {
+		t.Fatalf("disabled qwen models should be filtered: %s", res.Body.String())
 	}
 }
 

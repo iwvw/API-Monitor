@@ -18,6 +18,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -1731,11 +1732,33 @@ func (s *Service) clearCheckHistoryRoute(w http.ResponseWriter, r *http.Request)
 }
 
 func (s *Service) checkAccountsRoute(w http.ResponseWriter, r *http.Request) {
-	go s.runCheck()
+	start := time.Now()
+	result := s.runCheck()
+	if result.AlreadyRunning {
+		response.JSON(w, http.StatusConflict, map[string]interface{}{
+			"success": false,
+			"error":   "检测正在进行中",
+		})
+		return
+	}
+	if result.Error != "" {
+		response.JSON(w, http.StatusInternalServerError, map[string]interface{}{
+			"success": false,
+			"error":   result.Error,
+		})
+		return
+	}
 	response.JSON(w, http.StatusOK, map[string]interface{}{
-		"success":       true,
-		"message":       "Auto check started in background",
-		"totalAccounts": 1,
+		"success":         true,
+		"message":         "检测完成",
+		"batchTime":       result.BatchTime,
+		"totalAccounts":   result.TotalAccounts,
+		"enabledAccounts": result.EnabledAccounts,
+		"modelsChecked":   result.ModelsChecked,
+		"attempts":        result.Attempts,
+		"passedModels":    result.PassedModels,
+		"failedModels":    result.FailedModels,
+		"durationMs":      int(time.Since(start) / time.Millisecond),
 	})
 }
 
@@ -2039,14 +2062,29 @@ func (s *Service) checkAutoCheckSchedule() {
 	}
 }
 
-func (s *Service) runCheck() {
+type checkRunResult struct {
+	Started         bool
+	AlreadyRunning  bool
+	BatchTime       int64
+	TotalAccounts   int
+	EnabledAccounts int
+	ModelsChecked   int
+	Attempts        int
+	PassedModels    int
+	FailedModels    int
+	Error           string
+}
+
+func (s *Service) runCheck() checkRunResult {
 	s.mu.Lock()
 	if s.autoCheckRunning {
 		s.mu.Unlock()
-		return
+		return checkRunResult{AlreadyRunning: true}
 	}
 	s.autoCheckRunning = true
 	s.mu.Unlock()
+
+	result := checkRunResult{Started: true}
 
 	defer func() {
 		s.mu.Lock()
@@ -2057,13 +2095,33 @@ func (s *Service) runCheck() {
 	ctx := context.Background()
 	db, err := s.open(ctx)
 	if err != nil {
-		return
+		result.Error = err.Error()
+		return result
 	}
 	defer db.Close()
 
 	accounts, err := s.listAccountsInternal(ctx, db)
 	if err != nil || len(accounts) == 0 {
-		return
+		if err != nil {
+			result.Error = err.Error()
+		}
+		return result
+	}
+	result.TotalAccounts = len(accounts)
+	type enabledAccount struct {
+		index   int
+		account Account
+	}
+	enabledAccounts := []enabledAccount{}
+	for _, account := range accounts {
+		if account.Enable {
+			result.EnabledAccounts++
+		}
+	}
+	for index, account := range accounts {
+		if account.Enable {
+			enabledAccounts = append(enabledAccounts, enabledAccount{index: index, account: account})
+		}
 	}
 
 	nowMs := time.Now().UnixNano() / 1e6
@@ -2109,26 +2167,48 @@ func (s *Service) runCheck() {
 
 	// Run checks and store in DB
 	batchTime := time.Now().Unix()
+	result.BatchTime = batchTime
 	for _, model := range modelsToCheck {
 		passedAccounts := []string{}
 		var lastErr error
+		result.ModelsChecked++
+		result.Attempts += len(enabledAccounts)
 
-		for i, a := range accounts {
-			if !a.Enable {
+		type accountCheckResult struct {
+			index int
+			err   error
+		}
+		results := make(chan accountCheckResult, len(enabledAccounts))
+		var wg sync.WaitGroup
+		for _, item := range enabledAccounts {
+			wg.Add(1)
+			go func(item enabledAccount) {
+				defer wg.Done()
+				results <- accountCheckResult{
+					index: item.index,
+					err:   s.testAccountModel(ctx, db, item.account, model),
+				}
+			}(item)
+		}
+		wg.Wait()
+		close(results)
+
+		for check := range results {
+			if check.err == nil {
+				passedAccounts = append(passedAccounts, strconv.Itoa(check.index))
 				continue
 			}
-			err := s.testAccountModel(ctx, db, a, model)
-			if err == nil {
-				passedAccounts = append(passedAccounts, strconv.Itoa(i))
-			} else {
-				lastErr = err
-			}
+			lastErr = check.err
 		}
+		sort.Strings(passedAccounts)
 
 		status := "error"
 		var errLog *string
 		if len(passedAccounts) > 0 {
 			status = "ok"
+			result.PassedModels++
+		} else {
+			result.FailedModels++
 		}
 		if lastErr != nil {
 			eStr := lastErr.Error()
@@ -2145,18 +2225,20 @@ func (s *Service) runCheck() {
 				passed_accounts = excluded.passed_accounts`,
 			model, status, errLog, batchTime, passedStr)
 	}
+
+	return result
 }
 
 func (s *Service) testAccountModel(ctx context.Context, db *sql.DB, account Account, model string) error {
-	// Simple stream generate completions with 1 token output check
-	// This mimics the Node model check
+	// Use the same streaming path as the public OpenAI-compatible examples.
+	// Some Gemini models return empty/stream-only payloads on generateContent.
 	body := map[string]interface{}{
 		"model":  model,
-		"stream": false,
+		"stream": true,
 		"messages": []map[string]interface{}{
-			{"role": "user", "content": "hi"},
+			{"role": "user", "content": "你好，请只回复 OK"},
 		},
-		"max_tokens": 1,
+		"max_tokens": 8,
 	}
 
 	// Local run completions request using test handler
@@ -2185,6 +2267,9 @@ func (h *httptestRecorder) Header() http.Header {
 }
 
 func (h *httptestRecorder) Write(b []byte) (int, error) {
+	if h.code == 0 {
+		h.code = http.StatusOK
+	}
 	return h.body.Write(b)
 }
 

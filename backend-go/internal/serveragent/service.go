@@ -1491,6 +1491,11 @@ func (s *Service) runPeriodicCollection(ctx context.Context, db *sql.DB) int {
 		if err := json.Unmarshal([]byte(sm.raw), &metrics); err != nil || len(metrics) == 0 {
 			continue
 		}
+		if conn, exists := s.engineIO.registry.Get(sm.serverID); exists {
+			if metadata := conn.GetMetadata(); len(metadata) > 0 {
+				metrics = s.buildInfoStruct(metadata)
+			}
+		}
 		if err := s.persistMetrics(ctx, db, sm.serverID, metrics); err == nil {
 			collected++
 		}

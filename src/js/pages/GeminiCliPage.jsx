@@ -866,6 +866,21 @@ function GeminiCliPage() {
   const [logDetailOpen, setLogDetailOpen] = useState(false);
   const [logDetailShowRaw, setLogDetailShowRaw] = useState(false);
 
+  const parseLogDetailPayload = (payload) => {
+    if (typeof payload !== 'string') return payload;
+    try {
+      return JSON.parse(payload);
+    } catch (error) {
+      return payload;
+    }
+  };
+
+  const formatLogDetailRaw = (payload) => {
+    const parsed = parseLogDetailPayload(payload);
+    if (typeof parsed === 'string') return parsed;
+    return JSON.stringify(parsed || {}, null, 2);
+  };
+
   const loadLogs = useCallback(async (showFeedback = false) => {
     setLogsLoading(true);
     try {
@@ -904,6 +919,7 @@ function GeminiCliPage() {
         data.userAgent = data.userAgent || data.user_agent;
 
         if (data.detail) {
+          data.detail = parseLogDetailPayload(data.detail);
           if (data.detail.request && data.detail.request.messages && !data.detail.messages) {
             data.detail.messages = data.detail.request.messages;
           }
@@ -2415,7 +2431,7 @@ function GeminiCliPage() {
 
       {/* 2. Log Detail Dialog */}
       <Dialog.Root open={logDetailOpen} onOpenChange={setLogDetailOpen}>
-        <Dialog className="p-0 sm:max-w-xl overflow-hidden flex flex-col max-h-[85vh]">
+        <Dialog className="p-0 !w-[calc(100vw-2rem)] sm:!w-[min(1080px,calc(100vw-3rem))] max-w-none overflow-hidden flex flex-col max-h-[86vh]">
           {/* Header */}
           <div className="p-4 border-b border-kumo-line flex items-center justify-between">
             <h3 className="text-sm font-bold text-kumo-strong">调用日志详细分析</h3>
@@ -2432,7 +2448,7 @@ function GeminiCliPage() {
 
           {/* Details Body */}
           {logDetail && (
-            <div className="flex-1 overflow-y-auto p-4 space-y-4 text-xs leading-relaxed max-h-[60vh]">
+            <div className="flex-1 overflow-y-auto p-4 space-y-4 text-xs leading-relaxed max-h-[calc(86vh-8.5rem)]">
               {/* Metadata details */}
               <div className="grid grid-cols-2 gap-3 bg-kumo-recessed/35 p-3 rounded-lg border border-kumo-line font-mono text-[10px]">
                 <div>
@@ -2478,9 +2494,11 @@ function GeminiCliPage() {
               </div>
 
               {logDetailShowRaw ? (
-                <pre className="p-3 app-subcard bg-kumo-recessed rounded-lg text-[10px] text-kumo-strong overflow-x-auto font-mono whitespace-pre">
-                  {JSON.stringify(logDetail.detail || logDetail, null, 2)}
-                </pre>
+                <div className="rounded-lg border border-kumo-line bg-kumo-recessed/40 overflow-hidden">
+                  <pre className="max-h-[42vh] min-h-40 overflow-auto p-3 text-[11px] leading-5 text-kumo-strong font-mono whitespace-pre tab-size-2">
+                    <code>{formatLogDetailRaw(logDetail.detail || logDetail)}</code>
+                  </pre>
+                </div>
               ) : (
                 <div className="space-y-4">
                   {/* Messages flow (OpenAI Spec format) */}

@@ -964,11 +964,11 @@ func loadUserSettings(ctx context.Context, db *sql.DB) (map[string]interface{}, 
 	delete(visibility, "antigravity")
 	ensureBoolKey(visibility, "gemini-cli", true)
 	ensureBoolKey(visibility, "self-h", false)
-	ensureBoolKey(visibility, "qwen", true)
+	ensureBoolKey(visibility, "qwen", false)
 
 	channelEnabled := parseObject(row.ChannelEnabled, map[string]interface{}{"gemini-cli": true})
 	delete(channelEnabled, "antigravity")
-	ensureBoolKey(channelEnabled, "qwen", true)
+	ensureBoolKey(channelEnabled, "qwen", false)
 
 	channelModelPrefix := parseObject(row.ChannelModelPrefix, map[string]interface{}{"gemini-cli": ""})
 	delete(channelModelPrefix, "antigravity")
@@ -1532,12 +1532,15 @@ func (s *Service) readFormattedLogEntries(limit int) ([]map[string]interface{}, 
 			})
 			continue
 		}
-		timestamp := fmt.Sprint(entry["timestamp"])
+		timestamp := defaultString(entry["timestamp"], defaultString(entry["time"], ""))
 		displayTime := "00:00:00"
 		if parsed, err := parseLogTime(timestamp); err == nil {
 			displayTime = parsed.Format("15:04:05")
 		}
-		message := fmt.Sprint(entry["message"])
+		message := defaultString(entry["message"], defaultString(entry["msg"], ""))
+		if message == "" {
+			message = line
+		}
 		if _, ok := entry["data"]; ok {
 			message += " [DATA]"
 		}

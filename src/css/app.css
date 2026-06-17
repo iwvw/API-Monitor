@@ -83,6 +83,10 @@ body {
   background-color: color-mix(in oklab, var(--color-kumo-recessed) 10%, transparent);
 }
 
+[role='dialog'] {
+  max-height: calc(100dvh - 1rem);
+}
+
 th > button[aria-label='Resize column'] {
   right: 0 !important;
   z-index: 10;

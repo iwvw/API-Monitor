@@ -197,6 +197,70 @@ func TestFrontendCompatibilityRoutes(t *testing.T) {
 	}
 }
 
+func TestPersistMetricsAcceptsCachedAgentInfoShape(t *testing.T) {
+	service, db := testService(t)
+	_, err := db.ExecContext(context.Background(), `INSERT INTO server_accounts (id, name, host, username, auth_type) VALUES ('server-agent', 'agent', '', 'root', 'password')`)
+	if err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+
+	err = service.persistMetrics(context.Background(), db, "server-agent", map[string]interface{}{
+		"platform": "Windows",
+		"cpu": map[string]interface{}{
+			"Usage":        "22.0%",
+			"Load":         "5.28 5.28 5.28",
+			"Cores":        float64(24),
+			"LogicalCores": float64(24),
+			"Temp":         float64(52.1),
+		},
+		"memory": map[string]interface{}{
+			"Used":  "12684",
+			"Total": "16115MB",
+			"Usage": "79%",
+		},
+		"disk": []interface{}{
+			map[string]interface{}{"used": "1.1 TB", "total": "1.4 TB", "usage": "77%"},
+		},
+		"docker": map[string]interface{}{
+			"installed": false,
+			"running":   float64(0),
+			"stopped":   float64(0),
+		},
+		"gpu": map[string]interface{}{
+			"Usage":  "23%",
+			"Memory": "2232/8188MB",
+			"Power":  "13.2W",
+			"Temp":   float64(60),
+		},
+		"network": map[string]interface{}{
+			"rx_speed": "29.6 KB/s",
+			"tx_speed": "1.6 KB/s",
+		},
+	})
+	if err != nil {
+		t.Fatalf("persist metrics: %v", err)
+	}
+
+	var cpuUsage, memUsage, gpuUsage, netRx float64
+	var memUsed, memTotal, gpuMemUsed, gpuMemTotal int
+	var platform string
+	err = db.QueryRowContext(context.Background(), `SELECT cpu_usage, mem_used, mem_total, mem_usage, gpu_usage, gpu_mem_used, gpu_mem_total, net_rx, platform FROM server_metrics_history WHERE server_id = 'server-agent'`).
+		Scan(&cpuUsage, &memUsed, &memTotal, &memUsage, &gpuUsage, &gpuMemUsed, &gpuMemTotal, &netRx, &platform)
+	if err != nil {
+		t.Fatalf("query metrics: %v", err)
+	}
+
+	if cpuUsage != 22 || memUsed != 12684 || memTotal != 16115 || memUsage != 79 {
+		t.Fatalf("unexpected cpu/memory metrics: cpu=%v memUsed=%d memTotal=%d memUsage=%v", cpuUsage, memUsed, memTotal, memUsage)
+	}
+	if gpuUsage != 23 || gpuMemUsed != 2232 || gpuMemTotal != 8188 {
+		t.Fatalf("unexpected gpu metrics: usage=%v used=%d total=%d", gpuUsage, gpuMemUsed, gpuMemTotal)
+	}
+	if netRx != 29.6*1024 || platform != "Windows" {
+		t.Fatalf("unexpected network/platform metrics: netRx=%v platform=%s", netRx, platform)
+	}
+}
+
 func TestAgentQuickInstallCreatesHostFromName(t *testing.T) {
 	service, db := testService(t)
 

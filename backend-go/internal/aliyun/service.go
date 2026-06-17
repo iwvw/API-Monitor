@@ -16,6 +16,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
@@ -616,22 +617,38 @@ func (s *Service) listDomainRecords(ctx context.Context, account map[string]inte
 func (s *Service) listAllInstances(ctx context.Context, account map[string]interface{}, options map[string]string) (map[string]interface{}, error) {
 	regions := s.listRegions(ctx, account)
 	all := make([]interface{}, 0)
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	limit := make(chan struct{}, 6)
 	for _, regionID := range prioritizedRegions(regions) {
-		payload, err := s.callRPC(ctx, s.endpoint("ecs", regionID), account, ecsVersion, "DescribeInstances", map[string]string{
-			"RegionId":   regionID,
-			"PageSize":   options["PageSize"],
-			"PageNumber": options["PageNumber"],
-		})
-		if err != nil {
-			continue
-		}
-		for _, item := range arrayAt(payload, "Instances", "Instance") {
-			instance := objectValue(item)
-			instance["RegionName"] = regionName(stringValue(instance["RegionId"], regionID))
-			instance["InstanceTypeFriendly"] = formatFlavor(stringValue(instance["InstanceType"], ""))
-			all = append(all, instance)
-		}
+		regionID := regionID
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			limit <- struct{}{}
+			defer func() { <-limit }()
+
+			payload, err := s.callRPC(ctx, s.endpoint("ecs", regionID), account, ecsVersion, "DescribeInstances", map[string]string{
+				"RegionId":   regionID,
+				"PageSize":   options["PageSize"],
+				"PageNumber": options["PageNumber"],
+			})
+			if err != nil {
+				return
+			}
+			items := make([]interface{}, 0)
+			for _, item := range arrayAt(payload, "Instances", "Instance") {
+				instance := objectValue(item)
+				instance["RegionName"] = regionName(stringValue(instance["RegionId"], regionID))
+				instance["InstanceTypeFriendly"] = formatFlavor(stringValue(instance["InstanceType"], ""))
+				items = append(items, instance)
+			}
+			mu.Lock()
+			all = append(all, items...)
+			mu.Unlock()
+		}()
 	}
+	wg.Wait()
 	return map[string]interface{}{"instances": all, "total": len(all)}, nil
 }
 
@@ -656,26 +673,42 @@ func (s *Service) listRegions(ctx context.Context, account map[string]interface{
 func (s *Service) listAllSwasInstances(ctx context.Context, account map[string]interface{}, options map[string]string) (map[string]interface{}, error) {
 	regions := s.listSwasRegions(ctx, account)
 	all := make([]interface{}, 0)
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	limit := make(chan struct{}, 6)
 	for _, regionID := range prioritizedRegions(regions) {
-		payload, err := s.callRPC(ctx, s.endpoint("swas", regionID), account, swasVersion, "ListInstances", map[string]string{
-			"RegionId":   regionID,
-			"PageSize":   options["PageSize"],
-			"PageNumber": options["PageNumber"],
-		})
-		if err != nil {
-			continue
-		}
-		items := arrayValue(payload["Instances"])
-		if len(items) == 0 {
-			items = arrayAt(payload, "Instances", "Instance")
-		}
-		for _, item := range items {
-			instance := objectValue(item)
-			instance["RegionName"] = regionName(stringValue(instance["RegionId"], regionID))
-			instance["InstanceTypeFriendly"] = formatFlavor(firstNonEmpty(stringValue(instance["PlanId"], ""), stringValue(instance["InstanceType"], "")))
-			all = append(all, instance)
-		}
+		regionID := regionID
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			limit <- struct{}{}
+			defer func() { <-limit }()
+
+			payload, err := s.callRPC(ctx, s.endpoint("swas", regionID), account, swasVersion, "ListInstances", map[string]string{
+				"RegionId":   regionID,
+				"PageSize":   options["PageSize"],
+				"PageNumber": options["PageNumber"],
+			})
+			if err != nil {
+				return
+			}
+			items := arrayValue(payload["Instances"])
+			if len(items) == 0 {
+				items = arrayAt(payload, "Instances", "Instance")
+			}
+			normalized := make([]interface{}, 0, len(items))
+			for _, item := range items {
+				instance := objectValue(item)
+				instance["RegionName"] = regionName(stringValue(instance["RegionId"], regionID))
+				instance["InstanceTypeFriendly"] = formatFlavor(firstNonEmpty(stringValue(instance["PlanId"], ""), stringValue(instance["InstanceType"], "")))
+				normalized = append(normalized, instance)
+			}
+			mu.Lock()
+			all = append(all, normalized...)
+			mu.Unlock()
+		}()
 	}
+	wg.Wait()
 	return map[string]interface{}{"instances": all, "total": len(all)}, nil
 }
 

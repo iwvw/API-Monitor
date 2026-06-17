@@ -950,6 +950,7 @@ func getHistory(ctx context.Context, db *sql.DB, monitorID int64, limit int) ([]
 		if err != nil {
 			return nil, err
 		}
+		normalizeHeartbeatTime(row)
 		items = append(items, row)
 	}
 	return items, rows.Err()
@@ -969,7 +970,24 @@ func getLastHeartbeat(ctx context.Context, db *sql.DB, monitorID int64) (map[str
 	if !rows.Next() {
 		return nil, rows.Err()
 	}
-	return scanMap(rows)
+	row, err := scanMap(rows)
+	if err != nil {
+		return nil, err
+	}
+	normalizeHeartbeatTime(row)
+	return row, nil
+}
+
+func normalizeHeartbeatTime(row map[string]interface{}) {
+	raw := stringValue(firstNonNil(row["time"], row["created_at"]), "")
+	if raw == "" {
+		return
+	}
+	parsed := parseTimeFallback(raw, time.Time{})
+	if parsed.IsZero() {
+		return
+	}
+	row["time"] = parsed.UTC().Format(time.RFC3339Nano)
 }
 
 func saveHeartbeat(ctx context.Context, db *sql.DB, monitorID int64, beat map[string]interface{}) error {
