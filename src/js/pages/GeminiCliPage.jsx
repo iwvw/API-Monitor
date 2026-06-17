@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { toast } from '../modules/toast.js';
 import { dialog } from '../modules/dialog.js';
 import { Button } from '@cloudflare/kumo/components/button';
@@ -250,7 +250,6 @@ function GeminiCliPage() {
   // OAuth Authorization drawer
   const [showOAuthExpand, setShowOAuthExpand] = useState(false);
   const [oauthReturnUrl, setOauthReturnUrl] = useState('');
-  const oauthAutoHandledRef = useRef(false);
   const [customProjectId, setCustomProjectId] = useState('');
   const [allowRandomProjectId, setAllowRandomProjectId] = useState(true);
 
@@ -452,18 +451,17 @@ function GeminiCliPage() {
       gcliSettings[field] ||
       accountForm[accountKey] ||
       accounts.find(account => account[accountKey])?.[accountKey] ||
-      sessionStorage.getItem(`gcli_oauth_${field}`) ||
       ''
     );
   }, [gcliSettings, accountForm, accounts]);
 
   const openOAuthUrl = () => {
-    const clientId = (getOAuthCredentialFallback('CLIENT_ID') || 'YOUR_CLIENT_ID').trim();
-    const clientSecret = getOAuthCredentialFallback('CLIENT_SECRET');
+    const clientId = getOAuthCredentialFallback('CLIENT_ID').trim();
+    if (!clientId || clientId === 'YOUR_CLIENT_ID') {
+      toast.error('请先导入账号或在模块配置中填写 OAuth Client ID');
+      return;
+    }
     const redirectUriValue = (gcliSettings.REDIRECT_URI || 'http://localhost:3000/oauth-callback').trim();
-    sessionStorage.setItem('gcli_oauth_CLIENT_ID', clientId);
-    sessionStorage.setItem('gcli_oauth_CLIENT_SECRET', clientSecret);
-    sessionStorage.setItem('gcli_oauth_REDIRECT_URI', redirectUriValue);
     const redirectUri = encodeURIComponent(redirectUriValue);
     const scope = encodeURIComponent(
       'https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile'
@@ -474,15 +472,14 @@ function GeminiCliPage() {
     window.open(url, '_blank');
   };
 
-  const parseOAuthUrl = useCallback(async (returnUrl = oauthReturnUrl) => {
-    const oauthUrl = String(returnUrl || '').trim();
-    if (!oauthUrl) {
+  const parseOAuthUrl = async () => {
+    if (!oauthReturnUrl.trim()) {
       toast.error('请粘贴回调 URL');
       return;
     }
     let parsedUrl;
     try {
-      parsedUrl = new URL(oauthUrl);
+      parsedUrl = new URL(oauthReturnUrl);
     } catch (e) {
       toast.error('无效的 URL 格式');
       return;
@@ -501,7 +498,7 @@ function GeminiCliPage() {
         headers: getAuthHeaders(),
         body: JSON.stringify({
           code,
-          redirect_uri: gcliSettings.REDIRECT_URI || sessionStorage.getItem('gcli_oauth_REDIRECT_URI') || 'http://localhost:3000/oauth-callback',
+          redirect_uri: gcliSettings.REDIRECT_URI || 'http://localhost:3000/oauth-callback',
           client_id: getOAuthCredentialFallback('CLIENT_ID'),
           client_secret: getOAuthCredentialFallback('CLIENT_SECRET'),
           project_id: customProjectId || undefined,
@@ -531,9 +528,6 @@ function GeminiCliPage() {
 
         if (saveResponse.ok) {
           toast.success('OAuth 账号连接并保存成功！');
-          sessionStorage.removeItem('gcli_oauth_CLIENT_ID');
-          sessionStorage.removeItem('gcli_oauth_CLIENT_SECRET');
-          sessionStorage.removeItem('gcli_oauth_REDIRECT_URI');
           setShowOAuthExpand(false);
           setOauthReturnUrl('');
           setCustomProjectId('');
@@ -550,7 +544,7 @@ function GeminiCliPage() {
     } finally {
       setAccountsLoading(false);
     }
-  }, [oauthReturnUrl, gcliSettings.REDIRECT_URI, getOAuthCredentialFallback, customProjectId, getAuthHeaders, loadAccounts]);
+  };
 
   const exportAccounts = async () => {
     try {
@@ -1167,25 +1161,6 @@ function GeminiCliPage() {
       loadRedirects();
     }
   }, [activeTab, loadMatrix, loadStats, loadAccounts, loadQuotas, loadCheckSettings, loadCheckHistory, loadSettings, loadLogs, loadRedirects]);
-
-  useEffect(() => {
-    if (oauthAutoHandledRef.current) return;
-    const currentUrl = new URL(window.location.href);
-    if (!currentUrl.searchParams.get('code')) return;
-
-    oauthAutoHandledRef.current = true;
-    setActiveTab('accounts');
-    setShowOAuthExpand(true);
-    setOauthReturnUrl(currentUrl.href);
-    parseOAuthUrl(currentUrl.href).then(() => {
-      currentUrl.searchParams.delete('code');
-      currentUrl.searchParams.delete('scope');
-      currentUrl.searchParams.delete('state');
-      currentUrl.searchParams.delete('authuser');
-      currentUrl.searchParams.delete('prompt');
-      window.history.replaceState({}, document.title, `${currentUrl.pathname}${currentUrl.search}${currentUrl.hash}`);
-    });
-  }, [parseOAuthUrl]);
 
   return (
     <div className="space-y-6 flex flex-col">
