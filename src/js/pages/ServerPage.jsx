@@ -845,11 +845,17 @@ const getFlagCountry = (server) => {
   );
 };
 
+const normalizeLocationDisplayText = (value) => {
+  const text = String(value || '').trim();
+  if (!text) return '';
+  return /^[a-z]{2,3}$/i.test(text) ? text.toUpperCase() : text;
+};
+
 const getServerLocationText = (server) => {
   if (server.country && server.country !== 'auto') {
     return String(server.country).toUpperCase();
   }
-  return (
+  return normalizeLocationDisplayText(
     server.location ||
     server.region ||
     server.resolved_country ||
@@ -2420,8 +2426,15 @@ function ServerPage() {
         }
         
         // Disk
-        if (metrics.disk_usage !== undefined && metrics.disk_usage !== null) {
+        if (
+          metrics.disk_usage !== undefined && metrics.disk_usage !== null
+        ) {
           info.disk = mergeRealtimeDiskInfo(previousInfo.disk, metrics);
+        } else if (metrics.disk_used !== undefined || metrics.disk_total !== undefined) {
+          info.disk = mergeRealtimeDiskInfo(previousInfo.disk, {
+            ...metrics,
+            disk_usage: metrics.disk_usage ?? previousInfo.disk?.[0]?.usage ?? '0%',
+          });
         } else {
           info.disk = previousInfo.disk;
         }
@@ -5291,7 +5304,7 @@ function ServerPage() {
                                     {locationText ? (
                                       <>
                                         {country && <CountryFlag preferSvg countryCode={country} className="h-3.5 w-5 shrink-0 !rounded-[2px] text-sm" />}
-                                        <span className="truncate font-semibold text-kumo-strong" title={locationText}>{locationText}</span>
+                                        <span className="truncate font-semibold uppercase text-kumo-strong" title={locationText}>{locationText}</span>
                                       </>
                                     ) : (
                                       <span className="font-semibold text-kumo-subtle">-</span>
@@ -5669,11 +5682,6 @@ function ServerPage() {
                                 {t}
                               </span>
                             ))}
-                            {locationText && (
-                              <span className="truncate text-[10px] font-semibold text-kumo-subtle" title={locationText}>
-                                {locationText}
-                              </span>
-                            )}
                           </div>
                         </div>
                       </div>

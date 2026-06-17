@@ -284,7 +284,18 @@ EOF
 
 sudo systemctl daemon-reload
 sudo systemctl enable api-monitor-agent
-sudo systemctl restart api-monitor-agent
+sudo systemctl restart api-monitor-agent || {
+    sudo systemctl daemon-reload
+    sudo systemctl enable api-monitor-agent
+    sudo systemctl restart api-monitor-agent
+}
+
+sudo systemctl is-active --quiet api-monitor-agent || {
+    echo "Error: api-monitor-agent failed to start"
+    sudo systemctl status api-monitor-agent --no-pager || true
+    sudo journalctl -u api-monitor-agent -n 50 --no-pager || true
+    exit 1
+}
 
 echo ""
 echo "======================================"

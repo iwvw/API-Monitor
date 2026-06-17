@@ -1637,8 +1637,8 @@ function OpenAIPage() {
 
       {/* ==================== 1. API 端点 Tab ==================== */}
       {activeTab === 'endpoints' && (
-        <div className="space-y-4">
-          <div className="app-card p-4 flex justify-between items-center">
+        <div className="space-y-3">
+          <div className="app-card flex items-center justify-between gap-3 px-4 py-3">
             <div className="flex items-center gap-2">
               <span className="text-xs font-semibold text-kumo-subtle">
                 {modelHealthBatchLoading ? '正在批量检测模型可用性...' : `共 ${endpoints.length} 个端点`}
@@ -1656,11 +1656,11 @@ function OpenAIPage() {
             </div>
           </div>
 
-          <div className="space-y-3">
+          <div className="space-y-2.5">
             {endpointsLoading ? (
-              <div className="space-y-3">
+              <div className="space-y-2.5">
                 {[...Array(2)].map((_, i) => (
-                  <div key={i} className="app-card p-4 space-y-3">
+                  <div key={i} className="app-card px-4 py-3 space-y-2.5">
                     <div className="flex items-center gap-3">
                       <SkeletonLine className="w-10 h-10 rounded-lg" />
                       <div className="flex-1 space-y-1.5">
@@ -1672,7 +1672,7 @@ function OpenAIPage() {
                 ))}
               </div>
             ) : endpoints.length === 0 ? (
-              <div className="text-center py-12 app-card text-kumo-subtle">
+              <div className="text-center py-10 app-card text-kumo-subtle">
                 <Bot className="w-12 h-12 mx-auto mb-3 opacity-30" />
                 <p>暂无 API 端点，可在账号管理中添加</p>
               </div>
@@ -1687,9 +1687,9 @@ function OpenAIPage() {
                     {/* Header */}
                     <div
                       onClick={() => toggleEndpointExpand(endpoint.id)}
-                      className="flex items-center justify-between p-4 cursor-pointer hover:bg-kumo-recessed/10 transition-colors"
+                      className="flex items-center justify-between px-4 py-3 cursor-pointer hover:bg-kumo-recessed/10 transition-colors"
                     >
-                      <div className="flex items-center gap-3">
+                      <div className="flex min-w-0 items-center gap-3">
                         <ChevronDown
                           className={`w-4 h-4 text-kumo-subtle transition-transform duration-200 ${
                             isExpanded ? 'transform rotate-180' : ''
@@ -1700,8 +1700,8 @@ function OpenAIPage() {
                         >
                           {(endpoint.name || 'A').charAt(0).toUpperCase()}
                         </div>
-                        <div>
-                          <div className="flex items-center gap-2">
+                        <div className="min-w-0">
+                          <div className="flex min-w-0 items-center gap-2">
                             <span
                               className={`px-1.5 py-0.5 rounded text-[10px] font-bold border ${
                                 validStatus
@@ -1713,17 +1713,17 @@ function OpenAIPage() {
                             >
                               {validStatus ? '有效' : invalidStatus ? '无效' : '未验证'}
                             </span>
-                            <span className="font-semibold text-kumo-strong text-xs">
+                            <span className="min-w-0 truncate font-semibold text-kumo-strong text-xs">
                               {endpoint.name || '未命名端点'}
                             </span>
                           </div>
-                          <span className="text-[10px] text-kumo-subtle font-mono block mt-0.5">
+                          <span className="block mt-0.5 truncate text-[10px] text-kumo-subtle font-mono">
                             {maskAddress(endpoint.baseUrl)}
                           </span>
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-2">
                         <Button
                           shape="square" size="sm"
                           variant="ghost"
@@ -1750,7 +1750,7 @@ function OpenAIPage() {
                         >
                           <RefreshCw className={`w-4 h-4 ${endpoint.refreshing ? 'animate-spin' : ''}`} />
                         </Button>
-                        <span className="text-[11px] app-subcard bg-kumo-recessed px-2 py-0.5 rounded text-kumo-strong font-semibold select-none">
+                        <span className="text-[10px] app-subcard bg-kumo-recessed px-2 py-0.5 rounded text-kumo-strong font-semibold select-none">
                           模型: {endpoint.models ? endpoint.models.length : 0}
                         </span>
                       </div>
@@ -1758,9 +1758,9 @@ function OpenAIPage() {
 
                     {/* Expandable Model Tags */}
                     <AnimatedCollapse open={isExpanded}>
-                      <div className="border-t border-kumo-line bg-kumo-recessed/10 p-4">
+                      <div className="border-t border-kumo-line bg-kumo-recessed/10 px-4 py-3">
                         {endpoint.models && endpoint.models.length > 0 ? (
-                          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-3">
                             {endpoint.models.map((model) => {
                               const modelId = typeof model === 'string' ? model.trim() : (model.id || '').trim();
                               const health = openaiModelHealth[modelId];
@@ -1768,7 +1768,7 @@ function OpenAIPage() {
                               return (
                                 <div
                                   key={modelId}
-                                  className="flex items-center justify-between p-2 app-card app-card-md text-xs group"
+                                  className="flex items-center justify-between px-2.5 py-2 app-card app-card-md text-xs group"
                                 >
                                   <div className="flex items-center gap-2 min-w-0">
                                     {/* Health indicator dot */}
@@ -1819,7 +1819,7 @@ function OpenAIPage() {
                             })}
                           </div>
                         ) : (
-                          <div className="text-center py-6 text-kumo-subtle text-xs">
+                          <div className="py-4 text-center text-xs text-kumo-subtle">
                             暂无模型数据，可在账号管理中刷新获取
                           </div>
                         )}
