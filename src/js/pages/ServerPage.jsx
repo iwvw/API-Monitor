@@ -801,11 +801,48 @@ function useMediaQuery(query) {
   return matches;
 }
 
+const LOCATION_COUNTRY_CODE_MAP = {
+  'united states': 'us',
+  usa: 'us',
+  'u.s.': 'us',
+  america: 'us',
+  'united kingdom': 'gb',
+  uk: 'gb',
+  britain: 'gb',
+  england: 'gb',
+  germany: 'de',
+  france: 'fr',
+  netherlands: 'nl',
+  japan: 'jp',
+  singapore: 'sg',
+  hongkong: 'hk',
+  'hong kong': 'hk',
+  china: 'cn',
+  taiwan: 'tw',
+  korea: 'kr',
+  canada: 'ca',
+  australia: 'au',
+};
+
+const inferCountryCodeFromLocation = (value) => {
+  const text = String(value || '').trim();
+  if (/^[a-z]{2}$/i.test(text)) return text;
+  const normalized = text.toLowerCase();
+  return Object.entries(LOCATION_COUNTRY_CODE_MAP).find(([name]) => normalized.includes(name))?.[1] || '';
+};
+
 const getFlagCountry = (server) => {
   if (server.country && server.country !== 'auto') {
     return server.country;
   }
-  return server.country_code || server.info?.country_code || (/^[a-z]{2}$/i.test(server.resolved_country || '') ? server.resolved_country : '');
+  return (
+    server.country_code ||
+    server.info?.country_code ||
+    inferCountryCodeFromLocation(server.resolved_country) ||
+    inferCountryCodeFromLocation(server.location) ||
+    inferCountryCodeFromLocation(server.info?.location) ||
+    ''
+  );
 };
 
 const getServerLocationText = (server) => {
