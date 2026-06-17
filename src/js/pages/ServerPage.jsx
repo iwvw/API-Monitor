@@ -2747,7 +2747,7 @@ function ServerPage() {
         country: serverForm.country,
         starts_at: normalizeStartInputValue(serverForm.startsAt),
         expires_at: normalizeExpiryInputValue(serverForm.expiresAt),
-        monitor_mode: 'agent'
+        monitor_mode: isAgentForm ? 'agent' : 'ssh'
       };
       
       if (serverForm.authType === 'password' && serverForm.password) {
@@ -2860,10 +2860,7 @@ function ServerPage() {
 
       try {
         const url = new URL(raw.startsWith('http') ? raw : `${agentInstallProtocol}://${raw}`);
-        if (url.protocol === 'http:' && url.port === '443') {
-          url.protocol = 'https:';
-          url.port = '';
-        }
+        url.protocol = `${agentInstallProtocol}:`;
         return url.origin;
       } catch (e) {
         return '';
@@ -2879,6 +2876,15 @@ function ServerPage() {
     return normalizeOrigin(`${agentInstallProtocol}://${window.location.host}`);
   };
 
+  const getAgentInstallEndpoint = (osType = agentInstallOS) => {
+    if (!agentModalData?.serverId || !agentModalData?.agentKey) return '';
+    const normalizedOs = osType === 'win' ? 'win' : 'linux';
+    const baseUrl = getAgentBaseApiUrl();
+    if (!baseUrl) return '';
+    const protocol = encodeURIComponent(agentInstallProtocol || 'https');
+    return `${baseUrl}/api/server/agent/install/${normalizedOs}/${agentModalData.serverId}/${agentModalData.agentKey}?protocol=${protocol}`;
+  };
+
   const getAgentInstallCommand = (osType = agentInstallOS) => {
     if (!agentModalData) return '';
     if (!agentModalData.agentKey) {
@@ -2887,11 +2893,12 @@ function ServerPage() {
         : agentModalData.winInstallCommand || '';
     }
 
-    const baseUrl = `${getAgentBaseApiUrl()}/api/server/agent/install`;
+    const installUrl = getAgentInstallEndpoint(osType);
+    if (!installUrl) return '';
     if (osType === 'linux') {
-      return `curl -fsSL ${baseUrl}/linux/${agentModalData.serverId}/${agentModalData.agentKey} | bash`;
+      return `curl -fsSL ${installUrl} | bash`;
     }
-    return `powershell -c "irm ${baseUrl}/win/${agentModalData.serverId}/${agentModalData.agentKey} | iex"`;
+    return `powershell -c "irm ${installUrl} | iex"`;
   };
 
   const regenerateAgentKey = async () => {
@@ -2948,7 +2955,7 @@ function ServerPage() {
     }
 
     try {
-      const response = await fetch(`/api/server/agent/auto-install/${serverId}`, {
+      const response = await fetch(`/api/server/agent/auto-install/${serverId}?protocol=${encodeURIComponent(agentInstallProtocol)}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ force_ssh: agentForceSsh }),
@@ -3295,7 +3302,7 @@ function ServerPage() {
     await Promise.all(initialResults.map(async item => {
       updateBatchResult(item.serverId, { status: 'processing' });
       try {
-        const response = await fetch(`/api/server/agent/auto-install/${item.serverId}`, {
+        const response = await fetch(`/api/server/agent/auto-install/${item.serverId}?protocol=${encodeURIComponent(agentInstallProtocol)}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ force_ssh: batchAgentForceSsh }),
@@ -3397,7 +3404,7 @@ function ServerPage() {
       const server = targetServers[i];
       appendLog(`[${i + 1}/${targetServers.length}] Sending upgrade command to ${server.name}... `);
       try {
-        const response = await fetch(`/api/server/agent/auto-install/${server.id}`, {
+        const response = await fetch(`/api/server/agent/auto-install/${server.id}?protocol=${encodeURIComponent(agentInstallProtocol)}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ force_ssh: forceUpgrade }),
@@ -3464,7 +3471,7 @@ function ServerPage() {
         for (const server of timeoutServers) {
           appendLog(`   [${server.name}] SSH 覆盖安装... `);
           try {
-            const response = await fetch(`/api/server/agent/auto-install/${server.id}`, {
+            const response = await fetch(`/api/server/agent/auto-install/${server.id}?protocol=${encodeURIComponent(agentInstallProtocol)}`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ force_ssh: true }),
@@ -4184,7 +4191,17 @@ function ServerPage() {
       return;
     }
     
-    const type = resolveTerminalProtocol(server);
+    let terminalServer = server;
+    let type = resolveTerminalProtocol(server);
+    if (!type && hasSshEndpoint(server)) {
+      terminalServer = {
+        ...server,
+        ssh_configured: true,
+        supports_ssh: true,
+        preferred_terminal_transport: 'ssh',
+      };
+      type = 'ssh';
+    }
     if (!type) {
       toast.warning('该主机当前没有可用的终端传输');
       return;
@@ -4194,10 +4211,10 @@ function ServerPage() {
     
     const newSession = {
       id: sessionId,
-      server,
+      server: terminalServer,
       type,
       connected: false,
-      name: server.name
+      name: terminalServer.name
     };
     
     // 归还现有所有 xterm 节点到 warehouse 仓库
@@ -5026,7 +5043,8 @@ function ServerPage() {
                         const cpuUsage = clampPercent(toNumber(server.info?.cpu?.Usage, 0));
                         const cpuTemp = toNumber(server.info?.cpu?.Temp, 0);
                         const terminalProtocol = resolveTerminalProtocol(server);
-                        const terminalLabel = terminalProtocol === 'agent' ? 'Agent 终端' : 'SSH 终端';
+                        const effectiveTerminalProtocol = terminalProtocol || (hasSshEndpoint(server) ? 'ssh' : null);
+                        const terminalLabel = effectiveTerminalProtocol === 'agent' ? 'Agent 终端' : 'SSH 终端';
                         const chartLoading = !!server.metricsLoading && records.length === 0;
                         const physicalCores = server.info?.cpu?.PhysicalCores || server.info?.cpu?.Cores;
                         const logicalCores = server.info?.cpu?.LogicalCores;
@@ -5187,11 +5205,11 @@ function ServerPage() {
                                       shape="square" size="sm"
                                       variant="secondary"
                                       className={COMPACT_ACTION_BUTTON_CLASS}
-                                      title={terminalProtocol ? terminalLabel : '终端不可用'}
-                                      aria-label={terminalProtocol ? terminalLabel : '终端不可用'}
+                                      title={effectiveTerminalProtocol ? terminalLabel : '终端不可用'}
+                                      aria-label={effectiveTerminalProtocol ? terminalLabel : '终端不可用'}
                                       icon={<TerminalIcon className="h-3.5 w-3.5" />}
                                       onClick={() => openSSHTerminal(server)}
-                                      disabled={!canOpenTerminal(server)}
+                                      disabled={!canOpenTerminal(server) && !hasSshEndpoint(server)}
                                     />
                                   </div>
                                 </Table.Cell>
@@ -5395,7 +5413,8 @@ function ServerPage() {
                 const rxTotal = getByteParts(server.info?.network?.rx_total);
                 const chartLoading = !!server.metricsLoading && records.length === 0;
                 const terminalProtocol = resolveTerminalProtocol(server);
-                const terminalLabel = terminalProtocol === 'agent' ? 'Agent 终端' : 'SSH 终端';
+                const effectiveTerminalProtocol = terminalProtocol || (hasSshEndpoint(server) ? 'ssh' : null);
+                const terminalLabel = effectiveTerminalProtocol === 'agent' ? 'Agent 终端' : 'SSH 终端';
                 const primaryDisk = server.info?.disk?.[0];
                 const cpuUsage = clampPercent(toNumber(server.info?.cpu?.Usage, 0));
                 const memUsage = clampPercent(toNumber(server.info?.memory?.Usage, 0));
@@ -5539,11 +5558,11 @@ function ServerPage() {
                           <Button
                             shape="square" size="sm"
                             variant="secondary"
-                            title={terminalProtocol ? terminalLabel : '终端不可用'}
-                            aria-label={terminalProtocol ? terminalLabel : '终端不可用'}
+                            title={effectiveTerminalProtocol ? terminalLabel : '终端不可用'}
+                            aria-label={effectiveTerminalProtocol ? terminalLabel : '终端不可用'}
                             icon={<TerminalIcon className="w-3.5 h-3.5" />}
                             onClick={() => openSSHTerminal(server)}
-                            disabled={!canOpenTerminal(server)}
+                            disabled={!canOpenTerminal(server) && !hasSshEndpoint(server)}
                             className="h-9 w-9 p-0 sm:h-8 sm:w-8"
                           />
                         </div>
@@ -7384,7 +7403,8 @@ function ServerPage() {
                   onValueChange={applyCredential}
                   container={serverModalPortalRef}
                   placeholder="-- 手动录入 --"
-                  className="px-3 py-2"
+                  className="w-full min-w-0 px-3 py-2"
+                  listClassName="w-[var(--radix-popover-trigger-width)] max-w-[min(28rem,calc(100vw-3rem))]"
                   items={[
                     { value: '', label: '-- 手动录入 --' },
                     ...serverCredentials.map(c => ({
@@ -7624,7 +7644,8 @@ function ServerPage() {
                   value={credForm.auth_type}
                   onValueChange={(value) => setCredForm(prev => ({ ...prev, auth_type: String(value) }))}
                   container={credentialModalPortalRef}
-                  className="px-3 py-2"
+                  className="w-full min-w-0 px-3 py-2"
+                  listClassName="w-[var(--radix-popover-trigger-width)] max-w-[min(28rem,calc(100vw-3rem))]"
                   items={[
                     { value: 'password', label: '明文密码' },
                     { value: 'key', label: '私钥证书 (RSA / OpenSSH)' },

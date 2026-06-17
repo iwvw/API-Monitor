@@ -513,7 +513,7 @@ func migrateColumns(ctx context.Context, db *sql.DB) error {
 }
 
 func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	// 特殊处理 Socket.IO 路由（不需要 /api/server 前缀）
+	// Special-case Socket.IO style routes that do not use the /api/server prefix.
 	if strings.HasPrefix(r.URL.Path, "/socket.io/") {
 		s.engineIO.ServeHTTP(w, r)
 		return
@@ -530,7 +530,7 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		parts = strings.Split(path, "/")
 	}
 
-	// REST API 路由（无需数据库连接）
+	// REST API routes without database access.
 	if len(parts) == 1 && parts[0] == "s" && r.Method == http.MethodGet {
 		s.HandleGetServers(w, r)
 		return
@@ -546,13 +546,7 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Dashboard API: 兼容旧接口
-	if len(parts) == 1 && parts[0] == "accounts" && r.Method == http.MethodGet {
-		s.HandleGetServers(w, r)
-		return
-	}
-
-	// Dashboard API: 前端使用的接口
+	// Dashboard API used by the legacy overview.
 	if len(parts) == 1 && parts[0] == "agents" && r.Method == http.MethodGet {
 		s.HandleGetServers(w, r)
 		return

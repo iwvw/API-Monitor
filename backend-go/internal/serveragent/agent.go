@@ -137,18 +137,39 @@ func (s *Service) ensureQuickInstallAgentHost(ctx context.Context, db *sql.DB, n
 }
 
 func (s *Service) agentInstallURL(r *http.Request, serverID string) string {
-	host := r.Header.Get("X-Forwarded-Host")
+	proto, host := resolveInstallOrigin(r)
+	return fmt.Sprintf("%s://%s/api/server/agent/install-script/%s", proto, host, serverID)
+}
+
+func resolveInstallOrigin(r *http.Request) (string, string) {
+	host := strings.TrimSpace(r.Header.Get("X-Forwarded-Host"))
 	if host == "" {
-		host = r.Host
+		host = strings.TrimSpace(r.Host)
 	}
-	proto := r.Header.Get("X-Forwarded-Proto")
-	if proto == "" {
+
+	proto := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("protocol")))
+	if proto != "http" && proto != "https" {
+		proto = strings.ToLower(strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")))
+	}
+	if proto != "http" && proto != "https" {
 		proto = "https"
 		if strings.HasPrefix(host, "localhost") || strings.HasPrefix(host, "127.0.0.1") {
 			proto = "http"
 		}
 	}
-	return fmt.Sprintf("%s://%s/api/server/agent/install-script/%s", proto, host, serverID)
+
+	return proto, host
+}
+
+func appendInstallProtocol(rawURL, proto string) string {
+	if strings.TrimSpace(rawURL) == "" || (proto != "http" && proto != "https") {
+		return rawURL
+	}
+	separator := "?"
+	if strings.Contains(rawURL, "?") {
+		separator = "&"
+	}
+	return rawURL + separator + "protocol=" + proto
 }
 
 // getAgentInstallScript 生成 Agent 安装脚本
@@ -166,12 +187,11 @@ func (s *Service) getAgentInstallScriptWithKey(w http.ResponseWriter, r *http.Re
 }
 
 func (s *Service) getAgentInstallScript(w http.ResponseWriter, r *http.Request, db *sql.DB, accountID string) {
-	// 查询账号信息
 	var name, host string
 	var port int
 	err := db.QueryRowContext(r.Context(), "SELECT name, host, port FROM server_accounts WHERE id = ?", accountID).Scan(&name, &host, &port)
 	if err == sql.ErrNoRows {
-		response.Error(w, http.StatusNotFound, "账号不存在")
+		response.Error(w, http.StatusNotFound, "Account not found")
 		return
 	}
 	if err != nil {
@@ -179,30 +199,18 @@ func (s *Service) getAgentInstallScript(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 
-	// 获取或生成 Agent key
 	agentKey, err := s.getOrGenerateAgentKey(r.Context(), db)
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, "Failed to get agent key: "+err.Error())
 		return
 	}
 
-	// 获取服务器地址
-	serverURL := r.Header.Get("X-Forwarded-Host")
-	if serverURL == "" {
-		serverURL = r.Host
-	}
+	proto, serverURL := resolveInstallOrigin(r)
 
-	// 判断协议
-	proto := "https"
-	if r.Header.Get("X-Forwarded-Proto") == "http" || strings.HasPrefix(serverURL, "localhost") || strings.HasPrefix(serverURL, "127.0.0.1") {
-		proto = "http"
-	}
-
-	// 生成安装脚本
 	script := fmt.Sprintf(`#!/bin/bash
-# API Monitor Agent 安装脚本
-# 主机: %s (%s:%d)
-# 生成时间: %s
+# API Monitor Agent install script
+# Host: %s (%s:%d)
+# Generated at: %s
 
 set -e
 
@@ -212,15 +220,13 @@ SERVER_URL="%s://%s"
 SERVER_ID="%s"
 AGENT_KEY="%s"
 
-echo "正在安装 API Monitor Agent..."
-echo "目标主机: %s"
-echo "服务器: $SERVER_URL"
+echo "Installing API Monitor Agent..."
+echo "Target host: %s"
+echo "Server: $SERVER_URL"
 
-# 创建安装目录
 sudo mkdir -p $INSTALL_DIR
 cd $INSTALL_DIR
 
-# 检测系统架构
 ARCH=$(uname -m)
 case $ARCH in
     x86_64)
@@ -230,30 +236,27 @@ case $ARCH in
         AGENT_ARCH="arm64"
         ;;
     *)
-        echo "错误: 不支持的架构 $ARCH"
+        echo "Error: unsupported architecture $ARCH"
         exit 1
         ;;
 esac
 
-# 下载 Agent 程序
 AGENT_URL="$SERVER_URL/agent/agent-linux-$AGENT_ARCH"
-echo "正在下载 Agent..."
+echo "Downloading Agent..."
 sudo curl -fsSL -o api-monitor-agent "$AGENT_URL" || {
-    echo "错误: 无法下载 Agent 程序"
+    echo "Error: failed to download Agent binary"
     echo "URL: $AGENT_URL"
     exit 1
 }
 
 sudo chmod +x api-monitor-agent
 
-# 测试 Agent 程序
 ./api-monitor-agent --version || {
-    echo "错误: Agent 程序无法运行"
+    echo "Error: Agent binary failed to run"
     exit 1
 }
 
-# 创建 systemd 服务
-echo "正在创建 systemd 服务..."
+echo "Creating systemd service..."
 sudo tee /etc/systemd/system/api-monitor-agent.service > /dev/null <<EOF
 [Unit]
 Description=API Monitor Agent
@@ -271,26 +274,25 @@ RestartSec=10
 WantedBy=multi-user.target
 EOF
 
-# 重载 systemd 并启动服务
 sudo systemctl daemon-reload
 sudo systemctl enable api-monitor-agent
 sudo systemctl start api-monitor-agent
 
 echo ""
 echo "======================================"
-echo "✓ Agent 安装完成！"
+echo "Agent installation completed."
 echo "======================================"
 echo ""
-echo "服务状态: $(systemctl is-active api-monitor-agent)"
-echo "安装目录: $INSTALL_DIR"
-echo "服务器ID: $SERVER_ID"
+echo "Service status: $(systemctl is-active api-monitor-agent)"
+echo "Install dir: $INSTALL_DIR"
+echo "Server ID: $SERVER_ID"
 echo ""
-echo "常用命令:"
-echo "  查看状态: sudo systemctl status api-monitor-agent"
-echo "  启动服务: sudo systemctl start api-monitor-agent"
-echo "  停止服务: sudo systemctl stop api-monitor-agent"
-echo "  重启服务: sudo systemctl restart api-monitor-agent"
-echo "  查看日志: sudo journalctl -u api-monitor-agent -f"
+echo "Useful commands:"
+echo "  Status:  sudo systemctl status api-monitor-agent"
+echo "  Start:   sudo systemctl start api-monitor-agent"
+echo "  Stop:    sudo systemctl stop api-monitor-agent"
+echo "  Restart: sudo systemctl restart api-monitor-agent"
+echo "  Logs:    sudo journalctl -u api-monitor-agent -f"
 echo ""
 `,
 		name, host, port,

@@ -281,6 +281,9 @@ func TestAgentQuickInstallCreatesHostFromName(t *testing.T) {
 	if data["isNew"] != true {
 		t.Fatalf("expected newly created host, data=%#v", data)
 	}
+	if !strings.HasPrefix(data["installCommand"].(string), "curl -fsSL https://") {
+		t.Fatalf("install command should default to https: %#v", data["installCommand"])
+	}
 	if !strings.Contains(data["installCommand"].(string), serverID) {
 		t.Fatalf("install command should include server id: %#v", data["installCommand"])
 	}
@@ -314,6 +317,44 @@ func TestAgentQuickInstallCreatesHostFromName(t *testing.T) {
 	}
 	if name != "edge-agent" || host != "0.0.0.0" || port != 22 || username != "agent" || monitorMode != "agent" {
 		t.Fatalf("created host = name:%q host:%q port:%d username:%q monitor_mode:%q", name, host, port, username, monitorMode)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/server/agent/command/"+serverID+"?protocol=http", nil)
+	req.Host = "189.1.217.109:3010"
+	resCmd := httptest.NewRecorder()
+	service.ServeHTTP(resCmd, req)
+	if resCmd.Code != http.StatusOK {
+		t.Fatalf("install command status=%d body=%s", resCmd.Code, resCmd.Body.String())
+	}
+	cmdPayload := decodePayload(t, resCmd)
+	cmdData := cmdPayload["data"].(map[string]interface{})
+	if !strings.Contains(cmdData["installCommand"].(string), "http://189.1.217.109:3010/api/server/agent/install/linux/"+serverID+"/") {
+		t.Fatalf("http install command mismatch: %#v", cmdData["installCommand"])
+	}
+	if !strings.Contains(cmdData["installCommand"].(string), "protocol=http") {
+		t.Fatalf("http install command should preserve protocol query: %#v", cmdData["installCommand"])
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/server/agent/install/linux/"+serverID+"/"+agentKey+"?protocol=http", nil)
+	req.Host = "189.1.217.109:3010"
+	resLinux := httptest.NewRecorder()
+	service.ServeHTTP(resLinux, req)
+	if resLinux.Code != http.StatusOK {
+		t.Fatalf("http keyed linux install status=%d body=%s", resLinux.Code, resLinux.Body.String())
+	}
+	if !strings.Contains(resLinux.Body.String(), `SERVER_URL="http://189.1.217.109:3010"`) {
+		t.Fatalf("linux install script should use http server url: %s", resLinux.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/api/server/agent/install/win/"+serverID+"/"+agentKey+"?protocol=http", nil)
+	req.Host = "189.1.217.109:3010"
+	resWin := httptest.NewRecorder()
+	service.ServeHTTP(resWin, req)
+	if resWin.Code != http.StatusOK {
+		t.Fatalf("http keyed windows install status=%d body=%s", resWin.Code, resWin.Body.String())
+	}
+	if !strings.Contains(resWin.Body.String(), `$SERVER_URL = "http://189.1.217.109:3010"`) {
+		t.Fatalf("windows install script should use http server url: %s", resWin.Body.String())
 	}
 
 	res = perform(service, http.MethodPost, "/api/server/agent/quick-install", `{"name":"edge-agent"}`)
