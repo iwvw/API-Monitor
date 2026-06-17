@@ -247,6 +247,9 @@ func (s *EngineIOServer) handleWebSocketMessages(session *EngineIOSession, conn 
 							session.Authenticated = true
 							session.mu.Unlock()
 
+							if s.metricsHub != nil {
+								s.metricsHub.Register(session.ID, session)
+							}
 							if err := s.safeWrite(session, websocket.TextMessage, []byte(connectAckPacket("/metrics", session.ID))); err != nil {
 								close(done)
 								break

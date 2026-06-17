@@ -78,6 +78,21 @@ func TestEngineIOPollingHandshakeAndWebSocketUpgrade(t *testing.T) {
 	}
 }
 
+func waitForRootClient(t *testing.T, hub *MetricsHub, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		hub.mu.RLock()
+		count := len(hub.rootClients)
+		hub.mu.RUnlock()
+		if count > 0 {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("root client was not registered")
+}
+
 func TestEngineIOParsePollingPayloadDoesNotSplitJSONNumbers(t *testing.T) {
 	engine := NewEngineIOServer(NewConnectionRegistry())
 	payload := `42["agent:state",{"server_id":"srv-123","cpu":12.5}]`
@@ -204,11 +219,15 @@ func TestEngineIORootNamespaceBroadcastsUptimeHeartbeat(t *testing.T) {
 	if !strings.HasPrefix(string(msg), `40{"sid":`) {
 		t.Fatalf("ack = %q", msg)
 	}
+	waitForRootClient(t, hub, time.Second)
 
 	hub.BroadcastRootEvent("uptime:heartbeat", map[string]interface{}{
 		"monitorId": float64(7),
 		"beat":      map[string]interface{}{"status": float64(1)},
 	})
+	if err := conn.SetReadDeadline(time.Now().Add(time.Second)); err != nil {
+		t.Fatalf("set read deadline: %v", err)
+	}
 	for {
 		_, msg, err = conn.ReadMessage()
 		if err != nil {
