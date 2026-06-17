@@ -136,7 +136,7 @@ const HOST_COMPACT_COLUMN_IDS = HOST_COMPACT_COLUMNS.map(column => column.id);
 const HOST_COMPACT_COLUMN_WIDTHS = {
   status: 74,
   name: 112,
-  country: 112,
+  country: 80,
   uptime: 80,
   load: 80,
   speed: 236,
