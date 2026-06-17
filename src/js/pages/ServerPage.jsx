@@ -408,19 +408,19 @@ function ExpandedProgressMetric({
   const percent = clampPercent(toNumber(value, 0));
   const displayValue = detail || `${Math.round(percent)}%`;
   return (
-    <div className="flex min-h-[72px] min-w-0 flex-col justify-between rounded-md border border-kumo-line/70 bg-kumo-recessed/25 px-2.5 py-2">
+    <div className="flex min-w-0 flex-col gap-1.5 rounded-md border border-kumo-line/70 bg-kumo-recessed/25 px-2.5 py-2">
       <div className="flex min-w-0 items-start justify-between gap-2">
         <span className="text-[11px] font-medium text-kumo-subtle">{label}</span>
         <span className={`min-w-0 truncate text-right text-sm font-bold tabular-nums ${valueClassName}`} title={String(displayValue)}>{displayValue}</span>
       </div>
-      <div className="mt-2 h-1.5 overflow-hidden rounded-full border border-kumo-line/70 bg-kumo-base">
+      <div className="h-1.5 overflow-hidden rounded-full border border-kumo-line/70 bg-kumo-base">
         <div
           className={`h-full rounded-full transition-[width] duration-300 ${indicatorClassName}`}
           style={{ width: `${percent}%` }}
         ></div>
       </div>
       {caption && (
-        <div className="mt-1.5 min-w-0 truncate text-[10px] font-medium text-kumo-subtle" title={String(caption)}>
+        <div className="min-w-0 break-words text-[10px] font-medium leading-4 text-kumo-subtle" title={String(caption)}>
           {caption}
         </div>
       )}
@@ -457,7 +457,7 @@ function ExpandedStatTile({ label, value, caption, tone = 'default', className =
 
 function ExpandedTrendChartCard({ title, tone = 'brand', legend, compact = false, className = '', children }) {
   const accentClassName = EXPANDED_SECTION_ACCENTS[tone] || EXPANDED_SECTION_ACCENTS.brand;
-  const headerHeightClassName = compact ? 'h-8' : 'h-9';
+  const headerHeightClassName = compact ? 'min-h-8' : 'min-h-9';
   const legendGapClassName = compact ? 'gap-x-2 gap-y-0.5' : 'gap-x-2.5 gap-y-0.5';
 
   return (
@@ -471,7 +471,7 @@ function ExpandedTrendChartCard({ title, tone = 'brand', legend, compact = false
             </h4>
             {legend && (
               <div className="flex min-w-0 justify-end overflow-hidden">
-                <div className={`flex max-h-8 min-w-0 flex-wrap items-center justify-end overflow-hidden text-[11px] leading-none ${legendGapClassName}`}>
+                <div className={`flex min-w-0 flex-wrap items-center justify-end text-[11px] leading-none ${legendGapClassName}`}>
                   {legend}
                 </div>
               </div>
@@ -5230,7 +5230,7 @@ function ServerPage() {
                                         </div>
                                       ) : (
                                         <>
-                                          <div className="grid auto-rows-[28px] grid-cols-2 gap-1.5 md:grid-cols-[repeat(auto-fit,minmax(154px,1fr))]">
+                                          <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2 xl:grid-cols-[repeat(auto-fit,minmax(154px,1fr))]">
                                             <DenseDetailChip label="核心" value={coreText} />
                                             <DenseDetailChip label="CPU 温度" value={cpuTemp > 0 ? `${Math.round(cpuTemp)}°C` : '-'} valueClassName={getTempColorClass(cpuTemp)} />
                                             <DenseDetailChip label="内存" value={`${server.info?.memory?.Used || '-'} / ${server.info?.memory?.Total || '-'}`} />
@@ -5240,7 +5240,7 @@ function ServerPage() {
                                             <DenseDetailChip label="模式" value={getServerMonitorModeLabel(server)} />
                                           </div>
 
-                                          <div className="grid min-w-0 grid-cols-1 gap-2 xl:grid-cols-2 2xl:grid-cols-3">
+                                          <div className="grid min-w-0 grid-cols-[repeat(auto-fit,minmax(280px,1fr))] gap-2">
                                             <ExpandedTrendChartCard
                                               title="CPU / 内存趋势"
                                               tone="success"
@@ -5317,7 +5317,6 @@ function ServerPage() {
                                                 title="网络趋势"
                                                 tone="info"
                                                 compact
-                                                className="xl:col-span-2 2xl:col-span-1"
                                                 legend={(
                                                   <>
                                                     <ChartLegend.SmallItem name="Upload" color={txColor} value={getLatestMetricValue(records, r => toNumber(r.net_tx, 0), formatBytesSpeed)} />
@@ -5360,7 +5359,7 @@ function ServerPage() {
                                               isCompactViewport={isCompactViewport}
                                               onCollect={() => loadNetworkQuality(server.id, { collect: true })}
                                               compact
-                                              className="xl:col-span-2 2xl:col-span-3"
+                                              className="min-w-0"
                                             />
                                           </div>
                                         </>
