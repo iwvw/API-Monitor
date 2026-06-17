@@ -243,18 +243,26 @@ esac
 
 AGENT_URL="$SERVER_URL/agent/agent-linux-$AGENT_ARCH"
 echo "Downloading Agent..."
-sudo curl -fsSL -o api-monitor-agent "$AGENT_URL" || {
+TMP_AGENT="$(mktemp /tmp/api-monitor-agent.XXXXXX)"
+trap 'rm -f "$TMP_AGENT"' EXIT
+sudo curl -fsSL -o "$TMP_AGENT" "$AGENT_URL" || {
     echo "Error: failed to download Agent binary"
     echo "URL: $AGENT_URL"
     exit 1
 }
 
-sudo chmod +x api-monitor-agent
+sudo chmod +x "$TMP_AGENT"
 
-./api-monitor-agent --version || {
+sudo "$TMP_AGENT" --version || {
     echo "Error: Agent binary failed to run"
     exit 1
 }
+
+if systemctl list-unit-files api-monitor-agent.service >/dev/null 2>&1; then
+    sudo systemctl stop api-monitor-agent || true
+fi
+
+sudo install -m 0755 "$TMP_AGENT" "$INSTALL_DIR/api-monitor-agent"
 
 echo "Creating systemd service..."
 sudo tee /etc/systemd/system/api-monitor-agent.service > /dev/null <<EOF
