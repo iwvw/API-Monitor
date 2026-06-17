@@ -276,7 +276,7 @@ EOF
 
 sudo systemctl daemon-reload
 sudo systemctl enable api-monitor-agent
-sudo systemctl start api-monitor-agent
+sudo systemctl restart api-monitor-agent
 
 echo ""
 echo "======================================"

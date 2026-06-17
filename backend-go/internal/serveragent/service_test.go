@@ -302,6 +302,9 @@ func TestAgentQuickInstallCreatesHostFromName(t *testing.T) {
 	if !strings.Contains(res.Body.String(), `SERVER_ID="`+serverID+`"`) {
 		t.Fatalf("keyed linux install script should include server id: %s", res.Body.String())
 	}
+	if !strings.Contains(res.Body.String(), "systemctl restart api-monitor-agent") {
+		t.Fatalf("linux install script should restart an existing service: %s", res.Body.String())
+	}
 
 	res = perform(service, http.MethodGet, "/api/server/agent/install/linux/"+serverID+"/bad-key", "")
 	if res.Code != http.StatusUnauthorized {
