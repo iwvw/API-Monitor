@@ -198,6 +198,28 @@ func TestFrontendCompatibilityRoutes(t *testing.T) {
 	}
 }
 
+func TestServerDetailResolvesCountryFromCachedAgentMetadata(t *testing.T) {
+	service, db := testService(t)
+	_, err := db.ExecContext(context.Background(), `INSERT INTO server_accounts (id, name, host, username, auth_type, cached_info) VALUES ('server-geo', 'geo', '127.0.0.1', 'root', 'password', '{"country_code":"hk","location":"Hong Kong","platform":"Linux"}')`)
+	if err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+
+	res := perform(service, http.MethodGet, "/api/server/s/server-geo", "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("detail status=%d body=%s", res.Code, res.Body.String())
+	}
+	payload := decodePayload(t, res)
+	data := payload["data"].(map[string]interface{})
+	if data["resolved_country"] != "hk" || data["location"] != "Hong Kong" {
+		t.Fatalf("expected country fallback from cached agent metadata, data=%#v", data)
+	}
+	info := data["info"].(map[string]interface{})
+	if info["resolved_country"] != "hk" || info["location"] != "Hong Kong" {
+		t.Fatalf("expected info country fallback, info=%#v", info)
+	}
+}
+
 func TestNetworkQualityCollectAndReadback(t *testing.T) {
 	service, db := testService(t)
 	_, err := db.ExecContext(

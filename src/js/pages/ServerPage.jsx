@@ -797,7 +797,7 @@ const getFlagCountry = (server) => {
   if (server.country && server.country !== 'auto') {
     return server.country;
   }
-  return server.resolved_country || server.info?.resolved_country || '';
+  return server.resolved_country || server.country_code || server.info?.resolved_country || server.info?.country_code || '';
 };
 
 const getKumoToken = (tokenName, fallback) => {
@@ -1250,8 +1250,18 @@ const mergeServerMetricHistory = (serverId, ...recordGroups) => {
   const id = String(serverId || '');
   if (!id) return [];
 
-  const normalized = recordGroups
-    .flatMap(group => (Array.isArray(group) ? group : []))
+  let minTimestamp = 0;
+  const groups = recordGroups.flatMap(group => {
+    if (Array.isArray(group)) return [group];
+    if (group && typeof group === 'object' && Array.isArray(group.records)) {
+      minTimestamp = Math.max(minTimestamp, toTimestamp(group.minTimestamp, 0));
+      return [group.records];
+    }
+    return [];
+  });
+
+  const combined = groups
+    .flatMap(group => group)
     .map(record => {
       if (!record) return null;
       const ts = toTimestamp(record._ts || record.recorded_at || record.timestamp || record.time, NaN);
@@ -1263,10 +1273,11 @@ const mergeServerMetricHistory = (serverId, ...recordGroups) => {
       };
     })
     .filter(Boolean)
+    .filter(record => !minTimestamp || record._ts >= minTimestamp)
     .sort((a, b) => a._ts - b._ts);
 
   const coalesced = [];
-  normalized.forEach(record => {
+  combined.forEach(record => {
     const last = coalesced[coalesced.length - 1];
     if (last && Math.abs(record._ts - last._ts) < SERVER_CHART_COALESCE_WINDOW_MS) {
       coalesced[coalesced.length - 1] = {
@@ -2571,11 +2582,12 @@ function ServerPage() {
 
     const request = (async () => {
       const now = Date.now();
+      const historyStart = now - SERVER_CHART_HISTORY_WINDOW_MS;
       const params = new URLSearchParams({
         serverId,
         page: 1,
         pageSize: SERVER_CHART_HISTORY_LIMIT,
-        startTime: formatSqliteUTCDateTime(now - SERVER_CHART_HISTORY_WINDOW_MS),
+        startTime: formatSqliteUTCDateTime(historyStart),
         endTime: formatSqliteUTCDateTime(now),
         highPrecision: 'true'
       });
@@ -2587,7 +2599,7 @@ function ServerPage() {
       const sorted = [...(data.data || [])].sort((a, b) => new Date(a.recorded_at) - new Date(b.recorded_at));
       const merged = mergeServerMetricHistory(
         serverId,
-        sorted,
+        { records: sorted, minTimestamp: historyStart },
         getCachedServerMetricHistory(serverId) || []
       );
       cardMetricsLoadedAtRef.current.set(requestKey, Date.now());

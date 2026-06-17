@@ -207,6 +207,56 @@ func TestGeminiCliLifecycle(t *testing.T) {
 		t.Fatalf("expected 1 account, got %#v", accounts)
 	}
 
+	wExportAcc := httptest.NewRecorder()
+	rExportAcc, _ := http.NewRequest("GET", "/api/gemini-cli/accounts/export", nil)
+	s.ServeHTTP(wExportAcc, rExportAcc)
+	if wExportAcc.Code != http.StatusOK {
+		t.Fatalf("export accounts status = %d, body = %s", wExportAcc.Code, wExportAcc.Body.String())
+	}
+	var exportPayload struct {
+		Type     string                   `json:"type"`
+		Accounts []map[string]interface{} `json:"accounts"`
+	}
+	if err := json.NewDecoder(wExportAcc.Body).Decode(&exportPayload); err != nil {
+		t.Fatalf("decode export accounts: %v", err)
+	}
+	if exportPayload.Type != "gemini-cli-accounts" || len(exportPayload.Accounts) != 1 || exportPayload.Accounts[0]["refresh_token"] != "test-refresh-token" {
+		t.Fatalf("unexpected export payload: %#v", exportPayload)
+	}
+
+	wImportAcc := httptest.NewRecorder()
+	rImportAcc, _ := http.NewRequest("POST", "/api/gemini-cli/accounts/import", strings.NewReader(`{
+		"accounts": [
+			{
+				"id": "my-account-id",
+				"name": "Duplicate",
+				"client_id": "duplicate-client",
+				"refresh_token": "duplicate-refresh"
+			},
+			{
+				"id": "imported-account-id",
+				"name": "Imported Account",
+				"email": "imported@example.com",
+				"client_id": "import-client-id",
+				"client_secret": "import-client-secret",
+				"refresh_token": "import-refresh-token",
+				"project_id": "import-project"
+			}
+		]
+	}`))
+	s.ServeHTTP(wImportAcc, rImportAcc)
+	if wImportAcc.Code != http.StatusOK {
+		t.Fatalf("import accounts status = %d, body = %s", wImportAcc.Code, wImportAcc.Body.String())
+	}
+	var importPayload map[string]interface{}
+	if err := json.NewDecoder(wImportAcc.Body).Decode(&importPayload); err != nil {
+		t.Fatalf("decode import accounts: %v", err)
+	}
+	if importPayload["imported"] != float64(2) || importPayload["skipped"] != float64(0) {
+		t.Fatalf("unexpected import accounts payload: %#v", importPayload)
+	}
+	_, _ = db.Exec("UPDATE gemini_cli_accounts SET enable = 0 WHERE id <> 'my-account-id'")
+
 	// 5. Redirect CRUD
 	wRedirectPost := httptest.NewRecorder()
 	rRedirectPost, _ := http.NewRequest("POST", "/api/gemini-cli/models/redirects", strings.NewReader(`{

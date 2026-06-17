@@ -445,15 +445,26 @@ function GeminiCliPage() {
   };
 
   // OAuth Actions
+  const getOAuthCredentialFallback = (field) => {
+    const accountKey = field.toLowerCase();
+    return (
+      gcliSettings[field] ||
+      accountForm[accountKey] ||
+      accounts.find(account => account[accountKey])?.[accountKey] ||
+      ''
+    );
+  };
+
   const openOAuthUrl = () => {
-    const clientId = gcliSettings.CLIENT_ID || 'YOUR_CLIENT_ID';
-    const redirectUri = encodeURIComponent(gcliSettings.REDIRECT_URI || 'http://localhost:3000/oauth-callback');
+    const clientId = (getOAuthCredentialFallback('CLIENT_ID') || 'YOUR_CLIENT_ID').trim();
+    const redirectUriValue = (gcliSettings.REDIRECT_URI || 'http://localhost:3000/oauth-callback').trim();
+    const redirectUri = encodeURIComponent(redirectUriValue);
     const scope = encodeURIComponent(
       'https://www.googleapis.com/auth/cloud-platform https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/userinfo.profile'
     );
     const state = `111_${Math.random().toString(36).slice(2)}`;
 
-    const url = `https://accounts.google.com/o/oauth2/auth?client_id=${clientId}&redirect_uri=${redirectUri}&scope=${scope}&response_type=code&access_type=offline&prompt=consent&include_granted_scopes=true&state=${state}`;
+    const url = `https://accounts.google.com/o/oauth2/auth?client_id=${encodeURIComponent(clientId)}&redirect_uri=${redirectUri}&scope=${scope}&response_type=code&access_type=offline&prompt=consent&include_granted_scopes=true&state=${state}`;
     window.open(url, '_blank');
   };
 
@@ -483,9 +494,9 @@ function GeminiCliPage() {
         headers: getAuthHeaders(),
         body: JSON.stringify({
           code,
-          redirect_uri: gcliSettings.REDIRECT_URI,
-          client_id: gcliSettings.CLIENT_ID,
-          client_secret: gcliSettings.CLIENT_SECRET,
+          redirect_uri: gcliSettings.REDIRECT_URI || 'http://localhost:3000/oauth-callback',
+          client_id: getOAuthCredentialFallback('CLIENT_ID'),
+          client_secret: getOAuthCredentialFallback('CLIENT_SECRET'),
           project_id: customProjectId || undefined,
         }),
       });
@@ -496,8 +507,8 @@ function GeminiCliPage() {
         const newForm = {
           name: `Gemini Project ${result.project_id || 'Auto'}`,
           email: result.email || '',
-          client_id: gcliSettings.CLIENT_ID,
-          client_secret: gcliSettings.CLIENT_SECRET,
+          client_id: getOAuthCredentialFallback('CLIENT_ID'),
+          client_secret: getOAuthCredentialFallback('CLIENT_SECRET'),
           refresh_token: result.refresh_token,
           project_id: result.project_id,
         };

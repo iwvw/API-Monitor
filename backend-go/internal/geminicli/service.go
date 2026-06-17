@@ -347,6 +347,10 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, wRequest *http.Request) {
 		s.listAccountsRoute(w, wRequest)
 	case len(parts) == 1 && parts[0] == "accounts" && method == http.MethodPost:
 		s.createAccountRoute(w, wRequest)
+	case len(parts) == 2 && parts[0] == "accounts" && parts[1] == "export" && method == http.MethodGet:
+		s.exportAccountsRoute(w, wRequest)
+	case len(parts) == 2 && parts[0] == "accounts" && parts[1] == "import" && method == http.MethodPost:
+		s.importAccountsRoute(w, wRequest)
 	case len(parts) == 2 && parts[0] == "accounts" && parts[1] == "refresh" && method == http.MethodPost:
 		s.refreshAccountsRoute(w, wRequest)
 	case len(parts) == 2 && parts[0] == "accounts" && parts[1] == "fetch-email" && method == http.MethodPost:
@@ -692,6 +696,118 @@ func (s *Service) createAccountRoute(w http.ResponseWriter, r *http.Request) {
 	a.ClientSecret = "" // Sanitize
 	a.RefreshToken = ""
 	response.JSON(w, http.StatusOK, map[string]interface{}{"success": true, "id": a.ID, "account": a})
+}
+
+func (s *Service) exportAccountsRoute(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	db, err := s.open(ctx)
+	if err != nil {
+		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	defer db.Close()
+
+	accounts, err := s.listAccountsInternal(ctx, db)
+	if err != nil {
+		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	exportAccounts := make([]map[string]interface{}, 0, len(accounts))
+	for _, account := range accounts {
+		exportAccounts = append(exportAccounts, map[string]interface{}{
+			"name":          account.Name,
+			"email":         account.Email,
+			"client_id":     account.ClientID,
+			"client_secret": account.ClientSecret,
+			"refresh_token": account.RefreshToken,
+			"project_id":    account.ProjectID,
+		})
+	}
+
+	response.JSON(w, http.StatusOK, map[string]interface{}{
+		"version":    "1.0",
+		"type":       "gemini-cli-accounts",
+		"exportTime": time.Now().UTC().Format(time.RFC3339),
+		"accounts":   exportAccounts,
+	})
+}
+
+func (s *Service) importAccountsRoute(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	var payload struct {
+		Accounts []Account `json:"accounts"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+		response.JSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+	if len(payload.Accounts) == 0 {
+		response.JSON(w, http.StatusBadRequest, map[string]string{"error": "accounts are required"})
+		return
+	}
+
+	db, err := s.open(ctx)
+	if err != nil {
+		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	defer db.Close()
+
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	defer tx.Rollback()
+
+	imported := 0
+	skipped := 0
+	errorsList := []map[string]string{}
+	for _, account := range payload.Accounts {
+		account.Name = strings.TrimSpace(account.Name)
+		account.ClientID = strings.TrimSpace(account.ClientID)
+		account.RefreshToken = strings.TrimSpace(account.RefreshToken)
+		if account.RefreshToken == "" {
+			skipped++
+			continue
+		}
+
+		account.ID = fmt.Sprintf("acc_%s", s.randString(5))
+		if account.Name == "" {
+			account.Name = fmt.Sprintf("Imported %d", imported+1)
+		}
+
+		encryptedClientSec, _ := secure.SecureEncrypt(account.ClientSecret)
+		encryptedRefresh, _ := secure.SecureEncrypt(account.RefreshToken)
+		createdAt := time.Now().UTC().Format("2006-01-02 15:04:05")
+
+		_, err = tx.ExecContext(ctx, `
+			INSERT INTO gemini_cli_accounts (id, name, email, client_id, client_secret, refresh_token, enable, status, created_at, project_id, cloudaicompanion_project_id)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			account.ID, account.Name, account.Email, account.ClientID, encryptedClientSec, encryptedRefresh, 1, "unknown", createdAt, account.ProjectID, account.CloudAICompanionProjectID)
+		if err != nil {
+			errorsList = append(errorsList, map[string]string{"name": account.Name, "error": err.Error()})
+			skipped++
+			continue
+		}
+		imported++
+	}
+
+	if err := tx.Commit(); err != nil {
+		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	payloadOut := map[string]interface{}{
+		"success":  true,
+		"imported": imported,
+		"skipped":  skipped,
+	}
+	if len(errorsList) > 0 {
+		payloadOut["errors"] = errorsList
+	}
+	response.JSON(w, http.StatusOK, payloadOut)
 }
 
 func (s *Service) updateAccountRoute(w http.ResponseWriter, r *http.Request, id string) {

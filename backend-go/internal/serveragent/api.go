@@ -16,24 +16,26 @@ import (
 
 // ServerListItem 服务器列表项
 type ServerListItem struct {
-	ID           string                 `json:"id"`
-	Name         string                 `json:"name"`
-	Host         string                 `json:"host"`
-	Status       string                 `json:"status"`
-	Type         string                 `json:"type"`
-	Location     string                 `json:"location,omitempty"`
-	Tags         []string               `json:"tags,omitempty"`
-	IsOnline     bool                   `json:"is_online"`
-	LastSeen     time.Time              `json:"last_seen,omitempty"`
-	CPU          float64                `json:"cpu,omitempty"`
-	Memory       float64                `json:"memory,omitempty"`
-	Disk         float64                `json:"disk,omitempty"`
-	NetworkRx    float64                `json:"network_rx,omitempty"`
-	NetworkTx    float64                `json:"network_tx,omitempty"`
-	Platform     string                 `json:"platform,omitempty"`
-	AgentVersion string                 `json:"agent_version,omitempty"`
-	CreatedAt    time.Time              `json:"created_at"`
-	Info         map[string]interface{} `json:"info,omitempty"`
+	ID              string                 `json:"id"`
+	Name            string                 `json:"name"`
+	Host            string                 `json:"host"`
+	Status          string                 `json:"status"`
+	Type            string                 `json:"type"`
+	Country         string                 `json:"country,omitempty"`
+	ResolvedCountry string                 `json:"resolved_country,omitempty"`
+	Location        string                 `json:"location,omitempty"`
+	Tags            []string               `json:"tags,omitempty"`
+	IsOnline        bool                   `json:"is_online"`
+	LastSeen        time.Time              `json:"last_seen,omitempty"`
+	CPU             float64                `json:"cpu,omitempty"`
+	Memory          float64                `json:"memory,omitempty"`
+	Disk            float64                `json:"disk,omitempty"`
+	NetworkRx       float64                `json:"network_rx,omitempty"`
+	NetworkTx       float64                `json:"network_tx,omitempty"`
+	Platform        string                 `json:"platform,omitempty"`
+	AgentVersion    string                 `json:"agent_version,omitempty"`
+	CreatedAt       time.Time              `json:"created_at"`
+	Info            map[string]interface{} `json:"info,omitempty"`
 }
 
 // ServerDetail 服务器详情
@@ -124,11 +126,20 @@ func (s *Service) HandleGetServers(w http.ResponseWriter, r *http.Request) {
 
 		// 默认类型为 agent
 		item.Type = "agent"
+		if country.Valid {
+			item.Country = country.String
+		}
 
 		// 解析已缓存的信息作为默认值
 		var cachedMap map[string]interface{}
 		if err := json.Unmarshal([]byte(cachedInfo), &cachedMap); err == nil && len(cachedMap) > 0 {
 			item.Info = s.buildInfoStruct(cachedMap)
+			item.ResolvedCountry = firstNonEmpty(
+				getString(cachedMap, "resolved_country"),
+				getString(cachedMap, "country_code"),
+				getString(cachedMap, "country"),
+			)
+			item.Location = firstNonEmpty(getString(cachedMap, "location"), item.ResolvedCountry)
 		}
 
 		// 检查 Agent 是否在线并更新最新实时指标
@@ -162,6 +173,13 @@ func (s *Service) HandleGetServers(w http.ResponseWriter, r *http.Request) {
 
 			// 实时的最新指标格式化
 			item.Info = s.buildInfoStruct(metadata)
+			item.ResolvedCountry = firstNonEmpty(
+				getString(metadata, "resolved_country"),
+				getString(metadata, "country_code"),
+				getString(metadata, "country"),
+				item.ResolvedCountry,
+			)
+			item.Location = firstNonEmpty(getString(metadata, "location"), item.ResolvedCountry, item.Location)
 		}
 
 		servers = append(servers, item)
@@ -240,6 +258,12 @@ func (s *Service) HandleGetServerDetail(w http.ResponseWriter, r *http.Request) 
 	var cachedMap map[string]interface{}
 	if err := json.Unmarshal([]byte(cachedInfo), &cachedMap); err == nil && len(cachedMap) > 0 {
 		detail.Info = s.buildInfoStruct(cachedMap)
+		detail.ResolvedCountry = firstNonEmpty(
+			getString(cachedMap, "resolved_country"),
+			getString(cachedMap, "country_code"),
+			getString(cachedMap, "country"),
+		)
+		detail.Location = firstNonEmpty(getString(cachedMap, "location"), detail.ResolvedCountry)
 	}
 
 	// 检查 Agent 连接状态
@@ -278,6 +302,13 @@ func (s *Service) HandleGetServerDetail(w http.ResponseWriter, r *http.Request) 
 
 		// 实时的最新指标格式化
 		detail.Info = s.buildInfoStruct(metadata)
+		detail.ResolvedCountry = firstNonEmpty(
+			getString(metadata, "resolved_country"),
+			getString(metadata, "country_code"),
+			getString(metadata, "country"),
+			detail.ResolvedCountry,
+		)
+		detail.Location = firstNonEmpty(getString(metadata, "location"), detail.ResolvedCountry, detail.Location)
 	}
 
 	// 查询最新的指标记录
@@ -721,6 +752,12 @@ func (s *Service) buildInfoStruct(cached map[string]interface{}) map[string]inte
 	info["agentVersion"] = getString(cached, "agent_version")
 	info["ip"] = getString(cached, "ip")
 	info["uptime"] = getString(cached, "uptime")
+	info["resolved_country"] = firstNonEmpty(
+		getString(cached, "resolved_country"),
+		getString(cached, "country_code"),
+		getString(cached, "country"),
+	)
+	info["location"] = firstNonEmpty(getString(cached, "location"), getString(cached, "region"))
 
 	var lastUpdate string
 	if lu := getString(cached, "lastUpdate"); lu != "" {
