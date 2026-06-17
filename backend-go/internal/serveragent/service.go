@@ -518,6 +518,10 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.engineIO.ServeHTTP(w, r)
 		return
 	}
+	if r.URL.Path == "/ws/ssh" {
+		s.handleSSHTerminal(w, r)
+		return
+	}
 
 	path := strings.TrimPrefix(r.URL.Path, "/api/server")
 	path = strings.Trim(path, "/")

@@ -150,6 +150,7 @@ func Routes() []Route {
 		{Prefix: "/api/server/agent/regenerate-key", Module: "server-agent", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Regenerate agent key", MatchMode: MatchExact},
 		{Prefix: "/api/server/agent/command/{id}", Module: "server-agent", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Agent install command", MatchMode: MatchPattern},
 		{Prefix: "/api/server/agent/install/win/{id}/{key}", Module: "server-agent", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Windows Agent install script", MatchMode: MatchPattern},
+		{Prefix: "/api/server/agent/install/linux/{id}/{key}", Module: "server-agent", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Linux Agent install script", MatchMode: MatchPattern},
 		{Prefix: "/api/server/agent/install/linux/{id}", Module: "server-agent", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Linux Agent install script", MatchMode: MatchPattern},
 		{Prefix: "/api/server/agent/install-script/{id}", Module: "server-agent", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Agent install script", MatchMode: MatchPattern},
 		{Prefix: "/api/server/agent/heartbeat", Module: "server-agent", Owner: OwnerGo, Auth: AuthAPIKey, ResponseMode: ResponseJSON, Description: "Agent heartbeat", MatchMode: MatchExact},
@@ -203,7 +204,8 @@ func Routes() []Route {
 		{Prefix: "/api/server/tasks/{id}/stream", Module: "server-tasks", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseStream, Description: "Task SSE stream", MatchMode: MatchPattern},
 		{Prefix: "/api/server/tasks", Module: "server-tasks", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Task management", MatchMode: MatchExact},
 
-		// Socket.IO / Engine.IO routes
+		// Terminal and Socket.IO / Engine.IO routes
+		{Prefix: "/ws/ssh", Module: "server-terminal", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseWebSocket, Description: "SSH terminal WebSocket", MatchMode: MatchExact},
 		{Prefix: "/socket.io/", Module: "server-websocket", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseWebSocket, Description: "Agent WebSocket", MatchMode: MatchPrefix},
 		{Prefix: "/api/server/credentials/{id}", Module: "server-credentials", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Server credential delete", MatchMode: MatchPattern},
 		{Prefix: "/api/server/credentials", Module: "server-credentials", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Server credential list/create", MatchMode: MatchExact},
@@ -215,7 +217,6 @@ func Routes() []Route {
 		{Prefix: "/api/server/monitor/logs", Module: "server-monitor", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Server monitor logs", MatchMode: MatchExact},
 		{Prefix: "/ws/logs", Module: "logs-ws", Owner: OwnerRetired, Auth: AuthSession, ResponseMode: ResponseWebSocket, Description: "Log WebSocket (retired)"},
 		{Prefix: "/ws/metrics", Module: "metrics-ws", Owner: OwnerRetired, Auth: AuthSession, ResponseMode: ResponseWebSocket, Description: "Metrics WebSocket (retired)"},
-		{Prefix: "/ws/ssh", Module: "terminal-ws", Owner: OwnerRetired, Auth: AuthSession, ResponseMode: ResponseWebSocket, Description: "Terminal WebSocket (retired)"},
 		{Prefix: "/socket.io", Module: "agent-socketio", Owner: OwnerRetired, Auth: AuthAgent, ResponseMode: ResponseWebSocket, Description: "Socket.IO compatibility (retired)"},
 	}
 }

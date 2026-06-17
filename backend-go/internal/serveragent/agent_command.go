@@ -45,7 +45,7 @@ func (s *Service) getAgentInstallCommand(w http.ResponseWriter, r *http.Request,
 	}
 
 	baseURL := fmt.Sprintf("%s://%s", proto, serverURL)
-	installScriptURL := fmt.Sprintf("%s/api/server/agent/install-script/%s", baseURL, accountID)
+	installScriptURL := fmt.Sprintf("%s/api/server/agent/install/linux/%s/%s", baseURL, accountID, agentKey)
 	winInstallURL := fmt.Sprintf("%s/api/server/agent/install/win/%s/%s", baseURL, accountID, agentKey)
 
 	// 生成安装命令

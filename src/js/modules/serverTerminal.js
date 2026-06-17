@@ -38,13 +38,22 @@ export function isAgentOnline(server = {}) {
 }
 
 export function getTerminalTransports(server = {}) {
+  const transports = [];
   if (Array.isArray(server.terminal_transports)) {
-    return server.terminal_transports.filter(transport => TERMINAL_TRANSPORTS.has(transport));
+    server.terminal_transports
+      .filter(transport => TERMINAL_TRANSPORTS.has(transport))
+      .forEach(transport => {
+        if (!transports.includes(transport)) transports.push(transport);
+      });
   }
 
-  const transports = [];
-  if (isAgentOnline(server)) transports.push('agent');
-  if (server.ssh_configured === true || hasSshEndpoint(server)) transports.push('ssh');
+  if (isAgentOnline(server) && !transports.includes('agent')) transports.push('agent');
+  if (
+    (server.ssh_configured === true || server.supports_ssh === true || hasSshEndpoint(server)) &&
+    !transports.includes('ssh')
+  ) {
+    transports.push('ssh');
+  }
   return transports;
 }
 

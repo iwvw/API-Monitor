@@ -216,6 +216,8 @@ func (s *Server) serveGoRoute(w http.ResponseWriter, r *http.Request, route mani
 		s.geminicli.ServeHTTP(w, r)
 	case "/v1":
 		s.serveV1Route(w, r)
+	case "/ws/ssh":
+		s.server.ServeHTTP(w, r)
 	case "/socket.io/":
 		s.server.ServeHTTP(w, r)
 	default:

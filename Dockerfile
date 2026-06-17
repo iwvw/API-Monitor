@@ -131,6 +131,7 @@ RUN mkdir -p /app/data /app/dist/agent && chown -R appuser:appuser /app
 
 # 1. 从 frontend-builder 复制构建好的前端资源
 COPY --from=frontend-builder --chown=appuser:appuser /app/dist ./dist
+COPY --from=frontend-builder --chown=appuser:appuser /app/public ./public
 RUN test -f /app/dist/index.html && test -d /app/dist/assets
 
 # 2. 从 go-builder 复制 Go 后端二进制文件

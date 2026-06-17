@@ -117,6 +117,38 @@ func TestStaticSpaRouteServesDistIndex(t *testing.T) {
 	}
 }
 
+func TestStaticRouteServesPublicAssets(t *testing.T) {
+	distDir := t.TempDir()
+	publicDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(distDir, "index.html"), []byte("<!doctype html><div id=\"root\"></div>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(publicDir, "logo.svg"), []byte("<svg></svg>"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	handler := newTestServer(t, config.Config{
+		Version:   "test",
+		Host:      "127.0.0.1",
+		Port:      0,
+		DistDir:   distDir,
+		PublicDir: publicDir,
+		DataDir:   t.TempDir(),
+		DBName:    "data.db",
+	})
+	req := httptest.NewRequest(http.MethodGet, "/logo.svg", nil)
+	res := httptest.NewRecorder()
+
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", res.Code, http.StatusOK, res.Body.String())
+	}
+	if strings.TrimSpace(res.Body.String()) != "<svg></svg>" {
+		t.Fatalf("expected public logo body, got %q", res.Body.String())
+	}
+}
+
 func TestMigrationStatus(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/migration/status", nil)
 	res := httptest.NewRecorder()

@@ -12,6 +12,16 @@ func TestMatchPrefersMostSpecificPrefix(t *testing.T) {
 	}
 }
 
+func TestMatchAgentLinuxInstallWithKey(t *testing.T) {
+	route, ok := Match("/api/server/agent/install/linux/server-1/secret-key")
+	if !ok {
+		t.Fatal("expected a route match")
+	}
+	if route.Owner != OwnerGo || route.Auth != AuthPublic || route.Prefix != "/api/server/agent/install/linux/{id}/{key}" {
+		t.Fatalf("expected public keyed linux install route, got prefix=%s owner=%s auth=%s", route.Prefix, route.Owner, route.Auth)
+	}
+}
+
 func TestMusicIsRetired(t *testing.T) {
 	route, ok := Match("/api/music/search")
 	if !ok {

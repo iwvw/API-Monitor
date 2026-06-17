@@ -152,6 +152,19 @@ func (s *Service) agentInstallURL(r *http.Request, serverID string) string {
 }
 
 // getAgentInstallScript 生成 Agent 安装脚本
+func (s *Service) getAgentInstallScriptWithKey(w http.ResponseWriter, r *http.Request, db *sql.DB, accountID string, agentKey string) {
+	storedKey, err := s.getOrGenerateAgentKey(r.Context(), db)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, "Failed to get agent key: "+err.Error())
+		return
+	}
+	if agentKey != storedKey {
+		response.Error(w, http.StatusUnauthorized, "Invalid agent key")
+		return
+	}
+	s.getAgentInstallScript(w, r, db, accountID)
+}
+
 func (s *Service) getAgentInstallScript(w http.ResponseWriter, r *http.Request, db *sql.DB, accountID string) {
 	// 查询账号信息
 	var name, host string

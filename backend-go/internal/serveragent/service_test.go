@@ -284,6 +284,26 @@ func TestAgentQuickInstallCreatesHostFromName(t *testing.T) {
 	if !strings.Contains(data["installCommand"].(string), serverID) {
 		t.Fatalf("install command should include server id: %#v", data["installCommand"])
 	}
+	if !strings.Contains(data["installCommand"].(string), "/api/server/agent/install/linux/"+serverID+"/") {
+		t.Fatalf("install command should use public keyed linux route: %#v", data["installCommand"])
+	}
+	agentKey, ok := data["agentKey"].(string)
+	if !ok || agentKey == "" {
+		t.Fatalf("expected agent key in quick install data: %#v", data)
+	}
+
+	res = perform(service, http.MethodGet, "/api/server/agent/install/linux/"+serverID+"/"+agentKey, "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("keyed linux install status=%d body=%s", res.Code, res.Body.String())
+	}
+	if !strings.Contains(res.Body.String(), `SERVER_ID="`+serverID+`"`) {
+		t.Fatalf("keyed linux install script should include server id: %s", res.Body.String())
+	}
+
+	res = perform(service, http.MethodGet, "/api/server/agent/install/linux/"+serverID+"/bad-key", "")
+	if res.Code != http.StatusUnauthorized {
+		t.Fatalf("bad keyed linux install status=%d body=%s", res.Code, res.Body.String())
+	}
 
 	var name, host, username, monitorMode string
 	var port int

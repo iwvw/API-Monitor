@@ -24,7 +24,7 @@ import {
 import useTableResize from '../composables/useTableResize.js';
 import { formatUptime, formatFileSize, formatDateTime, maskAddress, parseSpeed } from '../modules/utils.js';
 import { MODULE_TABS_PROPS, TOOL_TABS_PROPS } from '../modules/kumoTabs.js';
-import { canOpenTerminal, isAgentServer, resolveTerminalProtocol } from '../modules/serverTerminal.js';
+import { canOpenTerminal, hasSshEndpoint, isAgentServer, resolveTerminalProtocol } from '../modules/serverTerminal.js';
 import { formatDockerContainerPorts } from '../modules/docker-format.js';
 import * as echarts from 'echarts/core';
 import { LineChart } from 'echarts/charts';
@@ -1963,7 +1963,11 @@ function ServerPage() {
   }, [dockerHostOptions, dockerSelectedServer]);
 
   const mergeTerminalCapabilities = (server, agentOnline) => {
-    const hasSshTransport = server.ssh_configured === true || server.terminal_transports?.includes('ssh');
+    const hasSshTransport =
+      server.ssh_configured === true ||
+      server.supports_ssh === true ||
+      server.terminal_transports?.includes('ssh') ||
+      hasSshEndpoint(server);
     const terminalTransports = agentOnline ? ['agent'] : [];
     if (hasSshTransport) terminalTransports.push('ssh');
 
@@ -4364,6 +4368,44 @@ function ServerPage() {
   };
 
   const createSSHSocket = (sessionId, sessionMeta, terminal) => {
+    if (typeof WebSocket !== 'undefined') {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const params = new URLSearchParams({
+        server_id: String(sessionMeta.server.id),
+        session_id: sessionId,
+        cols: String(sshSessionRefs.current[sessionId]?.terminal?.cols || 120),
+        rows: String(sshSessionRefs.current[sessionId]?.terminal?.rows || 32),
+      });
+      const ws = new WebSocket(`${protocol}//${window.location.host}/ws/ssh?${params.toString()}`);
+
+      ws.onopen = () => {
+        terminal.writeln('\r\n\x1b[1;32mConnecting SSH terminal...\x1b[0m');
+      };
+      ws.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data);
+          if (message.type === 'data') {
+            terminal.write(message.data || '');
+          } else if (message.type === 'status' && message.data === 'connected') {
+            setSshSessions(prev => prev.map(s => s.id === sessionId ? { ...s, connected: true } : s));
+            terminal.writeln('\r\n\x1b[1;32mSSH terminal connected.\x1b[0m');
+          } else if (message.type === 'error') {
+            terminal.writeln(`\r\n\x1b[1;31m${message.data || 'SSH connection failed'}\x1b[0m`);
+          }
+        } catch {
+          terminal.write(String(event.data || ''));
+        }
+      };
+      ws.onerror = () => {
+        terminal.writeln('\r\n\x1b[1;31mSSH terminal connection error.\x1b[0m');
+      };
+      ws.onclose = () => {
+        setSshSessions(prev => prev.map(s => s.id === sessionId ? { ...s, connected: false } : s));
+        terminal.writeln('\r\n\x1b[1;33mSSH terminal connection closed.\x1b[0m');
+      };
+      return ws;
+    }
+
     terminal.writeln('\n\x1b[1;33mSSH 终端 WebSocket 已随 Node 后端迁移退役，当前 Go 后端仅保留 Agent /socket.io/ 实时通道。\x1b[0m');
     setSshSessions(prev => prev.map(s => s.id === sessionId ? { ...s, connected: false } : s));
     return {
@@ -7750,8 +7792,8 @@ function ServerPage() {
                     <div className="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-3">
                       <Tabs
                         {...TOOL_TABS_PROPS}
-                        className="w-full"
-                        listClassName="w-full"
+                        className="w-fit max-w-full"
+                        listClassName="w-fit max-w-full"
                         value={agentInstallProtocol}
                         onValueChange={setAgentInstallProtocol}
                         tabs={[
@@ -7761,8 +7803,8 @@ function ServerPage() {
                       />
                       <Tabs
                         {...TOOL_TABS_PROPS}
-                        className="w-full"
-                        listClassName="w-full"
+                        className="w-fit max-w-full"
+                        listClassName="w-fit max-w-full"
                         value={agentInstallHostType}
                         onValueChange={setAgentInstallHostType}
                         tabs={[
@@ -7772,8 +7814,8 @@ function ServerPage() {
                       />
                       <Tabs
                         {...TOOL_TABS_PROPS}
-                        className="w-full"
-                        listClassName="w-full"
+                        className="w-fit max-w-full"
+                        listClassName="w-fit max-w-full"
                         value={agentInstallOS}
                         onValueChange={setAgentInstallOS}
                         tabs={[
