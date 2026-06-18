@@ -2389,18 +2389,26 @@ func (s *Service) buildInfoField(metrics map[string]interface{}) map[string]inte
 	if d, ok := metrics["disk"].(string); ok {
 		diskStr = d
 	}
-	diskArray := []map[string]interface{}{}
-	if diskStr != "" {
-		diskMatch := diskRegexp.FindStringSubmatch(diskStr)
-		if len(diskMatch) == 4 {
-			diskArray = append(diskArray, map[string]interface{}{
-				"device": "/",
-				"used":   diskMatch[1],
-				"total":  diskMatch[2],
-				"usage":  diskMatch[3],
-			})
+	diskArray := parseDiskString(diskStr)
+	if diskStr == "" || (len(diskArray) > 0 && diskArray[0]["used"] == "-") {
+		used := getString(metrics, "disk_used")
+		total := getString(metrics, "disk_total")
+		percent := getFloat(metrics, "disk_percent")
+		if percent == 0.0 {
+			percent = getFloat(metrics, "disk_usage")
+		}
+		if used != "" && total != "" {
+			diskArray = []map[string]interface{}{
+				{
+					"device": "/",
+					"used":   used,
+					"total":  total,
+					"usage":  fmt.Sprintf("%.0f%%", percent),
+				},
+			}
 		}
 	}
+
 
 	dockerVal := metrics["docker"]
 	if dockerVal == nil {
