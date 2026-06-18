@@ -141,6 +141,10 @@ COPY --from=agent-builder --chown=appuser:appuser /app/agent-rust/agent-linux-am
 COPY --from=agent-builder --chown=appuser:appuser /app/agent-rust/agent-linux-arm64 /app/dist/agent/
 COPY --from=agent-builder --chown=appuser:appuser /app/agent-rust/agent-windows-amd64.exe /app/dist/agent/
 
+# 4. 复制 2FA 浏览器插件目录
+COPY --chown=appuser:appuser plugin /app/plugin
+
+
 # 环境变量配置
 ENV PORT=3000 \
     DATA_DIR=/app/data \

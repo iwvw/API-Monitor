@@ -1,0 +1,277 @@
+/* API Monitor 2FA - Premium Glassmorphic UI */
+
+.api-monitor-2fa-btn {
+    position: absolute;
+    z-index: 2147483646;
+    width: 24px;
+    height: 24px;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    background: #f9fafb;
+    border-radius: 4px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0;
+    transition: all 0.2s;
+    color: #4b5563;
+    padding: 4px;
+}
+
+.api-monitor-2fa-btn.visible {
+    opacity: 0.8;
+}
+
+.api-monitor-2fa-btn svg {
+    width: 100%;
+    height: 100%;
+    stroke: currentColor;
+    stroke-width: 2px;
+}
+
+.api-monitor-2fa-btn:hover {
+    opacity: 1 !important;
+    background: #6366f1;
+    color: white;
+    border-color: #6366f1;
+    transform: none;
+}
+
+.api-monitor-2fa-btn:active {
+    background: #4f46e5;
+}
+
+@media (prefers-color-scheme: dark) {
+    .api-monitor-2fa-btn {
+        background: #374151;
+        border-color: #4b5563;
+        color: #d1d5db;
+    }
+}
+
+.api-monitor-2fa-picker {
+    position: absolute;
+    z-index: 2147483647;
+    background: rgba(255, 255, 255, 0.9);
+    /* Glass effect */
+    backdrop-filter: blur(12px) saturate(180%);
+    -webkit-backdrop-filter: blur(12px) saturate(180%);
+    color: #1f2937;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    border-radius: 10px;
+    /* Reduced from 16px */
+    box-shadow:
+        0 15px 35px -8px rgba(0, 0, 0, 0.2),
+        0 0 0 1px rgba(0, 0, 0, 0.05);
+    max-height: 300px;
+    overflow-y: auto;
+    font-family: -apple-system, 'Segoe UI', Inter, system-ui, sans-serif;
+    padding: 0;
+    margin-top: 6px;
+    animation: api-monitor-slide-down 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    box-sizing: border-box;
+    display: flex;
+    flex-direction: column;
+    scrollbar-width: none;
+}
+
+.api-monitor-2fa-picker.pop-up {
+    margin-top: 0;
+    margin-bottom: 6px;
+    animation: api-monitor-slide-up 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.api-monitor-2fa-picker::-webkit-scrollbar {
+    display: none;
+}
+
+.api-monitor-2fa-list-container {
+    flex: 1;
+    overflow-y: auto;
+    padding: 10px;
+    scrollbar-width: none;
+}
+
+.api-monitor-2fa-list-container::-webkit-scrollbar {
+    display: none;
+}
+
+@media (prefers-color-scheme: dark) {
+    .api-monitor-2fa-picker {
+        background: rgba(17, 24, 39, 0.9);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        color: #f9fafb;
+        box-shadow:
+            0 20px 40px -10px rgba(0, 0, 0, 0.5),
+            0 0 0 1px rgba(255, 255, 255, 0.05);
+    }
+}
+
+@keyframes api-monitor-slide-down {
+    from {
+        opacity: 0;
+        transform: translateY(-10px) scale(0.98);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+@keyframes api-monitor-slide-up {
+    from {
+        opacity: 0;
+        transform: translateY(10px) scale(0.98);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+
+.api-monitor-2fa-picker .account-item {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-rows: 20px 16px;
+    /* Fixed row heights for stable alignment */
+    column-gap: 16px;
+    row-gap: 5px;
+    /* Increased from 4px */
+    padding: 12px 14px;
+    /* More padding for account items */
+    cursor: pointer;
+    border-radius: 8px;
+    transition: all 0.2s ease;
+    margin-bottom: 8px;
+    /* Consistent gap between items */
+    border: 1px solid transparent;
+    align-items: center;
+}
+
+.api-monitor-2fa-picker .account-item:last-child {
+    margin-bottom: 0;
+    /* Remove bottom margin for the last item to keep container padding equal */
+}
+
+.api-monitor-2fa-picker .account-item:hover {
+    background: rgba(99, 102, 241, 0.08);
+    border-color: rgba(99, 102, 241, 0.2);
+}
+
+@media (prefers-color-scheme: dark) {
+    .api-monitor-2fa-picker .account-item:hover {
+        background: rgba(129, 140, 248, 0.12);
+        border-color: rgba(129, 140, 248, 0.2);
+    }
+}
+
+.api-monitor-2fa-info {
+    display: contents;
+    /* Let children be grid items */
+}
+
+.api-monitor-2fa-account {
+    grid-column: 1;
+    grid-row: 1;
+    font-size: 15px;
+    /* Increased size */
+    font-weight: 600;
+    line-height: 20px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    align-self: center;
+}
+
+.api-monitor-2fa-issuer {
+    grid-column: 1;
+    grid-row: 2;
+    font-size: 11px;
+    opacity: 0.5;
+    font-weight: 500;
+    line-height: 16px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    align-self: center;
+}
+
+.api-monitor-2fa-code-wrapper {
+    display: contents;
+    /* Let children be grid items */
+}
+
+.api-monitor-2fa-code {
+    grid-column: 2;
+    grid-row: 1;
+    font-family: ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, Monaco, Consolas, 'JetBrains Mono', monospace;
+    font-size: 20px;
+    font-weight: 700;
+    color: #6366f1;
+    letter-spacing: 0.5px;
+    line-height: 20px;
+    text-align: right;
+    align-self: center;
+}
+
+@media (prefers-color-scheme: dark) {
+    .api-monitor-2fa-code {
+        color: #818cf8;
+    }
+}
+
+.api-monitor-2fa-progress-container {
+    grid-column: 2;
+    grid-row: 2;
+    width: 90px;
+    height: 4px;
+    /* Slightly thicker for better visibility */
+    background: rgba(0, 0, 0, 0.08);
+    border-radius: 2px;
+    overflow: hidden;
+    align-self: center;
+    justify-self: end;
+    /* Ensure right-alignment */
+}
+
+@media (prefers-color-scheme: dark) {
+    .api-monitor-2fa-progress-container {
+        background: rgba(255, 255, 255, 0.08);
+    }
+}
+
+.api-monitor-2fa-progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, #6366f1, #8b5cf6);
+    width: 0%;
+    transition: width 1s linear;
+}
+
+.api-monitor-2fa-progress-bar.low {
+    background: linear-gradient(90deg, #ef4444, #f87171);
+}
+
+/* Custom Slim Scrollbar for Premium Look */
+.api-monitor-2fa-list-container::-webkit-scrollbar {
+    width: 5px;
+}
+
+.api-monitor-2fa-list-container::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.api-monitor-2fa-list-container::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.1);
+    border-radius: 10px;
+}
+
+@media (prefers-color-scheme: dark) {
+    .api-monitor-2fa-list-container::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.15);
+    }
+}
+
+.api-monitor-2fa-list-container::-webkit-scrollbar-thumb:hover {
+    background: rgba(99, 102, 241, 0.4);
+}
