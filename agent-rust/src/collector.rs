@@ -207,7 +207,10 @@ impl Collector {
         let mut seen_devices = Vec::new();
         for disk in &self.disks {
             let fs = disk.file_system().to_string_lossy().to_lowercase();
-            if fs == "tmpfs"
+            let mount_point = disk.mount_point();
+            let is_root = mount_point == Path::new("/") || mount_point.to_string_lossy() == "/";
+            if !is_root && (
+                fs == "tmpfs"
                 || fs == "overlay"
                 || fs == "devtmpfs"
                 || fs == "proc"
@@ -228,7 +231,7 @@ impl Collector {
                 || fs == "squashfs"
                 || fs == "udev"
                 || fs == "iso9660"
-            {
+            ) {
                 continue;
             }
             let device_name = disk.name().to_string_lossy().to_string();
@@ -291,7 +294,10 @@ impl Collector {
         let mut seen_devices = Vec::new();
         for disk in &self.disks {
             let fs = disk.file_system().to_string_lossy().to_lowercase();
-            if fs == "tmpfs"
+            let mount_point = disk.mount_point();
+            let is_root = mount_point == Path::new("/") || mount_point.to_string_lossy() == "/";
+            if !is_root && (
+                fs == "tmpfs"
                 || fs == "overlay"
                 || fs == "devtmpfs"
                 || fs == "proc"
@@ -312,7 +318,7 @@ impl Collector {
                 || fs == "squashfs"
                 || fs == "udev"
                 || fs == "iso9660"
-            {
+            ) {
                 continue;
             }
             let device_name = disk.name().to_string_lossy().to_string();

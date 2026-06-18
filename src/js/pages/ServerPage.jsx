@@ -5300,7 +5300,7 @@ function ServerPage() {
                               )}
                               {isCompactColumnVisible('country') && (
                                 <Table.Cell className="!px-2 !py-1.5 text-center whitespace-nowrap">
-                                  <div className="flex w-[96px] items-center justify-center gap-1.5">
+                                  <div className="flex w-[64px] items-center justify-center gap-1.5">
                                     {locationText ? (
                                       <>
                                         {country && <CountryFlag preferSvg countryCode={country} className="h-3.5 w-5 shrink-0 !rounded-[2px] text-sm" />}
