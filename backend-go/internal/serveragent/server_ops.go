@@ -69,7 +69,7 @@ func (s *Service) handleServerInfo(w http.ResponseWriter, r *http.Request, db *s
 
 	response.JSON(w, http.StatusOK, map[string]interface{}{
 		"success":   true,
-		"data":      info,
+		"data":      s.buildInfoStruct(info),
 		"is_cached": !req.Force,
 	})
 }
