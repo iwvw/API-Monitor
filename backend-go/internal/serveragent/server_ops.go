@@ -924,38 +924,170 @@ func (s *Service) handleDockerOverview(w http.ResponseWriter, r *http.Request, d
 	}
 	defer rows.Close()
 
-	servers := []map[string]interface{}{}
+	type serverData struct {
+		id         string
+		name       string
+		status     string
+		cachedInfo string
+	}
+
+	var rawServers []serverData
 	for rows.Next() {
-		var id, name, status, cachedInfo string
-		if err := rows.Scan(&id, &name, &status, &cachedInfo); err != nil {
-			continue
+		var d serverData
+		if err := rows.Scan(&d.id, &d.name, &d.status, &d.cachedInfo); err == nil {
+			rawServers = append(rawServers, d)
 		}
+	}
+
+	scopeParam := r.URL.Query().Get("scope")
+	scopes := make(map[string]bool)
+	if scopeParam != "" {
+		for _, sc := range strings.Split(scopeParam, ",") {
+			scopes[strings.TrimSpace(sc)] = true
+		}
+	}
+
+	servers := []map[string]interface{}{}
+	for _, d := range rawServers {
 		var info map[string]interface{}
-		_ = json.Unmarshal([]byte(cachedInfo), &info)
+		_ = json.Unmarshal([]byte(d.cachedInfo), &info)
 		dockerInfo, _ := info["docker"].(map[string]interface{})
 		installed := false
 		if v, ok := dockerInfo["installed"].(bool); ok {
 			installed = v
 		}
+
+		// Extract containers list
+		containers := []interface{}{}
+		if cList, ok := dockerInfo["containers"].([]interface{}); ok {
+			containers = cList
+		}
+
+		// If online and installed, dynamically fetch resources based on scope
+		var images interface{} = []interface{}{}
+		var networks interface{} = []interface{}{}
+		var volumes interface{} = []interface{}{}
+		var stats interface{} = []interface{}{}
+		var composeProjects interface{} = []interface{}{}
+
+		var errOverview, errImages, errNetworks, errVolumes, errStats, errCompose string
+
+		if d.status == "online" && (installed || len(containers) > 0) {
+			// Query in parallel
+			type taskRes struct {
+				key  string
+				val  interface{}
+				errS string
+			}
+			ch := make(chan taskRes, 5)
+			tasksCount := 0
+
+			runTask := func(key string, taskType int) {
+				tasksCount++
+				go func() {
+					resStr, err := s.runAgentTaskAndWait(d.id, taskType, "", 10*time.Second)
+					if err != nil {
+						ch <- taskRes{key: key, val: []interface{}{}, errS: err.Error()}
+						return
+					}
+					var parsed interface{}
+					if err := json.Unmarshal([]byte(resStr), &parsed); err != nil {
+						// Fallback if not JSON
+						parsed = []interface{}{}
+					}
+					ch <- taskRes{key: key, val: parsed, errS: ""}
+				}()
+			}
+
+			if scopes["images"] {
+				runTask("images", 13) // DOCKER_IMAGES
+			}
+			if scopes["networks"] {
+				runTask("networks", 15) // DOCKER_NETWORKS
+			}
+			if scopes["volumes"] {
+				runTask("volumes", 17) // DOCKER_VOLUMES
+			}
+			if scopes["stats"] {
+				runTask("stats", 20) // DOCKER_STATS
+			}
+			if scopes["compose"] {
+				runTask("compose", 21) // DOCKER_COMPOSE_LIST
+			}
+
+			for i := 0; i < tasksCount; i++ {
+				res := <-ch
+				switch res.key {
+				case "images":
+					images = res.val
+					errImages = res.errS
+				case "networks":
+					networks = res.val
+					errNetworks = res.errS
+				case "volumes":
+					volumes = res.val
+					errVolumes = res.errS
+				case "stats":
+					stats = res.val
+					errStats = res.errS
+				case "compose":
+					composeProjects = res.val
+					errCompose = res.errS
+				}
+			}
+
+			// Installed flag can also be inferred if any task succeeds
+			if errImages == "" || errNetworks == "" || errVolumes == "" || errStats == "" || errCompose == "" {
+				installed = true
+			}
+		}
+
+		running := getInt(dockerInfo, "running")
+		stopped := getInt(dockerInfo, "stopped")
+
+		// If running/stopped are 0, we can infer them from containers list if present
+		if running == 0 && stopped == 0 && len(containers) > 0 {
+			for _, c := range containers {
+				if cMap, ok := c.(map[string]interface{}); ok {
+					state, _ := cMap["state"].(string)
+					if state == "running" {
+						running++
+					} else {
+						stopped++
+					}
+				}
+			}
+		}
+
 		servers = append(servers, map[string]interface{}{
-			"id":     id,
-			"name":   name,
-			"status": status,
+			"id":     d.id,
+			"name":   d.name,
+			"status": d.status,
 			"docker": map[string]interface{}{
-				"installed": installed,
-				"running":   getInt(dockerInfo, "running"),
-				"stopped":   getInt(dockerInfo, "stopped"),
+				"installed":  installed,
+				"running":    running,
+				"stopped":    stopped,
+				"containers": containers,
 			},
 			"resources": map[string]interface{}{
-				"containers":      []interface{}{},
-				"images":          []interface{}{},
-				"networks":        []interface{}{},
-				"volumes":         []interface{}{},
-				"stats":           []interface{}{},
-				"composeProjects": []interface{}{},
+				"containers":      containers,
+				"images":          images,
+				"networks":        networks,
+				"volumes":         volumes,
+				"stats":           stats,
+				"composeProjects": composeProjects,
+			},
+			"errors": map[string]interface{}{
+				"overview":        errOverview,
+				"images":          errImages,
+				"networks":        errNetworks,
+				"volumes":         errVolumes,
+				"stats":           errStats,
+				"composeProjects": errCompose,
 			},
 		})
 	}
+
 	response.JSON(w, http.StatusOK, map[string]interface{}{
 		"success": true,
 		"data": map[string]interface{}{
@@ -981,6 +1113,265 @@ func (s *Service) handleCreateV2Task(w http.ResponseWriter, r *http.Request, db 
 		response.Error(w, http.StatusBadRequest, "serverId required")
 		return
 	}
+
+	var mappedType int
+	var mappedData interface{}
+	var timeoutSec int = 60
+
+	switch req.Action {
+	case "container.start", "container.stop", "container.restart", "container.pause", "container.unpause", "container.pull":
+		containerID, _ := req.Payload["containerId"].(string)
+		if containerID == "" {
+			response.Error(w, http.StatusBadRequest, "missing containerId")
+			return
+		}
+		image, _ := req.Payload["image"].(string)
+		actionPart := strings.Split(req.Action, ".")[1]
+		mappedType = 10 // DOCKER_ACTION
+		mappedData = map[string]interface{}{
+			"action":       actionPart,
+			"container_id": containerID,
+			"image":        image,
+		}
+		timeoutSec = 120
+
+	case "container.update":
+		containerID, _ := req.Payload["containerId"].(string)
+		containerName, _ := req.Payload["containerName"].(string)
+		if containerID == "" || containerName == "" {
+			response.Error(w, http.StatusBadRequest, "missing containerId or containerName")
+			return
+		}
+		image, _ := req.Payload["image"].(string)
+		mappedType = 24 // DOCKER_UPDATE_CONTAINER
+		mappedData = map[string]interface{}{
+			"container_id":   containerID,
+			"container_name": containerName,
+			"image":          image,
+		}
+		timeoutSec = 600
+
+	case "container.rename":
+		containerID, _ := req.Payload["containerId"].(string)
+		newName, _ := req.Payload["newName"].(string)
+		if containerID == "" || newName == "" {
+			response.Error(w, http.StatusBadRequest, "missing containerId or newName")
+			return
+		}
+		mappedType = 25 // DOCKER_RENAME_CONTAINER
+		mappedData = map[string]interface{}{
+			"container_id": containerID,
+			"new_name":     newName,
+		}
+		timeoutSec = 60
+
+	case "container.logs":
+		containerID, _ := req.Payload["containerId"].(string)
+		if containerID == "" {
+			response.Error(w, http.StatusBadRequest, "missing containerId")
+			return
+		}
+		tail := 100
+		if t, ok := req.Payload["tail"].(float64); ok {
+			tail = int(t)
+		}
+		since, _ := req.Payload["since"].(string)
+		mappedType = 19 // DOCKER_LOGS
+		mappedData = map[string]interface{}{
+			"container_id": containerID,
+			"tail":         tail,
+			"since":        since,
+		}
+		timeoutSec = 60
+
+	case "container.checkUpdates":
+		containerID, _ := req.Payload["containerId"].(string)
+		mappedType = 11 // DOCKER_CHECK_UPDATE
+		mappedData = map[string]interface{}{
+			"container_id": containerID,
+		}
+		timeoutSec = 180
+
+	case "container.create":
+		image, _ := req.Payload["image"].(string)
+		if image == "" {
+			response.Error(w, http.StatusBadRequest, "missing image")
+			return
+		}
+		name, _ := req.Payload["name"].(string)
+		ports, _ := req.Payload["ports"]
+		if ports == nil {
+			ports = []interface{}{}
+		}
+		volumes, _ := req.Payload["volumes"]
+		if volumes == nil {
+			volumes = []interface{}{}
+		}
+		env, _ := req.Payload["env"]
+		if env == nil {
+			env = map[string]interface{}{}
+		}
+		network, _ := req.Payload["network"].(string)
+		restart, _ := req.Payload["restart"].(string)
+		if restart == "" {
+			restart = "unless-stopped"
+		}
+		privileged, _ := req.Payload["privileged"].(bool)
+		extraArgs, _ := req.Payload["extraArgs"]
+		if extraArgs == nil {
+			extraArgs = []interface{}{}
+		}
+
+		mappedType = 23 // DOCKER_CREATE_CONTAINER
+		mappedData = map[string]interface{}{
+			"name":       name,
+			"image":      image,
+			"ports":      ports,
+			"volumes":    volumes,
+			"env":        env,
+			"network":    network,
+			"restart":    restart,
+			"privileged": privileged,
+			"extra_args": extraArgs,
+		}
+		timeoutSec = 300
+
+	case "image.list":
+		mappedType = 13 // DOCKER_IMAGES
+		mappedData = ""
+		timeoutSec = 60
+
+	case "image.pull", "image.remove", "image.prune":
+		imageRef, _ := req.Payload["image"].(string)
+		if imageRef == "" {
+			imageRef, _ = req.Payload["imageId"].(string)
+		}
+		if imageRef == "" {
+			imageRef, _ = req.Payload["id"].(string)
+		}
+		actionPart := strings.Split(req.Action, ".")[1]
+		mappedType = 14 // DOCKER_IMAGE_ACTION
+		mappedData = map[string]interface{}{
+			"action": actionPart,
+			"image":  imageRef,
+		}
+		if actionPart == "pull" {
+			timeoutSec = 300
+		} else {
+			timeoutSec = 60
+		}
+
+	case "network.list":
+		mappedType = 15 // DOCKER_NETWORKS
+		mappedData = ""
+		timeoutSec = 60
+
+	case "network.create", "network.remove", "network.connect", "network.disconnect", "network.prune":
+		actionPart := strings.Split(req.Action, ".")[1]
+		name, _ := req.Payload["name"].(string)
+		driver, _ := req.Payload["driver"].(string)
+		subnet, _ := req.Payload["subnet"].(string)
+		gateway, _ := req.Payload["gateway"].(string)
+		container, _ := req.Payload["container"].(string)
+		mappedType = 16 // DOCKER_NETWORK_ACTION
+		mappedData = map[string]interface{}{
+			"action":    actionPart,
+			"name":      name,
+			"driver":    driver,
+			"subnet":    subnet,
+			"gateway":   gateway,
+			"container": container,
+		}
+		timeoutSec = 60
+
+	case "volume.list":
+		mappedType = 17 // DOCKER_VOLUMES
+		mappedData = ""
+		timeoutSec = 60
+
+	case "volume.create", "volume.remove", "volume.prune":
+		actionPart := strings.Split(req.Action, ".")[1]
+		name, _ := req.Payload["name"].(string)
+		driver, _ := req.Payload["driver"].(string)
+		mappedType = 18 // DOCKER_VOLUME_ACTION
+		mappedData = map[string]interface{}{
+			"action": actionPart,
+			"name":   name,
+			"driver": driver,
+		}
+		timeoutSec = 60
+
+	case "stats.list":
+		mappedType = 20 // DOCKER_STATS
+		mappedData = ""
+		timeoutSec = 60
+
+	case "compose.list":
+		mappedType = 21 // DOCKER_COMPOSE_LIST
+		mappedData = ""
+		timeoutSec = 60
+
+	case "compose.up", "compose.down", "compose.restart", "compose.pull":
+		actionPart := strings.Split(req.Action, ".")[1]
+		project, _ := req.Payload["project"].(string)
+		if project == "" {
+			project, _ = req.Payload["projectName"].(string)
+		}
+		if project == "" {
+			project, _ = req.Payload["Name"].(string)
+		}
+		if project == "" {
+			project, _ = req.Payload["name"].(string)
+		}
+		configFile, _ := req.Payload["configFile"].(string)
+		if configFile == "" {
+			configFile, _ = req.Payload["config_file"].(string)
+		}
+		if configFile == "" {
+			configFile, _ = req.Payload["ConfigFiles"].(string)
+		}
+		if configFile == "" {
+			configFile, _ = req.Payload["configFiles"].(string)
+		}
+		if configFile == "" {
+			configFile, _ = req.Payload["configDir"].(string)
+		}
+		if configFile == "" {
+			configFile, _ = req.Payload["config_dir"].(string)
+		}
+		if project == "" && configFile == "" {
+			response.Error(w, http.StatusBadRequest, "missing project or configFile")
+			return
+		}
+		mappedType = 22 // DOCKER_COMPOSE_ACTION
+		mappedData = map[string]interface{}{
+			"action":      actionPart,
+			"project":     project,
+			"config_file": configFile,
+		}
+		if actionPart == "pull" {
+			timeoutSec = 300
+		} else {
+			timeoutSec = 120
+		}
+
+	default:
+		response.Error(w, http.StatusBadRequest, "unsupported action: "+req.Action)
+		return
+	}
+
+	var dataStr string
+	if str, ok := mappedData.(string); ok {
+		dataStr = str
+	} else {
+		bytes, err := json.Marshal(mappedData)
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, "failed to marshal task data: "+err.Error())
+			return
+		}
+		dataStr = string(bytes)
+	}
+
 	taskType := req.Type
 	if taskType == "" {
 		taskType = strings.Trim(strings.Join([]string{req.Domain, req.Action}, "."), ".")
@@ -991,15 +1382,14 @@ func (s *Service) handleCreateV2Task(w http.ResponseWriter, r *http.Request, db 
 
 	task := s.taskRegistry.Create(req.ServerID, taskType, req.Action)
 	if conn, ok := s.registry.Get(req.ServerID); ok {
-		_ = conn.SendEvent("task:create", map[string]interface{}{
-			"taskId":  task.ID,
-			"domain":  req.Domain,
-			"action":  req.Action,
-			"type":    taskType,
-			"config":  req.Config,
-			"payload": req.Payload,
+		_ = conn.SendEvent("dashboard:task", map[string]interface{}{
+			"id":      task.ID,
+			"type":    mappedType,
+			"data":    dataStr,
+			"timeout": timeoutSec,
 		})
 	}
+
 	response.JSON(w, http.StatusOK, map[string]interface{}{
 		"success": true,
 		"taskId":  task.ID,
@@ -1059,3 +1449,47 @@ func stringFromAny(value interface{}) string {
 		return fmt.Sprintf("%v", v)
 	}
 }
+
+func (s *Service) runAgentTaskAndWait(serverID string, taskType int, command string, timeout time.Duration) (string, error) {
+	conn, ok := s.registry.Get(serverID)
+	if !ok {
+		return "", fmt.Errorf("agent offline")
+	}
+
+	task := s.taskRegistry.Create(serverID, fmt.Sprintf("docker.internal.%d", taskType), command)
+	eventCh := task.Subscribe()
+
+	err := conn.SendEvent("dashboard:task", map[string]interface{}{
+		"id":      task.ID,
+		"type":    taskType,
+		"data":    command,
+		"timeout": int(timeout.Seconds()),
+	})
+	if err != nil {
+		return "", err
+	}
+
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	for {
+		select {
+		case event, ok := <-eventCh:
+			if !ok {
+				return "", fmt.Errorf("task channel closed")
+			}
+			if event.Status == TaskCompleted {
+				if str, ok := event.Data.(string); ok {
+					return str, nil
+				}
+				return fmt.Sprintf("%v", event.Data), nil
+			}
+			if event.Status == TaskFailed {
+				return "", fmt.Errorf("%s", event.Error)
+			}
+		case <-timer.C:
+			return "", fmt.Errorf("task timeout")
+		}
+	}
+}
+

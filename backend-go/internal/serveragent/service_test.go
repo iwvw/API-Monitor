@@ -181,7 +181,7 @@ func TestFrontendCompatibilityRoutes(t *testing.T) {
 		{http.MethodGet, "/api/server/metrics/history?serverId=server-1&page=1&pageSize=10", ""},
 		{http.MethodDelete, "/api/server/metrics/history?serverId=server-1", ""},
 		{http.MethodGet, "/api/server/v2/tasks", ""},
-		{http.MethodPost, "/api/server/v2/tasks", `{"serverId":"server-1","domain":"docker","action":"container.list"}`},
+		{http.MethodPost, "/api/server/v2/tasks", `{"serverId":"server-1","domain":"docker","action":"image.list"}`},
 		{http.MethodGet, "/api/server/v2/docker/overview", ""},
 		{http.MethodPost, "/api/server/docker/check-update", `{"serverId":"server-1"}`},
 		{http.MethodGet, "/api/server/agent/connection-info/server-1", ""},

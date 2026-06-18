@@ -214,6 +214,36 @@ func New(cfg config.Config) *Service {
 						}()
 					}
 				}
+			case "agent:task_result":
+				// Agent 任务结果上报
+				var result struct {
+					ID         string `json:"id"`
+					Type       int    `json:"type"`
+					Successful bool   `json:"successful"`
+					Data       string `json:"data"`
+					Delay      int64  `json:"delay"`
+				}
+				if err := json.Unmarshal(data, &result); err == nil {
+					if result.Successful {
+						s.taskRegistry.Complete(result.ID, result.Data)
+					} else {
+						s.taskRegistry.Fail(result.ID, result.Data)
+					}
+				}
+			case "agent:task_progress":
+				// Agent 任务进度上报
+				var prog struct {
+					TaskID     string `json:"task_id"`
+					Name       string `json:"name"`
+					Percentage int    `json:"percentage"`
+					Message    string `json:"message"`
+					DetailMsg  string `json:"detail_msg"`
+					IsDone     bool   `json:"is_done"`
+					IsError    bool   `json:"is_error"`
+				}
+				if err := json.Unmarshal(data, &prog); err == nil {
+					s.taskRegistry.UpdateProgress(prog.TaskID, prog.Percentage, prog)
+				}
 			case "agent:heartbeat":
 				// Agent 心跳
 				var hb struct {

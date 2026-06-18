@@ -6378,6 +6378,42 @@ function ServerPage() {
                   检测可更新
                 </Button>
               )}
+              {dockerSubTab === 'images' && (
+                <Button
+                  size="sm"
+                  variant="secondary-destructive"
+                  icon={<Trash className="h-3.5 w-3.5" />}
+                  disabled={!dockerSelectedServer}
+                  title={dockerSelectedServer ? '清理未使用镜像' : '请先选择单台 Docker 主机'}
+                  onClick={() => submitDockerTask('image.prune')}
+                >
+                  清理镜像
+                </Button>
+              )}
+              {dockerSubTab === 'networks' && (
+                <Button
+                  size="sm"
+                  variant="secondary-destructive"
+                  icon={<Trash className="h-3.5 w-3.5" />}
+                  disabled={!dockerSelectedServer}
+                  title={dockerSelectedServer ? '清理未使用网络' : '请先选择单台 Docker 主机'}
+                  onClick={() => submitDockerTask('network.prune')}
+                >
+                  清理网络
+                </Button>
+              )}
+              {dockerSubTab === 'volumes' && (
+                <Button
+                  size="sm"
+                  variant="secondary-destructive"
+                  icon={<Trash className="h-3.5 w-3.5" />}
+                  disabled={!dockerSelectedServer}
+                  title={dockerSelectedServer ? '清理未使用存储卷' : '请先选择单台 Docker 主机'}
+                  onClick={() => submitDockerTask('volume.prune')}
+                >
+                  清理存储卷
+                </Button>
+              )}
             </div>
           </div>
           
@@ -6625,18 +6661,6 @@ function ServerPage() {
               {/* 3. 镜像管理 */}
               {dockerSubTab === 'images' && (
                 <div className="flex flex-col gap-2">
-                  <div className="flex items-center justify-end">
-                    <Button
-                      size="sm"
-                      variant="secondary-destructive"
-                      icon={<Trash className="h-3.5 w-3.5" />}
-                      disabled={!dockerSelectedServer}
-                      title={dockerSelectedServer ? '清理未使用镜像' : '请先选择单台 Docker 主机'}
-                      onClick={() => submitDockerTask('image.prune')}
-                    >
-                      清理未使用网络
-                    </Button>
-                  </div>
                   <div className="app-card overflow-hidden p-2">
                     {dockerImages.length === 0 ? (
                       <div className="p-12 text-center text-xs text-kumo-subtle">当前主机中未检索到镜像</div>
@@ -6701,18 +6725,6 @@ function ServerPage() {
               {/* 4. 网络管理 */}
               {dockerSubTab === 'networks' && (
                 <div className="flex flex-col gap-2">
-                  <div className="flex items-center justify-end">
-                    <Button
-                      size="sm"
-                      variant="secondary-destructive"
-                      icon={<Trash className="h-3.5 w-3.5" />}
-                      disabled={!dockerSelectedServer}
-                      title={dockerSelectedServer ? '清理未使用网络' : '请先选择单台 Docker 主机'}
-                      onClick={() => submitDockerTask('network.prune')}
-                    >
-                      清理未使用网络
-                    </Button>
-                  </div>
                   <div className="app-card overflow-hidden p-2">
                     {dockerNetworks.length === 0 ? (
                       <div className="p-12 text-center text-xs text-kumo-subtle">当前主机中未检索到 Docker 网络</div>
@@ -6786,18 +6798,6 @@ function ServerPage() {
               {/* 5. 存储卷管理 */}
               {dockerSubTab === 'volumes' && (
                 <div className="flex flex-col gap-2">
-                  <div className="flex items-center justify-end">
-                    <Button
-                      size="sm"
-                      variant="secondary-destructive"
-                      icon={<Trash className="h-3.5 w-3.5" />}
-                      disabled={!dockerSelectedServer}
-                      title={dockerSelectedServer ? '清理未使用存储卷' : '请先选择单台 Docker 主机'}
-                      onClick={() => submitDockerTask('volume.prune')}
-                    >
-                      清理未使用网络
-                    </Button>
-                  </div>
                   <div className="app-card overflow-hidden p-2">
                     {dockerVolumes.length === 0 ? (
                       <div className="p-12 text-center text-xs text-kumo-subtle">当前主机中未检索到 Docker 存储卷</div>
