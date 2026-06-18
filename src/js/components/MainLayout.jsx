@@ -370,10 +370,8 @@ function MainLayout() {
         </Sidebar.Content>
 
         {/* 底部功能栏 */}
-        <Sidebar.Footer className="px-[11px]! group-data-[state=collapsed]/sidebar:px-0!">
-          <div className="flex w-full group-data-[state=collapsed]/sidebar:w-[var(--sidebar-width-icon)] shrink-0 group-data-[state=collapsed]/sidebar:justify-center">
-            <Sidebar.Trigger />
-          </div>
+        <Sidebar.Footer className="px-[11px]!">
+          <Sidebar.Trigger />
         </Sidebar.Footer>
       </Sidebar>
 

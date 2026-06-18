@@ -43,6 +43,21 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+[data-sidebar='trigger'] svg path[d='M6.25 7.25v9.5'] {
+  transform-box: view-box;
+  transform-origin: center;
+  translate: none;
+  transition-property: transform;
+}
+
+[data-sidebar='trigger'][aria-expanded='true'] svg path[d='M6.25 7.25v9.5'] {
+  transform: translateX(1px);
+}
+
+[data-sidebar='trigger'][aria-expanded='false'] svg path[d='M6.25 7.25v9.5'] {
+  transform: translateX(10.5px);
+}
+
 .app-card {
   border: 1px solid var(--color-kumo-line);
   border-radius: 0.5rem;

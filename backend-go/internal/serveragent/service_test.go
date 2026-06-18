@@ -46,6 +46,36 @@ func decodePayload(t *testing.T, res *httptest.ResponseRecorder) map[string]inte
 	return payload
 }
 
+type taskReplySocket struct {
+	t       *testing.T
+	service *Service
+	reply   func(taskType int, data string) string
+}
+
+func (s *taskReplySocket) WriteMessage(_ int, data []byte) error {
+	raw := string(data)
+	if !strings.HasPrefix(raw, "42") {
+		s.t.Fatalf("unexpected socket frame: %s", raw)
+	}
+	var frame []interface{}
+	if err := json.Unmarshal([]byte(raw[2:]), &frame); err != nil {
+		s.t.Fatalf("decode socket frame: %v frame=%s", err, raw)
+	}
+	if len(frame) != 2 || frame[0] != "dashboard:task" {
+		s.t.Fatalf("unexpected socket event: %#v", frame)
+	}
+	payload, ok := frame[1].(map[string]interface{})
+	if !ok {
+		s.t.Fatalf("unexpected socket payload: %#v", frame[1])
+	}
+	taskID, _ := payload["id"].(string)
+	taskType, _ := payload["type"].(float64)
+	taskData, _ := payload["data"].(string)
+	result := s.reply(int(taskType), taskData)
+	go s.service.taskRegistry.Complete(taskID, result)
+	return nil
+}
+
 func TestAccountsLifecycleAndNullableUpdate(t *testing.T) {
 	service, _ := testService(t)
 
@@ -529,6 +559,40 @@ func TestSFTPRequiresValidServerConfig(t *testing.T) {
 	payload := decodePayload(t, res)
 	if payload["success"] != false || payload["code"] != "SERVER_NOT_FOUND" {
 		t.Fatalf("unexpected sftp error payload=%#v", payload)
+	}
+}
+
+func TestSFTPListUsesAgentTunnelWhenOnlineWithoutSSHCredentials(t *testing.T) {
+	service, db := testService(t)
+	_, err := db.ExecContext(context.Background(), `INSERT INTO server_accounts (id, name, host, username, auth_type, cached_info) VALUES ('server-agent-file', 'agent-file', '', '', 'password', '{}')`)
+	if err != nil {
+		t.Fatalf("insert server: %v", err)
+	}
+	service.registry.Register("server-agent-file", &taskReplySocket{
+		t:       t,
+		service: service,
+		reply: func(taskType int, data string) string {
+			if taskType != agentFileListTask {
+				t.Fatalf("task type = %d, want %d", taskType, agentFileListTask)
+			}
+			if !strings.Contains(data, `"path":"."`) {
+				t.Fatalf("task data should include normalized path, got %s", data)
+			}
+			return `{"cwd":"/home/agent","files":[{"name":"app.log","path":"/home/agent/app.log","isDirectory":false,"isFile":true,"size":12,"mode":420,"mtime":1000,"permissions":"-rw-r--r--"}]}`
+		},
+	})
+
+	res := perform(service, http.MethodPost, "/api/server/sftp/list", `{"serverId":"server-agent-file","path":"."}`)
+	if res.Code != http.StatusOK {
+		t.Fatalf("agent sftp list status=%d body=%s", res.Code, res.Body.String())
+	}
+	payload := decodePayload(t, res)
+	if payload["success"] != true || payload["transport"] != "agent" || payload["path"] != "/home/agent" {
+		t.Fatalf("unexpected agent file payload=%#v", payload)
+	}
+	files := payload["files"].([]interface{})
+	if len(files) != 1 || files[0].(map[string]interface{})["name"] != "app.log" {
+		t.Fatalf("unexpected files=%#v", files)
 	}
 }
 

@@ -28,6 +28,7 @@ type Service struct {
 	engineIO         *EngineIOServer
 	registry         *ConnectionRegistry
 	metricsHub       *MetricsHub
+	ptyHub           *ptyDataHub
 	lastCollect      time.Time
 	lastCollectMu    sync.RWMutex
 	lastPersist      map[string]time.Time
@@ -41,6 +42,7 @@ func New(cfg config.Config) *Service {
 	registry := NewConnectionRegistry()
 	taskRegistry := NewTaskRegistry()
 	metricsHub := NewMetricsHub()
+	ptyHub := newPtyDataHub()
 	engineIO := NewEngineIOServer(registry)
 	engineIO.metricsHub = metricsHub
 
@@ -51,6 +53,7 @@ func New(cfg config.Config) *Service {
 		engineIO:     engineIO,
 		registry:     registry,
 		metricsHub:   metricsHub,
+		ptyHub:       ptyHub,
 		lastPersist:  make(map[string]time.Time),
 	}
 
@@ -243,6 +246,17 @@ func New(cfg config.Config) *Service {
 				}
 				if err := json.Unmarshal(data, &prog); err == nil {
 					s.taskRegistry.UpdateProgress(prog.TaskID, prog.Percentage, prog)
+				}
+			case "agent:pty_data":
+				var ptyData struct {
+					ID   string `json:"id"`
+					Data string `json:"data"`
+				}
+				if err := json.Unmarshal(data, &ptyData); err == nil && ptyData.ID != "" {
+					registry.UpdateHeartbeat(serverID)
+					if s.ptyHub != nil {
+						s.ptyHub.Publish(ptyData.ID, ptyData.Data)
+					}
 				}
 			case "agent:heartbeat":
 				// Agent 心跳
@@ -2438,7 +2452,6 @@ func (s *Service) buildInfoField(metrics map[string]interface{}) map[string]inte
 			}
 		}
 	}
-
 
 	dockerVal := metrics["docker"]
 	if dockerVal == nil {

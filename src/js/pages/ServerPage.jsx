@@ -4575,6 +4575,7 @@ function ServerPage() {
       const params = new URLSearchParams({
         server_id: String(sessionMeta.server.id),
         session_id: sessionId,
+        transport: sessionMeta.server.preferred_terminal_transport || sessionMeta.type || 'auto',
         cols: String(sshSessionRefs.current[sessionId]?.terminal?.cols || 120),
         rows: String(sshSessionRefs.current[sessionId]?.terminal?.rows || 32),
       });
@@ -4589,8 +4590,9 @@ function ServerPage() {
           if (message.type === 'data') {
             terminal.write(message.data || '');
           } else if (message.type === 'status' && message.data === 'connected') {
-            setSshSessions(prev => prev.map(s => s.id === sessionId ? { ...s, connected: true } : s));
-            terminal.writeln('\r\n\x1b[1;32mSSH terminal connected.\x1b[0m');
+            const connectedTransport = message.transport || sessionMeta.server.preferred_terminal_transport || sessionMeta.type || 'ssh';
+            setSshSessions(prev => prev.map(s => s.id === sessionId ? { ...s, connected: true, transport: connectedTransport } : s));
+            terminal.writeln(`\r\n\x1b[1;32m${connectedTransport === 'agent' ? 'Agent tunnel terminal' : 'SSH terminal'} connected.\x1b[0m`);
           } else if (message.type === 'error') {
             terminal.writeln(`\r\n\x1b[1;31m${message.data || 'SSH connection failed'}\x1b[0m`);
           }
@@ -4991,6 +4993,80 @@ function ServerPage() {
       y: Math.min(event.clientY, window.innerHeight - 360),
     });
   };
+
+  const renderServerContextMenu = (server) => (
+    <ContextMenu.Portal>
+      <ContextMenu.Positioner sideOffset={6}>
+        <ContextMenu.Popup className="z-50 min-w-40 overflow-hidden rounded-lg border border-kumo-line bg-kumo-control p-1.5 text-kumo-default outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95">
+          <ContextMenu.Item
+            className="relative flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-hidden select-none focus:text-kumo-default focus:ring-kumo-focus/50 focus-visible:ring-2 focus-visible:ring-kumo-brand data-disabled:pointer-events-none data-disabled:opacity-50 data-highlighted:bg-kumo-overlay"
+            disabled={server.status !== 'online' || server.loading}
+            onClick={(event) => {
+              event.stopPropagation();
+              refreshServerInfo(server.id);
+            }}
+          >
+            <RefreshCw className="h-4 w-4" />
+            <span>刷新详情</span>
+          </ContextMenu.Item>
+          <ContextMenu.Item
+            className="relative flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-hidden select-none focus:text-kumo-default focus:ring-kumo-focus/50 focus-visible:ring-2 focus-visible:ring-kumo-brand data-disabled:pointer-events-none data-disabled:opacity-50 data-highlighted:bg-kumo-overlay"
+            onClick={(event) => {
+              event.stopPropagation();
+              showAgentInstallModal(server.id);
+            }}
+          >
+            <Shield className="h-4 w-4" />
+            <span>部署 Agent</span>
+          </ContextMenu.Item>
+          <ContextMenu.Item
+            className="relative flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-hidden select-none focus:text-kumo-default focus:ring-kumo-focus/50 focus-visible:ring-2 focus-visible:ring-kumo-brand data-disabled:pointer-events-none data-disabled:opacity-50 data-highlighted:bg-kumo-overlay"
+            onClick={(event) => {
+              event.stopPropagation();
+              openEditServerModal(server);
+            }}
+          >
+            <Edit className="h-4 w-4" />
+            <span>编辑主机</span>
+          </ContextMenu.Item>
+          <ContextMenu.Separator className="mx-1 my-1 h-px bg-kumo-line" />
+          <ContextMenu.Item
+            className="relative flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-hidden select-none focus:text-kumo-default focus:ring-kumo-focus/50 focus-visible:ring-2 focus-visible:ring-kumo-brand data-disabled:pointer-events-none data-disabled:opacity-50 data-highlighted:bg-kumo-overlay"
+            disabled={server.status !== 'online'}
+            onClick={(event) => {
+              event.stopPropagation();
+              runServerPowerAction(server.id, 'reboot');
+            }}
+          >
+            <Reboot className="h-4 w-4" />
+            <span>重启主机</span>
+          </ContextMenu.Item>
+          <ContextMenu.Item
+            className="relative flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm text-kumo-danger outline-hidden select-none focus:text-kumo-danger focus:ring-kumo-focus/50 focus-visible:ring-2 focus-visible:ring-kumo-brand data-disabled:pointer-events-none data-disabled:opacity-50 data-highlighted:bg-kumo-danger/5 data-highlighted:text-kumo-danger"
+            disabled={server.status !== 'online'}
+            onClick={(event) => {
+              event.stopPropagation();
+              runServerPowerAction(server.id, 'shutdown');
+            }}
+          >
+            <X className="h-4 w-4" />
+            <span>关闭主机</span>
+          </ContextMenu.Item>
+          <ContextMenu.Separator className="mx-1 my-1 h-px bg-kumo-line" />
+          <ContextMenu.Item
+            className="relative flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm text-kumo-danger outline-hidden select-none focus:text-kumo-danger focus:ring-kumo-focus/50 focus-visible:ring-2 focus-visible:ring-kumo-brand data-disabled:pointer-events-none data-disabled:opacity-50 data-highlighted:bg-kumo-danger/5 data-highlighted:text-kumo-danger"
+            onClick={(event) => {
+              event.stopPropagation();
+              deleteServer(server.id);
+            }}
+          >
+            <Trash className="h-4 w-4" />
+            <span>删除主机</span>
+          </ContextMenu.Item>
+        </ContextMenu.Popup>
+      </ContextMenu.Positioner>
+    </ContextMenu.Portal>
+  );
   
   return (
     <div
@@ -5241,7 +5317,7 @@ function ServerPage() {
                         const cpuTemp = toNumber(server.info?.cpu?.Temp, 0);
                         const terminalProtocol = resolveTerminalProtocol(server);
                         const effectiveTerminalProtocol = terminalProtocol || (hasSshEndpoint(server) ? 'ssh' : null);
-                        const terminalLabel = effectiveTerminalProtocol === 'agent' ? 'Agent 终端' : 'SSH 终端';
+                        const terminalLabel = effectiveTerminalProtocol === 'agent' ? 'Agent 隧道终端' : 'SSH 终端';
                         const chartLoading = !!server.metricsLoading && records.length === 0;
                         const physicalCores = server.info?.cpu?.PhysicalCores || server.info?.cpu?.Cores;
                         const logicalCores = server.info?.cpu?.LogicalCores;
@@ -5262,16 +5338,14 @@ function ServerPage() {
 
                         return (
                           <React.Fragment key={server.id}>
-                            <Table.Row
-                              variant={isExpanded ? 'selected' : 'default'}
-                              className="cursor-pointer border-b border-kumo-line/80 hover:bg-kumo-recessed/15"
-                              onClick={() => toggleServerExpand(server.id)}
-                              onContextMenu={(event) => {
-                                event.preventDefault();
-                                event.stopPropagation();
-                                openEditServerModal(server);
-                              }}
-                            >
+                            <ContextMenu.Root>
+                              <ContextMenu.Trigger
+                                render={(
+                                  <Table.Row
+                                    variant={isExpanded ? 'selected' : 'default'}
+                                    className="cursor-pointer border-b border-kumo-line/80 hover:bg-kumo-recessed/15"
+                                    onClick={() => toggleServerExpand(server.id)}
+                                  >
                               {isCompactColumnVisible('status') && (
                                 <Table.Cell className="!px-2 !py-1.5 text-center whitespace-nowrap">
                                   <Badge variant={server.status === 'online' ? 'success' : 'error'} appearance="dot">
@@ -5413,7 +5487,11 @@ function ServerPage() {
                                   </div>
                                 </Table.Cell>
                               )}
-                            </Table.Row>
+                                  </Table.Row>
+                                )}
+                              />
+                              {renderServerContextMenu(server)}
+                            </ContextMenu.Root>
 
                             {shouldRenderExpandedRow && (
                               <CompactExpandedRow open={isExpanded} colSpan={visibleCompactColumnDefs.length}>
@@ -5619,7 +5697,7 @@ function ServerPage() {
                 const chartLoading = !!server.metricsLoading && records.length === 0;
                 const terminalProtocol = resolveTerminalProtocol(server);
                 const effectiveTerminalProtocol = terminalProtocol || (hasSshEndpoint(server) ? 'ssh' : null);
-                const terminalLabel = effectiveTerminalProtocol === 'agent' ? 'Agent 终端' : 'SSH 终端';
+                const terminalLabel = effectiveTerminalProtocol === 'agent' ? 'Agent 隧道终端' : 'SSH 终端';
                 const primaryDisk = server.info?.disk?.[0];
                 const cpuUsage = clampPercent(toNumber(server.info?.cpu?.Usage, 0));
                 const memUsage = clampPercent(toNumber(server.info?.memory?.Usage, 0));
@@ -6094,77 +6172,7 @@ function ServerPage() {
                     </AnimatedCollapse>
                     </ContextMenu.Trigger>
 
-                    <ContextMenu.Portal>
-                      <ContextMenu.Positioner sideOffset={6}>
-                        <ContextMenu.Popup className="z-50 min-w-40 overflow-hidden rounded-lg border border-kumo-line bg-kumo-control p-1.5 text-kumo-default outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95">
-                          <ContextMenu.Item
-                            className="relative flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-hidden select-none focus:text-kumo-default focus:ring-kumo-focus/50 focus-visible:ring-2 focus-visible:ring-kumo-brand data-disabled:pointer-events-none data-disabled:opacity-50 data-highlighted:bg-kumo-overlay"
-                            disabled={server.status !== 'online' || server.loading}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              refreshServerInfo(server.id);
-                            }}
-                          >
-                            <RefreshCw className="h-4 w-4" />
-                            <span>刷新详情</span>
-                          </ContextMenu.Item>
-                          <ContextMenu.Item
-                            className="relative flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-hidden select-none focus:text-kumo-default focus:ring-kumo-focus/50 focus-visible:ring-2 focus-visible:ring-kumo-brand data-disabled:pointer-events-none data-disabled:opacity-50 data-highlighted:bg-kumo-overlay"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              showAgentInstallModal(server.id);
-                            }}
-                          >
-                            <Shield className="h-4 w-4" />
-                            <span>部署 Agent</span>
-                          </ContextMenu.Item>
-                          <ContextMenu.Item
-                            className="relative flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-hidden select-none focus:text-kumo-default focus:ring-kumo-focus/50 focus-visible:ring-2 focus-visible:ring-kumo-brand data-disabled:pointer-events-none data-disabled:opacity-50 data-highlighted:bg-kumo-overlay"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              openEditServerModal(server);
-                            }}
-                          >
-                            <Edit className="h-4 w-4" />
-                            <span>编辑主机</span>
-                          </ContextMenu.Item>
-                          <ContextMenu.Separator className="mx-1 my-1 h-px bg-kumo-line" />
-                          <ContextMenu.Item
-                            className="relative flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-hidden select-none focus:text-kumo-default focus:ring-kumo-focus/50 focus-visible:ring-2 focus-visible:ring-kumo-brand data-disabled:pointer-events-none data-disabled:opacity-50 data-highlighted:bg-kumo-overlay"
-                            disabled={server.status !== 'online'}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              runServerPowerAction(server.id, 'reboot');
-                            }}
-                          >
-                            <Reboot className="h-4 w-4" />
-                            <span>重启主机</span>
-                          </ContextMenu.Item>
-                          <ContextMenu.Item
-                            className="relative flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm text-kumo-danger outline-hidden select-none focus:text-kumo-danger focus:ring-kumo-focus/50 focus-visible:ring-2 focus-visible:ring-kumo-brand data-disabled:pointer-events-none data-disabled:opacity-50 data-highlighted:bg-kumo-danger/5 data-highlighted:text-kumo-danger"
-                            disabled={server.status !== 'online'}
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              runServerPowerAction(server.id, 'shutdown');
-                            }}
-                          >
-                            <X className="h-4 w-4" />
-                            <span>关闭主机</span>
-                          </ContextMenu.Item>
-                          <ContextMenu.Separator className="mx-1 my-1 h-px bg-kumo-line" />
-                          <ContextMenu.Item
-                            className="relative flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm text-kumo-danger outline-hidden select-none focus:text-kumo-danger focus:ring-kumo-focus/50 focus-visible:ring-2 focus-visible:ring-kumo-brand data-disabled:pointer-events-none data-disabled:opacity-50 data-highlighted:bg-kumo-danger/5 data-highlighted:text-kumo-danger"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              deleteServer(server.id);
-                            }}
-                          >
-                            <Trash className="h-4 w-4" />
-                            <span>删除主机</span>
-                          </ContextMenu.Item>
-                        </ContextMenu.Popup>
-                      </ContextMenu.Positioner>
-                    </ContextMenu.Portal>
+                    {renderServerContextMenu(server)}
                   </ContextMenu.Root>
                 );
               }))}

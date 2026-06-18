@@ -17,10 +17,11 @@ import (
 )
 
 type terminalWSMessage struct {
-	Type string `json:"type"`
-	Data string `json:"data,omitempty"`
-	Cols int    `json:"cols,omitempty"`
-	Rows int    `json:"rows,omitempty"`
+	Type      string `json:"type"`
+	Data      string `json:"data,omitempty"`
+	Cols      int    `json:"cols,omitempty"`
+	Rows      int    `json:"rows,omitempty"`
+	Transport string `json:"transport,omitempty"`
 }
 
 var sshTerminalUpgrader = websocket.Upgrader{
@@ -43,22 +44,11 @@ func (s *Service) handleSSHTerminal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	db, err := s.open(r.Context())
-	if err != nil {
-		response.Error(w, http.StatusInternalServerError, "database connection failed: "+err.Error())
-		return
+	transport := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("transport")))
+	if transport == "" {
+		transport = "auto"
 	}
-	defer db.Close()
-
-	cfg, err := s.getSFTPServerConfig(r, db, serverID)
-	if err != nil {
-		response.Error(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	if err := ensureTerminalAuthConfigured(cfg); err != nil {
-		response.Error(w, http.StatusBadRequest, err.Error())
-		return
-	}
+	_, agentOnline := s.registry.Get(serverID)
 
 	conn, err := sshTerminalUpgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -66,7 +56,126 @@ func (s *Service) handleSSHTerminal(w http.ResponseWriter, r *http.Request) {
 	}
 	defer conn.Close()
 
+	if (transport == "auto" || transport == "agent") && agentOnline {
+		s.runAgentTerminalSession(r, conn, serverID)
+		return
+	}
+	if transport == "agent" {
+		_ = conn.WriteJSON(terminalWSMessage{Type: "error", Data: "AGENT_OFFLINE: agent is not connected", Transport: "agent"})
+		return
+	}
+
+	db, err := s.open(r.Context())
+	if err != nil {
+		_ = conn.WriteJSON(terminalWSMessage{Type: "error", Data: "database connection failed: " + err.Error(), Transport: "ssh"})
+		return
+	}
+	defer db.Close()
+
+	cfg, err := s.getSFTPServerConfig(r, db, serverID)
+	if err != nil {
+		_ = conn.WriteJSON(terminalWSMessage{Type: "error", Data: err.Error(), Transport: "ssh"})
+		return
+	}
+	if err := ensureTerminalAuthConfigured(cfg); err != nil {
+		_ = conn.WriteJSON(terminalWSMessage{Type: "error", Data: err.Error(), Transport: "ssh"})
+		return
+	}
+
 	s.runSSHTerminalSession(r, conn, cfg)
+}
+
+func (s *Service) runAgentTerminalSession(r *http.Request, conn *websocket.Conn, serverID string) {
+	writeMu := &sync.Mutex{}
+	writeJSON := func(msg terminalWSMessage) bool {
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		_ = conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+		return conn.WriteJSON(msg) == nil
+	}
+
+	agentConn, ok := s.registry.Get(serverID)
+	if !ok {
+		writeJSON(terminalWSMessage{Type: "error", Data: "AGENT_OFFLINE: agent is not connected", Transport: "agent"})
+		return
+	}
+
+	ptyID := strings.TrimSpace(firstNonEmptyString(
+		r.URL.Query().Get("session_id"),
+		r.URL.Query().Get("sessionId"),
+	))
+	if ptyID == "" {
+		ptyID = fmt.Sprintf("pty-%d", time.Now().UnixNano())
+	}
+
+	cols := intQuery(r, "cols", 120)
+	rows := intQuery(r, "rows", 32)
+	if s.ptyHub == nil {
+		s.ptyHub = newPtyDataHub()
+	}
+	dataCh, cancel := s.ptyHub.Subscribe(ptyID)
+	defer cancel()
+
+	dataBytes, _ := json.Marshal(map[string]int{"cols": cols, "rows": rows})
+	if err := agentConn.SendEvent("dashboard:task", map[string]interface{}{
+		"id":      ptyID,
+		"type":    12,
+		"data":    string(dataBytes),
+		"timeout": 0,
+	}); err != nil {
+		writeJSON(terminalWSMessage{Type: "error", Data: "AGENT_PTY_START_FAILED: " + err.Error(), Transport: "agent"})
+		return
+	}
+
+	done := make(chan struct{})
+	var closeOnce sync.Once
+	closeDone := func() { closeOnce.Do(func() { close(done) }) }
+
+	go func() {
+		defer closeDone()
+		for data := range dataCh {
+			if !writeJSON(terminalWSMessage{Type: "data", Data: data, Transport: "agent"}) {
+				return
+			}
+		}
+	}()
+
+	writeJSON(terminalWSMessage{Type: "status", Data: "connected", Transport: "agent"})
+
+	for {
+		select {
+		case <-done:
+			return
+		default:
+		}
+
+		_, payload, err := conn.ReadMessage()
+		if err != nil {
+			closeDone()
+			return
+		}
+		var msg terminalWSMessage
+		if err := json.Unmarshal(payload, &msg); err != nil {
+			continue
+		}
+		switch msg.Type {
+		case "input":
+			if msg.Data != "" {
+				_ = agentConn.SendEvent("dashboard:pty_input", map[string]interface{}{
+					"id":   ptyID,
+					"data": msg.Data,
+				})
+			}
+		case "resize":
+			if msg.Cols > 0 && msg.Rows > 0 {
+				_ = agentConn.SendEvent("dashboard:pty_resize", map[string]interface{}{
+					"id":   ptyID,
+					"cols": msg.Cols,
+					"rows": msg.Rows,
+				})
+			}
+		}
+	}
 }
 
 func (s *Service) runSSHTerminalSession(r *http.Request, conn *websocket.Conn, cfg sftpServerConfig) {
@@ -134,7 +243,7 @@ func (s *Service) runSSHTerminalSession(r *http.Request, conn *websocket.Conn, c
 		writeJSON(terminalWSMessage{Type: "error", Data: fmt.Sprintf("SHELL_FAILED: %v", err)})
 		return
 	}
-	writeJSON(terminalWSMessage{Type: "status", Data: "connected"})
+	writeJSON(terminalWSMessage{Type: "status", Data: "connected", Transport: "ssh"})
 
 	done := make(chan struct{})
 	var closeOnce sync.Once

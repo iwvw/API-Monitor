@@ -3,6 +3,7 @@ package serveragent
 import (
 	"bytes"
 	"database/sql"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -285,6 +286,11 @@ func (s *Service) handleSFTPList(w http.ResponseWriter, r *http.Request, db *sql
 		return
 	}
 
+	if s.hasAgentConnection(req.ServerID) {
+		s.handleAgentFileList(w, req.ServerID, req.Path)
+		return
+	}
+
 	client, cleanup, err := s.openSFTPClient(r, db, req.ServerID)
 	if err != nil {
 		writeSFTPError(w, err)
@@ -325,6 +331,11 @@ func (s *Service) handleSFTPRead(w http.ResponseWriter, r *http.Request, db *sql
 		return
 	}
 
+	if s.hasAgentConnection(req.ServerID) {
+		s.handleAgentFileRead(w, req.ServerID, req.Path)
+		return
+	}
+
 	client, cleanup, err := s.openSFTPClient(r, db, req.ServerID)
 	if err != nil {
 		writeSFTPError(w, err)
@@ -355,6 +366,11 @@ func (s *Service) handleSFTPWrite(w http.ResponseWriter, r *http.Request, db *sq
 		return
 	}
 
+	if s.hasAgentConnection(req.ServerID) {
+		s.handleAgentFileWrite(w, req.ServerID, req.Path, req.Content)
+		return
+	}
+
 	client, cleanup, err := s.openSFTPClient(r, db, req.ServerID)
 	if err != nil {
 		writeSFTPError(w, err)
@@ -378,6 +394,11 @@ func (s *Service) handleSFTPMkdir(w http.ResponseWriter, r *http.Request, db *sq
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		response.Error(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if s.hasAgentConnection(req.ServerID) {
+		s.handleAgentFileMkdir(w, req.ServerID, req.Path)
 		return
 	}
 
@@ -408,6 +429,11 @@ func (s *Service) handleSFTPRename(w http.ResponseWriter, r *http.Request, db *s
 		return
 	}
 
+	if s.hasAgentConnection(req.ServerID) {
+		s.handleAgentFileRename(w, req.ServerID, req.OldPath, req.NewPath)
+		return
+	}
+
 	client, cleanup, err := s.openSFTPClient(r, db, req.ServerID)
 	if err != nil {
 		writeSFTPError(w, err)
@@ -431,6 +457,11 @@ func (s *Service) handleSFTPDelete(w http.ResponseWriter, r *http.Request, db *s
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		response.Error(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if s.hasAgentConnection(req.ServerID) {
+		s.handleAgentFileDelete(w, req.ServerID, req.Path, false)
 		return
 	}
 
@@ -458,6 +489,11 @@ func (s *Service) handleSFTPRmdir(w http.ResponseWriter, r *http.Request, db *sq
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		response.Error(w, http.StatusBadRequest, "invalid request body")
+		return
+	}
+
+	if s.hasAgentConnection(req.ServerID) {
+		s.handleAgentFileDelete(w, req.ServerID, req.Path, req.Recursive)
 		return
 	}
 
@@ -499,6 +535,11 @@ func (s *Service) handleSFTPChmod(w http.ResponseWriter, r *http.Request, db *sq
 		response.Error(w, http.StatusBadRequest, "invalid chmod mode")
 		return
 	}
+	if s.hasAgentConnection(req.ServerID) {
+		s.handleAgentFileChmod(w, req.ServerID, req.Path, uint32(mode))
+		return
+	}
+
 	client, cleanup, err := s.openSFTPClient(r, db, req.ServerID)
 	if err != nil {
 		writeSFTPError(w, err)
@@ -530,16 +571,26 @@ func (s *Service) handleSFTPUpload(w http.ResponseWriter, r *http.Request, db *s
 	}
 	defer file.Close()
 
+	target := pathpkg.Join(remoteDir, header.Filename)
+	if relativePath != "" {
+		target = pathpkg.Join(remoteDir, relativePath)
+	}
+	if s.hasAgentConnection(serverID) {
+		var buf bytes.Buffer
+		if _, err := io.Copy(&buf, file); err != nil {
+			writeSFTPError(w, err)
+			return
+		}
+		s.handleAgentFileWrite(w, serverID, target, buf.String())
+		return
+	}
+
 	client, cleanup, err := s.openSFTPClient(r, db, serverID)
 	if err != nil {
 		writeSFTPError(w, err)
 		return
 	}
 	defer cleanup()
-	target := pathpkg.Join(remoteDir, header.Filename)
-	if relativePath != "" {
-		target = pathpkg.Join(remoteDir, relativePath)
-	}
 	if err := client.MkdirAll(pathpkg.Dir(target)); err != nil {
 		writeSFTPError(w, err)
 		return
@@ -566,6 +617,11 @@ func (s *Service) handleSFTPDownload(w http.ResponseWriter, r *http.Request, db 
 		response.Error(w, http.StatusBadRequest, "serverId and path required")
 		return
 	}
+	if s.hasAgentConnection(serverID) {
+		s.handleAgentFileDownload(w, serverID, remotePath)
+		return
+	}
+
 	client, cleanup, err := s.openSFTPClient(r, db, serverID)
 	if err != nil {
 		writeSFTPError(w, err)
@@ -592,6 +648,193 @@ func (s *Service) handleSFTPDownload(w http.ResponseWriter, r *http.Request, db 
 	w.Header().Set("Content-Length", strconv.FormatInt(stat.Size(), 10))
 	w.WriteHeader(http.StatusOK)
 	_, _ = io.Copy(w, file)
+}
+
+const (
+	agentFileListTask          = 30
+	agentFileReadTask          = 31
+	agentFileWriteTask         = 32
+	agentFileMkdirTask         = 33
+	agentFileDeleteTask        = 34
+	agentFileRenameTask        = 35
+	agentFileChmodTask         = 37
+	agentFileDownloadChunkTask = 38
+	agentFileTimeout           = 30 * time.Second
+	agentFileChunkSize         = 1024 * 1024
+)
+
+func (s *Service) hasAgentConnection(serverID string) bool {
+	_, ok := s.registry.Get(serverID)
+	return ok
+}
+
+func (s *Service) runAgentFileTask(serverID string, taskType int, payload map[string]interface{}, timeout time.Duration) (string, error) {
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return "", fmt.Errorf("AGENT_FILE_ERROR: %w", err)
+	}
+	result, err := s.runAgentTaskAndWait(serverID, taskType, string(data), timeout)
+	if err != nil {
+		return "", fmt.Errorf("AGENT_FILE_ERROR: %w", err)
+	}
+	return result, nil
+}
+
+func (s *Service) handleAgentFileList(w http.ResponseWriter, serverID, remotePath string) {
+	result, err := s.runAgentFileTask(serverID, agentFileListTask, map[string]interface{}{
+		"path": normalizeRemotePath(remotePath),
+	}, agentFileTimeout)
+	if err != nil {
+		writeSFTPError(w, err)
+		return
+	}
+
+	var parsed struct {
+		Files []map[string]interface{} `json:"files"`
+		Cwd   string                   `json:"cwd"`
+	}
+	if err := json.Unmarshal([]byte(result), &parsed); err != nil {
+		writeSFTPError(w, fmt.Errorf("AGENT_FILE_ERROR: %w", err))
+		return
+	}
+	if parsed.Files == nil {
+		parsed.Files = []map[string]interface{}{}
+	}
+	response.JSON(w, http.StatusOK, map[string]interface{}{
+		"success":   true,
+		"transport": "agent",
+		"data":      parsed.Files,
+		"files":     parsed.Files,
+		"path":      firstNonEmpty(parsed.Cwd, normalizeRemotePath(remotePath)),
+	})
+}
+
+func (s *Service) handleAgentFileRead(w http.ResponseWriter, serverID, remotePath string) {
+	content, err := s.runAgentFileTask(serverID, agentFileReadTask, map[string]interface{}{
+		"path":    normalizeRemotePath(remotePath),
+		"maxSize": int64(1024 * 1024),
+	}, agentFileTimeout)
+	if err != nil {
+		writeSFTPError(w, err)
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]interface{}{
+		"success":   true,
+		"transport": "agent",
+		"data":      content,
+		"content":   content,
+	})
+}
+
+func (s *Service) handleAgentFileWrite(w http.ResponseWriter, serverID, remotePath, content string) {
+	message, err := s.runAgentFileTask(serverID, agentFileWriteTask, map[string]interface{}{
+		"path":    normalizeRemotePath(remotePath),
+		"content": content,
+	}, agentFileTimeout)
+	if err != nil {
+		writeSFTPError(w, err)
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]interface{}{
+		"success":   true,
+		"transport": "agent",
+		"message":   firstNonEmpty(message, "file saved"),
+		"path":      normalizeRemotePath(remotePath),
+	})
+}
+
+func (s *Service) handleAgentFileMkdir(w http.ResponseWriter, serverID, remotePath string) {
+	message, err := s.runAgentFileTask(serverID, agentFileMkdirTask, map[string]interface{}{
+		"path": normalizeRemotePath(remotePath),
+	}, agentFileTimeout)
+	if err != nil {
+		writeSFTPError(w, err)
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]interface{}{
+		"success":   true,
+		"transport": "agent",
+		"message":   firstNonEmpty(message, "directory created"),
+	})
+}
+
+func (s *Service) handleAgentFileRename(w http.ResponseWriter, serverID, oldPath, newPath string) {
+	message, err := s.runAgentFileTask(serverID, agentFileRenameTask, map[string]interface{}{
+		"oldPath": normalizeRemotePath(oldPath),
+		"newPath": normalizeRemotePath(newPath),
+	}, agentFileTimeout)
+	if err != nil {
+		writeSFTPError(w, err)
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]interface{}{
+		"success":   true,
+		"transport": "agent",
+		"message":   firstNonEmpty(message, "file renamed"),
+	})
+}
+
+func (s *Service) handleAgentFileDelete(w http.ResponseWriter, serverID, remotePath string, recursive bool) {
+	message, err := s.runAgentFileTask(serverID, agentFileDeleteTask, map[string]interface{}{
+		"path":      normalizeRemotePath(remotePath),
+		"recursive": recursive,
+	}, agentFileTimeout)
+	if err != nil {
+		writeSFTPError(w, err)
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]interface{}{
+		"success":   true,
+		"transport": "agent",
+		"message":   firstNonEmpty(message, "file deleted"),
+	})
+}
+
+func (s *Service) handleAgentFileChmod(w http.ResponseWriter, serverID, remotePath string, mode uint32) {
+	message, err := s.runAgentFileTask(serverID, agentFileChmodTask, map[string]interface{}{
+		"path": normalizeRemotePath(remotePath),
+		"mode": mode,
+	}, agentFileTimeout)
+	if err != nil {
+		writeSFTPError(w, err)
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]interface{}{
+		"success":   true,
+		"transport": "agent",
+		"message":   firstNonEmpty(message, "permissions changed"),
+	})
+}
+
+func (s *Service) handleAgentFileDownload(w http.ResponseWriter, serverID, remotePath string) {
+	filename := pathpkg.Base(remotePath)
+	w.Header().Set("Content-Type", mime.TypeByExtension(filepath.Ext(filename)))
+	if w.Header().Get("Content-Type") == "" {
+		w.Header().Set("Content-Type", "application/octet-stream")
+	}
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, strings.ReplaceAll(filename, `"`, "")))
+	w.WriteHeader(http.StatusOK)
+
+	for offset := int64(0); ; offset += agentFileChunkSize {
+		encoded, err := s.runAgentFileTask(serverID, agentFileDownloadChunkTask, map[string]interface{}{
+			"path":   remotePath,
+			"offset": offset,
+			"size":   agentFileChunkSize,
+		}, agentFileTimeout)
+		if err != nil {
+			return
+		}
+		chunk, err := base64.StdEncoding.DecodeString(encoded)
+		if err != nil || len(chunk) == 0 {
+			return
+		}
+		if _, err := w.Write(chunk); err != nil {
+			return
+		}
+		if len(chunk) < agentFileChunkSize {
+			return
+		}
+	}
 }
 
 type sftpServerConfig struct {
@@ -1492,4 +1735,3 @@ func (s *Service) runAgentTaskAndWait(serverID string, taskType int, command str
 		}
 	}
 }
-

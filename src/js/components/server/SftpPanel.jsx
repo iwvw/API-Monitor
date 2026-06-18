@@ -4,6 +4,7 @@ import { Dialog } from '@cloudflare/kumo/components/dialog';
 import { Input, Textarea } from '@cloudflare/kumo/components/input';
 import { Table } from '@cloudflare/kumo/components/table';
 import { Popover } from '@cloudflare/kumo';
+import { ContextMenu } from '@cloudflare/kumo/primitives/context-menu';
 import { toast } from '../../modules/toast.js';
 import { dialog } from '../../modules/dialog.js';
 import { formatDateTime, formatFileSize } from '../../modules/utils.js';
@@ -19,6 +20,9 @@ import {
   writeSftpFile,
 } from '../../modules/server-sftp.js';
 import { ArrowLeft, Copy, Download, Edit, Eye, FileText, Folder, FolderOpen, Key, RefreshCw, Save, Trash, Upload, X } from '../Icons.jsx';
+
+const contextMenuItemClassName = 'relative flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-hidden select-none focus:text-kumo-default focus:ring-kumo-focus/50 focus-visible:ring-2 focus-visible:ring-kumo-brand data-disabled:pointer-events-none data-disabled:opacity-50 data-highlighted:bg-kumo-overlay';
+const contextMenuDangerItemClassName = 'relative flex cursor-default items-center gap-2 rounded-md px-2 py-1.5 text-sm text-kumo-danger outline-hidden select-none focus:text-kumo-danger focus:ring-kumo-focus/50 focus-visible:ring-2 focus-visible:ring-kumo-brand data-disabled:pointer-events-none data-disabled:opacity-50 data-highlighted:bg-kumo-danger/5 data-highlighted:text-kumo-danger';
 
 function buildBreadcrumbs(remotePath) {
   const normalized = String(remotePath || '/').replace(/\\/g, '/');
@@ -77,6 +81,46 @@ function FileActionMenu({ file, onOpen, onDownload, onRename, onChmod, onDelete 
         </div>
       </Popover.Content>
     </Popover>
+  );
+}
+
+function FileContextMenu({ file, children, onOpen, onDownload, onCopyPath, onRename, onChmod, onDelete }) {
+  return (
+    <ContextMenu.Root>
+      <ContextMenu.Trigger render={children} />
+      <ContextMenu.Portal>
+        <ContextMenu.Positioner sideOffset={6}>
+          <ContextMenu.Popup className="z-50 min-w-44 overflow-hidden rounded-lg border border-kumo-line bg-kumo-control p-1.5 text-kumo-default outline-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95">
+            <ContextMenu.Item className={contextMenuItemClassName} onClick={onOpen}>
+              <Eye className="h-4 w-4" />
+              <span>{file.isDirectory ? '打开目录' : '打开文件'}</span>
+            </ContextMenu.Item>
+            <ContextMenu.Item className={contextMenuItemClassName} disabled={file.isDirectory || !onDownload} onClick={onDownload}>
+              <Download className="h-4 w-4" />
+              <span>下载</span>
+            </ContextMenu.Item>
+            <ContextMenu.Item className={contextMenuItemClassName} onClick={onCopyPath}>
+              <Copy className="h-4 w-4" />
+              <span>复制路径</span>
+            </ContextMenu.Item>
+            <ContextMenu.Separator className="mx-1 my-1 h-px bg-kumo-line" />
+            <ContextMenu.Item className={contextMenuItemClassName} onClick={onRename}>
+              <Edit className="h-4 w-4" />
+              <span>重命名</span>
+            </ContextMenu.Item>
+            <ContextMenu.Item className={contextMenuItemClassName} onClick={onChmod}>
+              <Key className="h-4 w-4" />
+              <span>权限</span>
+            </ContextMenu.Item>
+            <ContextMenu.Separator className="mx-1 my-1 h-px bg-kumo-line" />
+            <ContextMenu.Item className={contextMenuDangerItemClassName} onClick={onDelete}>
+              <Trash className="h-4 w-4" />
+              <span>删除</span>
+            </ContextMenu.Item>
+          </ContextMenu.Popup>
+        </ContextMenu.Positioner>
+      </ContextMenu.Portal>
+    </ContextMenu.Root>
   );
 }
 
@@ -246,6 +290,15 @@ export default function SftpPanel({ serverId, serverName, initialPath = '.', onC
     }
   };
 
+  const copyPath = async (file) => {
+    try {
+      await navigator.clipboard.writeText(file.path);
+      toast.success('路径已复制');
+    } catch {
+      toast.error('复制路径失败');
+    }
+  };
+
   return (
     <>
       <div className="flex h-full min-h-0 flex-col border-t border-kumo-line bg-kumo-base">
@@ -312,31 +365,47 @@ export default function SftpPanel({ serverId, serverName, initialPath = '.', onC
                           <div className="py-10 text-center text-xs text-kumo-subtle">当前目录为空</div>
                         </Table.Cell>
                       </Table.Row>
-                    ) : files.map(file => (
-                      <Table.Row key={file.path} className={file.isDirectory ? '' : ''}>
-                        <Table.Cell className="min-w-0">
-                          <button type="button" className="flex min-w-0 items-center gap-2 text-left" onClick={() => openFile(file)} title={file.path}>
-                            {file.isDirectory ? <Folder className="h-3.5 w-3.5 shrink-0 text-kumo-brand" /> : <FileText className="h-3.5 w-3.5 shrink-0 text-kumo-subtle" />}
-                            <span className="truncate font-medium text-kumo-strong">{file.name}</span>
-                          </button>
-                        </Table.Cell>
-                        <Table.Cell className="whitespace-nowrap font-mono text-[10px]">{file.isDirectory ? '-' : formatFileSize(file.size)}</Table.Cell>
-                        <Table.Cell className="whitespace-nowrap text-[10px]">{file.mtime ? formatDateTime(file.mtime) : '-'}</Table.Cell>
-                        <Table.Cell className="whitespace-nowrap font-mono text-[10px]">{file.permissions || '-'}</Table.Cell>
-                        <Table.Cell>
-                          <div className="flex justify-end gap-1">
-                            <FileActionMenu
-                              file={file}
-                              onOpen={() => openFile(file)}
-                              onDownload={!file.isDirectory ? buildSftpDownloadUrl(serverId, file.path) : null}
-                              onRename={() => { setRenameFile(file); setRenameValue(file.name); }}
-                              onChmod={() => { setChmodFile(file); setChmodValue(String(file.mode ? (file.mode & 0o777).toString(8) : '644')); }}
-                              onDelete={() => deletePath(file)}
-                            />
-                          </div>
-                        </Table.Cell>
-                      </Table.Row>
-                    ))}
+                    ) : files.map(file => {
+                      const downloadUrl = !file.isDirectory ? buildSftpDownloadUrl(serverId, file.path) : null;
+                      const startRename = () => { setRenameFile(file); setRenameValue(file.name); };
+                      const startChmod = () => { setChmodFile(file); setChmodValue(String(file.mode ? (file.mode & 0o777).toString(8) : '644')); };
+                      return (
+                        <FileContextMenu
+                          key={file.path}
+                          file={file}
+                          onOpen={() => openFile(file)}
+                          onDownload={downloadUrl ? () => window.open(downloadUrl, '_blank', 'noopener') : null}
+                          onCopyPath={() => copyPath(file)}
+                          onRename={startRename}
+                          onChmod={startChmod}
+                          onDelete={() => deletePath(file)}
+                        >
+                          <Table.Row className="hover:bg-kumo-recessed/15">
+                            <Table.Cell className="min-w-0">
+                              <button type="button" className="flex min-w-0 items-center gap-2 text-left" onClick={() => openFile(file)} title={file.path}>
+                                {file.isDirectory ? <Folder className="h-3.5 w-3.5 shrink-0 text-kumo-brand" /> : <FileText className="h-3.5 w-3.5 shrink-0 text-kumo-subtle" />}
+                                <span className="truncate font-medium text-kumo-strong">{file.name}</span>
+                              </button>
+                            </Table.Cell>
+                            <Table.Cell className="whitespace-nowrap font-mono text-[10px]">{file.isDirectory ? '-' : formatFileSize(file.size)}</Table.Cell>
+                            <Table.Cell className="whitespace-nowrap text-[10px]">{file.mtime ? formatDateTime(file.mtime) : '-'}</Table.Cell>
+                            <Table.Cell className="whitespace-nowrap font-mono text-[10px]">{file.permissions || '-'}</Table.Cell>
+                            <Table.Cell>
+                              <div className="flex justify-end gap-1">
+                                <FileActionMenu
+                                  file={file}
+                                  onOpen={() => openFile(file)}
+                                  onDownload={downloadUrl}
+                                  onRename={startRename}
+                                  onChmod={startChmod}
+                                  onDelete={() => deletePath(file)}
+                                />
+                              </div>
+                            </Table.Cell>
+                          </Table.Row>
+                        </FileContextMenu>
+                      );
+                    })}
                   </Table.Body>
                 </Table>
               )}
@@ -348,14 +417,19 @@ export default function SftpPanel({ serverId, serverName, initialPath = '.', onC
       </div>
 
       <Dialog.Root open={editorOpen && Boolean(editFile)} onOpenChange={(open) => (open ? setEditorOpen(true) : requestCloseEditor())}>
-        <Dialog size="xl" className="flex max-h-[calc(100dvh-1rem)] flex-col overflow-hidden p-0">
+        <Dialog size="xl" className="flex h-[min(72dvh,720px)] w-[min(920px,calc(100vw-2rem))] max-h-[calc(100dvh-1rem)] max-w-none flex-col overflow-hidden p-0">
           <div className="flex items-center justify-between gap-3 border-b border-kumo-line px-4 py-3">
             <Dialog.Title className="min-w-0 truncate text-sm font-bold text-kumo-strong">编辑 {editFile?.name}</Dialog.Title>
             <Dialog.Close />
           </div>
-          <div className="space-y-2 overflow-y-auto p-4">
-            <div className="truncate font-mono text-[10px] text-kumo-subtle">{editFile?.path}</div>
-            <Textarea aria-label="SFTP 文件内容" value={editFile?.content || ''} onChange={event => setEditFile(prev => ({ ...prev, content: event.target.value }))} className="min-h-96 font-mono text-xs" />
+          <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden p-4">
+            <div className="shrink-0 truncate font-mono text-[10px] text-kumo-subtle">{editFile?.path}</div>
+            <Textarea
+              aria-label="SFTP 文件内容"
+              value={editFile?.content || ''}
+              onChange={event => setEditFile(prev => ({ ...prev, content: event.target.value }))}
+              className="h-full min-h-0 w-full flex-1 resize-none overflow-auto font-mono text-xs"
+            />
           </div>
           <div className="flex justify-end gap-2 border-t border-kumo-line px-4 py-3">
             <Button size="sm" variant="secondary" onClick={requestCloseEditor}>取消</Button>
