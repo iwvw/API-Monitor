@@ -127,6 +127,7 @@ func TestGeminiCliLifecycle(t *testing.T) {
 
 	// Override URL to mock upstream
 	s.codeAssistBase = mockUpstream.URL + "/"
+	s.oauthTokenUrl = mockOAuth.URL
 
 	db, err := s.open(context.Background())
 	if err != nil {
