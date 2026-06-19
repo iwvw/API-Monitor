@@ -79,6 +79,13 @@ func Logger() *slog.Logger {
 	return logger
 }
 
+func SetLogger(l *slog.Logger) {
+	mu.Lock()
+	defer mu.Unlock()
+	logger = l
+	slog.SetDefault(l)
+}
+
 func WithModule(module string) *slog.Logger {
 	return Logger().With("module", module)
 }

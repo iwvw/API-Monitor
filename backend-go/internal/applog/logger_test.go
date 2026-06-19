@@ -46,10 +46,10 @@ func TestMiddlewarePreservesWebSocketHijacker(t *testing.T) {
 
 func TestMiddlewareSkipsCodexDiscoveryNoise(t *testing.T) {
 	var buf bytes.Buffer
-	previous := logger
-	logger = slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	previous := Logger()
+	SetLogger(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})))
 	defer func() {
-		logger = previous
+		SetLogger(previous)
 	}()
 
 	handler := Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -68,10 +68,10 @@ func TestMiddlewareSkipsCodexDiscoveryNoise(t *testing.T) {
 
 func TestMiddlewareLogsNormalAPIRequest(t *testing.T) {
 	var buf bytes.Buffer
-	previous := logger
-	logger = slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	previous := Logger()
+	SetLogger(slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo})))
 	defer func() {
-		logger = previous
+		SetLogger(previous)
 	}()
 
 	handler := Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
