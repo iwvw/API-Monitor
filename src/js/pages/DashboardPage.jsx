@@ -352,6 +352,16 @@ function DashboardPage({ onNavigate } = {}) {
 
     if (showLoading) setLoading(true);
 
+    const updateSegment = (key, value) => {
+      setStats((prev) => {
+        const next = { ...prev, [key]: value };
+        if (dashboardStatsCache) {
+          dashboardStatsCache.stats = next;
+        }
+        return next;
+      });
+    };
+
     const savedPassword = localStorage.getItem('admin_password') || '';
     const headers = {
       'Content-Type': 'application/json',
@@ -427,8 +437,9 @@ function DashboardPage({ onNavigate } = {}) {
       };
 
       const [koyeb, fly] = await Promise.all([fetchKoyeb(), fetchFly()]);
-
-      return { koyeb, fly };
+      const val = { koyeb, fly };
+      updateSegment('paas', val);
+      return val;
     };
 
     // 4. 获取 DNS 区域
@@ -436,13 +447,16 @@ function DashboardPage({ onNavigate } = {}) {
       try {
         const data = await fetchJson('/api/cloudflare/zones');
         if (data.success && Array.isArray(data.data)) {
-          return { zones: data.data.length };
+          const val = { zones: data.data.length };
+          updateSegment('dns', val);
+          return val;
         }
       } catch (e) {
         if (!isAbortError(e)) {
           console.error('[Dashboard] DNS fetch failed:', e);
         }
       }
+      updateSegment('dns', previousStats.dns);
       return previousStats.dns;
     };
 
@@ -469,12 +483,15 @@ function DashboardPage({ onNavigate } = {}) {
           }
         });
 
-        return { total: monitors.length, up, down };
+        const val = { total: monitors.length, up, down };
+        updateSegment('uptime', val);
+        return val;
       } catch (e) {
         if (!isAbortError(e)) {
           console.error('[Dashboard] Uptime fetch failed:', e);
         }
       }
+      updateSegment('uptime', previousStats.uptime);
       return previousStats.uptime;
     };
 
@@ -483,13 +500,16 @@ function DashboardPage({ onNavigate } = {}) {
       try {
         const data = await fetchJson('/api/filebox/history');
         if (data.success && Array.isArray(data.data)) {
-          return { total: data.data.length };
+          const val = { total: data.data.length };
+          updateSegment('filebox', val);
+          return val;
         }
       } catch (e) {
         if (!isAbortError(e)) {
           console.error('[Dashboard] Filebox fetch failed:', e);
         }
       }
+      updateSegment('filebox', previousStats.filebox);
       return previousStats.filebox;
     };
 
@@ -498,13 +518,16 @@ function DashboardPage({ onNavigate } = {}) {
       try {
         const data = await fetchJson('/api/totp/accounts');
         if (data.success && Array.isArray(data.data)) {
-          return { total: data.data.length };
+          const val = { total: data.data.length };
+          updateSegment('totp', val);
+          return val;
         }
       } catch (e) {
         if (!isAbortError(e)) {
           console.error('[Dashboard] TOTP fetch failed:', e);
         }
       }
+      updateSegment('totp', previousStats.totp);
       return previousStats.totp;
     };
 
@@ -512,14 +535,18 @@ function DashboardPage({ onNavigate } = {}) {
       try {
         const data = await fetchJson('/api/system/api-stats');
         if (data.success && data.data) {
-          return data.data;
+          const val = data.data;
+          updateSegment('apiStats', val);
+          return val;
         }
       } catch (e) {
         if (!isAbortError(e)) {
           console.error('[Dashboard] API stats fetch failed:', e);
         }
       }
-      return previousStats.apiStats || DEFAULT_DASHBOARD_STATS.apiStats;
+      const fallback = previousStats.apiStats || DEFAULT_DASHBOARD_STATS.apiStats;
+      updateSegment('apiStats', fallback);
+      return fallback;
     };
 
     const fetchServers = async () => {
@@ -527,19 +554,22 @@ function DashboardPage({ onNavigate } = {}) {
         const data = await fetchJson('/api/server/accounts');
         if (data.success && Array.isArray(data.data)) {
           const items = data.data.map(normalizeDashboardServer);
-          return {
+          const val = {
             total: items.length,
             online: items.filter((s) => s.status === 'online').length,
             offline: items.filter((s) => s.status === 'offline').length,
             error: items.filter((s) => s.status === 'error').length,
             items,
           };
+          updateSegment('servers', val);
+          return val;
         }
       } catch (e) {
         if (!isAbortError(e)) {
           console.error('[Dashboard] Servers fetch failed:', e);
         }
       }
+      updateSegment('servers', previousStats.servers);
       return previousStats.servers;
     };
 
