@@ -105,6 +105,12 @@ func EnsureCoreSchema(ctx context.Context, db *sql.DB) error {
 			public_api_url TEXT,
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 		)`,
+		`CREATE TABLE IF NOT EXISTS system_api_stats (
+			date TEXT PRIMARY KEY,
+			audit_count INTEGER DEFAULT 0,
+			ops_count INTEGER DEFAULT 0,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
 	}
 	for _, statement := range statements {
 		if _, err := db.ExecContext(ctx, statement); err != nil {

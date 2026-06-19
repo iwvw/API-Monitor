@@ -47,6 +47,10 @@ const DEFAULT_DASHBOARD_STATS = {
   uptime: { total: 0, up: 0, down: 0 },
   filebox: { total: 0 },
   totp: { total: 0 },
+  apiStats: {
+    total: { audit: 0, ops: 0, all: 0 },
+    trend: [],
+  },
 };
 
 const DASHBOARD_CACHE_TTL_MS = 30_000;
@@ -504,6 +508,20 @@ function DashboardPage({ onNavigate } = {}) {
       return previousStats.totp;
     };
 
+    const fetchApiStats = async () => {
+      try {
+        const data = await fetchJson('/api/system/api-stats');
+        if (data.success && data.data) {
+          return data.data;
+        }
+      } catch (e) {
+        if (!isAbortError(e)) {
+          console.error('[Dashboard] API stats fetch failed:', e);
+        }
+      }
+      return previousStats.apiStats || DEFAULT_DASHBOARD_STATS.apiStats;
+    };
+
     const fetchServers = async () => {
       try {
         const data = await fetchJson('/api/server/accounts');
@@ -532,6 +550,7 @@ function DashboardPage({ onNavigate } = {}) {
       fetchUptime(),
       fetchFilebox(),
       fetchTotp(),
+      fetchApiStats(),
     ]).then((results) => {
       const updatedStats = {
         host: dashboardHostMetricsCache || previousStats.host,
@@ -541,6 +560,7 @@ function DashboardPage({ onNavigate } = {}) {
         uptime: results[3].status === 'fulfilled' ? results[3].value : previousStats.uptime,
         filebox: results[4].status === 'fulfilled' ? results[4].value : previousStats.filebox,
         totp: results[5].status === 'fulfilled' ? results[5].value : previousStats.totp,
+        apiStats: results[6].status === 'fulfilled' ? results[6].value : previousStats.apiStats || DEFAULT_DASHBOARD_STATS.apiStats,
       };
       return {
         stats: updatedStats,
@@ -642,6 +662,36 @@ function DashboardPage({ onNavigate } = {}) {
     };
   }, []);
 
+
+  const apiTrend = stats.apiStats?.trend || [];
+  const apiTrendTotal = stats.apiStats?.total?.all || 0;
+  const apiTrendAudit = stats.apiStats?.total?.audit || 0;
+  const apiTrendOps = stats.apiStats?.total?.ops || 0;
+  const hasApiTrendCalls = apiTrend.length >= 2 && apiTrendTotal > 0;
+  
+  const apiStatsDetailText = apiTrendTotal > 0
+    ? `审计型 ${apiTrendAudit}次 (${Math.round((apiTrendAudit / apiTrendTotal) * 100)}%) / 操作型 ${apiTrendOps}次`
+    : '暂无系统 API 调用记录';
+  const apiTrendStatusText = apiTrendTotal > 0
+    ? `最近 7 天系统共处理了 ${apiTrendTotal} 次有效 API 请求`
+    : '最近 7 天暂无系统 API 调用记录';
+
+  const apiTrendChartData = useMemo(() => [
+    {
+      name: '审计 API (Audit)',
+      color: ChartPalette.semantic('Info', isDarkMode),
+      data: apiTrend
+        .map((point) => [parseTrendTimestamp(point), Number(point.audit) || 0])
+        .filter(([timestamp]) => Number.isFinite(timestamp)),
+    },
+    {
+      name: '操作 API (Ops)',
+      color: ChartPalette.semantic('Purple', isDarkMode),
+      data: apiTrend
+        .map((point) => [parseTrendTimestamp(point), Number(point.ops) || 0])
+        .filter(([timestamp]) => Number.isFinite(timestamp)),
+    },
+  ], [apiTrend, isDarkMode]);
 
   const hostCpuUsage = clampPercent(stats.host?.cpu?.usage);
   const hostMemoryUsage = clampPercent(stats.host?.memory?.usage);
@@ -759,6 +809,18 @@ function DashboardPage({ onNavigate } = {}) {
           detailClassName={uptimeDetailClassName}
         />
 
+        <DashboardOverviewCard
+          onClick={() => navigateToModule('settings')}
+          icon={Activity}
+          iconClassName="bg-kumo-brand/10 text-kumo-brand"
+          badge="系统 API"
+          badgeClassName="text-kumo-subtle bg-kumo-recessed border-kumo-line"
+          label="系统 API 调用"
+          value={apiTrendTotal}
+          unit="次"
+          detail={apiStatsDetailText}
+        />
+
       </div>
 
       {/* ==================== Detail Column Split ==================== */}
@@ -766,7 +828,54 @@ function DashboardPage({ onNavigate } = {}) {
         
         {/* Left Column: API Trend Graph + Host Performance */}
         <div className="grid min-w-0 gap-3 sm:gap-4">
+          <ChartCard className="flex min-h-0 flex-col sm:min-h-[260px] sm:p-5">
+            {(tooltipBoundary) => (
+              <>
+                <div className="flex items-center justify-between border-b border-kumo-line pb-2 sm:pb-3">
+                  <h3 className="text-xs font-semibold text-kumo-strong flex items-center gap-1.5 select-none sm:text-sm sm:gap-2">
+                    <Activity className="h-3.5 w-3.5 text-kumo-brand sm:h-4 sm:w-4" />
+                    系统 API 调用趋势
+                  </h3>
+                  <span className="text-[10px] text-kumo-subtle app-subcard bg-kumo-recessed px-2 py-0.5 rounded font-medium">
+                    最近 7 天
+                  </span>
+                </div>
 
+                <div className="min-w-0 pt-2 sm:pt-4">
+                  {loading || hasApiTrendCalls ? (
+                    <div className="min-w-0 overflow-hidden" style={{ height: apiChartHeight }}>
+                      <TimeseriesChart
+                        echarts={echarts}
+                        isDarkMode={isDarkMode}
+                        type="line"
+                        data={apiTrendChartData}
+                        height={apiChartHeight}
+                        xAxisName="时间"
+                        yAxisName="调用"
+                        xAxisTickCount={3}
+                        xAxisTickFormat={formatDashboardTime}
+                        yAxisTickFormat={(value) => `${Math.round(value)}`}
+                        tooltipValueFormat={(value) => `${Math.round(value)} 次`}
+                        tooltipBoundary={tooltipBoundary ?? undefined}
+                        tooltipFollowCursor="x"
+                        loading={loading && !hasApiTrendCalls}
+                        ariaDescription="最近 7 天系统 API 调用量"
+                      />
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-center text-center text-xs text-kumo-subtle" style={{ height: apiChartHeight }}>
+                      {apiTrendStatusText}
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-2 flex items-center gap-2 border-t border-kumo-line pt-2 text-[10px] text-kumo-subtle select-none sm:mt-3 sm:pt-3 sm:text-[11px]">
+                  <span className="w-1.5 h-1.5 rounded-full bg-kumo-brand flex-shrink-0" />
+                  <span>{apiTrendStatusText}</span>
+                </div>
+              </>
+            )}
+          </ChartCard>
 
           <AppCard padding="sm" className="sm:p-5">
             <div className="flex flex-col gap-2 border-b border-kumo-line pb-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:pb-3">

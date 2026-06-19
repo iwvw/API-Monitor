@@ -68,6 +68,7 @@ func Routes() []Route {
 		{Prefix: "/api/settings/clear-chat-messages", Module: "settings-database", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Legacy chat table cleanup"},
 		{Prefix: "/api/settings", Module: "settings", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "User settings read/update"},
 		{Prefix: "/api/system/host-metrics", Module: "system-host-metrics", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Local host CPU, memory, disk, and process metrics"},
+		{Prefix: "/api/system/api-stats", Module: "system-api-stats", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "System API call stats (audit & ops)"},
 		{Prefix: "/api/system", Module: "system", Owner: OwnerRetired, Auth: AuthSession, ResponseMode: ResponseProxy, Description: "System status routes (retired)"},
 		{Prefix: "/api/logs", Module: "logs", Owner: OwnerRetired, Auth: AuthSession, ResponseMode: ResponseProxy, Description: "Application log routes (retired)"},
 

@@ -63,7 +63,7 @@ func NewServer(cfg config.Config) *Server {
 		cfg:       cfg,
 		auth:      authService,
 		settings:  settings.New(cfg),
-		system:    systemmetrics.New(),
+		system:    systemmetrics.New(cfg),
 		totp:      totp.New(cfg),
 		cron:      cronjobs.New(cfg),
 		filebox:   filebox.New(cfg, authService),
@@ -82,6 +82,9 @@ func NewServer(cfg config.Config) *Server {
 func (s *Server) Shutdown(ctx context.Context) error {
 	if s.uptime != nil {
 		s.uptime.Stop()
+	}
+	if s.system != nil {
+		s.system.Shutdown()
 	}
 	if s.cron == nil {
 		return nil
@@ -109,6 +112,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			if !s.authorizeGoRoute(w, r, route) {
 				return
 			}
+			s.system.RecordAPICall(r.Method, r.URL.Path)
 			s.serveGoRoute(w, r, route)
 		case manifest.OwnerRetired:
 			// 友好的错误信息，区分已实现和未实现的功能
@@ -176,7 +180,7 @@ func (s *Server) serveGoRoute(w http.ResponseWriter, r *http.Request, route mani
 		s.auth.ServeHTTP(w, r)
 	case "/api/settings", "/api/settings/database-stats", "/api/settings/migration-self-check", "/api/settings/database-analysis", "/api/settings/export-database", "/api/settings/database/import", "/api/settings/import-database", "/api/settings/operation-logs", "/api/settings/sys-logs", "/api/settings/app-log-file", "/api/settings/log-settings", "/api/settings/clear-app-logs", "/api/settings/vacuum-database", "/api/settings/clear-logs", "/api/settings/enforce-log-limits", "/api/settings/clear-chat-messages":
 		s.settings.ServeHTTP(w, r)
-	case "/api/system/host-metrics":
+	case "/api/system/host-metrics", "/api/system/api-stats":
 		s.system.ServeHTTP(w, r)
 	case "/api/totp":
 		s.totp.ServeHTTP(w, r)

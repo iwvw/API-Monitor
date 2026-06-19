@@ -1,13 +1,17 @@
 package system
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"time"
 
+	"github.com/iwvw/api-monitor/backend-go/internal/config"
+	"github.com/iwvw/api-monitor/backend-go/internal/database"
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
 	"github.com/shirou/gopsutil/v4/cpu"
 	"github.com/shirou/gopsutil/v4/disk"
@@ -18,25 +22,242 @@ import (
 )
 
 type Service struct {
-	startedAt time.Time
+	cfg        config.Config
+	startedAt  time.Time
+	store      *database.Store
+
+	mu         sync.Mutex
+	statsCache map[string]*APICounters
+	stopChan   chan struct{}
+	wg         sync.WaitGroup
 }
 
-func New() *Service {
-	return &Service{startedAt: time.Now()}
+type APICounters struct {
+	Audit int64 `json:"audit"`
+	Ops   int64 `json:"ops"`
+}
+
+func New(cfg config.Config) *Service {
+	s := &Service{
+		cfg:        cfg,
+		startedAt:  time.Now(),
+		store:      database.New(cfg),
+		statsCache: make(map[string]*APICounters),
+		stopChan:   make(chan struct{}),
+	}
+
+	s.wg.Add(1)
+	go s.runFlushLoop()
+
+	return s
+}
+
+func (s *Service) runFlushLoop() {
+	defer s.wg.Done()
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			s.flushToDB()
+		case <-s.stopChan:
+			s.flushToDB()
+			return
+		}
+	}
+}
+
+func (s *Service) flushToDB() {
+	s.mu.Lock()
+	if len(s.statsCache) == 0 {
+		s.mu.Unlock()
+		return
+	}
+
+	// Copy counters to release the lock quickly
+	statsToSave := make(map[string]*APICounters)
+	for k, v := range s.statsCache {
+		statsToSave[k] = &APICounters{Audit: v.Audit, Ops: v.Ops}
+	}
+	s.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	db, err := s.store.Open(ctx)
+	if err != nil {
+		return
+	}
+	defer db.Close()
+
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.PrepareContext(ctx, `
+		INSERT INTO system_api_stats (date, audit_count, ops_count)
+		VALUES (?, ?, ?)
+		ON CONFLICT(date) DO UPDATE SET
+			audit_count = audit_count + excluded.audit_count,
+			ops_count = ops_count + excluded.ops_count,
+			updated_at = CURRENT_TIMESTAMP
+	`)
+	if err != nil {
+		return
+	}
+	defer stmt.Close()
+
+	for date, counters := range statsToSave {
+		if _, err := stmt.ExecContext(ctx, date, counters.Audit, counters.Ops); err != nil {
+			return
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return
+	}
+
+	// Subtract the successfully written values
+	s.mu.Lock()
+	for date, saved := range statsToSave {
+		if current, exists := s.statsCache[date]; exists {
+			current.Audit -= saved.Audit
+			current.Ops -= saved.Ops
+			if current.Audit <= 0 && current.Ops <= 0 {
+				delete(s.statsCache, date)
+			}
+		}
+	}
+	s.mu.Unlock()
+}
+
+func (s *Service) RecordAPICall(method string, path string) {
+	// Filter high-frequency heartbeat and stats queries
+	if path == "/api/system/host-metrics" || path == "/api/system/api-stats" || path == "/health" {
+		return
+	}
+
+	date := time.Now().Format("2006-01-02")
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	counters, exists := s.statsCache[date]
+	if !exists {
+		counters = &APICounters{}
+		s.statsCache[date] = counters
+	}
+
+	if method == http.MethodGet || method == http.MethodHead || method == http.MethodOptions {
+		counters.Audit++
+	} else {
+		counters.Ops++
+	}
 }
 
 func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet || r.URL.Path != "/api/system/host-metrics" {
-		response.Error(w, http.StatusNotFound, "system route not implemented")
+	if r.Method != http.MethodGet {
+		response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
 		return
 	}
 
-	payload, err := s.hostMetrics()
-	if err != nil {
-		response.Error(w, http.StatusInternalServerError, err.Error())
-		return
+	switch r.URL.Path {
+	case "/api/system/host-metrics":
+		payload, err := s.hostMetrics()
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		response.OK(w, payload)
+	case "/api/system/api-stats":
+		payload, err := s.apiStats()
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		response.OK(w, payload)
+	default:
+		response.Error(w, http.StatusNotFound, "system route not implemented")
 	}
-	response.OK(w, payload)
+}
+
+func (s *Service) apiStats() (map[string]interface{}, error) {
+	now := time.Now()
+	startDateStr := now.AddDate(0, 0, -6).Format("2006-01-02")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	db, err := s.store.Open(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer db.Close()
+
+	rows, err := db.QueryContext(ctx, `
+		SELECT date, audit_count, ops_count FROM system_api_stats
+		WHERE date >= ? ORDER BY date ASC
+	`, startDateStr)
+	if err != nil {
+		return nil, fmt.Errorf("query api stats: %w", err)
+	}
+	defer rows.Close()
+
+	dbData := make(map[string]*APICounters)
+	for rows.Next() {
+		var date string
+		var audit, ops int64
+		if err := rows.Scan(&date, &audit, &ops); err != nil {
+			return nil, err
+		}
+		dbData[date] = &APICounters{Audit: audit, Ops: ops}
+	}
+
+	trend := make([]map[string]interface{}, 0, 7)
+	var totalAudit, totalOps int64
+
+	s.mu.Lock()
+	for i := 0; i < 7; i++ {
+		day := now.AddDate(0, 0, -6+i).Format("2006-01-02")
+
+		var auditVal, opsVal int64
+		if dbVal, exists := dbData[day]; exists {
+			auditVal += dbVal.Audit
+			opsVal += dbVal.Ops
+		}
+		if memVal, exists := s.statsCache[day]; exists {
+			auditVal += memVal.Audit
+			opsVal += memVal.Ops
+		}
+
+		totalAudit += auditVal
+		totalOps += opsVal
+
+		trend = append(trend, map[string]interface{}{
+			"bucket": day,
+			"audit":  auditVal,
+			"ops":    opsVal,
+			"total":  auditVal + opsVal,
+		})
+	}
+	s.mu.Unlock()
+
+	return map[string]interface{}{
+		"total": map[string]interface{}{
+			"audit": totalAudit,
+			"ops":   totalOps,
+			"all":   totalAudit + totalOps,
+		},
+		"trend": trend,
+	}, nil
+}
+
+func (s *Service) Shutdown() {
+	close(s.stopChan)
+	s.wg.Wait()
 }
 
 func (s *Service) hostMetrics() (map[string]interface{}, error) {
