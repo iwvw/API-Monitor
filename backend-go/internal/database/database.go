@@ -6,13 +6,16 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
 	_ "modernc.org/sqlite"
 )
 
 type Store struct {
-	cfg config.Config
+	cfg        config.Config
+	schemaOnce sync.Once
+	schemaErr  error
 }
 
 func New(cfg config.Config) *Store {
@@ -40,9 +43,12 @@ func (s *Store) Open(ctx context.Context) (*sql.DB, error) {
 		db.Close()
 		return nil, fmt.Errorf("configure sqlite: %w", err)
 	}
-	if err := EnsureCoreSchema(ctx, db); err != nil {
+	s.schemaOnce.Do(func() {
+		s.schemaErr = EnsureCoreSchema(ctx, db)
+	})
+	if s.schemaErr != nil {
 		db.Close()
-		return nil, err
+		return nil, s.schemaErr
 	}
 	return db, nil
 }
