@@ -946,7 +946,7 @@ func loadUserSettings(ctx context.Context, db *sql.DB) (map[string]interface{}, 
 	if errors.Is(err, sql.ErrNoRows) {
 		if _, insertErr := db.ExecContext(ctx, `
 			INSERT OR IGNORE INTO user_settings (id, custom_css, module_visibility, module_order)
-			VALUES (1, '', '{"openai":true,"gemini-cli":true,"dns":true,"server":true}', '["openai","gemini-cli","dns","server"]')
+			VALUES (1, '', '{"openai":true,"dns":true,"server":true}', '["openai","dns","server"]')
 		`); insertErr != nil {
 			return nil, fmt.Errorf("create default user settings: %w", insertErr)
 		}
@@ -962,22 +962,24 @@ func loadUserSettings(ctx context.Context, db *sql.DB) (map[string]interface{}, 
 		"server": true,
 	})
 	delete(visibility, "antigravity")
-	ensureBoolKey(visibility, "gemini-cli", true)
+	delete(visibility, "gemini-cli")
+	delete(visibility, "qwen")
 	ensureBoolKey(visibility, "self-h", false)
-	ensureBoolKey(visibility, "qwen", false)
 
-	channelEnabled := parseObject(row.ChannelEnabled, map[string]interface{}{"gemini-cli": true})
+	channelEnabled := parseObject(row.ChannelEnabled, map[string]interface{}{})
 	delete(channelEnabled, "antigravity")
-	ensureBoolKey(channelEnabled, "qwen", false)
+	delete(channelEnabled, "gemini-cli")
+	delete(channelEnabled, "qwen")
 
-	channelModelPrefix := parseObject(row.ChannelModelPrefix, map[string]interface{}{"gemini-cli": ""})
+	channelModelPrefix := parseObject(row.ChannelModelPrefix, map[string]interface{}{})
 	delete(channelModelPrefix, "antigravity")
-	ensureStringKey(channelModelPrefix, "qwen", "")
+	delete(channelModelPrefix, "gemini-cli")
+	delete(channelModelPrefix, "qwen")
 
 	order := parseStringSlice(row.ModuleOrder, []string{"dns", "openai", "server"})
 	order = filterString(order, "antigravity")
-	order = ensureAfter(order, "qwen", "gemini-cli")
-	order = ensurePresent(order, "gemini-cli")
+	order = filterString(order, "gemini-cli")
+	order = filterString(order, "qwen")
 	order = ensureBefore(order, "self-h", "server")
 
 	settings := map[string]interface{}{

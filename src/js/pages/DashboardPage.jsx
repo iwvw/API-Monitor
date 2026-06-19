@@ -18,7 +18,6 @@ import { AppCard, ChartCard, PageStack } from '../components/ui/AppPrimitives.js
 import {
   Cpu,
   Server,
-  Terminal,
   Cloud,
   Globe,
   Activity,
@@ -27,8 +26,7 @@ import {
   Box,
   Send,
   Shield,
-  FolderOpen,
-  TrendingUp
+  FolderOpen
 } from '../components/Icons.jsx';
 
 const DEFAULT_DASHBOARD_STATS = {
@@ -41,7 +39,6 @@ const DEFAULT_DASHBOARD_STATS = {
     disk: { root: '', total: 0, used: 0, usage: 0 },
   },
   servers: { total: 0, online: 0, offline: 0, error: 0, items: [] },
-  geminiCli: { total_calls: 0, success_calls: 0, daily_trend: [] },
   paas: {
     koyeb: { total: 0, running: 0 },
     fly: { total: 0, running: 0 },
@@ -54,16 +51,12 @@ const DEFAULT_DASHBOARD_STATS = {
 
 const DASHBOARD_CACHE_TTL_MS = 30_000;
 const DASHBOARD_FETCH_TIMEOUT_MS = 6_000;
-const DASHBOARD_API_STATS_CACHE_KEY = 'dashboard_api_stats_cache_v1';
-const DASHBOARD_API_STATS_CACHE_TTL_MS = 10 * 60_000;
-const DASHBOARD_API_STATS_CACHE_MAX_AGE_MS = 30 * 24 * 60 * 60_000;
 const HOST_METRICS_POLL_MS = 2_000;
 const HOST_METRICS_FETCH_TIMEOUT_MS = 4_000;
 const DASHBOARD_SERVER_STATUS_LIMIT = 8;
 
 let dashboardStatsCache = null;
 let dashboardStatsFetchPromise = null;
-let dashboardApiStatsFetchPromise = null;
 let dashboardHostMetricsCache = null;
 
 const isAbortError = (error) => error?.name === 'AbortError';
@@ -99,63 +92,8 @@ function useMediaQuery(query) {
   return matches;
 }
 
-function normalizeApiStats(detail = {}) {
-  return {
-    total_calls: Number(detail.total_calls) || 0,
-    success_calls: Number(detail.success_calls) || 0,
-    daily_trend: Array.isArray(detail.daily_trend) ? detail.daily_trend : [],
-  };
-}
-
-function readDashboardApiStatsCache() {
-  if (typeof window === 'undefined') return null;
-
-  try {
-    const raw = window.localStorage.getItem(DASHBOARD_API_STATS_CACHE_KEY);
-    if (!raw) return null;
-
-    const parsed = JSON.parse(raw);
-    const updatedAt = Number(parsed?.updatedAt) || 0;
-    if (!updatedAt || Date.now() - updatedAt > DASHBOARD_API_STATS_CACHE_MAX_AGE_MS) {
-      window.localStorage.removeItem(DASHBOARD_API_STATS_CACHE_KEY);
-      return null;
-    }
-
-    return {
-      stats: normalizeApiStats(parsed?.stats),
-      updatedAt,
-    };
-  } catch (e) {
-    console.error('[Dashboard] API trend cache read failed:', e);
-    return null;
-  }
-}
-
-function writeDashboardApiStatsCache(stats) {
-  if (typeof window === 'undefined') return;
-
-  try {
-    window.localStorage.setItem(
-      DASHBOARD_API_STATS_CACHE_KEY,
-      JSON.stringify({
-        stats: normalizeApiStats(stats),
-        updatedAt: Date.now(),
-      })
-    );
-  } catch (e) {
-    console.error('[Dashboard] API trend cache write failed:', e);
-  }
-}
-
 function getInitialDashboardStats() {
-  const baseStats = dashboardStatsCache?.stats || DEFAULT_DASHBOARD_STATS;
-  const cachedApiStats = readDashboardApiStatsCache();
-  if (!cachedApiStats) return baseStats;
-
-  return {
-    ...baseStats,
-    geminiCli: cachedApiStats.stats,
-  };
+  return dashboardStatsCache?.stats || DEFAULT_DASHBOARD_STATS;
 }
 
 function parseTrendTimestamp(point) {
@@ -430,98 +368,7 @@ function DashboardPage({ onNavigate } = {}) {
       }
     };
 
-    const mergeApiStatsIntoDashboard = (apiStats) => {
-      setStats((currentStats) => {
-        const nextStats = { ...currentStats, geminiCli: apiStats };
 
-        if (dashboardStatsCache?.stats) {
-          dashboardStatsCache = {
-            ...dashboardStatsCache,
-            stats: {
-              ...dashboardStatsCache.stats,
-              geminiCli: apiStats,
-            },
-          };
-        }
-
-        return nextStats;
-      });
-    };
-
-    const requestApiStats = async () => {
-      const data = await fetchJson('/api/gemini-cli/stats');
-      const detail = data.data || data;
-      const apiStats = normalizeApiStats(detail);
-      writeDashboardApiStatsCache(apiStats);
-      return apiStats;
-    };
-
-    const startApiStatsFetch = (forceRequest = false) => {
-      if (!forceRequest && dashboardApiStatsFetchPromise) {
-        return dashboardApiStatsFetchPromise;
-      }
-
-      const request = requestApiStats().finally(() => {
-        if (dashboardApiStatsFetchPromise === request) {
-          dashboardApiStatsFetchPromise = null;
-        }
-      });
-
-      dashboardApiStatsFetchPromise = request;
-      return request;
-    };
-
-    // 1. 获取主机监控
-    const fetchServers = async () => {
-      try {
-        const data = await fetchJson('/api/server/accounts');
-        if (data.success && Array.isArray(data.data)) {
-          const items = data.data.map(normalizeDashboardServer);
-          return {
-            total: items.length,
-            online: items.filter((s) => s.status === 'online').length,
-            offline: items.filter((s) => s.status === 'offline').length,
-            error: items.filter((s) => s.status === 'error').length,
-            items,
-          };
-        }
-      } catch (e) {
-        if (!isAbortError(e)) {
-          console.error('[Dashboard] Servers fetch failed:', e);
-        }
-      }
-      return previousStats.servers;
-    };
-
-    // 2. 获取 API 网关
-    const fetchApiStats = async () => {
-      const cachedApiStats = readDashboardApiStatsCache();
-      const cacheFresh = cachedApiStats
-        && Date.now() - cachedApiStats.updatedAt < DASHBOARD_API_STATS_CACHE_TTL_MS;
-
-      if (!force && cachedApiStats) {
-        if (!cacheFresh) {
-          startApiStatsFetch()
-            .then(mergeApiStatsIntoDashboard)
-            .catch((e) => {
-              if (!isAbortError(e)) {
-                console.error('[Dashboard] API stats background refresh failed:', e);
-              }
-            });
-        }
-
-        return cachedApiStats.stats;
-      }
-
-      try {
-        return await startApiStatsFetch(force);
-      } catch (e) {
-        if (!isAbortError(e)) {
-          console.error('[Dashboard] API stats fetch failed:', e);
-        }
-      }
-      return previousStats.geminiCli;
-    };
 
     // 3. 获取 PaaS (Koyeb & Fly.io)
     const fetchPaaS = async () => {
@@ -657,25 +504,43 @@ function DashboardPage({ onNavigate } = {}) {
       return previousStats.totp;
     };
 
+    const fetchServers = async () => {
+      try {
+        const data = await fetchJson('/api/server/accounts');
+        if (data.success && Array.isArray(data.data)) {
+          const items = data.data.map(normalizeDashboardServer);
+          return {
+            total: items.length,
+            online: items.filter((s) => s.status === 'online').length,
+            offline: items.filter((s) => s.status === 'offline').length,
+            error: items.filter((s) => s.status === 'error').length,
+            items,
+          };
+        }
+      } catch (e) {
+        if (!isAbortError(e)) {
+          console.error('[Dashboard] Servers fetch failed:', e);
+        }
+      }
+      return previousStats.servers;
+    };
+
     const request = Promise.allSettled([
       fetchServers(),
-      fetchApiStats(),
       fetchPaaS(),
       fetchDns(),
       fetchUptime(),
       fetchFilebox(),
       fetchTotp(),
     ]).then((results) => {
-      const latestApiStats = readDashboardApiStatsCache()?.stats;
       const updatedStats = {
         host: dashboardHostMetricsCache || previousStats.host,
         servers: results[0].status === 'fulfilled' ? results[0].value : previousStats.servers,
-        geminiCli: latestApiStats || (results[1].status === 'fulfilled' ? results[1].value : previousStats.geminiCli),
-        paas: results[2].status === 'fulfilled' ? results[2].value : previousStats.paas,
-        dns: results[3].status === 'fulfilled' ? results[3].value : previousStats.dns,
-        uptime: results[4].status === 'fulfilled' ? results[4].value : previousStats.uptime,
-        filebox: results[5].status === 'fulfilled' ? results[5].value : previousStats.filebox,
-        totp: results[6].status === 'fulfilled' ? results[6].value : previousStats.totp,
+        paas: results[1].status === 'fulfilled' ? results[1].value : previousStats.paas,
+        dns: results[2].status === 'fulfilled' ? results[2].value : previousStats.dns,
+        uptime: results[3].status === 'fulfilled' ? results[3].value : previousStats.uptime,
+        filebox: results[4].status === 'fulfilled' ? results[4].value : previousStats.filebox,
+        totp: results[5].status === 'fulfilled' ? results[5].value : previousStats.totp,
       };
       return {
         stats: updatedStats,
@@ -777,31 +642,7 @@ function DashboardPage({ onNavigate } = {}) {
     };
   }, []);
 
-  const apiSuccessRate = () => {
-    const { total_calls, success_calls } = stats.geminiCli;
-    if (total_calls === 0) return '0%';
-    return `${Math.round((success_calls / total_calls) * 1000) / 10}%`;
-  };
 
-  const apiTrend = stats.geminiCli.daily_trend || [];
-  const apiTrendTotal = apiTrend.reduce((sum, item) => sum + (item.total || 0), 0);
-  const apiTrendSuccess = apiTrend.reduce((sum, item) => sum + (item.success || 0), 0);
-  const hasApiTrendCalls = apiTrend.length >= 2 && apiTrendTotal > 0;
-  const apiTrendSuccessRate = apiTrendTotal > 0
-    ? `${Math.round((apiTrendSuccess / apiTrendTotal) * 1000) / 10}%`
-    : '0%';
-  const apiTrendStatusText = apiTrendTotal > 0
-    ? `最近 30 天 ${apiTrendTotal} 次调用 / ${apiTrendSuccessRate} 成功率`
-    : stats.geminiCli.total_calls > 0
-      ? '最近 30 天暂无调用'
-      : '暂无 Gemini CLI API 调用记录';
-  const apiTrendChartData = useMemo(() => [{
-    name: '调用量',
-    color: ChartPalette.semantic('Neutral', isDarkMode),
-    data: apiTrend
-      .map((point) => [parseTrendTimestamp(point), Number(point.total) || 0])
-      .filter(([timestamp]) => Number.isFinite(timestamp)),
-  }], [apiTrend, isDarkMode]);
   const hostCpuUsage = clampPercent(stats.host?.cpu?.usage);
   const hostMemoryUsage = clampPercent(stats.host?.memory?.usage);
   const hostDiskUsage = clampPercent(stats.host?.disk?.usage);
@@ -879,17 +720,7 @@ function DashboardPage({ onNavigate } = {}) {
           )}
         />
 
-        <DashboardOverviewCard
-          onClick={() => navigateToModule('gemini-cli')}
-          icon={Terminal}
-          iconClassName="bg-kumo-brand/10 text-kumo-brand"
-          badge="API 网关"
-          badgeClassName="text-kumo-subtle bg-kumo-recessed border-kumo-line"
-          label="调用次数"
-          value={stats.geminiCli.total_calls}
-          unit="次"
-          detail={`${apiSuccessRate()} 成功率`}
-        />
+
 
         <DashboardOverviewCard
           onClick={() => navigateToModule('paas')}
@@ -935,54 +766,7 @@ function DashboardPage({ onNavigate } = {}) {
         
         {/* Left Column: API Trend Graph + Host Performance */}
         <div className="grid min-w-0 gap-3 sm:gap-4">
-          <ChartCard className="flex min-h-0 flex-col sm:min-h-[260px] sm:p-5">
-            {(tooltipBoundary) => (
-              <>
-                <div className="flex items-center justify-between border-b border-kumo-line pb-2 sm:pb-3">
-                  <h3 className="text-xs font-semibold text-kumo-strong flex items-center gap-1.5 select-none sm:text-sm sm:gap-2">
-                    <TrendingUp className="h-3.5 w-3.5 text-kumo-brand sm:h-4 sm:w-4" />
-                    API 调用趋势
-                  </h3>
-                  <span className="text-[10px] text-kumo-subtle app-subcard bg-kumo-recessed px-2 py-0.5 rounded font-medium">
-                    最近 30 天
-                  </span>
-                </div>
 
-                <div className="min-w-0 pt-2 sm:pt-4">
-                  {loading || hasApiTrendCalls ? (
-                    <div className="min-w-0 overflow-hidden" style={{ height: apiChartHeight }}>
-                      <TimeseriesChart
-                        echarts={echarts}
-                        isDarkMode={isDarkMode}
-                        type="bar"
-                        data={apiTrendChartData}
-                        height={apiChartHeight}
-                        xAxisName="时间"
-                        yAxisName="调用"
-                        xAxisTickCount={3}
-                        xAxisTickFormat={formatDashboardTime}
-                        yAxisTickFormat={(value) => `${Math.round(value)}`}
-                        tooltipValueFormat={(value) => `${Math.round(value)} 次`}
-                        tooltipBoundary={tooltipBoundary ?? undefined}
-                        tooltipFollowCursor="x"
-                        loading={loading && !hasApiTrendCalls}
-                        ariaDescription="最近 30 天 Gemini CLI API 调用量"
-                      />
-                    </div>
-                  ) : (
-                    <div className="flex items-center justify-center text-center text-xs text-kumo-subtle" style={{ height: apiChartHeight }}>
-                      {apiTrendStatusText}
-                    </div>
-                  )}
-                </div>
-
-                <div className="mt-2 flex items-center gap-2 border-t border-kumo-line pt-2 text-[10px] text-kumo-subtle select-none sm:mt-3 sm:pt-3 sm:text-[11px]">
-                  <span className="w-1.5 h-1.5 rounded-full bg-kumo-brand flex-shrink-0" />
-                  <span>{apiTrendStatusText}</span>
-                </div>
-              </>
-            )}
-          </ChartCard>
 
           <AppCard padding="sm" className="sm:p-5">
             <div className="flex flex-col gap-2 border-b border-kumo-line pb-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3 sm:pb-3">

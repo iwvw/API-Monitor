@@ -136,8 +136,6 @@ func Routes() []Route {
 
 		{Prefix: "/api/openai", Module: "openai", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "OpenAI endpoint manager and proxy"},
 		{Prefix: "/api/chat", Module: "chat", Owner: OwnerRetired, Auth: AuthSession, ResponseMode: ResponseProxy, Description: "Legacy chat personas, sessions, and upload routes (retired)"},
-		{Prefix: "/api/gemini-cli", Module: "gemini-cli", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Gemini CLI manager and proxy"},
-		{Prefix: "/api/qwen", Module: "qwen", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Qwen manager and proxy"},
 		{Prefix: "/v1", Module: "openai-compatible", Owner: OwnerGo, Auth: AuthAPIKey, ResponseMode: ResponseStream, Description: "OpenAI-compatible API"},
 
 		// Server Agent routes (Wave 5b)

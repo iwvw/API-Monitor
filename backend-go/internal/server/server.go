@@ -1,12 +1,8 @@
 package server
 
 import (
-	"bytes"
 	"context"
-	"database/sql"
-	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -19,15 +15,12 @@ import (
 	"github.com/iwvw/api-monitor/backend-go/internal/cloudflare"
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
 	"github.com/iwvw/api-monitor/backend-go/internal/cronjobs"
-	"github.com/iwvw/api-monitor/backend-go/internal/database"
 	"github.com/iwvw/api-monitor/backend-go/internal/filebox"
 	"github.com/iwvw/api-monitor/backend-go/internal/flyio"
-	"github.com/iwvw/api-monitor/backend-go/internal/geminicli"
 	"github.com/iwvw/api-monitor/backend-go/internal/koyeb"
 	"github.com/iwvw/api-monitor/backend-go/internal/manifest"
 	"github.com/iwvw/api-monitor/backend-go/internal/notification"
 	"github.com/iwvw/api-monitor/backend-go/internal/openai"
-	"github.com/iwvw/api-monitor/backend-go/internal/qwen"
 	"github.com/iwvw/api-monitor/backend-go/internal/response"
 	"github.com/iwvw/api-monitor/backend-go/internal/serveragent"
 	"github.com/iwvw/api-monitor/backend-go/internal/settings"
@@ -53,8 +46,6 @@ type Server struct {
 	tencent   *tencent.Service
 	cf        *cloudflare.Service
 	openai    *openai.Service
-	qwen      *qwen.Service
-	geminicli *geminicli.Service
 	server    *serveragent.Service
 }
 
@@ -84,8 +75,6 @@ func NewServer(cfg config.Config) *Server {
 		tencent:   tencent.New(cfg),
 		cf:        cloudflare.New(cfg),
 		openai:    openai.New(cfg),
-		qwen:      qwen.New(cfg),
-		geminicli: geminicli.New(cfg, authService),
 		server:    serverAgentService,
 	}
 }
@@ -211,10 +200,6 @@ func (s *Server) serveGoRoute(w http.ResponseWriter, r *http.Request, route mani
 		s.cf.ServeHTTP(w, r)
 	case "/api/openai":
 		s.openai.ServeHTTP(w, r)
-	case "/api/qwen":
-		s.qwen.ServeHTTP(w, r)
-	case "/api/gemini-cli":
-		s.geminicli.ServeHTTP(w, r)
 	case "/v1":
 		s.serveV1Route(w, r)
 	case "/ws/ssh":
@@ -328,7 +313,6 @@ func (s *Server) applySecurityHeaders(w http.ResponseWriter) {
 func (s *Server) serveV1Route(w http.ResponseWriter, r *http.Request) {
 	path := r.URL.Path
 	method := r.Method
-	channels := s.loadV1ChannelSettings(r.Context())
 
 	// 1. Models endpoint
 	if method == http.MethodGet && (path == "/v1/models" || path == "/v1/model") {
@@ -336,44 +320,9 @@ func (s *Server) serveV1Route(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 2. Images generations endpoint
-	if method == http.MethodPost && path == "/v1/images/generations" {
-		if !channels["qwen"] {
-			response.Error(w, http.StatusNotFound, "model channel is disabled")
-			return
-		}
-		s.qwen.ServeHTTP(w, r)
-		return
-	}
-
-	// 3. Completions endpoint
+	// 2. Completions endpoint
 	if method == http.MethodPost && path == "/v1/chat/completions" {
-		var bodyBytes []byte
-		if r.Body != nil {
-			var err error
-			bodyBytes, err = io.ReadAll(r.Body)
-			if err == nil {
-				r.Body = io.NopCloser(bytes.NewReader(bodyBytes))
-			}
-		}
-
-		var req struct {
-			Model string `json:"model"`
-		}
-		if len(bodyBytes) > 0 {
-			_ = json.Unmarshal(bodyBytes, &req)
-		}
-
-		if channels["gemini-cli"] && s.geminicli.CanHandleModel(r.Context(), req.Model) {
-			s.geminicli.ServeHTTP(w, r)
-		} else if channels["qwen"] && s.qwen.CanHandleModel(r.Context(), req.Model) {
-			s.qwen.ServeHTTP(w, r)
-		} else if (!channels["gemini-cli"] && s.geminicli.CanHandleModel(r.Context(), req.Model)) ||
-			(!channels["qwen"] && s.qwen.CanHandleModel(r.Context(), req.Model)) {
-			response.Error(w, http.StatusNotFound, "model channel is disabled")
-		} else {
-			s.openai.ServeHTTP(w, r)
-		}
+		s.openai.ServeHTTP(w, r)
 		return
 	}
 
@@ -383,22 +332,9 @@ func (s *Server) serveV1Route(w http.ResponseWriter, r *http.Request) {
 func (s *Server) serveV1Models(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	var mergedModels []map[string]interface{}
-	channels := s.loadV1ChannelSettings(ctx)
 
 	if oaiModels, err := s.openai.GetModelsList(ctx); err == nil {
 		mergedModels = append(mergedModels, oaiModels...)
-	}
-
-	if channels["qwen"] {
-		if qwenModels, err := s.qwen.GetModelsList(ctx); err == nil {
-			mergedModels = append(mergedModels, qwenModels...)
-		}
-	}
-
-	if channels["gemini-cli"] {
-		if geminiModels, err := s.geminicli.GetModelsList(ctx); err == nil {
-			mergedModels = append(mergedModels, geminiModels...)
-		}
 	}
 
 	sort.Slice(mergedModels, func(i, j int) bool {
@@ -411,44 +347,4 @@ func (s *Server) serveV1Models(w http.ResponseWriter, r *http.Request) {
 		"object": "list",
 		"data":   mergedModels,
 	})
-}
-
-func (s *Server) loadV1ChannelSettings(ctx context.Context) map[string]bool {
-	channels := map[string]bool{
-		"gemini-cli": true,
-		"qwen":       false,
-	}
-
-	db, err := database.New(s.cfg).Open(ctx)
-	if err != nil {
-		return channels
-	}
-	defer db.Close()
-
-	var raw sql.NullString
-	err = db.QueryRowContext(ctx, `SELECT channel_enabled FROM user_settings WHERE id = 1`).Scan(&raw)
-	if err != nil || !raw.Valid || strings.TrimSpace(raw.String) == "" {
-		return channels
-	}
-
-	var saved map[string]interface{}
-	if err := json.Unmarshal([]byte(raw.String), &saved); err != nil {
-		return channels
-	}
-
-	for channel := range channels {
-		value, ok := saved[channel]
-		if !ok {
-			continue
-		}
-		switch typed := value.(type) {
-		case bool:
-			channels[channel] = typed
-		case string:
-			channels[channel] = strings.EqualFold(typed, "true") || typed == "1"
-		case float64:
-			channels[channel] = typed != 0
-		}
-	}
-	return channels
 }

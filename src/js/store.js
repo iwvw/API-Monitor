@@ -27,12 +27,7 @@ export const MODULE_CONFIG = {
     icon: 'fa-robot',
     description: 'OpenAI 兼容 API 管理与聊天',
   },
-  'gemini-cli': {
-    name: 'GCLI',
-    shortName: 'GCLI',
-    icon: 'fa-terminal',
-    description: 'Gemini CLI API 代理服务',
-  },
+
   paas: {
     name: 'PaaS',
     shortName: 'PaaS',
@@ -93,12 +88,7 @@ export const MODULE_CONFIG = {
     icon: 'fa-bell',
     description: '通知渠道与告警规则管理',
   },
-  qwen: {
-    name: '通义千问',
-    shortName: '千问',
-    icon: 'fa-magic',
-    description: '通义千问 API 代理服务',
-  },
+
 };
 
 // ==================== 模块分组配置 ====================
@@ -113,7 +103,7 @@ export const MODULE_GROUPS = [
     id: 'api-gateway',
     name: 'API 网关',
     icon: 'fa-bolt',
-    modules: ['openai', 'gemini-cli', 'qwen'],
+    modules: ['openai'],
   },
   {
     id: 'infrastructure',
@@ -183,17 +173,11 @@ export const DEFAULT_MODULE_VISIBILITY = DEFAULT_MODULE_ORDER.reduce((acc, modul
   acc[moduleId] = true;
   return acc;
 }, {});
-DEFAULT_MODULE_VISIBILITY.qwen = false;
 
-export const DEFAULT_CHANNEL_ENABLED = {
-  'gemini-cli': true,
-  qwen: false,
-};
 
-export const DEFAULT_CHANNEL_MODEL_PREFIX = {
-  'gemini-cli': '',
-  qwen: '',
-};
+export const DEFAULT_CHANNEL_ENABLED = {};
+
+export const DEFAULT_CHANNEL_MODEL_PREFIX = {};
 
 const getAuthHeaders = () => ({
   'Content-Type': 'application/json',

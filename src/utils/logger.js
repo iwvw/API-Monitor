@@ -324,9 +324,7 @@ function renderTerminal(level, module, timestamp, traceId, message, data) {
     'uptimeserv': 'Uptime',
     'antigravity-service': 'AntiG',
     'antig-serv': 'AntiG',
-    'gemini-cli-service': 'GeminiCLI',
-    'gcli-servi': 'GeminiCLI',
-    'gcli-service': 'GeminiCLI',
+
     'logservice': 'Log',
     'metricsservice': 'Metrics',
     'sshservice': 'SSH',

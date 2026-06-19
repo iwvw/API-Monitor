@@ -142,6 +142,15 @@ func (s *Service) runAgentTerminalSession(r *http.Request, conn *websocket.Conn,
 
 	writeJSON(terminalWSMessage{Type: "status", Data: "connected", Transport: "agent"})
 
+	containerName := r.URL.Query().Get("container")
+	if containerName != "" {
+		execCmd := fmt.Sprintf("docker exec -it %s /bin/bash || docker exec -it %s /bin/sh || docker exec -it %s sh\n", containerName, containerName, containerName)
+		_ = agentConn.SendEvent("dashboard:pty_input", map[string]interface{}{
+			"id":   ptyID,
+			"data": execCmd,
+		})
+	}
+
 	for {
 		select {
 		case <-done:
@@ -244,6 +253,12 @@ func (s *Service) runSSHTerminalSession(r *http.Request, conn *websocket.Conn, c
 		return
 	}
 	writeJSON(terminalWSMessage{Type: "status", Data: "connected", Transport: "ssh"})
+
+	containerName := r.URL.Query().Get("container")
+	if containerName != "" {
+		execCmd := fmt.Sprintf("docker exec -it %s /bin/bash || docker exec -it %s /bin/sh || docker exec -it %s sh\n", containerName, containerName, containerName)
+		_, _ = stdin.Write([]byte(execCmd))
+	}
 
 	done := make(chan struct{})
 	var closeOnce sync.Once

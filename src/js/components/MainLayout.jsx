@@ -32,8 +32,8 @@ const FileboxPage = lazy(() => import('../pages/FileboxPage.jsx'));
 const UptimePage = lazy(() => import('../pages/UptimePage.jsx'));
 const NotificationPage = lazy(() => import('../pages/NotificationPage.jsx'));
 const OpenAIPage = lazy(() => import('../pages/OpenAIPage.jsx'));
-const GeminiCliPage = lazy(() => import('../pages/GeminiCliPage.jsx'));
-const QwenPage = lazy(() => import('../pages/QwenPage.jsx'));
+
+
 const PaasPage = lazy(() => import('../pages/PaasPage.jsx'));
 const DnsPage = lazy(() => import('../pages/DnsPage.jsx'));
 const AliyunPage = lazy(() => import('../pages/AliyunPage.jsx'));
@@ -55,8 +55,8 @@ const PageLoadingFallback = () => (
 const ICON_MAP = {
   dashboard: LayoutDashboard,
   openai: Bot,
-  'gemini-cli': Terminal,
-  qwen: Cpu,
+
+
   paas: Cloud,
   dns: Globe,
   aliyun: Database,
@@ -267,10 +267,8 @@ function MainLayout() {
         return <DashboardPage onNavigate={navigateToModule} />;
       case 'openai':
         return <OpenAIPage />;
-      case 'gemini-cli':
-        return <GeminiCliPage />;
-      case 'qwen':
-        return <QwenPage />;
+
+
       case 'paas':
         return <PaasPage />;
       case 'dns':

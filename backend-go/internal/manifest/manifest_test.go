@@ -330,7 +330,7 @@ func TestOpenListIsRetired(t *testing.T) {
 	}
 }
 
-func TestOpenAIAndQwenRoutesAreGoOwned(t *testing.T) {
+func TestOpenAIRoutesAreGoOwned(t *testing.T) {
 	for _, path := range []string{
 		"/api/openai/endpoints",
 		"/api/openai/endpoints/oai_123",
@@ -348,40 +348,8 @@ func TestOpenAIAndQwenRoutesAreGoOwned(t *testing.T) {
 			t.Fatalf("expected go owner for %s, got %s", path, route.Owner)
 		}
 	}
-
-	for _, path := range []string{
-		"/api/qwen/stats",
-		"/api/qwen/accounts",
-		"/api/qwen/settings",
-		"/api/qwen/logs",
-		"/api/qwen/v1/chat/completions",
-	} {
-		route, ok := Match(path)
-		if !ok {
-			t.Fatalf("expected route match for %s", path)
-		}
-		if route.Owner != OwnerGo {
-			t.Fatalf("expected go owner for %s, got %s", path, route.Owner)
-		}
-	}
 }
 
-func TestGeminiCliRoutesAreGoOwned(t *testing.T) {
-	for _, path := range []string{
-		"/api/gemini-cli/accounts",
-		"/api/gemini-cli/settings",
-		"/api/gemini-cli/stats",
-		"/api/gemini-cli/config/matrix",
-	} {
-		route, ok := Match(path)
-		if !ok {
-			t.Fatalf("expected route match for %s", path)
-		}
-		if route.Owner != OwnerGo {
-			t.Fatalf("expected go owner for %s, got %s", path, route.Owner)
-		}
-	}
-}
 
 func TestSummaryCoversAllRoutes(t *testing.T) {
 	total := 0

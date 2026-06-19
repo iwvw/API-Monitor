@@ -1312,11 +1312,9 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 	}
 	fullURL += "/chat/completions"
 
-	// Local image Base64 convert
-	isInternal := strings.Contains(fullURL, "gemini-cli")
 	isLocal := regexp.MustCompile(`(?i)^https?://(localhost|127\.0\.0\.1|0\.0\.0\.0|192\.168\.|10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.)`).MatchString(fullURL)
 
-	if !isInternal && !isLocal {
+	if !isLocal {
 		if messages, ok := parsedBody["messages"].([]interface{}); ok {
 			for _, msg := range messages {
 				if msgMap, ok := msg.(map[string]interface{}); ok {

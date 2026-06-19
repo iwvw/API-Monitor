@@ -45,7 +45,7 @@ func TestUserSettingsReadPatchAndPost(t *testing.T) {
 		t.Fatalf("pageWidthMode default = %#v", payload.Data["pageWidthMode"])
 	}
 	visibility := payload.Data["moduleVisibility"].(map[string]interface{})
-	if visibility["qwen"] != false || visibility["self-h"] != false {
+	if visibility["self-h"] != false {
 		t.Fatalf("unexpected module visibility: %#v", visibility)
 	}
 
@@ -82,7 +82,7 @@ func TestUserSettingsReadPatchAndPost(t *testing.T) {
 	res = performSettingsRequest(service, http.MethodPost, "/api/settings", `{
 		"agentDownloadUrl":"https://example.com/agent",
 		"koyebRefreshInterval":45000,
-		"channelEnabled":{"qwen":false}
+		"channelEnabled":{"openai":false}
 	}`)
 	if res.Code != http.StatusOK {
 		t.Fatalf("post settings status = %d body=%s", res.Code, res.Body.String())
@@ -97,7 +97,7 @@ func TestUserSettingsReadPatchAndPost(t *testing.T) {
 		t.Fatalf("post settings not persisted: %#v", payload.Data)
 	}
 	channelEnabled := payload.Data["channelEnabled"].(map[string]interface{})
-	if channelEnabled["qwen"] != false {
+	if channelEnabled["openai"] != false {
 		t.Fatalf("channelEnabled not persisted: %#v", channelEnabled)
 	}
 }

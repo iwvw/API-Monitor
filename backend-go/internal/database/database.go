@@ -129,10 +129,10 @@ func ensureDefaultUserSettings(ctx context.Context, db *sql.DB) error {
 		) VALUES (
 			1,
 			'',
-			'{"openai":true,"gemini-cli":true,"dns":true,"server":true}',
-			'["openai","gemini-cli","dns","server"]',
-			'{"gemini-cli":true}',
-			'{"gemini-cli":""}'
+			'{"openai":true,"dns":true,"server":true}',
+			'["openai","dns","server"]',
+			'{}',
+			'{}'
 		)
 	`)
 	if err != nil {

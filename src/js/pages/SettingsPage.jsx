@@ -41,7 +41,6 @@ import {
 
 const SETTINGS_TABS = [
   { value: 'general', label: <span className="inline-flex items-center gap-1.5"><LayoutDashboard className="h-4 w-4" />常规</span> },
-  { value: 'api', label: <span className="inline-flex items-center gap-1.5"><Terminal className="h-4 w-4" />API</span> },
   { value: 'modules', label: <span className="inline-flex items-center gap-1.5"><Activity className="h-4 w-4" />模块</span> },
   { value: 'security', label: <span className="inline-flex items-center gap-1.5"><Shield className="h-4 w-4" />安全</span> },
   { value: 'database', label: <span className="inline-flex items-center gap-1.5"><Database className="h-4 w-4" />数据库</span> },
@@ -79,10 +78,7 @@ const TOTP_INPUT_MODE_OPTIONS = [
   { value: 'manual', label: '手动录入' },
 ];
 
-const CHANNELS = [
-  { id: 'gemini-cli', label: 'GCLI' },
-  { id: 'qwen', label: '通义千问' },
-];
+
 
 const GROUP_LABELS = {
   overview: '总览',
@@ -204,12 +200,7 @@ function SettingsPage() {
   const [settingsLoading, setSettingsLoading] = useState(true);
   const [settingsSaving, setSettingsSaving] = useState(false);
 
-  const [globalApiForm, setGlobalApiForm] = useState({
-    API_KEY: '',
-    PROXY: '',
-    SYSTEM_INSTRUCTION: '',
-  });
-  const [globalApiSaving, setGlobalApiSaving] = useState(false);
+
 
   const [passwordForm, setPasswordForm] = useState({
     oldPassword: '',
@@ -339,28 +330,13 @@ function SettingsPage() {
     }
   }, []);
 
-  const fetchGlobalApiSettings = useCallback(async () => {
-    const [gcliResponse, qwenResponse] = await Promise.all([
-      fetch('/api/gemini-cli/settings', { headers: getAuthHeaders() }),
-      fetch('/api/qwen/settings', { headers: getAuthHeaders() }),
-    ]);
 
-    const gcli = gcliResponse.ok ? await gcliResponse.json() : {};
-    const qwen = qwenResponse.ok ? await qwenResponse.json() : {};
-
-    setGlobalApiForm({
-      API_KEY: gcli.API_KEY || qwen.API_KEY || '',
-      PROXY: gcli.PROXY || '',
-      SYSTEM_INSTRUCTION: gcli.SYSTEM_INSTRUCTION || qwen.SYSTEM_INSTRUCTION || '',
-    });
-  }, []);
 
   const refreshAll = useCallback(async (showFeedback = false) => {
     setSettingsLoading(true);
     try {
       await Promise.all([
         fetchSettings(),
-        fetchGlobalApiSettings(),
         fetchDbState(),
         fetchLogState(),
         fetchTwoFAStatus(),
@@ -371,7 +347,7 @@ function SettingsPage() {
     } finally {
       setSettingsLoading(false);
     }
-  }, [fetchDbState, fetchGlobalApiSettings, fetchLogState, fetchSettings, fetchTwoFAStatus]);
+  }, [fetchDbState, fetchLogState, fetchSettings, fetchTwoFAStatus]);
 
   useEffect(() => {
     refreshAll(false);
@@ -402,39 +378,7 @@ function SettingsPage() {
     }
   };
 
-  const saveGlobalApiSettings = async () => {
-    setGlobalApiSaving(true);
-    try {
-      const payload = {
-        API_KEY: globalApiForm.API_KEY || '',
-        PROXY: globalApiForm.PROXY || '',
-        SYSTEM_INSTRUCTION: globalApiForm.SYSTEM_INSTRUCTION || '',
-      };
 
-      const [gcliResponse, qwenResponse] = await Promise.all([
-        fetch('/api/gemini-cli/settings', {
-          method: 'POST',
-          headers: getAuthHeaders(),
-          body: JSON.stringify(payload),
-        }),
-        fetch('/api/qwen/settings', {
-          method: 'POST',
-          headers: getAuthHeaders(),
-          body: JSON.stringify({
-            API_KEY: payload.API_KEY,
-            SYSTEM_INSTRUCTION: payload.SYSTEM_INSTRUCTION,
-          }),
-        }),
-      ]);
-
-      if (!gcliResponse.ok || !qwenResponse.ok) throw new Error('同步 GCLI/Qwen 配置失败');
-      await persistSettings(settings, '全局 API 配置已保存');
-    } catch (error) {
-      toast.error(error.message || '保存全局 API 配置失败');
-    } finally {
-      setGlobalApiSaving(false);
-    }
-  };
 
   const changePassword = async () => {
     if (passwordForm.newPassword.length < 6) {
@@ -791,92 +735,7 @@ function SettingsPage() {
         </div>
       )}
 
-      {activeTab === 'api' && (
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_24rem]">
-          <LayerCard>
-            <SectionHeader
-              title="全局 API 与网络"
-              description="保存时会同步到 GCLI 与通义千问模块，并保留用户设置里的负载均衡和渠道开关。"
-              actions={
-                <Button size="sm"
-                  variant="primary"
-                  onClick={saveGlobalApiSettings}
-                  loading={globalApiSaving || settingsSaving}
-                  icon={<Save className="h-4 w-4" />}
-                >
-                  保存 API 配置
-                </Button>
-              }
-            />
-            <div className="grid gap-4 p-5">
-              <Input size="sm"
-                label="API_KEY"
-                type="password"
-                value={globalApiForm.API_KEY}
-                onChange={(e) => setGlobalApiForm((prev) => ({ ...prev, API_KEY: e.target.value }))}
-                placeholder="留空则不启用全局访问密钥"
-                className="font-mono"
-              />
-              <Input size="sm"
-                label="PROXY"
-                value={globalApiForm.PROXY}
-                onChange={(e) => setGlobalApiForm((prev) => ({ ...prev, PROXY: e.target.value }))}
-                placeholder="http://127.0.0.1:7890"
-                className="font-mono"
-              />
-              <Textarea
-                label="SYSTEM_INSTRUCTION"
-                value={globalApiForm.SYSTEM_INSTRUCTION}
-                onChange={(e) => setGlobalApiForm((prev) => ({ ...prev, SYSTEM_INSTRUCTION: e.target.value }))}
-                className="min-h-28 font-mono text-sm"
-              />
-              <Select size="sm"
-                label="负载均衡策略"
-                value={settings.load_balancing_strategy}
-                onValueChange={(value) => patchSettings({ load_balancing_strategy: String(value) })}
-                items={LOAD_BALANCING_OPTIONS}
-              />
-            </div>
-          </LayerCard>
 
-          <LayerCard className="p-5">
-            <h2 className="text-base font-bold text-kumo-strong">渠道开关</h2>
-            <div className="mt-2 text-xs leading-relaxed text-kumo-subtle">这里只控制 v1 兼容入口的渠道分发，不删除各模块页面本身。</div>
-            <div className="mt-4">
-              {CHANNELS.map((channel) => (
-                <ToggleLine
-                  key={channel.id}
-                  title={channel.label}
-                  description={`模型前缀: ${settings.channelModelPrefix[channel.id] || '无'}`}
-                  checked={settings.channelEnabled[channel.id] !== false}
-                  onCheckedChange={(checked) => patchSettings({
-                    channelEnabled: {
-                      ...settings.channelEnabled,
-                      [channel.id]: checked,
-                    },
-                  })}
-                />
-              ))}
-            </div>
-            <div className="mt-5 grid gap-4">
-              {CHANNELS.map((channel) => (
-                <Input size="sm"
-                  key={channel.id}
-                  label={`${channel.label} 模型前缀`}
-                  value={settings.channelModelPrefix[channel.id] || ''}
-                  onChange={(e) => patchSettings({
-                    channelModelPrefix: {
-                      ...settings.channelModelPrefix,
-                      [channel.id]: e.target.value,
-                    },
-                  })}
-                  placeholder={channel.id === 'gemini-cli' ? 'gcli/' : 'qw/'}
-                />
-              ))}
-            </div>
-          </LayerCard>
-        </div>
-      )}
 
       {activeTab === 'modules' && (
         <LayerCard className="overflow-x-auto p-0">
@@ -1395,8 +1254,6 @@ function SettingsPage() {
                 '/api/settings/database-analysis',
                 '/api/auth/change-password',
                 '/api/auth/2fa/*',
-                '/api/gemini-cli/settings',
-                '/api/qwen/settings',
               ].map((item) => (
                 <div key={item} className="flex items-center gap-2">
                   <Check className="h-3.5 w-3.5 text-kumo-success" />

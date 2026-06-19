@@ -84,6 +84,7 @@ import {
   Trash,
   Play,
   Pause,
+  Square,
   Key,
   Folder,
   FileText,
@@ -1901,6 +1902,12 @@ function ServerPage() {
   const [dockerBulkUpdateChecking, setDockerBulkUpdateChecking] = useState(false);
   const [dockerBulkUpdateCheckServers, setDockerBulkUpdateCheckServers] = useState({});
   const [showDockerCreateModal, setShowDockerCreateModal] = useState(false);
+  const [dockerLogsModalOpen, setDockerLogsModalOpen] = useState(false);
+  const [dockerLogsContent, setDockerLogsContent] = useState('');
+  const [dockerLogsLoading, setDockerLogsLoading] = useState(false);
+  const [dockerLogsContainer, setDockerLogsContainer] = useState(null);
+  const [dockerLogsServer, setDockerLogsServer] = useState(null);
+  const [dockerLogsTail, setDockerLogsTail] = useState(200);
   
   // Agent 升级
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
@@ -1965,7 +1972,7 @@ function ServerPage() {
   const sftpPathByServerRef = useRef({});
 
   const [historyColWidths, startHistoryResize] = useTableResize([180, 150, 100, 100, 100, 150]);
-  const [dockerColWidths, startDockerResize] = useTableResize([180, 220, 100, 100, 180, 132]);
+  const [dockerColWidths, startDockerResize] = useTableResize([180, 200, 90, 90, 150, 240]);
   const [imagesColWidths, startImagesResize] = useTableResize([250, 100, 100, 150, 100]);
   const [networksColWidths, startNetworksResize] = useTableResize([180, 180, 120, 120, 150, 100]);
   const [volumesColWidths, startVolumesResize] = useTableResize([240, 140, 120, 150, 100]);
@@ -4114,6 +4121,13 @@ function ServerPage() {
         confirmText: '开始更新',
         variant: 'danger',
       },
+      'container.delete': {
+        title: '\u5220\u9664\u5bb9\u5668',
+        message: `\u786e\u5b9a\u8981\u6c38\u4e45\u5220\u9664\u5bb9\u5668 ${targetName} \u5417\uff1f\u6b64\u64cd\u4f5c\u65e0\u6cd5\u64a4\u9500\u3002`,
+        confirmText: '\u5220\u9664',
+        variant: 'danger',
+        deleteResource: true,
+      },
       'compose.down': {
         title: '停止 Compose 项目',
         message: `确定要停止 Compose 项目 ${targetName} 吗？相关服务会中断。`,
@@ -4423,6 +4437,73 @@ function ServerPage() {
   };
   
   // 切换标签
+  const loadDockerContainerLogs = async (server, container, tail = 200) => {
+    const serverId = server?.id || server;
+    if (!serverId || !container) return;
+
+    const containerId = getDockerContainerId(container);
+    const containerName = getDockerContainerName(container);
+
+    setDockerLogsLoading(true);
+    setDockerLogsContent('\u6b63\u5728\u8fde\u63a5\u4e3b\u673a\u5e76\u83b7\u53d6\u5bb9\u5668\u65e5\u5fd7\uff0c\u8bf7\u7a0d\u5019...\n');
+
+    try {
+      const res = await fetch('/api/server/v2/tasks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          serverId,
+          domain: 'docker',
+          action: 'container.logs',
+          payload: {
+            serverId,
+            containerId,
+            containerName,
+            tail: Number(tail),
+          }
+        })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || '\u4e0b\u53d1\u83b7\u53d6\u65e5\u5fd7\u4efb\u52a1\u5931\u8d25');
+      }
+
+      const taskId = data.taskId;
+      if (!taskId) {
+        throw new Error('\u672a\u8fd4\u56de\u4efb\u52a1\u0020\u0049\u0044');
+      }
+
+      const eventSource = new EventSource(`/api/server/tasks/${taskId}/stream`);
+      
+      eventSource.addEventListener('message', (event) => {
+        try {
+          const payload = JSON.parse(event.data);
+          if (payload.status === 'completed') {
+            setDockerLogsContent(payload.data || '\u6ca1\u6709\u65e5\u5fd7\u8f93\u51fa');
+            setDockerLogsLoading(false);
+            eventSource.close();
+          } else if (payload.status === 'failed') {
+            setDockerLogsContent(`\u83b7\u53d6\u65e5\u5fd7\u5931\u8d25\u003a\u0020${payload.error || '\u672a\u77e5\u9519\u8bef'}`);
+            setDockerLogsLoading(false);
+            eventSource.close();
+          }
+        } catch (e) {
+          console.error(e);
+        }
+      });
+
+      eventSource.onerror = () => {
+        setDockerLogsContent(prev => prev + '\u8fde\u63a5\u5f02\u5e38\uff0c\u6b63\u5728\u91cd\u8fde\u6216\u4efb\u52a1\u5df2\u7ed3\u675f...\n');
+        eventSource.close();
+        setTimeout(() => setDockerLogsLoading(false), 2000);
+      };
+
+    } catch (err) {
+      setDockerLogsContent(`\u9519\u8bef\u003a\u0020${err.message || '\u670d\u52a1\u5f02\u5e38'}`);
+      setDockerLogsLoading(false);
+    }
+  };
+
   const switchToSSHTab = (sessionId) => {
     saveTerminalsToWarehouse();
     
@@ -4579,6 +4660,9 @@ function ServerPage() {
         cols: String(sshSessionRefs.current[sessionId]?.terminal?.cols || 120),
         rows: String(sshSessionRefs.current[sessionId]?.terminal?.rows || 32),
       });
+      if (sessionMeta.containerName) {
+        params.set('container', sessionMeta.containerName);
+      }
       const ws = new WebSocket(`${protocol}//${window.location.host}/ws/ssh?${params.toString()}`);
 
       ws.onopen = () => {
@@ -8430,10 +8514,98 @@ function ServerPage() {
         </Dialog>
       </Dialog.Root>
 
+      <Dialog.Root
+        open={dockerLogsModalOpen}
+        onOpenChange={(open) => {
+          setDockerLogsModalOpen(open);
+          if (!open) {
+            setDockerLogsContent('');
+            setDockerLogsLoading(false);
+          }
+        }}
+      >
+        <Dialog size="lg" className="flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 sm:min-w-[48rem] sm:max-w-[calc(100vw-3rem)]">
+          <div className="flex min-w-0 items-center justify-between gap-3 bg-kumo-recessed/35 px-4 py-3 border-b border-kumo-line">
+            <Dialog.Title className="min-w-0 truncate text-sm font-bold text-kumo-strong flex items-center gap-2">
+              <FileText className="h-4 w-4 text-kumo-brand" />
+              <span>容器日志: {dockerLogsContainer ? getDockerContainerName(dockerLogsContainer) : ''}</span>
+            </Dialog.Title>
+            <Dialog.Close
+              aria-label="关闭"
+              render={(props) => (
+                <Button
+                  {...props}
+                  type="button"
+                  variant="secondary"
+                  shape="square" size="sm"
+                  icon={<X className="h-3.5 w-3.5" />}
+                  className="shrink-0"
+                />
+              )}
+            />
+          </div>
+
+          <div className="flex-1 overflow-y-auto p-4 text-xs font-mono bg-kumo-recessed text-kumo-default flex flex-col gap-3 min-h-96">
+            <div className="flex-1 rounded border border-kumo-line bg-kumo-canvas/15 p-2 overflow-auto max-h-[50vh] whitespace-pre-wrap select-text font-mono text-[11px] leading-relaxed">
+              {dockerLogsContent}
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-3 border-t border-kumo-line bg-kumo-recessed/25 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3">
+              <span className="text-xs text-kumo-subtle font-medium">日志行数:</span>
+              <select
+                value={dockerLogsTail}
+                onChange={(e) => {
+                  const val = Number(e.target.value);
+                  setDockerLogsTail(val);
+                  loadDockerContainerLogs(dockerLogsServer, dockerLogsContainer, val);
+                }}
+                disabled={dockerLogsLoading}
+                className="text-xs rounded border border-kumo-line bg-kumo-canvas p-1 text-kumo-strong outline-none"
+              >
+                <option value={100}>100 行</option>
+                <option value={200}>200 行</option>
+                <option value={500}>500 行</option>
+                <option value={1000}>1000 行</option>
+              </select>
+              {dockerLogsLoading && (
+                <span className="inline-flex items-center gap-1 text-[11px] text-kumo-subtle">
+                  <RefreshCw className="h-3 w-3 animate-spin" />
+                  更新中...
+                </span>
+              )}
+            </div>
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <Button
+                type="button" size="sm"
+                variant="secondary"
+                onClick={() => {
+                  loadDockerContainerLogs(dockerLogsServer, dockerLogsContainer, dockerLogsTail);
+                }}
+                disabled={dockerLogsLoading}
+                icon={<RefreshCw className={`h-3.5 w-3.5 ${dockerLogsLoading ? 'animate-spin' : ''}`} />}
+                className="w-full sm:w-auto"
+              >
+                刷新
+              </Button>
+              <Button
+                type="button" size="sm"
+                variant="primary"
+                onClick={() => {
+                  setDockerLogsModalOpen(false);
+                }}
+                className="w-full sm:w-auto"
+              >
+                关闭
+              </Button>
+            </div>
+          </div>
+        </Dialog>
+      </Dialog.Root>
+
     </div>
   );
 }
 
 export default ServerPage;
-
-

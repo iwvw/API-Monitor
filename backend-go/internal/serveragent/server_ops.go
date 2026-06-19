@@ -2,6 +2,7 @@ package serveragent
 
 import (
 	"bytes"
+	"context"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
@@ -1065,25 +1066,91 @@ func (s *Service) handleDockerCheckUpdate(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	var cachedInfo string
-	err := db.QueryRowContext(r.Context(), "SELECT COALESCE(cached_info, '{}') FROM server_accounts WHERE id = ?", req.ServerID).Scan(&cachedInfo)
-	if err == sql.ErrNoRows {
-		response.Error(w, http.StatusNotFound, "server not found")
-		return
-	}
-	if err != nil {
-		response.Error(w, http.StatusInternalServerError, err.Error())
+	conn, ok := s.registry.Get(req.ServerID)
+	if !ok {
+		var cachedInfo string
+		err := db.QueryRowContext(r.Context(), "SELECT COALESCE(cached_info, '{}') FROM server_accounts WHERE id = ?", req.ServerID).Scan(&cachedInfo)
+		if err == sql.ErrNoRows {
+			response.Error(w, http.StatusNotFound, "server not found")
+			return
+		}
+		if err != nil {
+			response.Error(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		var info map[string]interface{}
+		_ = json.Unmarshal([]byte(cachedInfo), &info)
+		results := dockerUpdateResultsFromCache(req.ServerID, req.ContainerID, info)
+		response.JSON(w, http.StatusOK, map[string]interface{}{
+			"success": true,
+			"data":    results,
+		})
 		return
 	}
 
-	var info map[string]interface{}
-	_ = json.Unmarshal([]byte(cachedInfo), &info)
-	results := dockerUpdateResultsFromCache(req.ServerID, req.ContainerID, info)
+	mappedType := 11 // DOCKER_CHECK_UPDATE
+	mappedData := map[string]interface{}{
+		"container_id": req.ContainerID,
+	}
+	bytes, err := json.Marshal(mappedData)
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, "failed to marshal task data: "+err.Error())
+		return
+	}
+	dataStr := string(bytes)
+
+	task := s.taskRegistry.Create(req.ServerID, "docker.checkUpdates", "container.checkUpdates")
+	_ = conn.SendEvent("dashboard:task", map[string]interface{}{
+		"id":      task.ID,
+		"type":    mappedType,
+		"data":    dataStr,
+		"timeout": 180,
+	})
+
+	eventCh := task.Subscribe()
+	var finalEvent TaskEvent
+	completed := false
+
+	ctx, cancel := context.WithTimeout(r.Context(), 180*time.Second)
+	defer cancel()
+
+	for !completed {
+		select {
+		case event, ok := <-eventCh:
+			if !ok {
+				completed = true
+				break
+			}
+			if event.Status == TaskCompleted || event.Status == TaskFailed {
+				finalEvent = event
+				completed = true
+			}
+		case <-ctx.Done():
+			completed = true
+		}
+	}
+
+	if finalEvent.Status != TaskCompleted {
+		errMsg := "check update task failed or timed out"
+		if finalEvent.Error != "" {
+			errMsg = finalEvent.Error
+		} else if ctx.Err() != nil {
+			errMsg = "timeout waiting for agent response"
+		}
+		response.Error(w, http.StatusInternalServerError, errMsg)
+		return
+	}
+
+	var results []map[string]interface{}
+	resultStr, ok := finalEvent.Data.(string)
+	if ok && resultStr != "" {
+		_ = json.Unmarshal([]byte(resultStr), &results)
+	}
+
 	response.JSON(w, http.StatusOK, map[string]interface{}{
-		"success":        true,
-		"updateRequired": false,
-		"containers":     results,
-		"data":           results,
+		"success": true,
+		"data":    results,
 	})
 }
 
@@ -1362,7 +1429,7 @@ func (s *Service) handleCreateV2Task(w http.ResponseWriter, r *http.Request, db 
 	var timeoutSec int = 60
 
 	switch req.Action {
-	case "container.start", "container.stop", "container.restart", "container.pause", "container.unpause", "container.pull":
+	case "container.start", "container.stop", "container.restart", "container.pause", "container.unpause", "container.pull", "container.delete":
 		containerID, _ := req.Payload["containerId"].(string)
 		if containerID == "" {
 			response.Error(w, http.StatusBadRequest, "missing containerId")
