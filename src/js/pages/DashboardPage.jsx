@@ -3,7 +3,7 @@ import { Badge } from '@cloudflare/kumo/components/badge';
 import { Button } from '@cloudflare/kumo/components/button';
 import { ChartPalette, Meter, TimeseriesChart } from '@cloudflare/kumo';
 import * as echarts from 'echarts/core';
-import { BarChart } from 'echarts/charts';
+import { BarChart, LineChart } from 'echarts/charts';
 import {
   AriaComponent,
   AxisPointerComponent,
@@ -67,6 +67,7 @@ const isAbortError = (error) => error?.name === 'AbortError';
 
 echarts.use([
   BarChart,
+  LineChart,
   AxisPointerComponent,
   BrushComponent,
   GridComponent,
