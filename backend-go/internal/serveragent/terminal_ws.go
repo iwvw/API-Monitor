@@ -101,12 +101,15 @@ func (s *Service) runAgentTerminalSession(r *http.Request, conn *websocket.Conn,
 	}
 
 	ptyID := strings.TrimSpace(firstNonEmptyString(
+		r.URL.Query().Get("pty_id"),
+		r.URL.Query().Get("ptyId"),
 		r.URL.Query().Get("session_id"),
 		r.URL.Query().Get("sessionId"),
 	))
 	if ptyID == "" {
 		ptyID = fmt.Sprintf("pty-%d", time.Now().UnixNano())
 	}
+	attachOnly := r.URL.Query().Get("attach") == "1" || strings.EqualFold(r.URL.Query().Get("attach"), "true")
 
 	cols := intQuery(r, "cols", 120)
 	rows := intQuery(r, "rows", 32)
@@ -115,16 +118,50 @@ func (s *Service) runAgentTerminalSession(r *http.Request, conn *websocket.Conn,
 	}
 	dataCh, cancel := s.ptyHub.Subscribe(ptyID)
 	defer cancel()
+	statusCh, cancelStatus := s.ptyHub.Subscribe("status:" + ptyID)
+	defer cancelStatus()
 
-	dataBytes, _ := json.Marshal(map[string]int{"cols": cols, "rows": rows})
-	if err := agentConn.SendEvent("dashboard:task", map[string]interface{}{
-		"id":      ptyID,
-		"type":    12,
-		"data":    string(dataBytes),
-		"timeout": 0,
-	}); err != nil {
-		writeJSON(terminalWSMessage{Type: "error", Data: "AGENT_PTY_START_FAILED: " + err.Error(), Transport: "agent"})
-		return
+	statusConfirmed := false
+	if !attachOnly {
+		dataBytes, _ := json.Marshal(map[string]int{"cols": cols, "rows": rows})
+		if err := agentConn.SendEvent("dashboard:task", map[string]interface{}{
+			"id":      ptyID,
+			"type":    12,
+			"data":    string(dataBytes),
+			"timeout": 0,
+		}); err != nil {
+			writeJSON(terminalWSMessage{Type: "error", Data: "AGENT_PTY_START_FAILED: " + err.Error(), Transport: "agent"})
+			return
+		}
+		defer func() {
+			_ = agentConn.SendEvent("dashboard:pty_stop", map[string]interface{}{
+				"id": ptyID,
+			})
+		}()
+
+		select {
+		case rawStatus := <-statusCh:
+			var status struct {
+				ID     string `json:"id"`
+				Status string `json:"status"`
+				Error  string `json:"error"`
+			}
+			if err := json.Unmarshal([]byte(rawStatus), &status); err == nil {
+				if strings.EqualFold(status.Status, "error") {
+					msg := strings.TrimSpace(status.Error)
+					if msg == "" {
+						msg = "agent PTY start failed"
+					}
+					writeJSON(terminalWSMessage{Type: "error", Data: "AGENT_PTY_START_FAILED: " + msg, Transport: "agent"})
+					return
+				}
+				if strings.EqualFold(status.Status, "ready") {
+					statusConfirmed = true
+				}
+			}
+		case <-time.After(3 * time.Second):
+			// Older agents do not emit PTY status; keep compatibility during rolling upgrades.
+		}
 	}
 
 	done := make(chan struct{})
@@ -140,7 +177,13 @@ func (s *Service) runAgentTerminalSession(r *http.Request, conn *websocket.Conn,
 		}
 	}()
 
-	writeJSON(terminalWSMessage{Type: "status", Data: "connected", Transport: "agent"})
+	if attachOnly {
+		writeJSON(terminalWSMessage{Type: "status", Data: "attached", Transport: "agent"})
+	} else if statusConfirmed {
+		writeJSON(terminalWSMessage{Type: "status", Data: "connected", Transport: "agent"})
+	} else {
+		writeJSON(terminalWSMessage{Type: "status", Data: "connected_legacy", Transport: "agent"})
+	}
 
 	containerName := r.URL.Query().Get("container")
 	if containerName != "" {
@@ -183,6 +226,9 @@ func (s *Service) runAgentTerminalSession(r *http.Request, conn *websocket.Conn,
 					"rows": msg.Rows,
 				})
 			}
+		case "disconnect":
+			closeDone()
+			return
 		}
 	}
 }
@@ -311,6 +357,9 @@ func (s *Service) runSSHTerminalSession(r *http.Request, conn *websocket.Conn, c
 			if msg.Cols > 0 && msg.Rows > 0 {
 				_ = session.WindowChange(msg.Rows, msg.Cols)
 			}
+		case "disconnect":
+			closeDone()
+			return
 		}
 	}
 }

@@ -258,6 +258,18 @@ func New(cfg config.Config) *Service {
 						s.ptyHub.Publish(ptyData.ID, ptyData.Data)
 					}
 				}
+			case "agent:pty_status":
+				var ptyStatus struct {
+					ID     string `json:"id"`
+					Status string `json:"status"`
+					Error  string `json:"error"`
+				}
+				if err := json.Unmarshal(data, &ptyStatus); err == nil && ptyStatus.ID != "" {
+					registry.UpdateHeartbeat(serverID)
+					if s.ptyHub != nil {
+						s.ptyHub.Publish("status:"+ptyStatus.ID, string(data))
+					}
+				}
 			case "agent:heartbeat":
 				// Agent 心跳
 				var hb struct {

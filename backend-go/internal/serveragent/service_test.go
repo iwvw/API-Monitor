@@ -211,7 +211,6 @@ func TestFrontendCompatibilityRoutes(t *testing.T) {
 		{http.MethodGet, "/api/server/metrics/history?serverId=server-1&page=1&pageSize=10", ""},
 		{http.MethodDelete, "/api/server/metrics/history?serverId=server-1", ""},
 		{http.MethodGet, "/api/server/v2/tasks", ""},
-		{http.MethodPost, "/api/server/v2/tasks", `{"serverId":"server-1","domain":"docker","action":"image.list"}`},
 		{http.MethodGet, "/api/server/v2/docker/overview", ""},
 		{http.MethodPost, "/api/server/docker/check-update", `{"serverId":"server-1"}`},
 		{http.MethodGet, "/api/server/agent/connection-info/server-1", ""},
@@ -226,6 +225,11 @@ func TestFrontendCompatibilityRoutes(t *testing.T) {
 		if payload["success"] != true {
 			t.Fatalf("%s %s payload=%#v", tc.method, tc.path, payload)
 		}
+	}
+
+	res := perform(service, http.MethodPost, "/api/server/v2/tasks", `{"serverId":"server-1","domain":"docker","action":"image.list"}`)
+	if res.Code != http.StatusServiceUnavailable {
+		t.Fatalf("offline docker task status=%d body=%s", res.Code, res.Body.String())
 	}
 }
 
@@ -417,6 +421,37 @@ func TestPersistMetricsAcceptsCachedAgentInfoShape(t *testing.T) {
 	}
 	if netRx != 29.6*1024 || platform != "Windows" {
 		t.Fatalf("unexpected network/platform metrics: netRx=%v platform=%s", netRx, platform)
+	}
+}
+
+func TestPersistMetricsAcceptsAgentNumericGpuMemoryFields(t *testing.T) {
+	service, db := testService(t)
+	_, err := db.ExecContext(context.Background(), `INSERT INTO server_accounts (id, name, host, username, auth_type) VALUES ('server-agent-gpu', 'agent gpu', '', 'root', 'password')`)
+	if err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+
+	err = service.persistMetrics(context.Background(), db, "server-agent-gpu", map[string]interface{}{
+		"gpu_usage":     float64(23),
+		"gpu_mem_used":  float64(2_615_148_544),
+		"gpu_mem_total": float64(8_585_740_288),
+		"gpu_power":     float64(10),
+		"gpu_temp":      float64(56),
+	})
+	if err != nil {
+		t.Fatalf("persist metrics: %v", err)
+	}
+
+	var gpuUsage, gpuPower, gpuTemp float64
+	var gpuMemUsed, gpuMemTotal int64
+	err = db.QueryRowContext(context.Background(), `SELECT gpu_usage, gpu_mem_used, gpu_mem_total, gpu_power, gpu_temp FROM server_metrics_history WHERE server_id = 'server-agent-gpu'`).
+		Scan(&gpuUsage, &gpuMemUsed, &gpuMemTotal, &gpuPower, &gpuTemp)
+	if err != nil {
+		t.Fatalf("query metrics: %v", err)
+	}
+
+	if gpuUsage != 23 || gpuMemUsed != 2_615_148_544 || gpuMemTotal != 8_585_740_288 || gpuPower != 10 || gpuTemp != 56 {
+		t.Fatalf("unexpected gpu metrics: usage=%v used=%d total=%d power=%v temp=%v", gpuUsage, gpuMemUsed, gpuMemTotal, gpuPower, gpuTemp)
 	}
 }
 

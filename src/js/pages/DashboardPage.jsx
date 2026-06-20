@@ -108,7 +108,7 @@ function parseTrendTimestamp(point) {
   if (point?.bucket) {
     const bucket = String(point.bucket);
     const parsed = Date.parse(
-      /^\d{4}-\d{2}-\d{2}$/.test(bucket) ? `${bucket}T00:00:00Z` : `${bucket.replace(' ', 'T')}Z`
+      /^\d{4}-\d{2}-\d{2}$/.test(bucket) ? `${bucket}T00:00:00` : bucket.replace(' ', 'T')
     );
     if (Number.isFinite(parsed)) return parsed;
   }
@@ -701,7 +701,7 @@ function DashboardPage({ onNavigate } = {}) {
   const hasApiTrendCalls = apiTrend.length >= 2 && apiTrendTotal > 0;
   
   const apiStatsDetailText = apiTrendTotal > 0
-    ? `审计型 ${apiTrendAudit}次 (${Math.round((apiTrendAudit / apiTrendTotal) * 100)}%) / 操作型 ${apiTrendOps}次`
+    ? `读取 ${apiTrendAudit}次 (${Math.round((apiTrendAudit / apiTrendTotal) * 100)}%) / 变更 ${apiTrendOps}次`
     : '暂无系统 API 调用记录';
   const apiTrendStatusText = apiTrendTotal > 0
     ? `最近 7 天系统共处理了 ${apiTrendTotal} 次有效 API 请求`
@@ -709,14 +709,14 @@ function DashboardPage({ onNavigate } = {}) {
 
   const apiTrendChartData = useMemo(() => [
     {
-      name: '审计 API (Audit)',
+      name: '读取请求 (GET)',
       color: ChartPalette.semantic('Info', isDarkMode),
       data: apiTrend
         .map((point) => [parseTrendTimestamp(point), Number(point.audit) || 0])
         .filter(([timestamp]) => Number.isFinite(timestamp)),
     },
     {
-      name: '操作 API (Ops)',
+      name: '变更请求 (Write)',
       color: ChartPalette.semantic('Purple', isDarkMode),
       data: apiTrend
         .map((point) => [parseTrendTimestamp(point), Number(point.ops) || 0])

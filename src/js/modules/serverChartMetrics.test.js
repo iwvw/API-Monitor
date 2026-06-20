@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { normalizeChartMetricRecords } from './serverChartMetrics.js';
+import { getGpuMemPercent, normalizeChartMetricRecords } from './serverChartMetrics.js';
 
 describe('server chart metrics helpers', () => {
   it('keeps refreshed realtime samples connected to retained 5 minute history', () => {
@@ -15,5 +15,14 @@ describe('server chart metrics helpers', () => {
     const normalized = normalizeChartMetricRecords(records);
 
     expect(normalized.some(record => record._gap)).toBe(false);
+  });
+
+  it('treats missing GPU memory totals as unknown instead of zero', () => {
+    expect(getGpuMemPercent({ gpu_mem_used: 2_615_148_544, gpu_mem_total: 8_585_740_288 })).toBeCloseTo(30.46, 2);
+    expect(getGpuMemPercent({ gpu_mem_percent: 0, gpu_mem_used: 0, gpu_mem_total: 8_585_740_288 })).toBe(0);
+    expect(getGpuMemPercent({ gpu_mem_percent: 0, gpu_mem_used: 0, gpu_mem_total: 0 })).toBeNull();
+    expect(getGpuMemPercent({ gpu_mem_used: 2_615_148_544, gpu_mem_total: 0 })).toBeNull();
+    expect(getGpuMemPercent({ gpu_mem_used: 0, gpu_mem_total: 0 })).toBeNull();
+    expect(getGpuMemPercent({})).toBeNull();
   });
 });

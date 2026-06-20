@@ -10,7 +10,9 @@ pub const EVENT_DASHBOARD_AUTH_FAIL: &str = "dashboard:auth_fail";
 pub const EVENT_DASHBOARD_TASK: &str = "dashboard:task";
 pub const EVENT_DASHBOARD_PTY_INPUT: &str = "dashboard:pty_input";
 pub const EVENT_DASHBOARD_PTY_RESIZE: &str = "dashboard:pty_resize";
+pub const EVENT_DASHBOARD_PTY_STOP: &str = "dashboard:pty_stop";
 pub const EVENT_AGENT_PTY_DATA: &str = "agent:pty_data";
+pub const EVENT_AGENT_PTY_STATUS: &str = "agent:pty_status";
 pub const EVENT_AGENT_TASK_PROGRESS: &str = "agent:task_progress";
 
 #[derive(Serialize, Debug, Clone)]
@@ -58,10 +60,22 @@ pub struct PtyResizePayload {
     pub rows: u32,
 }
 
+#[derive(Deserialize, Debug, Clone)]
+pub struct PtyStopPayload {
+    pub id: String,
+}
+
 #[derive(Serialize, Debug, Clone)]
 pub struct PtyDataPayload {
     pub id: String,
     pub data: String,
+}
+
+#[derive(Serialize, Debug, Clone)]
+pub struct PtyStatusPayload {
+    pub id: String,
+    pub status: String,
+    pub error: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

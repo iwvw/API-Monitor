@@ -1101,12 +1101,16 @@ func (s *Service) handleDockerCheckUpdate(w http.ResponseWriter, r *http.Request
 	dataStr := string(bytes)
 
 	task := s.taskRegistry.Create(req.ServerID, "docker.checkUpdates", "container.checkUpdates")
-	_ = conn.SendEvent("dashboard:task", map[string]interface{}{
+	if err := conn.SendEvent("dashboard:task", map[string]interface{}{
 		"id":      task.ID,
 		"type":    mappedType,
 		"data":    dataStr,
 		"timeout": 180,
-	})
+	}); err != nil {
+		s.taskRegistry.Fail(task.ID, err.Error())
+		response.Error(w, http.StatusBadGateway, "failed to send task to agent: "+err.Error())
+		return
+	}
 
 	eventCh := task.Subscribe()
 	var finalEvent TaskEvent
@@ -1201,12 +1205,114 @@ func (s *Service) handleV2TasksRoutes(w http.ResponseWriter, r *http.Request, db
 	if len(subparts) == 1 && subparts[0] == "stream" && r.Method == http.MethodGet {
 		w.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-cache, no-transform")
+		w.Header().Set("Connection", "keep-alive")
+		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("event: ready\ndata: {\"success\":true}\n\n"))
+		flusher, ok := w.(http.Flusher)
+		if !ok {
+			return
+		}
+		s.writeNamedSSE(w, "ready", map[string]interface{}{"success": true})
+		flusher.Flush()
+
+		eventCh, cancel := s.taskRegistry.SubscribeAll()
+		defer cancel()
+
+		ticker := time.NewTicker(15 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case event, ok := <-eventCh:
+				if !ok {
+					return
+				}
+				payload, include := s.buildTaskUpdatePayload(event)
+				if !include {
+					continue
+				}
+				s.writeNamedSSE(w, "task.update", payload)
+				flusher.Flush()
+			case <-ticker.C:
+				s.writeNamedSSE(w, "ping", map[string]interface{}{"ts": time.Now().UnixMilli()})
+				flusher.Flush()
+			case <-r.Context().Done():
+				return
+			}
+		}
 		return
 	}
 
 	response.Error(w, http.StatusNotFound, "v2 tasks route not found")
+}
+
+func (s *Service) buildTaskUpdatePayload(event TaskEvent) (map[string]interface{}, bool) {
+	state := string(event.Status)
+	if event.Status == TaskCompleted {
+		state = "success"
+	}
+	payload := map[string]interface{}{
+		"taskId":   event.TaskID,
+		"state":    state,
+		"progress": event.Progress,
+	}
+	if event.Type != "" {
+		payload["event"] = event.Type
+	}
+	if event.Error != "" {
+		payload["error"] = event.Error
+		payload["message"] = event.Error
+	}
+	if msg, ok := taskEventMessage(event.Data); ok && payload["message"] == nil {
+		payload["message"] = msg
+	}
+
+	task, exists := s.taskRegistry.Get(event.TaskID)
+	if exists {
+		taskType := task.Type
+		action := task.Command
+		payload["type"] = taskType
+		payload["action"] = action
+		payload["serverId"] = task.ServerID
+		if strings.HasPrefix(taskType, "docker.internal.") {
+			return payload, false
+		}
+		if strings.HasPrefix(taskType, "docker.") || strings.HasPrefix(action, "container.") ||
+			strings.HasPrefix(action, "image.") || strings.HasPrefix(action, "network.") ||
+			strings.HasPrefix(action, "volume.") || strings.HasPrefix(action, "compose.") {
+			payload["domain"] = "docker"
+			return payload, true
+		}
+	}
+
+	dataMap, _ := event.Data.(map[string]interface{})
+	if dataMap != nil {
+		if typ, _ := dataMap["type"].(string); typ != "" {
+			payload["type"] = typ
+			if strings.HasPrefix(typ, "docker.") {
+				payload["domain"] = "docker"
+				if cmd, _ := dataMap["command"].(string); cmd != "" {
+					payload["action"] = cmd
+				}
+				return payload, true
+			}
+		}
+	}
+
+	return payload, false
+}
+
+func taskEventMessage(data interface{}) (string, bool) {
+	switch v := data.(type) {
+	case string:
+		return v, v != ""
+	case map[string]interface{}:
+		for _, key := range []string{"message", "detail_msg", "data"} {
+			if msg, _ := v[key].(string); msg != "" {
+				return msg, true
+			}
+		}
+	}
+	return "", false
 }
 
 func (s *Service) handleV2DockerRoutes(w http.ResponseWriter, r *http.Request, db *sql.DB, subparts []string) {
@@ -1273,7 +1379,7 @@ func (s *Service) handleDockerOverview(w http.ResponseWriter, r *http.Request, d
 			containers = cList
 		}
 
-		// If online and installed, dynamically fetch resources based on scope
+		// If online, dynamically fetch requested resources based on scope.
 		var images interface{} = []interface{}{}
 		var networks interface{} = []interface{}{}
 		var volumes interface{} = []interface{}{}
@@ -1281,15 +1387,16 @@ func (s *Service) handleDockerOverview(w http.ResponseWriter, r *http.Request, d
 		var composeProjects interface{} = []interface{}{}
 
 		var errOverview, errImages, errNetworks, errVolumes, errStats, errCompose string
+		containersSource := "cache"
 
-		if d.status == "online" && (installed || len(containers) > 0) {
+		if d.status == "online" {
 			// Query in parallel
 			type taskRes struct {
 				key  string
 				val  interface{}
 				errS string
 			}
-			ch := make(chan taskRes, 5)
+			ch := make(chan taskRes, 6)
 			tasksCount := 0
 
 			runTask := func(key string, taskType int) {
@@ -1309,6 +1416,9 @@ func (s *Service) handleDockerOverview(w http.ResponseWriter, r *http.Request, d
 				}()
 			}
 
+			if scopes["containers"] {
+				runTask("containers", 27) // DOCKER_CONTAINERS
+			}
 			if scopes["images"] {
 				runTask("images", 13) // DOCKER_IMAGES
 			}
@@ -1328,6 +1438,12 @@ func (s *Service) handleDockerOverview(w http.ResponseWriter, r *http.Request, d
 			for i := 0; i < tasksCount; i++ {
 				res := <-ch
 				switch res.key {
+				case "containers":
+					if res.errS == "" {
+						containers = asInterfaceList(res.val)
+						containersSource = "live"
+					}
+					errOverview = res.errS
 				case "images":
 					images = res.val
 					errImages = res.errS
@@ -1347,7 +1463,7 @@ func (s *Service) handleDockerOverview(w http.ResponseWriter, r *http.Request, d
 			}
 
 			// Installed flag can also be inferred if any task succeeds
-			if errImages == "" || errNetworks == "" || errVolumes == "" || errStats == "" || errCompose == "" {
+			if containersSource == "live" || errImages == "" || errNetworks == "" || errVolumes == "" || errStats == "" || errCompose == "" {
 				installed = true
 			}
 		}
@@ -1394,6 +1510,9 @@ func (s *Service) handleDockerOverview(w http.ResponseWriter, r *http.Request, d
 				"volumes":         errVolumes,
 				"stats":           errStats,
 				"composeProjects": errCompose,
+			},
+			"source": map[string]interface{}{
+				"containers": containersSource,
 			},
 		})
 	}
@@ -1690,14 +1809,22 @@ func (s *Service) handleCreateV2Task(w http.ResponseWriter, r *http.Request, db 
 		taskType = "server.task"
 	}
 
+	conn, ok := s.registry.Get(req.ServerID)
+	if !ok {
+		response.Error(w, http.StatusServiceUnavailable, "agent offline")
+		return
+	}
+
 	task := s.taskRegistry.Create(req.ServerID, taskType, req.Action)
-	if conn, ok := s.registry.Get(req.ServerID); ok {
-		_ = conn.SendEvent("dashboard:task", map[string]interface{}{
-			"id":      task.ID,
-			"type":    mappedType,
-			"data":    dataStr,
-			"timeout": timeoutSec,
-		})
+	if err := conn.SendEvent("dashboard:task", map[string]interface{}{
+		"id":      task.ID,
+		"type":    mappedType,
+		"data":    dataStr,
+		"timeout": timeoutSec,
+	}); err != nil {
+		s.taskRegistry.Fail(task.ID, err.Error())
+		response.Error(w, http.StatusBadGateway, "failed to send task to agent: "+err.Error())
+		return
 	}
 
 	response.JSON(w, http.StatusOK, map[string]interface{}{
@@ -1724,6 +1851,21 @@ func asMapList(value interface{}) []map[string]interface{} {
 		return out
 	default:
 		return nil
+	}
+}
+
+func asInterfaceList(value interface{}) []interface{} {
+	switch v := value.(type) {
+	case []interface{}:
+		return v
+	case []map[string]interface{}:
+		out := make([]interface{}, 0, len(v))
+		for _, item := range v {
+			out = append(out, item)
+		}
+		return out
+	default:
+		return []interface{}{}
 	}
 }
 

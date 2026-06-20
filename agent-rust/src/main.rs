@@ -11,8 +11,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tokio::sync::mpsc;
 use tokio::net::TcpStream;
+use tokio::sync::mpsc;
 use tokio::time::sleep;
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 
@@ -527,6 +527,23 @@ async fn run_client(
                                             }
                                         }
                                     }
+                                    27 => {
+                                        // DOCKER_CONTAINERS
+                                        match docker_bridge_task
+                                            .lock()
+                                            .await
+                                            .handle_docker_containers(&task.data)
+                                            .await
+                                        {
+                                            Ok(out) => {
+                                                successful = true;
+                                                res_data = out;
+                                            }
+                                            Err(err) => {
+                                                res_data = err;
+                                            }
+                                        }
+                                    }
                                     30 => {
                                         // FILE_LIST
                                         match FileManager::handle_file_list(&task.data) {
@@ -696,6 +713,10 @@ async fn run_client(
                             {
                                 let _ = session.resize(resize.cols, resize.rows);
                             }
+                        }
+                    } else if event == EVENT_DASHBOARD_PTY_STOP {
+                        if let Ok(stop) = serde_json::from_value::<PtyStopPayload>(data) {
+                            pty_sessions_clone.lock().unwrap().remove(&stop.id);
                         }
                     }
                 }
@@ -1115,7 +1136,22 @@ async fn handle_pty_start(
     let cols = req.cols.unwrap_or(80);
     let rows = req.rows.unwrap_or(24);
 
-    let session = Arc::new(PtySession::new(cols, rows)?);
+    let session = match PtySession::new(cols, rows) {
+        Ok(session) => Arc::new(session),
+        Err(err) => {
+            let _ = tx
+                .send(format_event(
+                    EVENT_AGENT_PTY_STATUS,
+                    &PtyStatusPayload {
+                        id: task_id.to_string(),
+                        status: "error".to_string(),
+                        error: Some(err.clone()),
+                    },
+                ))
+                .await;
+            return Err(err);
+        }
+    };
 
     // Insert session
     pty_sessions
@@ -1124,9 +1160,35 @@ async fn handle_pty_start(
         .insert(task_id.to_string(), session.clone());
 
     // Spawn reading thread
-    let mut reader = session.try_clone_reader()?;
+    let mut reader = match session.try_clone_reader() {
+        Ok(reader) => reader,
+        Err(err) => {
+            pty_sessions.lock().unwrap().remove(task_id);
+            let _ = tx
+                .send(format_event(
+                    EVENT_AGENT_PTY_STATUS,
+                    &PtyStatusPayload {
+                        id: task_id.to_string(),
+                        status: "error".to_string(),
+                        error: Some(err.clone()),
+                    },
+                ))
+                .await;
+            return Err(err);
+        }
+    };
     let task_id_str = task_id.to_string();
     let pty_sessions_cleanup = pty_sessions.clone();
+    let _ = tx
+        .send(format_event(
+            EVENT_AGENT_PTY_STATUS,
+            &PtyStatusPayload {
+                id: task_id.to_string(),
+                status: "ready".to_string(),
+                error: None,
+            },
+        ))
+        .await;
 
     std::thread::spawn(move || {
         let mut buf = [0u8; 8192];

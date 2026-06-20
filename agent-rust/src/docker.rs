@@ -156,6 +156,90 @@ impl DockerBridge {
         }
     }
 
+    pub async fn handle_docker_containers(&mut self, _data: &str) -> Result<String, String> {
+        let docker_client = match &self.docker {
+            Some(d) => d,
+            None => {
+                self.docker = Docker::connect_with_local_defaults().ok();
+                self.docker
+                    .as_ref()
+                    .ok_or_else(|| "Docker 客户端不可用".to_string())?
+            }
+        };
+
+        docker_client
+            .ping()
+            .await
+            .map_err(|e| format!("Docker daemon 不可用: {}", e))?;
+
+        let options = ListContainersOptions::<String> {
+            all: true,
+            ..Default::default()
+        };
+        let list = docker_client
+            .list_containers(Some(options))
+            .await
+            .map_err(|e| format!("获取容器列表失败: {}", e))?;
+
+        #[derive(Serialize)]
+        struct DockerContainerListItem {
+            id: String,
+            name: String,
+            image: String,
+            status: String,
+            state: String,
+            created: String,
+            ports: String,
+        }
+
+        let mut containers = Vec::new();
+        for c in list {
+            let name = c
+                .names
+                .as_ref()
+                .and_then(|names| names.first())
+                .map(|n| n.trim_start_matches('/').to_string())
+                .unwrap_or_default();
+            let status = c.status.clone().unwrap_or_default();
+            let state = c.state.clone().unwrap_or_default();
+            let created = c
+                .created
+                .map(|ts| {
+                    let dt = std::time::SystemTime::UNIX_EPOCH
+                        + std::time::Duration::from_secs(ts as u64);
+                    let datetime: chrono::DateTime<chrono::Utc> = dt.into();
+                    datetime.format("%Y-%m-%d %H:%M:%S").to_string()
+                })
+                .unwrap_or_default();
+            let id =
+                c.id.as_ref()
+                    .map(|id| id.chars().take(12).collect::<String>())
+                    .unwrap_or_default();
+            let mut ports_vec = Vec::new();
+            if let Some(ports) = c.ports {
+                for p in ports {
+                    if let Some(pub_port) = p.public_port {
+                        ports_vec.push(format!("{}:{}", pub_port, p.private_port));
+                    } else {
+                        ports_vec.push(format!("{}", p.private_port));
+                    }
+                }
+            }
+
+            containers.push(DockerContainerListItem {
+                id,
+                name,
+                image: c.image.unwrap_or_default(),
+                status,
+                state,
+                created,
+                ports: ports_vec.join(", "),
+            });
+        }
+
+        serde_json::to_string(&containers).map_err(|e| format!("序列化容器列表失败: {}", e))
+    }
+
     pub fn handle_docker_action(&self, req_data: &str) -> Result<String, String> {
         let req: DockerActionRequest =
             serde_json::from_str(req_data).map_err(|e| format!("解析请求失败: {}", e))?;
@@ -416,6 +500,7 @@ impl DockerBridge {
         struct ComposeActionReq {
             #[serde(rename = "config_file")]
             config_file: String,
+            project: Option<String>,
             action: String,
         }
 
@@ -424,8 +509,18 @@ impl DockerBridge {
 
         let mut args = vec![];
         if !req.config_file.is_empty() {
-            args.push("-f");
-            args.push(&req.config_file);
+            for file in req.config_file.split(',') {
+                let file = file.trim();
+                if !file.is_empty() {
+                    args.push("-f");
+                    args.push(file);
+                }
+            }
+        } else if let Some(project) = req.project.as_deref() {
+            if !project.trim().is_empty() {
+                args.push("--project-name");
+                args.push(project.trim());
+            }
         }
 
         match req.action.as_str() {
@@ -434,6 +529,7 @@ impl DockerBridge {
             "stop" => args.push("stop"),
             "start" => args.push("start"),
             "restart" => args.push("restart"),
+            "pull" => args.push("pull"),
             _ => return Err(format!("不支持的 Compose 操作: {}", req.action)),
         }
 
