@@ -603,6 +603,7 @@ func TestAgentTerminalContainerUsesDirectExecPayload(t *testing.T) {
 
 	if err := client.WriteJSON(terminalWSMessage{Type: "disconnect"}); err != nil {
 		t.Fatalf("send disconnect: %v", err)
+	}
 }
 
 func TestServerDetailResolvesCountryFromCachedAgentMetadata(t *testing.T) {
