@@ -1834,7 +1834,7 @@ func (s *Service) handleCreateV2Task(w http.ResponseWriter, r *http.Request, db 
 		"taskId":  task.ID,
 		"data": map[string]interface{}{
 			"taskId": task.ID,
-			"state":  string(task.Status),
+			"state":  string(task.GetStatus()),
 		},
 	})
 }

@@ -220,6 +220,13 @@ func (r *TaskRegistry) broadcast(event TaskEvent) {
 	}
 }
 
+// GetStatus 获取任务状态（线程安全）
+func (t *Task) GetStatus() TaskStatus {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.Status
+}
+
 // Subscribe 订阅任务事件
 func (t *Task) Subscribe() <-chan TaskEvent {
 	t.mu.Lock()
