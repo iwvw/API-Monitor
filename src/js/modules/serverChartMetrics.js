@@ -124,34 +124,6 @@ export const getGpuMemPercent = (record = {}) => {
   return null;
 };
 
-export const clampPercent = (value) => Math.max(0, Math.min(100, value));
-
-export const metricNumber = (value, fallback = 0) => {
-  if (value === null || value === undefined || value === '') return fallback;
-  const parsed = typeof value === 'number'
-    ? value
-    : parseFloat(String(value).replace(/[^\d.-]/g, ''));
-  return Number.isFinite(parsed) ? parsed : fallback;
-};
-
-export const getGpuMemPercent = (record = {}) => {
-  const used = metricNumber(record.gpu_mem_used, NaN);
-  const total = metricNumber(record.gpu_mem_total, NaN);
-
-  if (record.gpu_mem_percent !== null && record.gpu_mem_percent !== undefined) {
-    const percent = clampPercent(metricNumber(record.gpu_mem_percent, 0));
-    if (percent !== 0 || (Number.isFinite(total) && total > 0)) {
-      return percent;
-    }
-    return null;
-  }
-
-  if (Number.isFinite(used) && Number.isFinite(total) && total > 0) {
-    return clampPercent((used / total) * 100);
-  }
-
-  return null;
-};
 
 export const formatSqliteUTCDateTime = (date) => {
   const d = date instanceof Date ? date : new Date(date);
