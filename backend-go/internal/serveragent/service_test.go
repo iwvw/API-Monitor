@@ -9,8 +9,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
+	"github.com/gorilla/websocket"
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
 )
 
@@ -74,6 +77,58 @@ func (s *taskReplySocket) WriteMessage(_ int, data []byte) error {
 	result := s.reply(int(taskType), taskData)
 	go s.service.taskRegistry.Complete(taskID, result)
 	return nil
+}
+
+type terminalCaptureSocket struct {
+	t       *testing.T
+	service *Service
+	mu      sync.Mutex
+	events  []capturedSocketEvent
+}
+
+type capturedSocketEvent struct {
+	Name string
+	Data map[string]interface{}
+}
+
+func (s *terminalCaptureSocket) WriteMessage(_ int, data []byte) error {
+	raw := string(data)
+	if !strings.HasPrefix(raw, "42") {
+		s.t.Fatalf("unexpected socket frame: %s", raw)
+	}
+	var frame []interface{}
+	if err := json.Unmarshal([]byte(raw[2:]), &frame); err != nil {
+		s.t.Fatalf("decode socket frame: %v frame=%s", err, raw)
+	}
+	if len(frame) != 2 {
+		s.t.Fatalf("unexpected socket event: %#v", frame)
+	}
+	name, _ := frame[0].(string)
+	payload, ok := frame[1].(map[string]interface{})
+	if !ok {
+		s.t.Fatalf("unexpected socket payload: %#v", frame[1])
+	}
+
+	s.mu.Lock()
+	s.events = append(s.events, capturedSocketEvent{Name: name, Data: payload})
+	s.mu.Unlock()
+
+	if name == "dashboard:task" {
+		taskID, _ := payload["id"].(string)
+		taskType, _ := payload["type"].(float64)
+		if int(taskType) == 12 && taskID != "" {
+			go s.service.ptyHub.Publish("status:"+taskID, `{"id":"`+taskID+`","status":"ready"}`)
+		}
+	}
+	return nil
+}
+
+func (s *terminalCaptureSocket) Events() []capturedSocketEvent {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]capturedSocketEvent, len(s.events))
+	copy(out, s.events)
+	return out
 }
 
 func TestAccountsLifecycleAndNullableUpdate(t *testing.T) {
@@ -211,7 +266,6 @@ func TestFrontendCompatibilityRoutes(t *testing.T) {
 		{http.MethodGet, "/api/server/metrics/history?serverId=server-1&page=1&pageSize=10", ""},
 		{http.MethodDelete, "/api/server/metrics/history?serverId=server-1", ""},
 		{http.MethodGet, "/api/server/v2/tasks", ""},
-		{http.MethodPost, "/api/server/v2/tasks", `{"serverId":"server-1","domain":"docker","action":"image.list"}`},
 		{http.MethodGet, "/api/server/v2/docker/overview", ""},
 		{http.MethodPost, "/api/server/docker/check-update", `{"serverId":"server-1"}`},
 		{http.MethodGet, "/api/server/agent/connection-info/server-1", ""},
@@ -226,6 +280,329 @@ func TestFrontendCompatibilityRoutes(t *testing.T) {
 		if payload["success"] != true {
 			t.Fatalf("%s %s payload=%#v", tc.method, tc.path, payload)
 		}
+	}
+
+	res := perform(service, http.MethodPost, "/api/server/v2/tasks", `{"serverId":"server-1","domain":"docker","action":"image.list"}`)
+	if res.Code != http.StatusServiceUnavailable {
+		t.Fatalf("offline docker task status=%d body=%s", res.Code, res.Body.String())
+	}
+}
+
+func TestDockerOverviewDoesNotInferInstalledFromUnrequestedScopes(t *testing.T) {
+	service, db := testService(t)
+	_, err := db.ExecContext(context.Background(), `INSERT INTO server_accounts (id, name, host, username, auth_type, status, cached_info) VALUES ('docker-empty', 'docker', '', 'root', 'password', 'online', '{"docker":{"installed":false}}')`)
+	if err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+
+	res := perform(service, http.MethodGet, "/api/server/v2/docker/overview", "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("overview status=%d body=%s", res.Code, res.Body.String())
+	}
+	payload := decodePayload(t, res)
+	data := payload["data"].(map[string]interface{})
+	servers := data["servers"].([]interface{})
+	docker := servers[0].(map[string]interface{})["docker"].(map[string]interface{})
+	if docker["installed"] != false {
+		t.Fatalf("docker installed inferred from unrequested scopes: %#v", docker)
+	}
+}
+
+func TestDockerOverviewInvalidLiveJSONDoesNotInferInstalled(t *testing.T) {
+	service, db := testService(t)
+	_, err := db.ExecContext(context.Background(), `INSERT INTO server_accounts (id, name, host, username, auth_type, status, cached_info) VALUES ('docker-bad-json', 'docker', '', 'root', 'password', 'online', '{"docker":{"installed":false}}')`)
+	if err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+	service.registry.Register("docker-bad-json", &taskReplySocket{
+		t:       t,
+		service: service,
+		reply: func(taskType int, data string) string {
+			if taskType != dockerTaskImages {
+				t.Fatalf("unexpected task type: %d data=%s", taskType, data)
+			}
+			return "not-json"
+		},
+	})
+
+	res := perform(service, http.MethodGet, "/api/server/v2/docker/overview?scope=images", "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("overview status=%d body=%s", res.Code, res.Body.String())
+	}
+	payload := decodePayload(t, res)
+	data := payload["data"].(map[string]interface{})
+	server := data["servers"].([]interface{})[0].(map[string]interface{})
+	docker := server["docker"].(map[string]interface{})
+	if docker["installed"] != false {
+		t.Fatalf("docker installed inferred from invalid json: %#v", docker)
+	}
+	errors := server["errors"].(map[string]interface{})
+	if !strings.Contains(errors["images"].(string), "invalid docker json") {
+		t.Fatalf("expected image parse error, got %#v", errors)
+	}
+}
+
+func TestDockerProxyRoutesUseDockerSemanticsOverAgentTasks(t *testing.T) {
+	service, db := testService(t)
+	_, err := db.ExecContext(context.Background(), `INSERT INTO server_accounts (id, name, host, username, auth_type, cached_info) VALUES ('docker-agent', 'docker', '', 'root', 'password', '{"docker":{"installed":true}}')`)
+	if err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+
+	service.registry.Register("docker-agent", &taskReplySocket{
+		t:       t,
+		service: service,
+		reply: func(taskType int, data string) string {
+			switch taskType {
+			case dockerTaskContainers:
+				return `[{"id":"abc123","name":"web","state":"running"}]`
+			case dockerTaskAction:
+				if !strings.Contains(data, `"action":"start"`) || !strings.Contains(data, `"container_id":"abc123"`) {
+					t.Fatalf("unexpected action data: %s", data)
+				}
+				return "container start success"
+			case dockerTaskLogs:
+				if !strings.Contains(data, `"container_id":"abc123"`) || !strings.Contains(data, `"tail":50`) {
+					t.Fatalf("unexpected logs data: %s", data)
+				}
+				return "line one\nline two\n"
+			case dockerTaskImageAction:
+				if !strings.Contains(data, `"action":"remove"`) || !strings.Contains(data, `"image":"library/nginx:latest"`) {
+					t.Fatalf("unexpected image action data: %s", data)
+				}
+				return "image removed"
+			case dockerTaskComposeList:
+				return `[{"Name":"edge","Status":"running(2)","ConfigFiles":"/srv/edge/docker-compose.yml","WorkingDir":"/srv/edge"}]`
+			case dockerTaskComposeAct:
+				var req map[string]interface{}
+				if err := json.Unmarshal([]byte(data), &req); err != nil {
+					t.Fatalf("decode compose action: %v data=%s", err, data)
+				}
+				action, _ := req["action"].(string)
+				if action != "up" && action != "start" && action != "stop" {
+					t.Fatalf("unexpected compose action: %s data=%s", action, data)
+				}
+				if req["project"] != "edge" || req["config_file"] != "/srv/edge/docker-compose.yml" {
+					t.Fatalf("unexpected compose action data: %s", data)
+				}
+				return "compose " + action + " success"
+			default:
+				t.Fatalf("unexpected task type: %d", taskType)
+				return ""
+			}
+		},
+	})
+
+	res := perform(service, http.MethodGet, "/api/server/v2/docker/docker-agent/containers/json", "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("containers status=%d body=%s", res.Code, res.Body.String())
+	}
+	payload := decodePayload(t, res)
+	list := payload["data"].([]interface{})
+	if len(list) != 1 || list[0].(map[string]interface{})["id"] != "abc123" {
+		t.Fatalf("unexpected containers payload=%#v", payload)
+	}
+
+	res = perform(service, http.MethodPost, "/api/server/v2/docker/docker-agent/containers/abc123/start", "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("start status=%d body=%s", res.Code, res.Body.String())
+	}
+	payload = decodePayload(t, res)
+	if payload["success"] != true {
+		t.Fatalf("unexpected start payload=%#v", payload)
+	}
+
+	res = perform(service, http.MethodGet, "/api/server/v2/docker/docker-agent/containers/abc123/logs?tail=50", "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("logs status=%d body=%s", res.Code, res.Body.String())
+	}
+	if res.Body.String() != "line one\nline two\n" {
+		t.Fatalf("unexpected logs body=%q", res.Body.String())
+	}
+
+	res = perform(service, http.MethodDelete, "/api/server/v2/docker/docker-agent/images?image=library%2Fnginx%3Alatest", "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("image remove status=%d body=%s", res.Code, res.Body.String())
+	}
+
+	res = perform(service, http.MethodGet, "/api/server/v2/docker/docker-agent/compose/projects", "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("compose projects status=%d body=%s", res.Code, res.Body.String())
+	}
+	res = perform(service, http.MethodGet, "/api/server/v2/docker/docker-agent/stacks", "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("stacks status=%d body=%s", res.Code, res.Body.String())
+	}
+	payload = decodePayload(t, res)
+	stacks := payload["data"].([]interface{})
+	if len(stacks) != 1 || stacks[0].(map[string]interface{})["name"] != "edge" {
+		t.Fatalf("unexpected stacks payload=%#v", payload)
+	}
+
+	res = perform(service, http.MethodPost, "/api/server/v2/docker/docker-agent/stacks/edge/up", `{"configFile":"/srv/edge/docker-compose.yml"}`)
+	if res.Code != http.StatusOK {
+		t.Fatalf("stack up status=%d body=%s", res.Code, res.Body.String())
+	}
+	res = perform(service, http.MethodGet, "/api/server/v2/docker/docker-agent/stacks", "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("stacks after up status=%d body=%s", res.Code, res.Body.String())
+	}
+	payload = decodePayload(t, res)
+	stacks = payload["data"].([]interface{})
+	if len(stacks) != 1 || stacks[0].(map[string]interface{})["status"] != "running" {
+		t.Fatalf("expected stack status to be updated, payload=%#v", payload)
+	}
+
+	res = perform(service, http.MethodPost, "/api/server/v2/docker/docker-agent/compose/edge/start", `{"configFile":"/srv/edge/docker-compose.yml"}`)
+	if res.Code != http.StatusOK {
+		t.Fatalf("compose start status=%d body=%s", res.Code, res.Body.String())
+	}
+	res = perform(service, http.MethodPost, "/api/server/v2/docker/docker-agent/stacks/edge/stop", `{"configFile":"/srv/edge/docker-compose.yml"}`)
+	if res.Code != http.StatusOK {
+		t.Fatalf("stack stop status=%d body=%s", res.Code, res.Body.String())
+	}
+	res = perform(service, http.MethodGet, "/api/server/v2/docker/docker-agent/stacks", "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("stacks after stop status=%d body=%s", res.Code, res.Body.String())
+	}
+	payload = decodePayload(t, res)
+	stacks = payload["data"].([]interface{})
+	if len(stacks) != 1 || stacks[0].(map[string]interface{})["status"] != "stopped" {
+		t.Fatalf("expected stack status to be stopped, payload=%#v", payload)
+	}
+
+	res = perform(service, http.MethodDelete, "/api/server/v2/docker/docker-agent/stacks/edge", "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("stack delete status=%d body=%s", res.Code, res.Body.String())
+	}
+	res = perform(service, http.MethodGet, "/api/server/v2/docker/docker-agent/stacks", "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("stacks after delete status=%d body=%s", res.Code, res.Body.String())
+	}
+	payload = decodePayload(t, res)
+	if got := len(payload["data"].([]interface{})); got != 0 {
+		t.Fatalf("expected stack record to be deleted, got %d: %#v", got, payload)
+	}
+}
+
+func TestDockerCreatePolicyBlocksHighRiskOptions(t *testing.T) {
+	service, db := testService(t)
+	_, err := db.ExecContext(context.Background(), `INSERT INTO server_accounts (id, name, host, username, auth_type, cached_info) VALUES ('docker-policy', 'docker', '', 'root', 'password', '{"docker":{"installed":true}}')`)
+	if err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+
+	res := perform(service, http.MethodPost, "/api/server/v2/tasks", `{"serverId":"docker-policy","domain":"docker","action":"container.create","payload":{"image":"nginx:latest","privileged":true}}`)
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("privileged create status=%d body=%s", res.Code, res.Body.String())
+	}
+	payload := decodePayload(t, res)
+	if !strings.Contains(payload["error"].(string), "privileged") {
+		t.Fatalf("unexpected policy error=%#v", payload)
+	}
+
+	res = perform(service, http.MethodPost, "/api/server/v2/tasks", `{"serverId":"docker-policy","domain":"docker","action":"container.create","payload":{"image":"nginx:latest","extraArgs":["--network=host"]}}`)
+	if res.Code != http.StatusBadRequest {
+		t.Fatalf("host network create status=%d body=%s", res.Code, res.Body.String())
+	}
+}
+
+func TestDockerComposeTaskNormalizesConfigFiles(t *testing.T) {
+	service, db := testService(t)
+	_, err := db.ExecContext(context.Background(), `INSERT INTO server_accounts (id, name, host, username, auth_type, cached_info) VALUES ('compose-agent', 'compose', '', 'root', 'password', '{"docker":{"installed":true}}')`)
+	if err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+
+	service.registry.Register("compose-agent", &taskReplySocket{
+		t:       t,
+		service: service,
+		reply: func(taskType int, data string) string {
+			if taskType != dockerTaskComposeAct {
+				t.Fatalf("unexpected task type: %d", taskType)
+			}
+			if !strings.Contains(data, `"config_file":"/srv/app/compose.yml,/srv/app/compose.prod.yml"`) {
+				t.Fatalf("compose config files were not normalized: %s", data)
+			}
+			return "compose restart success"
+		},
+	})
+
+	res := perform(service, http.MethodPost, "/api/server/v2/tasks", `{"serverId":"compose-agent","domain":"docker","action":"compose.restart","payload":{"project":"edge","configFiles":["/srv/app/compose.yml","/srv/app/compose.prod.yml"]}}`)
+	if res.Code != http.StatusOK {
+		t.Fatalf("compose task status=%d body=%s", res.Code, res.Body.String())
+	}
+}
+
+func TestDockerExecShellCommandQuotesContainerName(t *testing.T) {
+	got := dockerExecShellCommand("web'app")
+	want := "docker exec -it 'web'\"'\"'app' sh -lc 'exec /bin/bash || exec /bin/sh || exec sh'\n"
+	if got != want {
+		t.Fatalf("docker exec command = %q, want %q", got, want)
+	}
+}
+
+func TestAgentTerminalContainerUsesDirectExecPayload(t *testing.T) {
+	service, _ := testService(t)
+	service.ptyHub = newPtyDataHub()
+	socket := &terminalCaptureSocket{t: t, service: service}
+	service.registry.Register("server-terminal", socket)
+
+	upgrader := websocket.Upgrader{CheckOrigin: func(r *http.Request) bool { return true }}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Errorf("upgrade websocket: %v", err)
+			return
+		}
+		defer conn.Close()
+		service.runAgentTerminalSession(r, conn, "server-terminal")
+	}))
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/terminal?pty_id=pty-test&container=web%27app&cols=100&rows=40"
+	client, _, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial terminal websocket: %v", err)
+	}
+	defer client.Close()
+
+	_ = client.SetReadDeadline(time.Now().Add(2 * time.Second))
+	var status terminalWSMessage
+	if err := client.ReadJSON(&status); err != nil {
+		t.Fatalf("read terminal status: %v", err)
+	}
+	if status.Type != "status" || status.Data != "connected" || status.Transport != "agent" {
+		t.Fatalf("unexpected status message: %#v", status)
+	}
+
+	events := socket.Events()
+	if len(events) == 0 || events[0].Name != "dashboard:task" {
+		t.Fatalf("expected dashboard:task event, got %#v", events)
+	}
+	taskData, _ := events[0].Data["data"].(string)
+	var startPayload map[string]interface{}
+	if err := json.Unmarshal([]byte(taskData), &startPayload); err != nil {
+		t.Fatalf("decode terminal start payload: %v data=%s", err, taskData)
+	}
+	if startPayload["command"] != "docker" {
+		t.Fatalf("expected docker command payload, got %#v", startPayload)
+	}
+	args, ok := startPayload["args"].([]interface{})
+	if !ok || len(args) != 6 {
+		t.Fatalf("expected docker exec args, got %#v", startPayload["args"])
+	}
+	if args[2] != "web'app" {
+		t.Fatalf("container arg was not passed raw: %#v", args)
+	}
+	for _, event := range events {
+		if event.Name == "dashboard:pty_input" {
+			t.Fatalf("new agent ready path should not send legacy pty input: %#v", events)
+		}
+	}
+
+	if err := client.WriteJSON(terminalWSMessage{Type: "disconnect"}); err != nil {
+		t.Fatalf("send disconnect: %v", err)
 	}
 }
 
@@ -417,6 +794,37 @@ func TestPersistMetricsAcceptsCachedAgentInfoShape(t *testing.T) {
 	}
 	if netRx != 29.6*1024 || platform != "Windows" {
 		t.Fatalf("unexpected network/platform metrics: netRx=%v platform=%s", netRx, platform)
+	}
+}
+
+func TestPersistMetricsAcceptsAgentNumericGpuMemoryFields(t *testing.T) {
+	service, db := testService(t)
+	_, err := db.ExecContext(context.Background(), `INSERT INTO server_accounts (id, name, host, username, auth_type) VALUES ('server-agent-gpu', 'agent gpu', '', 'root', 'password')`)
+	if err != nil {
+		t.Fatalf("insert account: %v", err)
+	}
+
+	err = service.persistMetrics(context.Background(), db, "server-agent-gpu", map[string]interface{}{
+		"gpu_usage":     float64(23),
+		"gpu_mem_used":  float64(2_615_148_544),
+		"gpu_mem_total": float64(8_585_740_288),
+		"gpu_power":     float64(10),
+		"gpu_temp":      float64(56),
+	})
+	if err != nil {
+		t.Fatalf("persist metrics: %v", err)
+	}
+
+	var gpuUsage, gpuPower, gpuTemp float64
+	var gpuMemUsed, gpuMemTotal int64
+	err = db.QueryRowContext(context.Background(), `SELECT gpu_usage, gpu_mem_used, gpu_mem_total, gpu_power, gpu_temp FROM server_metrics_history WHERE server_id = 'server-agent-gpu'`).
+		Scan(&gpuUsage, &gpuMemUsed, &gpuMemTotal, &gpuPower, &gpuTemp)
+	if err != nil {
+		t.Fatalf("query metrics: %v", err)
+	}
+
+	if gpuUsage != 23 || gpuMemUsed != 2_615_148_544 || gpuMemTotal != 8_585_740_288 || gpuPower != 10 || gpuTemp != 56 {
+		t.Fatalf("unexpected gpu metrics: usage=%v used=%d total=%d power=%v temp=%v", gpuUsage, gpuMemUsed, gpuMemTotal, gpuPower, gpuTemp)
 	}
 }
 

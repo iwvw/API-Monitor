@@ -238,8 +238,12 @@ func (s *Service) persistMetrics(ctx context.Context, db *sql.DB, serverID strin
 	dockerInfo := nestedMap(metrics, "docker")
 	diskInfo := firstMap(metrics["disk"])
 
-	gpuMemUsed, gpuMemTotal := parsePairBytes(firstString(metrics, "gpu_mem", "gpu_memory", "gpuMemory"))
-	if gpuMemUsed == 0 && gpuMemTotal == 0 {
+	gpuMemUsed := firstMetricInt(metrics, []string{"gpu_mem_used", "gpuMemoryUsed"}, gpuInfo, []string{"memoryUsed", "MemoryUsed"})
+	gpuMemTotal := firstMetricInt(metrics, []string{"gpu_mem_total", "gpuMemoryTotal"}, gpuInfo, []string{"memoryTotal", "MemoryTotal"})
+	if gpuMemTotal == 0 {
+		gpuMemUsed, gpuMemTotal = parsePairBytes(firstString(metrics, "gpu_mem", "gpu_memory", "gpuMemory"))
+	}
+	if gpuMemTotal == 0 {
 		gpuMemUsed, gpuMemTotal = parsePairBytes(stringFromMap(gpuInfo, "Memory"))
 	}
 

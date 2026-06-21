@@ -44,6 +44,7 @@ import {
   SERVER_CHART_HISTORY_WINDOW_MS,
   SERVER_REALTIME_SAMPLE_INTERVAL_MS,
   formatSqliteUTCDateTime,
+  getGpuMemPercent,
   normalizeChartMetricRecords,
   normalizeMetricRecords,
   toTimestamp,
@@ -989,20 +990,6 @@ const formatCompactBytesSpeed = (bytes) => {
 
 const clampPercent = (value) => Math.max(0, Math.min(100, value));
 
-const getGpuMemPercent = (record = {}) => {
-  if (record.gpu_mem_percent !== null && record.gpu_mem_percent !== undefined) {
-    return clampPercent(toNumber(record.gpu_mem_percent, 0));
-  }
-
-  const used = toNumber(record.gpu_mem_used, NaN);
-  const total = toNumber(record.gpu_mem_total, NaN);
-  if (Number.isFinite(used) && Number.isFinite(total) && total > 0) {
-    return clampPercent((used / total) * 100);
-  }
-
-  return Number.isFinite(used) && used >= 0 && used <= 100 ? used : 0;
-};
-
 const firstPositiveNumber = (values = []) => {
   for (const value of values) {
     const parsed = toNumber(value, NaN);
@@ -1864,7 +1851,7 @@ function ServerPage() {
   const [serverAddingBatch, setServerAddingBatch] = useState(false);
   const [serverIpDisplayMode, setServerIpDisplayMode] = useState('normal'); // 'normal', 'masked', 'hidden'
   
-  // 历史趋势
+  // 历史记录
   const [metricsHistoryTimeRange, setMetricsHistoryTimeRange] = useState('1h'); // '1h', '6h', '24h', '7d', 'all'
   const [metricsHistoryList, setMetricsHistoryList] = useState([]);
   const [metricsHistoryTotal, setMetricsHistoryTotal] = useState(0);
@@ -1899,6 +1886,7 @@ function ServerPage() {
   const [dockerComposeProjects, setDockerComposeProjects] = useState([]);
   const [dockerUpdateChecks, setDockerUpdateChecks] = useState({});
   const [dockerUpdateCheckLoading, setDockerUpdateCheckLoading] = useState({});
+  const [dockerActionPending, setDockerActionPending] = useState({});
   const [dockerBulkUpdateChecking, setDockerBulkUpdateChecking] = useState(false);
   const [dockerBulkUpdateCheckServers, setDockerBulkUpdateCheckServers] = useState({});
   const [showDockerCreateModal, setShowDockerCreateModal] = useState(false);
@@ -3424,6 +3412,30 @@ function ServerPage() {
     return !!dockerBulkUpdateCheckServers[serverId] || keys.some(key => dockerUpdateCheckLoading[key]);
   };
 
+  const getDockerActionKey = (serverId, action, payload = {}) => [
+    String(serverId || ''),
+    String(action || ''),
+    String(payload.containerId || payload.containerName || payload.image || payload.name || payload.project || payload.projectName || '*'),
+  ].join('::');
+
+  const clearDockerActionPending = (serverId, action) => {
+    if (!serverId || !action) return;
+    const prefix = `${serverId}::${action}::`;
+    setDockerActionPending(prev => {
+      let changed = false;
+      const next = { ...prev };
+      Object.keys(next).forEach(key => {
+        if (key.startsWith(prefix)) {
+          delete next[key];
+          changed = true;
+        }
+      });
+      return changed ? next : prev;
+    });
+  };
+
+  const isDockerActionPending = (serverId, action, payload = {}) => !!dockerActionPending[getDockerActionKey(serverId, action, payload)];
+
   const getDockerUpdateBadge = (check) => {
     if (!check) return { variant: 'neutral', label: '未检测', title: '尚未检测镜像更新' };
     if (check.error) return { variant: 'error', label: '失败', title: check.error };
@@ -3968,10 +3980,10 @@ function ServerPage() {
     try {
       let startTime = null;
       const now = Date.now();
-      if (metricsHistoryTimeRange === '1h') startTime = new Date(now - 60*60*1000).toISOString();
-      else if (metricsHistoryTimeRange === '6h') startTime = new Date(now - 6*60*60*1000).toISOString();
-      else if (metricsHistoryTimeRange === '24h') startTime = new Date(now - 24*60*60*1000).toISOString();
-      else if (metricsHistoryTimeRange === '7d') startTime = new Date(now - 7*24*60*60*1000).toISOString();
+      if (metricsHistoryTimeRange === '1h') startTime = formatSqliteUTCDateTime(now - 60*60*1000);
+      else if (metricsHistoryTimeRange === '6h') startTime = formatSqliteUTCDateTime(now - 6*60*60*1000);
+      else if (metricsHistoryTimeRange === '24h') startTime = formatSqliteUTCDateTime(now - 24*60*60*1000);
+      else if (metricsHistoryTimeRange === '7d') startTime = formatSqliteUTCDateTime(now - 7*24*60*60*1000);
       
       const params = new URLSearchParams({
         page,
@@ -4078,6 +4090,9 @@ function ServerPage() {
               if (updated.length > 30) updated.pop();
               return updated;
             });
+            if (['success', 'failed', 'timeout', 'cancelled'].includes(task.state)) {
+              clearDockerActionPending(task.serverId, task.action);
+            }
             // 任务成功完成时，如果正在当前标签页，触发静默刷新列表
             if (task.state === 'success') {
               toast.success(`任务 [${task.action}] 执行成功`);
@@ -4165,10 +4180,83 @@ function ServerPage() {
     return confirmations[action] || null;
   };
 
+  const getDockerProxyContainerAction = (action) => ({
+    'container.start': 'start',
+    'container.stop': 'stop',
+    'container.restart': 'restart',
+    'container.pause': 'pause',
+    'container.unpause': 'unpause',
+  }[action] || '');
+
+  const getDockerProxyRequest = (serverId, action, payload = {}) => {
+    const containerAction = getDockerProxyContainerAction(action);
+    if (containerAction) {
+      const containerId = payload.containerId;
+      if (!containerId) throw new Error('Missing container ID');
+      return {
+        url: `/api/server/v2/docker/${encodeURIComponent(serverId)}/containers/${encodeURIComponent(containerId)}/${containerAction}`,
+        options: { method: 'POST' },
+      };
+    }
+    if (action === 'container.delete') {
+      const containerId = payload.containerId;
+      if (!containerId) throw new Error('Missing container ID');
+      return {
+        url: `/api/server/v2/docker/${encodeURIComponent(serverId)}/containers/${encodeURIComponent(containerId)}`,
+        options: { method: 'DELETE' },
+      };
+    }
+    if (action === 'image.prune') {
+      return { url: `/api/server/v2/docker/${encodeURIComponent(serverId)}/images/prune`, options: { method: 'POST' } };
+    }
+    if (action === 'image.remove') {
+      const image = payload.image || payload.imageId || payload.id;
+      if (!image) throw new Error('Missing image ID');
+      const params = new URLSearchParams({ image });
+      return { url: `/api/server/v2/docker/${encodeURIComponent(serverId)}/images?${params.toString()}`, options: { method: 'DELETE' } };
+    }
+    if (action === 'network.prune') {
+      return { url: `/api/server/v2/docker/${encodeURIComponent(serverId)}/networks/prune`, options: { method: 'POST' } };
+    }
+    if (action === 'network.remove') {
+      if (!payload.name) throw new Error('Missing network name');
+      return { url: `/api/server/v2/docker/${encodeURIComponent(serverId)}/networks/${encodeURIComponent(payload.name)}`, options: { method: 'DELETE' } };
+    }
+    if (action === 'volume.prune') {
+      return { url: `/api/server/v2/docker/${encodeURIComponent(serverId)}/volumes/prune`, options: { method: 'POST' } };
+    }
+    if (action === 'volume.remove') {
+      if (!payload.name) throw new Error('Missing volume name');
+      return { url: `/api/server/v2/docker/${encodeURIComponent(serverId)}/volumes/${encodeURIComponent(payload.name)}`, options: { method: 'DELETE' } };
+    }
+    if (action.startsWith('compose.')) {
+      const composeAction = action.split('.')[1];
+      if (['up', 'down', 'restart', 'pull'].includes(composeAction)) {
+        const project = payload.project || payload.projectName || payload.name;
+        if (!project) throw new Error('Missing compose project');
+        const configFile = payload.configFile || payload.config_file || payload.configFiles || payload.ConfigFiles || '';
+        return {
+          url: `/api/server/v2/docker/${encodeURIComponent(serverId)}/stacks/${encodeURIComponent(project)}/${composeAction}`,
+          options: {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ configFile }),
+          },
+        };
+      }
+    }
+    return null;
+  };
+
   const submitDockerTask = async (action, payload = {}) => {
     const serverId = payload.serverId || dockerSelectedServer;
     if (!serverId) {
       toast.warning('请先选择一台主机');
+      return;
+    }
+    const pendingKey = getDockerActionKey(serverId, action, payload);
+    if (dockerActionPending[pendingKey]) {
+      toast.info('该 Docker 操作正在执行中');
       return;
     }
     const confirmation = getDockerTaskConfirmation(action, payload);
@@ -4177,7 +4265,40 @@ function ServerPage() {
     } else if (confirmation && !(await dialog.confirm(confirmation))) {
       return;
     }
+    setDockerActionPending(prev => ({ ...prev, [pendingKey]: true }));
     try {
+      const resourceProxyRequest = getDockerProxyRequest(serverId, action, payload);
+      if (resourceProxyRequest && !getDockerProxyContainerAction(action)) {
+        const res = await fetch(resourceProxyRequest.url, resourceProxyRequest.options);
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.success) {
+          throw new Error(data.error || data.message || 'Docker operation failed');
+        }
+        toast.success('Docker 操作执行成功');
+        clearDockerActionPending(serverId, action);
+        setTimeout(() => loadDockerResources(), 400);
+        return;
+      }
+
+      const proxyAction = getDockerProxyContainerAction(action);
+      if (proxyAction) {
+        const containerId = payload.containerId;
+        if (!containerId) {
+          throw new Error('缺少容器 ID');
+        }
+        const res = await fetch(`/api/server/v2/docker/${encodeURIComponent(serverId)}/containers/${encodeURIComponent(containerId)}/${proxyAction}`, {
+          method: 'POST',
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.success) {
+          throw new Error(data.error || data.message || 'Docker 操作失败');
+        }
+        toast.success('Docker 操作执行成功');
+        clearDockerActionPending(serverId, action);
+        setTimeout(() => loadDockerResources(), 400);
+        return;
+      }
+
       const res = await fetch('/api/server/v2/tasks', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -4193,9 +4314,19 @@ function ServerPage() {
         toast.info('Docker 管理任务提交成功，正在等待后台调度');
       } else {
         toast.error('提交失败: ' + data.error);
+        setDockerActionPending(prev => {
+          const next = { ...prev };
+          delete next[pendingKey];
+          return next;
+        });
       }
     } catch (e) {
-      toast.error('服务下发异常');
+      toast.error(e?.message || '服务下发异常');
+      setDockerActionPending(prev => {
+        const next = { ...prev };
+        delete next[pendingKey];
+        return next;
+      });
     }
   };
   
@@ -4243,9 +4374,33 @@ function ServerPage() {
   };
 
   const visibleDockerContainerServers = useMemo(() => {
-    if (dockerSelectedServer) return dockerOverviewServers;
-    return dockerOverviewServers.filter(server => asArray(server.resources?.containers).length > 0);
-  }, [dockerOverviewServers, dockerSelectedServer]);
+    const query = dockerSearchQuery.trim().toLowerCase();
+    const filterContainers = (server) => {
+      const containers = asArray(server.resources?.containers).filter(container => {
+        const state = getDockerContainerState(container);
+        if (dockerContainerStateFilter !== 'all' && state !== dockerContainerStateFilter) return false;
+        if (!query) return true;
+        return [
+          getDockerContainerName(container),
+          getDockerContainerImage(container),
+          getDockerContainerId(container),
+          getDockerContainerPorts(container),
+          server.name,
+        ].some(value => String(value || '').toLowerCase().includes(query));
+      });
+      return {
+        ...server,
+        resources: {
+          ...server.resources,
+          containers,
+        },
+      };
+    };
+
+    const servers = dockerOverviewServers.map(filterContainers);
+    if (dockerSelectedServer) return servers;
+    return servers.filter(server => asArray(server.resources?.containers).length > 0);
+  }, [dockerOverviewServers, dockerSelectedServer, dockerSearchQuery, dockerContainerStateFilter]);
 
   const setDockerUpdateLoadingForAliases = (serverId, fallback, loading) => {
     const aliases = getDockerUpdateAliases(serverId, fallback);
@@ -4340,18 +4495,27 @@ function ServerPage() {
     setDockerBulkUpdateCheckServers(Object.fromEntries(targets.map(server => [server.id, true])));
 
     try {
-      const settled = await Promise.allSettled(
-        targets.map(server => checkDockerUpdatesForServer(server, null, { silent: true }).finally(() => {
-          setDockerBulkUpdateCheckServers(prev => {
-            const next = { ...prev };
-            delete next[server.id];
-            return next;
-          });
-        }))
-      );
-      const finished = settled.map(item => item.status === 'fulfilled'
-        ? item.value
-        : { ok: false, error: item.reason?.message || '检查失败', results: [] });
+      const queue = [...targets];
+      const results = [];
+      const workers = Array.from({ length: Math.min(3, queue.length) }, async () => {
+        while (queue.length > 0) {
+          const server = queue.shift();
+          try {
+            const result = await checkDockerUpdatesForServer(server, null, { silent: true });
+            results.push(result);
+          } catch (error) {
+            results.push({ ok: false, error: error?.message || '检查失败', results: [] });
+          } finally {
+            setDockerBulkUpdateCheckServers(prev => {
+              const next = { ...prev };
+              delete next[server.id];
+              return next;
+            });
+          }
+        }
+      });
+      await Promise.all(workers);
+      const finished = results.length > 0 ? results : targets.map(() => ({ ok: false, error: '检查失败', results: [] }));
       const updateCount = finished.reduce(
         (sum, item) => sum + item.results.filter(result => result?.has_update || result?.hasUpdate).length,
         0
@@ -4448,56 +4612,22 @@ function ServerPage() {
     setDockerLogsContent('\u6b63\u5728\u8fde\u63a5\u4e3b\u673a\u5e76\u83b7\u53d6\u5bb9\u5668\u65e5\u5fd7\uff0c\u8bf7\u7a0d\u5019...\n');
 
     try {
-      const res = await fetch('/api/server/v2/tasks', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          serverId,
-          domain: 'docker',
-          action: 'container.logs',
-          payload: {
-            serverId,
-            containerId,
-            containerName,
-            tail: Number(tail),
-          }
-        })
+      const params = new URLSearchParams();
+      params.set('tail', String(Number(tail) || 200));
+      const res = await fetch(`/api/server/v2/docker/${encodeURIComponent(serverId)}/containers/${encodeURIComponent(containerId)}/logs?${params.toString()}`, {
+        cache: 'no-store',
       });
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || '\u4e0b\u53d1\u83b7\u53d6\u65e5\u5fd7\u4efb\u52a1\u5931\u8d25');
-      }
-
-      const taskId = data.taskId;
-      if (!taskId) {
-        throw new Error('\u672a\u8fd4\u56de\u4efb\u52a1\u0020\u0049\u0044');
-      }
-
-      const eventSource = new EventSource(`/api/server/tasks/${taskId}/stream`);
-      
-      eventSource.addEventListener('message', (event) => {
+      const text = await res.text();
+      if (!res.ok) {
+        let message = text;
         try {
-          const payload = JSON.parse(event.data);
-          if (payload.status === 'completed') {
-            setDockerLogsContent(payload.data || '\u6ca1\u6709\u65e5\u5fd7\u8f93\u51fa');
-            setDockerLogsLoading(false);
-            eventSource.close();
-          } else if (payload.status === 'failed') {
-            setDockerLogsContent(`\u83b7\u53d6\u65e5\u5fd7\u5931\u8d25\u003a\u0020${payload.error || '\u672a\u77e5\u9519\u8bef'}`);
-            setDockerLogsLoading(false);
-            eventSource.close();
-          }
-        } catch (e) {
-          console.error(e);
-        }
-      });
-
-      eventSource.onerror = () => {
-        setDockerLogsContent(prev => prev + '\u8fde\u63a5\u5f02\u5e38\uff0c\u6b63\u5728\u91cd\u8fde\u6216\u4efb\u52a1\u5df2\u7ed3\u675f...\n');
-        eventSource.close();
-        setTimeout(() => setDockerLogsLoading(false), 2000);
-      };
-
+          const payload = JSON.parse(text);
+          message = payload.error || payload.message || message;
+        } catch (_) {}
+        throw new Error(message || '\u83b7\u53d6\u65e5\u5fd7\u5931\u8d25');
+      }
+      setDockerLogsContent(text || '\u6ca1\u6709\u65e5\u5fd7\u8f93\u51fa');
+      setDockerLogsLoading(false);
     } catch (err) {
       setDockerLogsContent(`\u9519\u8bef\u003a\u0020${err.message || '\u670d\u52a1\u5f02\u5e38'}`);
       setDockerLogsLoading(false);
@@ -4650,6 +4780,15 @@ function ServerPage() {
     });
   };
 
+  const getTerminalPtyId = (session) => (
+    session?.sessionMeta?.attachToPtyId ||
+    session?.sessionMeta?.ptyId ||
+    session?.attachToPtyId ||
+    session?.ptyId ||
+    session?.id ||
+    ''
+  );
+
   const createSSHSocket = (sessionId, sessionMeta, terminal) => {
     if (typeof WebSocket !== 'undefined') {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -4660,6 +4799,10 @@ function ServerPage() {
         cols: String(sshSessionRefs.current[sessionId]?.terminal?.cols || 120),
         rows: String(sshSessionRefs.current[sessionId]?.terminal?.rows || 32),
       });
+      if (sessionMeta.attachToPtyId || sessionMeta.ptyId) {
+        params.set('pty_id', sessionMeta.attachToPtyId || sessionMeta.ptyId);
+        params.set('attach', '1');
+      }
       if (sessionMeta.containerName) {
         params.set('container', sessionMeta.containerName);
       }
@@ -4673,10 +4816,15 @@ function ServerPage() {
           const message = JSON.parse(event.data);
           if (message.type === 'data') {
             terminal.write(message.data || '');
-          } else if (message.type === 'status' && message.data === 'connected') {
+          } else if (message.type === 'status' && (message.data === 'connected' || message.data === 'connected_legacy' || message.data === 'attached')) {
             const connectedTransport = message.transport || sessionMeta.server.preferred_terminal_transport || sessionMeta.type || 'ssh';
             setSshSessions(prev => prev.map(s => s.id === sessionId ? { ...s, connected: true, transport: connectedTransport } : s));
-            terminal.writeln(`\r\n\x1b[1;32m${connectedTransport === 'agent' ? 'Agent tunnel terminal' : 'SSH terminal'} connected.\x1b[0m`);
+            const statusNote = message.data === 'connected_legacy'
+              ? ' (legacy agent, no PTY ack)'
+              : message.data === 'attached'
+                ? ' (attached)'
+                : '';
+            terminal.writeln(`\r\n\x1b[1;32m${connectedTransport === 'agent' ? 'Agent tunnel terminal' : 'SSH terminal'} connected${statusNote}.\x1b[0m`);
           } else if (message.type === 'error') {
             terminal.writeln(`\r\n\x1b[1;31m${message.data || 'SSH connection failed'}\x1b[0m`);
           }
@@ -4765,9 +4913,11 @@ function ServerPage() {
       }
 
       if (sshSyncEnabledRef.current && visibleSessionIdsRef.current.includes(sessionId)) {
+        const sourcePtyId = getTerminalPtyId(sshSessionRefs.current[sessionId]);
         visibleSessionIdsRef.current.forEach(targetId => {
           if (targetId === sessionId) return;
           const targetSession = sshSessionRefs.current[targetId];
+          if (sourcePtyId && getTerminalPtyId(targetSession) === sourcePtyId) return;
           if (targetSession?.ws && targetSession.ws.readyState === WebSocket.OPEN) {
             targetSession.ws.send(JSON.stringify({ type: 'input', data }));
           }
@@ -4985,8 +5135,70 @@ function ServerPage() {
     }
   };
 
+  const createAttachedTerminalView = (targetId, position = 'right') => {
+    const sourceSession = sshSessions.find(session => session.id === targetId);
+    if (!sourceSession) return '';
+
+    const sourceRef = sshSessionRefs.current[targetId];
+    const attachToPtyId = getTerminalPtyId(sourceRef || sourceSession);
+    if (!attachToPtyId) return '';
+
+    const sessionId = `session_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
+    const newSession = {
+      ...sourceSession,
+      id: sessionId,
+      connected: false,
+      attachToPtyId,
+      name: `${sourceSession.name || sourceSession.server?.name || 'Terminal'} 共享`,
+    };
+
+    saveTerminalsToWarehouse();
+    setSshSessions(prev => [...prev, newSession]);
+
+    const currentVisibleIds = visibleSessionIds.length > 0 ? visibleSessionIds : [targetId];
+    const updated = currentVisibleIds.filter(id => id !== sessionId);
+    const idx = Math.max(updated.indexOf(targetId), 0);
+    let nextLayout = 'single';
+    let nextSide = '';
+
+    if (position === 'left' || position === 'top') {
+      updated.splice(idx, 0, sessionId);
+    } else if (position === 'center') {
+      updated[idx] = sessionId;
+    } else {
+      updated.splice(idx + 1, 0, sessionId);
+    }
+
+    if (position !== 'center') {
+      nextLayout = updated.length > 2 ? 'grid' : (position === 'top' || position === 'bottom' ? 'split-v' : 'split-h');
+      nextSide = position;
+    }
+
+    visibleSessionIdsRef.current = updated;
+    setVisibleSessionIds(updated);
+    setSshViewLayout(nextLayout);
+    setSshSplitSide(nextSide);
+    setSshGroupState(updated.length > 1 ? { ids: updated, layout: nextLayout, side: nextSide } : null);
+    setActiveSSHSessionId(sessionId);
+    if (showSftpSidebar) syncSftpToSession(targetId);
+    setDraggedSessionId(null);
+    setDropTargetId(null);
+    setDropHint('');
+
+    setTimeout(() => initSessionTerminal(sessionId, newSession), 200);
+    setTimeout(() => {
+      syncTerminalDOM();
+      sshSessionRefs.current[sessionId]?.terminal?.focus();
+    }, 320);
+
+    return sessionId;
+  };
+
   const triggerSplitPane = (targetId, position, sourceId = getSplitSourceSessionId(targetId)) => {
-    if (!sourceId || sourceId === targetId) return;
+    if (!sourceId || sourceId === targetId) {
+      createAttachedTerminalView(targetId, position);
+      return;
+    }
 
     const currentVisibleIds = visibleSessionIds.length > 0 ? visibleSessionIds : [targetId];
     const updated = currentVisibleIds.filter(id => id !== sourceId);
@@ -5176,7 +5388,7 @@ function ServerPage() {
             onValueChange={setServerCurrentTab}
             tabs={[
               { value: 'list', label: <ServerModuleTabLabel icon={Server} short="主机">主机管理</ServerModuleTabLabel> },
-              { value: 'history', label: <ServerModuleTabLabel icon={History} short="趋势">历史趋势</ServerModuleTabLabel> },
+              { value: 'history', label: <ServerModuleTabLabel icon={History} short="历史">历史记录</ServerModuleTabLabel> },
               { value: 'docker', label: <ServerModuleTabLabel icon={Box}>Docker</ServerModuleTabLabel> },
               { value: 'management', label: <ServerModuleTabLabel icon={Settings} short="管理">后台管理</ServerModuleTabLabel> },
               ...(sshSessions.length > 0
@@ -6166,10 +6378,17 @@ function ServerPage() {
                                         const containerId = getDockerContainerId(c);
                                         const containerName = getDockerContainerName(c);
                                         const containerImage = getDockerContainerImage(c);
-                                        const updateCheck = getDockerContainerUpdateCheck(server.id, c);
-                                        const updateBadge = getDockerUpdateBadge(updateCheck);
-                                        const updateChecking = isDockerContainerUpdateChecking(server.id, c);
-                                        return (
+                                                const updateCheck = getDockerContainerUpdateCheck(server.id, c);
+                                                const updateBadge = getDockerUpdateBadge(updateCheck);
+                                                const updateChecking = isDockerContainerUpdateChecking(server.id, c);
+                                                const toggleAction = state === 'running' ? 'container.pause' : state === 'paused' ? 'container.unpause' : 'container.start';
+                                                const togglePayload = { serverId: server.id, containerId, containerName, image: containerImage };
+                                                const togglePending = isDockerActionPending(server.id, toggleAction, togglePayload);
+                                                const restartPayload = { serverId: server.id, containerId, containerName, image: containerImage };
+                                                const restartPending = isDockerActionPending(server.id, 'container.restart', restartPayload);
+                                                const updatePayload = { serverId: server.id, containerId, containerName, image: containerImage };
+                                                const updatePending = isDockerActionPending(server.id, 'container.update', updatePayload);
+                                                return (
                                           <div key={containerId || `${server.id}-${containerName}`} className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 px-3 py-2 text-xs hover:bg-kumo-recessed/20">
                                             <div className="flex min-w-0 items-center gap-2">
                                               <Badge variant={stateBadge.variant} appearance="dot" className="shrink-0">{stateBadge.label}</Badge>
@@ -6198,11 +6417,11 @@ function ServerPage() {
                                                 variant="secondary"
                                                 aria-label={state === 'running' ? '暂停容器' : state === 'paused' ? '恢复容器' : '启动容器'}
                                                 title={state === 'running' ? '暂停' : state === 'paused' ? '恢复' : '启动'}
-                                                icon={state === 'running' ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+                                                icon={togglePending ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : state === 'running' ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+                                                disabled={togglePending || restartPending || updatePending}
                                                 onClick={(event) => {
                                                   event.stopPropagation();
-                                                  const action = state === 'running' ? 'container.pause' : state === 'paused' ? 'container.unpause' : 'container.start';
-                                                  submitDockerTask(action, { serverId: server.id, containerId, containerName, image: containerImage });
+                                                  submitDockerTask(toggleAction, togglePayload);
                                                 }}
                                               />
                                               <Button
@@ -6210,10 +6429,11 @@ function ServerPage() {
                                                 variant="secondary"
                                                 aria-label="重启容器"
                                                 title="重启"
-                                                icon={<RotateCw className="h-3.5 w-3.5" />}
+                                                icon={restartPending ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <RotateCw className="h-3.5 w-3.5" />}
+                                                disabled={togglePending || restartPending || updatePending}
                                                 onClick={(event) => {
                                                   event.stopPropagation();
-                                                  submitDockerTask('container.restart', { serverId: server.id, containerId, containerName, image: containerImage });
+                                                  submitDockerTask('container.restart', restartPayload);
                                                 }}
                                               />
                                               <Button
@@ -6233,10 +6453,11 @@ function ServerPage() {
                                                 variant="primary"
                                                 aria-label="一键更新容器"
                                                 title="一键更新"
-                                                icon={<Upload className="h-3.5 w-3.5" />}
+                                                icon={updatePending ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+                                                disabled={togglePending || restartPending || updatePending}
                                                 onClick={(event) => {
                                                   event.stopPropagation();
-                                                  submitDockerTask('container.update', { serverId: server.id, containerId, containerName, image: containerImage });
+                                                  submitDockerTask('container.update', updatePayload);
                                                 }}
                                               />
                                             </div>
@@ -6265,7 +6486,7 @@ function ServerPage() {
         </div>
       )}
       
-      {/* ==================== 2. 历史趋势 ==================== */}
+      {/* ==================== 2. 历史记录 ==================== */}
       {serverCurrentTab === 'history' && (
         <div className="flex flex-col gap-4">
           <div className={SERVER_SECONDARY_BAR_CLASS}>
@@ -6460,6 +6681,41 @@ function ServerPage() {
                 ]}
               />
               {dockerSubTab === 'containers' && (
+                <>
+                  <Input
+                    size="sm"
+                    aria-label="搜索 Docker 容器"
+                    value={dockerSearchQuery}
+                    onChange={event => setDockerSearchQuery(event.target.value)}
+                    placeholder="搜索容器 / 镜像 / 端口"
+                    className="h-8 w-52"
+                  />
+                  <Select
+                    aria-label="筛选容器状态"
+                    size="sm"
+                    value={dockerContainerStateFilter}
+                    onValueChange={(value) => setDockerContainerStateFilter(String(value))}
+                    className="h-8 w-28"
+                    items={[
+                      { value: 'all', label: '全部状态' },
+                      { value: 'running', label: '运行' },
+                      { value: 'paused', label: '暂停' },
+                      { value: 'stopped', label: '停止' },
+                    ]}
+                  />
+                </>
+              )}
+              <Button
+                shape="square"
+                size="sm"
+                variant="secondary"
+                icon={<RefreshCw className={`h-3.5 w-3.5 ${dockerResourceLoading ? 'animate-spin' : ''}`} />}
+                disabled={dockerResourceLoading}
+                aria-label="刷新 Docker 数据"
+                title="刷新 Docker 数据"
+                onClick={loadDockerResources}
+              />
+              {dockerSubTab === 'containers' && (
                 <Button
                   size="sm"
                   variant="secondary"
@@ -6475,7 +6731,7 @@ function ServerPage() {
                   size="sm"
                   variant="secondary-destructive"
                   icon={<Trash className="h-3.5 w-3.5" />}
-                  disabled={!dockerSelectedServer}
+                  disabled={!dockerSelectedServer || isDockerActionPending(dockerSelectedServer, 'image.prune', {})}
                   title={dockerSelectedServer ? '清理未使用镜像' : '请先选择单台 Docker 主机'}
                   onClick={() => submitDockerTask('image.prune')}
                 >
@@ -6487,7 +6743,7 @@ function ServerPage() {
                   size="sm"
                   variant="secondary-destructive"
                   icon={<Trash className="h-3.5 w-3.5" />}
-                  disabled={!dockerSelectedServer}
+                  disabled={!dockerSelectedServer || isDockerActionPending(dockerSelectedServer, 'network.prune', {})}
                   title={dockerSelectedServer ? '清理未使用网络' : '请先选择单台 Docker 主机'}
                   onClick={() => submitDockerTask('network.prune')}
                 >
@@ -6499,7 +6755,7 @@ function ServerPage() {
                   size="sm"
                   variant="secondary-destructive"
                   icon={<Trash className="h-3.5 w-3.5" />}
-                  disabled={!dockerSelectedServer}
+                  disabled={!dockerSelectedServer || isDockerActionPending(dockerSelectedServer, 'volume.prune', {})}
                   title={dockerSelectedServer ? '清理未使用存储卷' : '请先选择单台 Docker 主机'}
                   onClick={() => submitDockerTask('volume.prune')}
                 >
@@ -6630,6 +6886,12 @@ function ServerPage() {
                                 const updateBadge = getDockerUpdateBadge(updateCheck);
                                 const updateChecking = isDockerContainerUpdateChecking(server.id, c);
                                 const toggleAction = state === 'running' ? 'container.stop' : 'container.start';
+                                const togglePayload = { serverId: server.id, containerId, containerName, image: containerImage };
+                                const togglePending = isDockerActionPending(server.id, toggleAction, togglePayload);
+                                const restartPayload = { serverId: server.id, containerId, containerName, image: containerImage };
+                                const restartPending = isDockerActionPending(server.id, 'container.restart', restartPayload);
+                                const updatePayload = { serverId: server.id, containerId, containerName, image: containerImage };
+                                const updatePending = isDockerActionPending(server.id, 'container.update', updatePayload);
                                 return (
                                 <Table.Row key={containerId || `${server.id}-${containerName}`} className="border-b border-kumo-line hover:bg-kumo-recessed/10">
                                   <Table.Cell className="p-2 font-bold text-kumo-strong truncate" title={containerName}>{containerName}</Table.Cell>
@@ -6655,17 +6917,19 @@ function ServerPage() {
                                       <Button
                                         shape="square" size="sm"
                                         variant={state === 'running' ? 'secondary-destructive' : 'secondary'}
-                                        icon={state === 'running' ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+                                        icon={togglePending ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : state === 'running' ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
                                         aria-label={state === 'running' ? '停止容器' : '启动容器'}
-                                        onClick={() => submitDockerTask(toggleAction, { serverId: server.id, containerId, containerName, image: containerImage })}
+                                        disabled={togglePending || restartPending || updatePending}
+                                        onClick={() => submitDockerTask(toggleAction, togglePayload)}
                                         title={state === 'running' ? '停止' : '启动'}
                                       />
                                       <Button
                                         shape="square" size="sm"
                                         variant="secondary"
-                                        icon={<RotateCw className="h-3.5 w-3.5" />}
+                                        icon={restartPending ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <RotateCw className="h-3.5 w-3.5" />}
                                         aria-label="重启容器"
-                                        onClick={() => submitDockerTask('container.restart', { serverId: server.id, containerId, containerName, image: containerImage })}
+                                        disabled={togglePending || restartPending || updatePending}
+                                        onClick={() => submitDockerTask('container.restart', restartPayload)}
                                         title="重启"
                                       />
                                       <Button
@@ -6680,9 +6944,10 @@ function ServerPage() {
                                       <Button
                                         shape="square" size="sm"
                                         variant="primary"
-                                        icon={<Upload className="h-3.5 w-3.5" />}
+                                        icon={updatePending ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
                                         aria-label="一键更新容器"
-                                        onClick={() => submitDockerTask('container.update', { serverId: server.id, containerId, containerName, image: containerImage })}
+                                        disabled={togglePending || restartPending || updatePending}
+                                        onClick={() => submitDockerTask('container.update', updatePayload)}
                                         title="一键更新"
                                       />
                                     </div>
@@ -6714,6 +6979,8 @@ function ServerPage() {
                         const configFiles = getComposeConfigFiles(proj);
                         const status = getComposeStatus(proj);
                         const composePayload = { serverId: proj.serverId, project: projectName, configFile: configFiles };
+                        const composeUpPending = isDockerActionPending(proj.serverId, 'compose.up', composePayload);
+                        const composeDownPending = isDockerActionPending(proj.serverId, 'compose.down', composePayload);
                         return (
                           <div key={`${proj.serverId}-${projectName}-${configFiles}`} className="flex justify-between items-center p-3 border border-kumo-line rounded-lg bg-kumo-canvas/15 hover:border-kumo-brand/50">
                             <div className="flex flex-col gap-0.5 min-w-0">
@@ -6728,17 +6995,19 @@ function ServerPage() {
                               <div className="flex gap-1">
                                 <Button size="sm"
                                   variant="primary"
+                                  disabled={composeUpPending || composeDownPending}
                                   onClick={() => submitDockerTask('compose.up', composePayload)}
                                   className="text-kumo-inverse text-[10px] font-semibold"
                                 >
-                                  Up 启动
+                                  {composeUpPending ? 'Up 中' : 'Up 启动'}
                                 </Button>
                                 <Button size="sm"
                                   variant="secondary"
+                                  disabled={composeUpPending || composeDownPending}
                                   onClick={() => submitDockerTask('compose.down', composePayload)}
                                   className="text-kumo-subtle text-[10px]"
                                 >
-                                  Down 停止
+                                  {composeDownPending ? 'Down 中' : 'Down 停止'}
                                 </Button>
                               </div>
                             </div>
@@ -6788,7 +7057,10 @@ function ServerPage() {
                         </Table.Row>
                       </Table.Header>
                       <Table.Body>
-                        {dockerImages.map((img, i) => (
+                        {dockerImages.map((img, i) => {
+                          const removePayload = { serverId: img.serverId, image: img.id };
+                          const removePending = isDockerActionPending(img.serverId, 'image.remove', removePayload);
+                          return (
                           <Table.Row key={`${img.serverId}-${img.id}-${i}`} className="border-b border-kumo-line hover:bg-kumo-recessed/10">
                             <Table.Cell className="p-2.5 font-bold text-kumo-strong truncate">{img.repository}</Table.Cell>
                             <Table.Cell className="p-2.5"><span className="px-1.5 py-0.5 rounded bg-kumo-recessed font-mono text-[10px]">{img.tag}</span></Table.Cell>
@@ -6799,14 +7071,16 @@ function ServerPage() {
                                 shape="square" size="sm"
                                 variant="ghost"
                                 aria-label="删除镜像"
-                                onClick={() => submitDockerTask('image.remove', { serverId: img.serverId, image: img.id })}
+                                disabled={removePending}
+                                onClick={() => submitDockerTask('image.remove', removePayload)}
                                 className="text-kumo-danger"
                               >
-                                <Trash className="h-3.5 w-3.5" />
+                                {removePending ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Trash className="h-3.5 w-3.5" />}
                               </Button>
                             </Table.Cell>
                           </Table.Row>
-                        ))}
+                          );
+                        })}
                       </Table.Body>
                       </ScrollableTable>
                     )}
@@ -6858,6 +7132,8 @@ function ServerPage() {
                       <Table.Body>
                         {dockerNetworks.map((network, i) => {
                           const isBuiltinNetwork = ['bridge', 'host', 'none'].includes(network.name);
+                          const removePayload = { serverId: network.serverId, name: network.name };
+                          const removePending = isDockerActionPending(network.serverId, 'network.remove', removePayload);
                           return (
                             <Table.Row key={`${network.serverId}-${network.id || network.name}-${i}`} className="border-b border-kumo-line hover:bg-kumo-recessed/10">
                               <Table.Cell className="p-2.5 font-bold text-kumo-strong truncate">{network.name}</Table.Cell>
@@ -6870,11 +7146,11 @@ function ServerPage() {
                                   shape="square" size="sm"
                                   variant="ghost"
                                   aria-label="删除网络"
-                                  disabled={isBuiltinNetwork}
-                                  onClick={() => submitDockerTask('network.remove', { serverId: network.serverId, name: network.name })}
+                                  disabled={isBuiltinNetwork || removePending}
+                                  onClick={() => submitDockerTask('network.remove', removePayload)}
                                   className="text-kumo-danger disabled:opacity-40"
                                 >
-                                  <Trash className="h-3.5 w-3.5" />
+                                  {removePending ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Trash className="h-3.5 w-3.5" />}
                                 </Button>
                               </Table.Cell>
                             </Table.Row>
@@ -6925,7 +7201,10 @@ function ServerPage() {
                         </Table.Row>
                       </Table.Header>
                       <Table.Body>
-                        {dockerVolumes.map((volume, i) => (
+                        {dockerVolumes.map((volume, i) => {
+                          const removePayload = { serverId: volume.serverId, name: volume.name };
+                          const removePending = isDockerActionPending(volume.serverId, 'volume.remove', removePayload);
+                          return (
                           <Table.Row key={`${volume.serverId}-${volume.name}-${i}`} className="border-b border-kumo-line hover:bg-kumo-recessed/10">
                             <Table.Cell className="p-2.5 font-bold text-kumo-strong truncate">{volume.name}</Table.Cell>
                             <Table.Cell className="p-2.5">{volume.driver || '-'}</Table.Cell>
@@ -6936,14 +7215,16 @@ function ServerPage() {
                                 shape="square" size="sm"
                                 variant="ghost"
                                 aria-label="删除存储卷"
-                                onClick={() => submitDockerTask('volume.remove', { serverId: volume.serverId, name: volume.name })}
+                                disabled={removePending}
+                                onClick={() => submitDockerTask('volume.remove', removePayload)}
                                 className="text-kumo-danger"
                               >
-                                <Trash className="h-3.5 w-3.5" />
+                                {removePending ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Trash className="h-3.5 w-3.5" />}
                               </Button>
                             </Table.Cell>
                           </Table.Row>
-                        ))}
+                          );
+                        })}
                       </Table.Body>
                       </ScrollableTable>
                     )}

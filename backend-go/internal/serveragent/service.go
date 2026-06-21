@@ -258,6 +258,18 @@ func New(cfg config.Config) *Service {
 						s.ptyHub.Publish(ptyData.ID, ptyData.Data)
 					}
 				}
+			case "agent:pty_status":
+				var ptyStatus struct {
+					ID     string `json:"id"`
+					Status string `json:"status"`
+					Error  string `json:"error"`
+				}
+				if err := json.Unmarshal(data, &ptyStatus); err == nil && ptyStatus.ID != "" {
+					registry.UpdateHeartbeat(serverID)
+					if s.ptyHub != nil {
+						s.ptyHub.Publish("status:"+ptyStatus.ID, string(data))
+					}
+				}
 			case "agent:heartbeat":
 				// Agent 心跳
 				var hb struct {
@@ -503,6 +515,22 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 			FOREIGN KEY (server_id) REFERENCES server_accounts(id) ON DELETE CASCADE,
 			FOREIGN KEY (target_id) REFERENCES server_network_quality_targets(id) ON DELETE SET NULL
 		)`,
+		`CREATE TABLE IF NOT EXISTS docker_stacks (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			server_id TEXT NOT NULL,
+			name TEXT NOT NULL,
+			type TEXT DEFAULT 'compose',
+			source TEXT DEFAULT 'agent',
+			working_dir TEXT,
+			config_files TEXT DEFAULT '[]',
+			status TEXT DEFAULT 'unknown',
+			last_error TEXT,
+			config_hash TEXT,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(server_id, name),
+			FOREIGN KEY (server_id) REFERENCES server_accounts(id) ON DELETE CASCADE
+		)`,
 		`CREATE INDEX IF NOT EXISTS idx_server_accounts_status ON server_accounts(status)`,
 		`CREATE INDEX IF NOT EXISTS idx_server_monitor_logs_server ON server_monitor_logs(server_id, checked_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_server_monitor_logs_status ON server_monitor_logs(status, checked_at)`,
@@ -510,6 +538,7 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_metrics_history_time ON server_metrics_history(recorded_at DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_network_quality_samples_server_time ON server_network_quality_samples(server_id, checked_at DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_network_quality_samples_target_time ON server_network_quality_samples(target_id, checked_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_docker_stacks_server ON docker_stacks(server_id, updated_at DESC)`,
 		`INSERT OR IGNORE INTO server_monitor_config (id, probe_interval, probe_timeout, log_retention_days, max_connections, session_timeout, auto_start, metrics_collect_interval, metrics_retention_days) VALUES (1, 60, 10, 7, 10, 1800, 1, 300, 30)`,
 		`INSERT OR IGNORE INTO server_network_quality_targets (id, name, host, port, type, enabled, order_index) VALUES (1, '联通', 'hb-cu-v4.ip.zstaticcdn.com', 80, 'tcp', 1, 1)`,
 		`INSERT OR IGNORE INTO server_network_quality_targets (id, name, host, port, type, enabled, order_index) VALUES (2, '移动', 'hb-cm-v4.ip.zstaticcdn.com', 80, 'tcp', 1, 2)`,

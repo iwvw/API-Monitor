@@ -24,6 +24,12 @@ type terminalWSMessage struct {
 	Transport string `json:"transport,omitempty"`
 }
 
+const (
+	terminalWriteWait    = 10 * time.Second
+	terminalPongWait     = 75 * time.Second
+	terminalPingInterval = 25 * time.Second
+)
+
 var sshTerminalUpgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
@@ -87,10 +93,17 @@ func (s *Service) handleSSHTerminal(w http.ResponseWriter, r *http.Request) {
 
 func (s *Service) runAgentTerminalSession(r *http.Request, conn *websocket.Conn, serverID string) {
 	writeMu := &sync.Mutex{}
+	done := make(chan struct{})
+	var closeOnce sync.Once
+	closeDone := func() { closeOnce.Do(func() { close(done) }) }
+	defer closeDone()
+	configureTerminalWebSocket(conn)
+	go startTerminalWebSocketHeartbeat(conn, writeMu, done)
+
 	writeJSON := func(msg terminalWSMessage) bool {
 		writeMu.Lock()
 		defer writeMu.Unlock()
-		_ = conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+		_ = conn.SetWriteDeadline(time.Now().Add(terminalWriteWait))
 		return conn.WriteJSON(msg) == nil
 	}
 
@@ -101,35 +114,81 @@ func (s *Service) runAgentTerminalSession(r *http.Request, conn *websocket.Conn,
 	}
 
 	ptyID := strings.TrimSpace(firstNonEmptyString(
+		r.URL.Query().Get("pty_id"),
+		r.URL.Query().Get("ptyId"),
 		r.URL.Query().Get("session_id"),
 		r.URL.Query().Get("sessionId"),
 	))
 	if ptyID == "" {
 		ptyID = fmt.Sprintf("pty-%d", time.Now().UnixNano())
 	}
+	attachOnly := r.URL.Query().Get("attach") == "1" || strings.EqualFold(r.URL.Query().Get("attach"), "true")
 
 	cols := intQuery(r, "cols", 120)
 	rows := intQuery(r, "rows", 32)
+	containerName := strings.TrimSpace(r.URL.Query().Get("container"))
 	if s.ptyHub == nil {
 		s.ptyHub = newPtyDataHub()
 	}
 	dataCh, cancel := s.ptyHub.Subscribe(ptyID)
 	defer cancel()
+	statusCh, cancelStatus := s.ptyHub.Subscribe("status:" + ptyID)
+	defer cancelStatus()
 
-	dataBytes, _ := json.Marshal(map[string]int{"cols": cols, "rows": rows})
-	if err := agentConn.SendEvent("dashboard:task", map[string]interface{}{
-		"id":      ptyID,
-		"type":    12,
-		"data":    string(dataBytes),
-		"timeout": 0,
-	}); err != nil {
-		writeJSON(terminalWSMessage{Type: "error", Data: "AGENT_PTY_START_FAILED: " + err.Error(), Transport: "agent"})
-		return
+	statusConfirmed := false
+	if !attachOnly {
+		startPayload := map[string]interface{}{"cols": cols, "rows": rows}
+		if containerName != "" {
+			startPayload["command"] = "docker"
+			startPayload["args"] = []string{
+				"exec",
+				"-it",
+				containerName,
+				"sh",
+				"-lc",
+				"exec /bin/bash || exec /bin/sh || exec sh",
+			}
+		}
+		dataBytes, _ := json.Marshal(startPayload)
+		if err := agentConn.SendEvent("dashboard:task", map[string]interface{}{
+			"id":      ptyID,
+			"type":    12,
+			"data":    string(dataBytes),
+			"timeout": 0,
+		}); err != nil {
+			writeJSON(terminalWSMessage{Type: "error", Data: "AGENT_PTY_START_FAILED: " + err.Error(), Transport: "agent"})
+			return
+		}
+		defer func() {
+			_ = agentConn.SendEvent("dashboard:pty_stop", map[string]interface{}{
+				"id": ptyID,
+			})
+		}()
+
+		select {
+		case rawStatus := <-statusCh:
+			var status struct {
+				ID     string `json:"id"`
+				Status string `json:"status"`
+				Error  string `json:"error"`
+			}
+			if err := json.Unmarshal([]byte(rawStatus), &status); err == nil {
+				if strings.EqualFold(status.Status, "error") {
+					msg := strings.TrimSpace(status.Error)
+					if msg == "" {
+						msg = "agent PTY start failed"
+					}
+					writeJSON(terminalWSMessage{Type: "error", Data: "AGENT_PTY_START_FAILED: " + msg, Transport: "agent"})
+					return
+				}
+				if strings.EqualFold(status.Status, "ready") {
+					statusConfirmed = true
+				}
+			}
+		case <-time.After(3 * time.Second):
+			// Older agents do not emit PTY status; keep compatibility during rolling upgrades.
+		}
 	}
-
-	done := make(chan struct{})
-	var closeOnce sync.Once
-	closeDone := func() { closeOnce.Do(func() { close(done) }) }
 
 	go func() {
 		defer closeDone()
@@ -140,11 +199,16 @@ func (s *Service) runAgentTerminalSession(r *http.Request, conn *websocket.Conn,
 		}
 	}()
 
-	writeJSON(terminalWSMessage{Type: "status", Data: "connected", Transport: "agent"})
+	if attachOnly {
+		writeJSON(terminalWSMessage{Type: "status", Data: "attached", Transport: "agent"})
+	} else if statusConfirmed {
+		writeJSON(terminalWSMessage{Type: "status", Data: "connected", Transport: "agent"})
+	} else {
+		writeJSON(terminalWSMessage{Type: "status", Data: "connected_legacy", Transport: "agent"})
+	}
 
-	containerName := r.URL.Query().Get("container")
-	if containerName != "" {
-		execCmd := fmt.Sprintf("docker exec -it %s /bin/bash || docker exec -it %s /bin/sh || docker exec -it %s sh\n", containerName, containerName, containerName)
+	if containerName != "" && !statusConfirmed {
+		execCmd := dockerExecShellCommand(containerName)
 		_ = agentConn.SendEvent("dashboard:pty_input", map[string]interface{}{
 			"id":   ptyID,
 			"data": execCmd,
@@ -183,16 +247,26 @@ func (s *Service) runAgentTerminalSession(r *http.Request, conn *websocket.Conn,
 					"rows": msg.Rows,
 				})
 			}
+		case "disconnect":
+			closeDone()
+			return
 		}
 	}
 }
 
 func (s *Service) runSSHTerminalSession(r *http.Request, conn *websocket.Conn, cfg sftpServerConfig) {
 	writeMu := &sync.Mutex{}
+	done := make(chan struct{})
+	var closeOnce sync.Once
+	closeDone := func() { closeOnce.Do(func() { close(done) }) }
+	defer closeDone()
+	configureTerminalWebSocket(conn)
+	go startTerminalWebSocketHeartbeat(conn, writeMu, done)
+
 	writeJSON := func(msg terminalWSMessage) bool {
 		writeMu.Lock()
 		defer writeMu.Unlock()
-		_ = conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+		_ = conn.SetWriteDeadline(time.Now().Add(terminalWriteWait))
 		return conn.WriteJSON(msg) == nil
 	}
 
@@ -254,15 +328,11 @@ func (s *Service) runSSHTerminalSession(r *http.Request, conn *websocket.Conn, c
 	}
 	writeJSON(terminalWSMessage{Type: "status", Data: "connected", Transport: "ssh"})
 
-	containerName := r.URL.Query().Get("container")
+	containerName := strings.TrimSpace(r.URL.Query().Get("container"))
 	if containerName != "" {
-		execCmd := fmt.Sprintf("docker exec -it %s /bin/bash || docker exec -it %s /bin/sh || docker exec -it %s sh\n", containerName, containerName, containerName)
+		execCmd := dockerExecShellCommand(containerName)
 		_, _ = stdin.Write([]byte(execCmd))
 	}
-
-	done := make(chan struct{})
-	var closeOnce sync.Once
-	closeDone := func() { closeOnce.Do(func() { close(done) }) }
 
 	copyOutput := func(reader io.Reader) {
 		defer closeDone()
@@ -311,6 +381,9 @@ func (s *Service) runSSHTerminalSession(r *http.Request, conn *websocket.Conn, c
 			if msg.Cols > 0 && msg.Rows > 0 {
 				_ = session.WindowChange(msg.Rows, msg.Cols)
 			}
+		case "disconnect":
+			closeDone()
+			return
 		}
 	}
 }
@@ -354,6 +427,49 @@ func intQuery(r *http.Request, key string, fallback int) int {
 		return fallback
 	}
 	return value
+}
+
+func configureTerminalWebSocket(conn *websocket.Conn) {
+	conn.SetReadLimit(1 << 20)
+	_ = conn.SetReadDeadline(time.Now().Add(terminalPongWait))
+	conn.SetPongHandler(func(string) error {
+		_ = conn.SetReadDeadline(time.Now().Add(terminalPongWait))
+		return nil
+	})
+}
+
+func startTerminalWebSocketHeartbeat(conn *websocket.Conn, writeMu *sync.Mutex, done <-chan struct{}) {
+	ticker := time.NewTicker(terminalPingInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-done:
+			return
+		case <-ticker.C:
+			writeMu.Lock()
+			_ = conn.SetWriteDeadline(time.Now().Add(terminalWriteWait))
+			err := conn.WriteMessage(websocket.PingMessage, nil)
+			writeMu.Unlock()
+			if err != nil {
+				_ = conn.Close()
+				return
+			}
+		}
+	}
+}
+
+func dockerExecShellCommand(container string) string {
+	quotedContainer := shellQuote(container)
+	quotedScript := shellQuote("exec /bin/bash || exec /bin/sh || exec sh")
+	return fmt.Sprintf("docker exec -it %s sh -lc %s\n", quotedContainer, quotedScript)
+}
+
+func shellQuote(value string) string {
+	if value == "" {
+		return "''"
+	}
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }
 
 func firstNonEmptyString(values ...string) string {

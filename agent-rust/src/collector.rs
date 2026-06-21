@@ -209,29 +209,29 @@ impl Collector {
             let fs = disk.file_system().to_string_lossy().to_lowercase();
             let mount_point = disk.mount_point();
             let is_root = mount_point == Path::new("/") || mount_point.to_string_lossy() == "/";
-            if !is_root && (
-                fs == "tmpfs"
-                || fs == "overlay"
-                || fs == "devtmpfs"
-                || fs == "proc"
-                || fs == "sysfs"
-                || fs == "cgroup"
-                || fs == "devpts"
-                || fs == "configfs"
-                || fs == "debugfs"
-                || fs == "tracefs"
-                || fs == "hugetlbfs"
-                || fs == "mqueue"
-                || fs == "pstore"
-                || fs == "securityfs"
-                || fs == "fusectl"
-                || fs == "nsfs"
-                || fs == "autofs"
-                || fs == "binfmt_misc"
-                || fs == "squashfs"
-                || fs == "udev"
-                || fs == "iso9660"
-            ) {
+            if !is_root
+                && (fs == "tmpfs"
+                    || fs == "overlay"
+                    || fs == "devtmpfs"
+                    || fs == "proc"
+                    || fs == "sysfs"
+                    || fs == "cgroup"
+                    || fs == "devpts"
+                    || fs == "configfs"
+                    || fs == "debugfs"
+                    || fs == "tracefs"
+                    || fs == "hugetlbfs"
+                    || fs == "mqueue"
+                    || fs == "pstore"
+                    || fs == "securityfs"
+                    || fs == "fusectl"
+                    || fs == "nsfs"
+                    || fs == "autofs"
+                    || fs == "binfmt_misc"
+                    || fs == "squashfs"
+                    || fs == "udev"
+                    || fs == "iso9660")
+            {
                 continue;
             }
             let device_name = disk.name().to_string_lossy().to_string();
@@ -296,29 +296,29 @@ impl Collector {
             let fs = disk.file_system().to_string_lossy().to_lowercase();
             let mount_point = disk.mount_point();
             let is_root = mount_point == Path::new("/") || mount_point.to_string_lossy() == "/";
-            if !is_root && (
-                fs == "tmpfs"
-                || fs == "overlay"
-                || fs == "devtmpfs"
-                || fs == "proc"
-                || fs == "sysfs"
-                || fs == "cgroup"
-                || fs == "devpts"
-                || fs == "configfs"
-                || fs == "debugfs"
-                || fs == "tracefs"
-                || fs == "hugetlbfs"
-                || fs == "mqueue"
-                || fs == "pstore"
-                || fs == "securityfs"
-                || fs == "fusectl"
-                || fs == "nsfs"
-                || fs == "autofs"
-                || fs == "binfmt_misc"
-                || fs == "squashfs"
-                || fs == "udev"
-                || fs == "iso9660"
-            ) {
+            if !is_root
+                && (fs == "tmpfs"
+                    || fs == "overlay"
+                    || fs == "devtmpfs"
+                    || fs == "proc"
+                    || fs == "sysfs"
+                    || fs == "cgroup"
+                    || fs == "devpts"
+                    || fs == "configfs"
+                    || fs == "debugfs"
+                    || fs == "tracefs"
+                    || fs == "hugetlbfs"
+                    || fs == "mqueue"
+                    || fs == "pstore"
+                    || fs == "securityfs"
+                    || fs == "fusectl"
+                    || fs == "nsfs"
+                    || fs == "autofs"
+                    || fs == "binfmt_misc"
+                    || fs == "squashfs"
+                    || fs == "udev"
+                    || fs == "iso9660")
+            {
                 continue;
             }
             let device_name = disk.name().to_string_lossy().to_string();

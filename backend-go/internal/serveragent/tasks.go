@@ -15,11 +15,11 @@ import (
 type TaskStatus string
 
 const (
-	TaskPending    TaskStatus = "pending"
-	TaskRunning    TaskStatus = "running"
-	TaskCompleted  TaskStatus = "completed"
-	TaskFailed     TaskStatus = "failed"
-	TaskCancelled  TaskStatus = "cancelled"
+	TaskPending   TaskStatus = "pending"
+	TaskRunning   TaskStatus = "running"
+	TaskCompleted TaskStatus = "completed"
+	TaskFailed    TaskStatus = "failed"
+	TaskCancelled TaskStatus = "cancelled"
 )
 
 // Task 任务
@@ -87,9 +87,9 @@ func (r *TaskRegistry) Create(serverID, taskType, command string) *Task {
 		Status:   task.Status,
 		Progress: task.Progress,
 		Data: map[string]interface{}{
-			"serverId": task.ServerID,
-			"type":     task.Type,
-			"command":  task.Command,
+			"serverId":  task.ServerID,
+			"type":      task.Type,
+			"command":   task.Command,
 			"createdAt": task.CreatedAt.Format(time.RFC3339Nano),
 		},
 	})
@@ -344,5 +344,13 @@ func (s *Service) streamTask(w http.ResponseWriter, r *http.Request, taskRegistr
 // writeSSE 写入 SSE 事件
 func (s *Service) writeSSE(w http.ResponseWriter, event TaskEvent) {
 	data, _ := json.Marshal(event)
+	fmt.Fprintf(w, "data: %s\n\n", data)
+}
+
+func (s *Service) writeNamedSSE(w http.ResponseWriter, eventName string, payload interface{}) {
+	data, _ := json.Marshal(payload)
+	if eventName != "" {
+		fmt.Fprintf(w, "event: %s\n", eventName)
+	}
 	fmt.Fprintf(w, "data: %s\n\n", data)
 }

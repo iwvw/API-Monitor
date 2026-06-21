@@ -12,6 +12,15 @@ pub struct PtySession {
 #[allow(dead_code)]
 impl PtySession {
     pub fn new(cols: u32, rows: u32) -> Result<Self, String> {
+        Self::new_with_command(cols, rows, detect_shell(), Vec::new())
+    }
+
+    pub fn new_with_command(
+        cols: u32,
+        rows: u32,
+        command: String,
+        args: Vec<String>,
+    ) -> Result<Self, String> {
         let pty_system = native_pty_system();
 
         let pair = pty_system
@@ -23,9 +32,11 @@ impl PtySession {
             })
             .map_err(|e| format!("打开 PTY 失败: {}", e))?;
 
-        let shell = detect_shell();
         #[allow(unused_mut)]
-        let mut cmd = CommandBuilder::new(shell);
+        let mut cmd = CommandBuilder::new(command);
+        for arg in args {
+            cmd.arg(arg);
+        }
 
         #[cfg(unix)]
         cmd.env("TERM", "xterm-256color");
@@ -79,6 +90,12 @@ impl PtySession {
     }
 
     pub fn kill(&mut self) {
+        let _ = self.child.kill();
+    }
+}
+
+impl Drop for PtySession {
+    fn drop(&mut self) {
         let _ = self.child.kill();
     }
 }

@@ -11,8 +11,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tokio::sync::mpsc;
 use tokio::net::TcpStream;
+use tokio::sync::mpsc;
 use tokio::time::sleep;
 use tokio_tungstenite::{connect_async, tungstenite::protocol::Message};
 
@@ -282,6 +282,7 @@ async fn run_client(
                                             .lock()
                                             .await
                                             .handle_docker_action(&task.data)
+                                            .await
                                         {
                                             Ok(out) => {
                                                 successful = true;
@@ -314,7 +315,8 @@ async fn run_client(
                                         match docker_bridge_task
                                             .lock()
                                             .await
-                                            .handle_docker_images(&task.data)
+                                            .handle_docker_images_api(&task.data)
+                                            .await
                                         {
                                             Ok(out) => {
                                                 successful = true;
@@ -330,7 +332,8 @@ async fn run_client(
                                         match docker_bridge_task
                                             .lock()
                                             .await
-                                            .handle_docker_image_action(&task.data)
+                                            .handle_docker_image_action_api(&task.data)
+                                            .await
                                         {
                                             Ok(out) => {
                                                 successful = true;
@@ -346,7 +349,8 @@ async fn run_client(
                                         match docker_bridge_task
                                             .lock()
                                             .await
-                                            .handle_docker_networks(&task.data)
+                                            .handle_docker_networks_api(&task.data)
+                                            .await
                                         {
                                             Ok(out) => {
                                                 successful = true;
@@ -362,7 +366,8 @@ async fn run_client(
                                         match docker_bridge_task
                                             .lock()
                                             .await
-                                            .handle_docker_network_action(&task.data)
+                                            .handle_docker_network_action_api(&task.data)
+                                            .await
                                         {
                                             Ok(out) => {
                                                 successful = true;
@@ -378,7 +383,8 @@ async fn run_client(
                                         match docker_bridge_task
                                             .lock()
                                             .await
-                                            .handle_docker_volumes(&task.data)
+                                            .handle_docker_volumes_api(&task.data)
+                                            .await
                                         {
                                             Ok(out) => {
                                                 successful = true;
@@ -394,7 +400,8 @@ async fn run_client(
                                         match docker_bridge_task
                                             .lock()
                                             .await
-                                            .handle_docker_volume_action(&task.data)
+                                            .handle_docker_volume_action_api(&task.data)
+                                            .await
                                         {
                                             Ok(out) => {
                                                 successful = true;
@@ -410,7 +417,8 @@ async fn run_client(
                                         match docker_bridge_task
                                             .lock()
                                             .await
-                                            .handle_docker_logs(&task.data)
+                                            .handle_docker_logs_api(&task.data)
+                                            .await
                                         {
                                             Ok(out) => {
                                                 successful = true;
@@ -426,7 +434,8 @@ async fn run_client(
                                         match docker_bridge_task
                                             .lock()
                                             .await
-                                            .handle_docker_stats(&task.data)
+                                            .handle_docker_stats_api(&task.data)
+                                            .await
                                         {
                                             Ok(out) => {
                                                 successful = true;
@@ -471,7 +480,12 @@ async fn run_client(
                                     }
                                     23 => {
                                         // DOCKER_CREATE_CONTAINER
-                                        match handle_docker_create_container(&task.data).await {
+                                        match docker_bridge_task
+                                            .lock()
+                                            .await
+                                            .handle_docker_create_container_api(&task.data)
+                                            .await
+                                        {
                                             Ok(out) => {
                                                 successful = true;
                                                 res_data = out;
@@ -503,7 +517,12 @@ async fn run_client(
                                     }
                                     25 => {
                                         // DOCKER_RENAME_CONTAINER
-                                        match handle_docker_rename_container(&task.data).await {
+                                        match docker_bridge_task
+                                            .lock()
+                                            .await
+                                            .handle_docker_rename_container_api(&task.data)
+                                            .await
+                                        {
                                             Ok(out) => {
                                                 successful = true;
                                                 res_data = out;
@@ -516,6 +535,23 @@ async fn run_client(
                                     26 => {
                                         // DOCKER_TASK_PROGRESS
                                         match get_task_progress(&task.data, task_progress_task)
+                                            .await
+                                        {
+                                            Ok(out) => {
+                                                successful = true;
+                                                res_data = out;
+                                            }
+                                            Err(err) => {
+                                                res_data = err;
+                                            }
+                                        }
+                                    }
+                                    27 => {
+                                        // DOCKER_CONTAINERS
+                                        match docker_bridge_task
+                                            .lock()
+                                            .await
+                                            .handle_docker_containers(&task.data)
                                             .await
                                         {
                                             Ok(out) => {
@@ -696,6 +732,10 @@ async fn run_client(
                             {
                                 let _ = session.resize(resize.cols, resize.rows);
                             }
+                        }
+                    } else if event == EVENT_DASHBOARD_PTY_STOP {
+                        if let Ok(stop) = serde_json::from_value::<PtyStopPayload>(data) {
+                            pty_sessions_clone.lock().unwrap().remove(&stop.id);
                         }
                     }
                 }
@@ -928,131 +968,6 @@ async fn probe_network_quality_target(
     }
 }
 
-async fn handle_docker_create_container(data: &str) -> Result<String, String> {
-    #[derive(Deserialize)]
-    struct DockerCreateContainerRequest {
-        image: String,
-        name: Option<String>,
-        ports: Option<Vec<String>>,
-        volumes: Option<Vec<String>>,
-        env: Option<HashMap<String, String>>,
-        network: Option<String>,
-        restart: Option<String>,
-        privileged: Option<bool>,
-        #[serde(rename = "extraArgs")]
-        extra_args: Option<Vec<String>>,
-    }
-
-    let req: DockerCreateContainerRequest =
-        serde_json::from_str(data).map_err(|e| format!("解析请求失败: {}", e))?;
-
-    if req.image.is_empty() {
-        return Err("缺少镜像名称".to_string());
-    }
-
-    let mut args = vec!["run".to_string(), "-d".to_string()];
-
-    if let Some(name) = req.name {
-        if !name.is_empty() {
-            args.push("--name".to_string());
-            args.push(name);
-        }
-    }
-
-    if let Some(ports) = req.ports {
-        for p in ports {
-            args.push("-p".to_string());
-            args.push(p);
-        }
-    }
-
-    if let Some(volumes) = req.volumes {
-        for v in volumes {
-            args.push("-v".to_string());
-            args.push(v);
-        }
-    }
-
-    if let Some(env) = req.env {
-        for (k, v) in env {
-            args.push("-e".to_string());
-            args.push(format!("{}={}", k, v));
-        }
-    }
-
-    if let Some(network) = req.network {
-        if !network.is_empty() {
-            args.push("--network".to_string());
-            args.push(network);
-        }
-    }
-
-    if let Some(restart) = req.restart {
-        if !restart.is_empty() {
-            args.push("--restart".to_string());
-            args.push(restart);
-        }
-    }
-
-    if let Some(true) = req.privileged {
-        args.push("--privileged".to_string());
-    }
-
-    if let Some(extra) = req.extra_args {
-        for arg in extra {
-            args.push(arg);
-        }
-    }
-
-    args.push(req.image);
-
-    let output = Command::new("docker")
-        .args(&args)
-        .output()
-        .map_err(|e| format!("创建容器失败: {}", e))?;
-
-    if output.status.success() {
-        let container_id = String::from_utf8_lossy(&output.stdout).trim().to_string();
-        Ok(format!("容器创建成功\nID: {}", container_id))
-    } else {
-        Err(format!(
-            "创建容器失败: {}",
-            String::from_utf8_lossy(&output.stderr)
-        ))
-    }
-}
-
-async fn handle_docker_rename_container(data: &str) -> Result<String, String> {
-    #[derive(Deserialize)]
-    struct DockerRenameContainerRequest {
-        #[serde(rename = "containerId")]
-        container_id: String,
-        #[serde(rename = "newName")]
-        new_name: String,
-    }
-
-    let req: DockerRenameContainerRequest =
-        serde_json::from_str(data).map_err(|e| format!("解析请求失败: {}", e))?;
-
-    if req.container_id.is_empty() || req.new_name.is_empty() {
-        return Err("容器ID或新名称不能为空".to_string());
-    }
-
-    let output = Command::new("docker")
-        .args(["rename", &req.container_id, &req.new_name])
-        .output()
-        .map_err(|e| format!("容器重命名失败: {}", e))?;
-
-    if output.status.success() {
-        Ok("容器重命名成功".to_string())
-    } else {
-        Err(format!(
-            "容器重命名失败: {}",
-            String::from_utf8_lossy(&output.stderr)
-        ))
-    }
-}
-
 async fn handle_upgrade(_task_id: &str, config: &Config) {
     sleep(Duration::from_secs(1)).await;
     println!("[Upgrade] 开始执行升级流程...");
@@ -1106,16 +1021,41 @@ async fn handle_pty_start(
     struct PtyResizeReq {
         cols: Option<u32>,
         rows: Option<u32>,
+        command: Option<String>,
+        args: Option<Vec<String>>,
     }
 
     let req: PtyResizeReq = serde_json::from_str(data).unwrap_or(PtyResizeReq {
         cols: None,
         rows: None,
+        command: None,
+        args: None,
     });
     let cols = req.cols.unwrap_or(80);
     let rows = req.rows.unwrap_or(24);
 
-    let session = Arc::new(PtySession::new(cols, rows)?);
+    let session_result = if let Some(command) = req.command {
+        PtySession::new_with_command(cols, rows, command, req.args.unwrap_or_default())
+    } else {
+        PtySession::new(cols, rows)
+    };
+
+    let session = match session_result {
+        Ok(session) => Arc::new(session),
+        Err(err) => {
+            let _ = tx
+                .send(format_event(
+                    EVENT_AGENT_PTY_STATUS,
+                    &PtyStatusPayload {
+                        id: task_id.to_string(),
+                        status: "error".to_string(),
+                        error: Some(err.clone()),
+                    },
+                ))
+                .await;
+            return Err(err);
+        }
+    };
 
     // Insert session
     pty_sessions
@@ -1124,9 +1064,35 @@ async fn handle_pty_start(
         .insert(task_id.to_string(), session.clone());
 
     // Spawn reading thread
-    let mut reader = session.try_clone_reader()?;
+    let mut reader = match session.try_clone_reader() {
+        Ok(reader) => reader,
+        Err(err) => {
+            pty_sessions.lock().unwrap().remove(task_id);
+            let _ = tx
+                .send(format_event(
+                    EVENT_AGENT_PTY_STATUS,
+                    &PtyStatusPayload {
+                        id: task_id.to_string(),
+                        status: "error".to_string(),
+                        error: Some(err.clone()),
+                    },
+                ))
+                .await;
+            return Err(err);
+        }
+    };
     let task_id_str = task_id.to_string();
     let pty_sessions_cleanup = pty_sessions.clone();
+    let _ = tx
+        .send(format_event(
+            EVENT_AGENT_PTY_STATUS,
+            &PtyStatusPayload {
+                id: task_id.to_string(),
+                status: "ready".to_string(),
+                error: None,
+            },
+        ))
+        .await;
 
     std::thread::spawn(move || {
         let mut buf = [0u8; 8192];

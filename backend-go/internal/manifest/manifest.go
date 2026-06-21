@@ -179,6 +179,7 @@ func Routes() []Route {
 		{Prefix: "/api/server/v2/tasks/stream", Module: "server-tasks-v2", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseStream, Description: "Server tasks v2 stream", MatchMode: MatchExact},
 		{Prefix: "/api/server/v2/tasks", Module: "server-tasks-v2", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Server tasks v2", MatchMode: MatchExact},
 		{Prefix: "/api/server/v2/docker/overview", Module: "server-docker-v2", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Docker overview v2", MatchMode: MatchExact},
+		{Prefix: "/api/server/v2/docker", Module: "server-docker-v2", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Docker proxy v2"},
 
 		{Prefix: "/api/server/accounts/export", Module: "server-accounts", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Server account export", MatchMode: MatchExact},
 		{Prefix: "/api/server/accounts/import", Module: "server-accounts", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Server account import", MatchMode: MatchExact},
