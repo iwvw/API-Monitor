@@ -18,6 +18,7 @@
     "backend-go:start": "cd backend-go && ./api-monitor.exe",
     "backend-go:test": "cd backend-go && go test ./...",
     "backend-go:build": "cd backend-go && go build -o api-monitor.exe ./cmd/api-monitor",
+    "db:audit": "cd backend-go && go run ./cmd/schema-audit",
     "governance:check": "node tools/three-side-governance-check.mjs",
     "backend-go:smoke": "node tools/backend-go-smoke.mjs",
     "backend:perf-baseline": "node tools/backend-performance-baseline.mjs"

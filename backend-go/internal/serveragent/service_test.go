@@ -873,7 +873,8 @@ func TestAgentQuickInstallCreatesHostFromName(t *testing.T) {
 		t.Fatalf("linux install script should restart an existing service: %s", res.Body.String())
 	}
 	if !strings.Contains(res.Body.String(), `TMP_AGENT="$(mktemp /tmp/api-monitor-agent.XXXXXX)"`) ||
-		!strings.Contains(res.Body.String(), `sudo install -m 0755 "$TMP_AGENT" "$INSTALL_DIR/api-monitor-agent"`) {
+		!strings.Contains(res.Body.String(), `if [ "$(id -u)" -eq 0 ]; then`) ||
+		!strings.Contains(res.Body.String(), `$SUDO install -m 0755 "$TMP_AGENT" "$INSTALL_DIR/api-monitor-agent"`) {
 		t.Fatalf("linux install script should download to a temp file before replacing binary: %s", res.Body.String())
 	}
 	if !strings.Contains(res.Body.String(), "systemctl is-active --quiet api-monitor-agent") ||

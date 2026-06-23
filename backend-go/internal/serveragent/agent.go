@@ -224,7 +224,17 @@ echo "Installing API Monitor Agent..."
 echo "Target host: %s"
 echo "Server: $SERVER_URL"
 
-sudo mkdir -p $INSTALL_DIR
+if [ "$(id -u)" -eq 0 ]; then
+    SUDO=""
+else
+    if ! command -v sudo >/dev/null 2>&1; then
+        echo "Error: this installer must run as root or on a system with sudo installed"
+        exit 1
+    fi
+    SUDO="sudo"
+fi
+
+$SUDO mkdir -p $INSTALL_DIR
 cd $INSTALL_DIR
 
 ARCH=$(uname -m)
@@ -245,27 +255,27 @@ AGENT_URL="$SERVER_URL/agent/agent-linux-$AGENT_ARCH"
 echo "Downloading Agent..."
 TMP_AGENT="$(mktemp /tmp/api-monitor-agent.XXXXXX)"
 trap 'rm -f "$TMP_AGENT"' EXIT
-sudo curl -fsSL -o "$TMP_AGENT" "$AGENT_URL" || {
+$SUDO curl -fsSL -o "$TMP_AGENT" "$AGENT_URL" || {
     echo "Error: failed to download Agent binary"
     echo "URL: $AGENT_URL"
     exit 1
 }
 
-sudo chmod +x "$TMP_AGENT"
+$SUDO chmod +x "$TMP_AGENT"
 
-sudo "$TMP_AGENT" --version || {
+$SUDO "$TMP_AGENT" --version || {
     echo "Error: Agent binary failed to run"
     exit 1
 }
 
 if systemctl list-unit-files api-monitor-agent.service >/dev/null 2>&1; then
-    sudo systemctl stop api-monitor-agent || true
+    $SUDO systemctl stop api-monitor-agent || true
 fi
 
-sudo install -m 0755 "$TMP_AGENT" "$INSTALL_DIR/api-monitor-agent"
+$SUDO install -m 0755 "$TMP_AGENT" "$INSTALL_DIR/api-monitor-agent"
 
 echo "Creating systemd service..."
-sudo tee /etc/systemd/system/api-monitor-agent.service > /dev/null <<EOF
+$SUDO tee /etc/systemd/system/api-monitor-agent.service > /dev/null <<EOF
 [Unit]
 Description=API Monitor Agent
 After=network.target
@@ -282,18 +292,18 @@ RestartSec=10
 WantedBy=multi-user.target
 EOF
 
-sudo systemctl daemon-reload
-sudo systemctl enable api-monitor-agent
-sudo systemctl restart api-monitor-agent || {
-    sudo systemctl daemon-reload
-    sudo systemctl enable api-monitor-agent
-    sudo systemctl restart api-monitor-agent
+$SUDO systemctl daemon-reload
+$SUDO systemctl enable api-monitor-agent
+$SUDO systemctl restart api-monitor-agent || {
+    $SUDO systemctl daemon-reload
+    $SUDO systemctl enable api-monitor-agent
+    $SUDO systemctl restart api-monitor-agent
 }
 
-sudo systemctl is-active --quiet api-monitor-agent || {
+$SUDO systemctl is-active --quiet api-monitor-agent || {
     echo "Error: api-monitor-agent failed to start"
-    sudo systemctl status api-monitor-agent --no-pager || true
-    sudo journalctl -u api-monitor-agent -n 50 --no-pager || true
+    $SUDO systemctl status api-monitor-agent --no-pager || true
+    $SUDO journalctl -u api-monitor-agent -n 50 --no-pager || true
     exit 1
 }
 

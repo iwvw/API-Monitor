@@ -26,9 +26,9 @@ func Load(version string) Config {
 		Host:          envString("GO_HOST", "0.0.0.0"),
 		Port:          envInt("GO_PORT", envInt("PORT", 3000)),
 		LegacyBaseURL: strings.TrimRight(os.Getenv("NODE_LEGACY_URL"), "/"),
-		DistDir:       envString("DIST_DIR", filepath.Join(root, "dist")),
-		PublicDir:     envString("PUBLIC_DIR", filepath.Join(root, "public")),
-		DataDir:       envString("DATA_DIR", filepath.Join(root, "data")),
+		DistDir:       envPath(root, "DIST_DIR", filepath.Join(root, "dist")),
+		PublicDir:     envPath(root, "PUBLIC_DIR", filepath.Join(root, "public")),
+		DataDir:       envPath(root, "DATA_DIR", filepath.Join(root, "data")),
 		DBName:        envString("DB_NAME", "data.db"),
 	}
 }
@@ -70,6 +70,14 @@ func envString(name, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+func envPath(root, name, fallback string) string {
+	value := envString(name, fallback)
+	if filepath.IsAbs(value) {
+		return filepath.Clean(value)
+	}
+	return filepath.Join(root, value)
 }
 
 func envInt(name string, fallback int) int {

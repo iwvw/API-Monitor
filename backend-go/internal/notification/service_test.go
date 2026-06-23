@@ -2,10 +2,12 @@ package notification
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -292,5 +294,51 @@ func TestHistoryConfigEventCatalogAndPreview(t *testing.T) {
 	}
 	if !payload.Success || payload.Data.Title != "[critical] API Gateway" || !strings.Contains(payload.Data.Message, "timeout") {
 		t.Fatalf("unexpected preview payload: %#v", payload)
+	}
+}
+
+func TestGlobalConfigMigrationAddsNewColumnsBeforeDefaultInsert(t *testing.T) {
+	ctx := context.Background()
+	dataDir := t.TempDir()
+	db, err := sql.Open("sqlite", filepath.Join(dataDir, "data.db"))
+	if err != nil {
+		t.Fatalf("open sqlite fixture: %v", err)
+	}
+	_, err = db.ExecContext(ctx, `
+		CREATE TABLE notification_global_config (
+			id INTEGER PRIMARY KEY CHECK (id = 1),
+			max_retry_times INTEGER DEFAULT 3,
+			retry_interval_seconds INTEGER DEFAULT 60,
+			history_retention_days INTEGER DEFAULT 30,
+			enable_batch INTEGER DEFAULT 1,
+			batch_interval_seconds INTEGER DEFAULT 30,
+			default_channels TEXT,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		);
+		INSERT INTO notification_global_config (
+			id, max_retry_times, retry_interval_seconds,
+			history_retention_days, enable_batch, batch_interval_seconds, default_channels
+		) VALUES (1, 4, 45, 14, 1, 20, '[]');
+	`)
+	if closeErr := db.Close(); closeErr != nil {
+		t.Fatalf("close sqlite fixture: %v", closeErr)
+	}
+	if err != nil {
+		t.Fatalf("create legacy notification config fixture: %v", err)
+	}
+
+	service := New(config.Config{
+		Version: "test",
+		Host:    "127.0.0.1",
+		Port:    0,
+		DataDir: dataDir,
+		DBName:  "data.db",
+	})
+	cfg, err := service.LoadConfig(ctx)
+	if err != nil {
+		t.Fatalf("load migrated config: %v", err)
+	}
+	if cfg.MaxRetryTimes != 4 || cfg.GlobalRateLimitPerHr != 100 || cfg.EnableAutoEscalation {
+		t.Fatalf("unexpected migrated config: %#v", cfg)
 	}
 }

@@ -1308,11 +1308,6 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_notification_history_status ON notification_history(status, created_at)`,
 		`CREATE INDEX IF NOT EXISTS idx_alert_state_tracking_rule ON alert_state_tracking(rule_id, fingerprint)`,
 		`CREATE INDEX IF NOT EXISTS idx_alert_state_tracking_triggered ON alert_state_tracking(last_triggered_at)`,
-		`INSERT OR IGNORE INTO notification_global_config (
-			id, max_retry_times, retry_interval_seconds,
-			history_retention_days, enable_batch, batch_interval_seconds,
-			default_channels, global_rate_limit_per_hour, enable_auto_escalation, base_url
-		) VALUES (1, 3, 60, 30, 1, 30, '[]', 100, 0, '')`,
 	}
 	for _, statement := range statements {
 		if _, err := db.ExecContext(ctx, statement); err != nil {
@@ -1343,6 +1338,15 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 				return fmt.Errorf("add %s.%s: %w", column.table, column.name, err)
 			}
 		}
+	}
+	if _, err := db.ExecContext(ctx, `
+		INSERT OR IGNORE INTO notification_global_config (
+			id, max_retry_times, retry_interval_seconds,
+			history_retention_days, enable_batch, batch_interval_seconds,
+			default_channels, global_rate_limit_per_hour, enable_auto_escalation, base_url
+		) VALUES (1, 3, 60, 30, 1, 30, '[]', 100, 0, '')
+	`); err != nil {
+		return fmt.Errorf("ensure notification default config: %w", err)
 	}
 	return nil
 }
