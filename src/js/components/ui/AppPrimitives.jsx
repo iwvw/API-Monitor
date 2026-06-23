@@ -207,7 +207,7 @@ export function ChartBoundaryBox({ className = '', children }) {
 export function ChartCard({ className = '', children }) {
   return (
     <ChartBoundaryBox
-      className={cx('min-w-0 overflow-hidden rounded-lg border border-kumo-line/90 bg-kumo-base p-3 shadow-none', className)}
+      className={cx('min-w-0 overflow-hidden app-card p-3', className)}
     >
       {children}
     </ChartBoundaryBox>

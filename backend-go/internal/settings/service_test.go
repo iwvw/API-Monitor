@@ -150,14 +150,24 @@ func TestDatabaseStatsSelfCheckAndAnalysis(t *testing.T) {
 	var statsPayload struct {
 		Success bool `json:"success"`
 		Data    struct {
-			DBPath string           `json:"dbPath"`
-			DBSize int64            `json:"dbSize"`
-			Tables map[string]int64 `json:"tables"`
+			DBPath    string           `json:"dbPath"`
+			DBSize    int64            `json:"dbSize"`
+			TotalSize int64            `json:"totalSize"`
+			Tables    map[string]int64 `json:"tables"`
+			Storage   struct {
+				MainSizeBytes  int64 `json:"mainSizeBytes"`
+				TotalSizeBytes int64 `json:"totalSizeBytes"`
+				PageSize       int64 `json:"pageSize"`
+				PageCount      int64 `json:"pageCount"`
+			} `json:"storage"`
 		} `json:"data"`
 	}
 	mustDecodeSettings(t, statsRes, &statsPayload)
-	if !statsPayload.Success || statsPayload.Data.DBPath == "" || statsPayload.Data.DBSize == 0 {
+	if !statsPayload.Success || statsPayload.Data.DBPath == "" || statsPayload.Data.DBSize == 0 || statsPayload.Data.TotalSize == 0 {
 		t.Fatalf("unexpected stats payload: %#v", statsPayload)
+	}
+	if statsPayload.Data.Storage.MainSizeBytes == 0 || statsPayload.Data.Storage.TotalSizeBytes < statsPayload.Data.Storage.MainSizeBytes || statsPayload.Data.Storage.PageSize == 0 || statsPayload.Data.Storage.PageCount == 0 {
+		t.Fatalf("unexpected storage stats: %#v", statsPayload.Data.Storage)
 	}
 	if statsPayload.Data.Tables["chat_messages"] != 2 || statsPayload.Data.Tables["operation_logs"] != 1 {
 		t.Fatalf("unexpected table stats: %#v", statsPayload.Data.Tables)
@@ -197,21 +207,26 @@ func TestDatabaseStatsSelfCheckAndAnalysis(t *testing.T) {
 		Success bool `json:"success"`
 		Data    struct {
 			DBFileSizeMB string `json:"dbFileSizeMB"`
-			Tables       []struct {
+			Storage      struct {
+				MainSizeBytes  int64 `json:"mainSizeBytes"`
+				TotalSizeBytes int64 `json:"totalSizeBytes"`
+			} `json:"storage"`
+			Tables []struct {
 				Table              string `json:"table"`
 				Rows               int64  `json:"rows"`
 				EstimatedSizeBytes int64  `json:"estimatedSizeBytes"`
 				EstimatedSizeMB    string `json:"estimatedSizeMB"`
 				AvgRowSizeBytes    int64  `json:"avgRowSizeBytes"`
+				SizeSource         string `json:"sizeSource"`
 			} `json:"tables"`
 		} `json:"data"`
 	}
 	mustDecodeSettings(t, analysisRes, &analysisPayload)
-	if !analysisPayload.Success || analysisPayload.Data.DBFileSizeMB == "" {
+	if !analysisPayload.Success || analysisPayload.Data.DBFileSizeMB == "" || analysisPayload.Data.Storage.MainSizeBytes == 0 {
 		t.Fatalf("unexpected analysis payload: %#v", analysisPayload)
 	}
 	chatAnalysis := findAnalysisTable(analysisPayload.Data.Tables, "chat_messages")
-	if chatAnalysis == nil || chatAnalysis.Rows != 2 || chatAnalysis.EstimatedSizeBytes != 14 || chatAnalysis.AvgRowSizeBytes != 7 {
+	if chatAnalysis == nil || chatAnalysis.Rows != 2 || chatAnalysis.EstimatedSizeBytes < 14 || chatAnalysis.AvgRowSizeBytes == 0 || chatAnalysis.SizeSource == "" {
 		t.Fatalf("unexpected chat analysis: %#v", chatAnalysis)
 	}
 }
@@ -456,6 +471,109 @@ func TestDatabaseMaintenanceActions(t *testing.T) {
 	mustDecodeSettings(t, vacuumRes, &vacuumPayload)
 	if !vacuumPayload.Success || vacuumPayload.Data.BeforeSizeMB == "" || vacuumPayload.Data.AfterSizeMB == "" || vacuumPayload.Data.SavedMB == "" {
 		t.Fatalf("unexpected vacuum payload: %#v", vacuumPayload)
+	}
+}
+
+func TestDeprecatedTablePreviewAndCleanup(t *testing.T) {
+	service := New(config.Config{
+		Version: "test",
+		Host:    "127.0.0.1",
+		Port:    0,
+		DataDir: t.TempDir(),
+		DBName:  "data.db",
+	})
+
+	db, err := service.store.Open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = db.ExecContext(context.Background(), `
+		CREATE TABLE music_settings (id INTEGER PRIMARY KEY, value TEXT);
+		CREATE TABLE openlist_accounts (id INTEGER PRIMARY KEY, name TEXT);
+		CREATE TABLE ai_chat_messages (id INTEGER PRIMARY KEY, content TEXT);
+		CREATE TABLE qwen_logs (id INTEGER PRIMARY KEY, details TEXT);
+		CREATE TABLE active_records (id INTEGER PRIMARY KEY, name TEXT);
+		INSERT INTO music_settings (value) VALUES ('old');
+		INSERT INTO openlist_accounts (name) VALUES ('legacy');
+		INSERT INTO ai_chat_messages (content) VALUES ('message');
+		INSERT INTO qwen_logs (details) VALUES ('log');
+		INSERT INTO active_records (name) VALUES ('keep');
+	`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	previewRes := performSettingsRequest(service, http.MethodGet, "/api/settings/deprecated-tables", "")
+	if previewRes.Code != http.StatusOK {
+		t.Fatalf("deprecated preview status = %d body=%s", previewRes.Code, previewRes.Body.String())
+	}
+	var previewPayload struct {
+		Success bool `json:"success"`
+		Data    struct {
+			Count     int   `json:"count"`
+			TotalRows int64 `json:"totalRows"`
+			Tables    []struct {
+				Table    string `json:"table"`
+				Rows     int64  `json:"rows"`
+				Category string `json:"category"`
+			} `json:"tables"`
+		} `json:"data"`
+	}
+	mustDecodeSettings(t, previewRes, &previewPayload)
+	if !previewPayload.Success || previewPayload.Data.Count != 4 || previewPayload.Data.TotalRows != 4 {
+		t.Fatalf("unexpected deprecated preview payload: %#v", previewPayload)
+	}
+
+	cleanupRes := performSettingsRequest(service, http.MethodPost, "/api/settings/cleanup-deprecated-tables", `{"tables":["music_settings","qwen_logs"]}`)
+	if cleanupRes.Code != http.StatusOK {
+		t.Fatalf("deprecated cleanup status = %d body=%s", cleanupRes.Code, cleanupRes.Body.String())
+	}
+	var cleanupPayload struct {
+		Success bool `json:"success"`
+		Data    struct {
+			DeletedRows int64  `json:"deletedRows"`
+			BackupPath  string `json:"backupPath"`
+			Dropped     []struct {
+				Table string `json:"table"`
+			} `json:"dropped"`
+		} `json:"data"`
+	}
+	mustDecodeSettings(t, cleanupRes, &cleanupPayload)
+	if !cleanupPayload.Success || cleanupPayload.Data.DeletedRows != 2 || cleanupPayload.Data.BackupPath == "" || len(cleanupPayload.Data.Dropped) != 2 {
+		t.Fatalf("unexpected deprecated cleanup payload: %#v", cleanupPayload)
+	}
+	if _, err := os.Stat(cleanupPayload.Data.BackupPath); err != nil {
+		t.Fatalf("expected cleanup backup to exist: %v", err)
+	}
+
+	db, err = service.store.Open(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	for _, table := range []string{"music_settings", "qwen_logs"} {
+		exists, err := tableExists(context.Background(), db, table)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if exists {
+			t.Fatalf("expected %s to be dropped", table)
+		}
+	}
+	for _, table := range []string{"openlist_accounts", "ai_chat_messages", "active_records"} {
+		exists, err := tableExists(context.Background(), db, table)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !exists {
+			t.Fatalf("expected %s to remain", table)
+		}
+	}
+	if countRowsForTest(t, db, "active_records") != 1 {
+		t.Fatal("active table should keep its row")
 	}
 }
 
@@ -741,12 +859,14 @@ func findAnalysisTable(tables []struct {
 	EstimatedSizeBytes int64  `json:"estimatedSizeBytes"`
 	EstimatedSizeMB    string `json:"estimatedSizeMB"`
 	AvgRowSizeBytes    int64  `json:"avgRowSizeBytes"`
+	SizeSource         string `json:"sizeSource"`
 }, name string) *struct {
 	Table              string `json:"table"`
 	Rows               int64  `json:"rows"`
 	EstimatedSizeBytes int64  `json:"estimatedSizeBytes"`
 	EstimatedSizeMB    string `json:"estimatedSizeMB"`
 	AvgRowSizeBytes    int64  `json:"avgRowSizeBytes"`
+	SizeSource         string `json:"sizeSource"`
 } {
 	for i := range tables {
 		if tables[i].Table == name {

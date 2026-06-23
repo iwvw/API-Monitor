@@ -450,7 +450,7 @@ func isSQLKeyword(value string) bool {
 
 func isSystemTable(value string) bool {
 	switch strings.ToLower(value) {
-	case "sqlite_master", "sqlite_sequence":
+	case "sqlite_master", "sqlite_sequence", "dbstat":
 		return true
 	default:
 		return false

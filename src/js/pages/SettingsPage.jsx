@@ -223,6 +223,7 @@ function SettingsPage() {
 
   const [dbStats, setDbStats] = useState(null);
   const [dbAnalysis, setDbAnalysis] = useState(null);
+  const [deprecatedTables, setDeprecatedTables] = useState(null);
   const [databaseBusy, setDatabaseBusy] = useState(false);
   const [dbImportPreview, setDbImportPreview] = useState(null);
 
@@ -285,9 +286,10 @@ function SettingsPage() {
   }, [applyUserSettings]);
 
   const fetchDbState = useCallback(async () => {
-    const [statsResponse, analysisResponse] = await Promise.all([
+    const [statsResponse, analysisResponse, deprecatedResponse] = await Promise.all([
       fetch('/api/settings/database-stats', { headers: getAuthHeaders() }),
       fetch('/api/settings/database-analysis', { headers: getAuthHeaders() }),
+      fetch('/api/settings/deprecated-tables', { headers: getAuthHeaders() }),
     ]);
 
     const statsResult = await statsResponse.json();
@@ -295,6 +297,9 @@ function SettingsPage() {
 
     const analysisResult = await analysisResponse.json();
     if (analysisResult.success) setDbAnalysis(analysisResult.data);
+
+    const deprecatedResult = await deprecatedResponse.json();
+    if (deprecatedResult.success) setDeprecatedTables(deprecatedResult.data);
   }, []);
 
   const fetchLogState = useCallback(async () => {
@@ -608,6 +613,28 @@ function SettingsPage() {
     }
   };
 
+  const cleanupDeprecatedTables = async () => {
+    const candidates = deprecatedTables?.tables || [];
+    if (candidates.length === 0) {
+      toast.success('没有可清理的废弃表');
+      return;
+    }
+    const ok = await dialog.confirm({
+      title: '清理废弃表',
+      message: `将删除 ${candidates.length} 张废弃表、${deprecatedTables.totalRows || 0} 行数据。系统会先自动备份当前数据库。`,
+      confirmText: '清理',
+      cancelText: '取消',
+      variant: 'destructive',
+    });
+    if (!ok) return;
+    await postSettingsAction(
+      '/api/settings/cleanup-deprecated-tables',
+      '废弃表已清理',
+      fetchDbState,
+      { tables: candidates.map((item) => item.table) }
+    );
+  };
+
   const loadRawLogFile = async () => {
     setLogsBusy(true);
     try {
@@ -647,6 +674,13 @@ function SettingsPage() {
     patchSettings({ moduleOrder: moveItem(settings.moduleOrder, index, nextIndex) });
   };
 
+  const databaseStorage = dbStats?.storage || dbAnalysis?.storage || null;
+  const databaseSizeBytes = dbStats?.totalSize ?? dbStats?.dbSize;
+  const databaseSizeHint = databaseStorage
+    ? `主库 ${formatFileSize(databaseStorage.mainSizeBytes)} · WAL ${formatFileSize(databaseStorage.walSizeBytes)} · 空闲 ${formatFileSize(databaseStorage.freePageBytes)}`
+    : (dbStats?.dbPath || '等待统计');
+  const deprecatedTableItems = deprecatedTables?.tables || [];
+
   return (
     <div className="flex w-full flex-col gap-6">
       <div className="flex flex-col gap-3 border-b border-kumo-line pb-3 lg:flex-row lg:items-center lg:justify-between">
@@ -680,7 +714,7 @@ function SettingsPage() {
         <div className="grid gap-4 lg:grid-cols-4">
           <StatCard label="运行状态" value="正常" hint={settingsLoading ? '同步中' : '已连接后端'} icon={Check} />
           <StatCard label="公网入口" value={settings.publicApiUrl || currentOrigin} hint="/api 自动拼接" icon={Globe} />
-          <StatCard label="数据库大小" value={formatFileSize(dbStats?.dbSize)} hint={dbStats?.dbPath || '等待统计'} icon={Database} />
+          <StatCard label="数据库大小" value={formatFileSize(databaseSizeBytes)} hint={databaseSizeHint} icon={Database} />
           <StatCard label="日志文件" value={logFileInfo?.sizeFormatted || `${logSettings.logFileSizeMB || 10} MB 上限`} hint="app.log" icon={FileText} />
 
           <LayerCard className="lg:col-span-2">
@@ -925,31 +959,54 @@ function SettingsPage() {
                 <Button size="sm" onClick={fetchDbState} loading={databaseBusy} icon={<RefreshCw className="h-4 w-4" />}>刷新统计</Button>
               }
             />
+            {databaseStorage && (
+              <div className="grid gap-3 border-b border-kumo-line px-5 py-3 text-xs text-kumo-subtle md:grid-cols-4">
+                <div>
+                  <div className="font-semibold text-kumo-strong">{formatFileSize(databaseStorage.totalSizeBytes)}</div>
+                  <div>总占用</div>
+                </div>
+                <div>
+                  <div className="font-semibold text-kumo-strong">{formatFileSize(databaseStorage.mainSizeBytes)}</div>
+                  <div>主库文件</div>
+                </div>
+                <div>
+                  <div className="font-semibold text-kumo-strong">{formatFileSize((databaseStorage.walSizeBytes || 0) + (databaseStorage.shmSizeBytes || 0))}</div>
+                  <div>WAL / SHM</div>
+                </div>
+                <div>
+                  <div className="font-semibold text-kumo-strong">{formatFileSize(databaseStorage.freePageBytes)}</div>
+                  <div>空闲页</div>
+                </div>
+              </div>
+            )}
             <Table layout="fixed">
               <colgroup>
                 <col />
                 <col className="w-[120px]" />
                 <col className="w-[140px]" />
+                <col className="w-[120px]" />
                 <col className="w-[140px]" />
               </colgroup>
               <Table.Header>
                 <Table.Row>
                   <Table.Head>表名</Table.Head>
                   <Table.Head>记录数</Table.Head>
-                  <Table.Head>估算大小</Table.Head>
+                  <Table.Head>实际占用</Table.Head>
+                  <Table.Head>索引</Table.Head>
                   <Table.Head>平均行大小</Table.Head>
                 </Table.Row>
               </Table.Header>
               <Table.Body>
                 {tableRows.length === 0 ? (
                   <Table.Row>
-                    <Table.Cell colSpan={4} className="p-8 text-center text-kumo-subtle">暂无统计数据</Table.Cell>
+                    <Table.Cell colSpan={5} className="p-8 text-center text-kumo-subtle">暂无统计数据</Table.Cell>
                   </Table.Row>
                 ) : tableRows.map((row) => (
                   <Table.Row key={row.table}>
                     <Table.Cell className="font-mono text-xs text-kumo-strong">{row.table}</Table.Cell>
                     <Table.Cell className="font-mono text-xs">{row.rows ?? '-'}</Table.Cell>
-                    <Table.Cell className="font-mono text-xs">{row.estimatedSizeMB ? `${row.estimatedSizeMB} MB` : '-'}</Table.Cell>
+                    <Table.Cell className="font-mono text-xs">{row.estimatedSizeBytes ? formatFileSize(row.estimatedSizeBytes) : '-'}</Table.Cell>
+                    <Table.Cell className="font-mono text-xs">{row.indexSizeBytes ? formatFileSize(row.indexSizeBytes) : '-'}</Table.Cell>
                     <Table.Cell className="font-mono text-xs">{row.avgRowSizeBytes ? formatFileSize(row.avgRowSizeBytes) : '-'}</Table.Cell>
                   </Table.Row>
                 ))}
@@ -1036,6 +1093,38 @@ function SettingsPage() {
                 >
                   清理数据库日志
                 </Button>
+                <Button size="sm"
+                  className="justify-start"
+                  variant="secondary-destructive"
+                  onClick={cleanupDeprecatedTables}
+                  loading={databaseBusy}
+                  disabled={deprecatedTableItems.length === 0}
+                  icon={<Trash className="h-4 w-4" />}
+                >
+                  清理废弃表
+                </Button>
+              </div>
+              <div className="mt-3 border-t border-kumo-line pt-3">
+                <div className="flex items-center justify-between gap-2 text-xs">
+                  <span className="font-semibold text-kumo-strong">废弃表候选</span>
+                  <Badge variant={deprecatedTableItems.length > 0 ? 'warning' : 'secondary'}>
+                    {deprecatedTableItems.length} 张
+                  </Badge>
+                </div>
+                <div className="mt-2 grid grid-cols-2 gap-2 text-[11px] text-kumo-subtle">
+                  <span>记录 {deprecatedTables?.totalRows || 0}</span>
+                  <span>占用 {formatFileSize(deprecatedTables?.totalSize)}</span>
+                </div>
+                {deprecatedTableItems.length > 0 && (
+                  <div className="mt-2 max-h-40 overflow-y-auto divide-y divide-kumo-line text-[11px]">
+                    {deprecatedTableItems.slice(0, 8).map((item) => (
+                      <div key={item.table} className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 py-1.5">
+                        <span className="truncate font-mono text-kumo-strong" title={item.reason}>{item.table}</span>
+                        <span className="font-mono text-kumo-subtle">{formatFileSize(item.sizeBytes)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </LayerCard>
           </div>

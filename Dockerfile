@@ -61,35 +61,33 @@ RUN CGO_ENABLED=1 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
 
 # 阶段 3: 构建 Rust Agent 二进制 (Agent Builder) - 优化为基于 TARGETARCH 进行条件式本机编译，以最大化编译性能并防止复杂的跨平台交叉编译错误
 FROM --platform=$TARGETPLATFORM rust:slim AS agent-builder
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    musl-tools \
-    gcc \
-    && rm -rf /var/lib/apt/lists/*
+ARG USE_PREBUILT_AGENT=false
+RUN if [ "$USE_PREBUILT_AGENT" != "true" ]; then \
+        apt-get update && apt-get install -y --no-install-recommends \
+            musl-tools \
+            gcc \
+        && rm -rf /var/lib/apt/lists/*; \
+    fi
 
 ARG TARGETARCH
-RUN if [ "$TARGETARCH" = "amd64" ]; then \
-        rustup target add x86_64-unknown-linux-musl; \
-    elif [ "$TARGETARCH" = "arm64" ]; then \
-        rustup target add aarch64-unknown-linux-musl; \
+RUN if [ "$USE_PREBUILT_AGENT" != "true" ]; then \
+        if [ "$TARGETARCH" = "amd64" ]; then \
+            rustup target add x86_64-unknown-linux-musl; \
+        elif [ "$TARGETARCH" = "arm64" ]; then \
+            rustup target add aarch64-unknown-linux-musl; \
+        fi; \
     fi
 
 WORKDIR /app/agent-rust
-COPY agent-rust/Cargo.toml agent-rust/Cargo.lock ./
-# 预拉取和预编译依赖项（层缓存优化）
-RUN mkdir src && echo "fn main() {}" > src/main.rs
-RUN if [ "$TARGETARCH" = "amd64" ]; then \
-        cargo build --release --target x86_64-unknown-linux-musl; \
-    elif [ "$TARGETARCH" = "arm64" ]; then \
-        cargo build --release --target aarch64-unknown-linux-musl; \
-    fi
-
-# 1. 尝试从构建上下文（宿主机）复制已编好的二进制文件（如果存在）
-RUN rm -rf src
 COPY agent-rust/ ./
-
-# 2. 复制真正的源码并执行本机编译
+# CI downloads prebuilt agent artifacts before docker build. Local builds still
+# fall back to compiling the target Linux agent when the artifact is absent.
 RUN if [ "$TARGETARCH" = "amd64" ]; then \
         if [ ! -f "./agent-linux-amd64" ] || [ ! -s "./agent-linux-amd64" ]; then \
+            if [ "$USE_PREBUILT_AGENT" = "true" ]; then \
+                echo "agent-linux-amd64 artifact is required when USE_PREBUILT_AGENT=true" >&2; \
+                exit 1; \
+            fi; \
             cargo build --release --target x86_64-unknown-linux-musl && \
             cp target/x86_64-unknown-linux-musl/release/api-monitor-agent ./agent-linux-amd64; \
         fi && \
@@ -97,12 +95,17 @@ RUN if [ "$TARGETARCH" = "amd64" ]; then \
         if [ ! -f "./agent-windows-amd64.exe" ]; then touch ./agent-windows-amd64.exe; fi; \
     elif [ "$TARGETARCH" = "arm64" ]; then \
         if [ ! -f "./agent-linux-arm64" ] || [ ! -s "./agent-linux-arm64" ]; then \
+            if [ "$USE_PREBUILT_AGENT" = "true" ]; then \
+                echo "agent-linux-arm64 artifact is required when USE_PREBUILT_AGENT=true" >&2; \
+                exit 1; \
+            fi; \
             cargo build --release --target aarch64-unknown-linux-musl && \
             cp target/aarch64-unknown-linux-musl/release/api-monitor-agent ./agent-linux-arm64; \
         fi && \
         if [ ! -f "./agent-linux-amd64" ]; then touch ./agent-linux-amd64; fi && \
         if [ ! -f "./agent-windows-amd64.exe" ]; then touch ./agent-windows-amd64.exe; fi; \
-    fi
+    fi && \
+    chmod +x ./agent-linux-amd64 ./agent-linux-arm64 || true
 
 # 注意：deps-builder 阶段已移除，Go 后端不需要 Node.js 依赖
 

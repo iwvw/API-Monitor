@@ -59,6 +59,8 @@ func Routes() []Route {
 		{Prefix: "/api/settings/clear-app-logs", Module: "settings-logs", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "App log truncation"},
 		{Prefix: "/api/settings/database-stats", Module: "settings-database", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Database table counts and file size"},
 		{Prefix: "/api/settings/database-analysis", Module: "settings-database", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Database table row counts and size estimates"},
+		{Prefix: "/api/settings/deprecated-tables", Module: "settings-database", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Deprecated database table cleanup preview"},
+		{Prefix: "/api/settings/cleanup-deprecated-tables", Module: "settings-database", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Backed-up deprecated database table cleanup"},
 		{Prefix: "/api/settings/database/import", Module: "settings-database", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Database import preview and commit"},
 		{Prefix: "/api/settings/database", Module: "settings-database", Owner: OwnerRetired, Auth: AuthSession, ResponseMode: ResponseProxy, Description: "Unmigrated database maintenance fallback routes (retired)"},
 		{Prefix: "/api/settings/export-database", Module: "settings-database", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "SQLite database export"},

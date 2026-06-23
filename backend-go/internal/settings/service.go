@@ -58,7 +58,10 @@ type tableAnalysis struct {
 	Rows               int64  `json:"rows"`
 	EstimatedSizeBytes int64  `json:"estimatedSizeBytes"`
 	EstimatedSizeMB    string `json:"estimatedSizeMB"`
+	TableSizeBytes     int64  `json:"tableSizeBytes,omitempty"`
+	IndexSizeBytes     int64  `json:"indexSizeBytes,omitempty"`
 	AvgRowSizeBytes    int64  `json:"avgRowSizeBytes"`
+	SizeSource         string `json:"sizeSource,omitempty"`
 	Error              string `json:"error,omitempty"`
 }
 
@@ -125,6 +128,18 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		s.getDatabaseAnalysis(w, r)
+	case "/api/settings/deprecated-tables":
+		if r.Method != http.MethodGet {
+			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		s.getDeprecatedTables(w, r)
+	case "/api/settings/cleanup-deprecated-tables":
+		if r.Method != http.MethodPost {
+			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		s.cleanupDeprecatedTables(w, r)
 	case "/api/settings/export-database":
 		if r.Method != http.MethodGet {
 			response.Error(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -287,16 +302,23 @@ func (s *Service) getDatabaseStats(w http.ResponseWriter, r *http.Request) {
 		stats[table] = count
 	}
 
-	dbSize, err := fileSize(s.store.DatabasePath())
-	if err != nil {
-		response.Error(w, http.StatusInternalServerError, err.Error())
-		return
-	}
+	storage := databaseStorageStats(r.Context(), db, s.store.DatabasePath())
 
 	response.OK(w, map[string]interface{}{
-		"dbPath": s.store.DatabasePath(),
-		"dbSize": dbSize,
-		"tables": stats,
+		"dbPath":        s.store.DatabasePath(),
+		"dbSize":        storage.MainSizeBytes,
+		"mainDbSize":    storage.MainSizeBytes,
+		"totalSize":     storage.TotalSizeBytes,
+		"walSize":       storage.WALSizeBytes,
+		"shmSize":       storage.SHMSizeBytes,
+		"journalSize":   storage.JournalSizeBytes,
+		"pageSize":      storage.PageSize,
+		"pageCount":     storage.PageCount,
+		"freelistCount": storage.FreelistCount,
+		"usedPageBytes": storage.UsedPageBytes,
+		"freePageBytes": storage.FreePageBytes,
+		"storage":       storage,
+		"tables":        stats,
 	})
 }
 
@@ -364,6 +386,7 @@ func (s *Service) getDatabaseAnalysis(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	pageSizes, sizeSource := tablePageSizes(r.Context(), db)
 	analysis := make([]tableAnalysis, 0, len(tables))
 	for _, table := range tables {
 		item, err := analyzeTable(r.Context(), db, table)
@@ -373,6 +396,18 @@ func (s *Service) getDatabaseAnalysis(w http.ResponseWriter, r *http.Request) {
 				Rows:  0,
 				Error: err.Error(),
 			}
+		}
+		if pageSize, ok := pageSizes[table]; ok {
+			item.EstimatedSizeBytes = pageSize.TableBytes + pageSize.IndexBytes
+			item.EstimatedSizeMB = sizeMBString(item.EstimatedSizeBytes)
+			item.TableSizeBytes = pageSize.TableBytes
+			item.IndexSizeBytes = pageSize.IndexBytes
+			item.SizeSource = sizeSource
+			if item.Rows > 0 && item.EstimatedSizeBytes > 0 {
+				item.AvgRowSizeBytes = (item.EstimatedSizeBytes + item.Rows/2) / item.Rows
+			}
+		} else if item.EstimatedSizeBytes > 0 {
+			item.SizeSource = "payload"
 		}
 		analysis = append(analysis, item)
 	}
@@ -384,14 +419,11 @@ func (s *Service) getDatabaseAnalysis(w http.ResponseWriter, r *http.Request) {
 		return analysis[i].EstimatedSizeBytes > analysis[j].EstimatedSizeBytes
 	})
 
-	dbSize, err := fileSize(s.store.DatabasePath())
-	if err != nil {
-		response.Error(w, http.StatusInternalServerError, err.Error())
-		return
-	}
+	storage := databaseStorageStats(r.Context(), db, s.store.DatabasePath())
 
 	response.OK(w, map[string]interface{}{
-		"dbFileSizeMB": sizeMBString(dbSize),
+		"dbFileSizeMB": sizeMBString(storage.MainSizeBytes),
+		"storage":      storage,
 		"tables":       analysis,
 	})
 }
@@ -754,22 +786,25 @@ func (s *Service) vacuumDatabase(w http.ResponseWriter, r *http.Request) {
 	}
 	defer db.Close()
 
-	beforeSize, _ := fileSize(s.store.DatabasePath())
 	_, _ = db.ExecContext(r.Context(), `PRAGMA wal_checkpoint(TRUNCATE)`)
+	beforeStorage := databaseStorageStats(r.Context(), db, s.store.DatabasePath())
 	if _, err := db.ExecContext(r.Context(), `VACUUM`); err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]interface{}{"success": false, "error": "database vacuum failed: " + err.Error()})
 		return
 	}
 	_, _ = db.ExecContext(r.Context(), `PRAGMA wal_checkpoint(TRUNCATE)`)
-	afterSize, _ := fileSize(s.store.DatabasePath())
+	afterStorage := databaseStorageStats(r.Context(), db, s.store.DatabasePath())
+	savedBytes := beforeStorage.TotalSizeBytes - afterStorage.TotalSizeBytes
 
 	response.JSON(w, http.StatusOK, map[string]interface{}{
 		"success": true,
 		"message": "database vacuum completed",
-		"data": map[string]string{
-			"beforeSizeMB": sizeMBString(beforeSize),
-			"afterSizeMB":  sizeMBString(afterSize),
-			"savedMB":      sizeMBString(beforeSize - afterSize),
+		"data": map[string]interface{}{
+			"beforeSizeMB": sizeMBString(beforeStorage.TotalSizeBytes),
+			"afterSizeMB":  sizeMBString(afterStorage.TotalSizeBytes),
+			"savedMB":      sizeMBString(savedBytes),
+			"before":       beforeStorage,
+			"after":        afterStorage,
 		},
 	})
 }

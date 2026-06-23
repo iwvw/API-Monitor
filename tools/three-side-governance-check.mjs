@@ -36,6 +36,7 @@ const retiredFrontendPatterns = [
 
 const allowedRetiredBackendFiles = [
   'backend-go/cmd/schema-audit/main.go',
+  'backend-go/internal/settings/database_maintenance.go',
   'backend-go/internal/manifest/manifest.go',
   'backend-go/internal/manifest/manifest_test.go',
   'backend-go/internal/server/server.go',

@@ -31,22 +31,22 @@ import (
 )
 
 type Server struct {
-	cfg       config.Config
-	auth      *auth.Service
-	settings  *settings.Service
-	system    *systemmetrics.Service
-	totp      *totp.Service
-	cron      *cronjobs.Service
-	filebox   *filebox.Service
-	notify    *notification.Service
-	uptime    *uptime.Service
-	koyeb     *koyeb.Service
-	flyio     *flyio.Service
-	aliyun    *aliyun.Service
-	tencent   *tencent.Service
-	cf        *cloudflare.Service
-	openai    *openai.Service
-	server    *serveragent.Service
+	cfg      config.Config
+	auth     *auth.Service
+	settings *settings.Service
+	system   *systemmetrics.Service
+	totp     *totp.Service
+	cron     *cronjobs.Service
+	filebox  *filebox.Service
+	notify   *notification.Service
+	uptime   *uptime.Service
+	koyeb    *koyeb.Service
+	flyio    *flyio.Service
+	aliyun   *aliyun.Service
+	tencent  *tencent.Service
+	cf       *cloudflare.Service
+	openai   *openai.Service
+	server   *serveragent.Service
 }
 
 func New(cfg config.Config) http.Handler {
@@ -60,22 +60,22 @@ func NewServer(cfg config.Config) *Server {
 	uptimeService := uptime.New(cfg, authService, notifyService)
 	uptimeService.SetHeartbeatBroadcaster(serverAgentService.BroadcastUptimeHeartbeat)
 	return &Server{
-		cfg:       cfg,
-		auth:      authService,
-		settings:  settings.New(cfg),
-		system:    systemmetrics.New(cfg),
-		totp:      totp.New(cfg),
-		cron:      cronjobs.New(cfg),
-		filebox:   filebox.New(cfg, authService),
-		notify:    notifyService,
-		uptime:    uptimeService,
-		koyeb:     koyeb.New(cfg),
-		flyio:     flyio.New(cfg),
-		aliyun:    aliyun.New(cfg),
-		tencent:   tencent.New(cfg),
-		cf:        cloudflare.New(cfg),
-		openai:    openai.New(cfg),
-		server:    serverAgentService,
+		cfg:      cfg,
+		auth:     authService,
+		settings: settings.New(cfg),
+		system:   systemmetrics.New(cfg),
+		totp:     totp.New(cfg),
+		cron:     cronjobs.New(cfg),
+		filebox:  filebox.New(cfg, authService),
+		notify:   notifyService,
+		uptime:   uptimeService,
+		koyeb:    koyeb.New(cfg),
+		flyio:    flyio.New(cfg),
+		aliyun:   aliyun.New(cfg),
+		tencent:  tencent.New(cfg),
+		cf:       cloudflare.New(cfg),
+		openai:   openai.New(cfg),
+		server:   serverAgentService,
 	}
 }
 
@@ -178,7 +178,7 @@ func (s *Server) serveGoRoute(w http.ResponseWriter, r *http.Request, route mani
 		})
 	case "/api/auth", "/api/auth/2fa", "/api/auth/2fa/status":
 		s.auth.ServeHTTP(w, r)
-	case "/api/settings", "/api/settings/database-stats", "/api/settings/migration-self-check", "/api/settings/database-analysis", "/api/settings/export-database", "/api/settings/database/import", "/api/settings/import-database", "/api/settings/operation-logs", "/api/settings/sys-logs", "/api/settings/app-log-file", "/api/settings/log-settings", "/api/settings/clear-app-logs", "/api/settings/vacuum-database", "/api/settings/clear-logs", "/api/settings/enforce-log-limits", "/api/settings/clear-chat-messages":
+	case "/api/settings", "/api/settings/database-stats", "/api/settings/migration-self-check", "/api/settings/database-analysis", "/api/settings/deprecated-tables", "/api/settings/cleanup-deprecated-tables", "/api/settings/export-database", "/api/settings/database/import", "/api/settings/import-database", "/api/settings/operation-logs", "/api/settings/sys-logs", "/api/settings/app-log-file", "/api/settings/log-settings", "/api/settings/clear-app-logs", "/api/settings/vacuum-database", "/api/settings/clear-logs", "/api/settings/enforce-log-limits", "/api/settings/clear-chat-messages":
 		s.settings.ServeHTTP(w, r)
 	case "/api/system/host-metrics", "/api/system/api-stats":
 		s.system.ServeHTTP(w, r)

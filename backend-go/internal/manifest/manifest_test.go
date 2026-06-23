@@ -107,6 +107,22 @@ func TestSettingsRoutesOwnDatabaseMaintenanceSlices(t *testing.T) {
 		t.Fatalf("expected go owner for database import route, got owner=%s prefix=%s", route.Owner, route.Prefix)
 	}
 
+	route, ok = Match("/api/settings/deprecated-tables")
+	if !ok {
+		t.Fatal("expected settings deprecated tables route match")
+	}
+	if route.Owner != OwnerGo || route.Auth != AuthSession {
+		t.Fatalf("expected session go owner for deprecated tables route, got owner=%s auth=%s", route.Owner, route.Auth)
+	}
+
+	route, ok = Match("/api/settings/cleanup-deprecated-tables")
+	if !ok {
+		t.Fatal("expected settings deprecated cleanup route match")
+	}
+	if route.Owner != OwnerGo || route.Auth != AuthSession {
+		t.Fatalf("expected session go owner for deprecated cleanup route, got owner=%s auth=%s", route.Owner, route.Auth)
+	}
+
 	route, ok = Match("/api/settings/database/legacy")
 	if !ok {
 		t.Fatal("expected settings database fallback route match")
@@ -349,7 +365,6 @@ func TestOpenAIRoutesAreGoOwned(t *testing.T) {
 		}
 	}
 }
-
 
 func TestSummaryCoversAllRoutes(t *testing.T) {
 	total := 0
