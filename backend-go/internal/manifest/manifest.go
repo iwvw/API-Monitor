@@ -200,6 +200,8 @@ func Routes() []Route {
 		{Prefix: "/api/server/metrics/history", Module: "server-metrics", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Metrics history query and cleanup", MatchMode: MatchExact},
 		{Prefix: "/api/server/metrics/history/{id}", Module: "server-metrics", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Metrics history by server", MatchMode: MatchPattern},
 		{Prefix: "/api/server/metrics/latest/{id}", Module: "server-metrics", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Latest metrics", MatchMode: MatchPattern},
+		{Prefix: "/api/server/network-quality/targets/{id}", Module: "server-metrics", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Manage specific network quality targets", MatchMode: MatchPattern},
+		{Prefix: "/api/server/network-quality/targets", Module: "server-metrics", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Manage all network quality targets", MatchMode: MatchExact},
 		{Prefix: "/api/server/network-quality/{id}/collect", Module: "server-metrics", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Collect network quality", MatchMode: MatchPattern},
 		{Prefix: "/api/server/network-quality/{id}", Module: "server-metrics", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Network quality", MatchMode: MatchPattern},
 
