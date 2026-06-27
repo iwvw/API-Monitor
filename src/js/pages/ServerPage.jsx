@@ -824,6 +824,19 @@ const LOCATION_COUNTRY_CODE_MAP = {
   korea: 'kr',
   canada: 'ca',
   australia: 'au',
+  '美国': 'us',
+  '英国': 'gb',
+  '德国': 'de',
+  '法国': 'fr',
+  '荷兰': 'nl',
+  '日本': 'jp',
+  '新加坡': 'sg',
+  '香港': 'hk',
+  '中国': 'cn',
+  '台湾': 'tw',
+  '韩国': 'kr',
+  '加拿大': 'ca',
+  '澳大利亚': 'au',
 };
 
 const inferCountryCodeFromLocation = (value) => {
@@ -1796,6 +1809,20 @@ function ServerPage() {
   
   // 凭据状态
   const [serverCredentials, setServerCredentials] = useState([]);
+
+  // 拨测目标状态
+  const [networkTargets, setNetworkTargets] = useState([]);
+  const [showNetworkTargetModal, setShowNetworkTargetModal] = useState(false);
+  const [networkTargetModalMode, setNetworkTargetModalMode] = useState('add'); // 'add' | 'edit'
+  const [networkTargetForm, setNetworkTargetForm] = useState({
+    id: null,
+    name: '',
+    host: '',
+    port: 80,
+    type: 'tcp',
+    enabled: true,
+    order_index: 0,
+  });
   
   // 各种模态框控制
   const [showServerModal, setShowServerModal] = useState(false);
@@ -2214,6 +2241,97 @@ function ServerPage() {
       console.error('加载凭据失败:', e);
     }
   };
+
+  const loadNetworkTargets = async () => {
+    try {
+      const response = await fetch('/api/server/network-quality/targets');
+      const data = await response.json();
+      if (data.success) {
+        setNetworkTargets(data.data || []);
+      }
+    } catch (e) {
+      console.error('加载拨测目标失败:', e);
+      toast({ message: '加载拨测目标失败', variant: 'error' });
+    }
+  };
+
+  const saveNetworkTarget = async (e) => {
+    e?.preventDefault();
+    try {
+      const url = networkTargetModalMode === 'add'
+        ? '/api/server/network-quality/targets'
+        : `/api/server/network-quality/targets/${networkTargetForm.id}`;
+      const method = networkTargetModalMode === 'add' ? 'POST' : 'PUT';
+      const response = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(networkTargetForm),
+      });
+      const data = await response.json();
+      if (data.success) {
+        toast({ message: networkTargetModalMode === 'add' ? '新增成功' : '保存成功', variant: 'success' });
+        setShowNetworkTargetModal(false);
+        loadNetworkTargets();
+      } else {
+        toast({ message: data.message || '操作失败', variant: 'error' });
+      }
+    } catch (err) {
+      console.error('保存拨测目标失败:', err);
+      toast({ message: '保存拨测目标失败', variant: 'error' });
+    }
+  };
+
+  const deleteNetworkTarget = async (id) => {
+    if (!await dialog.confirm({ title: '确认删除', message: '确认要删除此网络拨测目标吗？' })) {
+      return;
+    }
+    try {
+      const response = await fetch(`/api/server/network-quality/targets/${id}`, { method: 'DELETE' });
+      const data = await response.json();
+      if (data.success) {
+        toast({ message: '删除成功', variant: 'success' });
+        loadNetworkTargets();
+      } else {
+        toast({ message: data.message || '删除失败', variant: 'error' });
+      }
+    } catch (err) {
+      console.error('删除拨测目标失败:', err);
+      toast({ message: '删除拨测目标失败', variant: 'error' });
+    }
+  };
+
+  const toggleNetworkTargetEnabled = async (target) => {
+    try {
+      const updated = {
+        name: target.name,
+        host: target.host,
+        port: target.port,
+        type: target.type,
+        enabled: !target.enabled,
+        order_index: target.order_index ?? 0,
+      };
+      const response = await fetch(`/api/server/network-quality/targets/${target.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updated),
+      });
+      const data = await response.json();
+      if (data.success) {
+        loadNetworkTargets();
+      } else {
+        toast({ message: data.message || '操作失败', variant: 'error' });
+      }
+    } catch (err) {
+      console.error('更新目标状态失败:', err);
+      toast({ message: '更新目标状态失败', variant: 'error' });
+    }
+  };
+
+  useEffect(() => {
+    if (serverCurrentTab === 'management') {
+      loadNetworkTargets();
+    }
+  }, [serverCurrentTab]);
 
   const applyServerStatusSnapshot = (items = []) => {
     if (!Array.isArray(items) || items.length === 0) return;
@@ -7527,6 +7645,117 @@ function ServerPage() {
               </div>
             </LayerCard>
           </div>
+
+          <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
+            <LayerCard className={MANAGEMENT_CARD_CLASS}>
+              <div className={MANAGEMENT_CARD_HEADER_CLASS}>
+                <div className={MANAGEMENT_CARD_TITLE_CLASS}>
+                  <Globe className={MANAGEMENT_CARD_ICON_CLASS} />
+                  <span className="truncate">网络拨测目标</span>
+                </div>
+                <Button
+                  size="sm"
+                  variant="primary"
+                  onClick={() => {
+                    setNetworkTargetModalMode('add');
+                    setNetworkTargetForm({
+                      id: null,
+                      name: '',
+                      host: '',
+                      port: 80,
+                      type: 'tcp',
+                      enabled: true,
+                      order_index: 0,
+                    });
+                    setShowNetworkTargetModal(true);
+                  }}
+                  icon={<Plus className="h-3.5 w-3.5" />}
+                >
+                  添加
+                </Button>
+              </div>
+              <div className="p-0">
+                {networkTargets.length === 0 ? (
+                  <div className="px-3 py-8 text-center text-xs text-kumo-subtle">暂无监测目标</div>
+                ) : (
+                  <div className="max-h-64 overflow-auto">
+                    <Table layout="fixed">
+                      <colgroup>
+                        <col />
+                        <col style={{ width: 150 }} />
+                        <col style={{ width: 60 }} />
+                        <col style={{ width: 86 }} />
+                      </colgroup>
+                      <Table.Header variant="compact">
+                        <Table.Row>
+                          <Table.Head>名称</Table.Head>
+                          <Table.Head>节点地址</Table.Head>
+                          <Table.Head>状态</Table.Head>
+                          <Table.Head className="text-right">操作</Table.Head>
+                        </Table.Row>
+                      </Table.Header>
+                      <Table.Body>
+                        {networkTargets.map(target => (
+                          <Table.Row key={target.id} className="border-b border-kumo-line/80 hover:bg-kumo-recessed/10">
+                            <Table.Cell className="whitespace-nowrap">
+                              <span className="font-semibold text-kumo-strong truncate block" title={target.name}>
+                                {target.name}
+                              </span>
+                            </Table.Cell>
+                            <Table.Cell className="whitespace-nowrap font-mono text-[11px] text-kumo-subtle truncate" title={`${target.host}:${target.port}`}>
+                              {target.host}:{target.port} ({target.type})
+                            </Table.Cell>
+                            <Table.Cell className="whitespace-nowrap">
+                              <Checkbox
+                                checked={!!target.enabled}
+                                onChange={() => toggleNetworkTargetEnabled(target)}
+                                aria-label={`${target.name} 启用状态`}
+                              />
+                            </Table.Cell>
+                            <Table.Cell className="whitespace-nowrap text-right">
+                              <div className="inline-flex items-center justify-end gap-1">
+                                <Button
+                                  shape="square"
+                                  size="sm"
+                                  variant="ghost"
+                                  aria-label="编辑目标"
+                                  onClick={() => {
+                                    setNetworkTargetModalMode('edit');
+                                    setNetworkTargetForm({
+                                      id: target.id,
+                                      name: target.name,
+                                      host: target.host,
+                                      port: target.port,
+                                      type: target.type || 'tcp',
+                                      enabled: !!target.enabled,
+                                      order_index: target.order_index ?? 0,
+                                    });
+                                    setShowNetworkTargetModal(true);
+                                  }}
+                                  icon={<Edit className="h-3.5 w-3.5" />}
+                                  title="编辑"
+                                />
+                                <Button
+                                  shape="square"
+                                  size="sm"
+                                  variant="ghost"
+                                  aria-label="删除目标"
+                                  onClick={() => deleteNetworkTarget(target.id)}
+                                  icon={<Trash className="h-3.5 w-3.5" />}
+                                  title="删除"
+                                  className="text-kumo-danger"
+                                />
+                              </div>
+                            </Table.Cell>
+                          </Table.Row>
+                        ))}
+                      </Table.Body>
+                    </Table>
+                  </div>
+                )}
+              </div>
+            </LayerCard>
+          </div>
         </div>
       )}
       
@@ -8882,6 +9111,88 @@ function ServerPage() {
               </Button>
             </div>
           </div>
+        </Dialog>
+      </Dialog.Root>
+      <Dialog.Root open={showNetworkTargetModal} onOpenChange={setShowNetworkTargetModal}>
+        <Dialog size="sm" className="flex max-h-[calc(100dvh-1rem)] w-[calc(100vw-1rem)] max-w-[calc(100vw-1rem)] flex-col overflow-hidden p-0 sm:min-w-96 sm:max-w-[calc(100vw-3rem)]">
+          <form onSubmit={saveNetworkTarget} className="flex flex-1 flex-col overflow-hidden">
+            <div className="flex shrink-0 items-center justify-between border-b border-kumo-line/80 px-4 py-3">
+              <Dialog.Title className="min-w-0 truncate text-sm font-bold text-kumo-strong">
+                {networkTargetModalMode === 'add' ? '添加拨测目标' : '编辑拨测目标'}
+              </Dialog.Title>
+              <Dialog.Close
+                aria-label="关闭"
+                render={(props) => (
+                  <Button
+                    {...props}
+                    type="button"
+                    variant="secondary"
+                    shape="square" size="sm"
+                    icon={<X className="h-3.5 w-3.5" />}
+                    className="shrink-0"
+                  />
+                )}
+              />
+            </div>
+            <div className="flex-1 overflow-auto p-4 flex flex-col gap-3">
+              <Input
+                label="目标名称"
+                required
+                value={networkTargetForm.name}
+                onChange={e => setNetworkTargetForm(prev => ({ ...prev, name: e.target.value }))}
+                placeholder="例如: 电信"
+              />
+              <Input
+                label="节点地址 (IP / Host)"
+                required
+                value={networkTargetForm.host}
+                onChange={e => setNetworkTargetForm(prev => ({ ...prev, host: e.target.value }))}
+                placeholder="例如: hb-ct-v4.ip.zstaticcdn.com"
+              />
+              <div className="grid grid-cols-2 gap-3">
+                <Input
+                  label="端口"
+                  type="number"
+                  required
+                  value={networkTargetForm.port}
+                  onChange={e => setNetworkTargetForm(prev => ({ ...prev, port: parseInt(e.target.value) || 0 }))}
+                />
+                <Select
+                  label="协议"
+                  value={networkTargetForm.type}
+                  onChange={e => setNetworkTargetForm(prev => ({ ...prev, type: e.target.value }))}
+                  options={[
+                    { label: 'TCP', value: 'tcp' },
+                    { label: 'UDP', value: 'udp' }
+                  ]}
+                />
+              </div>
+              <Input
+                label="排序权重"
+                type="number"
+                value={networkTargetForm.order_index}
+                onChange={e => setNetworkTargetForm(prev => ({ ...prev, order_index: parseInt(e.target.value) || 0 }))}
+              />
+              <div className="flex items-center gap-2 mt-2">
+                <Checkbox
+                  checked={networkTargetForm.enabled}
+                  onChange={() => setNetworkTargetForm(prev => ({ ...prev, enabled: !prev.enabled }))}
+                  id="target-enabled-checkbox"
+                />
+                <label htmlFor="target-enabled-checkbox" className="text-xs font-semibold text-kumo-strong select-none cursor-pointer">
+                  是否启用该探测目标
+                </label>
+              </div>
+            </div>
+            <div className="flex shrink-0 items-center justify-end gap-2 border-t border-kumo-line/80 px-4 py-3 bg-kumo-canvas/50">
+              <Button type="button" size="sm" variant="secondary" onClick={() => setShowNetworkTargetModal(false)}>
+                取消
+              </Button>
+              <Button size="sm" variant="primary" type="submit">
+                保存
+              </Button>
+            </div>
+          </form>
         </Dialog>
       </Dialog.Root>
 

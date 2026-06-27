@@ -66,6 +66,7 @@ type EngineIOServer struct {
 	pollInterval time.Duration
 	registry     *ConnectionRegistry
 	metricsHub   *MetricsHub
+	service      *Service
 	onConnect    func(sessionID string, serverID string)
 	onMessage    func(sessionID string, event string, data json.RawMessage)
 	onDisconnect func(sessionID string)
@@ -609,10 +610,24 @@ func (s *EngineIOServer) handleSocketIOMessage(session *EngineIOSession, payload
 				}
 
 				// 发送认证成功响应
-				s.sendEvent(session, "dashboard:auth_ok", map[string]interface{}{
+				var targets []networkQualityTarget
+				if s.service != nil {
+					db, err := s.service.open(context.Background())
+					if err == nil {
+						targets, _ = s.service.listNetworkQualityTargets(context.Background(), db)
+						db.Close()
+					}
+				}
+
+				payload := map[string]interface{}{
 					"success":   true,
 					"server_id": authData.ServerID,
-				})
+				}
+				if len(targets) > 0 {
+					payload["network_targets"] = targets
+				}
+
+				s.sendEvent(session, "dashboard:auth_ok", payload)
 
 				applog.Info(context.Background(), "serveragent", "agent authenticated",
 					"server_id", authData.ServerID,

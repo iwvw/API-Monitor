@@ -145,7 +145,12 @@ func (s *Service) handleMetricsRoutes(w http.ResponseWriter, r *http.Request, db
 // handleNetworkQualityRoutes dispatches Network Quality routes (Wave 5b)
 func (s *Service) handleNetworkQualityRoutes(w http.ResponseWriter, r *http.Request, db *sql.DB, subparts []string) {
 	if len(subparts) < 1 {
-		response.Error(w, http.StatusBadRequest, "server ID required")
+		response.Error(w, http.StatusBadRequest, "server ID or sub-route required")
+		return
+	}
+
+	if subparts[0] == "targets" {
+		s.handleNetworkQualityTargets(w, r, db, subparts[1:])
 		return
 	}
 

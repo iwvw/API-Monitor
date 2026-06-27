@@ -56,6 +56,7 @@ func New(cfg config.Config) *Service {
 		ptyHub:       ptyHub,
 		lastPersist:  make(map[string]time.Time),
 	}
+	engineIO.service = s
 
 	// 绑定 Engine.IO 事件处理器
 	engineIO.SetHandlers(
@@ -114,6 +115,19 @@ func New(cfg config.Config) *Service {
 					}
 					if serverID != "" {
 						registry.UpdateHeartbeat(serverID)
+
+						// 提取并异步持久化 Agent 上报的网络波动质量指标
+						if nqData, hasNq := state["network_quality"]; hasNq && nqData != nil {
+							go func(nq interface{}, sid string) {
+								ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+								defer cancel()
+								db, err := s.open(ctx)
+								if err == nil {
+									defer db.Close()
+									s.processAgentNetworkQuality(ctx, db, sid, nq)
+								}
+							}(nqData, serverID)
+						}
 
 						// 提取主机静态信息（比如核心数、总内存等，用于计算百分比）
 						var hostInfo map[string]interface{}
@@ -1573,9 +1587,7 @@ func (s *Service) runPeriodicCollection(ctx context.Context, db *sql.DB) int {
 		}
 	}
 
-	for _, sm := range list {
-		_, _ = s.collectNetworkQuality(ctx, db, sm.serverID)
-	}
+
 
 	if collected > 0 {
 		s.lastCollectMu.Lock()

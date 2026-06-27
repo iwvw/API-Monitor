@@ -1,3 +1,4 @@
+use crate::protocol::NetworkQualityProbeResponse;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::Path;
@@ -95,6 +96,8 @@ pub struct State {
     pub gpu_mem_total: u64,
     pub gpu_power: f64,
     pub docker: DockerInfo,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub network_quality: Option<NetworkQualityProbeResponse>,
 }
 
 pub struct Collector {
@@ -419,6 +422,7 @@ impl Collector {
             gpu_mem_total,
             gpu_power,
             docker: DockerInfo::default(), // Will be populated in main loop asynchronously
+            network_quality: None,
         }
     }
 

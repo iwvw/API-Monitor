@@ -203,11 +203,28 @@ func (s *Service) getNetworkQuality(w http.ResponseWriter, r *http.Request, db *
 }
 
 func (s *Service) collectNetworkQualitySamples(w http.ResponseWriter, r *http.Request, db *sql.DB, serverID string) {
-	_, err := s.collectNetworkQuality(r.Context(), db, serverID)
-	if err != nil {
-		response.Error(w, http.StatusInternalServerError, err.Error())
-		return
+	targets, err := s.listNetworkQualityTargets(r.Context(), db)
+	if err == nil && len(targets) > 0 {
+		_, isOnline := s.registry.Get(serverID)
+		if isOnline {
+			targetsJSON, _ := json.Marshal(map[string]interface{}{
+				"targets":    targets,
+				"timeout_ms": 4000,
+			})
+			// 发送探测任务并等待结果 (最多等 8 秒)
+			resultStr, err := s.runAgentTaskAndWait(serverID, 40, string(targetsJSON), 8*time.Second)
+			if err == nil {
+				var nqData interface{}
+				if json.Unmarshal([]byte(resultStr), &nqData) == nil {
+					s.processAgentNetworkQuality(r.Context(), db, serverID, nqData)
+				}
+			}
+		} else {
+			// 如果 Agent 未在线，回退到服务端本地拨测
+			_, _ = s.collectNetworkQuality(r.Context(), db, serverID)
+		}
 	}
+
 	payload, err := s.buildNetworkQualityPayload(r.Context(), db, serverID, 1, clampQueryInt(r.URL.Query().Get("maxPointsPerTarget"), 96, 1, 2880))
 	if err != nil {
 		response.Error(w, http.StatusInternalServerError, err.Error())

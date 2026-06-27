@@ -180,3 +180,30 @@ pub fn format_event<T: Serialize>(event: &str, payload: &T) -> String {
     let arr = serde_json::json!([event, payload]);
     format!("42{}", arr.to_string())
 }
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct NetworkQualityTarget {
+    pub id: Option<i64>,
+    pub name: String,
+    pub host: String,
+    pub port: Option<u16>,
+    #[serde(rename = "type")]
+    pub target_type: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct NetworkQualityProbeResult {
+    pub id: Option<i64>,
+    pub name: String,
+    pub host: String,
+    pub port: u16,
+    pub success: bool,
+    pub latency_ms: Option<f64>,
+    pub error: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct NetworkQualityProbeResponse {
+    pub checked_at: String,
+    pub results: Vec<NetworkQualityProbeResult>,
+}

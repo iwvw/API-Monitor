@@ -7,7 +7,7 @@ mod protocol;
 mod pty;
 
 use futures_util::{SinkExt, StreamExt};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -133,6 +133,8 @@ async fn run_client(
 
     // 等待服务器握手和认证
     let authenticated = Arc::new(tokio::sync::Mutex::new(false));
+    let network_targets = Arc::new(tokio::sync::Mutex::new(Vec::<NetworkQualityTarget>::new()));
+    let latest_network_quality = Arc::new(tokio::sync::Mutex::new(None::<NetworkQualityProbeResponse>));
 
     // Handle WebSocket receiver loop
     let tx_clone = tx.clone();
@@ -142,6 +144,8 @@ async fn run_client(
     let pty_sessions_clone = pty_sessions.clone();
     let authenticated_clone = authenticated.clone();
     let config_clone = config.clone();
+    let network_targets_clone = network_targets.clone();
+    let latest_network_quality_clone = latest_network_quality.clone();
 
     let mut read_task = tokio::spawn(async move {
         while let Some(Ok(Message::Text(text))) = ws_reader.next().await {
@@ -159,11 +163,20 @@ async fn run_client(
                         println!("[Agent] ✅ 认证成功");
                         *authenticated_clone.lock().await = true;
 
+                        // Parse network_targets from auth payload if present
+                        if let Some(targets_val) = data.get("network_targets") {
+                            if let Ok(targets) = serde_json::from_value::<Vec<NetworkQualityTarget>>(targets_val.clone()) {
+                                *network_targets_clone.lock().await = targets;
+                            }
+                        }
+
                         // Start loops for reports
                         let auth_tx = auth_ok_tx.clone();
                         let collector_loop = collector_clone.clone();
                         let docker_loop = docker_bridge_clone.clone();
                         let cfg = config_clone.clone();
+                        let network_targets_probe = network_targets_clone.clone();
+                        let latest_network_quality_probe = latest_network_quality_clone.clone();
 
                         tokio::spawn(async move {
                             let docker_cache =
@@ -193,6 +206,47 @@ async fn run_client(
                                 });
                             }
 
+                            // Spawn network quality probing loop
+                            {
+                                let probe_targets = network_targets_probe.clone();
+                                let probe_quality = latest_network_quality_probe.clone();
+                                let probe_tx = auth_tx.clone();
+                                tokio::spawn(async move {
+                                    let mut interval = tokio::time::interval(Duration::from_secs(60));
+                                    interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+                                    interval.tick().await; // initial tick
+                                    loop {
+                                        if probe_tx.is_closed() {
+                                            break;
+                                        }
+                                        let targets = {
+                                            let t = probe_targets.lock().await;
+                                            t.clone()
+                                        };
+                                        if !targets.is_empty() {
+                                            let mut handles = Vec::new();
+                                            for target in targets {
+                                                handles.push(tokio::spawn(async move {
+                                                    probe_network_quality_target(target, 4000).await
+                                                }));
+                                            }
+                                            let mut results = Vec::new();
+                                            for h in handles {
+                                                if let Ok(res) = h.await {
+                                                    results.push(res);
+                                                }
+                                            }
+                                            let resp = NetworkQualityProbeResponse {
+                                                checked_at: chrono::Utc::now().to_rfc3339(),
+                                                results,
+                                            };
+                                            *probe_quality.lock().await = Some(resp);
+                                        }
+                                        interval.tick().await;
+                                    }
+                                });
+                            }
+
                             let mut state_sequence = 0_u64;
 
                             // First run
@@ -206,6 +260,7 @@ async fn run_client(
                             stamp_state(&mut state, state_sequence, cfg.report_interval);
                             state_sequence = state_sequence.wrapping_add(1);
                             state.docker = docker_cache.lock().await.clone();
+                            state.network_quality = latest_network_quality_probe.lock().await.take();
                             let _ = auth_tx.send(format_event(EVENT_AGENT_STATE, &state)).await;
 
                             let mut state_timer =
@@ -229,6 +284,7 @@ async fn run_client(
                                         stamp_state(&mut state, state_sequence, cfg.report_interval);
                                         state_sequence = state_sequence.wrapping_add(1);
                                         state.docker = docker_cache.lock().await.clone();
+                                        state.network_quality = latest_network_quality_probe.lock().await.take();
                                         if auth_tx.send(format_event(EVENT_AGENT_STATE, &state)).await.is_err() {
                                             break;
                                         }
@@ -242,6 +298,12 @@ async fn run_client(
                                 }
                             }
                         });
+                    } else if event == "dashboard:network_targets_update" {
+                        if let Ok(targets) = serde_json::from_value::<Vec<NetworkQualityTarget>>(data) {
+                            let len = targets.len();
+                            *network_targets_clone.lock().await = targets;
+                            println!("[Agent] 📶 收到服务端更新的拨测目标，共 {} 个", len);
+                        }
                     } else if event == EVENT_DASHBOARD_AUTH_FAIL {
                         let reason: AuthFailPayload =
                             serde_json::from_value(data).unwrap_or(AuthFailPayload {
@@ -852,38 +914,10 @@ async fn execute_command(command: &str, timeout_secs: u64) -> Result<String, Str
     }
 }
 
-#[derive(Deserialize, Debug, Clone)]
-struct NetworkQualityTarget {
-    id: Option<i64>,
-    name: String,
-    host: String,
-    port: Option<u16>,
-    #[allow(dead_code)]
-    #[serde(rename = "type")]
-    target_type: Option<String>,
-}
-
 #[derive(Deserialize, Debug)]
 struct NetworkQualityProbeRequest {
     targets: Vec<NetworkQualityTarget>,
     timeout_ms: Option<u64>,
-}
-
-#[derive(Serialize, Debug)]
-struct NetworkQualityProbeResult {
-    id: Option<i64>,
-    name: String,
-    host: String,
-    port: u16,
-    success: bool,
-    latency_ms: Option<f64>,
-    error: Option<String>,
-}
-
-#[derive(Serialize, Debug)]
-struct NetworkQualityProbeResponse {
-    checked_at: String,
-    results: Vec<NetworkQualityProbeResult>,
 }
 
 async fn handle_network_quality_probe(data: &str) -> Result<String, String> {
