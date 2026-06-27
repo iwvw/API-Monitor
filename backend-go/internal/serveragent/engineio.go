@@ -612,11 +612,7 @@ func (s *EngineIOServer) handleSocketIOMessage(session *EngineIOSession, payload
 				// 发送认证成功响应
 				var targets []networkQualityTarget
 				if s.service != nil {
-					db, err := s.service.open(context.Background())
-					if err == nil {
-						targets, _ = s.service.listNetworkQualityTargets(context.Background(), db)
-						db.Close()
-					}
+					targets = s.service.getTargetsCache()
 				}
 
 				payload := map[string]interface{}{

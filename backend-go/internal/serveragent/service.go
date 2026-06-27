@@ -34,6 +34,8 @@ type Service struct {
 	lastPersist      map[string]time.Time
 	lastPersistMu    sync.Mutex
 	agentTaskWaiters sync.Map
+	targetsCache     []networkQualityTarget
+	targetsCacheMu   sync.RWMutex
 }
 
 const realtimeMetricsPersistInterval = 1500 * time.Millisecond
@@ -352,6 +354,8 @@ func New(cfg config.Config) *Service {
 		_ = ensureSchema(ctx, db)
 		db.Close()
 	}
+
+	s.initTargetsCache()
 
 	// Start background telemetry metrics collection loop
 	go s.startMetricsCollectorLoop()
@@ -3103,4 +3107,33 @@ func (s *Service) buildCachedInfo(state map[string]interface{}, hostInfo map[str
 	}
 
 	return cached
+}
+
+func (s *Service) initTargetsCache() {
+	db, err := s.open(context.Background())
+	if err != nil {
+		return
+	}
+	defer db.Close()
+	targets, _ := s.listNetworkQualityTargets(context.Background(), db)
+	s.targetsCacheMu.Lock()
+	s.targetsCache = targets
+	s.targetsCacheMu.Unlock()
+}
+
+func (s *Service) getTargetsCache() []networkQualityTarget {
+	s.targetsCacheMu.RLock()
+	defer s.targetsCacheMu.RUnlock()
+	if s.targetsCache == nil {
+		return []networkQualityTarget{}
+	}
+	copied := make([]networkQualityTarget, len(s.targetsCache))
+	copy(copied, s.targetsCache)
+	return copied
+}
+
+func (s *Service) setTargetsCache(targets []networkQualityTarget) {
+	s.targetsCacheMu.Lock()
+	s.targetsCache = targets
+	s.targetsCacheMu.Unlock()
 }

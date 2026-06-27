@@ -203,8 +203,8 @@ func (s *Service) getNetworkQuality(w http.ResponseWriter, r *http.Request, db *
 }
 
 func (s *Service) collectNetworkQualitySamples(w http.ResponseWriter, r *http.Request, db *sql.DB, serverID string) {
-	targets, err := s.listNetworkQualityTargets(r.Context(), db)
-	if err == nil && len(targets) > 0 {
+	targets := s.getTargetsCache()
+	if len(targets) > 0 {
 		_, isOnline := s.registry.Get(serverID)
 		if isOnline {
 			targetsJSON, _ := json.Marshal(map[string]interface{}{

@@ -41,7 +41,11 @@ func (s *Store) Open(ctx context.Context) (*sql.DB, error) {
 	db.SetMaxOpenConns(1)
 	if _, err := db.ExecContext(ctx, "PRAGMA busy_timeout = 5000"); err != nil {
 		db.Close()
-		return nil, fmt.Errorf("configure sqlite: %w", err)
+		return nil, fmt.Errorf("configure sqlite busy_timeout: %w", err)
+	}
+	if _, err := db.ExecContext(ctx, "PRAGMA journal_mode = WAL"); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("configure sqlite journal_mode: %w", err)
 	}
 	s.schemaOnce.Do(func() {
 		s.schemaErr = EnsureCoreSchema(ctx, db)

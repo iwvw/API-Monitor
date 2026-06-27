@@ -330,7 +330,7 @@ func (s *Service) handleNetworkQualityTargets(w http.ResponseWriter, r *http.Req
 				return
 			}
 			id, _ := res.LastInsertId()
-			go s.PushNetworkTargetsToAllAgents(context.Background())
+			go s.ReloadTargetsAndPush(context.Background())
 
 			response.OK(w, map[string]interface{}{"success": true, "id": id})
 
@@ -383,7 +383,7 @@ func (s *Service) handleNetworkQualityTargets(w http.ResponseWriter, r *http.Req
 				response.Error(w, http.StatusInternalServerError, err.Error())
 				return
 			}
-			go s.PushNetworkTargetsToAllAgents(context.Background())
+			go s.ReloadTargetsAndPush(context.Background())
 
 			response.OK(w, map[string]interface{}{"success": true})
 
@@ -396,7 +396,7 @@ func (s *Service) handleNetworkQualityTargets(w http.ResponseWriter, r *http.Req
 				response.Error(w, http.StatusInternalServerError, err.Error())
 				return
 			}
-			go s.PushNetworkTargetsToAllAgents(context.Background())
+			go s.ReloadTargetsAndPush(context.Background())
 
 			response.OK(w, map[string]interface{}{"success": true})
 
@@ -409,17 +409,13 @@ func (s *Service) handleNetworkQualityTargets(w http.ResponseWriter, r *http.Req
 	response.Error(w, http.StatusNotFound, "route not found")
 }
 
-func (s *Service) PushNetworkTargetsToAllAgents(ctx context.Context) {
-	db, err := s.open(ctx)
-	if err != nil {
-		return
-	}
-	defer db.Close()
+func (s *Service) ReloadTargetsAndPush(ctx context.Context) {
+	s.initTargetsCache()
+	s.PushNetworkTargetsToAllAgents(ctx)
+}
 
-	targets, err := s.listNetworkQualityTargets(ctx, db)
-	if err != nil {
-		return
-	}
+func (s *Service) PushNetworkTargetsToAllAgents(ctx context.Context) {
+	targets := s.getTargetsCache()
 	conns := s.registry.List()
 	for _, conn := range conns {
 		_ = conn.SendEvent("dashboard:network_targets_update", targets)
