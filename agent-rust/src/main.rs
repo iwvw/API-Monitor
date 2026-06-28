@@ -1008,13 +1008,13 @@ async fn handle_upgrade(_task_id: &str, config: &Config) {
 
     let install_url = if cfg!(target_os = "windows") {
         format!(
-            "{}/api/server/agent/install/win/{}",
-            config.server_url, config.server_id
+            "{}/api/server/agent/install/win/{}/{}",
+            config.server_url, config.server_id, config.agent_key
         )
     } else {
         format!(
-            "{}/api/server/agent/install/linux/{}",
-            config.server_url, config.server_id
+            "{}/api/server/agent/install/linux/{}/{}",
+            config.server_url, config.server_id, config.agent_key
         )
     };
 
@@ -1035,7 +1035,10 @@ async fn handle_upgrade(_task_id: &str, config: &Config) {
             ])
             .spawn();
     } else {
-        let sh_cmd = format!("curl -fsSL {} | sudo bash", install_url);
+        let sh_cmd = format!(
+            "curl -fsSL {} > /tmp/agent_install.sh && (sudo systemd-run bash /tmp/agent_install.sh || sudo bash /tmp/agent_install.sh)",
+            install_url
+        );
         let _ = Command::new("sh")
             .args([
                 "-c",
