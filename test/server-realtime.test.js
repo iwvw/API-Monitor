@@ -67,6 +67,7 @@ describe('server realtime helpers', () => {
       last_check_status: 'success',
       updated_at: '2026-06-17T23:00:00Z',
       metricsCache: [{ _ts: 1, cpu_usage: 10 }],
+      lastMetricUpdateTime: Date.now(),
     };
     const incoming = {
       id: 'server-1',
