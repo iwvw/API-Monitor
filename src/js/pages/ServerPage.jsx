@@ -2100,6 +2100,15 @@ function ServerPage() {
     const serverListSyncTimer = setInterval(() => {
       loadServerList({ silent: true });
     }, SERVER_STATUS_SYNC_INTERVAL_MS);
+
+    // 每 1500 毫秒同步刷新一次累积的指标更新，保证所有主机行同步更新，避免刷新参差不齐
+    metricFlushTimerRef.current = setInterval(() => {
+      if (pendingMetricUpdatesRef.current.length > 0) {
+        const queued = pendingMetricUpdatesRef.current;
+        pendingMetricUpdatesRef.current = [];
+        handleMetricUpdateBatch(queued);
+      }
+    }, 1500);
     
     return () => {
 
@@ -2114,7 +2123,7 @@ function ServerPage() {
         dockerTaskStreamRef.current.close();
       }
       if (metricFlushTimerRef.current) {
-        clearTimeout(metricFlushTimerRef.current);
+        clearInterval(metricFlushTimerRef.current);
         metricFlushTimerRef.current = null;
       }
       pendingMetricUpdatesRef.current = [];
@@ -2432,14 +2441,6 @@ function ServerPage() {
     if (validUpdates.length === 0) return;
 
     pendingMetricUpdatesRef.current.push(...validUpdates);
-    if (metricFlushTimerRef.current) return;
-
-    metricFlushTimerRef.current = setTimeout(() => {
-      const queued = pendingMetricUpdatesRef.current;
-      pendingMetricUpdatesRef.current = [];
-      metricFlushTimerRef.current = null;
-      handleMetricUpdateBatch(queued);
-    }, SERVER_METRIC_FLUSH_DELAY_MS);
   };
 
   // 处理实时推送的主机指标
