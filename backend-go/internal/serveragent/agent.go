@@ -381,6 +381,9 @@ func (s *Service) handleAgentHeartbeat(w http.ResponseWriter, r *http.Request, d
 		response.Error(w, http.StatusBadRequest, "server_id is required")
 		return
 	}
+	if req.Info == nil {
+		req.Info = map[string]interface{}{}
+	}
 
 	// 验证 Agent key
 	authHeader := r.Header.Get("Authorization")
@@ -428,6 +431,9 @@ func (s *Service) handleAgentHeartbeat(w http.ResponseWriter, r *http.Request, d
 		}
 	}
 
+	if req.Metrics != nil && len(req.Metrics) > 0 {
+		s.markRealtimeMetricsHealthy(req.ServerID, req.Info, time.Now())
+	}
 	cachedInfo, _ := json.Marshal(req.Info)
 	resolvedCountry := firstNonEmpty(
 		getString(req.Info, "resolved_country"),
@@ -456,8 +462,11 @@ func (s *Service) handleAgentHeartbeat(w http.ResponseWriter, r *http.Request, d
 	// 持久化指标
 	if req.Metrics != nil && len(req.Metrics) > 0 {
 		if err := s.persistMetrics(r.Context(), db, req.ServerID, req.Metrics); err != nil {
+			s.markRealtimeMetricsPersistResult(req.ServerID, false, err, time.Now())
 			// 指标持久化失败不影响心跳响应
 			applog.Warn(r.Context(), "serveragent", "failed to persist heartbeat metrics", "server_id", req.ServerID, "error", err.Error())
+		} else {
+			s.markRealtimeMetricsPersistResult(req.ServerID, true, nil, time.Now())
 		}
 	}
 

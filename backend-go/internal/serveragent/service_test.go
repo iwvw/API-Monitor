@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"io"
 	"net"
 	"net/http"
@@ -825,6 +826,50 @@ func TestPersistMetricsAcceptsAgentNumericGpuMemoryFields(t *testing.T) {
 
 	if gpuUsage != 23 || gpuMemUsed != 2_615_148_544 || gpuMemTotal != 8_585_740_288 || gpuPower != 10 || gpuTemp != 56 {
 		t.Fatalf("unexpected gpu metrics: usage=%v used=%d total=%d power=%v temp=%v", gpuUsage, gpuMemUsed, gpuMemTotal, gpuPower, gpuTemp)
+	}
+}
+
+func TestListAccountsReportsAgentMetricsFreshnessSeparately(t *testing.T) {
+	service, db := testService(t)
+	now := time.Now().UTC()
+	freshInfo, _ := json.Marshal(map[string]interface{}{
+		"metrics_last_seen": now.Format(time.RFC3339Nano),
+		"metrics_health":    "fresh",
+		"cpu":               float64(12),
+	})
+	staleInfo, _ := json.Marshal(map[string]interface{}{
+		"metrics_last_seen": now.Add(-2 * time.Minute).Format(time.RFC3339Nano),
+		"metrics_health":    "fresh",
+		"cpu":               float64(12),
+	})
+
+	_, err := db.ExecContext(context.Background(), `INSERT INTO server_accounts (id, name, host, username, auth_type, status, cached_info, tags, order_index) VALUES
+		('fresh-agent', 'fresh', '0.0.0.0', 'agent', 'password', 'online', ?, '[]', 1),
+		('stale-agent', 'stale', '0.0.0.0', 'agent', 'password', 'online', ?, '[]', 2)`, string(freshInfo), string(staleInfo))
+	if err != nil {
+		t.Fatalf("insert accounts: %v", err)
+	}
+	service.registry.Register("fresh-agent", &taskReplySocket{t: t, service: service, reply: func(int, string) string { return "" }})
+	service.registry.Register("stale-agent", &taskReplySocket{t: t, service: service, reply: func(int, string) string { return "" }})
+	service.markRealtimeMetricsPersistResult("fresh-agent", false, errors.New("database busy"), time.Now())
+
+	res := perform(service, http.MethodGet, "/api/server/accounts", "")
+	if res.Code != http.StatusOK {
+		t.Fatalf("list status=%d body=%s", res.Code, res.Body.String())
+	}
+	payload := decodePayload(t, res)
+	list := payload["data"].([]interface{})
+	byID := map[string]map[string]interface{}{}
+	for _, item := range list {
+		server := item.(map[string]interface{})
+		byID[server["id"].(string)] = server
+	}
+
+	if byID["fresh-agent"]["agent_online"] != true || byID["fresh-agent"]["metrics_health"] != "degraded" || byID["fresh-agent"]["metrics_stale"] != true {
+		t.Fatalf("degraded health mismatch: %#v", byID["fresh-agent"])
+	}
+	if byID["stale-agent"]["agent_online"] != true || byID["stale-agent"]["metrics_health"] != "stale" || byID["stale-agent"]["metrics_stale"] != true {
+		t.Fatalf("stale health mismatch: %#v", byID["stale-agent"])
 	}
 }
 

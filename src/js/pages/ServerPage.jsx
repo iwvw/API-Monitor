@@ -36,6 +36,7 @@ import {
   areRealtimeValuesEqual,
   mergePolledServerAccount,
   mergeRealtimeDiskInfo,
+  resolveServerMetricsHealth,
   resolveRealtimeMetricsCache,
   reuseRealtimeValueIfEqual,
 } from '../modules/serverRealtime.js';
@@ -2381,6 +2382,11 @@ function ServerPage() {
           ...server,
           ...mergeTerminalCapabilities(server, agentOnline),
           status,
+          metrics_health: item.metrics_health || server.metrics_health,
+          metrics_stale: item.metrics_stale ?? server.metrics_stale ?? false,
+          metrics_last_seen: item.metrics_last_seen || item.metricsLastSeen || server.metrics_last_seen,
+          metrics_last_seen_at: item.metrics_last_seen_at || item.metricsLastSeenAt || server.metrics_last_seen_at || 0,
+          metrics_age_ms: item.metrics_age_ms ?? item.metricsAgeMs ?? server.metrics_age_ms ?? 0,
           response_time: hasResponseTime ? responseTime : server.response_time,
           error: status === 'offline' ? (item.error || null) : null,
           last_seen: item.lastSeen || item.last_seen || server.last_seen,
@@ -2624,6 +2630,11 @@ function ServerPage() {
           status: 'online',
           error: null,
           metricsCache: nextMetricsCache,
+          metrics_health: 'fresh',
+          metrics_stale: false,
+          metrics_last_seen: new Date(now).toISOString(),
+          metrics_last_seen_at: now,
+          metrics_age_ms: 0,
           lastMetricUpdateTime: server.lastMetricUpdateTime || 0
         };
         if (areServerSnapshotsEqual(server, nextServer)) {
@@ -5381,7 +5392,11 @@ function ServerPage() {
   const filteredServers = useMemo(() => {
     let list = serverList;
     if (serverStatusFilter !== 'all') {
-      list = list.filter(s => s.status === serverStatusFilter);
+      if (serverStatusFilter === 'warning') {
+        list = list.filter(s => resolveServerMetricsHealth(s).stale);
+      } else {
+        list = list.filter(s => s.status === serverStatusFilter);
+      }
     }
     if (serverSearchText.trim()) {
       const query = serverSearchText.toLowerCase();
@@ -5399,7 +5414,8 @@ function ServerPage() {
     const total = serverList.length;
     const online = serverList.filter(s => s.status === 'online').length;
     const offline = total - online;
-    return { total, online, offline };
+    const warning = serverList.filter(s => resolveServerMetricsHealth(s).stale).length;
+    return { total, online, offline, warning };
   }, [serverList]);
 
   const visibleCompactColumnDefs = useMemo(() => (
@@ -5628,6 +5644,7 @@ function ServerPage() {
                 tabs={[
                   { value: 'all', label: `全部 (${statsSummary.total})` },
                   { value: 'online', label: `在线 (${statsSummary.online})` },
+                  { value: 'warning', label: `异常 (${statsSummary.warning})` },
                   { value: 'offline', label: `离线 (${statsSummary.offline})` },
                 ]}
               />
@@ -5772,6 +5789,7 @@ function ServerPage() {
                           !!networkQuality.unsupported
                           || isNetworkQualityUnsupportedError(networkQuality.error || networkQuality.unsupportedMessage)
                         );
+                        const metricsHealth = resolveServerMetricsHealth(server);
 
                         return (
                           <React.Fragment key={server.id}>
@@ -5785,8 +5803,12 @@ function ServerPage() {
                                   >
                               {isCompactColumnVisible('status') && (
                                 <Table.Cell className="!px-2 !py-1.5 text-center whitespace-nowrap">
-                                  <Badge variant={server.status === 'online' ? 'success' : 'error'} appearance="dot">
-                                    {server.status === 'online' ? '在线' : '离线'}
+                                  <Badge
+                                    variant={metricsHealth.variant}
+                                    appearance="dot"
+                                    title={metricsHealth.stale ? 'Agent 连接存在，但最近未收到有效指标上报' : undefined}
+                                  >
+                                    {metricsHealth.label}
                                   </Badge>
                                 </Table.Cell>
                               )}
@@ -6156,6 +6178,7 @@ function ServerPage() {
                   !!networkQuality.unsupported
                   || isNetworkQualityUnsupportedError(networkQuality.error || networkQuality.unsupportedMessage)
                 );
+                const metricsHealth = resolveServerMetricsHealth(server);
                 
                 return (
                   <ContextMenu.Root key={server.id}>
@@ -6173,8 +6196,8 @@ function ServerPage() {
                     >
                       <div className="order-1 flex min-w-0 items-center gap-3">
                         <span className="relative flex h-2 w-2 rounded-full">
-                          <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${server.status === 'online' ? 'bg-kumo-success' : 'bg-kumo-danger'}`}></span>
-                          <span className={`relative inline-flex rounded-full h-2 w-2 ${server.status === 'online' ? 'bg-kumo-success' : 'bg-kumo-danger'}`}></span>
+                          <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${metricsHealth.dotClassName}`}></span>
+                          <span className={`relative inline-flex rounded-full h-2 w-2 ${metricsHealth.dotClassName}`}></span>
                         </span>
                         
                         <div className="flex flex-col min-w-0 gap-1">
@@ -6197,6 +6220,15 @@ function ServerPage() {
                                 {t}
                               </span>
                             ))}
+                            {metricsHealth.stale && (
+                              <Badge
+                                variant={metricsHealth.variant}
+                                appearance="dot"
+                                title="Agent 连接存在，但最近未收到有效指标上报"
+                              >
+                                {metricsHealth.label}
+                              </Badge>
+                            )}
                           </div>
                         </div>
                       </div>

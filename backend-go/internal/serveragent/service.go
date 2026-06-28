@@ -39,6 +39,7 @@ type Service struct {
 }
 
 const realtimeMetricsPersistInterval = 1500 * time.Millisecond
+const agentMetricsStaleAfter = 45 * time.Second
 
 func New(cfg config.Config) *Service {
 	registry := NewConnectionRegistry()
@@ -139,6 +140,7 @@ func New(cfg config.Config) *Service {
 
 						// 格式化并合并为 cached_info 的 map
 						cachedInfoMap := s.buildCachedInfo(state, hostInfo)
+						s.markRealtimeMetricsHealthy(serverID, cachedInfoMap, time.Now())
 
 						// 存储指标到连接元数据
 						if conn, exists := registry.Get(serverID); exists {
@@ -172,7 +174,10 @@ func New(cfg config.Config) *Service {
 									WHERE id = ?`, now, string(cachedInfoJSON), now, serverID)
 
 									if err := s.persistMetrics(ctx, db, serverID, cachedInfoMap); err != nil {
+										s.markRealtimeMetricsPersistResult(serverID, false, err, time.Now())
 										applog.Warn(ctx, "serveragent", "failed to persist realtime metrics", "server_id", serverID, "error", err.Error())
+									} else {
+										s.markRealtimeMetricsPersistResult(serverID, true, nil, time.Now())
 									}
 								}
 							}()
@@ -1591,8 +1596,6 @@ func (s *Service) runPeriodicCollection(ctx context.Context, db *sql.DB) int {
 		}
 	}
 
-
-
 	if collected > 0 {
 		s.lastCollectMu.Lock()
 		s.lastCollect = time.Now()
@@ -2360,6 +2363,8 @@ func (s *Service) buildAccountResponse(
 	orderIndex int,
 	createdAt, updatedAt string,
 ) map[string]interface{} {
+	_, agentOnline := s.registry.Get(id)
+	health := s.resolveAgentMetricsHealth(id, cachedInfo, agentOnline, time.Now())
 	isOnline := status == "online"
 
 	decryptedPassword := s.decryptField(password)
@@ -2397,6 +2402,14 @@ func (s *Service) buildAccountResponse(
 	for k, v := range capabilities {
 		res[k] = v
 	}
+	res["agent_online"] = agentOnline
+	res["agent_connected"] = agentOnline
+	res["supports_metrics"] = agentOnline && health["state"] == "fresh"
+	res["metrics_health"] = health["state"]
+	res["metrics_stale"] = health["stale"]
+	res["metrics_last_seen"] = health["last_seen"]
+	res["metrics_last_seen_at"] = health["last_seen_at"]
+	res["metrics_age_ms"] = health["age_ms"]
 
 	// Metrics mapping
 	if cachedInfo.Valid && cachedInfo.String != "" {
@@ -2407,6 +2420,134 @@ func (s *Service) buildAccountResponse(
 	}
 
 	return res
+}
+
+func (s *Service) markRealtimeMetricsHealthy(serverID string, metrics map[string]interface{}, now time.Time) {
+	if metrics == nil {
+		return
+	}
+	seenAt := now.UTC().Format(time.RFC3339Nano)
+	metrics["metrics_last_seen"] = seenAt
+	metrics["metrics_health"] = "fresh"
+	metrics["metrics_stale_after_ms"] = int64(agentMetricsStaleAfter / time.Millisecond)
+	if conn, exists := s.registry.Get(serverID); exists {
+		conn.SetMetadata("metrics_last_seen", seenAt)
+		conn.SetMetadata("metrics_health", "fresh")
+		conn.SetMetadata("metrics_stale_after_ms", int64(agentMetricsStaleAfter/time.Millisecond))
+		if sequence, ok := metrics["sequence"]; ok {
+			conn.SetMetadata("metrics_sequence", sequence)
+		}
+		if interval, ok := metrics["sample_interval_ms"]; ok {
+			conn.SetMetadata("metrics_sample_interval_ms", interval)
+		}
+	}
+}
+
+func (s *Service) markRealtimeMetricsPersistResult(serverID string, ok bool, err error, now time.Time) {
+	conn, exists := s.registry.Get(serverID)
+	if !exists {
+		return
+	}
+	status := "ok"
+	errorText := ""
+	if !ok {
+		status = "error"
+		if err != nil {
+			errorText = err.Error()
+		}
+	}
+	conn.SetMetadata("metrics_persist_status", status)
+	conn.SetMetadata("metrics_persist_error", errorText)
+	conn.SetMetadata("metrics_persist_at", now.UTC().Format(time.RFC3339Nano))
+}
+
+func (s *Service) resolveAgentMetricsHealth(serverID string, cachedInfo sql.NullString, agentOnline bool, now time.Time) map[string]interface{} {
+	state := "missing"
+	var lastSeen time.Time
+
+	if conn, exists := s.registry.Get(serverID); exists {
+		metadata := conn.GetMetadata()
+		if raw, ok := metadata["metrics_last_seen"]; ok {
+			lastSeen = parseAgentMetricTime(raw)
+		}
+		if metadata["metrics_persist_status"] == "error" {
+			state = "degraded"
+		}
+	}
+
+	if lastSeen.IsZero() && cachedInfo.Valid && cachedInfo.String != "" {
+		var cached map[string]interface{}
+		if err := json.Unmarshal([]byte(cachedInfo.String), &cached); err == nil {
+			lastSeen = parseAgentMetricTime(cached["metrics_last_seen"])
+		}
+	}
+
+	ageMs := int64(0)
+	if !lastSeen.IsZero() {
+		age := now.Sub(lastSeen)
+		if age < 0 {
+			age = 0
+		}
+		ageMs = int64(age / time.Millisecond)
+		if age <= agentMetricsStaleAfter {
+			if state != "degraded" {
+				state = "fresh"
+			}
+		} else {
+			state = "stale"
+		}
+	} else if !agentOnline {
+		state = "offline"
+	}
+
+	return map[string]interface{}{
+		"state":        state,
+		"stale":        state == "stale" || state == "missing" || state == "degraded",
+		"last_seen":    formatAgentMetricTime(lastSeen),
+		"last_seen_at": timeToMillis(lastSeen),
+		"age_ms":       ageMs,
+	}
+}
+
+func parseAgentMetricTime(value interface{}) time.Time {
+	switch v := value.(type) {
+	case string:
+		if v == "" {
+			return time.Time{}
+		}
+		for _, layout := range []string{time.RFC3339Nano, time.RFC3339, "2006-01-02 15:04:05"} {
+			if t, err := time.Parse(layout, v); err == nil {
+				return t
+			}
+		}
+	case float64:
+		if v > 0 {
+			return time.UnixMilli(int64(v))
+		}
+	case int64:
+		if v > 0 {
+			return time.UnixMilli(v)
+		}
+	case int:
+		if v > 0 {
+			return time.UnixMilli(int64(v))
+		}
+	}
+	return time.Time{}
+}
+
+func formatAgentMetricTime(value time.Time) string {
+	if value.IsZero() {
+		return ""
+	}
+	return value.UTC().Format(time.RFC3339Nano)
+}
+
+func timeToMillis(value time.Time) int64 {
+	if value.IsZero() {
+		return 0
+	}
+	return value.UnixMilli()
 }
 
 var diskRegexp = regexp.MustCompile(`([^/]+)/([^\s]+)\s\((\d+(?:\.\d+)?%?)\)`)
@@ -2554,20 +2695,31 @@ func (s *Service) buildInfoField(metrics map[string]interface{}) map[string]inte
 			"Used":  memUsed,
 			"Total": memTotal,
 		},
-		"disk":             diskArray,
-		"docker":           dockerVal,
-		"network":          networkVal,
-		"gpu":              buildGpuInfo(metrics),
-		"platform":         platform,
-		"platformVersion":  platformVersion,
-		"agentVersion":     agentVersion,
-		"ip":               ip,
-		"country_code":     countryCode,
-		"resolved_country": resolvedCountry,
-		"location":         location,
-		"region":           getString(metrics, "region"),
-		"uptime":           uptime,
-		"lastUpdate":       lastUpdate,
+		"disk":              diskArray,
+		"docker":            dockerVal,
+		"network":           networkVal,
+		"gpu":               buildGpuInfo(metrics),
+		"platform":          platform,
+		"platformVersion":   platformVersion,
+		"agentVersion":      agentVersion,
+		"ip":                ip,
+		"country_code":      countryCode,
+		"resolved_country":  resolvedCountry,
+		"location":          location,
+		"region":            getString(metrics, "region"),
+		"uptime":            uptime,
+		"lastUpdate":        lastUpdate,
+		"metrics_health":    getString(metrics, "metrics_health"),
+		"metrics_last_seen": getString(metrics, "metrics_last_seen"),
+		"metrics_last_seen_at": func() int64 {
+			if seen := parseAgentMetricTime(metrics["metrics_last_seen"]); !seen.IsZero() {
+				return seen.UnixMilli()
+			}
+			return 0
+		}(),
+		"metrics_stale_after_ms": getIntValue(metrics, "metrics_stale_after_ms"),
+		"metrics_sequence":       getIntValue(metrics, "sequence"),
+		"sample_interval_ms":     getIntValue(metrics, "sample_interval_ms"),
 	}
 }
 
