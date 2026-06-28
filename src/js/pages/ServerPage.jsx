@@ -324,6 +324,11 @@ const getOSIconClass = (platform) => {
 };
 
 function CompactMetricBarComponent({ label, value, valueClassName, barClassName, color, width = '0%' }) {
+  let resolvedWidth = typeof width === 'number' ? `${width}%` : String(width);
+  if (!resolvedWidth.endsWith('%') && /^\d+(\.\d+)?$/.test(resolvedWidth)) {
+    resolvedWidth = `${resolvedWidth}%`;
+  }
+
   return (
     <div className="flex min-w-0 flex-col gap-1 rounded-md border border-kumo-line/70 bg-kumo-recessed/25 px-2 py-1 sm:w-14 sm:border-0 sm:bg-transparent sm:px-0 sm:py-0">
       <div className="flex min-w-0 items-center justify-between gap-1">
@@ -331,7 +336,7 @@ function CompactMetricBarComponent({ label, value, valueClassName, barClassName,
         <span className={`shrink-0 font-bold ${color ? '' : valueClassName}`} style={color ? { color } : undefined}>{value}</span>
       </div>
       <div className="h-1.5 overflow-hidden rounded-full border border-kumo-line/70 bg-kumo-recessed">
-        <div className={`h-full ${color ? '' : barClassName}`} style={{ width, backgroundColor: color || undefined }}></div>
+        <div className={`h-full ${color ? '' : barClassName}`} style={{ width: resolvedWidth, backgroundColor: color || undefined }}></div>
       </div>
     </div>
   );
@@ -2579,9 +2584,14 @@ function ServerPage() {
                   ? getGpuMemPercent(metrics)
                   : existingGpu.Percent
               );
+          const resolvedGpuUsage = pushedGpu.Usage || 
+            (typeof metrics.gpu_usage === 'number' ? `${metrics.gpu_usage.toFixed(1)}%` : metrics.gpu_usage) || 
+            pushedGpuUsage || 
+            existingGpu.Usage || 
+            '0%';
           info.gpu = reuseRealtimeValueIfEqual(previousInfo.gpu, {
             Model: pushedGpu.Model || metrics.gpu_model || existingGpu.Model || '',
-            Usage: pushedGpu.Usage || metrics.gpu_usage || pushedGpuUsage || existingGpu.Usage || '0%',
+            Usage: resolvedGpuUsage,
             Memory: pushedGpu.Memory || metrics.gpu_mem || existingGpu.Memory || '',
             Power: pushedGpu.Power || metrics.gpu_power || existingGpu.Power || '',
             Temp: pushedGpu.Temp !== undefined ? pushedGpu.Temp : (metrics.gpu_temp !== undefined ? metrics.gpu_temp : (existingGpu.Temp || 0)),
