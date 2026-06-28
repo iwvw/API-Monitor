@@ -3721,7 +3721,7 @@ function ServerPage() {
     appendLog('正在获取初始连接状态..\n');
 
     const initialStates = new Map();
-    for (const server of targetServers) {
+    await Promise.all(targetServers.map(async (server) => {
       try {
         const response = await fetch(`/api/server/agent/connection-info/${server.id}`);
         const data = await response.json();
@@ -3729,13 +3729,14 @@ function ServerPage() {
       } catch (e) {
         initialStates.set(server.id, 0);
       }
-    }
+    }));
 
     let successCount = 0;
     let failCount = 0;
-    for (let i = 0; i < targetServers.length; i++) {
-      const server = targetServers[i];
-      appendLog(`[${i + 1}/${targetServers.length}] Sending upgrade command to ${server.name}... `);
+    let completedCount = 0;
+
+    appendLog('开始并发下发升级指令...\n');
+    await Promise.all(targetServers.map(async (server) => {
       try {
         const response = await fetch(`/api/server/agent/auto-install/${server.id}?protocol=${encodeURIComponent(agentInstallProtocol)}`, {
           method: 'POST',
@@ -3745,18 +3746,18 @@ function ServerPage() {
         const data = await response.json();
         if (data.success) {
           successCount++;
-          appendLog('Sent.\n');
+          appendLog(`   [${server.name}] 指令已下发。\n`);
         } else {
           failCount++;
-          appendLog(`Failed: ${data.error || '未知错误'}\n`);
+          appendLog(`   [${server.name}] 下发失败: ${data.error || '未知错误'}\n`);
         }
       } catch (e) {
         failCount++;
-        appendLog(`Network Error: ${e.message}\n`);
+        appendLog(`   [${server.name}] 下发失败 (网络错误): ${e.message}\n`);
       }
-      setUpgradeProgress(Math.round(((i + 1) / targetServers.length) * 50));
-      await new Promise(resolve => setTimeout(resolve, 200));
-    }
+      completedCount++;
+      setUpgradeProgress(Math.round((completedCount / targetServers.length) * 50));
+    }));
 
     appendLog(`\n指令下发完成: 成功 ${successCount} 台，失败 ${failCount} 台。${upgradeFallbackSsh ? ' (策略: 开启 SSH 保底)' : ''}\n`);
     appendLog('正在验证 Agent 重启状态，限时 30 秒...\n');
@@ -3767,55 +3768,66 @@ function ServerPage() {
 
     while (Date.now() - monitorStartTime <= 30000) {
       let allDone = true;
-      for (const [serverId, status] of monitorMap.entries()) {
-        if (status === 'ok') continue;
+      const pendingServers = targetServers.filter(server => monitorMap.get(server.id) !== 'ok');
+
+      if (pendingServers.length === 0) {
+        break;
+      }
+
+      await Promise.all(pendingServers.map(async (server) => {
         try {
-          const response = await fetch(`/api/server/agent/connection-info/${serverId}`);
+          const response = await fetch(`/api/server/agent/connection-info/${server.id}`);
           const data = await response.json();
-          const oldConnectedAt = initialStates.get(serverId) || 0;
+          const oldConnectedAt = initialStates.get(server.id) || 0;
           if (data.status === 'online' && (oldConnectedAt === 0 || (data.connectedAt || 0) > oldConnectedAt)) {
-            const serverName = targetServers.find(s => s.id === serverId)?.name || serverId;
-            appendLog(`   [${serverName}] 已重新上线 (v${data.version || '?'})\n`);
-            monitorMap.set(serverId, 'ok');
+            appendLog(`   [${server.name}] 已重新上线 (v${data.version || '?'})\n`);
+            monitorMap.set(server.id, 'ok');
           } else {
             allDone = false;
           }
         } catch (e) {
           allDone = false;
         }
+      }));
+
+      const stillPending = Array.from(monitorMap.values()).some(status => status !== 'ok');
+      if (!stillPending) {
+        break;
       }
 
       setUpgradeProgress(50 + Math.min(50, Math.round(((Date.now() - monitorStartTime) / 30000) * 50)));
-      if (allDone) {
-        appendLog('\n所有目标 Agent 均已完成升级并重新上线。\n');
-        setUpgradeProgress(100);
-        setUpgrading(false);
-        loadServerList();
-        return;
-      }
       await new Promise(resolve => setTimeout(resolve, 3000));
+    }
+
+    const uncompletedServers = targetServers.filter(server => monitorMap.get(server.id) !== 'ok');
+    if (uncompletedServers.length === 0) {
+      appendLog('\n所有目标 Agent 均已完成升级并重新上线。\n');
+      setUpgradeProgress(100);
+      setUpgrading(false);
+      loadServerList();
+      return;
     }
 
     appendLog('\n监控超时，部分 Agent 未能按时上线。\n');
     if (upgradeFallbackSsh) {
-      const timeoutServers = targetServers.filter(server => monitorMap.get(server.id) !== 'ok');
-      if (timeoutServers.length > 0) {
-        appendLog(`触发 SSH 保底策略：${timeoutServers.length} 台主机开始强制覆盖安装。\n`);
-        for (const server of timeoutServers) {
-          appendLog(`   [${server.name}] SSH 覆盖安装... `);
-          try {
-            const response = await fetch(`/api/server/agent/auto-install/${server.id}?protocol=${encodeURIComponent(agentInstallProtocol)}`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ force_ssh: true }),
-            });
-            const data = await response.json();
-            appendLog(data.success ? '已下发\n' : `失败: ${data.error || '未知错误'}\n`);
-          } catch (e) {
-            appendLog(`网络错误: ${e.message}\n`);
+      appendLog(`触发 SSH 保底策略：${uncompletedServers.length} 台主机开始并发执行 SSH 强制覆盖安装...\n`);
+      await Promise.all(uncompletedServers.map(async (server) => {
+        try {
+          const response = await fetch(`/api/server/agent/auto-install/${server.id}?protocol=${encodeURIComponent(agentInstallProtocol)}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ force_ssh: true }),
+          });
+          const data = await response.json();
+          if (data.success) {
+            appendLog(`   [${server.name}] SSH 覆盖安装指令已下发。\n`);
+          } else {
+            appendLog(`   [${server.name}] SSH 覆盖安装失败: ${data.error || '未知错误'}\n`);
           }
+        } catch (e) {
+          appendLog(`   [${server.name}] SSH 覆盖安装网络错误: ${e.message}\n`);
         }
-      }
+      }));
     } else {
       appendLog('请检查网络或手动使用 SSH 重新部署。\n');
     }
