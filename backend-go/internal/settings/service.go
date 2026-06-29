@@ -1355,6 +1355,19 @@ func ensureBefore(values []string, item, before string) []string {
 	return append(values, item)
 }
 
+func uniqueStrings(values []string) []string {
+	seen := make(map[string]struct{})
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		if _, ok := seen[value]; !ok {
+			seen[value] = struct{}{}
+			result = append(result, value)
+		}
+	}
+	return result
+}
+
+
 func listUserTables(ctx context.Context, db *sql.DB) ([]string, error) {
 	rows, err := db.QueryContext(ctx, `
 		SELECT name

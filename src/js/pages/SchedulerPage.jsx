@@ -12,6 +12,7 @@ import { Badge } from '@cloudflare/kumo/components/badge';
 import { Empty } from '@cloudflare/kumo/components/empty';
 import { Tooltip, TooltipProvider } from '@cloudflare/kumo/components/tooltip';
 import { Tabs } from '@cloudflare/kumo';
+import { MODULE_TABS_PROPS } from '../modules/kumoTabs.js';
 import {
   Activity,
   ArrowRight,
@@ -112,10 +113,10 @@ const STATUS_LABELS = {
 };
 
 const TASK_TABS = [
-  { value: 'tasks', label: '任务' },
-  { value: 'workflows', label: '工作流' },
-  { value: 'runs', label: '运行记录' },
-  { value: 'nodes', label: '执行节点' },
+  { value: 'tasks', label: <span className="inline-flex items-center gap-1.5"><Clock className="w-3.5 h-3.5" />任务</span> },
+  { value: 'workflows', label: <span className="inline-flex items-center gap-1.5"><GitBranch className="w-3.5 h-3.5" />工作流</span> },
+  { value: 'runs', label: <span className="inline-flex items-center gap-1.5"><Activity className="w-3.5 h-3.5" />运行记录</span> },
+  { value: 'nodes', label: <span className="inline-flex items-center gap-1.5"><Server className="w-3.5 h-3.5" />执行节点</span> },
 ];
 
 function getCronExpressionFromSimple(form) {
@@ -251,9 +252,9 @@ function CronEditor({ form, setForm, preview, previewError }) {
         />
       ) : (
         <div className="grid gap-3 sm:grid-cols-2">
-          <Select aria-label="周期" value={form.periodType} onValueChange={(value) => setForm((prev) => ({ ...prev, periodType: value }))} items={PERIOD_ITEMS} />
+          <Select size="sm" label="周期" className="w-full" value={form.periodType} onValueChange={(value) => setForm((prev) => ({ ...prev, periodType: value }))} items={PERIOD_ITEMS} />
           {form.periodType === 'week' && (
-            <Select aria-label="星期" value={form.weekday} onValueChange={(value) => setForm((prev) => ({ ...prev, weekday: value }))} items={WEEKDAY_ITEMS} />
+            <Select size="sm" label="星期" className="w-full" value={form.weekday} onValueChange={(value) => setForm((prev) => ({ ...prev, weekday: value }))} items={WEEKDAY_ITEMS} />
           )}
           {form.periodType === 'month' && (
             <Input size="sm" type="number" label="日期" min="1" max="31" value={form.dayOfMonth} onChange={(event) => setForm((prev) => ({ ...prev, dayOfMonth: Number(event.target.value) }))} />
@@ -268,7 +269,7 @@ function CronEditor({ form, setForm, preview, previewError }) {
       )}
 
       <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)]">
-        <div className="rounded-md border border-kumo-line bg-kumo-recessed px-3 py-2 font-mono text-xs text-kumo-default">
+        <div className="flex items-center px-3 py-2 rounded-md border border-kumo-line bg-kumo-recessed font-mono text-xs text-kumo-default">
           {currentSchedule || '手动触发'}
         </div>
         <div className="rounded-md border border-kumo-line px-3 py-2 text-xs">
@@ -644,11 +645,13 @@ function SchedulerPage() {
   return (
     <TooltipProvider>
       <div className="flex w-full flex-col gap-5 px-1">
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-kumo-line pb-3">
-          <div className="flex items-center gap-2">
-            <Clock className="h-4 w-4 text-kumo-brand" />
-            <h2 className="text-base font-bold text-kumo-strong">定时任务</h2>
-          </div>
+        <div className="flex flex-wrap items-center justify-between border-b border-kumo-line pb-3 gap-4">
+          <Tabs
+            {...MODULE_TABS_PROPS}
+            value={activeTab}
+            onValueChange={setActiveTab}
+            tabs={TASK_TABS}
+          />
           <div className="flex flex-wrap items-center gap-2">
             <IconButton label="刷新" onClick={loadAll} icon={<RefreshCw className={`h-3.5 w-3.5 ${loading ? 'animate-spin' : ''}`} />} />
             <Button size="sm" variant="primary" onClick={activeTab === 'workflows' ? openCreateWorkflow : openCreateTask}>
@@ -675,7 +678,6 @@ function SchedulerPage() {
           ))}
         </div>
 
-        <Tabs variant="segmented" size="sm" value={activeTab} onValueChange={setActiveTab} tabs={TASK_TABS} className="w-fit max-w-full" listClassName="w-fit max-w-full" />
 
         {activeTab === 'tasks' && (
           <section className="space-y-3">
@@ -796,12 +798,12 @@ function SchedulerPage() {
             <div className="space-y-4">
               <div className="grid gap-3 sm:grid-cols-2">
                 <Input size="sm" label="名称" value={taskForm.name} onChange={(event) => setTaskForm((prev) => ({ ...prev, name: event.target.value }))} />
-                <Select aria-label="执行节点" value={taskForm.node_id} onValueChange={(value) => setTaskForm((prev) => ({ ...prev, node_id: value }))} items={nodeItems} />
+                <Select size="sm" label="执行节点" className="w-full" value={taskForm.node_id} onValueChange={(value) => setTaskForm((prev) => ({ ...prev, node_id: value }))} items={nodeItems} />
               </div>
               <Input size="sm" label="描述" value={taskForm.description} onChange={(event) => setTaskForm((prev) => ({ ...prev, description: event.target.value }))} />
               <CronEditor form={taskForm} setForm={setTaskForm} preview={cronPreview} previewError={cronPreviewError} />
               <div className="grid gap-3 sm:grid-cols-2">
-                <Select aria-label="任务类型" value={taskForm.type} onValueChange={(value) => setTaskForm((prev) => ({ ...prev, type: value }))} items={TYPE_ITEMS} />
+                <Select size="sm" label="任务类型" className="w-full" value={taskForm.type} onValueChange={(value) => setTaskForm((prev) => ({ ...prev, type: value }))} items={TYPE_ITEMS} />
                 <Input size="sm" label="节点标签选择器" value={taskForm.node_selector} onChange={(event) => setTaskForm((prev) => ({ ...prev, node_selector: event.target.value }))} />
               </div>
               <Textarea size="sm" label={taskForm.type === 'http' ? 'URL' : taskForm.type === 'internal' ? '内部路径 / METHOD 路径' : '命令'} value={taskForm.command} onChange={(event) => setTaskForm((prev) => ({ ...prev, command: event.target.value }))} rows={4} />
@@ -847,7 +849,7 @@ function SchedulerPage() {
                         <Input size="sm" label="节点名称" value={node.name} onChange={(event) => setWorkflowForm((prev) => ({ ...prev, nodes: prev.nodes.map((item, i) => i === index ? { ...item, name: event.target.value } : item) }))} />
                         {node.type !== 'start' && (
                           <div className="mt-2 space-y-2">
-                            <Select aria-label="引用任务" value={String(node.task_id || 0)} onValueChange={(value) => setWorkflowForm((prev) => ({ ...prev, nodes: prev.nodes.map((item, i) => i === index ? { ...item, task_id: Number(value), type: Number(value) ? 'task' : 'shell' } : item) }))} items={taskItems} />
+                            <Select size="sm" label="引用任务" className="w-full" value={String(node.task_id || 0)} onValueChange={(value) => setWorkflowForm((prev) => ({ ...prev, nodes: prev.nodes.map((item, i) => i === index ? { ...item, task_id: Number(value), type: Number(value) ? 'task' : 'shell' } : item) }))} items={taskItems} />
                             {!node.task_id && <Textarea size="sm" label="内联命令" value={node.command || ''} onChange={(event) => setWorkflowForm((prev) => ({ ...prev, nodes: prev.nodes.map((item, i) => i === index ? { ...item, command: event.target.value } : item) }))} rows={2} />}
                             <div className="flex items-center justify-between"><span className="text-xs text-kumo-subtle">启用</span><Switch checked={node.enabled !== 0} onCheckedChange={(checked) => setWorkflowForm((prev) => ({ ...prev, nodes: prev.nodes.map((item, i) => i === index ? { ...item, enabled: checked ? 1 : 0 } : item) }))} /></div>
                           </div>
@@ -860,10 +862,10 @@ function SchedulerPage() {
                   <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-kumo-strong"><Sliders className="h-4 w-4" />依赖边</div>
                   <div className="space-y-2">
                     {workflowForm.edges.map((edge, index) => (
-                      <div key={edge.id} className="grid grid-cols-[1fr_1fr_1fr_auto] gap-2">
-                        <Select aria-label="来源" value={edge.from} onValueChange={(value) => setWorkflowForm((prev) => ({ ...prev, edges: prev.edges.map((item, i) => i === index ? { ...item, from: value } : item) }))} items={workflowForm.nodes.map((node) => ({ value: node.id, label: node.name }))} />
-                        <Select aria-label="目标" value={edge.to} onValueChange={(value) => setWorkflowForm((prev) => ({ ...prev, edges: prev.edges.map((item, i) => i === index ? { ...item, to: value } : item) }))} items={workflowForm.nodes.map((node) => ({ value: node.id, label: node.name }))} />
-                        <Select aria-label="条件" value={edge.condition} onValueChange={(value) => setWorkflowForm((prev) => ({ ...prev, edges: prev.edges.map((item, i) => i === index ? { ...item, condition: value } : item) }))} items={CONDITION_ITEMS} />
+                      <div key={edge.id} className="grid grid-cols-[1fr_1fr_1fr_auto] gap-2 items-center">
+                        <Select size="sm" aria-label="来源" className="w-full" value={edge.from} onValueChange={(value) => setWorkflowForm((prev) => ({ ...prev, edges: prev.edges.map((item, i) => i === index ? { ...item, from: value } : item) }))} items={workflowForm.nodes.map((node) => ({ value: node.id, label: node.name }))} />
+                        <Select size="sm" aria-label="目标" className="w-full" value={edge.to} onValueChange={(value) => setWorkflowForm((prev) => ({ ...prev, edges: prev.edges.map((item, i) => i === index ? { ...item, to: value } : item) }))} items={workflowForm.nodes.map((node) => ({ value: node.id, label: node.name }))} />
+                        <Select size="sm" aria-label="条件" className="w-full" value={edge.condition} onValueChange={(value) => setWorkflowForm((prev) => ({ ...prev, edges: prev.edges.map((item, i) => i === index ? { ...item, condition: value } : item) }))} items={CONDITION_ITEMS} />
                         <IconButton label="删除边" variant="secondary-destructive" onClick={() => setWorkflowForm((prev) => ({ ...prev, edges: prev.edges.filter((_, i) => i !== index) }))} icon={<Trash className="h-3.5 w-3.5" />} />
                       </div>
                     ))}
