@@ -36,6 +36,11 @@ type Service struct {
 	entries   map[int64]cron.EntryID
 	mu        sync.Mutex
 	client    *http.Client
+	agentRunner AgentRunner
+}
+
+type AgentRunner interface {
+	RunCommandTaskAndWait(serverID string, command string, timeout time.Duration) (string, error)
 }
 
 type Task struct {
@@ -84,11 +89,20 @@ func New(cfg config.Config) *Service {
 	return service
 }
 
+func (s *Service) SetAgentRunner(runner AgentRunner) {
+	s.agentRunner = runner
+}
+
 func (s *Service) Stop() context.Context {
 	return s.scheduler.Stop()
 }
 
 func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if strings.HasPrefix(r.URL.Path, "/api/scheduler") {
+		s.serveSchedulerHTTP(w, r)
+		return
+	}
+
 	path := strings.TrimPrefix(r.URL.Path, "/api/cron")
 	path = strings.Trim(path, "/")
 	parts := []string{}
@@ -399,9 +413,29 @@ func (s *Service) executeTaskCommand(ctx context.Context, task Task) (string, er
 		return s.executeHTTPTask(ctx, task.Command, httpTaskTimeout)
 	case "internal":
 		return s.executeInternalTask(ctx, task.Command)
+	case "agent":
+		return s.executeAgentTask(ctx, task)
 	default:
 		return executeShellTask(ctx, task.Command)
 	}
+}
+
+func (s *Service) executeAgentTask(ctx context.Context, task Task) (string, error) {
+	if s.agentRunner == nil {
+		return "", fmt.Errorf("Agent 执行器未初始化")
+	}
+	nodeID := "local"
+	db, err := s.open(ctx)
+	if err == nil {
+		if schedulerTask, ok, findErr := findSchedulerTask(ctx, db, task.ID); findErr == nil && ok {
+			nodeID = schedulerTask.NodeID
+		}
+		db.Close()
+	}
+	if nodeID == "" || nodeID == "local" {
+		return "", fmt.Errorf("Agent 任务需要选择在线 Agent 节点")
+	}
+	return s.agentRunner.RunCommandTaskAndWait(nodeID, task.Command, shellTaskTimeout)
 }
 
 func (s *Service) executeHTTPTask(ctx context.Context, target string, timeout time.Duration) (string, error) {
@@ -520,13 +554,102 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 			end_time INTEGER,
 			duration INTEGER
 		)`,
+		`CREATE TABLE IF NOT EXISTS scheduler_workflows (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL,
+			description TEXT DEFAULT '',
+			schedule TEXT DEFAULT '',
+			enabled INTEGER DEFAULT 1,
+			nodes TEXT NOT NULL DEFAULT '[]',
+			edges TEXT NOT NULL DEFAULT '[]',
+			concurrency_policy TEXT DEFAULT 'skip',
+			failure_policy TEXT DEFAULT 'stop',
+			created_at INTEGER DEFAULT (strftime('%s', 'now')),
+			updated_at INTEGER DEFAULT (strftime('%s', 'now'))
+		)`,
+		`CREATE TABLE IF NOT EXISTS scheduler_workflow_runs (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			workflow_id INTEGER,
+			workflow_name TEXT,
+			trigger_type TEXT DEFAULT 'manual',
+			status TEXT DEFAULT 'queued',
+			start_time INTEGER,
+			end_time INTEGER,
+			duration INTEGER,
+			summary TEXT DEFAULT '',
+			created_at INTEGER DEFAULT (strftime('%s', 'now'))
+		)`,
+		`CREATE TABLE IF NOT EXISTS scheduler_node_runs (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			run_id INTEGER NOT NULL,
+			node_id TEXT NOT NULL,
+			node_name TEXT,
+			task_id INTEGER,
+			status TEXT DEFAULT 'queued',
+			output TEXT DEFAULT '',
+			start_time INTEGER,
+			end_time INTEGER,
+			duration INTEGER
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_scheduler_workflow_runs_workflow ON scheduler_workflow_runs(workflow_id, start_time DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_scheduler_node_runs_run ON scheduler_node_runs(run_id)`,
 	}
 	for _, statement := range statements {
 		if _, err := db.ExecContext(ctx, statement); err != nil {
 			return fmt.Errorf("ensure cron schema: %w", err)
 		}
 	}
+	return ensureCronTaskColumns(ctx, db)
+}
+
+func ensureCronTaskColumns(ctx context.Context, db *sql.DB) error {
+	columns := []struct {
+		name string
+		sql  string
+	}{
+		{"description", "ALTER TABLE cron_tasks ADD COLUMN description TEXT DEFAULT ''"},
+		{"timeout_seconds", "ALTER TABLE cron_tasks ADD COLUMN timeout_seconds INTEGER DEFAULT 300"},
+		{"retry_count", "ALTER TABLE cron_tasks ADD COLUMN retry_count INTEGER DEFAULT 0"},
+		{"retry_interval_seconds", "ALTER TABLE cron_tasks ADD COLUMN retry_interval_seconds INTEGER DEFAULT 30"},
+		{"max_concurrency", "ALTER TABLE cron_tasks ADD COLUMN max_concurrency INTEGER DEFAULT 1"},
+		{"node_id", "ALTER TABLE cron_tasks ADD COLUMN node_id TEXT DEFAULT 'local'"},
+		{"node_selector", "ALTER TABLE cron_tasks ADD COLUMN node_selector TEXT DEFAULT ''"},
+	}
+	for _, column := range columns {
+		exists, err := hasColumn(ctx, db, "cron_tasks", column.name)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			if _, err := db.ExecContext(ctx, column.sql); err != nil {
+				return fmt.Errorf("add cron_tasks.%s: %w", column.name, err)
+			}
+		}
+	}
 	return nil
+}
+
+func hasColumn(ctx context.Context, db *sql.DB, tableName, columnName string) (bool, error) {
+	rows, err := db.QueryContext(ctx, fmt.Sprintf(`PRAGMA table_info(%s)`, tableName))
+	if err != nil {
+		return false, fmt.Errorf("inspect %s columns: %w", tableName, err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var name string
+		var typ string
+		var notNull int
+		var defaultValue sql.NullString
+		var pk int
+		if err := rows.Scan(&cid, &name, &typ, &notNull, &defaultValue, &pk); err != nil {
+			return false, fmt.Errorf("scan %s columns: %w", tableName, err)
+		}
+		if name == columnName {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
 }
 
 func loadTasks(ctx context.Context, db *sql.DB) ([]Task, error) {

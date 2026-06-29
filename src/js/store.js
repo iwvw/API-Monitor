@@ -47,10 +47,10 @@ export const MODULE_CONFIG = {
     description: '阿里云 DNS / ECS 管理',
   },
   'self-h': {
-    name: '自建服务',
-    shortName: '自建',
+    name: '定时任务',
+    shortName: '任务',
     icon: 'fa-server',
-    description: '自建服务管理',
+    description: '定时任务管理',
   },
   tencent: {
     name: '腾讯云',

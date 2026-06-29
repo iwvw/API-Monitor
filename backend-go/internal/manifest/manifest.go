@@ -78,6 +78,7 @@ func Routes() []Route {
 		{Prefix: "/api/filebox", Module: "filebox", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Filebox public and authenticated routes"},
 		{Prefix: "/api/uptime", Module: "uptime", Owner: OwnerGo, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Uptime monitors, public status, push, badge"},
 		{Prefix: "/api/notification", Module: "notification", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Notification channels, rules, and history"},
+		{Prefix: "/api/scheduler", Module: "scheduler", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Workflow scheduler, DAG, runs, and distributed nodes"},
 		{Prefix: "/api/cron", Module: "cron", Owner: OwnerGo, Auth: AuthSession, ResponseMode: ResponseJSON, Description: "Cron tasks, scheduler, and logs"},
 		{Prefix: "/api/openlist", Module: "openlist", Owner: OwnerRetired, Auth: AuthPublic, ResponseMode: ResponseJSON, Description: "Retired module; not migrated"},
 

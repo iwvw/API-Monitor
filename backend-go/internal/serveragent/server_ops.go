@@ -1946,3 +1946,7 @@ func (s *Service) runAgentTaskAndWait(serverID string, taskType int, command str
 		}
 	}
 }
+
+func (s *Service) RunCommandTaskAndWait(serverID string, command string, timeout time.Duration) (string, error) {
+	return s.runAgentTaskAndWait(serverID, 1, command, timeout)
+}

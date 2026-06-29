@@ -57,6 +57,8 @@ func NewServer(cfg config.Config) *Server {
 	authService := auth.New(cfg)
 	notifyService := notification.New(cfg)
 	serverAgentService := serveragent.New(cfg)
+	cronService := cronjobs.New(cfg)
+	cronService.SetAgentRunner(serverAgentService)
 	uptimeService := uptime.New(cfg, authService, notifyService)
 	uptimeService.SetHeartbeatBroadcaster(serverAgentService.BroadcastUptimeHeartbeat)
 	return &Server{
@@ -65,7 +67,7 @@ func NewServer(cfg config.Config) *Server {
 		settings: settings.New(cfg),
 		system:   systemmetrics.New(cfg),
 		totp:     totp.New(cfg),
-		cron:     cronjobs.New(cfg),
+		cron:     cronService,
 		filebox:  filebox.New(cfg, authService),
 		notify:   notifyService,
 		uptime:   uptimeService,
@@ -184,7 +186,7 @@ func (s *Server) serveGoRoute(w http.ResponseWriter, r *http.Request, route mani
 		s.system.ServeHTTP(w, r)
 	case "/api/totp":
 		s.totp.ServeHTTP(w, r)
-	case "/api/cron":
+	case "/api/cron", "/api/scheduler":
 		s.cron.ServeHTTP(w, r)
 	case "/api/filebox":
 		s.filebox.ServeHTTP(w, r)
