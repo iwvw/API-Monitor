@@ -67,6 +67,7 @@ type probeResult struct {
 	StatusCode *int                   `json:"statusCode,omitempty"`
 	ErrorCode  string                 `json:"errorCode,omitempty"`
 	Details    map[string]interface{} `json:"details,omitempty"`
+	SslExpiry  *time.Time             `json:"sslExpiry,omitempty"`
 }
 
 type statusPage struct {
@@ -189,6 +190,8 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.monitorIncidents(w, r, parts[1])
 	case len(parts) == 3 && parts[0] == "monitors" && parts[2] == "state" && r.Method == http.MethodGet:
 		s.monitorState(w, r, parts[1])
+	case len(parts) == 3 && parts[0] == "monitors" && parts[2] == "ssl" && r.Method == http.MethodGet:
+		s.monitorSSL(w, r, parts[1])
 	default:
 		response.Error(w, http.StatusNotFound, "uptime route not implemented")
 	}
@@ -319,6 +322,7 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 			last_transition_at DATETIME,
 			last_error TEXT,
 			last_ping INTEGER DEFAULT 0,
+			ssl_expiry DATETIME,
 			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
 			FOREIGN KEY (monitor_id) REFERENCES uptime_monitors(id) ON DELETE CASCADE
 		)`,
@@ -418,6 +422,7 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 		{"uptime_incidents", "acknowledged_by", "ALTER TABLE uptime_incidents ADD COLUMN acknowledged_by TEXT"},
 		{"uptime_incidents", "maintenance_id", "ALTER TABLE uptime_incidents ADD COLUMN maintenance_id INTEGER"},
 		{"uptime_incidents", "resolved_reason", "ALTER TABLE uptime_incidents ADD COLUMN resolved_reason TEXT"},
+		{"uptime_monitor_states", "ssl_expiry", "ALTER TABLE uptime_monitor_states ADD COLUMN ssl_expiry DATETIME"},
 	}
 	for _, column := range columns {
 		exists, err := hasColumn(ctx, db, column.table, column.name)
@@ -616,6 +621,9 @@ func (s *Service) monitors(w http.ResponseWriter, r *http.Request) {
 		for _, monitor := range monitors {
 			last, _ := getLastHeartbeat(r.Context(), db, int64Value(monitor["id"], 0))
 			monitor["lastHeartbeat"] = last
+			st, _ := loadState(r.Context(), db, int64Value(monitor["id"], 0))
+			monitor["state"] = stringValue(st["state"], stateUnknown)
+			monitor["sslExpiry"] = st["sslExpiry"]
 		}
 		response.JSON(w, http.StatusOK, monitors)
 	case http.MethodPost:
@@ -1356,6 +1364,74 @@ func (s *Service) monitorState(w http.ResponseWriter, r *http.Request, idText st
 	response.JSON(w, http.StatusOK, state)
 }
 
+func (s *Service) monitorSSL(w http.ResponseWriter, r *http.Request, idText string) {
+	id, err := parseID(idText)
+	if err != nil {
+		response.Error(w, http.StatusBadRequest, "invalid monitor id")
+		return
+	}
+	db, err := s.open(r.Context())
+	if err != nil {
+		response.Error(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	defer db.Close()
+	monitor, found, err := loadMonitor(r.Context(), db, id)
+	if err != nil || !found {
+		response.Error(w, http.StatusNotFound, "monitor not found")
+		return
+	}
+	monURL := stringValue(monitor["url"], "")
+	if monURL == "" {
+		response.JSON(w, http.StatusOK, map[string]interface{}{"ssl": false, "reason": "no URL configured"})
+		return
+	}
+	if !strings.HasPrefix(monURL, "https://") {
+		response.JSON(w, http.StatusOK, map[string]interface{}{"ssl": false, "reason": "not HTTPS"})
+		return
+	}
+	// Parse hostname from URL for TLS dial
+	host := strings.TrimPrefix(monURL, "https://")
+	if idx := strings.Index(host, "/"); idx > 0 {
+		host = host[:idx]
+	}
+	if !strings.Contains(host, ":") {
+		host = host + ":443"
+	}
+	conn, err := tls.DialWithDialer(&net.Dialer{Timeout: 10 * time.Second}, "tcp", host, &tls.Config{InsecureSkipVerify: true})
+	if err != nil {
+		response.JSON(w, http.StatusOK, map[string]interface{}{"ssl": false, "error": err.Error()})
+		return
+	}
+	defer conn.Close()
+	certs := conn.ConnectionState().PeerCertificates
+	if len(certs) == 0 {
+		response.JSON(w, http.StatusOK, map[string]interface{}{"ssl": false, "reason": "no certificates"})
+		return
+	}
+	leaf := certs[0]
+	daysLeft := int(time.Until(leaf.NotAfter).Hours() / 24)
+	chain := []map[string]interface{}{}
+	for _, cert := range certs {
+		chain = append(chain, map[string]interface{}{
+			"subject":   cert.Subject.CommonName,
+			"issuer":    cert.Issuer.CommonName,
+			"notBefore": cert.NotBefore.UTC().Format(time.RFC3339),
+			"notAfter":  cert.NotAfter.UTC().Format(time.RFC3339),
+			"isCA":      cert.IsCA,
+		})
+	}
+	response.JSON(w, http.StatusOK, map[string]interface{}{
+		"ssl":       true,
+		"subject":   leaf.Subject.CommonName,
+		"issuer":    leaf.Issuer.CommonName,
+		"notBefore": leaf.NotBefore.UTC().Format(time.RFC3339),
+		"notAfter":  leaf.NotAfter.UTC().Format(time.RFC3339),
+		"daysLeft":  daysLeft,
+		"dnsNames":  leaf.DNSNames,
+		"chain":     chain,
+	})
+}
 func (s *Service) check(ctx context.Context, db *sql.DB, monitor map[string]interface{}) (map[string]interface{}, error) {
 	result, err := s.probe(ctx, db, monitor)
 	if err != nil {
@@ -1394,6 +1470,11 @@ func (s *Service) check(ctx context.Context, db *sql.DB, monitor map[string]inte
 	s.broadcastHeartbeat(int64Value(monitor["id"], 0), beat)
 	if err := s.processState(ctx, db, monitor, result, beat, maintenance != nil); err != nil {
 		return nil, err
+	}
+	// Persist SSL expiry from probe result into monitor state
+	if result.SslExpiry != nil {
+		_, _ = db.ExecContext(ctx, `UPDATE uptime_monitor_states SET ssl_expiry = ? WHERE monitor_id = ?`,
+			result.SslExpiry.UTC().Format(time.RFC3339), int64Value(monitor["id"], 0))
 	}
 	_, _ = db.ExecContext(ctx, `UPDATE uptime_monitors SET last_checked_at = ?, next_check_at = datetime(?, '+' || interval || ' seconds') WHERE id = ?`, now, now, int64Value(monitor["id"], 0))
 	return beat, nil
@@ -1569,7 +1650,7 @@ func loadState(ctx context.Context, db *sql.DB, monitorID int64) (map[string]int
 	rows, err := db.QueryContext(ctx, `
 		SELECT monitor_id as monitorId, state, fail_count as failCount, recover_count as recoverCount,
 			active_incident_id as activeIncidentId, last_transition_at as lastTransitionAt,
-			last_error as lastError, last_ping as lastPing, updated_at as updatedAt
+			last_error as lastError, last_ping as lastPing, ssl_expiry as sslExpiry, updated_at as updatedAt
 		FROM uptime_monitor_states WHERE monitor_id = ?
 	`, monitorID)
 	if err != nil {
@@ -1580,6 +1661,7 @@ func loadState(ctx context.Context, db *sql.DB, monitorID int64) (map[string]int
 		return map[string]interface{}{
 			"monitorId": monitorID, "state": stateUp, "failCount": 0, "recoverCount": 0,
 			"activeIncidentId": nil, "lastTransitionAt": nil, "lastError": nil, "lastPing": 0,
+			"sslExpiry": nil,
 		}, rows.Err()
 	}
 	return scanMap(rows)
@@ -1589,8 +1671,8 @@ func saveState(ctx context.Context, db *sql.DB, monitorID int64, state map[strin
 	_, err := db.ExecContext(ctx, `
 		INSERT INTO uptime_monitor_states (
 			monitor_id, state, fail_count, recover_count, active_incident_id,
-			last_transition_at, last_error, last_ping, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+			last_transition_at, last_error, last_ping, ssl_expiry, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
 		ON CONFLICT(monitor_id) DO UPDATE SET
 			state = excluded.state,
 			fail_count = excluded.fail_count,
@@ -1599,9 +1681,11 @@ func saveState(ctx context.Context, db *sql.DB, monitorID int64, state map[strin
 			last_transition_at = excluded.last_transition_at,
 			last_error = excluded.last_error,
 			last_ping = excluded.last_ping,
+			ssl_expiry = excluded.ssl_expiry,
 			updated_at = CURRENT_TIMESTAMP
 	`, monitorID, stateText(state["state"]), intValue(state["failCount"], 0), intValue(state["recoverCount"], 0),
-		nullableInt(state["activeIncidentId"]), nullableString(state["lastTransitionAt"]), nullableString(state["lastError"]), intValue(state["lastPing"], 0))
+		nullableInt(state["activeIncidentId"]), nullableString(state["lastTransitionAt"]), nullableString(state["lastError"]), intValue(state["lastPing"], 0),
+		nullableString(state["sslExpiry"]))
 	return err
 }
 
@@ -2569,7 +2653,13 @@ func (s *Service) httpProbe(ctx context.Context, monitor map[string]interface{},
 			return probeResult{}, fmt.Errorf("Keyword not found: %s", expected)
 		}
 	}
-	return probeResult{OK: true, Status: stateUp, LatencyMS: time.Since(started).Milliseconds(), Message: "OK", StatusCode: &statusCode, Details: map[string]interface{}{"contentLength": len(content)}}, nil
+	result := probeResult{OK: true, Status: stateUp, LatencyMS: time.Since(started).Milliseconds(), Message: "OK", StatusCode: &statusCode, Details: map[string]interface{}{"contentLength": len(content)}}
+	// Extract TLS certificate expiry
+	if res.TLS != nil && len(res.TLS.PeerCertificates) > 0 {
+		expiry := res.TLS.PeerCertificates[0].NotAfter
+		result.SslExpiry = &expiry
+	}
+	return result, nil
 }
 
 func (s *Service) jsonProbe(ctx context.Context, monitor map[string]interface{}) (probeResult, error) {
@@ -2581,7 +2671,9 @@ func (s *Service) jsonProbe(ctx context.Context, monitor map[string]interface{})
 	for key, value := range parseJSONMap(monitor["headers"]) {
 		req.Header.Set(key, stringValue(value, ""))
 	}
-	client := http.Client{Timeout: time.Duration(intValue(monitor["timeout"], defaultTimeoutSeconds)) * time.Second}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: boolValue(monitor["ignoreTls"], false)}
+	client := http.Client{Timeout: time.Duration(intValue(monitor["timeout"], defaultTimeoutSeconds)) * time.Second, Transport: transport}
 	res, err := client.Do(req)
 	if err != nil {
 		return probeResult{}, err
@@ -2604,7 +2696,13 @@ func (s *Service) jsonProbe(ctx context.Context, monitor map[string]interface{})
 	if !compareValues(actual, expected, operator) {
 		return probeResult{}, fmt.Errorf("JSON Query mismatch at %s: expected %s %v", stringFallback(path, "$"), operator, expected)
 	}
-	return probeResult{OK: true, Status: stateUp, LatencyMS: time.Since(started).Milliseconds(), Message: "OK", StatusCode: &statusCode, Details: map[string]interface{}{"contentLength": len(content), "jsonQueryPath": stringFallback(path, "$"), "jsonQueryOperator": operator, "jsonQueryActual": actual}}, nil
+	result := probeResult{OK: true, Status: stateUp, LatencyMS: time.Since(started).Milliseconds(), Message: "OK", StatusCode: &statusCode, Details: map[string]interface{}{"contentLength": len(content), "jsonQueryPath": stringFallback(path, "$"), "jsonQueryOperator": operator, "jsonQueryActual": actual}}
+	// Extract TLS certificate expiry
+	if res.TLS != nil && len(res.TLS.PeerCertificates) > 0 {
+		expiry := res.TLS.PeerCertificates[0].NotAfter
+		result.SslExpiry = &expiry
+	}
+	return result, nil
 }
 
 func tcpProbe(ctx context.Context, monitor map[string]interface{}) (probeResult, error) {

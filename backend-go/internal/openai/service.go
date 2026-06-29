@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -151,6 +152,18 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 			timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
 			FOREIGN KEY (session_id) REFERENCES openai_chat_sessions(id) ON DELETE CASCADE
 		)`,
+		`CREATE TABLE IF NOT EXISTS openai_gateway_analytics (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			endpoint_id TEXT,
+			model TEXT NOT NULL,
+			status_code INTEGER NOT NULL,
+			latency_ms INTEGER NOT NULL,
+			prompt_tokens INTEGER DEFAULT 0,
+			completion_tokens INTEGER DEFAULT 0,
+			total_tokens INTEGER DEFAULT 0,
+			timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_openai_analytics_timestamp ON openai_gateway_analytics(timestamp)`,
 		`INSERT OR IGNORE INTO openai_chat_personas (id, name, icon, system_prompt, is_default)
 		 VALUES ('1', '默认助手', 'fa-robot', '你是一个有用的 AI 助手。', 1)`,
 	}
@@ -217,6 +230,12 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.exportEndpointsRoute(w, r)
 	case len(parts) == 1 && parts[0] == "import" && method == http.MethodPost:
 		s.importEndpointsRoute(w, r)
+	case len(parts) == 2 && parts[0] == "analytics" && parts[1] == "summary" && method == http.MethodGet:
+		s.getAnalyticsSummary(w, r)
+	case len(parts) == 2 && parts[0] == "analytics" && parts[1] == "charts" && method == http.MethodGet:
+		s.getAnalyticsCharts(w, r)
+	case len(parts) == 2 && parts[0] == "analytics" && parts[1] == "logs" && method == http.MethodGet:
+		s.getAnalyticsLogs(w, r)
 	case len(parts) == 1 && parts[0] == "personas" && method == http.MethodGet:
 		s.listPersonas(w, r)
 	case len(parts) == 1 && parts[0] == "personas" && method == http.MethodPost:
@@ -1425,6 +1444,7 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 		httpReq.Header.Set("Accept", "application/json")
 	}
 
+	startTime := time.Now()
 	resp, err := s.client.Do(httpReq)
 	if err != nil {
 		response.JSON(w, http.StatusInternalServerError, map[string]interface{}{"error": map[string]string{"message": err.Error(), "type": "proxy_error"}})
@@ -1444,10 +1464,12 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 
 		flusher, ok := w.(http.Flusher)
 		buf := make([]byte, 4096)
+		var accumulatedResponse strings.Builder
 		for {
 			n, err := resp.Body.Read(buf)
 			if n > 0 {
 				_, _ = w.Write(buf[:n])
+				accumulatedResponse.Write(buf[:n])
 				if ok {
 					flusher.Flush()
 				}
@@ -1456,10 +1478,48 @@ func (s *Service) proxyChatCompletions(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 		}
+		latencyMs := time.Since(startTime).Milliseconds()
+
+		promptTokens := 0
+		completionTokens := 0
+		totalTokens := 0
+
+		promptRegex := regexp.MustCompile(`"prompt_tokens"\s*:\s*(\d+)`)
+		completionRegex := regexp.MustCompile(`"completion_tokens"\s*:\s*(\d+)`)
+		totalRegex := regexp.MustCompile(`"total_tokens"\s*:\s*(\d+)`)
+
+		accumulatedStr := accumulatedResponse.String()
+		if matches := promptRegex.FindStringSubmatch(accumulatedStr); len(matches) > 1 {
+			promptTokens, _ = strconv.Atoi(matches[1])
+		}
+		if matches := completionRegex.FindStringSubmatch(accumulatedStr); len(matches) > 1 {
+			completionTokens, _ = strconv.Atoi(matches[1])
+		}
+		if matches := totalRegex.FindStringSubmatch(accumulatedStr); len(matches) > 1 {
+			totalTokens, _ = strconv.Atoi(matches[1])
+		} else if promptTokens > 0 || completionTokens > 0 {
+			totalTokens = promptTokens + completionTokens
+		}
+
+		s.RecordAnalytics(selected.ID, model, resp.StatusCode, latencyMs, promptTokens, completionTokens, totalTokens)
 	} else {
+		respBodyBytes, _ := io.ReadAll(resp.Body)
+		latencyMs := time.Since(startTime).Milliseconds()
+
+		var usageInfo struct {
+			Usage struct {
+				PromptTokens     int `json:"prompt_tokens"`
+				CompletionTokens int `json:"completion_tokens"`
+				TotalTokens      int `json:"total_tokens"`
+			} `json:"usage"`
+		}
+		_ = json.Unmarshal(respBodyBytes, &usageInfo)
+
+		s.RecordAnalytics(selected.ID, model, resp.StatusCode, latencyMs, usageInfo.Usage.PromptTokens, usageInfo.Usage.CompletionTokens, usageInfo.Usage.TotalTokens)
+
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(resp.StatusCode)
-		_, _ = io.Copy(w, resp.Body)
+		_, _ = w.Write(respBodyBytes)
 	}
 }
 

@@ -45,6 +45,7 @@ import {
   ChevronUp,
   RefreshCw,
   History,
+  PieChart,
   Bot,
   Star,
   Pin,
@@ -62,6 +63,156 @@ import {
   AlertTriangle,
 } from '../components/Icons.jsx';
 
+function SVGAnalyticsChart({ dailyData }) {
+  if (!dailyData || dailyData.length === 0) {
+    return (
+      <div className="h-full flex items-center justify-center text-kumo-subtle text-xs">
+        暂无趋势数据
+      </div>
+    );
+  }
+
+  const width = 500;
+  const height = 180;
+  const paddingLeft = 40;
+  const paddingRight = 40;
+  const paddingTop = 20;
+  const paddingBottom = 30;
+
+  const maxCount = Math.max(...dailyData.map(d => d.count), 5);
+  const maxLatency = Math.max(...dailyData.map(d => d.avgLatency), 500);
+
+  const pointsCount = dailyData.map((d, index) => {
+    const x =
+      paddingLeft + (index / (dailyData.length - 1 || 1)) * (width - paddingLeft - paddingRight);
+    const y = height - paddingBottom - (d.count / maxCount) * (height - paddingTop - paddingBottom);
+    return { x, y, label: d.count, day: d.day };
+  });
+
+  const pointsLatency = dailyData.map((d, index) => {
+    const x =
+      paddingLeft + (index / (dailyData.length - 1 || 1)) * (width - paddingLeft - paddingRight);
+    const y =
+      height - paddingBottom - (d.avgLatency / maxLatency) * (height - paddingTop - paddingBottom);
+    return { x, y, label: d.avgLatency, day: d.day };
+  });
+
+  const countPath = pointsCount.reduce(
+    (path, p, i) => (i === 0 ? `M ${p.x} ${p.y}` : `${path} L ${p.x} ${p.y}`),
+    ''
+  );
+  const latencyPath = pointsLatency.reduce(
+    (path, p, i) => (i === 0 ? `M ${p.x} ${p.y}` : `${path} L ${p.x} ${p.y}`),
+    ''
+  );
+
+  return (
+    <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full text-kumo-strong">
+      {/* Grid Lines */}
+      {[0, 0.25, 0.5, 0.75, 1].map((ratio, i) => {
+        const y = height - paddingBottom - ratio * (height - paddingTop - paddingBottom);
+        return (
+          <g key={i}>
+            <line
+              x1={paddingLeft}
+              y1={y}
+              x2={width - paddingRight}
+              y2={y}
+              stroke="var(--kumo-line, #e2e8f0)"
+              strokeDasharray="3 3"
+              strokeWidth="0.5"
+            />
+            {/* Left Axis (Requests) */}
+            <text
+              x={paddingLeft - 8}
+              y={y + 4}
+              textAnchor="end"
+              className="text-[9px] fill-kumo-subtle font-mono"
+            >
+              {Math.round(ratio * maxCount)}
+            </text>
+            {/* Right Axis (Latency) */}
+            <text
+              x={width - paddingRight + 8}
+              y={y + 4}
+              textAnchor="start"
+              className="text-[9px] fill-kumo-subtle font-mono"
+            >
+              {Math.round(ratio * maxLatency)} ms
+            </text>
+          </g>
+        );
+      })}
+
+      {/* X Axis Labels */}
+      {dailyData.map((d, index) => {
+        const x =
+          paddingLeft +
+          (index / (dailyData.length - 1 || 1)) * (width - paddingLeft - paddingRight);
+        return (
+          <text
+            key={index}
+            x={x}
+            y={height - 10}
+            textAnchor="middle"
+            className="text-[9px] fill-kumo-subtle font-mono"
+          >
+            {d.day}
+          </text>
+        );
+      })}
+
+      {/* Paths */}
+      <path
+        d={countPath}
+        fill="none"
+        stroke="var(--kumo-brand, #3b82f6)"
+        strokeWidth="2.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d={latencyPath}
+        fill="none"
+        stroke="var(--kumo-warning, #f59e0b)"
+        strokeWidth="2"
+        strokeDasharray="4 2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+
+      {/* Dots & Tooltips */}
+      {pointsCount.map((p, i) => (
+        <g key={`count-dot-${i}`} className="group/dot cursor-pointer">
+          <circle
+            cx={p.x}
+            cy={p.y}
+            r="3.5"
+            className="fill-kumo-brand stroke-kumo-base"
+            strokeWidth="1.5"
+          />
+          <circle cx={p.x} cy={p.y} r="8" className="fill-transparent hover:fill-kumo-brand/10" />
+          <title>{`日期: ${p.day}\n请求数: ${p.label} 次`}</title>
+        </g>
+      ))}
+
+      {pointsLatency.map((p, i) => (
+        <g key={`latency-dot-${i}`} className="group/dot cursor-pointer">
+          <circle
+            cx={p.x}
+            cy={p.y}
+            r="3"
+            className="fill-kumo-warning stroke-kumo-base"
+            strokeWidth="1.5"
+          />
+          <circle cx={p.x} cy={p.y} r="8" className="fill-transparent hover:fill-kumo-warning/10" />
+          <title>{`日期: ${p.day}\n延迟: ${p.label.toFixed(0)} ms`}</title>
+        </g>
+      ))}
+    </svg>
+  );
+}
+
 function OpenAIPage() {
   const { theme } = useStore();
   const [colWidths, startResize] = useTableResize([150, 250, 150, 80, 80, 100, 120]);
@@ -69,7 +220,23 @@ function OpenAIPage() {
   // Tab State
   const [activeTab, setActiveTab] = useState('endpoints'); // 'endpoints' | 'accounts' | 'chat'
 
-  // Global Auth Headers Helper
+  // Gateway Analytics States
+  const [analyticsDays, setAnalyticsDays] = useState(7);
+  const [analyticsSummary, setAnalyticsSummary] = useState({
+    totalRequests: 0,
+    avgLatency: 0,
+    totalTokens: 0,
+    errorRate: 0,
+  });
+  const [analyticsCharts, setAnalyticsCharts] = useState({
+    daily: [],
+    models: [],
+  });
+  const [analyticsLogs, setAnalyticsLogs] = useState([]);
+  const [analyticsPage, setAnalyticsPage] = useState(1);
+  const [analyticsTotal, setAnalyticsTotal] = useState(0);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+
   const getAuthHeaders = useCallback(() => {
     const password = localStorage.getItem('admin_password') || '';
     return {
@@ -77,6 +244,43 @@ function OpenAIPage() {
       'x-admin-password': password,
     };
   }, []);
+
+  const fetchAnalytics = useCallback(async () => {
+    setAnalyticsLoading(true);
+    try {
+      const headers = getAuthHeaders();
+      const [sumRes, chartsRes, logsRes] = await Promise.all([
+        fetch(`/api/openai/analytics/summary?days=${analyticsDays}`, { headers }),
+        fetch(`/api/openai/analytics/charts?days=${analyticsDays}`, { headers }),
+        fetch(`/api/openai/analytics/logs?page=${analyticsPage}&pageSize=10`, { headers }),
+      ]);
+
+      if (sumRes.ok) {
+        const data = await sumRes.json();
+        setAnalyticsSummary(data);
+      }
+      if (chartsRes.ok) {
+        const data = await chartsRes.json();
+        setAnalyticsCharts(data);
+      }
+      if (logsRes.ok) {
+        const data = await logsRes.json();
+        setAnalyticsLogs(data.records || []);
+        setAnalyticsTotal(data.total || 0);
+      }
+    } catch (err) {
+      console.error('Failed to fetch analytics:', err);
+      toast.error('获取分析数据失败');
+    } finally {
+      setAnalyticsLoading(false);
+    }
+  }, [analyticsDays, analyticsPage, getAuthHeaders]);
+
+  useEffect(() => {
+    if (activeTab === 'analytics') {
+      fetchAnalytics();
+    }
+  }, [activeTab, fetchAnalytics]);
 
   // IP/Address Masking Helper
   const maskAddress = address => {
@@ -1931,6 +2135,15 @@ function OpenAIPage() {
                 </span>
               ),
             },
+            {
+              value: 'analytics',
+              label: (
+                <span className="inline-flex items-center gap-1.5">
+                  <Activity className="w-3.5 h-3.5" />
+                  网关分析
+                </span>
+              ),
+            },
           ]}
         />
       </PageToolbar>
@@ -2417,6 +2630,262 @@ function OpenAIPage() {
               {batchAdding ? '添加中...' : '批量添加'}
             </Button>
           </AppCard>
+        </div>
+      )}
+
+      {/* ==================== 3. 网关分析 Tab ==================== */}
+      {activeTab === 'analytics' && (
+        <div className="space-y-4">
+          {/* Header & Controls */}
+          <SectionHeader
+            title="网关分析"
+            description="API 代理流量与性能多维分析"
+            action={
+              <div className="flex items-center gap-3">
+                <Select
+                  size="sm"
+                  aria-label="选择分析范围"
+                  value={String(analyticsDays)}
+                  onValueChange={val => setAnalyticsDays(Number(val))}
+                  items={[
+                    { value: '1', label: '最近 24 小时' },
+                    { value: '7', label: '最近 7 天' },
+                    { value: '30', label: '最近 30 天' },
+                  ]}
+                  className="w-36 text-xs text-kumo-strong"
+                />
+                <Button
+                  size="sm"
+                  onClick={fetchAnalytics}
+                  disabled={analyticsLoading}
+                  className="flex items-center gap-1.5"
+                >
+                  <RefreshCw className={cx('w-3.5 h-3.5', analyticsLoading && 'animate-spin')} />
+                  <span>刷新</span>
+                </Button>
+              </div>
+            }
+          />
+
+          {/* Analytics Summary Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+            <AppCard padding="md" className="flex flex-col">
+              <span className="text-[10px] font-bold text-kumo-subtle uppercase tracking-wider">
+                总请求次数
+              </span>
+              <span className="text-xl font-bold text-kumo-strong mt-1 font-mono">
+                {analyticsLoading ? (
+                  <SkeletonLine className="w-16 h-5" />
+                ) : (
+                  analyticsSummary.totalRequests
+                )}
+              </span>
+            </AppCard>
+            <AppCard padding="md" className="flex flex-col">
+              <span className="text-[10px] font-bold text-kumo-subtle uppercase tracking-wider">
+                平均响应延迟
+              </span>
+              <span className="text-xl font-bold text-kumo-warning mt-1 font-mono">
+                {analyticsLoading ? (
+                  <SkeletonLine className="w-16 h-5" />
+                ) : (
+                  `${analyticsSummary.avgLatency.toFixed(0)} ms`
+                )}
+              </span>
+            </AppCard>
+            <AppCard padding="md" className="flex flex-col">
+              <span className="text-[10px] font-bold text-kumo-subtle uppercase tracking-wider">
+                Token 消耗量
+              </span>
+              <span className="text-xl font-bold text-kumo-brand mt-1 font-mono">
+                {analyticsLoading ? (
+                  <SkeletonLine className="w-20 h-5" />
+                ) : (
+                  analyticsSummary.totalTokens.toLocaleString()
+                )}
+              </span>
+            </AppCard>
+            <AppCard padding="md" className="flex flex-col">
+              <span className="text-[10px] font-bold text-kumo-subtle uppercase tracking-wider">
+                请求错误率
+              </span>
+              <span className="text-xl font-bold text-kumo-danger mt-1 font-mono">
+                {analyticsLoading ? (
+                  <SkeletonLine className="w-16 h-5" />
+                ) : (
+                  `${(analyticsSummary.errorRate * 100).toFixed(1)}%`
+                )}
+              </span>
+            </AppCard>
+          </div>
+
+          {/* Charts Row */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            {/* SVG Line Chart */}
+            <AppCard padding="lg" className="col-span-2 space-y-3">
+              <div className="flex justify-between items-center">
+                <h4 className="text-xs font-bold text-kumo-strong">请求量与耗时趋势</h4>
+                <div className="flex gap-4 text-[10px]">
+                  <span className="flex items-center gap-1.5 text-kumo-brand font-semibold">
+                    <span className="w-2 h-2 rounded-full bg-kumo-brand" />
+                    请求数 (次)
+                  </span>
+                  <span className="flex items-center gap-1.5 text-kumo-warning font-semibold">
+                    <span className="w-2.5 h-0.5 border-t-2 border-dashed border-kumo-warning" />
+                    延迟 (ms)
+                  </span>
+                </div>
+              </div>
+              <div className="h-56">
+                {analyticsLoading ? (
+                  <div className="h-full flex items-center justify-center">
+                    <SkeletonLine className="w-full h-full" />
+                  </div>
+                ) : (
+                  <SVGAnalyticsChart dailyData={analyticsCharts.daily} />
+                )}
+              </div>
+            </AppCard>
+
+            {/* Model Tokens share */}
+            <AppCard padding="lg" className="space-y-4">
+              <div className="flex items-center gap-1.5">
+                <PieChart className="w-4 h-4 text-kumo-brand" />
+                <h4 className="text-xs font-bold text-kumo-strong">模型消耗分布 (Tokens)</h4>
+              </div>
+              <div className="space-y-3.5 max-h-56 overflow-y-auto pr-1">
+                {analyticsLoading ? (
+                  <div className="space-y-2">
+                    <SkeletonLine className="w-full h-4" />
+                    <SkeletonLine className="w-full h-4" />
+                  </div>
+                ) : !analyticsCharts.models || analyticsCharts.models.length === 0 ? (
+                  <div className="text-center py-16 text-kumo-subtle text-xs">暂无模型数据</div>
+                ) : (
+                  (() => {
+                    const totalTokens =
+                      analyticsCharts.models.reduce((sum, m) => sum + m.tokens, 0) || 1;
+                    return analyticsCharts.models.map(m => {
+                      const pct = ((m.tokens / totalTokens) * 100).toFixed(1);
+                      return (
+                        <div key={m.model} className="space-y-1 text-xs">
+                          <div className="flex justify-between text-kumo-strong">
+                            <span className="font-mono font-semibold truncate max-w-[150px]">
+                              {m.model}
+                            </span>
+                            <span className="font-mono text-kumo-subtle">
+                              {m.tokens.toLocaleString()} ({pct}%)
+                            </span>
+                          </div>
+                          <div className="w-full bg-kumo-recessed rounded-full h-2 overflow-hidden">
+                            <div
+                              className="bg-gradient-to-r from-kumo-brand/80 to-kumo-brand h-full rounded-full"
+                              style={{ width: `${pct}%` }}
+                            />
+                          </div>
+                        </div>
+                      );
+                    });
+                  })()
+                )}
+              </div>
+            </AppCard>
+          </div>
+
+          {/* Logs Table */}
+          <DataTableFrame>
+            <AppTable>
+              <Table.Header>
+                <Table.Row>
+                  <Table.HeaderCell className="text-left text-xs font-bold">时间</Table.HeaderCell>
+                  <Table.HeaderCell className="text-left text-xs font-bold">
+                    端点渠道
+                  </Table.HeaderCell>
+                  <Table.HeaderCell className="text-left text-xs font-bold">
+                    使用模型
+                  </Table.HeaderCell>
+                  <Table.HeaderCell className="text-center text-xs font-bold">
+                    状态
+                  </Table.HeaderCell>
+                  <Table.HeaderCell className="text-right text-xs font-bold">延迟</Table.HeaderCell>
+                  <Table.HeaderCell className="text-right text-xs font-bold">
+                    Prompt / Completion
+                  </Table.HeaderCell>
+                  <Table.HeaderCell className="text-right text-xs font-bold">
+                    总消耗
+                  </Table.HeaderCell>
+                </Table.Row>
+              </Table.Header>
+              <Table.Body>
+                {analyticsLoading && analyticsLogs.length === 0 ? (
+                  <Table.Row>
+                    <Table.Cell colSpan={7} className="text-center py-8">
+                      <RotateCw className="w-5 h-5 animate-spin mx-auto text-kumo-subtle" />
+                    </Table.Cell>
+                  </Table.Row>
+                ) : analyticsLogs.length === 0 ? (
+                  <Table.Row>
+                    <Table.Cell colSpan={7} className="text-center py-8 text-kumo-subtle text-xs">
+                      暂无网关日志记录
+                    </Table.Cell>
+                  </Table.Row>
+                ) : (
+                  analyticsLogs.map(log => (
+                    <Table.Row key={log.id} className="text-xs">
+                      <Table.Cell className="text-kumo-subtle font-mono">
+                        {formatDateTime(log.timestamp)}
+                      </Table.Cell>
+                      <Table.Cell className="text-kumo-strong font-semibold">
+                        {log.endpointName}
+                      </Table.Cell>
+                      <Table.Cell className="text-kumo-strong font-mono font-medium">
+                        {log.model}
+                      </Table.Cell>
+                      <Table.Cell className="text-center">
+                        <InlineStatusPill tone={log.statusCode < 400 ? 'success' : 'danger'}>
+                          {log.statusCode}
+                        </InlineStatusPill>
+                      </Table.Cell>
+                      <Table.Cell className="text-right text-kumo-strong font-mono font-semibold">
+                        {log.latencyMs} ms
+                      </Table.Cell>
+                      <Table.Cell className="text-right text-kumo-subtle font-mono">
+                        {log.promptTokens} / {log.completionTokens}
+                      </Table.Cell>
+                      <Table.Cell className="text-right text-kumo-brand font-mono font-bold">
+                        {log.totalTokens}
+                      </Table.Cell>
+                    </Table.Row>
+                  ))
+                )}
+              </Table.Body>
+            </AppTable>
+          </DataTableFrame>
+
+          {/* Table Pagination */}
+          {analyticsTotal > 10 && (
+            <div className="flex justify-between items-center px-4 py-2 bg-kumo-base border border-kumo-line rounded-xl shadow-sm text-xs">
+              <span className="text-kumo-subtle">
+                共 {analyticsTotal} 条记录，第 {analyticsPage} / {Math.ceil(analyticsTotal / 10)} 页
+              </span>
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  disabled={analyticsPage === 1 || analyticsLoading}
+                  onClick={() => setAnalyticsPage(p => Math.max(1, p - 1))}
+                >
+                  上一页
+                </Button>
+                <Button
+                  size="sm"
+                  disabled={analyticsPage * 10 >= analyticsTotal || analyticsLoading}
+                  onClick={() => setAnalyticsPage(p => p + 1)}
+                >
+                  下一页
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
