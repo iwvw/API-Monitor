@@ -107,7 +107,7 @@ export const MODULE_GROUPS = [
   },
   {
     id: 'infrastructure',
-    name: '基础设施',
+    name: '云服务',
     icon: 'fa-cubes',
     modules: ['paas', 'dns', 'aliyun', 'tencent', 'server'],
   },

@@ -83,7 +83,7 @@ const TOTP_INPUT_MODE_OPTIONS = [
 const GROUP_LABELS = {
   overview: '总览',
   'api-gateway': 'API 网关',
-  infrastructure: '基础设施',
+  infrastructure: '云服务',
   toolbox: '工具箱',
 };
 
