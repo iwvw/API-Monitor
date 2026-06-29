@@ -46,7 +46,7 @@ import {
   Sliders,
   Settings as SettingsIcon,
   Copy,
-  AlertTriangle
+  AlertTriangle,
 } from '../components/Icons.jsx';
 
 function OpenAIPage() {
@@ -66,7 +66,7 @@ function OpenAIPage() {
   }, []);
 
   // IP/Address Masking Helper
-  const maskAddress = (address) => {
+  const maskAddress = address => {
     if (!address) return '';
     try {
       const url = new URL(address);
@@ -79,7 +79,7 @@ function OpenAIPage() {
     }
   };
 
-  const maskApiKey = (key) => {
+  const maskApiKey = key => {
     if (!key) return '';
     if (key.length <= 8) return '****';
     return key.substring(0, 4) + '****' + key.substring(key.length - 4);
@@ -124,15 +124,15 @@ function OpenAIPage() {
     return {
       defaultPersona,
       readPersonas,
-      savePersonas: (nextPersonas) => writeJson(personasKey, nextPersonas),
+      savePersonas: nextPersonas => writeJson(personasKey, nextPersonas),
       readSessions,
-      saveSessions: (nextSessions) => writeJson(sessionsKey, nextSessions),
-      readSessionMessages: (sessionId) => {
+      saveSessions: nextSessions => writeJson(sessionsKey, nextSessions),
+      readSessionMessages: sessionId => {
         const messagesBySession = readMessages();
         return Array.isArray(messagesBySession[sessionId]) ? messagesBySession[sessionId] : [];
       },
       saveSessionMessages: writeMessagesForSession,
-      deleteSessionMessages: (sessionId) => {
+      deleteSessionMessages: sessionId => {
         const bySession = readMessages();
         delete bySession[sessionId];
         writeJson(messagesKey, bySession);
@@ -148,7 +148,12 @@ function OpenAIPage() {
   const [expandedEndpoints, setExpandedEndpoints] = useState({});
   const [endpointFormOpen, setEndpointFormOpen] = useState(false);
   const [editingEndpoint, setEditingEndpoint] = useState(null);
-  const [endpointForm, setEndpointForm] = useState({ name: '', baseUrl: '', apiKey: '', notes: '' });
+  const [endpointForm, setEndpointForm] = useState({
+    name: '',
+    baseUrl: '',
+    apiKey: '',
+    notes: '',
+  });
   const [endpointFormError, setEndpointFormError] = useState('');
   const [endpointSaving, setEndpointSaving] = useState(false);
 
@@ -159,27 +164,33 @@ function OpenAIPage() {
   const [batchAdding, setBatchAdding] = useState(false);
 
   // Load Endpoints
-  const loadEndpoints = useCallback(async (silent = false) => {
-    if (!silent) setEndpointsLoading(true);
-    try {
-      const response = await fetch('/api/openai/endpoints', {
-        headers: getAuthHeaders(),
-      });
-      const data = await response.json();
-      if (Array.isArray(data)) {
-        setEndpoints(data.map(ep => ({ ...ep, showKey: false, refreshing: false })));
-        localStorage.setItem('openai_endpoints_cache', JSON.stringify({
-          endpoints: data,
-          timestamp: Date.now()
-        }));
+  const loadEndpoints = useCallback(
+    async (silent = false) => {
+      if (!silent) setEndpointsLoading(true);
+      try {
+        const response = await fetch('/api/openai/endpoints', {
+          headers: getAuthHeaders(),
+        });
+        const data = await response.json();
+        if (Array.isArray(data)) {
+          setEndpoints(data.map(ep => ({ ...ep, showKey: false, refreshing: false })));
+          localStorage.setItem(
+            'openai_endpoints_cache',
+            JSON.stringify({
+              endpoints: data,
+              timestamp: Date.now(),
+            })
+          );
+        }
+      } catch (error) {
+        console.error('Failed to load endpoints:', error);
+        toast.error('加载端点失败');
+      } finally {
+        if (!silent) setEndpointsLoading(false);
       }
-    } catch (error) {
-      console.error('Failed to load endpoints:', error);
-      toast.error('加载端点失败');
-    } finally {
-      if (!silent) setEndpointsLoading(false);
-    }
-  }, [getAuthHeaders]);
+    },
+    [getAuthHeaders]
+  );
 
   useEffect(() => {
     // Try cache first
@@ -198,12 +209,12 @@ function OpenAIPage() {
   }, [loadEndpoints]);
 
   // Expand endpoint models grid
-  const toggleEndpointExpand = (id) => {
+  const toggleEndpointExpand = id => {
     setExpandedEndpoints(prev => ({ ...prev, [id]: !prev[id] }));
   };
 
   // Endpoint Verification & Model Refresh
-  const verifyEndpoint = async (endpoint) => {
+  const verifyEndpoint = async endpoint => {
     try {
       toast.info(`正在验证 ${endpoint.name || '端点'}...`);
       const response = await fetch(`/api/openai/endpoints/${endpoint.id}/verify`, {
@@ -222,10 +233,10 @@ function OpenAIPage() {
     }
   };
 
-  const refreshEndpointModels = async (endpoint) => {
+  const refreshEndpointModels = async endpoint => {
     if (endpoint.refreshing) return;
     // Set local refreshing
-    setEndpoints(prev => prev.map(e => e.id === endpoint.id ? { ...e, refreshing: true } : e));
+    setEndpoints(prev => prev.map(e => (e.id === endpoint.id ? { ...e, refreshing: true } : e)));
     try {
       const response = await fetch(`/api/openai/endpoints/${endpoint.id}/verify`, {
         method: 'POST',
@@ -241,7 +252,7 @@ function OpenAIPage() {
     } catch (error) {
       toast.error('刷新失败: ' + error.message);
     } finally {
-      setEndpoints(prev => prev.map(e => e.id === endpoint.id ? { ...e, refreshing: false } : e));
+      setEndpoints(prev => prev.map(e => (e.id === endpoint.id ? { ...e, refreshing: false } : e)));
     }
   };
 
@@ -267,10 +278,12 @@ function OpenAIPage() {
     }
   };
 
-  const toggleEndpointEnabled = async (endpoint) => {
+  const toggleEndpointEnabled = async endpoint => {
     const updatedEnabled = !endpoint.enabled;
     // Optimistic UI update
-    setEndpoints(prev => prev.map(e => e.id === endpoint.id ? { ...e, enabled: updatedEnabled } : e));
+    setEndpoints(prev =>
+      prev.map(e => (e.id === endpoint.id ? { ...e, enabled: updatedEnabled } : e))
+    );
     try {
       const response = await fetch(`/api/openai/endpoints/${endpoint.id}/toggle`, {
         method: 'POST',
@@ -281,14 +294,18 @@ function OpenAIPage() {
       if (!data.success) {
         toast.error('操作失败: ' + (data.error || '未知错误'));
         // Rollback
-        setEndpoints(prev => prev.map(e => e.id === endpoint.id ? { ...e, enabled: !updatedEnabled } : e));
+        setEndpoints(prev =>
+          prev.map(e => (e.id === endpoint.id ? { ...e, enabled: !updatedEnabled } : e))
+        );
       } else {
         toast.success(updatedEnabled ? '端点已启用' : '端点已禁用');
         loadAllModels(true);
       }
     } catch (error) {
       toast.error('操作失败: ' + error.message);
-      setEndpoints(prev => prev.map(e => e.id === endpoint.id ? { ...e, enabled: !updatedEnabled } : e));
+      setEndpoints(prev =>
+        prev.map(e => (e.id === endpoint.id ? { ...e, enabled: !updatedEnabled } : e))
+      );
     }
   };
 
@@ -299,7 +316,7 @@ function OpenAIPage() {
     setEndpointFormOpen(true);
   };
 
-  const openEditEndpointModal = (endpoint) => {
+  const openEditEndpointModal = endpoint => {
     setEditingEndpoint(endpoint);
     setEndpointForm({
       name: endpoint.name || '',
@@ -343,7 +360,7 @@ function OpenAIPage() {
     }
   };
 
-  const deleteEndpoint = async (endpoint) => {
+  const deleteEndpoint = async endpoint => {
     if (!(await dialog.confirm(`确定要删除端点 "${endpoint.name || endpoint.baseUrl}" 吗？`))) {
       return;
     }
@@ -490,7 +507,7 @@ function OpenAIPage() {
     }
   });
 
-  const saveModelHealth = (health) => {
+  const saveModelHealth = health => {
     setOpenaiModelHealth(health);
     localStorage.setItem('openai_model_health_cache', JSON.stringify(health));
   };
@@ -507,7 +524,7 @@ function OpenAIPage() {
     const modelId = model.id;
     saveModelHealth(prev => ({
       ...prev,
-      [modelId]: { status: 'checking', loading: true, latency: null, checkedAt: Date.now() }
+      [modelId]: { status: 'checking', loading: true, latency: null, checkedAt: Date.now() },
     }));
 
     try {
@@ -530,18 +547,30 @@ function OpenAIPage() {
       if (response.ok) {
         saveModelHealth(prev => ({
           ...prev,
-          [modelId]: { status: 'healthy', loading: false, latency, checkedAt: Date.now() }
+          [modelId]: { status: 'healthy', loading: false, latency, checkedAt: Date.now() },
         }));
       } else {
         saveModelHealth(prev => ({
           ...prev,
-          [modelId]: { status: 'error', loading: false, latency: null, checkedAt: Date.now(), error: `HTTP ${response.status}` }
+          [modelId]: {
+            status: 'error',
+            loading: false,
+            latency: null,
+            checkedAt: Date.now(),
+            error: `HTTP ${response.status}`,
+          },
         }));
       }
     } catch (e) {
       saveModelHealth(prev => ({
         ...prev,
-        [modelId]: { status: 'error', loading: false, latency: null, checkedAt: Date.now(), error: e.message }
+        [modelId]: {
+          status: 'error',
+          loading: false,
+          latency: null,
+          checkedAt: Date.now(),
+          error: e.message,
+        },
       }));
     }
   };
@@ -583,7 +612,7 @@ function OpenAIPage() {
     setModelHealthBatchLoading(false);
   };
 
-  const openHealthCheckForEndpoint = async (endpointId) => {
+  const openHealthCheckForEndpoint = async endpointId => {
     const ep = endpoints.find(e => e.id === endpointId);
     if (!ep || !ep.models || ep.models.length === 0) {
       toast.warning('该端点无可用模型');
@@ -677,48 +706,51 @@ function OpenAIPage() {
     return () => window.removeEventListener('click', handleOutsideClick);
   }, []);
 
-  const loadAllModels = useCallback(async (silent = false) => {
-    try {
-      const response = await fetch('/api/openai/v1/models', {
-        headers: getAuthHeaders(),
-      });
-      const data = await response.json();
-      if (data && Array.isArray(data.data)) {
-        const sorted = data.data.sort((a, b) => {
-          if (a.owned_by !== b.owned_by) return a.owned_by.localeCompare(b.owned_by);
-          return a.id.localeCompare(b.id);
+  const loadAllModels = useCallback(
+    async (silent = false) => {
+      try {
+        const response = await fetch('/api/openai/v1/models', {
+          headers: getAuthHeaders(),
         });
-        setAllModels(sorted);
+        const data = await response.json();
+        if (data && Array.isArray(data.data)) {
+          const sorted = data.data.sort((a, b) => {
+            if (a.owned_by !== b.owned_by) return a.owned_by.localeCompare(b.owned_by);
+            return a.id.localeCompare(b.id);
+          });
+          setAllModels(sorted);
 
-        // Smart initialize model
-        if (sorted.length > 0) {
-          const currentModel = localStorage.getItem('openai_chat_model');
-          let modelIsValid = false;
-          if (currentModel) {
-            modelIsValid = sorted.some(m => m.id === currentModel);
-          }
-          if (!modelIsValid) {
-            const defModel = localStorage.getItem('openai_default_model');
-            if (defModel && sorted.some(m => m.id === defModel)) {
-              setChatModel(defModel);
-              localStorage.setItem('openai_chat_model', defModel);
-            } else {
-              setChatModel(sorted[0].id);
-              localStorage.setItem('openai_chat_model', sorted[0].id);
+          // Smart initialize model
+          if (sorted.length > 0) {
+            const currentModel = localStorage.getItem('openai_chat_model');
+            let modelIsValid = false;
+            if (currentModel) {
+              modelIsValid = sorted.some(m => m.id === currentModel);
+            }
+            if (!modelIsValid) {
+              const defModel = localStorage.getItem('openai_default_model');
+              if (defModel && sorted.some(m => m.id === defModel)) {
+                setChatModel(defModel);
+                localStorage.setItem('openai_chat_model', defModel);
+              } else {
+                setChatModel(sorted[0].id);
+                localStorage.setItem('openai_chat_model', sorted[0].id);
+              }
             }
           }
         }
+      } catch (error) {
+        console.error('Failed to load models list:', error);
       }
-    } catch (error) {
-      console.error('Failed to load models list:', error);
-    }
-  }, [getAuthHeaders]);
+    },
+    [getAuthHeaders]
+  );
 
   useEffect(() => {
     loadAllModels(true);
   }, [loadAllModels]);
 
-  const togglePinModel = (modelId) => {
+  const togglePinModel = modelId => {
     if (!modelId) return;
     setPinnedModels(prev => {
       let next;
@@ -732,7 +764,7 @@ function OpenAIPage() {
     });
   };
 
-  const toggleHideModel = (modelId) => {
+  const toggleHideModel = modelId => {
     if (!modelId) return;
     setHiddenModels(prev => {
       let next;
@@ -781,7 +813,7 @@ function OpenAIPage() {
     setOpenaiTitleModelToAdd('');
   };
 
-  const removeTitleModel = (modelId) => {
+  const removeTitleModel = modelId => {
     const next = openaiTitleModels.filter(m => m !== modelId);
     setOpenaiTitleModels(next);
     saveAutoTitleSettings(openaiAutoTitleEnabled, next);
@@ -805,27 +837,36 @@ function OpenAIPage() {
   };
 
   // ==================== 4. Personas State ====================
-  const [personas, setPersonas] = useState(() => chatStorage.readPersonas());
+  const [personas, setPersonas] = useState([]);
   const [currentPersonaId, setCurrentPersonaId] = useState(null);
   const [showPersonaDropdown, setShowPersonaDropdown] = useState(false);
   const [personaModalOpen, setPersonaModalOpen] = useState(false);
   const [editingPersona, setEditingPersona] = useState(null);
   const [personaForm, setPersonaForm] = useState({ name: '', icon: 'fa-robot', systemPrompt: '' });
 
-  const loadPersonas = useCallback(() => {
-    const nextPersonas = chatStorage.readPersonas();
-    setPersonas(nextPersonas);
-    if (nextPersonas.length > 0 && !currentPersonaId) {
-      setCurrentPersonaId(nextPersonas[0].id);
-      setOpenaiChatSystemPrompt(nextPersonas[0].system_prompt);
+  const fetchPersonas = useCallback(async () => {
+    try {
+      const response = await fetch('/api/openai/personas', { headers: getAuthHeaders() });
+      if (response.ok) {
+        const data = await response.json();
+        setPersonas(data || []);
+        if (data && data.length > 0 && !currentPersonaId) {
+          setCurrentPersonaId(data[0].id);
+          setOpenaiChatSystemPrompt(data[0].system_prompt);
+        }
+      }
+    } catch (e) {
+      console.error('Failed to fetch personas:', e);
     }
-  }, [chatStorage, currentPersonaId]);
+  }, [getAuthHeaders, currentPersonaId]);
 
   useEffect(() => {
-    loadPersonas();
-  }, [loadPersonas]);
+    if (activeTab === 'chat') {
+      fetchPersonas();
+    }
+  }, [activeTab, fetchPersonas]);
 
-  const handleSelectPersona = (personaId) => {
+  const handleSelectPersona = personaId => {
     setCurrentPersonaId(personaId);
     setShowPersonaDropdown(false);
     const p = personas.find(item => item.id === personaId);
@@ -855,52 +896,73 @@ function OpenAIPage() {
       return;
     }
     try {
-      const nextPersona = {
-        id: editingPersona?.id || chatStorage.newId(),
+      const id = editingPersona?.id || `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+      const payload = {
+        id,
         name: personaForm.name,
         icon: personaForm.icon,
         system_prompt: personaForm.systemPrompt,
-        is_default: editingPersona?.is_default || 0,
       };
-      const nextPersonas = editingPersona
-        ? personas.map(item => item.id === editingPersona.id ? nextPersona : item)
-        : [nextPersona, ...personas];
-      chatStorage.savePersonas(nextPersonas);
-      setPersonas(nextPersonas);
-      if (!currentPersonaId) setCurrentPersonaId(nextPersona.id);
-        toast.success(editingPersona ? '人设已更新' : '人设已创建');
+
+      const response = await fetch(
+        editingPersona ? `/api/openai/personas/${editingPersona.id}` : '/api/openai/personas',
+        {
+          method: editingPersona ? 'PUT' : 'POST',
+          headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+
+      await fetchPersonas();
+      if (!currentPersonaId) {
+        setCurrentPersonaId(id);
+        setOpenaiChatSystemPrompt(personaForm.systemPrompt);
+      }
+      toast.success(editingPersona ? '人设已更新' : '人设已创建');
       setPersonaModalOpen(false);
     } catch (e) {
       toast.error('保存失败: ' + e.message);
     }
   };
 
-  const deletePersona = async (personaId) => {
+  const deletePersona = async personaId => {
     if (!(await dialog.confirm('确定要删除这个 AI 人设吗？'))) {
       return;
     }
     try {
       const persona = personas.find(item => item.id === personaId);
       if (persona?.is_default) {
-      toast.warning('请输入名称和提示词');
+        toast.warning('无法删除默认人设');
         return;
       }
-      const nextPersonas = personas.filter(item => item.id !== personaId);
-      chatStorage.savePersonas(nextPersonas);
-      setPersonas(nextPersonas);
+      const response = await fetch(`/api/openai/personas/${personaId}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      await fetchPersonas();
       if (currentPersonaId === personaId) {
-        const fallback = nextPersonas[0] || chatStorage.defaultPersona;
+        const fallback = personas.find(item => item.is_default === 1) || {
+          id: '1',
+          system_prompt: '你是一个有用的 AI 助手。',
+        };
         setCurrentPersonaId(fallback.id);
         setOpenaiChatSystemPrompt(fallback.system_prompt);
       }
-    toast.success('已清除默认模型');
+      toast.success('人设已删除');
     } catch (e) {
-      toast.error('保存失败: ' + e.message);
+      toast.error('删除失败: ' + e.message);
     }
   };
 
   // ==================== 5. Chat History & Streaming ====================
-  const [sessions, setSessions] = useState(() => chatStorage.readSessions());
+  const [sessions, setSessions] = useState([]);
   const [currentSessionId, setCurrentSessionId] = useState(null);
   const [messages, setMessages] = useState([]);
   const [messageInput, setMessageInput] = useState('');
@@ -914,93 +976,186 @@ function OpenAIPage() {
   const abortControllerRef = useRef(null);
   const messagesEndRef = useRef(null);
 
-  const persistSessions = useCallback((updater) => {
-    setSessions(prev => {
-      const next = typeof updater === 'function' ? updater(prev) : updater;
-      chatStorage.saveSessions(next);
-      return next;
-    });
-  }, [chatStorage]);
+  const fetchSessions = useCallback(async () => {
+    try {
+      const response = await fetch('/api/openai/sessions', { headers: getAuthHeaders() });
+      if (response.ok) {
+        const data = await response.json();
+        setSessions(data || []);
+      }
+    } catch (e) {
+      console.error('Failed to fetch sessions:', e);
+    }
+  }, [getAuthHeaders]);
 
-  const persistMessages = useCallback((sessionId, updater) => {
-    setMessages(prev => {
-      const next = typeof updater === 'function' ? updater(prev) : updater;
-      if (sessionId) chatStorage.saveSessionMessages(sessionId, next);
-      return next;
-    });
-  }, [chatStorage]);
-
-  const loadSessions = useCallback(() => {
-    setSessions(chatStorage.readSessions());
-  }, [chatStorage]);
+  const fetchMessages = useCallback(
+    async sessionId => {
+      if (!sessionId) {
+        setMessages([]);
+        return;
+      }
+      setChatHistoryLoading(true);
+      try {
+        const response = await fetch(`/api/openai/sessions/${sessionId}/messages`, {
+          headers: getAuthHeaders(),
+        });
+        if (response.ok) {
+          const data = await response.json();
+          setMessages(data || []);
+        }
+      } catch (e) {
+        console.error('Failed to fetch messages:', e);
+        toast.error('加载消息失败');
+      } finally {
+        setChatHistoryLoading(false);
+      }
+    },
+    [getAuthHeaders]
+  );
 
   useEffect(() => {
     if (activeTab === 'chat') {
-      loadSessions();
+      fetchSessions();
     }
-  }, [activeTab, loadSessions]);
+  }, [activeTab, fetchSessions]);
 
-  const loadSession = async (sessionId) => {
-    if (chatLoading) return;
-    setChatHistoryLoading(true);
-    try {
-      setCurrentSessionId(sessionId);
-      setMessages(chatStorage.readSessionMessages(sessionId));
+  // One-time data migration from localStorage to backend SQLite
+  useEffect(() => {
+    const migrateData = async () => {
+      try {
+        const legacyPersonas = localStorage.getItem('openai_chat_personas_v2');
+        const legacySessions = localStorage.getItem('openai_chat_sessions_v2');
+        const legacyMessages = localStorage.getItem('openai_chat_messages_v2');
 
-      const session = sessions.find(s => s.id === sessionId);
-      if (session) {
-        if (session.model) {
-          setChatModel(session.model);
-          localStorage.setItem('openai_chat_model', session.model);
+        if (legacyPersonas) {
+          const parsedPersonas = JSON.parse(legacyPersonas);
+          for (const p of parsedPersonas) {
+            if (String(p.id) === '1') continue; // Skip default
+            await fetch('/api/openai/personas', {
+              method: 'POST',
+              headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                id: String(p.id),
+                name: p.name,
+                icon: p.icon,
+                system_prompt: p.system_prompt,
+              }),
+            });
+          }
+          localStorage.removeItem('openai_chat_personas_v2');
         }
-        if (session.endpoint_id) {
-          setChatEndpoint(session.endpoint_id);
-          localStorage.setItem('openai_chat_endpoint', session.endpoint_id);
+
+        if (legacySessions) {
+          const parsedSessions = JSON.parse(legacySessions);
+          const parsedMessages = legacyMessages ? JSON.parse(legacyMessages) : {};
+
+          for (const s of parsedSessions) {
+            await fetch('/api/openai/sessions', {
+              method: 'POST',
+              headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                id: String(s.id),
+                title: s.title,
+                model: s.model,
+                endpoint_id: s.endpoint_id,
+                persona_id: String(s.persona_id),
+                system_prompt: s.system_prompt,
+              }),
+            });
+
+            const msgs = parsedMessages[s.id] || [];
+            for (const m of msgs) {
+              await fetch(`/api/openai/sessions/${s.id}/messages`, {
+                method: 'POST',
+                headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  id: m.id || `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+                  role: m.role,
+                  content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
+                  reasoning: m.reasoning || '',
+                  timestamp: m.timestamp,
+                }),
+              });
+            }
+          }
+          localStorage.removeItem('openai_chat_sessions_v2');
+          if (legacyMessages) {
+            localStorage.removeItem('openai_chat_messages_v2');
+          }
         }
-        if (session.persona_id) {
-          setCurrentPersonaId(session.persona_id);
-          const p = personas.find(item => item.id === session.persona_id);
-          if (p) setOpenaiChatSystemPrompt(p.system_prompt);
+
+        if (activeTab === 'chat') {
+          await fetchPersonas();
+          await fetchSessions();
         }
+      } catch (err) {
+        console.error('Data migration error:', err);
       }
-    } catch (error) {
-      toast.error('加载会话失败');
-    } finally {
-      setChatHistoryLoading(false);
-      setMobileSidebarOpen(false);
+    };
+
+    migrateData();
+  }, [activeTab, fetchPersonas, fetchSessions, getAuthHeaders]);
+
+  const loadSession = async sessionId => {
+    if (chatLoading) return;
+    setCurrentSessionId(sessionId);
+    await fetchMessages(sessionId);
+
+    const session = sessions.find(s => s.id === sessionId);
+    if (session) {
+      if (session.model) {
+        setChatModel(session.model);
+        localStorage.setItem('openai_chat_model', session.model);
+      }
+      if (session.endpoint_id) {
+        setChatEndpoint(session.endpoint_id);
+        localStorage.setItem('openai_chat_endpoint', session.endpoint_id);
+      }
+      if (session.persona_id) {
+        setCurrentPersonaId(session.persona_id);
+        const p = personas.find(item => item.id === session.persona_id);
+        if (p) setOpenaiChatSystemPrompt(p.system_prompt);
+      }
     }
+    setMobileSidebarOpen(false);
   };
 
   const createSession = async (resetToDefault = false) => {
     try {
-      const globalSystemPrompt = localStorage.getItem('openai_system_prompt') || '你是一个有用的 AI 助手。';
+      const globalSystemPrompt =
+        localStorage.getItem('openai_system_prompt') || '你是一个有用的 AI 助手。';
       let finalModel = chatModel;
       if (defaultChatModel && (resetToDefault || !chatModel)) {
         finalModel = defaultChatModel;
-        setChatModel(def => {
-          localStorage.setItem('openai_chat_model', def);
-          return def;
-        });
+        setChatModel(finalModel);
+        localStorage.setItem('openai_chat_model', finalModel);
       }
 
       const currentPersona = personas.find(p => p.id === currentPersonaId);
       const systemPrompt = currentPersona ? currentPersona.system_prompt : globalSystemPrompt;
-      const session = {
-        id: chatStorage.newId(),
+      const id = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
+      const response = await fetch('/api/openai/sessions', {
+        method: 'POST',
+        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id,
           title: '新对话',
-        model: finalModel,
-        endpoint_id: chatEndpoint || '',
-        persona_id: currentPersonaId,
-        system_prompt: systemPrompt,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      };
-      persistSessions(prev => [session, ...prev]);
-      setCurrentSessionId(session.id);
-      persistMessages(session.id, []);
-    toast.success('已清除默认模型');
+          model: finalModel,
+          endpoint_id: chatEndpoint || '',
+          persona_id: currentPersonaId || '1',
+          system_prompt: systemPrompt,
+        }),
+      });
+
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+      await fetchSessions();
+      setCurrentSessionId(id);
+      setMessages([]);
+      toast.success('新建会话成功');
     } catch (error) {
-      toast.error('加载会话失败');
+      toast.error('创建会话失败: ' + error.message);
     }
   };
 
@@ -1008,15 +1163,19 @@ function OpenAIPage() {
     if (e) e.stopPropagation();
     if (!(await dialog.confirm('确定要删除这个对话吗？此操作不可撤销。'))) return;
     try {
-      persistSessions(prev => prev.filter(s => s.id !== sessionId));
-      chatStorage.deleteSessionMessages(sessionId);
+      const response = await fetch(`/api/openai/sessions/${sessionId}`, {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      await fetchSessions();
       if (currentSessionId === sessionId) {
         setCurrentSessionId(null);
         setMessages([]);
       }
-        toast.success('人设已删除');
+      toast.success('会话已删除');
     } catch (error) {
-      toast.error('加载会话失败');
+      toast.error('删除会话失败: ' + error.message);
     }
   };
 
@@ -1024,31 +1183,40 @@ function OpenAIPage() {
     if (selectedSessionIds.length === 0) return;
     if (!(await dialog.confirm(`确定要删除选中的 ${selectedSessionIds.length} 个对话吗？`))) return;
     try {
-      persistSessions(prev => prev.filter(s => !selectedSessionIds.includes(s.id)));
-      selectedSessionIds.forEach(id => chatStorage.deleteSessionMessages(id));
+      for (const id of selectedSessionIds) {
+        await fetch(`/api/openai/sessions/${id}`, {
+          method: 'DELETE',
+          headers: getAuthHeaders(),
+        });
+      }
+      await fetchSessions();
       if (selectedSessionIds.includes(currentSessionId)) {
         setCurrentSessionId(null);
         setMessages([]);
       }
       setSelectedSessionIds([]);
-        toast.success('人设已删除');
+      toast.success('所选会话已删除');
     } catch (error) {
-      toast.error('加载会话失败');
+      toast.error('删除会话失败: ' + error.message);
     }
   };
 
   const clearAllSessions = async () => {
     if (sessions.length === 0) return;
-    if (!(await dialog.confirm('确定要删除这个对话吗？此操作不可撤销。'))) return;
+    if (!(await dialog.confirm('确定要清空所有会话历史吗？此操作不可撤销。'))) return;
     try {
-      sessions.forEach(session => chatStorage.deleteSessionMessages(session.id));
-      persistSessions([]);
+      const response = await fetch('/api/openai/sessions', {
+        method: 'DELETE',
+        headers: getAuthHeaders(),
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      await fetchSessions();
       setCurrentSessionId(null);
       setMessages([]);
       setSelectedSessionIds([]);
-        toast.success('人设已删除');
+      toast.success('所有会话已清空');
     } catch (error) {
-      toast.error('加载会话失败');
+      toast.error('清空会话失败: ' + error.message);
     }
   };
 
@@ -1068,27 +1236,30 @@ function OpenAIPage() {
   };
 
   // Generate Title
-  const generateTitleWithFallback = async (messagesList) => {
+  const generateTitleWithFallback = async messagesList => {
     const modelsToTry = openaiTitleModels.length > 0 ? [...openaiTitleModels] : [chatModel];
-    const conversationText = messagesList.slice(0, 4).map(msg => {
-      const role = msg.role === 'user' ? '用户' : '助手';
-      let text = '';
-      if (typeof msg.content === 'string') {
-        text = msg.content;
-      } else if (Array.isArray(msg.content)) {
-        const textParts = msg.content.filter(p => p.type === 'text').map(p => p.text);
-        text = textParts.join(' ') || '[图片]';
-      }
-      return `${role}: ${text.slice(0, 200)}`;
-    }).join('\n');
+    const conversationText = messagesList
+      .slice(0, 4)
+      .map(msg => {
+        const role = msg.role === 'user' ? '用户' : '助手';
+        let text = '';
+        if (typeof msg.content === 'string') {
+          text = msg.content;
+        } else if (Array.isArray(msg.content)) {
+          const textParts = msg.content.filter(p => p.type === 'text').map(p => p.text);
+          text = textParts.join(' ') || '[图片]';
+        }
+        return `${role}: ${text.slice(0, 200)}`;
+      })
+      .join('\n');
 
     const titlePrompt = `请根据以下对话内容，生成一个简洁的中文标题（最多15个字，不要使用标点符号，直接输出标题内容）：\n\n${conversationText}\n\n标题：`;
 
     for (const modelId of modelsToTry) {
       try {
         const headers = { ...getAuthHeaders(), 'Content-Type': 'application/json' };
-        const endpoint = endpoints.find(ep =>
-          ep.models && ep.models.some(m => (typeof m === 'string' ? m : m.id) === modelId)
+        const endpoint = endpoints.find(
+          ep => ep.models && ep.models.some(m => (typeof m === 'string' ? m : m.id) === modelId)
         );
         if (endpoint) {
           headers['x-endpoint-id'] = endpoint.id;
@@ -1125,13 +1296,29 @@ function OpenAIPage() {
     throw new Error('All models failed to generate title');
   };
 
-  const updateSession = useCallback((sessionId, patch) => {
-    persistSessions(prev => prev.map(session => (
-      session.id === sessionId
-        ? { ...session, ...patch, updated_at: new Date().toISOString() }
-        : session
-    )));
-  }, [persistSessions]);
+  const updateSession = useCallback(
+    async (sessionId, patch) => {
+      try {
+        const response = await fetch(`/api/openai/sessions/${sessionId}`, {
+          method: 'PUT',
+          headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+          body: JSON.stringify(patch),
+        });
+        if (response.ok) {
+          setSessions(prev =>
+            prev.map(session =>
+              session.id === sessionId
+                ? { ...session, ...patch, updated_at: new Date().toISOString() }
+                : session
+            )
+          );
+        }
+      } catch (e) {
+        console.error('Failed to update session:', e);
+      }
+    },
+    [getAuthHeaders]
+  );
 
   const generateChatTitle = async (currentMsgs, sessionId) => {
     if (!sessionId || currentMsgs.length < 2) return;
@@ -1161,7 +1348,8 @@ function OpenAIPage() {
     } catch (error) {
       const firstUser = currentMsgs.find(m => m.role === 'user');
       if (firstUser) {
-        let fallbackTitle = typeof firstUser.content === 'string' ? firstUser.content : '📷 图片对话';
+        let fallbackTitle =
+          typeof firstUser.content === 'string' ? firstUser.content : '📷 图片对话';
         fallbackTitle = fallbackTitle.slice(0, 18) + (fallbackTitle.length > 18 ? '...' : '');
         updateSession(sessionId, { title: fallbackTitle });
       }
@@ -1173,7 +1361,7 @@ function OpenAIPage() {
     setOpenaiTitleLastResult(null);
     const testMessages = [
       { role: 'user', content: '帮我解释一下什么是机器学习' },
-      { role: 'assistant', content: '机器学习是人工智能的一个分支，它使计算机能够从数据中学习...' }
+      { role: 'assistant', content: '机器学习是人工智能的一个分支，它使计算机能够从数据中学习...' },
     ];
     try {
       const result = await generateTitleWithFallback(testMessages);
@@ -1188,19 +1376,28 @@ function OpenAIPage() {
   // Chat message sending / streaming API
   const saveChatMessage = async (sessionId, role, content, reasoning = null) => {
     if (!sessionId) return null;
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
     const message = {
-      id: chatStorage.newId(),
+      id,
       role,
       content,
       reasoning: reasoning || '',
-      showReasoning: false,
       timestamp: new Date().toISOString(),
-      model: chatModel,
     };
-    const nextMessages = [...chatStorage.readSessionMessages(sessionId), message];
-    chatStorage.saveSessionMessages(sessionId, nextMessages);
-    updateSession(sessionId, { model: chatModel, endpoint_id: chatEndpoint || '' });
-    return message;
+    try {
+      const response = await fetch(`/api/openai/sessions/${sessionId}/messages`, {
+        method: 'POST',
+        headers: { ...getAuthHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify(message),
+      });
+      if (response.ok) {
+        await updateSession(sessionId, { model: chatModel, endpoint_id: chatEndpoint || '' });
+        return message;
+      }
+    } catch (e) {
+      console.error('Failed to save message:', e);
+    }
+    return null;
   };
 
   const stopGenerating = () => {
@@ -1248,7 +1445,7 @@ function OpenAIPage() {
         setCurrentSessionId(activeSessionId);
         chatStorage.saveSessionMessages(activeSessionId, []);
       } catch (err) {
-      toast.error('创建会话失败');
+        toast.error('创建会话失败');
         return;
       }
     }
@@ -1259,22 +1456,23 @@ function OpenAIPage() {
       currentAttachments.forEach(att => {
         userContent.push({
           type: 'image_url',
-          image_url: { url: att.url }
+          image_url: { url: att.url },
         });
       });
     } else {
       userContent = userText;
     }
 
-    const contentToSave = typeof userContent === 'string' ? userContent : JSON.stringify(userContent);
+    const contentToSave =
+      typeof userContent === 'string' ? userContent : JSON.stringify(userContent);
     const userMsg = {
       role: 'user',
       content: userContent,
       timestamp: new Date().toISOString(),
-      isNew: true
+      isNew: true,
     };
 
-    persistMessages(activeSessionId, prev => [...prev, userMsg]);
+    setMessages(prev => [...prev, userMsg]);
     setChatLoading(true);
 
     // Save user message
@@ -1289,8 +1487,11 @@ function OpenAIPage() {
     try {
       const messagesPayload = [
         { role: 'system', content: openaiChatSystemPrompt },
-        ...messages.map(m => ({ role: m.role, content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content) })),
-        { role: 'user', content: contentToSave }
+        ...messages.map(m => ({
+          role: m.role,
+          content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
+        })),
+        { role: 'user', content: contentToSave },
       ];
 
       const headers = {
@@ -1300,8 +1501,8 @@ function OpenAIPage() {
 
       let targetEpId = chatEndpoint;
       if (!targetEpId && chatModel) {
-        const found = endpoints.find(ep =>
-          ep.models && ep.models.some(m => (typeof m === 'string' ? m : m.id) === chatModel)
+        const found = endpoints.find(
+          ep => ep.models && ep.models.some(m => (typeof m === 'string' ? m : m.id) === chatModel)
         );
         if (found) targetEpId = found.id;
       }
@@ -1326,7 +1527,7 @@ function OpenAIPage() {
         try {
           const json = await response.json();
           errText = json.error?.message || json.message || JSON.stringify(json);
-        } catch { }
+        } catch {}
         throw new Error(errText);
       }
 
@@ -1339,10 +1540,10 @@ function OpenAIPage() {
         showReasoning: true,
         timestamp: new Date().toISOString(),
         model: chatModel,
-        isNew: true
+        isNew: true,
       };
 
-      persistMessages(activeSessionId, prev => [...prev, assistantMsg]);
+      setMessages(prev => [...prev, assistantMsg]);
 
       let buffer = '';
       while (true) {
@@ -1355,8 +1556,8 @@ function OpenAIPage() {
 
         for (const line of lines) {
           const trimmed = line.trim();
-          if (trimmed.startsWith('data: ')) {
-            const dataStr = trimmed.slice(6);
+          if (trimmed.startsWith('data:')) {
+            const dataStr = trimmed.slice(5).trim();
             if (dataStr === '[DONE]') break;
             try {
               const parsed = JSON.parse(dataStr);
@@ -1368,18 +1569,27 @@ function OpenAIPage() {
                 if (delta.content) {
                   assistantMsg.content += delta.content;
                 }
-                persistMessages(activeSessionId, prev => prev.map((m, idx) => idx === prev.length - 1 ? { ...assistantMsg } : m));
+                setMessages(prev =>
+                  prev.map((m, idx) => (idx === prev.length - 1 ? { ...assistantMsg } : m))
+                );
               }
-            } catch (e) { }
+            } catch (e) {}
           }
         }
       }
 
       // Save assistant message to DB
-      const saved = await saveChatMessage(activeSessionId, 'assistant', assistantMsg.content, assistantMsg.reasoning || null);
+      const saved = await saveChatMessage(
+        activeSessionId,
+        'assistant',
+        assistantMsg.content,
+        assistantMsg.reasoning || null
+      );
       if (saved && saved.id) {
         assistantMsg.id = saved.id;
-        persistMessages(activeSessionId, prev => prev.map((m, idx) => idx === prev.length - 1 ? { ...m, id: saved.id } : m));
+        setMessages(prev =>
+          prev.map((m, idx) => (idx === prev.length - 1 ? { ...m, id: saved.id } : m))
+        );
       }
 
       // Check auto title
@@ -1391,9 +1601,13 @@ function OpenAIPage() {
     } catch (error) {
       if (error.name === 'AbortError') return;
       toast.error('对话失败: ' + error.message);
-      persistMessages(activeSessionId, prev => [
+      setMessages(prev => [
         ...prev,
-        { role: 'assistant', content: `**??**: ${error.message}`, timestamp: new Date().toISOString() }
+        {
+          role: 'assistant',
+          content: `**??**: ${error.message}`,
+          timestamp: new Date().toISOString(),
+        },
       ]);
     } finally {
       setChatLoading(false);
@@ -1401,9 +1615,20 @@ function OpenAIPage() {
     }
   };
 
-  const deleteChatMessage = async (index) => {
+  const deleteChatMessage = async index => {
     if (index < 0 || index >= messages.length) return;
-    persistMessages(currentSessionId, prev => prev.filter((_, idx) => idx !== index));
+    const msg = messages[index];
+    if (msg && msg.id && currentSessionId) {
+      try {
+        await fetch(`/api/openai/sessions/${currentSessionId}/messages/${msg.id}`, {
+          method: 'DELETE',
+          headers: getAuthHeaders(),
+        });
+      } catch (e) {
+        console.error('Failed to delete message from backend:', e);
+      }
+    }
+    setMessages(prev => prev.filter((_, idx) => idx !== index));
   };
 
   const regenerateChat = async (index = -1) => {
@@ -1424,17 +1649,34 @@ function OpenAIPage() {
     const targetMsg = messages[targetIndex];
     if (!targetMsg) return;
 
-    const deleteCount = messages.length - (targetMsg.role === 'assistant' ? targetIndex : targetIndex + 1);
+    const deleteCount =
+      messages.length - (targetMsg.role === 'assistant' ? targetIndex : targetIndex + 1);
     const msgsToKeep = messages.slice(0, messages.length - deleteCount);
+    const msgsToDelete = messages.slice(messages.length - deleteCount);
+    for (const m of msgsToDelete) {
+      if (m.id && currentSessionId) {
+        try {
+          await fetch(`/api/openai/sessions/${currentSessionId}/messages/${m.id}`, {
+            method: 'DELETE',
+            headers: getAuthHeaders(),
+          });
+        } catch (e) {
+          console.error('Failed to delete message:', e);
+        }
+      }
+    }
 
-    persistMessages(currentSessionId, msgsToKeep);
+    setMessages(msgsToKeep);
     setChatLoading(true);
     abortControllerRef.current = new AbortController();
 
     try {
       const messagesPayload = [
         { role: 'system', content: openaiChatSystemPrompt },
-        ...msgsToKeep.map(m => ({ role: m.role, content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content) }))
+        ...msgsToKeep.map(m => ({
+          role: m.role,
+          content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content),
+        })),
       ];
 
       const headers = { ...getAuthHeaders(), 'Content-Type': 'application/json' };
@@ -1465,10 +1707,10 @@ function OpenAIPage() {
         showReasoning: true,
         timestamp: new Date().toISOString(),
         model: chatModel,
-        isNew: true
+        isNew: true,
       };
 
-      persistMessages(currentSessionId, prev => [...prev, assistantMsg]);
+      setMessages(prev => [...prev, assistantMsg]);
 
       let buffer = '';
       while (true) {
@@ -1481,8 +1723,8 @@ function OpenAIPage() {
 
         for (const line of lines) {
           const trimmed = line.trim();
-          if (trimmed.startsWith('data: ')) {
-            const dataStr = trimmed.slice(6);
+          if (trimmed.startsWith('data:')) {
+            const dataStr = trimmed.slice(5).trim();
             if (dataStr === '[DONE]') break;
             try {
               const parsed = JSON.parse(dataStr);
@@ -1494,16 +1736,25 @@ function OpenAIPage() {
                 if (delta.content) {
                   assistantMsg.content += delta.content;
                 }
-                persistMessages(currentSessionId, prev => prev.map((m, idx) => idx === prev.length - 1 ? { ...assistantMsg } : m));
+                setMessages(prev =>
+                  prev.map((m, idx) => (idx === prev.length - 1 ? { ...assistantMsg } : m))
+                );
               }
-            } catch (e) { }
+            } catch (e) {}
           }
         }
       }
 
-      const saved = await saveChatMessage(currentSessionId, 'assistant', assistantMsg.content, assistantMsg.reasoning || null);
+      const saved = await saveChatMessage(
+        currentSessionId,
+        'assistant',
+        assistantMsg.content,
+        assistantMsg.reasoning || null
+      );
       if (saved && saved.id) {
-        persistMessages(currentSessionId, prev => prev.map((m, idx) => idx === prev.length - 1 ? { ...m, id: saved.id } : m));
+        setMessages(prev =>
+          prev.map((m, idx) => (idx === prev.length - 1 ? { ...m, id: saved.id } : m))
+        );
       }
     } catch (error) {
       if (error.name === 'AbortError') return;
@@ -1516,8 +1767,19 @@ function OpenAIPage() {
 
   const clearChatLocal = async () => {
     if (currentSessionId) {
-      persistMessages(currentSessionId, []);
-        toast.success('已清空当前对话消息');
+      try {
+        const response = await fetch(`/api/openai/sessions/${currentSessionId}/messages`, {
+          method: 'DELETE',
+          headers: getAuthHeaders(),
+        });
+        if (response.ok) {
+          setMessages([]);
+          toast.success('已清空当前对话消息');
+        }
+      } catch (e) {
+        console.error('Failed to clear messages:', e);
+        toast.error('清空消息失败');
+      }
     } else {
       setMessages([]);
     }
@@ -1525,31 +1787,31 @@ function OpenAIPage() {
 
   // Image Upload handler
   const fileInputRef = useRef(null);
-  const handleFileChange = (e) => {
+  const handleFileChange = e => {
     const files = Array.from(e.target.files);
     files.forEach(file => {
       if (!file.type.startsWith('image/')) return;
       const reader = new FileReader();
-      reader.onload = (event) => {
+      reader.onload = event => {
         setAttachments(prev => [...prev, { file, url: event.target.result }]);
       };
       reader.readAsDataURL(file);
     });
   };
 
-  const removeAttachment = (idx) => {
+  const removeAttachment = idx => {
     setAttachments(prev => prev.filter((_, i) => i !== idx));
   };
 
   // Paste handler for images
-  const handlePaste = (e) => {
+  const handlePaste = e => {
     const items = e.clipboardData?.items;
     if (!items) return;
     for (const item of items) {
       if (item.type.startsWith('image/')) {
         const file = item.getAsFile();
         const reader = new FileReader();
-        reader.onload = (event) => {
+        reader.onload = event => {
           setAttachments(prev => [...prev, { file, url: event.target.result }]);
         };
         reader.readAsDataURL(file);
@@ -1561,12 +1823,21 @@ function OpenAIPage() {
   const filteredModelsList = useMemo(() => {
     const list = allModels.filter(m => {
       const matchesSearch = m.id.toLowerCase().includes(openaiModelSearch.toLowerCase());
-      const matchesEndpoint = !openaiSelectedEndpointId || m.owned_by === endpoints.find(e => e.id === openaiSelectedEndpointId)?.name;
+      const matchesEndpoint =
+        !openaiSelectedEndpointId ||
+        m.owned_by === endpoints.find(e => e.id === openaiSelectedEndpointId)?.name;
       const matchesHidden = openaiShowHiddenModels ? true : !hiddenModels.includes(m.id);
       return matchesSearch && matchesEndpoint && matchesHidden;
     });
     return list;
-  }, [allModels, openaiModelSearch, openaiSelectedEndpointId, endpoints, hiddenModels, openaiShowHiddenModels]);
+  }, [
+    allModels,
+    openaiModelSearch,
+    openaiSelectedEndpointId,
+    endpoints,
+    hiddenModels,
+    openaiShowHiddenModels,
+  ]);
 
   const chatDropdownFilteredModels = useMemo(() => {
     const allModelsMap = new Map();
@@ -1588,19 +1859,20 @@ function OpenAIPage() {
     return fullList.filter(m => {
       const matchesSearch = m.id.toLowerCase().includes(dropdownModelSearch.toLowerCase());
       // Filter by active endpoint
-      const matchesEndpoint = !chatEndpoint || m.owned_by === endpoints.find(e => e.id === chatEndpoint)?.name;
+      const matchesEndpoint =
+        !chatEndpoint || m.owned_by === endpoints.find(e => e.id === chatEndpoint)?.name;
       const isHidden = hiddenModels.includes(m.id);
       return matchesSearch && matchesEndpoint && !isHidden;
     });
   }, [allModels, endpoints, chatEndpoint, dropdownModelSearch, hiddenModels]);
 
-  const selectChatModel = (modelId) => {
+  const selectChatModel = modelId => {
     setChatModel(modelId);
     localStorage.setItem('openai_chat_model', modelId);
     setShowModelDropdown(false);
   };
 
-  const selectEndpoint = (epId) => {
+  const selectEndpoint = epId => {
     setChatEndpoint(epId);
     if (epId) {
       localStorage.setItem('openai_chat_endpoint', epId);
@@ -1628,9 +1900,33 @@ function OpenAIPage() {
           value={activeTab}
           onValueChange={setActiveTab}
           tabs={[
-            { value: 'endpoints', label: <span className="inline-flex items-center gap-1.5"><Server className="w-3.5 h-3.5" />API 端点</span> },
-            { value: 'accounts', label: <span className="inline-flex items-center gap-1.5"><Users className="w-3.5 h-3.5" />账号管理</span> },
-            { value: 'chat', label: <span className="inline-flex items-center gap-1.5"><MessageSquare className="w-3.5 h-3.5" />对话</span> },
+            {
+              value: 'endpoints',
+              label: (
+                <span className="inline-flex items-center gap-1.5">
+                  <Server className="w-3.5 h-3.5" />
+                  API 端点
+                </span>
+              ),
+            },
+            {
+              value: 'accounts',
+              label: (
+                <span className="inline-flex items-center gap-1.5">
+                  <Users className="w-3.5 h-3.5" />
+                  账号管理
+                </span>
+              ),
+            },
+            {
+              value: 'chat',
+              label: (
+                <span className="inline-flex items-center gap-1.5">
+                  <MessageSquare className="w-3.5 h-3.5" />
+                  对话
+                </span>
+              ),
+            },
           ]}
         />
       </div>
@@ -1641,15 +1937,26 @@ function OpenAIPage() {
           <div className="app-card flex items-center justify-between gap-3 px-4 py-3">
             <div className="flex items-center gap-2">
               <span className="text-xs font-semibold text-kumo-subtle">
-                {modelHealthBatchLoading ? '正在批量检测模型可用性...' : `共 ${endpoints.length} 个端点`}
+                {modelHealthBatchLoading
+                  ? '正在批量检测模型可用性...'
+                  : `共 ${endpoints.length} 个端点`}
               </span>
             </div>
             <div className="flex gap-2">
-              <Button size="sm" onClick={() => setHealthCheckModal(true)} className="flex items-center gap-1.5">
+              <Button
+                size="sm"
+                onClick={() => setHealthCheckModal(true)}
+                className="flex items-center gap-1.5"
+              >
                 <Activity className="w-3.5 h-3.5" />
                 <span>健康检测</span>
               </Button>
-              <Button size="sm" onClick={refreshAllEndpoints} disabled={endpointsRefreshing} className="flex items-center gap-1.5">
+              <Button
+                size="sm"
+                onClick={refreshAllEndpoints}
+                disabled={endpointsRefreshing}
+                className="flex items-center gap-1.5"
+              >
                 <RefreshCw className={`w-3.5 h-3.5 ${endpointsRefreshing ? 'animate-spin' : ''}`} />
                 <span>刷新列表</span>
               </Button>
@@ -1677,7 +1984,7 @@ function OpenAIPage() {
                 <p>暂无 API 端点，可在账号管理中添加</p>
               </div>
             ) : (
-              endpoints.map((endpoint) => {
+              endpoints.map(endpoint => {
                 const isExpanded = !!expandedEndpoints[endpoint.id];
                 const validStatus = endpoint.status === 'valid';
                 const invalidStatus = endpoint.status === 'invalid';
@@ -1695,9 +2002,7 @@ function OpenAIPage() {
                             isExpanded ? 'transform rotate-180' : ''
                           }`}
                         />
-                        <div
-                          className="w-10 h-10 rounded-lg flex items-center justify-center font-bold text-kumo-inverse text-sm bg-kumo-success"
-                        >
+                        <div className="w-10 h-10 rounded-lg flex items-center justify-center font-bold text-kumo-inverse text-sm bg-kumo-success">
                           {(endpoint.name || 'A').charAt(0).toUpperCase()}
                         </div>
                         <div className="min-w-0">
@@ -1707,8 +2012,8 @@ function OpenAIPage() {
                                 validStatus
                                   ? 'bg-kumo-success/10 text-kumo-success border-kumo-success/20'
                                   : invalidStatus
-                                  ? 'bg-kumo-danger/10 text-kumo-danger border-kumo-danger/20'
-                                  : 'bg-kumo-recessed text-kumo-subtle border-kumo-line'
+                                    ? 'bg-kumo-danger/10 text-kumo-danger border-kumo-danger/20'
+                                    : 'bg-kumo-recessed text-kumo-subtle border-kumo-line'
                               }`}
                             >
                               {validStatus ? '有效' : invalidStatus ? '无效' : '未验证'}
@@ -1725,10 +2030,11 @@ function OpenAIPage() {
 
                       <div className="flex items-center gap-2">
                         <Button
-                          shape="square" size="sm"
+                          shape="square"
+                          size="sm"
                           variant="ghost"
                           aria-label="模型健康检测"
-                          onClick={(e) => {
+                          onClick={e => {
                             e.stopPropagation();
                             openHealthCheckForEndpoint(endpoint.id);
                           }}
@@ -1738,17 +2044,20 @@ function OpenAIPage() {
                           <Activity className="w-4 h-4" />
                         </Button>
                         <Button
-                          shape="square" size="sm"
+                          shape="square"
+                          size="sm"
                           variant="ghost"
                           aria-label="刷新模型列表"
-                          onClick={(e) => {
+                          onClick={e => {
                             e.stopPropagation();
                             refreshEndpointModels(endpoint);
                           }}
                           className="text-kumo-subtle hover:text-kumo-strong"
                           title="刷新模型列表"
                         >
-                          <RefreshCw className={`w-4 h-4 ${endpoint.refreshing ? 'animate-spin' : ''}`} />
+                          <RefreshCw
+                            className={`w-4 h-4 ${endpoint.refreshing ? 'animate-spin' : ''}`}
+                          />
                         </Button>
                         <span className="text-[10px] app-subcard bg-kumo-recessed px-2 py-0.5 rounded text-kumo-strong font-semibold select-none">
                           模型: {endpoint.models ? endpoint.models.length : 0}
@@ -1761,8 +2070,9 @@ function OpenAIPage() {
                       <div className="border-t border-kumo-line bg-kumo-recessed/10 px-4 py-3">
                         {endpoint.models && endpoint.models.length > 0 ? (
                           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 md:grid-cols-3">
-                            {endpoint.models.map((model) => {
-                              const modelId = typeof model === 'string' ? model.trim() : (model.id || '').trim();
+                            {endpoint.models.map(model => {
+                              const modelId =
+                                typeof model === 'string' ? model.trim() : (model.id || '').trim();
                               const health = openaiModelHealth[modelId];
 
                               return (
@@ -1778,10 +2088,10 @@ function OpenAIPage() {
                                         health?.loading
                                           ? 'bg-kumo-brand animate-pulse'
                                           : health?.status === 'healthy'
-                                          ? 'bg-kumo-success'
-                                          : health?.status === 'error'
-                                          ? 'bg-kumo-danger'
-                                          : 'bg-kumo-subtle'
+                                            ? 'bg-kumo-success'
+                                            : health?.status === 'error'
+                                              ? 'bg-kumo-danger'
+                                              : 'bg-kumo-subtle'
                                       }`}
                                       title={
                                         health
@@ -1802,7 +2112,8 @@ function OpenAIPage() {
                                     </span>
                                   </div>
                                   <Button
-                                    shape="square" size="sm"
+                                    shape="square"
+                                    size="sm"
                                     variant="ghost"
                                     aria-label="复制模型名称"
                                     onClick={() => {
@@ -1843,15 +2154,29 @@ function OpenAIPage() {
               API 端点管理
             </h3>
             <div className="flex flex-wrap gap-2">
-              <Button size="sm" onClick={() => setHealthCheckModal(true)} className="flex items-center gap-1">
+              <Button
+                size="sm"
+                onClick={() => setHealthCheckModal(true)}
+                className="flex items-center gap-1"
+              >
                 <Activity className="w-3.5 h-3.5" />
                 <span>健康检测</span>
               </Button>
-              <Button size="sm" variant="primary" onClick={openAddEndpointModal} className="flex items-center gap-1">
+              <Button
+                size="sm"
+                variant="primary"
+                onClick={openAddEndpointModal}
+                className="flex items-center gap-1"
+              >
                 <Plus className="w-3.5 h-3.5" />
                 <span>添加账号</span>
               </Button>
-              <Button size="sm" onClick={refreshAllEndpoints} disabled={endpointsRefreshing} className="flex items-center gap-1">
+              <Button
+                size="sm"
+                onClick={refreshAllEndpoints}
+                disabled={endpointsRefreshing}
+                className="flex items-center gap-1"
+              >
                 <RefreshCw className={`w-3.5 h-3.5 ${endpointsRefreshing ? 'animate-spin' : ''}`} />
                 <span>刷新全部</span>
               </Button>
@@ -1878,27 +2203,27 @@ function OpenAIPage() {
                 <Table.Row>
                   <Table.Head className="relative group pr-6">
                     名称
-                    <Table.ResizeHandle onMouseDown={(e) => startResize(0, e)} />
+                    <Table.ResizeHandle onMouseDown={e => startResize(0, e)} />
                   </Table.Head>
                   <Table.Head className="relative group pr-6">
                     API 地址
-                    <Table.ResizeHandle onMouseDown={(e) => startResize(1, e)} />
+                    <Table.ResizeHandle onMouseDown={e => startResize(1, e)} />
                   </Table.Head>
                   <Table.Head className="relative group pr-6">
                     API Key
-                    <Table.ResizeHandle onMouseDown={(e) => startResize(2, e)} />
+                    <Table.ResizeHandle onMouseDown={e => startResize(2, e)} />
                   </Table.Head>
                   <Table.Head className="text-center relative group pr-6">
                     状态
-                    <Table.ResizeHandle onMouseDown={(e) => startResize(3, e)} />
+                    <Table.ResizeHandle onMouseDown={e => startResize(3, e)} />
                   </Table.Head>
                   <Table.Head className="text-center relative group pr-6">
                     启用
-                    <Table.ResizeHandle onMouseDown={(e) => startResize(4, e)} />
+                    <Table.ResizeHandle onMouseDown={e => startResize(4, e)} />
                   </Table.Head>
                   <Table.Head className="text-center relative group pr-6">
                     模型数量
-                    <Table.ResizeHandle onMouseDown={(e) => startResize(5, e)} />
+                    <Table.ResizeHandle onMouseDown={e => startResize(5, e)} />
                   </Table.Head>
                   <Table.Head className="text-center">操作</Table.Head>
                 </Table.Row>
@@ -1907,13 +2232,27 @@ function OpenAIPage() {
                 {endpointsLoading ? (
                   [...Array(3)].map((_, i) => (
                     <Table.Row key={i}>
-                      <Table.Cell><SkeletonLine className="w-20 h-4" /></Table.Cell>
-                      <Table.Cell><SkeletonLine className="w-40 h-4" /></Table.Cell>
-                      <Table.Cell><SkeletonLine className="w-32 h-4" /></Table.Cell>
-                      <Table.Cell className="text-center"><SkeletonLine className="w-12 h-4 mx-auto" /></Table.Cell>
-                      <Table.Cell className="text-center"><SkeletonLine className="w-8 h-4 mx-auto" /></Table.Cell>
-                      <Table.Cell className="text-center"><SkeletonLine className="w-6 h-4 mx-auto" /></Table.Cell>
-                      <Table.Cell><SkeletonLine className="w-24 h-4 mx-auto" /></Table.Cell>
+                      <Table.Cell>
+                        <SkeletonLine className="w-20 h-4" />
+                      </Table.Cell>
+                      <Table.Cell>
+                        <SkeletonLine className="w-40 h-4" />
+                      </Table.Cell>
+                      <Table.Cell>
+                        <SkeletonLine className="w-32 h-4" />
+                      </Table.Cell>
+                      <Table.Cell className="text-center">
+                        <SkeletonLine className="w-12 h-4 mx-auto" />
+                      </Table.Cell>
+                      <Table.Cell className="text-center">
+                        <SkeletonLine className="w-8 h-4 mx-auto" />
+                      </Table.Cell>
+                      <Table.Cell className="text-center">
+                        <SkeletonLine className="w-6 h-4 mx-auto" />
+                      </Table.Cell>
+                      <Table.Cell>
+                        <SkeletonLine className="w-24 h-4 mx-auto" />
+                      </Table.Cell>
                     </Table.Row>
                   ))
                 ) : endpoints.length === 0 ? (
@@ -1923,30 +2262,43 @@ function OpenAIPage() {
                     </Table.Cell>
                   </Table.Row>
                 ) : (
-                  endpoints.map((endpoint) => (
+                  endpoints.map(endpoint => (
                     <Table.Row
                       key={endpoint.id}
                       className="hover:bg-kumo-recessed/5 cursor-pointer"
                       title="双击编辑端点"
-                      onDoubleClick={(event) => handleEditableRowDoubleClick(event, () => openEditEndpointModal(endpoint))}
+                      onDoubleClick={event =>
+                        handleEditableRowDoubleClick(event, () => openEditEndpointModal(endpoint))
+                      }
                     >
-                      <Table.Cell className="font-bold text-kumo-strong">{endpoint.name || '未命名'}</Table.Cell>
+                      <Table.Cell className="font-bold text-kumo-strong">
+                        {endpoint.name || '未命名'}
+                      </Table.Cell>
                       <Table.Cell className="font-mono">{maskAddress(endpoint.baseUrl)}</Table.Cell>
                       <Table.Cell>
                         <div className="flex items-center gap-1.5 font-mono">
-                          <span>{endpoint.showKey ? endpoint.apiKey : maskApiKey(endpoint.apiKey)}</span>
+                          <span>
+                            {endpoint.showKey ? endpoint.apiKey : maskApiKey(endpoint.apiKey)}
+                          </span>
                           <Button
-                            shape="square" size="sm"
+                            shape="square"
+                            size="sm"
                             variant="ghost"
                             aria-label={endpoint.showKey ? '隐藏 API Key' : '显示 API Key'}
                             onClick={() =>
                               setEndpoints(prev =>
-                                prev.map(e => e.id === endpoint.id ? { ...e, showKey: !e.showKey } : e)
+                                prev.map(e =>
+                                  e.id === endpoint.id ? { ...e, showKey: !e.showKey } : e
+                                )
                               )
                             }
                             className="text-kumo-subtle"
                           >
-                            {endpoint.showKey ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                            {endpoint.showKey ? (
+                              <EyeOff className="w-3.5 h-3.5" />
+                            ) : (
+                              <Eye className="w-3.5 h-3.5" />
+                            )}
                           </Button>
                         </div>
                       </Table.Cell>
@@ -1956,11 +2308,15 @@ function OpenAIPage() {
                             endpoint.status === 'valid'
                               ? 'bg-kumo-success/10 text-kumo-success border-kumo-success/20'
                               : endpoint.status === 'invalid'
-                              ? 'bg-kumo-danger/10 text-kumo-danger border-kumo-danger/20'
-                              : 'bg-kumo-recessed text-kumo-subtle border-kumo-line'
+                                ? 'bg-kumo-danger/10 text-kumo-danger border-kumo-danger/20'
+                                : 'bg-kumo-recessed text-kumo-subtle border-kumo-line'
                           }`}
                         >
-                          {endpoint.status === 'valid' ? '有效' : endpoint.status === 'invalid' ? '无效' : '未验证'}
+                          {endpoint.status === 'valid'
+                            ? '有效'
+                            : endpoint.status === 'invalid'
+                              ? '无效'
+                              : '未验证'}
                         </span>
                       </Table.Cell>
                       <Table.Cell className="text-center">
@@ -1976,7 +2332,8 @@ function OpenAIPage() {
                       <Table.Cell>
                         <div className="flex justify-center gap-1.5">
                           <Button
-                            shape="square" size="sm"
+                            shape="square"
+                            size="sm"
                             variant="ghost"
                             aria-label="验证连接"
                             onClick={() => verifyEndpoint(endpoint)}
@@ -1986,7 +2343,8 @@ function OpenAIPage() {
                             <Plug className="w-3.5 h-3.5" />
                           </Button>
                           <Button
-                            shape="square" size="sm"
+                            shape="square"
+                            size="sm"
                             variant="ghost"
                             aria-label="健康检测"
                             onClick={() => openHealthCheckForEndpoint(endpoint.id)}
@@ -1996,7 +2354,8 @@ function OpenAIPage() {
                             <Activity className="w-3.5 h-3.5" />
                           </Button>
                           <Button
-                            shape="square" size="sm"
+                            shape="square"
+                            size="sm"
                             variant="ghost"
                             aria-label="编辑配置"
                             onClick={() => openEditEndpointModal(endpoint)}
@@ -2006,7 +2365,8 @@ function OpenAIPage() {
                             <Edit className="w-3.5 h-3.5" />
                           </Button>
                           <Button
-                            shape="square" size="sm"
+                            shape="square"
+                            size="sm"
                             variant="ghost"
                             aria-label="删除端点"
                             onClick={() => deleteEndpoint(endpoint)}
@@ -2036,14 +2396,17 @@ function OpenAIPage() {
             <Textarea
               aria-label="批量添加端点"
               value={batchText}
-              onChange={(e) => setBatchText(e.target.value)}
+              onChange={e => setBatchText(e.target.value)}
               placeholder="每行一个：名称:https://api.example.com:sk-xxx"
               rows={4}
               className="w-full text-kumo-strong text-xs font-mono p-3 resize-none"
             />
             {batchError && <p className="text-xs text-kumo-danger font-semibold">{batchError}</p>}
-            {batchSuccess && <p className="text-xs text-kumo-success font-semibold">{batchSuccess}</p>}
-            <Button size="sm"
+            {batchSuccess && (
+              <p className="text-xs text-kumo-success font-semibold">{batchSuccess}</p>
+            )}
+            <Button
+              size="sm"
               variant="primary"
               disabled={batchAdding || !batchText.trim()}
               onClick={batchAddEndpoints}
@@ -2074,24 +2437,32 @@ function OpenAIPage() {
           >
             <div className="p-3 border-b border-kumo-line flex items-center justify-between">
               <span className="text-xs font-bold text-kumo-strong">
-                {selectedSessionIds.length > 0 ? `已选 ${selectedSessionIds.length} 个` : '历史记录'}
+                {selectedSessionIds.length > 0
+                  ? `已选 ${selectedSessionIds.length} 个`
+                  : '历史记录'}
               </span>
               <div className="flex gap-1.5">
                 {sessions.length > 0 && (
                   <Button
-                    shape="square" size="sm"
+                    shape="square"
+                    size="sm"
                     variant="ghost"
-                    aria-label={selectedSessionIds.length === sessions.length ? '取消全选会话' : '全选会话'}
+                    aria-label={
+                      selectedSessionIds.length === sessions.length ? '取消全选会话' : '全选会话'
+                    }
                     onClick={toggleSelectAllSessions}
                     className="text-kumo-subtle hover:text-kumo-strong"
                     title={selectedSessionIds.length === sessions.length ? '取消全选' : '全选'}
                   >
-                    <Check className={`w-3.5 h-3.5 ${selectedSessionIds.length === sessions.length ? 'text-kumo-brand' : ''}`} />
+                    <Check
+                      className={`w-3.5 h-3.5 ${selectedSessionIds.length === sessions.length ? 'text-kumo-brand' : ''}`}
+                    />
                   </Button>
                 )}
                 {selectedSessionIds.length > 0 ? (
                   <Button
-                    shape="square" size="sm"
+                    shape="square"
+                    size="sm"
                     variant="ghost"
                     aria-label="删除选中会话"
                     onClick={deleteSelectedSessions}
@@ -2103,7 +2474,8 @@ function OpenAIPage() {
                 ) : (
                   sessions.length > 0 && (
                     <Button
-                      shape="square" size="sm"
+                      shape="square"
+                      size="sm"
                       variant="ghost"
                       aria-label="清空历史会话"
                       onClick={clearAllSessions}
@@ -2117,7 +2489,8 @@ function OpenAIPage() {
               </div>
             </div>
 
-            <Button size="sm"
+            <Button
+              size="sm"
               variant="secondary"
               onClick={() => createSession(true)}
               className="m-3 text-kumo-brand font-semibold text-xs flex items-center justify-center gap-1.5 transition-all"
@@ -2134,7 +2507,7 @@ function OpenAIPage() {
               ) : sessions.length === 0 ? (
                 <div className="text-center py-12 text-kumo-subtle text-xs">暂无会话历史</div>
               ) : (
-                sessions.map((session) => (
+                sessions.map(session => (
                   <div
                     key={session.id}
                     onClick={() => loadSession(session.id)}
@@ -2151,23 +2524,27 @@ function OpenAIPage() {
 
                     <div className="flex items-center gap-1">
                       <Button
-                        shape="square" size="sm"
+                        shape="square"
+                        size="sm"
                         variant="ghost"
                         aria-label="选择会话"
-                        onClick={(e) => toggleSessionSelection(session.id, e)}
+                        onClick={e => toggleSessionSelection(session.id, e)}
                         className="text-kumo-subtle opacity-0 group-hover:opacity-100 md:opacity-100"
                       >
                         <Check
                           className={`w-3.5 h-3.5 ${
-                            selectedSessionIds.includes(session.id) ? 'text-kumo-brand' : 'opacity-30'
+                            selectedSessionIds.includes(session.id)
+                              ? 'text-kumo-brand'
+                              : 'opacity-30'
                           }`}
                         />
                       </Button>
                       <Button
-                        shape="square" size="sm"
+                        shape="square"
+                        size="sm"
                         variant="ghost"
                         aria-label="删除会话"
-                        onClick={(e) => deleteSession(session.id, e)}
+                        onClick={e => deleteSession(session.id, e)}
                         className="text-kumo-subtle hover:text-kumo-danger opacity-0 group-hover:opacity-100"
                       >
                         <Trash className="w-3.5 h-3.5" />
@@ -2185,7 +2562,8 @@ function OpenAIPage() {
             <div className="p-3 border-b border-kumo-line flex flex-wrap items-center justify-between gap-3 bg-kumo-recessed/10">
               <div className="flex flex-wrap items-center gap-2">
                 {/* Mobile history toggle */}
-                <Button size="sm"
+                <Button
+                  size="sm"
                   onClick={() => setMobileSidebarOpen(true)}
                   className="md:hidden"
                   title="历史记录"
@@ -2196,7 +2574,7 @@ function OpenAIPage() {
                 {/* Persona selector */}
                 <div className="relative">
                   <div
-                    onClick={(e) => {
+                    onClick={e => {
                       e.stopPropagation();
                       setShowPersonaDropdown(!showPersonaDropdown);
                       setShowEndpointDropdown(false);
@@ -2205,30 +2583,30 @@ function OpenAIPage() {
                     className="flex items-center gap-1.5 px-3 py-1.5 border border-kumo-line rounded-lg text-xs cursor-pointer bg-kumo-base hover:bg-kumo-recessed/50 text-kumo-strong font-semibold select-none"
                   >
                     <Bot className="w-3.5 h-3.5 text-kumo-brand" />
-                    <span>
-                      {personas.find((p) => p.id === currentPersonaId)?.name || '默认人设'}
-                    </span>
+                    <span>{personas.find(p => p.id === currentPersonaId)?.name || '默认人设'}</span>
                     <ChevronDown className="w-3.5 h-3.5 text-kumo-subtle" />
                   </div>
 
                   {showPersonaDropdown && (
                     <div
-                      onClick={(e) => e.stopPropagation()}
+                      onClick={e => e.stopPropagation()}
                       className="absolute left-0 mt-1.5 w-56 app-card py-1 z-30 text-xs"
                     >
                       <div className="max-h-60 overflow-y-auto">
-                        {personas.map((persona) => (
+                        {personas.map(persona => (
                           <div
                             key={persona.id}
                             onClick={() => handleSelectPersona(persona.id)}
                             className={`flex items-center justify-between px-3 py-2 cursor-pointer hover:bg-kumo-recessed/50 ${
-                              currentPersonaId === persona.id ? 'text-kumo-brand font-bold bg-kumo-brand/5' : 'text-kumo-strong'
+                              currentPersonaId === persona.id
+                                ? 'text-kumo-brand font-bold bg-kumo-brand/5'
+                                : 'text-kumo-strong'
                             }`}
                           >
                             <span>{persona.name}</span>
                             <div className="flex gap-1.5 opacity-0 group-hover:opacity-100">
                               <Edit
-                                onClick={(e) => {
+                                onClick={e => {
                                   e.stopPropagation();
                                   openPersonaModal(persona);
                                   setShowPersonaDropdown(false);
@@ -2237,7 +2615,7 @@ function OpenAIPage() {
                               />
                               {!persona.is_default && (
                                 <Trash
-                                  onClick={(e) => {
+                                  onClick={e => {
                                     e.stopPropagation();
                                     deletePersona(persona.id);
                                     setShowPersonaDropdown(false);
@@ -2267,7 +2645,7 @@ function OpenAIPage() {
                 {/* Endpoint selector */}
                 <div className="relative">
                   <div
-                    onClick={(e) => {
+                    onClick={e => {
                       e.stopPropagation();
                       setShowEndpointDropdown(!showEndpointDropdown);
                       setShowPersonaDropdown(false);
@@ -2276,32 +2654,34 @@ function OpenAIPage() {
                     className="flex items-center gap-1.5 px-3 py-1.5 border border-kumo-line rounded-lg text-xs cursor-pointer bg-kumo-base hover:bg-kumo-recessed/50 text-kumo-strong font-semibold select-none"
                   >
                     <Server className="w-3.5 h-3.5" />
-                    <span>
-                      {endpoints.find((ep) => ep.id === chatEndpoint)?.name || '所有端点'}
-                    </span>
+                    <span>{endpoints.find(ep => ep.id === chatEndpoint)?.name || '所有端点'}</span>
                     <ChevronDown className="w-3.5 h-3.5 text-kumo-subtle" />
                   </div>
 
                   {showEndpointDropdown && (
                     <div
-                      onClick={(e) => e.stopPropagation()}
+                      onClick={e => e.stopPropagation()}
                       className="absolute left-0 mt-1.5 w-56 app-card py-1 z-30 text-xs"
                     >
                       <div
                         onClick={() => selectEndpoint('')}
                         className={`px-3 py-2 cursor-pointer hover:bg-kumo-recessed/50 ${
-                          !chatEndpoint ? 'text-kumo-brand font-bold bg-kumo-brand/5' : 'text-kumo-strong'
+                          !chatEndpoint
+                            ? 'text-kumo-brand font-bold bg-kumo-brand/5'
+                            : 'text-kumo-strong'
                         }`}
                       >
                         所有端点
                       </div>
                       <div className="max-h-48 overflow-y-auto">
-                        {endpoints.map((ep) => (
+                        {endpoints.map(ep => (
                           <div
                             key={ep.id}
                             onClick={() => selectEndpoint(ep.id)}
                             className={`px-3 py-2 cursor-pointer hover:bg-kumo-recessed/50 ${
-                              chatEndpoint === ep.id ? 'text-kumo-brand font-bold bg-kumo-brand/5' : 'text-kumo-strong'
+                              chatEndpoint === ep.id
+                                ? 'text-kumo-brand font-bold bg-kumo-brand/5'
+                                : 'text-kumo-strong'
                             }`}
                           >
                             {ep.name}
@@ -2316,7 +2696,7 @@ function OpenAIPage() {
                 <div className="relative">
                   <Autocomplete
                     items={chatDropdownFilteredModels}
-                    onValueChange={(modelId) => selectChatModel(modelId)}
+                    onValueChange={modelId => selectChatModel(modelId)}
                     filter={null}
                     className="w-full max-w-[220px]"
                   >
@@ -2336,16 +2716,20 @@ function OpenAIPage() {
                               已收藏
                             </Autocomplete.GroupLabel>
                             <Autocomplete.Collection
-                              items={chatDropdownFilteredModels.filter((m) => pinnedModels.includes(m.id))}
+                              items={chatDropdownFilteredModels.filter(m =>
+                                pinnedModels.includes(m.id)
+                              )}
                             >
-                              {(model) => (
+                              {model => (
                                 <Autocomplete.Item
                                   key={`pinned-${model.id}`}
                                   value={model.id}
                                   className="flex items-center justify-between"
                                 >
                                   <span className="truncate">{model.id}</span>
-                                  {chatModel === model.id && <Check className="w-3.5 h-3.5 text-kumo-brand" />}
+                                  {chatModel === model.id && (
+                                    <Check className="w-3.5 h-3.5 text-kumo-brand" />
+                                  )}
                                 </Autocomplete.Item>
                               )}
                             </Autocomplete.Collection>
@@ -2354,19 +2738,25 @@ function OpenAIPage() {
 
                         <Autocomplete.Group>
                           <Autocomplete.GroupLabel>
-                            {pinnedModels.length > 0 && !dropdownModelSearch ? '所有模型' : '匹配模型'}
+                            {pinnedModels.length > 0 && !dropdownModelSearch
+                              ? '所有模型'
+                              : '匹配模型'}
                           </Autocomplete.GroupLabel>
                           <Autocomplete.Collection
-                            items={chatDropdownFilteredModels.filter((m) => !(pinnedModels.includes(m.id) && !dropdownModelSearch))}
+                            items={chatDropdownFilteredModels.filter(
+                              m => !(pinnedModels.includes(m.id) && !dropdownModelSearch)
+                            )}
                           >
-                            {(model) => (
+                            {model => (
                               <Autocomplete.Item
                                 key={model.id}
                                 value={model.id}
                                 className="flex items-center justify-between"
                               >
                                 <span className="truncate">{model.id}</span>
-                                {chatModel === model.id && <Check className="w-3.5 h-3.5 text-kumo-brand" />}
+                                {chatModel === model.id && (
+                                  <Check className="w-3.5 h-3.5 text-kumo-brand" />
+                                )}
                               </Autocomplete.Item>
                             )}
                           </Autocomplete.Collection>
@@ -2378,7 +2768,8 @@ function OpenAIPage() {
 
                 {/* Operations */}
                 <Button
-                  shape="square" size="sm"
+                  shape="square"
+                  size="sm"
                   variant="ghost"
                   aria-label="刷新模型列表"
                   onClick={() => loadAllModels(false)}
@@ -2389,26 +2780,36 @@ function OpenAIPage() {
                   <RefreshCw className={`w-4 h-4 ${chatLoading ? 'animate-spin' : ''}`} />
                 </Button>
                 <Button
-                  shape="square" size="sm"
+                  shape="square"
+                  size="sm"
                   variant="ghost"
-                  aria-label={pinnedModels.includes(chatModel) ? '取消收藏当前模型' : '收藏当前模型'}
+                  aria-label={
+                    pinnedModels.includes(chatModel) ? '取消收藏当前模型' : '收藏当前模型'
+                  }
                   onClick={() => togglePinModel(chatModel)}
                   disabled={!chatModel}
                   className={`p-1.5 transition-colors ${
-                    pinnedModels.includes(chatModel) ? 'text-kumo-warning' : 'text-kumo-subtle hover:text-kumo-strong'
+                    pinnedModels.includes(chatModel)
+                      ? 'text-kumo-warning'
+                      : 'text-kumo-subtle hover:text-kumo-strong'
                   }`}
                   title={pinnedModels.includes(chatModel) ? '取消收藏' : '收藏当前模型'}
                 >
-                  <Star className={`w-4 h-4 ${pinnedModels.includes(chatModel) ? 'fill-yellow-500' : ''}`} />
+                  <Star
+                    className={`w-4 h-4 ${pinnedModels.includes(chatModel) ? 'fill-yellow-500' : ''}`}
+                  />
                 </Button>
                 <Button
-                  shape="square" size="sm"
+                  shape="square"
+                  size="sm"
                   variant="ghost"
                   aria-label={chatModel === defaultChatModel ? '当前为默认模型' : '设为默认模型'}
                   onClick={handleSetDefaultModel}
                   disabled={!chatModel}
                   className={`p-1.5 transition-colors ${
-                    chatModel === defaultChatModel ? 'text-kumo-brand' : 'text-kumo-subtle hover:text-kumo-strong'
+                    chatModel === defaultChatModel
+                      ? 'text-kumo-brand'
+                      : 'text-kumo-subtle hover:text-kumo-strong'
                   }`}
                   title={chatModel === defaultChatModel ? '当前为默认模型' : '设为默认模型'}
                 >
@@ -2420,7 +2821,11 @@ function OpenAIPage() {
                 <Button size="sm" onClick={clearChatLocal} className="text-xs font-semibold">
                   清除
                 </Button>
-                <Button size="sm" onClick={() => setShowHChatSettingsModal(true)} className="text-xs font-semibold">
+                <Button
+                  size="sm"
+                  onClick={() => setShowHChatSettingsModal(true)}
+                  className="text-xs font-semibold"
+                >
                   设置
                 </Button>
               </div>
@@ -2454,9 +2859,7 @@ function OpenAIPage() {
                       {/* Avatar */}
                       <div
                         className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 text-kumo-inverse font-bold select-none ${
-                          isUser
-                            ? 'bg-kumo-brand'
-                            : 'bg-kumo-success'
+                          isUser ? 'bg-kumo-brand' : 'bg-kumo-success'
                         }`}
                       >
                         {isUser ? 'U' : 'AI'}
@@ -2480,7 +2883,8 @@ function OpenAIPage() {
                           {/* Message actions */}
                           <div className="flex items-center gap-1 ml-2 opacity-0 group-hover:opacity-100 focus-within:opacity-100 transition-opacity">
                             <Button
-                              shape="square" size="sm"
+                              shape="square"
+                              size="sm"
                               variant="ghost"
                               aria-label="重新生成消息"
                               onClick={() => regenerateChat(index)}
@@ -2490,7 +2894,8 @@ function OpenAIPage() {
                               <RotateCw className="w-3 h-3" />
                             </Button>
                             <Button
-                              shape="square" size="sm"
+                              shape="square"
+                              size="sm"
                               variant="ghost"
                               aria-label="删除消息"
                               onClick={() => deleteChatMessage(index)}
@@ -2507,7 +2912,11 @@ function OpenAIPage() {
                           <div className="bg-kumo-brand/10 text-kumo-strong p-3 rounded-lg border border-kumo-brand/20 space-y-2 select-text">
                             {msg.content.map((chunk, cidx) => {
                               if (chunk.type === 'text') {
-                                return <p key={cidx} className="whitespace-pre-wrap">{chunk.text}</p>;
+                                return (
+                                  <p key={cidx} className="whitespace-pre-wrap">
+                                    {chunk.text}
+                                  </p>
+                                );
                               }
                               if (chunk.type === 'image_url') {
                                 return (
@@ -2535,7 +2944,9 @@ function OpenAIPage() {
                                   onClick={() =>
                                     setMessages(prev =>
                                       prev.map((m, idx) =>
-                                        idx === index ? { ...m, showReasoning: !m.showReasoning } : m
+                                        idx === index
+                                          ? { ...m, showReasoning: !m.showReasoning }
+                                          : m
                                       )
                                     )
                                   }
@@ -2543,12 +2954,16 @@ function OpenAIPage() {
                                 >
                                   <Brain className="w-3.5 h-3.5 text-kumo-brand" />
                                   <span>思考过程</span>
-                                  <ChevronDown className={`w-3.5 h-3.5 text-kumo-brand ml-auto transition-transform ${showReasoning ? 'transform rotate-180' : ''}`} />
+                                  <ChevronDown
+                                    className={`w-3.5 h-3.5 text-kumo-brand ml-auto transition-transform ${showReasoning ? 'transform rotate-180' : ''}`}
+                                  />
                                 </div>
                                 <AnimatedCollapse open={showReasoning}>
                                   <div
                                     className="p-3 font-mono text-[11px] leading-relaxed text-kumo-subtle border-t border-kumo-line max-h-48 overflow-y-auto whitespace-pre-wrap bg-kumo-recessed/30"
-                                    dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.reasoning) }}
+                                    dangerouslySetInnerHTML={{
+                                      __html: renderMarkdown(msg.reasoning),
+                                    }}
                                   />
                                 </AnimatedCollapse>
                               </div>
@@ -2576,7 +2991,8 @@ function OpenAIPage() {
                   <div className="bg-kumo-recessed/60 text-kumo-strong p-3 rounded-lg border border-kumo-line space-y-1">
                     <div className="flex items-center justify-between border-b border-kumo-line pb-1.5 mb-2 gap-8">
                       <span className="font-bold text-kumo-strong">哈基喵</span>
-                      <Button size="sm"
+                      <Button
+                        size="sm"
                         variant="secondary-destructive"
                         onClick={stopGenerating}
                         className="text-kumo-danger flex items-center gap-1 font-semibold"
@@ -2587,9 +3003,18 @@ function OpenAIPage() {
                       </Button>
                     </div>
                     <div className="flex space-x-1 py-1.5">
-                      <div className="w-2 h-2 bg-kumo-brand rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                      <div className="w-2 h-2 bg-kumo-brand rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                      <div className="w-2 h-2 bg-kumo-brand rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                      <div
+                        className="w-2 h-2 bg-kumo-brand rounded-full animate-bounce"
+                        style={{ animationDelay: '0ms' }}
+                      />
+                      <div
+                        className="w-2 h-2 bg-kumo-brand rounded-full animate-bounce"
+                        style={{ animationDelay: '150ms' }}
+                      />
+                      <div
+                        className="w-2 h-2 bg-kumo-brand rounded-full animate-bounce"
+                        style={{ animationDelay: '300ms' }}
+                      />
                     </div>
                   </div>
                 </div>
@@ -2603,10 +3028,14 @@ function OpenAIPage() {
               <AnimatedCollapse open={attachments.length > 0}>
                 <div className="flex flex-wrap gap-2 pb-2">
                   {attachments.map((file, idx) => (
-                    <div key={idx} className="relative w-16 h-16 rounded border border-kumo-line overflow-hidden bg-kumo-recessed">
+                    <div
+                      key={idx}
+                      className="relative w-16 h-16 rounded border border-kumo-line overflow-hidden bg-kumo-recessed"
+                    >
                       <img src={file.url} alt="preview" className="w-full h-full object-cover" />
                       <Button
-                        shape="circle" size="sm"
+                        shape="circle"
+                        size="sm"
                         variant="ghost"
                         aria-label="移除附件"
                         onClick={() => removeAttachment(idx)}
@@ -2620,7 +3049,8 @@ function OpenAIPage() {
               </AnimatedCollapse>
 
               <div className="flex items-center gap-2">
-                <Input size="sm"
+                <Input
+                  size="sm"
                   aria-label="上传图片"
                   type="file"
                   ref={fileInputRef}
@@ -2630,7 +3060,8 @@ function OpenAIPage() {
                   className="hidden"
                 />
                 <Button
-                  shape="square" size="sm"
+                  shape="square"
+                  size="sm"
                   variant="ghost"
                   aria-label="上传图片"
                   onClick={() => fileInputRef.current?.click()}
@@ -2644,10 +3075,10 @@ function OpenAIPage() {
                   aria-label="聊天消息"
                   ref={textareaRef}
                   value={messageInput}
-                  onChange={(e) => setMessageInput(e.target.value)}
+                  onChange={e => setMessageInput(e.target.value)}
                   onInput={handleTextareaInput}
                   onPaste={handlePaste}
-                  onKeyDown={(e) => {
+                  onKeyDown={e => {
                     if (e.key === 'Enter' && !e.shiftKey) {
                       e.preventDefault();
                       handleSendChat();
@@ -2658,7 +3089,8 @@ function OpenAIPage() {
                   className="flex-1 text-kumo-strong text-xs p-2.5 resize-none font-sans max-h-36 overflow-y-auto"
                 />
 
-                <Button size="sm"
+                <Button
+                  size="sm"
                   variant="primary"
                   disabled={(!messageInput.trim() && attachments.length === 0) || chatLoading}
                   onClick={handleSendChat}
@@ -2687,23 +3119,27 @@ function OpenAIPage() {
           <div className="space-y-4">
             <div className="space-y-1">
               <label className="text-xs font-semibold text-kumo-strong">名称</label>
-              <Input size="sm"
+              <Input
+                size="sm"
                 aria-label="端点名称"
                 type="text"
                 value={endpointForm.name}
-                onChange={(e) => setEndpointForm({ ...endpointForm, name: e.target.value })}
+                onChange={e => setEndpointForm({ ...endpointForm, name: e.target.value })}
                 placeholder="例如：DeepSeek 官方"
                 className="w-full text-kumo-strong text-xs px-3 py-2"
               />
             </div>
 
             <div className="space-y-1">
-              <label className="text-xs font-semibold text-kumo-strong">API 接口地址 (Base URL)</label>
-              <Input size="sm"
+              <label className="text-xs font-semibold text-kumo-strong">
+                API 接口地址 (Base URL)
+              </label>
+              <Input
+                size="sm"
                 aria-label="API 接口地址"
                 type="text"
                 value={endpointForm.baseUrl}
-                onChange={(e) => setEndpointForm({ ...endpointForm, baseUrl: e.target.value })}
+                onChange={e => setEndpointForm({ ...endpointForm, baseUrl: e.target.value })}
                 placeholder="https://api.openai.com/v1"
                 className="w-full text-kumo-strong text-xs px-3 py-2 font-mono"
               />
@@ -2711,11 +3147,12 @@ function OpenAIPage() {
 
             <div className="space-y-1">
               <label className="text-xs font-semibold text-kumo-strong">API Key</label>
-              <Input size="sm"
+              <Input
+                size="sm"
                 aria-label="API Key"
                 type="password"
                 value={endpointForm.apiKey}
-                onChange={(e) => setEndpointForm({ ...endpointForm, apiKey: e.target.value })}
+                onChange={e => setEndpointForm({ ...endpointForm, apiKey: e.target.value })}
                 placeholder="sk-xxxxxxxxxxxxxxxxxxxxxxxx"
                 className="w-full text-kumo-strong text-xs px-3 py-2 font-mono"
               />
@@ -2723,11 +3160,12 @@ function OpenAIPage() {
 
             <div className="space-y-1">
               <label className="text-xs font-semibold text-kumo-strong">备注</label>
-              <Input size="sm"
+              <Input
+                size="sm"
                 aria-label="备注"
                 type="text"
                 value={endpointForm.notes}
-                onChange={(e) => setEndpointForm({ ...endpointForm, notes: e.target.value })}
+                onChange={e => setEndpointForm({ ...endpointForm, notes: e.target.value })}
                 placeholder="选填"
                 className="w-full text-kumo-strong text-xs px-3 py-2"
               />
@@ -2739,7 +3177,7 @@ function OpenAIPage() {
 
             <div className="flex justify-end gap-3 pt-2">
               <Dialog.Close
-                render={(props) => (
+                render={props => (
                   <Button size="sm" {...props} variant="secondary">
                     取消
                   </Button>
@@ -2769,30 +3207,31 @@ function OpenAIPage() {
                 <AlertTriangle className="w-3.5 h-3.5" />
                 警告
               </p>
-              <p>健康检测需要向 API 发送真实请求，按令牌或次数收费的模型可能会产生小额账单，请谨慎使用。</p>
+              <p>
+                健康检测需要向 API
+                发送真实请求，按令牌或次数收费的模型可能会产生小额账单，请谨慎使用。
+              </p>
             </div>
 
             <div className="flex items-center justify-between text-xs">
               <span className="font-semibold text-kumo-strong">使用密钥</span>
               <div className="flex border border-kumo-line rounded bg-kumo-recessed p-0.5">
-                <Button size="sm"
+                <Button
+                  size="sm"
                   variant={healthCheckForm.useKey === 'single' ? 'secondary' : 'ghost'}
                   onClick={() => setHealthCheckForm({ ...healthCheckForm, useKey: 'single' })}
                   className={`px-3 py-1 text-[10px] font-semibold ${
-                    healthCheckForm.useKey === 'single'
-                      ? 'text-kumo-strong'
-                      : 'text-kumo-subtle'
+                    healthCheckForm.useKey === 'single' ? 'text-kumo-strong' : 'text-kumo-subtle'
                   }`}
                 >
                   单个
                 </Button>
-                <Button size="sm"
+                <Button
+                  size="sm"
                   variant={healthCheckForm.useKey === 'all' ? 'secondary' : 'ghost'}
                   onClick={() => setHealthCheckForm({ ...healthCheckForm, useKey: 'all' })}
                   className={`px-3 py-1 text-[10px] font-semibold ${
-                    healthCheckForm.useKey === 'all'
-                      ? 'text-kumo-strong'
-                      : 'text-kumo-subtle'
+                    healthCheckForm.useKey === 'all' ? 'text-kumo-strong' : 'text-kumo-subtle'
                   }`}
                 >
                   所有
@@ -2804,7 +3243,9 @@ function OpenAIPage() {
               <span className="font-semibold text-kumo-strong">并发检测</span>
               <Switch
                 checked={healthCheckForm.concurrency}
-                onCheckedChange={(checked) => setHealthCheckForm({ ...healthCheckForm, concurrency: checked })}
+                onCheckedChange={checked =>
+                  setHealthCheckForm({ ...healthCheckForm, concurrency: checked })
+                }
                 size="sm"
               />
             </div>
@@ -2812,11 +3253,14 @@ function OpenAIPage() {
             <div className="flex items-center justify-between text-xs">
               <span className="font-semibold text-kumo-strong">超时限制</span>
               <div className="flex items-center gap-1.5">
-                <Input size="sm"
+                <Input
+                  size="sm"
                   aria-label="健康检测超时限制"
                   type="number"
                   value={healthCheckForm.timeout}
-                  onChange={(e) => setHealthCheckForm({ ...healthCheckForm, timeout: Number(e.target.value) })}
+                  onChange={e =>
+                    setHealthCheckForm({ ...healthCheckForm, timeout: Number(e.target.value) })
+                  }
                   min={1}
                   max={60}
                   className="w-16 text-kumo-strong text-xs px-2 py-1 text-center"
@@ -2827,7 +3271,7 @@ function OpenAIPage() {
 
             <div className="flex justify-end gap-3 pt-2">
               <Dialog.Close
-                render={(props) => (
+                render={props => (
                   <Button size="sm" {...props} variant="secondary">
                     取消
                   </Button>
@@ -2854,11 +3298,12 @@ function OpenAIPage() {
           <div className="space-y-4">
             <div className="space-y-1">
               <label className="text-xs font-semibold text-kumo-strong">人设名称</label>
-              <Input size="sm"
+              <Input
+                size="sm"
                 aria-label="人设名称"
                 type="text"
                 value={personaForm.name}
-                onChange={(e) => setPersonaForm({ ...personaForm, name: e.target.value })}
+                onChange={e => setPersonaForm({ ...personaForm, name: e.target.value })}
                 placeholder="例如：中英翻译官"
                 className="w-full text-kumo-strong text-xs px-3 py-2"
               />
@@ -2869,7 +3314,7 @@ function OpenAIPage() {
               <Textarea
                 aria-label="系统提示词"
                 value={personaForm.systemPrompt}
-                onChange={(e) => setPersonaForm({ ...personaForm, systemPrompt: e.target.value })}
+                onChange={e => setPersonaForm({ ...personaForm, systemPrompt: e.target.value })}
                 placeholder="定义 AI 的行为指南或任务边界..."
                 rows={5}
                 className="w-full text-kumo-strong text-xs p-3 resize-none font-sans"
@@ -2878,7 +3323,7 @@ function OpenAIPage() {
 
             <div className="flex justify-end gap-3 pt-2">
               <Dialog.Close
-                render={(props) => (
+                render={props => (
                   <Button size="sm" {...props} variant="secondary">
                     取消
                   </Button>
@@ -2902,7 +3347,8 @@ function OpenAIPage() {
               对话参数设置
             </h3>
             <Button
-              shape="square" size="sm"
+              shape="square"
+              size="sm"
               variant="ghost"
               aria-label="关闭对话参数设置"
               onClick={() => setShowHChatSettingsModal(false)}
@@ -2937,7 +3383,7 @@ function OpenAIPage() {
                   <Textarea
                     aria-label="对话系统提示词"
                     value={openaiChatSystemPrompt}
-                    onChange={(e) => setOpenaiChatSystemPrompt(e.target.value)}
+                    onChange={e => setOpenaiChatSystemPrompt(e.target.value)}
                     rows={3}
                     placeholder="你是一个有用的 AI 助手..."
                     className="w-full text-kumo-strong text-xs p-3 resize-none font-sans"
@@ -2949,30 +3395,42 @@ function OpenAIPage() {
                   <div className="space-y-1">
                     <div className="flex justify-between items-center text-xs">
                       <label className="font-semibold text-kumo-strong">随机性</label>
-                      <span className="font-mono text-kumo-brand font-bold">{openaiChatSettings.temperature}</span>
+                      <span className="font-mono text-kumo-brand font-bold">
+                        {openaiChatSettings.temperature}
+                      </span>
                     </div>
-                    <Input size="sm"
+                    <Input
+                      size="sm"
                       aria-label="随机性"
                       type="range"
                       min={0}
                       max={2}
                       step={0.1}
                       value={openaiChatSettings.temperature}
-                      onChange={(e) =>
-                        setOpenaiChatSettings({ ...openaiChatSettings, temperature: Number(e.target.value) })
+                      onChange={e =>
+                        setOpenaiChatSettings({
+                          ...openaiChatSettings,
+                          temperature: Number(e.target.value),
+                        })
                       }
                       className="w-full accent-kumo-brand"
                     />
                   </div>
 
                   <div className="space-y-1">
-                    <label className="text-xs font-semibold text-kumo-strong block">回复长度（最大令牌数）</label>
-                    <Input size="sm"
+                    <label className="text-xs font-semibold text-kumo-strong block">
+                      回复长度（最大令牌数）
+                    </label>
+                    <Input
+                      size="sm"
                       aria-label="回复长度"
                       type="number"
                       value={openaiChatSettings.max_tokens}
-                      onChange={(e) =>
-                        setOpenaiChatSettings({ ...openaiChatSettings, max_tokens: Number(e.target.value) })
+                      onChange={e =>
+                        setOpenaiChatSettings({
+                          ...openaiChatSettings,
+                          max_tokens: Number(e.target.value),
+                        })
                       }
                       placeholder="例如 2000"
                       className="w-full text-kumo-strong text-xs px-3 py-1.5 text-center"
@@ -2989,7 +3447,11 @@ function OpenAIPage() {
                     </span>
                   </div>
                   {defaultChatModel && (
-                    <Button size="sm" onClick={handleClearDefaultModel} className="text-kumo-danger">
+                    <Button
+                      size="sm"
+                      onClick={handleClearDefaultModel}
+                      className="text-kumo-danger"
+                    >
                       清除
                     </Button>
                   )}
@@ -3001,7 +3463,7 @@ function OpenAIPage() {
                     <span className="font-bold text-kumo-strong">开启 AI 对话自动命名</span>
                     <Switch
                       checked={openaiAutoTitleEnabled}
-                      onCheckedChange={(checked) => {
+                      onCheckedChange={checked => {
                         setOpenaiAutoTitleEnabled(checked);
                         saveAutoTitleSettings(checked, openaiTitleModels);
                       }}
@@ -3027,7 +3489,8 @@ function OpenAIPage() {
                             </span>
                             <span className="max-w-[120px] truncate">{m}</span>
                             <Button
-                              shape="square" size="sm"
+                              shape="square"
+                              size="sm"
                               variant="ghost"
                               aria-label="移除标题模型"
                               onClick={() => removeTitleModel(m)}
@@ -3041,15 +3504,16 @@ function OpenAIPage() {
 
                       {/* Add title model select */}
                       <div className="flex gap-2">
-                        <Select size="sm"
+                        <Select
+                          size="sm"
                           aria-label="添加标题模型"
                           value={openaiTitleModelToAdd}
-                          onValueChange={(value) => setOpenaiTitleModelToAdd(String(value))}
+                          onValueChange={value => setOpenaiTitleModelToAdd(String(value))}
                           placeholder="添加模型..."
                           className="flex-1 text-kumo-strong text-xs p-1.5"
                           items={[
                             { value: '', label: '添加模型...' },
-                            ...filteredTitleModelOptions().map((m) => ({
+                            ...filteredTitleModelOptions().map(m => ({
                               value: m.id,
                               label: `${m.id} (${m.owned_by})`,
                             })),
@@ -3062,13 +3526,20 @@ function OpenAIPage() {
 
                       {/* Test generating */}
                       <div className="flex items-center gap-2 pt-1 border-t border-kumo-line/30">
-                        <Button size="sm" onClick={testTitleGeneration} disabled={openaiTitleGenerating} className="text-[10px]">
+                        <Button
+                          size="sm"
+                          onClick={testTitleGeneration}
+                          disabled={openaiTitleGenerating}
+                          className="text-[10px]"
+                        >
                           {openaiTitleGenerating ? '生成中...' : '测试自动命名'}
                         </Button>
                         {openaiTitleLastResult && (
                           <span
                             className={`text-[10px] font-semibold ${
-                              openaiTitleLastResult.success ? 'text-kumo-success' : 'text-kumo-danger'
+                              openaiTitleLastResult.success
+                                ? 'text-kumo-success'
+                                : 'text-kumo-danger'
                             }`}
                           >
                             {openaiTitleLastResult.success
@@ -3087,25 +3558,27 @@ function OpenAIPage() {
                 <div className="flex gap-2 items-center text-xs">
                   <div className="flex-1 flex items-center gap-1.5 px-3 py-1.5 border border-kumo-line rounded-lg bg-kumo-recessed/50">
                     <Search className="w-3.5 h-3.5 text-kumo-subtle" />
-                    <Input size="sm"
+                    <Input
+                      size="sm"
                       aria-label="搜索模型"
                       type="text"
                       value={openaiModelSearch}
-                      onChange={(e) => setOpenaiModelSearch(e.target.value)}
+                      onChange={e => setOpenaiModelSearch(e.target.value)}
                       placeholder="搜索模型..."
                       className="text-xs w-full"
                     />
                   </div>
 
                   <Select
-                    aria-label="模型端点筛选" size="sm"
+                    aria-label="模型端点筛选"
+                    size="sm"
                     value={openaiSelectedEndpointId}
-                    onValueChange={(value) => setOpenaiSelectedEndpointId(String(value))}
+                    onValueChange={value => setOpenaiSelectedEndpointId(String(value))}
                     placeholder="所有端点"
                     className="text-kumo-strong p-1.5 text-xs"
                     items={[
                       { value: '', label: '所有端点' },
-                      ...endpoints.map((ep) => ({
+                      ...endpoints.map(ep => ({
                         value: String(ep.id),
                         label: ep.name,
                       })),
@@ -3127,12 +3600,15 @@ function OpenAIPage() {
                   {filteredModelsList.length === 0 ? (
                     <p className="text-center py-8 text-kumo-subtle text-xs">无匹配模型</p>
                   ) : (
-                    filteredModelsList.map((model) => {
+                    filteredModelsList.map(model => {
                       const isPinned = pinnedModels.includes(model.id);
                       const isHidden = hiddenModels.includes(model.id);
 
                       return (
-                        <div key={model.id} className="flex justify-between items-center py-2 first:pt-0 last:pb-0 text-xs">
+                        <div
+                          key={model.id}
+                          className="flex justify-between items-center py-2 first:pt-0 last:pb-0 text-xs"
+                        >
                           <div className="min-w-0 pr-3">
                             <span className="font-mono font-semibold text-kumo-strong block truncate">
                               {model.id}
@@ -3144,28 +3620,40 @@ function OpenAIPage() {
 
                           <div className="flex gap-1">
                             <Button
-                              shape="square" size="sm"
+                              shape="square"
+                              size="sm"
                               variant="ghost"
                               aria-label={isPinned ? '取消收藏模型' : '收藏模型'}
                               onClick={() => togglePinModel(model.id)}
                               className={`p-1.5 transition-colors ${
-                                isPinned ? 'text-kumo-warning' : 'text-kumo-subtle hover:text-kumo-strong'
+                                isPinned
+                                  ? 'text-kumo-warning'
+                                  : 'text-kumo-subtle hover:text-kumo-strong'
                               }`}
                               title={isPinned ? '取消收藏' : '收藏'}
                             >
-                              <Star className={`w-3.5 h-3.5 ${isPinned ? 'fill-yellow-500' : ''}`} />
+                              <Star
+                                className={`w-3.5 h-3.5 ${isPinned ? 'fill-yellow-500' : ''}`}
+                              />
                             </Button>
                             <Button
-                              shape="square" size="sm"
+                              shape="square"
+                              size="sm"
                               variant="ghost"
                               aria-label={isHidden ? '显示模型' : '隐藏模型'}
                               onClick={() => toggleHideModel(model.id)}
                               className={`p-1.5 transition-colors ${
-                                isHidden ? 'text-kumo-brand' : 'text-kumo-subtle hover:text-kumo-strong'
+                                isHidden
+                                  ? 'text-kumo-brand'
+                                  : 'text-kumo-subtle hover:text-kumo-strong'
                               }`}
                               title={isHidden ? '显示' : '隐藏'}
                             >
-                              {isHidden ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                              {isHidden ? (
+                                <EyeOff className="w-3.5 h-3.5" />
+                              ) : (
+                                <Eye className="w-3.5 h-3.5" />
+                              )}
                             </Button>
                           </div>
                         </div>

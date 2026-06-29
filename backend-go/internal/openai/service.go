@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/iwvw/api-monitor/backend-go/internal/applog"
 	"github.com/iwvw/api-monitor/backend-go/internal/config"
 	"github.com/iwvw/api-monitor/backend-go/internal/database"
@@ -123,6 +124,35 @@ func ensureSchema(ctx context.Context, db *sql.DB) error {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_openai_endpoints_status ON openai_endpoints(status)`,
 		`CREATE INDEX IF NOT EXISTS idx_openai_health_endpoint ON openai_health_history(endpoint_id, checked_at)`,
+		`CREATE TABLE IF NOT EXISTS openai_chat_personas (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			icon TEXT,
+			system_prompt TEXT NOT NULL,
+			is_default INTEGER DEFAULT 0,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE TABLE IF NOT EXISTS openai_chat_sessions (
+			id TEXT PRIMARY KEY,
+			title TEXT NOT NULL,
+			model TEXT,
+			endpoint_id TEXT,
+			persona_id TEXT,
+			system_prompt TEXT,
+			created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+			updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+		)`,
+		`CREATE TABLE IF NOT EXISTS openai_chat_messages (
+			id TEXT PRIMARY KEY,
+			session_id TEXT NOT NULL,
+			role TEXT NOT NULL,
+			content TEXT NOT NULL,
+			reasoning TEXT,
+			timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+			FOREIGN KEY (session_id) REFERENCES openai_chat_sessions(id) ON DELETE CASCADE
+		)`,
+		`INSERT OR IGNORE INTO openai_chat_personas (id, name, icon, system_prompt, is_default)
+		 VALUES ('1', '默认助手', 'fa-robot', '你是一个有用的 AI 助手。', 1)`,
 	}
 	for _, stmt := range statements {
 		if _, err := db.ExecContext(ctx, stmt); err != nil {
@@ -187,6 +217,32 @@ func (s *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		s.exportEndpointsRoute(w, r)
 	case len(parts) == 1 && parts[0] == "import" && method == http.MethodPost:
 		s.importEndpointsRoute(w, r)
+	case len(parts) == 1 && parts[0] == "personas" && method == http.MethodGet:
+		s.listPersonas(w, r)
+	case len(parts) == 1 && parts[0] == "personas" && method == http.MethodPost:
+		s.createPersona(w, r)
+	case len(parts) == 2 && parts[0] == "personas" && method == http.MethodPut:
+		s.updatePersona(w, r, parts[1])
+	case len(parts) == 2 && parts[0] == "personas" && method == http.MethodDelete:
+		s.deletePersona(w, r, parts[1])
+	case len(parts) == 1 && parts[0] == "sessions" && method == http.MethodGet:
+		s.listSessions(w, r)
+	case len(parts) == 1 && parts[0] == "sessions" && method == http.MethodPost:
+		s.createSession(w, r)
+	case len(parts) == 1 && parts[0] == "sessions" && method == http.MethodDelete:
+		s.clearSessions(w, r)
+	case len(parts) == 2 && parts[0] == "sessions" && method == http.MethodPut:
+		s.updateSession(w, r, parts[1])
+	case len(parts) == 2 && parts[0] == "sessions" && method == http.MethodDelete:
+		s.deleteSession(w, r, parts[1])
+	case len(parts) == 3 && parts[0] == "sessions" && parts[2] == "messages" && method == http.MethodGet:
+		s.listSessionMessages(w, r, parts[1])
+	case len(parts) == 3 && parts[0] == "sessions" && parts[2] == "messages" && method == http.MethodPost:
+		s.createSessionMessage(w, r, parts[1])
+	case len(parts) == 3 && parts[0] == "sessions" && parts[2] == "messages" && method == http.MethodDelete:
+		s.clearSessionMessages(w, r, parts[1])
+	case len(parts) == 4 && parts[0] == "sessions" && parts[2] == "messages" && method == http.MethodDelete:
+		s.deleteSessionMessage(w, r, parts[1], parts[3])
 	default:
 		response.Error(w, http.StatusNotFound, "openai admin route not found")
 	}
@@ -1737,4 +1793,448 @@ func (s *Service) randString(n int) string {
 		b[i] = letters[num.Int64()]
 	}
 	return string(b)
+}
+
+// Personas Handlers
+func (s *Service) listPersonas(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	db, err := s.open(ctx)
+	if err != nil {
+		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	defer db.Close()
+
+	rows, err := db.QueryContext(ctx, "SELECT id, name, icon, system_prompt, is_default, created_at FROM openai_chat_personas ORDER BY is_default DESC, created_at DESC")
+	if err != nil {
+		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	defer rows.Close()
+
+	type Persona struct {
+		ID           string `json:"id"`
+		Name         string `json:"name"`
+		Icon         string `json:"icon"`
+		SystemPrompt string `json:"system_prompt"`
+		IsDefault    int    `json:"is_default"`
+		CreatedAt    string `json:"created_at"`
+	}
+
+	var list []Persona
+	for rows.Next() {
+		var p Persona
+		var icon sql.NullString
+		if err := rows.Scan(&p.ID, &p.Name, &icon, &p.SystemPrompt, &p.IsDefault, &p.CreatedAt); err == nil {
+			p.Icon = icon.String
+			list = append(list, p)
+		}
+	}
+	response.JSON(w, http.StatusOK, list)
+}
+
+func (s *Service) createPersona(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	var body struct {
+		ID           string `json:"id"`
+		Name         string `json:"name"`
+		Icon         string `json:"icon"`
+		SystemPrompt string `json:"system_prompt"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		response.JSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	if body.Name == "" || body.SystemPrompt == "" {
+		response.JSON(w, http.StatusBadRequest, map[string]string{"error": "name and system_prompt are required"})
+		return
+	}
+
+	id := body.ID
+	if id == "" {
+		id = uuid.NewString()
+	}
+
+	db, err := s.open(ctx)
+	if err != nil {
+		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	defer db.Close()
+
+	createdAt := time.Now().Format(time.RFC3339)
+	_, err = db.ExecContext(ctx, "INSERT INTO openai_chat_personas (id, name, icon, system_prompt, is_default, created_at) VALUES (?, ?, ?, ?, 0, ?)",
+		id, body.Name, body.Icon, body.SystemPrompt, createdAt)
+	if err != nil {
+		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	response.JSON(w, http.StatusOK, map[string]interface{}{"success": true, "id": id})
+}
+
+func (s *Service) updatePersona(w http.ResponseWriter, r *http.Request, id string) {
+	ctx := r.Context()
+	var body struct {
+		Name         string `json:"name"`
+		Icon         string `json:"icon"`
+		SystemPrompt string `json:"system_prompt"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		response.JSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	if body.Name == "" || body.SystemPrompt == "" {
+		response.JSON(w, http.StatusBadRequest, map[string]string{"error": "name and system_prompt are required"})
+		return
+	}
+
+	db, err := s.open(ctx)
+	if err != nil {
+		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	defer db.Close()
+
+	_, err = db.ExecContext(ctx, "UPDATE openai_chat_personas SET name = ?, icon = ?, system_prompt = ? WHERE id = ?",
+		body.Name, body.Icon, body.SystemPrompt, id)
+	if err != nil {
+		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	response.JSON(w, http.StatusOK, map[string]interface{}{"success": true})
+}
+
+func (s *Service) deletePersona(w http.ResponseWriter, r *http.Request, id string) {
+	ctx := r.Context()
+	if id == "1" {
+		response.JSON(w, http.StatusBadRequest, map[string]string{"error": "cannot delete default persona"})
+		return
+	}
+
+	db, err := s.open(ctx)
+	if err != nil {
+		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	defer db.Close()
+
+	_, err = db.ExecContext(ctx, "DELETE FROM openai_chat_personas WHERE id = ?", id)
+	if err != nil {
+		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	response.JSON(w, http.StatusOK, map[string]interface{}{"success": true})
+}
+
+// Sessions Handlers
+func (s *Service) listSessions(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	db, err := s.open(ctx)
+	if err != nil {
+		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	defer db.Close()
+
+	rows, err := db.QueryContext(ctx, "SELECT id, title, model, endpoint_id, persona_id, system_prompt, created_at, updated_at FROM openai_chat_sessions ORDER BY updated_at DESC")
+	if err != nil {
+		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	defer rows.Close()
+
+	type Session struct {
+		ID           string `json:"id"`
+		Title        string `json:"title"`
+		Model        string `json:"model"`
+		EndpointID   string `json:"endpoint_id"`
+		PersonaID    string `json:"persona_id"`
+		SystemPrompt string `json:"system_prompt"`
+		CreatedAt    string `json:"created_at"`
+		UpdatedAt    string `json:"updated_at"`
+	}
+
+	var list []Session
+	for rows.Next() {
+		var s Session
+		var model, epID, persID, sysPrompt sql.NullString
+		if err := rows.Scan(&s.ID, &s.Title, &model, &epID, &persID, &sysPrompt, &s.CreatedAt, &s.UpdatedAt); err == nil {
+			s.Model = model.String
+			s.EndpointID = epID.String
+			s.PersonaID = persID.String
+			s.SystemPrompt = sysPrompt.String
+			list = append(list, s)
+		}
+	}
+	response.JSON(w, http.StatusOK, list)
+}
+
+func (s *Service) createSession(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	var body struct {
+		ID           string `json:"id"`
+		Title        string `json:"title"`
+		Model        string `json:"model"`
+		EndpointID   string `json:"endpoint_id"`
+		PersonaID    string `json:"persona_id"`
+		SystemPrompt string `json:"system_prompt"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		response.JSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	id := body.ID
+	if id == "" {
+		id = uuid.NewString()
+	}
+
+	title := body.Title
+	if title == "" {
+		title = "新对话"
+	}
+
+	db, err := s.open(ctx)
+	if err != nil {
+		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	defer db.Close()
+
+	now := time.Now().Format(time.RFC3339)
+	_, err = db.ExecContext(ctx, "INSERT INTO openai_chat_sessions (id, title, model, endpoint_id, persona_id, system_prompt, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+		id, title, body.Model, body.EndpointID, body.PersonaID, body.SystemPrompt, now, now)
+	if err != nil {
+		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	response.JSON(w, http.StatusOK, map[string]interface{}{"success": true, "id": id})
+}
+
+func (s *Service) updateSession(w http.ResponseWriter, r *http.Request, id string) {
+	ctx := r.Context()
+	var body struct {
+		Title        *string `json:"title"`
+		Model        *string `json:"model"`
+		EndpointID   *string `json:"endpoint_id"`
+		PersonaID    *string `json:"persona_id"`
+		SystemPrompt *string `json:"system_prompt"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		response.JSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	db, err := s.open(ctx)
+	if err != nil {
+		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	defer db.Close()
+
+	// Fetch current session values first
+	var currentTitle, currentModel, currentEpID, currentPersID, currentSysPrompt string
+	err = db.QueryRowContext(ctx, "SELECT title, model, endpoint_id, persona_id, system_prompt FROM openai_chat_sessions WHERE id = ?", id).
+		Scan(&currentTitle, &currentModel, &currentEpID, &currentPersID, &currentSysPrompt)
+	if err != nil {
+		response.JSON(w, http.StatusNotFound, map[string]string{"error": "session not found"})
+		return
+	}
+
+	title := currentTitle
+	if body.Title != nil {
+		title = *body.Title
+	}
+	model := currentModel
+	if body.Model != nil {
+		model = *body.Model
+	}
+	epID := currentEpID
+	if body.EndpointID != nil {
+		epID = *body.EndpointID
+	}
+	persID := currentPersID
+	if body.PersonaID != nil {
+		persID = *body.PersonaID
+	}
+	sysPrompt := currentSysPrompt
+	if body.SystemPrompt != nil {
+		sysPrompt = *body.SystemPrompt
+	}
+
+	now := time.Now().Format(time.RFC3339)
+	_, err = db.ExecContext(ctx, "UPDATE openai_chat_sessions SET title = ?, model = ?, endpoint_id = ?, persona_id = ?, system_prompt = ?, updated_at = ? WHERE id = ?",
+		title, model, epID, persID, sysPrompt, now, id)
+	if err != nil {
+		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	response.JSON(w, http.StatusOK, map[string]interface{}{"success": true})
+}
+
+func (s *Service) deleteSession(w http.ResponseWriter, r *http.Request, id string) {
+	ctx := r.Context()
+	db, err := s.open(ctx)
+	if err != nil {
+		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	defer db.Close()
+
+	_, err = db.ExecContext(ctx, "DELETE FROM openai_chat_sessions WHERE id = ?", id)
+	if err != nil {
+		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	response.JSON(w, http.StatusOK, map[string]interface{}{"success": true})
+}
+
+func (s *Service) clearSessions(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	db, err := s.open(ctx)
+	if err != nil {
+		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	defer db.Close()
+
+	_, err = db.ExecContext(ctx, "DELETE FROM openai_chat_sessions")
+	if err != nil {
+		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	response.JSON(w, http.StatusOK, map[string]interface{}{"success": true})
+}
+
+// Messages Handlers
+func (s *Service) listSessionMessages(w http.ResponseWriter, r *http.Request, sessionId string) {
+	ctx := r.Context()
+	db, err := s.open(ctx)
+	if err != nil {
+		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	defer db.Close()
+
+	rows, err := db.QueryContext(ctx, "SELECT id, role, content, reasoning, timestamp FROM openai_chat_messages WHERE session_id = ? ORDER BY timestamp ASC", sessionId)
+	if err != nil {
+		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	defer rows.Close()
+
+	type Message struct {
+		ID        string `json:"id"`
+		Role      string `json:"role"`
+		Content   string `json:"content"`
+		Reasoning string `json:"reasoning,omitempty"`
+		Timestamp string `json:"timestamp"`
+	}
+
+	var list []Message
+	for rows.Next() {
+		var m Message
+		var reasoning sql.NullString
+		if err := rows.Scan(&m.ID, &m.Role, &m.Content, &reasoning, &m.Timestamp); err == nil {
+			m.Reasoning = reasoning.String
+			list = append(list, m)
+		}
+	}
+	response.JSON(w, http.StatusOK, list)
+}
+
+func (s *Service) createSessionMessage(w http.ResponseWriter, r *http.Request, sessionId string) {
+	ctx := r.Context()
+	var body struct {
+		ID        string `json:"id"`
+		Role      string `json:"role"`
+		Content   string `json:"content"`
+		Reasoning string `json:"reasoning"`
+		Timestamp string `json:"timestamp"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		response.JSON(w, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		return
+	}
+
+	if body.Role == "" || body.Content == "" {
+		response.JSON(w, http.StatusBadRequest, map[string]string{"error": "role and content are required"})
+		return
+	}
+
+	id := body.ID
+	if id == "" {
+		id = uuid.NewString()
+	}
+
+	timestamp := body.Timestamp
+	if timestamp == "" {
+		timestamp = time.Now().Format(time.RFC3339)
+	}
+
+	db, err := s.open(ctx)
+	if err != nil {
+		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	defer db.Close()
+
+	// Insert message
+	_, err = db.ExecContext(ctx, "INSERT INTO openai_chat_messages (id, session_id, role, content, reasoning, timestamp) VALUES (?, ?, ?, ?, ?, ?)",
+		id, sessionId, body.Role, body.Content, body.Reasoning, timestamp)
+	if err != nil {
+		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	// Update session updated_at timestamp
+	now := time.Now().Format(time.RFC3339)
+	_, _ = db.ExecContext(ctx, "UPDATE openai_chat_sessions SET updated_at = ? WHERE id = ?", now, sessionId)
+
+	response.JSON(w, http.StatusOK, map[string]interface{}{"success": true, "id": id})
+}
+
+func (s *Service) deleteSessionMessage(w http.ResponseWriter, r *http.Request, sessionId, msgId string) {
+	ctx := r.Context()
+	db, err := s.open(ctx)
+	if err != nil {
+		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	defer db.Close()
+
+	_, err = db.ExecContext(ctx, "DELETE FROM openai_chat_messages WHERE session_id = ? AND id = ?", sessionId, msgId)
+	if err != nil {
+		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	response.JSON(w, http.StatusOK, map[string]interface{}{"success": true})
+}
+
+func (s *Service) clearSessionMessages(w http.ResponseWriter, r *http.Request, sessionId string) {
+	ctx := r.Context()
+	db, err := s.open(ctx)
+	if err != nil {
+		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	defer db.Close()
+
+	_, err = db.ExecContext(ctx, "DELETE FROM openai_chat_messages WHERE session_id = ?", sessionId)
+	if err != nil {
+		response.JSON(w, http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+
+	response.JSON(w, http.StatusOK, map[string]interface{}{"success": true})
 }
