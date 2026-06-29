@@ -653,7 +653,7 @@ func TestCoreSettingsRequireSessionAndAreServedByGo(t *testing.T) {
 	if err := json.Unmarshal(res.Body.Bytes(), &payload); err != nil {
 		t.Fatal(err)
 	}
-	if !payload.Success || payload.Data.ModuleVisibility["self-h"] {
+	if !payload.Success || payload.Data.ModuleVisibility["scheduler"] {
 		t.Fatalf("unexpected settings payload: %#v", payload)
 	}
 

@@ -46,10 +46,10 @@ export const MODULE_CONFIG = {
     icon: 'fa-cloud',
     description: '阿里云 DNS / ECS 管理',
   },
-  'self-h': {
+  scheduler: {
     name: '定时任务',
     shortName: '任务',
-    icon: 'fa-server',
+    icon: 'fa-clock',
     description: '定时任务管理',
   },
   tencent: {
@@ -115,7 +115,7 @@ export const MODULE_GROUPS = [
     id: 'toolbox',
     name: '工具箱',
     icon: 'fa-toolbox',
-    modules: ['self-h', 'totp', 'uptime', 'filebox', 'notification'],
+    modules: ['scheduler', 'totp', 'uptime', 'filebox', 'notification'],
   },
 ];
 
@@ -179,6 +179,12 @@ export const DEFAULT_CHANNEL_ENABLED = {};
 
 export const DEFAULT_CHANNEL_MODEL_PREFIX = {};
 
+const LEGACY_MODULE_ALIASES = {
+  'self-h': 'scheduler',
+};
+
+const normalizeModuleId = (moduleId) => LEGACY_MODULE_ALIASES[moduleId] || moduleId;
+
 const getAuthHeaders = () => ({
   'Content-Type': 'application/json',
   'x-admin-password': localStorage.getItem('admin_password') || useStore.getState().loginPassword || '',
@@ -233,7 +239,9 @@ export const applyCustomCss = (css = '') => {
 export const normalizeUserSettings = (settings = {}) => {
   const validModules = new Set(DEFAULT_MODULE_ORDER);
   const savedOrder = Array.isArray(settings.moduleOrder)
-    ? settings.moduleOrder.filter((moduleId) => validModules.has(moduleId))
+    ? settings.moduleOrder
+      .map(normalizeModuleId)
+      .filter((moduleId, index, order) => validModules.has(moduleId) && order.indexOf(moduleId) === index)
     : [];
   const moduleOrder = [
     ...savedOrder,
@@ -242,9 +250,10 @@ export const normalizeUserSettings = (settings = {}) => {
 
   const rawVisibility = settings.moduleVisibility || {};
   const moduleVisibility = DEFAULT_MODULE_ORDER.reduce((acc, moduleId) => {
+    const legacyModuleId = Object.entries(LEGACY_MODULE_ALIASES).find(([, current]) => current === moduleId)?.[0];
     acc[moduleId] = moduleId === 'dashboard'
       ? true
-      : rawVisibility[moduleId] ?? DEFAULT_MODULE_VISIBILITY[moduleId] ?? true;
+      : rawVisibility[moduleId] ?? rawVisibility[legacyModuleId] ?? DEFAULT_MODULE_VISIBILITY[moduleId] ?? true;
     return acc;
   }, {});
 

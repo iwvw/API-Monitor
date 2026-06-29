@@ -15,14 +15,14 @@ import {
   Globe,
   Database,
   Server,
-  HardDrive,
   ShieldCheck,
   Activity,
   FolderOpen,
   Bell,
   LogOut,
   Hexagon,
-  Settings
+  Settings,
+  Clock
 } from './Icons.jsx';
 
 const DashboardPage = lazy(() => import('../pages/DashboardPage.jsx'));
@@ -39,7 +39,7 @@ const DnsPage = lazy(() => import('../pages/DnsPage.jsx'));
 const AliyunPage = lazy(() => import('../pages/AliyunPage.jsx'));
 const TencentPage = lazy(() => import('../pages/TencentPage.jsx'));
 const SettingsPage = lazy(() => import('../pages/SettingsPage.jsx'));
-const SelfHPage = lazy(() => import('../pages/SelfHPage.jsx'));
+const SchedulerPage = lazy(() => import('../pages/SchedulerPage.jsx'));
 
 const PageLoadingFallback = () => (
   <div className="flex min-h-[240px] items-center justify-center">
@@ -62,7 +62,7 @@ const ICON_MAP = {
   aliyun: Database,
   tencent: Hexagon,
   server: Server,
-  'self-h': HardDrive,
+  scheduler: Clock,
   totp: ShieldCheck,
   uptime: Activity,
   filebox: FolderOpen,
@@ -74,10 +74,15 @@ const MODULE_PATHS = Object.keys(MODULE_CONFIG).reduce((paths, moduleId) => {
   return paths;
 }, { dashboard: '/dashboard' });
 
+const LEGACY_MODULE_PATHS = {
+  'self-h': 'scheduler',
+};
+
 const getPathModule = (pathname) => {
   const normalized = pathname.replace(/\/+$/, '') || '/';
   if (normalized === '/') return 'dashboard';
   const route = normalized.slice(1);
+  if (LEGACY_MODULE_PATHS[route]) return LEGACY_MODULE_PATHS[route];
   return MODULE_CONFIG[route] ? route : null;
 };
 
@@ -240,6 +245,14 @@ function MainLayout() {
     return () => window.removeEventListener('popstate', syncTabFromLocation);
   }, []);
 
+  useEffect(() => {
+    const legacyModule = window.location.pathname.replace(/\/+$/, '').slice(1);
+    const currentModule = LEGACY_MODULE_PATHS[legacyModule];
+    if (!currentModule) return;
+    const nextPath = MODULE_PATHS[currentModule] || `/${currentModule}`;
+    window.history.replaceState({ module: currentModule }, '', nextPath);
+  }, []);
+
   const navigateToModule = (module) => {
     setMainActiveTab(module);
     const nextPath = MODULE_PATHS[module] || `/${module}`;
@@ -289,8 +302,8 @@ function MainLayout() {
         return <NotificationPage />;
       case 'settings':
         return <SettingsPage />;
-      case 'self-h':
-        return <SelfHPage />;
+      case 'scheduler':
+        return <SchedulerPage />;
       default:
         const ActiveIcon = ICON_MAP[mainActiveTab] || Server;
         return (

@@ -8,7 +8,10 @@ import { Select } from '@cloudflare/kumo/components/select';
 import { Switch } from '@cloudflare/kumo/components/switch';
 import { SkeletonLine } from '@cloudflare/kumo/components/loader';
 import { Table } from '@cloudflare/kumo/components/table';
-import { Badge, Empty, Tabs, Tooltip } from '@cloudflare/kumo';
+import { Badge } from '@cloudflare/kumo/components/badge';
+import { Empty } from '@cloudflare/kumo/components/empty';
+import { Tooltip, TooltipProvider } from '@cloudflare/kumo/components/tooltip';
+import { Tabs } from '@cloudflare/kumo';
 import {
   Activity,
   ArrowRight,
@@ -337,7 +340,7 @@ function WorkflowCanvas({ workflow, runs = [] }) {
   );
 }
 
-function SelfHPage() {
+function SchedulerPage() {
   const [activeTab, setActiveTab] = useState('tasks');
   const [tasks, setTasks] = useState([]);
   const [workflows, setWorkflows] = useState([]);
@@ -639,7 +642,7 @@ function SelfHPage() {
   const taskItems = useMemo(() => [{ value: '0', label: '内联任务' }, ...tasks.map((task) => ({ value: String(task.id), label: `${task.name} #${task.id}` }))], [tasks]);
 
   return (
-    <Tooltip.Provider>
+    <TooltipProvider>
       <div className="flex w-full flex-col gap-5 px-1">
         <div className="flex flex-wrap items-center justify-between gap-3 border-b border-kumo-line pb-3">
           <div className="flex items-center gap-2">
@@ -894,8 +897,8 @@ function SelfHPage() {
           </Dialog>
         </Dialog.Root>
       </div>
-    </Tooltip.Provider>
+    </TooltipProvider>
   );
 }
 
-export default SelfHPage;
+export default SchedulerPage;

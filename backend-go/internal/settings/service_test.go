@@ -45,7 +45,7 @@ func TestUserSettingsReadPatchAndPost(t *testing.T) {
 		t.Fatalf("pageWidthMode default = %#v", payload.Data["pageWidthMode"])
 	}
 	visibility := payload.Data["moduleVisibility"].(map[string]interface{})
-	if visibility["self-h"] != false {
+	if visibility["scheduler"] != false || visibility["self-h"] != nil {
 		t.Fatalf("unexpected module visibility: %#v", visibility)
 	}
 

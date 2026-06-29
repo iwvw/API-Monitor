@@ -999,7 +999,13 @@ func loadUserSettings(ctx context.Context, db *sql.DB) (map[string]interface{}, 
 	delete(visibility, "antigravity")
 	delete(visibility, "gemini-cli")
 	delete(visibility, "qwen")
-	ensureBoolKey(visibility, "self-h", false)
+	if legacyValue, ok := visibility["self-h"]; ok {
+		if _, exists := visibility["scheduler"]; !exists {
+			visibility["scheduler"] = legacyValue
+		}
+		delete(visibility, "self-h")
+	}
+	ensureBoolKey(visibility, "scheduler", false)
 
 	channelEnabled := parseObject(row.ChannelEnabled, map[string]interface{}{})
 	delete(channelEnabled, "antigravity")
@@ -1015,7 +1021,13 @@ func loadUserSettings(ctx context.Context, db *sql.DB) (map[string]interface{}, 
 	order = filterString(order, "antigravity")
 	order = filterString(order, "gemini-cli")
 	order = filterString(order, "qwen")
-	order = ensureBefore(order, "self-h", "server")
+	for i, item := range order {
+		if item == "self-h" {
+			order[i] = "scheduler"
+		}
+	}
+	order = uniqueStrings(order)
+	order = ensureBefore(order, "scheduler", "server")
 
 	settings := map[string]interface{}{
 		"customCss":               nullString(row.CustomCSS, ""),

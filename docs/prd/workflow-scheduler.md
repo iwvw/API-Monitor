@@ -117,7 +117,7 @@
 - 执行器按任务类型拆分 Shell、HTTP、Internal、Agent，统一返回结构化结果。
 - 前端任务、工作流、运行记录和执行节点共用状态 Badge、详情 Dialog、Empty、Table 模式。
 - UI 基础组件遵守 Kumo 迁移规则，不新增通用自写 Button/Input/Dialog/Table/Switch。
-- 内部路由 key 可暂时保留 `self-h`，可见命名统一为“定时任务”。
+- 内部模块 key 与路由统一为 `scheduler`，旧 `/self-h` 仅作为兼容跳转入口。
 
 ## API Contract Draft
 
